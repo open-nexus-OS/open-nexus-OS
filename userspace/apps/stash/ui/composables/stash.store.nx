@@ -1,15 +1,15 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// stash window state: the window-kit STORE CONTRACT + the SELECTION that
-// drives the properties pane and the floating action bar (the window
-// design's reactivity: what is selected decides what both show). WinAct
-// window actions forward to windowd (`window.control`). The file list is
-// REAL: `svc.files.list` (vfsd ReadDir, TASK-0291) loads once at mount via
-// the LoadFiles root effect; failures render an honest error state.
+// stash window state: the window-kit STORE CONTRACT + the file-manager
+// navigation model. The user home is the nxfs container ("/" = Dieser PC),
+// with OS-standard top-level folders (/Bilder, /Videos, …). The sidebar and
+// breadcrumb navigate to REAL paths; each navigation reloads the listing via
+// `svc.files.list` (vfsd ReadDir → nxfs home). SELECTION drives the properties
+// pane and the floating action bar. WinAct window actions forward to windowd.
 
 Store StashStore {
-    section: Str = "pictures",
+    section: Str = "storage",
     menu: Str = "",
     leftOpen: Int = 1,
     rightOpen: Int = 1,
@@ -20,7 +20,13 @@ Store StashStore {
     selSize: Str = "",
     selDate: Str = "",
     applyError: Int = 0,
-    path: Str = "/data",
+    // Current location. `path` is the real nxfs path; `folderLabel` is its
+    // display name for the breadcrumb ("" = the home root / Dieser PC).
+    path: Str = "/",
+    folderLabel: Str = "",
+    // One-level back history (previous location before the last navigation).
+    backPath: Str = "/",
+    backLabel: Str = "",
     files: List<FileEntry> = [],
     filesLoading: Int = 1,
     filesError: Int = 0,
@@ -34,6 +40,7 @@ Event StashEvent {
     WinRight,
     WinTool(Str),
     WinAct(Str),
+    WinNav(Str),
     Pick(Str, Str, Str, Str, Str),
     Applied(Bool),
     ApplyFailed(Int),
@@ -60,36 +67,84 @@ reduce StashEvent {
                 state.menu = "more.ansicht";
             } else {
                 if id == "nav.recent" {
+                    state.backPath = state.path;
+                    state.backLabel = state.folderLabel;
                     state.section = "recent";
+                    state.path = "/";
+                    state.folderLabel = "";
                     state.menu = "";
+                    state.selection = "";
+                    state.filesLoading = 1;
                 } else {
                     if id == "nav.pictures" {
+                        state.backPath = state.path;
+                        state.backLabel = state.folderLabel;
                         state.section = "pictures";
+                        state.path = "/Bilder";
+                        state.folderLabel = "Bilder";
                         state.menu = "";
+                        state.selection = "";
+                        state.filesLoading = 1;
                     } else {
                         if id == "nav.videos" {
+                            state.backPath = state.path;
+                            state.backLabel = state.folderLabel;
                             state.section = "videos";
+                            state.path = "/Videos";
+                            state.folderLabel = "Videos";
                             state.menu = "";
+                            state.selection = "";
+                            state.filesLoading = 1;
                         } else {
                             if id == "nav.audio" {
+                                state.backPath = state.path;
+                                state.backLabel = state.folderLabel;
                                 state.section = "audio";
+                                state.path = "/Audio";
+                                state.folderLabel = "Audio";
                                 state.menu = "";
+                                state.selection = "";
+                                state.filesLoading = 1;
                             } else {
                                 if id == "nav.docs" {
+                                    state.backPath = state.path;
+                                    state.backLabel = state.folderLabel;
                                     state.section = "docs";
+                                    state.path = "/Dokumente";
+                                    state.folderLabel = "Dokumente";
                                     state.menu = "";
+                                    state.selection = "";
+                                    state.filesLoading = 1;
                                 } else {
                                     if id == "nav.downloads" {
+                                        state.backPath = state.path;
+                                        state.backLabel = state.folderLabel;
                                         state.section = "downloads";
+                                        state.path = "/Downloads";
+                                        state.folderLabel = "Downloads";
                                         state.menu = "";
+                                        state.selection = "";
+                                        state.filesLoading = 1;
                                     } else {
                                         if id == "nav.storage" {
+                                            state.backPath = state.path;
+                                            state.backLabel = state.folderLabel;
                                             state.section = "storage";
+                                            state.path = "/";
+                                            state.folderLabel = "";
                                             state.menu = "";
+                                            state.selection = "";
+                                            state.filesLoading = 1;
                                         } else {
                                             if id == "nav.trash" {
+                                                state.backPath = state.path;
+                                                state.backLabel = state.folderLabel;
                                                 state.section = "trash";
+                                                state.path = "/Papierkorb";
+                                                state.folderLabel = "Papierkorb";
                                                 state.menu = "";
+                                                state.selection = "";
+                                                state.filesLoading = 1;
                                             } else {
                                                 state.menu = "";
                                             }
@@ -125,11 +180,21 @@ reduce StashEvent {
             state.tool = t;
         }
     },
+    WinNav(dir) => {
+        if dir == "back" {
+            state.path = state.backPath;
+            state.folderLabel = state.backLabel;
+            state.selection = "";
+            state.filesLoading = 1;
+        } else {
+            if dir == "refresh" {
+                state.filesLoading = 1;
+            } else {
+                state.menu = state.menu;
+            }
+        }
+    },
     WinAct(a) => {
-        // "delete" clears the selection (the honest visible effect); every
-        // action closes any open menu. Real file actions ("new") are driven
-        // by the WinAct effect below (mkdir); window.* actions ride the same
-        // effect through windowd.
         if a == "delete" {
             state.selection = "";
             state.selName = "";
@@ -178,18 +243,34 @@ reduce StashEvent {
     }
 }
 
-// New folder: a real nxfs /data write (svc.files.mkdir, TASK-0293). The
-// dedicated NewFolder button dispatches this directly (no branching effect).
+// New folder: a real nxfs home write (svc.files.mkdir).
 @effect on NewFolder {
-    match svc.files.mkdir(state.path + "/New Folder", timeoutMs: 250) {
+    match svc.files.mkdir(state.path + "/Neuer Ordner", timeoutMs: 250) {
         Ok(ok) => dispatch(FolderCreated(ok)),
         Err(e) => dispatch(FilesFailed(e)),
     }
 }
 
 // Root effect: LoadFiles is dispatched nowhere, so this fires once at mount
-// (the DSL initial-load contract) and fills the list from the real VFS.
+// (the DSL initial-load contract) and fills the list from the real home.
 @effect on LoadFiles {
+    match svc.files.list(state.path, 0, timeoutMs: 250) {
+        Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// Sidebar navigation reloads the listing for the new location. state.path is
+// already updated by the reducer when this effect runs.
+@effect on WinMenuPick(id) {
+    match svc.files.list(state.path, 0, timeoutMs: 250) {
+        Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// Toolbar back / refresh reloads the (possibly changed) location.
+@effect on WinNav(dir) {
     match svc.files.list(state.path, 0, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),

@@ -20,7 +20,7 @@ Page StashPage {
         // Fullscreen chrome inset: the window sits BEHIND the shell top bar.
         Stack { }
             .height(40)
-        WinTopBar { icon: "folder", tool1: "magnifyingglass", tool2: "arrow.up.arrow.down", tool3: "list.bullet" }
+        WinTopBar { icon: "folder", tool1: "magnifyingglass", tool2: "square.grid.2x2", tool3: "list.bullet", navBack: "chevron.left", navFwd: "chevron.right", navRefresh: "arrow.clockwise" }
         Stack {
             if $state.leftOpen == 1 {
                 Stack {
@@ -60,10 +60,25 @@ Page StashPage {
             Stack {
                 Panel {
                     Stack {
-                        Text(@t("stash.thisPc")).textSize(sm).fg(onSurfaceVariant)
-                        Icon { symbol: "chevron.right", size: 12 }
-                            .fg(onSurfaceVariant)
-                        Text($state.path).textSize(sm).fg(onSurface)
+                        // Breadcrumb: Dieser PC [› <folder>]. The home root shows
+                        // just "Dieser PC"; a folder appends its localized name.
+                        // Tapping "Dieser PC" navigates home.
+                        Stack {
+                            Text(@t("stash.thisPc")).textSize(sm).fg(onSurfaceVariant)
+                        }
+                        on Tap -> dispatch(WinMenuPick("nav.storage"))
+                        if $state.folderLabel != "" {
+                            Stack {
+                                Icon { symbol: "chevron.right", size: 12 }
+                                    .fg(onSurfaceVariant)
+                                Text($state.folderLabel).textSize(sm).fg(onSurface)
+                            }
+                            .direction(row)
+                            .align(center)
+                            .gap(1)
+                        } else {
+                            Stack { }
+                        }
                         Spacer
                         Text(@t("stash.objects")).textSize(xs).fg(onSurfaceVariant)
                     }

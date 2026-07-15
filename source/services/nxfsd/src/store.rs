@@ -26,22 +26,18 @@ use storage::virtio_blk::VirtioBlkDevice;
 pub const DATA_MMIO_SLOT: u32 = 49;
 /// Fixed container UUID for dev images (the engine takes no RNG).
 const CONTAINER_UUID: [u8; 16] = *b"nexus-data-vol01";
-/// The vfsd mount prefix routed to this store. v1: the store knows its mount
-/// point so vfsd can forward `/data` frames verbatim (no per-op rewrite);
-/// extracting to a mount-agnostic nxfsd process moves this to vfsd's router.
-const MOUNT_PREFIX: &str = "/data";
+/// The nxfs container IS the user's home: vfsd routes every non-`pkg:/` path
+/// here, so paths already arrive home-absolute (`/`, `/Bilder`, …). Standard
+/// OS-like top-level folders replace the old `/data` mount (no `/data` prefix).
+const HOME_ROOT: &str = "/";
 
-/// Strips the `/data` mount prefix, yielding an absolute nxfs path (root = "/").
+/// Normalises a home path to an absolute nxfs path (root = `/`). Paths arrive
+/// home-absolute from vfsd; an empty path is the home root.
 fn to_nxfs_path(path: &str) -> String {
-    match path.strip_prefix(MOUNT_PREFIX) {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => {
-            if rest.is_empty() {
-                String::from("/")
-            } else {
-                String::from(rest)
-            }
-        }
-        _ => String::from(path),
+    if path.is_empty() {
+        String::from(HOME_ROOT)
+    } else {
+        String::from(path)
     }
 }
 
@@ -87,9 +83,9 @@ impl DataStore {
             Ok(fs) => {
                 let fresh = fs.formatted_fresh;
                 if fs.replay_discarded_tail {
-                    mark("nxfsd: mounted /data (rw, recovered)");
+                    mark("nxfsd: mounted home (rw, recovered)");
                 } else {
-                    mark("nxfsd: mounted /data (rw, clean)");
+                    mark("nxfsd: mounted home (rw, clean)");
                 }
                 let mut store = Self { fs };
                 if fresh {
@@ -104,20 +100,26 @@ impl DataStore {
         }
     }
 
-    /// Seeds a blank container with a small set of first-run files spanning
-    /// several types — an OS shipping example content — so the file-type icon
-    /// pipeline (TASK-0294) has varied entries to render. Best-effort: a failed
-    /// entry is skipped, never fatal. Only ever runs on a fresh `mkfs`.
+    /// Seeds a blank container with the standard OS-like home layout — the
+    /// localized top-level folders every desktop ships (`/Bilder`, `/Videos`,
+    /// …) plus example media in `/Bilder`, so a fresh home has real content and
+    /// the file-type icon pipeline (TASK-0294) has varied entries to render.
+    /// Best-effort: a failed entry is skipped, never fatal. Only on fresh mkfs.
     fn seed_first_run(&mut self) {
-        let dirs = ["/Documents", "/Pictures"];
-        let files: &[(&str, &[u8])] = &[
-            ("/Welcome.txt", b"Welcome to Nexus.\n"),
-            ("/Read Me.md", b"# Nexus\n\nYour files live here.\n"),
-            ("/Report.pdf", b"%PDF-1.4 nexus demo\n"),
-            ("/Photo.png", b"\x89PNG\r\n\x1a\n nexus demo"),
-            ("/Song.mp3", b"ID3 nexus demo audio"),
-            ("/Archive.zip", b"PK\x03\x04 nexus demo"),
-            ("/config.json", b"{ \"nexus\": true }\n"),
+        // Top-level home folders (folder NAMES are stable identifiers; the UI
+        // localizes their DISPLAY via the sidebar/breadcrumb, RFC-0073).
+        let dirs = ["/Bilder", "/Videos", "/Audio", "/Dokumente", "/Downloads", "/Papierkorb"];
+        // Example media in /Bilder (the design handoff's "Urlaub 2026" set):
+        // realistic KB-range sizes via padded content (bounded — kept small so
+        // the seed stays a short write run on the virtio-blk device).
+        let files: &[(&str, &[u8], usize)] = &[
+            ("/Bilder/IMG_4521.jpg", b"\xff\xd8\xff\xe0", 4200),
+            ("/Bilder/IMG_4522.jpg", b"\xff\xd8\xff\xe0", 3800),
+            ("/Bilder/IMG_4523.jpg", b"\xff\xd8\xff\xe0", 2600),
+            ("/Bilder/DSC_0042.jpg", b"\xff\xd8\xff\xe0", 3100),
+            ("/Bilder/Panorama_Beach.jpg", b"\xff\xd8\xff\xe0", 4000),
+            ("/Bilder/VID_20260514.mp4", b"\x00\x00\x00\x18ftyp", 4000),
+            ("/Bilder/Reisekosten.xlsx", b"PK\x03\x04", 284),
         ];
         let mut n = 0u32;
         for dir in dirs {
@@ -125,13 +127,14 @@ impl DataStore {
                 n += 1;
             }
         }
-        for (path, content) in files {
+        for (path, magic, size) in files {
             if self.fs.create(path).is_ok() {
-                let _ = self.fs.write(path, 0, content);
+                let content = padded_content(magic, *size);
+                let _ = self.fs.write(path, 0, &content);
                 n += 1;
             }
         }
-        let mut line = String::from("nxfsd: seeded first-run content (n=");
+        let mut line = String::from("nxfsd: seeded home layout (n=");
         push_u32(&mut line, n);
         line.push(')');
         mark(&line);
@@ -243,6 +246,16 @@ fn status_reply(err: VfsError) -> Vec<u8> {
 
 fn decode_path(payload: &[u8]) -> String {
     to_nxfs_path(core::str::from_utf8(payload).unwrap_or(""))
+}
+
+/// Builds `size`-byte demo content: a type magic prefix padded with a repeating
+/// pattern, so a seeded file reports a realistic size without shipping real
+/// media. Bounded by `size` (kept small — a short write run per file).
+fn padded_content(magic: &[u8], size: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(size);
+    out.extend_from_slice(magic);
+    out.resize(size.max(magic.len()), b'.');
+    out
 }
 
 /// Appends a decimal `u32` to a string (no `format!` in the mount hot path).

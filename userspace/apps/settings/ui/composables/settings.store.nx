@@ -26,6 +26,7 @@ Event SettingsEvent {
     WinRight,
     WinTool(Str),
     WinAct(Str),
+    WinNav(Str),
     SetTheme(Str),
     SetAccent(Str),
     Applied(Bool),
@@ -114,6 +115,7 @@ reduce SettingsEvent {
     },
     WinNoop => state.menu = state.menu,
     WinAct(a) => state.menu = "",
+    WinNav(dir) => state.menu = state.menu,
     SetTheme(mode) => state.applyError = 0,
     SetAccent(name) => {
         state.accent = name;

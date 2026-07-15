@@ -14,6 +14,9 @@ Component WinTopBar {
         tool1: Str,
         tool2: Str,
         tool3: Str,
+        navBack: Str,
+        navFwd: Str,
+        navRefresh: Str,
     }
     Stack {
         Circle { size: 26
@@ -32,6 +35,50 @@ Component WinTopBar {
         .align(center)
         .justify(center)
         on Tap -> dispatch(WinLeft)
+        // Optional navigation group (file-manager back / forward / refresh).
+        // Empty symbol = hidden, so apps that don't navigate stay unaffected.
+        if $props.navBack != "" {
+            Stack {
+                Icon { symbol: $props.navBack, size: 15 }
+                    .fg(onSurfaceVariant)
+            }
+            .width(28)
+            .height(28)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            on Tap -> dispatch(WinNav("back"))
+        } else {
+            Stack { }
+        }
+        if $props.navFwd != "" {
+            Stack {
+                Icon { symbol: $props.navFwd, size: 15 }
+                    .fg(onSurfaceVariant)
+            }
+            .width(28)
+            .height(28)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            on Tap -> dispatch(WinNav("fwd"))
+        } else {
+            Stack { }
+        }
+        if $props.navRefresh != "" {
+            Stack {
+                Icon { symbol: $props.navRefresh, size: 15 }
+                    .fg(onSurfaceVariant)
+            }
+            .width(28)
+            .height(28)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            on Tap -> dispatch(WinNav("refresh"))
+        } else {
+            Stack { }
+        }
         Spacer
         if $props.tool1 != "" {
             Stack {

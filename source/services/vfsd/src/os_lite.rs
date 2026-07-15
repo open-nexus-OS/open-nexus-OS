@@ -34,9 +34,6 @@ const OPCODE_READ: u8 = 2;
 const OPCODE_CLOSE: u8 = 3;
 const OPCODE_READDIR: u8 = 6;
 
-/// The writable mount served by the in-process nxfs DataStore (RFC-0072 P2).
-const DATA_MOUNT: &str = "/data";
-
 /// packagefsd's list opcode (see packagefsd os_lite dispatch).
 const PKGFS_OPCODE_LIST: u8 = 4;
 
@@ -227,26 +224,28 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Resu
     run_loop(server, Namespace::new())
 }
 
-/// True if the frame targets the writable `/data` mount: any write op (which
-/// only ever targets `/data`, since packagefs is read-only), or a STAT/READDIR
-/// whose primary path is under `/data`.
-fn targets_data(frame: &[u8]) -> bool {
+/// True if the frame targets the writable user **home** (the nxfs container):
+/// any write op (packagefs is read-only, so writes are always home), or a
+/// STAT/READDIR whose path is not a read-only `pkg:/` path. The home IS the
+/// root — `/`, `/Bilder`, … — so anything that is not `pkg:` is home.
+fn targets_home(frame: &[u8]) -> bool {
     use nexus_vfs_types::fileops::{OP_CREATE, OP_MKDIR, OP_REMOVE, OP_RENAME, OP_WRITE_TEXT};
     match frame.first().copied() {
         Some(OP_MKDIR | OP_CREATE | OP_WRITE_TEXT | OP_REMOVE | OP_RENAME) => true,
-        Some(OPCODE_STAT) => path_under_data(core::str::from_utf8(&frame[1..]).unwrap_or("")),
+        Some(OPCODE_STAT) => is_home_path(core::str::from_utf8(&frame[1..]).unwrap_or("")),
         Some(OPCODE_READDIR) if frame.len() > 7 => {
-            path_under_data(core::str::from_utf8(&frame[7..]).unwrap_or(""))
+            is_home_path(core::str::from_utf8(&frame[7..]).unwrap_or(""))
         }
         _ => false,
     }
 }
 
-fn path_under_data(path: &str) -> bool {
-    path == DATA_MOUNT || path.starts_with("/data/")
+/// A path belongs to the user home (nxfs) unless it is a read-only package path.
+fn is_home_path(path: &str) -> bool {
+    !path.starts_with("pkg:")
 }
 
-/// Reply for a `/data` op when the store is not yet mounted (honest, never fake).
+/// Reply for a home op when the store is not yet mounted (honest, never fake).
 fn data_unavailable(opcode: u8) -> Vec<u8> {
     match opcode {
         OPCODE_READDIR => nxfsd::readdir_unavailable(),
@@ -313,7 +312,7 @@ fn handle_read_vmo(
         }
     };
     // Resolve bytes from the owning provider (one surface, two providers).
-    let bytes: core::result::Result<Vec<u8>, VfsError> = if path_under_data(&path) {
+    let bytes: core::result::Result<Vec<u8>, VfsError> = if is_home_path(&path) {
         if data.is_none() && *data_attempts < max_data_attempts {
             *data_attempts += 1;
             *data = nxfsd::DataStore::acquire();
@@ -402,7 +401,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                 }
                 // Writable `/data` mount: route to the in-process nxfs store
                 // (RFC-0072 Phase 2). Everything else is the read-only pkg path.
-                if targets_data(&frame) {
+                if targets_home(&frame) {
                     if data.is_none() && data_attempts < MAX_DATA_ATTEMPTS {
                         data_attempts += 1;
                         data = nxfsd::DataStore::acquire();
@@ -411,7 +410,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                         Some(store) => {
                             let out = store.handle(&frame);
                             if opcode == OPCODE_READDIR {
-                                debug_print("vfsd: readdir ok (mount=/data)\n");
+                                debug_print("vfsd: readdir ok (mount=home)\n");
                             }
                             out
                         }
