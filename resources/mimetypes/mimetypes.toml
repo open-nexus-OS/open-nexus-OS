@@ -1,0 +1,141 @@
+# mimetypes.toml — the platform mime SSOT (contract: RFC-0073)
+#
+# Maps file extension → mime type (→ icon stem). Consumed by BOTH the files
+# service (`svc.files` `mime` field) and the `nexus-mime-icons` bake
+# (TASK-0294). Never duplicate this table in code.
+#
+# Icon resolution chain (normative, RFC-0073):
+#   1. extension → mime via [types.<ext>]
+#   2. explicit `icon` override, if set
+#   3. derived stem: mime with `/` and `+` replaced by `-` (e.g. image/svg+xml
+#      → image-svg-xml.svg), if that file exists in this directory
+#   4. [fallbacks].<mime class> (the part before `/`)
+#   5. [fallbacks].unknown
+# Directories always resolve to [fallbacks].directory.
+#
+# `magic = ...` (content sniffing) is reserved for a future seed; extension-only in v1.
+
+# -- images
+[types.jpg]  mime = "image/jpeg"
+[types.jpeg] mime = "image/jpeg"
+[types.png]  mime = "image/png"
+[types.gif]  mime = "image/gif"
+[types.bmp]  mime = "image/bmp"
+[types.webp] mime = "image/webp"
+[types.svg]  mime = "image/svg+xml"
+[types.tiff] mime = "image/tiff"
+[types.heic] mime = "image/heic"
+[types.eps]  mime = "image/x-eps"
+
+# -- video
+[types.mp4]  mime = "video/mp4"
+[types.m4v]  mime = "video/mp4"
+[types.avi]  mime = "video/x-msvideo"
+[types.mkv]  mime = "video/x-matroska"
+[types.webm] mime = "video/webm"
+[types.mov]  mime = "video/quicktime"
+
+# -- audio
+[types.mp3]  mime = "audio/mpeg"
+[types.flac] mime = "audio/flac"
+[types.wav]  mime = "audio/wav"
+[types.ogg]  mime = "audio/ogg"
+[types.m4a]  mime = "audio/mp4"
+[types.opus] mime = "audio/opus"
+[types.mid]  mime = "audio/midi"
+
+# -- documents / office
+[types.pdf]  mime = "application/pdf"
+[types.doc]  mime = "application/msword"
+[types.docx] mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+             icon = "application-msword"
+[types.odt]  mime = "application/vnd.oasis.opendocument.text"
+             icon = "application-msword"
+[types.rtf]  mime = "application/rtf"
+             icon = "application-msword"
+[types.xls]  mime = "application/vnd.ms-excel"
+             icon = "x-office-spreadsheet"
+[types.xlsx] mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+             icon = "x-office-spreadsheet"
+[types.ods]  mime = "application/vnd.oasis.opendocument.spreadsheet"
+             icon = "x-office-spreadsheet"
+[types.csv]  mime = "text/csv"
+             icon = "x-office-spreadsheet"
+[types.ppt]  mime = "application/vnd.ms-powerpoint"
+             icon = "x-office-presentation"
+[types.pptx] mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+             icon = "x-office-presentation"
+[types.odp]  mime = "application/vnd.oasis.opendocument.presentation"
+             icon = "x-office-presentation"
+
+# -- text / code
+[types.txt]  mime = "text/plain"
+             icon = "text-plain-txt"
+[types.log]  mime = "text/plain"
+[types.md]   mime = "text/markdown"
+[types.markdown] mime = "text/markdown"
+[types.json] mime = "application/json"
+[types.yaml] mime = "application/yaml"
+[types.yml]  mime = "application/yaml"
+[types.toml] mime = "application/toml"
+[types.xml]  mime = "application/xml"
+[types.html] mime = "text/html"
+[types.htm]  mime = "text/html"
+[types.css]  mime = "text/css"
+[types.js]   mime = "text/javascript"
+[types.mjs]  mime = "text/javascript"
+[types.ts]   mime = "text/x-typescript"
+             icon = "text-javascript"
+[types.py]   mime = "text/x-python"
+[types.rs]   mime = "text/x-rust"
+[types.c]    mime = "text/x-c"
+[types.h]    mime = "text/x-c"
+[types.cpp]  mime = "text/x-c++"
+             icon = "text-x-c"
+[types.hpp]  mime = "text/x-c++"
+             icon = "text-x-c"
+[types.sh]   mime = "application/x-shellscript"
+             icon = "text-x-script"
+[types.php]  mime = "application/x-php"
+[types.nx]   mime = "text/x-nx-ui"
+             icon = "text-x-script"
+[types.capnp] mime = "text/x-capnp"
+             icon = "text-x-script"
+
+# -- archives / packages
+[types.zip]  mime = "application/zip"
+[types.tar]  mime = "application/x-tar"
+[types.gz]   mime = "application/gzip"
+[types.tgz]  mime = "application/gzip"
+[types.xz]   mime = "application/x-xz"
+             icon = "package-x-generic"
+[types.zst]  mime = "application/zstd"
+             icon = "package-x-generic"
+[types."7z"] mime = "application/x-7z-compressed"
+             icon = "package-x-generic"
+[types.rar]  mime = "application/vnd.rar"
+             icon = "package-x-generic"
+[types.nxb]  mime = "application/x-nexus-bundle"
+             icon = "package-x-generic"
+[types.nxs]  mime = "application/x-nexus-system-set"
+             icon = "package-x-generic"
+
+# -- fonts
+[types.ttf]   mime = "font/ttf"
+[types.otf]   mime = "font/otf"
+[types.woff]  mime = "font/woff"
+[types.woff2] mime = "font/woff2"
+
+# -- executables
+[types.elf]  mime = "application/x-executable"
+[types.bin]  mime = "application/x-executable"
+
+[fallbacks]
+image = "image-x-generic"
+audio = "audio-x-generic"
+video = "video-x-generic"
+text = "text-plain"
+font = "font-x-generic"
+application = "application-octet-stream"
+directory = "inode-directory"
+unknown = "application-octet-stream"

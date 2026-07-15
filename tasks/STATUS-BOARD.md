@@ -22,7 +22,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Observability, Crash, Perf & Diagnostics | 3 / 33 | 9% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
 | Accounts, Ability & Sessions | 1 / 9 | 11% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. |
 | Security, Policy & Identity | 4 / 36 | 11% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
-| Storage, PackageFS & Content | 2 / 25 | 8% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. |
+| Storage, PackageFS & Content | 2 / 30 | 7% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. Active ladder: `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295). |
 | Updates, Packaging & Recovery | 1 / 21 | 5% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
 | Bringup, Hardware & Drivers | 0 / 11 | 0% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
 | Windowing, UI & Graphics | 4 / 76 | 5% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
@@ -125,9 +125,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Storage, PackageFS & Content
 
-- Progress: `2 / 25` done (`8%`)
+- Progress: `2 / 30` done (`7%`)
 - Kernel-touch tasks: `TASK-0031`
-- Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0051`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`
+- Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0051`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`, `TASK-0291`..`TASK-0295`
+- Notes (2026-07-15): `TASK-0025`..`TASK-0027` rebased onto shipped statefs v1; `TASK-0033` superseded by `TASK-0295`; `TASK-0182`/`TASK-0183` superseded by RFC-0071 (nxfs encryption classes); ladder + contracts in `tasks/TRACK-STASH-USER-DATA-FS.md`.
 
 ### Updates, Packaging & Recovery
 
@@ -360,6 +361,7 @@ Current RFC closure status: `RFC-0033`, `RFC-0034`, `RFC-0035`, `RFC-0036`, and 
 | TRACK-REFERENCE-GAMES | `tasks/TRACK-REFERENCE-GAMES.md` |
 | TRACK-REMOVABLE-STORAGE | `tasks/TRACK-REMOVABLE-STORAGE.md` |
 | TRACK-SCORE-APP | `tasks/TRACK-SCORE-APP.md` |
+| TRACK-STASH-USER-DATA-FS | `tasks/TRACK-STASH-USER-DATA-FS.md` |
 | TRACK-SYSTEM-DELEGATION | `tasks/TRACK-SYSTEM-DELEGATION.md` |
 | TRACK-TELEPROMPTER-APP | `tasks/TRACK-TELEPROMPTER-APP.md` |
 | TRACK-TERMINAL-APP | `tasks/TRACK-TERMINAL-APP.md` |

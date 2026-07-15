@@ -50,7 +50,7 @@ User opens these; they carry a power a normal app must not.
 | App | Android | iOS | OHOS | Our type / permission | Status |
 |---|---|---|---|---|---|
 | Settings | Settings (privileged) | Settings | Settings | `bundle_type = settings` (`SETTINGS`) | **Built** |
-| Files / documents | Files / DocumentsUI | Files | FileManager | `bundle_type = filemanager` (`FILES`) | Planned (TASK-0083/0084) |
+| Files / documents | Files / DocumentsUI | Files | FileManager | `bundle_type = filemanager` (`FILES`) | In progress — contract RFC-0073, execution TASK-0291 (stash); sandboxed-app pickers stay TASK-0083/0084 |
 | Phone / dialer | `ROLE_DIALER` | Phone | Phone/Call | role `dialer` (`CALL`) | Planned |
 | Messaging / SMS | `ROLE_SMS` | Messages | MMS | role `sms` (`SMS_STORE`) | Planned |
 | Contacts | Contacts + provider | Contacts | Contacts | role `contacts` + provider; others via picker | Planned |

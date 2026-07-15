@@ -1,6 +1,6 @@
 ---
 title: TASK-0023B Selftest-Client production-grade deterministic test architecture refactor + manifest/evidence/replay v1
-status: In Review
+status: Done
 owner: @runtime
 created: 2026-04-16
 last-updated: 2026-04-20

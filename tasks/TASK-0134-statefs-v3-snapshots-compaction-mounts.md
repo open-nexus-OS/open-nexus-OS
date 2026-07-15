@@ -12,7 +12,13 @@ links:
   - StateFS v2a (2PC+compaction+fsck): tasks/TASK-0026-statefs-v2a-2pc-compaction-fsck.md
   - Write-path hardening: tasks/TASK-0025-statefs-write-path-hardening-integrity-atomic-budgets-audit.md
   - Storage error contract: tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
+  - User-data snapshots (authoritative): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
 ---
+
+> **SCOPE NOTE (2026-07-15).** Snapshot/clone semantics for **user data** are owned by nxfs
+> (RFC-0071 Phase 3 — CoW checkpoint roots), not by statefs. What remains here is the statefs-side
+> slice only: named snapshots of the KV state + read-only snapshot mounts for `/state` browsing,
+> extending TASK-0026's compaction. Do not grow this into file semantics (ADR-0043 boundary).
 
 ## Context
 

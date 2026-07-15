@@ -1,6 +1,6 @@
 ---
 title: TASK-0182 Encryption-at-Rest v1a (host-first): secure-keys (Argon2id) + secure-io (XChaCha20-Poly1305) + file format + tamper detection + deterministic tests
-status: Draft
+status: Superseded
 owner: @security
 created: 2025-12-27
 depends-on: []
@@ -14,7 +14,14 @@ links:
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Quotas model (storage): tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
   - Testing contract: scripts/qemu-test.sh
+  - Superseded by: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
 ---
+
+> **SUPERSEDED (2026-07-15, ADR-0043).** Encrypted user data is a native **nxfs encryption class**
+> (RFC-0071 Phase 4), not a securefsd overlay above `/state` — the overlay would duplicate journal/
+> atomicity logic and inherit statefs's 8 KiB value ceiling. Still-valid input for the RFC-0071 P4
+> task: the Argon2id passphrase→KDF direction maps to the reserved **User** class; XChaCha20-
+> Poly1305 + tamper-detection test discipline carry over. Do not implement against this file.
 
 ## Context
 

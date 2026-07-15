@@ -46,7 +46,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 | Task | Title | Status |
 |------|-------|--------|
-| — | — | — |
+| TASK-0291 | VFS ReadDir + svc.files + filemanager role + stash real listing | In Progress (2026-07-15) |
 
 ---
 
@@ -333,6 +333,7 @@ Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen:
 | TRACK-NEXUSGFX-SDK | Graphics SDK for apps | UI tasks (0054+) |
 | TRACK-NEXUSINFER-SDK | On-device ML runtime (CPU ref + future NPU), hybrid IPC | TASK-0031, TASK-0010, TASK-0280 |
 | TRACK-NEXUSMEDIA-SDK | Audio/video/image SDK | UI tasks, codec tasks |
+| TRACK-STASH-USER-DATA-FS | User-data FS ladder (vfs v2 → nxfs → zero-copy → CoW/enc) + stash | active — TASK-0291 in progress; RFC-0071/0072/0073 |
 | TRACK-ZEROCOPY-APP-PLATFORM | RichContent + OpLog + connectors | TASK-0031, TASK-0087 |
 | TRACK-APP-STORE | Distribution + publishing | Packaging tasks |
 | TRACK-DEVSTUDIO-IDE | Developer IDE | DSL tasks (0075+) |

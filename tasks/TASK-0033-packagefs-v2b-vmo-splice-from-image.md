@@ -1,6 +1,6 @@
 ---
 title: TASK-0033 packagefs v2b: zero-copy VMO splice from RO package image (gated, fallback-safe)
-status: Draft
+status: Superseded
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -14,7 +14,13 @@ links:
   - Depends-on (VMO plumbing): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - Depends-on (ABI filter policies): tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md
   - Testing contract: scripts/qemu-test.sh
+  - Superseded by: tasks/TASK-0295-zero-copy-read-write-vmo-splice.md
 ---
+
+> **SUPERSEDED (2026-07-15).** The VMO-splice read path is absorbed into `TASK-0295`
+> (zero-copy read/write for the whole VFS surface: packagefs + nxfs), under the RFC-0072 Phase 3
+> contract. The goals and bounds below remain valid input; execution and proof live in TASK-0295.
+> Do not implement against this file.
 
 ## Context
 

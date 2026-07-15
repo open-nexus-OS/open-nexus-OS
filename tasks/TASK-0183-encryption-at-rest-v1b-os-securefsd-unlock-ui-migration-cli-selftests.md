@@ -1,6 +1,6 @@
 ---
 title: TASK-0183 Encryption-at-Rest v1b (OS/QEMU): securefsd overlay (state:/secure) + unlock/lock/change + migration + SystemUI unlock sheet + nx-secure + policy/quotas + selftests/docs
-status: Draft
+status: Superseded
 owner: @security
 created: 2025-12-27
 depends-on: []
@@ -15,7 +15,13 @@ links:
   - Backup/Restore integration (exclusions): tasks/TASK-0162-backup-restore-v1b-os-backupd-settings-cli-selftests-docs.md
   - Policy capability matrix: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
   - Testing contract: scripts/qemu-test.sh
+  - Superseded by: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
 ---
+
+> **SUPERSEDED (2026-07-15, ADR-0043).** There will be no `securefsd` overlay; encrypted user data
+> is a native **nxfs encryption class** (RFC-0071 Phase 4) under `/data`. The user-facing pieces
+> sketched here (unlock/lock UX, migration, `nx-secure` tooling) become part of the RFC-0071 P4
+> task when it is seeded. Do not implement against this file.
 
 ## Context
 

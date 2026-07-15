@@ -108,6 +108,8 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
 - RFC-0041: PackageFS v2 read-only image + precomputed index fastpath contract seed (bounded mount validation + deterministic reject paths + host-first/OS-gated proofs)
 - RFC-0042: Sandboxing v1 userspace confinement contract seed (namespace confinement + CapFd authenticity/replay reject + manifest permission bootstrap)
+- RFC-0071: nxfs user-data filesystem contract seed (integrity fail-closed + AEAD encryption classes via keystored/HKDF + no-silent-reformat + honest no-sealed-storage limitation)
+- RFC-0073: App files surface contract seed (FILES permission ceiling-gated to the filemanager role + fail-closed route provisioning + vfsd namespace mediation)
 
 ## Index
 
@@ -243,3 +245,13 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md
 - RFC-0068: Structured-event observability — subject-grouped journal + configurable renderer (In progress 2026-06-29 — the future-proof shape of the UART verdict grid: group by SUBJECT not emitter, structured Events {ts,level,subject,name,status} in Spans, logd as the SSOT journal, UART as a configurable renderer, structured anti-fake-proof status; supersedes the per-process verdict grouping axis, keeps its UX; P1 shared nexus-event verdict-math crate DONE, P2 kernel+nexus-abi fold into it)
   - docs/rfcs/RFC-0068-structured-event-observability-subject-grouped-journal-renderer.md
+- RFC-0069: Declarative service manifest for init — tiers, generic wiring, cap-slot discipline, boot stages (In progress 2026-07-02)
+  - docs/rfcs/RFC-0069-init-declarative-service-manifest-slot-discipline-boot-stages.md
+- RFC-0070: UI design-system SSOT convergence — one declarative component library, one token source, one reactive path (Draft 2026-07-05)
+  - docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md
+- RFC-0071: nxfs — user-data filesystem (container/volumes, transactional CoW track, integrity, encryption classes) contract seed (Draft 2026-07-15 — the `/data` store; supersedes securefsd TASK-0182/0183; track tasks/TRACK-STASH-USER-DATA-FS.md)
+  - docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
+- RFC-0072: VFS v2 — ReadDir, writable providers, stable storage error SSOT contract seed (Draft 2026-07-15 — absorbs TASK-0132's vfs error slice; execution TASK-0291/0293/0295)
+  - docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
+- RFC-0073: App files surface — `svc.files.*`, `nexus.permission.FILES`, filemanager role, mime SSOT contract seed (Draft 2026-07-15 — stash becomes the first filemanager; pickers stay deferred to TASK-0083/0084)
+  - docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md

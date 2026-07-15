@@ -14,7 +14,13 @@ links:
   - Scoped grants enforcement: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
   - File operations + trash: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
   - Persistence substrate (state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - Error-code SSOT (vfs slice, authoritative): docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
 ---
+
+> **PARTIALLY ABSORBED (2026-07-15).** The **vfs/storage error-code SSOT** now lives in RFC-0072
+> (stable numeric table, per-code negative tests) and is executed by `TASK-0291`. This task's
+> remaining scope is the higher-layer semantics for `contentd`/`fileopsd`/`trashd`/`grantsd` once
+> those services exist — it must adopt the RFC-0072 table, never define a second one.
 
 ## Context
 

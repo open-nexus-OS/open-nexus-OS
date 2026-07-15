@@ -1,5 +1,5 @@
 ---
-title: TASK-0027 StateFS v2b: optional encryption-at-rest (AEAD) via keystored (gated, default off)
+title: TASK-0027 StateFS v2b: record encryption for statefs values (rescoped 2026-07-15 — user-data encryption moved to RFC-0071/nxfs)
 status: Draft
 owner: @runtime
 created: 2025-12-22
@@ -7,113 +7,124 @@ depends-on:
   - TASK-0006
   - TASK-0008B
   - TASK-0009
+  - TASK-0025
   - TASK-0026
 follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
-  - Depends-on (statefs v1): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Depends-on (statefs v2a): tasks/TASK-0026-statefs-v2a-2pc-compaction-fsck.md
-  - Depends-on (device keys / entropy): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
-  - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - Shipped substrate (v1, Complete): docs/rfcs/RFC-0018-statefs-journal-format-v1.md
+  - Key hierarchy + user-data encryption (authoritative): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
+  - Architecture split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
+  - Device keys / entropy: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
+  - Track: tasks/TRACK-STASH-USER-DATA-FS.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Context
+## Context (rescoped 2026-07-15)
 
-Encryption-at-rest is a “deluxe” feature that must not compromise determinism, recovery semantics, or
-boot reliability. It should be:
+Originally this task carried the whole "encryption at rest" ambition. That has been split by
+ADR-0043 / RFC-0071:
 
-- **optional** and **disabled by default**,
-- keyed from device identity material managed by `keystored`,
-- designed so that recovery/compaction stay correct under crash and power loss.
+- **User-data encryption (files under `/data`) is NOT this task.** It is an nxfs volume/file
+  encryption class — RFC-0071 Phase 4 owns the contract (AEAD, key hierarchy, honest
+  no-sealed-storage limitation). The old "securefsd" overlay tasks (TASK-0182/0183) are superseded
+  by the same RFC.
+- **This task keeps the narrow remainder**: optional AEAD encryption of **statefs record values**
+  (service state under `/state/`), reusing the RFC-0071 key-hierarchy contract
+  (keystored material → HKDF, labeled context) so the platform has ONE key-derivation discipline.
 
-This task builds on statefs v2a (2PC + compaction), because encryption must integrate with the v2
-record format and snapshotting.
+Repo reality (2026-07-15): statefs v1 shipped (TASK-0009 Done) — plaintext values, CRC32-C
+integrity only. keystored exists and persists its ed25519 device key **in statefs**
+(`/state/keystore/device.signing`); rngd exists (entropy, no persistence). `chacha20poly1305` is
+present in `Cargo.lock` only transitively (dsoftbus Noise) — no at-rest wiring, no `hkdf`/`zeroize`
+in-tree yet.
 
-Related work (overlay encryption):
-
-- App-facing encrypted overlays (content encryption on top of `/state`, filenames plaintext v1) are tracked separately as
-  `TASK-0182`/`TASK-0183` (“securefsd”). That is not a replacement for statefs record encryption; it is a different layer.
+**Chicken-egg (normative for this task)**: records keystored needs in order to start —
+`/state/keystore/*`, `/state/boot/*` — can never be encrypted under keystored-derived keys. These
+boot-critical prefixes stay plaintext-but-authenticated (TASK-0025 envelopes). Encryption applies
+to non-boot-critical prefixes (e.g. `/state/settingsd/*`, `/state/app/*`) — per-prefix class,
+default **off**.
 
 ## Goal
 
 Provide an opt-in `STATEFS_ENCRYPTION=on` mode that:
 
-- encrypts payload chunks with AEAD,
-- detects tampering deterministically (`EINTEGRITY`),
-- preserves crash-atomicity (only committed txns become visible),
-- is testable deterministically on host (and later on OS once statefs exists).
+- encrypts value payloads of enrolled prefixes with AEAD (XChaCha20-Poly1305),
+- detects tampering deterministically (`EINTEGRITY`-class status),
+- preserves v2a crash-atomicity (only committed txns visible; decrypt failure discards the txn),
+- keeps compaction + fsck working (snapshot values remain decryptable; fsck reports decrypt
+  failures, never "fixes" ciphertext),
+- is testable deterministically on host and proven in OS/QEMU.
 
 ## Non-Goals
 
-- Full metadata encryption (paths remain plaintext in v2b; document explicitly).
-- Key rotation (follow-up).
+- User-data/file encryption (RFC-0071 Phase 4).
+- Metadata/key-name encryption (paths stay plaintext in v2b; documented explicitly).
+- Key rotation (follow-up once RFC-0071 P4 fixes the rekey model).
 - Kernel changes.
 
 ## Constraints / invariants (hard requirements)
 
-- Kernel untouched.
-- Default stays green: encryption OFF by default.
-- PMTU irrelevant (block storage), but record sizes are capped and deterministic.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-- Recovery must be idempotent even when decrypt failures occur.
+- Kernel untouched. Default stays green: encryption OFF by default; `statefsd: encryption off`
+  marker when disabled.
+- Key derivation per RFC-0071 contract: keystored material → HKDF with label
+  `"statefs.record.v1.<prefix-class>"`; never a signing key used raw as an AEAD key.
+- Nonce construction deterministic and never-reusing: bound to `(txn_id, chunk_idx)` from the v2a
+  record framing (this is why TASK-0026 is a hard dependency).
+- AAD binds record header fields (`txn_id`, key hash, payload length) — ciphertext is tied to its
+  record.
+- Recovery idempotent under decrypt failures; bounded memory/parsing; no `unwrap/expect`.
+- **RED (entropy honesty)**: if the OS build cannot provide secure entropy for salts, do not claim
+  secure encryption — keep the mode unavailable in OS and say so (`statefsd: encryption unavailable
+  (entropy)`), host tooling only.
 
-## Red flags / decision points
+## Contract sources (single source of truth)
 
-- **RED (entropy / key availability)**:
-  - If OS builds cannot provide secure entropy, we must not claim “secure encryption”.
-    In that case keep encryption unavailable in OS, or only allow host tooling.
-- **YELLOW (key derivation)**:
-  - Do not reuse signing keys directly as AEAD keys. Use HKDF with a labeled context string.
-
-## Design sketch
-
-- AEAD: `XChaCha20-Poly1305` (large nonce, simple).
-- Nonce derivation: `nonce = H(session_key, txn_id || chunk_idx)` or a direct 24-byte construction from `(txn_id, chunk_idx, salt)`.
-  Must be deterministic and never repeat for the same key.
-- Associated data (AAD): includes record header fields (`txn_id`, `path_hash`, `payload_len`) to bind ciphertext to metadata.
-- Superblock stores:
-  - `enc_mode` (off/on),
-  - `key_descriptor` (opaque id, e.g. “device-key-v1”),
-  - optional salt.
+- Key hierarchy + AEAD discipline: RFC-0071 (Security considerations + encryption-class contract).
+- Record framing hooks: TASK-0026's journal v2 (`docs/storage/statefs.md` §"Journal v2 (2PC)").
+- Superblock/enablement flags: `docs/storage/statefs.md` §"Record encryption (v2b)" (kept normative
+  by this task): `enc_mode`, `key_descriptor` (opaque, e.g. "device-key-v1"), salt.
 
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
 
-Tests (`tests/statefs_v2b_crypto_host/`):
+Tests (crate-local in `userspace/statefs` + `tools/fsck-statefs`):
 
-- encryption on: write/read roundtrip, replay works
-- tamper ciphertext: replay rejects with `EINTEGRITY` (and discards txn)
+- encryption on: write/read roundtrip for an enrolled prefix; replay works
+- boot-critical prefix enrollment attempt → rejected deterministically (chicken-egg guard)
+- tamper ciphertext: replay rejects with `EINTEGRITY`-class status and discards the txn
 - compaction with encryption: snapshot values remain decryptable
-- fsck-statefs:
-  - reports decrypt failures clearly
-  - optional `--repair` removes unrecoverable txns from the active set (never “fixes” ciphertext)
+- fsck: reports decrypt failures clearly; `--repair` removes unrecoverable txns from the active
+  set, never rewrites ciphertext
+- nonce-uniqueness property test over txn/chunk space
 
-### Proof (OS / QEMU) — after TASK-0009 + entropy decision
+### Proof (OS / QEMU)
 
-When encryption enabled and available:
+When enabled and entropy is available:
 
 - `statefsd: encryption on (xchacha20poly1305)`
-- `SELFTEST: statefs v2 enc ok`
+- `SELFTEST: statefs enc roundtrip ok`
+- `SELFTEST: statefs enc tamper deny ok`
 
 Otherwise:
 
-- `statefsd: encryption off`
+- `statefsd: encryption off` (or `… unavailable (entropy)`)
 
 ## Touched paths (allowlist)
 
-- `source/services/statefsd/` (encrypt/decrypt payload path; gated)
-- `source/services/keystored/` (expose AEAD key material or a sealed key handle; gated)
+- `userspace/statefs/` (encrypt/decrypt payload path on v2a records)
+- `source/services/statefsd/` (enablement, prefix classes; gated)
+- `source/services/keystored/` (expose HKDF-derived AEAD key handle; gated)
 - `tools/fsck-statefs/` (decrypt-aware validation)
-- `tests/` (host tests)
-- `docs/storage/statefs.md`
-- `scripts/qemu-test.sh` (optional markers only)
+- `docs/storage/statefs.md`, `scripts/qemu-test.sh` (markers)
 
 ## Docs (English)
 
-- Explicitly document:
-  - what is encrypted (payload) and what is plaintext (paths/metadata),
-  - threat model and entropy requirements,
-  - how to enable/disable and expected markers.
+- Document explicitly in `docs/storage/statefs.md`:
+  - what is encrypted (enrolled-prefix values) and what is plaintext (keys/paths, metadata,
+    boot-critical prefixes),
+  - threat model + entropy requirements + the no-sealed-storage limitation (same honesty rule as
+    RFC-0071),
+  - enablement flags and expected markers.
