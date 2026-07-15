@@ -48,6 +48,7 @@ animation = { path = "../../../userspace/ui/animation" }
 # boundary, same rule as windowd's demo mount).
 nexus-dsl-ir = { path = "../../../userspace/dsl/ir", default-features = false }
 nexus-dsl-runtime = { path = "../../../userspace/dsl/runtime", default-features = false }
+nexus-app-icons = { path = "../../../userspace/ui/app-icons", default-features = false }
 nexus-scene-raster = { path = "../../../userspace/ui/scene_raster", default-features = false }
 nexus-layout = { path = "../../../userspace/ui/layout" }
 nexus-layout-types = { path = "../../../userspace/ui/layout-types" }

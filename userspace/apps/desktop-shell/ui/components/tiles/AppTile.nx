@@ -13,9 +13,14 @@ Component AppTile {
         icon: Str,
         iconTop: Str,
         iconBottom: Str,
+        iconArt: Str,
     }
     Stack {
-        if $props.iconTop != "" {
+        if $props.iconArt != "" {
+            // The REAL bundle artwork (assets/icon.svg, baked by
+            // nexus-app-icons) — the squircle+gradient lives in the sprite.
+            Image { source: $props.iconArt, size: 64 }
+        } else { if $props.iconTop != "" {
             Stack {
                 Icon { symbol: $props.icon, size: 30 }
                     .fg(onAccent)
@@ -37,7 +42,7 @@ Component AppTile {
             .rounded(xl)
             .align(center)
             .justify(center)
-        }
+        } }
         Text($props.label).textSize(sm).fg(onSurface)
     }
     .align(center)

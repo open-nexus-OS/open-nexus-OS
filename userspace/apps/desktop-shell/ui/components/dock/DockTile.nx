@@ -11,8 +11,11 @@ Component DockTile {
         icon: Str,
         iconTop: Str,
         iconBottom: Str,
+        iconArt: Str,
     }
-    if $props.iconTop != "" {
+    if $props.iconArt != "" {
+        Image { source: $props.iconArt, size: 44 }
+    } else { if $props.iconTop != "" {
         Stack {
             Icon { symbol: $props.icon, size: 22 }
                 .fg(onAccent)
@@ -34,5 +37,5 @@ Component DockTile {
         .rounded(lg)
         .align(center)
         .justify(center)
-    }
+    } }
 }

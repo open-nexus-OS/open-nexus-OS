@@ -69,6 +69,9 @@ pub(crate) struct AppEffectHost {
     /// reads them.
     icon_top_sym: Option<u32>,
     icon_bottom_sym: Option<u32>,
+    /// `iconArt` — the app id again IFF `nexus-app-icons` baked real artwork
+    /// for it (bundle `assets/icon.svg`); empty = gradient+glyph fallback.
+    icon_art_sym: Option<u32>,
     seq_sym: Option<u32>,
     text_sym: Option<u32>,
     /// Lazily seeded in-process query store (`EffectHost::query()`). Same
@@ -153,6 +156,7 @@ impl AppEffectHost {
                 .iter()
                 .position(|s| s == "iconBottom")
                 .map(|i| i as u32),
+            icon_art_sym: symbols.iter().position(|s| s == "iconArt").map(|i| i as u32),
             seq_sym: symbols.iter().position(|s| s == "seq").map(|i| i as u32),
             text_sym: symbols.iter().position(|s| s == "text").map(|i| i as u32),
             query_store: None,
@@ -186,6 +190,12 @@ impl AppEffectHost {
         let rows: Vec<Value> = entries
             .into_iter()
             .map(|(id, label, icon)| {
+                // Baked-artwork check BEFORE `id` moves into the record.
+                let icon_art = if nexus_app_icons::has_artwork(&id) {
+                    id.clone()
+                } else {
+                    alloc::string::String::new()
+                };
                 let mut fields =
                     alloc::vec![(id_sym, Value::Str(id)), (label_sym, Value::Str(label))];
                 // The launcher-tile artwork: the manifest packs
@@ -204,6 +214,9 @@ impl AppEffectHost {
                 }
                 if let Some(sym) = self.icon_bottom_sym {
                     fields.push((sym, Value::Str(bottom.into())));
+                }
+                if let Some(sym) = self.icon_art_sym {
+                    fields.push((sym, Value::Str(icon_art)));
                 }
                 fields.sort_by_key(|(sym, _)| *sym);
                 Value::Record(fields)

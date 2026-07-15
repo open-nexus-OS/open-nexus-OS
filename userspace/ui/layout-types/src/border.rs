@@ -231,6 +231,10 @@ pub enum ShapeKind {
     /// A multi-contour vector symbol (each contour a filled sub-path) — the
     /// model for icons with several strokes/holes (e.g. imported SVG symbols).
     Vector(alloc::vec::Vec<PathShape>),
+    /// A pre-rasterized straight-alpha RGBA sprite (build-time baked app-icon
+    /// artwork). `w × h` pixels, `[r,g,b,a]` per pixel, row-major; the
+    /// painter samples nearest, so any box size renders.
+    Raster { w: u16, h: u16, rgba: &'static [u8] },
 }
 
 /// Visual style attached to container and text nodes.

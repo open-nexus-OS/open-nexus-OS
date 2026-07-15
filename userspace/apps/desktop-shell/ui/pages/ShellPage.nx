@@ -81,7 +81,7 @@ Page ShellPage {
             } else {
                 List($state.apps) { app in
                     Stack {
-                        AppTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom }
+                        AppTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
                     }
                     .key(app.id)
                     on Tap -> dispatch(Launch(app.id))
@@ -144,7 +144,7 @@ Page ShellPage {
                 Stack {
                     List($state.apps) { app in
                         Stack {
-                            DockTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom }
+                            DockTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
                         }
                         .key(app.id)
                         on Tap -> dispatch(Launch(app.id))
@@ -211,7 +211,7 @@ Page ShellPage {
                         Stack {
                             List($state.apps) { app in
                                 Stack {
-                                    DockTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom }
+                                    DockTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
                                 }
                                 .key(app.id)
                                 on Tap -> dispatch(Launch(app.id))
@@ -267,7 +267,7 @@ Page ShellPage {
                     Stack {
                         List($state.apps) { app in
                             Stack {
-                                DockTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom }
+                                DockTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
                             }
                             .key(app.id)
                             .grow(1)

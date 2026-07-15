@@ -1,0 +1,11 @@
+[package]
+name = "nexus-app-icons"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "nexus_app_icons"
+
+[build-dependencies]
+nexus-svg = { path = "../svg" }

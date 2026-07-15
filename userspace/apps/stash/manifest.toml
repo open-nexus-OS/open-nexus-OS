@@ -12,6 +12,9 @@ version = "0.1.0"
 min_sdk = "1.0.0"
 bundle_type = "app"
 icon = "folder|#2dd4bf|#0f766e"
+# Real app-icon artwork (SVG in the bundle's assets/), rasterized at build
+# time by nexus-app-icons; the packed `icon` string stays the fallback glyph.
+icon_svg = "assets/icon.svg"
 payload_kind = "ui-program"
 abilities = ["stash.MainAbility"]
 caps = ["nexus.permission.WINDOW", "nexus.permission.SETTINGS"]

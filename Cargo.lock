@@ -182,6 +182,7 @@ version = "0.1.0"
 dependencies = [
  "animation",
  "nexus-abi",
+ "nexus-app-icons",
  "nexus-display-proto",
  "nexus-dsl-core",
  "nexus-dsl-ir",
@@ -1821,6 +1822,13 @@ name = "nexus-alloc"
 version = "0.1.0"
 
 [[package]]
+name = "nexus-app-icons"
+version = "0.1.0"
+dependencies = [
+ "nexus-svg",
+]
+
+[[package]]
 name = "nexus-config"
 version = "0.1.0"
 dependencies = [
@@ -1876,6 +1884,7 @@ version = "0.1.0"
 dependencies = [
  "animation",
  "capnp",
+ "nexus-app-icons",
  "nexus-dsl-core",
  "nexus-dsl-ir",
  "nexus-layout",

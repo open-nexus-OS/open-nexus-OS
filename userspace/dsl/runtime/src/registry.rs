@@ -684,6 +684,43 @@ pub fn build_widget(
             }
             toggle.build(tokens)
         }
+        "Image" => {
+            // The REAL app-icon artwork path: `source` = an app id whose
+            // bundle ships `assets/icon.svg` (manifest `icon_svg`), baked at
+            // build time by `nexus-app-icons` into straight-alpha sprites at
+            // the shell's tile sizes. `size` picks the baked size; the box is
+            // pinned square. Unknown source = a transparent placeholder of
+            // the same size (layout stays stable, no honest-red noise — the
+            // tile's fallback branch owns the visible fallback).
+            let source = prop("source").map(value_text).unwrap_or_default();
+            let size = match prop("size") {
+                Some(Value::Int(s)) => (*s).clamp(8, 256) as i32,
+                _ => 64,
+            };
+            let px = FxPx::new(size);
+            let mut node = plain_stack(
+                &Mods {
+                    width: Some(px),
+                    height: Some(px),
+                    ..Mods::default()
+                },
+                tokens,
+                alloc::vec![],
+            );
+            if let LayoutNode::Stack(_, visual, _) = &mut node {
+                if let Some(sprite) = nexus_app_icons::sprite(&source, size as u32) {
+                    // The painter's shape dispatch runs under `background`;
+                    // the blit arm ignores the color itself.
+                    visual.background = Some(nexus_layout_types::Rgba8 { r: 0, g: 0, b: 0, a: 1 });
+                    visual.shape = nexus_layout_types::ShapeKind::Raster {
+                        w: sprite.size as u16,
+                        h: sprite.size as u16,
+                        rgba: sprite.rgba,
+                    };
+                }
+            }
+            node
+        }
         "Icon" => {
             // Kit promotion: the vector Icon primitive. Symbol names resolve
             // against the THEME-LINKED icon set first (`[icons.symbols]`,

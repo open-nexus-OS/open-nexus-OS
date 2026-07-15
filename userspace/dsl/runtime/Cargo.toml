@@ -29,6 +29,7 @@ nexus-widget-card = { path = "../../ui/widgets/card" }
 nexus-widget-text-field = { path = "../../ui/widgets/text_field" }
 nexus-widget-toggle = { path = "../../ui/widgets/toggle" }
 nexus-widget-icon = { path = "../../ui/widgets/icon" }
+nexus-app-icons = { path = "../../ui/app-icons" }
 nexus-widget-badge = { path = "../../ui/widgets/badge" }
 nexus-widget-chip = { path = "../../ui/widgets/chip" }
 nexus-widget-avatar = { path = "../../ui/widgets/avatar" }

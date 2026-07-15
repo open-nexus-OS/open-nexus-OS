@@ -12,8 +12,11 @@ Component TaskbarTile {
         icon: Str,
         iconTop: Str,
         iconBottom: Str,
+        iconArt: Str,
     }
-    if $props.iconTop != "" {
+    if $props.iconArt != "" {
+        Image { source: $props.iconArt, size: 32 }
+    } else { if $props.iconTop != "" {
         Stack {
             Icon { symbol: $props.icon, size: 18 }
                 .fg(onAccent)
@@ -35,5 +38,5 @@ Component TaskbarTile {
         .rounded(md)
         .align(center)
         .justify(center)
-    }
+    } }
 }

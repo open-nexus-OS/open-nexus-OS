@@ -453,6 +453,8 @@ const KNOWN_ATTRS: &[&str] = &[
     "stroke-miterlimit",
     "fill-rule",
     "opacity",
+    "fill-opacity",
+    "stroke-opacity",
     "x",
     "y",
     "width",
@@ -504,6 +506,13 @@ fn check_attrs(tag: &str, attrs: &[(String, String)], line: usize) -> SvgResult<
         // not reject an otherwise-valid asset over editor cruft. Downstream parsing
         // still reads any meaningful namespaced attr directly if it supports one.
         if name.contains(':') {
+            continue;
+        }
+
+        // `data-*` attributes are author metadata by spec — never rendering
+        // input. The app-icon set tags layers with `data-layer`; skip them
+        // instead of failing the whole document.
+        if name.starts_with("data-") {
             continue;
         }
 
@@ -825,11 +834,31 @@ impl StyleContext {
 fn resolve_context(attrs: &[(String, String)], parent: &StyleContext) -> StyleContext {
     let color = get_attr(attrs, "color").map(parse_color).unwrap_or(parent.color);
     StyleContext {
-        fill: parse_paint_attr(attrs, "fill", color).or_else(|| parent.fill.clone()),
-        stroke: parse_paint_attr(attrs, "stroke", color).or_else(|| parent.stroke.clone()),
+        fill: with_paint_opacity(
+            parse_paint_attr(attrs, "fill", color).or_else(|| parent.fill.clone()),
+            parse_f32_attr(attrs, "fill-opacity"),
+        ),
+        stroke: with_paint_opacity(
+            parse_paint_attr(attrs, "stroke", color).or_else(|| parent.stroke.clone()),
+            parse_f32_attr(attrs, "stroke-opacity"),
+        ),
         stroke_width: parse_f32_attr(attrs, "stroke-width").unwrap_or(parent.stroke_width),
         stroke_style: parse_stroke_style(attrs, parent.stroke_style),
         color,
+    }
+}
+
+/// Fold `fill-opacity`/`stroke-opacity` into a solid paint's alpha (the SVG
+/// per-paint opacity properties). Gradient paints keep their stop alphas —
+/// per-paint opacity on a gradient is out of scope, matching the icon set
+/// (which only uses it on solid hairline strokes).
+fn with_paint_opacity(paint: Option<Paint>, opacity: Option<f32>) -> Option<Paint> {
+    match (paint, opacity) {
+        (Some(Paint::Color(c)), Some(o)) => {
+            let o = o.clamp(0.0, 1.0);
+            Some(Paint::Color(Color { a: (c.a as f32 * o) as u8, ..c }))
+        }
+        (p, _) => p,
     }
 }
 

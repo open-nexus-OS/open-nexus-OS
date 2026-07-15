@@ -1,0 +1,12 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="folder-front" x1="510" y1="380" x2="510" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFC85B"/>
+      <stop offset="1" stop-color="#FF9F0A"/>
+    </linearGradient>
+  </defs>
+  <g data-layer="symbol" data-customizable="folder-color">
+    <path d="M 80 280 Q 80 220 140 220 L 400 220 L 480 300 L 880 300 Q 940 300 940 360 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#FFD75B"/>
+    <path d="M 80 420 Q 80 380 140 380 L 880 380 Q 940 380 940 440 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="url(#folder-front)"/>
+  </g>
+</svg>

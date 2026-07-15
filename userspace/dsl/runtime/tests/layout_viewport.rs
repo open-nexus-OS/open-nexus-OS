@@ -427,6 +427,7 @@ fn shell_app_grid_tiles_launch_and_hover() {
         icon_sym: u32,
         icon_top_sym: u32,
         icon_bottom_sym: u32,
+        icon_art_sym: u32,
         launched: Vec<String>,
     }
     impl nexus_dsl_runtime::EffectHost for FakeRegistry {
@@ -449,6 +450,7 @@ fn shell_app_grid_tiles_launch_and_hover() {
                         (self.icon_bottom_sym, Value::Str("#15803d".into())),
                             (self.icon_top_sym, Value::Str("#4ade80".into())),
                             (self.icon_bottom_sym, Value::Str("#15803d".into())),
+                            (self.icon_art_sym, Value::Str("".into())),
                         ];
                         fields.sort_by_key(|(sym, _)| *sym);
                         Value::Record(fields)
@@ -482,6 +484,7 @@ fn shell_app_grid_tiles_launch_and_hover() {
         icon_sym: sym("icon"),
         icon_top_sym: sym("iconTop"),
         icon_bottom_sym: sym("iconBottom"),
+        icon_art_sym: sym("iconArt"),
         launched: Vec::new(),
     };
 
@@ -945,6 +948,7 @@ fn shell_grid_tiles_lay_out_in_a_row() {
         icon_sym: u32,
         icon_top_sym: u32,
         icon_bottom_sym: u32,
+        icon_art_sym: u32,
     }
     impl nexus_dsl_runtime::EffectHost for Registry {
         fn call(&mut self, svc: &str, method: &str, _a: &[nexus_dsl_runtime::Value], _t: u32)
@@ -958,6 +962,7 @@ fn shell_grid_tiles_lay_out_in_a_row() {
                         (self.icon_sym, Value::Str("star".into())),
                         (self.icon_top_sym, Value::Str("#4ade80".into())),
                         (self.icon_bottom_sym, Value::Str("#15803d".into())),
+                        (self.icon_art_sym, Value::Str("".into())),
                     ];
                     fields.sort_by_key(|(sym, _)| *sym);
                     Value::Record(fields)
@@ -980,6 +985,7 @@ fn shell_grid_tiles_lay_out_in_a_row() {
             icon_sym: sym("icon"),
             icon_top_sym: sym("iconTop"),
             icon_bottom_sym: sym("iconBottom"),
+            icon_art_sym: sym("iconArt"),
         };
     let device = nexus_dsl_runtime::FixtureEnv::tablet("landscape");
     let tokens = nexus_theme_tokens::BaseTokens;

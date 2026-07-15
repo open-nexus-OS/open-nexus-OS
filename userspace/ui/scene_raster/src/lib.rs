@@ -429,6 +429,36 @@ pub(crate) fn paint_box_row_at(
                     bg,
                 );
             }
+            ShapeKind::Raster { w: sw, h: sh, rgba } => {
+                // Straight-alpha sprite blit, nearest-sampled onto the box
+                // (sprites are baked at the tile sizes, so this is normally
+                // a 1:1 row copy). `bg` is ignored — the artwork owns its
+                // pixels; the box needs SOME background for this arm to run,
+                // the builder sets a transparent one.
+                let (sw, sh) = (*sw as i32, *sh as i32);
+                if sw > 0 && sh > 0 {
+                    let sy = ((canvas.y - y).clamp(0, h - 1) as i64 * sh as i64 / h as i64)
+                        .clamp(0, (sh - 1) as i64) as i32;
+                    let x0 = x.max(0);
+                    let x1 = (x + w).min(canvas.width);
+                    for px in x0..x1 {
+                        let sx = ((px - x) as i64 * sw as i64 / w as i64)
+                            .clamp(0, (sw - 1) as i64) as i32;
+                        let o = ((sy * sw + sx) * 4) as usize;
+                        if o + 3 < rgba.len() && rgba[o + 3] > 0 {
+                            canvas.blend(
+                                px,
+                                nexus_layout_types::Rgba8 {
+                                    r: rgba[o],
+                                    g: rgba[o + 1],
+                                    b: rgba[o + 2],
+                                    a: rgba[o + 3],
+                                },
+                            );
+                        }
+                    }
+                }
+            }
             ShapeKind::Path(ps) => canvas.fill_contour_row(ps, xf, yf, wf, hf, bg),
             ShapeKind::Vector(contours) => {
                 for ps in contours {
