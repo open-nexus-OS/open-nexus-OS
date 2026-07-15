@@ -20,7 +20,7 @@ Page StashPage {
         // Fullscreen chrome inset: the window sits BEHIND the shell top bar.
         Stack { }
             .height(40)
-        WinTopBar { icon: "folder", tool1: "magnifyingglass", tool2: "square.grid.2x2", tool3: "list.bullet", navBack: "chevron.left", navFwd: "chevron.right", navRefresh: "arrow.clockwise" }
+        WinTopBar { icon: "folder", tool1: "magnifyingglass", tool2: "square.grid.2x2", tool3: "list.bullet", navBack: "chevron.left", navFwd: "chevron.right", navRefresh: "arrow.clockwise", appId: "stash" }
         Stack {
             if $state.leftOpen == 1 {
                 Stack {
@@ -156,7 +156,22 @@ Page StashPage {
                                 .gap(1)
                             } else {
                                 Stack {
-                                    WinActionItem { id: "move", label: @t("stash.actMove"), icon: "move", kind: "primary" }
+                                    // Real move: opens the destination picker.
+                                    Stack {
+                                        Circle { size: 26
+                                            Icon { symbol: "move", size: 14 }
+                                                .fg(onAccent)
+                                        }
+                                        .bg(accent)
+                                        Text(@t("stash.actMove")).textSize(xs).fg(onSurfaceVariant)
+                                    }
+                                    .align(center)
+                                    .justify(center)
+                                    .gap(1)
+                                    .width(66)
+                                    .height(52)
+                                    .rounded(lg)
+                                    on Tap -> dispatch(MoveStart)
                                     WinActionItem { id: "copy", label: @t("stash.actCopy"), icon: "doc.on.doc", kind: "" }
                                     WinActionItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "" }
                                     // Real delete (svc.files.remove → nxfs); custom
@@ -298,6 +313,33 @@ Page StashPage {
                 }
                 .overlay()
                 on Tap -> dispatch(WinMenu(""))
+            }
+            // Move-destination picker: tap a folder to move the selection there
+            // (svc.files.rename across directories); tap the backdrop to cancel.
+            if $state.moveOpen == 1 {
+                Stack {
+                    Stack {
+                        Panel {
+                            Text(@t("stash.moveTitle")).textSize(sm).fg(onSurfaceVariant)
+                            MoveDest { path: "/Bilder", label: @t("stash.pictures") }
+                            MoveDest { path: "/Videos", label: @t("stash.videos") }
+                            MoveDest { path: "/Audio", label: @t("stash.audio") }
+                            MoveDest { path: "/Dokumente", label: @t("stash.docs") }
+                            MoveDest { path: "/Downloads", label: @t("stash.downloads") }
+                            MoveDest { path: "/Papierkorb", label: @t("stash.trash") }
+                        }
+                        .width(300)
+                        .gap(1)
+                        .padding(2)
+                    }
+                    .grow(1)
+                    .align(center)
+                    .justify(center)
+                }
+                .overlay()
+                on Tap -> dispatch(MoveCancel)
+            } else {
+                Stack { }
             }
         }
         .direction(row)

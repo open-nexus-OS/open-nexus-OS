@@ -17,14 +17,28 @@ Component WinTopBar {
         navBack: Str,
         navFwd: Str,
         navRefresh: Str,
+        appId: Str,
     }
     Stack {
-        Circle { size: 26
-            Icon { symbol: $props.icon, size: 14 }
-                .fg(onSurface)
+        // App chip: the app's REAL baked icon (the small colored svg) when an
+        // `appId` is given, else the theme glyph. Tap opens the window menu.
+        if $props.appId != "" {
+            Stack {
+                Image { source: $props.appId, size: 24 }
+            }
+            .width(28)
+            .height(28)
+            .align(center)
+            .justify(center)
+            on Tap -> dispatch(WinMenu("app"))
+        } else {
+            Circle { size: 26
+                Icon { symbol: $props.icon, size: 14 }
+                    .fg(onSurface)
+            }
+            .material(subtle)
+            on Tap -> dispatch(WinMenu("app"))
         }
-        .material(subtle)
-        on Tap -> dispatch(WinMenu("app"))
         Stack {
             Icon { symbol: "sidebar.left", size: 15 }
                 .fg(onSurfaceVariant)

@@ -389,6 +389,38 @@ impl AppEffectHost {
         }
     }
 
+    /// `svc.files.rename(from, to)` → `Bool` (RFC-0073). Powers both in-place
+    /// rename and MOVE (a rename across directories); nxfs `Op::Rename` handles
+    /// the cross-directory case.
+    fn files_rename(&self, from: &str, to: &str) -> Result<Value, u32> {
+        let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
+        let payload = nexus_vfs_types::fileops::encode_rename(from, to).ok_or(ERR_SVC_SHAPE)?;
+        let mut req = Vec::with_capacity(1 + payload.len());
+        req.push(nexus_vfs_types::fileops::OP_RENAME);
+        req.extend_from_slice(&payload);
+        let mut resp = [0u8; 16];
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+            raw_marker("apphost: dsl svc files.rename FAIL (vfsd unreachable)");
+            return Err(ERR_SVC_UNAVAILABLE);
+        };
+        match nexus_vfs_types::fileops::decode_status_reply(&resp[..len]) {
+            Some(code) if code == nexus_vfs_types::CODE_OK => {
+                raw_marker("apphost: dsl svc files.rename ok");
+                Ok(Value::Bool(true))
+            }
+            Some(code) => {
+                let mut line = String::from("apphost: dsl svc files.rename deny (");
+                if let Some(err) = nexus_vfs_types::VfsError::from_code(code) {
+                    line.push_str(err.name());
+                }
+                line.push(')');
+                raw_marker(&line);
+                Ok(Value::Bool(false))
+            }
+            None => Err(ERR_SVC_SHAPE),
+        }
+    }
+
     /// `svc.files.stat(path)` → `FileEntry` for a single path.
     fn files_stat(&self, path: &str) -> Result<Value, u32> {
         let Some(name_sym) = self.name_sym else {
@@ -838,6 +870,11 @@ impl EffectHost for AppEffectHost {
                     path,
                     "apphost: dsl svc files.remove ok",
                 )
+            }
+            ("files", "rename") => {
+                let from = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                let to = args.get(1).and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                self.files_rename(from, to)
             }
             ("files", "stat") => {
                 let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;

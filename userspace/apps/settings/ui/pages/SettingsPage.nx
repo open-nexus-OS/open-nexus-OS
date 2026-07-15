@@ -21,7 +21,7 @@ Page SettingsPage {
         // starts below it so both stay readable and usable.
         Stack { }
             .height(40)
-        WinTopBar { icon: "gearshape", tool1: "magnifyingglass", tool2: "list.bullet", tool3: "", navBack: "", navFwd: "", navRefresh: "" }
+        WinTopBar { icon: "gearshape", tool1: "magnifyingglass", tool2: "list.bullet", tool3: "", navBack: "", navFwd: "", navRefresh: "", appId: "settings" }
         Stack {
             if $state.leftOpen == 1 {
                 Stack {

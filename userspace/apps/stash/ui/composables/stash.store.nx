@@ -32,6 +32,8 @@ Store StashStore {
     filesError: Int = 0,
     // Sort mode for the listing: "name" | "kind" | "date" (app-host sorts).
     sortBy: Str = "name",
+    // Move-destination picker open (1) — lists the top-level folders to move to.
+    moveOpen: Int = 0,
 }
 
 Event StashEvent {
@@ -54,6 +56,10 @@ Event StashEvent {
     DeleteSel,
     Deleted(Bool),
     CycleSort,
+    MoveStart,
+    MoveTo(Str, Str),
+    MoveCancel,
+    Moved(Bool),
 }
 
 reduce StashEvent {
@@ -258,6 +264,23 @@ reduce StashEvent {
         }
         state.filesLoading = 1;
     },
+    MoveStart => {
+        state.moveOpen = 1;
+        state.menu = "";
+    },
+    MoveTo(dest, label) => {
+        // Keep selName for the rename effect; close the picker and mark loading.
+        state.moveOpen = 0;
+        state.filesLoading = 1;
+    },
+    MoveCancel => state.moveOpen = 0,
+    Moved(ok) => {
+        state.selection = "";
+        state.selName = "";
+        state.selKind = "";
+        state.selSize = "";
+        state.selDate = "";
+    },
     DeleteSel => state.filesLoading = 1,
     Deleted(ok) => {
         state.selection = "";
@@ -363,6 +386,23 @@ reduce StashEvent {
 
 // Sort mode changed → reload the listing in the new order.
 @effect on CycleSort {
+    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+        Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// Move the selection into `dest` (a rename across directories). selName is
+// still set here (cleared by Moved, after the rename).
+@effect on MoveTo(dest, label) {
+    match svc.files.rename(state.path + "/" + state.selName, dest + "/" + state.selName, timeoutMs: 250) {
+        Ok(ok) => dispatch(Moved(ok)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// After a move, reload the (now-shorter) source folder.
+@effect on Moved(ok) {
     match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
