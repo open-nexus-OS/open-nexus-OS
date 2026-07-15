@@ -49,6 +49,23 @@ tempt a shortcut: statefs already exists and already persists; and the write-har
 - The split mirrors the platforms we benchmark against: a small trusted registry/preferences store
   distinct from the general-purpose CoW user filesystem.
 
+## v1 process-boundary staging (amendment, 2026-07-15)
+
+The core decision — user data lives in the **nxfs engine/format**, statefs stays the KV — is fully
+honored. The secondary question of WHICH PROCESS runs the nxfs engine is staged:
+
+- **v1**: `vfsd` hosts the nxfs `/data` provider **in-process** (the `nxfsd` crate's `DataStore`
+  library). This avoids adding a boot-critical init service (endpoint, spawn, routes) in the same
+  session that introduces the write path, so "stash writes + persists" could be delivered and
+  boot-proven without destabilizing the boot chain.
+- **Follow-up**: extract the `DataStore` into a standalone `nxfsd` process (full "one authority per
+  store" separation) by wrapping it in a `KernelServer` loop and adding the vfsd→nxfsd route. The
+  `DataStore` is written process-boundary-agnostic precisely so this extraction is mechanical.
+
+This does not weaken the ADR's principle: the file store is a distinct engine with its own format
+and device, never bent into statefs. The `/data` vs `/state` authority split is real at the
+storage-engine and device level today; only the vfsd/nxfsd process split is deferred.
+
 ## Consequences
 
 - **Positive**: statefs hardening (25–27) proceeds on a stable, small contract; nxfs can adopt an

@@ -136,6 +136,38 @@ pub fn encode_readdir_response(
     Ok((out, included))
 }
 
+/// Encodes an already-paginated [`ReadDirPage`] verbatim (for providers that
+/// paginate internally, e.g. the nxfs engine). Same framing as
+/// [`encode_readdir_response`]; honors the byte budget by truncating and
+/// clearing `eof` if the page somehow overflows a frame.
+pub fn encode_readdir_page(page: &ReadDirPage) -> Result<Vec<u8>, VfsError> {
+    let mut out = Vec::with_capacity(RSP_HEADER);
+    out.extend_from_slice(&CODE_OK.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.push(0);
+    out.extend_from_slice(&0u16.to_le_bytes());
+    let mut included = 0usize;
+    for entry in page.entries.iter().take(MAX_ENTRIES_PER_PAGE as usize) {
+        let name = entry.name.as_bytes();
+        if name.is_empty() || name.len() > MAX_NAME_LEN {
+            return Err(VfsError::Invalid);
+        }
+        if out.len() + ENTRY_FIXED + name.len() > MAX_READDIR_RESPONSE_BYTES {
+            break;
+        }
+        out.push(entry.kind as u8);
+        out.extend_from_slice(&entry.size.to_le_bytes());
+        out.push(name.len() as u8);
+        out.extend_from_slice(name);
+        included += 1;
+    }
+    let full = included == page.entries.len();
+    out[2..6].copy_from_slice(&page.next_cursor.to_le_bytes());
+    out[6] = u8::from(page.eof && full);
+    out[7..9].copy_from_slice(&(included as u16).to_le_bytes());
+    Ok(out)
+}
+
 /// Decodes a ReadDir response payload (client side). Bounded and fail-closed:
 /// a count that disagrees with the actual bytes is `Io`, never a short page.
 pub fn decode_readdir_response(payload: &[u8]) -> Result<ReadDirPage, VfsError> {

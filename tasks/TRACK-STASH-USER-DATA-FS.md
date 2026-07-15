@@ -24,9 +24,9 @@ first user-visible win (real listing) lands before any new storage engine exists
 
 | # | Milestone | Task | Proof headline |
 |---|---|---|---|
-| 1 | **stash lists real content** — vfs ReadDir + stable errors + `svc.files` + FILES permission + `filemanager` role; `/packages` RO listing | `TASK-0291` | `stash: listing real (n=<n>)` + screenshot |
-| 2 | **nxfs engine exists (host)** — RFC-0071 P1 format/txn/replay/fsck, crash-injection determinism | `TASK-0292` | `cargo test -p nxfs` (host-only) |
-| 3 | **stash writes** — virtioblkd promotion, GPT (`state`+`data`), nxfsd, RW `/data` mount, keep-blk cold-boot proof | `TASK-0293` | `nxfs: persisted across cold boot`, `stash: write ok` |
+| 1 | ✅ **stash lists real content** — vfs ReadDir + stable errors + `svc.files` + FILES permission + `filemanager` role; `/packages` RO listing | `TASK-0291` (Done, boot-proven) | `stash: listing real (n=<n>)` + screenshot |
+| 2 | ✅ **nxfs engine exists (host)** — RFC-0071 P1 format/txn/replay/fsck, crash-injection determinism | `TASK-0292` (In Review, host-proven) | `cargo test -p nxfs` (17 unit + 5 crash-injection) |
+| 3 | 🟨 **stash writes** — v1 staging: 2nd virtio-blk device + nxfs `/data` hosted in-process by vfsd (`nxfsd::DataStore`); write path boot-proven, keep-blk cold-boot REMOUNT is a driver follow-up (ADR-0043/0044 amended) | `TASK-0293` (In Review) | ✅ `nxfsd: mounted /data (rw, clean)` · `apphost: dsl svc files.mkdir ok` + folder visible; ⬜ cold-boot remount (virtio-blk read hang on 2nd device) |
 | 4 | **file-type icons** — mime SSOT (`resources/mimetypes/mimetypes.toml`) + `nexus-mime-icons` bake + `Image { source: "mime:…" }` | `TASK-0294` | `stash: mime icons resolved (n=<n>)` |
 | 5 | **zero-copy bulk path** — VMO splice reads/writes at the vfsd seam (packagefs + nxfs), inline cap enforced | `TASK-0295` | `vfsd: vmo splice read ok (bytes=<n>, fallbacks=<m>)` |
 | 6 | **CoW + snapshots/clones** (RFC-0071 P3) | seeded after #3 proves | (task defines) |

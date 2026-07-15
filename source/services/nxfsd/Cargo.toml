@@ -1,0 +1,23 @@
+[package]
+name = "nxfsd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "nxfsd — the user-data filesystem provider (RFC-0071/ADR-0043). A DataStore that owns a virtio-blk device, mounts an nxfs container, and answers the vfsd /data provider protocol (list/stat/read + create/mkdir/writeText/rename/remove). v1 is hosted in-process by vfsd; extractable to a standalone service."
+
+[features]
+default = ["std"]
+std = []
+os-lite = [
+    "dep:nexus-abi",
+    "storage/os-lite",
+]
+
+[dependencies]
+nxfs = { path = "../../../userspace/nxfs" }
+nexus-vfs-types = { path = "../../../userspace/vfs-types" }
+storage = { path = "../../../userspace/storage", default-features = false }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+
+[lints.rust]
+unsafe_code = "forbid"

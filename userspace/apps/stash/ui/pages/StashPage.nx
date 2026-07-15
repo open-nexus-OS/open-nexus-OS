@@ -105,7 +105,22 @@ Page StashPage {
                         Panel {
                             if $state.selection == "" {
                                 Stack {
-                                    WinActionItem { id: "new", label: @t("stash.actNew"), icon: "plus", kind: "primary" }
+                                    // Real write: NewFolder → svc.files.mkdir (nxfs /data).
+                                    Stack {
+                                        Circle { size: 26
+                                            Icon { symbol: "plus", size: 14 }
+                                                .fg(onAccent)
+                                        }
+                                        .bg(accent)
+                                        Text(@t("stash.actNew")).textSize(xs).fg(onSurfaceVariant)
+                                    }
+                                    .align(center)
+                                    .justify(center)
+                                    .gap(1)
+                                    .width(66)
+                                    .height(52)
+                                    .rounded(lg)
+                                    on Tap -> dispatch(NewFolder)
                                     WinActionItem { id: "sort", label: @t("stash.actSort"), icon: "arrow.up.arrow.down", kind: "" }
                                     WinActionItem { id: "more", label: @t("stash.actMore"), icon: "ellipsis", kind: "" }
                                 }

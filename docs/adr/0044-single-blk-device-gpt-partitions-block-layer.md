@@ -1,13 +1,43 @@
-# ADR-0044: One virtio-blk device, GPT-partitioned, with a shared partition-view block layer — plus a keep-blk mode for cold-boot persistence proofs
+# ADR-0044: Block-device layout for statefs + nxfs — v1 ships two virtio-blk devices; single-device GPT consolidation is the tested-substrate follow-up. Plus a keep-blk mode for cold-boot persistence proofs
 
-- Status: Accepted. Decides how statefsd and nxfsd share block storage before nxfs bring-up
-  (TASK-0293) wires it, and while the switch is still free of data-migration cost.
+- Status: Accepted, **amended 2026-07-15** after TASK-0293 bring-up. The GPT-single-device design
+  below remains the target; v1 ships the **two-device** staging (see "v1 staging decision") because
+  it reuses the proven virtio-blk driver and leaves the boot-critical statefs path untouched. The
+  GPT parser + `PartitionView` + partition-scoped block IPC codec are landed and host-tested as the
+  consolidation substrate.
 - Created: 2026-07-15
 - Builds on: ADR-0023 (statefs owns persistence v1), ADR-0043 (statefs/nxfs split),
   RFC-0017 (capability-gated MMIO), `tasks/TRACK-REMOVABLE-STORAGE.md` (future external media).
 - Contract: `docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md` (consumer),
   `docs/rfcs/RFC-0018-statefs-journal-format-v1.md` (unchanged journal format on a new base offset).
 - Execution (SSOT): `tasks/TASK-0293-nxfsd-os-bringup-gpt-mount-data-keepblk.md`
+
+## v1 staging decision (amendment, 2026-07-15)
+
+TASK-0293 bring-up surfaced a risk/return imbalance in doing the single-device consolidation
+immediately: making `virtioblkd` the sole device owner forces the **boot-critical** statefs path
+off its proven direct-MMIO driver onto a brand-new IPC block server in the same session — a large
+blast radius for the boot chain (keystored/settingsd/updated all write statefs during boot). The
+consolidation is correct but not worth destabilizing the boot chain under time pressure.
+
+**v1 therefore ships two virtio-blk devices:**
+
+- **Device 1** (`build/blk.img`) — statefs `/state`, owned by statefsd exactly as before (untouched).
+- **Device 2** (`build/data.img`) — nxfs `/data`, owned by **vfsd's in-process `DataStore`** (the
+  `nxfsd` provider library, RFC-0071 engine). init probes two blk MMIO slots and grants slot 2 to
+  vfsd at cap slot 49; the launcher adds the second `-drive`/`-device`.
+
+This reuses the proven `VirtioBlkMmio` driver for device 2 (no new queue-driving code), keeps
+statefs's boot-critical path bit-for-bit unchanged, and respects "one owner per virtio queue"
+(each device has exactly one driving process). The `nxfsd` provider is hosted in-process by vfsd
+for v1; extracting it to a standalone `nxfsd` process (ADR-0043 "one authority per store") is a
+follow-up — the `DataStore` logic is process-boundary agnostic on purpose.
+
+**The single-device GPT design below is deferred, not abandoned.** Its substrate is already built
+and host-tested (`userspace/storage::gpt` — bounded RO GPT parser + `PartitionView`;
+`userspace/storage::blockproto` — partition-scoped block IPC codec + `virtioblkd` promotion path).
+The consolidation task will flip statefs+nxfs onto one GPT device behind those pieces once the
+boot-critical statefs migration can be staged with its own boot-verification cycles.
 
 ## Context
 

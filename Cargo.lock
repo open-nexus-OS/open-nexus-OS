@@ -1095,6 +1095,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fsck-nxfs"
+version = "0.1.0"
+dependencies = [
+ "nxfs",
+ "storage",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2747,6 +2755,24 @@ dependencies = [
  "sha2",
  "tempfile",
  "toml",
+]
+
+[[package]]
+name = "nxfs"
+version = "0.1.0"
+dependencies = [
+ "nexus-vfs-types",
+ "storage",
+]
+
+[[package]]
+name = "nxfsd"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-vfs-types",
+ "nxfs",
+ "storage",
 ]
 
 [[package]]
@@ -4521,6 +4547,7 @@ dependencies = [
  "nexus-packagefs",
  "nexus-service-entry",
  "nexus-vfs-types",
+ "nxfsd",
  "parking_lot",
  "sha2",
  "thiserror",

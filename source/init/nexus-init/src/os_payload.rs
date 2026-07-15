@@ -35,8 +35,8 @@ pub(crate) use crate::bootstrap::helpers::{
     encode_init_health_ok_rsp_with_optional_nonce, fatal, grant_mmio_cap, ipc_error_label,
     log_str_ptr, probe_debug_write_words, probe_virtio_mmio_slots, probes_enabled, raw_probe_str,
     updated_boot_attempt, updated_health_ok, virtio_mmio_window, watchdog_limit_ticks,
-    ServiceNameGuard, DEVICE_MMIO_CAP_SLOT, INPUT_MMIO_CAP_SLOT_BASE, POLICY_NONCE,
-    VIRTIO_MMIO_BASE, VIRTIO_MMIO_STRIDE,
+    ServiceNameGuard, DATA_DEVICE_MMIO_CAP_SLOT, DEVICE_MMIO_CAP_SLOT, INPUT_MMIO_CAP_SLOT_BASE,
+    POLICY_NONCE, VIRTIO_MMIO_BASE, VIRTIO_MMIO_STRIDE,
 };
 pub(crate) use crate::bootstrap::policyd::policyd_cap_allowed;
 pub(crate) use crate::route_table::RouteTable;

@@ -320,6 +320,38 @@ impl AppEffectHost {
         }
     }
 
+    /// `svc.files.mkdir(path)` → `Bool` (RFC-0073 Phase 2 write surface).
+    /// Routed to vfsd, which forwards to the nxfs `/data` store.
+    fn files_write(&self, opcode: u8, path: &str, marker: &str) -> Result<Value, u32> {
+        let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
+        let payload =
+            nexus_vfs_types::fileops::encode_path_request(path).ok_or(ERR_SVC_SHAPE)?;
+        let mut req = Vec::with_capacity(1 + payload.len());
+        req.push(opcode);
+        req.extend_from_slice(&payload);
+        let mut resp = [0u8; 16];
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+            raw_marker("apphost: dsl svc files write FAIL (vfsd unreachable)");
+            return Err(ERR_SVC_UNAVAILABLE);
+        };
+        match nexus_vfs_types::fileops::decode_status_reply(&resp[..len]) {
+            Some(code) if code == nexus_vfs_types::CODE_OK => {
+                raw_marker(marker);
+                Ok(Value::Bool(true))
+            }
+            Some(code) => {
+                let mut line = String::from("apphost: dsl svc files write deny (");
+                if let Some(err) = nexus_vfs_types::VfsError::from_code(code) {
+                    line.push_str(err.name());
+                }
+                line.push(')');
+                raw_marker(&line);
+                Ok(Value::Bool(false))
+            }
+            None => Err(ERR_SVC_SHAPE),
+        }
+    }
+
     /// `svc.files.stat(path)` → `FileEntry` for a single path.
     fn files_stat(&self, path: &str) -> Result<Value, u32> {
         let Some(name_sym) = self.name_sym else {
@@ -751,6 +783,22 @@ impl EffectHost for AppEffectHost {
                 let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
                 let cursor = args.get(1).and_then(int_of).ok_or(ERR_SVC_SHAPE)?;
                 self.files_list(path, cursor)
+            }
+            ("files", "mkdir") => {
+                let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                self.files_write(
+                    nexus_vfs_types::fileops::OP_MKDIR,
+                    path,
+                    "apphost: dsl svc files.mkdir ok",
+                )
+            }
+            ("files", "remove") => {
+                let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                self.files_write(
+                    nexus_vfs_types::fileops::OP_REMOVE,
+                    path,
+                    "apphost: dsl svc files.remove ok",
+                )
             }
             ("files", "stat") => {
                 let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;

@@ -1,0 +1,13 @@
+[package]
+name = "fsck-nxfs"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Offline fsck for nxfs container images (RFC-0071): validate, report, and optionally repair (retire torn journal tails). Exit codes: 0 clean, 1 repaired/orphan, 2 unrecoverable."
+
+[dependencies]
+nxfs = { path = "../../userspace/nxfs" }
+storage = { path = "../../userspace/storage", default-features = false }
+
+[lints.rust]
+unsafe_code = "forbid"

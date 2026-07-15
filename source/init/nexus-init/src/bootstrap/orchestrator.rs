@@ -713,7 +713,11 @@ where
         }
     }
 
-    let (net_slot, rng_slot, blk_slot, gpu_slot, input_slots) = probe_virtio_mmio_slots()?;
+    let (net_slot, rng_slot, blk_slots, gpu_slot, input_slots) = probe_virtio_mmio_slots()?;
+    // ADR-0044: blk_slots[0] = statefs `/state` device, blk_slots[1] = nxfs
+    // `/data` device (owned by vfsd's in-process DataStore, TASK-0293).
+    let blk_slot = blk_slots[0];
+    let data_blk_slot = blk_slots[1];
     grant_mmio_with_wait(
         netstackd_pid,
         "netstackd",
@@ -796,6 +800,26 @@ where
             blk_slot,
             DEVICE_MMIO_CAP_SLOT,
         )?;
+    }
+    // nxfs `/data` device (ADR-0044 / TASK-0293): grant the SECOND virtio-blk
+    // device to vfsd (its in-process DataStore owns it). Best-effort: if only
+    // one blk device is present (no second image), vfsd's `/data` stays
+    // unavailable — honest, not a boot failure.
+    match (find_pid(&ctrl_channels, "vfsd"), data_blk_slot) {
+        (Some(vfsd_pid), Some(data_slot)) => {
+            debug_write_bytes(b"init: nxfs data blk grant vfsd slot=0x");
+            debug_write_hex(data_slot);
+            debug_write_byte(b'\n');
+            grant_mmio_with_wait(
+                vfsd_pid,
+                "vfsd",
+                "device.mmio.blk",
+                data_slot,
+                DATA_DEVICE_MMIO_CAP_SLOT,
+            )?;
+        }
+        (None, _) => debug_write_bytes(b"init: nxfs data blk SKIP (no vfsd pid)\n"),
+        (_, None) => debug_write_bytes(b"init: nxfs data blk SKIP (no 2nd blk slot)\n"),
     }
     // Cumulative boot elapsed at the end of the MMIO-grant phase (spawn + resume + early
     // wiring + grants). The gap to `total_ms` is the per-service cap-wiring phase, during which

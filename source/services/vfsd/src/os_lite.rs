@@ -34,6 +34,9 @@ const OPCODE_READ: u8 = 2;
 const OPCODE_CLOSE: u8 = 3;
 const OPCODE_READDIR: u8 = 6;
 
+/// The writable mount served by the in-process nxfs DataStore (RFC-0072 P2).
+const DATA_MOUNT: &str = "/data";
+
 /// packagefsd's list opcode (see packagefsd os_lite dispatch).
 const PKGFS_OPCODE_LIST: u8 = 4;
 
@@ -224,9 +227,42 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Resu
     run_loop(server, Namespace::new())
 }
 
+/// True if the frame targets the writable `/data` mount: any write op (which
+/// only ever targets `/data`, since packagefs is read-only), or a STAT/READDIR
+/// whose primary path is under `/data`.
+fn targets_data(frame: &[u8]) -> bool {
+    use nexus_vfs_types::fileops::{OP_CREATE, OP_MKDIR, OP_REMOVE, OP_RENAME, OP_WRITE_TEXT};
+    match frame.first().copied() {
+        Some(OP_MKDIR | OP_CREATE | OP_WRITE_TEXT | OP_REMOVE | OP_RENAME) => true,
+        Some(OPCODE_STAT) => path_under_data(core::str::from_utf8(&frame[1..]).unwrap_or("")),
+        Some(OPCODE_READDIR) if frame.len() > 7 => {
+            path_under_data(core::str::from_utf8(&frame[7..]).unwrap_or(""))
+        }
+        _ => false,
+    }
+}
+
+fn path_under_data(path: &str) -> bool {
+    path == DATA_MOUNT || path.starts_with("/data/")
+}
+
+/// Reply for a `/data` op when the store is not yet mounted (honest, never fake).
+fn data_unavailable(opcode: u8) -> Vec<u8> {
+    match opcode {
+        OPCODE_READDIR => nxfsd::readdir_unavailable(),
+        OPCODE_STAT => nxfsd::stat_unavailable(),
+        _ => nxfsd::write_unavailable(),
+    }
+}
+
 fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     let mut handles: BTreeMap<u32, FileHandle> = BTreeMap::new();
     let mut next_handle: u32 = 1;
+    // Lazily-acquired user-data store (RFC-0071 nxfs on the data device). The
+    // MMIO grant may land after the server endpoint, so retry on demand.
+    let mut data: Option<nxfsd::DataStore> = None;
+    let mut data_attempts: u8 = 0;
+    const MAX_DATA_ATTEMPTS: u8 = 8;
     loop {
         // CAP_MOVE-aware receive: app-host children move a one-shot reply cap
         // into the request (their private inbox); direct clients (selftest)
@@ -241,6 +277,33 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                     continue;
                 }
                 let opcode = frame[0];
+                // Writable `/data` mount: route to the in-process nxfs store
+                // (RFC-0072 Phase 2). Everything else is the read-only pkg path.
+                if targets_data(&frame) {
+                    if data.is_none() && data_attempts < MAX_DATA_ATTEMPTS {
+                        data_attempts += 1;
+                        data = nxfsd::DataStore::acquire();
+                    }
+                    let reply = match data.as_mut() {
+                        Some(store) => {
+                            let out = store.handle(&frame);
+                            if opcode == OPCODE_READDIR {
+                                debug_print("vfsd: readdir ok (mount=/data)\n");
+                            }
+                            out
+                        }
+                        None => data_unavailable(opcode),
+                    };
+                    match reply_cap {
+                        Some(reply_cap) => {
+                            let _ = reply_cap.reply_and_close_wait(&reply, Wait::Blocking);
+                        }
+                        None => {
+                            server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
+                        }
+                    }
+                    continue;
+                }
                 let reply: Vec<u8> = match opcode {
                     OPCODE_STAT => {
                         let path = core::str::from_utf8(&frame[1..]).unwrap_or("");

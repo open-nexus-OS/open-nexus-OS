@@ -101,6 +101,14 @@ QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id
 QEMU_BLK_DEVICE=${QEMU_BLK_DEVICE:--device virtio-blk-device,drive=drvblk}
 QEMU_BLK_LOCK_FILE=${QEMU_BLK_LOCK_FILE:-"$ROOT/build/.qemu-blk.lock"}
 QEMU_BLK_LOCK_WAIT=${QEMU_BLK_LOCK_WAIT:-180}
+# Second virtio-blk device: the nxfs `/data` user-data volume (ADR-0044 /
+# TASK-0293). statefs owns blk.img (device 1); nxfs owns data.img (device 2).
+QEMU_DATA_IMG=${QEMU_DATA_IMG:-$ROOT/build/data.img}
+QEMU_DATA_DRIVE=${QEMU_DATA_DRIVE:--drive if=none,file=$QEMU_DATA_IMG,format=raw,id=drvdata}
+QEMU_DATA_DEVICE=${QEMU_DATA_DEVICE:--device virtio-blk-device,drive=drvdata}
+# NEXUS_KEEP_BLK=1 preserves both images across launches so cold-boot
+# persistence can be proven (default: wipe per boot for deterministic runs).
+NEXUS_KEEP_BLK=${NEXUS_KEEP_BLK:-0}
 
 INTERACTIVE_READY_SENTINEL=${INTERACTIVE_READY_SENTINEL:-$ROOT/build/.interactive-scene-ready}
 
@@ -143,8 +151,15 @@ prepare_blk_image() {
     echo "[error] Timed out waiting for blk image lock: $QEMU_BLK_LOCK_FILE" >&2
     exit 1
   fi
-  rm -f "$QEMU_BLK_IMG"
-  truncate -s 64M "$QEMU_BLK_IMG"
+  if [[ "$NEXUS_KEEP_BLK" == "1" ]]; then
+    # Cold-boot persistence: keep existing images; create only if missing.
+    [[ -f "$QEMU_BLK_IMG" ]] || truncate -s 64M "$QEMU_BLK_IMG"
+    [[ -f "$QEMU_DATA_IMG" ]] || truncate -s 64M "$QEMU_DATA_IMG"
+  else
+    rm -f "$QEMU_BLK_IMG" "$QEMU_DATA_IMG"
+    truncate -s 64M "$QEMU_BLK_IMG"
+    truncate -s 64M "$QEMU_DATA_IMG"
+  fi
 }
 
 cleanup_blk_lock() {
@@ -278,6 +293,10 @@ build_qemu_args() {
   args+=(${QEMU_RNG_OBJECT} ${QEMU_RNG_DEVICE})
   args+=(${QEMU_BLK_DRIVE} ${QEMU_BLK_DEVICE})
   args+=("${input_args[@]}")
+  # nxfs `/data` device LAST: keep it after the virtio-input devices so their
+  # virtio-mmio transport slots stay identical to the single-blk layout (a
+  # 2nd device inserted before them shifts input slots and breaks the pointer).
+  args+=(${QEMU_DATA_DRIVE} ${QEMU_DATA_DEVICE})
 
   # Debug/proof hook: extra QEMU arguments (e.g. "-vnc :77" to read back GL
   # scanouts for screendump verification on headless hosts).

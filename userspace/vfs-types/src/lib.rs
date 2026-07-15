@@ -18,6 +18,7 @@ extern crate alloc;
 
 mod entry;
 mod error;
+pub mod fileops;
 mod wire;
 
 pub use entry::{DirEntry, FileKind, MAX_ENTRIES_PER_PAGE, MAX_NAME_LEN, MAX_PATH_LEN};
@@ -25,6 +26,6 @@ pub use error::VfsError;
 pub use error::CODE_OK;
 pub use wire::{
     decode_readdir_request, decode_readdir_response, encode_readdir_error,
-    encode_readdir_request, encode_readdir_response, ReadDirPage, ReadDirRequest,
-    MAX_READDIR_RESPONSE_BYTES,
+    encode_readdir_page, encode_readdir_request, encode_readdir_response, ReadDirPage,
+    ReadDirRequest, MAX_READDIR_RESPONSE_BYTES,
 };

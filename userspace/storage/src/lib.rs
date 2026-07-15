@@ -106,3 +106,9 @@ pub mod virtio_blk;
 
 /// Deterministic PackageFS image v2 (`pkgimg`) format helpers.
 pub mod pkgimg;
+
+/// Bounded read-only GPT parsing + `PartitionView` (ADR-0044).
+pub mod gpt;
+
+/// Partition-scoped block IPC protocol codec (ADR-0044).
+pub mod blockproto;

@@ -1,6 +1,6 @@
 ---
 title: TASK-0292 nxfs v1 core (host-first): on-disk format P1 + transactions + checksums + replay + fsck-nxfs + crash-injection determinism
-status: Draft
+status: In Review
 owner: @runtime
 created: 2026-07-15
 depends-on:
@@ -81,3 +81,31 @@ None (host-only task by design). OS markers arrive with TASK-0293.
 2. Journal + txn engine + replay + crash-injection harness.
 3. Object table + directories + op set.
 4. fsck-nxfs + exit-code matrix.
+
+## Progress snapshot (2026-07-15) — delivered, awaiting review/commit
+
+- [x] `userspace/nxfs` (7 modules, each < 450 LOC): `format` (superblock + dual checkpoint slots,
+  crc32c, name/depth bounds), `dev` (4 KiB logical-block adapter over `BlockDevice`),
+  `state` (object/dir tables + DERIVED alloc bitmap; ONE `apply()` shared by runtime commit and
+  replay — no drift), `journal` (crc-framed `BEGIN ops COMMIT` runs; committed-only replay with a
+  txn-id watermark that retires stale/pre-checkpoint records — checkpoint flip needs no zeroing
+  window), `checkpoint` (blob encode/decode + structural cross-checks, fixed alternating regions
+  per the RFC P1 allowance), `fs` (mkfs/mount + create/write/read/truncate/mkdir/readdir/rename/
+  remove/stat, one txn per op, data-before-commit, rollback frees), `fsck` (Clean/Repaired/
+  Unrecoverable; repair = checkpoint that retires torn tails, never invents data).
+- [x] `tools/fsck-nxfs` CLI (image file ↔ MemBlockDevice, stable exit codes 0/1/2, `--repair`
+  writes the image back).
+- [x] Design deltas vs. the draft contract, all within RFC-0071's stated P1 allowances:
+  fixed alternating checkpoint regions (flip protocol unchanged), stale-txn watermark instead of
+  journal zeroing, `MAX_FILE_BYTES = 4 MiB` materialization bound for the offset-write path
+  (raised by the VMO plane in TASK-0295).
+
+## Proof evidence (closure run 2026-07-15)
+
+- `cargo test -p nxfs`: 17 unit tests + 5 integration proofs in
+  `tests/crash_injection.rs` — EVERY sector-write prefix of create/write/rename/checkpoint
+  remounts to exactly pre- or post-state (never torn), rename is exactly-one-name-visible
+  including the replacing case, replay is idempotent, fsck matrix (clean → torn-tail orphan →
+  repaired → clean; wrecked superblocks+checkpoints → unrecoverable).
+- no_std proof: `cargo +nightly build -p nxfs --target riscv64imac-unknown-none-elf --release`
+  clean (the engine is ready for the nxfsd shell in TASK-0293).

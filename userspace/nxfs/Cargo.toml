@@ -1,0 +1,13 @@
+[package]
+name = "nxfs"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "nxfs user-data filesystem engine (RFC-0071 Phase 1): crash-atomic journaled store with dual checkpoint slots, crc32c-checked metadata, and canonical directory listings. Host-first; the nxfsd service is a thin shell over this crate."
+
+[dependencies]
+storage = { path = "../storage", default-features = false }
+nexus-vfs-types = { path = "../vfs-types" }
+
+[lints.rust]
+unsafe_code = "forbid"

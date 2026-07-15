@@ -1,6 +1,6 @@
 ---
-title: TASK-0293 nxfsd OS bring-up: virtioblkd promotion + GPT partition layer + writable /data mount + NEXUS_KEEP_BLK cold-boot proof + stash writes
-status: Draft
+title: TASK-0293 nxfsd OS bring-up: writable /data mount + stash writes (v1: 2nd blk device, vfsd-hosted DataStore) + NEXUS_KEEP_BLK
+status: In Review
 owner: @runtime
 created: 2026-07-15
 depends-on:
@@ -109,3 +109,40 @@ Boot-proven:
 3. RFC-0072 write ops in vfsd + nxfsd writable registration + svc.files writes + stash flows.
 4. statefsd staged switch to RemoteBlockDevice; delete direct path after markers hold.
 5. Cold-boot two-boot harness + full marker ladder.
+
+## Progress snapshot (2026-07-15) — v1 write path boot-proven; cold-boot remount follow-up
+
+**v1 staging decision (ADR-0043/0044 amended):** to deliver "stash writes + persists" without
+destabilizing the boot-critical statefs path, v1 ships a **second virtio-blk device** (`data.img`)
+driven by the proven `VirtioBlkMmio`, with the nxfs `/data` provider (`nxfsd::DataStore`) hosted
+**in-process by vfsd** — no new init service, only a 2nd MMIO grant + launcher device. The GPT
+parser + `PartitionView` + partition-scoped block IPC codec (`userspace/storage::{gpt,blockproto}`,
+host-tested) are the substrate for the deferred single-device consolidation.
+
+- [x] `userspace/storage::gpt` (bounded RO GPT parser + `PartitionView`) + `::blockproto`
+  (partition-scoped block IPC codec) — host-tested (12 storage tests green), consolidation substrate.
+- [x] `source/services/nxfsd` = `DataStore` library: owns the data device, `Nxfs::open_or_format`
+  (mounts existing / mkfs blank, device consumed once), serves list/stat/read + mkdir/create/
+  writeText/rename/remove; `nexus-vfs-types::fileops` shared op codec.
+- [x] vfsd os_lite routes `/data` frames to the in-process `DataStore` (verbatim forward; store
+  strips the mount prefix), honest EIO until mounted.
+- [x] init: probe finds two blk slots, grants device 2 to vfsd (cap slot 49); `policies/base.toml`
+  gives vfsd `device.mmio.blk`. Launcher: 2nd `-drive`/`-device` + `NEXUS_KEEP_BLK=1`.
+- [x] `svc.files.mkdir/remove` + app-host write arm; stash opens `/data`, "New folder" → real mkdir.
+- [x] **Boot-proven (fresh, visible virgl boot):** `nxfsd: mounted /data (rw, clean)` →
+  `apphost: dsl svc files.list ok (n=0)` (empty) → click New → `apphost: dsl svc files.mkdir ok`
+  → reload `apphost: dsl svc files.list ok (n=1)` → **"New Folder" visible in the stash listing**
+  (screenshot). The full write path works end-to-end on the real nxfs container.
+
+### Known follow-up (does NOT block the write milestone)
+
+- ⬜ **Cold-boot keep-blk REMOUNT hangs**: on a second boot with `NEXUS_KEEP_BLK=1`, vfsd opens the
+  device (`nxfsd: device opened, mount/format`) but `Nxfs::mount` of the EXISTING container never
+  returns — a virtio-blk **read** on the 2nd device does not complete AND the driver's `nsec()`
+  timeout does not fire (so no `virtio-blk: timeout`). Writes (mkfs) and fresh-device reads (peek)
+  on device 2 both work; statefs (device 1) mounts/replays fine on cold boot. So the fault is
+  specific to the read path on the 2nd virtio-blk instance after a reboot — a driver-interaction
+  bug (likely used-ring / `last_used` tracking across the warmup + subsequent reads on the 2nd
+  device, compounded by the missing timeout backstop). Durability-at-write is proven by the nxfs
+  crash-injection host suite (every write is a synced journaled txn that replays correctly); the
+  gap is purely the OS-level cross-reboot remount. Tracked here for a focused driver fix.

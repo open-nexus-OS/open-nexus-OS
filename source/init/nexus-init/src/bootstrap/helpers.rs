@@ -108,6 +108,9 @@ static GUARD_STR_PROBE_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
 // Deterministic DeviceMmio slot (per-service cap table).
 pub(crate) const DEVICE_MMIO_CAP_SLOT: u32 = 48;
+// nxfs `/data` device MMIO cap slot in vfsd's cap table (ADR-0044 / TASK-0293).
+// Must match `nxfsd::DATA_MMIO_SLOT`.
+pub(crate) const DATA_DEVICE_MMIO_CAP_SLOT: u32 = 49;
 pub(crate) const INPUT_MMIO_CAP_SLOT_BASE: u32 = 50;
 // QEMU `virt` virtio-mmio layout (per-device windows).
 pub(crate) const VIRTIO_MMIO_BASE: usize = 0x1000_1000;
@@ -118,7 +121,7 @@ pub(crate) fn virtio_mmio_window(slot: usize) -> (usize, usize) {
 }
 
 pub(crate) fn probe_virtio_mmio_slots(
-) -> Result<(usize, usize, Option<usize>, Option<usize>, [Option<usize>; 3])> {
+) -> Result<(usize, usize, [Option<usize>; 2], Option<usize>, [Option<usize>; 3])> {
     // Map the supported virtio-mmio window to discover device slots, then mint
     // per-device caps. Scanning past the platform window faults in guest bring-up.
     const MAX_SLOTS: usize = 8;
@@ -136,7 +139,9 @@ pub(crate) fn probe_virtio_mmio_slots(
 
     let mut net_slot: Option<usize> = None;
     let mut rng_slot: Option<usize> = None;
-    let mut blk_slot: Option<usize> = None;
+    // Two virtio-blk devices (ADR-0044): [0] = statefs `/state`, [1] = nxfs
+    // `/data`. Captured in slot-scan order (deterministic per QEMU command).
+    let mut blk_slots: [Option<usize>; 2] = [None, None];
     let mut gpu_slot: Option<usize> = None;
     let mut input_slots: [Option<usize>; 3] = [None, None, None];
     for slot in 0..MAX_SLOTS {
@@ -157,7 +162,12 @@ pub(crate) fn probe_virtio_mmio_slots(
         } else if device_id == VIRTIO_DEVICE_ID_RNG {
             rng_slot = Some(slot);
         } else if device_id == VIRTIO_DEVICE_ID_BLK {
-            blk_slot = Some(slot);
+            for blk_slot in &mut blk_slots {
+                if blk_slot.is_none() {
+                    *blk_slot = Some(slot);
+                    break;
+                }
+            }
         } else if device_id == VIRTIO_DEVICE_ID_GPU {
             gpu_slot = Some(slot);
         } else if device_id == VIRTIO_DEVICE_ID_INPUT {
@@ -170,7 +180,7 @@ pub(crate) fn probe_virtio_mmio_slots(
         }
         if net_slot.is_some()
             && rng_slot.is_some()
-            && blk_slot.is_some()
+            && blk_slots.iter().all(Option::is_some)
             && gpu_slot.is_some()
             && input_slots.iter().all(Option::is_some)
         {
@@ -180,7 +190,7 @@ pub(crate) fn probe_virtio_mmio_slots(
     let _ = nexus_abi::cap_close(cap);
     let net_slot = net_slot.ok_or(InitError::Map("virtio-net slot not found"))?;
     let rng_slot = rng_slot.ok_or(InitError::Map("virtio-rng slot not found"))?;
-    Ok((net_slot, rng_slot, blk_slot, gpu_slot, input_slots))
+    Ok((net_slot, rng_slot, blk_slots, gpu_slot, input_slots))
 }
 
 pub(crate) fn debug_write_byte(byte: u8) {
