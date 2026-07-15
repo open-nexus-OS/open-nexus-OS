@@ -255,6 +255,103 @@ fn data_unavailable(opcode: u8) -> Vec<u8> {
     }
 }
 
+/// Queries a VMO capability's byte length (RFC-0040 `cap_query`, `kind_tag` 1 =
+/// VMO). `None` when the slot is not a VMO the caller granted.
+fn vmo_len(slot: u32) -> Option<usize> {
+    let mut query = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+    if nexus_abi::cap_query(slot, &mut query).is_err() || query.kind_tag != 1 {
+        return None;
+    }
+    Some(query.len as usize)
+}
+
+/// Writes the splice header at VMO offset 0. Call this AFTER the payload write
+/// (release ordering): a client that sees the magic must see complete bytes.
+fn write_splice_header(vmo: u32, status: u16, len: u32) {
+    let hdr = nexus_vfs_types::encode_splice_header(status, len);
+    let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
+}
+
+/// Serves an `OP_READ_VMO` request (RFC-0072 Phase 3): resolve the path to
+/// bytes (nxfs `/data` or read-only `pkg:/`), write them into the caller's
+/// moved VMO payload-first + header-last, then close the moved cap. The header
+/// carries the RFC-0072 status; oversize-for-VMO is `E2BIG`, never truncated.
+#[allow(clippy::too_many_arguments)]
+fn handle_read_vmo(
+    frame: &[u8],
+    vmo_slot: Option<u32>,
+    namespace: &Namespace,
+    data: &mut Option<nxfsd::DataStore>,
+    data_attempts: &mut u8,
+    max_data_attempts: u8,
+    splice_bytes: &mut u64,
+    splice_fallbacks: &mut u64,
+) {
+    let Some(vmo) = vmo_slot else {
+        *splice_fallbacks += 1;
+        debug_print("vfsd: FAIL splice (no vmo cap)\n");
+        return;
+    };
+    let path = match nexus_vfs_types::decode_read_vmo_request(&frame[1..]) {
+        Some(path) => path,
+        None => {
+            write_splice_header(vmo, VfsError::Invalid.code(), 0);
+            let _ = nexus_abi::cap_close(vmo);
+            return;
+        }
+    };
+    // The caller's VMO capacity bounds the payload (minus the header prefix).
+    let max_payload = match vmo_len(vmo) {
+        Some(cap) if cap > nexus_vfs_types::SPLICE_DATA_OFFSET => {
+            cap - nexus_vfs_types::SPLICE_DATA_OFFSET
+        }
+        _ => {
+            *splice_fallbacks += 1;
+            write_splice_header(vmo, VfsError::Io.code(), 0);
+            let _ = nexus_abi::cap_close(vmo);
+            return;
+        }
+    };
+    // Resolve bytes from the owning provider (one surface, two providers).
+    let bytes: core::result::Result<Vec<u8>, VfsError> = if path_under_data(&path) {
+        if data.is_none() && *data_attempts < max_data_attempts {
+            *data_attempts += 1;
+            *data = nxfsd::DataStore::acquire();
+        }
+        match data.as_ref() {
+            Some(store) => store.read_bytes(&path, max_payload),
+            None => Err(VfsError::Io),
+        }
+    } else if path.starts_with("pkg:/") {
+        namespace.open(&path).map(|handle| handle.bytes).map_err(|_| VfsError::NotFound)
+    } else {
+        Err(VfsError::NotFound)
+    };
+    match bytes {
+        Ok(bytes) if bytes.len() <= max_payload => {
+            // Payload FIRST, header LAST — the release fence for the poller.
+            if nexus_abi::vmo_write(vmo, nexus_vfs_types::SPLICE_DATA_OFFSET, &bytes).is_ok() {
+                write_splice_header(vmo, nexus_vfs_types::CODE_OK, bytes.len() as u32);
+                *splice_bytes = splice_bytes.saturating_add(bytes.len() as u64);
+                debug_print(&format!(
+                    "vfsd: vmo splice read ok (bytes={}, fallbacks={})\n",
+                    bytes.len(),
+                    *splice_fallbacks
+                ));
+            } else {
+                *splice_fallbacks += 1;
+                write_splice_header(vmo, VfsError::Io.code(), 0);
+            }
+        }
+        Ok(_) => {
+            // Bytes exceed the caller's VMO — E2BIG, never a partial read.
+            write_splice_header(vmo, VfsError::TooBig.code(), 0);
+        }
+        Err(err) => write_splice_header(vmo, err.code(), 0),
+    }
+    let _ = nexus_abi::cap_close(vmo);
+}
+
 fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     let mut handles: BTreeMap<u32, FileHandle> = BTreeMap::new();
     let mut next_handle: u32 = 1;
@@ -263,6 +360,10 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     let mut data: Option<nxfsd::DataStore> = None;
     let mut data_attempts: u8 = 0;
     const MAX_DATA_ATTEMPTS: u8 = 8;
+    // Zero-copy read accounting (RFC-0072 Phase 3): total bytes moved through a
+    // VMO and the number of reads that could NOT splice (honest fallback count).
+    let mut splice_bytes: u64 = 0;
+    let mut splice_fallbacks: u64 = 0;
     loop {
         // CAP_MOVE-aware receive: app-host children move a one-shot reply cap
         // into the request (their private inbox); direct clients (selftest)
@@ -277,6 +378,28 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                     continue;
                 }
                 let opcode = frame[0];
+                // Zero-copy read (RFC-0072 Phase 3): the moved cap IS the
+                // caller's VMO (CAP_MOVE, not a reply endpoint — the GET_PAYLOAD
+                // handoff). vfsd fills it and the header it writes into the VMO
+                // is the reply (header-last); there is no frame reply.
+                if opcode == nexus_vfs_types::OP_READ_VMO {
+                    let vmo_slot = reply_cap.map(|cap| {
+                        let slot = cap.slot();
+                        core::mem::forget(cap);
+                        slot
+                    });
+                    handle_read_vmo(
+                        &frame,
+                        vmo_slot,
+                        &namespace,
+                        &mut data,
+                        &mut data_attempts,
+                        MAX_DATA_ATTEMPTS,
+                        &mut splice_bytes,
+                        &mut splice_fallbacks,
+                    );
+                    continue;
+                }
                 // Writable `/data` mount: route to the in-process nxfs store
                 // (RFC-0072 Phase 2). Everything else is the read-only pkg path.
                 if targets_data(&frame) {
@@ -360,19 +483,26 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                         ]);
                         let len = u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
                         let mut reply = Vec::new();
-                        match handles.get(&fh) {
-                            Some(handle) if handle.owner_service_id == sender_service_id => {
-                                let start = off.min(handle.bytes.len() as u64) as usize;
-                                let end =
-                                    start.saturating_add(len as usize).min(handle.bytes.len());
-                                reply.push(1);
-                                reply.extend_from_slice(&handle.bytes[start..end]);
+                        if len as usize > nexus_vfs_types::INLINE_IO_MAX {
+                            // Inline reads are capped at INLINE_IO_MAX; a larger
+                            // read must use OP_READ_VMO (RFC-0072 Phase 3). Reply
+                            // sentinel `2` = E2BIG — never a silent truncation.
+                            reply.push(2);
+                        } else {
+                            match handles.get(&fh) {
+                                Some(handle) if handle.owner_service_id == sender_service_id => {
+                                    let start = off.min(handle.bytes.len() as u64) as usize;
+                                    let end =
+                                        start.saturating_add(len as usize).min(handle.bytes.len());
+                                    reply.push(1);
+                                    reply.extend_from_slice(&handle.bytes[start..end]);
+                                }
+                                Some(_) => {
+                                    debug_print("vfsd: access denied\n");
+                                    reply.push(0);
+                                }
+                                None => reply.push(0),
                             }
-                            Some(_) => {
-                                debug_print("vfsd: access denied\n");
-                                reply.push(0);
-                            }
-                            None => reply.push(0),
                         }
                         reply
                     }

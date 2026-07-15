@@ -19,11 +19,16 @@ extern crate alloc;
 mod entry;
 mod error;
 pub mod fileops;
+pub mod splice;
 mod wire;
 
 pub use entry::{DirEntry, FileKind, MAX_ENTRIES_PER_PAGE, MAX_NAME_LEN, MAX_PATH_LEN};
 pub use error::VfsError;
 pub use error::CODE_OK;
+pub use splice::{
+    decode_read_vmo_request, decode_splice_header, encode_read_vmo_request, encode_splice_header,
+    splice_fits, INLINE_IO_MAX, OP_READ_VMO, SPLICE_DATA_OFFSET, SPLICE_HEADER_LEN, SPLICE_MAGIC,
+};
 pub use wire::{
     decode_readdir_request, decode_readdir_response, encode_readdir_error,
     encode_readdir_page, encode_readdir_request, encode_readdir_response, ReadDirPage,

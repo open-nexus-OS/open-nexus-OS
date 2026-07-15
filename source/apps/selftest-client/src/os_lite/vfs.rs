@@ -83,6 +83,27 @@ pub(crate) fn verify_vfs() -> Result<(), ()> {
         _ => return Err(()),
     }
 
+    // Zero-copy VMO splice (RFC-0072 Phase 3 / TASK-0295): the same file read
+    // through a CAP_MOVE'd VMO must be byte-identical to the inline read — this
+    // proves the splice data plane actually engaged (not a silent fallback).
+    let splice_fh = vfs.open("pkg:/system/build.prop").map_err(|_| ())?;
+    let inline = vfs.read(splice_fh, 0, 4096).map_err(|_| ())?;
+    match vfs.read_vmo("pkg:/system/build.prop", 64 * 1024) {
+        Ok(spliced) if !spliced.is_empty() && spliced == inline => {
+            emit_line(crate::markers::M_SELFTEST_VFS_SPLICE_ROUNDTRIP_OK);
+        }
+        _ => return Err(()),
+    }
+    // Inline reads above INLINE_IO_MAX are a protocol error (E2BIG), never a
+    // silent slow path — the large read must use the VMO splice instead.
+    match vfs.read(splice_fh, 0, 5000) {
+        Err(nexus_vfs::Error::Vfs(nexus_vfs_types::VfsError::TooBig)) => {
+            emit_line(crate::markers::M_SELFTEST_VFS_INLINE_OVERSIZE_DENY_OK);
+        }
+        _ => return Err(()),
+    }
+    vfs.close(splice_fh).map_err(|_| ())?;
+
     // traversal deny path (userspace confinement floor)
     if vfs.stat("pkg:/system/../secrets.txt").is_err() {
         emit_line(crate::markers::M_SELFTEST_SANDBOX_DENY_OK);

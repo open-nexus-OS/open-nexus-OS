@@ -56,3 +56,20 @@ Current limitation:
 
 - Two-process VMO proof is now real (producer task -> transferred slot in spawned consumer task -> consumer RO map + bounded payload verification).
 - Producer-side `sha256` marker currently pairs consumer success with deterministic fixture digest check; kernel-enforced seal/right hardening still remains in `TASK-0290`.
+
+## Consumers
+
+The VMO transfer floor (RFC-0040) is used in production by:
+
+- **execd → bundlemgrd → app** payload load: execd creates a payload VMO, CAP_MOVEs
+  a clone to bundlemgrd, which fills it payload-first + header-last; execd then moves
+  the VMO into the child's fixed payload slot (`nexus_abi::bundlemgrd` header codec).
+- **vfsd `OP_READ_VMO`** zero-copy file reads (RFC-0072 Phase 3, `TASK-0295`): the client
+  creates a VMO, CAP_MOVEs it to vfsd with the read request, and the provider (nxfs `/data`
+  or read-only `pkg:/`) fills it **payload-first, header-last** using the shared
+  `nexus-vfs-types::splice` header (magic `NXVR`, 16-byte header, data at offset 16). The
+  client polls the header (bounded) and reads the bytes back. Reads/writes at or below
+  `INLINE_IO_MAX = 4096` stay inline; above it, inline is `E2BIG` (never a silent slow path).
+  Fallbacks are counted, not silent: `vfsd: vmo splice read ok (bytes=<n>, fallbacks=<m>)`.
+  Proven: `SELFTEST: vfs splice roundtrip ok` (cross-process byte-equality) +
+  `SELFTEST: vfs inline oversize deny ok`.

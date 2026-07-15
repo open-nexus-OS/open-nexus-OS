@@ -54,6 +54,12 @@ phase = "vfs"
 [marker."SELFTEST: vfs ebadf ok"]
 phase = "vfs"
 
+[marker."SELFTEST: vfs splice roundtrip ok"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs inline oversize deny ok"]
+phase = "vfs"
+
 [marker."dbg: phase vfs skipped"]
 phase = "vfs"
 

@@ -15,7 +15,7 @@
 
 - **Phase 1 (ReadDir + stable error codes on the read-only surface)**: ✅ — `TASK-0291` (host tests + `SELFTEST: vfs readdir ok`/`deny ok` + visible-boot evidence, 2026-07-15)
 - **Phase 2 (write ops + writable provider registration, `/data` via nxfsd)**: ⬜ — `TASK-0293`
-- **Phase 3 (VMO handle data plane for large reads/writes)**: ⬜ — `TASK-0295`
+- **Phase 3 (VMO handle data plane for large reads/writes)**: ✅ (read path) — `TASK-0295` (`OP_READ_VMO` cross-process CAP_MOVE splice + inline `E2BIG`; `vfsd: vmo splice read ok (bytes=19, fallbacks=0)` + `SELFTEST: vfs splice roundtrip ok` + `SELFTEST: vfs inline oversize deny ok`, 2026-07-15). VMO-backed writes remain a follow-up.
 
 Definition:
 

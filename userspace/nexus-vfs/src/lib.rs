@@ -233,10 +233,13 @@ impl VfsClient {
             frame.extend_from_slice(&off.to_le_bytes());
             frame.extend_from_slice(&(len.min(u32::MAX as usize) as u32).to_le_bytes());
             let rsp = self.backend.call(frame)?;
-            if rsp.first().copied() != Some(1) {
-                return Err(Error::InvalidHandle);
+            match rsp.first().copied() {
+                Some(1) => return Ok(rsp[1..].to_vec()),
+                // Sentinel `2` = the inline read exceeds INLINE_IO_MAX; the
+                // caller must use `read_vmo` (RFC-0072 Phase 3 E2BIG).
+                Some(2) => return Err(Error::Vfs(VfsError::TooBig)),
+                _ => return Err(Error::InvalidHandle),
             }
-            return Ok(rsp[1..].to_vec());
         }
         #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
         {
@@ -262,6 +265,25 @@ impl VfsClient {
                 return Err(Error::InvalidHandle);
             }
             response.get_bytes().map(|data| data.to_vec()).map_err(|_| Error::Decode)
+        }
+    }
+
+    /// Reads a whole file's bytes via a zero-copy VMO splice (RFC-0072 Phase 3,
+    /// RFC-0040): the client creates a `cap`-byte VMO, CAP_MOVEs it to vfsd, and
+    /// the provider fills it payload-first + header-last. `cap` bounds the
+    /// transfer; a file whose bytes exceed `cap - header` is reported as
+    /// `E2BIG` (`Error::Vfs(TooBig)`), never truncated. OS-only — host builds
+    /// return `Unsupported` (host proof lives in `nexus-vmo`'s own tests).
+    pub fn read_vmo(&self, path: &str, cap: usize) -> Result<Vec<u8>> {
+        #[cfg(nexus_env = "os")]
+        {
+            let path = validate_namespace_path(path)?;
+            return self.backend.read_vmo(path, cap);
+        }
+        #[cfg(not(nexus_env = "os"))]
+        {
+            let _ = (path, cap);
+            Err(Error::Unsupported)
         }
     }
 
@@ -478,6 +500,13 @@ impl Backend {
             Self::Os(client) => client.call(frame),
         }
     }
+
+    #[cfg(nexus_env = "os")]
+    fn read_vmo(&self, path: &str, cap: usize) -> Result<Vec<u8>> {
+        match self {
+            Self::Os(client) => client.read_vmo(path, cap),
+        }
+    }
 }
 
 #[cfg(nexus_env = "host")]
@@ -546,6 +575,66 @@ mod os {
                 return Err(map_ipc_error(err));
             }
             self.ipc.recv(Wait::Blocking).map_err(map_ipc_error)
+        }
+
+        /// Zero-copy read: create a `cap`-byte VMO, CAP_MOVE a clone to vfsd
+        /// with the `OP_READ_VMO` request, then poll the header the provider
+        /// writes into the VMO (payload-first, header-last) and read the bytes
+        /// back. Bounded poll — no unbounded spin (RFC-0040 discipline).
+        pub fn read_vmo(&self, path: &str, cap: usize) -> Result<Vec<u8>> {
+            use nexus_vfs_types::{
+                decode_splice_header, encode_read_vmo_request, VfsError, OP_READ_VMO,
+                SPLICE_DATA_OFFSET, SPLICE_HEADER_LEN,
+            };
+            /// Bounded header-poll attempts (with a yield between each).
+            const SPLICE_POLL_MAX: u32 = 200_000;
+            let payload = encode_read_vmo_request(path).ok_or(Error::InvalidPath)?;
+            let mut frame = Vec::with_capacity(1 + payload.len());
+            frame.push(OP_READ_VMO);
+            frame.extend_from_slice(&payload);
+            // Create the VMO (kept for read-back) + a clone to hand to vfsd.
+            let vmo = nexus_abi::vmo_create(cap).map_err(|_| Error::Unsupported)?;
+            let clone = match nexus_abi::cap_clone(vmo) {
+                Ok(clone) => clone,
+                Err(_) => {
+                    let _ = nexus_abi::cap_close(vmo);
+                    return Err(Error::Unsupported);
+                }
+            };
+            // CAP_MOVE consumes `clone` on success; only close it on failure.
+            if let Err(err) = self.ipc.send_with_cap_move_wait(&frame, clone, Wait::Blocking) {
+                let _ = nexus_abi::cap_close(clone);
+                let _ = nexus_abi::cap_close(vmo);
+                return Err(map_ipc_error(err));
+            }
+            // Poll the splice header (magic absent = provider still writing).
+            let mut hdr = [0u8; SPLICE_HEADER_LEN];
+            let mut attempts = 0u32;
+            let (status, len) = loop {
+                if nexus_abi::vmo_read(vmo, 0, &mut hdr).is_ok() {
+                    if let Some(decoded) = decode_splice_header(&hdr) {
+                        break decoded;
+                    }
+                }
+                attempts += 1;
+                if attempts > SPLICE_POLL_MAX {
+                    let _ = nexus_abi::cap_close(vmo);
+                    return Err(Error::Ipc("splice header timeout".into()));
+                }
+                let _ = nexus_abi::yield_();
+            };
+            if status != nexus_vfs_types::CODE_OK {
+                let _ = nexus_abi::cap_close(vmo);
+                return Err(Error::Vfs(VfsError::from_code(status).unwrap_or(VfsError::Io)));
+            }
+            let mut out = alloc::vec![0u8; len as usize];
+            let ok = out.is_empty() || nexus_abi::vmo_read(vmo, SPLICE_DATA_OFFSET, &mut out).is_ok();
+            let _ = nexus_abi::cap_close(vmo);
+            if ok {
+                Ok(out)
+            } else {
+                Err(Error::Ipc("splice payload read".into()))
+            }
         }
     }
 

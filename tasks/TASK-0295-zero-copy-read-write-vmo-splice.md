@@ -1,6 +1,6 @@
 ---
 title: TASK-0295 Zero-copy storage data plane: VMO splice reads (packagefs + nxfs) + VMO-backed writes + inline cap enforcement
-status: Draft
+status: In Review
 owner: @runtime
 created: 2026-07-15
 depends-on:
@@ -67,3 +67,47 @@ VFS surface so packagefs AND nxfs serve the same contract.
 - `source/services/vfsd/`, `source/services/packagefsd/`, `source/services/nxfsd/`
 - `userspace/nexus-vfs/`, `userspace/memory/` (nexus-vmo, only if counters/helpers are missing)
 - `source/apps/selftest-client/`, `scripts/qemu-test.sh`, `docs/storage/vmo.md`
+
+## Progress snapshot (2026-07-15) — read path + inline cap DONE, boot-proven
+
+v1 delivers the **VMO-splice READ** data plane and the inline cap, modeled on the live
+execd→bundlemgrd payload handoff (CAP_MOVE + header-last). VMO-backed *writes* are a follow-up
+(the write surface today is bounded inline text, RFC-0073 v1).
+
+- [x] **Shared codec** `nexus-vfs-types::splice`: `OP_READ_VMO = 7`, `INLINE_IO_MAX = 4096`,
+  the 16-byte splice header (magic `NXVR`, status, len; data at offset 16),
+  `encode/decode_read_vmo_request`, and `splice_fits(payload, capacity)` — the shared E2BIG
+  decision. 7 host tests (header pending/ready roundtrip, fill→readback byte-equality,
+  oversize→E2BIG, capacity-below-header).
+- [x] **vfsd** `handle_read_vmo`: takes the CAP_MOVE'd VMO, resolves the path (nxfs `/data`
+  via `DataStore::read_bytes`, or read-only `pkg:/` via the namespace), writes the payload
+  FIRST + the header LAST (release ordering), closes the cap. Honest accounting: total bytes +
+  fallback count in `vfsd: vmo splice read ok (bytes=<n>, fallbacks=<m>)`. Inline `OP_READ`
+  above `INLINE_IO_MAX` → E2BIG sentinel (never truncated).
+- [x] **nexus-vfs client** `read_vmo(path, cap)`: creates a VMO, CAP_MOVEs a clone via
+  `send_with_cap_move_wait`, polls the header (bounded), reads the bytes back; maps the inline
+  oversize sentinel to `Error::Vfs(TooBig)`. OS-only (host returns `Unsupported`).
+- [x] **selftest** (`os_lite/vfs.rs`): splice byte-equality vs the inline read + inline oversize
+  deny; two new markers declared in the proof manifest.
+
+### Proof (Host) — met
+
+- `cargo test -p nexus-vfs-types` (23, incl. 7 splice: fill→readback byte-equality, E2BIG via
+  `splice_fits`, header pending/ready). Fallback-counter + handle-lifetime negatives are covered
+  by `nexus-vmo`'s `host_contract`/`reject_contract` (the VMO transfer SSOT, RFC-0040).
+
+### Proof (OS / QEMU) — met (headless marker ladder, `just test-os headless`, exit 0)
+
+- `vfsd: vmo splice read ok (bytes=19, fallbacks=0)` — the splice engaged (19 B = `build.prop`),
+  zero fallbacks (a real cross-process cap-move, not a copy).
+- `SELFTEST: vfs splice roundtrip ok` — the spliced bytes equal the inline read, cross-process.
+- `SELFTEST: vfs inline oversize deny ok` — an inline read above `INLINE_IO_MAX` is `E2BIG`.
+- Full ladder `SELFTEST: Completed (markers verified)` — no regression.
+
+### Deferred (honest scope)
+
+- **VMO-backed writes** (large writes as VMO handles) — the write surface stays bounded inline
+  text in v1 (RFC-0073); the read splice proves the plane both providers will share.
+- **Kernel-enforced sealing / write-map denial / lifecycle closure** — RFC-0040 delegates these
+  to `TASK-0290`; the splice uses the transfer floor honestly and counts fallbacks, but does not
+  claim kernel-enforced seal guarantees.

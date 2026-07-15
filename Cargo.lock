@@ -2254,6 +2254,7 @@ name = "nexus-vfs"
 version = "0.1.0"
 dependencies = [
  "capnp",
+ "nexus-abi",
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-vfs-types",
