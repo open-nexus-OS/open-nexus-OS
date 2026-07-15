@@ -26,6 +26,17 @@ mod fsck;
 mod journal;
 mod state;
 
+/// Diagnostic mount-step tracer (feature `trace`); a no-op otherwise.
+macro_rules! nxfs_trace {
+    ($msg:literal) => {{
+        #[cfg(feature = "trace")]
+        {
+            let _ = nexus_abi::debug_write(concat!($msg, "\n").as_bytes());
+        }
+    }};
+}
+pub(crate) use nxfs_trace;
+
 pub use format::{Uuid, LOGICAL_BLOCK_SIZE, MAX_DEPTH, MAX_NAME_LEN, NXFS_VERSION};
 pub use fs::{MkfsOptions, Nxfs};
 pub use fsck::{fsck, FsckOutcome, FsckReport};

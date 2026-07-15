@@ -129,20 +129,22 @@ host-tested) are the substrate for the deferred single-device consolidation.
 - [x] init: probe finds two blk slots, grants device 2 to vfsd (cap slot 49); `policies/base.toml`
   gives vfsd `device.mmio.blk`. Launcher: 2nd `-drive`/`-device` + `NEXUS_KEEP_BLK=1`.
 - [x] `svc.files.mkdir/remove` + app-host write arm; stash opens `/data`, "New folder" → real mkdir.
-- [x] **Boot-proven (fresh, visible virgl boot):** `nxfsd: mounted /data (rw, clean)` →
-  `apphost: dsl svc files.list ok (n=0)` (empty) → click New → `apphost: dsl svc files.mkdir ok`
-  → reload `apphost: dsl svc files.list ok (n=1)` → **"New Folder" visible in the stash listing**
-  (screenshot). The full write path works end-to-end on the real nxfs container.
+- [x] **Write path boot-proven (fresh, visible virgl boot):** `nxfsd: mounted /data (rw, clean)` →
+  `files.list ok (n=0)` (empty) → click New → `files.mkdir ok` → reload `files.list ok (n=1)` →
+  **"New Folder" visible in the stash listing** (screenshot). Full write path on the real container.
+- [x] **Cold-boot persistence boot-proven (`NEXUS_KEEP_BLK=1`):** create a folder → reboot keeping
+  the images → `nxfsd: mounted /data (rw, clean)` → `files.list ok (n=1)` → **"New Folder" still
+  visible** after the reboot (screenshot). The nxfs container survives a cold boot.
 
-### Known follow-up (does NOT block the write milestone)
+### The cold-boot remount deadlock (found + fixed during bring-up)
 
-- ⬜ **Cold-boot keep-blk REMOUNT hangs**: on a second boot with `NEXUS_KEEP_BLK=1`, vfsd opens the
-  device (`nxfsd: device opened, mount/format`) but `Nxfs::mount` of the EXISTING container never
-  returns — a virtio-blk **read** on the 2nd device does not complete AND the driver's `nsec()`
-  timeout does not fire (so no `virtio-blk: timeout`). Writes (mkfs) and fresh-device reads (peek)
-  on device 2 both work; statefs (device 1) mounts/replays fine on cold boot. So the fault is
-  specific to the read path on the 2nd virtio-blk instance after a reboot — a driver-interaction
-  bug (likely used-ring / `last_used` tracking across the warmup + subsequent reads on the 2nd
-  device, compounded by the missing timeout backstop). Durability-at-write is proven by the nxfs
-  crash-injection host suite (every write is a synced journaled txn that replays correctly); the
-  gap is purely the OS-level cross-reboot remount. Tracked here for a focused driver fix.
+The first cold-boot attempts HUNG: `Nxfs::mount` read the FULL journal region (64 blocks =
+512 sequential sector reads) and the virtio-blk driver deadlocks on a long sequential read run on
+the 2nd device (statefs on device 1 does ~64 reads and is fine; the driver's `nsec()` timeout also
+did not fire, so no `virtio-blk: timeout`). Pinned with a feature-gated mount tracer
+(`nxfs/trace`): the hang was precisely the journal read. **Fix: `Nxfs::mount` reads the journal
+INCREMENTALLY and stops at the first all-zero (unused) block** — the used journal is a couple of
+blocks, so mount now does ~32 sector reads (well under statefs's working count). This both avoids
+the driver deadlock and makes mount fast; the underlying virtio-blk long-read-run bug is a
+separate driver hardening follow-up (not on this milestone's path). Host crash-injection suite
+re-run green with the incremental read.

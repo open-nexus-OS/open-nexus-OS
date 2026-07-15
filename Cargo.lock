@@ -2761,6 +2761,7 @@ dependencies = [
 name = "nxfs"
 version = "0.1.0"
 dependencies = [
+ "nexus-abi",
  "nexus-vfs-types",
  "storage",
 ]

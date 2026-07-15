@@ -120,9 +120,11 @@ impl<D: BlockDevice> Nxfs<D> {
 
     /// Mounts an existing container: newest valid checkpoint + journal replay.
     pub fn mount(device: D) -> Result<Self> {
+        crate::nxfs_trace!("nxfs-trace: mount enter");
         let dev = Dev::new(device)?;
         let total = dev.logical_blocks();
         let sb = Self::read_superblock(&dev, total)?;
+        crate::nxfs_trace!("nxfs-trace: superblock read ok");
         let cp_blocks = checkpoint_blocks(total);
         let data_start = sb.journal_start + sb.journal_blocks + 2 * cp_blocks;
 
@@ -138,10 +140,12 @@ impl<D: BlockDevice> Nxfs<D> {
             if slot.generation == 0 {
                 continue;
             }
+            crate::nxfs_trace!("nxfs-trace: reading checkpoint blob");
             let blob = match dev.read_bytes(slot.root_lb, slot.len_bytes as usize) {
                 Ok(blob) => blob,
                 Err(_) => continue,
             };
+            crate::nxfs_trace!("nxfs-trace: checkpoint blob read ok");
             if crate::format::crc32c(&blob) != slot.crc {
                 continue;
             }
@@ -151,11 +155,28 @@ impl<D: BlockDevice> Nxfs<D> {
             }
         }
         let (mut state, cp_next_txn) = loaded.ok_or(NxfsError::Integrity)?;
+        crate::nxfs_trace!("nxfs-trace: checkpoint decoded, reading journal");
 
         // Journal replay (committed-only, stale txns skipped by watermark).
-        let region_len = (sb.journal_blocks as usize) * LOGICAL_BLOCK_SIZE;
-        let region = dev.read_bytes(sb.journal_start, region_len)?;
+        // Read the journal region INCREMENTALLY and stop at the first fully-
+        // unused (all-zero) block: the used portion is tiny versus the reserved
+        // region, so reading all `journal_blocks` both wastes time and — on the
+        // real virtio-blk driver — deadlocks on a long sequential read run
+        // (TASK-0293). No committed record can follow an all-zero block (the
+        // journal is written contiguously from offset 0, tail is zeros).
+        let mut region: Vec<u8> = Vec::with_capacity(2 * LOGICAL_BLOCK_SIZE);
+        let mut block = [0u8; LOGICAL_BLOCK_SIZE];
+        for i in 0..sb.journal_blocks {
+            dev.read(sb.journal_start + i, &mut block)?;
+            let all_zero = block.iter().all(|&byte| byte == 0);
+            region.extend_from_slice(&block);
+            if all_zero {
+                break;
+            }
+        }
+        crate::nxfs_trace!("nxfs-trace: journal read ok, replaying");
         let replayed = journal::replay(&region, cp_next_txn);
+        crate::nxfs_trace!("nxfs-trace: replay done");
         for op in &replayed.ops {
             state.apply(op)?;
         }

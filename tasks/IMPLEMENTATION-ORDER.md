@@ -48,7 +48,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 |------|-------|--------|
 | TASK-0291 | VFS ReadDir + svc.files + filemanager role + stash real listing | In Review (2026-07-15, proofs green) |
 | TASK-0292 | nxfs v1 core (host-first): engine + fsck + crash-injection | In Review (2026-07-15, host-proven) |
-| TASK-0293 | nxfs /data OS bring-up (v1: 2nd blk device, vfsd-hosted DataStore) | In Review (2026-07-15, write path boot-proven; cold-boot remount follow-up) |
+| TASK-0293 | nxfs /data OS bring-up (v1: 2nd blk device, vfsd-hosted DataStore) | In Review (2026-07-15, write + cold-boot persistence boot-proven) |
 
 ---
 

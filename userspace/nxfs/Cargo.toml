@@ -5,9 +5,16 @@ edition = "2021"
 license = "Apache-2.0"
 description = "nxfs user-data filesystem engine (RFC-0071 Phase 1): crash-atomic journaled store with dual checkpoint slots, crc32c-checked metadata, and canonical directory listings. Host-first; the nxfsd service is a thin shell over this crate."
 
+[features]
+default = []
+# Diagnostic: emit UART markers at each mount read step (pins a hang to a
+# specific read on real hardware/QEMU). Off in production.
+trace = ["dep:nexus-abi"]
+
 [dependencies]
 storage = { path = "../storage", default-features = false }
 nexus-vfs-types = { path = "../vfs-types" }
+nexus-abi = { path = "../../source/libs/nexus-abi", optional = true }
 
 [lints.rust]
 unsafe_code = "forbid"

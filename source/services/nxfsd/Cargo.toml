@@ -12,6 +12,8 @@ os-lite = [
     "dep:nexus-abi",
     "storage/os-lite",
 ]
+# Diagnostic: enable nxfs mount-step UART tracing (pins a hang to a read step).
+trace = ["nxfs/trace"]
 
 [dependencies]
 nxfs = { path = "../../../userspace/nxfs" }
