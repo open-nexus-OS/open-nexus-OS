@@ -147,7 +147,20 @@ Page StashPage {
                                     WinActionItem { id: "move", label: @t("stash.actMove"), icon: "move", kind: "primary" }
                                     WinActionItem { id: "copy", label: @t("stash.actCopy"), icon: "doc.on.doc", kind: "" }
                                     WinActionItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "" }
-                                    WinActionItem { id: "delete", label: @t("stash.actDelete"), icon: "trash", kind: "danger" }
+                                    // Real delete (svc.files.remove → nxfs); custom
+                                    // button so it dispatches a dedicated event.
+                                    Stack {
+                                        Icon { symbol: "trash", size: 16 }
+                                            .fg(danger)
+                                        Text(@t("stash.actDelete")).textSize(xs).fg(danger)
+                                    }
+                                    .align(center)
+                                    .justify(center)
+                                    .gap(1)
+                                    .width(66)
+                                    .height(52)
+                                    .rounded(lg)
+                                    on Tap -> dispatch(DeleteSel)
                                     WinActionItem { id: "more", label: @t("stash.actMore"), icon: "ellipsis", kind: "" }
                                 }
                                 .direction(row)
