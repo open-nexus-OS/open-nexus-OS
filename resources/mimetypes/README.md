@@ -38,9 +38,10 @@ TOML (override, derived, or fallback) — the `nexus-mime-icons` bake enforces t
   `#8252B1`, text/generic `#C4C4C4`, code/config `#F1A02E` (+ language brands), executables/gears
   `#3862E8`, spreadsheet `#00B48D`, presentation `#F57900`.
 - Renderer budget: the icons are rasterized by `nexus-svg` (TASK-0294) — **no `<use>`, no
-  `<defs>`, no radial gradients, no `<text>`**. Known debt: `application-pdf.svg` and
-  `package-x-generic.svg` still contain `defs`/`clipPath` and must be flattened before/while the
-  bake lands (bake fails loudly on them, it does not guess).
+  `<defs>`, no radial gradients, no `<text>`**. `application-pdf.svg` and `package-x-generic.svg`
+  originally shipped a bounding-box `<g clip-path>`/`<defs><clipPath>` wrapper that nexus-svg
+  cannot render; both were flattened (wrapper + `defs` removed, inner paths kept — the clip was a
+  no-op) when the bake landed. All 39 stems now rasterize cleanly.
 
 ## Provenance
 

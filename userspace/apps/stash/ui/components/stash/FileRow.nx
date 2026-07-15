@@ -17,8 +17,7 @@ Component FileRow {
     }
     if $props.active {
         Stack {
-            Icon { symbol: $props.icon, size: 15 }
-                .fg(onAccent)
+            Image { source: $props.icon, size: 24 }
             Text($props.name).textSize(sm).fg(onAccent)
             Spacer
             Text($props.date).textSize(xs).fg(onAccent)
@@ -34,8 +33,7 @@ Component FileRow {
         on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, $props.date))
     } else {
         Stack {
-            Icon { symbol: $props.icon, size: 15 }
-                .fg(onSurfaceVariant)
+            Image { source: $props.icon, size: 24 }
             Text($props.name).textSize(sm).fg(onSurface)
             Spacer
             Text($props.date).textSize(xs).fg(onSurfaceVariant)

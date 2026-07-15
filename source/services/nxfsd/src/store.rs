@@ -85,18 +85,56 @@ impl DataStore {
         let opts = MkfsOptions { uuid: CONTAINER_UUID, journal_blocks: 64 };
         match Nxfs::open_or_format(device, opts) {
             Ok(fs) => {
+                let fresh = fs.formatted_fresh;
                 if fs.replay_discarded_tail {
                     mark("nxfsd: mounted /data (rw, recovered)");
                 } else {
                     mark("nxfsd: mounted /data (rw, clean)");
                 }
-                Some(Self { fs })
+                let mut store = Self { fs };
+                if fresh {
+                    store.seed_first_run();
+                }
+                Some(store)
             }
             Err(_) => {
                 mark("nxfsd: open/format FAIL");
                 None
             }
         }
+    }
+
+    /// Seeds a blank container with a small set of first-run files spanning
+    /// several types — an OS shipping example content — so the file-type icon
+    /// pipeline (TASK-0294) has varied entries to render. Best-effort: a failed
+    /// entry is skipped, never fatal. Only ever runs on a fresh `mkfs`.
+    fn seed_first_run(&mut self) {
+        let dirs = ["/Documents", "/Pictures"];
+        let files: &[(&str, &[u8])] = &[
+            ("/Welcome.txt", b"Welcome to Nexus.\n"),
+            ("/Read Me.md", b"# Nexus\n\nYour files live here.\n"),
+            ("/Report.pdf", b"%PDF-1.4 nexus demo\n"),
+            ("/Photo.png", b"\x89PNG\r\n\x1a\n nexus demo"),
+            ("/Song.mp3", b"ID3 nexus demo audio"),
+            ("/Archive.zip", b"PK\x03\x04 nexus demo"),
+            ("/config.json", b"{ \"nexus\": true }\n"),
+        ];
+        let mut n = 0u32;
+        for dir in dirs {
+            if self.fs.mkdir(dir).is_ok() {
+                n += 1;
+            }
+        }
+        for (path, content) in files {
+            if self.fs.create(path).is_ok() {
+                let _ = self.fs.write(path, 0, content);
+                n += 1;
+            }
+        }
+        let mut line = String::from("nxfsd: seeded first-run content (n=");
+        push_u32(&mut line, n);
+        line.push(')');
+        mark(&line);
     }
 
     /// Answers one `/data` provider frame (opcode + mount-relative payload).
@@ -197,4 +235,20 @@ fn status_reply(err: VfsError) -> Vec<u8> {
 
 fn decode_path(payload: &[u8]) -> String {
     to_nxfs_path(core::str::from_utf8(payload).unwrap_or(""))
+}
+
+/// Appends a decimal `u32` to a string (no `format!` in the mount hot path).
+fn push_u32(out: &mut String, mut value: u32) {
+    if value == 0 {
+        out.push('0');
+        return;
+    }
+    let mut digits = [0u8; 10];
+    let mut i = digits.len();
+    while value > 0 {
+        i -= 1;
+        digits[i] = b'0' + (value % 10) as u8;
+        value /= 10;
+    }
+    out.push_str(core::str::from_utf8(&digits[i..]).unwrap_or("?"));
 }

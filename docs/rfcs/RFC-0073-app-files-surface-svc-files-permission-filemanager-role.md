@@ -14,8 +14,8 @@
 ## Status at a Glance
 
 - **Phase 1 (`svc.files.list/stat` + FILES permission + filemanager role + stash real listing)**: ✅ — `TASK-0291` (pack-ceiling deny test + `apphost: dsl svc files.list ok (n=3)` + stash screenshot evidence, 2026-07-15)
-- **Phase 2 (`svc.files` write surface: mkdir/rename/remove/write via `/data`)**: ⬜ — `TASK-0293`
-- **Phase 3 (mime resolution + file-type icons in the DSL)**: ⬜ — `TASK-0294`
+- **Phase 2 (`svc.files` write surface: mkdir/rename/remove/write via `/data`)**: ✅ — `TASK-0293` (mkdir boot-proven + cold-boot persistence, 2026-07-15)
+- **Phase 3 (mime resolution + file-type icons in the DSL)**: ✅ — `TASK-0294` (`nexus-mime-icons` bake + `Image { source: "mime:…" }` + stash type icons; `stash: mime icons resolved (n=…)`, 2026-07-15)
 - **Deferred (not this RFC)**: mediated pickers for sandboxed apps — `TASK-0083`/`TASK-0084`
 
 Definition:
@@ -152,10 +152,14 @@ Resolution chain (normative): extension match → exact-mime stem → mime-class
 (a) the files service's `mime` field and (b) the `nexus-mime-icons` bake (TASK-0294) —
 one table, two consumers.
 
-**DSL icon convention** (Phase 3): `Image { source: "mime:<mime>", size: <px> }` — the runtime
-resolves via the baked mime-icon table exactly like app icons resolve by app id
-(`userspace/dsl/runtime/src/registry.rs` Image primitive); unknown mime renders the fallback stem,
-never a blank.
+**DSL icon convention** (Phase 3, implemented): `Image { source: "mime:<token>", size: <px> }` —
+the runtime resolves via the baked mime-icon table exactly like app icons resolve by app id
+(`userspace/dsl/runtime/src/registry.rs` Image primitive). The token is, in priority order: an
+already-resolved icon stem (the app-host's fast path — it emits `"mime:<stem>"` per listing entry),
+a full mime type (contains `/`), or a bare file extension. All three run the same normative chain
+and always land on a real stem; unknown input renders `application-octet-stream`, never a blank.
+The resolution SSOT lives once in `nexus-mime-icons` (built from `mimetypes.toml`) and is shared by
+both the app-host (`entry_icon_stem`) and the DSL primitive (`sprite_for_source`).
 
 ### Phases / milestones (contract-level)
 

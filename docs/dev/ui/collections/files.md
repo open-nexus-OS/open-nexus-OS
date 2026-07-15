@@ -107,6 +107,25 @@ Persistence guidance:
 - Keep it bounded:
   - cap the number of per-folder overrides retained (LRU eviction).
 
+## File-type icons (implemented — TASK-0294)
+
+Per-type icons are live. The pipeline (contract: RFC-0073, SSOT: `resources/mimetypes/`):
+
+- **SSOT** — `resources/mimetypes/mimetypes.toml` maps `extension → mime → icon stem` with a
+  normative fallback chain (exact → derived-from-mime → `<class>-x-generic` → `application-octet-stream`;
+  directories always `inode-directory`). Each stem is one SVG in `resources/mimetypes/<stem>.svg`.
+- **Bake** — `userspace/ui/mime-icons` (`nexus-mime-icons`) rasterizes every stem through `nexus-svg`
+  at file-row sizes into straight-alpha RGBA sprites and folds the full resolution chain in at build
+  time, so the runtime is a pure lookup that always lands on a real stem. It shares the SSOT with the
+  files service — one table, two consumers.
+- **Resolve** — the app-host resolves each listing entry's name/kind to a stem (`entry_icon_stem`)
+  and emits `icon = "mime:<stem>"` on the `FileEntry` record.
+- **Render** — the DSL `Image { source: "mime:<token>", size }` primitive turns a `"mime:"` source
+  into the baked sprite (`sprite_for_source`); the token may be a resolved stem, a mime type, or a
+  bare extension. stash's `FileRow` binds the entry's `icon` field directly.
+
+Proof marker: `stash: mime icons resolved (n=<count>)` (non-fallback icons in a real listing).
+
 ## Icon customization for folders
 
 We support:

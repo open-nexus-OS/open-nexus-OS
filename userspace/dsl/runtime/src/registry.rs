@@ -685,17 +685,25 @@ pub fn build_widget(
             toggle.build(tokens)
         }
         "Image" => {
-            // The REAL app-icon artwork path: `source` = an app id whose
-            // bundle ships `assets/icon.svg` (manifest `icon_svg`), baked at
-            // build time by `nexus-app-icons` into straight-alpha sprites at
-            // the shell's tile sizes. `size` picks the baked size; the box is
-            // pinned square. Unknown source = a transparent placeholder of
-            // the same size (layout stays stable, no honest-red noise — the
-            // tile's fallback branch owns the visible fallback).
+            // Two baked artwork paths, chosen by the `source` scheme:
+            //   * `"mime:<token>"` — a file-type icon from `nexus-mime-icons`.
+            //     The token is an already-resolved stem (the app-host's fast
+            //     path), a mime type, or a bare extension (RFC-0073 chain).
+            //   * anything else — an app id whose bundle ships `assets/icon.svg`
+            //     (manifest `icon_svg`), baked by `nexus-app-icons`.
+            // `size` picks the baked size; the box is pinned square. Unknown
+            // source = a transparent placeholder of the same size (layout stays
+            // stable; the owning surface's fallback branch shows any fallback).
             let source = prop("source").map(value_text).unwrap_or_default();
             let size = match prop("size") {
                 Some(Value::Int(s)) => (*s).clamp(8, 256) as i32,
                 _ => 64,
+            };
+            let sprite = if let Some(token) = source.strip_prefix("mime:") {
+                nexus_mime_icons::sprite_for_source(token, size as u32)
+                    .map(|s| (s.size, s.rgba))
+            } else {
+                nexus_app_icons::sprite(&source, size as u32).map(|s| (s.size, s.rgba))
             };
             let px = FxPx::new(size);
             let mut node = plain_stack(
@@ -708,14 +716,14 @@ pub fn build_widget(
                 alloc::vec![],
             );
             if let LayoutNode::Stack(_, visual, _) = &mut node {
-                if let Some(sprite) = nexus_app_icons::sprite(&source, size as u32) {
+                if let Some((sprite_size, rgba)) = sprite {
                     // The painter's shape dispatch runs under `background`;
                     // the blit arm ignores the color itself.
                     visual.background = Some(nexus_layout_types::Rgba8 { r: 0, g: 0, b: 0, a: 1 });
                     visual.shape = nexus_layout_types::ShapeKind::Raster {
-                        w: sprite.size as u16,
-                        h: sprite.size as u16,
-                        rgba: sprite.rgba,
+                        w: sprite_size as u16,
+                        h: sprite_size as u16,
+                        rgba,
                     };
                 }
             }

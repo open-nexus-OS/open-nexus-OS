@@ -245,8 +245,9 @@ impl AppEffectHost {
     }
 
     /// Builds one `FileEntry` record (field-sorted, `Value::Record` contract).
-    /// `icon` is the interim glyph until the mime pipeline lands (TASK-0294):
-    /// directories are `folder`, files `file-text`.
+    /// `icon` is a `"mime:<stem>"` source (RFC-0073 / TASK-0294): directories
+    /// resolve to the directory stem, files to their extension's icon stem via
+    /// the mime SSOT. The DSL `Image` primitive turns it into a baked sprite.
     fn file_entry_record(
         &self,
         name_sym: u32,
@@ -266,11 +267,8 @@ impl AppEffectHost {
             fields.push((sym, Value::Str(format_size(entry.size, entry.kind))));
         }
         if let Some(sym) = self.icon_sym {
-            let glyph = match entry.kind {
-                nexus_vfs_types::FileKind::Dir => "folder",
-                nexus_vfs_types::FileKind::File => "doc",
-            };
-            fields.push((sym, Value::Str(glyph.into())));
+            let stem = entry_icon_stem(entry);
+            fields.push((sym, Value::Str(alloc::format!("mime:{stem}"))));
         }
         fields.sort_by_key(|(sym, _)| *sym);
         Value::Record(fields)
@@ -306,6 +304,16 @@ impl AppEffectHost {
                 let mut line = String::from("apphost: dsl svc files.list ok (n=");
                 let _ = core::fmt::write(&mut line, format_args!("{})", rows.len()));
                 raw_marker(&line);
+                // Count entries whose type resolved to real artwork (not the
+                // octet-stream fallback) — the file-type icon pipeline proof.
+                let resolved = page
+                    .entries
+                    .iter()
+                    .filter(|entry| entry_icon_stem(entry) != nexus_mime_icons::UNKNOWN)
+                    .count();
+                let mut icons = String::from("stash: mime icons resolved (n=");
+                let _ = core::fmt::write(&mut icons, format_args!("{})", resolved));
+                raw_marker(&icons);
                 Ok(Value::List(rows))
             }
             Err(err) => {
@@ -819,6 +827,15 @@ fn int_of(v: &Value) -> Option<i64> {
 /// Human-readable size for direct UI binding (`12 B` / `4.2 KB` / `3.8 MB`);
 /// directories render as a plain dash (ASCII — the baked UI font has no
 /// em-dash glyph; it renders as `?`). Integer math only (no_std, no floats).
+/// The mime icon stem for a listing entry (RFC-0073): directories use the
+/// directory stem, files resolve by extension through the mime SSOT.
+fn entry_icon_stem(entry: &nexus_vfs_types::DirEntry) -> &'static str {
+    match entry.kind {
+        nexus_vfs_types::FileKind::Dir => nexus_mime_icons::DIRECTORY,
+        nexus_vfs_types::FileKind::File => nexus_mime_icons::stem_for_file_name(&entry.name),
+    }
+}
+
 fn format_size(size: u64, kind: nexus_vfs_types::FileKind) -> String {
     if kind == nexus_vfs_types::FileKind::Dir {
         return String::from("-");

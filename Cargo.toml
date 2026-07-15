@@ -19,6 +19,7 @@ members = [
     "userspace/ui/theme",
     "userspace/ui/svg",
     "userspace/ui/app-icons",
+    "userspace/ui/mime-icons",
     "userspace/ui/image",
     "userspace/ui/shape",
     "userspace/ui/cursor",

@@ -59,6 +59,9 @@ pub struct Nxfs<D: BlockDevice> {
     next_txn: u64,
     /// True when mount discarded a torn/orphaned journal tail (fsck surface).
     pub replay_discarded_tail: bool,
+    /// True when this container was just `mkfs`-formatted blank (vs mounted from
+    /// existing state) — lets a host seed first-run content exactly once.
+    pub formatted_fresh: bool,
 }
 
 impl<D: BlockDevice> Nxfs<D> {
@@ -97,6 +100,7 @@ impl<D: BlockDevice> Nxfs<D> {
             journal_head: 0,
             next_txn: 1,
             replay_discarded_tail: false,
+            formatted_fresh: true,
         };
         fs.write_checkpoint()?;
         debug_assert!(fs.sb.newest_slot().is_some());
@@ -188,6 +192,7 @@ impl<D: BlockDevice> Nxfs<D> {
             journal_head: replayed.write_head,
             next_txn: replayed.next_txn,
             replay_discarded_tail: replayed.orphan,
+            formatted_fresh: false,
         })
     }
 

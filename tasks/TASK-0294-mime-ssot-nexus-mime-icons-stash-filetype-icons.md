@@ -1,6 +1,6 @@
 ---
 title: TASK-0294 Mime SSOT wiring + nexus-mime-icons bake + stash file-type icons
-status: Draft
+status: In Review
 owner: @runtime
 created: 2026-07-15
 depends-on:
@@ -71,3 +71,42 @@ task builds its mime-keyed sibling.
 - files service host (mime field wiring), `userspace/apps/stash/` (FileRow icon)
 - `resources/mimetypes/` (only additive icon gap-fills if the bake reveals holes)
 - `scripts/qemu-test.sh`, `docs/dev/ui/` (Image source conventions doc touch)
+
+## Progress snapshot (2026-07-15) — DONE, boot-proven
+
+Delivered exactly to the contract; the DSL image convention landed as `"mime:<token>"` (token =
+resolved stem | mime | extension) so the runtime primitive stays dumb and the resolution SSOT lives
+once, in the bake crate.
+
+- [x] **`userspace/ui/mime-icons`** (`nexus-mime-icons`): `build.rs` scans `resources/mimetypes/*.svg`,
+  rasterizes each stem through `nexus-svg` at `[48, 32, 24]` (SS=4, box-average downscale, straight
+  RGBA — the `nexus-app-icons` pattern), and folds the full RFC-0073 resolution chain into generated
+  `stem_for_ext` / `stem_for_mime` tables (every generated stem is guaranteed to have artwork).
+  Build-time SSOT guard: an explicit `icon = "…"` override naming a missing SVG fails the build.
+  7 host tests (chain, casing, multi-dot names, mime, all source forms, artwork totality, counts).
+- [x] Flattened the two SVGs nexus-svg could not render (`application-pdf.svg`, `package-x-generic.svg`
+  had a no-op `<g clip-path>`/`<defs><clipPath>` wrapper) — all 39 stems rasterize.
+- [x] **DSL `Image` primitive** (`registry.rs`): `"mime:<token>"` → `nexus_mime_icons::sprite_for_source`;
+  non-`mime:` sources keep the app-icon path. Shared sprite-blit tail, no duplication.
+- [x] **app-host** (`effect_host.rs`): `entry_icon_stem` resolves each listing entry (dir → directory
+  stem, file → extension via the SSOT) and emits `icon = "mime:<stem>"`; a per-listing marker counts
+  resolved (non-fallback) icons.
+- [x] **stash** `FileRow.nx`: `Icon { symbol }` → `Image { source: $props.icon, size: 24 }`.
+- [x] **First-run content**: `nxfsd::DataStore` seeds a small varied set (`Welcome.txt`, `Read Me.md`,
+  `Report.pdf`, `Photo.png`, `Song.mp3`, `Archive.zip`, `config.json` + `Documents`/`Pictures`) on a
+  blank format only (`Nxfs.formatted_fresh`), so the icon variety is visible out of the box like an OS
+  shipping example files.
+
+### Proof (Host) — met
+
+- `cargo test -p nexus-mime-icons` (7) + `cargo test -p nxfs` (22, unchanged after the `formatted_fresh`
+  field). app-host / vfsd / bundlemgrd os-lite builds clean (stash `.nx` recompiles via bundlemgrd's
+  build.rs — valid nxir).
+
+### Proof (OS / QEMU) — met (visible virgl boot, fresh images, 1280×800)
+
+- `nxfsd: mounted /data (rw, clean)` → `nxfsd: seeded first-run content (n=9)` →
+  `apphost: dsl svc files.list ok (n=9)` → **`stash: mime icons resolved (n=9)`** (all nine entries
+  resolved to real artwork).
+- Screenshot: stash lists `/data` with distinct per-type icons — red PDF card, purple ZIP package,
+  green PNG, purple MP3, TXT/MD text cards, orange JSON, folder icons for Documents/Pictures.
