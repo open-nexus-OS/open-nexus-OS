@@ -203,8 +203,13 @@ ci-os-display-gpu-pci:
 test-os-visible-pci:
     GPU_MODE=pci just test-os visible-bootstrap
 
+# SMP gate runs WITHOUT icount: icount forces single-threaded round-robin
+# vCPUs (no real parallelism; spinlock handoffs cost whole scheduler quanta
+# and IPC round-trips inflate to seconds). The SMP markers are result-proofs
+# (exact counts, no timing asserts), so MTTCG nondeterminism is safe here;
+# SMP=1 proofs keep icount determinism.
 ci-os-smp:
-    SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-300s} just test-os smp
+    SMP=2 QEMU_NO_ICOUNT=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-300s} just test-os smp
 
 ci-os-dhcp:
     RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os dhcp

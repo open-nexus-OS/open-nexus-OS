@@ -261,13 +261,13 @@ fn alloc_error_handler(layout: core::alloc::Layout) -> ! {
 #[macro_use]
 #[path = "diag/log.rs"]
 mod log;
-#[path = "diag/boot_mode.rs"]
-mod boot_mode;
 #[cfg(target_os = "none")]
 mod arch;
 #[cfg(target_os = "none")]
 #[path = "core/boot.rs"]
 mod boot;
+#[path = "diag/boot_mode.rs"]
+mod boot_mode;
 #[cfg(target_os = "none")]
 #[path = "task/bootstrap.rs"]
 mod bootstrap;
@@ -305,8 +305,9 @@ mod selftest;
 #[cfg(target_os = "none")]
 #[path = "core/smp.rs"]
 mod smp;
-#[cfg(all(target_os = "none", debug_assertions))]
-#[path = "diag/sync/mod.rs"]
+// TASK-0283/TASK-0277: SMP sync primitives (PerCpu, SpinIrqLock). Intentionally
+// NOT target-gated — like `waitset`/`fence`, the pure logic is host-unit-tested
+// via `cargo test -p neuron`; only the SIE CSR access is target-specific inside.
 pub mod sync;
 #[cfg(target_os = "none")]
 mod syscall;

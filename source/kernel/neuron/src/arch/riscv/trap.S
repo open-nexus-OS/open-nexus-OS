@@ -23,13 +23,15 @@ __trap_vector:
      * ORIGINAL trapped value so this path is correct for *asynchronous* traps
      * (timer/software interrupts that preempt at an arbitrary instruction), not
      * only synchronous ecalls. The prologue clobbers only t0 and t1 as temps and
-     * stashes their originals (orig t0 -> sscratch, orig t1 -> trap-stack red
-     * zone); t2..t6 are never touched before they are persisted.
+     * stashes their originals (orig t0 -> sscratch, orig t1 -> HartLocal
+     * scratch); t2..t6 are never touched before they are persisted.
      *
-     * sscratch holds the per-hart trap stack top (installed at trap setup).
-     * After this swap: t0 = trap_stack_top, sscratch = orig t0. */
+     * sscratch holds a pointer to this hart's HartLocal block (installed at
+     * trap setup; field offsets injected as HL_*). Traps do not nest (SIE=0
+     * in-handler), so the hart-local scratch fields cannot be clobbered.
+     * After this swap: t0 = &HartLocal, sscratch = orig t0. */
     csrrw t0, sscratch, t0
-    sd    t1, -8(t0)              /* stash orig t1 in the trap-stack red zone */
+    sd    t1, {HL_SCRATCH_T1}(t0) /* stash orig t1 in hart-local scratch */
 
     /* Pick the kernel stack based on the trapped privilege (SSTATUS.SPP, bit 8). */
     csrr  t1, sstatus
@@ -37,18 +39,19 @@ __trap_vector:
     bnez  t1, .Ltrap_smode
 
     /* From U-mode: build the frame on the (empty) trap stack; preserve user sp. */
-    sd    sp, -16(t0)            /* stash user sp in the red zone */
-    addi  sp, t0, -{TF_SIZE}      /* frame base on the trap stack */
-    ld    t1, -16(t0)
+    sd    sp, {HL_SCRATCH_SP}(t0) /* stash user sp in hart-local scratch */
+    ld    sp, {HL_TRAP_TOP}(t0)   /* sp = this hart's trap stack top */
+    addi  sp, sp, -{TF_SIZE}      /* frame base on the trap stack */
+    ld    t1, {HL_SCRATCH_SP}(t0)
     sd    t1, 2*8(sp)            /* frame.x2 = user sp */
     j     .Ltrap_saved_sp
 
 .Ltrap_smode:
     /* From S-mode: keep the current kernel stack so the kernel's own stack depth
      * is never relocated (trap frames stack naturally; traps do not nest, SIE=0). */
-    sd    sp, -16(t0)            /* stash kernel sp in the red zone */
+    sd    sp, {HL_SCRATCH_SP}(t0) /* stash kernel sp in hart-local scratch */
     addi  sp, sp, -{TF_SIZE}      /* frame base on the current kernel stack */
-    ld    t1, -16(t0)
+    ld    t1, {HL_SCRATCH_SP}(t0)
     sd    t1, 2*8(sp)            /* frame.x2 = kernel sp */
 
 .Ltrap_saved_sp:
@@ -56,13 +59,13 @@ __trap_vector:
     sd    ra,   1*8(sp)
     sd    gp,   3*8(sp)
     sd    tp,   4*8(sp)
-    /* recover orig t0 (from sscratch) and orig t1 (from the red zone), persist them */
+    /* recover orig t0 (from sscratch) and orig t1 (from hart-local scratch), persist them */
     csrr  t1, sscratch
     sd    t1,   5*8(sp)
-    ld    t1, -8(t0)
+    ld    t1, {HL_SCRATCH_T1}(t0)
     sd    t1,   6*8(sp)
     sd    t2,   7*8(sp)          /* orig t2 (never clobbered) */
-    /* restore sscratch = trap_stack_top for the next trap */
+    /* restore sscratch = &HartLocal for the next trap */
     csrw  sscratch, t0
     sd    s0,   8*8(sp);  sd  s1,   9*8(sp)
     sd    a0,  10*8(sp);  sd  a1,  11*8(sp);  sd  a2,  12*8(sp);  sd  a3,  13*8(sp)
@@ -78,6 +81,11 @@ __trap_vector:
     .option norelax
     la    gp, __global_pointer$
     .option pop
+
+    /* Kernel tp = &HartLocal for the Rust handler (CPU identity fast path).
+     * The trapped tp is saved at 4*8(sp) and restored on sret. Must happen
+     * before the CSR block below clobbers t0. */
+    mv    tp, t0
 
     /* save CSRs (t0/t1 are now free; their originals are persisted) */
     csrr  t0, sepc
@@ -126,7 +134,7 @@ __trap_vector:
      * SMP contract note (TASK-0012/RFC-0021):
      * - This trampoline is a boot-hart address-space switch helper.
      * - Multi-hart trap correctness does NOT rely on this path; trap entry uses
-     *   per-hart stack tops via sscratch + __hart_trap_stack_tops.
+     *   per-hart HartLocal blocks via sscratch.
      */
     .section .text.__satp_trampoline, "ax", @progbits
     .globl __satp_trampoline

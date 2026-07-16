@@ -41,6 +41,10 @@ core::arch::global_asm!(
     OFF_SSTATUS= const core::mem::offset_of!(TrapFrame, sstatus),
     OFF_SCAUSE = const core::mem::offset_of!(TrapFrame, scause),
     OFF_STVAL  = const core::mem::offset_of!(TrapFrame, stval),
+    // HartLocal ABI (sscratch points at the executing hart's block):
+    HL_TRAP_TOP   = const core::mem::offset_of!(crate::smp::HartLocal, trap_stack_top),
+    HL_SCRATCH_T1 = const core::mem::offset_of!(crate::smp::HartLocal, scratch_t1),
+    HL_SCRATCH_SP = const core::mem::offset_of!(crate::smp::HartLocal, scratch_sp),
 );
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -211,6 +215,12 @@ struct KernelHandles {
     waitsets: NonNull<crate::waitset::WaitsetTable>,
     fences: NonNull<crate::fence::FenceTable>,
 }
+// SAFETY (A2 lock model): these raw handles point at 'static kernel state.
+// Every MUTABLE materialization goes through `KernelGuard`, which holds the
+// KERNEL_LOCK (IRQ-safe BKL) for the full borrow duration; the only lock-free
+// readers are the best-effort fault diagnostics on the way to panic
+// (`runtime_kernel_handles_diagnostic`). The historic "interrupted U-mode ⇒
+// unique borrow" argument is no longer load-bearing.
 unsafe impl Send for KernelHandles {}
 unsafe impl Sync for KernelHandles {}
 static_assertions::assert_impl_all!(KernelHandles: Send, Sync);
@@ -227,15 +237,96 @@ static_assertions::assert_impl_all!(TrapRuntime: Send, Sync);
 // Keep runtime state in a single global slot.
 static TRAP_RUNTIME: Mutex<Option<TrapRuntime>> = Mutex::new(None);
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum RuntimeKernelAccessFailure {
-    NotInstalled,
-    SecondaryHart,
+// TASK-0277 (A2a): the kernel "big lock" (BKL). Every materialization of
+// `&mut` kernel subsystem references from `KernelHandles` happens under this
+// lock, held for the FULL duration of use (via `KernelGuard`), not just for
+// the pointer copy. Tier 1 of the lock hierarchy: BKL -> per-CPU run-queue
+// locks -> leaf atomics; never acquire the BKL while holding a run-queue lock.
+static KERNEL_LOCK: crate::sync::spin_irq::SpinIrqLock<()> =
+    crate::sync::spin_irq::SpinIrqLock::new(());
+
+/// RAII access to the kernel subsystems: holds the BKL until dropped and
+/// materializes the `&mut` set from the installed handles.
+///
+/// A2 migration note: while the boot-hart gate is still in place this lock is
+/// uncontended scaffolding; it becomes load-bearing when secondary harts
+/// start serving syscalls (A3). Guards must NEVER be held across a context
+/// switch that leaves via `sret` (A2b invariant).
+pub(crate) struct KernelGuard {
+    _bkl: crate::sync::spin_irq::SpinIrqGuard<'static, ()>,
+    handles: KernelHandles,
 }
 
-#[inline]
-fn trap_runtime_access_allowed_for_cpu(cpu: crate::types::CpuId) -> bool {
-    cpu.is_boot()
+impl KernelGuard {
+    pub(crate) fn acquire() -> Result<Self, RuntimeKernelAccessFailure> {
+        // A3: every hart serves the runtime; exclusion comes from the BKL,
+        // not from a boot-hart gate.
+        // Bounded contention probe: long acquisition spins are the smoking
+        // gun for cross-hart BKL contention inflating IPC round-trips.
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        let t0 = riscv::register::time::read() as u64;
+        let bkl = KERNEL_LOCK.lock();
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            let waited = (riscv::register::time::read() as u64).saturating_sub(t0);
+            // 10 MHz mtime: 10_000 ticks = 1ms spent spinning for the lock.
+            if waited > 10_000 {
+                static BKL_CONTENTION_LOGGED: core::sync::atomic::AtomicUsize =
+                    core::sync::atomic::AtomicUsize::new(0);
+                if BKL_CONTENTION_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 6 {
+                    log_info!(
+                        target: "smp",
+                        "KINIT: bkl wait {}us cpu{}",
+                        waited / 10,
+                        crate::smp::cpu_current_id().as_index()
+                    );
+                }
+            }
+        }
+        let handles = TRAP_RUNTIME
+            .lock()
+            .as_ref()
+            .map(|runtime| runtime.kernel)
+            .ok_or(RuntimeKernelAccessFailure::NotInstalled)?;
+        Ok(Self { _bkl: bkl, handles })
+    }
+
+    /// Materializes the full `&mut` set. The borrows are tied to `&mut self`,
+    /// so they end before the guard (and thus the BKL) is released.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn parts(
+        &mut self,
+    ) -> (
+        &mut Scheduler,
+        &mut task::TaskTable,
+        &mut ipc::Router,
+        &mut AddressSpaceManager,
+        &'static dyn Timer,
+        &mut crate::timer::HartTimers,
+        &mut crate::waitset::WaitsetTable,
+        &mut crate::fence::FenceTable,
+    ) {
+        // SAFETY: the handles point at 'static kernel state installed by
+        // install_runtime; the BKL is held for the lifetime of these borrows,
+        // and each NonNull targets a distinct object (no aliasing among them).
+        unsafe {
+            (
+                self.handles.scheduler.as_mut(),
+                self.handles.tasks.as_mut(),
+                self.handles.router.as_mut(),
+                self.handles.spaces.as_mut(),
+                &*self.handles.timer,
+                self.handles.hart_timers.as_mut(),
+                self.handles.waitsets.as_mut(),
+                self.handles.fences.as_mut(),
+            )
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RuntimeKernelAccessFailure {
+    NotInstalled,
 }
 
 /// Installs the runtime trap context using kernel subsystems and default syscall table.
@@ -250,8 +341,7 @@ pub fn install_runtime(
     fences: &mut crate::fence::FenceTable,
     syscalls: &SyscallTable,
 ) -> TrapDomainId {
-    let install_cpu = crate::smp::cpu_current_id();
-    if !trap_runtime_access_allowed_for_cpu(install_cpu) {
+    if !crate::smp::cpu_current_id().is_boot() {
         panic!("trap runtime install must run on boot hart");
     }
     let syscalls_ptr = NonNull::new((syscalls as *const SyscallTable) as *mut SyscallTable)
@@ -285,10 +375,13 @@ pub(crate) fn runtime_installed() -> bool {
     TRAP_RUNTIME.lock().is_some()
 }
 
-fn runtime_kernel_handles() -> Result<KernelHandles, RuntimeKernelAccessFailure> {
-    if !trap_runtime_access_allowed_for_cpu(crate::smp::cpu_current_id()) {
-        return Err(RuntimeKernelAccessFailure::SecondaryHart);
-    }
+/// BKL-free handle copy for FAULT DIAGNOSTICS ONLY (read-only, best-effort).
+///
+/// Fault paths on the way to `panic!` may run while this hart already holds
+/// the BKL (e.g. a kernel page fault inside a syscall) — acquiring
+/// `KernelGuard` there would deadlock instead of printing. Never mutate
+/// through these handles; every mutating path goes through `KernelGuard`.
+fn runtime_kernel_handles_diagnostic() -> Result<KernelHandles, RuntimeKernelAccessFailure> {
     TRAP_RUNTIME
         .lock()
         .as_ref()
@@ -387,6 +480,10 @@ pub struct TrapFrame {
 
 const _: [(); core::mem::size_of::<usize>() * 32] = [(); core::mem::offset_of!(TrapFrame, sepc)];
 impl TrapFrame {
+    /// Const zero frame (for hart-local resume slots).
+    pub(crate) const EMPTY: TrapFrame =
+        TrapFrame { x: [0; 32], sepc: 0, sstatus: 0, scause: 0, stval: 0 };
+
     #[inline]
     fn set_x(&mut self, rd: usize, value: usize) {
         if rd < 32 {
@@ -786,18 +883,23 @@ pub fn timer_arm(delta_cycles: u64) {
 #[cfg(not(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq")))]
 pub fn timer_arm(_delta_cycles: u64) {}
 
-/// Install trap vector; call once during early boot (before enabling SIE).
+/// Install trap vector; call once during early boot on the boot hart
+/// (before enabling SIE). Prepares the boot hart's HartLocal block first.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub unsafe fn install_trap_vector() {
-    unsafe { install_trap_vector_with_stack(crate::smp::trap_stack_top_for_current()) };
+    let boot = crate::types::CpuId::BOOT;
+    crate::smp::hart_local_prepare(boot, crate::smp::linker_boot_stack_top());
+    unsafe { install_trap_vector_for(boot) };
 }
 
-/// Install trap vector with an explicit per-hart trap stack top.
+/// Install this hart's trap vector against its prepared HartLocal block:
+/// adopts `tp`, points `sscratch` at the block, and writes `stvec`.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-pub unsafe fn install_trap_vector_with_stack(stack_top: usize) {
+pub unsafe fn install_trap_vector_for(cpu: crate::types::CpuId) {
+    crate::smp::hart_local_adopt(cpu);
     // SAFETY: must be called early and exactly once per hart; SSCRATCH becomes well-defined.
     unsafe {
-        riscv::register::sscratch::write(stack_top);
+        riscv::register::sscratch::write(crate::smp::hart_local_sscratch_value(cpu));
         riscv::register::stvec::write(
             __trap_vector as usize,
             riscv::register::mtvec::TrapMode::Direct,
@@ -807,9 +909,6 @@ pub unsafe fn install_trap_vector_with_stack(stack_top: usize) {
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 pub unsafe fn install_trap_vector() {}
-
-#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-pub unsafe fn install_trap_vector_with_stack(_stack_top: usize) {}
 
 /// Enable supervisor timer interrupts after arming the first timer.
 /// Gated behind `timer_irq` feature to avoid dead_code in default builds.
@@ -999,10 +1098,24 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         let code = frame.scause & (usize::MAX >> 1);
         if code == S_SOFT_INT {
             let cpu = crate::smp::cpu_current_id();
-            let _ = crate::smp::handle_ssoft_resched(cpu);
+            let outcome = crate::smp::handle_ssoft_resched(cpu);
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             unsafe {
                 riscv::register::sip::clear_ssoft();
+            }
+            // A4: an acked resched request PREEMPTS the interrupted user task
+            // so a cross-core-woken task runs within IPI latency, not a full
+            // timer period. Interrupted S-mode (WFI idle / cpu_main) needs
+            // nothing: the loop rescans its queue right after the trap.
+            const SSTATUS_SPP: usize = 1 << 8;
+            if matches!(outcome, crate::smp::ReschedTrapOutcome::Acked)
+                && frame.sstatus & SSTATUS_SPP == 0
+            {
+                if let Ok(mut kernel) = KernelGuard::acquire() {
+                    let (scheduler, tasks, _router, spaces, _timer, _ht, _ws, _fences) =
+                        kernel.parts();
+                    preempt_current_user_task(frame, tasks, scheduler, spaces);
+                }
             }
             return;
         }
@@ -1016,21 +1129,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             const SSTATUS_SPP: usize = 1 << 8;
             let interrupted_user = frame.sstatus & SSTATUS_SPP == 0;
             if interrupted_user {
-                if let Ok(handles) = runtime_kernel_handles() {
-                    // SAFETY: install_runtime stores valid 'static kernel structures;
-                    // runtime_kernel_handles enforces boot-hart, and we interrupted
-                    // U-mode, so these are the unique live mutable borrows.
-                    let timer = unsafe { &*handles.timer };
-                    let mut hart_timers_ptr = handles.hart_timers;
-                    let hart_timers = unsafe { hart_timers_ptr.as_mut() };
-                    let mut router_ptr = handles.router;
-                    let router = unsafe { router_ptr.as_mut() };
-                    let mut tasks_ptr = handles.tasks;
-                    let tasks = unsafe { tasks_ptr.as_mut() };
-                    let mut scheduler_ptr = handles.scheduler;
-                    let scheduler = unsafe { scheduler_ptr.as_mut() };
-                    let mut spaces_ptr = handles.spaces;
-                    let spaces = unsafe { spaces_ptr.as_mut() };
+                if let Ok(mut kernel) = KernelGuard::acquire() {
+                    // BKL held for the whole delivery+preempt sequence (A2a);
+                    // released on scope exit, before the asm epilogue runs.
+                    let (scheduler, tasks, router, spaces, timer, hart_timers, _waitsets, _fences) =
+                        kernel.parts();
                     // Reactive: deliver fired timer caps + re-arm the next deadline.
                     process_expired_timers(timer, hart_timers, router, tasks, scheduler);
                     // Backstop for device IRQs: the S_EXT handler delivers them
@@ -1066,14 +1169,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             // code is concurrently borrowing the router/tasks/scheduler).
             const SSTATUS_SPP: usize = 1 << 8;
             if frame.sstatus & SSTATUS_SPP == 0 {
-                if let Ok(handles) = runtime_kernel_handles() {
-                    // SAFETY: boot-hart + U-mode interrupted → unique live borrows.
-                    let mut router_ptr = handles.router;
-                    let router = unsafe { router_ptr.as_mut() };
-                    let mut tasks_ptr = handles.tasks;
-                    let tasks = unsafe { tasks_ptr.as_mut() };
-                    let mut scheduler_ptr = handles.scheduler;
-                    let scheduler = unsafe { scheduler_ptr.as_mut() };
+                if let Ok(mut kernel) = KernelGuard::acquire() {
+                    let (scheduler, tasks, router, _spaces, _timer, _ht, _ws, _fences) =
+                        kernel.parts();
                     crate::irq::dispatch_external(router, tasks, scheduler);
                     return;
                 }
@@ -1145,9 +1243,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             return;
         }
 
-        // Debug: Log syscall number with safe UART
-        let kernel_handles = match runtime_kernel_handles() {
-            Ok(handles) => handles,
+        // Acquire the BKL for the full syscall dispatch (A2a).
+        let mut kernel = match KernelGuard::acquire() {
+            Ok(kernel) => kernel,
             Err(reason) => {
                 // RFC-0003: keep logs unified and deterministic; avoid ad-hoc debug spam.
                 // Use raw UART to avoid mutex recursion in trap context, but keep the same
@@ -1160,9 +1258,6 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         RuntimeKernelAccessFailure::NotInstalled => {
                             "[WARN trap] trap runtime not installed\n"
                         }
-                        RuntimeKernelAccessFailure::SecondaryHart => {
-                            "[WARN trap] trap runtime unavailable on secondary hart\n"
-                        }
                     };
                     let _ = u.write_str(msg);
                 }
@@ -1172,13 +1267,31 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             }
         };
 
+        static LOGGED_ENV_PTRS: core::sync::atomic::AtomicBool =
+            core::sync::atomic::AtomicBool::new(false);
+        if !LOGGED_ENV_PTRS.swap(true, core::sync::atomic::Ordering::SeqCst) {
+            uart_dbg_block!({
+                let mut u = crate::uart::raw_writer();
+                let _ = u.write_str("TRAPENV sched=0x");
+                uart_write_hex(&mut u, kernel.handles.scheduler.as_ptr() as usize);
+                let _ = u.write_str(" tasks=0x");
+                uart_write_hex(&mut u, kernel.handles.tasks.as_ptr() as usize);
+                let _ = u.write_str(" router=0x");
+                uart_write_hex(&mut u, kernel.handles.router.as_ptr() as usize);
+                let _ = u.write_str(" spaces=0x");
+                uart_write_hex(&mut u, kernel.handles.spaces.as_ptr() as usize);
+                let _ = u.write_str("\n");
+            });
+        }
+
+        let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
+            kernel.parts();
+
         // User-mode sanity: verify sepc is mapped in current AS and looks executable.
         // This is diagnostic-only and protects against jumping into rodata.
         const SSTATUS_SPP: usize = 1 << 8;
         let from_user = (frame.sstatus & SSTATUS_SPP) == 0;
         if from_user {
-            let tasks = unsafe { kernel_handles.tasks.as_ref() };
-            let spaces = unsafe { kernel_handles.spaces.as_ref() };
             let pid = tasks.current_pid();
             if let Some(task) = tasks.task(pid) {
                 if let Some(as_handle) = task.address_space() {
@@ -1204,50 +1317,13 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                                 let _ = u.write_str("\n");
                             });
                             frame.x[10] = errno(EINVAL);
-                            if let Ok(mut handles) = runtime_kernel_handles() {
-                                unsafe {
-                                    let tasks = handles.tasks.as_mut();
-                                    tasks.exit_current(-22);
-                                }
-                            }
+                            tasks.exit_current(-22);
                             return;
                         }
                     }
                 }
             }
         }
-
-        static LOGGED_ENV_PTRS: core::sync::atomic::AtomicBool =
-            core::sync::atomic::AtomicBool::new(false);
-        if !LOGGED_ENV_PTRS.swap(true, core::sync::atomic::Ordering::SeqCst) {
-            uart_dbg_block!({
-                let mut u = crate::uart::raw_writer();
-                let _ = u.write_str("TRAPENV sched=0x");
-                uart_write_hex(&mut u, kernel_handles.scheduler.as_ptr() as usize);
-                let _ = u.write_str(" tasks=0x");
-                uart_write_hex(&mut u, kernel_handles.tasks.as_ptr() as usize);
-                let _ = u.write_str(" router=0x");
-                uart_write_hex(&mut u, kernel_handles.router.as_ptr() as usize);
-                let _ = u.write_str(" spaces=0x");
-                uart_write_hex(&mut u, kernel_handles.spaces.as_ptr() as usize);
-                let _ = u.write_str("\n");
-            });
-        }
-
-        let mut sched_ptr = kernel_handles.scheduler;
-        let scheduler = unsafe { sched_ptr.as_mut() };
-        let mut tasks_ptr = kernel_handles.tasks;
-        let tasks = unsafe { tasks_ptr.as_mut() };
-        let mut router_ptr = kernel_handles.router;
-        let router = unsafe { router_ptr.as_mut() };
-        let mut spaces_ptr = kernel_handles.spaces;
-        let spaces = unsafe { spaces_ptr.as_mut() };
-        let mut hart_timers_ptr = kernel_handles.hart_timers;
-        let hart_timers = unsafe { hart_timers_ptr.as_mut() };
-        let mut waitsets_ptr = kernel_handles.waitsets;
-        let waitsets = unsafe { waitsets_ptr.as_mut() };
-        let mut fences_ptr = kernel_handles.fences;
-        let fences = unsafe { fences_ptr.as_mut() };
 
         let current_pid = tasks.current_pid();
         let domain_id = tasks
@@ -1259,17 +1335,42 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             .expect("trap domain not available");
         let table = unsafe { syscalls_ptr.as_ref() };
 
-        let timer = unsafe {
-            // SAFETY: `install_runtime()` stores a valid `&dyn Timer` pointer for the life of the
-            // kernel. We only dereference it while TRAP_RUNTIME is installed.
-            &*kernel_handles.timer
-        };
         #[allow(unused_variables)]
         let old_pid = tasks.current_pid();
         let mut ctx = api::Context::new(
-            scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences,
+            scheduler,
+            tasks,
+            router,
+            spaces,
+            timer,
+            hart_timers,
+            waitsets,
+            fences,
         );
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        let ecall_t0 = riscv::register::time::read() as u64;
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        let ecall_nr = frame.x[17];
         handle_ecall(frame, table, &mut ctx);
+        // Bounded probe: syscalls holding the BKL >10ms are the source of the
+        // cross-hart contention stalls (A3 diagnosis).
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            let held = (riscv::register::time::read() as u64).saturating_sub(ecall_t0);
+            if held > 100_000 {
+                static LONG_ECALL_LOGGED: core::sync::atomic::AtomicUsize =
+                    core::sync::atomic::AtomicUsize::new(0);
+                if LONG_ECALL_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
+                    log_info!(
+                        target: "smp",
+                        "KINIT: long ecall nr={} {}ms cpu{}",
+                        ecall_nr,
+                        held / 10_000,
+                        crate::smp::cpu_current_id().as_index()
+                    );
+                }
+            }
+        }
 
         let current_pid = ctx.tasks.current_pid();
         uart_dbg_block!({
@@ -1280,6 +1381,28 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             uart_write_hex(&mut u, current_pid as usize);
             let _ = u.write_str("\n");
         });
+        // A3: once the runtime is released, a hart whose syscall left no valid
+        // USER task to resume must sret back into ITS OWN cpu_main — the
+        // legacy fallback (PID 0's stale frame = the boot hart's S-mode
+        // context) is catastrophically wrong on a secondary hart.
+        let valid_user_target = match ctx.tasks.task(current_pid) {
+            None => false,
+            Some(task) => {
+                const SSTATUS_SPP: usize = 1 << 8;
+                const KERNEL_BASE: usize = 0x8000_0000;
+                let tf = task.frame();
+                task.address_space().is_some()
+                    && tf.sstatus & SSTATUS_SPP == 0
+                    && tf.sepc < KERNEL_BASE
+            }
+        };
+        if !valid_user_target && crate::smp::runtime_ready() {
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            {
+                crate::kmain::stage_idle_reentry_frame(frame);
+                return;
+            }
+        }
         if let Some(task) = ctx.tasks.task(current_pid) {
             let tf = task.frame();
             uart_dbg_block!({
@@ -1468,19 +1591,18 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     for &b in b" pid=0x" {
                         write_byte(b);
                     }
-                    if let Ok(handles) = runtime_kernel_handles() {
+                    if let Ok(handles) = runtime_kernel_handles_diagnostic() {
                         let pid = handles.tasks.as_ref().current_pid().as_index();
                         for shift in (0..4).rev() {
                             let nibble = ((pid >> (shift * 4)) & 0xf) as u8;
-                            let ch =
-                                if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                            let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
                             write_byte(ch);
                         }
                     }
                     write_byte(b'\n');
 
                     // RFC-0004 Phase 1 diagnostics: if this fault hits a known guard page, emit a tag.
-                    if let Ok(handles) = runtime_kernel_handles() {
+                    if let Ok(handles) = runtime_kernel_handles_diagnostic() {
                         let tasks = handles.tasks.as_ref();
                         let current_pid = tasks.current_pid();
                         if let Some(task) = tasks.task(current_pid) {
@@ -1616,7 +1738,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 }
 
                 // Snapshot current task's saved frame for additional diagnostics
-                if let Ok(handles) = runtime_kernel_handles() {
+                if let Ok(handles) = runtime_kernel_handles_diagnostic() {
                     unsafe {
                         let tasks = handles.tasks.as_ref();
                         let spaces = handles.spaces.as_ref();
@@ -1661,12 +1783,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
 
                 // Fail-fast: kill the offending user task and hand control back to the scheduler.
                 // Leaving the task alive produces an infinite fault storm and blocks boot markers.
-                if let Ok(mut handles) = runtime_kernel_handles() {
-                    unsafe {
-                        let scheduler = handles.scheduler.as_mut();
-                        let tasks = handles.tasks.as_mut();
-                        let router = handles.router.as_mut();
-                        let spaces = handles.spaces.as_mut();
+                if let Ok(mut kernel) = KernelGuard::acquire() {
+                    // U-mode fault → this hart holds no BKL; safe to acquire.
+                    {
+                        let (scheduler, tasks, router, spaces, _timer, _ht, _ws, _fences) =
+                            kernel.parts();
 
                         // Kill the faulting task and ensure it won't be scheduled again.
                         let doomed = tasks.current_pid();
@@ -1822,7 +1943,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
                     write_hex(0, 16);
                     // Best-effort task context: current PID and its saved sepc (helps catch corrupted frames).
-                    if let Ok(handles) = runtime_kernel_handles() {
+                    if let Ok(handles) = runtime_kernel_handles_diagnostic() {
                         let tasks = handles.tasks.as_ref();
                         let pid = tasks.current_pid();
                         for &b in b" pid=0x" {

@@ -504,12 +504,12 @@ impl CapTransferToArgsTyped {
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_BOOT_MODE,
     SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC,
-    SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE,
-    SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
-    SYSCALL_IPC_SEND_V1, SYSCALL_MAP, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
-    SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME,
-    SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE,
-    SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
+    SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE, SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT,
+    SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1, SYSCALL_IPC_SEND_V1, SYSCALL_MAP,
+    SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN,
+    SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME, SYSCALL_TIMER_CANCEL,
+    SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
+    SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -795,8 +795,8 @@ fn sys_timer_cancel(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 fn sys_irq_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let irq_raw = args.get(0) as u32;
     let endpoint_slot = args.get(1);
-    let irq = crate::hal::plic::IrqId::new(irq_raw)
-        .ok_or(Error::Capability(CapError::InvalidSlot))?;
+    let irq =
+        crate::hal::plic::IrqId::new(irq_raw).ok_or(Error::Capability(CapError::InvalidSlot))?;
     let endpoint = match ctx.tasks.current_caps_mut().get(endpoint_slot)?.kind {
         CapabilityKind::Endpoint(id) => id,
         _ => return Err(Error::Capability(CapError::InvalidSlot)),
@@ -810,8 +810,8 @@ fn sys_irq_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 /// (irq_source_id).
 fn sys_irq_complete(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let irq_raw = args.get(0) as u32;
-    let irq = crate::hal::plic::IrqId::new(irq_raw)
-        .ok_or(Error::Capability(CapError::InvalidSlot))?;
+    let irq =
+        crate::hal::plic::IrqId::new(irq_raw).ok_or(Error::Capability(CapError::InvalidSlot))?;
     crate::irq::complete(irq);
     Ok(0)
 }
@@ -3179,9 +3179,7 @@ impl VmoPool {
         // growing the bump frontier. Same zeroing guarantee as the bump path.
         let mut best: Option<usize> = None;
         for (index, &(_, entry_len)) in self.free_list.iter().enumerate() {
-            if entry_len >= aligned
-                && best.is_none_or(|prev| entry_len < self.free_list[prev].1)
-            {
+            if entry_len >= aligned && best.is_none_or(|prev| entry_len < self.free_list[prev].1) {
                 best = Some(index);
             }
         }
@@ -3237,8 +3235,7 @@ impl VmoPool {
         if aligned == 0 || base & (PAGE_SIZE - 1) != 0 {
             return Err(Error::Capability(CapError::PermissionDenied));
         }
-        let end =
-            base.checked_add(aligned).ok_or(Error::Capability(CapError::PermissionDenied))?;
+        let end = base.checked_add(aligned).ok_or(Error::Capability(CapError::PermissionDenied))?;
         // Must lie inside the currently allocated span [pool.base, pool.next).
         if base < self.base || end > self.next {
             return Err(Error::Capability(CapError::PermissionDenied));

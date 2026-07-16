@@ -12,7 +12,7 @@
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use core::fmt::{Arguments, Write};
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 
 /// Logging severity used by the kernel. Mirrors `nexus_log::Level` (userspace) so the
 /// kernel and userspace facades share one policy vocabulary.

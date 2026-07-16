@@ -19,7 +19,6 @@ use crate::ipc::header::MessageHeader;
 use crate::{
     cap::{Capability, CapabilityKind, Rights},
     hal::virt::VirtMachine,
-    hal::Timer,
     hal::{IrqCtl, Tlb},
     mm::{AddressSpaceManager, AsHandle},
     sched::{EnqueueOutcome, QosClass, Scheduler},
@@ -314,129 +313,262 @@ impl KernelState {
             let _ = self.ipc.recv(0);
         }
     }
+}
 
-    fn idle_loop(&mut self) -> ! {
-        log_debug!(target: "kmain", "KMAIN: Entering idle_loop");
-        loop {
-            // Watchdog: ensure forward progress; 10ms in mtimer ticks (10MHz) ~ 100_000 cycles
-            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+/// Fresh re-entry into this hart's scheduler loop (target of the idle
+/// re-entry frame staged by `stage_idle_reentry_frame`).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+extern "C" fn idle_reentry() -> ! {
+    cpu_main(crate::smp::cpu_current_id())
+}
+
+/// Stages `frame` so the trap epilogue sret-returns into THIS hart's
+/// `cpu_main` on a fresh stack (A3): used when a syscall leaves no valid
+/// user task to resume on this hart. Before A3 the return target fell back
+/// to PID 0's stale frame — the BOOT hart's S-mode context — which is
+/// catastrophically wrong on a secondary hart.
+///
+/// Only meaningful once `smp::runtime_ready()` (before that, PID 0's frame
+/// IS the live selftest/bring-up context and must keep working).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub(crate) fn stage_idle_reentry_frame(frame: &mut crate::trap::TrapFrame) {
+    const SSTATUS_SPP: usize = 1 << 8;
+    const SSTATUS_SPIE: usize = 1 << 5;
+
+    let cpu = crate::smp::cpu_current_id();
+    let (gp, tp): (usize, usize);
+    // SAFETY: reading gp/tp in S-mode kernel context (both are the kernel's).
+    unsafe {
+        core::arch::asm!(
+            "mv {g}, gp", "mv {t}, tp",
+            g = out(reg) gp,
+            t = out(reg) tp,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    let sstatus: usize;
+    // SAFETY: side-effect-free CSR read.
+    unsafe {
+        core::arch::asm!("csrr {s}, sstatus", s = out(reg) sstatus, options(nomem, nostack, preserves_flags));
+    }
+
+    *frame = crate::trap::TrapFrame::EMPTY;
+    frame.sepc = idle_reentry as usize;
+    // Fresh stack: cpu_main never returns and holds nothing at entry, so the
+    // hart's full stack is available again. The trap epilogue reads the whole
+    // frame BEFORE it switches sp (sp is restored last), so overlapping the
+    // dead trap frame at the stack top is safe.
+    frame.x[2] = crate::smp::hart_stack_top(cpu);
+    frame.x[3] = gp;
+    frame.x[4] = tp;
+    // sret to S-mode with interrupts enabled after the return.
+    frame.sstatus = sstatus | SSTATUS_SPP | SSTATUS_SPIE;
+}
+
+/// Per-CPU scheduler main loop (A3): every schedule decision runs under the
+/// kernel BKL (`trap::KernelGuard`); the chosen task's frame is staged into
+/// this hart's `HartLocal` slot and the guard is dropped BEFORE the sret
+/// path runs. No lock is ever held across a context switch.
+///
+/// Boot hart: also drives the timer-cap/IRQ backstop and IPC deadline
+/// delivery while idle (v1: PLIC + timer-cap delivery stay boot-owned).
+/// Secondary harts: WFI idle; woken by resched IPIs and their own timer.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn cpu_main(cpu: CpuId) -> ! {
+    // Once per hart (idle re-entries repeat silently at debug level): proves
+    // the hart reached its scheduler loop with the identity it claims.
+    static SCHED_LOOP_ANNOUNCED: [core::sync::atomic::AtomicUsize; crate::smp::MAX_CPUS] =
+        [const { core::sync::atomic::AtomicUsize::new(0) }; crate::smp::MAX_CPUS];
+    if SCHED_LOOP_ANNOUNCED[cpu.as_index()].swap(1, core::sync::atomic::Ordering::AcqRel) == 0 {
+        log_info!(target: "smp", "KINIT: cpu{} sched loop", cpu.as_index());
+    }
+    log_debug!(target: "kmain", "KMAIN: cpu{} entering scheduler loop", cpu.as_index());
+
+    /// Outcome of one guarded scheduling attempt.
+    enum Attempt {
+        /// Frame staged + AS activated: switch to user (lock-free).
+        Switch(*const crate::trap::TrapFrame),
+        /// Picked task was not runnable in user mode: retry immediately.
+        Retry,
+        /// Nothing runnable: idle delivery done, back off.
+        Idle,
+    }
+
+    // A8 rate gate: at most one steal attempt per millisecond per CPU.
+    const STEAL_MIN_INTERVAL_NS: u64 = 1_000_000;
+    // A3 exec proof: emitted once per secondary from the boot hart's loop.
+    static EXEC_PROOF_EMITTED: [core::sync::atomic::AtomicUsize; crate::smp::MAX_CPUS] =
+        [const { core::sync::atomic::AtomicUsize::new(0) }; crate::smp::MAX_CPUS];
+
+    loop {
+        if cpu.is_boot() {
+            // Watchdog: ensure forward progress; ~10ms in mtimer ticks.
             crate::liveness::check(crate::trap::DEFAULT_TICK_CYCLES * 3);
 
-            // Debug: Check if we're stuck
-            static LOOP_COUNT: core::sync::atomic::AtomicUsize =
-                core::sync::atomic::AtomicUsize::new(0);
-            let count = LOOP_COUNT.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
-            if count % 10000 == 0 {
-                log_debug!(target: "kmain", "KMAIN: idle_loop iteration {}", count);
+            // A3 proof marker: user execution observed on a secondary hart.
+            for idx in 1..crate::smp::MAX_CPUS {
+                let target = CpuId::from_raw(idx as u16);
+                if crate::smp::cpu_is_online(target)
+                    && crate::smp::user_dispatch_count(target) > 0
+                    && EXEC_PROOF_EMITTED[idx].swap(1, core::sync::atomic::Ordering::AcqRel) == 0
+                {
+                    log_info!(target: "smp", "KSELFTEST: smp exec cpu{} ok", idx);
+                }
+            }
+        }
+
+        static LOOP_COUNT: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(0);
+        let count = LOOP_COUNT.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        if count % 10000 == 0 {
+            log_debug!(target: "kmain", "KMAIN: idle_loop iteration {}", count);
+        }
+
+        let attempt = {
+            let Ok(mut kernel) = crate::trap::KernelGuard::acquire() else {
+                // Runtime not installed yet — nothing to schedule.
+                core::hint::spin_loop();
+                continue;
+            };
+            let (scheduler, tasks, router, spaces, timer, hart_timers, _waitsets, _fences) =
+                kernel.parts();
+
+            // Own queue first, then a bounded, rate-gated steal (A8).
+            let picked = scheduler.schedule_next().or_else(|| {
+                if crate::smp::cpu_online_mask().count_ones() > 1
+                    && crate::smp::steal_rate_gate(cpu, timer.now(), STEAL_MIN_INTERVAL_NS)
+                {
+                    let stolen = scheduler.steal_into_current(QosClass::PerfBurst);
+                    if let Some(pid) = stolen {
+                        // Explicit migration: the thief becomes the home CPU.
+                        tasks.set_home_cpu(pid, cpu);
+                    }
+                    stolen
+                } else {
+                    None
+                }
+            });
+
+            // Bounded anomaly probe (A3 bring-up): a non-empty queue that
+            // schedule_next does not pick would prove an indexing mismatch.
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            if !cpu.is_boot() && picked.is_none() {
+                let qlen: usize =
+                    [QosClass::Idle, QosClass::Normal, QosClass::Interactive, QosClass::PerfBurst]
+                        .iter()
+                        .map(|q| scheduler.selftest_queue_len(cpu, *q))
+                        .sum();
+                if qlen > 0 {
+                    static PICK_MISS_LOGGED: core::sync::atomic::AtomicUsize =
+                        core::sync::atomic::AtomicUsize::new(0);
+                    if PICK_MISS_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 3 {
+                        log_error!(
+                            target: "smp",
+                            "KINIT: cpu{} pick-miss qlen={} (tp_cpu={})",
+                            cpu.as_index(),
+                            qlen,
+                            crate::smp::cpu_current_id().as_index()
+                        );
+                    }
+                }
             }
 
-            // ARCHITECTURAL FIX: Idle loop is S-mode kernel code, not a task.
-            // S-mode ecalls trap to M-mode (OpenSBI), not our S-mode handler!
-            // Solution: Directly schedule next task and context switch via assembly.
+            if let Some(next_pid) = picked {
+                tasks.set_current(next_pid);
 
-            if let Some(next_pid) = self.scheduler.schedule_next() {
-                self.tasks.set_current(next_pid);
+                // Bounded bring-up diagnostic: first picks on a secondary,
+                // with every validation input visible.
+                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+                if !cpu.is_boot() {
+                    static SEC_PICK_LOGGED: core::sync::atomic::AtomicUsize =
+                        core::sync::atomic::AtomicUsize::new(0);
+                    if SEC_PICK_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 3 {
+                        let (has_as, sstatus, sepc) = tasks
+                            .task(next_pid)
+                            .map(|t| {
+                                (t.address_space().is_some(), t.frame().sstatus, t.frame().sepc)
+                            })
+                            .unwrap_or((false, 0, 0));
+                        log_info!(
+                            target: "smp",
+                            "KINIT: cpu{} pick pid={} as={} sstatus=0x{:x} sepc=0x{:x}",
+                            cpu.as_index(),
+                            next_pid,
+                            has_as,
+                            sstatus,
+                            sepc
+                        );
+                    }
+                }
 
-                // Extract scheduling-relevant values without holding an immutable borrow of `self`
-                // across the context-switch call (which needs `&mut self`).
-                let (handle, frame_ptr, is_umode, is_user_addr) = match self.tasks.task(next_pid) {
-                    None => continue,
+                match tasks.task(next_pid) {
+                    None => Attempt::Retry,
                     Some(task) => {
                         const SSTATUS_SPP: usize = 1 << 8;
                         const KERNEL_BASE: usize = 0x80000000;
                         let frame = task.frame();
                         let is_umode = (frame.sstatus & SSTATUS_SPP) == 0;
                         let is_user_addr = frame.sepc < KERNEL_BASE;
-                        (
-                            task.address_space(),
-                            frame as *const crate::trap::TrapFrame,
-                            is_umode,
-                            is_user_addr,
-                        )
-                    }
-                };
-
-                if let Some(handle) = handle {
-                    if !is_umode {
-                        if count < 10 {
-                            log_debug!(target: "kmain", "KMAIN: skip S-mode task pid={} (SPP=1)", next_pid);
+                        match task.address_space() {
+                            Some(handle) if is_umode && is_user_addr => {
+                                if count < 10 {
+                                    log_debug!(
+                                        target: "kmain",
+                                        "KMAIN: switch to U-mode pid={} sepc=0x{:x} sp=0x{:x}",
+                                        next_pid,
+                                        frame.sepc,
+                                        frame.x[2]
+                                    );
+                                }
+                                let staged = crate::smp::hart_local_stage_resume(cpu, frame);
+                                if spaces.activate(handle).is_err() {
+                                    log_error!(
+                                        target: "kmain",
+                                        "KMAIN: AS activate failed pid={}",
+                                        next_pid
+                                    );
+                                    Attempt::Retry
+                                } else {
+                                    crate::smp::record_user_dispatch(cpu);
+                                    Attempt::Switch(staged)
+                                }
+                            }
+                            Some(_) => {
+                                if count < 10 {
+                                    log_debug!(
+                                        target: "kmain",
+                                        "KMAIN: skip non-user task pid={} (SPP/sepc)",
+                                        next_pid
+                                    );
+                                }
+                                Attempt::Retry
+                            }
+                            None => {
+                                if count < 10 {
+                                    log_debug!(
+                                        target: "kmain",
+                                        "KMAIN: skip kernel task pid={} (no AS)",
+                                        next_pid
+                                    );
+                                }
+                                Attempt::Retry
+                            }
                         }
-                        continue;
-                    }
-                    if !is_user_addr {
-                        if count < 10 {
-                            let frame = unsafe { &*frame_ptr };
-                            log_debug!(
-                                target: "kmain",
-                                "KMAIN: skip invalid task pid={} (sepc=0x{:x} in kernel space)",
-                                next_pid,
-                                frame.sepc
-                            );
-                        }
-                        continue;
-                    }
-
-                    // Log BEFORE activating user AS (no logging after AS switch!)
-                    if count < 10 {
-                        let frame = unsafe { &*frame_ptr };
-                        log_debug!(
-                            target: "kmain",
-                            "KMAIN: switch to U-mode pid={} sepc=0x{:x} sp=0x{:x}",
-                            next_pid,
-                            frame.sepc,
-                            frame.x[2]
-                        );
-                    }
-
-                    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-                    unsafe {
-                        let frame = &*frame_ptr;
-                        activate_and_switch_to_user(self, handle, frame);
-                    }
-                    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-                    {
-                        if let Err(e) = self.address_spaces.activate(handle) {
-                            log_error!(target: "kmain", "KMAIN: AS activate failed {:?}", e);
-                            continue;
-                        }
-                    }
-                } else {
-                    if count < 10 {
-                        log_debug!(target: "kmain", "KMAIN: skip kernel task pid={} (no AS)", next_pid);
                     }
                 }
-            } else {
-                // Reactive idle delivery: when nothing is runnable, the supervisor
-                // S_TIMER/S_EXT trap handlers only act on U-mode interrupts (to avoid
-                // reentrancy), so a timer cap that fired (windowd's 120Hz pacer,
-                // gpud's spin-blur demo) or a pending device IRQ would otherwise be
-                // missed right here — the only live context is this S-mode idle.
-                // Deliver them cooperatively so a blocked animator/driver wakes.
-                // Safe: the async handlers skip S-mode, so they never reenter these
-                // borrows; we hold disjoint &mut field borrows.
-                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-                {
-                    let timer: &dyn crate::hal::Timer = self.hal.timer();
-                    crate::trap::process_expired_timers(
-                        timer,
-                        &mut self.hart_timers,
-                        &mut self.ipc,
-                        &mut self.tasks,
-                        &mut self.scheduler,
-                    );
-                    crate::irq::dispatch_external(
-                        &mut self.ipc,
-                        &mut self.tasks,
-                        &mut self.scheduler,
-                    );
-                }
-                // If nothing is runnable, try waking tasks blocked on deadlines (IPC v1).
-                // Without this, the kernel could spin forever even though a deadline has expired.
-                let now = self.hal.timer().now();
-                let len = self.tasks.len();
+            } else if cpu.is_boot() {
+                // Reactive idle delivery (nothing runnable): fired timer caps,
+                // pending device IRQs, and elapsed IPC deadlines would
+                // otherwise be missed here — the async handlers only act on
+                // U-mode interrupts. v1: boot-hart-owned (PLIC contexts and
+                // timer-cap delivery move per-hart in A6/A7).
+                crate::trap::process_expired_timers(timer, hart_timers, router, tasks, scheduler);
+                crate::irq::dispatch_external(router, tasks, scheduler);
+                let now = timer.now();
+                let len = tasks.len();
                 for pid_usize in 0..len {
                     let pid = Pid::from_raw(pid_usize as u32);
-                    let Some(t) = self.tasks.task(pid) else {
+                    let Some(t) = tasks.task(pid) else {
                         continue;
                     };
                     if !t.is_blocked() {
@@ -446,116 +578,82 @@ impl KernelState {
                         Some(crate::task::BlockReason::IpcRecv { endpoint, deadline_ns })
                             if deadline_ns != 0 && now >= deadline_ns =>
                         {
-                            let _ = self.ipc.remove_recv_waiter(endpoint, pid.as_raw());
-                            match self.tasks.wake(pid, &mut self.scheduler) {
-                                crate::task::WakeOutcome::Woken
-                                | crate::task::WakeOutcome::WokenNoopSelftest
-                                | crate::task::WakeOutcome::TaskNotBlocked
-                                | crate::task::WakeOutcome::TaskNotFound
-                                | crate::task::WakeOutcome::EnqueueRejected => {}
-                            }
+                            let _ = router.remove_recv_waiter(endpoint, pid.as_raw());
+                            let _ = tasks.wake(pid, scheduler);
                         }
                         Some(crate::task::BlockReason::IpcSend { endpoint, deadline_ns })
                             if deadline_ns != 0 && now >= deadline_ns =>
                         {
-                            let _ = self.ipc.remove_send_waiter(endpoint, pid.as_raw());
-                            match self.tasks.wake(pid, &mut self.scheduler) {
-                                crate::task::WakeOutcome::Woken
-                                | crate::task::WakeOutcome::WokenNoopSelftest
-                                | crate::task::WakeOutcome::TaskNotBlocked
-                                | crate::task::WakeOutcome::TaskNotFound
-                                | crate::task::WakeOutcome::EnqueueRejected => {}
-                            }
+                            let _ = router.remove_send_waiter(endpoint, pid.as_raw());
+                            let _ = tasks.wake(pid, scheduler);
                         }
                         _ => {}
                     }
                 }
-                // No runnable tasks - spin briefly
-                for _ in 0..1000 {
-                    core::hint::spin_loop();
+                Attempt::Idle
+            } else {
+                Attempt::Idle
+            }
+        }; // BKL guard drops HERE — before any context switch (A2b invariant).
+
+        match attempt {
+            Attempt::Switch(frame_ptr) => {
+                // Legacy tripwire: the runtime must stay visible after the
+                // SATP switch (kernel statics are mapped in every AS).
+                if !crate::trap::runtime_installed() {
+                    panic!("trap runtime invisible after AS activate");
+                }
+                // Interim TLB safety (until A5): consume a pending lazy flush
+                // BEFORE dispatching user code (ASID recycle on another hart).
+                if crate::smp::take_lazy_tlb_flush(cpu) {
+                    // SAFETY: full local TLB flush; over-invalidation is safe.
+                    unsafe {
+                        core::arch::asm!("sfence.vma x0, x0", options(nostack, preserves_flags));
+                    }
+                }
+                // A4: guarantee a preemption tick while user code runs.
+                #[cfg(feature = "timer_irq")]
+                crate::trap::timer_arm(crate::trap::DEFAULT_TICK_CYCLES);
+                // SAFETY: hart-local staged frame; AS activated; no locks held.
+                unsafe { context_switch_to_task(&*frame_ptr) }
+            }
+            Attempt::Retry => continue,
+            Attempt::Idle => {
+                if cpu.is_boot() {
+                    // Boot hart keeps its short spin so backstop delivery and
+                    // the liveness watchdog stay responsive.
+                    for _ in 0..1000 {
+                        core::hint::spin_loop();
+                    }
+                } else {
+                    // Secondary WFI idle: mask SIE, sleep unless a wake hint
+                    // arrived, unmask. The hint (not RESCHED_PENDING, which
+                    // the S_SOFT ack path consumes) closes the lost-wakeup
+                    // window: request_resched sets it before the IPI, and only
+                    // this loop consumes it. A pending-but-masked interrupt
+                    // still wakes WFI.
+                    // SAFETY: SIE toggling around wfi; interrupts are handled
+                    // right after set_sie re-enables them.
+                    // Secondary WFI idle: mask SIE, sleep unless a wake hint
+                    // arrived, unmask. The hint (not RESCHED_PENDING, which
+                    // the S_SOFT ack path consumes) closes the lost-wakeup
+                    // window. A pending-but-masked interrupt still wakes WFI.
+                    // WFI (not spinning) is also what keeps QEMU vCPUs parked
+                    // instead of burning scheduler quanta on the BKL.
+                    // SAFETY: SIE toggling around wfi; interrupts are handled
+                    // right after set_sie re-enables them.
+                    unsafe {
+                        riscv::register::sie::set_ssoft();
+                        riscv::register::sie::set_stimer();
+                        riscv::register::sstatus::clear_sie();
+                        if !crate::smp::take_wake_hint(cpu) {
+                            core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
+                        }
+                        riscv::register::sstatus::set_sie();
+                    }
                 }
             }
         }
-    }
-}
-
-/// Activates user address space and immediately switches to user mode.
-/// CRITICAL: This function MUST NOT be inlined to ensure all temporaries from caller
-/// are dropped before the AS switch. After activate(), we jump directly to user mode.
-///
-/// SAFETY: Uses ManuallyDrop and mem::forget to prevent destructors from running
-/// after the AS switch, which is the enterprise-level Rust pattern for this scenario.
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-#[inline(never)]
-unsafe fn activate_and_switch_to_user(
-    kernel: &mut KernelState,
-    handle: crate::mm::AsHandle,
-    frame: &crate::trap::TrapFrame,
-) -> ! {
-    // Log BEFORE AS switch - safe UART only. RFC-0068: this per-context-switch register dump is a
-    // DEBUG breadcrumb (off by default; `NEXUS_LOG=kmain=debug` to see it), so it never clutters the
-    // boot overview. Proof boots keep DEBUG off too — it is not a marker.
-    if crate::log::would_log(crate::log::Level::Debug, "kmain") {
-        use core::fmt::Write;
-        let mut u = crate::uart::raw_writer();
-        let _ = u.write_str("ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x");
-        crate::trap::uart_write_hex(&mut u, frame.sepc);
-        let _ = u.write_str(" frame_ptr=0x");
-        crate::trap::uart_write_hex(&mut u, frame as *const _ as usize);
-        let _ = u.write_str(" sp=0x");
-        crate::trap::uart_write_hex(&mut u, frame.x[2]);
-        let _ = u.write_str(" gp=0x");
-        crate::trap::uart_write_hex(&mut u, frame.x[3]);
-        let _ = u.write_str(" ra=0x");
-        crate::trap::uart_write_hex(&mut u, frame.x[1]);
-        let _ = u.write_str(" sstatus=0x");
-        crate::trap::uart_write_hex(&mut u, frame.sstatus);
-        let _ = u.write_str(" off_sepc=0x");
-        crate::trap::uart_write_hex(&mut u, core::mem::offset_of!(crate::trap::TrapFrame, sepc));
-        let _ = u.write_str("\n");
-        core::mem::drop(u);
-    }
-
-    // CRITICAL SECTION: Atomically activate AS and jump to user - NO cleanup code possible
-    // Move activate() INTO context_switch to ensure they're truly atomic
-    unsafe { context_switch_with_activate(kernel, handle, frame) }
-}
-
-/// Atomically activates the user AS and context switches to the task.
-/// CRITICAL: inline(always) ensures activate() and asm! are truly atomic with NO cleanup code between them.
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-#[inline(always)]
-unsafe fn context_switch_with_activate(
-    kernel: &mut KernelState,
-    handle: crate::mm::AsHandle,
-    frame: &crate::trap::TrapFrame,
-) -> ! {
-    // Activate user AS - from this point we're in the user's address space
-    let _ = kernel.address_spaces.activate(handle);
-
-    // Defensive: some bring-up paths end up with TRAP_RUNTIME not visible after SATP switch.
-    // If missing, (re)install it in the currently active address space so U-mode syscalls work.
-    if !crate::trap::runtime_installed() {
-        let timer: &'static dyn crate::hal::Timer = unsafe {
-            let t: &dyn crate::hal::Timer = kernel.hal.timer();
-            &*(t as *const dyn crate::hal::Timer)
-        };
-        let _ = crate::trap::install_runtime(
-            &mut kernel.scheduler,
-            &mut kernel.tasks,
-            &mut kernel.ipc,
-            &mut kernel.address_spaces,
-            timer,
-            &mut kernel.hart_timers,
-            &mut kernel.waitsets,
-            &mut kernel.fences,
-            &kernel.syscalls,
-        );
-    }
-
-    // IMMEDIATELY jump to assembly - inline(always) ensures no code between activate and asm
-    unsafe {
-        context_switch_to_task(frame);
     }
 }
 
@@ -626,10 +724,12 @@ unsafe fn context_switch_to_task(frame: &crate::trap::TrapFrame) -> ! {
 
 pub(crate) fn kmain_secondary(hart: HartId, stack_top: usize) -> ! {
     let cpu = CpuId::from_hart(hart);
-    crate::smp::register_trap_stack_top(cpu, stack_top);
+    // Idempotent re-prepare (the boot hart already prepared this block before
+    // hart_start); establishes trap stack + identity before any trap or log.
+    crate::smp::hart_local_prepare(cpu, stack_top);
     // SAFETY: secondary hart installs its own trap vector once before entering the wait loop.
     unsafe {
-        crate::trap::install_trap_vector_with_stack(stack_top);
+        crate::trap::install_trap_vector_for(cpu);
     }
     crate::smp::mark_cpu_online(cpu);
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -639,8 +739,41 @@ pub(crate) fn kmain_secondary(hart: HartId, stack_top: usize) -> ! {
         riscv::register::sstatus::set_sie();
     }
 
+    // Parked until the boot hart finishes selftests + init spawn: that phase
+    // mutates kernel state through kmain's direct borrows (not the BKL), so
+    // secondaries must not schedule yet. S_SOFT resched evidence and the A2
+    // lock-ping selftest stay serviceable while parked. Park in WFI (not a
+    // hot spin): under icount/TCG a spinning vCPU steals whole scheduler
+    // quanta from the boot hart. The boot hart kicks us via IPI for the
+    // lock-ping request and for the runtime-ready release.
+    let mut lock_ping_done = false;
+    while !crate::smp::runtime_ready() {
+        crate::smp::lock_ping_participate(&mut lock_ping_done);
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        // SAFETY: wfi with SIE enabled; any interrupt (IPI/timer) resumes us.
+        // Defensively re-assert the S-soft enable: an empty `sie` was observed
+        // after the first S_SOFT trap on secondaries (root cause still open),
+        // which left the hart deaf to IPIs.
+        unsafe {
+            riscv::register::sie::set_ssoft();
+            core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
+        }
+        core::hint::spin_loop();
+    }
+
+    // A3/A4: join the scheduler with a per-hart preemption tick.
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    unsafe {
+        riscv::register::sie::set_stimer();
+    }
+    #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
+    crate::trap::timer_arm(crate::trap::DEFAULT_TICK_CYCLES);
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        cpu_main(cpu)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     loop {
-        // Keep the hart idle and let S_SOFT trap handling provide resched evidence.
         core::hint::spin_loop();
     }
 }
@@ -804,7 +937,17 @@ pub fn kmain() -> ! {
         riscv::register::sie::set_sext();
     }
 
-    kernel.idle_loop()
+    // A3: selftests + init spawn are done — release the secondaries into
+    // their scheduler loops (IPI punches them out of their park-WFI), then
+    // become CPU 0's scheduler.
+    crate::smp::mark_runtime_ready();
+    for idx in 1..crate::smp::MAX_CPUS {
+        let target = CpuId::from_raw(idx as u16);
+        if crate::smp::cpu_is_online(target) {
+            let _ = crate::smp::request_resched(target);
+        }
+    }
+    cpu_main(CpuId::BOOT)
 }
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]

@@ -85,8 +85,13 @@ struct AlignedPage([u8; PAGE_SIZE]);
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 static mut CHILD_DATA_PAGE: AlignedPage = AlignedPage([0; PAGE_SIZE]);
 
+// Must match the boot-stack budget (kernel.ld note): the selftest phase runs
+// deep kernel paths (spawn/exit, KernelGuard frames) on this stack, and the
+// "guard" below it is symbolically reserved but MAPPED .bss — an overflow
+// silently corrupts .sbss statics (locks/atomics) and hangs without output,
+// flipping with unrelated code-size changes. 32 KiB was measured too small.
 #[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
-const SELFTEST_STACK_PAGES: usize = 8;
+const SELFTEST_STACK_PAGES: usize = 16;
 #[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
 const SELFTEST_STACK_BYTES: usize = SELFTEST_STACK_PAGES * PAGE_SIZE;
 #[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
@@ -614,6 +619,7 @@ pub fn entry(ctx: &mut Context<'_>) {
     run_fence_selftest(ctx);
     run_spawn_reason_selftest();
     run_resource_sentinel_selftest(ctx);
+    run_cpuid_selftest();
     run_smp_selftests(ctx);
     // Ensure subsequent lifecycle tests run as the bootstrap task (PID 0)
     // so parent/child linkage during spawn and wait behaves deterministically.
@@ -1334,11 +1340,9 @@ fn run_fence_selftest(ctx: &mut Context<'_>) {
     };
 
     // Signal to 10, then a wait for target 5 is satisfied immediately (no block) → Ok.
-    if let Err(e) = table.dispatch(
-        SYSCALL_FENCE_SIGNAL,
-        &mut sys_ctx,
-        &Args::new([fence_slot, 10, 0, 0, 0, 0]),
-    ) {
+    if let Err(e) =
+        table.dispatch(SYSCALL_FENCE_SIGNAL, &mut sys_ctx, &Args::new([fence_slot, 10, 0, 0, 0, 0]))
+    {
         log_error!(target: "selftest", "KSELFTEST: fence FAIL signal={:?}", e);
         return;
     }
@@ -1380,7 +1384,8 @@ fn run_fence_selftest(ctx: &mut Context<'_>) {
         }
     }
 
-    let _ = table.dispatch(SYSCALL_CAP_CLOSE, &mut sys_ctx, &Args::new([fence_slot, 0, 0, 0, 0, 0]));
+    let _ =
+        table.dispatch(SYSCALL_CAP_CLOSE, &mut sys_ctx, &Args::new([fence_slot, 0, 0, 0, 0, 0]));
 }
 
 fn run_spawn_reason_selftest() {
@@ -1475,6 +1480,38 @@ fn run_resource_sentinel_selftest(_ctx: &mut Context<'_>) {
     log_info!(target: "selftest", "KSELFTEST: resource sentinel ok");
 }
 
+/// A1 (tp identity): proves the HartLocal/tp fast path is live and that the
+/// legacy heuristic fallback is dead — both positively (zero fallbacks so
+/// far) and counterfactually (a poisoned tp is rejected and counted).
+/// Runs under SMP=1 and SMP>=2 alike.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn run_cpuid_selftest() {
+    let cpu = crate::smp::cpu_current_id();
+    let fallbacks = crate::smp::cpuid_fallback_count();
+    if cpu.is_boot() && fallbacks == 0 {
+        log_info!(target: "selftest", "KSELFTEST: cpuid tp ok");
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: cpuid tp FAIL cpu={} fallbacks={}",
+            cpu,
+            fallbacks
+        );
+    }
+
+    let (resolved, fallback_delta) = crate::smp::selftest_poisoned_tp_probe();
+    if resolved.is_boot() && fallback_delta == 1 {
+        log_info!(target: "selftest", "KSELFTEST: cpuid fallback counterfactual ok");
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: cpuid fallback counterfactual FAIL cpu={} delta={}",
+            resolved,
+            fallback_delta
+        );
+    }
+}
+
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn run_smp_selftests(ctx: &mut Context<'_>) {
     let online_mask = crate::smp::cpu_online_mask();
@@ -1485,6 +1522,25 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     }
 
     log_info!(target: "selftest", "KSELFTEST: smp online ok");
+
+    // A2: two-hart lock ping — proves SpinIrqLock mutual exclusion across
+    // real harts with an exact-count result (no timing assertion).
+    {
+        const PING_ROUNDS: usize = 1000;
+        let secondaries = crate::smp::cpu_online_mask().count_ones().saturating_sub(1) as usize;
+        let (total, acks) = crate::smp::selftest_lock_ping(PING_ROUNDS, 50_000_000);
+        if acks == secondaries && acks >= 1 && total == PING_ROUNDS * (1 + acks) {
+            log_info!(target: "selftest", "KSELFTEST: kernel lock contention bounded ok");
+        } else {
+            log_error!(
+                target: "selftest",
+                "KSELFTEST: kernel lock contention bounded FAIL total={} acks={} expected_acks={}",
+                total,
+                acks,
+                secondaries
+            );
+        }
+    }
 
     // Counterfactual anti-fake proof:
     // force IPI send failure and require that no S_SOFT trap/ack chain appears.

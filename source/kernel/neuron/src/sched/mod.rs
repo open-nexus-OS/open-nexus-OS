@@ -117,29 +117,51 @@ impl CpuRunQueues {
             current: None,
         }
     }
+
+    fn queue_mut(&mut self, qos: QosClass) -> &mut VecDeque<Task> {
+        match qos {
+            QosClass::Idle => &mut self.queues[0],
+            QosClass::Normal => &mut self.queues[1],
+            QosClass::Interactive => &mut self.queues[2],
+            QosClass::PerfBurst => &mut self.queues[3],
+        }
+    }
 }
 
 /// Per-CPU round-robin scheduler with simple QoS based ordering.
 ///
-/// ## Send/Sync Safety (TASK-0011B, TASK-0012)
+/// ## SMP model (A3, TASK-0012 close-out)
 ///
-/// **SMP v1**:
-/// - `Scheduler` is `!Send` and `!Sync` (contains `VecDeque`, not thread-safe)
-/// - Runtime path stays single-CPU stable for deterministic bring-up
-/// - Per-CPU runqueues are available via selftest-only APIs
-///
+/// One `CpuRunQueues` per CPU is THE runtime state; every public method uses
+/// implicit current-CPU addressing (tp-derived identity), so each hart
+/// schedules from its own queue set with unchanged call sites. The scheduler
+/// lives inside the BKL aggregate (`trap::KernelGuard`) — cross-CPU
+/// operations (wake-to-home-CPU, stealing, purge) are serialized by that
+/// lock, which is why the type itself stays `!Send`/`!Sync`. The historical
+/// `selftest_*` APIs are thin wrappers over the same state so the RFC-0021
+/// markers keep their meaning. SMP=1: everything lands on CPU 0 with
+/// byte-identical scheduling order to the pre-SMP scheduler.
 pub struct Scheduler {
-    queues: [VecDeque<Task>; 4],
-    current: Option<Task>,
-    selftest_cpus: [CpuRunQueues; crate::smp::MAX_CPUS],
+    cpus: [CpuRunQueues; crate::smp::MAX_CPUS],
     timeslice_ns: u64,
-    // Pre-SMP contract: scheduler is CPU-local and must not cross thread boundaries.
+    // Access is serialized by the BKL; the type must not cross harts on its own.
     _not_send_sync: PhantomData<*mut ()>,
 }
 static_assertions::assert_not_impl_any!(Scheduler: Send, Sync);
 
 impl Scheduler {
     const SELFTEST_STEAL_MAX_PER_TICK: usize = 1;
+
+    /// Implicit scheduling domain: the executing CPU (tp-derived identity).
+    #[inline]
+    fn current_cpu_index() -> usize {
+        let idx = crate::smp::cpu_current_id().as_index();
+        if idx < crate::smp::MAX_CPUS {
+            idx
+        } else {
+            0
+        }
+    }
 
     #[inline]
     const fn runtime_queue_capacity_for(_qos: QosClass) -> QueueCapacity {
@@ -190,16 +212,7 @@ impl Scheduler {
             }
         }
         let s = Self {
-            // Keep runtime scheduler behavior unchanged for SMP=1 determinism.
-            queues: [
-                VecDeque::with_capacity(RUNTIME_QOS_QUEUE_CAPACITY.raw()),
-                VecDeque::with_capacity(RUNTIME_QOS_QUEUE_CAPACITY.raw()),
-                VecDeque::with_capacity(RUNTIME_QOS_QUEUE_CAPACITY.raw()),
-                VecDeque::with_capacity(RUNTIME_QOS_QUEUE_CAPACITY.raw()),
-            ],
-            current: None,
-            // Per-CPU queues are used only by SMP selftests.
-            selftest_cpus: array::from_fn(|_| CpuRunQueues::new()),
+            cpus: array::from_fn(|_| CpuRunQueues::new()),
             timeslice_ns: ts,
             _not_send_sync: PhantomData,
         };
@@ -221,12 +234,12 @@ impl Scheduler {
 
     /// Returns the currently running task id, if any.
     pub fn current_task_id(&self) -> Option<TaskId> {
-        self.current.as_ref().map(|task| task.id)
+        self.cpus[Self::current_cpu_index()].current.as_ref().map(|task| task.id)
     }
 
     /// Updates the currently running task QoS in-place.
     pub fn set_current_qos(&mut self, qos: QosClass) -> bool {
-        if let Some(task) = self.current.as_mut() {
+        if let Some(task) = self.cpus[Self::current_cpu_index()].current.as_mut() {
             task.qos = qos;
             true
         } else {
@@ -239,24 +252,30 @@ impl Scheduler {
     /// If the task is currently running, this updates the in-place current entry.
     /// If the task is queued, it moves the queue entry to the target QoS bucket.
     pub fn set_task_qos(&mut self, id: TaskId, qos: QosClass) -> SetQosOutcome {
-        if let Some(current) = self.current.as_mut() {
-            if current.id == id {
-                current.qos = qos;
-                return SetQosOutcome::Updated;
-            }
-        }
-
-        let mut found: Option<(usize, usize, Task)> = None;
-        for (queue_idx, queue) in self.queues.iter_mut().enumerate() {
-            if let Some(pos) = queue.iter().position(|task| task.id == id) {
-                if let Some(task) = queue.remove(pos) {
-                    found = Some((queue_idx, pos, task));
+        // Running anywhere: update in place (any hart's current slot).
+        for cpu in &mut self.cpus {
+            if let Some(current) = cpu.current.as_mut() {
+                if current.id == id {
+                    current.qos = qos;
+                    return SetQosOutcome::Updated;
                 }
-                break;
             }
         }
 
-        let Some((source_idx, source_pos, mut task)) = found else {
+        // Queued: move within the CPU it is queued on (no migration here).
+        let mut found: Option<(usize, usize, usize, Task)> = None;
+        'search: for (cpu_idx, cpu) in self.cpus.iter_mut().enumerate() {
+            for (queue_idx, queue) in cpu.queues.iter_mut().enumerate() {
+                if let Some(pos) = queue.iter().position(|task| task.id == id) {
+                    if let Some(task) = queue.remove(pos) {
+                        found = Some((cpu_idx, queue_idx, pos, task));
+                    }
+                    break 'search;
+                }
+            }
+        }
+
+        let Some((cpu_idx, source_idx, source_pos, mut task)) = found else {
             return SetQosOutcome::NotFound;
         };
         let old_qos = task.qos;
@@ -268,12 +287,12 @@ impl Scheduler {
             QosClass::PerfBurst => 3,
         };
         let target_cap = Self::runtime_queue_capacity_for(qos).raw();
-        if self.queues[target_idx].len() >= target_cap {
+        if self.cpus[cpu_idx].queues[target_idx].len() >= target_cap {
             task.qos = old_qos;
-            self.queues[source_idx].insert(source_pos, task);
+            self.cpus[cpu_idx].queues[source_idx].insert(source_pos, task);
             return SetQosOutcome::QueueFull;
         }
-        self.queues[target_idx].push_back(task);
+        self.cpus[cpu_idx].queues[target_idx].push_back(task);
         SetQosOutcome::Updated
     }
 
@@ -297,7 +316,13 @@ impl Scheduler {
         }
 
         let task = Task { id, qos };
-        Self::bounded_push(self.queue_for(qos), task, qos, Self::runtime_queue_capacity_for(qos))
+        let cur = Self::current_cpu_index();
+        Self::bounded_push(
+            self.cpus[cur].queue_mut(qos),
+            task,
+            qos,
+            Self::runtime_queue_capacity_for(qos),
+        )
     }
 
     /// Picks the next runnable task.
@@ -317,21 +342,23 @@ impl Scheduler {
                 u = Some(crate::uart::raw_writer());
             }
         }
+        let cur = Self::current_cpu_index();
         if let Some(ref mut w) = u {
             use core::fmt::Write as _;
             let _ = writeln!(
                 w,
-                "[DEBUG sched] schedule_next: queues=[PerfBurst:{}, Interactive:{}, Normal:{}, Idle:{}]",
-                self.queues[3].len(),
-                self.queues[2].len(),
-                self.queues[1].len(),
-                self.queues[0].len()
+                "[DEBUG sched] schedule_next cpu{}: queues=[PerfBurst:{}, Interactive:{}, Normal:{}, Idle:{}]",
+                cur,
+                self.cpus[cur].queues[3].len(),
+                self.cpus[cur].queues[2].len(),
+                self.cpus[cur].queues[1].len(),
+                self.cpus[cur].queues[0].len()
             );
         }
 
         for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle]
         {
-            if let Some(task) = self.queue_for(class).pop_front() {
+            if let Some(task) = self.cpus[cur].queue_mut(class).pop_front() {
                 if let Some(ref mut w) = u {
                     use core::fmt::Write as _;
                     let _ = writeln!(
@@ -341,11 +368,11 @@ impl Scheduler {
                         task.qos
                     );
                 }
-                self.current = Some(task.clone());
+                self.cpus[cur].current = Some(task.clone());
                 return Some(task.id);
             }
         }
-        self.current = None;
+        self.cpus[cur].current = None;
         if let Some(mut w) = u {
             use core::fmt::Write as _;
             let _ = writeln!(w, "[DEBUG sched] no task to schedule");
@@ -355,26 +382,24 @@ impl Scheduler {
 
     /// Re-enqueue the currently running task (call on timeslice/yield).
     pub fn yield_current(&mut self) {
-        if let Some(task) = self.current.take() {
+        let cur = Self::current_cpu_index();
+        if let Some(task) = self.cpus[cur].current.take() {
             if matches!(self.try_enqueue(task.id, task.qos), EnqueueOutcome::Rejected(_)) {
                 // Deterministic fail-closed behavior for queue saturation:
                 // keep the task as current so it is not silently dropped.
-                self.current = Some(task);
+                self.cpus[cur].current = Some(task);
             }
         }
     }
 
     /// Marks the current task as finished without re-enqueuing it.
     pub fn finish_current(&mut self) {
-        self.current = None;
+        self.cpus[Self::current_cpu_index()].current = None;
     }
 
     /// Removes all queued references to `id` and clears it if currently running.
     pub fn purge(&mut self, id: TaskId) {
-        for q in &mut self.queues {
-            q.retain(|t| t.id != id);
-        }
-        for cpu in &mut self.selftest_cpus {
+        for cpu in &mut self.cpus {
             for q in &mut cpu.queues {
                 q.retain(|t| t.id != id);
             }
@@ -382,27 +407,10 @@ impl Scheduler {
                 cpu.current = None;
             }
         }
-        if self.current.as_ref().is_some_and(|t| t.id == id) {
-            self.current = None;
-        }
-    }
-
-    fn queue_for(&mut self, qos: QosClass) -> &mut VecDeque<Task> {
-        match qos {
-            QosClass::Idle => &mut self.queues[0],
-            QosClass::Normal => &mut self.queues[1],
-            QosClass::Interactive => &mut self.queues[2],
-            QosClass::PerfBurst => &mut self.queues[3],
-        }
     }
 
     fn selftest_queue_for(&mut self, cpu_idx: usize, qos: QosClass) -> &mut VecDeque<Task> {
-        match qos {
-            QosClass::Idle => &mut self.selftest_cpus[cpu_idx].queues[0],
-            QosClass::Normal => &mut self.selftest_cpus[cpu_idx].queues[1],
-            QosClass::Interactive => &mut self.selftest_cpus[cpu_idx].queues[2],
-            QosClass::PerfBurst => &mut self.selftest_cpus[cpu_idx].queues[3],
-        }
+        self.cpus[cpu_idx].queue_mut(qos)
     }
 
     fn selftest_try_steal(&mut self, local_cpu: usize, max_qos: QosClass) -> Option<Task> {
@@ -443,10 +451,10 @@ impl Scheduler {
         if cpu_idx >= crate::smp::MAX_CPUS {
             return;
         }
-        for queue in &mut self.selftest_cpus[cpu_idx].queues {
+        for queue in &mut self.cpus[cpu_idx].queues {
             queue.clear();
         }
-        self.selftest_cpus[cpu_idx].current = None;
+        self.cpus[cpu_idx].current = None;
     }
 
     /// Enqueues a task on a specific CPU's per-CPU runqueue.
@@ -456,7 +464,40 @@ impl Scheduler {
     /// to ensure tasks stay on their home CPU and avoid cross-CPU migration
     /// during IPC wakeups.
     pub fn enqueue_on_cpu(&mut self, cpu: CpuId, id: TaskId, qos: QosClass) -> EnqueueOutcome {
-        self.selftest_try_enqueue_on_cpu(cpu, id, qos)
+        let cpu_idx = cpu.as_index();
+        if cpu_idx >= crate::smp::MAX_CPUS {
+            return EnqueueOutcome::Rejected(EnqueueRejectReason::InvalidCpu { cpu });
+        }
+        // Bounded bring-up diagnostic: the first few REMOTE enqueues prove
+        // cross-CPU placement actually happens (A3/A4 evidence).
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        if cpu_idx != 0 {
+            static REMOTE_ENQ_LOGGED: core::sync::atomic::AtomicUsize =
+                core::sync::atomic::AtomicUsize::new(0);
+            if REMOTE_ENQ_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 3 {
+                log_info!(target: "smp", "KINIT: enqueue cpu{} pid={}", cpu_idx, id.as_raw());
+            }
+        }
+        let task = Task { id, qos };
+        Self::bounded_push(
+            self.cpus[cpu_idx].queue_mut(qos),
+            task,
+            qos,
+            Self::runtime_queue_capacity_for(qos),
+        )
+    }
+
+    /// Runtime work stealing (A8): bounded single-task steal for the executing
+    /// CPU when its own queues are empty. On success the stolen task becomes
+    /// this CPU's current and its id is returned; the caller migrates the
+    /// task's `home_cpu` (explicit migration). Victims are scanned in
+    /// ascending CPU order; the QoS ceiling is respected.
+    pub fn steal_into_current(&mut self, max_qos: QosClass) -> Option<TaskId> {
+        let cur = Self::current_cpu_index();
+        let task = self.selftest_try_steal(cur, max_qos)?;
+        let id = task.id;
+        self.cpus[cur].current = Some(task);
+        Some(id)
     }
 
     pub fn selftest_enqueue_on_cpu(
@@ -496,18 +537,18 @@ impl Scheduler {
         for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle]
         {
             if let Some(task) = self.selftest_queue_for(cpu_idx, class).pop_front() {
-                self.selftest_cpus[cpu_idx].current = Some(task.clone());
+                self.cpus[cpu_idx].current = Some(task.clone());
                 return Some(task.id);
             }
             for _ in 0..Self::SELFTEST_STEAL_MAX_PER_TICK {
                 if let Some(task) = self.selftest_try_steal(cpu_idx, class) {
-                    self.selftest_cpus[cpu_idx].current = Some(task.clone());
+                    self.cpus[cpu_idx].current = Some(task.clone());
                     return Some(task.id);
                 }
             }
         }
 
-        self.selftest_cpus[cpu_idx].current = None;
+        self.cpus[cpu_idx].current = None;
         None
     }
 
@@ -534,7 +575,7 @@ impl Scheduler {
             QosClass::Interactive => 2,
             QosClass::PerfBurst => 3,
         };
-        self.selftest_cpus[cpu_idx].queues[queue_idx].len()
+        self.cpus[cpu_idx].queues[queue_idx].len()
     }
 
     /// Returns the configured deterministic time slice for each task.

@@ -43,17 +43,32 @@ pub enum TaskState {
 /// Scheduler-visible blocking reason for a task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockReason {
-    IpcRecv { endpoint: ipc::EndpointId, deadline_ns: u64 },
-    IpcSend { endpoint: ipc::EndpointId, deadline_ns: u64 },
-    WaitChild { target: Option<Pid> },
+    IpcRecv {
+        endpoint: ipc::EndpointId,
+        deadline_ns: u64,
+    },
+    IpcSend {
+        endpoint: ipc::EndpointId,
+        deadline_ns: u64,
+    },
+    WaitChild {
+        target: Option<Pid>,
+    },
     /// Blocked in `waitset_wait` on a set of endpoints (RFC-0033). The task is
     /// registered as a recv-waiter on *every* member; the first member to deliver
     /// (or the deadline) wakes it. `ws_id` is the kernel-local waitset id (raw `u32`).
-    Waitset { ws_id: u32, deadline_ns: u64 },
+    Waitset {
+        ws_id: u32,
+        deadline_ns: u64,
+    },
     /// Blocked in `fence_wait` until the fence's monotonic value reaches `target`
     /// (RFC-0033). Registered as a fence waiter; `fence_signal` wakes it once
     /// `value >= target`, or the deadline does. `fence_id` is the raw kernel id.
-    Fence { fence_id: u32, target: u64, deadline_ns: u64 },
+    Fence {
+        fence_id: u32,
+        target: u64,
+        deadline_ns: u64,
+    },
 }
 
 #[must_use = "wake outcomes must be handled explicitly"]
@@ -544,8 +559,10 @@ impl Task {
 /// Kernel task table managing task control blocks.
 pub struct TaskTable {
     tasks: Vec<Task>,
-    current: Pid,
-    // Pre-SMP contract: task table stays in the single kernel execution context.
+    /// A3: per-CPU current task with implicit current-CPU addressing — each
+    /// hart's syscall path sees ITS running task, not the last one any hart
+    /// dispatched. Access is serialized by the BKL (`trap::KernelGuard`).
+    current: [Pid; crate::smp::MAX_CPUS],
     _not_send_sync: PhantomData<*mut ()>,
 }
 static_assertions::assert_not_impl_any!(TaskTable: Send, Sync);
@@ -555,17 +572,31 @@ impl TaskTable {
     pub fn new() -> Self {
         let mut tasks_vec: Vec<Task> = Vec::new();
         tasks_vec.push(Task::bootstrap());
-        Self { tasks: tasks_vec, current: Pid::KERNEL, _not_send_sync: PhantomData }
+        Self {
+            tasks: tasks_vec,
+            current: [Pid::KERNEL; crate::smp::MAX_CPUS],
+            _not_send_sync: PhantomData,
+        }
     }
 
-    /// Returns the PID of the currently running task.
+    #[inline]
+    fn current_cpu_index() -> usize {
+        let idx = crate::smp::cpu_current_id().as_index();
+        if idx < crate::smp::MAX_CPUS {
+            idx
+        } else {
+            0
+        }
+    }
+
+    /// Returns the PID of the task currently running on THIS hart.
     pub fn current_pid(&self) -> Pid {
-        self.current
+        self.current[Self::current_cpu_index()]
     }
 
-    /// Changes the currently running task.
+    /// Changes the task currently running on THIS hart.
     pub fn set_current(&mut self, pid: Pid) {
-        self.current = pid;
+        self.current[Self::current_cpu_index()] = pid;
     }
 
     /// Selftest helper: create a minimal task entry without allocating a new address space or stack.
@@ -596,7 +627,9 @@ impl TaskTable {
             address_space: None,
             user_guard_info: None,
             service_id: 0,
-            home_cpu: crate::smp::cpu_current_id(),
+            // A4 initial placement: deterministic round-robin across online
+            // CPUs (pre-runtime-ready: spawning hart). See smp::assign_spawn_cpu.
+            home_cpu: crate::smp::assign_spawn_cpu(),
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
             children: Vec::new(),
@@ -628,12 +661,13 @@ impl TaskTable {
 
     /// Returns a shared reference to the current task.
     pub fn current_task(&self) -> &Task {
-        &self.tasks[self.current.as_index()]
+        &self.tasks[self.current_pid().as_index()]
     }
 
     /// Returns a mutable reference to the current task.
     pub fn current_task_mut(&mut self) -> &mut Task {
-        &mut self.tasks[self.current.as_index()]
+        let idx = self.current_pid().as_index();
+        &mut self.tasks[idx]
     }
 
     /// Returns a shared reference to a task by PID.
@@ -816,7 +850,9 @@ impl TaskTable {
             address_space: Some(child_as),
             user_guard_info: None,
             service_id: 0,
-            home_cpu: crate::smp::cpu_current_id(),
+            // A4 initial placement: deterministic round-robin across online
+            // CPUs (pre-runtime-ready: spawning hart). See smp::assign_spawn_cpu.
+            home_cpu: crate::smp::assign_spawn_cpu(),
             last_spawn_fail_reason: None,
             bootstrap_slot: Some(slot),
             children: Vec::new(),
@@ -833,8 +869,16 @@ impl TaskTable {
 
         // Only enqueue if the task is not suspended (parent will resume later).
         let suspended = self.tasks.last().map_or(false, |t| t.state == TaskState::Suspended);
+        let child_home = self.tasks.last().map_or(crate::types::CpuId::BOOT, |t| t.home_cpu);
         if !suspended {
-            if matches!(scheduler.enqueue(pid, QosClass::Normal), EnqueueOutcome::Rejected(_)) {
+            let outcome = scheduler.enqueue_on_cpu(child_home, pid, QosClass::Normal);
+            if matches!(outcome, EnqueueOutcome::Enqueued)
+                && child_home != crate::smp::cpu_current_id()
+            {
+                // A4: kick the target hart out of WFI for prompt first dispatch.
+                let _ = crate::smp::request_resched(child_home);
+            }
+            if matches!(outcome, EnqueueOutcome::Rejected(_)) {
                 if let Some(parent_task) = self.tasks.get_mut(parent_index) {
                     parent_task.children.retain(|child_pid| *child_pid != pid);
                 }
@@ -860,8 +904,18 @@ impl TaskTable {
             return ResumeOutcome::NotSuspended;
         }
         task.state = TaskState::Running;
-        match scheduler.enqueue(pid, task.qos) {
-            crate::sched::EnqueueOutcome::Enqueued => ResumeOutcome::Resumed,
+        // A4: keep resume consistent with the task's home CPU.
+        let mut home_cpu = task.home_cpu;
+        if !crate::smp::cpu_is_online(home_cpu) {
+            home_cpu = crate::types::CpuId::BOOT;
+        }
+        match scheduler.enqueue_on_cpu(home_cpu, pid, task.qos) {
+            crate::sched::EnqueueOutcome::Enqueued => {
+                if home_cpu != crate::smp::cpu_current_id() {
+                    let _ = crate::smp::request_resched(home_cpu);
+                }
+                ResumeOutcome::Resumed
+            }
             crate::sched::EnqueueOutcome::Rejected(_) => {
                 task.state = TaskState::Suspended;
                 ResumeOutcome::EnqueueRejected
@@ -953,10 +1007,25 @@ impl TaskTable {
     /// Uses per-CPU runqueues to prevent cross-CPU migration during IPC wakeups,
     /// which would otherwise cause starvation under SMP.
     pub fn wake(&mut self, pid: Pid, scheduler: &mut Scheduler) -> WakeOutcome {
+        // Bounded bring-up diagnostic (A3/A4): callers ignore wake outcomes;
+        // a silently failing wake stalls IPC for a full heartbeat. Surface
+        // the first few anomalies.
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        fn log_wake_anomaly(pid: Pid, what: &str) {
+            static WAKE_ANOMALY_LOGGED: core::sync::atomic::AtomicUsize =
+                core::sync::atomic::AtomicUsize::new(0);
+            if WAKE_ANOMALY_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 6 {
+                log_info!(target: "smp", "KINIT: wake pid={} {}", pid.as_raw(), what);
+            }
+        }
         let Some(task) = self.task(pid) else {
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            log_wake_anomaly(pid, "not-found");
             return WakeOutcome::TaskNotFound;
         };
         if !task.blocked {
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            log_wake_anomaly(pid, "not-blocked");
             return WakeOutcome::TaskNotBlocked;
         }
         // Selftest dummy tasks intentionally carry a zero frame and no AS.
@@ -969,16 +1038,33 @@ impl TaskTable {
             return WakeOutcome::WokenNoopSelftest;
         }
         let qos = task.qos;
+        // A4: route to the task's home CPU (fall back to boot if offline).
+        let mut home_cpu = task.home_cpu;
+        if !crate::smp::cpu_is_online(home_cpu) {
+            home_cpu = crate::types::CpuId::BOOT;
+        }
         // Avoid duplicates; then enqueue with the stored QoS.
         scheduler.purge(pid);
-        if matches!(scheduler.enqueue(pid, qos), EnqueueOutcome::Rejected(_)) {
+        if matches!(scheduler.enqueue_on_cpu(home_cpu, pid, qos), EnqueueOutcome::Rejected(_)) {
             return WakeOutcome::EnqueueRejected;
         }
         if let Some(task) = self.task_mut(pid) {
             task.clear_blocked();
+            // Cross-core wake: kick the home CPU out of WFI/user so the task
+            // runs promptly (best-effort IPI; the evidence chain records it).
+            if home_cpu != crate::smp::cpu_current_id() {
+                let _ = crate::smp::request_resched(home_cpu);
+            }
             return WakeOutcome::Woken;
         }
         WakeOutcome::TaskNotFound
+    }
+
+    /// Explicit migration (A8 work stealing): rebinds a task's home CPU.
+    pub fn set_home_cpu(&mut self, pid: Pid, cpu: crate::types::CpuId) {
+        if let Some(task) = self.task_mut(pid) {
+            task.home_cpu = cpu;
+        }
     }
 
     /// Wakes the current task's parent if it is blocked in `wait` for this child.

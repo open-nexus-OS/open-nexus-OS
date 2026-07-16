@@ -91,8 +91,10 @@ static mut PT_STATIC_ROOT: PageTablePage = PageTablePage::new();
 // Optional static pool of page-table pages for early bring-up to avoid heap usage.
 #[cfg(feature = "bringup_identity")]
 static mut PT_STATIC_POOL: [PageTablePage; 64] = [const { PageTablePage::new() }; 64];
+// SMP A2c: atomic bump cursor — the pool hand-out must stay race-free once
+// secondary harts allocate page tables (each index is claimed exactly once).
 #[cfg(feature = "bringup_identity")]
-static mut PT_STATIC_POOL_NEXT: usize = 0;
+static PT_STATIC_POOL_NEXT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(feature = "bringup_identity")]
 const PT_STATIC_POOL_CAP: usize = 64;
 
@@ -449,16 +451,38 @@ impl PageTable {
 
     fn alloc_page() -> NonNull<PageTablePage> {
         #[cfg(feature = "bringup_identity")]
-        unsafe {
-            if PT_STATIC_POOL_NEXT < PT_STATIC_POOL_CAP {
-                let idx = PT_STATIC_POOL_NEXT;
-                PT_STATIC_POOL_NEXT = PT_STATIC_POOL_NEXT + 1;
-                // Obtain base pointer to the first element without creating a shared ref
-                let base: *mut [PageTablePage; PT_STATIC_POOL_CAP] =
-                    core::ptr::addr_of_mut!(PT_STATIC_POOL);
-                let first: *mut PageTablePage = base as *mut PageTablePage;
-                let page_ptr: *mut PageTablePage = first.add(idx);
-                return NonNull::new_unchecked(page_ptr);
+        {
+            // Atomic claim via bounded CAS (lr/sc): each index is handed out
+            // exactly once even with concurrent allocators on other harts,
+            // and the cursor never grows past the cap (heap fallback after).
+            // NOTE: deliberately lr/sc-based (same primitive class as the
+            // spin locks used throughout) rather than an AMO fetch_add — an
+            // amoadd here reproducibly wedged the boot (see SMP track A2c).
+            let mut idx = PT_STATIC_POOL_NEXT.load(Ordering::Acquire);
+            loop {
+                if idx >= PT_STATIC_POOL_CAP {
+                    break;
+                }
+                match PT_STATIC_POOL_NEXT.compare_exchange_weak(
+                    idx,
+                    idx + 1,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => break,
+                    Err(observed) => idx = observed,
+                }
+            }
+            if idx < PT_STATIC_POOL_CAP {
+                // SAFETY: `idx` was claimed exclusively above; the pool is a
+                // static with 'static lifetime.
+                unsafe {
+                    let base: *mut [PageTablePage; PT_STATIC_POOL_CAP] =
+                        core::ptr::addr_of_mut!(PT_STATIC_POOL);
+                    let first: *mut PageTablePage = base as *mut PageTablePage;
+                    let page_ptr: *mut PageTablePage = first.add(idx);
+                    return NonNull::new_unchecked(page_ptr);
+                }
             }
         }
         let boxed = Box::new(PageTablePage::new());

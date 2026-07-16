@@ -370,9 +370,24 @@ fn update_peak(counter: &AtomicUsize, value: usize) {
     }
 }
 
+/// Local-hart full TLB invalidation (`sfence.vma x0, x0`).
+fn local_tlb_flush_all() {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    // SAFETY: full local TLB flush; over-invalidation is always safe.
+    unsafe {
+        core::arch::asm!("sfence.vma x0, x0", options(nostack, preserves_flags));
+    }
+}
+
 struct AsidAllocator {
     bitmap: [u64; BITMAP_WORDS],
     next: usize,
+    /// SMP A2c/A5 quarantine: freed ASIDs stay parked (allocation bit kept
+    /// set) until a global TLB epoch flush releases them — another hart may
+    /// still hold stale TLB entries tagged with a freed ASID. Until the A5
+    /// shootdown lands, quarantined ASIDs leak boundedly (MAX_ASIDS = 256,
+    /// a boot cycles well under 50).
+    quarantined: [u64; BITMAP_WORDS],
 }
 
 impl AsidAllocator {
@@ -380,10 +395,27 @@ impl AsidAllocator {
         let mut bitmap = [0u64; BITMAP_WORDS];
         // Reserve ASID 0 for the kernel/global mappings.
         bitmap[0] |= 1;
-        Self { bitmap, next: 1 }
+        Self { bitmap, next: 1, quarantined: [0u64; BITMAP_WORDS] }
     }
 
     fn allocate(&mut self) -> Option<Asid> {
+        if let Some(asid) = self.try_allocate() {
+            return Some(asid);
+        }
+        // Pool exhausted: recycle the quarantine. Interim contract (until the
+        // A5 shootdown lands): flush the local TLB now and flag every other
+        // hart for a lazy full flush before its next user dispatch — recycled
+        // ASIDs come from destroyed address spaces only, so no hart can still
+        // be RUNNING a task under one; stale entries are purged before any
+        // NEW task with a recycled ASID can run there. A5 replaces this with
+        // a global epoch flush acknowledged by every online hart.
+        local_tlb_flush_all();
+        crate::smp::request_lazy_tlb_flush_others();
+        self.release_quarantined();
+        self.try_allocate()
+    }
+
+    fn try_allocate(&mut self) -> Option<Asid> {
         for _ in 0..MAX_ASIDS {
             let index = self.next % MAX_ASIDS;
             let word = index / WORD_BITS;
@@ -403,8 +435,24 @@ impl AsidAllocator {
         if index < MAX_ASIDS {
             let word = index / WORD_BITS;
             let bit = index % WORD_BITS;
-            self.bitmap[word] &= !(1 << bit);
+            // Park instead of clearing: reuse only after a TLB flush covering
+            // all harts that may hold stale entries (see `release_quarantined`;
+            // recycled on exhaustion in `allocate`, replaced by the A5 epoch
+            // shootdown).
+            self.quarantined[word] |= 1 << bit;
         }
+    }
+
+    /// Releases all quarantined ASIDs for reuse. Only call after a TLB
+    /// invalidation covering every hart that may hold stale entries (interim:
+    /// local full flush + boot-hart-only user execution; A5: global epoch).
+    fn release_quarantined(&mut self) {
+        for word in 0..BITMAP_WORDS {
+            self.bitmap[word] &= !self.quarantined[word];
+            self.quarantined[word] = 0;
+        }
+        // Keep ASID 0 permanently reserved for the kernel.
+        self.bitmap[0] |= 1;
     }
 }
 

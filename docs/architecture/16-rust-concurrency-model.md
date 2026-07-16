@@ -258,13 +258,34 @@ impl GlobalIpcRouter {
 }
 ```
 
-**Lock hierarchy** (to prevent deadlocks):
+**Lock hierarchy (NORMATIVE, implemented — SMP track A2, TASK-0277):**
 
-1. Scheduler locks (highest priority)
-2. IPC router locks
-3. Memory manager locks (lowest priority)
+1. **Tier 1 — `KERNEL_LOCK` (the kernel BKL)**: one IRQ-safe `SpinIrqLock`
+   (`core/trap.rs`) guarding the shared aggregate (`TaskTable`, `ipc::Router`,
+   `AddressSpaceManager` incl. ASID allocator, `WaitsetTable`, `FenceTable`,
+   timer tables). Every mutable materialization of kernel handles goes through
+   `trap::KernelGuard`, which holds this lock for the FULL borrow duration.
+2. **Tier 2 — per-CPU run-queue locks** (ascending CPU index when scanning
+   multiple, e.g. work stealing).
+3. **Tier 3 — leaf atomics** (online mask, counters, PT-pool cursor, …).
 
-**Rule**: Never acquire a higher-priority lock while holding a lower-priority lock.
+**Rules:**
+- Acquire strictly downward (BKL → run queue → atomics). NEVER acquire the
+  BKL while holding a run-queue lock.
+- `SpinIrqLock` is the ONLY lock type permitted on trap-reachable paths — it
+  masks SIE before acquisition, so a trap on the holding hart can never
+  re-enter the lock.
+- NO guard may be held across a context switch that leaves via `sret`. The
+  schedule decision stages the chosen frame into the hart-local
+  `HartLocal.resume_frame` slot under the BKL, drops the guard, and only then
+  switches (see `kmain::idle_loop_bkl`).
+- Fault diagnostics on the way to `panic!` read handles lock-free
+  (`runtime_kernel_handles_diagnostic`) and must never mutate — a kernel page
+  fault inside a syscall would otherwise deadlock on the BKL it already holds.
+- RISC-V TRAP (empirical, SMP track A2c): an AMO `fetch_add` on the PT-pool
+  cursor reproducibly wedged the boot; the pool uses a bounded lr/sc CAS loop
+  instead (same primitive class as the spin locks). Prefer lr/sc-based RMW in
+  early-boot/mm paths until the AMO behavior is root-caused.
 
 ---
 

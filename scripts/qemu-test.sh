@@ -379,6 +379,8 @@ expected_sequence=(
   "neuron vers."
   "KSELFTEST: spawn reasons ok"
   "KSELFTEST: resource sentinel ok"
+  "KSELFTEST: cpuid tp ok"
+  "KSELFTEST: cpuid fallback counterfactual ok"
   "init: start"
   "init: start keystored"
   "init: up keystored"
@@ -536,6 +538,8 @@ case "${PROFILE:-full}" in
       "neuron vers."
       "KSELFTEST: spawn reasons ok"
       "KSELFTEST: resource sentinel ok"
+      "KSELFTEST: cpuid tp ok"
+      "KSELFTEST: cpuid fallback counterfactual ok"
       "cpu1 online"
       "init: start"
       "init: ready"
@@ -548,6 +552,8 @@ case "${PROFILE:-full}" in
       "neuron vers."
       "KSELFTEST: spawn reasons ok"
       "KSELFTEST: resource sentinel ok"
+      "KSELFTEST: cpuid tp ok"
+      "KSELFTEST: cpuid fallback counterfactual ok"
       "init: start"
       "init: start keystored"
       "init: up keystored"
@@ -648,6 +654,8 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "neuron vers."
     "KSELFTEST: spawn reasons ok"
     "KSELFTEST: resource sentinel ok"
+    "KSELFTEST: cpuid tp ok"
+    "KSELFTEST: cpuid fallback counterfactual ok"
     "init: start"
     "init: start hidrawd"
     "init: up hidrawd"
@@ -731,6 +739,7 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
   smp_markers=(
     "KINIT: cpu1 online"
     "KSELFTEST: smp online ok"
+    "KSELFTEST: kernel lock contention bounded ok"
     "KSELFTEST: ipi counterfactual ok"
     "KSELFTEST: ipi resched ok"
     "KSELFTEST: test_reject_invalid_ipi_target_cpu ok"
@@ -739,11 +748,12 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
     "KSELFTEST: test_reject_steal_above_bound ok"
     "KSELFTEST: test_reject_steal_higher_qos ok"
   )
-  # Kernel SMP selftests run before userspace init markers.
+  # Kernel SMP selftests run before userspace init markers (and after the
+  # cpuid identity selftests, which sit at positions 3-4 of every base list).
   expected_sequence=(
-    "${expected_sequence[@]:0:3}"
+    "${expected_sequence[@]:0:5}"
     "${smp_markers[@]}"
-    "${expected_sequence[@]:3}"
+    "${expected_sequence[@]:5}"
   )
 fi
 
@@ -758,6 +768,8 @@ if [[ -n "$RUN_PHASE" ]]; then
       "neuron vers."
       "KSELFTEST: spawn reasons ok"
       "KSELFTEST: resource sentinel ok"
+      "KSELFTEST: cpuid tp ok"
+      "KSELFTEST: cpuid fallback counterfactual ok"
       "init: start"
       "init: start hidrawd"
       "init: up hidrawd"
@@ -1811,6 +1823,16 @@ else
     fi
   else
     echo "[info] evidence bundle assembled unsigned (set NEXUS_EVIDENCE_SEAL=1 to seal)" >&2
+  fi
+fi
+
+# A3 SMP exec proof: unordered presence check — user execution on a secondary
+# hart happens at a workload-dependent point (work stealing), so it cannot be
+# a position in expected_sequence. Presence in the log is the requirement.
+if [[ "$REQUIRE_SMP" == "1" ]]; then
+  if [[ "$(count_lines "KSELFTEST: smp exec cpu1 ok")" -lt 1 ]]; then
+    echo "[error] SMP exec proof missing: KSELFTEST: smp exec cpu1 ok (no user dispatch observed on cpu1)" >&2
+    exit 1
   fi
 fi
 

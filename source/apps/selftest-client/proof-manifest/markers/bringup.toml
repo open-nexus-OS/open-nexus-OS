@@ -24,6 +24,14 @@ proves = "kernel selftest: spawn-reason classification"
 phase = "bringup"
 proves = "kernel selftest: resource sentinel"
 
+[marker."KSELFTEST: cpuid tp ok"]
+phase = "bringup"
+proves = "kernel selftest: tp/HartLocal CPU identity fast path live, zero heuristic fallbacks"
+
+[marker."KSELFTEST: cpuid fallback counterfactual ok"]
+phase = "bringup"
+proves = "kernel selftest: poisoned tp rejected by identity fast path and counted (anti-fake)"
+
 [marker."init: start"]
 phase = "bringup"
 
@@ -248,6 +256,16 @@ emit_when = { profile = "smp" }
 [marker."KSELFTEST: test_reject_offline_cpu_resched ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }
+
+[marker."KSELFTEST: kernel lock contention bounded ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "SpinIrqLock mutual exclusion across harts (exact-count two-hart lock ping)"
+
+[marker."KSELFTEST: smp exec cpu1 ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "user-task dispatch observed on secondary hart (per-CPU dispatch counter, tp-identity; unordered presence check)"
 
 [marker."KSELFTEST: work stealing ok"]
 phase = "bringup"
