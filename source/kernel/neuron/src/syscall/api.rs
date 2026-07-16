@@ -506,7 +506,7 @@ use super::{
     SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC,
     SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE, SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT,
     SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1, SYSCALL_IPC_SEND_V1, SYSCALL_MAP,
-    SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND, SYSCALL_SPAWN,
+    SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SCHED, SYSCALL_SEND, SYSCALL_SPAWN,
     SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME, SYSCALL_TIMER_CANCEL,
     SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
     SYSCALL_YIELD,
@@ -683,6 +683,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_FOR, sys_ipc_endpoint_create_for);
     table.register(crate::syscall::SYSCALL_GETPID, sys_getpid);
     table.register(SYSCALL_TASK_QOS, sys_task_qos);
+    table.register(SYSCALL_SCHED, sys_sched);
     table.register(SYSCALL_TASK_RESUME, sys_task_resume);
     table.register(SYSCALL_TIMER_CREATE, sys_timer_create);
     table.register(SYSCALL_TIMER_SET, sys_timer_set);
@@ -1193,6 +1194,71 @@ fn sys_task_qos(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             task.set_qos(qos);
             qos_audit(ctx, target, target_qos, qos, "allow", "applied");
             Ok(0)
+        }
+        _ => Err(AddressSpaceError::InvalidArgs.into()),
+    }
+}
+
+/// B (TASK-0042): scheduling-attribute ops. args = (op, target_pid, value).
+/// target 0 = self. Cross-task ops require the QoS-admin capability (same
+/// privilege model as sys_task_qos).
+const SCHED_OP_GET_AFFINITY: usize = 0;
+const SCHED_OP_SET_AFFINITY: usize = 1;
+const SCHED_OP_GET_SHARES: usize = 2;
+const SCHED_OP_SET_SHARES: usize = 3;
+
+/// Selftest entry into the REAL sched handler (proves the ABI clamp and
+/// validation logic itself, not a reimplementation).
+pub(crate) fn selftest_sched_op(
+    ctx: &mut Context<'_>,
+    op: usize,
+    target: usize,
+    value: usize,
+) -> SysResult<usize> {
+    let args = Args::new([op, target, value, 0, 0, 0]);
+    sys_sched(ctx, &args)
+}
+
+fn sys_sched(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let op = args.get(0);
+    let raw_target = args.get(1);
+    if raw_target > u32::MAX as usize {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
+    let current = ctx.tasks.current_pid();
+    let target = if raw_target == 0 { current } else { task::Pid::from_raw(raw_target as u32) };
+    if target != current && !caller_has_qos_admin(ctx) {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    let value = args.get(2);
+    match op {
+        SCHED_OP_GET_AFFINITY => {
+            let task = ctx.tasks.task(target).ok_or(AddressSpaceError::InvalidArgs)?;
+            Ok(task.affinity_mask() as usize)
+        }
+        SCHED_OP_SET_AFFINITY => {
+            let mask = crate::task::validate_affinity_mask(value, crate::smp::cpu_online_mask())
+                .map_err(|_| Error::AddressSpace(AddressSpaceError::InvalidArgs))?;
+            let online = crate::smp::cpu_online_mask();
+            let home = {
+                let task = ctx.tasks.task_mut(target).ok_or(AddressSpaceError::InvalidArgs)?;
+                task.set_affinity_mask(mask);
+                // Re-clamp the home CPU; takes effect on the next wake/dispatch.
+                crate::task::clamp_home_to_affinity(mask, task.home_cpu(), online)
+            };
+            ctx.tasks.set_home_cpu(target, home);
+            Ok(0)
+        }
+        SCHED_OP_GET_SHARES => {
+            let task = ctx.tasks.task(target).ok_or(AddressSpaceError::InvalidArgs)?;
+            Ok(task.shares() as usize)
+        }
+        SCHED_OP_SET_SHARES => {
+            // Deterministic clamp to [1, 1000] (plan contract).
+            let shares = value.clamp(1, 1000) as u16;
+            let task = ctx.tasks.task_mut(target).ok_or(AddressSpaceError::InvalidArgs)?;
+            task.set_shares(shares);
+            Ok(shares as usize)
         }
         _ => Err(AddressSpaceError::InvalidArgs.into()),
     }

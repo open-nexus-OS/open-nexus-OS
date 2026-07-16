@@ -381,6 +381,8 @@ expected_sequence=(
   "KSELFTEST: resource sentinel ok"
   "KSELFTEST: cpuid tp ok"
   "KSELFTEST: cpuid fallback counterfactual ok"
+  "KSELFTEST: sched affinity reject ok"
+  "KSELFTEST: sched abi ok"
   "KSELFTEST: tlb shootdown skipped (smp=1)"
   "init: start"
   "init: start keystored"
@@ -541,6 +543,8 @@ case "${PROFILE:-full}" in
       "KSELFTEST: resource sentinel ok"
       "KSELFTEST: cpuid tp ok"
       "KSELFTEST: cpuid fallback counterfactual ok"
+      "KSELFTEST: sched affinity reject ok"
+      "KSELFTEST: sched abi ok"
       "cpu1 online"
       "init: start"
       "init: ready"
@@ -555,6 +559,8 @@ case "${PROFILE:-full}" in
       "KSELFTEST: resource sentinel ok"
       "KSELFTEST: cpuid tp ok"
       "KSELFTEST: cpuid fallback counterfactual ok"
+      "KSELFTEST: sched affinity reject ok"
+      "KSELFTEST: sched abi ok"
       "KSELFTEST: tlb shootdown skipped (smp=1)"
       "init: start"
       "init: start keystored"
@@ -658,6 +664,8 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "KSELFTEST: resource sentinel ok"
     "KSELFTEST: cpuid tp ok"
     "KSELFTEST: cpuid fallback counterfactual ok"
+    "KSELFTEST: sched affinity reject ok"
+    "KSELFTEST: sched abi ok"
     "KSELFTEST: tlb shootdown skipped (smp=1)"
     "init: start"
     "init: start hidrawd"
@@ -756,16 +764,17 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
     "KSELFTEST: test_reject_steal_higher_qos ok"
     "KSELFTEST: tlb shootdown counterfactual ok"
     "KSELFTEST: tlb shootdown ok"
+    "KSELFTEST: sched affinity clamp ok"
     "KSELFTEST: plic ctx cpu0 ok"
     "KSELFTEST: plic ctx cpu1 ok"
     "KSELFTEST: plic isolation ok"
   )
   # Kernel SMP selftests run before userspace init markers (and after the
-  # cpuid identity selftests, which sit at positions 3-4 of every base list).
+  # cpuid + sched-ABI selftests, positions 3-6 of every base list).
   expected_sequence=(
-    "${expected_sequence[@]:0:5}"
+    "${expected_sequence[@]:0:7}"
     "${smp_markers[@]}"
-    "${expected_sequence[@]:5}"
+    "${expected_sequence[@]:7}"
   )
 fi
 
@@ -782,6 +791,8 @@ if [[ -n "$RUN_PHASE" ]]; then
       "KSELFTEST: resource sentinel ok"
       "KSELFTEST: cpuid tp ok"
       "KSELFTEST: cpuid fallback counterfactual ok"
+      "KSELFTEST: sched affinity reject ok"
+      "KSELFTEST: sched abi ok"
       "KSELFTEST: tlb shootdown skipped (smp=1)"
       "init: start"
       "init: start hidrawd"

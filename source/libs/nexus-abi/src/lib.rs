@@ -2815,6 +2815,82 @@ pub fn task_qos_set_self(qos: QosClass) -> SysResult<()> {
     }
 }
 
+/// B (TASK-0042): scheduling-attribute ops via SYSCALL_SCHED=46.
+/// target 0 = self; cross-task requires the QoS-admin capability.
+#[cfg(nexus_env = "os")]
+pub mod sched {
+    use super::*;
+
+    const SYSCALL_SCHED: usize = 46;
+    const OP_GET_AFFINITY: usize = 0;
+    const OP_SET_AFFINITY: usize = 1;
+    const OP_GET_SHARES: usize = 2;
+    const OP_SET_SHARES: usize = 3;
+
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    fn op(op: usize, target: usize, value: usize) -> SysResult<usize> {
+        // SAFETY: plain syscall; the kernel validates every argument.
+        let raw = unsafe { ecall3(SYSCALL_SCHED, op, target, value) };
+        decode_syscall(raw)
+    }
+
+    /// Returns the caller's CPU affinity mask (bit N = may run on CPU N).
+    #[must_use = "affinity get result must be handled"]
+    pub fn get_affinity() -> SysResult<usize> {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            op(OP_GET_AFFINITY, 0, 0)
+        }
+        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+        {
+            Err(AbiError::Unsupported)
+        }
+    }
+
+    /// Sets the caller's CPU affinity mask. The kernel validates: non-empty,
+    /// within the CPU ceiling, intersecting the online set.
+    #[must_use = "affinity set result must be handled"]
+    pub fn set_affinity(mask: usize) -> SysResult<()> {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            op(OP_SET_AFFINITY, 0, mask).map(|_| ())
+        }
+        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+        {
+            let _ = mask;
+            Err(AbiError::Unsupported)
+        }
+    }
+
+    /// Returns the caller's scheduling shares [1, 1000].
+    #[must_use = "shares get result must be handled"]
+    pub fn get_shares() -> SysResult<usize> {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            op(OP_GET_SHARES, 0, 0)
+        }
+        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+        {
+            Err(AbiError::Unsupported)
+        }
+    }
+
+    /// Sets the caller's scheduling shares; the kernel clamps to [1, 1000]
+    /// and returns the applied value.
+    #[must_use = "shares set result must be handled"]
+    pub fn set_shares(shares: usize) -> SysResult<usize> {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            op(OP_SET_SHARES, 0, shares)
+        }
+        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+        {
+            let _ = shares;
+            Err(AbiError::Unsupported)
+        }
+    }
+}
+
 /// Sets another task's scheduler QoS hint (privileged path).
 #[cfg(nexus_env = "os")]
 #[must_use = "qos set-for-target result must be handled"]

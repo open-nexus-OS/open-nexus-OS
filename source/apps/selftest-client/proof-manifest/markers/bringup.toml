@@ -32,6 +32,14 @@ proves = "kernel selftest: tp/HartLocal CPU identity fast path live, zero heuris
 phase = "bringup"
 proves = "kernel selftest: poisoned tp rejected by identity fast path and counted (anti-fake)"
 
+[marker."KSELFTEST: sched affinity reject ok"]
+phase = "bringup"
+proves = "sched ABI rejects empty/out-of-ceiling/offline-only affinity masks (counterfactual)"
+
+[marker."KSELFTEST: sched abi ok"]
+phase = "bringup"
+proves = "SYSCALL_SCHED roundtrip through the real handler: affinity set/get + shares clamp [1,1000]"
+
 [marker."init: start"]
 phase = "bringup"
 
@@ -319,6 +327,11 @@ proves = "responder poll with no pending epoch neither flushes nor acks (anti-fa
 phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "epoch TLB shootdown: cpu1 flushed+acked the exact requested epoch (lock-free from S_SOFT)"
+
+[marker."KSELFTEST: sched affinity clamp ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "boot-homed task with cpu1-only mask is clamped to cpu1 (affinity home routing)"
 
 [marker."KSELFTEST: tlb shootdown skipped (smp=1)"]
 phase = "bringup"

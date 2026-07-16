@@ -492,9 +492,22 @@ impl Scheduler {
     /// this CPU's current and its id is returned; the caller migrates the
     /// task's `home_cpu` (explicit migration). Victims are scanned in
     /// ascending CPU order; the QoS ceiling is respected.
-    pub fn steal_into_current(&mut self, max_qos: QosClass) -> Option<TaskId> {
+    pub fn steal_into_current(
+        &mut self,
+        max_qos: QosClass,
+        mut allow: impl FnMut(TaskId) -> bool,
+    ) -> Option<TaskId> {
         let cur = Self::current_cpu_index();
         let task = self.selftest_try_steal(cur, max_qos)?;
+        // B (TASK-0042): the steal predicate rejects tasks whose affinity
+        // mask excludes the thief. A rejected task is parked (no loss, no
+        // reorder) at the FRONT of the boot CPU's queue of its class; the
+        // next wake/dispatch re-clamps it into its affinity mask.
+        if !allow(task.id) {
+            let qos = task.qos;
+            self.cpus[0].queue_mut(qos).push_front(task);
+            return None;
+        }
         let id = task.id;
         self.cpus[cur].current = Some(task);
         Some(id)

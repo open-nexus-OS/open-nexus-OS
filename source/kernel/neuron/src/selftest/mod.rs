@@ -620,6 +620,7 @@ pub fn entry(ctx: &mut Context<'_>) {
     run_spawn_reason_selftest();
     run_resource_sentinel_selftest(ctx);
     run_cpuid_selftest();
+    run_sched_abi_selftest(ctx);
     run_smp_selftests(ctx);
     // Ensure subsequent lifecycle tests run as the bootstrap task (PID 0)
     // so parent/child linkage during spawn and wait behaves deterministically.
@@ -1512,6 +1513,70 @@ fn run_cpuid_selftest() {
     }
 }
 
+/// B (TASK-0042): scheduling-attribute ABI — set/get roundtrips, the clamp
+/// contract for shares, and validation counterfactuals for affinity masks.
+/// Runs under SMP=1 and SMP>=2 alike (validation uses the live online mask).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn run_sched_abi_selftest(ctx: &mut Context<'_>) {
+    let online = crate::smp::cpu_online_mask();
+    let current = ctx.tasks.current_pid();
+
+    // Counterfactuals: empty mask, out-of-ceiling mask, offline-only mask.
+    let empty = crate::task::validate_affinity_mask(0, online).is_err();
+    let too_big = crate::task::validate_affinity_mask(0x100, online).is_err();
+    let offline_only = if online.count_ones() < crate::smp::MAX_CPUS as u32 {
+        let offline_mask = (!online) & ((1usize << crate::smp::MAX_CPUS) - 1);
+        crate::task::validate_affinity_mask(offline_mask, online).is_err()
+    } else {
+        true // all online: no offline-only mask constructible; covered above
+    };
+    if empty && too_big && offline_only {
+        log_info!(target: "selftest", "KSELFTEST: sched affinity reject ok");
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: sched affinity reject FAIL empty={} big={} offline={}",
+            empty,
+            too_big,
+            offline_only
+        );
+    }
+
+    // Roundtrip through the REAL syscall handler (op constants: 0=get_aff,
+    // 1=set_aff, 2=get_shares, 3=set_shares; target 0 = self): set boot-only
+    // mask, read it back, shares clamp in both directions, restore.
+    let _ = current;
+    let timer: &dyn crate::hal::Timer = ctx.hal.timer();
+    let mut api_ctx = crate::syscall::api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+        ctx.hart_timers,
+        ctx.waitsets,
+        ctx.fences,
+    );
+    let sched_op = crate::syscall::api::selftest_sched_op;
+    let prev_mask = sched_op(&mut api_ctx, 0, 0, 0).unwrap_or(0);
+    let prev_shares = sched_op(&mut api_ctx, 2, 0, 0).unwrap_or(100);
+    let ok = {
+        let set_ok = sched_op(&mut api_ctx, 1, 0, 0b1).is_ok();
+        let mask_ok = sched_op(&mut api_ctx, 0, 0, 0) == Ok(0b1);
+        let clamp_hi = sched_op(&mut api_ctx, 3, 0, 5000) == Ok(1000);
+        let clamp_lo = sched_op(&mut api_ctx, 3, 0, 0) == Ok(1);
+        let reject = sched_op(&mut api_ctx, 1, 0, 0).is_err();
+        set_ok && mask_ok && clamp_hi && clamp_lo && reject
+    };
+    let _ = sched_op(&mut api_ctx, 1, 0, prev_mask);
+    let _ = sched_op(&mut api_ctx, 3, 0, prev_shares);
+    if ok {
+        log_info!(target: "selftest", "KSELFTEST: sched abi ok");
+    } else {
+        log_error!(target: "selftest", "KSELFTEST: sched abi FAIL");
+    }
+}
+
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn run_smp_selftests(ctx: &mut Context<'_>) {
     let online_mask = crate::smp::cpu_online_mask();
@@ -1748,6 +1813,21 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
                 cpu1_req,
                 cpu1_ack,
                 cpu1_ack_before
+            );
+        }
+    }
+    // B (TASK-0042): affinity home-clamp — a boot-homed task with a
+    // cpu1-only mask must be routed to cpu1 (first online CPU in the mask).
+    {
+        let clamped =
+            crate::task::clamp_home_to_affinity(0b10, CpuId::BOOT, crate::smp::cpu_online_mask());
+        if clamped == CpuId::from_raw(1) {
+            log_info!(target: "selftest", "KSELFTEST: sched affinity clamp ok");
+        } else {
+            log_error!(
+                target: "selftest",
+                "KSELFTEST: sched affinity clamp FAIL got=cpu{}",
+                clamped.as_index()
             );
         }
     }

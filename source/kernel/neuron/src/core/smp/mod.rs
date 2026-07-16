@@ -53,6 +53,9 @@ pub struct HartLocal {
     pub(crate) cpu_index: usize,
     /// Validity tag so a bogus `tp` is never mistaken for a hart-local block.
     pub(crate) magic: usize,
+    /// B (TASK-0042): per-hart preemption tick counter for the shares slice
+    /// multiplier (only the owning hart touches it, from its timer trap).
+    pub(crate) preempt_ticks: usize,
     /// Staging slot for the next context switch (A2b): the schedule decision
     /// copies the task frame here UNDER the BKL, the guard drops, then the
     /// sret path reads only this hart-local copy — no lock is ever held
@@ -69,6 +72,7 @@ impl HartLocal {
         scratch_sp: 0,
         cpu_index: 0,
         magic: 0,
+        preempt_ticks: 0,
         resume_frame: crate::trap::TrapFrame::EMPTY,
     };
 }
@@ -199,6 +203,19 @@ pub fn hart_local_sscratch_value(cpu: CpuId) -> usize {
 pub fn hart_stack_top(cpu: CpuId) -> usize {
     // SAFETY: bounds-checked read of a prepared block field.
     unsafe { (*hart_local_ptr(cpu)).trap_stack_top }
+}
+
+/// B (TASK-0042): shares slice gate. Counts this hart's preemption ticks and
+/// returns whether the CURRENT task's slice is exhausted (rotate now).
+/// `slice_ticks` >= 1; shares=100 → 1 tick (pre-B behavior, exact parity).
+pub fn preempt_tick_and_rotate(cpu: CpuId, slice_ticks: usize) -> bool {
+    // SAFETY: single-writer per block (owning hart's timer trap only).
+    unsafe {
+        let block = hart_local_ptr(cpu);
+        let ticks = (*block).preempt_ticks.wrapping_add(1);
+        (*block).preempt_ticks = ticks;
+        slice_ticks <= 1 || ticks % slice_ticks == 0
+    }
 }
 
 /// Stages a task frame into this hart's resume slot (A2b contract: written

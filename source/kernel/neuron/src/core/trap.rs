@@ -1161,7 +1161,17 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     wake_expired_ipc_deadlines(timer, router, tasks, scheduler);
                     // Preemptive: rotate the running user task so no service can
                     // monopolise the cooperative scheduler (anti-starvation).
-                    preempt_current_user_task(frame, tasks, scheduler, spaces);
+                    // B (TASK-0042): shares grant whole extra ticks within the
+                    // QoS class (shares/100, clamped [1,10]); default 100 = one
+                    // tick = pre-B behavior.
+                    let slice_ticks = tasks
+                        .task(tasks.current_pid())
+                        .map(|t| ((t.shares() / 100) as usize).clamp(1, 10))
+                        .unwrap_or(1);
+                    let cpu = crate::smp::cpu_current_id();
+                    if crate::smp::preempt_tick_and_rotate(cpu, slice_ticks) {
+                        preempt_current_user_task(frame, tasks, scheduler, spaces);
+                    }
                     return;
                 }
             }

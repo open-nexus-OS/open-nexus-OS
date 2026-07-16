@@ -28,6 +28,42 @@ use spin::Mutex;
 
 pub use crate::types::Pid;
 
+/// Every-CPU affinity mask (bits 0..MAX_CPUS).
+pub const ALL_CPUS_MASK: u8 = ((1u16 << crate::smp::MAX_CPUS) - 1) as u8;
+/// Default scheduling shares (one preemption tick per slice).
+pub const DEFAULT_SHARES: u16 = 100;
+
+/// Validates an affinity mask at the ABI boundary: non-empty, within the
+/// CPU ceiling, and intersecting the online set (a mask of only-offline CPUs
+/// would strand the task forever).
+pub fn validate_affinity_mask(mask: usize, online_mask: usize) -> Result<u8, ()> {
+    if mask == 0 || mask > ALL_CPUS_MASK as usize {
+        return Err(());
+    }
+    if mask & online_mask == 0 {
+        return Err(());
+    }
+    Ok(mask as u8)
+}
+
+/// Clamps a home CPU into an affinity mask: keeps `home` when allowed,
+/// otherwise picks the first ONLINE CPU in the mask (boot as last resort).
+pub fn clamp_home_to_affinity(
+    mask: u8,
+    home: crate::types::CpuId,
+    online_mask: usize,
+) -> crate::types::CpuId {
+    if mask & (1u8 << home.as_index()) != 0 && online_mask & (1usize << home.as_index()) != 0 {
+        return home;
+    }
+    for idx in 0..crate::smp::MAX_CPUS {
+        if mask & (1u8 << idx) != 0 && online_mask & (1usize << idx) != 0 {
+            return crate::types::CpuId::from_raw(idx as u16);
+        }
+    }
+    crate::types::CpuId::BOOT
+}
+
 /// Lifecycle state of a task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskState {
@@ -386,6 +422,13 @@ pub struct Task {
     /// per-CPU runqueue, avoiding cross-CPU migration during IPC wakeups).
     #[cfg_attr(not(test), allow(dead_code))]
     home_cpu: crate::types::CpuId,
+    /// B (TASK-0042): CPU affinity mask (bit N = may run on CPU N). Default:
+    /// all CPUs. Enforced at wake/resume (home clamp) and in the steal
+    /// predicate; validated non-empty ∩ online at the syscall boundary.
+    affinity_mask: u8,
+    /// B (TASK-0042): scheduling shares within the QoS class, clamped to
+    /// [1, 1000]; 100 = default (one preemption tick per slice).
+    shares: u16,
     /// Last spawn failure reason recorded for this task (RFC-0013 boot gates).
     last_spawn_fail_reason: Option<SpawnFailReason>,
     bootstrap_slot: Option<usize>,
@@ -435,6 +478,8 @@ impl Task {
             user_guard_info: None,
             service_id: 0,
             home_cpu: crate::types::CpuId::BOOT,
+            affinity_mask: ALL_CPUS_MASK,
+            shares: DEFAULT_SHARES,
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
             children: Vec::new(),
@@ -523,6 +568,36 @@ impl Task {
     }
 
     /// Sets the scheduler QoS class for this task.
+    /// The task's home CPU (scheduling anchor).
+    pub fn home_cpu(&self) -> crate::types::CpuId {
+        self.home_cpu
+    }
+
+    /// B (TASK-0042): CPU affinity mask (bit N = may run on CPU N).
+    pub fn affinity_mask(&self) -> u8 {
+        self.affinity_mask
+    }
+
+    /// Sets the affinity mask (caller must have validated it).
+    pub fn set_affinity_mask(&mut self, mask: u8) {
+        self.affinity_mask = mask;
+    }
+
+    /// Whether this task may run on `cpu`.
+    pub fn affinity_allows(&self, cpu: crate::types::CpuId) -> bool {
+        self.affinity_mask & (1u8 << cpu.as_index()) != 0
+    }
+
+    /// B (TASK-0042): scheduling shares within the QoS class [1, 1000].
+    pub fn shares(&self) -> u16 {
+        self.shares
+    }
+
+    /// Sets the shares value (clamped to [1, 1000] by the caller).
+    pub fn set_shares(&mut self, shares: u16) {
+        self.shares = shares;
+    }
+
     pub fn set_qos(&mut self, qos: QosClass) {
         self.qos = qos;
     }
@@ -610,6 +685,11 @@ impl TaskTable {
         let parent_domain = parent_task.trap_domain();
 
         let pid = Pid::from_raw(self.tasks.len() as u32);
+        let (parent_affinity, parent_shares) = self
+            .tasks
+            .get(parent_index)
+            .map(|p| (p.affinity_mask, p.shares))
+            .unwrap_or((ALL_CPUS_MASK, DEFAULT_SHARES));
         let task = Task {
             pid,
             parent: Some(parent),
@@ -630,10 +710,22 @@ impl TaskTable {
             // A4 initial placement: deterministic round-robin across online
             // CPUs (pre-runtime-ready: spawning hart). See smp::assign_spawn_cpu.
             home_cpu: crate::smp::assign_spawn_cpu(),
+            // B: inherit scheduling attributes from the parent (reset-on-exec
+            // happens naturally: execd spawns fresh children).
+            affinity_mask: parent_affinity,
+            shares: parent_shares,
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
             children: Vec::new(),
         };
+        // B: the round-robin placement must respect the inherited mask.
+        let clamped = clamp_home_to_affinity(
+            task.affinity_mask,
+            task.home_cpu,
+            crate::smp::cpu_online_mask(),
+        );
+        let mut task = task;
+        task.home_cpu = clamped;
         self.tasks.push(task);
         if let Some(parent_task) = self.tasks.get_mut(parent_index) {
             parent_task.children.push(pid);
@@ -836,7 +928,14 @@ impl TaskTable {
         }
 
         let pid = Pid::from_raw(self.tasks.len() as u32);
-        let task = Task {
+        // B: inherit scheduling attributes from the parent (reset-on-exec
+        // happens naturally: execd spawns fresh children).
+        let (parent_affinity, parent_shares) = self
+            .tasks
+            .get(parent_index)
+            .map(|p| (p.affinity_mask, p.shares))
+            .unwrap_or((ALL_CPUS_MASK, DEFAULT_SHARES));
+        let mut task = Task {
             pid,
             parent: Some(parent),
             state: TaskState::Suspended,
@@ -853,10 +952,20 @@ impl TaskTable {
             // A4 initial placement: deterministic round-robin across online
             // CPUs (pre-runtime-ready: spawning hart). See smp::assign_spawn_cpu.
             home_cpu: crate::smp::assign_spawn_cpu(),
+            // B: inherit scheduling attributes from the parent (reset-on-exec
+            // happens naturally: execd spawns fresh children).
+            affinity_mask: parent_affinity,
+            shares: parent_shares,
             last_spawn_fail_reason: None,
             bootstrap_slot: Some(slot),
             children: Vec::new(),
         };
+        // B: the round-robin placement must respect the inherited mask.
+        task.home_cpu = clamp_home_to_affinity(
+            task.affinity_mask,
+            task.home_cpu,
+            crate::smp::cpu_online_mask(),
+        );
         self.tasks.push(task);
         if let Err(err) = address_spaces.attach(child_as, pid) {
             self.tasks.pop();
@@ -904,11 +1013,12 @@ impl TaskTable {
             return ResumeOutcome::NotSuspended;
         }
         task.state = TaskState::Running;
-        // A4: keep resume consistent with the task's home CPU.
-        let mut home_cpu = task.home_cpu;
-        if !crate::smp::cpu_is_online(home_cpu) {
-            home_cpu = crate::types::CpuId::BOOT;
-        }
+        // A4/B: keep resume consistent with home CPU, affinity and online set.
+        let home_cpu = clamp_home_to_affinity(
+            task.affinity_mask,
+            task.home_cpu,
+            crate::smp::cpu_online_mask(),
+        );
         match scheduler.enqueue_on_cpu(home_cpu, pid, task.qos) {
             crate::sched::EnqueueOutcome::Enqueued => {
                 if home_cpu != crate::smp::cpu_current_id() {
@@ -1038,11 +1148,13 @@ impl TaskTable {
             return WakeOutcome::WokenNoopSelftest;
         }
         let qos = task.qos;
-        // A4: route to the task's home CPU (fall back to boot if offline).
-        let mut home_cpu = task.home_cpu;
-        if !crate::smp::cpu_is_online(home_cpu) {
-            home_cpu = crate::types::CpuId::BOOT;
-        }
+        // A4/B: route to the task's home CPU, clamped into its affinity mask
+        // and the online set.
+        let home_cpu = clamp_home_to_affinity(
+            task.affinity_mask,
+            task.home_cpu,
+            crate::smp::cpu_online_mask(),
+        );
         // Avoid duplicates; then enqueue with the stored QoS.
         scheduler.purge(pid);
         if matches!(scheduler.enqueue_on_cpu(home_cpu, pid, qos), EnqueueOutcome::Rejected(_)) {
