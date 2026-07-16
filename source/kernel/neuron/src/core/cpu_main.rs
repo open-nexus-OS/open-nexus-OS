@@ -312,14 +312,6 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 if !crate::trap::runtime_installed() {
                     panic!("trap runtime invisible after AS activate");
                 }
-                // Interim TLB safety (until A5): consume a pending lazy flush
-                // BEFORE dispatching user code (ASID recycle on another hart).
-                if crate::smp::take_lazy_tlb_flush(cpu) {
-                    // SAFETY: full local TLB flush; over-invalidation is safe.
-                    unsafe {
-                        core::arch::asm!("sfence.vma x0, x0", options(nostack, preserves_flags));
-                    }
-                }
                 // A4: guarantee a preemption tick while user code runs.
                 #[cfg(feature = "timer_irq")]
                 crate::trap::timer_arm(crate::trap::DEFAULT_TICK_CYCLES);

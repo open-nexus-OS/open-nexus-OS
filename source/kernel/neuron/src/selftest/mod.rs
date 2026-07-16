@@ -1517,7 +1517,9 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     let online_mask = crate::smp::cpu_online_mask();
     let cpu1_online = (online_mask & (1usize << 1)) != 0;
     if !cpu1_online {
-        // SMP=1 default smoke: skip SMP-only markers.
+        // SMP=1 default smoke: skip SMP-only markers — with an explicit skip
+        // line (fake-proof doctrine: absence is never a pass).
+        log_info!(target: "selftest", "KSELFTEST: tlb shootdown skipped (smp=1)");
         return;
     }
 
@@ -1706,6 +1708,48 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     ctx.scheduler.selftest_reset_cpu(target);
     if matches!(ctx.scheduler.enqueue(Pid::KERNEL, QosClass::Normal), EnqueueOutcome::Rejected(_)) {
         panic!("scheduler selftest bootstrap enqueue rejected");
+    }
+    // A5: TLB shootdown — counterfactual first (a poll with no pending epoch
+    // must not flush/ack), then the real epoch round-trip with acked
+    // evidence from cpu1 (which acks lock-free from its S_SOFT trap).
+    {
+        let boot = CpuId::BOOT;
+        let (_, _, ack_before) = crate::smp::tlb::selftest_evidence(boot);
+        let outcome = crate::smp::tlb::poll_mailbox(boot);
+        let (_, _, ack_after) = crate::smp::tlb::selftest_evidence(boot);
+        if outcome == crate::smp::tlb::TlbPollOutcome::NoPending && ack_after == ack_before {
+            log_info!(target: "selftest", "KSELFTEST: tlb shootdown counterfactual ok");
+        } else {
+            log_error!(
+                target: "selftest",
+                "KSELFTEST: tlb shootdown counterfactual FAIL outcome={:?} ack {}->{}",
+                outcome,
+                ack_before,
+                ack_after
+            );
+        }
+
+        let cpu1 = CpuId::from_raw(1);
+        let (epoch_before, _, cpu1_ack_before) = crate::smp::tlb::selftest_evidence(cpu1);
+        crate::smp::tlb::shootdown_all();
+        let (epoch_after, cpu1_req, cpu1_ack) = crate::smp::tlb::selftest_evidence(cpu1);
+        if epoch_after == epoch_before + 1
+            && cpu1_req == epoch_after
+            && cpu1_ack == cpu1_req
+            && cpu1_ack > cpu1_ack_before
+        {
+            log_info!(target: "selftest", "KSELFTEST: tlb shootdown ok");
+        } else {
+            log_error!(
+                target: "selftest",
+                "KSELFTEST: tlb shootdown FAIL epoch {}->{} req={} ack={} (before {})",
+                epoch_before,
+                epoch_after,
+                cpu1_req,
+                cpu1_ack,
+                cpu1_ack_before
+            );
+        }
     }
 }
 

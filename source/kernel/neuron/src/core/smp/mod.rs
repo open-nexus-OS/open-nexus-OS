@@ -24,15 +24,15 @@ pub const MAX_CPUS: usize = 4;
 
 mod bringup;
 mod runtime;
+pub mod tlb;
 
 pub use bringup::{
     emit_bringup_gate, retry_missing_harts, start_secondary_harts, wait_for_online_mask,
     BRINGUP_STAGE,
 };
 pub use runtime::{
-    assign_spawn_cpu, mark_runtime_ready, record_timer_tick, record_user_dispatch,
-    request_lazy_tlb_flush_others, runtime_ready, steal_rate_gate, take_lazy_tlb_flush,
-    take_wake_hint,
+    assign_spawn_cpu, mark_runtime_ready, record_timer_tick, record_user_dispatch, runtime_ready,
+    steal_rate_gate, take_wake_hint,
 };
 
 /// Per-hart kernel-local block. `sscratch` and (in S-mode) `tp` point at the

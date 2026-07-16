@@ -29,14 +29,6 @@ static RUNTIME_READY: core::sync::atomic::AtomicBool = core::sync::atomic::Atomi
 /// written only by the owning hart with tp-derived identity).
 static USER_DISPATCHES: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
 
-/// Lazy TLB flush flags (interim until the A5 shootdown): set for all other
-/// harts when quarantined ASIDs are recycled; consumed by `cpu_main` with a
-/// full local flush BEFORE the next user dispatch. Safe because recycled
-/// ASIDs only come from destroyed address spaces (no hart can be running
-/// their tasks), and live-AS unmaps always execute on the task's own hart
-/// until same-AS threads exist (Phase C, gated on A5).
-static TLB_FLUSH_PENDING: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-
 /// Work-steal rate gate (A8): last steal attempt timestamp per CPU.
 static LAST_STEAL_NS: [core::sync::atomic::AtomicU64; MAX_CPUS] =
     [const { core::sync::atomic::AtomicU64::new(0) }; MAX_CPUS];
@@ -56,24 +48,6 @@ pub fn record_user_dispatch(cpu: CpuId) {
     if idx < MAX_CPUS {
         USER_DISPATCHES[idx].fetch_add(1, Ordering::AcqRel);
     }
-}
-
-/// Flags every OTHER online hart for a lazy full TLB flush (ASID recycle).
-pub fn request_lazy_tlb_flush_others() {
-    let me = cpu_current_id().as_index();
-    for idx in 0..MAX_CPUS {
-        if idx != me {
-            TLB_FLUSH_PENDING[idx].store(1, Ordering::Release);
-        }
-    }
-}
-
-/// Consumes this hart's lazy-flush flag; the caller must issue a full local
-/// `sfence.vma` before dispatching user code when this returns true.
-#[inline]
-pub fn take_lazy_tlb_flush(cpu: CpuId) -> bool {
-    let idx = cpu.as_index();
-    idx < MAX_CPUS && TLB_FLUSH_PENDING[idx].swap(0, Ordering::AcqRel) != 0
 }
 
 /// Per-hart supervisor timer tick counters (A7): written by the owning

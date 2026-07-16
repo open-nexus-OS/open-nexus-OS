@@ -370,15 +370,6 @@ fn update_peak(counter: &AtomicUsize, value: usize) {
     }
 }
 
-/// Local-hart full TLB invalidation (`sfence.vma x0, x0`).
-fn local_tlb_flush_all() {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    // SAFETY: full local TLB flush; over-invalidation is always safe.
-    unsafe {
-        core::arch::asm!("sfence.vma x0, x0", options(nostack, preserves_flags));
-    }
-}
-
 struct AsidAllocator {
     bitmap: [u64; BITMAP_WORDS],
     next: usize,
@@ -402,15 +393,10 @@ impl AsidAllocator {
         if let Some(asid) = self.try_allocate() {
             return Some(asid);
         }
-        // Pool exhausted: recycle the quarantine. Interim contract (until the
-        // A5 shootdown lands): flush the local TLB now and flag every other
-        // hart for a lazy full flush before its next user dispatch — recycled
-        // ASIDs come from destroyed address spaces only, so no hart can still
-        // be RUNNING a task under one; stale entries are purged before any
-        // NEW task with a recycled ASID can run there. A5 replaces this with
-        // a global epoch flush acknowledged by every online hart.
-        local_tlb_flush_all();
-        crate::smp::request_lazy_tlb_flush_others();
+        // Pool exhausted: recycle the quarantine behind a GLOBAL epoch
+        // shootdown (A5) — every online hart flushes and acks before a
+        // recycled ASID can be reused anywhere.
+        crate::smp::tlb::shootdown_all();
         self.release_quarantined();
         self.try_allocate()
     }

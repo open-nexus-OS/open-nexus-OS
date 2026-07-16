@@ -85,29 +85,6 @@ pub(super) fn secondary_stack_top(cpu: CpuId) -> Option<usize> {
     Some(base + SECONDARY_STACK_SIZE)
 }
 
-/// SBI HSM states (SBI spec): 0=STARTED, 1=STOPPED, 2=START_PENDING, 3=STOP_PENDING.
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-const HSM_STATE_STOPPED: usize = 1;
-
-/// Waits (bounded) until a hart settles into the HSM STOPPED wait loop.
-/// Starting a hart that has not finished its own firmware cold-boot init was
-/// observed to lose it (HSM reports STARTED, the hart never reaches the
-/// kernel entry) — this closes that window before every `hart_start`.
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-fn wait_hart_stopped(hart: HartId, budget_ns: u64) -> bool {
-    let deadline = (riscv::register::time::read() as u64).saturating_add(budget_ns / 100);
-    loop {
-        let status = sbi::hart_get_status(hart.as_index());
-        if status.error == 0 && status.value == HSM_STATE_STOPPED {
-            return true;
-        }
-        if (riscv::register::time::read() as u64) >= deadline {
-            return false;
-        }
-        core::hint::spin_loop();
-    }
-}
-
 /// Boot gate (self-diagnosing evidence): one line per expected hart with the
 /// full bring-up picture — start error, online bit, reached stage, HSM state.
 /// Emitted unconditionally on SMP>=2 boots so ANY failure localizes itself
@@ -167,12 +144,6 @@ pub fn start_secondary_harts() -> usize {
             // hart_start is asynchronous, and the secondary's trap install
             // reads this block.
             hart_local_prepare(cpu, stack_top);
-
-            // Settle gate: only start a hart that is parked in the HSM wait
-            // loop (see wait_hart_stopped).
-            if !wait_hart_stopped(hart, 200_000_000) {
-                log_error!(target: "smp", "KINIT: hart{} not settled (hsm)", idx);
-            }
 
             let ret = sbi::hart_start(hart.as_index(), __secondary_hart_start as usize, stack_top);
             match ret.error {

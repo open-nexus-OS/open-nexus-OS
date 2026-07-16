@@ -115,26 +115,33 @@ impl<T> SpinIrqLock<T> {
         }
     }
 
-    /// Disables interrupts, acquires the lock, and returns a guard that
-    /// restores the prior interrupt state on drop.
+    /// Acquires the lock and returns a guard that restores the prior
+    /// interrupt state on drop. SIE is guaranteed OFF only while the lock is
+    /// HELD; between failed acquisition attempts interrupts are re-enabled —
+    /// a hart spinning for the BKL must stay responsive to correctness IPIs
+    /// (A5 TLB shootdown: the initiator holds the BKL while waiting for
+    /// acks; a responder spinning IRQ-off for that same lock would deadlock).
     pub fn lock(&self) -> SpinIrqGuard<'_, T> {
-        let was_enabled = irq_save_disable();
-
-        #[cfg(debug_assertions)]
-        {
-            let me = current_cpu_index_for_debug() + 1;
-            if self.holder.load(Ordering::Acquire) == me {
-                // A same-hart re-lock with IRQs off would spin forever.
-                panic!("SpinIrqLock: same-hart re-lock");
+        loop {
+            #[cfg(debug_assertions)]
+            {
+                let me = current_cpu_index_for_debug() + 1;
+                if self.holder.load(Ordering::Acquire) == me {
+                    // A same-hart re-lock would spin forever.
+                    panic!("SpinIrqLock: same-hart re-lock");
+                }
             }
+
+            let was_enabled = irq_save_disable();
+            if let Some(guard) = self.inner.try_lock() {
+                #[cfg(debug_assertions)]
+                self.holder.store(current_cpu_index_for_debug() + 1, Ordering::Release);
+                return SpinIrqGuard { lock: self, guard: Some(guard), was_enabled };
+            }
+            // Not acquired: reopen the interrupt window before retrying.
+            irq_restore(was_enabled);
+            core::hint::spin_loop();
         }
-
-        let guard = self.inner.lock();
-
-        #[cfg(debug_assertions)]
-        self.holder.store(current_cpu_index_for_debug() + 1, Ordering::Release);
-
-        SpinIrqGuard { lock: self, guard: Some(guard), was_enabled }
     }
 }
 

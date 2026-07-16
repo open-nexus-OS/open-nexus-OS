@@ -310,6 +310,21 @@ phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "per-context PLIC enable isolation (probe source in boot ctx not visible in cpu1 ctx)"
 
+[marker."KSELFTEST: tlb shootdown counterfactual ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "responder poll with no pending epoch neither flushes nor acks (anti-fake)"
+
+[marker."KSELFTEST: tlb shootdown ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "epoch TLB shootdown: cpu1 flushed+acked the exact requested epoch (lock-free from S_SOFT)"
+
+[marker."KSELFTEST: tlb shootdown skipped (smp=1)"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "explicit SMP=1 skip line for the shootdown proof (absence is never a pass)"
+
 [marker."KSELFTEST: smp per-hart ticks ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }

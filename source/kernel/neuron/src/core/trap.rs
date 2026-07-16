@@ -1098,6 +1098,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         let code = frame.scause & (usize::MAX >> 1);
         if code == S_SOFT_INT {
             let cpu = crate::smp::cpu_current_id();
+            // A5: TLB shootdown responder FIRST (lock-free — the initiator
+            // may hold the BKL while waiting for this ack), then resched.
+            let _ = crate::smp::tlb::poll_mailbox(cpu);
             let outcome = crate::smp::handle_ssoft_resched(cpu);
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             unsafe {
