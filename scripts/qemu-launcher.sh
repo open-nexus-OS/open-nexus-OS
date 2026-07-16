@@ -197,7 +197,13 @@ trim_log() {
 build_qemu_args() {
   local -a args=()
   local -a input_args=()
-  args+=(-machine virt,aclint=on -cpu max -m 320M -smp "${SMP:-1}" -bios default)
+  # A9: interactive/manual boots default to 4 harts (real SMP is the product
+  # configuration); proof harnesses pin SMP explicitly (qemu-test.sh defaults
+  # to SMP=1 for the deterministic profiles).
+  # QEMU_ACLINT=off: fall back to the classic SiFive CLINT MSWI IPI path.
+  # OpenSBI 1.7's HSM hart_start via ACLINT-MSWI was observed to LOSE a hart
+  # under MTTCG (hart marked STARTED, never reaches the kernel entry).
+  args+=(-machine "virt,aclint=${QEMU_ACLINT:-on}" -cpu max -m 320M -smp "${SMP:-4}" -bios default)
   args+=(-kernel "$KERNEL_BIN")
 
   # Display mode

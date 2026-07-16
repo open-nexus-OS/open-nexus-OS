@@ -176,9 +176,13 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     emit_line("statefsd: ready");
 
     nexus_abi::service_verdict_flush("statefsd");
+    // SMP robustness circuit breaker (see the Err arm below).
+    let mut consecutive_errors: u32 = 0;
+    let mut error_lines_logged: u32 = 0;
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
+                consecutive_errors = 0;
                 if pristine && !virtio_upgraded && virtio_retry_count < VIRTIO_MAX_RETRIES {
                     let mut q = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
                     let mmio_ready = nexus_abi::cap_query(48, &mut q).is_ok() && q.kind_tag == 2;
@@ -235,9 +239,20 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 let _ = yield_();
             }
             Err(err) => {
-                emit_line("statefsd: ipc error");
-                emit_ipc_error(err);
-                return Err(ServerError::Unsupported);
+                // SMP robustness: client-side errors are transient; only a
+                // persistent error streak (our own endpoint defect) ends the
+                // loop. See logd for the rationale.
+                consecutive_errors = consecutive_errors.saturating_add(1);
+                if error_lines_logged < 3 {
+                    emit_line("statefsd: transient ipc error (continuing)");
+                    emit_ipc_error(err);
+                    error_lines_logged += 1;
+                }
+                if consecutive_errors >= 64 {
+                    emit_line("statefsd: endpoint defect (64 consecutive errors)");
+                    return Err(ServerError::Unsupported);
+                }
+                let _ = yield_();
             }
         }
     }

@@ -1120,6 +1120,15 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             return;
         }
         if code == S_TIMER_INT {
+            // A7: per-hart tick bookkeeping; the FIRST tick on a secondary
+            // hart is the per-hart-timer liveness proof (event-anchored).
+            {
+                let cpu = crate::smp::cpu_current_id();
+                let prev = crate::smp::record_timer_tick(cpu);
+                if prev == 0 && !cpu.is_boot() {
+                    log_info!(target: "smp", "KSELFTEST: smp per-hart ticks ok");
+                }
+            }
             // Supervisor timer tick. Preemption + scheduler/task access is only safe
             // when we interrupted a USER-mode task (sstatus.SPP == 0): such a context
             // holds no kernel borrows, so mutating the scheduler/task table here cannot

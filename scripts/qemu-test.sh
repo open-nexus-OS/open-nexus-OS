@@ -730,6 +730,10 @@ fi
 # profile; if a marker the script gates on disappears from (or is renamed
 # in) the manifest, we want to know NOW, not after a fleet failure.
 # --- pm_mirror_check disabled (P4-06+). Manifest is sole truth.
+# A9: proof profiles are deterministic at SMP=1 unless a gate sets SMP
+# explicitly (ci-os-smp runs SMP=4); the interactive launcher default is 4.
+export SMP="${SMP:-1}"
+
 echo "[info] proof-manifest CLI resolved: $PM_CLI_DEFAULT" >&2
 if [[ "$REQUIRE_SMP" == "1" ]]; then
   if [[ "${SMP:-1}" -lt 2 ]]; then
@@ -747,6 +751,9 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
     "KSELFTEST: work stealing ok"
     "KSELFTEST: test_reject_steal_above_bound ok"
     "KSELFTEST: test_reject_steal_higher_qos ok"
+    "KSELFTEST: plic ctx cpu0 ok"
+    "KSELFTEST: plic ctx cpu1 ok"
+    "KSELFTEST: plic isolation ok"
   )
   # Kernel SMP selftests run before userspace init markers (and after the
   # cpuid identity selftests, which sit at positions 3-4 of every base list).
@@ -1832,6 +1839,11 @@ fi
 if [[ "$REQUIRE_SMP" == "1" ]]; then
   if [[ "$(count_lines "KSELFTEST: smp exec cpu1 ok")" -lt 1 ]]; then
     echo "[error] SMP exec proof missing: KSELFTEST: smp exec cpu1 ok (no user dispatch observed on cpu1)" >&2
+    exit 1
+  fi
+  # A7: every secondary hart must have a live preemption tick.
+  if [[ "$(count_lines "KSELFTEST: smp per-hart ticks ok")" -lt 1 ]]; then
+    echo "[error] SMP per-hart timer proof missing: KSELFTEST: smp per-hart ticks ok" >&2
     exit 1
   fi
 fi

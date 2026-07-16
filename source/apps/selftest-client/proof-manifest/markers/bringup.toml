@@ -237,6 +237,34 @@ proves = "bundlemgrd boot-slot accounting"
 phase = "bringup"
 emit_when = { profile = "smp" }
 
+[marker."KINIT: cpu2 online"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+
+[marker."KINIT: cpu3 online"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+
+[marker."KSELFTEST: plic ctx cpu2 ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "PLIC S-context of hart 2 initialised (threshold readback)"
+
+[marker."KSELFTEST: plic ctx cpu3 ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "PLIC S-context of hart 3 initialised (threshold readback)"
+
+[marker."KSELFTEST: smp exec cpu2 ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "user-task dispatch observed on hart 2 (event-anchored)"
+
+[marker."KSELFTEST: smp exec cpu3 ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "user-task dispatch observed on hart 3 (event-anchored)"
+
 [marker."KSELFTEST: smp online ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }
@@ -266,6 +294,30 @@ proves = "SpinIrqLock mutual exclusion across harts (exact-count two-hart lock p
 phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "user-task dispatch observed on secondary hart (per-CPU dispatch counter, tp-identity; unordered presence check)"
+
+[marker."KSELFTEST: plic ctx cpu0 ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "PLIC S-context of hart 0 initialised (threshold readback)"
+
+[marker."KSELFTEST: plic ctx cpu1 ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "PLIC S-context of hart 1 initialised (threshold readback, ctx=2*hart+1)"
+
+[marker."KSELFTEST: plic isolation ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "per-context PLIC enable isolation (probe source in boot ctx not visible in cpu1 ctx)"
+
+[marker."KSELFTEST: smp per-hart ticks ok"]
+phase = "bringup"
+emit_when = { profile = "smp" }
+proves = "live preemption tick on a secondary hart (first S_TIMER trap, event-anchored; unordered presence check)"
+
+[marker."KINIT: timer sbi"]
+phase = "bringup"
+proves = "active per-hart timer mechanism is SBI set_timer (SSTC follow-up pending)"
 
 [marker."KSELFTEST: work stealing ok"]
 phase = "bringup"

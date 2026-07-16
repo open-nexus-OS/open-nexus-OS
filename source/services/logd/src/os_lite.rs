@@ -115,6 +115,14 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // so a QUIET period — boot settled, no appends for a while — wakes us to render one verdict per
     // subject (`scope`) over the journal. One place, no per-service flush-timing.
     let mut rendered_subjects = false;
+    // SMP robustness: the central log sink must NEVER exit because of a
+    // client-side IPC error (a peer dying mid-transaction is normal under
+    // real parallelism and used to kill logd — taking policy-audit, metrics
+    // and tracing selftests down with it). Circuit breaker: only 64
+    // CONSECUTIVE errors without a single successful recv indicate a defect
+    // of OUR OWN endpoint and end the loop.
+    let mut consecutive_errors: u32 = 0;
+    let mut error_lines_logged: u32 = 0;
     loop {
         let mut inbuf = [0u8; 512];
         match server.recv_request_with_meta_into(
@@ -122,6 +130,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             &mut inbuf,
         ) {
             Ok((n, sender_service_id, reply)) => {
+                consecutive_errors = 0;
                 let frame = &inbuf[..n];
                 if !saw_any_rx {
                     emit_line("logd: rx first");
@@ -253,8 +262,18 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 }
                 let _ = yield_();
             }
-            Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported),
-            Err(_) => return Err(ServerError::Unsupported),
+            Err(_) => {
+                consecutive_errors = consecutive_errors.saturating_add(1);
+                if error_lines_logged < 3 {
+                    emit_line("logd: transient ipc error (continuing)");
+                    error_lines_logged += 1;
+                }
+                if consecutive_errors >= 64 {
+                    emit_line("logd: endpoint defect (64 consecutive errors)");
+                    return Err(ServerError::Unsupported);
+                }
+                let _ = yield_();
+            }
         }
     }
 }

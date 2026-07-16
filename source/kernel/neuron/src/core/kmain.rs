@@ -404,17 +404,6 @@ fn cpu_main(cpu: CpuId) -> ! {
         if cpu.is_boot() {
             // Watchdog: ensure forward progress; ~10ms in mtimer ticks.
             crate::liveness::check(crate::trap::DEFAULT_TICK_CYCLES * 3);
-
-            // A3 proof marker: user execution observed on a secondary hart.
-            for idx in 1..crate::smp::MAX_CPUS {
-                let target = CpuId::from_raw(idx as u16);
-                if crate::smp::cpu_is_online(target)
-                    && crate::smp::user_dispatch_count(target) > 0
-                    && EXEC_PROOF_EMITTED[idx].swap(1, core::sync::atomic::Ordering::AcqRel) == 0
-                {
-                    log_info!(target: "smp", "KSELFTEST: smp exec cpu{} ok", idx);
-                }
-            }
         }
 
         static LOOP_COUNT: core::sync::atomic::AtomicUsize =
@@ -530,6 +519,21 @@ fn cpu_main(cpu: CpuId) -> ! {
                                     Attempt::Retry
                                 } else {
                                     crate::smp::record_user_dispatch(cpu);
+                                    // A3 proof: emitted by the secondary hart
+                                    // itself on its FIRST user dispatch (event-
+                                    // anchored; a boot-hart poll can miss the
+                                    // harness window).
+                                    if !cpu.is_boot()
+                                        && EXEC_PROOF_EMITTED[cpu.as_index()]
+                                            .swap(1, core::sync::atomic::Ordering::AcqRel)
+                                            == 0
+                                    {
+                                        log_info!(
+                                            target: "smp",
+                                            "KSELFTEST: smp exec cpu{} ok",
+                                            cpu.as_index()
+                                        );
+                                    }
                                     Attempt::Switch(staged)
                                 }
                             }
@@ -724,14 +728,19 @@ unsafe fn context_switch_to_task(frame: &crate::trap::TrapFrame) -> ! {
 
 pub(crate) fn kmain_secondary(hart: HartId, stack_top: usize) -> ! {
     let cpu = CpuId::from_hart(hart);
+    let stage = &crate::smp::BRINGUP_STAGE[cpu.as_index()];
+    stage.store(1, core::sync::atomic::Ordering::Release);
     // Idempotent re-prepare (the boot hart already prepared this block before
     // hart_start); establishes trap stack + identity before any trap or log.
     crate::smp::hart_local_prepare(cpu, stack_top);
+    stage.store(2, core::sync::atomic::Ordering::Release);
     // SAFETY: secondary hart installs its own trap vector once before entering the wait loop.
     unsafe {
         crate::trap::install_trap_vector_for(cpu);
     }
+    stage.store(3, core::sync::atomic::Ordering::Release);
     crate::smp::mark_cpu_online(cpu);
+    stage.store(4, core::sync::atomic::Ordering::Release);
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     unsafe {
         // Secondary harts must accept supervisor software interrupts for IPI proofs.
@@ -806,17 +815,22 @@ pub fn kmain() -> ! {
     kernel.tasks.bootstrap_mut().set_trap_domain(_default_trap_domain);
 
     let expected_online_mask = crate::smp::start_secondary_harts();
-    if !crate::smp::wait_for_online_mask(expected_online_mask, 2_000_000) {
-        log_error!(
-            target: "smp",
-            "KINIT: secondary online timeout expected=0x{:x} got=0x{:x}",
-            expected_online_mask,
-            crate::smp::cpu_online_mask()
-        );
-        if expected_online_mask != (1usize << CpuId::BOOT.as_index()) {
-            panic!("SMP bring-up timeout");
+    // Bounded HSM bring-up with retry: a start request issued in quick
+    // succession can get lost (hart never reaches the kernel entry despite a
+    // success return); retry up to 3 times before declaring the timeout.
+    let mut online_ok = crate::smp::wait_for_online_mask(expected_online_mask, 500_000_000);
+    for _ in 0..3 {
+        if online_ok {
+            break;
         }
+        crate::smp::retry_missing_harts(expected_online_mask);
+        online_ok = crate::smp::wait_for_online_mask(expected_online_mask, 500_000_000);
     }
+    // Boot gate: per-hart evidence + verdict. A lost hart is loud but NOT
+    // fatal — the system boots degraded with the online set (the SMP proof
+    // gate still requires its markers, so CI catches it honestly).
+    crate::smp::emit_bringup_gate(expected_online_mask);
+    let _ = online_ok;
     // Touch HAL traits to satisfy imports
     let uart_dev = kernel.hal.uart();
     let _: &dyn crate::hal::Uart = uart_dev;
@@ -936,6 +950,51 @@ pub fn kmain() -> ! {
         crate::hal::plic::plic_init();
         riscv::register::sie::set_sext();
     }
+
+    // A6 structural proofs (SMP>=2 only, right after plic_init): every online
+    // hart's S-context is addressable + initialised (threshold readback), and
+    // per-context enable bitmaps are isolated (a probe source enabled for the
+    // boot context must not leak into cpu1's).
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    if crate::smp::cpu_online_mask().count_ones() > 1 {
+        let mut ctx_ok = true;
+        for idx in 0..crate::smp::MAX_CPUS {
+            let cpu = CpuId::from_raw(idx as u16);
+            if !crate::smp::cpu_is_online(cpu) {
+                continue;
+            }
+            if crate::hal::plic::selftest_ctx_threshold(cpu) == 0 {
+                log_info!(target: "smp", "KSELFTEST: plic ctx cpu{} ok", idx);
+            } else {
+                ctx_ok = false;
+                log_error!(target: "smp", "KSELFTEST: plic ctx cpu{} FAIL", idx);
+            }
+        }
+        // Probe source 90 is unwired on QEMU virt (virtio 1..8, uart 10,
+        // rtc 11, pci 32..35) — enabling it cannot fire anything.
+        if let Some(probe) = crate::hal::plic::IrqId::new(90) {
+            let cpu1 = CpuId::from_raw(1);
+            crate::hal::plic::enable_source(probe, CpuId::BOOT);
+            let boot_sees = crate::hal::plic::selftest_source_enabled(probe, CpuId::BOOT);
+            let cpu1_sees = crate::hal::plic::selftest_source_enabled(probe, cpu1);
+            crate::hal::plic::disable_source(probe, CpuId::BOOT);
+            if ctx_ok && boot_sees && !cpu1_sees {
+                log_info!(target: "smp", "KSELFTEST: plic isolation ok");
+            } else {
+                log_error!(
+                    target: "smp",
+                    "KSELFTEST: plic isolation FAIL boot={} cpu1={}",
+                    boot_sees,
+                    cpu1_sees
+                );
+            }
+        }
+    }
+
+    // A7: announce the active per-hart timer mechanism. SBI set_timer is the
+    // v1 path; SSTC (`stimecmp`, saves the SBI trap per tick) is a documented
+    // follow-up pending a fault-safe detection probe.
+    log_info!(target: "smp", "KINIT: timer sbi");
 
     // A3: selftests + init spawn are done — release the secondaries into
     // their scheduler loops (IPI punches them out of their park-WFI), then

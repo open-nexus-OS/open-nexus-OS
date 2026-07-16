@@ -32,10 +32,18 @@ env = { NEXUS_SELFTEST_PROFILE = "full" }
 [profile.smp]
 runner = "scripts/qemu-test.sh"
 extends = "headless"
-# SMP="2" is the hardware contract for this profile (the kernel emits
-# `KSELFTEST: smp online ok` etc. only with >=2 harts; those literals
-# are declared in `markers/bringup.toml` with `emit_when={profile="smp"}`).
-env = { REQUIRE_SMP = "1", SMP = "2" }
+# SMP="2" is the CI hardware contract for this profile. NOT 4: OpenSBI 1.7 +
+# QEMU 11 MTTCG nondeterministically LOSES a hart during HSM hart_start with
+# 4 harts (HSM reports STARTED, the hart never executes the kernel entry —
+# proven via a first-instruction UART crumb; independent of aclint on/off,
+# settle-waits, sequential starts and retries). Interactive boots default to
+# SMP=4 with degraded-continue + the `KGATE: smp` evidence lines; the CI gate
+# stays at the deterministic 2-hart contract. Also: with all MAX_CPUS harts
+# online, `test_reject_offline_cpu_resched` has no offline CPU to test.
+# QEMU_NO_ICOUNT: icount forces single-threaded round-robin vCPUs (no real
+# parallelism, spinlock-quantum convoys); the SMP markers are result-proofs
+# without timing asserts, so MTTCG nondeterminism is safe here.
+env = { REQUIRE_SMP = "1", SMP = "2", QEMU_NO_ICOUNT = "1" }
 
 [profile.dhcp]
 runner = "scripts/qemu-test.sh"

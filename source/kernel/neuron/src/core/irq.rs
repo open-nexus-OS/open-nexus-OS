@@ -36,11 +36,26 @@ static IRQ_ENDPOINT: [AtomicU32; TABLE_LEN] = {
     [UNBOUND; TABLE_LEN]
 };
 
-/// Binds `irq` to `endpoint` and enables the source at the PLIC. Idempotent;
-/// a later bind re-points the source.
+/// `irq source id -> target CPU index` for the binding (A6). v1 policy: all
+/// bindings target the boot hart (its context takes the S_EXT trap); Phase B
+/// routes per affinity. Recorded so completion targets the claiming context.
+static IRQ_HOME_CPU: [AtomicU32; TABLE_LEN] = {
+    const BOOT: AtomicU32 = AtomicU32::new(0);
+    [BOOT; TABLE_LEN]
+};
+
+fn binding_cpu(irq: IrqId) -> crate::types::CpuId {
+    crate::types::CpuId::from_raw(IRQ_HOME_CPU[irq.raw() as usize].load(Ordering::Acquire) as u16)
+}
+
+/// Binds `irq` to `endpoint` and enables the source at the PLIC for the boot
+/// hart's context (v1 routing policy). Idempotent; a later bind re-points the
+/// source.
 pub fn bind(irq: IrqId, endpoint: EndpointId) {
+    let cpu = crate::types::CpuId::BOOT;
     IRQ_ENDPOINT[irq.raw() as usize].store(endpoint, Ordering::Release);
-    plic::enable_source(irq);
+    IRQ_HOME_CPU[irq.raw() as usize].store(cpu.as_index() as u32, Ordering::Release);
+    plic::enable_source(irq, cpu);
 }
 
 /// Returns the endpoint bound to `irq`, if any.
@@ -53,9 +68,11 @@ pub fn binding(irq: IrqId) -> Option<EndpointId> {
 }
 
 /// Completes `irq` at the PLIC so it can fire again. A driver calls this after it
-/// has cleared the device's interrupt condition (drained the virtqueue).
+/// has cleared the device's interrupt condition (drained the virtqueue). The
+/// completion targets the BINDING's context — the syscall may run on any hart,
+/// but the claim happened where the source is enabled (A6).
 pub fn complete(irq: IrqId) {
-    plic::complete(irq);
+    plic::complete(irq, binding_cpu(irq));
 }
 
 fn irq_payload(irq: IrqId) -> [u8; 4] {
@@ -75,9 +92,9 @@ pub fn drain_undelivered() {
         // sources are left enabled (just completed) so a later U-mode trap can
         // deliver them.
         if binding(irq).is_none() {
-            plic::disable_source(irq);
+            plic::disable_source(irq, crate::smp::cpu_current_id());
         }
-        plic::complete(irq);
+        plic::complete_current(irq);
     }
 }
 
@@ -120,8 +137,8 @@ pub fn dispatch_external(
             }
             None => {
                 // No driver: mask + complete so it cannot re-fire indefinitely.
-                plic::disable_source(irq);
-                plic::complete(irq);
+                plic::disable_source(irq, crate::smp::cpu_current_id());
+                plic::complete_current(irq);
             }
         }
     }
