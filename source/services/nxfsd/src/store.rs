@@ -15,7 +15,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use nexus_vfs_types::fileops::{
-    self, OP_CREATE, OP_MKDIR, OP_READ, OP_READDIR, OP_REMOVE, OP_RENAME, OP_STAT, OP_WRITE_TEXT,
+    self, OP_COPY, OP_CREATE, OP_MKDIR, OP_READ, OP_READDIR, OP_REMOVE, OP_RENAME, OP_STAT,
+    OP_WRITE_TEXT,
 };
 use nexus_vfs_types::{FileKind, VfsError};
 use nxfs::{MkfsOptions, Nxfs};
@@ -161,6 +162,26 @@ impl DataStore {
             OP_RENAME => match fileops::decode_rename(payload) {
                 Some((from, to)) => {
                     run_write(self.fs.rename(&to_nxfs_path(&from), &to_nxfs_path(&to)))
+                }
+                None => status_reply(VfsError::Invalid),
+            },
+            // Copy = read source + create dest + write (same (from, to) codec
+            // as rename). Bounded by the engine's file cap; a directory source
+            // fails honestly (IsDir), never a silent partial copy.
+            OP_COPY => match fileops::decode_rename(payload) {
+                Some((from, to)) => {
+                    const COPY_MAX: usize = 4 * 1024 * 1024;
+                    match self.fs.read(&to_nxfs_path(&from), 0, COPY_MAX) {
+                        Ok(bytes) => {
+                            let to_path = to_nxfs_path(&to);
+                            run_write(
+                                self.fs
+                                    .create(&to_path)
+                                    .and_then(|()| self.fs.write(&to_path, 0, &bytes)),
+                            )
+                        }
+                        Err(err) => status_reply(err.to_vfs()),
+                    }
                 }
                 None => status_reply(VfsError::Invalid),
             },

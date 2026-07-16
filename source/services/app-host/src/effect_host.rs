@@ -279,16 +279,13 @@ impl AppEffectHost {
         Value::Record(fields)
     }
 
-    /// `svc.files.list(path, cursor)` → `List<FileEntry{ name, kind, size }>`
-    /// — one bounded ReadDir page from vfsd (RFC-0072/0073; `cursor` 0 = first
-    /// page, continuation via the page's next cursor).
-    fn files_list(&self, path: &str, cursor: i64, sort: &str) -> Result<Value, u32> {
-        let Some(name_sym) = self.name_sym else {
-            raw_marker("apphost: dsl svc files.list FAIL (no name symbol)");
-            return Err(ERR_SVC_SHAPE);
-        };
+    /// One bounded ReadDir page from vfsd (shared by list/count/recent).
+    fn readdir_page(
+        &self,
+        path: &str,
+        cursor: u32,
+    ) -> Result<nexus_vfs_types::ReadDirPage, u32> {
         let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
-        let cursor = u32::try_from(cursor).map_err(|_| ERR_SVC_SHAPE)?;
         let payload = nexus_vfs_types::encode_readdir_request(path, cursor, 64)
             .map_err(|_| ERR_SVC_SHAPE)?;
         let mut req = Vec::with_capacity(1 + payload.len());
@@ -296,65 +293,129 @@ impl AppEffectHost {
         req.extend_from_slice(&payload);
         let mut resp = alloc::vec![0u8; FILES_REPLY_BUF];
         let Some(len) = call_reply(send_slot, &req, &mut resp) else {
-            raw_marker("apphost: dsl svc files.list FAIL (vfsd unreachable)");
+            raw_marker("apphost: dsl svc files readdir FAIL (vfsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
-        match nexus_vfs_types::decode_readdir_response(&resp[..len]) {
-            Ok(page) => {
-                // Sort the page (name | kind | date). Directories always sort
-                // before files; ties break by name. "date" uses the stub key.
-                let dir_first = |e: &nexus_vfs_types::DirEntry| {
-                    u8::from(e.kind != nexus_vfs_types::FileKind::Dir)
-                };
-                let mut entries: Vec<&nexus_vfs_types::DirEntry> = page.entries.iter().collect();
-                match sort {
-                    "kind" => entries.sort_by(|a, b| {
-                        dir_first(a)
-                            .cmp(&dir_first(b))
-                            .then_with(|| entry_icon_stem(a).cmp(entry_icon_stem(b)))
-                            .then_with(|| a.name.cmp(&b.name))
-                    }),
-                    "date" => entries.sort_by(|a, b| {
-                        dir_first(a)
-                            .cmp(&dir_first(b))
-                            .then_with(|| {
-                                stub_date_key(&a.name, a.kind).cmp(&stub_date_key(&b.name, b.kind))
-                            })
-                            .then_with(|| a.name.cmp(&b.name))
-                    }),
-                    _ => entries.sort_by(|a, b| {
-                        dir_first(a).cmp(&dir_first(b)).then_with(|| a.name.cmp(&b.name))
-                    }),
+        nexus_vfs_types::decode_readdir_response(&resp[..len]).map_err(|err| {
+            let mut line = String::from("apphost: dsl svc files.list deny (");
+            line.push_str(err.name());
+            line.push(')');
+            raw_marker(&line);
+            100 + u32::from(err.code())
+        })
+    }
+
+    /// The "Aktuelle Dateien" aggregation: every FILE across the home's
+    /// top-level folders (Papierkorb excluded) plus root files, names prefixed
+    /// with their folder ("Bilder/IMG.jpg"), newest (stub date) first. Bounded:
+    /// one page per folder, 64 entries total.
+    fn collect_recent(&self) -> Result<Vec<nexus_vfs_types::DirEntry>, u32> {
+        let root = self.readdir_page("/", 0)?;
+        let mut out: Vec<nexus_vfs_types::DirEntry> = Vec::new();
+        for entry in &root.entries {
+            match entry.kind {
+                nexus_vfs_types::FileKind::Dir if entry.name != "Papierkorb" => {
+                    let mut sub_path = String::from("/");
+                    sub_path.push_str(&entry.name);
+                    if let Ok(sub) = self.readdir_page(&sub_path, 0) {
+                        for file in sub.entries {
+                            if file.kind == nexus_vfs_types::FileKind::File {
+                                let mut name = entry.name.clone();
+                                name.push('/');
+                                name.push_str(&file.name);
+                                out.push(nexus_vfs_types::DirEntry {
+                                    name,
+                                    kind: file.kind,
+                                    size: file.size,
+                                });
+                            }
+                        }
+                    }
                 }
-                let rows: Vec<Value> = entries
-                    .iter()
-                    .map(|entry| self.file_entry_record(name_sym, entry))
-                    .collect();
-                let mut line = String::from("apphost: dsl svc files.list ok (n=");
-                let _ = core::fmt::write(&mut line, format_args!("{})", rows.len()));
-                raw_marker(&line);
-                // Count entries whose type resolved to real artwork (not the
-                // octet-stream fallback) — the file-type icon pipeline proof.
-                let resolved = page
-                    .entries
-                    .iter()
-                    .filter(|entry| entry_icon_stem(entry) != nexus_mime_icons::UNKNOWN)
-                    .count();
-                let mut icons = String::from("stash: mime icons resolved (n=");
-                let _ = core::fmt::write(&mut icons, format_args!("{})", resolved));
-                raw_marker(&icons);
-                Ok(Value::List(rows))
-            }
-            Err(err) => {
-                // Deterministic error name in the marker, stable code to the
-                // DSL's Err arm (offset so it never collides with host codes).
-                let mut line = String::from("apphost: dsl svc files.list deny (");
-                line.push_str(err.name());
-                line.push(')');
-                raw_marker(&line);
-                Err(100 + u32::from(err.code()))
+                nexus_vfs_types::FileKind::File => out.push(entry.clone()),
+                _ => {}
             }
         }
+        // Newest first (stub date over the basename), ties by name.
+        out.sort_by(|a, b| {
+            stub_date_key(&b.name, b.kind)
+                .cmp(&stub_date_key(&a.name, a.kind))
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        out.truncate(64);
+        Ok(out)
+    }
+
+    /// `svc.files.list(path, cursor)` → `List<FileEntry{ name, kind, size }>`
+    /// — one bounded ReadDir page from vfsd (RFC-0072/0073; `cursor` 0 = first
+    /// page, continuation via the page's next cursor). The pseudo-path
+    /// `"recent:"` aggregates files across the home folders, newest first.
+    fn files_list(&self, path: &str, cursor: i64, sort: &str) -> Result<Value, u32> {
+        let Some(name_sym) = self.name_sym else {
+            raw_marker("apphost: dsl svc files.list FAIL (no name symbol)");
+            return Err(ERR_SVC_SHAPE);
+        };
+        if path == "recent:" {
+            let entries = self.collect_recent()?;
+            let rows: Vec<Value> = entries
+                .iter()
+                .map(|entry| self.file_entry_record(name_sym, entry))
+                .collect();
+            let mut line = String::from("apphost: dsl svc files.list ok (n=");
+            let _ = core::fmt::write(&mut line, format_args!("{}, recent)", rows.len()));
+            raw_marker(&line);
+            return Ok(Value::List(rows));
+        }
+        let cursor = u32::try_from(cursor).map_err(|_| ERR_SVC_SHAPE)?;
+        let page = self.readdir_page(path, cursor)?;
+        // Sort the page (name | kind | date). Directories always sort
+        // before files; ties break by name. "date" uses the stub key.
+        let dir_first =
+            |e: &nexus_vfs_types::DirEntry| u8::from(e.kind != nexus_vfs_types::FileKind::Dir);
+        let mut entries: Vec<&nexus_vfs_types::DirEntry> = page.entries.iter().collect();
+        match sort {
+            "kind" => entries.sort_by(|a, b| {
+                dir_first(a)
+                    .cmp(&dir_first(b))
+                    .then_with(|| entry_icon_stem(a).cmp(entry_icon_stem(b)))
+                    .then_with(|| a.name.cmp(&b.name))
+            }),
+            "date" => entries.sort_by(|a, b| {
+                dir_first(a)
+                    .cmp(&dir_first(b))
+                    .then_with(|| stub_date_key(&a.name, a.kind).cmp(&stub_date_key(&b.name, b.kind)))
+                    .then_with(|| a.name.cmp(&b.name))
+            }),
+            _ => entries
+                .sort_by(|a, b| dir_first(a).cmp(&dir_first(b)).then_with(|| a.name.cmp(&b.name))),
+        }
+        let rows: Vec<Value> =
+            entries.iter().map(|entry| self.file_entry_record(name_sym, entry)).collect();
+        let mut line = String::from("apphost: dsl svc files.list ok (n=");
+        let _ = core::fmt::write(&mut line, format_args!("{})", rows.len()));
+        raw_marker(&line);
+        // Count entries whose type resolved to real artwork (not the
+        // octet-stream fallback) — the file-type icon pipeline proof.
+        let resolved = page
+            .entries
+            .iter()
+            .filter(|entry| entry_icon_stem(entry) != nexus_mime_icons::UNKNOWN)
+            .count();
+        let mut icons = String::from("stash: mime icons resolved (n=");
+        let _ = core::fmt::write(&mut icons, format_args!("{})", resolved));
+        raw_marker(&icons);
+        Ok(Value::List(rows))
+    }
+
+    /// `svc.files.count(path)` → `Int` — the entry count of a folder (or the
+    /// recent aggregation). Drives the honest empty-folder state in the UI.
+    fn files_count(&self, path: &str) -> Result<Value, u32> {
+        let n = if path == "recent:" {
+            self.collect_recent()?.len()
+        } else {
+            self.readdir_page(path, 0)?.entries.len()
+        };
+        Ok(Value::Int(n as i64))
     }
 
     /// `svc.files.mkdir(path)` → `Bool` (RFC-0073 Phase 2 write surface).
@@ -410,6 +471,37 @@ impl AppEffectHost {
             }
             Some(code) => {
                 let mut line = String::from("apphost: dsl svc files.rename deny (");
+                if let Some(err) = nexus_vfs_types::VfsError::from_code(code) {
+                    line.push_str(err.name());
+                }
+                line.push(')');
+                raw_marker(&line);
+                Ok(Value::Bool(false))
+            }
+            None => Err(ERR_SVC_SHAPE),
+        }
+    }
+
+    /// `svc.files.copy(from, to)` → `Bool` — copy a file (nxfs read + create +
+    /// write behind OP_COPY; a directory source fails honestly).
+    fn files_copy(&self, from: &str, to: &str) -> Result<Value, u32> {
+        let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
+        let payload = nexus_vfs_types::fileops::encode_rename(from, to).ok_or(ERR_SVC_SHAPE)?;
+        let mut req = Vec::with_capacity(1 + payload.len());
+        req.push(nexus_vfs_types::fileops::OP_COPY);
+        req.extend_from_slice(&payload);
+        let mut resp = [0u8; 16];
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+            raw_marker("apphost: dsl svc files.copy FAIL (vfsd unreachable)");
+            return Err(ERR_SVC_UNAVAILABLE);
+        };
+        match nexus_vfs_types::fileops::decode_status_reply(&resp[..len]) {
+            Some(code) if code == nexus_vfs_types::CODE_OK => {
+                raw_marker("apphost: dsl svc files.copy ok");
+                Ok(Value::Bool(true))
+            }
+            Some(code) => {
+                let mut line = String::from("apphost: dsl svc files.copy deny (");
                 if let Some(err) = nexus_vfs_types::VfsError::from_code(code) {
                     line.push_str(err.name());
                 }
@@ -876,6 +968,15 @@ impl EffectHost for AppEffectHost {
                 let to = args.get(1).and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
                 self.files_rename(from, to)
             }
+            ("files", "copy") => {
+                let from = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                let to = args.get(1).and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                self.files_copy(from, to)
+            }
+            ("files", "count") => {
+                let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                self.files_count(path)
+            }
             ("files", "stat") => {
                 let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
                 self.files_stat(path)
@@ -914,10 +1015,13 @@ fn stub_date(name: &str, kind: nexus_vfs_types::FileKind) -> String {
     out
 }
 
-/// FNV-1a of the name → a demo `(year, month, day)` in mid-2026.
+/// FNV-1a of the BASENAME → a demo `(year, month, day)` in mid-2026. Basename
+/// so "Bilder/IMG.jpg" (the recent view's prefixed form) dates identically to
+/// "IMG.jpg" in its folder view.
 fn stub_ymd(name: &str) -> (u32, u32, u32) {
+    let base = name.rsplit('/').next().unwrap_or(name);
     let mut hash: u32 = 2166136261;
-    for byte in name.bytes() {
+    for byte in base.bytes() {
         hash = (hash ^ u32::from(byte)).wrapping_mul(16777619);
     }
     let day = 1 + (hash % 28);

@@ -229,9 +229,11 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Resu
 /// STAT/READDIR whose path is not a read-only `pkg:/` path. The home IS the
 /// root — `/`, `/Bilder`, … — so anything that is not `pkg:` is home.
 fn targets_home(frame: &[u8]) -> bool {
-    use nexus_vfs_types::fileops::{OP_CREATE, OP_MKDIR, OP_REMOVE, OP_RENAME, OP_WRITE_TEXT};
+    use nexus_vfs_types::fileops::{
+        OP_COPY, OP_CREATE, OP_MKDIR, OP_REMOVE, OP_RENAME, OP_WRITE_TEXT,
+    };
     match frame.first().copied() {
-        Some(OP_MKDIR | OP_CREATE | OP_WRITE_TEXT | OP_REMOVE | OP_RENAME) => true,
+        Some(OP_MKDIR | OP_CREATE | OP_WRITE_TEXT | OP_REMOVE | OP_RENAME | OP_COPY) => true,
         Some(OPCODE_STAT) => is_home_path(core::str::from_utf8(&frame[1..]).unwrap_or("")),
         Some(OPCODE_READDIR) if frame.len() > 7 => {
             is_home_path(core::str::from_utf8(&frame[7..]).unwrap_or(""))

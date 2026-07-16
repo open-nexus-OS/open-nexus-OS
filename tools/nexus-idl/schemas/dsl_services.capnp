@@ -38,6 +38,8 @@ const dslSurface :List(DslMethod) = [
   (service = "files", method = "mkdir", args = ["Str"], result = "Bool"),
   (service = "files", method = "remove", args = ["Str"], result = "Bool"),
   (service = "files", method = "rename", args = ["Str", "Str"], result = "Bool"),
+  (service = "files", method = "copy", args = ["Str", "Str"], result = "Bool"),
+  (service = "files", method = "count", args = ["Str"], result = "Int"),
   (service = "files", method = "stat", args = ["Str"], result = "FileEntry"),
   (service = "library", method = "get", args = ["Str"], result = "Str"),
   (service = "library", method = "list", args = [], result = "List<Str>"),

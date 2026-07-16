@@ -27,6 +27,8 @@ pub const OP_CREATE: u8 = 9;
 pub const OP_WRITE_TEXT: u8 = 10;
 pub const OP_REMOVE: u8 = 11;
 pub const OP_RENAME: u8 = 12;
+/// Copy a file (`from`, `to` — same payload codec as rename).
+pub const OP_COPY: u8 = 13;
 
 /// Bounded inline text payload for `writeText` (RFC-0073 v1 small-text seam).
 pub const MAX_INLINE_TEXT: usize = 4096;

@@ -103,6 +103,9 @@ Page StashPage {
                         if $state.filesLoading == 1 {
                             Text(@t("stash.loading")).textSize(sm).fg(onSurfaceVariant)
                         } else {
+                            if $state.fileCount == 0 {
+                                Text(@t("stash.empty")).textSize(sm).fg(onSurfaceVariant)
+                            } else {
                             if $state.viewMode == "grid" {
                                 List($state.files) { f in
                                     Stack {
@@ -122,12 +125,18 @@ Page StashPage {
                                     .key(f.name)
                                 }
                             }
+                            }
                         }
                     }
                     Spacer
                     // Floating action bar (design handoff `WindowActionBar`):
                     // the item set IS the selection reactivity — no selection
                     // = create/sort actions, a selected file = file actions.
+                    // Hidden in the Recent aggregation (its entries live in
+                    // other folders; ops would target the wrong paths).
+                    if $state.path == "recent:" {
+                        Stack { }
+                    } else {
                     Stack {
                         Spacer
                         Panel {
@@ -185,7 +194,19 @@ Page StashPage {
                                     .height(52)
                                     .rounded(lg)
                                     on Tap -> dispatch(MoveStart)
-                                    WinActionItem { id: "copy", label: @t("stash.actCopy"), icon: "doc.on.doc", kind: "" }
+                                    // Real copy: duplicates in place as "Kopie von <name>".
+                                    Stack {
+                                        Icon { symbol: "doc.on.doc", size: 16 }
+                                            .fg(onSurface)
+                                        Text(@t("stash.actCopy")).textSize(xs).fg(onSurfaceVariant)
+                                    }
+                                    .align(center)
+                                    .justify(center)
+                                    .gap(1)
+                                    .width(66)
+                                    .height(52)
+                                    .rounded(lg)
+                                    on Tap -> dispatch(CopySel)
                                     WinActionItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "" }
                                     // Delete: outside /Papierkorb it SOFT-deletes
                                     // (moves to the trash); inside /Papierkorb it
@@ -246,6 +267,7 @@ Page StashPage {
                     }
                     .direction(row)
                     .align(center)
+                    }
                 }
                 .gap(1)
             }
@@ -383,6 +405,102 @@ Page StashPage {
                 }
                 .overlay()
                 on Tap -> dispatch(MoveCancel)
+            } else {
+                Stack { }
+            }
+            // Selection context menu (the action bar's "Mehr"): the file ops
+            // as menu rows, trash-aware like the bar. Centered overlay (the
+            // proven hit-testable pattern); backdrop tap closes.
+            if $state.menu == "ctx" {
+                Stack {
+                    Stack {
+                        Panel {
+                            if $state.selection == "" {
+                                Text(@t("stash.propsEmpty")).textSize(xs).fg(onSurfaceVariant)
+                            } else {
+                                Text($state.selName).textSize(xs).fg(onSurfaceVariant)
+                            }
+                            Stack {
+                                Icon { symbol: "move", size: 14 }
+                                    .fg(onSurface)
+                                Text(@t("stash.actMove")).textSize(sm).fg(onSurface)
+                            }
+                            .direction(row)
+                            .align(center)
+                            .gap(2)
+                            .paddingX(2)
+                            .height(40)
+                            .rounded(md)
+                            on Tap -> dispatch(MoveStart)
+                            Stack {
+                                Icon { symbol: "doc.on.doc", size: 14 }
+                                    .fg(onSurface)
+                                Text(@t("stash.actCopy")).textSize(sm).fg(onSurface)
+                            }
+                            .direction(row)
+                            .align(center)
+                            .gap(2)
+                            .paddingX(2)
+                            .height(40)
+                            .rounded(md)
+                            on Tap -> dispatch(CopySel)
+                            if $state.path == "/Papierkorb" {
+                                Stack {
+                                    Icon { symbol: "arrow.uturn.backward", size: 14 }
+                                        .fg(onSurface)
+                                    Text(@t("stash.actRestore")).textSize(sm).fg(onSurface)
+                                }
+                                .direction(row)
+                                .align(center)
+                                .gap(2)
+                                .paddingX(2)
+                                .height(40)
+                                .rounded(md)
+                                on Tap -> dispatch(RestoreSel)
+                            } else {
+                                Stack { }
+                            }
+                            Stack { }
+                                .height(1)
+                                .bg(border)
+                            if $state.path == "/Papierkorb" {
+                                Stack {
+                                    Icon { symbol: "trash", size: 14 }
+                                        .fg(danger)
+                                    Text(@t("stash.actDelete")).textSize(sm).fg(danger)
+                                }
+                                .direction(row)
+                                .align(center)
+                                .gap(2)
+                                .paddingX(2)
+                                .height(40)
+                                .rounded(md)
+                                on Tap -> dispatch(DeleteSel)
+                            } else {
+                                Stack {
+                                    Icon { symbol: "trash", size: 14 }
+                                        .fg(danger)
+                                    Text(@t("stash.actDelete")).textSize(sm).fg(danger)
+                                }
+                                .direction(row)
+                                .align(center)
+                                .gap(2)
+                                .paddingX(2)
+                                .height(40)
+                                .rounded(md)
+                                on Tap -> dispatch(TrashSel)
+                            }
+                        }
+                        .width(280)
+                        .gap(1)
+                        .padding(2)
+                    }
+                    .grow(1)
+                    .align(center)
+                    .justify(center)
+                }
+                .overlay()
+                on Tap -> dispatch(WinMenu(""))
             } else {
                 Stack { }
             }

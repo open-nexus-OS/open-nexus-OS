@@ -36,6 +36,9 @@ Store StashStore {
     moveOpen: Int = 0,
     // View mode: "list" (rows) | "grid" (tiles).
     viewMode: Str = "list",
+    // Entry count of the current folder (svc.files.count). 1 = unknown/nonzero
+    // sentinel; 0 = the folder is genuinely empty (shows the empty state).
+    fileCount: Int = 1,
 }
 
 Event StashEvent {
@@ -64,6 +67,9 @@ Event StashEvent {
     MoveTo(Str, Str),
     MoveCancel,
     Moved(Bool),
+    CopySel,
+    Copied(Bool),
+    CountLoaded(Int),
 }
 
 reduce StashEvent {
@@ -85,8 +91,8 @@ reduce StashEvent {
                     state.backPath = state.path;
                     state.backLabel = state.folderLabel;
                     state.section = "recent";
-                    state.path = "/";
-                    state.folderLabel = "";
+                    state.path = "recent:";
+                    state.folderLabel = "Aktuelle Dateien";
                     state.menu = "";
                     state.selection = "";
                     state.filesLoading = 1;
@@ -220,11 +226,17 @@ reduce StashEvent {
         }
     },
     WinAct(a) => {
-        if a == "delete" {
-            state.selection = "";
-            state.selName = "";
+        // "more" opens the selection context menu; everything else closes menus
+        // (window actions ride the WinAct effect to windowd regardless).
+        if a == "more" {
+            state.menu = "ctx";
+        } else {
+            if a == "delete" {
+                state.selection = "";
+                state.selName = "";
+            }
+            state.menu = "";
         }
-        state.menu = "";
     },
     Pick(id, name, kind, size, date) => {
         // A selected folder opens on the next tap (select→open double-click);
@@ -295,9 +307,24 @@ reduce StashEvent {
         state.selSize = "";
         state.selDate = "";
     },
-    DeleteSel => state.filesLoading = 1,
-    TrashSel => state.filesLoading = 1,
-    RestoreSel => state.filesLoading = 1,
+    DeleteSel => {
+        state.filesLoading = 1;
+        state.menu = "";
+    },
+    TrashSel => {
+        state.filesLoading = 1;
+        state.menu = "";
+    },
+    RestoreSel => {
+        state.filesLoading = 1;
+        state.menu = "";
+    },
+    CopySel => {
+        state.filesLoading = 1;
+        state.menu = "";
+    },
+    Copied(ok) => state.menu = state.menu,
+    CountLoaded(n) => state.fileCount = n,
     Deleted(ok) => {
         state.selection = "";
         state.selName = "";
@@ -315,6 +342,8 @@ reduce StashEvent {
         state.files = files;
         state.filesLoading = 0;
         state.filesError = 0;
+        // Count is re-resolved per load (CountLoaded); sentinel until it lands.
+        state.fileCount = 1;
     },
     FilesFailed(code) => {
         state.filesLoading = 0;
@@ -436,6 +465,30 @@ reduce StashEvent {
 
 // After a move, reload the (now-shorter) source folder.
 @effect on Moved(ok) {
+    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+        Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// Every completed listing resolves the folder's entry count — 0 drives the
+// honest empty-folder state. A count failure stays at the nonzero sentinel.
+@effect on FilesLoaded(files) {
+    match svc.files.count(state.path, timeoutMs: 250) {
+        Ok(n) => dispatch(CountLoaded(n)),
+        Err(e) => dispatch(CountLoaded(1)),
+    }
+}
+
+// Copy the selection in place ("Kopie von <name>"), then reload.
+@effect on CopySel {
+    match svc.files.copy(state.path + "/" + state.selName, state.path + "/Kopie von " + state.selName, timeoutMs: 250) {
+        Ok(ok) => dispatch(Copied(ok)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+@effect on Copied(ok) {
     match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
