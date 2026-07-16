@@ -103,11 +103,24 @@ Page StashPage {
                         if $state.filesLoading == 1 {
                             Text(@t("stash.loading")).textSize(sm).fg(onSurfaceVariant)
                         } else {
-                            List($state.files) { f in
-                                Stack {
-                                    FileRow { id: f.name, name: f.name, kind: f.kind, date: f.date, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                            if $state.viewMode == "grid" {
+                                List($state.files) { f in
+                                    Stack {
+                                        FileTile { id: f.name, name: f.name, kind: f.kind, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                                    }
+                                    .key(f.name)
                                 }
-                                .key(f.name)
+                                .direction(row)
+                                .wrap(true)
+                                .gap(3)
+                                .paddingX(2)
+                            } else {
+                                List($state.files) { f in
+                                    Stack {
+                                        FileRow { id: f.name, name: f.name, kind: f.kind, date: f.date, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                                    }
+                                    .key(f.name)
+                                }
                             }
                         }
                     }
@@ -174,20 +187,52 @@ Page StashPage {
                                     on Tap -> dispatch(MoveStart)
                                     WinActionItem { id: "copy", label: @t("stash.actCopy"), icon: "doc.on.doc", kind: "" }
                                     WinActionItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "" }
-                                    // Real delete (svc.files.remove → nxfs); custom
-                                    // button so it dispatches a dedicated event.
-                                    Stack {
-                                        Icon { symbol: "trash", size: 16 }
-                                            .fg(danger)
-                                        Text(@t("stash.actDelete")).textSize(xs).fg(danger)
+                                    // Delete: outside /Papierkorb it SOFT-deletes
+                                    // (moves to the trash); inside /Papierkorb it
+                                    // hard-removes and offers Wiederherstellen.
+                                    if $state.path == "/Papierkorb" {
+                                        Stack {
+                                            Icon { symbol: "arrow.uturn.backward", size: 16 }
+                                                .fg(onSurface)
+                                            Text(@t("stash.actRestore")).textSize(xs).fg(onSurfaceVariant)
+                                        }
+                                        .align(center)
+                                        .justify(center)
+                                        .gap(1)
+                                        .width(66)
+                                        .height(52)
+                                        .rounded(lg)
+                                        on Tap -> dispatch(RestoreSel)
+                                    } else {
+                                        Stack { }
                                     }
-                                    .align(center)
-                                    .justify(center)
-                                    .gap(1)
-                                    .width(66)
-                                    .height(52)
-                                    .rounded(lg)
-                                    on Tap -> dispatch(DeleteSel)
+                                    if $state.path == "/Papierkorb" {
+                                        Stack {
+                                            Icon { symbol: "trash", size: 16 }
+                                                .fg(danger)
+                                            Text(@t("stash.actDelete")).textSize(xs).fg(danger)
+                                        }
+                                        .align(center)
+                                        .justify(center)
+                                        .gap(1)
+                                        .width(66)
+                                        .height(52)
+                                        .rounded(lg)
+                                        on Tap -> dispatch(DeleteSel)
+                                    } else {
+                                        Stack {
+                                            Icon { symbol: "trash", size: 16 }
+                                                .fg(danger)
+                                            Text(@t("stash.actDelete")).textSize(xs).fg(danger)
+                                        }
+                                        .align(center)
+                                        .justify(center)
+                                        .gap(1)
+                                        .width(66)
+                                        .height(52)
+                                        .rounded(lg)
+                                        on Tap -> dispatch(TrashSel)
+                                    }
                                     WinActionItem { id: "more", label: @t("stash.actMore"), icon: "ellipsis", kind: "" }
                                 }
                                 .direction(row)

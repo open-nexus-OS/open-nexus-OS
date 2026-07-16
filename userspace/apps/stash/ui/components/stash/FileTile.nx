@@ -1,0 +1,42 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One grid (Kacheln) tile: a large type icon over the name. Same interaction
+// as FileRow — tap selects; an active folder opens (select→open double-click).
+
+Component FileTile {
+    props: {
+        id: Str,
+        name: Str,
+        kind: Str,
+        size: Str,
+        icon: Str,
+        active: Bool,
+    }
+    if $props.active {
+        Stack {
+            Image { source: $props.icon, size: 44 }
+            Text($props.name).textSize(xs).fg(onAccent)
+        }
+        .align(center)
+        .justify(center)
+        .gap(1)
+        .width(100)
+        .height(92)
+        .rounded(lg)
+        .bg(accent)
+        on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, ""))
+    } else {
+        Stack {
+            Image { source: $props.icon, size: 44 }
+            Text($props.name).textSize(xs).fg(onSurface)
+        }
+        .align(center)
+        .justify(center)
+        .gap(1)
+        .width(100)
+        .height(92)
+        .rounded(lg)
+        on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, ""))
+    }
+}

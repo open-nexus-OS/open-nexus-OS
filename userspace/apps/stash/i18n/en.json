@@ -27,6 +27,7 @@
   "stash.actShare": "Teilen",
   "stash.actDelete": "Löschen",
   "stash.actRename": "Umbenennen",
+  "stash.actRestore": "Wiederherstellen",
   "stash.props": "Eigenschaften",
   "stash.propsEmpty": "Wähle eine Datei, um ihre Eigenschaften zu sehen.",
   "stash.propName": "Name",

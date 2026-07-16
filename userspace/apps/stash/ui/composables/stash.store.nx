@@ -34,6 +34,8 @@ Store StashStore {
     sortBy: Str = "name",
     // Move-destination picker open (1) — lists the top-level folders to move to.
     moveOpen: Int = 0,
+    // View mode: "list" (rows) | "grid" (tiles).
+    viewMode: Str = "list",
 }
 
 Event StashEvent {
@@ -46,6 +48,8 @@ Event StashEvent {
     WinAct(Str),
     WinNav(Str),
     Pick(Str, Str, Str, Str, Str),
+    TrashSel,
+    RestoreSel,
     Applied(Bool),
     ApplyFailed(Int),
     LoadFiles,
@@ -185,10 +189,20 @@ reduce StashEvent {
         }
     },
     WinTool(t) => {
-        if state.tool == t {
-            state.tool = "";
+        // Toolbar Kacheln/Liste toggle the view mode; other tools (search stub)
+        // just track the pressed tool.
+        if t == "square.grid.2x2" {
+            state.viewMode = "grid";
         } else {
-            state.tool = t;
+            if t == "list.bullet" {
+                state.viewMode = "list";
+            } else {
+                if state.tool == t {
+                    state.tool = "";
+                } else {
+                    state.tool = t;
+                }
+            }
         }
     },
     WinNav(dir) => {
@@ -213,9 +227,9 @@ reduce StashEvent {
         state.menu = "";
     },
     Pick(id, name, kind, size, date) => {
-        // Folders open on the SECOND tap (a rapid double-click does exactly
-        // select→open): a folder already selected → navigate into it; otherwise
-        // select it. Files always toggle selection.
+        // A selected folder opens on the next tap (select→open double-click);
+        // otherwise select. Files toggle selection. The @effect on Pick reloads
+        // (a folder open changes path; a selection re-lists idempotently).
         if kind == "dir" {
             if state.selection == id {
                 state.backPath = state.path;
@@ -282,6 +296,8 @@ reduce StashEvent {
         state.selDate = "";
     },
     DeleteSel => state.filesLoading = 1,
+    TrashSel => state.filesLoading = 1,
+    RestoreSel => state.filesLoading = 1,
     Deleted(ok) => {
         state.selection = "";
         state.selName = "";
@@ -363,6 +379,23 @@ reduce StashEvent {
 @effect on Pick(id, name, kind, size, date) {
     match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// Soft delete: move the selection to /Papierkorb (svc.files.rename). selName is
+// kept until Deleted. Emptying/hard-delete happens inside /Papierkorb.
+@effect on TrashSel {
+    match svc.files.rename(state.path + "/" + state.selName, "/Papierkorb/" + state.selName, timeoutMs: 250) {
+        Ok(ok) => dispatch(Deleted(ok)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// Restore from /Papierkorb → move back to the home root.
+@effect on RestoreSel {
+    match svc.files.rename("/Papierkorb/" + state.selName, "/" + state.selName, timeoutMs: 250) {
+        Ok(ok) => dispatch(Deleted(ok)),
         Err(e) => dispatch(FilesFailed(e)),
     }
 }
