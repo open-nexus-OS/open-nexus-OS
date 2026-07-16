@@ -177,12 +177,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
 
     nexus_abi::service_verdict_flush("statefsd");
     // SMP robustness circuit breaker (see the Err arm below).
-    let mut consecutive_errors: u32 = 0;
-    let mut error_lines_logged: u32 = 0;
+    let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
-                consecutive_errors = 0;
+                breaker.on_success();
                 if pristine && !virtio_upgraded && virtio_retry_count < VIRTIO_MAX_RETRIES {
                     let mut q = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
                     let mmio_ready = nexus_abi::cap_query(48, &mut q).is_ok() && q.kind_tag == 2;
@@ -241,18 +240,21 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Err(err) => {
                 // SMP robustness: client-side errors are transient; only a
                 // persistent error streak (our own endpoint defect) ends the
-                // loop. See logd for the rationale.
-                consecutive_errors = consecutive_errors.saturating_add(1);
-                if error_lines_logged < 3 {
+                // loop. See nexus_ipc::resilience for the rationale.
+                let (should_log, verdict) = breaker.on_error();
+                if should_log {
                     emit_line("statefsd: transient ipc error (continuing)");
                     emit_ipc_error(err);
-                    error_lines_logged += 1;
                 }
-                if consecutive_errors >= 64 {
-                    emit_line("statefsd: endpoint defect (64 consecutive errors)");
-                    return Err(ServerError::Unsupported);
+                match verdict {
+                    nexus_ipc::resilience::BreakerVerdict::Continue => {
+                        let _ = yield_();
+                    }
+                    nexus_ipc::resilience::BreakerVerdict::EndpointDefect => {
+                        emit_line("statefsd: endpoint defect (consecutive error limit)");
+                        return Err(ServerError::Unsupported);
+                    }
                 }
-                let _ = yield_();
             }
         }
     }

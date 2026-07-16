@@ -278,6 +278,9 @@ mod bootstrap;
 #[cfg(target_os = "none")]
 mod cap;
 #[cfg(target_os = "none")]
+#[path = "core/cpu_main.rs"]
+mod cpu_main;
+#[cfg(target_os = "none")]
 #[path = "diag/determinism.rs"]
 mod determinism;
 #[cfg(target_os = "none")]
@@ -303,7 +306,7 @@ mod sched;
 #[cfg(target_os = "none")]
 mod selftest;
 #[cfg(target_os = "none")]
-#[path = "core/smp.rs"]
+#[path = "core/smp/mod.rs"]
 mod smp;
 // TASK-0283/TASK-0277: SMP sync primitives (PerCpu, SpinIrqLock). Intentionally
 // NOT target-gated — like `waitset`/`fence`, the pure logic is host-unit-tested

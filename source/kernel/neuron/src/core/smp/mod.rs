@@ -14,13 +14,26 @@
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::types::{CpuId, HartId};
+use crate::types::CpuId;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use sbi_rt as sbi;
 
 /// Fixed v1 CPU ceiling for deterministic bring-up and bounded per-CPU state.
 pub const MAX_CPUS: usize = 4;
+
+mod bringup;
+mod runtime;
+
+pub use bringup::{
+    emit_bringup_gate, retry_missing_harts, start_secondary_harts, wait_for_online_mask,
+    BRINGUP_STAGE,
+};
+pub use runtime::{
+    assign_spawn_cpu, mark_runtime_ready, record_timer_tick, record_user_dispatch,
+    request_lazy_tlb_flush_others, runtime_ready, steal_rate_gate, take_lazy_tlb_flush,
+    take_wake_hint,
+};
 
 /// Per-hart kernel-local block. `sscratch` and (in S-mode) `tp` point at the
 /// executing hart's instance; the trap prologue derives its stack and scratch
@@ -78,26 +91,6 @@ static HART_LOCALS: [HartLocalBlock; MAX_CPUS] =
 /// Selftests assert this stays 0 after bring-up.
 static CPUID_FALLBACK_EVENTS: AtomicUsize = AtomicUsize::new(0);
 
-// Must match the boot-stack budget: secondaries run the FULL syscall path
-// (incl. ELF-loading spawns) on this stack once they serve the runtime (A3).
-// 32 KiB was measured too small for the deepest syscall (see kernel.ld note);
-// an overflow here silently corrupts adjacent .bss.
-const SECONDARY_STACK_SIZE: usize = 64 * 1024;
-const SBI_ERR_INVALID_PARAM: usize = (-3isize) as usize;
-const SBI_ERR_ALREADY_AVAILABLE: usize = (-6isize) as usize;
-const SBI_ERR_ALREADY_STARTED: usize = (-7isize) as usize;
-
-#[derive(Clone, Copy)]
-#[repr(align(16))]
-#[allow(dead_code)]
-struct HartStack([u8; SECONDARY_STACK_SIZE]);
-
-const EMPTY_HART_STACK: HartStack = HartStack([0; SECONDARY_STACK_SIZE]);
-
-// Dedicated secondary-hart stacks used as SBI HSM `hart_start` opaque stack tops.
-#[link_section = ".bss"]
-static mut SECONDARY_HART_STACKS: [HartStack; MAX_CPUS - 1] = [EMPTY_HART_STACK; MAX_CPUS - 1];
-
 static CPU_ONLINE_MASK: AtomicUsize = AtomicUsize::new(0);
 static RESCHED_PENDING: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
 static RESCHED_REQ_ACCEPTED: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
@@ -106,35 +99,6 @@ static RESCHED_SSOFT_TRAPS: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(
 static RESCHED_ACK: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
 static WORK_STEAL_EVENTS: AtomicUsize = AtomicUsize::new(0);
 static SELFTEST_FORCE_IPI_SEND_FAIL: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-core::arch::global_asm!(
-    r#"
-    .section .text.__secondary_hart_start, "ax", @progbits
-    .globl __secondary_hart_start
-    .type  __secondary_hart_start, @function
-    .align 4
-__secondary_hart_start:
-    /* SBI HSM contract: a0=hartid, a1=opaque. We pass stack-top via opaque. */
-    mv    sp, a1
-    .option push
-    .option norelax
-    la    gp, __global_pointer$
-    .option pop
-    tail  __secondary_hart_rust
-    .size __secondary_hart_start, .-__secondary_hart_start
-"#
-);
-
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-extern "C" {
-    fn __secondary_hart_start();
-}
-
-#[no_mangle]
-extern "C" fn __secondary_hart_rust(hartid: usize, stack_top: usize) -> ! {
-    crate::kmain::kmain_secondary(HartId::from_raw(hartid as u16), stack_top)
-}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ReschedEvidence {
@@ -180,10 +144,10 @@ fn resolve_cpu_id(tp_hint: Option<CpuId>, stack_cpu: Option<CpuId>) -> CpuId {
 fn cpu_from_stack_pointer(sp: usize) -> Option<CpuId> {
     for idx in 1..MAX_CPUS {
         let cpu = CpuId::from_raw(idx as u16);
-        let Some(top) = secondary_stack_top(cpu) else {
+        let Some(top) = bringup::secondary_stack_top(cpu) else {
             continue;
         };
-        let base = top.saturating_sub(SECONDARY_STACK_SIZE);
+        let base = top.saturating_sub(bringup::SECONDARY_STACK_SIZE);
         if sp >= base && sp <= top {
             return Some(cpu);
         }
@@ -373,207 +337,6 @@ pub(crate) fn linker_boot_stack_top() -> usize {
     unsafe { &__stack_top as *const u8 as usize }
 }
 
-fn secondary_stack_top(cpu: CpuId) -> Option<usize> {
-    let idx = cpu.as_index();
-    if idx == 0 || idx >= MAX_CPUS {
-        return None;
-    }
-    // SAFETY: bounded index and static storage lifetime.
-    let base = unsafe { core::ptr::addr_of!(SECONDARY_HART_STACKS[idx - 1]) as usize };
-    Some(base + SECONDARY_STACK_SIZE)
-}
-
-/// SBI HSM states (SBI spec): 0=STARTED, 1=STOPPED, 2=START_PENDING, 3=STOP_PENDING.
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-const HSM_STATE_STOPPED: usize = 1;
-
-/// Waits (bounded) until a hart settles into the HSM STOPPED wait loop.
-/// Starting a hart that has not finished its own firmware cold-boot init was
-/// observed to lose it (HSM reports STARTED, the hart never reaches the
-/// kernel entry) — this closes that window before every `hart_start`.
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-fn wait_hart_stopped(hart: HartId, budget_ns: u64) -> bool {
-    let deadline = (riscv::register::time::read() as u64).saturating_add(budget_ns / 100);
-    loop {
-        let status = sbi::hart_get_status(hart.as_index());
-        if status.error == 0 && status.value == HSM_STATE_STOPPED {
-            return true;
-        }
-        if (riscv::register::time::read() as u64) >= deadline {
-            return false;
-        }
-        core::hint::spin_loop();
-    }
-}
-
-/// Boot gate (self-diagnosing evidence): one line per expected hart with the
-/// full bring-up picture — start error, online bit, reached stage, HSM state.
-/// Emitted unconditionally on SMP>=2 boots so ANY failure localizes itself
-/// without re-instrumented reruns.
-pub fn emit_bringup_gate(expected_mask: usize) {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        let online = cpu_online_mask();
-        if expected_mask.count_ones() <= 1 {
-            return;
-        }
-        for idx in 1..MAX_CPUS {
-            let bit = 1usize << idx;
-            if expected_mask & bit == 0 {
-                continue;
-            }
-            let status = sbi::hart_get_status(idx);
-            log_info!(
-                target: "smp",
-                "KGATE: smp hart{} online={} stage={} hsm={}",
-                idx,
-                (online & bit != 0) as usize,
-                BRINGUP_STAGE[idx].load(Ordering::Acquire),
-                status.value
-            );
-        }
-        if online & expected_mask == expected_mask {
-            log_info!(target: "smp", "KGATE: smp bringup ok mask=0x{:x}", online);
-        } else {
-            log_error!(
-                target: "smp",
-                "KGATE: smp bringup DEGRADED expected=0x{:x} got=0x{:x}",
-                expected_mask,
-                online
-            );
-        }
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    let _ = expected_mask;
-}
-
-/// Starts secondary harts via SBI HSM and returns the expected-online bitmask.
-pub fn start_secondary_harts() -> usize {
-    let boot = CpuId::BOOT;
-    let mut expected_mask = 1usize << boot.as_index();
-
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        for idx in 1..MAX_CPUS {
-            let hart = HartId::from_raw(idx as u16);
-            let cpu = CpuId::from_hart(hart);
-            let Some(stack_top) = secondary_stack_top(cpu) else {
-                continue;
-            };
-
-            // Prepare the hart-local block BEFORE the hart can start executing:
-            // hart_start is asynchronous, and the secondary's trap install
-            // reads this block.
-            hart_local_prepare(cpu, stack_top);
-
-            // Settle gate: only start a hart that is parked in the HSM wait
-            // loop (see wait_hart_stopped).
-            if !wait_hart_stopped(hart, 200_000_000) {
-                log_error!(target: "smp", "KINIT: hart{} not settled (hsm)", idx);
-            }
-
-            let ret = sbi::hart_start(hart.as_index(), __secondary_hart_start as usize, stack_top);
-            match ret.error {
-                0 | SBI_ERR_ALREADY_AVAILABLE | SBI_ERR_ALREADY_STARTED => {
-                    expected_mask |= 1usize << idx;
-                    // SEQUENTIAL bring-up: wait for this hart to come online
-                    // before starting the next. Batched hart_start requests
-                    // were observed to lose a hart nondeterministically (HSM
-                    // reports STARTED but the hart never reaches the kernel
-                    // entry; restart returns ALREADY_AVAILABLE).
-                    if !wait_for_online_mask(1usize << idx, 500_000_000) {
-                        log_error!(
-                            target: "smp",
-                            "KINIT: hart{} did not come online (sequential bring-up)",
-                            idx
-                        );
-                    }
-                }
-                SBI_ERR_INVALID_PARAM => {
-                    // No further harts are addressable in this environment.
-                    break;
-                }
-                _ => {
-                    log_error!(
-                        target: "smp",
-                        "KINIT: hart{} start failed err=0x{:x}",
-                        idx,
-                        ret.error
-                    );
-                    if idx == 1 {
-                        panic!("SMP bring-up failed: hart1 not startable");
-                    }
-                }
-            }
-        }
-    }
-
-    expected_mask
-}
-
-/// Bounded bring-up retry: re-issues `hart_start` for every expected hart
-/// that has not come online (HSM start requests issued in quick succession
-/// were observed to get lost nondeterministically — a hart never reached the
-/// kernel entry despite a success return). Logs the SBI HSM status of each
-/// missing hart for the evidence trail.
-pub fn retry_missing_harts(expected_mask: usize) {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        let online = cpu_online_mask();
-        for idx in 1..MAX_CPUS {
-            let bit = 1usize << idx;
-            if expected_mask & bit == 0 || online & bit != 0 {
-                continue;
-            }
-            let hart = HartId::from_raw(idx as u16);
-            let cpu = CpuId::from_hart(hart);
-            let status = sbi::hart_get_status(hart.as_index());
-            log_error!(
-                target: "smp",
-                "KINIT: hart{} missing (stage={} hsm_err=0x{:x} hsm_state={}) — retrying start",
-                idx,
-                BRINGUP_STAGE[idx].load(Ordering::Acquire),
-                status.error,
-                status.value
-            );
-            let Some(stack_top) = secondary_stack_top(cpu) else {
-                continue;
-            };
-            hart_local_prepare(cpu, stack_top);
-            let ret = sbi::hart_start(hart.as_index(), __secondary_hart_start as usize, stack_top);
-            log_info!(target: "smp", "KINIT: hart{} restart err=0x{:x}", idx, ret.error);
-        }
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    let _ = expected_mask;
-}
-
-/// Waits (bounded by TIME, not iterations) until every expected hart is
-/// online. Iteration budgets are meaningless across icount/MTTCG — 2M
-/// spin_loops are microseconds under MTTCG, which flakily timed out hart 3
-/// on SMP=4 bring-up.
-pub fn wait_for_online_mask(expected_mask: usize, budget_ns: u64) -> bool {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        // QEMU virt mtime runs at 10 MHz (100ns/tick).
-        let deadline = (riscv::register::time::read() as u64).saturating_add(budget_ns / 100);
-        loop {
-            if cpu_online_mask() & expected_mask == expected_mask {
-                return true;
-            }
-            if (riscv::register::time::read() as u64) >= deadline {
-                return false;
-            }
-            core::hint::spin_loop();
-        }
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    {
-        let _ = budget_ns;
-        cpu_online_mask() & expected_mask == expected_mask
-    }
-}
-
 pub fn request_resched(target: CpuId) -> bool {
     let idx = target.as_index();
     if idx >= MAX_CPUS || !cpu_is_online(target) {
@@ -581,7 +344,7 @@ pub fn request_resched(target: CpuId) -> bool {
     }
     RESCHED_REQ_ACCEPTED[idx].fetch_add(1, Ordering::AcqRel);
     RESCHED_PENDING[idx].store(1, Ordering::Release);
-    WAKE_HINT[idx].store(1, Ordering::Release);
+    runtime::set_wake_hint(idx);
 
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
@@ -662,143 +425,6 @@ pub fn resched_evidence(cpu: CpuId) -> ReschedEvidence {
         ssoft_trap_count: RESCHED_SSOFT_TRAPS[idx].load(Ordering::Acquire),
         ack_count: RESCHED_ACK[idx].load(Ordering::Acquire),
     }
-}
-
-// ——— A3/A4/A8 runtime state ———
-
-/// Set by the boot hart once kernel selftests + init spawn are complete;
-/// secondaries must not touch the scheduler before this (the selftest phase
-/// mutates kernel state through kmain's direct borrows, not the BKL).
-static RUNTIME_READY: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-
-/// Per-CPU count of user-task dispatches performed by `cpu_main` (A3 proof:
-/// written only by the owning hart with tp-derived identity).
-static USER_DISPATCHES: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-
-/// Lazy TLB flush flags (interim until the A5 shootdown): set for all other
-/// harts when quarantined ASIDs are recycled; consumed by `cpu_main` with a
-/// full local flush BEFORE the next user dispatch. Safe because recycled
-/// ASIDs only come from destroyed address spaces (no hart can be running
-/// their tasks), and live-AS unmaps always execute on the task's own hart
-/// until same-AS threads exist (Phase C, gated on A5).
-static TLB_FLUSH_PENDING: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-
-/// Work-steal rate gate (A8): last steal attempt timestamp per CPU.
-static LAST_STEAL_NS: [core::sync::atomic::AtomicU64; MAX_CPUS] =
-    [const { core::sync::atomic::AtomicU64::new(0) }; MAX_CPUS];
-
-pub fn mark_runtime_ready() {
-    RUNTIME_READY.store(true, Ordering::Release);
-}
-
-#[inline]
-pub fn runtime_ready() -> bool {
-    RUNTIME_READY.load(Ordering::Acquire)
-}
-
-#[inline]
-pub fn record_user_dispatch(cpu: CpuId) {
-    let idx = cpu.as_index();
-    if idx < MAX_CPUS {
-        USER_DISPATCHES[idx].fetch_add(1, Ordering::AcqRel);
-    }
-}
-
-/// Flags every OTHER online hart for a lazy full TLB flush (ASID recycle).
-pub fn request_lazy_tlb_flush_others() {
-    let me = cpu_current_id().as_index();
-    for idx in 0..MAX_CPUS {
-        if idx != me {
-            TLB_FLUSH_PENDING[idx].store(1, Ordering::Release);
-        }
-    }
-}
-
-/// Consumes this hart's lazy-flush flag; the caller must issue a full local
-/// `sfence.vma` before dispatching user code when this returns true.
-#[inline]
-pub fn take_lazy_tlb_flush(cpu: CpuId) -> bool {
-    let idx = cpu.as_index();
-    idx < MAX_CPUS && TLB_FLUSH_PENDING[idx].swap(0, Ordering::AcqRel) != 0
-}
-
-/// Secondary bring-up stage per hart (diagnostic): 0=never entered Rust,
-/// 1=entry, 2=hart-local prepared, 3=trap vector installed, 4=online.
-/// Dumped by the boot hart when a hart goes missing during bring-up.
-pub static BRINGUP_STAGE: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-
-/// Per-hart supervisor timer tick counters (A7): written by the owning
-/// hart's S_TIMER trap; proves every online hart has a live preemption tick.
-static TIMER_TICKS: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-
-/// Records a timer tick for `cpu` and returns the previous count (A7 proof:
-/// the first tick on a secondary hart emits the per-hart-ticks marker).
-#[inline]
-pub fn record_timer_tick(cpu: CpuId) -> usize {
-    let idx = cpu.as_index();
-    if idx < MAX_CPUS {
-        TIMER_TICKS[idx].fetch_add(1, Ordering::AcqRel)
-    } else {
-        0
-    }
-}
-
-/// WFI wake hints (A4): set by `request_resched`, consumed ONLY by the
-/// target's `cpu_main` idle path. The RESCHED_PENDING flag cannot serve this
-/// purpose — the S_SOFT handler consumes it for the ack evidence chain, which
-/// races a hart into WFI with a freshly filled queue (lost wakeup).
-static WAKE_HINT: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
-
-/// Consumes this hart's wake hint; `cpu_main` skips WFI when it was set.
-#[inline]
-pub fn take_wake_hint(cpu: CpuId) -> bool {
-    let idx = cpu.as_index();
-    idx < MAX_CPUS && WAKE_HINT[idx].swap(0, Ordering::AcqRel) != 0
-}
-
-/// Deterministic round-robin cursor for initial task placement (A4).
-static SPAWN_RR: AtomicUsize = AtomicUsize::new(0);
-
-/// Initial-placement policy v1 (A4): before the runtime is released, every
-/// spawn stays on the spawning hart (selftest children must run immediately
-/// on the boot hart). Afterwards, spawns round-robin across online CPUs —
-/// deterministic given the deterministic init spawn order, and identical to
-/// the pre-SMP behavior under SMP=1. Phase B replaces this with affinity
-/// masks + QoS budgets (TASK-0042).
-pub fn assign_spawn_cpu() -> CpuId {
-    if !runtime_ready() {
-        return cpu_current_id();
-    }
-    let mask = cpu_online_mask();
-    let count = mask.count_ones() as usize;
-    if count <= 1 {
-        return cpu_current_id();
-    }
-    let n = SPAWN_RR.fetch_add(1, Ordering::AcqRel);
-    let mut k = n % count;
-    for idx in 0..MAX_CPUS {
-        if mask & (1 << idx) != 0 {
-            if k == 0 {
-                return CpuId::from_raw(idx as u16);
-            }
-            k -= 1;
-        }
-    }
-    CpuId::BOOT
-}
-
-/// A8 rate gate: allow at most one steal attempt per `min_interval_ns` per CPU.
-pub fn steal_rate_gate(cpu: CpuId, now_ns: u64, min_interval_ns: u64) -> bool {
-    let idx = cpu.as_index();
-    if idx >= MAX_CPUS {
-        return false;
-    }
-    let last = LAST_STEAL_NS[idx].load(Ordering::Acquire);
-    if now_ns.saturating_sub(last) < min_interval_ns {
-        return false;
-    }
-    LAST_STEAL_NS[idx].store(now_ns, Ordering::Release);
-    true
 }
 
 // ——— A2 lock-ping selftest: proves SpinIrqLock excludes across real harts ———

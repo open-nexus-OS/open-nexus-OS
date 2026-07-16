@@ -150,6 +150,10 @@ pub mod policyd;
 /// Request/reply correlation helpers (nonce + bounded reply buffer).
 pub mod reqrep;
 
+/// Typed circuit breaker for server recv loops (SMP robustness): #[must_use]
+/// verdict so die-on-error loops cannot be written silently.
+pub mod resilience;
+
 /// One reusable typed request/reply client over a pluggable transport (RFC-0066).
 pub mod connection;
 

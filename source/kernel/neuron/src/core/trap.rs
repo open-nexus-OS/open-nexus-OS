@@ -1408,7 +1408,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         if !valid_user_target && crate::smp::runtime_ready() {
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             {
-                crate::kmain::stage_idle_reentry_frame(frame);
+                crate::cpu_main::stage_idle_reentry_frame(frame);
                 return;
             }
         }
