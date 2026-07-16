@@ -2942,6 +2942,109 @@ pub fn spawn(
     }
 }
 
+/// C (Phase C): returns the caller's own address-space handle (raw).
+#[cfg(nexus_env = "os")]
+#[must_use = "as_self result must be handled"]
+pub fn as_self() -> SysResult<u32> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_AS_SELF: usize = 47;
+        let raw = unsafe { ecall0(SYSCALL_AS_SELF) };
+        decode_syscall(raw).map(|v| v as u32)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// C (Phase C): same-address-space threads for COMPUTE work.
+///
+/// Contract (v1, TASK-0276 policy):
+/// - A thread shares the parent's address space but has an EMPTY capability
+///   table — it cannot do capability IPC. Threads are for computation; the
+///   owning task keeps all service communication single-threaded.
+/// - The caller provides the stack (no guard page in v1 — document your
+///   sizes; the kernel-side spawn validates alignment only).
+/// - No TLS in v1: `tp` is free for a user-defined context pointer.
+/// - On return from `entry`, the thread exits with status 0 (trampoline).
+///   The parent reaps it via `wait(pid)`.
+#[cfg(nexus_env = "os")]
+pub mod thread {
+    use super::*;
+
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    core::arch::global_asm!(
+        r#"
+        .section .text.__nexus_thread_trampoline, "ax", @progbits
+        .globl __nexus_thread_trampoline
+        .align 2
+    __nexus_thread_trampoline:
+        /* stack top layout (set up by spawn_thread): [entry, arg] */
+        ld    t0, 0(sp)
+        ld    a0, 8(sp)
+        addi  sp, sp, 16
+        jalr  ra, t0, 0
+        /* entry returned: exit(0) */
+        li    a7, 11
+        li    a0, 0
+        ecall
+    1:  j 1b
+    "#
+    );
+
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    extern "C" {
+        fn __nexus_thread_trampoline();
+    }
+
+    /// Spawns a compute thread into the caller's address space, running
+    /// `entry(arg)` on the provided stack. Returns the thread's task id;
+    /// reap it with [`super::wait`] after it exits.
+    #[must_use = "thread spawn result must be handled"]
+    pub fn spawn_thread(
+        entry: extern "C" fn(usize),
+        arg: usize,
+        stack: &mut [u8],
+    ) -> SysResult<Pid> {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            if stack.len() < 1024 {
+                return Err(AbiError::InvalidArgument);
+            }
+            let top = (stack.as_ptr() as usize + stack.len()) & !15usize;
+            let sp = top - 16;
+            // SAFETY: sp/sp+8 lie inside the caller-provided stack slice.
+            unsafe {
+                core::ptr::write(sp as *mut usize, entry as usize);
+                core::ptr::write((sp + 8) as *mut usize, arg);
+            }
+            let gp: usize;
+            // SAFETY: reading gp is side-effect free; the thread shares our
+            // address space and must use the same global pointer.
+            unsafe {
+                core::arch::asm!("mv {g}, gp", g = out(reg) gp, options(nomem, nostack, preserves_flags));
+            }
+            let handle = as_self()?;
+            let pid = spawn(
+                __nexus_thread_trampoline as usize as u64,
+                sp as u64,
+                handle as u64,
+                0,
+                gp as u64,
+            )?;
+            // Same-AS spawns start suspended; release it.
+            task_resume(pid)?;
+            Ok(pid)
+        }
+        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+        {
+            let _ = (entry, arg, stack);
+            Err(AbiError::Unsupported)
+        }
+    }
+}
+
 /// Resumes a suspended task (enqueues into scheduler). Only callable by the parent.
 /// Returns `Ok(())` on success, `Err(InvalidArgument)` if the task is not suspended.
 #[cfg(nexus_env = "os")]

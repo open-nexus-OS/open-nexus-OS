@@ -63,6 +63,9 @@ pub const SYSCALL_IPC_SEND_V1: usize = 14;
 pub const SYSCALL_TASK_QOS: usize = 15;
 /// B (TASK-0042): multiplexed scheduling-attribute syscall (affinity + shares).
 pub const SYSCALL_SCHED: usize = 46;
+/// C (Phase C): returns the caller's own address-space handle (raw) so a
+/// task can spawn threads into its OWN address space.
+pub const SYSCALL_AS_SELF: usize = 47;
 /// Exec loader v2: adds explicit service metadata (name ptr/len) for RFC-0004 provenance.
 pub const SYSCALL_EXEC_V2: usize = 17;
 /// Debug UART putc for userspace (best-effort, no permissions required).

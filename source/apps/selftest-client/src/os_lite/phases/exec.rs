@@ -28,6 +28,11 @@ use crate::os_lite::ipc::routing::route_with_retry;
 use crate::os_lite::{probes, services};
 
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
+    // Phase C (SMP track): same-AS compute thread E2E — spawn a thread into
+    // OUR address space, let it write a sentinel, reap it via wait(). The
+    // thread has an empty cap table by construction (compute-only contract).
+    thread_spawn_proof();
+
     // logd handle is needed for crash-log verification inside this phase.
     let logd = route_with_retry("logd")?;
 
@@ -64,4 +69,55 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // abilitymgr app-launch; restoring crash/minidump + execd request-validation: see task #102.
     let _ = (logd, execd_client);
     Ok(())
+}
+
+
+// ——— Phase C: thread spawn proof ———
+
+static THREAD_SENTINEL: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static mut THREAD_STACK: [u8; 16 * 1024] = [0; 16 * 1024];
+
+extern "C" fn thread_entry(arg: usize) {
+    THREAD_SENTINEL.store(arg, core::sync::atomic::Ordering::Release);
+}
+
+fn thread_spawn_proof() {
+    const SENTINEL: usize = 0x7ead;
+    THREAD_SENTINEL.store(0, core::sync::atomic::Ordering::Release);
+    // SAFETY: the stack buffer is used exclusively by the one thread spawned
+    // here; the proof is strictly sequential (spawn → join → done).
+    let stack = unsafe { &mut *core::ptr::addr_of_mut!(THREAD_STACK) };
+    let pid = match nexus_abi::thread::spawn_thread(thread_entry, SENTINEL, stack) {
+        Ok(pid) => pid,
+        Err(_) => {
+            emit_line("SELFTEST: thread spawn FAIL (spawn)");
+            return;
+        }
+    };
+    let mut seen = false;
+    for _ in 0..4096 {
+        if THREAD_SENTINEL.load(core::sync::atomic::Ordering::Acquire) == SENTINEL {
+            seen = true;
+            break;
+        }
+        let _ = yield_();
+    }
+    // Reap the exited thread (trampoline exits 0 after entry returns).
+    let mut reaped = false;
+    for _ in 0..4096 {
+        match nexus_abi::wait(pid as i32) {
+            Ok((_, status)) => {
+                reaped = status == 0;
+                break;
+            }
+            Err(_) => {
+                let _ = yield_();
+            }
+        }
+    }
+    if seen && reaped {
+        emit_line("SELFTEST: thread spawn ok");
+    } else {
+        emit_line("SELFTEST: thread spawn FAIL");
+    }
 }

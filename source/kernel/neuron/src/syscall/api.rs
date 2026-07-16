@@ -506,7 +506,8 @@ use super::{
     SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC,
     SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE, SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT,
     SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1, SYSCALL_IPC_SEND_V1, SYSCALL_MAP,
-    SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SCHED, SYSCALL_SEND, SYSCALL_SPAWN,
+    SYSCALL_AS_SELF, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SCHED, SYSCALL_SEND,
+    SYSCALL_SPAWN,
     SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME, SYSCALL_TIMER_CANCEL,
     SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
     SYSCALL_YIELD,
@@ -684,6 +685,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_GETPID, sys_getpid);
     table.register(SYSCALL_TASK_QOS, sys_task_qos);
     table.register(SYSCALL_SCHED, sys_sched);
+    table.register(SYSCALL_AS_SELF, sys_as_self);
     table.register(SYSCALL_TASK_RESUME, sys_task_resume);
     table.register(SYSCALL_TIMER_CREATE, sys_timer_create);
     table.register(SYSCALL_TIMER_SET, sys_timer_set);
@@ -3001,6 +3003,20 @@ fn sys_debug_write(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 }
 
 // CRITICAL: ABI surface for userspace spawn. Keep Decode→Check→Execute and rights checks stable.
+/// C (Phase C): the caller's own AS handle (raw, non-zero). Threads are
+/// spawned by passing this handle to SYSCALL_SPAWN — the new task shares the
+/// address space (and gets an EMPTY capability table: compute-only threads
+/// by construction, per the TASK-0276 policy).
+fn sys_as_self(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
+    let pid = ctx.tasks.current_pid();
+    let handle = ctx
+        .tasks
+        .task(pid)
+        .and_then(|t| t.address_space())
+        .ok_or(Error::AddressSpace(AddressSpaceError::InvalidHandle))?;
+    Ok(handle.to_raw() as usize)
+}
+
 fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = SpawnArgsTyped::decode(args)?;
     let sp_raw = typed.stack_sp.map(|v| v.raw()).unwrap_or(0);

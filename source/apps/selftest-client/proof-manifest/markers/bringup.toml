@@ -32,6 +32,11 @@ proves = "kernel selftest: tp/HartLocal CPU identity fast path live, zero heuris
 phase = "bringup"
 proves = "kernel selftest: poisoned tp rejected by identity fast path and counted (anti-fake)"
 
+[marker."SELFTEST: thread spawn ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "same-AS compute thread: spawn via as_self+SYSCALL_SPAWN, trampoline entry/exit, sentinel visible in shared AS, reaped via wait"
+
 [marker."KSELFTEST: sched affinity reject ok"]
 phase = "bringup"
 proves = "sched ABI rejects empty/out-of-ceiling/offline-only affinity masks (counterfactual)"
