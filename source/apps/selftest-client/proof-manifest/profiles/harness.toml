@@ -70,9 +70,3 @@ runner = "scripts/qemu-test.sh"
 extends = "headless"
 env = { REQUIRE_SUPPLY_CHAIN = "1" }
 
-[profile.visible-bootstrap]
-runner = "scripts/qemu-test.sh"
-extends = "display-gpu"
-# Full visible bootstrap with GTK display + QMP input injection.
-# Requires display (X11/Wayland) — for local dev only.
-env = { NEXUS_DISPLAY_BOOTSTRAP = "1", QEMU_DISPLAY_BACKEND = "gtk", NEXUS_SYSTEMUI_PROFILE = "desktop", QEMU_PROOF_POINTER_SOURCE = "tablet", QEMU_GPU_XRES = "1280", QEMU_GPU_YRES = "800" }

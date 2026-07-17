@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # CONTEXT: CI-friendly wrapper for evidence replay bisect (P6-04).
+# NOTE: manual helper — not wired into any just recipe or CI workflow;
+# documented in docs/testing/troubleshooting.md.
 # Typical flow:
 #   1) take last-green bundle as "good"
 #   2) take failed-run bundle as "bad"

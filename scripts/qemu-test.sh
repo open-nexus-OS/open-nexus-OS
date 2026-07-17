@@ -318,11 +318,6 @@ declare -a INPUT_STARTUP_MARKERS=(
   "touchd: os service payload ready"
   "inputd: os service payload ready"
 )
-if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
-  # Visible-bootstrap exposes virtio input devices, so `hidrawd` becomes part
-  # of the startup ladder, but the phase still closes on `inputd` readiness.
-  INPUT_STARTUP_MARKERS+=("hidrawd: os service payload ready")
-fi
 
 find_marker_index() {
   local needle=$1
@@ -651,90 +646,6 @@ case "${PROFILE:-full}" in
     )
     ;;
 esac
-
-if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
-  QEMU_SESSION_MODE=proof
-  QEMU_MARKER_LEVEL=proof
-  QEMU_INPUT_AUTOINJECT=1
-  NEXUS_SELFTEST_MODE=${NEXUS_SELFTEST_MODE:-proof}
-  NEXUS_SELFTEST_PROFILE=${NEXUS_SELFTEST_PROFILE:-bringup}
-  expected_sequence=(
-    "neuron vers."
-    "KSELFTEST: spawn reasons ok"
-    "KSELFTEST: resource sentinel ok"
-    "KSELFTEST: cpuid tp ok"
-    "KSELFTEST: cpuid fallback counterfactual ok"
-    "KSELFTEST: sched affinity reject ok"
-    "KSELFTEST: sched abi ok"
-    "KSELFTEST: tlb shootdown skipped (smp=1)"
-    "init: start"
-    "init: start hidrawd"
-    "init: up hidrawd"
-    "init: start touchd"
-    "init: up touchd"
-    "init: start gpud"
-    "init: up gpud"
-    "init: start windowd"
-    "init: up windowd"
-    "init: start inputd"
-    "init: up inputd"
-    "${INPUT_STARTUP_MARKERS[@]}"
-    "gpud: virtio-gpu probed"
-    "gpud: ready"
-    "windowd: ready (w=1280, h=800, hz=120)"
-    "windowd: backend=gpu"
-    "display: bootstrap on"
-    "display: mode 1280x800 argb8888"
-    "windowd: compose ready"
-    "windowd: backend=visible"
-    "windowd: present visible ok"
-    "display: first scanout ok"
-    "systemui: first frame visible"
-    "sessiond: ready"
-    "windowd: greeter visible"
-    "SELFTEST: ui visible present ok"
-    "SELFTEST: ui v2 present ok"
-    "hidrawd: virtio-input raw event seen"
-    "hidrawd: ingress adapter ready"
-    "inputd: live pointer route on"
-    "inputd: live keyboard route on"
-    "windowd: present scheduler on"
-    "windowd: input on"
-    "windowd: focus -> 1"
-    "launcher: click ok"
-    "SELFTEST: ui v2 present ok"
-    "SELFTEST: ui v2 input ok"
-    "windowd: input visible on"
-            "windowd: full-window color visible"
-    "windowd: cursor move visible"
-    "windowd: hover visible"
-    "windowd: sidebar open"
-    "windowd: focus visible"
-    "launcher: click visible ok"
-    "windowd: sidebar close"
-            "windowd: keyboard visible"
-    "SELFTEST: ui visible input ok"
-    "windowd: wheel visible"
-    "SELFTEST: ui visible wheel ok"
-    "windowd: cursor svg loaded"
-    "windowd: wallpaper visible"
-    "windowd: text target visible"
-    "windowd: icon target visible"
-    "SELFTEST: ui v2b assets ok"
-    "SELFTEST: ui v3 effect ok"
-  )
-  # The generic RUN_UNTIL_MARKER=1 path in run-qemu-rv64.sh may stop too early
-  # for this profile on some hosts. For visible-bootstrap we prefer an explicit
-  # profile-tail marker to guarantee full ladder observation before shutdown.
-  if [[ "$RUN_UNTIL_MARKER" == "1" && -z "$RUN_PHASE" ]]; then
-    # RFC-0068: stop at the LAST selftest-phase marker, not the early `ui v3 effect ok` (which
-    # windowd emits long before the selftest finishes — it cut the proof off at ipc_kernel, so
-    # mmio/vfs/net/remote/end were never verified). `ui resize ok` is the final selftest marker;
-    # the grace window captures the tail. The guest does not auto-exit in this profile, so a marker
-    # stop (not a timeout) is required for a clean exit.
-    RUN_UNTIL_MARKER="SELFTEST: ui resize ok"
-  fi
-fi
 
 # TASK-0023B P4-05: drift gate. The in-script `expected_sequence` above
 # is a curated subset of the manifest projection for the active harness
@@ -1232,80 +1143,6 @@ if [[ "$missing" -ne 0 ]]; then
   fi
   echo "[error] first_failed_phase=$failed_phase missing_marker='$missing_marker'" >&2
   echo "[error] Missing UART marker: $missing_marker" >&2
-  if [[ "${PROFILE:-}" == "visible-bootstrap" ]]; then
-    # #region agent log
-    line_hid_mouse=$(grep -aFn "hidrawd: device mouse" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_hid_raw=$(grep -aFn "hidrawd: virtio-input raw event seen" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_hid_adapter=$(grep -aFn "hidrawd: ingress adapter ready" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_pointer_route=$(grep -aFn "inputd: live pointer route on" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_pointer_down_dispatch=$(grep -aFn "dbg: inputd pointer down dispatched" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_pointer_down_delivered=$(grep -aFn "dbg: inputd pointer down delivered" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_focus_target=$(grep -aFn "dbg: inputd focus on target" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_hid_keyboard=$(grep -aFn "hidrawd: device kbd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_keyboard_dispatch=$(grep -aFn "dbg: inputd keyboard dispatched" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_keyboard_delivered=$(grep -aFn "dbg: inputd keyboard delivered" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_keyboard_delivered_without_dispatch=$(grep -aFn "dbg: inputd keyboard delivered without dispatch" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_keyboard_dispatched_without_delivery=$(grep -aFn "dbg: inputd keyboard dispatched without delivery" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_keyboard_route=$(grep -aFn "inputd: live keyboard route on" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_boot_cfg_mode_present=$(grep -aFn "dbg: boot_cfg runtime_mode present" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_boot_cfg_mode_missing=$(grep -aFn "dbg: boot_cfg runtime_mode missing" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_end_bootstrap_enabled=$(grep -aFn "dbg: end bootstrap enabled" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_end_bootstrap_run_ok=$(grep -aFn "dbg: end bootstrap run ok" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_end_bootstrap_run_none=$(grep -aFn "dbg: end bootstrap run none" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_end_bootstrap_mode_proof=$(grep -aFn "dbg: end bootstrap mode proof" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_end_bootstrap_mode_interactive=$(grep -aFn "dbg: end bootstrap mode interactive" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_fps_hidrawd=$(grep -aFn "fps: hidrawd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_fps_inputd=$(grep -aFn "fps: inputd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_fps_windowd=$(grep -aFn "fps: windowd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    last_fps_hidrawd=$(grep -aF "fps: hidrawd" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
-    last_fps_inputd=$(grep -aF "fps: inputd" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
-    last_fps_windowd=$(grep -aF "fps: windowd" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
-    line_bootstrap_fail=$(grep -aFn "bootstrap: failed visible-input-evidence" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_display_bootstrap=$(grep -aFn "display: bootstrap on" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    line_display_fail=$(grep -aEn "windowd: fail|bootstrap: failed (visible-input-evidence|interactive-scene-evidence)" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
-    last_display_gate="<none>"
-    for display_gate in \
-      "display: bootstrap on" \
-      "display: mode 1280x800 argb8888" \
-      "windowd: backend=visible" \
-      "windowd: present visible ok" \
-      "layout: engine on" \
-      "text: wrapping on" \
-      "display: first scanout ok" \
-      "systemui: first frame visible" \
-      "SELFTEST: ui visible present ok" \
-      "windowd: greeter visible" \
-      "windowd: session shell visible" \
-      "windowd: input visible on" \
-      "windowd: cursor move visible" \
-      "windowd: hover visible" \
-      "windowd: focus visible" \
-      "launcher: click visible ok" \
-      "windowd: keyboard visible" \
-      "SELFTEST: ui visible input ok" \
-      "windowd: wheel visible" \
-      "SELFTEST: ui visible wheel ok"; do
-      if grep -aFq "$display_gate" "$UART_LOG"; then
-        last_display_gate="$display_gate"
-      fi
-    done
-    last_visible_timeout=$(grep -aF "bootstrap: visible-state timeout" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
-    if [[ -z "$last_visible_timeout" ]]; then
-      last_visible_timeout="<none>"
-    fi
-    if [[ -z "$last_fps_hidrawd" ]]; then
-      last_fps_hidrawd="<none>"
-    fi
-    if [[ -z "$last_fps_inputd" ]]; then
-      last_fps_inputd="<none>"
-    fi
-    if [[ -z "$last_fps_windowd" ]]; then
-      last_fps_windowd="<none>"
-    fi
-    agent_input_debug_log "$RUN_ID" "H1" "scripts/qemu-test.sh:visible-bootstrap-failure" "visible-bootstrap marker and route summary" \
-      "{\"missing_marker\":\"$missing_marker\",\"failed_phase\":\"$failed_phase\",\"line_hid_mouse\":$line_hid_mouse,\"line_hid_raw\":$line_hid_raw,\"line_hid_adapter\":$line_hid_adapter,\"line_pointer_route\":$line_pointer_route,\"line_pointer_down_dispatch\":$line_pointer_down_dispatch,\"line_pointer_down_delivered\":$line_pointer_down_delivered,\"line_focus_target\":$line_focus_target,\"line_hid_keyboard\":$line_hid_keyboard,\"line_keyboard_dispatch\":$line_keyboard_dispatch,\"line_keyboard_delivered\":$line_keyboard_delivered,\"line_keyboard_delivered_without_dispatch\":$line_keyboard_delivered_without_dispatch,\"line_keyboard_dispatched_without_delivery\":$line_keyboard_dispatched_without_delivery,\"line_keyboard_route\":$line_keyboard_route,\"line_boot_cfg_mode_present\":$line_boot_cfg_mode_present,\"line_boot_cfg_mode_missing\":$line_boot_cfg_mode_missing,\"line_end_bootstrap_enabled\":$line_end_bootstrap_enabled,\"line_end_bootstrap_run_ok\":$line_end_bootstrap_run_ok,\"line_end_bootstrap_run_none\":$line_end_bootstrap_run_none,\"line_end_bootstrap_mode_proof\":$line_end_bootstrap_mode_proof,\"line_end_bootstrap_mode_interactive\":$line_end_bootstrap_mode_interactive,\"line_fps_hidrawd\":$line_fps_hidrawd,\"line_fps_inputd\":$line_fps_inputd,\"line_fps_windowd\":$line_fps_windowd,\"line_bootstrap_fail\":$line_bootstrap_fail,\"line_display_bootstrap\":$line_display_bootstrap,\"line_display_fail\":$line_display_fail,\"last_display_gate\":\"$last_display_gate\",\"last_visible_timeout\":\"$last_visible_timeout\",\"last_fps_hidrawd\":\"$last_fps_hidrawd\",\"last_fps_inputd\":\"$last_fps_inputd\",\"last_fps_windowd\":\"$last_fps_windowd\"}"
-    # #endregion agent log
-  fi
   print_uart_excerpt "${PHASE_START_MARKER[$failed_phase]:-}" "${expected_sequence[$((missing_pos - 1))]:-}"
   exit 1
 fi
@@ -1522,7 +1359,7 @@ if grep -aFq "SELFTEST: ui resize ok" "$UART_LOG" && ! grep -aFq "SELFTEST: ui l
   exit 1
 fi
 
-# TASK-0055B visible-bootstrap fake-green guard: the guest marker summarizes a
+# TASK-0055B fake-green guard (GPU-capable profiles): the guest marker summarizes a
 # configured GPU scanout and must not appear without mode/present/handoff prerequisites.
 # Only enforced for GPU-capable profiles (headless has no virtio-gpu device).
 if [[ "${PROFILE:-full}" != "headless" && "${PROFILE:-full}" != "smp" && "${PROFILE:-full}" != "dhcp" && "${PROFILE:-full}" != "dhcp-strict" && "${PROFILE:-full}" != "quic-required" && "${PROFILE:-full}" != "os2vm" && "${PROFILE:-full}" != "supply-chain" ]]; then

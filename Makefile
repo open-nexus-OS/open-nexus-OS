@@ -122,9 +122,9 @@ run:
 	  ./scripts/qemu-launcher.sh
 
 dep-gate:
-	@echo "==> RFC-0009 Dependency Hygiene Gate (Makefile)"
+	@echo "==> RFC-0009 Dependency Hygiene Gate (Makefile; list = config/os-services.txt)"
 	@forbidden="parking_lot parking_lot_core getrandom"; \
-	services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd abilitymgr timed metricsd hidrawd touchd inputd gpud windowd"; \
+	services="$$(grep -v '^#' config/os-services.txt | tr '\n' ' ')"; \
 	found=0; \
 	for svc in $$services; do \
 	  tree_output=$$(cargo +$(NIGHTLY) tree -p "$$svc" --target riscv64imac-unknown-none-elf --no-default-features --features os-lite 2>&1 || true); \

@@ -48,7 +48,6 @@ help:
     @echo "  just test-os             # run kernel selftests in QEMU (default profile=headless)"
     @echo "  just ci-os-headless       # headless CI (no display, full service chain)"
     @echo "  just ci-os-display-gpu    # GPU pipeline verification via UART markers"
-    @echo "  just test-os visible-bootstrap # full visible UI test (requires GTK display)"
     @echo "  just test-os smp         # SMP-gated QEMU smoke (REQUIRE_SMP enforced via manifest)"
     @echo "  just ci-os-smp           # canonical SMP CI recipe (SMP=2 gate + SMP=1 parity)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
@@ -200,9 +199,9 @@ contract-image-layout:
 ci-os-display-gpu-pci:
     GPU_MODE=pci just test-os display-gpu
 
-# full visible UI test with PCI GPU (requires GTK display)
-test-os-visible-pci:
-    GPU_MODE=pci just test-os visible-bootstrap
+# The `visible-bootstrap` profile / `test-os-visible-pci` recipe were removed
+# 2026-07 (repo hygiene): headless GPU coverage lives in `ci-os-display-gpu-pci`,
+# interactive visible boots in `just start`. See docs/testing/os-markers.md.
 
 # SMP gate runs WITHOUT icount: icount forces single-threaded round-robin
 # vCPUs (no real parallelism; spinlock handoffs cost whole scheduler quanta
@@ -271,15 +270,11 @@ test-dsoftbus-2vm-pcap:
 
 # TASK-0020 requirement-named host suites (deterministic contract surface).
 test-dsoftbus-mux:
-    # #region agent log
-    python -c 'import json,time,os; p=os.environ.get("HYPOTHESIS_LOG"); sid=None; rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-mux:start","message":"start target","data":{"target":"test-dsoftbus-mux"},"timestamp":int(time.time()*1000)};  open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n") if p else None'
-    # #endregion
+    @scripts/hypothesis-log.sh H2 "justfile:test-dsoftbus-mux:start" "start target"
     cargo +stable test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture
     cargo +stable test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture
     cargo +stable test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture
-    # #region agent log
-    python -c 'import json,time,os; p=os.environ.get("HYPOTHESIS_LOG"); sid=None; rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-mux:end","message":"target completed","data":{"target":"test-dsoftbus-mux"},"timestamp":int(time.time()*1000)};  open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n") if p else None'
-    # #endregion
+    @scripts/hypothesis-log.sh H2 "justfile:test-dsoftbus-mux:end" "target completed"
 
 # TASK-0021 targeted host QUIC proof suites (real transport + selection/reject contract).
 test-dsoftbus-quic:
@@ -288,13 +283,9 @@ test-dsoftbus-quic:
 
 # Full userspace dsoftbus host regression (includes mux + reject suites).
 test-dsoftbus-host:
-    # #region agent log
-    python -c 'import json,time,os; p=os.environ.get("HYPOTHESIS_LOG"); sid=None; rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-host:start","message":"start target","data":{"target":"test-dsoftbus-host"},"timestamp":int(time.time()*1000)};  open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n") if p else None'
-    # #endregion
+    @scripts/hypothesis-log.sh H2 "justfile:test-dsoftbus-host:start" "start target"
     cargo +stable test -p dsoftbus -- --nocapture
-    # #region agent log
-    python -c 'import json,time,os; p=os.environ.get("HYPOTHESIS_LOG"); sid=None; rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-host:end","message":"target completed","data":{"target":"test-dsoftbus-host"},"timestamp":int(time.time()*1000)};  open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n") if p else None'
-    # #endregion
+    @scripts/hypothesis-log.sh H2 "justfile:test-dsoftbus-host:end" "target completed"
 
 # `test-network` removed in TASK-0023B P4-10; use `just ci-network` for the
 # PROFILE-driven aggregate matrix (dhcp + quic-required + os2vm).
@@ -376,23 +367,34 @@ arch-check:
 # Aggregates
 # -----------------------------------------------------------------------------
 
+# Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering.
+check: fmt-check lint deny-check arch-check
+
+# Kernel clippy (nightly, build-std). Split out of the host `lint` because it
+# needs -Z build-std and the bare-metal target.
+lint-kernel:
+    cargo +{{toolchain}} clippy \
+        -Z build-std=core,alloc -Z build-std-features=panic_immediate_abort \
+        --target riscv64imac-unknown-none-elf -p neuron -- -D warnings
+
+# Dead-code scan against the time-boxed allowlist (config/deadcode.allow).
+deadcode:
+    bash tools/deadcode-scan.sh
+
+# Full gate (~30 min): everything `check` covers plus dead-code scan,
+# dependency hygiene, host+e2e tests, miri, kernel build, and the QEMU SMP lane.
 test-all:
-    # #region agent log
-    python -c 'import json,time,os; p=os.environ.get("HYPOTHESIS_LOG"); sid=None; rec={"runId":"pre-fix","hypothesisId":"H5","location":"justfile:test-all:start","message":"start aggregate gate","data":{"target":"test-all"},"timestamp":int(time.time()*1000)};  open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n") if p else None'
-    # #endregion
-    just fmt-check
-    just lint
-    just deny-check
+    @scripts/hypothesis-log.sh H5 "justfile:test-all:start" "start aggregate gate"
+    just check
+    just deadcode
+    just dep-gate
     just test-host
     just test-e2e
     just miri-strict
     just miri-fs
-    just arch-check
     just build-kernel
     just ci-os-smp
-    # #region agent log
-    python -c 'import json,time,os; p=os.environ.get("HYPOTHESIS_LOG"); sid=None; rec={"runId":"pre-fix","hypothesisId":"H5","location":"justfile:test-all:end","message":"aggregate gate completed","data":{"target":"test-all"},"timestamp":int(time.time()*1000)};  open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n") if p else None'
-    # #endregion
+    @scripts/hypothesis-log.sh H5 "justfile:test-all:end" "aggregate gate completed"
 
 # -----------------------------------------------------------------------------
 # Diagnostics (reproduce editor/rust-analyzer output)
@@ -417,8 +419,8 @@ diag-os:
     @cargo +{{toolchain}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short
     @echo "==> userspace payload (init-lite)"
     @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
-    @echo "==> OS services (os-lite feature set)"
-    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p netstackd -p dsoftbusd -p keystored -p policyd -p samgrd -p bundlemgrd -p packagefsd -p vfsd -p execd -p abilitymgr -p timed -p metricsd --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
+    @echo "==> OS services (os-lite feature set; list = config/os-services.txt)"
+    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
 
 # Kernel-only: quickest way to see unused/dead_code in neuron.
 diag-kernel:
@@ -460,8 +462,8 @@ dep-gate: arch-gate
     echo "    Forbidden crates: {{forbidden_crates}}"
     echo "    Target: riscv64imac-unknown-none-elf (OS/QEMU slice)"
     echo ""
-    # OS services to check (must match justfile diag-os and Makefile)
-    services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd abilitymgr timed metricsd"
+    # OS services to check — SSOT list shared with diag-os and `make dep-gate`.
+    services=$(grep -v '^#' config/os-services.txt | tr '\n' ' ')
     found_forbidden=0
     for svc in $services; do
         echo "--- Checking $svc ---"

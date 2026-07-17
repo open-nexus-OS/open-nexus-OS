@@ -1,0 +1,20 @@
+# SSOT: OS service/driver crates that make up the QEMU OS slice.
+# Consumed by `just dep-gate`, `just diag-os`, and `make dep-gate`.
+# One name per line; '#' starts a comment.
+dsoftbusd
+netstackd
+keystored
+policyd
+samgrd
+bundlemgrd
+packagefsd
+vfsd
+execd
+abilitymgr
+timed
+metricsd
+hidrawd
+touchd
+inputd
+gpud
+windowd

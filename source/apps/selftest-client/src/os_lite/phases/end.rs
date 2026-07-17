@@ -8,7 +8,7 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: QEMU marker ladders (`just test-os`, `just test-os visible-bootstrap`) — terminator and UI/v2a markers.
+//! TEST_COVERAGE: QEMU marker ladders (`just test-os`) — terminator and UI/v2a markers.
 //!
 //! Extracted in Cut P2-13 of TASK-0023B. Marker order and marker strings are
 //! byte-identical to the pre-cut body. Returns `!` because proof mode may exit
