@@ -160,9 +160,15 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> PinchedResult<()> {
     // Reused VMO I/O staging buffer (allocated once — never per request).
     let mut io_buf: Vec<u8> = Vec::with_capacity(MAX_JOB_ELEMS * 4);
 
+    // TASK-0288 sweep: transient client/IPC errors must never kill the
+    // service (the logd/statefsd fleet-collapse lesson); only a long run of
+    // consecutive errors marks our own endpoint defect.
+    let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
+
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, _sender_service_id, reply_cap)) => {
+                breaker.on_success();
                 let frame = frame.as_slice();
                 if frame.len() >= MIN_FRAME_LEN
                     && frame[0] == MAGIC0
@@ -206,8 +212,19 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> PinchedResult<()> {
                 return Err(PinchedError::Ipc("disconnected"));
             }
             Err(_) => {
-                emit_line("pinched: recv error");
-                return Err(PinchedError::Ipc("recv"));
+                let (should_log, verdict) = breaker.on_error();
+                if should_log {
+                    emit_line("pinched: recv error (transient)");
+                }
+                match verdict {
+                    nexus_ipc::resilience::BreakerVerdict::Continue => {
+                        let _ = yield_();
+                    }
+                    nexus_ipc::resilience::BreakerVerdict::EndpointDefect => {
+                        emit_line("pinched: endpoint defect (consecutive error limit)");
+                        return Err(PinchedError::Ipc("recv"));
+                    }
+                }
             }
         }
     }
@@ -424,9 +441,21 @@ fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
 }
 
 fn route_pinched_blocking() -> Option<KernelServer> {
-    let (send_slot, recv_slot) = route_blocking(b"pinched")?;
-    KernelServer::new_with_slots(recv_slot, send_slot).ok()
+    if let Some((send_slot, recv_slot)) = route_blocking(b"pinched") {
+        return KernelServer::new_with_slots(recv_slot, send_slot).ok();
+    }
+    // Routing budget expired (slow interactive boots — virgl bring-up can
+    // push init's control-plane past the 2s budget; killed pinched on
+    // `just start`). Fall back to the deterministic slots init wires via
+    // distribute_server_pairs (recv first -> 3, send second -> 4), the same
+    // contract rngd uses.
+    emit_line("pinched: route fallback slots");
+    KernelServer::new_with_slots(PINCHED_RECV_SLOT, PINCHED_SEND_SLOT).ok()
 }
+
+/// Deterministic slots wired by init's cap_transfer for pinched.
+const PINCHED_RECV_SLOT: u32 = 0x03;
+const PINCHED_SEND_SLOT: u32 = 0x04;
 
 pub(crate) fn emit_line(message: &str) {
     if nexus_abi::service_line(message.as_bytes()) {

@@ -1,6 +1,6 @@
 ---
 title: TASK-0012 Performance & Power v1 (kernel): SMP bring-up + per-CPU runqueues + IPIs (QEMU riscv virt)
-status: Done
+status: done
 owner: @kernel-team
 created: 2025-12-22
 depends-on:
@@ -232,3 +232,9 @@ When implementing SMP features, ensure:
 - Host/compile proof gates remain green (`cargo test --workspace`, `just diag-os`).
 - SMP proof commands are explicit and reproducible (`SMP=2` and `SMP=1` marker-gated runs).
 - Follow-up task boundaries remain drift-free (TASK-0013/0042/0247/0283 and both TRACK dependencies).
+
+
+## Closure (2026-07-17)
+
+status: done — SMP track phases A0-A9: per-CPU runqueues, tp/HartLocal identity, cross-core wake+IPI (evidence chain), WFI idle, runtime stealing. Proven by the SMP=2 marker gate (just ci-os-smp).
+Proof gates: `just test-os` (SMP=1) and `just ci-os-smp` (SMP=2) both exit 0 with all markers; see docs/adr/0045..0048 and the SMP track memory.

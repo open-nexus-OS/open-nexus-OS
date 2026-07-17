@@ -1,6 +1,6 @@
 ---
 title: TASK-0042 SMP v2: affinity hints + QoS CPU budgets (requires kernel ABI + execd wiring)
-status: Draft
+status: done
 owner: @kernel-team @runtime
 created: 2025-12-22
 depends-on: []
@@ -213,3 +213,9 @@ muss Work-Stealing auch fuer hoehere QoS-Klassen aktiviert werden.
 IPC Priority-Inheritance: Wenn Task A (niedrige Prio) eine IPC an
 Task B sendet und blockiert, erbt B temporaer A's QoS. Verhindert Priority-Inversion
 in IPC-Ketten. RFC-0022 (SMP v1b hardening) deckt die Vertragsgrundlage bereits ab.
+
+
+## Closure (2026-07-17)
+
+status: done — SYSCALL_SCHED (=48) affinity/shares with inheritance + clamps + steal predicate; nexus_abi::sched incl. cross-task *_for; B4 declarative execd sched recipes (Rust-data SSOT, `execd: sched recipe applied` marker); B6 SELFTEST affinity applied ok + qos shares ratio ok. IPI coalescing budget proven by KSELFTEST runtime ipi budget ok. Deferred with rationale: per-task IPI accounting for best-effort IPI classes (none exist yet) and a timing-based shares-ratio measurement (QEMU timing is not stable evidence).
+Proof gates: `just test-os` (SMP=1) and `just ci-os-smp` (SMP=2) both exit 0 with all markers; see docs/adr/0045..0048 and the SMP track memory.

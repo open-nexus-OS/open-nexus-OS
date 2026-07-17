@@ -84,9 +84,13 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     let mut broker = Broker::new();
 
     nexus_abi::service_verdict_flush("abilitymgr");
+    // TASK-0288 sweep: transient errors continue; only a consecutive-error
+    // run marks our own endpoint defect (fleet-collapse lesson).
+    let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, _sender_service_id, reply)) => {
+                breaker.on_success();
                 // TASK-0065B session gate: OP_LAUNCH is refused until sessiond
                 // reports an ACTIVE session. Fail-closed (sessiond unreachable
                 // = deny): windowd's greeter gate is UX, THIS is the
@@ -127,8 +131,19 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                 return Err(AbilitymgrError::Ipc("disconnected"));
             }
             Err(_) => {
-                emit_line("abilitymgr: recv error");
-                return Err(AbilitymgrError::Ipc("recv"));
+                let (should_log, verdict) = breaker.on_error();
+                if should_log {
+                    emit_line("abilitymgr: recv error (transient)");
+                }
+                match verdict {
+                    nexus_ipc::resilience::BreakerVerdict::Continue => {
+                        let _ = yield_();
+                    }
+                    nexus_ipc::resilience::BreakerVerdict::EndpointDefect => {
+                        emit_line("abilitymgr: endpoint defect (consecutive error limit)");
+                        return Err(AbilitymgrError::Ipc("recv"));
+                    }
+                }
             }
         }
     }

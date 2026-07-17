@@ -2902,6 +2902,19 @@ pub mod sched {
             Err(AbiError::Unsupported)
         }
     }
+
+    /// Cross-task affinity (B4: execd applies declarative sched recipes).
+    /// Requires QoS-admin standing in the kernel (execd/policyd).
+    #[must_use = "sched outcomes must be handled"]
+    pub fn set_affinity_for(pid: u32, mask: usize) -> SysResult<()> {
+        op(OP_SET_AFFINITY, pid as usize, mask).map(|_| ())
+    }
+
+    /// Cross-task shares (B4).
+    #[must_use = "sched outcomes must be handled"]
+    pub fn set_shares_for(pid: u32, shares: usize) -> SysResult<()> {
+        op(OP_SET_SHARES, pid as usize, shares).map(|_| ())
+    }
 }
 
 /// Sets another task's scheduler QoS hint (privileged path).

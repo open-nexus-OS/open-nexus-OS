@@ -1,6 +1,6 @@
 ---
 title: TASK-0283 Kernel SMP prep v1: per-CPU ownership wrapper (`PerCpu<T>`) and `!Send` enforcement
-status: Draft
+status: done
 owner: @kernel-team
 created: 2026-01-09
 depends-on: []
@@ -63,3 +63,9 @@ Introduce a kernel-internal `PerCpu<T>` abstraction that:
 
 - `source/kernel/neuron/` (per-CPU wrapper + adoption)
 - `docs/architecture/16-rust-concurrency-model.md` (if normative API changes)
+
+
+## Closure (2026-07-17)
+
+status: done — PerCpu/SpinIrqLock shipped in phase A0 and carry the scheduler + HartLocal state; IRQ-open acquisition fix (A5) documented in the track memory.
+Proof gates: `just test-os` (SMP=1) and `just ci-os-smp` (SMP=2) both exit 0 with all markers; see docs/adr/0045..0048 and the SMP track memory.

@@ -1,6 +1,6 @@
 ---
 title: TASK-0247 RISC-V Bring-up v1.1b (OS/QEMU): SMP (SBI HSM/IPI) + per-hart timers + virtioblkd + packagefs mount + selftests
-status: Draft
+status: done
 owner: @kernel
 created: 2025-12-29
 depends-on: []
@@ -243,3 +243,9 @@ UART markers:
 - `virtioblkd` probes and serves read-only.
 - `packagefs` mounts from `pkgfs.img`; known file reads successfully.
 - All three OS selftest markers are emitted.
+
+
+## Closure (2026-07-17)
+
+status: done — SMP/HSM/IPI scope closed by the SMP track (sequential HSM bring-up + retry + KGATE, PLIC per-hart contexts, per-hart timers). virtioblkd/packagefs shipped earlier (FS track).
+Proof gates: `just test-os` (SMP=1) and `just ci-os-smp` (SMP=2) both exit 0 with all markers; see docs/adr/0045..0048 and the SMP track memory.

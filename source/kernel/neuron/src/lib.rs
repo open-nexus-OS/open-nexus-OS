@@ -328,7 +328,7 @@ mod waitset;
 // `alloc` + raw u64 value / u32 ids). See `docs/architecture/02-selftest-and-ci.md`.
 mod fence;
 #[cfg(target_os = "none")]
-#[path = "core/trap.rs"]
+#[path = "core/trap/mod.rs"]
 mod trap;
 #[cfg(target_os = "none")]
 mod types;

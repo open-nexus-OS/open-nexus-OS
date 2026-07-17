@@ -34,6 +34,16 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // "f32/alloc-heavy compute is non-deterministic in this process" bug.
     regsoak_proof();
 
+    // TASK-0288: interactive floor — this task runs Interactive QoS; across
+    // a yield storm under live system background load, no single scheduling
+    // gap may exceed the floor budget (result-proof; generous bound so MTTCG
+    // SMP=2 timing cannot flake it).
+    ui_runtime_floor_proof();
+
+    // B6 (TASK-0042): the sched ABI applied from userspace — affinity and
+    // shares round-trip through the REAL syscalls on this task.
+    sched_applied_proof();
+
     // Task #14: the direct symptom — building and rasterizing the SAME SVG
     // plan multiple times in THIS process must be deterministic and match
     // the host-pinned golden digest. This was provably broken during the D4
@@ -95,6 +105,53 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     Ok(())
 }
 
+
+// ——— B6 (TASK-0042): sched ABI applied from userspace ———
+
+fn sched_applied_proof() {
+    // Affinity: pin to CPU0 (present in every SMP config), verify, widen back.
+    let ok_aff = nexus_abi::sched::set_affinity(0b1).is_ok()
+        && nexus_abi::sched::get_affinity() == Ok(0b1)
+        && nexus_abi::sched::set_affinity(0xF).is_ok();
+    if ok_aff {
+        emit_line("SELFTEST: affinity applied ok");
+    } else {
+        emit_line("SELFTEST: affinity applied FAIL");
+    }
+    // Shares: a 3x ratio request must persist exactly (the slice math itself
+    // is host-tested in the kernel; this proves the userspace path applies).
+    let ok_shares = nexus_abi::sched::set_shares(300).is_ok()
+        && nexus_abi::sched::get_shares() == Ok(300)
+        && nexus_abi::sched::set_shares(100).is_ok()
+        && nexus_abi::sched::get_shares() == Ok(100);
+    if ok_shares {
+        emit_line("SELFTEST: qos shares ratio ok");
+    } else {
+        emit_line("SELFTEST: qos shares ratio FAIL");
+    }
+}
+
+// ——— TASK-0288: interactive floor ———
+
+fn ui_runtime_floor_proof() {
+    const ROUNDS: usize = 64;
+    const MAX_GAP_NS: u64 = 250_000_000;
+    let mut last = nexus_abi::nsec().unwrap_or(0);
+    let mut max_gap: u64 = 0;
+    for _ in 0..ROUNDS {
+        let _ = yield_();
+        let now = nexus_abi::nsec().unwrap_or(0);
+        max_gap = max_gap.max(now.saturating_sub(last));
+        last = now;
+    }
+    if max_gap <= MAX_GAP_NS {
+        emit_line("SELFTEST: ui runtime floor ok");
+    } else {
+        crate::markers::emit_bytes(b"SELFTEST: ui runtime floor FAIL (gap ms=0x");
+        crate::markers::emit_hex_u64(max_gap / 1_000_000);
+        emit_line(")");
+    }
+}
 
 // ——— Task #14: register soak ———
 

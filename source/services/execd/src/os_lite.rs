@@ -108,6 +108,38 @@ const OP_EXEC_IMAGE: u8 = 1;
 const OP_REPORT_EXIT: u8 = 2;
 const OP_WAIT_PID: u8 = 3;
 
+/// B4 (TASK-0042): declarative per-image sched recipe — the Rust-data SSOT
+/// (same doctrine as the init service topology; no TOML at runtime). Applied
+/// cross-task right after spawn via execd's QoS-admin standing. `mask` is
+/// clamped by the kernel to online CPUs; shares clamp to [1,1000].
+const SCHED_RECIPES: &[(u8, usize, usize)] = &[
+    // (image_id, affinity_mask, shares)
+    (IMG_HELLO, 0xF, 100),
+    (IMG_APPHOST, 0xF, 100),
+];
+
+fn apply_sched_recipe(pid: u32, image_id: u8) {
+    for (img, mask, shares) in SCHED_RECIPES {
+        if *img != image_id {
+            continue;
+        }
+        let aff_ok = nexus_abi::sched::set_affinity_for(pid, *mask).is_ok();
+        let shares_ok = nexus_abi::sched::set_shares_for(pid, *shares).is_ok();
+        if aff_ok && shares_ok {
+            let msg = alloc::format!(
+                "execd: sched recipe applied (img={} mask={:#x} shares={})\n",
+                image_id,
+                mask,
+                shares
+            );
+            let _ = nexus_abi::debug_write(msg.as_bytes());
+        } else {
+            let _ = nexus_abi::debug_write(b"execd: sched recipe FAIL\n");
+        }
+        return;
+    }
+}
+
 const IMG_HELLO: u8 = 1;
 const IMG_EXIT0: u8 = 2;
 const IMG_EXIT42: u8 = 3;
@@ -855,6 +887,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     match exec(elf, stack_pages, 0) {
         Ok(pid) => {
             state.track_child(pid as u32, image_id);
+            apply_sched_recipe(pid as u32, image_id);
             if image_id == IMG_APPHOST {
                 grant_windowd_route(pid as u32);
                 if let Some(vmo) = payload_vmo {

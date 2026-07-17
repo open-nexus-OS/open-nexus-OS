@@ -759,6 +759,8 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
     "KSELFTEST: ipi resched ok"
     "KSELFTEST: test_reject_invalid_ipi_target_cpu ok"
     "KSELFTEST: test_reject_offline_cpu_resched ok"
+    "KSELFTEST: runtime ipi budget ok"
+    "KSELFTEST: runtime stress ok"
     "KSELFTEST: work stealing ok"
     "KSELFTEST: test_reject_steal_above_bound ok"
     "KSELFTEST: test_reject_steal_higher_qos ok"
@@ -1854,6 +1856,10 @@ fi
 # hart happens at a workload-dependent point (work stealing), so it cannot be
 # a position in expected_sequence. Presence in the log is the requirement.
 if [[ "$REQUIRE_SMP" == "1" ]]; then
+  if [[ "$(count_lines "KSELFTEST: runtime timer budget ok")" -lt 1 ]]; then
+    echo "[error] tick budget proof missing: KSELFTEST: runtime timer budget ok" >&2
+    exit 1
+  fi
   if [[ "$(count_lines "KSELFTEST: smp exec cpu1 ok")" -lt 1 ]]; then
     echo "[error] SMP exec proof missing: KSELFTEST: smp exec cpu1 ok (no user dispatch observed on cpu1)" >&2
     exit 1

@@ -122,6 +122,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("samgrd: ready");
     nexus_abi::service_verdict_flush("samgrd");
+    // TASK-0288 sweep: transient errors continue; only a consecutive-error
+    // run marks our own endpoint defect (fleet-collapse lesson).
+    let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     emit_line("samgrd: mode os-lite");
     let server = match KernelServer::new_for("samgrd") {
         Ok(server) => server,
@@ -161,6 +164,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     loop {
         match server.recv_with_header_meta(Wait::Blocking) {
             Ok((hdr, sid, frame)) => {
+                breaker.on_success();
                 let sender_service_id = sid as u64;
                 if !logged_any {
                     emit_line("samgrd: rx");
@@ -308,8 +312,19 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 return Err(ServerError::Unsupported);
             }
             Err(_) => {
-                emit_line("samgrd: recv err");
-                return Err(ServerError::Unsupported);
+                let (should_log, verdict) = breaker.on_error();
+                if should_log {
+                    emit_line("samgrd: recv error (transient)");
+                }
+                match verdict {
+                    nexus_ipc::resilience::BreakerVerdict::Continue => {
+                        let _ = yield_();
+                    }
+                    nexus_ipc::resilience::BreakerVerdict::EndpointDefect => {
+                        emit_line("samgrd: endpoint defect (consecutive error limit)");
+                        return Err(ServerError::Unsupported);
+                    }
+                }
             }
         }
     }

@@ -1578,6 +1578,99 @@ fn run_sched_abi_selftest(ctx: &mut Context<'_>) {
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+/// TASK-0288 closure: bounded timer/IPI bookkeeping and a mixed-load stress
+/// round with exact accounting. All three are RESULT proofs (counters, never
+/// wall-clock assertions) so MTTCG nondeterminism cannot flake them.
+fn run_runtime_budget_selftests(target: CpuId) {
+    // --- runtime ipi budget: N requests may coalesce but never amplify.
+    {
+        const N: usize = 16;
+        crate::smp::reset_selftest_counters();
+        let before = crate::smp::resched_evidence(target);
+        let mut accepted = 0usize;
+        for _ in 0..N {
+            if crate::smp::request_resched(target) {
+                accepted += 1;
+            }
+        }
+        let mut acked = false;
+        for _ in 0..5_000_000 {
+            if crate::smp::resched_evidence(target).ack_count > before.ack_count {
+                acked = true;
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        let after = crate::smp::resched_evidence(target);
+        let sent = after.ipi_send_ok_count.saturating_sub(before.ipi_send_ok_count);
+        // Budget contract: sends never exceed requests (no amplification /
+        // flood), at least one delivery chain completed, and coalescing may
+        // only REDUCE traffic.
+        if acked && accepted >= 1 && sent >= 1 && sent <= accepted {
+            log_info!(target: "selftest", "KSELFTEST: runtime ipi budget ok");
+        } else {
+            log_error!(
+                target: "selftest",
+                "KSELFTEST: runtime ipi budget FAIL accepted={} sent={} acked={}",
+                accepted,
+                sent,
+                acked
+            );
+        }
+        crate::smp::clear_resched_pending(target);
+    }
+
+    // --- runtime stress: repeated full IPI delivery chains with exact
+    // accounting and zero cpuid fallbacks at the end (mixed-lock coverage
+    // lives in the A2 lock-ping proof above).
+    {
+        const ROUNDS: usize = 25;
+        let fallbacks_before = crate::smp::cpuid_fallback_count();
+        let mut ok = true;
+        for round in 0..ROUNDS {
+            crate::smp::reset_selftest_counters();
+            let before = crate::smp::resched_evidence(target);
+            if !crate::smp::request_resched(target) {
+                ok = false;
+                log_error!(
+                    target: "selftest",
+                    "KSELFTEST: runtime stress FAIL round={} (request rejected)",
+                    round
+                );
+                break;
+            }
+            let mut acked = false;
+            for _ in 0..5_000_000 {
+                if crate::smp::resched_evidence(target).ack_count > before.ack_count {
+                    acked = true;
+                    break;
+                }
+                core::hint::spin_loop();
+            }
+            if !acked {
+                ok = false;
+                log_error!(
+                    target: "selftest",
+                    "KSELFTEST: runtime stress FAIL round={} (ipi ack missing)",
+                    round
+                );
+                break;
+            }
+            crate::smp::clear_resched_pending(target);
+        }
+        let fallback_delta = crate::smp::cpuid_fallback_count().saturating_sub(fallbacks_before);
+        if ok && fallback_delta == 0 {
+            log_info!(target: "selftest", "KSELFTEST: runtime stress ok");
+        } else if fallback_delta != 0 {
+            log_error!(
+                target: "selftest",
+                "KSELFTEST: runtime stress FAIL cpuid_fallbacks={}",
+                fallback_delta
+            );
+        }
+    }
+}
+
 fn run_smp_selftests(ctx: &mut Context<'_>) {
     let online_mask = crate::smp::cpu_online_mask();
     let cpu1_online = (online_mask & (1usize << 1)) != 0;
@@ -1696,6 +1789,8 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     } else {
         log_error!(target: "selftest", "KSELFTEST: test_reject_offline_cpu_resched FAIL");
     }
+
+    run_runtime_budget_selftests(target);
 
     // Deterministic work-stealing probe:
     // - put one runnable task only on CPU1

@@ -85,10 +85,14 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> RngdResult<()> {
     // RFC-0068: emit rngd's folded bring-up markers as one `rngd N/N` grid line before the loop,
     // so the service is visible as a group (expand with `NEXUS_LOG_EXPAND=rngd`); proof prints raw.
     nexus_abi::service_verdict_flush("rngd");
+    // TASK-0288 sweep: transient errors continue; only a consecutive-error
+    // run marks our own endpoint defect (fleet-collapse lesson).
+    let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     // Main IPC loop
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
+                breaker.on_success();
                 let rsp = handle_frame(&mut pending_replies, sender_service_id, frame.as_slice());
 
                 if let Some(reply) = reply {
@@ -105,8 +109,19 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> RngdResult<()> {
                 return Err(RngdError::Ipc("disconnected"));
             }
             Err(_) => {
-                emit_line("rngd: recv error");
-                return Err(RngdError::Ipc("recv"));
+                let (should_log, verdict) = breaker.on_error();
+                if should_log {
+                    emit_line("rngd: recv error (transient)");
+                }
+                match verdict {
+                    nexus_ipc::resilience::BreakerVerdict::Continue => {
+                        let _ = yield_();
+                    }
+                    nexus_ipc::resilience::BreakerVerdict::EndpointDefect => {
+                        emit_line("rngd: endpoint defect (consecutive error limit)");
+                        return Err(RngdError::Ipc("recv"));
+                    }
+                }
             }
         }
     }

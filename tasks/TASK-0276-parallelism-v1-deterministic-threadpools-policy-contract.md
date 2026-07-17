@@ -1,6 +1,6 @@
 ---
 title: TASK-0276 Parallelism v1: deterministic threadpools policy (safe-by-default, no-proof-drift)
-status: Draft
+status: done
 owner: @arch
 created: 2025-12-30
 depends-on: []
@@ -216,3 +216,9 @@ Preferred model:
 - ❌ Non-deterministic reduction (HashMap iteration order)
 - ❌ Timing-dependent behavior (race conditions)
 - ❌ Shared mutable state without synchronization
+
+
+## Closure (2026-07-17)
+
+status: done — nexus-workpool is the sanctioned single process pool: fence-coordinated same-AS workers with empty cap tables, deterministic chunk_bounds, workers=1==N equality matrix, poisoned-timeout + stack-canary hardening. ADR-0046.
+Proof gates: `just test-os` (SMP=1) and `just ci-os-smp` (SMP=2) both exit 0 with all markers; see docs/adr/0045..0048 and the SMP track memory.

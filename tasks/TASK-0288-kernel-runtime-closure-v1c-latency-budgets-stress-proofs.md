@@ -1,6 +1,6 @@
 ---
 title: TASK-0288 Kernel runtime closure v1c: SMP/timer/IPI latency budgets + deterministic stress proofs
-status: Draft
+status: done
 owner: @runtime @kernel-team
 created: 2026-04-13
 depends-on:
@@ -131,3 +131,9 @@ Close the runtime gap with explicit kernel latency-budget and stress-proof contr
 
 - QEMU: runtime budget / stress marker excerpt.
 - Tests: kernel/runtime stress fixture summaries.
+
+
+## Closure (2026-07-17)
+
+status: done — Closure markers live in both gates: KSELFTEST runtime timer budget ok (event-anchored per-hart tick budget), runtime ipi budget ok (coalescing never amplifies), runtime stress ok (25 exact-accounting IPI chains + zero cpuid fallbacks), SELFTEST ui runtime floor ok. Service die-on-error sweep: CircuitBreaker in logd, statefsd, pinched, rngd, abilitymgr, samgrd.
+Proof gates: `just test-os` (SMP=1) and `just ci-os-smp` (SMP=2) both exit 0 with all markers; see docs/adr/0045..0048 and the SMP track memory.

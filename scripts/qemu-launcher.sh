@@ -76,6 +76,14 @@ QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-mouse}
 QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280}
 QEMU_GPU_YRES=${QEMU_GPU_YRES:-800}
 QEMU_ICOUNT_ARGS=${QEMU_ICOUNT_ARGS:-"1,sleep=on"}
+# SMP > 1 defaults to MTTCG (real parallel vCPUs): icount serializes all
+# harts onto one round-robin thread, which makes an SMP=4 interactive boot
+# unusably slow (BKL waits stretch to seconds, gpud never comes up). The
+# deterministic icount profile remains the default for SMP=1 and can be
+# forced back with QEMU_NO_ICOUNT=0.
+if [[ -z "${QEMU_NO_ICOUNT:-}" && "${SMP:-4}" != "1" ]]; then
+  QEMU_NO_ICOUNT=1
+fi
 QEMU_NO_ICOUNT=${QEMU_NO_ICOUNT:-0}
 QEMU_FORCE_LEGACY=${QEMU_FORCE_LEGACY:-0}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}

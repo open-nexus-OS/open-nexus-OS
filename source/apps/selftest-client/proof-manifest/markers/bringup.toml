@@ -77,6 +77,21 @@ phase = "bringup"
 emit_when = { profile = "headless" }
 proves = "both workpool workers performed >0 interactions in the parallel rounds (honest dispatch counters)"
 
+[marker."SELFTEST: affinity applied ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "userspace pins/widens its own affinity through SYSCALL_SCHED and reads it back (TASK-0042 B6)"
+
+[marker."SELFTEST: qos shares ratio ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "userspace sets a 3x shares ratio through SYSCALL_SCHED and it persists exactly (TASK-0042 B6)"
+
+[marker."SELFTEST: ui runtime floor ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "an Interactive-QoS task's scheduling gaps stay under the floor budget across a yield storm (TASK-0288)"
+
 [marker."SELFTEST: regsoak ok"]
 phase = "bringup"
 emit_when = { profile = "headless" }

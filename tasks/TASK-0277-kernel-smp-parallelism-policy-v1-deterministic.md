@@ -1,6 +1,6 @@
 ---
 title: TASK-0277 Kernel SMP/Parallelism Policy v1 (deterministic, auditable)
-status: Draft
+status: done
 owner: @kernel-team
 created: 2025-12-30
 depends-on: []
@@ -148,3 +148,9 @@ Planning-only completion criteria:
   - ownership model,
   - lock order,
   - which KSELFTEST markers prove the invariant.
+
+
+## Closure (2026-07-17)
+
+status: done — Policy applied throughout: BKL + documented lock hierarchy, no lock-free experiments (locked deques in nexus-inet), result-proof markers, bounded everything. ADR-0046/0047.
+Proof gates: `just test-os` (SMP=1) and `just ci-os-smp` (SMP=2) both exit 0 with all markers; see docs/adr/0045..0048 and the SMP track memory.

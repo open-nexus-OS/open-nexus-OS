@@ -1,6 +1,6 @@
 ---
 title: TASK-0012B Kernel SMP v1b: scheduler + SMP hardening (bounded queues, trap/IPI contract, CPU-ID fast path)
-status: Done
+status: done
 owner: @kernel-team
 created: 2026-02-10
 depends-on: []
@@ -203,3 +203,9 @@ Required markers remain green and unchanged in meaning:
 - Follow-up tasks can rely on TASK-0012B as the hardening baseline without introducing a second SMP authority.
 - Rust `#[must_use]` outcome contracts for enqueue/wake/resched paths are explicitly consumed at callsites (no silent ignore pattern on these paths).
 - Mutable trap-runtime kernel handles are never consumed on secondary harts in v1b; secondary-hart paths fail closed until `TASK-0247` delivers per-hart ownership and extended hardening.
+
+
+## Closure (2026-07-17)
+
+status: done — Hardening landed across phases A2-A8: BKL + per-CPU scheduler, idle-reentry frames, steal predicates/rate gate, degraded-continue bring-up with KGATE evidence.
+Proof gates: `just test-os` (SMP=1) and `just ci-os-smp` (SMP=2) both exit 0 with all markers; see docs/adr/0045..0048 and the SMP track memory.
