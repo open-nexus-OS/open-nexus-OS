@@ -1856,6 +1856,12 @@ fi
 # hart happens at a workload-dependent point (work stealing), so it cannot be
 # a position in expected_sequence. Presence in the log is the requirement.
 if [[ "$REQUIRE_SMP" == "1" ]]; then
+  # P2 gate: the BKL budget must PASS (declarative budgets in
+  # core/trap/budgets.rs) — a returning >10ms convoy fails the boot here.
+  if [[ "$(count_lines "KSELFTEST: bkl budget ok")" -lt 1 ]]; then
+    echo "[error] BKL budget gate failed: KSELFTEST: bkl budget ok" >&2
+    exit 1
+  fi
   if [[ "$(count_lines "KSELFTEST: runtime timer budget ok")" -lt 1 ]]; then
     echo "[error] tick budget proof missing: KSELFTEST: runtime timer budget ok" >&2
     exit 1

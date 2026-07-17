@@ -86,10 +86,42 @@ impl KernelGuard {
         // gun for cross-hart BKL contention inflating IPC round-trips.
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         let t0 = riscv::register::time::read() as u64;
+        // P2 soft-realtime preference: cpu0 carries the pinned display/input
+        // chain (service_topology::affinity_for), so it gets RIGHT OF WAY at
+        // the BKL — while cpu0 is waiting, other harts back off before
+        // acquiring, letting cpu0 take the next release instead of joining a
+        // convoy. Bounded (backoff limit) so background harts cannot starve.
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        let bkl = {
+            use core::sync::atomic::{AtomicBool, Ordering};
+            static CPU0_WAITING: AtomicBool = AtomicBool::new(false);
+            let is_cpu0 = crate::smp::cpu_current_id().is_boot();
+            if is_cpu0 {
+                CPU0_WAITING.store(true, Ordering::Release);
+                let guard = KERNEL_LOCK.lock();
+                CPU0_WAITING.store(false, Ordering::Release);
+                guard
+            } else {
+                let mut backoff = 0u32;
+                loop {
+                    if CPU0_WAITING.load(Ordering::Acquire) && backoff < 200_000 {
+                        backoff += 1;
+                        core::hint::spin_loop();
+                        continue;
+                    }
+                    if let Some(guard) = KERNEL_LOCK.try_lock() {
+                        break guard;
+                    }
+                    core::hint::spin_loop();
+                }
+            }
+        };
+        #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
         let bkl = KERNEL_LOCK.lock();
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             let waited = (riscv::register::time::read() as u64).saturating_sub(t0);
+            super::budgets::record_bkl_wait(waited);
             // 10 MHz mtime: 10_000 ticks = 1ms spent spinning for the lock.
             if waited > 10_000 {
                 static BKL_CONTENTION_LOGGED: core::sync::atomic::AtomicUsize =

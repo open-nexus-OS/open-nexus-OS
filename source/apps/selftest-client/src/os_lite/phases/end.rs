@@ -38,6 +38,9 @@ const V2A_INPUT_OFF_MARKER: &str = "windowd: v2a input off";
 const V2A_CLICK_OFF_MARKER: &str = "windowd: v2a click off";
 
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
+    // P0: pull the kernel's BKL budget gate line NOW — the ladder is done, so
+    // the report covers the full bring-up contention window.
+    nexus_abi::sched::bkl_budget_report();
     let auto_exit_after_proof = display_bootstrap::enabled()
         && crate::os_lite::boot_cfg::runtime_mode_with_retry().unwrap_or(RuntimeMode::Proof)
             == RuntimeMode::Proof;

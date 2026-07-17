@@ -2903,6 +2903,12 @@ pub mod sched {
         }
     }
 
+    /// Emit the kernel's BKL budget gate line (P0; late in the boot ladder
+    /// so the report covers the bring-up contention window).
+    pub fn bkl_budget_report() {
+        let _ = op(4, 0, 0);
+    }
+
     /// Cross-task affinity (B4: execd applies declarative sched recipes).
     /// Requires QoS-admin standing in the kernel (execd/policyd).
     #[must_use = "sched outcomes must be handled"]

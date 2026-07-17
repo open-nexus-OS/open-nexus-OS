@@ -53,6 +53,9 @@ use ipc_msg::*;
 use sched_task::*;
 use sync_objects::*;
 use vmo::*;
+pub use vmo::vmo_idle_zero_step;
+pub(crate) use vmo::{vmo_create_finish, vmo_create_reserve};
+pub(crate) use exec::{exec_phase_a, exec_v2_phase_a, run_copy_plan, CopyPlan};
 
 pub(crate) use sched_task::selftest_sched_op;
 
@@ -308,6 +311,51 @@ fn read_u64_le(bytes: &[u8], off: usize) -> Result<u64, Error> {
 /// Returns the byte written on success. This is best-effort and meant only
 /// for early bring-up. It does not perform permission checks.
 // CRITICAL: Debug only. No permission checks; avoid locks; do not expand scope.
+/// P2: the declarative LOCK-FREE syscall class — pure UART/time operations
+/// that touch NO kernel state. Served by the trap handler BEFORE acquiring
+/// the BKL (they were measured holding it for milliseconds under MTTCG:
+/// nr=44 debug_write up to 3ms, nr=1 nsec convoys).
+pub(crate) fn lockfree_syscall(nr: usize, args: &Args) -> Option<SysResult<usize>> {
+    match nr {
+        SYSCALL_DEBUG_PUTC => Some(debug_putc_impl(args)),
+        SYSCALL_DEBUG_WRITE => Some(debug_write_impl(args)),
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        SYSCALL_NSEC => {
+            // virt mtime runs at 10MHz (budgets::TICKS_PER_US) — ns = ticks*100.
+            let ticks = riscv::register::time::read() as u64;
+            Some(Ok((ticks * (1_000 / crate::trap::budgets::TICKS_PER_US)) as usize))
+        }
+        _ => None,
+    }
+}
+
+fn debug_putc_impl(args: &Args) -> SysResult<usize> {
+    let byte = (args.get(0) & 0xff) as u8;
+    let mut u = crate::uart::raw_writer();
+    use core::fmt::Write as _;
+    let ch = [byte];
+    let s = core::str::from_utf8(&ch).unwrap_or("");
+    let _ = u.write_str(s);
+    Ok(byte as usize)
+}
+
+fn debug_write_impl(args: &Args) -> SysResult<usize> {
+    const MAX_DEBUG_WRITE: usize = 1024;
+    let ptr = args.get(0);
+    let len = core::cmp::min(args.get(1), MAX_DEBUG_WRITE);
+    if len == 0 {
+        return Ok(0);
+    }
+    ensure_user_slice(ptr, len)?;
+    // SAFETY: `ensure_user_slice` validated [ptr, ptr+len) as user range.
+    let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len) };
+    let text = core::str::from_utf8(bytes).unwrap_or("");
+    let mut uart = crate::uart::KernelUart::lock();
+    use core::fmt::Write as _;
+    let _ = (&mut *uart).write_str(text);
+    Ok(len)
+}
+
 fn sys_debug_putc(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let byte = (args.get(0) & 0xff) as u8;
     // Use the raw writer to avoid taking locks under scheduler paths.

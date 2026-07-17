@@ -272,6 +272,43 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
     Ok(slot)
 }
 
+/// P2 phase A (under the BKL): decode + reserve for `SYSCALL_VMO_CREATE`.
+/// Returns (base, aligned_len, needs_zero, slot_raw).
+pub(crate) fn vmo_create_reserve(
+    args: &Args,
+) -> Result<(usize, usize, bool, usize), Error> {
+    let typed = VmoCreateArgsTyped::decode(args)?;
+    typed.check()?;
+    let (base, aligned, needs_zero) = VMO_POOL.lock().allocate_nozero(typed.len)?;
+    Ok((base, aligned, needs_zero, typed.slot_raw))
+}
+
+/// P2 phase C (BKL re-acquired): install the capability. On failure the
+/// (now zeroed) range goes back CLEAN via the free list.
+pub(crate) fn vmo_create_finish(
+    ctx: &mut Context<'_>,
+    base: usize,
+    aligned: usize,
+    slot_raw: usize,
+) -> SysResult<usize> {
+    let cap =
+        Capability { kind: CapabilityKind::Vmo { base, len: aligned }, rights: Rights::MAP };
+    let result = if slot_raw == usize::MAX {
+        ctx.tasks.current_caps_mut().allocate(cap)
+    } else {
+        ctx.tasks.current_caps_mut().set(slot_raw, cap).map(|_| slot_raw)
+    };
+    if result.is_err() {
+        let _ = VMO_POOL.lock().free(base, aligned);
+    }
+    result.map_err(Into::into)
+}
+
+/// P2: one bounded idle-zero step (64 KiB) — cpu_main idle hook.
+pub fn vmo_idle_zero_step() -> usize {
+    VMO_POOL.lock().idle_zero_step(64 * 1024)
+}
+
 pub(super) fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = VmoCreateArgsTyped::decode(args)?;
     typed.check()?;
@@ -439,8 +476,18 @@ pub(super) struct VmoPool {
     /// empty entry. Bounded — when full, a freed range is leaked (graceful
     /// bump-only degradation), never corrupted.
     free_list: [(usize, usize); VMO_FREE_SLOTS],
+    /// P2: freed-but-not-yet-zeroed ranges. `free()` parks ranges here; the
+    /// idle harts zero them (`idle_zero_step`) and promote them to
+    /// `free_list`, so `allocate`'s reuse path NEVER memsets (the recycled
+    /// 4MB boot-splash VMO was the measured ~100ms BKL hold).
+    dirty_list: [(usize, usize); VMO_FREE_SLOTS],
     /// Bytes dropped because the free list was full (observability).
     leaked: usize,
+    /// Zero-frontier (P2): everything in [next, zeroed_until) is already
+    /// zeroed by the idle harts (`idle_zero_step`), so the common
+    /// `vmo_create` path skips its memset entirely — the measured 82-90ms
+    /// BKL holds were exactly this zeroing running inside the syscall.
+    zeroed_until: usize,
 }
 
 /// Snapshot of the kernel-managed user VMO arena.
@@ -460,8 +507,9 @@ impl VmoPool {
             limit: 0,
             peak_next: 0,
             free_list: [(0, 0); VMO_FREE_SLOTS],
+            dirty_list: [(0, 0); VMO_FREE_SLOTS],
             leaked: 0,
-        }
+         zeroed_until: 0, }
     }
 
     #[cfg(test)]
@@ -472,6 +520,7 @@ impl VmoPool {
             limit: base.saturating_add(len),
             peak_next: base,
             free_list: [(0, 0); VMO_FREE_SLOTS],
+            dirty_list: [(0, 0); VMO_FREE_SLOTS],
             leaked: 0,
         }
     }
@@ -484,8 +533,130 @@ impl VmoPool {
         let limit = start.saturating_add(USER_VMO_ARENA_LEN);
         self.base = start;
         self.next = start;
+        self.zeroed_until = start;
         self.limit = limit;
         self.peak_next = start;
+    }
+
+    /// P2 phased reserve: clean free-list first (no zero needed), else bump
+    /// WITHOUT zeroing — the trap handler zeroes with the BKL dropped. The
+    /// range is unreachable until `vmo_create_finish` installs the cap.
+    /// Returns (base, len, needs_zero).
+    pub(super) fn allocate_nozero(&mut self, len: usize) -> Result<(usize, usize, bool), Error> {
+        self.ensure_initialized();
+        if len == 0 {
+            return Err(Error::Capability(CapError::PermissionDenied));
+        }
+        let aligned = align_len(len).ok_or(Error::Capability(CapError::PermissionDenied))?;
+        let mut best: Option<usize> = None;
+        for (index, &(_, entry_len)) in self.free_list.iter().enumerate() {
+            if entry_len >= aligned && best.is_none_or(|prev| entry_len < self.free_list[prev].1) {
+                best = Some(index);
+            }
+        }
+        if let Some(index) = best {
+            let (entry_base, entry_len) = self.free_list[index];
+            self.free_list[index] = if entry_len > aligned {
+                (entry_base + aligned, entry_len - aligned)
+            } else {
+                (0, 0)
+            };
+            return Ok((entry_base, aligned, false));
+        }
+        let next =
+            self.next.checked_add(aligned).ok_or(Error::Capability(CapError::PermissionDenied))?;
+        if next > self.limit {
+            let pressure = self.stats();
+            log_error!(
+                "VMO-POOL exhausted: want=0x{:x} used=0x{:x} remaining=0x{:x} peak=0x{:x}",
+                aligned,
+                pressure.used,
+                pressure.remaining,
+                pressure.peak_used
+            );
+            return Err(Error::Capability(CapError::PermissionDenied));
+        }
+        let base = self.next;
+        self.next = next;
+        if self.next > self.peak_next {
+            self.peak_next = self.next;
+        }
+        // Pre-zeroed by the idle frontier? Then no zero pass is needed.
+        let needs_zero = self.zeroed_until < base + aligned;
+        if !needs_zero && self.zeroed_until < base + aligned {
+            self.zeroed_until = base + aligned;
+        }
+        Ok((base, aligned, needs_zero))
+    }
+
+    /// P2 idle-hart pre-zeroing: advance the zero-frontier by up to
+    /// `budget` bytes. Called from cpu_main's idle path (pool leaf lock only,
+    /// never the BKL) — idle cpus pay the memset so vmo_create never does.
+    /// Returns bytes zeroed (0 = frontier fully ahead, caller can WFI).
+    pub(super) fn idle_zero_step(&mut self, budget: usize) -> usize {
+        self.ensure_initialized();
+        // Dirty recycled ranges first (they unblock allocate's clean reuse).
+        for i in 0..self.dirty_list.len() {
+            let (base, len) = self.dirty_list[i];
+            if len == 0 {
+                continue;
+            }
+            let n = len.min(budget);
+            unsafe {
+                ptr::write_bytes(base as *mut u8, 0, n);
+            }
+            if n == len {
+                self.dirty_list[i] = (0, 0);
+                // Promote to the clean free list (coalesce with neighbours).
+                let mut base = base;
+                let mut len = len;
+                for entry in self.free_list.iter_mut() {
+                    if entry.1 == 0 {
+                        continue;
+                    }
+                    if entry.0 + entry.1 == base {
+                        base = entry.0;
+                        len += entry.1;
+                        *entry = (0, 0);
+                    } else if base + len == entry.0 {
+                        len += entry.1;
+                        *entry = (0, 0);
+                    }
+                }
+                let mut placed = false;
+                for entry in self.free_list.iter_mut() {
+                    if entry.1 == 0 {
+                        *entry = (base, len);
+                        placed = true;
+                        break;
+                    }
+                }
+                if !placed {
+                    self.leaked = self.leaked.saturating_add(len);
+                }
+            } else {
+                // Partially zeroed: keep the (still dirty) tail parked.
+                self.dirty_list[i] = (base + n, len - n);
+            }
+            return n;
+        }
+        // Then advance the bump-side frontier, bounded ahead of `next` (no
+        // point zeroing the whole 96MB arena eagerly).
+        const FRONTIER_AHEAD: usize = 8 * 1024 * 1024;
+        if self.zeroed_until < self.next {
+            self.zeroed_until = self.next;
+        }
+        let target = self.limit.min(self.next.saturating_add(FRONTIER_AHEAD));
+        let end = target.min(self.zeroed_until.saturating_add(budget));
+        if self.zeroed_until >= end {
+            return 0;
+        }
+        let n = end - self.zeroed_until;
+        unsafe {
+            ptr::write_bytes(self.zeroed_until as *mut u8, 0, n);
+        }
+        self.zeroed_until = end;
+        n
     }
 
     pub(super) fn allocate(&mut self, len: usize) -> Result<(usize, usize), Error> {
@@ -509,9 +680,8 @@ impl VmoPool {
             } else {
                 (0, 0)
             };
-            unsafe {
-                ptr::write_bytes(entry_base as *mut u8, 0, aligned);
-            }
+            // Clean by contract: entries reach free_list only through the
+            // idle zeroer (or pre-zeroed bump frontier) — no memset here.
             return Ok((entry_base, aligned));
         }
         let next =
@@ -535,10 +705,20 @@ impl VmoPool {
         if self.next > self.peak_next {
             self.peak_next = self.next;
         }
-        // RFC-0004 (loader + shared-page guard): ensure newly allocated pages never leak stale
-        // contents (kernel pointers, prior service metadata, etc.) to user space.
-        unsafe {
-            ptr::write_bytes(base as *mut u8, 0, aligned);
+        // RFC-0004 (loader + shared-page guard): pages must never leak stale
+        // contents. P2 zero-frontier: idle harts pre-zero [next, zeroed_until)
+        // via `idle_zero_step`, so we memset only the part the frontier has
+        // not covered — the common case is a microsecond no-op instead of the
+        // measured 82-90ms BKL hold.
+        let end = base + aligned;
+        let dirty_from = self.zeroed_until.clamp(base, end);
+        if dirty_from < end {
+            unsafe {
+                ptr::write_bytes(dirty_from as *mut u8, 0, end - dirty_from);
+            }
+        }
+        if self.zeroed_until < end {
+            self.zeroed_until = end;
         }
         Ok((base, aligned))
     }
@@ -559,32 +739,34 @@ impl VmoPool {
         if base < self.base || end > self.next {
             return Err(Error::Capability(CapError::PermissionDenied));
         }
-        for &(entry_base, entry_len) in self.free_list.iter() {
+        for &(entry_base, entry_len) in self.free_list.iter().chain(self.dirty_list.iter()) {
             if entry_len != 0 && entry_base < end && base < entry_base + entry_len {
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
         }
-        // Coalesce with adjacent free entries first, then try the frontier —
-        // a freed range touching self.next simply un-bumps, and absorbing
-        // neighbours beforehand lets whole tails collapse back into the pool.
-        let mut base = base;
-        let mut aligned = aligned;
-        for entry in self.free_list.iter_mut() {
-            if entry.1 == 0 {
-                continue;
-            }
-            if entry.0 + entry.1 == base {
-                base = entry.0;
-                aligned += entry.1;
-                *entry = (0, 0);
-            } else if base + aligned == entry.0 {
-                aligned += entry.1;
-                *entry = (0, 0);
-            }
-        }
+        // Frontier un-bump: a range touching self.next collapses back into
+        // the pool. Its contents are DIRTY, so pull the zero-frontier back —
+        // the idle zeroer (or the allocate fallback) re-covers it.
         if base + aligned == self.next {
             self.next = base;
+            if self.zeroed_until > base {
+                self.zeroed_until = base;
+            }
             return Ok(());
+        }
+        // P2: park in the dirty list; the idle harts zero + promote to
+        // free_list (no coalescing across clean/dirty — bounded simplicity;
+        // clean-side coalescing happens at promotion).
+        for entry in self.dirty_list.iter_mut() {
+            if entry.1 == 0 {
+                *entry = (base, aligned);
+                return Ok(());
+            }
+        }
+        // Dirty list full: zero synchronously (bounded fallback) and place
+        // clean, preserving the old behaviour.
+        unsafe {
+            ptr::write_bytes(base as *mut u8, 0, aligned);
         }
         for entry in self.free_list.iter_mut() {
             if entry.1 == 0 {

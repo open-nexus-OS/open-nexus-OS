@@ -76,11 +76,11 @@ QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-mouse}
 QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280}
 QEMU_GPU_YRES=${QEMU_GPU_YRES:-800}
 QEMU_ICOUNT_ARGS=${QEMU_ICOUNT_ARGS:-"1,sleep=on"}
-# SMP > 1 defaults to MTTCG (real parallel vCPUs): icount serializes all
-# harts onto one round-robin thread, which makes an SMP=4 interactive boot
-# unusably slow (BKL waits stretch to seconds, gpud never comes up). The
-# deterministic icount profile remains the default for SMP=1 and can be
-# forced back with QEMU_NO_ICOUNT=0.
+# SMP > 1 runs MTTCG (real parallel vCPUs): icount serializes all harts onto
+# one round-robin thread. The interactive default is SMP=4 (see below), so
+# MTTCG is the interactive default too; the deterministic icount profile
+# applies when SMP=1 is chosen (qemu-test.sh's deterministic profiles) and
+# can be forced with QEMU_NO_ICOUNT=0.
 if [[ -z "${QEMU_NO_ICOUNT:-}" && "${SMP:-4}" != "1" ]]; then
   QEMU_NO_ICOUNT=1
 fi
@@ -205,9 +205,12 @@ trim_log() {
 build_qemu_args() {
   local -a args=()
   local -a input_args=()
-  # A9: interactive/manual boots default to 4 harts (real SMP is the product
-  # configuration); proof harnesses pin SMP explicitly (qemu-test.sh defaults
-  # to SMP=1 for the deterministic profiles).
+  # Interactive default is SMP=4 + MTTCG (the product configuration). The
+  # soft-realtime plan made this viable and MEASURABLE: declarative cpu
+  # placement (display/input chain on cpu0, background on cpu1-3), phased
+  # vmo/exec syscalls + a lock-free syscall class + cpu0 right-of-way at the
+  # BKL (boot max wait 90.8ms -> ~6ms, max hold 90ms -> ~4ms), gated by
+  # `KSELFTEST: bkl budget ok` in the SMP profile.
   # QEMU_ACLINT=off: fall back to the classic SiFive CLINT MSWI IPI path.
   # OpenSBI 1.7's HSM hart_start via ACLINT-MSWI was observed to LOSE a hart
   # under MTTCG (hart marked STARTED, never reaches the kernel entry).

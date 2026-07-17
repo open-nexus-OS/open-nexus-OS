@@ -137,3 +137,12 @@ Close the runtime gap with explicit kernel latency-budget and stress-proof contr
 
 status: done — Closure markers live in both gates: KSELFTEST runtime timer budget ok (event-anchored per-hart tick budget), runtime ipi budget ok (coalescing never amplifies), runtime stress ok (25 exact-accounting IPI chains + zero cpuid fallbacks), SELFTEST ui runtime floor ok. Service die-on-error sweep: CircuitBreaker in logd, statefsd, pinched, rngd, abilitymgr, samgrd.
 Proof gates: `just test-os` (SMP=1) and `just ci-os-smp` (SMP=2) both exit 0 with all markers; see docs/adr/0045..0048 and the SMP track memory.
+
+## Addendum (2026-07-17, soft-realtime SMP=4 track)
+
+The BKL-latency follow-up flagged here is DONE: declarative CPU placement
+(ADR-0049), phased vmo/exec syscalls (CopyPlan), the lock-free syscall class,
+cpu0 right-of-way and the VMO zero-frontier brought the SMP=2 boot maxima
+from 90.8ms wait / 90ms hold to ~6ms / ~4ms, enforced by the new
+`KSELFTEST: bkl budget ok` gate (declarative budgets in core/trap/budgets.rs).
+Interactive `just start` defaults to SMP=4 + MTTCG again.

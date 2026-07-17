@@ -85,8 +85,80 @@ impl ExecV2ArgsTyped {
     }
 }
 
+/// P2 phased exec: byte-moving work STAGED under the BKL and executed with
+/// the BKL dropped (the target task is spawned suspended and its pages are
+/// unreachable until the caller resumes it AFTER this syscall returns).
+pub(crate) const MAX_COPY_OPS: usize = 24;
+
+#[derive(Clone, Copy)]
+pub(crate) struct CopyOp {
+    /// Source pointer; `usize::MAX` = pure zero op.
+    pub src: usize,
+    pub dst: usize,
+    pub len: usize,
+}
+
+pub(crate) struct CopyPlan {
+    pub ops: [CopyOp; MAX_COPY_OPS],
+    pub len: usize,
+    /// Executable bytes were written: issue `fence.i` after the run.
+    pub fence_i: bool,
+}
+
+impl CopyPlan {
+    pub(crate) const fn new() -> Self {
+        Self { ops: [CopyOp { src: 0, dst: 0, len: 0 }; MAX_COPY_OPS], len: 0, fence_i: false }
+    }
+
+    fn push(&mut self, op: CopyOp) -> Result<(), Error> {
+        if self.len >= MAX_COPY_OPS {
+            // More segments than the bounded plan: fail closed (no ELF we
+            // ship comes near 24 PT_LOADs + stacks).
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        self.ops[self.len] = op;
+        self.len += 1;
+        Ok(())
+    }
+}
+
+/// Execute a staged plan (phase B — caller holds NO kernel locks).
+pub(crate) fn run_copy_plan(plan: &CopyPlan) {
+    for op in plan.ops.iter().take(plan.len) {
+        if op.len == 0 {
+            continue;
+        }
+        unsafe {
+            if op.src == usize::MAX {
+                ptr::write_bytes(op.dst as *mut u8, 0, op.len);
+            } else {
+                ptr::copy_nonoverlapping(op.src as *const u8, op.dst as *mut u8, op.len);
+            }
+        }
+    }
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    if plan.fence_i {
+        unsafe {
+            core::arch::asm!("fence.i", options(nostack));
+        }
+    }
+}
+
 /// Kernel-side exec loader: parses ELF64/RISC-V, maps PT_LOAD with W^X + USER, sets stack, spawns task.
 pub(super) fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    // Unphased fallback (kept for table completeness; the trap handler routes
+    // nr=13 through the phased path).
+    let mut plan = CopyPlan::new();
+    let ret = exec_phase_a(ctx, args, &mut plan)?;
+    run_copy_plan(&plan);
+    Ok(ret)
+}
+
+pub(crate) fn exec_phase_a(
+    ctx: &mut Context<'_>,
+    args: &Args,
+    plan: &mut CopyPlan,
+) -> SysResult<usize> {
     let typed = ExecArgsTyped::decode(args)?;
     typed.check()?;
 
@@ -193,19 +265,20 @@ pub(super) fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         let alloc_len =
             align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
                 .ok_or(AddressSpaceError::InvalidArgs)?;
-        let (base, alloc_len) = VMO_POOL.lock().allocate(alloc_len)?;
-
-        // Copy file payload
-        if p_filesz != 0 {
-            unsafe {
-                ptr::copy_nonoverlapping(
-                    elf.as_ptr().add(p_offset),
-                    (base + page_off) as *mut u8,
-                    p_filesz,
-                );
-            }
+        let (base, alloc_len, needs_zero) = VMO_POOL.lock().allocate_nozero(alloc_len)?;
+        // Staged (phase B): zero the whole range first (BSS tail guarantee),
+        // then lay the file payload over it.
+        if needs_zero {
+            plan.push(CopyOp { src: usize::MAX, dst: base, len: alloc_len })?;
         }
-        // BSS tail is already cleared by the full-allocation zeroing above.
+        if p_filesz != 0 {
+            plan.push(CopyOp {
+                src: elf.as_ptr() as usize + p_offset,
+                dst: base + page_off,
+                len: p_filesz,
+            })?;
+            plan.fence_i = true;
+        }
 
         let mut flags = PageFlags::VALID | PageFlags::USER;
         if p_flags & PF_R != 0 {
@@ -229,13 +302,7 @@ pub(super) fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         }
     }
 
-    // CRITICAL (RISC-V): Ensure the I-cache sees freshly loaded user text.
-    // The kernel just wrote executable bytes into memory. Without `fence.i`, the hart may execute
-    // stale instructions at those virtual addresses (especially across AS switches).
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    unsafe {
-        core::arch::asm!("fence.i", options(nostack));
-    }
+    // fence.i moved into `run_copy_plan` (the bytes land in phase B).
 
     // Choose a global pointer for the new task.
     //
@@ -270,11 +337,9 @@ pub(super) fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         .checked_add(11) // requested + 9 head pages + boundary page; guard stays unmapped
         .ok_or(AddressSpaceError::InvalidArgs)?;
     let stack_bytes = total_pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-    let (stack_base, stack_len) = VMO_POOL.lock().allocate(stack_bytes)?;
-    // Clear the freshly allocated stack to avoid stale data influencing user
-    // register setup/prologue logic.
-    unsafe {
-        ptr::write_bytes(stack_base as *mut u8, 0, stack_len);
+    let (stack_base, stack_len, stack_needs_zero) = VMO_POOL.lock().allocate_nozero(stack_bytes)?;
+    if stack_needs_zero {
+        plan.push(CopyOp { src: usize::MAX, dst: stack_base, len: stack_len })?;
     }
     let user_stack_top: usize = 0x2000_0000;
     // Map through the former faulting address (boundary) and leave a guard above.
@@ -348,6 +413,17 @@ pub(super) fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 /// Kernel-side exec loader v2: like [`sys_exec`] but also copies the provided service name bytes
 /// into a per-service read-only mapping in the child address space (RFC-0004 provenance).
 pub(super) fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let mut plan = CopyPlan::new();
+    let ret = exec_v2_phase_a(ctx, args, &mut plan)?;
+    run_copy_plan(&plan);
+    Ok(ret)
+}
+
+pub(crate) fn exec_v2_phase_a(
+    ctx: &mut Context<'_>,
+    args: &Args,
+    plan: &mut CopyPlan,
+) -> SysResult<usize> {
     let typed = ExecV2ArgsTyped::decode(args)?;
     typed.check()?;
 
@@ -436,17 +512,18 @@ pub(super) fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize
             let alloc_len =
                 align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
                     .ok_or(AddressSpaceError::InvalidArgs)?;
-            let (base, alloc_len) = VMO_POOL.lock().allocate(alloc_len)?;
-
-            // Copy file payload (allocation is already zeroed by VmoPool::allocate).
+            let (base, alloc_len, needs_zero) = VMO_POOL.lock().allocate_nozero(alloc_len)?;
+            // Staged (phase B): zero first (BSS guarantee), then the payload.
+            if needs_zero {
+                plan.push(CopyOp { src: usize::MAX, dst: base, len: alloc_len })?;
+            }
             if p_filesz != 0 {
-                unsafe {
-                    ptr::copy_nonoverlapping(
-                        elf.as_ptr().add(p_offset),
-                        (base + page_off) as *mut u8,
-                        p_filesz,
-                    );
-                }
+                plan.push(CopyOp {
+                    src: elf.as_ptr() as usize + p_offset,
+                    dst: base + page_off,
+                    len: p_filesz,
+                })?;
+                plan.fence_i = true;
             }
 
             let mut flags = PageFlags::VALID | PageFlags::USER;
@@ -497,11 +574,7 @@ pub(super) fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize
             }
         }
 
-        // CRITICAL (RISC-V): Ensure the I-cache sees freshly loaded user text.
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        unsafe {
-            core::arch::asm!("fence.i", options(nostack));
-        }
+        // fence.i moved into `run_copy_plan` (the bytes land in phase B).
 
         // Choose a global pointer for the new task (same policy as sys_exec).
         const RISCV_GP_BIAS: usize = 0x800;
@@ -516,7 +589,11 @@ pub(super) fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize
             typed.stack_pages.checked_add(11).ok_or(AddressSpaceError::InvalidArgs)?;
         let stack_bytes =
             total_pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        let (stack_base, stack_len) = VMO_POOL.lock().allocate(stack_bytes)?;
+        let (stack_base, stack_len, v2_stack_needs_zero) =
+            VMO_POOL.lock().allocate_nozero(stack_bytes)?;
+        if v2_stack_needs_zero {
+            plan.push(CopyOp { src: usize::MAX, dst: stack_base, len: stack_len })?;
+        }
         let user_stack_top: usize = 0x2000_0000;
         let mapped_top =
             user_stack_top.checked_add(10 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;

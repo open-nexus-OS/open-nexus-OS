@@ -143,6 +143,26 @@ impl<T> SpinIrqLock<T> {
             core::hint::spin_loop();
         }
     }
+
+    /// One acquisition attempt (same SIE discipline as `lock`): `None` leaves
+    /// interrupts restored. Used by the BKL's cpu0 right-of-way backoff.
+    pub fn try_lock(&self) -> Option<SpinIrqGuard<'_, T>> {
+        #[cfg(debug_assertions)]
+        {
+            let me = current_cpu_index_for_debug() + 1;
+            if self.holder.load(Ordering::Acquire) == me {
+                panic!("SpinIrqLock: same-hart re-lock");
+            }
+        }
+        let was_enabled = irq_save_disable();
+        if let Some(guard) = self.inner.try_lock() {
+            #[cfg(debug_assertions)]
+            self.holder.store(current_cpu_index_for_debug() + 1, Ordering::Release);
+            return Some(SpinIrqGuard { lock: self, guard: Some(guard), was_enabled });
+        }
+        irq_restore(was_enabled);
+        None
+    }
 }
 
 #[cfg(debug_assertions)]

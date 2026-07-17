@@ -140,6 +140,7 @@ impl TrapFrame {
 // (macro_rules textual scope descends into the submodules).
 mod fault;
 mod handler;
+pub mod budgets;
 mod runtime;
 
 pub use fault::*;

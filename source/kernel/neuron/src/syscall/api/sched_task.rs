@@ -94,8 +94,18 @@ pub(super) fn service_id_from_name(name: &[u8]) -> u64 {
 }
 
 pub(super) fn caller_has_qos_admin(ctx: &Context<'_>) -> bool {
+    // Declarative admin list: execd/policyd (B4 recipes) + init (P1: applies
+    // the service_topology::affinity_for placement at resume time).
+    const QOS_ADMINS: &[&[u8]] = &[b"execd", b"policyd", b"init-lite", b"nexus-init"];
     let sid = ctx.tasks.current_service_id();
-    sid == service_id_from_name(b"execd") || sid == service_id_from_name(b"policyd")
+    let mut i = 0;
+    while i < QOS_ADMINS.len() {
+        if sid == service_id_from_name(QOS_ADMINS[i]) {
+            return true;
+        }
+        i += 1;
+    }
+    false
 }
 
 /// Born-at-class QoS — the production soft-real-time boot policy, declared in ONE place and applied
@@ -251,6 +261,41 @@ pub(crate) fn selftest_sched_op(
 }
 
 pub(super) fn sys_sched(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    // OP 4 (P0, declarative budgets SSOT in core/trap/budgets.rs): emit the
+    // boot-end BKL budget gate line. Read-only; callable late by the selftest
+    // ladder so the report COVERS the service bring-up contention window.
+    if args.get(0) == 4 {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            let (ok, wait_us, hold_ms, nr, b) = crate::trap::budgets::budget_report();
+            log_info!(
+                target: "smp",
+                "KINIT: bkl histogram le100us={} le1ms={} le10ms={} gt10ms={}",
+                b[0],
+                b[1],
+                b[2],
+                b[3]
+            );
+            if ok {
+                log_info!(
+                    target: "smp",
+                    "KSELFTEST: bkl budget ok (max_wait={}us max_hold={}ms nr={})",
+                    wait_us,
+                    hold_ms,
+                    nr
+                );
+            } else {
+                log_error!(
+                    target: "smp",
+                    "KSELFTEST: bkl budget FAIL max_wait={}us max_hold={}ms nr={}",
+                    wait_us,
+                    hold_ms,
+                    nr
+                );
+            }
+        }
+        return Ok(0);
+    }
     let op = args.get(0);
     let raw_target = args.get(1);
     if raw_target > u32::MAX as usize {

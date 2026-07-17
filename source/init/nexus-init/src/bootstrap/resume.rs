@@ -19,11 +19,27 @@ use crate::os_payload::*;
 /// for it, wasting scheduler cycles that slow the very grant phase it is blocked on
 /// (`hidrawd` previously raced here — see its `entry_to_ready_ms`). IPC wiring
 /// happens after grants.
+
+/// P1: apply the declarative CPU placement (service_topology::affinity_for)
+/// right before waking the service. Best-effort: a rejected mask (e.g. all
+/// target cpus offline) leaves the inherited mask; the kernel clamps.
+fn apply_affinity(chan_name: &str, pid: u32) {
+    let mask = crate::service_topology::affinity_for(chan_name);
+    if nexus_abi::sched::set_affinity_for(pid, mask as usize).is_ok() {
+        debug_write_str("init: affinity svc=");
+        debug_write_str(chan_name);
+        debug_write_str(" mask=0x");
+        debug_write_hex(mask as usize);
+        debug_write_byte(b'\n');
+    }
+}
+
 pub(crate) fn resume_non_drivers(ctrls: &[CtrlChannel]) {
     for chan in ctrls {
         if matches!(chan.svc_name, "gpud" | "windowd" | "inputd" | "hidrawd") {
             continue;
         }
+        apply_affinity(chan.svc_name, chan.pid);
         match nexus_abi::task_resume(chan.pid) {
             Ok(()) => {}
             Err(e) => {
@@ -52,6 +68,7 @@ pub(crate) fn resume_drivers(
 ) {
     for service_name in ["gpud", "windowd", "inputd", "hidrawd"] {
         if let Some(chan) = ctrls.iter().find(|c| c.svc_name == service_name) {
+            apply_affinity(chan.svc_name, chan.pid);
             match nexus_abi::task_resume(chan.pid) {
                 Ok(()) => {
                     if il(init_misc, init_fold, service_name) {
