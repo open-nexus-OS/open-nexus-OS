@@ -11,12 +11,12 @@ depends-on:
   - TASK-0005
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC: docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - Docs: docs/distributed/dsoftbus-lite.md
-  - Docs: docs/testing/index.md
+  - Docs: docs/testing/README.md
   - Depends-on: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Depends-on: tasks/TASK-0003B-dsoftbus-noise-xk-os.md
   - Depends-on: tasks/TASK-0003C-dsoftbus-udp-discovery-os.md
@@ -213,7 +213,7 @@ links:
 
 ## Erfuellt-Bedingung (normative completion gate)
 
-Per `docs/testing/index.md` (host-first, OS-last), this task is only considered fulfilled when all of the following are green and marker semantics remain unchanged:
+Per `docs/testing/README.md` (host-first, OS-last), this task is only considered fulfilled when all of the following are green and marker semantics remain unchanged:
 
 1. Host seam/regression checks:
    - `cargo test -p dsoftbusd -- --nocapture`
@@ -234,7 +234,7 @@ Only these paths may be modified without opening a separate task/ADR:
 
 - `source/services/dsoftbusd/**`
 - `docs/distributed/dsoftbus-lite.md`
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 - `tools/os2vm.sh` (harness-only sync; no marker/wire contract drift)
 
 ## Plan (small PRs)

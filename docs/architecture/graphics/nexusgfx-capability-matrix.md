@@ -157,6 +157,6 @@ Everything else should remain optional or future-capability-gated.
 
 ## Related
 
-- `docs/architecture/nexusgfx-compute-and-executor-model.md`
-- `docs/architecture/nexusgfx-resource-model.md`
-- `docs/architecture/nexusgfx-tile-aware-design.md`
+- `docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`
+- `docs/architecture/graphics/nexusgfx-resource-model.md`
+- `docs/architecture/graphics/nexusgfx-tile-aware-design.md`

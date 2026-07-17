@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Bootstrap shell + early launcher host phase: tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md
   - Bootstrap shell visible OS mount: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
   - DSL v0.1 interpreter: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
@@ -122,7 +122,7 @@ Deliver:
 - `userspace/systemui/dsl/` (new)
 - `userspace/systemui/dsl_bridge/` (new)
 - `tests/systemui_dsl_phase1_host/` (new)
-- `docs/systemui/dsl-migration.md` (Phase 1 notes; full doc in Phase 1b)
+- `docs/dev/ui/dsl-migration.md` (Phase 1 notes; full doc in Phase 1b)
 
 ## Plan (small PRs)
 

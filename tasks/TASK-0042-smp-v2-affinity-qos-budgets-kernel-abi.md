@@ -7,7 +7,7 @@ depends-on: []
 follow-up-tasks:
   - TASK-0247
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - SMP hardening bridge: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
   - QoS baseline: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md

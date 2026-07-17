@@ -14,7 +14,7 @@
     - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (quotas, leak-free failure paths, IPC selftests)
     - `docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md` (OS build hygiene gates)
     - `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (logd readiness marker contract)
-  - Testing methodology: `docs/testing/index.md`
+  - Testing methodology: `docs/testing/README.md`
   - QEMU marker contract: `scripts/qemu-test.sh`
 
 ## Status at a Glance
@@ -172,7 +172,7 @@ and MUST emit a stable failure marker on first failure, including the reason tok
 
 - **Phase 0 (Readiness gate contract + harness coupling)**:
   - Codify A1–A4 in docs/tests.
-  - Update the canonical test description (`docs/testing/index.md`) and ensure `scripts/qemu-test.sh` failure output is unambiguous for missing ready markers.
+  - Update the canonical test description (`docs/testing/README.md`) and ensure `scripts/qemu-test.sh` failure output is unambiguous for missing ready markers.
 - **Phase 1 (Spawn failure reason codes + selftests)**:
   - Implement SpawnFailReason v1 in the kernel spawn path and surface it via `nexus-abi` + markers.
   - Add kernel selftests (or a deterministic trigger fixture) that proves each reason is reachable and correctly reported.
@@ -207,7 +207,7 @@ Canonical proofs are owned by `TASK-0269` and must be kept current there.
 - Readiness contract is documented and consistent with the test harness description:
 
 ```bash
-cd /home/jenning/open-nexus-OS && sed -n '1,220p' docs/testing/index.md
+cd /home/jenning/open-nexus-OS && sed -n '1,220p' docs/testing/README.md
 ```
 
 ### Proof (OS/QEMU)
@@ -251,7 +251,7 @@ When writing this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [x] **Phase 0**: Readiness gate contract documented — `docs/testing/index.md` updated.
+- [x] **Phase 0**: Readiness gate contract documented — `docs/testing/README.md` updated.
 - [x] **Phase 1**: Spawn failure reason codes — `KSELFTEST: spawn reasons ok` marker in QEMU.
 - [x] **Phase 2**: Resource/leak sentinel — `KSELFTEST: resource sentinel ok` marker in QEMU.
 - [x] Task linked: `tasks/TASK-0269-boot-gates-v1-readiness-spawn-resource.md`

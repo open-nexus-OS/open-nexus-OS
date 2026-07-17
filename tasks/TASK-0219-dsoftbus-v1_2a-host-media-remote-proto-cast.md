@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DSoftBus secure channels + share@1 resume: tasks/TASK-0195-dsoftbus-v1_1a-host-secure-channels-encrypted-streams-share.md
   - DSoftBus directory + rpcmux + health: tasks/TASK-0211-dsoftbus-v1_1c-host-busdir-rpcmux-health-flow.md
   - Media UX v2.1 (audiod + mediasessd integration): tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md

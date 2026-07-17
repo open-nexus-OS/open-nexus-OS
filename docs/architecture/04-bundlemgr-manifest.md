@@ -72,4 +72,4 @@ failing closed on malformed contract bytes.
 
 ## Notes on drift
 
-`docs/bundle-format.md` documents a legacy tar-based bundle concept and is explicitly marked as drifted. For current OS work, follow `docs/packaging/nxb.md`, `RFC-0039`, and the owning task stop conditions/proofs.
+The old tar-based bundle description (formerly `docs/bundle-format.md`, deleted 2026-07) was legacy and drifted. For current OS work, follow `docs/packaging/nxb.md`, `RFC-0039`, and the owning task stop conditions/proofs.

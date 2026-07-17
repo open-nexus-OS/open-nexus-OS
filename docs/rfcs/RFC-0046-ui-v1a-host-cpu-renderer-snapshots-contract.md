@@ -8,7 +8,7 @@
   - Tasks: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` (execution + proof SSOT)
   - Related tasks: `tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md`, `tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md`, `tasks/TASK-0054D-ui-v1a-kernel-mm-perf-floor-vmo-surface-reuse.md`, `tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md`, `tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md`
   - Related RFCs: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md`, `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md`, `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md`
-  - Architecture: `docs/architecture/nexusgfx-compute-and-executor-model.md`, `docs/architecture/nexusgfx-text-pipeline.md`
+  - Architecture: `docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`, `docs/architecture/graphics/nexusgfx-text-pipeline.md`
   - Production gate policy: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate E: Windowing, UI & Graphics, production-floor; kernel production-grade follow-ups stay explicit)
 
 ## Status at a Glance

@@ -7,8 +7,8 @@ depends-on: []
 follow-up-tasks:
   - TASK-0288
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Bring-up core (host-first): tasks/TASK-0246-bringup-rv-virt-v1_1a-host-virtio-blk-image-builder-deterministic.md
   - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - SMP hardening bridge: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md

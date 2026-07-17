@@ -11,7 +11,7 @@ Address/subnet/profile values are maintained in `docs/architecture/network-addre
 - Distributed proof flow for DSoftBus discovery/session/remote proxy.
 - Canonical interpretation of `os2vm` markers, artifacts, and error classification.
 
-For general testing philosophy and non-network domains, see `docs/testing/index.md`.
+For general testing philosophy and non-network domains, see `docs/testing/README.md`.
 
 ## Core Principles
 

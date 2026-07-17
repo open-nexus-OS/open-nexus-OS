@@ -6,8 +6,8 @@ created: 2025-12-30
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Thermal OS wiring: tasks/TASK-0271-thermal-v0_1b-os-thermald-powerd-hooks-systemui-selftests.md
   - Power/Idle host core: tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md

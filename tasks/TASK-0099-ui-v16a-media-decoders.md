@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - UI renderer baseline: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
   - SVG pipeline (for APNG/GIF frame blit patterns): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md

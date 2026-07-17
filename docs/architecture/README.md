@@ -3,8 +3,16 @@
 
 # Architecture index (`docs/architecture/`)
 
-This directory contains **high-level architecture notes** for key subsystems.
-These pages are intended to be stable entrypoints; avoid duplicating fast-moving contracts (like full UART marker sequences) and instead link to the canonical sources.
+**Canonical architecture entry point.** This directory contains high-level
+architecture notes for key subsystems. These pages are stable entrypoints;
+avoid duplicating fast-moving contracts (like full UART marker sequences) and
+instead link to the canonical sources.
+
+- **Vision lens (architecture/security/performance direction)**: `vision.md`
+- **Testing methodology (host-first, QEMU-last)**: `../testing/README.md`
+- **Execution truth / workflow**: `../../tasks/README.md`
+- **RFC process / contracts vs tasks**: `../rfcs/README.md`
+- **ADR index**: `../adr/README.md`
 
 ## Suggested reading order (onboarding)
 
@@ -12,64 +20,92 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 2. `06-boot-and-bringup.md` — boot chain + who owns which markers
 3. `07-contracts-map.md` — where contracts live (Tasks/RFC/ADR) + key canonical specs
 4. `08-service-architecture-onboarding.md` — services as thin adapters over userspace libraries
-5. Service landings (pick what you’re touching):
-   - `09-nexus-init.md`
-   - `10-execd-and-loader.md`
-   - `11-policyd-and-policy-flow.md`
-   - `12-storage-vfs-packagefs.md`
-   - `13-identity-and-keystore.md`
-   - `14-samgrd-service-manager.md`
-   - `15-bundlemgrd.md`
+5. Service landings (pick what you're touching): `09-nexus-init.md`,
+   `10-execd-and-loader.md`, `11-policyd-and-policy-flow.md`,
+   `12-storage-vfs-packagefs.md`, `13-identity-and-keystore.md`,
+   `14-samgrd-service-manager.md`, `15-bundlemgrd.md`
 
-## Start here
+## Layering quick reference
 
-- **Kernel + layering quick reference (canonical entry page)**: `docs/ARCHITECTURE.md`
-- **Testing methodology (host-first, QEMU-last)**: `docs/testing/index.md`
-- **Testing contracts (v1)**: `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (Complete)
-- **Execution truth / workflow**: `tasks/README.md`
-- **RFC process / contracts vs tasks**: `docs/rfcs/README.md`
-- **Vendored third-party code (pinned forks / patches)**: `vendor/` (keep small; document upstream base + local deltas)
+Domain logic lives in `userspace/<crate>` libraries behind mutually exclusive
+`nexus_env="host"` / `nexus_env="os"` configurations; each crate compiles with
+exactly one environment and forbids unsafe code. Daemons under
+`source/services/<name>d` are thin adapters: they register with `samgr`, expose
+IDL bindings, and forward into the userspace crate compiled with
+`nexus_env="os"`. `tools/arch-check` fails CI when a userspace crate depends on
+kernel, HAL, samgrd, nexus-abi, or `source/services/` — preserving the
+host-tested-logic vs system-wiring separation.
+
+**Control plane vs data plane:** Cap'n Proto schemas live exclusively in
+userspace (`tools/nexus-idl` + `userspace/nexus-idl-runtime`); the kernel never
+parses Cap'n Proto, it only shuttles handles/VMOs. Bulk payloads move
+out-of-band via VMOs + `map()`. The windowd↔gpud **display wire** is
+deliberately *not* Cap'n Proto: hand-rolled opcodes + the `nexus-gfx`
+`CommittedBuffer` codec, owned by `source/libs/nexus-display-proto`
+(ADR-0038); Cap'n Proto stays the control plane.
+
+**Kernel quick reference:** entry `kmain()` brings up HAL, Sv39
+`AddressSpaceManager`, syscall table, `Scheduler`, `ipc::Router`; idle loop
+drives cooperative scheduling; SMP proofs run a dual-mode deterministic ladder
+(`REQUIRE_SMP=1`). Key files: `source/kernel/neuron/src/core/kmain.rs`,
+`src/syscall/`, `src/mm/address_space.rs`, `src/core/trap.rs`, `src/mm/satp.rs`.
+Don't touch without RFC/ADR: syscall IDs/ABI, trap prologue/epilogue, kernel
+memory map/SATP assumptions. Early boot uses raw UART only (no heavy
+formatting/alloc before selftests); boot gates v1 (RFC-0013) enforce the
+readiness contract (`init: up` vs `<svc>: ready`) in the QEMU harness.
 
 ## Kernel
 
 - `01-neuron-kernel.md` — NEURON kernel overview (syscalls, memory model, invariants)
 - `16-rust-concurrency-model.md` — Rust ownership & Servo-inspired parallelism (SMP baseline + follow-ups)
-- `docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md` — SMP v1 contract (Complete; CPU online mask, secondary bring-up, IPI/selftest markers)
+- `../rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md` — SMP v1 contract (Complete)
 - `smp-ipi-rate-limiting.md` — IPI rate limiting policy (DoS prevention, TASK-0012/0042)
-- `hardening-status.md` — kernel hardening objectives checklist (status snapshot)
-- `KERNEL-TASK-INVENTORY.md` — Complete inventory of all kernel-touch tasks (security consistency check)
-- `SECURITY-CONSISTENCY-CHECK.md` — Decision points and drift prevention across SMP/QoS/parallelism tasks
-- `RUST-ADVANTAGES.md` — Why Rust is optimal for a consumer-facing OS (comparison with C/C++)
+- `hardening-plan.md` / `hardening-status.md` — kernel hardening objectives + status snapshot
+- `kernel-task-inventory.md` — complete inventory of all kernel-touch tasks (security consistency check)
+- `security-consistency-check.md` — decision points and drift prevention across SMP/QoS/parallelism tasks
+- `rust-advantages.md` — why Rust is optimal for a consumer-facing OS
 
-**Current snapshot**:
-- SMP/per-CPU kernel behavior is treated as stable baseline and validated through deterministic proof gates.
-- Kernel-focused architecture pages in this directory are maintained as long-lived references; volatile proof details stay in task/RFC execution docs.
+### SMP / soft-real-time
+
+- SMP=4 is the interactive default: declarative CPU placement, phased vmo/exec
+  syscalls, lock-free syscall class, cpu0 BKL right-of-way, VMO zero-frontier
+  (see `../adr/0049-bkl-lockclass-and-softrt-cpu-placement.md` and the
+  ADR-0045..0048 cluster).
+- Soft-real-time spine (waitset + timeline fence + DriverKit submit):
+  `../rfcs/RFC-0033-soft-real-time-spine-waitset-fence-driverkit.md`,
+  `../adr/0033-soft-real-time-spine.md`.
+- The `bkl budget ok` gate is enforced in SMP proof lanes (bring-up burst
+  logged, steady state gated).
 
 ## Testing + CI
 
 - `02-selftest-and-ci.md` — how we validate: deterministic markers + CI wiring (high level)
 - **Canonical QEMU harness + marker contract**: `scripts/qemu-test.sh` (do not duplicate marker lists here)
-- **CI workflows**: `.github/workflows/ci.yml`, `.github/workflows/build.yml`
-- **QEMU smoke proof gating (networking/DSoftBus)**: `docs/adr/0025-qemu-smoke-proof-gating.md`
+- **CI workflows**: `.github/workflows/`
+- **QEMU smoke proof gating (networking/DSoftBus)**: `../adr/0025-qemu-smoke-proof-gating.md`
 
 ## Networking
 
-- `networking-authority.md` — Canonical vs alternative networking paths, anti-drift rules
-- `network-address-matrix.md` — Normative address/subnet/profile matrix (QEMU + os2vm)
-- **RFC-0006**: Userspace Networking v1 (sockets facade)
-- **RFC-0007**: DSoftBus OS Transport v1 (UDP discovery + TCP sessions)
-- **RFC-0008**: DSoftBus Noise XK v1 (handshake + identity binding)
-- **RFC-0009**: no_std Dependency Hygiene v1 (OS build policy)
-- **RFC-0027**: DSoftBusd modular daemon structure v1 (Completed)
-- **RFC-0035**: DSoftBus QUIC v1 host-first scaffold contract (Done)
-- **RFC-0036**: DSoftBus core no_std transport abstraction v1 (Complete; `TASK-0022` is Done)
-- **ADR-0026**: Network address profiles + validation semantics
+- `networking-authority.md` — canonical vs alternative networking paths, anti-drift rules
+- `network-address-matrix.md` — normative address/subnet/profile matrix (QEMU + os2vm)
+- Deep dives: `../distributed/dsoftbus-lite.md`, `../distributed/dsoftbus-mux.md`, `../distributed/remote-fs.md`
+- **RFC-0006** sockets facade · **RFC-0007** DSoftBus OS transport · **RFC-0008** Noise XK
+- **RFC-0009** no_std dependency hygiene · **RFC-0027** dsoftbusd modular daemon
+- **RFC-0035** QUIC v1 scaffold (Done) · **RFC-0036** core no_std transport abstraction (Complete)
+- **RFC-0060** streams v2 mux/flow-control/keepalive (Done; formerly RFC-0033)
+- **ADR-0026**: network address profiles + validation semantics
 
-**Current snapshot**:
-- Core networking transport, authenticated session flow, and dual-node harness behavior are established.
-- Host-first QUIC transport proofs are available via `just test-dsoftbus-quic`; OS QUIC-v2 session behavior is now proven in `TASK-0023`.
-- DSoftBus core no_std transport abstraction seam is implemented via `dsoftbus-core`; `TASK-0023` closes real OS session enablement with QUIC-required marker proofs, and follow-on work moves to `TASK-0024`/`TASK-0044` tuning breadth.
-- Networking docs here focus on authority boundaries and invariants; rollout/proof state remains task-owned.
+## Storage (nxfs / VFS / statefs)
+
+- `12-storage-vfs-packagefs.md` — storage/VFS/packagefs onboarding landing
+- Deep dives: `../storage/nxfs.md` (user-data CoW filesystem),
+  `../storage/vfs.md` (VFS v2), `../storage/statefs.md` (service KV),
+  `../storage/vmo.md` (VMO arena semantics)
+- **RFC-0071**: nxfs user-data filesystem contract
+- **RFC-0072**: VFS v2 — writable providers, readdir, stable errors
+- **RFC-0073**: app files surface (`svc.files`, permissions, filemanager role)
+- **ADR-0043**: user data in a dedicated CoW fs (statefs stays service-KV)
+- **ADR-0044**: single blk device, GPT partitions, block layer
 
 ## Services and contracts
 
@@ -77,108 +113,92 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 
 - `03-samgr.md` — `userspace/samgr` (host-first registry library; OS uses `samgrd`)
 - `04-bundlemgr-manifest.md` — canonical `manifest.nxb`/`BundleManifest` contract (Cap'n Proto) plus host parser constraints
-- **Updates contract (v1.0)**: `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` + `docs/packaging/system-set.md` (**Complete**)
-- **Boot gates contract (v1.0)**: `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (**Complete**)
+- **Updates contract (v1.0)**: `../rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` + `../packaging/system-set.md` (Complete)
+- **Boot gates contract (v1.0)**: `../rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (Complete)
 
 ### OS daemons (authorities)
 
 - `14-samgrd-service-manager.md` — `samgrd` (OS service registry authority)
 - `15-bundlemgrd.md` — `bundlemgrd` (OS bundle/package authority)
-- Config v1 authority: `tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md` + `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md`
-  - `configd` is the canonical typed config distribution authority
-  - canonical runtime/persistence snapshots are Cap'n Proto
-  - `nx config ...` is the only host CLI surface for config operations
-- Policy as Code v1 authority: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` + `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md`
-  - `policyd` is the single policy decision authority
-  - live policy authoring root is `policies/nexus.policy.toml`
-  - Config v1 carries candidate roots as `policy.root`; no parallel policy reload plane
-  - `nx policy ...` lives under `tools/nx`; see `tools/nx/README.md`
+- Config v1 authority: `configd` is the canonical typed config distribution
+  authority (`../rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md`);
+  `nx config ...` is the only host CLI surface.
+- Policy as Code v1 authority: `policyd` is the single policy decision
+  authority (`../rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md`);
+  live policy root is `policies/nexus.policy.toml`; `nx policy ...` lives under `tools/nx`.
 
-### UI/windowing authority
+### UI / windowing authority
 
-- `windowd` headless contract: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` (`TASK-0055` Done)
-- `windowd` visible bootstrap contract: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` (`TASK-0055B` Done)
-- `windowd` visible SystemUI first-frame contract: `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` (`TASK-0055C` Done)
-- `windowd` v2a present scheduler + input routing contract: `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` (`Done`; `TASK-0056` execution closeout complete)
-- `windowd` v2a visible input contract: `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` (`Done`; deterministic 56B closure complete, live QEMU input intentionally follows in `TASK-0252`/`TASK-0253`)
-- host input-core contract: `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md` (`Done`; host-first HID/touch/keymap/repeat/accel crates and `input_v1_0_host` proof package are landed, with closure gates green)
-- OS/QEMU live-input contract: `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` (`Done`; the real `hidrawd -> inputd -> windowd -> fbdevd` live path is landed and verified, with full broad closure gates green)
-- Dedicated architecture decision: `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`
-- Dedicated input-core architecture decision: `docs/adr/0029-input-v1-host-core-architecture.md`
-- Scope rule: headless `TASK-0055`, visible `TASK-0055B`/`TASK-0055C`, v2a `TASK-0056`, and 56B visible-input proof must not be interpreted as perf/latency closure, live HID/touch/keymap/IME closure, WM-v2 breadth, full display-service integration, or kernel production-grade closure; those remain follow-up scope (`TASK-0056C`, `TASK-0252`/`TASK-0253`, `TASK-0199`/`TASK-0200`, `TASK-0251`). 56B owns the deterministic visible proof; live QEMU input is pulled forward immediately after it.
+- `windowd` is a **compositor service**; window UI lives in app-host widgets
+  (RFC-0067 boundary: `../rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md`).
+- Contract ladder: RFC-0047 (headless surface/present) → RFC-0048 (visible
+  scanout bootstrap) → RFC-0049 (SystemUI first frame) → RFC-0050 (present
+  scheduler + input routing) → RFC-0051 (visible input) → RFC-0052/0053
+  (host input core / OS live input: `hidrawd → inputd → windowd`).
+- Architecture decisions: `../adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`,
+  `../adr/0029-input-v1-host-core-architecture.md`,
+  `../adr/0042-cross-process-surface-transport.md`.
 
-## On-device inference
+### DSL app platform
 
-- `nexusinfer-techniques.md` — catalog of confirmed upstream and candidate local-inference techniques (PLE, effective parameters, KV policies, TurboQuant-like compression)
-- `nexusinfer-runtime-profiles.md` — hardware-agnostic runtime/profile vocabulary for CPU/NPU/future compute executors
-- `nexusinfer-rust-design.md` — Rust ownership, newtypes, `Send`/`Sync`, and zero-copy guidance for NexusInfer
+- Apps are declarative `.nx` programs compiled by `tools/nx` and executed by
+  the app-host runtime; service access is routed declaratively
+  (`source/libs/nexus-sdk-routes` is the SSOT for svc → route/permission).
+- Developer docs: `../dev/dsl/overview.md` (start here), `../dev/dsl/syntax.md`,
+  `../dev/dsl/state.md`, `../dev/dsl/runtime.md`, full set under `../dev/dsl/`.
+- Lifecycle/registry/notifications contract:
+  `../rfcs/RFC-0065-ui-v6b-app-lifecycle-registry-notifications-navigation-contract.md`;
+  declarative service chain: `../rfcs/RFC-0066-production-grade-service-chain-declarative-routing-typed-ipc-inprocess-tests.md`.
 
-**Current snapshot**:
-- NexusInfer is tracked as a hardware-agnostic, local-first stack with CPU reference execution first.
-- Documentation here intentionally avoids CUDA/Tensor-Core assumptions so future Imagination/NexusGfx or NPU paths can fit behind the same contracts.
+## On-device inference (`inference/`)
 
-## Graphics and compute
+- `inference/nexusinfer-techniques.md` — catalog of confirmed upstream and candidate local-inference techniques
+- `inference/nexusinfer-runtime-profiles.md` — hardware-agnostic runtime/profile vocabulary
+- `inference/nexusinfer-rust-design.md` — Rust ownership, newtypes, `Send`/`Sync`, zero-copy guidance
 
-- `nexusgfx-compute-and-executor-model.md` — layer model for `NexusGfx`, compute executors, shared primitives, and `NexusInfer` relationship
-- `nexusgfx-resource-model.md` — buffers/images/transient resources/import-export posture
-- `nexusgfx-sync-and-lifetime.md` — fences, waits, ownership return, present pacing, reset posture
-- `nexusgfx-command-and-pass-model.md` — command buffers, render/compute/copy passes, and pass-locality rules
-- `nexusgfx-compute-kernel-model.md` — portable compute-kernel and dispatch model for graphics-adjacent and scientific workloads
-- `nexusgfx-tile-aware-design.md` — bandwidth-first/mobile/tile-aware design stance for likely Imagination-style GPUs
-- `nexusgfx-text-pipeline.md` — renderer-facing text acceleration posture aligned to existing UI layout/text contracts
-- `nexusgfx-artifact-pipeline.md` — offline-first, deterministic, signed artifact strategy for shaders/kernels/pipelines
-- `nexusgfx-capability-matrix.md` — backend capability vocabulary instead of vendor-first design
-- `gpud-command-ring-and-present-pipeline.md` — gpud's virtio-gpu multi-entry command ring, per-slot lifecycle, batched + pipelined GL present (the texture-sampling-stall fix), heap-free Submit3d, hop markers, and the present-cadence limitation (ADR-0032)
-- **Device-class driver architecture (capstone)**: `docs/adr/0039-device-class-driver-architecture.md` — the one layering every device class follows (SDK → device-class service → DriverKit → bus-HAL → kernel) + per-class mapping (GPU/storage/net/audio/NPU/camera-ISP)
-- **Rasterization SSOT**: `userspace/nexus-gfx/src/raster/` — the one canonical software rasterizer; `cpu_mock` (reference) and gpud's CPU/VMO path both call it (RFC-0067)
-- **Display-wire SSOT** (windowd↔gpud): `source/libs/nexus-display-proto` (opcodes + control frames) + the `nexus-gfx` `CommittedBuffer` payload codec; `docs/adr/0038-display-wire-ssot-and-capnp-boundary.md`
-- **virtio-mmio bus-HAL**: `source/libs/nexus-virtio` — register map + init handshake + virtqueue ring, shared across virtio drivers (net migrated; storage/rng/input/gpud boot-gated follow-ons)
-- **Cross-device submit substrate**: `source/libs/nexus-driverkit` (SubmitRing + fence + budget + QoS); ADR-0018 (ABI), ADR-0033 (soft-real-time spine)
+## Graphics and compute (`graphics/`)
 
-**Current snapshot**:
-- `NexusGfx` is documented as an explicit, hardware-agnostic acceleration stack with CPU reference execution first.
-- The graphics/compute docs intentionally assume probable mobile/tile-aware hardware and avoid CUDA-first or legacy-compatibility-first design.
-- The gfx/driver stack now has single sources of truth for rasterization, the display wire, and virtio-mmio bring-up; device-class drivers follow the ADR-0039 layering.
+- `graphics/nexusgfx-compute-and-executor-model.md` — layer model for `NexusGfx`, compute executors, `NexusInfer` relationship
+- `graphics/nexusgfx-resource-model.md` — buffers/images/transient resources/import-export posture
+- `graphics/nexusgfx-sync-and-lifetime.md` — fences, waits, ownership return, present pacing
+- `graphics/nexusgfx-command-and-pass-model.md` — command buffers, passes, pass-locality rules
+- `graphics/nexusgfx-compute-kernel-model.md` — portable compute-kernel and dispatch model
+- `graphics/nexusgfx-tile-aware-design.md` — bandwidth-first/mobile/tile-aware design stance
+- `graphics/nexusgfx-text-pipeline.md` — renderer-facing text acceleration posture
+- `graphics/nexusgfx-artifact-pipeline.md` — offline-first, deterministic, signed artifact strategy
+- `graphics/nexusgfx-capability-matrix.md` — backend capability vocabulary
+- `graphics/gpud-command-ring-and-present-pipeline.md` — gpud's virtio-gpu command ring, batched + pipelined GL present (ADR-0032)
+- `graphics/display-output-service-chain.md` — display output service chain
+- `graphics/animation-nexusgfx-gpu-three-layer-stack.md` — animation stack layering
+- **Device-class driver architecture (capstone)**: `../adr/0039-device-class-driver-architecture.md` —
+  SDK → device-class service → DriverKit → bus-HAL → kernel, per device class
+- **Rasterization SSOT**: `userspace/nexus-gfx/src/raster/` — the one canonical software rasterizer (RFC-0067)
+- **Display-wire SSOT** (windowd↔gpud): `source/libs/nexus-display-proto` + the `nexus-gfx` `CommittedBuffer` codec (ADR-0038)
+- **virtio-mmio bus-HAL**: `source/libs/nexus-virtio` — shared across virtio drivers
+- **Cross-device submit substrate**: `source/libs/nexus-driverkit` (SubmitRing + fence + budget + QoS); ADR-0018, ADR-0033
 
 ## Observability
 
-- **Logging guide**: `docs/observability/logging.md` — logd v1 usage + crash reports
-- **RFC-0003**: Unified logging facade (`nexus-log`)
-- **RFC-0011**: logd journal + crash reports v1 (Complete)
-- **RFC-0031**: crashdump v1 deterministic minidumps + host symbolization (Complete)
-
-**Current snapshot**:
-- Logging, metrics/tracing export, and crash-report flows are active and validated through deterministic tests.
-- Security-hardening specifics and reject-path evidence are tracked in dedicated execution documents.
+- **Logging guide**: `../observability/logging.md` — logd v1 usage + crash reports
+- Metrics/tracing: `../observability/metrics.md`, `../observability/tracing.md`
+- **RFC-0003** unified logging facade · **RFC-0011** logd journal + crash reports (Complete)
+- **RFC-0031** crashdump v1 minidumps + host symbolization (Complete)
+- **RFC-0068** structured event observability (subject-grouped journal renderer)
 
 ## Policy Authority + Audit
 
-- **Policy flow**: `11-policyd-and-policy-flow.md` — `policyd` as single authority
-- **RFC-0015**: Policy Authority & Audit Baseline v1 (Complete)
-- **RFC-0045**: Policy as Code v1 unified policy tree/evaluator/`nx policy` (Done host-first; OS/QEMU markers gated)
-- **Security docs**: `docs/security/signing-and-policy.md`
-- **Policy as Code docs**: `docs/security/policy-as-code.md`
+- **Policy flow**: `11-policyd-and-policy-flow.md` — `policyd` as single authority, deny-by-default
+- **RFC-0015** policy authority & audit baseline (Complete) · **RFC-0045** policy as code v1
+- **Security docs**: `../security/signing-and-policy.md`, `../security/policy-as-code.md`
+- Device identity: `../rfcs/RFC-0016-device-identity-keys-v1.md`,
+  `../security/identity-and-sessions.md`, `13-identity-and-keystore.md`
 
-**Current snapshot**:
-- Policy authority remains single-source and deny-by-default, with audit evidence as a first-class proof surface.
-- Policy v1 reload candidates flow through Config v1 `policy.root`; `policies/manifest.json` is required validation evidence for the active tree hash.
-- Device identity and keystore flows are integrated into the same authority model without introducing parallel policy sources.
+## Subsystem deep-dive directories
 
-Related:
-
-- **RFC-0016**: Device Identity Keys v1 (virtio-rng + rngd + keystored) — `docs/rfcs/RFC-0016-device-identity-keys-v1.md`
-- Identity/keystore onboarding: `13-identity-and-keystore.md`
-
-## Onboarding landing pages (this directory)
-
-- `05-system-map-and-boundaries.md`
-- `06-boot-and-bringup.md`
-- `07-contracts-map.md`
-- `08-service-architecture-onboarding.md`
-- `09-nexus-init.md`
-- `10-execd-and-loader.md`
-- `11-policyd-and-policy-flow.md`
-- `12-storage-vfs-packagefs.md`
-- `13-identity-and-keystore.md`
-- `14-samgrd-service-manager.md`
-- `15-bundlemgrd.md`
+- `../distributed/` — DSoftBus lite/mux, remote-fs
+- `../storage/` — nxfs, vfs, statefs, vmo
+- `../observability/` — logging, metrics, tracing
+- `../security/` — authority model, signing, identity, policy as code
+- `../services/` — service lifecycle, os-lite backends
+- `../packaging/` — artifact kinds, nxb format, system set, A/B updates
+- `../supplychain/` — reproducibility, SBOM, signing policy

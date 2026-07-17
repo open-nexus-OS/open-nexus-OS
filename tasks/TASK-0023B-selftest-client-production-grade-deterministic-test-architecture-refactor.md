@@ -9,8 +9,8 @@ depends-on:
 follow-up-tasks:
   - TASK-0024
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seed: docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md
   - Depends-on (OS QUIC session baseline): tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md
   - Follow-up (transport hardening): tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md
@@ -199,7 +199,7 @@ Phases 1–3 (selftest-client refactor + arch-gate):
 
 - `source/apps/selftest-client/src/main.rs`
 - `source/apps/selftest-client/src/**` (new/refactored modules)
-- `docs/testing/index.md` (only if proof command list changes)
+- `docs/testing/README.md` (only if proof command list changes)
 - `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (Phase 2 / Cut P2-02-equivalent: phase list 8 → 12; congruent with code phases)
 - `scripts/check-selftest-arch.sh` (new, Phase 3)
 - `justfile` (Phase 3: add `arch-gate` recipe; chain into `dep-gate`)
@@ -216,7 +216,7 @@ Phase 4 (manifest + profiles):
 - `scripts/qemu-test.sh` (rewrite to consume manifest)
 - `tools/os2vm.sh` (rewrite to consume manifest)
 - `justfile` (route all `test-*` through `test-os PROFILE=…`)
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 - `docs/testing/proof-manifest.md` (new)
 
 Phase 5 (evidence bundle):
@@ -400,7 +400,7 @@ Cuts (10):
 - **P4-07**: add `tools/os2vm.sh` manifest support (`profile.os2vm`).
 - **P4-08**: add `[profile.bringup|quick|ota|net|none]` (runtime-only); add `os_lite/profile.rs` + `Profile::from_kernel_cmdline_or_default(Profile::Full)`; modify `pub fn run()` to iterate `profile.enabled_phases()`; add per-profile QEMU smoke tests.
 - **P4-09**: deny-by-default check: any marker emitted at runtime that is not declared in the manifest for the active profile is a hard failure (host-side analyzer). Conversely, any manifest-declared marker not seen is a hard failure (existing behavior).
-- **P4-10**: hard-deprecate `RUN_PHASE`/`REQUIRE_*` direct env usage in CI; CI must invoke `just test-os PROFILE=<name>`. Document the migration in `docs/testing/index.md`.
+- **P4-10**: hard-deprecate `RUN_PHASE`/`REQUIRE_*` direct env usage in CI; CI must invoke `just test-os PROFILE=<name>`. Document the migration in `docs/testing/README.md`.
 
 Phase-4 proof floor:
 

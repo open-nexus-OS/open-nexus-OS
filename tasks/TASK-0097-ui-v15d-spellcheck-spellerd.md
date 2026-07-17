@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Text primitives: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
   - TextField core: tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
   - Policy as Code (no network): tasks/TASK-0047-policy-as-code-v1-unified-engine.md

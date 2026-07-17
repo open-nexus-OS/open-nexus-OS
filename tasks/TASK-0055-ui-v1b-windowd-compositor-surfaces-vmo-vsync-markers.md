@@ -23,11 +23,11 @@ follow-up-tasks:
   - TASK-0251
 links:
   - RFC: docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
-  - Gfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
-  - Gfx command/pass model: docs/architecture/nexusgfx-command-and-pass-model.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
+  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
+  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - Gfx command/pass model: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
   - UI track dependencies: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (vsync spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md

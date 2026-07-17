@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Networking step 1 (virtio-net + smoltcp): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Device MMIO access model (kernel work): tasks/TASK-0010-device-mmio-access-model.md
   - WebView Net v1 OS slice (fetchd/httpstubd): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md

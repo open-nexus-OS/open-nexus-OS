@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Power core (host-first): tasks/TASK-0236-power-v1_0a-host-governor-wakelocks-residency-standby-deterministic.md
   - Timer coalescing baseline (timed): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
   - Ability lifecycle (BG detection): tasks/TASK-0235-ability-v1_1b-os-appmgrd-extension-samgr-hooks-fgbg-policies-selftests.md

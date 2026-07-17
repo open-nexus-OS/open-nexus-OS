@@ -6,8 +6,8 @@ created: 2025-12-25
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - System Delegation / System Surfaces (track): tasks/TRACK-SYSTEM-DELEGATION.md
   - Policy authority + unification: tasks/TASK-0047-policy-as-code-v1-unified-engine.md

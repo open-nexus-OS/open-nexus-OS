@@ -24,8 +24,8 @@ follow-up-tasks:
   - TASK-0243
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Depends-on (device keys): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
   - Depends-on (MMIO mapping primitive): tasks/TASK-0010-device-mmio-access-model.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md

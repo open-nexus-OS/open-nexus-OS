@@ -235,7 +235,7 @@ Proof authority is tests + deterministic exit/status contracts.
 
 - [x] **Phase 0**: canonical `nx` baseline + fail-closed delegation and exit-code classes — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture`
 - [x] **Phase 1**: scaffolding/inspect/idl/doctor contract + reject-path tests — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture`
-- [x] **Phase 2**: follow-up extension contract + no-drift guarantees validated — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture` + `rg "Subcommand extension contract" docs/devx/nx-cli.md`
+- [x] **Phase 2**: follow-up extension contract + no-drift guarantees validated — proof: `cd /home/jenning/open-nexus-OS && cargo test -p nx -- --nocapture` + `rg "Subcommand extension contract" docs/dev/nx-cli.md`
 - [x] Task(s) linked with stop conditions + proof commands.
 - [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass. (N/A for v1 host-only closure)
 - [x] Security-relevant negative tests exist (`test_reject_*`).

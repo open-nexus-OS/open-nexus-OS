@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - WebView baseline (offline URL policy): tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
   - WebView Net v1a sanitizer/render core: tasks/TASK-0176-webview-net-v1a-host-sanitizer-webview-sceneir-goldens.md
   - Downloads helper baseline (saveAs to state): tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md

@@ -4,8 +4,8 @@ status: Draft
 owner: @security @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - keystored (secrets authority): tasks/TRACK-KEYSTONE-GATES.md
   - Policy foundations (cap matrix future): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
   - Zero-Copy App Platform (attachments/export): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md

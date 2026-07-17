@@ -6,8 +6,8 @@ created: 2025-12-25
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Crashdump v2b OS pipeline (crashd + .nxcd.zst): tasks/TASK-0049-crashdump-v2b-os-crashd-retention-correlation-policy.md
   - Crashdump v2a host tooling (`nx crash`): tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
   - Notifications v2 (for crash notifications): tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md

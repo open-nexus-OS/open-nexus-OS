@@ -6,7 +6,7 @@ created: 2025-12-22
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - Packaging/updates baseline: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - Supply-chain baseline: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Persistence substrate: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

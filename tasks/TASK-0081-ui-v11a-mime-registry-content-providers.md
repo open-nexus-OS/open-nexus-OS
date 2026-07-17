@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
   - VFS substrate: tasks/TASK-0002-userspace-vfs-proof.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

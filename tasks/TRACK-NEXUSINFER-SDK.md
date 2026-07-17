@@ -4,17 +4,17 @@ status: Living
 owner: @runtime @ui
 created: 2026-04-10
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Extracted (NexusInfer v1b interop/profile binding): tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
   - Extracted (NexusInfer v1c ownership + CPU reference executor): tasks/TASK-0284B-nexusinfer-v1c-ownership-based-tensor-buffer-states-cpu-reference-executor.md
-  - Techniques catalog: docs/architecture/nexusinfer-techniques.md
-  - Runtime profile vocabulary: docs/architecture/nexusinfer-runtime-profiles.md
-  - Rust ownership/type design: docs/architecture/nexusinfer-rust-design.md
-  - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
-  - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
-  - Gfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
-  - Gfx capability matrix: docs/architecture/nexusgfx-capability-matrix.md
+  - Techniques catalog: docs/architecture/inference/nexusinfer-techniques.md
+  - Runtime profile vocabulary: docs/architecture/inference/nexusinfer-runtime-profiles.md
+  - Rust ownership/type design: docs/architecture/inference/nexusinfer-rust-design.md
+  - Gfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
+  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - Gfx capability matrix: docs/architecture/graphics/nexusgfx-capability-matrix.md
   - IPC hybrid (control Cap'n Proto + data VMO): docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Service architecture (data plane): docs/adr/0017-service-architecture.md
   - Drivers & accelerators (NPU device-class; submit/fence/budgets): tasks/TRACK-DRIVERS-ACCELERATORS.md
@@ -126,10 +126,10 @@ language can be shared with `NexusGfx`.
 
 For image/video/tensor style workflows, `NexusInfer` should align with:
 
-- `docs/architecture/nexusgfx-compute-and-executor-model.md`
-- `docs/architecture/nexusgfx-resource-model.md`
-- `docs/architecture/nexusgfx-sync-and-lifetime.md`
-- `docs/architecture/nexusgfx-capability-matrix.md`
+- `docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`
+- `docs/architecture/graphics/nexusgfx-resource-model.md`
+- `docs/architecture/graphics/nexusgfx-sync-and-lifetime.md`
+- `docs/architecture/graphics/nexusgfx-capability-matrix.md`
 
 This keeps graphics, media, and inference interop zero-copy-friendly and prevents later drift into parallel buffer
 contracts.

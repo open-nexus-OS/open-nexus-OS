@@ -7,7 +7,7 @@ depends-on:
   - TASK-0036
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - Depends-on: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
 ---
 

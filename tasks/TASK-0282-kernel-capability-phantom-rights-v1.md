@@ -7,7 +7,7 @@ depends-on:
   - TASK-0011B
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - IPC/cap model baseline: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Depends-on (Rust idioms baseline): tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
   - Related: tasks/TASK-0267-kernel-ipc-v1-framed-channels-capability-transfer.md

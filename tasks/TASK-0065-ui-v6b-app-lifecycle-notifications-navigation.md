@@ -18,8 +18,8 @@ follow-up-tasks:
 links:
   - Design contract (RFC): docs/rfcs/RFC-0065-ui-v6b-app-lifecycle-registry-notifications-navigation-contract.md
   - Service-split decision (ADR): docs/adr/0036-ability-lifecycle-vs-process-vs-registry-service-split.md
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - UI v6a WM baseline: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
   - Process-per-service: docs/rfcs/RFC-0002-process-per-service-architecture.md

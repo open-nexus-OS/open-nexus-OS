@@ -12,8 +12,8 @@ follow-up-tasks:
   - TASK-0024
   - TASK-0044
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seed: docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - ADR: docs/adr/0006-device-identity-architecture.md

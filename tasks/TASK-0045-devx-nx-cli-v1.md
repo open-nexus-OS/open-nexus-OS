@@ -16,8 +16,8 @@ follow-up-tasks:
   - TASK-0230
   - TASK-0268
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seed (this task): docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md
   - Existing postflights: tools/postflight-*.sh
   - Existing IDL tool: tools/nexus-idl/
@@ -163,8 +163,8 @@ Proof run (host, deterministic):
 - `tools/nx/` (new)
 - `tools/nx/templates/` (new)
 - `tools/nexus-idl/` (optional: minimal enhancements, but not required)
-- `docs/devx/nx-cli.md` (new)
-- `docs/testing/index.md` (add “developer loop” snippet)
+- `docs/dev/nx-cli.md` (new)
+- `docs/testing/README.md` (add “developer loop” snippet)
 
 ## Plan (small PRs)
 
@@ -218,7 +218,7 @@ Proof run (host, deterministic):
    - Print actionable guidance and exit non-zero if required tools missing.
 
 7. **Docs**
-   - `docs/devx/nx-cli.md` with:
+   - `docs/dev/nx-cli.md` with:
      - quickstart,
      - command reference,
      - how to add a postflight topic (edit a mapping file in `tools/nx/`).

@@ -11,8 +11,8 @@ depends-on:
   - TASK-0020
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Depends-on (local spans/metrics baseline): tasks/TASK-0014-observability-v2-metrics-tracing.md
   - Depends-on (log sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (persistence for JSONL): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

@@ -7,8 +7,8 @@ updated: 2026-07-03 (full rewrite to IST + new scope; prefsd dropped for setting
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Settings v2 design vocabulary: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
   - Settings v2 OS UI: tasks/TASK-0226-settings-v2b-os-settings-ui-deeplinks-search-guides.md
   - Persistence substrate (/state, Done): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

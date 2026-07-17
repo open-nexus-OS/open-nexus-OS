@@ -26,8 +26,8 @@ follow-up-tasks:
   - TASK-0160
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC (seed contract): docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md
   - RFC (capability model): docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md

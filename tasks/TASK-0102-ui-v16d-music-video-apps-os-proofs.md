@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (Open With defaults + share/export): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - Media apps product track (quick players vs library/hubs): tasks/TRACK-MEDIA-APPS.md

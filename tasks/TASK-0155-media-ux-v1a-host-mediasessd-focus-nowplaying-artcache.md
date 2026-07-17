@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Media apps product track (system-wide now playing): tasks/TRACK-MEDIA-APPS.md
   - Media baseline task (umbrella): tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md
   - Audiod mixer (volume OSD later): tasks/TASK-0100-ui-v16b-audiod-mixer.md

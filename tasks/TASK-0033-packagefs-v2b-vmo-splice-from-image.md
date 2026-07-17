@@ -9,7 +9,7 @@ depends-on:
   - TASK-0032
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - Depends-on (package image v2): tasks/TASK-0032-packagefs-v2-ro-image-index-fastpath.md
   - Depends-on (VMO plumbing): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - Depends-on (ABI filter policies): tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md

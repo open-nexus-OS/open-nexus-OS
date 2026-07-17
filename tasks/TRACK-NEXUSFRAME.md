@@ -4,16 +4,16 @@ status: Draft
 owner: @apps @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (“Edit in Frame”, export/share): tasks/TRACK-SYSTEM-DELEGATION.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Creative apps foundation (gates mindset): tasks/TRACK-CREATIVE-APPS.md
   - Zero-Copy App Platform (autosave/recovery patterns): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - NexusGfx SDK (render/compute contracts): tasks/TRACK-NEXUSGFX-SDK.md
-  - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
-  - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
-  - Gfx artifact pipeline: docs/architecture/nexusgfx-artifact-pipeline.md
+  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
+  - Gfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - Gfx artifact pipeline: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
   - Drivers & accelerators (GPU/device-class direction): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - NexusInfer SDK (on-device ML runtime): tasks/TRACK-NEXUSINFER-SDK.md
   - Zero-copy VMOs (bulk buffers): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md

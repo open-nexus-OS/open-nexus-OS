@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Policy as Code (unified tree + canonicalization): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Config distribution + 2PC apply: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Kernel sysfilter (TaskProfileId + syscall allowlist): tasks/TASK-0188-kernel-sysfilter-v1-task-profiles-rate-buckets.md

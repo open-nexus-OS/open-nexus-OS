@@ -8,8 +8,8 @@ follow-up-tasks:
   - TASK-0286
   - TASK-0287
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Persistence substrate: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Sandbox quotas (security v2): tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md
   - Storage error contract: tasks/TASK-0132-storage-errors-vfs-semantic-contract.md

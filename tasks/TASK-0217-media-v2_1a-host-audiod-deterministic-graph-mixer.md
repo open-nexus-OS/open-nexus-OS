@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Audiod v16b baseline: tasks/TASK-0100-ui-v16b-audiod-mixer.md
   - Media sessions v2 semantics (clock/handoff): tasks/TASK-0184-media-ux-v2a-host-handoff-playerctl-deterministic-clock.md
   - Persistence substrate (/state for metrics export): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

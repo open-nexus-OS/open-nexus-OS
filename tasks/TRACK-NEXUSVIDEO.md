@@ -4,8 +4,8 @@ status: Draft
 owner: @media @ui @platform
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (share/send via chat without per-app stacks): tasks/TRACK-SYSTEM-DELEGATION.md
   - Media Apps track (players + TV hub direction): tasks/TRACK-MEDIA-APPS.md
   - NexusNet SDK (network/account/grants): tasks/TRACK-NEXUSNET-SDK.md

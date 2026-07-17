@@ -9,8 +9,8 @@ follow-up-tasks:
   - TASK-0238
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Packaging baseline + manifest.nxb contract: docs/packaging/nxb.md
   - Packaging drift decision: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - Supply chain signing policy direction: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md

@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Fuzzing v1 (cargo-fuzz smoke): tasks/TASK-0190-fuzzing-v1-deterministic-harness-pack-html-css-png-ttf-nxb.md
   - Settings v2 (parser surface): tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
   - Packaging NXB parser surface: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md

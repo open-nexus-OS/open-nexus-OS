@@ -15,7 +15,7 @@ implemented in Rust, and avoid any kernel dependencies.
 The daemon is responsible for three major tasks:
 
 This is aligned with the project vision: distributed behavior is layered in userland (`softbusd`
-later), while the kernel stays minimal and capability-based (see `docs/agents/VISION.md`).
+later), while the kernel stays minimal and capability-based (see `docs/architecture/vision.md`).
 
 1. **Discovery** – each node announces its device identifier, published
    services, and listening port. The host backend uses an in-process registry so

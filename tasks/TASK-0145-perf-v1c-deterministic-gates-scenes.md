@@ -6,8 +6,8 @@ created: 2025-12-25
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - perfd tracer: tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
   - Perf instrumentation/HUD: tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
   - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md

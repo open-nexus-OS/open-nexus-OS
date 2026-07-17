@@ -82,7 +82,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0030: DSoftBus remote statefs RW v1 (authenticated RW + ACL + audit contract)
 - RFC-0031: Crashdumps v1 (bounded artifacts + fail-closed crash metadata publish contract)
 - RFC-0032: ABI syscall guardrails v2 (userland guardrail + authenticated profile distribution boundary)
-- RFC-0033: DSoftBus streams v2 mux/flow-control/keepalive (authenticated mux + bounded credits/state transitions)
+- RFC-0033: Soft-real-time spine — waitset + timeline fence + DriverKit submit (kernel sync primitives + driver submit path)
 - RFC-0034: DSoftBus production closure v1 (legacy `TASK-0001..0020` production gates + hardening mapping)
 - RFC-0035: DSoftBus QUIC v1 host-first scaffold contract (transport selection + fail-closed downgrade semantics + deterministic fallback markers)
 - RFC-0036: DSoftBus core no_std transport abstraction v1 (no_std core boundary + transport abstraction + zero-copy-first and Rust safety discipline)
@@ -104,6 +104,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0057: UI v3a layout engine (Done; TASK-0058 production-grade, 31 tests)
 - RFC-0058: UI v3b clip/scroll/effects + IME contract seed (Complete; TASK-0059 Done)
 - RFC-0059: UI v5a animation + NexusGfx SDK + GPU driver contract (Complete; TASK-0062 Done, phases 0-6e proven)
+- RFC-0060: DSoftBus streams v2 mux/flow-control/keepalive (authenticated mux + bounded credits/state transitions; formerly RFC-0033)
 - RFC-0061: Selftest Observer + nexus-init Module Refactoring (Complete; 8 bootstrap modules, os_payload.rs 3903→404 lines, observer scaffolding, contract tests)
 - RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
 - RFC-0041: PackageFS v2 read-only image + precomputed index fastpath contract seed (bounded mount validation + deterministic reject paths + host-first/OS-gated proofs)
@@ -177,8 +178,8 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
 - RFC-0032: ABI syscall guardrails v2 - userland guardrail (Complete; policyd-only profile authority with deterministic proof closure)
   - docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md
-- RFC-0033: DSoftBus streams v2 mux/flow-control/keepalive - host-first contract seed (Done; TASK-0020 closure proofs green including single-VM/2-VM/perf/soak/release-evidence)
-  - docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md
+- RFC-0033: Soft-real-time spine — waitset + timeline fence + DriverKit submit (Proposed; Phase 1+2 QEMU-proven, see TRACK-NEXUSGFX-SDK)
+  - docs/rfcs/RFC-0033-soft-real-time-spine-waitset-fence-driverkit.md
 - RFC-0034: DSoftBus production closure v1 - legacy `TASK-0001..0020` closure contract (Done; obligations extracted/proven under TASK-0020, no >0020 scope)
   - docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md
 - RFC-0035: DSoftBus QUIC v1 host-first scaffold contract (Done; `TASK-0021` closure proofs synced with explicit `TASK-0022` boundary)
@@ -231,6 +232,8 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
 - RFC-0059: UI v5a animation + NexusGfx SDK + GPU driver contract (Complete; TASK-0062 Done, phases 0-6e proven)
   - docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
+- RFC-0060: DSoftBus streams v2 mux/flow-control/keepalive - host-first contract seed (Done; formerly RFC-0033, renumbered 2026-07; TASK-0020 closure proofs green including single-VM/2-VM/perf/soak/release-evidence)
+  - docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md
 - RFC-0061: Selftest Observer + nexus-init Module Refactoring (Complete; 8 bootstrap modules, os_payload.rs 3903→404 lines, observer scaffolding, contract tests)
   - docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
 - RFC-0062: Kernel timer capability — host-first timer infrastructure contract (Complete; kernel timer API + capability model locked)

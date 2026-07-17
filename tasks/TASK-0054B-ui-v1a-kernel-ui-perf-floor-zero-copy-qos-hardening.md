@@ -8,8 +8,8 @@ follow-up-tasks:
   - TASK-0288
   - TASK-0290
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI v1a host renderer baseline: tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
   - VMO plumbing baseline: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
@@ -149,7 +149,7 @@ Notes:
 - `source/apps/selftest-client/`
 - `docs/architecture/01-neuron-kernel.md`
 - `docs/architecture/16-rust-concurrency-model.md`
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 - `docs/storage/vmo.md`
 
 ## Plan (small PRs)

@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Process-per-service: docs/rfcs/RFC-0002-process-per-service-architecture.md
   - Config broker (read-only in recovery): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Observability v1 (logd): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md

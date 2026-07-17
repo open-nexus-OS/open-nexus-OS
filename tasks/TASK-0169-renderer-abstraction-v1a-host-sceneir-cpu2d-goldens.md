@@ -6,12 +6,12 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - NexusGfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
-  - NexusGfx resource model: docs/architecture/nexusgfx-resource-model.md
-  - NexusGfx capability matrix: docs/architecture/nexusgfx-capability-matrix.md
-  - NexusGfx text pipeline: docs/architecture/nexusgfx-text-pipeline.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
+  - NexusGfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - NexusGfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
+  - NexusGfx capability matrix: docs/architecture/graphics/nexusgfx-capability-matrix.md
+  - NexusGfx text pipeline: docs/architecture/graphics/nexusgfx-text-pipeline.md
   - Driver/accelerator contracts (CPU now, GPU later): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - UI v1a renderer baseline (to be refactored into this): tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
   - Text shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md

@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
   - UI v4a compositor baseline (readback): tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
   - UI v6a WM baseline (grab window): tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md

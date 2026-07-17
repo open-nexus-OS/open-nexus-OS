@@ -3,12 +3,27 @@
 
 # Document Picker
 
-This page is the subtree entry for the shared document picker surface.
+The document picker is the UI surface for `content://` document access.
 
 Primary anchor:
 
 - `tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md`
 
-See the current contract:
+Goals:
 
-- `docs/dev/ui/system-experiences/doc-picker.md`
+- pathless workflows (streams, not filesystem paths),
+- scoped grants and clear permission prompts,
+- deterministic UX flows for tests.
+
+## Query posture
+
+The document picker is an early QuerySpec consumer.
+
+Recommended posture:
+
+- provider/source selection, MIME filters, search text, explicit ordering, and paging are represented as pure query state,
+- picker UI updates that query state in reducers/composables,
+- execution happens only through `contentd.query(...)` from effects/service adapters,
+- and provider-specific presets may exist, but they should still compile to the shared query contract.
+
+This keeps picker lists deterministic, testable, and ready for virtualization/lazy loading when provider result sets grow.

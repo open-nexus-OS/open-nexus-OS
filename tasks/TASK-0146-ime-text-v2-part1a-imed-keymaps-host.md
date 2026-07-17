@@ -8,8 +8,8 @@ depends-on:
   - TASK-0252
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - IME/text-input plumbing baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - Later IME candidate UI/OSK: tasks/TASK-0096-ui-v15c-ime-candidate-ui-osk.md

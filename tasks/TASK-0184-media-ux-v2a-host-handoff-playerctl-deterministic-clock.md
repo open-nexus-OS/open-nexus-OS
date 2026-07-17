@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Media UX v1 core: tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
   - Notifications actions baseline (for later wiring): tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
   - Perf sessions (optional): tasks/TASK-0172-perf-v2a-perfd-sessions-stats-export.md

@@ -9,8 +9,8 @@ depends-on:
   - TASK-0253
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - IME core + keymaps: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
   - IME/text-input plumbing baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - Later TextField core (caret/selection): tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md

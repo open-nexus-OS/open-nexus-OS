@@ -6,14 +6,14 @@ created: 2026-04-10
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusInfer track: tasks/TRACK-NEXUSINFER-SDK.md
   - DriverKit core contracts: tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md
   - NexusInfer interop/profile binding: tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
   - DMA buffer ownership prototype: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
-  - NexusInfer rust design: docs/architecture/nexusinfer-rust-design.md
-  - NexusInfer techniques catalog: docs/architecture/nexusinfer-techniques.md
+  - NexusInfer rust design: docs/architecture/inference/nexusinfer-rust-design.md
+  - NexusInfer techniques catalog: docs/architecture/inference/nexusinfer-techniques.md
   - Zero-copy VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
 ---
 
@@ -108,7 +108,7 @@ Create a host-first `NexusInfer` CPU reference executor that models:
 
 - `userspace/` (new infer runtime/executor crate or module)
 - `tests/` (host fixture and rejection tests)
-- `docs/architecture/nexusinfer-rust-design.md` (only if implementation discovers a contract gap)
+- `docs/architecture/inference/nexusinfer-rust-design.md` (only if implementation discovers a contract gap)
 - `tasks/TRACK-NEXUSINFER-SDK.md`
 
 ## Plan (small PRs)

@@ -6,8 +6,8 @@ created: 2025-12-25
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - StateFS v1 (KV substrate): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - StateFS v2a (2PC+compaction+fsck): tasks/TASK-0026-statefs-v2a-2pc-compaction-fsck.md
   - Write-path hardening: tasks/TASK-0025-statefs-write-path-hardening-integrity-atomic-budgets-audit.md

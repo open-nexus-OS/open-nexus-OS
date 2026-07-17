@@ -10,8 +10,8 @@ depends-on:
   - TASK-0283
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - SMP v1 baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - SMP hardening bridge: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md
   - RISC-V SMP/timer extension: tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
@@ -111,7 +111,7 @@ Close the runtime gap with explicit kernel latency-budget and stress-proof contr
 - `source/services/execd/`
 - `source/apps/selftest-client/`
 - `docs/architecture/01-neuron-kernel.md`
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 - `scripts/qemu-test.sh`
 
 ## Plan (small PRs)

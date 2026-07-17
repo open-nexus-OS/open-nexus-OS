@@ -19,7 +19,7 @@ Current entry points:
 - `docs/dev/ui/system-experiences/document-access/README.md`
 - `docs/dev/ui/system-experiences/browser/README.md`
 - `docs/dev/ui/system-experiences/capture-and-share/README.md`
-- `docs/dev/ui/system-experiences/doc-picker.md`
+- `docs/dev/ui/system-experiences/document-access/doc-picker.md`
 - `docs/dev/ui/blessed-surfaces/webview.md`
 - `docs/dev/ui/system-experiences/capture-and-share/print.md`
 - `docs/dev/ui/system-experiences/capture-and-share/print-preview.md`

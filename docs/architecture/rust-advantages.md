@@ -366,6 +366,6 @@ Security ←──────────────────────�
 
 - `docs/architecture/16-rust-concurrency-model.md` — Servo-inspired parallelism
 - `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` — Rust-specific optimizations
-- `docs/agents/VISION.md` — Rust-first as a core principle
+- `docs/architecture/vision.md` — Rust-first as a core principle
 - [Rust Embedded Book](https://rust-embedded.github.io/book/) — no_std patterns
 - [Rustonomicon](https://doc.rust-lang.org/nomicon/) — Unsafe Rust guidelines

@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Accounts/Identity v1.2 host semantics: tasks/TASK-0223-accounts-identity-v1_2a-host-multiuser-sessiond.md
   - SecureFS overlay baseline (encryption-at-rest): tasks/TASK-0183-encryption-at-rest-v1b-os-securefsd-unlock-ui-migration-cli-selftests.md
   - Keystore v1.1 OS wiring (seal/unseal + trust unification): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md

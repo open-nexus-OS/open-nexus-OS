@@ -6,8 +6,8 @@ created: 2025-10-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC: docs/rfcs/RFC-0002-process-per-service-architecture.md
   - RFC: docs/rfcs/RFC-0004-safe-loader-guards.md
   - VFS proof (markers dependency): tasks/TASK-0002-userspace-vfs-proof.md

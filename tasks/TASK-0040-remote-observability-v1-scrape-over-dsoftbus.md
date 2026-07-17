@@ -12,7 +12,7 @@ depends-on:
   - TASK-0031
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - DSoftBus base: docs/distributed/dsoftbus-lite.md
   - Depends-on (logd v1): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (metrics v2): tasks/TASK-0014-observability-v2-metrics-tracing.md

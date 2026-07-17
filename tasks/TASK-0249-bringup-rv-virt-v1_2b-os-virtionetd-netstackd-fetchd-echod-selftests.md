@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Bring-up core (host-first): tasks/TASK-0248-bringup-rv-virt-v1_2a-host-virtio-net-dhcp-stub-loopback-deterministic.md
   - Networking baseline (smoltcp): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md

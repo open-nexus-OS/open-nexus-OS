@@ -9,8 +9,8 @@ depends-on:
 follow-up-tasks:
   - TASK-0287
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Boot/resource gates: docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
   - OOM watchdog v1 (cooperative baseline): tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
   - Security introspection guardrails: tasks/TASK-0230-nx-sec-v1-cli-security-introspection-deny-tests-offline.md

@@ -214,4 +214,4 @@ That is enough to make later tasks and RFCs concrete.
 
 - `tasks/TRACK-NEXUSGFX-SDK.md`
 - `tasks/TRACK-DEVSTUDIO-IDE.md`
-- `docs/architecture/nexusgfx-compute-and-executor-model.md`
+- `docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`

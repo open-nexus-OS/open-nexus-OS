@@ -6,8 +6,8 @@ created: 2025-12-30
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Power/Idle: tasks/TASK-0237-power-v1_0b-os-powerd-alarmsd-standbyd-idle-hooks-selftests.md
   - Battery: tasks/TASK-0257-battery-v0_9b-os-batteryd-powerd-hooks-systemui-selftests.md

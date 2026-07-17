@@ -11,8 +11,8 @@ depends-on:
 follow-up-tasks:
   - TASK-0022
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - RFC (seed contract): docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md
   - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
@@ -22,7 +22,7 @@ links:
   - Depends-on (OS streams): tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
   - Depends-on (mux over transport): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
   - Follow-on boundary (core split for OS backend): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
-  - Testing methodology: docs/testing/index.md
+  - Testing methodology: docs/testing/README.md
   - Testing contract: scripts/qemu-test.sh
   - Testing contract (2-VM): tools/os2vm.sh
 ---

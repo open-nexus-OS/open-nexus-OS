@@ -102,4 +102,4 @@ Runtime-only profiles MUST set `runtime_only = true` (validated from P4-08); har
 - **New profile** → add a `[profile.X]` block (with `extends` if it inherits); `qemu-test.sh --profile=X` and `just test-os PROFILE=X` work without script changes.
 - **New phase** → update RFC-0014 §3 first; add `[phase.X]` block here; add `os_lite/phases/<x>.rs`; register in `os_lite/profile.rs::dispatch_phase` (P4-08+).
 
-(See P4-10 closure docs in [`docs/testing/index.md`](index.md) for the full workflow once Phase 4 lands.)
+(See P4-10 closure docs in [`docs/testing/os-markers.md`](os-markers.md) for the full workflow once Phase 4 lands.)

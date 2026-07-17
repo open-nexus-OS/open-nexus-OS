@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Perms/privacy substrate: tasks/TASK-0103-ui-v17a-permissions-privacyd.md
   - Media decoders (optional fixtures): tasks/TASK-0099-ui-v16a-media-decoders.md
 ---

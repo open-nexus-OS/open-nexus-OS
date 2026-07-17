@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - WebView Net v1 host slice (sanitizer/render baseline): tasks/TASK-0176-webview-net-v1a-host-sanitizer-webview-sceneir-goldens.md
   - WebView baseline service (find/text extraction direction): tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
   - Renderer abstraction (Scene-IR snapshots): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md

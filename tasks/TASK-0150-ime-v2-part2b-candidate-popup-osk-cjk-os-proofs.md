@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - IME v2 Part 1 OS wiring: tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md
   - IME v2 Part 2a engines/dict: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
   - Existing IME+OSK umbrella: tasks/TASK-0096-ui-v15c-ime-candidate-ui-osk.md

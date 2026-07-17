@@ -1,7 +1,7 @@
 # ADR-0014: Policy Architecture
 
 ## Status
-Accepted
+Accepted (original recipe-directory baseline superseded by Policy as Code v1 — `RFC-0045` / `TASK-0047`; `policyd` remains the single authority)
 
 ## Context
 The policy system provides capability-based access control for Open Nexus OS. It determines which subjects (users, services, applications) have access to which capabilities based on versioned policy documents.

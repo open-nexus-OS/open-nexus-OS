@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Windowing v2 host substrate: tasks/TASK-0207-windowing-v2_1a-host-surfacecore-swapchain-fences-hidpi.md
   - Windowing/Compositor v2 OS integration: tasks/TASK-0200-windowing-compositor-v2b-os-wm-lite-alt-tab-screencapd.md
   - Present scheduler + input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md

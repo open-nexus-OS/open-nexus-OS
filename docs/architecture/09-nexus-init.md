@@ -6,7 +6,7 @@ It is the place where "what the OS boots" becomes concrete and testable.
 This page is intentionally high-level and drift-resistant:
 
 - **Canonical QEMU smoke contract** (marker ordering): `scripts/qemu-test.sh`
-- **Contributor workflow + marker guidance**: `docs/testing/index.md`
+- **Contributor workflow + marker guidance**: `docs/testing/README.md`
 - **Role/boundary decision**: `docs/adr/0001-runtime-roles-and-boundaries.md`
 - **Module split (RFC-0061)**: `docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md`
 

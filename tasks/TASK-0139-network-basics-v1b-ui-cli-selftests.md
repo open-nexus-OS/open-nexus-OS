@@ -6,8 +6,8 @@ created: 2025-12-25
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Offline net daemons: tasks/TASK-0138-network-basics-v1a-offline-controlplane-daemons.md
   - SystemUI→DSL Settings baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
   - Policy gates (network.configure): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md

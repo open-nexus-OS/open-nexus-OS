@@ -4,8 +4,8 @@ status: Draft
 owner: @devx @ui @runtime
 created: 2026-04-07
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Dev Studio (IDE) keystone: tasks/TRACK-DEVSTUDIO-IDE.md
   - App Store umbrella: tasks/TRACK-APP-STORE.md
   - Zero-Copy App Platform: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md

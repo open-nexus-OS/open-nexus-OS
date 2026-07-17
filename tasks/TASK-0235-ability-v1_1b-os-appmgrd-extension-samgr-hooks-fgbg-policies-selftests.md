@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Ability lifecycle core (host-first): tasks/TASK-0234-ability-v1_1a-host-lifecycle-state-backoff-killreasons-deterministic.md
   - App lifecycle baseline (appmgrd): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
   - Execd (spawner authority): tasks/TASK-0001-runtime-roles-and-boundaries.md

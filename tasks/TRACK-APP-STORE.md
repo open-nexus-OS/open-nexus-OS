@@ -4,8 +4,8 @@ status: Draft
 owner: @platform @ui @security
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - System Delegation / System Surfaces (no “store inside another app” anti-pattern): tasks/TRACK-SYSTEM-DELEGATION.md
   - DevX nx CLI (scaffold/pack/sign/inspect): tasks/TASK-0045-devx-nx-cli-v1.md

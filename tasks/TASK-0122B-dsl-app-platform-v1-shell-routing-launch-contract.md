@@ -6,8 +6,8 @@ created: 2026-03-28
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - SystemUI DSL Phase 2b: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
   - App shell baseline: tasks/TASK-0074-ui-v10b-app-shell-adoption-modals.md
   - DSL v0.2 app mechanics: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md

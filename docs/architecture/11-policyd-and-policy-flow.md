@@ -10,7 +10,7 @@ Canonical sources:
 - Security overview: `docs/security/policy-as-code.md`
 - End-to-end flow (signing + policy + init): `docs/security/signing-and-policy.md`
 - Service architecture context: `docs/adr/0017-service-architecture.md`
-- Testing guide: `docs/testing/index.md`
+- Testing guide: `docs/testing/README.md`
 
 ## Responsibilities
 
@@ -96,7 +96,7 @@ Denials must be deterministic and explicit:
 - QEMU smoke markers remain gated until real OS-lite reload wiring and adapter markers exist.
 - Every denial should be audit-logged by the production sink; host tests prove bounded audit event shape.
 
-See the testing matrix in `docs/testing/index.md` for how these are exercised.
+See the testing matrix in `docs/testing/layers.md` for how these are exercised.
 
 ### QEMU Proof Markers (Gated)
 

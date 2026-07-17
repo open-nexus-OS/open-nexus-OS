@@ -14,8 +14,8 @@ follow-up-tasks:
   - TASK-0289
 links:
 
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Testing contract: scripts/qemu-test.sh
   - Packaging docs: docs/packaging/nxb.md
   - Signing policy: docs/security/signing-and-policy.md
@@ -352,7 +352,7 @@ Notes:
    - Markers: All 6 OTA markers present
 
 2. **Documentation**
-   - `docs/updates/ab-skeleton-v1.md`: v1.0 model (non-persistent)
+   - `docs/packaging/ab-updates-skeleton-v1.md`: v1.0 model (non-persistent)
    - Update architecture docs
    - Update testing docs
 

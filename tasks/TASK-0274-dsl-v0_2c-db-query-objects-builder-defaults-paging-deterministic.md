@@ -6,8 +6,8 @@ created: 2025-12-30
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DSL query posture: docs/dev/dsl/db-queries.md
   - DSL services/effects posture: docs/dev/dsl/services.md
   - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md

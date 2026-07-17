@@ -6,7 +6,7 @@ created: 2026-01-09
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - Drivers/accelerators track: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Device/MMIO access: tasks/TASK-0010-device-mmio-access-model.md
   - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md

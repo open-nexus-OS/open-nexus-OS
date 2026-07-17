@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Text v2.1 host substrate: tasks/TASK-0201-text-v2_1a-host-hyphen-uax14-bidi-clusters-perf.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Shaping baseline (glyph cache in RAM): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md

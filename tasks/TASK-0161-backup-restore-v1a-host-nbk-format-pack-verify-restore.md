@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Identity/Keystore v1.1 (seal/unseal API): tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
   - Search v2 backend (optional index backup): tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md

@@ -4,8 +4,8 @@ status: Living
 owner: @ui @runtime
 created: 2026-01-26
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Keystone map (SDK + hard apps): docs/dev/platform/keystone-map.md
   - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - DSL v0.1a foundations: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md

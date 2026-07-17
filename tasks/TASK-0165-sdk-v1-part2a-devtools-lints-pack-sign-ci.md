@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - SDK v1 Part 1a gates: tasks/TASK-0163-sdk-v1-part1a-idl-freeze-codegen-wire-gates.md
   - SDK v1 Part 1b clients/templates: tasks/TASK-0164-sdk-v1-part1b-nx-sdk-templates-client-stubs.md
   - DevX nx CLI v1 (canonical CLI): tasks/TASK-0045-devx-nx-cli-v1.md

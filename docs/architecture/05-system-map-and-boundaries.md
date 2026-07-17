@@ -66,5 +66,5 @@ These boundaries are what keep the “host-first” strategy real:
 ## Where to look when changing something
 
 - **You changed behavior**: update the task proof section + the relevant RFC/ADR (and add a drift note if needed).
-- **You changed marker semantics**: update `scripts/qemu-test.sh` and `docs/testing/index.md` (don’t duplicate marker lists elsewhere).
+- **You changed marker semantics**: update `scripts/qemu-test.sh` and `docs/testing/os-markers.md` (don’t duplicate marker lists elsewhere).
 - **You added a new subsystem**: add a task first, then an RFC/ADR if it introduces a new contract/boundary.

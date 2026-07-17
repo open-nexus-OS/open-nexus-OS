@@ -11,8 +11,8 @@ depends-on:
   - TASK-0015
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - RFC (remote statefs RW contract): docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md
   - RFC (modular daemon boundary): docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md
@@ -25,7 +25,7 @@ links:
   - Follow-on (mux/flow-control): tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
   - Follow-on (QUIC transport): tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
   - Follow-on (core abstraction): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
-  - Testing methodology: docs/testing/index.md
+  - Testing methodology: docs/testing/README.md
   - Testing distributed debug guide: docs/testing/network-distributed-debugging.md
   - Testing contract: scripts/qemu-test.sh
   - Testing contract (2-VM): tools/os2vm.sh

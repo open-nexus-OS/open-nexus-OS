@@ -7,8 +7,8 @@ depends-on: []
 follow-up-tasks:
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Installer core (host-first): tasks/TASK-0238-installer-v1_1a-host-nab-semver-migrations-policy-deterministic.md
   - bundlemgrd install baseline: tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
   - Installer UI baseline: tasks/TASK-0131-packages-v1c-installer-ui-openwith-launcher-integration.md

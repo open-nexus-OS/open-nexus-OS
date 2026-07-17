@@ -3,6 +3,8 @@
 
 # Notifications
 
+> Status: superseded by `docs/dev/ui/status/notifications-v2.md`
+
 Notifications cover:
 
 - service model (channels, importance, actions),

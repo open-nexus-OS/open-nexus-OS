@@ -14,8 +14,8 @@ follow-up-tasks:
   - TASK-0200
   - TASK-0251
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC seed contract: docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md
   - Visible present baseline: tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md
   - UI v2a present/input baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md

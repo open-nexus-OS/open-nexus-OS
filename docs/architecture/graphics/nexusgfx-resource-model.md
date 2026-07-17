@@ -315,7 +315,7 @@ No sparse resources or exotic residency features are required in the first slice
 
 ## Related
 
-- `docs/architecture/nexusgfx-sync-and-lifetime.md`
-- `docs/architecture/nexusgfx-command-and-pass-model.md`
-- `docs/architecture/nexusgfx-tile-aware-design.md`
+- `docs/architecture/graphics/nexusgfx-sync-and-lifetime.md`
+- `docs/architecture/graphics/nexusgfx-command-and-pass-model.md`
+- `docs/architecture/graphics/nexusgfx-tile-aware-design.md`
 - `tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md`

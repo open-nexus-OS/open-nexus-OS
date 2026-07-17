@@ -4,8 +4,8 @@ status: Living
 owner: @media @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (share/edit/cast as intents, not per-app stacks): tasks/TRACK-SYSTEM-DELEGATION.md
   - Zero-Copy App Platform (foundation): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - NexusMedia SDK (decoders/playback): tasks/TRACK-NEXUSMEDIA-SDK.md

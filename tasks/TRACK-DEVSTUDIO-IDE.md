@@ -4,8 +4,8 @@ status: Draft
 owner: @devx @ui @runtime
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DevX nx CLI (scaffold/inspect/postflight): tasks/TASK-0045-devx-nx-cli-v1.md
   - DSL state/nav core: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
   - DSL service stubs: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md

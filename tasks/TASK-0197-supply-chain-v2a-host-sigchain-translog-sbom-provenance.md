@@ -8,8 +8,8 @@ follow-up-tasks:
   - TASK-0198
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Supply-chain v1 baseline (CycloneDX + allowlist policy): tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Trust store unification (roots/keys): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
   - Updates v2 orchestration (consumer): tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md

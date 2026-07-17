@@ -7,8 +7,8 @@ updated: 2026-05-17 (Done — production-grade, 31 tests, windowd integrated, si
 depends-on: [TASK-0057, TASK-0056]
 follow-up-tasks: [TASK-0059]
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - **RFC seed (SSOT contract)**: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
   - Design reference: https://github.com/chenglou/pretext (prepare/layout split philosophy)
   - UI v2b shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
@@ -19,7 +19,7 @@ links:
   - DSL alignment (view expressions, modifiers): tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - DSL syntax conventions: docs/dev/dsl/syntax.md
   - Testing contract: docs/dev/ui/foundations/quality/goldens.md
-  - Minimal DisplayServer v0: docs/architecture/display-output-service-chain.md
+  - Minimal DisplayServer v0: docs/architecture/graphics/display-output-service-chain.md
   - Proof surface reference: source/services/windowd/src/os_lite.rs (current hardcoded panel)
 ---
 

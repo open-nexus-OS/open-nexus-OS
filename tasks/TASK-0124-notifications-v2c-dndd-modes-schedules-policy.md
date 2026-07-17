@@ -6,8 +6,8 @@ created: 2025-12-25
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - notifd persistence/unread: tasks/TASK-0123-notifications-v2b-notifd-persistence-history-unread.md
   - Notifications v2 minimal: tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
   - Prefs store (user-configurable DND): tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md

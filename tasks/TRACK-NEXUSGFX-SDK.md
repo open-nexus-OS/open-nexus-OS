@@ -4,20 +4,20 @@ status: Living
 owner: @ui @runtime
 created: 2025-12-26
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Extracted (NexusGfx v1b resource/fence core): tasks/TASK-0169B-nexusgfx-v1b-resource-fence-core-cpu-mock-submit.md
   - Extracted (NexusGfx v1c windowd handoff): tasks/TASK-0170B-nexusgfx-v1c-windowd-handoff-minimal-pass-planning.md
   - Current state (2026-05-29): Module structure established (Phase 5 of RFC-0059). 10-directory Metal-like tree, 40+ skeleton files. Existing v0 code moved into core/, resource/, command/. Backward-compatible re-exports. See RFC-0059 for full structure.
-  - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
-  - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
-  - Gfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
-  - Gfx command/pass model: docs/architecture/nexusgfx-command-and-pass-model.md
-  - Gfx compute kernel model: docs/architecture/nexusgfx-compute-kernel-model.md
-  - Gfx tile-aware design: docs/architecture/nexusgfx-tile-aware-design.md
-  - Gfx text pipeline integration: docs/architecture/nexusgfx-text-pipeline.md
-  - Gfx artifact pipeline: docs/architecture/nexusgfx-artifact-pipeline.md
-  - Gfx capability matrix: docs/architecture/nexusgfx-capability-matrix.md
+  - Gfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
+  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - Gfx command/pass model: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+  - Gfx compute kernel model: docs/architecture/graphics/nexusgfx-compute-kernel-model.md
+  - Gfx tile-aware design: docs/architecture/graphics/nexusgfx-tile-aware-design.md
+  - Gfx text pipeline integration: docs/architecture/graphics/nexusgfx-text-pipeline.md
+  - Gfx artifact pipeline: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
+  - Gfx capability matrix: docs/architecture/graphics/nexusgfx-capability-matrix.md
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - NexusGame SDK track (games): tasks/TRACK-NEXUSGAME-SDK.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
@@ -71,21 +71,21 @@ These are cross-cutting and must remain stable as the SDK evolves:
 - **Perf gates**: regression gates must be deterministic and enforced via host tests first.  
   Sources: `tasks/TASK-0143`/`0144`/`0145`
 - **Hardware abstraction**: capability-driven lowering and executor selection; no CUDA/Tensor-Core assumptions in the portable contract.  
-  Sources: `docs/architecture/nexusgfx-compute-and-executor-model.md`, `docs/architecture/nexusgfx-capability-matrix.md`
+  Sources: `docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`, `docs/architecture/graphics/nexusgfx-capability-matrix.md`
 
 ## Architecture surfaces (canonical docs)
 
 Detailed design work for later task/RFC extraction lives in:
 
-- `docs/architecture/nexusgfx-compute-and-executor-model.md`
-- `docs/architecture/nexusgfx-resource-model.md`
-- `docs/architecture/nexusgfx-sync-and-lifetime.md`
-- `docs/architecture/nexusgfx-command-and-pass-model.md`
-- `docs/architecture/nexusgfx-compute-kernel-model.md`
-- `docs/architecture/nexusgfx-tile-aware-design.md`
-- `docs/architecture/nexusgfx-text-pipeline.md`
-- `docs/architecture/nexusgfx-artifact-pipeline.md`
-- `docs/architecture/nexusgfx-capability-matrix.md`
+- `docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`
+- `docs/architecture/graphics/nexusgfx-resource-model.md`
+- `docs/architecture/graphics/nexusgfx-sync-and-lifetime.md`
+- `docs/architecture/graphics/nexusgfx-command-and-pass-model.md`
+- `docs/architecture/graphics/nexusgfx-compute-kernel-model.md`
+- `docs/architecture/graphics/nexusgfx-tile-aware-design.md`
+- `docs/architecture/graphics/nexusgfx-text-pipeline.md`
+- `docs/architecture/graphics/nexusgfx-artifact-pipeline.md`
+- `docs/architecture/graphics/nexusgfx-capability-matrix.md`
 
 ## Related tracks (intentional split, shared primitives)
 

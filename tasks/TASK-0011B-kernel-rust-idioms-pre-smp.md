@@ -6,8 +6,8 @@ created: 2026-01-09
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Parent: tasks/TASK-0011-kernel-simplification-phase-a.md
   # NOTE: RFC-0001 is the seed contract for TASK-0011 (layout + headers). TASK-0011B requires its own seed RFC.
   - Seed RFC: docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md

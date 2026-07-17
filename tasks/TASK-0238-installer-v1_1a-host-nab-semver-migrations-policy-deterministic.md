@@ -8,8 +8,8 @@ follow-up-tasks:
   - TASK-0239
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NXB format baseline: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
   - Packaging contract (manifest.nxb): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - Supply-chain signing: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md

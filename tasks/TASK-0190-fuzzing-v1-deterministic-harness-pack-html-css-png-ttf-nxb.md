@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - WebView sanitizer/parser risk surface: tasks/TASK-0176-webview-net-v1a-host-sanitizer-webview-sceneir-goldens.md
   - WebView v1.1 sanitizer CSP strict: tasks/TASK-0186-webview-v1_1a-host-webview-core-history-find-sessionstorage-csp.md
   - Packaging manifest parser risk surface: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md

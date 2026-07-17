@@ -9,8 +9,8 @@ follow-up-tasks:
   - TASK-0239
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - NXB format/tooling: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
   - State persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

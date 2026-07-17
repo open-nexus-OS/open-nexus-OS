@@ -8,8 +8,8 @@ depends-on:
   - TASK-0004
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Depends-on: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
   - Follow-on: tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
   - Follow-on: tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md
@@ -257,7 +257,7 @@ Marker ownership rules (to keep the harness deterministic):
    - Extend `docs/distributed/dsoftbus-os.md` with a cross-VM section:
      - discovery payload fields, TTL/aging, session policy
      - remote gateway semantics and limitations
-   - Extend `docs/testing/index.md`:
+   - Extend `docs/testing/README.md`:
      - how to run `tools/os2vm.sh`, expected logs, troubleshooting
 
 ## Acceptance criteria (behavioral)

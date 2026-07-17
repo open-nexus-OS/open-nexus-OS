@@ -4,8 +4,8 @@ status: Draft
 owner: @ui @runtime
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusGame SDK (foundation): tasks/TRACK-NEXUSGAME-SDK.md
   - NexusGfx SDK (render/present): tasks/TRACK-NEXUSGFX-SDK.md
   - NexusMedia SDK (audio): tasks/TRACK-NEXUSMEDIA-SDK.md

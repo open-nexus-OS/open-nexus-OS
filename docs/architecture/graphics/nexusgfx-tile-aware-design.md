@@ -191,6 +191,6 @@ This keeps the first slice small while preventing later mobile-backend drift.
 
 ## Related
 
-- `docs/architecture/nexusgfx-command-and-pass-model.md`
-- `docs/architecture/nexusgfx-resource-model.md`
+- `docs/architecture/graphics/nexusgfx-command-and-pass-model.md`
+- `docs/architecture/graphics/nexusgfx-resource-model.md`
 - `tasks/TRACK-NEXUSGFX-SDK.md`

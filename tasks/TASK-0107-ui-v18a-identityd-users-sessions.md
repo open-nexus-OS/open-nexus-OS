@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Policy as Code (identity guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Config broker (argon2 params): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md

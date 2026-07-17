@@ -10,8 +10,8 @@ follow-up-tasks:
   - TASK-0055C
   - TASK-0251
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC seed contract: docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md
   - UI v1b headless compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
   - Renderer abstraction OS wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md

@@ -15,8 +15,8 @@ follow-up-tasks:
   - TASK-0054D
   - TASK-0290
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seed (RFC): docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md
   - Zero-Copy App Platform (consumer track): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
@@ -223,7 +223,7 @@ the kernel-side production-grade gap.
 ## Contract sources (single source of truth)
 
 - ABI surface: `source/libs/nexus-abi/src/lib.rs` (VMO + AS map syscalls, cap_transfer)
-- Vision "data plane VMO/filebuffer": `docs/agents/VISION.md`
+- Vision "data plane VMO/filebuffer": `docs/architecture/vision.md`
 
 ## Stop conditions (Definition of Done)
 
@@ -277,7 +277,7 @@ These handoff items do not block `TASK-0031` review closure once the host and OS
 - `userspace/exec-payloads/` or a small new demo app for consumer (if needed)
 - `scripts/qemu-test.sh`
 - `docs/storage/vmo.md` (new)
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 
 ## Plan (small PRs)
 

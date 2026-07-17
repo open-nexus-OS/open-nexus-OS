@@ -7,8 +7,8 @@ updated: 2026-07-03 (full rewrite to IST + new scope)
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI v6a WM baseline: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
   - Layout engine contract: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
   - Compositor boundary: docs/rfcs/RFC-0067-windowd-compositor-service-boundary.md

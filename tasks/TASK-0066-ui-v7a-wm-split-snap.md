@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI v6a WM baseline: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
   - UI v3a layout baseline (for future tiling): tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
   - Policy as Code (WM constraints): tasks/TASK-0047-policy-as-code-v1-unified-engine.md

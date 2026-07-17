@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
   - Renderer abstraction (Scene-IR + cpu2d goldens): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - windowd↔renderer OS wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md

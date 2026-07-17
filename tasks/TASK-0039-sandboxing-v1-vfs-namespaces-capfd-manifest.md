@@ -12,9 +12,9 @@ follow-up-tasks:
   - TASK-0043
   - TASK-0189
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - Contract seed (this task): docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Playbook: CLAUDE.md
   - IPC/caps model: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - VFS today: source/services/vfsd/src/os_lite.rs
   - Depends-on (policy authority): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
@@ -240,7 +240,7 @@ Notes:
 - `tests/`
 - `source/apps/selftest-client/` (OS-gated)
 - `docs/security/sandboxing.md`
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 - `scripts/qemu-test.sh`
 
 ## Plan (small PRs)

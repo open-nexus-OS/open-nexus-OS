@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI v4a perf baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
   - UI v2a input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
   - UI v3b IME/text-input baseline (focus/caret): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md

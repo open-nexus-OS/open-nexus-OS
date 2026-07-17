@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Compositor v2.2 host substrate: tasks/TASK-0215-compositor-v2_2a-host-gpuabst-planner-async-color.md
   - Windowing v2.1 OS surfaces/fences baseline: tasks/TASK-0208-windowing-v2_1b-os-swapchains-fences-vsync-domains-hidpi.md
   - Windowing/Compositor v2 OS integration (WM-lite, screencap): tasks/TASK-0200-windowing-compositor-v2b-os-wm-lite-alt-tab-screencapd.md

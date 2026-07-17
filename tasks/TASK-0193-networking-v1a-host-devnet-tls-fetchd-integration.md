@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - WebView Net v1 fetch path (fetchd/httpstubd): tasks/TASK-0177-webview-net-v1b-os-httpstubd-fetchd-downloadd-policy-selftests.md
   - Trust store unification (keys/roots): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
   - Network basics offline daemons (hosts/DNS direction): tasks/TASK-0138-network-basics-v1a-offline-controlplane-daemons.md

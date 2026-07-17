@@ -4,8 +4,8 @@ status: Draft
 owner: @runtime
 created: 2025-12-30
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - NexusInfer SDK (hybrid IPC + VMO data plane for future ML): tasks/TRACK-NEXUSINFER-SDK.md
 ---

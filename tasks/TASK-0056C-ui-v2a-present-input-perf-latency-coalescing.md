@@ -14,8 +14,8 @@ follow-up-tasks:
   - TASK-0063
   - TASK-0064
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Security standards: docs/standards/SECURITY_STANDARDS.md
   - RFC (contract seed): docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md
   - UI v2a baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md

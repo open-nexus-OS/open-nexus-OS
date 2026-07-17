@@ -7,7 +7,7 @@ depends-on: []
 follow-up-tasks: []
 links:
   - RFC: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
-  - Testing guide: docs/testing/index.md
+  - Testing guide: docs/testing/README.md
 ---
 
 ## Context
@@ -43,7 +43,7 @@ RFC-0014 Phase 2 requires:
 
 **Docs (if workflow changes):**
 
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 - `docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md` (Phase 2 checklist/proofs)
 
 ## Stop conditions

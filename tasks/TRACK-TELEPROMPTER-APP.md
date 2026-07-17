@@ -4,8 +4,8 @@ status: Draft
 owner: @apps @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - windowd compositor/present spine: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
   - Renderer abstraction (host-first): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md

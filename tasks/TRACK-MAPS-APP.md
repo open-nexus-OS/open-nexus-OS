@@ -4,8 +4,8 @@ status: Draft
 owner: @apps @ui @runtime
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (pick-location + navigation intents): tasks/TRACK-SYSTEM-DELEGATION.md
   - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md

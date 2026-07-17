@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Print pipeline baseline: tasks/TASK-0088-ui-v13b-print-to-pdf-printd-preview.md
   - Shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
 ---

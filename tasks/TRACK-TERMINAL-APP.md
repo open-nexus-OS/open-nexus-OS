@@ -4,8 +4,8 @@ status: Draft
 owner: @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Zero-Copy App Platform (clipboard/share/save): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Files app (Open With / save/export): tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
   - Accessibility wiring (Settings + app hardening): tasks/TASK-0118-ui-v20e-accessibility-settings-app-wiring-os-proofs.md

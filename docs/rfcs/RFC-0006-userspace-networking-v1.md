@@ -122,7 +122,7 @@ Phase 0 implementation note:
   - bounded buffer helpers,
   - a deterministic in-memory backend (`nexus_net::fake::FakeNet`) for tests (no external network dependency).
   - a DSoftBus host transport adapter exists that runs over this facade for deterministic proof (`userspace/dsoftbus` facade transport tests).
-  - preferred regression proof remains `just test-host` (CI parity; see `docs/testing/index.md`).
+  - preferred regression proof remains `just test-host` (CI parity; see `docs/testing/README.md`).
 
 #### Types
 

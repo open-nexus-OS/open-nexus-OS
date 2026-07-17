@@ -4,8 +4,8 @@ status: Living
 owner: @runtime @ui @storage
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Service architecture (hybrid control/data plane): docs/adr/0017-service-architecture.md
   - IPC runtime architecture: docs/adr/0003-ipc-runtime-architecture.md
   - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md

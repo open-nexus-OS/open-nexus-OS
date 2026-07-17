@@ -6,8 +6,8 @@ created: 2025-12-30
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Kernel SMP bring-up: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - RISC-V HSM/IPI + per-hart timers (extension): tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md
   - Kernel IPC/caps baseline: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md

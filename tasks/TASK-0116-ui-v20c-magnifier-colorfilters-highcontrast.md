@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI v4a compositor baseline (post-process hooks): tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
   - Theme tokens baseline: tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
   - Prefs store: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md

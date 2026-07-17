@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - WebView baseline (offline): tasks/TASK-0111-ui-v19a-webviewd-sandbox-offscreen.md
   - Downloads helper baseline (saveAs): tasks/TASK-0112-ui-v19b-contentd-saveas-downloads.md
   - Renderer abstraction (Scene-IR + cpu2d goldens): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md

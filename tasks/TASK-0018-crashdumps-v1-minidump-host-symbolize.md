@@ -13,8 +13,8 @@ follow-up-tasks:
   - TASK-0142
   - TASK-0227
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC: docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md
   - Depends-on (log sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (persistence): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

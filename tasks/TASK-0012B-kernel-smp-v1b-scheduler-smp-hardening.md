@@ -10,8 +10,8 @@ follow-up-tasks:
   - TASK-0247
   - TASK-0283
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - SMP v1 contract: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
   - SMP v1b hardening contract (this task): docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md
@@ -168,7 +168,7 @@ Required markers remain green and unchanged in meaning:
 - `scripts/qemu-test.sh` (only if marker ordering/gating contract needs explicit sync)
 - `docs/architecture/01-neuron-kernel.md`
 - `docs/architecture/16-rust-concurrency-model.md`
-- `docs/testing/index.md` (only if proof commands/marker expectations change)
+- `docs/testing/README.md` (only if proof commands/marker expectations change)
 - `docs/rfcs/RFC-0022-kernel-smp-v1b-scheduler-hardening-contract.md` (phase/checklist/status sync)
 - `docs/rfcs/README.md` (RFC status index sync)
 - `tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md` (anti-drift follow-up notes for trap runtime/stack overflow/NMI/FPU)

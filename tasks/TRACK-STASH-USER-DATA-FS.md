@@ -4,8 +4,8 @@ status: Living
 owner: @runtime
 created: 2026-07-15
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seeds: docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md, docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md, docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md
   - Decisions: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md, docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
   - statefs hardening (parallel lane): tasks/TASK-0025-statefs-write-path-hardening-integrity-atomic-budgets-audit.md, tasks/TASK-0026-statefs-v2a-2pc-compaction-fsck.md, tasks/TASK-0027-statefs-v2b-encryption-at-rest.md

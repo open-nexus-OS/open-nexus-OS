@@ -6,17 +6,17 @@ created: 2026-04-10
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusInfer track: tasks/TRACK-NEXUSINFER-SDK.md
   - DriverKit core contracts: tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md
   - DMA buffer ownership prototype: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
   - Zero-copy VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers contract: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
-  - Gfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
-  - NexusInfer runtime profiles: docs/architecture/nexusinfer-runtime-profiles.md
-  - NexusInfer rust design: docs/architecture/nexusinfer-rust-design.md
+  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
+  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - NexusInfer runtime profiles: docs/architecture/inference/nexusinfer-runtime-profiles.md
+  - NexusInfer rust design: docs/architecture/inference/nexusinfer-rust-design.md
 ---
 
 ## Context
@@ -113,8 +113,8 @@ Deliver the first concrete `NexusInfer` contract slice that defines:
 
 - `userspace/` (new infer core crate or runtime module)
 - `source/services/` (only if a minimal infer service scaffold already exists)
-- `docs/architecture/nexusinfer-runtime-profiles.md` (only if contract gaps are discovered)
-- `docs/architecture/nexusinfer-rust-design.md` (only if contract gaps are discovered)
+- `docs/architecture/inference/nexusinfer-runtime-profiles.md` (only if contract gaps are discovered)
+- `docs/architecture/inference/nexusinfer-rust-design.md` (only if contract gaps are discovered)
 - `tasks/TRACK-NEXUSINFER-SDK.md`
 
 ## Plan (small PRs)

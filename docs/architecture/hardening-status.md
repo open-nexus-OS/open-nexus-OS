@@ -48,6 +48,6 @@ ECALL storms), but ordinary syscall errors are returned to userspace.
 ## Related canonical references
 
 - Kernel overview: `docs/architecture/01-neuron-kernel.md`
-- Kernel + layering quick reference: `docs/ARCHITECTURE.md`
+- Kernel + layering quick reference: `docs/architecture/README.md`
 - Policy flow: `docs/architecture/11-policyd-and-policy-flow.md`
-- Testing methodology and CI marker discipline: `docs/testing/index.md` and `scripts/qemu-test.sh`
+- Testing methodology and CI marker discipline: `docs/testing/README.md` and `scripts/qemu-test.sh`

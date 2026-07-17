@@ -9,8 +9,8 @@ follow-up-tasks:
   - TASK-0293
   - TASK-0294
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seed (this task, VFS surface): docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
   - Contract seed (this task, app surface): docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md
   - Role model: docs/dev/app-platform/privileged-roles.md

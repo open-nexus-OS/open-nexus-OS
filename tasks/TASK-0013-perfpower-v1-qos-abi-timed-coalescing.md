@@ -12,8 +12,8 @@ follow-up-tasks:
   - TASK-0277
   - TASK-0283
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - QoS/timed contract (this task): docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md
   - Depends-on (SMP baseline): tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - Depends-on (SMP hardening bridge): tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md

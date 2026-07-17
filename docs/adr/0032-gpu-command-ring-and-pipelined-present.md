@@ -85,7 +85,7 @@ ring** and a **pipelined, enqueue-only present**.
   proven path windowd's 120 Hz pacer uses via `process_expired_timers`), not the
   recv-timeout path. The real windowd-driven UI present path is already 120 Hz-capable;
   only the synthetic self-pace is limited. See
-  `docs/architecture/gpud-command-ring-and-present-pipeline.md`.
+  `docs/architecture/graphics/gpud-command-ring-and-present-pipeline.md`.
 
 ## Tests
 

@@ -14,8 +14,8 @@ follow-up-tasks:
   - TASK-0046
   - TASK-0143
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Seed contract: docs/rfcs/RFC-0024-observability-v2-metrics-tracing-contract-v1.md
   - Depends-on (log sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (persistence substrate): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

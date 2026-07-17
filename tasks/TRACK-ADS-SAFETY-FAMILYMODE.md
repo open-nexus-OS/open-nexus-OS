@@ -4,8 +4,8 @@ status: Draft
 owner: @security @ui @runtime @platform
 created: 2026-02-01
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Policy v1 (cap matrix + adapters + audit): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
   - Policy v1.1 (runtime prompts + Privacy Dashboard): tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
   - System Delegation / System Surfaces (intents + user-mediated confirmation): tasks/TRACK-SYSTEM-DELEGATION.md

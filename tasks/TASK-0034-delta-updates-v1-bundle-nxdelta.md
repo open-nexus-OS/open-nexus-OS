@@ -9,7 +9,7 @@ depends-on: []
 follow-up-tasks: []
 links:
 
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - Packaging baseline: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - Manifest format: docs/adr/0020-manifest-format-capnproto.md
   - Signing policy: docs/security/signing-and-policy.md
@@ -134,7 +134,7 @@ Notes:
 - `source/services/bundlemgrd/` (apply+verify+commit; OS-gated)
 - `source/apps/selftest-client/` (OS-gated markers)
 - `docs/updates/delta.md`
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 - `scripts/qemu-test.sh` (gated)
 
 ## Plan (small PRs)

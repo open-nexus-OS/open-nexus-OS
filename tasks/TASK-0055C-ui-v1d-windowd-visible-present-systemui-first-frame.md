@@ -13,8 +13,8 @@ follow-up-tasks:
   - TASK-0056C
   - TASK-0251
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC seed contract: docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md
   - Visible scanout bootstrap: tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md
   - UI v1b compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
@@ -182,7 +182,7 @@ Visual proof:
 - `tests/ui_windowd_host/` (approved narrow addition for required reject proof)
 - `docs/dev/ui/overview.md`
 - `docs/dev/ui/foundations/quality/testing.md`
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 - `docs/architecture/README.md`
 - `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`
 - `tasks/STATUS-BOARD.md`

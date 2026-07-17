@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Search v2 backend host slice: tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md
   - Search v2 UI execution: tasks/TASK-0152-search-v2-ui-os-deeplinks-selftests-postflight-docs.md
   - Search backend baseline: tasks/TASK-0071-ui-v9a-searchd-command-palette.md

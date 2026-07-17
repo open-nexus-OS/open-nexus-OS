@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Storage core (host-first): tasks/TASK-0264-storage-writepath-v1_0a-host-durable-io-atomic-fsync-deterministic.md
   - Content provider foundations: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md

@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
   - Content providers (contentd): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
@@ -111,7 +111,7 @@ On OS/QEMU, deliver deterministic, proven UX flows:
 - SystemUI doc picker overlay (`TASK-0083`) (extend: folder mode + remember access UX)
 - `source/apps/selftest-client/` (new markers)
 - `userspace/apps/files/` (polish items; still uses providers/grants/fileops)
-- `docs/dev/ui/system-experiences/doc-picker.md` + `docs/dev/ui/collections/files.md` (extend with SAF terminology + privacy gate explanation)
+- `docs/dev/ui/system-experiences/document-access/doc-picker.md` + `docs/dev/ui/collections/files.md` (extend with SAF terminology + privacy gate explanation)
 - `scripts/qemu-test.sh`
 
 ## Plan (small PRs)

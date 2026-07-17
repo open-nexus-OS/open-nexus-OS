@@ -128,5 +128,5 @@ This setting should also be used as a low-power fallback path.
 
 - UI performance philosophy: `docs/dev/ui/foundations/quality/performance-philosophy.md`
 - Colors/tokens: `docs/dev/ui/foundations/visual/colors.md`, `docs/dev/ui/foundations/visual/theme.md`
-- App shell zones (sidebar/control center surfaces): `docs/dev/ui/patterns/app-shell-patterns.md`
+- App shell zones (sidebar/control center surfaces): `docs/dev/ui/patterns/app-shell.md`
 - Compositor concepts: `docs/dev/ui/foundations/rendering/compositor.md`

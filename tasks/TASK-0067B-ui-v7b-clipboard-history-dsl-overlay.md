@@ -6,8 +6,8 @@ created: 2026-03-28
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Clipboard v2 service baseline: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
   - SystemUI bootstrap shell: tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md
   - DSL App Integration Kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md

@@ -10,8 +10,8 @@ depends-on:
 follow-up-tasks:
   - TASK-0044
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - ADR: docs/adr/0006-device-identity-architecture.md
   - Depends-on (DSoftBus core in OS): tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md

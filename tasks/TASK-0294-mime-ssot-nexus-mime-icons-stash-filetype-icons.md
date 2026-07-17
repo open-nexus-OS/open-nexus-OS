@@ -7,8 +7,8 @@ depends-on:
   - TASK-0291
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seed (this task): docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md
   - Mime SSOT data: resources/mimetypes/mimetypes.toml (+ resources/mimetypes/README.md)
   - Pattern to follow: userspace/ui/app-icons/build.rs (manifest-scanned SVG bake)

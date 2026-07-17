@@ -438,7 +438,7 @@ These tasks depend on kernel networking primitives (TASK-0010 MMIO access).
 
 ### 1. QoS/Affinity Authority Model
 
-**Status**: ✅ Documented in `docs/architecture/SECURITY-CONSISTENCY-CHECK.md`
+**Status**: ✅ Documented in `docs/architecture/security-consistency-check.md`
 
 **Decision**: `policyd` is the single authority for QoS/affinity policy. Tasks can self-modify within recipe limits.
 
@@ -662,7 +662,7 @@ These tasks depend on kernel networking primitives (TASK-0010 MMIO access).
 
 - **Related Documents**:
 
-  - `docs/architecture/SECURITY-CONSISTENCY-CHECK.md` - Security drift prevention
+  - `docs/architecture/security-consistency-check.md` - Security drift prevention
   - `docs/architecture/smp-ipi-rate-limiting.md` - IPI policy
   - `docs/architecture/16-rust-concurrency-model.md` - Rust SMP patterns
   - `docs/architecture/01-neuron-kernel.md` - Kernel architecture

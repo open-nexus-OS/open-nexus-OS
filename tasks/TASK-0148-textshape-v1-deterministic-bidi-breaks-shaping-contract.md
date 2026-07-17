@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Shaping baseline (HarfBuzz): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
   - Text primitives baseline (UAX): tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
   - IME v2 Part 1: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md

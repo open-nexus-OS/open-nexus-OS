@@ -4,8 +4,8 @@ status: Living
 owner: @runtime
 created: 2025-12-22
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Networking step 1: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Networking step 2: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
   - Networking step 3: tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md

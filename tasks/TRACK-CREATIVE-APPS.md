@@ -4,16 +4,16 @@ status: Living
 owner: @ui @runtime
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (import/export/share/open-with primitives): tasks/TRACK-SYSTEM-DELEGATION.md
   - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
   - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
   - Drivers & accelerators (GPU/NPU/VPU contracts): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - NexusGfx SDK (Metal-like, CAD-ready): tasks/TRACK-NEXUSGFX-SDK.md
   - NexusInfer SDK (on-device ML runtime): tasks/TRACK-NEXUSINFER-SDK.md
-  - Gfx capability matrix: docs/architecture/nexusgfx-capability-matrix.md
-  - Gfx compute kernel model: docs/architecture/nexusgfx-compute-kernel-model.md
+  - Gfx capability matrix: docs/architecture/graphics/nexusgfx-capability-matrix.md
+  - Gfx compute kernel model: docs/architecture/graphics/nexusgfx-compute-kernel-model.md
   - NexusGame SDK (realtime loop/input replay): tasks/TRACK-NEXUSGAME-SDK.md
   - Zero-Copy App Platform (OpLog/autosave/connectors/UI primitives): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Media stack (image/video/audio decoders + sessions): tasks/TRACK-MEDIA-APPS.md

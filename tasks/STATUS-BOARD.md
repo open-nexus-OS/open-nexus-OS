@@ -314,7 +314,7 @@ QEMU window before the later display/system migration tasks fully land.
 | ✅ RFC-0031 | Crashdumps v1 + host symbolization | `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` |
 | ✅ RFC-0032 | ABI syscall guardrails v2 (userland, kernel-untouched) | `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md` |
 
-Current RFC closure status: `RFC-0033`, `RFC-0034`, `RFC-0035`, `RFC-0036`, and `RFC-0037` are `Done/Complete`.
+Current RFC closure status: `RFC-0060` (formerly RFC-0033), `RFC-0034`, `RFC-0035`, `RFC-0036`, and `RFC-0037` are `Done/Complete`.
 
 ---
 

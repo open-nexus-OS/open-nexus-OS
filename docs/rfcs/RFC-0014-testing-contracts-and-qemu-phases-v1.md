@@ -15,7 +15,7 @@
     - `docs/rfcs/RFC-0011-logd-journal-crash-v1.md` (logd contract + E2E expectations)
     - `docs/rfcs/RFC-0003-unified-logging.md` (no fake success; marker discipline)
     - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (IPC semantics; capability move model)
-  - Testing methodology: `docs/testing/index.md`
+  - Testing methodology: `docs/testing/README.md`
   - Security standards: `docs/standards/SECURITY_STANDARDS.md`
 
 ## Status at a Glance
@@ -168,7 +168,7 @@ The harness must treat missing “phase ok” markers as a hard failure and prin
 This RFC documents the **normative contract list** (12 phases). The current operational harness in `scripts/qemu-test.sh` still hard-codes the v1 list of 7-8 phases (`bring-up, mmio, routing, ota, policy, logd, vfs, end`) consumed via the `RUN_PHASE=<name>` early-exit mechanism. This drift is intentional and bounded:
 
 - The v1 harness list remains operationally authoritative for `RUN_PHASE` until `TASK-0023B` Phase 4 (Cut P4-05) replaces the hard-coded `PHASES`/`PHASE_START_MARKER`/`PHASE_END_MARKER` arrays with consumption from `source/apps/selftest-client/proof-manifest.toml`.
-- `docs/testing/index.md` continues to document the v1 harness list as the supported `RUN_PHASE` values until the same migration. Operators using `RUN_PHASE` should refer to that file, not this one.
+- `docs/testing/os-markers.md` continues to document the v1 harness list as the supported `RUN_PHASE` values until the same migration. Operators using `RUN_PHASE` should refer to that file, not this one.
 - After Cut P4-05, the harness, the manifest, and this RFC §3 list are congruent; the drift is closed by construction.
 
 Until then, contributors adding new code phases (e.g. `ipc_kernel`, `net`, `remote`) MUST emit honest behavior markers per the rules in §1 and §1b, but MUST NOT add new `RUN_PHASE` values to the harness — the new phases will become harness-addressable through the manifest at Cut P4-05.
@@ -195,7 +195,7 @@ This section exists to keep the initial rollout small and high-ROI. It is **not*
 
 Phase 0 names the **existing** tests that already provide signal today, so we can build on them without pretending they do not exist:
 
-- Host E2E suites in `docs/testing/index.md`:
+- Host E2E suites in `docs/testing/layers.md`:
   - `nexus-e2e` (`just test-e2e`)
   - `logd-e2e`
   - `e2e_policy`
@@ -323,7 +323,7 @@ Stop condition for the initial adoption: failures must name the first failing ph
 - QEMU phases must fail with:
   - a stable phase name,
   - the first failing marker expectation, and
-  - a bounded excerpt of relevant logs (consistent with `docs/testing/index.md` log trimming guidance).
+  - a bounded excerpt of relevant logs (consistent with `docs/testing/README.md` log trimming guidance).
 
 ## Proof / validation strategy (required)
 
@@ -452,7 +452,7 @@ When writing this RFC, ensure:
 
 ## Appendix A: `proof-manifest.toml` is normative for the marker ladder (added 2026-04-17 by Cut P4-02 of `TASK-0023B`)
 
-This appendix formalises the §3 "drift acknowledgement" by declaring [`source/apps/selftest-client/proof-manifest.toml`](../../source/apps/selftest-client/proof-manifest.toml) **normative** for:
+This appendix formalises the §3 "drift acknowledgement" by declaring [`source/apps/selftest-client/proof-manifest/`](../../source/apps/selftest-client/proof-manifest/) (split from the original single `proof-manifest.toml`) **normative** for:
 
 - the **set** of UART markers the harness expects per phase,
 - the **order** of those markers within a phase,
@@ -475,4 +475,4 @@ Schema-evolution rules:
 
 Backwards compatibility:
 
-- The `RUN_PHASE=<name>` early-exit mechanism remains supported via a manifest-driven mapping (the harness translates `RUN_PHASE=` to the same `--profile=…` resolution path internally from Cut P4-05+). Operators using `RUN_PHASE=` continue to use the v1 names from `docs/testing/index.md` until P4-10 deprecates the env-driven path.
+- The `RUN_PHASE=<name>` early-exit mechanism remains supported via a manifest-driven mapping (the harness translates `RUN_PHASE=` to the same `--profile=…` resolution path internally from Cut P4-05+). Operators using `RUN_PHASE=` continue to use the v1 names from `docs/testing/os-markers.md` until P4-10 deprecates the env-driven path.

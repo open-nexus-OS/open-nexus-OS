@@ -9,8 +9,8 @@ depends-on:
   - TASK-0021
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - DSoftBus overview: docs/distributed/dsoftbus-lite.md
   - Depends-on (OS dsoftbus networking): tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md

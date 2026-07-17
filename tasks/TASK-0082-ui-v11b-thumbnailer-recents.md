@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - ADR: docs/adr/0022-modern-image-formats-avif-webp.md
   - Content providers: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - SVG mini pipeline baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md

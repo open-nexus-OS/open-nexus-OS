@@ -4,8 +4,8 @@ status: Draft
 owner: @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (share/export as intents): tasks/TRACK-SYSTEM-DELEGATION.md
   - Zero-Copy App Platform (content/grants/share): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Share v2 / Intents (registry + dispatch): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md

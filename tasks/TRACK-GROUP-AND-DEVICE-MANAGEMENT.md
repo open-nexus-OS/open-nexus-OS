@@ -4,8 +4,8 @@ status: Draft
 owner: @platform @security @runtime
 created: 2026-04-07
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Config & Schema v1: tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Policy capability matrix: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md

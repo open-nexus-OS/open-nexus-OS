@@ -220,7 +220,7 @@ Therefore pass planning is not merely an API concern; it is a performance model.
 
 See:
 
-- `docs/architecture/nexusgfx-tile-aware-design.md`
+- `docs/architecture/graphics/nexusgfx-tile-aware-design.md`
 
 ---
 
@@ -247,6 +247,6 @@ That is sufficient for:
 
 ## Related
 
-- `docs/architecture/nexusgfx-resource-model.md`
-- `docs/architecture/nexusgfx-sync-and-lifetime.md`
-- `docs/architecture/nexusgfx-tile-aware-design.md`
+- `docs/architecture/graphics/nexusgfx-resource-model.md`
+- `docs/architecture/graphics/nexusgfx-sync-and-lifetime.md`
+- `docs/architecture/graphics/nexusgfx-tile-aware-design.md`

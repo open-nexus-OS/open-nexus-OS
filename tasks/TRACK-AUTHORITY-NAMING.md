@@ -4,8 +4,8 @@ status: Draft
 owner: @runtime
 created: 2025-12-30
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Keystone gates: tasks/TRACK-KEYSTONE-GATES.md
   - Authority decision (binding): tasks/TASK-0266-architecture-v1-authority-naming-contract.md
 ---

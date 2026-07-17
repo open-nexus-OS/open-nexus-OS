@@ -88,7 +88,7 @@ Visual proof:
 
 ### Docs — required
 
-- `docs/systemui/dsl-migration.md` phase record; `docs/dev/dsl/runtime.md` OS-mount
+- `docs/dev/ui/dsl-migration.md` phase record; `docs/dev/dsl/runtime.md` OS-mount
   section final; `docs/dev/ui/shell/session.md` notes the DSL greeter view.
 
 ## Touched paths (allowlist)
@@ -97,7 +97,7 @@ Visual proof:
   wiring for shell `.nxir`
 - `source/init/nexus-init/` (queryd topology entry), `source/services/queryd/`
 - `source/apps/selftest-client/`, `tools/postflight-systemui-bootstrap-shell.sh` (new)
-- `docs/systemui/dsl-migration.md`, `docs/dev/dsl/runtime.md`,
+- `docs/dev/ui/dsl-migration.md`, `docs/dev/dsl/runtime.md`,
   `docs/dev/ui/shell/session.md`
 
 ## Plan (small PRs)

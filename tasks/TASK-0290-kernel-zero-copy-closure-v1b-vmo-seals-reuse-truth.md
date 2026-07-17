@@ -10,8 +10,8 @@ depends-on:
   - TASK-0054D
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Zero-copy VMO plumbing baseline: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - UI/kernel perf floor: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
   - IPC fastpath floor: tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md

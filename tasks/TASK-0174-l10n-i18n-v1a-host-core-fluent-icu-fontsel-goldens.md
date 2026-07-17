@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Renderer abstraction (font integration): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - Text stack contract (bidi/line-break/shaping): tasks/TASK-0148-textshape-v1-deterministic-bidi-breaks-shaping-contract.md
   - Shaping baseline (font fallback chain): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md

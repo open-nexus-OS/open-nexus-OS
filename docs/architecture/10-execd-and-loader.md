@@ -11,7 +11,7 @@ Canonical sources:
 - Crash reporting (v1): `docs/rfcs/RFC-0011-logd-journal-crash-v1.md`
 - Crashdump v1 contract (in-process minidumps): `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`
 - QEMU proof harness: `scripts/qemu-test.sh` (marker contract)
-- Testing guide: `docs/testing/index.md`
+- Testing guide: `docs/testing/README.md`
 
 ## Responsibilities
 

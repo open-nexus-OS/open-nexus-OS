@@ -14,8 +14,8 @@ follow-up-tasks:
   - TASK-0133
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Shipped substrate (v1, Complete): docs/rfcs/RFC-0018-statefs-journal-format-v1.md
   - Architecture split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
   - Current-state doc: docs/storage/statefs.md
@@ -132,7 +132,7 @@ Prove, deterministically:
 - `source/services/settingsd/` (migrate to statefs client crate)
 - `source/services/keystored/`, `source/services/updated/` (adopt envelopes; gated)
 - `source/apps/selftest-client/` (markers)
-- `docs/storage/statefs.md`, `docs/testing/index.md`, `scripts/qemu-test.sh`
+- `docs/storage/statefs.md`, `docs/testing/README.md`, `scripts/qemu-test.sh`
 
 ## Plan (small PRs)
 

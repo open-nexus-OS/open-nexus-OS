@@ -4,8 +4,8 @@ status: Draft
 owner: @runtime @security @platform
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusNet SDK (accounts/OAuth/grants): tasks/TRACK-NEXUSNET-SDK.md
   - PIM Suite (Calendar + Contacts): tasks/TRACK-PIM-SUITE.md
   - Mail app (account-backed networking): tasks/TRACK-MAIL-APP.md

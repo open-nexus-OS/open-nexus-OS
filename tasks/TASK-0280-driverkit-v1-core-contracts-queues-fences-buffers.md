@@ -9,7 +9,7 @@ depends-on:
   - TASK-0031
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - Drivers/accelerators track: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - ADR: docs/adr/0018-driverkit-abi-versioning-and-stability.md
   - Depends-on (MMIO caps): tasks/TASK-0010-device-mmio-access-model.md

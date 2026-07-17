@@ -4,8 +4,8 @@ status: Draft
 owner: @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Location stack (locationd + consent): tasks/TRACK-LOCATION-STACK.md
   - NexusNet SDK (HTTP/providers): tasks/TRACK-NEXUSNET-SDK.md
   - Zero-Copy App Platform (caches/export): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md

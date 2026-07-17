@@ -14,8 +14,8 @@ follow-up-tasks:
   - TASK-0230
   - TASK-0266
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC: docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md
   - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
   - Depends-on (config system): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md

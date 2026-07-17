@@ -450,4 +450,4 @@ Two failure modes are mandatory exit-1:
 - RFC-0014 §3 v2 — phase ordering (manifest is normative for the phase set).
 - ADR-0027 — selftest-client two-axis architecture (why this crate is host-only).
 - [docs/testing/proof-manifest.md](proof-manifest.md) — the manifest schema this bundle hashes.
-- [docs/testing/index.md](index.md) — testing methodology and QEMU markers.
+- [docs/testing/README.md](README.md) — testing methodology and QEMU markers.

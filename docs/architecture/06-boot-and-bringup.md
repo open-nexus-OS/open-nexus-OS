@@ -5,7 +5,7 @@ This page explains how the system gets from **QEMU boot** to a **validated smoke
 Canonical truth for “what must appear in UART logs” is the marker contract:
 
 - `scripts/qemu-test.sh` (authoritative marker ordering + required markers)
-- `docs/testing/index.md` (methodology + how to run)
+- `docs/testing/README.md` (methodology + how to run)
 
 ## Why “bring-up” is structured this way
 
@@ -61,7 +61,7 @@ When QEMU fails, the harness reports `first_failed_phase=<name>` and prints a bo
 If you touch boot sequencing or service bring-up:
 
 - Update the harness expectations in `scripts/qemu-test.sh` **only** when the behavior really changed.
-- Update `docs/testing/index.md` if the contributor workflow changes (new required services, new marker tiers).
+- Update `docs/testing/README.md` if the contributor workflow changes (new required services, new marker tiers).
 
 ## Drift-resistant rule of thumb
 

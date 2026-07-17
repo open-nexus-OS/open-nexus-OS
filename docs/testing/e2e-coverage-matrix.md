@@ -95,7 +95,7 @@ Operational debugging procedures (phase gating, packet capture workflow, typed `
 
 ## References
 
-- **Testing methodology**: `docs/testing/index.md`
+- **Testing methodology**: `docs/testing/README.md`
 - **Network/distributed debugging SSOT**: `docs/testing/network-distributed-debugging.md`
 - **TASK-0005** (DSoftBus remote proxy): `tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md`
 - **TASK-0015** (DSoftBus daemon modularization + seam tests): `tasks/TASK-0015-dsoftbusd-refactor-v1-modular-os-daemon-structure.md`

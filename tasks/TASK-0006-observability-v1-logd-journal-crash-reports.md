@@ -12,8 +12,8 @@ follow-up-tasks:
   - TASK-0040
   - TASK-0141
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC: docs/rfcs/RFC-0003-unified-logging.md
   - IDL schema: tools/nexus-idl/schemas/log.capnp
   - Testing contract: scripts/qemu-test.sh
@@ -267,7 +267,7 @@ To prevent drift and hidden assumptions, TASK-0006 explicitly promises:
      - logd ring design, bounds, UART mirror semantics
      - nexus-log usage patterns (startup ordering + fallback)
      - crash reporting flow (v1 limits)
-   - Update `docs/testing/index.md` with marker expectations and troubleshooting.
+   - Update `docs/testing/README.md` with marker expectations and troubleshooting.
 
 ## Acceptance criteria (behavioral)
 

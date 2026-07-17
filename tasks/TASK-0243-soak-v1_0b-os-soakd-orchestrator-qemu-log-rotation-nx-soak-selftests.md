@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Soak core (host-first): tasks/TASK-0242-soak-v1_0a-host-repro-recorder-deterministic-retry-gates.md
   - Testing contract: scripts/qemu-test.sh
   - State persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

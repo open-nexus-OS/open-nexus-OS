@@ -6,8 +6,8 @@ created: 2026-03-28
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Audiod service baseline: tasks/TASK-0100-ui-v16b-audiod-mixer.md
   - SystemUI DSL phase 1: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
   - DSL App Platform v1: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md

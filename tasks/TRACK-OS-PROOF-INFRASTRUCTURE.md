@@ -4,12 +4,12 @@ status: Draft
 owner: @runtime
 created: 2026-04-17
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Foundational task (delivers manifest + evidence + replay): tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md
   - Foundational RFC: docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md
   - Phase contract: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md
-  - Testing index: docs/testing/index.md
+  - Testing index: docs/testing/README.md
 ---
 
 ## Goal (track-level)
@@ -148,6 +148,6 @@ This track is "done" when:
 
 1. ≥ 1 candidate from each workstream (B, C, D) has been extracted into a real `TASK-XXXX` and closed.
 2. The hard gates listed for each closed candidate are mechanically enforced in CI.
-3. A new contributor can read `docs/testing/index.md` and understand: what the manifest is, how to verify a bundle, how to replay a failure, what the budget/coverage/discipline floors are, and how to extend each.
+3. A new contributor can read `docs/testing/README.md` and understand: what the manifest is, how to verify a bundle, how to replay a failure, what the budget/coverage/discipline floors are, and how to extend each.
 
 The track itself does not need to fully complete — it remains a backlog umbrella as long as the discipline categories remain relevant. Closure of individual candidates is the meaningful unit.

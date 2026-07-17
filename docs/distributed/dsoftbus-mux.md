@@ -5,7 +5,7 @@
 This document summarizes the TASK-0020 host-first contract for DSoftBus Streams v2 mux behavior.
 
 - Execution/proof SSOT: `tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md`
-- Contract SSOT: `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
+- Contract SSOT: `docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
 - Out of scope here: QUIC transport contract internals (`TASK-0021`) and core/no_std extraction (`TASK-0022`)
 
 ## Contract surfaces

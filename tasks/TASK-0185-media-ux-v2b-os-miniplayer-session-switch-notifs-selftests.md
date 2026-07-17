@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Media apps product track (system-wide tray/notifications controls): tasks/TRACK-MEDIA-APPS.md
   - Media UX v1 OS slice: tasks/TASK-0156-media-ux-v1b-os-miniplayer-lockscreen-sample-cli-selftests.md
   - Media UX v2 core semantics: tasks/TASK-0184-media-ux-v2a-host-handoff-playerctl-deterministic-clock.md

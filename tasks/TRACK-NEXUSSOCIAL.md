@@ -4,8 +4,8 @@ status: Draft
 owner: @apps @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
   - System Delegation / System Surfaces (avoid per-app chat/compose reimplementation): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusNet SDK (network/OAuth surfaces): tasks/TRACK-NEXUSNET-SDK.md

@@ -11,7 +11,7 @@
   - Related RFCs:
     - `docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md`
     - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-    - `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
+    - `docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
     - `docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md`
 
 ## Status at a Glance
@@ -37,7 +37,7 @@ This RFC is a design seed / contract. Execution truth remains in tasks.
   - security invariants for downgrade resistance, ALPN/cert checks, and session authority preservation.
 - **This RFC does NOT own**:
   - legacy `TASK-0001..0020` closure obligations already owned by `RFC-0034`,
-  - mux v2 flow-control/keepalive semantics already owned by `RFC-0033`,
+  - mux v2 flow-control/keepalive semantics already owned by `RFC-0060`,
   - full reusable OS backend/core split work (`TASK-0022`) beyond boundary declarations,
   - OS QUIC enablement/feasibility unlock work (`TASK-0023`).
 
@@ -96,7 +96,7 @@ After `TASK-0020` closure, DSoftBus needs a host-first QUIC transport scaffold w
   - `tcp`: existing host TCP daemon path,
   - `auto`: deterministic fallback when QUIC runtime material is unavailable,
   - `quic`: fail-closed if required runtime cert/key material is missing.
-- Mux semantics remain transport-agnostic and governed by `RFC-0033`; this RFC only defines transport selection and downgrade behavior.
+- Mux semantics remain transport-agnostic and governed by `RFC-0060`; this RFC only defines transport selection and downgrade behavior.
 
 ### Marker contract (normative)
 
@@ -258,7 +258,7 @@ Closure question for phase sign-off:
 ## Alternatives considered
 
 - Extend `RFC-0034` with QUIC contract: rejected (legacy closure RFC must remain bounded to `TASK-0001..0020`).
-- Extend `RFC-0033` with transport-selection semantics: rejected (mux RFC scope would drift).
+- Extend `RFC-0060` with transport-selection semantics: rejected (mux RFC scope would drift).
 - Delay contract work until after `TASK-0022`: rejected (blocks host-first progress and weakens sequencing clarity).
 
 ## Open questions

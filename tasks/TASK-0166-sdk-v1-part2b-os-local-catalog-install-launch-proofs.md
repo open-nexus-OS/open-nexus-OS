@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - SDK devtools workflow: tasks/TASK-0165-sdk-v1-part2a-devtools-lints-pack-sign-ci.md
   - Packages install/launch (bundlemgrd/installer UI): tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
   - Installer UI integration: tasks/TASK-0131-packages-v1c-installer-ui-openwith-launcher-integration.md

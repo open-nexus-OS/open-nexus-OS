@@ -4,8 +4,8 @@ status: Living
 owner: @runtime @platform
 created: 2026-01-27
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Policy flow: docs/architecture/11-policyd-and-policy-flow.md
   - Content providers (pathless streams): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Doc picker (SAF flows): tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md

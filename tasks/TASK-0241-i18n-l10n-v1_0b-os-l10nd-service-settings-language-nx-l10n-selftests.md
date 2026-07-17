@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - i18n core (host-first): tasks/TASK-0240-i18n-l10n-v1_0a-host-catalog-compiler-icu-lite-plurals-deterministic.md
   - L10n/i18n v1b baseline (Fluent + Settings): tasks/TASK-0175-l10n-i18n-v1b-os-locale-switch-settings-cli-selftests.md
   - Settings v2 (provider keys): tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md

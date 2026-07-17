@@ -6,8 +6,8 @@ created: 2026-03-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Glass material guidance: docs/dev/ui/foundations/visual/materials.md
   - UI v3b effects baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - UI v4a compositor perf baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md

@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Keystore seal/unseal capability (host-first): tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
   - Keystore OS wiring (/state + caps): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
   - StateFS encryption-at-rest (lower layer, optional): tasks/TASK-0027-statefs-v2b-encryption-at-rest.md

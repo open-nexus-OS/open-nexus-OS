@@ -122,7 +122,7 @@ Start here:
 
 The repository includes a **userspace-only A/B update skeleton** (non-persistent) that
 proves stage → switch → health → rollback behavior via deterministic QEMU markers.
-See `docs/updates/ab-skeleton-v1.md` and `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`.
+See `docs/packaging/ab-updates-skeleton-v1.md` and `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`.
 
 ## Security (Policy Authority + Audit)
 
@@ -145,9 +145,9 @@ See `docs/rfcs/RFC-0016-device-identity-keys-v1.md` and `docs/security/identity-
 
 ## Documentation and standards
 
-- **Project overview**: `docs/overview.md`
+- **Project overview**: `docs/README.md`
 - **Architecture index**: `docs/architecture/README.md`
-- **Testing methodology (host-first, QEMU-last)**: `docs/testing/index.md`
+- **Testing methodology (host-first, QEMU-last)**: `docs/testing/README.md`
 - **Observability (logd journal + crash reports)**: `docs/observability/logging.md`
 - **Security (policy + audit)**: `docs/security/signing-and-policy.md`
 - **Docs/code standards (headers, ownership, drift rules)**: `docs/standards/DOCUMENTATION_STANDARDS.md`

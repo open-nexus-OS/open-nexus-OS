@@ -4,8 +4,8 @@ status: Draft
 owner: @apps @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (share targets + defaults): tasks/TRACK-SYSTEM-DELEGATION.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Zero-Copy App Platform (RichContent + autosave patterns): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md

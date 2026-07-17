@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI v2b shaping baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
   - UI v3a wrapping baseline: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
   - A11y baseline: tasks/TASK-0061-ui-v4b-gestures-a11y-semantics.md

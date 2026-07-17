@@ -5,7 +5,7 @@ material is treated as high-value secret state and is intended to be held by a
 dedicated authority service rather than being copied into arbitrary callers.
 
 This follows the system hybrid approach: keep APIs stable now, and later move key custody to secure
-hardware (Secure Element / TEE) per device class without ABI churn (see `docs/agents/VISION.md`).
+hardware (Secure Element / TEE) per device class without ABI churn (see `docs/architecture/vision.md`).
 
 ## Device identity keys on OS builds (virtio-rng → rngd → keystored)
 

@@ -21,7 +21,6 @@ Current entry points:
 - `docs/dev/ui/patterns/identity-and-trust/README.md`
 - `docs/dev/ui/patterns/data-surfaces/README.md`
 - `docs/dev/ui/patterns/app-shell.md`
-- `docs/dev/ui/patterns/app-shell-patterns.md`
 - `docs/dev/ui/patterns/wm.md`
 - `docs/dev/ui/patterns/wm-snap.md`
 - `docs/dev/ui/patterns/wm-resize-move.md`

@@ -8,8 +8,8 @@ depends-on:
   - TASK-0010
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC: docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - ADR: docs/adr/0026-network-address-profiles-and-validation.md
@@ -20,7 +20,7 @@ links:
   - Related: tasks/TASK-0249-bringup-rv-virt-v1_2b-os-virtionetd-netstackd-fetchd-echod-selftests.md
   - Follow-on: tasks/TASK-0194-networking-v1b-os-devnet-gated-real-connect.md
   - Follow-on: tasks/TASK-0196-dsoftbus-v1_1b-devnet-udp-discovery-gated.md
-  - Testing methodology: docs/testing/index.md
+  - Testing methodology: docs/testing/README.md
   - Testing contract: scripts/qemu-test.sh
   - Testing contract (2-VM): tools/os2vm.sh
 ---
@@ -275,7 +275,7 @@ links:
 
 ## Erfuellt-Bedingung (normative completion gate)
 
-Per `docs/testing/index.md` (host-first, OS-last), this task is only considered fulfilled when all of the following are green and marker semantics remain unchanged:
+Per `docs/testing/README.md` (host-first, OS-last), this task is only considered fulfilled when all of the following are green and marker semantics remain unchanged:
 
 1. Host seam/regression checks:
    - `cargo test -p netstackd --tests -- --nocapture`
@@ -297,7 +297,7 @@ Only these paths may be modified without opening a separate task/ADR:
 - `tasks/TASK-0016B-netstackd-refactor-v1-modular-os-daemon-structure.md`
 - `docs/rfcs/RFC-0029-netstackd-modular-daemon-structure-v1.md`
 - `docs/rfcs/README.md`
-- `docs/testing/index.md` (only if proof/developer guidance would otherwise drift)
+- `docs/testing/README.md` (only if proof/developer guidance would otherwise drift)
 - `scripts/qemu-test.sh` (only if existing marker gate definitions need sync without semantic drift)
 - `tools/os2vm.sh` (only if regression-harness sync is required without semantic drift)
 

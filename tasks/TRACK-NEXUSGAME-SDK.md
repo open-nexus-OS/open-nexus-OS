@@ -4,13 +4,13 @@ status: Living
 owner: @ui @runtime
 created: 2026-01-18
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (game invites/joins via intents, not ad-hoc UI): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusGfx SDK track (render/compute): tasks/TRACK-NEXUSGFX-SDK.md
-  - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
-  - Gfx artifact pipeline: docs/architecture/nexusgfx-artifact-pipeline.md
-  - Gfx capability matrix: docs/architecture/nexusgfx-capability-matrix.md
+  - Gfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - Gfx artifact pipeline: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
+  - Gfx capability matrix: docs/architecture/graphics/nexusgfx-capability-matrix.md
   - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - Drivers & accelerators foundations: tasks/TRACK-DRIVERS-ACCELERATORS.md

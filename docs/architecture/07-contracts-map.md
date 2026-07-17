@@ -21,7 +21,7 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 - **Contract**: kernel-enforced IPC semantics and capability rules
 - **Canonical spec**: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
 - **Why it matters**: makes “process-per-service” real without in-proc shortcuts
-- **Proof**: host tests + QEMU smoke markers (see `docs/testing/index.md` and `scripts/qemu-test.sh`)
+- **Proof**: host tests + QEMU smoke markers (see `docs/testing/README.md` and `scripts/qemu-test.sh`)
 
 ### Loader safety / mapping invariants
 
@@ -42,7 +42,7 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 - **Related**: `docs/adr/0009-bundle-manager-architecture.md`, `docs/adr/0007-executable-payloads-architecture.md`
 - **Supply-chain extension**: `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md`
 - **Proof**: host reject suites + gated QEMU supply-chain marker ladder (`just test-os supply-chain`)
-- **Drift warning**: `docs/bundle-format.md` is explicitly legacy/drifted; don’t treat it as the OS contract.
+- **Drift warning**: the old tar-based bundle description (formerly `docs/bundle-format.md`, deleted) was legacy/drifted; `docs/packaging/nxb.md` is the contract.
 
 ### Updates (`.nxs` system-set + A/B skeleton)
 
@@ -54,7 +54,7 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 ### Logging / markers discipline
 
 - **Contract**: deterministic, honest markers; no fake success
-- **Canonical practice**: `docs/testing/index.md` + `scripts/qemu-test.sh`
+- **Canonical practice**: `docs/testing/README.md` + `scripts/qemu-test.sh`
 - **Standards**: `docs/standards/DOCUMENTATION_STANDARDS.md`
 
 ### Config v1 authority and reload semantics
@@ -118,7 +118,7 @@ Rule: **do not treat this page as the contract**. It should link to the canonica
 - **Contract**: readiness vs up semantics, spawn failure reason taxonomy, resource/leak sentinel gate
 - **Canonical spec**: `docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md` (Complete)
 - **Task**: `tasks/TASK-0269-boot-gates-v1-readiness-spawn-resource.md` (Complete)
-- **Proof**: `KSELFTEST: spawn reasons ok`, `KSELFTEST: resource sentinel ok` + readiness contract in `docs/testing/index.md`
+- **Proof**: `KSELFTEST: spawn reasons ok`, `KSELFTEST: resource sentinel ok` + readiness contract in `docs/testing/os-markers.md`
 - **Why it matters**: deterministic early gates that turn "mysterious boot regressions" into actionable failures
 
 ### Testing contracts (host-first + phased QEMU)

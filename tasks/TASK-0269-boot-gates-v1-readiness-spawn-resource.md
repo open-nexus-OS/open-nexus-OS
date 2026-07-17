@@ -11,7 +11,7 @@ links:
   - IPC/caps contract: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - OS dependency hygiene: docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md
   - logd readiness contract: docs/rfcs/RFC-0011-logd-journal-crash-v1.md
-  - Testing methodology: docs/testing/index.md
+  - Testing methodology: docs/testing/README.md
   - QEMU marker contract: scripts/qemu-test.sh
   - Related: tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
 ---
@@ -60,7 +60,7 @@ This task executes RFC-0013 and provides the proof gates.
 
 ## Touched paths (allowlist)
 
-- `docs/testing/index.md` (doc alignment for readiness semantics)
+- `docs/testing/README.md` (doc alignment for readiness semantics)
 - `scripts/qemu-test.sh` (failure output clarity and gate coupling)
 - `source/kernel/neuron/**` (spawn reason taxonomy + selftests)
 - `source/libs/nexus-abi/**` (error mapping, if required by taxonomy)

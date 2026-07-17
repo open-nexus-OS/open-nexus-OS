@@ -87,5 +87,5 @@ When in doubt:
 - Icons: `docs/dev/ui/foundations/visual/icons.md`
 - Icon design guidelines: `docs/dev/ui/foundations/visual/icon-guidelines.md`
 - Display scaling: `docs/dev/ui/foundations/layout/display-scaling.md`
-- App shell patterns: `docs/dev/ui/patterns/app-shell-patterns.md`
+- App shell patterns: `docs/dev/ui/patterns/app-shell.md`
 - Glass materials: `docs/dev/ui/foundations/visual/materials.md`

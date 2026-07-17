@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Content provider foundations (contentd pathless streams): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Scoped content URI grants (grantsd): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
   - FileOps/Trash backbone: tasks/TASK-0085-ui-v12b-fileops-trash-services.md

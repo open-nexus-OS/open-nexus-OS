@@ -7,7 +7,7 @@ depends-on:
   - TASK-0011B
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - Kernel overview: docs/architecture/01-neuron-kernel.md
   - Depends-on (Rust idioms baseline): tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md
 ---

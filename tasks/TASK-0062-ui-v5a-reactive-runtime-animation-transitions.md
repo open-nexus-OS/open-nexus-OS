@@ -11,7 +11,7 @@ links:
   - Compositor baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - Gfx track: tasks/TRACK-NEXUSGFX-SDK.md
   - Driver track: tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - Gfx architecture: docs/architecture/nexusgfx-command-and-pass-model.md
+  - Gfx architecture: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
   - Device/MMIO model: tasks/TASK-0010-device-mmio-access-model.md
   - Testing contract: scripts/qemu-test.sh
 ---

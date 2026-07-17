@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - IME v2.1 host core (rank/train/export): tasks/TASK-0203-ime-v2_1a-host-adaptive-ranking-training-export.md
   - IME v2 engines + dict baseline: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
   - Candidate popup + OSK + OS proofs: tasks/TASK-0150-ime-v2-part2b-candidate-popup-osk-cjk-os-proofs.md

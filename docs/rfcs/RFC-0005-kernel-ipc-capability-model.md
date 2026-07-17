@@ -96,7 +96,7 @@ init-lite routing responder.
 This RFC should be read alongside the project vision lens (Rust-first, RISC‑V-first, capability-service-oriented
 device mesh via `softbusd` layering):
 
-- `docs/agents/VISION.md`
+- `docs/architecture/vision.md`
 
 As the system grows, keeping IPC and capability semantics embedded across RFC-0002/RFC-0004 makes
 those RFCs too large and encourages drift. We need one stable, explicit contract for:

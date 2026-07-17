@@ -8,8 +8,8 @@ follow-up-tasks:
   - TASK-0133
   - TASK-0287
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Content providers baseline: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Scoped grants enforcement: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
   - File operations + trash: tasks/TASK-0085-ui-v12b-fileops-trash-services.md

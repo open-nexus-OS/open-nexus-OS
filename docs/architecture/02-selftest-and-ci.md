@@ -7,7 +7,7 @@ Open Nexus OS follows a **host-first, QEMU-last** testing strategy.
 The OS stack relies on deterministic UART markers as the canonical proof signal for QEMU smoke runs.
 
 **Important:** this file describes the architecture of the selftest + CI flow.
-The canonical marker contract is implemented by `scripts/qemu-test.sh` and documented in `docs/testing/index.md`.
+The canonical marker contract is implemented by `scripts/qemu-test.sh` and documented in `docs/testing/os-markers.md`.
 
 ## QEMU runner
 
@@ -24,12 +24,12 @@ RFC‑0014 Phase 2 adds triage helpers on top of the strict marker contract:
 - **Bounded excerpts**: on failure, the harness prints a bounded UART excerpt scoped to the failed phase.
 - **Phase-gated early exit**: `RUN_PHASE=<name> just test-os` stops QEMU early after the requested phase and only validates markers up to that phase.
 
-See `docs/testing/index.md` for the supported phases and examples.
+See `docs/testing/os-markers.md` for the supported phases and examples.
 
 Marker details drift quickly; keep them centralized in the harness and the testing guide:
 
 - Marker contract: `scripts/qemu-test.sh`
-- Testing guide (methodology + marker sequence notes): `docs/testing/index.md`
+- Testing guide (methodology + marker sequence notes): `docs/testing/README.md`
 
 Some proofs (notably slirp/usernet DHCP and DSoftBus OS transport) can be environment-sensitive.
 They remain available as explicit, opt-in requirements controlled by the QEMU smoke harness:

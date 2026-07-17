@@ -4,8 +4,8 @@ status: Living
 owner: @runtime @distributed
 created: 2026-01-18
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (avoid app-embedded networking/social glue): tasks/TRACK-SYSTEM-DELEGATION.md
   - Zero-Copy App Platform (apps consume NexusNet via svc.*): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Mail app (IMAP/SMTP client; consumer): tasks/TRACK-MAIL-APP.md

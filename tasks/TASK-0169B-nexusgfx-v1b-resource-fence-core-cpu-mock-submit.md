@@ -6,18 +6,18 @@ created: 2026-04-10
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusGfx track: tasks/TRACK-NEXUSGFX-SDK.md
   - Renderer abstraction host slice: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - Renderer abstraction OS wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
   - DriverKit core contracts: tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md
   - Zero-copy VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers contract: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
-  - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
-  - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
-  - Gfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
-  - Gfx capability matrix: docs/architecture/nexusgfx-capability-matrix.md
+  - Gfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
+  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - Gfx capability matrix: docs/architecture/graphics/nexusgfx-capability-matrix.md
 ---
 
 ## Context
@@ -118,8 +118,8 @@ Deliver a host-first `NexusGfx` core that defines:
 
 - `userspace/libs/renderer/` or `userspace/libs/nexusgfx/` (resource/sync core)
 - `tests/renderer_v1_host/` or `tests/nexusgfx_host/`
-- `docs/architecture/nexusgfx-resource-model.md` (only if contract clarifications are required)
-- `docs/architecture/nexusgfx-sync-and-lifetime.md` (only if contract clarifications are required)
+- `docs/architecture/graphics/nexusgfx-resource-model.md` (only if contract clarifications are required)
+- `docs/architecture/graphics/nexusgfx-sync-and-lifetime.md` (only if contract clarifications are required)
 - `tasks/TRACK-NEXUSGFX-SDK.md`
 
 ## Plan (small PRs)

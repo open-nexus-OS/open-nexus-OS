@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - DSoftBus overview: docs/distributed/dsoftbus-lite.md
   - DSoftBus no_std refactor: tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md

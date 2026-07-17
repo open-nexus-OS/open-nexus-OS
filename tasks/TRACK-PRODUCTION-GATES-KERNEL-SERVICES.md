@@ -4,8 +4,8 @@ status: Draft
 owner: @runtime @security @storage @ui
 created: 2026-04-13
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Status board / group inventory: tasks/STATUS-BOARD.md
   - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
   - Zero-Copy App Platform: tasks/TRACK-ZEROCOPY-APP-PLATFORM.md

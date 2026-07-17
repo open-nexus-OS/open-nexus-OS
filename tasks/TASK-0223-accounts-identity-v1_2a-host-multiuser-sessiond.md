@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Identity baseline (users + auth + sessions): tasks/TASK-0107-ui-v18a-identityd-users-sessions.md
   - Lock state baseline: tasks/TASK-0109-ui-v18c-lockd-lockscreen-autolock.md
   - OOBE/Greeter baseline: tasks/TASK-0110-ui-v18d-oobe-greeter-accounts-systemui-os-proofs.md

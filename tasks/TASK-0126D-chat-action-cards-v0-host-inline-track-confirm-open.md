@@ -6,8 +6,8 @@ created: 2026-01-28
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - System Delegation track: tasks/TRACK-SYSTEM-DELEGATION.md
   - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md

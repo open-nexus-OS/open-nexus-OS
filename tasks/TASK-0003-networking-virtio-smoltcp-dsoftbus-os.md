@@ -7,8 +7,8 @@ depends-on: []
 follow-up-tasks:
   - TASK-0003B
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - Docs: docs/distributed/dsoftbus-lite.md
@@ -208,7 +208,7 @@ Notes:
 7. **Docs**
    - `docs/networking/os-net.md`: virtio-net frontend overview, static config, polling model, limits.
    - `docs/distributed/dsoftbus-os.md`: OS backend design and local milestone scope.
-   - `docs/testing/index.md`: how to run host tests + QEMU marker suite.
+   - `docs/testing/README.md`: how to run host tests + QEMU marker suite.
 
 ## Acceptance criteria (behavioral)
 

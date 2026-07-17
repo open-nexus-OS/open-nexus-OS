@@ -4,8 +4,8 @@ status: Draft
 owner: @ui @runtime
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusGame SDK (foundation): tasks/TRACK-NEXUSGAME-SDK.md
   - Arcade (microgames bundle): tasks/TRACK-ARCADE-APP.md
   - Pinball (physics + pacing showcase): tasks/TRACK-PINBALL-APP.md

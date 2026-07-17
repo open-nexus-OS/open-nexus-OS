@@ -9,8 +9,8 @@ follow-up-tasks:
   - TASK-0198
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Keystore v1.1 host slice: tasks/TASK-0159-identity-keystore-v1_1-host-keystored-lifecycle-nonexportable.md
   - Device keys / entropy red flags: tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

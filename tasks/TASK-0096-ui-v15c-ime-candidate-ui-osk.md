@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
   - Text primitives: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md

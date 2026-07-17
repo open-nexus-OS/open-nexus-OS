@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Privacy v2 host-first telemetry/export: tasks/TASK-0191-privacy-v2a-host-policy-usage-events-telemetry-export.md
   - Policy v1.1 OS UI owner (Privacy Dashboard baseline): tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
   - Policy v1.1 core semantics: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md

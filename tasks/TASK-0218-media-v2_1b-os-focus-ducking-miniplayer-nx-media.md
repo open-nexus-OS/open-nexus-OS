@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Media apps product track (system-wide media focus/controls): tasks/TRACK-MEDIA-APPS.md
   - Audiod v2.1 host engine: tasks/TASK-0217-media-v2_1a-host-audiod-deterministic-graph-mixer.md
   - Media UX v2 core semantics: tasks/TASK-0184-media-ux-v2a-host-handoff-playerctl-deterministic-clock.md

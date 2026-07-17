@@ -12,10 +12,10 @@ follow-up-tasks:
   - TASK-0170
 links:
   - RFC: docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
-  - Gfx text pipeline integration: docs/architecture/nexusgfx-text-pipeline.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
+  - Gfx compute/executor model: docs/architecture/graphics/nexusgfx-compute-and-executor-model.md
+  - Gfx text pipeline integration: docs/architecture/graphics/nexusgfx-text-pipeline.md
   - UI consumer of buffer/sync contracts: tasks/TRACK-DRIVERS-ACCELERATORS.md
   - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers (future vsync spine): tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md
@@ -114,7 +114,7 @@ Deliver:
 
 - This task should be treated as an **early structural slice** of the future `NexusGfx` CPU reference path, not as a
   parallel long-term renderer architecture.
-- Text rendering/materialization must align with `docs/architecture/nexusgfx-text-pipeline.md` and the canonical UI
+- Text rendering/materialization must align with `docs/architecture/graphics/nexusgfx-text-pipeline.md` and the canonical UI
   layout/text contracts it references.
 - Resource and executor assumptions should remain portable to later `TASK-0169` / `TRACK-NEXUSGFX-SDK` work.
 
@@ -244,7 +244,7 @@ Proof notes:
   accept/reject coverage, oversized height rejects, malformed fixture-font rejects, and an anti-fake-marker source scan.
 - No OS/QEMU markers, `windowd`, compositor, GPU, MMIO/IRQ, scheduler, MM, IPC, VMO, or timer changes were introduced
   or claimed.
-- Docs sync now covers `docs/testing/index.md`, `docs/dev/ui/foundations/quality/goldens.md`, and the linked
+- Docs sync now covers `docs/testing/README.md`, `docs/dev/ui/foundations/quality/goldens.md`, and the linked
   NexusGfx architecture guidance pages with the same host-only proof boundary.
 
 ## Touched paths (allowlist)

@@ -6,8 +6,8 @@ created: 2025-12-30
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Authority decision (binding): tasks/TASK-0266-architecture-v1-authority-naming-contract.md
   - Base nx CLI: tasks/TASK-0045-devx-nx-cli-v1.md

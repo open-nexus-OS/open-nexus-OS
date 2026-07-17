@@ -4,8 +4,8 @@ status: Draft
 owner: @ui @security @runtime
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (compose + attachment open/save): tasks/TRACK-SYSTEM-DELEGATION.md
   - NexusAccount (identity + online grants): tasks/TRACK-NEXUSACCOUNT.md
   - NexusNet SDK (network/OAuth/providers): tasks/TRACK-NEXUSNET-SDK.md

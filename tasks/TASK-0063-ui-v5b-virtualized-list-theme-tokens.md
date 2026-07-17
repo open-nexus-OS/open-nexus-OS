@@ -7,8 +7,8 @@ updated: 2026-06-22 (closed: scene graph wiring + virtual list + theme tokens + 
 depends-on: [TASK-0059, TASK-0062]
 follow-up-tasks: [TASK-0275, TASK-0064]
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI v5a runtime baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
   - UI v3b scroll/clip baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - UI v4a tiling baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md

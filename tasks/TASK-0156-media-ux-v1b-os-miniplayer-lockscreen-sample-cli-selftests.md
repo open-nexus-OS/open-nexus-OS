@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Media apps product track (miniplayer/lockscreen shared across apps): tasks/TRACK-MEDIA-APPS.md
   - Media UX core: tasks/TASK-0155-media-ux-v1a-host-mediasessd-focus-nowplaying-artcache.md
   - Media baseline umbrella: tasks/TASK-0101-ui-v16c-media-sessions-systemui-controls.md

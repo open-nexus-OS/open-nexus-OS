@@ -211,7 +211,7 @@ Explicit non-goal: kernel crypto/parsers. All handshake and framing stays in use
   - Proof is via `TASK-0003` host tests.
   - The host multi-node harness (`tests/remote_e2e`) runs over the sockets facade contract (`userspace/nexus-net` with `FakeNet`) and exercises **on-wire discovery (announce v1)** plus TCP sessions.
   - Contract alignment: host tests also cover a DSoftBus transport layered over the sockets facade contract (`userspace/nexus-net` with `FakeNet`).
-  - Preferred regression proof remains `just test-e2e` / `just test-host` (CI parity; see `docs/testing/index.md`).
+  - Preferred regression proof remains `just test-e2e` / `just test-host` (CI parity; see `docs/testing/README.md`).
 - **Phase 1 (OS/QEMU)**:
   - Implement OS backend over the sockets facade (RFC‑0006) with UDP discovery + TCP sessions.
   - Emit the `TASK-0003` required markers.
@@ -313,7 +313,7 @@ This section exists to prevent “fake green” and to keep the RFC aligned with
 
 ### Implementation quality notes (dsoftbusd/netstackd) — MUST/SHOULD for Phase 1 work
 
-These are guardrails to keep the implementation aligned with `docs/agents/VISION.md` (microkernel principles, capability discipline, determinism).
+These are guardrails to keep the implementation aligned with `docs/architecture/vision.md` (microkernel principles, capability discipline, determinism).
 
 - **dsoftbusd MUST remain a consumer of the netstack facade**:
   - No MMIO or virtio ownership.

@@ -39,5 +39,5 @@ Define single sources of truth per role, maintain host parity, and gate OS-lite.
 5. Add boundary configs and CI checks (headers present, forbidden deps, jscpd, udeps, deny).
 
 ## References
-- `docs/agents/PLAYBOOK.md`
+- `CLAUDE.md`
 - `tasks/TASK-0001-runtime-roles-and-boundaries.md`

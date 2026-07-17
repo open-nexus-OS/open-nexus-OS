@@ -7,8 +7,8 @@ depends-on:
   - TASK-0056B
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC (contract seed): docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md
   - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md

@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Crypto/KDF substrate (host-first): tasks/TASK-0182-encryption-at-rest-v1a-host-secure-keys-io-format-tests.md
   - Keystore seal/unseal OS wiring: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

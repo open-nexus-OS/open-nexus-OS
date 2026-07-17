@@ -4,8 +4,8 @@ status: Living
 owner: @runtime
 created: 2025-12-22
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - IPC/caps model: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Hardware/MMIO access: tasks/TASK-0010-device-mmio-access-model.md
   - VMO plumbing: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md

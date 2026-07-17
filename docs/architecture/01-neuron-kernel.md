@@ -345,4 +345,4 @@ implementations used by the kernel.
 For deterministic QEMU acceptance (marker contract + ordering), use the canonical harness:
 
 - `scripts/qemu-test.sh` (contract implementation)
-- `docs/testing/index.md` (methodology + marker guidance)
+- `docs/testing/README.md` (methodology + marker guidance)

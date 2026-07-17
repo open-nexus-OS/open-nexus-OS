@@ -13,7 +13,7 @@ follow-up-tasks:
   - TASK-0287
   - TASK-0290
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - Contract seed (this task): docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md
   - Packaging baseline: docs/packaging/nxb.md
   - Production gate policy: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
@@ -190,7 +190,7 @@ The following production-grade closure items remain explicit follow-ups and are 
 - `source/services/packagefsd/` (v2 image-backed path; host + os-lite)
 - `source/apps/selftest-client/` (gated markers)
 - `docs/architecture/12-storage-vfs-packagefs.md` (new/updated for pkgimg v2)
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 - `scripts/qemu-test.sh` (gated)
 
 ## Plan (small PRs)

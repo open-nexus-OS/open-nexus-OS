@@ -7,7 +7,7 @@ depends-on:
   - TASK-0014
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - Depends-on (metrics/tracing sinks, optional): tasks/TASK-0014-observability-v2-metrics-tracing.md
   - Testing contract: scripts/qemu-test.sh
 ---

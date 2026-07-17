@@ -12,8 +12,8 @@ follow-up-tasks:
   - TASK-0247
   - TASK-0283
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
   - Kernel overview: docs/architecture/01-neuron-kernel.md
   - QEMU platform determinism: docs/dev/platform/qemu-virtio-mmio-modern.md
@@ -153,7 +153,7 @@ When implementing SMP features, ensure:
 - `docs/architecture/01-neuron-kernel.md` (scheduler overview + determinism)
 - `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` (ownership model + newtypes + explicit Send/Sync boundaries)
 - KSELFTEST marker contract (must be added/updated in kernel selftests)
-- QEMU acceptance harness + marker ordering contract: `scripts/qemu-test.sh` (and `docs/testing/index.md`)
+- QEMU acceptance harness + marker ordering contract: `scripts/qemu-test.sh` (and `docs/testing/README.md`)
 
 ## Stop conditions (Definition of Done)
 
@@ -176,7 +176,7 @@ When implementing SMP features, ensure:
   - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 - Docs stay in sync:
   - Update `docs/architecture/01-neuron-kernel.md` and `docs/architecture/README.md` to reflect any new SMP invariants/markers and any scheduler model changes.
-  - If SMP marker-gating behavior in the harness changes, update `docs/testing/index.md` in the same slice.
+  - If SMP marker-gating behavior in the harness changes, update `docs/testing/README.md` in the same slice.
 
 ## Touched paths (allowlist)
 
@@ -185,7 +185,7 @@ When implementing SMP features, ensure:
 - `scripts/qemu-test.sh` (marker expectations for SMP runs, gated/optional)
 - `docs/architecture/01-neuron-kernel.md`
 - `docs/architecture/README.md`
-- `docs/testing/index.md` (only if marker-gating behavior/commands change)
+- `docs/testing/README.md` (only if marker-gating behavior/commands change)
 
 ## Follow-up alignment (anti-drift)
 

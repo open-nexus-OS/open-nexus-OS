@@ -14,8 +14,8 @@ follow-up-tasks:
   - TASK-0200
   - TASK-0253
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI v1a renderer (baseline): tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
   - UI v1b windowd (baseline): tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
   - RFC seed contract: docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md
@@ -176,7 +176,7 @@ Green proofs:
 - `cargo test -p windowd -p ui_windowd_host -p launcher -p selftest-client -- --nocapture`.
 - `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite`.
 - Closure rerun `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`.
-- Header/doc closure sync was completed for touched Rust headers, `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`, `docs/architecture/README.md`, `docs/testing/index.md`, and `docs/dev/ui/foundations/quality/testing.md`.
+- Header/doc closure sync was completed for touched Rust headers, `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`, `docs/architecture/README.md`, `docs/testing/README.md`, and `docs/dev/ui/foundations/quality/testing.md`.
 
 Observed v2a QEMU marker ladder:
 
@@ -208,7 +208,7 @@ Known claim boundaries after review:
 - `source/apps/selftest-client/` (markers)
 - `tools/postflight-ui-v2a.sh` (delegating)
 - `docs/dev/ui/input/input.md` + `docs/dev/ui/foundations/rendering/renderer.md` (new/extend)
-- `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`, `docs/architecture/README.md`, `docs/testing/index.md`, `docs/dev/ui/foundations/quality/testing.md` (closure documentation sync)
+- `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`, `docs/architecture/README.md`, `docs/testing/README.md`, `docs/dev/ui/foundations/quality/testing.md` (closure documentation sync)
 - `Cargo.toml` (workspace registration for `tests/ui_v2a_host`)
 - `scripts/qemu-test.sh` (visible-bootstrap marker tail extended for v2a proof)
 

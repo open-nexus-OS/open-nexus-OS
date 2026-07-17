@@ -6,8 +6,8 @@ created: 2026-03-28
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DSL App Platform v1: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md
   - Document picker/openWith: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
   - Clipboard baseline: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md

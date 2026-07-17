@@ -6,8 +6,8 @@ created: 2025-12-25
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - Share v2a intentsd/policy: tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
   - Share v2b chooser/targets/grants: tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md

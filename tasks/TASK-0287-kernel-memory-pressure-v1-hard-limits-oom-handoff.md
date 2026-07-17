@@ -9,8 +9,8 @@ depends-on:
   - TASK-0286
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - OOM watchdog v1 (cooperative baseline): tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
   - Ability/app kill reason propagation: tasks/TASK-0235-ability-v1_1b-os-appmgrd-extension-samgr-hooks-fgbg-policies-selftests.md
   - Boot/resource gates: docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md

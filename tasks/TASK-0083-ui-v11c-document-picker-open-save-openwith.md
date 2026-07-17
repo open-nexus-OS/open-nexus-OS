@@ -6,10 +6,10 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DSL query posture: docs/dev/dsl/db-queries.md
-  - Document picker usage posture: docs/dev/ui/system-experiences/doc-picker.md
+  - Document picker usage posture: docs/dev/ui/system-experiences/document-access/doc-picker.md
   - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
   - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
@@ -121,7 +121,7 @@ UART markers:
 - `tests/ui_v11_host/`
 - `source/apps/selftest-client/`
 - `tools/postflight-ui-v11.sh` (delegates)
-- `docs/dev/ui/system-experiences/doc-picker.md` (new)
+- `docs/dev/ui/system-experiences/document-access/doc-picker.md` (new)
 
 ## Plan (small PRs)
 

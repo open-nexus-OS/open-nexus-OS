@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Zero-Copy App Platform (RichContent + paste mapping + audit/autosave): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
   - DSL app platform: tasks/TASK-0122B-dsl-app-platform-v1-shell-routing-launch-contract.md

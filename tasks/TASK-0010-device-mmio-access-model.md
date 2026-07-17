@@ -17,8 +17,8 @@ follow-up-tasks:
   - TASK-0280
   - TASK-0284
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC: docs/rfcs/RFC-0017-device-mmio-access-model-v1.md
   - Related RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Used-by (already done): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md

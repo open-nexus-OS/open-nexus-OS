@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Search backend (searchd v9a): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
   - Search v2 backend (real engine): tasks/TASK-0153-search-v2-backend-host-index-ranking-analyzers-sources.md

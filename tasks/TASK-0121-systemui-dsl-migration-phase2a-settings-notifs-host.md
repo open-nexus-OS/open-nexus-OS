@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Phase 1a (Launcher+QS DSL pages): tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
   - Phase 1b (OS wiring): tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
   - DSL interpreter baseline: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md

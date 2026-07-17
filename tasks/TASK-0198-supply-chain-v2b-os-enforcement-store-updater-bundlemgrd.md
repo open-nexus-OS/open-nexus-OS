@@ -7,8 +7,8 @@ depends-on: []
 follow-up-tasks:
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Supply-chain v2 host core: tasks/TASK-0197-supply-chain-v2a-host-sigchain-translog-sbom-provenance.md
   - Supply-chain v1 baseline: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Trust store unification: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md

@@ -5,7 +5,7 @@ signatures prove provenance, while the policy layer restricts which processes
 may consume specific kernel capabilities.
 
 This is part of the system's **hybrid security root**: verified boot + signed bundles/packages +
-policy gating + capability enforcement (see `docs/agents/VISION.md`).
+policy gating + capability enforcement (see `docs/architecture/vision.md`).
 
 ## Philosophy: Secure by default, flexible for developers
 

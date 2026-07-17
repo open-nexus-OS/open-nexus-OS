@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Perf v1 plan (superseded): tasks/TASK-0143-perf-v1a-perfd-frame-trace-metrics.md
   - Perf gates v1 plan (superseded): tasks/TASK-0145-perf-v1c-deterministic-gates-scenes.md
   - SDK IDL freeze (perf schema later): tasks/TASK-0163-sdk-v1-part1a-idl-freeze-codegen-wire-gates.md

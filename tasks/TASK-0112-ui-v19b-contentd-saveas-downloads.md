@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Content providers: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Scoped grants (optional cross-subject): tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
   - Recents service: tasks/TASK-0082-ui-v11b-thumbnailer-recents.md

@@ -15,8 +15,8 @@ follow-up-tasks:
   - TASK-0286
   - TASK-0287
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Depends-on (sandboxing v1): tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md
   - Depends-on (ABI filters v2): tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md
   - Depends-on (policy authority): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md

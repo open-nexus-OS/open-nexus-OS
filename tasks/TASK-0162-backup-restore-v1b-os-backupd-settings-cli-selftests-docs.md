@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NBK v1 engine (host-first): tasks/TASK-0161-backup-restore-v1a-host-nbk-format-pack-verify-restore.md
   - Persistence substrate (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Prefs substrate: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md

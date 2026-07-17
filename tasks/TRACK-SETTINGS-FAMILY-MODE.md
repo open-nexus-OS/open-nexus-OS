@@ -4,8 +4,8 @@ status: Draft
 owner: @ui @platform @security
 created: 2026-04-07
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Group and Device Management substrate: tasks/TRACK-GROUP-AND-DEVICE-MANAGEMENT.md
   - NexusAccount (optional account bootstrap): tasks/TRACK-NEXUSACCOUNT.md
   - Settings typed registry: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md

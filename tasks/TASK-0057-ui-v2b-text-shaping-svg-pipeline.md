@@ -15,8 +15,8 @@ follow-up-tasks:
   - TASK-0063
   - TASK-0146
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC (contract seed): docs/rfcs/RFC-0056-ui-v2b-asset-theme-cursor-text-pipeline.md
   - UI v1a renderer (baseline): tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
   - UI v2a (present/input baseline): tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
@@ -25,7 +25,7 @@ links:
   - Colors/tokens: docs/dev/ui/foundations/visual/colors.md
   - Materials: docs/dev/ui/foundations/visual/materials.md
   - Freedesktop icon spec: https://specifications.freedesktop.org/icon-theme-spec/
-  - Reference: docs/architecture/display-output-service-chain.md
+  - Reference: docs/architecture/graphics/display-output-service-chain.md
 ---
 
 ## Context

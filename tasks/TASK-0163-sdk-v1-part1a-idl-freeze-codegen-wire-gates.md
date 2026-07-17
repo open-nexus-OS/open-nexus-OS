@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DevX nx CLI v1: tasks/TASK-0045-devx-nx-cli-v1.md
   - Existing schemas: tools/nexus-idl/schemas/
   - Existing runtime generator: userspace/nexus-idl-runtime/

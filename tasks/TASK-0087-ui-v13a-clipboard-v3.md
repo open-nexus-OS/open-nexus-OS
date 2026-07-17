@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Zero-Copy App Platform (clipboard canonical interchange): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Office Suite (copy/paste across Word/Sheets/Slides): tasks/TRACK-OFFICE-SUITE.md
   - Clipboard v2 baseline: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md

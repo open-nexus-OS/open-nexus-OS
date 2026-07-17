@@ -10,8 +10,8 @@ depends-on:
   - TASK-0003C
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Depends-on: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md
   - Depends-on: tasks/TASK-0003B-dsoftbus-noise-xk-os.md
   - Depends-on: tasks/TASK-0003C-dsoftbus-udp-discovery-os.md
@@ -271,7 +271,7 @@ This section records what was verified in-repo so we can iterate without drift.
 8. **Docs**
    - Extend `docs/networking/os-net.md` with DHCP flow + neighbor cache + ICMP support.
    - Extend/introduce `docs/distributed/dsoftbus-os.md` with subnet discovery + dual-node mode + limits.
-   - Extend `docs/testing/index.md` with how to run step-2 markers and troubleshoot DHCP in QEMU usernet.
+   - Extend `docs/testing/README.md` with how to run step-2 markers and troubleshoot DHCP in QEMU usernet.
 
 ## Acceptance criteria (behavioral)
 

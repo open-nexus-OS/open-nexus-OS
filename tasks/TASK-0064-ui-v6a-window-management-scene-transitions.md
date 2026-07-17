@@ -7,8 +7,8 @@ updated: 2026-06-22 (closed: ShellWindow N-window WM — chat is a window instan
 depends-on: [TASK-0063]
 follow-up-tasks: [TASK-0064B]
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC (design contract): docs/rfcs/RFC-0064-ui-v6a-window-management-chat-window-contract.md
   - UI v5b baseline (scene graph): tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
   - UI v5a baseline (animation): tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md

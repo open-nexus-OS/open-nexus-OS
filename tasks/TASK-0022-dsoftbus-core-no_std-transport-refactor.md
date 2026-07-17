@@ -10,8 +10,8 @@ follow-up-tasks:
   - TASK-0023
   - TASK-0044
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md
   - RFC (seed contract): docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md
   - Production gate track: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
@@ -23,7 +23,7 @@ links:
   - Related baseline: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
   - Related baseline (Done): tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
   - Unblocks: tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md
-  - Testing methodology: docs/testing/index.md
+  - Testing methodology: docs/testing/README.md
   - Testing contract: scripts/qemu-test.sh
   - Testing contract (2-VM): tools/os2vm.sh
 ---

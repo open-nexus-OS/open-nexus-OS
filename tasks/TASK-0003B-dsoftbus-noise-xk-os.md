@@ -7,8 +7,8 @@ updated: 2026-01-07
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC: docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md
   - RFC: docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md
   - Parent task: tasks/TASK-0003-networking-virtio-smoltcp-dsoftbus-os.md

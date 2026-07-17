@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Updates A/B skeleton baseline (updated v1.1): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - OTA v2 state machine + health mux: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
   - Boot control service stub: tasks/TASK-0178-bootctld-v1-boot-control-stub-service.md

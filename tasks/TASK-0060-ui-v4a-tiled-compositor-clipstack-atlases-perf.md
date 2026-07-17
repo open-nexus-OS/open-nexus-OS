@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI v3b baseline (clip/scroll/effects): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - UI v2a baseline (present scheduler): tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
   - UI v2b baseline (shaping/svg): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md

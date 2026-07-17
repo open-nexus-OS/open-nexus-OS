@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - IME v2 Part 1 core: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
   - IME v2 Part 2 engines + dict learning baseline: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
   - Policy model (scoped grants/expiry) direction: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md

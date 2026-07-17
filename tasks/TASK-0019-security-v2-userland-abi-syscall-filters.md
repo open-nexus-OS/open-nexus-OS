@@ -12,15 +12,15 @@ follow-up-tasks:
   - TASK-0188
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC: docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md
   - RFC (kernel IPC/cap baseline): docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - RFC (policy authority): docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (policy model): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
   - Depends-on (statefs contract for selftest paths): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Testing methodology: docs/testing/index.md
+  - Testing methodology: docs/testing/README.md
   - Testing contract: scripts/qemu-test.sh
 ---
 

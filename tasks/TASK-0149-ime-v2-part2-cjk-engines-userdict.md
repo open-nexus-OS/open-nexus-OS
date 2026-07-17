@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - IME v2 Part 1: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
   - IME v2 Part 1 OS wiring: tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md
   - Text stack integration (bidi/breaks/shaping): tasks/TASK-0148-textshape-v1-deterministic-bidi-breaks-shaping-contract.md

@@ -9,8 +9,8 @@ depends-on:
   - TASK-0019
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Depends-on (ABI filter v1 dispatcher): tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md
   - Depends-on (audit/learn sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Depends-on (policy authority): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
@@ -189,7 +189,7 @@ Notes:
 - `tests/` (host tests)
 - `source/apps/selftest-client/` (OS markers)
 - `docs/security/abi-filters.md`
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 - `scripts/qemu-test.sh`
 
 ## Plan (small PRs)

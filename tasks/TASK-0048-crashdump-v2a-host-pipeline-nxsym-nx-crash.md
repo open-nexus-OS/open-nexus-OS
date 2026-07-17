@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Crashdumps v1 (baseline): tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md
   - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
   - Packaging drift note: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
@@ -75,7 +75,7 @@ Deliver on host:
 - `tools/nx/` (extend: `nx crash ...`)
 - `tests/crashdump_v2_host/` (new)
 - `docs/reliability/crashdump-v2.md` (new, host-first sections)
-- `docs/devx/nx-cli.md` (extend)
+- `docs/dev/nx-cli.md` (extend)
 
 ## Plan (small PRs)
 

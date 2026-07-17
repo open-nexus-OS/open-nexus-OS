@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DevX CLI base (`nx`): tasks/TASK-0045-devx-nx-cli-v1.md
   - Policy as Code (`nx policy ...`): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Policy snapshot artifact (optional fast path): tasks/TASK-0229-policy-snapshot-v1-canonical-json-bin-sysfilter-profiles-quotas.md

@@ -6,8 +6,8 @@ created: 2026-03-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
   - Visible scanout bootstrap: tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md
   - Visible present baseline: tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md
@@ -124,7 +124,7 @@ UART markers (order tolerant):
 - `schemas/` (preset/profile/shell manifest schema, if adopted under config/schema infra)
 - `docs/dev/ui/foundations/layout/profiles.md`
 - `docs/dev/ui/foundations/quality/testing.md`
-- `docs/systemui/dsl-migration.md`
+- `docs/dev/ui/dsl-migration.md`
 
 ## Plan (small PRs)
 

@@ -6,8 +6,8 @@ created: 2026-01-28
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation track (default-chat eligibility): tasks/TRACK-SYSTEM-DELEGATION.md
   - Intents (action routing baseline): tasks/TASK-0126B-system-delegation-v1a-intent-actions-defaults-policy-host.md
   - Share v2 (content:// + chooser pattern): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md, tasks/TASK-0127-share-v2b-chooser-ui-targets-grants.md

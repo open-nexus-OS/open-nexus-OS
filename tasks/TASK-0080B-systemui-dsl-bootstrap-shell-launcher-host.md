@@ -97,14 +97,14 @@ in-compositor mount from TASK-0076B.
 - `docs/dev/dsl/patterns.md` gains the "system surface" chapter (shell/greeter as
   DSL consumers, authority-stays-in-services rule);
 - `docs/dev/ui/shell/session.md` cross-linked (greeter view now DSL; contract
-  unchanged); `docs/systemui/dsl-migration.md` updated.
+  unchanged); `docs/dev/ui/dsl-migration.md` updated.
 
 ## Touched paths (allowlist)
 
 - `userspace/systemui/` (new: shells/desktop, greeter, components, composables)
 - `userspace/dsl/runtime/` (svc adapters for bundlemgr/ability/session if not yet
   generated), `tests/systemui_bootstrap_shell_host/` (new)
-- `docs/systemui/dsl-migration.md`, `docs/dev/dsl/patterns.md`
+- `docs/dev/ui/dsl-migration.md`, `docs/dev/dsl/patterns.md`
 
 ## Plan (small PRs)
 
@@ -146,7 +146,7 @@ in-compositor mount from TASK-0076B.
   size the first segment from the source message. Canonical bytes are
   unchanged (goldens prove it); all DSL suites green.
 - **Docs**: patterns.md "System surfaces" chapter; session.md DSL-greeter
-  note (contract unchanged); docs/systemui/dsl-migration.md created.
+  note (contract unchanged); docs/dev/ui/dsl-migration.md created.
 - **Icons (DoD item 3): DEFERRED** — the DSL Icon primitive renders via the
   widget registry, but the launcher v1 uses text cards; the Lucide-sourced
   icon pass rides with the 0080C mount (needs the asset pipeline wiring,

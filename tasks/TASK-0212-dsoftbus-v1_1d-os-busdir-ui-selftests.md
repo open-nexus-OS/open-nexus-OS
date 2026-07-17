@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DSoftBus v1 OS slice baseline (localSim + share demo + nx-bus): tasks/TASK-0158-dsoftbus-v1b-os-consent-policy-registry-share-demo-cli-selftests.md
   - DSoftBus v1.1 secure channels + encrypted framing: tasks/TASK-0195-dsoftbus-v1_1a-host-secure-channels-encrypted-streams-share.md
   - DSoftBus v1.1c busdir/rpcmux/health (host-first): tasks/TASK-0211-dsoftbus-v1_1c-host-busdir-rpcmux-health-flow.md

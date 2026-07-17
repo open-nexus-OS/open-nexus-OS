@@ -15,8 +15,8 @@ follow-up-tasks:
   - TASK-0160
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Depends-on (policy baseline): tasks/TASK-0008-security-hardening-v1-nexus-sel-audit-device-keys.md
   - Policy contract: docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md
   - Depends-on (audit sink): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md

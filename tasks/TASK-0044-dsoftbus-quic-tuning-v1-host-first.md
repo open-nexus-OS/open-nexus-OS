@@ -6,7 +6,7 @@ created: 2025-12-22
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - DSoftBus QUIC baseline: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
   - Mux v2 baseline: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
   - Discovery/authz hardening: tasks/TASK-0030-dsoftbus-discovery-authz-hardening-mdns-ttl-acl-ratelimit.md

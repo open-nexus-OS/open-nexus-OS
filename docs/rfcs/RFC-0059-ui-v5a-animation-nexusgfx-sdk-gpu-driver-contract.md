@@ -7,7 +7,7 @@
 - Links:
   - Tasks: `tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md` (execution + proof)
   - Depends on: `docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md`
-  - Gfx architecture: `docs/architecture/nexusgfx-command-and-pass-model.md`, `docs/architecture/nexusgfx-resource-model.md`, `docs/architecture/nexusgfx-tile-aware-design.md`
+  - Gfx architecture: `docs/architecture/graphics/nexusgfx-command-and-pass-model.md`, `docs/architecture/graphics/nexusgfx-resource-model.md`, `docs/architecture/graphics/nexusgfx-tile-aware-design.md`
   - Gfx track: `tasks/TRACK-NEXUSGFX-SDK.md`, Driver track: `tasks/TRACK-DRIVERS-ACCELERATORS.md`
   - Performance target matrix: `docs/dev/perf/PLATFORM-CLASS-UI-PERFORMANCE-OPTIMIZATIONS-QEMU-MATRIX.md`
 

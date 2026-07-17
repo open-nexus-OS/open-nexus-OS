@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - DSoftBus v1a core: tasks/TASK-0157-dsoftbus-v1a-local-sim-pairing-streams-host.md
   - Permissions baseline: tasks/TASK-0103-ui-v17a-permissions-privacyd.md

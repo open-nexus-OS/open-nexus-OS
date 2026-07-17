@@ -11,8 +11,8 @@ depends-on:
   - TASK-0026
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Shipped substrate (v1, Complete): docs/rfcs/RFC-0018-statefs-journal-format-v1.md
   - Key hierarchy + user-data encryption (authoritative): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
   - Architecture split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md

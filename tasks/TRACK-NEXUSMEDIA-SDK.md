@@ -4,8 +4,8 @@ status: Living
 owner: @media @runtime
 created: 2026-01-18
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusGfx SDK track (render/compute): tasks/TRACK-NEXUSGFX-SDK.md
   - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
   - Media apps product track (Photos/Music/TV): tasks/TRACK-MEDIA-APPS.md

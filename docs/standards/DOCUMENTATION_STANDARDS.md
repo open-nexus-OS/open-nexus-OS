@@ -356,7 +356,7 @@ Accepted/Proposed/Deprecated
 /source/libs/** @runtime
 /source/services/** @runtime
 /userspace/** @runtime
-/docs/ARCHITECTURE.md @kernel-team
+/docs/architecture/README.md @kernel-team
 /docs/adr/** @runtime
 ```
 

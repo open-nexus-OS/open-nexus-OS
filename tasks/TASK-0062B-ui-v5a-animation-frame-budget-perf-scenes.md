@@ -6,8 +6,8 @@ created: 2026-03-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - UI v5a runtime/animation baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
   - Glass compositor follow-up: tasks/TASK-0060B-ui-v4b-glass-materials-backdrop-cache-degrade.md
   - Compositor perf baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md

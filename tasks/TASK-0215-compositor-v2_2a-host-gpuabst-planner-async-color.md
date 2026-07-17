@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Windowing v2.1 surfaces/fences baseline: tasks/TASK-0207-windowing-v2_1a-host-surfacecore-swapchain-fences-hidpi.md
   - Windowing v2 host compositor substrate: tasks/TASK-0199-windowing-compositor-v2a-host-damage-occlusion-screencap.md
   - Compositor caches/atlases (deluxe later): tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md

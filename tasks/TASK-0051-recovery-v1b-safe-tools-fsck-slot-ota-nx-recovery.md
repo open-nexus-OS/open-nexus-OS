@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Recovery v1a: tasks/TASK-0050-recovery-v1a-boot-target-minimal-shell-diag.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Updates/OTA skeleton: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md

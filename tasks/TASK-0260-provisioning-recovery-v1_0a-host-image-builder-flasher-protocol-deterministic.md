@@ -7,8 +7,8 @@ depends-on: []
 follow-up-tasks:
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Recovery baseline: tasks/TASK-0050-recovery-v1a-boot-target-minimal-shell-diag.md
   - Recovery tools: tasks/TASK-0051-recovery-v1b-safe-tools-fsck-slot-ota-nx-recovery.md

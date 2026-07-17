@@ -7,8 +7,8 @@ depends-on:
   - TASK-0293
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seed (this task): docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md (Phase 3)
   - Data-plane substrate: docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md
   - Store contract (INLINE_IO_MAX rule): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md

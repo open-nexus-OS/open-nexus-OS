@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Policy v1.1 core semantics + audit direction: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
   - Privacy Dashboard v1.1 (OS UI owner): tasks/TASK-0168-policy-v1_1-os-runtime-prompts-privacy-dashboard-cli.md
   - Policy audit sink direction (logd): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md

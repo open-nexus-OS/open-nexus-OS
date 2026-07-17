@@ -387,5 +387,5 @@ Examples:
 ## Related
 
 - Track: `tasks/TRACK-NEXUSINFER-SDK.md`
-- Techniques catalog: `docs/architecture/nexusinfer-techniques.md`
-- Rust design: `docs/architecture/nexusinfer-rust-design.md`
+- Techniques catalog: `docs/architecture/inference/nexusinfer-techniques.md`
+- Rust design: `docs/architecture/inference/nexusinfer-rust-design.md`

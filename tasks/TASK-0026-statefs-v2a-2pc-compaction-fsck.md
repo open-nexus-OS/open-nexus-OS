@@ -9,8 +9,8 @@ follow-up-tasks:
   - TASK-0027
   - TASK-0134
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Shipped substrate (v1, Complete): docs/rfcs/RFC-0018-statefs-journal-format-v1.md
   - Architecture split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
   - Block layer / cold-boot proofs: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
@@ -117,7 +117,7 @@ recreates `build/blk.img` every boot).
 - `source/services/statefsd/` (txn ops, compaction trigger)
 - `tools/fsck-statefs/` (new host tool)
 - `source/apps/selftest-client/` (markers)
-- `docs/storage/statefs.md`, `docs/testing/index.md`, `scripts/qemu-test.sh`
+- `docs/storage/statefs.md`, `docs/testing/README.md`, `scripts/qemu-test.sh`
 
 ## Plan (small PRs)
 

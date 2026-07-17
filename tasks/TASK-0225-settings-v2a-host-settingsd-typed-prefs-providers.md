@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - Config broker (2PC reload for selected keys): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Policy authority + audit direction: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md

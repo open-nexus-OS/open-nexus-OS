@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - Policy v1.1 core: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
   - Policy v1 capability matrix + adapters: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md

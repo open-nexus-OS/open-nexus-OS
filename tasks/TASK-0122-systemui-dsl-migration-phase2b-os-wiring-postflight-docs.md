@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Phase 2a pages/tests: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
   - Launcher bootstrap + early visible shell: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
   - DSL CLI/tooling: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
@@ -61,7 +61,7 @@ Deliver:
 4. Config/policy:
    - add systemui settings/notifs defaults (`read_only=true`) and enforce read-only in DSL view
 5. Docs:
-   - extend `docs/systemui/dsl-migration.md` with Phase 2
+   - extend `docs/dev/ui/dsl-migration.md` with Phase 2
    - add `docs/systemui/settings.md` and `docs/systemui/notifications.md`
    - update `docs/dev/dsl/cli.md` for `--systemui` targets
    - document the canonical extension rule: later Settings/Notifications tasks extend this tree in-place
@@ -93,7 +93,7 @@ UART markers:
 - SystemUI routing/mount points (Settings + Notifications)
 - `source/apps/selftest-client/`
 - `tools/postflight-systemui-dsl-phase2.sh`
-- `docs/systemui/dsl-migration.md`
+- `docs/dev/ui/dsl-migration.md`
 - `docs/systemui/settings.md`
 - `docs/systemui/notifications.md`
 

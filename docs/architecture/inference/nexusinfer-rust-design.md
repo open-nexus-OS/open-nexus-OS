@@ -372,6 +372,6 @@ inventing a separate ad-hoc model runtime style.
 ## Related
 
 - Track: `tasks/TRACK-NEXUSINFER-SDK.md`
-- Techniques catalog: `docs/architecture/nexusinfer-techniques.md`
-- Runtime profiles: `docs/architecture/nexusinfer-runtime-profiles.md`
+- Techniques catalog: `docs/architecture/inference/nexusinfer-techniques.md`
+- Runtime profiles: `docs/architecture/inference/nexusinfer-runtime-profiles.md`
 - DMA ownership prototype task: `tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md`

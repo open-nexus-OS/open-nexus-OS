@@ -11,8 +11,8 @@ depends-on:
   - TASK-0260
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Updates/packaging v1.0: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
   - Supply-chain v1: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Supply-chain v2b OS enforcement: tasks/TASK-0198-supply-chain-v2b-os-enforcement-store-updater-bundlemgrd.md

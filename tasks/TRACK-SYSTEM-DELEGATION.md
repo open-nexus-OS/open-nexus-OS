@@ -4,8 +4,8 @@ status: Draft
 owner: @runtime @ui @apps
 created: 2026-01-28
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Ads Safety + Family Mode (track): tasks/TRACK-ADS-SAFETY-FAMILYMODE.md
   - Service architecture: docs/adr/0017-service-architecture.md
   - Policy v1 capability matrix + audit + foreground: tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md

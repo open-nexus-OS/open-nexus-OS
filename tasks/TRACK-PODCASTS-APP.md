@@ -4,8 +4,8 @@ status: Draft
 owner: @media @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (share/open-with, send via chat): tasks/TRACK-SYSTEM-DELEGATION.md
   - Media Apps umbrella (shared UX + sessions): tasks/TRACK-MEDIA-APPS.md
   - NexusMedia SDK (decode/playback): tasks/TRACK-NEXUSMEDIA-SDK.md

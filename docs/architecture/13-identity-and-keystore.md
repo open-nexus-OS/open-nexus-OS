@@ -8,7 +8,7 @@ Canonical sources:
 - Device identity decision: `docs/adr/0006-device-identity-architecture.md`
 - Policy authority + audit: `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`
 - Service architecture context: `docs/adr/0017-service-architecture.md`
-- Testing guide: `docs/testing/index.md`
+- Testing guide: `docs/testing/README.md`
 
 ## Responsibilities
 

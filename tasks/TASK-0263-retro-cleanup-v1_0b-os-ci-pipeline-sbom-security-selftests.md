@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Retro core (host-first): tasks/TASK-0262-retro-cleanup-v1_0a-host-hygiene-lints-repro-deterministic.md
   - SBOM baseline: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Security baseline: tasks/TASK-0047-policy-as-code-v1-unified-engine.md

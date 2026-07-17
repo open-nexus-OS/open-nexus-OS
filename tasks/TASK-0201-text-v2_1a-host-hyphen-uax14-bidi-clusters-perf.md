@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Text primitives (UAX#14/#29 + bidi UAX#9 + hit-test): tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
   - Text stack integration contract (bidi/breaks/shaping): tasks/TASK-0148-textshape-v1-deterministic-bidi-breaks-shaping-contract.md
   - Shaping baseline (HarfBuzz host-first): tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md

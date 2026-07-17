@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - App lifecycle baseline (appmgrd): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
   - Execd (spawner authority): tasks/TASK-0001-runtime-roles-and-boundaries.md
   - Intent routing (intentsd): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md

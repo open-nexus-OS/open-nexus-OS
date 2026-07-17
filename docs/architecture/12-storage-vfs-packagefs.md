@@ -18,7 +18,7 @@ Canonical sources:
 - Packaging and publication: `docs/packaging/nxb.md`
 - Service architecture context: `docs/adr/0017-service-architecture.md`
 - Block topology (GPT, single device owner): `docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md`
-- Testing guide + marker discipline: `docs/testing/index.md` and `scripts/qemu-test.sh`
+- Testing guide + marker discipline: `docs/testing/README.md` and `scripts/qemu-test.sh`
 
 ## Responsibilities
 

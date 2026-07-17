@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Driver/accelerator contracts (GPU later): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Renderer Abstraction v1a (Scene-IR + cpu2d): tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - Renderer Abstraction v1b (windowd wiring): tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md

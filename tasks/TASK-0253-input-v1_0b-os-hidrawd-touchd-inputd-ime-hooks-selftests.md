@@ -11,8 +11,8 @@ follow-up-tasks:
   - TASK-0146
   - TASK-0147
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
   - Queue/quality context: tasks/IMPLEMENTATION-ORDER.md
@@ -321,7 +321,7 @@ Additional closure floor:
 - `source/init/nexus-init/` (extend: input MMIO capability ownership / distribution)
 - `source/apps/selftest-client/proof-manifest/` (marker/profile updates)
 - `docs/dev/ui/input/input.md` (extend with OS/QEMU live-input scope/proof notes)
-- `docs/devx/nx-cli.md` (extend `nx input` diagnostics)
+- `docs/dev/nx-cli.md` (extend `nx input` diagnostics)
 - `tools/postflight-input-v1_0.sh` (new)
 
 ## Plan (small PRs)

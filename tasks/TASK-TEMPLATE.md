@@ -6,8 +6,8 @@ created: YYYY-MM-DD
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   # Optional canonical contracts (fill as appropriate):
   # - RFC: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   # - ADR: docs/adr/0001-runtime-roles-and-boundaries.md

@@ -9,8 +9,8 @@ depends-on:
 follow-up-tasks:
   - TASK-0295
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seed (this task, store): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
   - Contract seed (this task, VFS writes): docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
   - Block topology decision: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md

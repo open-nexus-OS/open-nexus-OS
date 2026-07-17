@@ -402,5 +402,5 @@ The future RFC should define these explicitly:
 ## Canonical follow-on documents
 
 - Track: `tasks/TRACK-NEXUSINFER-SDK.md`
-- Runtime profiles: `docs/architecture/nexusinfer-runtime-profiles.md`
-- Rust design: `docs/architecture/nexusinfer-rust-design.md`
+- Runtime profiles: `docs/architecture/inference/nexusinfer-runtime-profiles.md`
+- Rust design: `docs/architecture/inference/nexusinfer-rust-design.md`

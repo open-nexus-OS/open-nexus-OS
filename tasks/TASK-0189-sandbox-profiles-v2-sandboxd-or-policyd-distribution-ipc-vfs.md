@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Sandboxing v1 (namespaces/CapFd): tasks/TASK-0039-sandboxing-v1-vfs-namespaces-capfd-manifest.md
   - ABI filters v2 (guardrails): tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md
   - ABI filters v2 arg matching (optional): tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md

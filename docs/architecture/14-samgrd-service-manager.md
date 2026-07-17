@@ -7,7 +7,7 @@ Related docs:
 - Service architecture (direction): `docs/adr/0017-service-architecture.md`
 - Host-first domain library: `docs/architecture/03-samgr.md` (`userspace/samgr`)
 - IPC/capability transport contract: `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md`
-- Testing + marker discipline: `docs/testing/index.md` and `scripts/qemu-test.sh`
+- Testing + marker discipline: `docs/testing/README.md` and `scripts/qemu-test.sh`
 
 **Scope note:** `docs/architecture/03-samgr.md` is the host-first library; this page is the OS daemon authority.
 

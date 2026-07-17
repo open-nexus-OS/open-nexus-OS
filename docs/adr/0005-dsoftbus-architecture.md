@@ -106,7 +106,7 @@ All `CAP_MOVE` operations explicitly close the reply capability on all exit path
 
 - Canonical runner: `tools/os2vm.sh`
 - Contract seed: `docs/rfcs/RFC-0010-dsoftbus-cross-vm-harness-v1.md`
-- Testing guide: `docs/testing/index.md`
+- Testing guide: `docs/testing/README.md`
 
 **RFC Contracts**:
 

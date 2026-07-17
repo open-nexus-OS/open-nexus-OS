@@ -553,7 +553,7 @@ qemu-system-riscv64 -smp 4 -kernel neuron.elf
 
 ## Related Documents
 
-- `docs/agents/VISION.md` — Fearless concurrency as a core principle
+- `docs/architecture/vision.md` — Fearless concurrency as a core principle
 - `tasks/TASK-0011B-kernel-rust-idioms-pre-smp.md` — Ownership prep work
 - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — SMP v1 baseline (In Review)
 - [Servo Parallel Architecture](https://github.com/servo/servo/wiki/Design) — Inspiration

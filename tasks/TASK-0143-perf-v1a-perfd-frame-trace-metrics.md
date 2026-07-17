@@ -6,8 +6,8 @@ created: 2025-12-25
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Metrics/tracing foundations: tasks/TASK-0014-observability-v2-metrics-tracing.md
   - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
   - Persistence (/state for trace export): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

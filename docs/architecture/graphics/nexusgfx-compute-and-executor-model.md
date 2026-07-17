@@ -336,7 +336,7 @@ The first milestone should explicitly avoid:
 
 - `tasks/TRACK-NEXUSGFX-SDK.md`
 - `tasks/TRACK-NEXUSINFER-SDK.md`
-- `docs/architecture/nexusgfx-resource-model.md`
-- `docs/architecture/nexusgfx-sync-and-lifetime.md`
-- `docs/architecture/nexusgfx-command-and-pass-model.md`
-- `docs/architecture/nexusgfx-capability-matrix.md`
+- `docs/architecture/graphics/nexusgfx-resource-model.md`
+- `docs/architecture/graphics/nexusgfx-sync-and-lifetime.md`
+- `docs/architecture/graphics/nexusgfx-command-and-pass-model.md`
+- `docs/architecture/graphics/nexusgfx-capability-matrix.md`

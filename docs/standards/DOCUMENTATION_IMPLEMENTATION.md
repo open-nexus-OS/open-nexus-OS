@@ -70,7 +70,7 @@ This document describes the implementation of documentation standards across the
 /source/libs/** @runtime
 /source/services/** @runtime          # Added
 /userspace/** @runtime                # Added
-/docs/ARCHITECTURE.md @kernel-team
+/docs/architecture/README.md @kernel-team
 /docs/adr/** @runtime                 # Added
 ```
 

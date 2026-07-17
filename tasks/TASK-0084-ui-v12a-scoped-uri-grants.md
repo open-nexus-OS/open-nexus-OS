@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Content providers (contentd): tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md
   - Policy as Code: tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

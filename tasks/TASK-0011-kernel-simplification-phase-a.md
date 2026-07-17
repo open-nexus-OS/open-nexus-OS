@@ -6,8 +6,8 @@ created: 2025-12-22
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - RFC: docs/rfcs/RFC-0001-kernel-simplification.md
   - Kernel overview: docs/architecture/01-neuron-kernel.md
   - Testing contract: scripts/qemu-test.sh

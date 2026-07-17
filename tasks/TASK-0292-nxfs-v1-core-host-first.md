@@ -8,8 +8,8 @@ depends-on:
 follow-up-tasks:
   - TASK-0293
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seed (this task): docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
   - Architecture split: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md
   - Track: tasks/TRACK-STASH-USER-DATA-FS.md

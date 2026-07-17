@@ -4,8 +4,8 @@ status: Living
 owner: @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (Open With, share/export, collaboration entry points): tasks/TRACK-SYSTEM-DELEGATION.md
   - Zero-Copy App Platform (foundation): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Service architecture (hybrid control/data plane): docs/adr/0017-service-architecture.md

@@ -10,7 +10,7 @@
   - Status board: `tasks/STATUS-BOARD.md`
   - Related RFCs:
     - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
-    - `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
+    - `docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
     - `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md`
 
 ## Status at a Glance
@@ -37,7 +37,7 @@ This RFC is a design seed / contract. Execution checklist and proofs live in `TA
 - **This RFC does NOT own**:
   - enabling OS QUIC transport (`TASK-0023`),
   - QUIC tuning/perf matrix breadth (`TASK-0044`),
-  - changing mux v2 wire semantics already governed by `RFC-0033`,
+  - changing mux v2 wire semantics already governed by `RFC-0060`,
   - reopening `TASK-0021` transport-selection/fallback contract.
 
 ### Relationship to tasks (single execution truth)
@@ -78,7 +78,7 @@ Mature distributed service-fabric decomposition is used here as architectural gu
 ## Non-Goals
 
 - Enabling OS QUIC data path in this RFC/task.
-- Introducing new mux semantics beyond `RFC-0033`.
+- Introducing new mux semantics beyond `RFC-0060`.
 - Kernel MMIO, scheduler, or memory-management contract changes.
 
 ## Constraints / invariants (hard requirements)

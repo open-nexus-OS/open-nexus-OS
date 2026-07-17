@@ -231,7 +231,7 @@ No giant HPC feature matrix is required for the first milestone.
 
 ## Related
 
-- `docs/architecture/nexusgfx-compute-and-executor-model.md`
-- `docs/architecture/nexusgfx-resource-model.md`
-- `docs/architecture/nexusgfx-artifact-pipeline.md`
+- `docs/architecture/graphics/nexusgfx-compute-and-executor-model.md`
+- `docs/architecture/graphics/nexusgfx-resource-model.md`
+- `docs/architecture/graphics/nexusgfx-artifact-pipeline.md`
 - `tasks/TRACK-NEXUSGFX-SDK.md`

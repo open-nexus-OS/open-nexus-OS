@@ -19,7 +19,7 @@
     - `tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md`
     - `tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md`
   - ADRs: `docs/adr/0005-dsoftbus-architecture.md`
-  - Testing guide: `docs/testing/index.md`
+  - Testing guide: `docs/testing/README.md`
   - Related RFCs:
     - `docs/rfcs/RFC-0007-dsoftbus-os-transport-v1.md`
     - `docs/rfcs/RFC-0008-dsoftbus-noise-xk-v1.md`
@@ -38,7 +38,7 @@ Definition:
 
 ### Completion gate (erfuellt-bedingung, normative)
 
-Per `docs/testing/index.md` (host-first, OS-last), this RFC is only considered **fulfilled** when the following test set is green with unchanged marker semantics:
+Per `docs/testing/README.md` (host-first, OS-last), this RFC is only considered **fulfilled** when the following test set is green with unchanged marker semantics:
 
 1. Host seam/regression checks:
    - `cargo test -p dsoftbusd -- --nocapture`
@@ -244,7 +244,7 @@ When writing this RFC, ensure:
 - [x] Task(s) linked with stop conditions + proof commands.
 - [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
 - [x] Security-relevant negative tests exist (`test_reject_*`).
-- [x] Completion gate from `docs/testing/index.md` is satisfied:
+- [x] Completion gate from `docs/testing/README.md` is satisfied:
   - [x] `cargo test -p dsoftbusd -- --nocapture`
   - [x] `cargo test -p remote_e2e -- --nocapture`
   - [x] `just dep-gate`

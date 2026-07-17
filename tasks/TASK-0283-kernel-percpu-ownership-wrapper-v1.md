@@ -6,7 +6,7 @@ created: 2026-01-09
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
+  - Vision: docs/architecture/vision.md
   - Rust SMP model: docs/architecture/16-rust-concurrency-model.md
   - SMP baseline: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
   - SMP hardening bridge: tasks/TASK-0012B-kernel-smp-v1b-scheduler-smp-hardening.md

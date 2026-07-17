@@ -4,8 +4,8 @@ status: Draft
 owner: @runtime @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
   - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
   - Device MMIO access model (userspace drivers): tasks/TASK-0010-device-mmio-access-model.md

@@ -6,8 +6,8 @@ created: 2026-03-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Kernel IPC contract: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - IPC runtime architecture: docs/adr/0003-ipc-runtime-architecture.md
   - VMO plumbing baseline: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
@@ -121,7 +121,7 @@ Optional additive perf evidence:
 - `userspace/nexus-ipc/`
 - `source/apps/selftest-client/`
 - `docs/rfcs/RFC-0005-kernel-ipc-capability-model.md` (only if contract wording needs explicit fastpath notes)
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 
 ## Plan (small PRs)
 

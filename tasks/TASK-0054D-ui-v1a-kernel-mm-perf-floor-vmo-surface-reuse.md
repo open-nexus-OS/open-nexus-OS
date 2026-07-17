@@ -7,8 +7,8 @@ depends-on: []
 follow-up-tasks:
   - TASK-0290
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Address-space and mapping security floor: docs/rfcs/RFC-0004-safe-loader-guards.md
   - VMO plumbing baseline: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - UI performance philosophy: docs/dev/ui/foundations/quality/performance-philosophy.md
@@ -132,7 +132,7 @@ Notes:
 - `source/apps/selftest-client/`
 - `docs/architecture/01-neuron-kernel.md`
 - `docs/storage/vmo.md`
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 
 ## Plan (small PRs)
 

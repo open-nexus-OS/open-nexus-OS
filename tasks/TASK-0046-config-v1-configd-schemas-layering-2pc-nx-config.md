@@ -12,8 +12,8 @@ follow-up-tasks:
   - TASK-0273
   - TASK-0285
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seed (this task): docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md
   - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
   - Policy as Code (consumer): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
@@ -184,8 +184,8 @@ Once `/state` exists and at least one service participates:
 - `tools/nx/` (extend with `nx config ...`)
 - `tests/`
 - `docs/config/` (new)
-- `docs/devx/nx-cli.md` (extend)
-- `docs/testing/index.md`
+- `docs/dev/nx-cli.md` (extend)
+- `docs/testing/README.md`
 - `scripts/qemu-test.sh` (gated)
 
 ## Plan (small PRs)
@@ -244,7 +244,7 @@ Once `/state` exists and at least one service participates:
    - `nx config reload` (calls configd)
 
 6. **Docs**
-   - `docs/config/index.md`: layering, schemas, 2PC reload, troubleshooting.
+   - `docs/dev/configuration.md`: layering, schemas, 2PC reload, troubleshooting.
 
 ## Progress snapshot (2026-04-24)
 

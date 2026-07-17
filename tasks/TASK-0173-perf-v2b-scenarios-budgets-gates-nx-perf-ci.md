@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - perfd v2 core: tasks/TASK-0172-perf-v2a-perfd-sessions-stats-export.md
   - Perf v1 instrumentation plan (optional reuse): tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
   - IME v2 OS path (scenario deps): tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md

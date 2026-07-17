@@ -6,11 +6,11 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - NexusGfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
-  - NexusGfx command/pass model: docs/architecture/nexusgfx-command-and-pass-model.md
-  - NexusGfx tile-aware design: docs/architecture/nexusgfx-tile-aware-design.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
+  - NexusGfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - NexusGfx command/pass model: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+  - NexusGfx tile-aware design: docs/architecture/graphics/nexusgfx-tile-aware-design.md
   - Driver/accelerator contracts (CPU now, GPU later): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Renderer abstraction host slice: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - UI v1b windowd baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md

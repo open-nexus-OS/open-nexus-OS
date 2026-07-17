@@ -1,4 +1,8 @@
-# RFC-0033: DSoftBus Streams v2 mux/flow-control/keepalive (host-first, OS-gated)
+# RFC-0060: DSoftBus Streams v2 mux/flow-control/keepalive (host-first, OS-gated)
+
+> Formerly RFC-0033. Renumbered 2026-07 to resolve a number collision with
+> RFC-0033 (soft-real-time spine). Historical references (CHANGELOG, task
+> ledgers) to "RFC-0033" in a DSoftBus mux context mean this document.
 
 - Status: Done
 - Owners: @runtime
@@ -40,7 +44,7 @@ This RFC is a design seed / contract. Implementation planning and proofs live in
 
 This RFC remains intentionally narrow so it can reach `Complete` once `TASK-0020` closure proofs are green.
 
-- `RFC-0033` is authoritative for mux v2 contract semantics only.
+- `RFC-0060` is authoritative for mux v2 contract semantics only.
 - `RFC-0034` is authoritative for multi-task production closure (gates, perf budgets, and legacy hardening mapping from `TASK-0001..0020`).
 - Any requirement that spans multiple follow-on tasks must be added to `RFC-0034` rather than expanding this RFC into a backlog.
 

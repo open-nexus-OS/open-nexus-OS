@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - A11y v4 baseline: tasks/TASK-0061-ui-v4b-gestures-a11y-semantics.md
   - Design kit (roles/labels): tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
   - Window/input baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md

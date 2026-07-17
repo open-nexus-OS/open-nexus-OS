@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Windowing/Compositor v2 integration: tasks/TASK-0199-windowing-compositor-v2a-host-damage-occlusion-screencap.md
   - Present scheduler + fences baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
   - windowd compositor surfaces baseline (VMO + minimal present fence): tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md

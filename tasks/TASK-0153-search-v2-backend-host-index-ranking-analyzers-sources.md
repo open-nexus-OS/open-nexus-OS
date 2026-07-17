@@ -6,8 +6,8 @@ created: 2025-12-26
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Existing search placeholder ADR: docs/adr/0010-search-architecture.md
   - Search v9a task (baseline): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
   - Search v2 UI surface (host): tasks/TASK-0151-search-v2-ui-host-command-palette-model-a11y.md

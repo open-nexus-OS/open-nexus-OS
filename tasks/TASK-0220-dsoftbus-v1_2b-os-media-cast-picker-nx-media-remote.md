@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Media apps product track (TV casting + system-wide controls): tasks/TRACK-MEDIA-APPS.md
   - DSoftBus v1.1 OS wiring (busdir/rpcmux/health): tasks/TASK-0212-dsoftbus-v1_1d-os-busdir-ui-selftests.md
   - DSoftBus v1.2 host core (media remote + mediacast): tasks/TASK-0219-dsoftbus-v1_2a-host-media-remote-proto-cast.md

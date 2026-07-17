@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Text primitives: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
   - IME/Text-input baseline (v3b): tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - Clipboard v3: tasks/TASK-0087-ui-v13a-clipboard-v3.md

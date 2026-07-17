@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Display core (host-first): tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
   - Renderer abstraction: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md

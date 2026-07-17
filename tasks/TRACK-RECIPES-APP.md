@@ -4,8 +4,8 @@ status: Draft
 owner: @apps @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (import/export via intents): tasks/TRACK-SYSTEM-DELEGATION.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Content/URIs + picker + grants: tasks/TASK-0081-ui-v11a-mime-registry-content-providers.md, tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md, tasks/TASK-0084-ui-v12a-scoped-uri-grants.md

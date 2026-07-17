@@ -8,8 +8,8 @@ follow-up-tasks:
   - TASK-0260
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Persistence baseline (virtio-blk): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
   - Testing contract: scripts/qemu-test.sh

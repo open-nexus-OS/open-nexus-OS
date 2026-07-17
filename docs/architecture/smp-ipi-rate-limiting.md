@@ -3,7 +3,7 @@
 **Created**: 2026-01-09  
 **Owner**: @kernel-smp-team  
 **Status**: Active policy; TASK-0012 baseline invariants implemented, TASK-0042 budget layer pending  
-**Related**: TASK-0012 (SMP v1), TASK-0042 (SMP v2), SECURITY-CONSISTENCY-CHECK.md
+**Related**: TASK-0012 (SMP v1), TASK-0042 (SMP v2), security-consistency-check.md
 
 ---
 

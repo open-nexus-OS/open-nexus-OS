@@ -260,7 +260,7 @@ That is enough to generate future tasks without ambiguity.
 
 ## Related
 
-- `docs/architecture/nexusgfx-resource-model.md`
-- `docs/architecture/nexusgfx-command-and-pass-model.md`
+- `docs/architecture/graphics/nexusgfx-resource-model.md`
+- `docs/architecture/graphics/nexusgfx-command-and-pass-model.md`
 - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md`
 - `tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md`

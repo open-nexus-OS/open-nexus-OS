@@ -7,8 +7,8 @@ depends-on: []
 follow-up-tasks:
   - TASK-0247
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Seed contract: docs/rfcs/RFC-0025-ipc-liveness-hardening-bounded-retry-contract-v1.md
   - Performance extension contract: docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md
   - Previous baseline: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md

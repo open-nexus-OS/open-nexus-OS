@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Kernel IPC/cap model: docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Userland syscall guardrails (not a boundary): tasks/TASK-0019-security-v2-userland-abi-syscall-filters.md
   - Kernel ABI/syscalls work (related): tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md

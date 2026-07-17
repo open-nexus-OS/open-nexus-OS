@@ -6,17 +6,17 @@ created: 2026-04-10
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - NexusGfx track: tasks/TRACK-NEXUSGFX-SDK.md
   - Renderer abstraction host slice: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - Renderer abstraction OS wiring baseline: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
   - UI compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
   - DriverKit core contracts: tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md
   - NexusGfx v1b resource/fence core: tasks/TASK-0169B-nexusgfx-v1b-resource-fence-core-cpu-mock-submit.md
-  - Gfx command/pass model: docs/architecture/nexusgfx-command-and-pass-model.md
-  - Gfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
-  - Gfx tile-aware design: docs/architecture/nexusgfx-tile-aware-design.md
+  - Gfx command/pass model: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
+  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - Gfx tile-aware design: docs/architecture/graphics/nexusgfx-tile-aware-design.md
 ---
 
 ## Context

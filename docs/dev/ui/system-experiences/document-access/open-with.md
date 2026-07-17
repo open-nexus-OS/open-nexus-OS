@@ -3,7 +3,7 @@
 
 # Open With
 
-Open With is the system-owned default-handler and target-selection flow for opening content in another app.
+Open With is the system-owned default-handler and target-selection flow for opening content in another app. It recurs as a system pattern across Files, Browser, share flows, and app integration.
 
 Primary anchors:
 

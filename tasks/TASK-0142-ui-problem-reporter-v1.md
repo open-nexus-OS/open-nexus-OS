@@ -6,8 +6,8 @@ created: 2025-12-25
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Crash export/notify surface: tasks/TASK-0141-crash-v1-export-redaction-notify.md
   - Crashdump v2b OS pipeline: tasks/TASK-0049-crashdump-v2b-os-crashd-retention-correlation-policy.md
   - SystemUI→DSL baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md

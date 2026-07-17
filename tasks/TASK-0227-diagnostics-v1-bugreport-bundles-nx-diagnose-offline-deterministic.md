@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - /state (persistence gate): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - logd (recent logs query): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Crash pipeline (OS): tasks/TASK-0049-crashdump-v2b-os-crashd-retention-correlation-policy.md

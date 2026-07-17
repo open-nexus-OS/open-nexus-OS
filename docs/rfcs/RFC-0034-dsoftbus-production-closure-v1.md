@@ -10,7 +10,7 @@
     - `docs/rfcs/RFC-0027-dsoftbusd-modular-daemon-structure-v1.md`
     - `docs/rfcs/RFC-0028-dsoftbus-remote-packagefs-ro-v1.md`
     - `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md`
-    - `docs/rfcs/RFC-0033-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
+    - `docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md`
 
 ## Status at a Glance
 
@@ -33,7 +33,7 @@ This RFC is a design seed / contract. Execution truth remains in tasks.
   - extraction of mandatory closure obligations into `TASK-0020` without rewriting historic `Done` statuses,
   - required evidence model for legacy closure (host + single-VM + 2-VM + perf + hardening).
 - **This RFC does NOT own**:
-  - detailed mux protocol semantics already owned by `RFC-0033`,
+  - detailed mux protocol semantics already owned by `RFC-0060`,
   - changing historical task status (`Done` remains `Done`),
   - defining contracts for subsequent DSoftBus tasks after the legacy closure scope.
 
@@ -181,7 +181,7 @@ cd /home/jenning/open-nexus-OS && just test-e2e && just test-os-dhcp
 
 ## Alternatives considered
 
-- Put all production closure into `RFC-0033`: rejected (would bloat mux RFC scope).
+- Put all production closure into `RFC-0060`: rejected (would bloat mux RFC scope).
 - Keep closure as ad-hoc notes only in task docs: rejected (no explicit contract).
 
 ## Open questions

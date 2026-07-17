@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Updates A/B skeleton baseline: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - OTA v2 state machine baseline: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

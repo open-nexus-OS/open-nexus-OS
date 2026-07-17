@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DSL syntax/layout convention: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Battery core (host-first): tasks/TASK-0256-battery-v0_9a-host-fuel-gauge-model-charger-deterministic.md

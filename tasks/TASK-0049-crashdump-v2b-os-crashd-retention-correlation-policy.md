@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Crashdump v2a (host tools + format): tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
   - Crashdumps v1 baseline: tasks/TASK-0018-crashdumps-v1-minidump-host-symbolize.md
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md

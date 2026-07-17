@@ -4,16 +4,16 @@ status: Draft
 owner: @media @ui
 created: 2026-01-19
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - System Delegation / System Surfaces (Edit-in target + export/share via intents): tasks/TRACK-SYSTEM-DELEGATION.md
   - Authority registry (names are binding): tasks/TRACK-AUTHORITY-NAMING.md
   - Keystone closure plan: tasks/TRACK-KEYSTONE-GATES.md
   - NexusMedia SDK (audio/video/image contracts): tasks/TRACK-NEXUSMEDIA-SDK.md
   - NexusGfx SDK (render/compute contracts): tasks/TRACK-NEXUSGFX-SDK.md
-  - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
-  - Gfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
-  - Gfx artifact pipeline: docs/architecture/nexusgfx-artifact-pipeline.md
+  - Gfx resource model: docs/architecture/graphics/nexusgfx-resource-model.md
+  - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md
+  - Gfx artifact pipeline: docs/architecture/graphics/nexusgfx-artifact-pipeline.md
   - Drivers & accelerators (GPU/VPU/audio/camera contracts): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - NexusInfer SDK (on-device ML runtime): tasks/TRACK-NEXUSINFER-SDK.md
   - Zero-copy data plane (VMOs): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md

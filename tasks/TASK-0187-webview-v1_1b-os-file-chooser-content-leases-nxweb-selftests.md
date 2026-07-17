@@ -6,8 +6,8 @@ created: 2025-12-27
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - DSL app integration kit: tasks/TASK-0122C-dsl-app-integration-kit-v1-picker-clipboard-share-print.md
   - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
   - WebView v1.1 host core: tasks/TASK-0186-webview-v1_1a-host-webview-core-history-find-sessionstorage-csp.md

@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Recovery v1a: tasks/TASK-0050-recovery-v1a-boot-target-minimal-shell-diag.md
   - Recovery v1b (tools): tasks/TASK-0051-recovery-v1b-safe-tools-fsck-slot-ota-nx-recovery.md
   - Policy as Code (trust + gating): tasks/TASK-0047-policy-as-code-v1-unified-engine.md

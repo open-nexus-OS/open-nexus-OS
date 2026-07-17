@@ -6,8 +6,8 @@ created: 2025-12-23
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Bootstrap shell visible launcher mount: tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
   - Phase 1a pages/tests: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
   - DSL CLI/tooling: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
@@ -77,7 +77,7 @@ Deliver:
      - `cargo test -p systemui_dsl_phase1_host`
      - bounded QEMU run + marker checks
 5. Docs:
-   - `docs/systemui/dsl-migration.md` with parity rules, flags, troubleshooting, and how to add pages.
+   - `docs/dev/ui/dsl-migration.md` with parity rules, flags, troubleshooting, and how to add pages.
 
 ## Non-Goals
 
@@ -116,7 +116,7 @@ UART markers:
 - `tools/nx-dsl/` (systemui targets)
 - `source/apps/selftest-client/`
 - `tools/postflight-systemui-dsl-phase1.sh`
-- `docs/systemui/dsl-migration.md`
+- `docs/dev/ui/dsl-migration.md`
 
 ## Plan (small PRs)
 

@@ -6,8 +6,8 @@ created: 2025-12-25
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - SystemUI→DSL Settings baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
   - SystemUI→DSL OS wiring: tasks/TASK-0122-systemui-dsl-migration-phase2b-os-wiring-postflight-docs.md
   - StateFS snapshots/compaction: tasks/TASK-0134-statefs-v3-snapshots-compaction-mounts.md

@@ -6,8 +6,8 @@ created: 2025-12-29
 depends-on: []
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - SBOM baseline: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - SDK CI gates: tasks/TASK-0165-sdk-v1-part2a-devtools-lints-pack-sign-ci.md
   - Testing contract: scripts/qemu-test.sh
