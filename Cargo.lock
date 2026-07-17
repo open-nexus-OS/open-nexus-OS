@@ -4372,33 +4372,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ui_v3a_host"
-version = "0.1.0"
-dependencies = [
- "input-live-protocol",
- "nexus-layout",
- "nexus-layout-types",
- "nexus-shape",
- "serde",
- "serde_json",
- "windowd",
-]
-
-[[package]]
-name = "ui_v3b_host"
-version = "0.1.0"
-dependencies = [
- "input-live-protocol",
- "nexus-effects",
- "nexus-layout",
- "nexus-layout-types",
- "nexus-shape",
- "serde",
- "serde_json",
- "windowd",
-]
-
-[[package]]
 name = "ui_v4_host"
 version = "0.1.0"
 dependencies = [
