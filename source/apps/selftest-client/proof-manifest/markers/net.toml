@@ -66,6 +66,14 @@ phase = "net"
 [marker."dsoftbusd: local ip rpc fail"]
 phase = "net"
 
+# Same family (os/entry.rs local-ip bring-up): retry/fallback status lines
+# that only surface under real MTTCG timing + honest errno decoding.
+[marker."dsoftbusd: local ip wait"]
+phase = "net"
+
+[marker."dsoftbusd: local ip fallback"]
+phase = "net"
+
 [marker."dsoftbusd: local ip ok"]
 phase = "net"
 

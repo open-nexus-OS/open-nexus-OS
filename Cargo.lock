@@ -2907,6 +2907,8 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-svg",
+ "nexus-sync",
  "nexus-workpool",
 ]
 

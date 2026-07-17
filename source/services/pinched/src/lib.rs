@@ -41,6 +41,12 @@ pub const MAX_JOB_ELEMS: usize = 16384;
 /// expected secondary CPU; workers self-pin, see nexus-workpool C4).
 pub const PINCHED_WORKERS: usize = 2;
 
+/// Maximum SVG raster target edge (bounds the per-worker row buffer).
+pub const MAX_SVG_JOB_DIM: usize = 256;
+
+/// Maximum SVG source bytes accepted per job.
+pub const MAX_SVG_BYTES: usize = 16384;
+
 /// Wire protocol v1 (system-internal; carried over the init-wired route).
 ///
 /// Request frame: `[MAGIC0, MAGIC1, VERSION, OP_COMPUTE, kind:u8, total:u32le]`
@@ -68,14 +74,24 @@ pub mod protocol {
     pub const STATUS_OVERSIZED: u32 = 2;
     pub const STATUS_BAD_KIND: u32 = 3;
     pub const STATUS_IO: u32 = 4;
+    /// Job payload failed validation/parsing (e.g. malformed SVG).
+    pub const STATUS_BAD_INPUT: u32 = 5;
 
-    /// Job kinds. v1 ships the deterministic proof transform; SVG tessellation
-    /// becomes the next kind behind the same partition→map contract.
+    /// Job kinds. v1 ships the deterministic proof transform; SVG raster is
+    /// the first real workload behind the same partition→map contract.
     pub const JOB_MAP_MIX_U32: u8 = 1;
+    /// Parallel SVG rasterization in row bands (nexus-svg RasterPlan).
+    /// `total` MUST equal `h` (the partition domain is output rows). Input:
+    /// `svg_len` UTF-8 SVG bytes at [`DATA_OFFSET`]; output: `w*h` BGRA8888
+    /// pixels (premultiplied, one u32le element each) at [`DATA_OFFSET`],
+    /// overwriting the input. Header `elems` reports `w*h`.
+    pub const JOB_SVG_RASTER: u8 = 2;
 
     pub const MIN_FRAME_LEN: usize = 4;
     /// `[MAGIC0, MAGIC1, VERSION, OP, kind:u8, total:u32le]`
     pub const COMPUTE_REQ_LEN: usize = 9;
+    /// kind 2 tail: `... + w:u16le + h:u16le + svg_len:u32le`
+    pub const COMPUTE_SVG_REQ_LEN: usize = 17;
 
     /// Completion header: `[magic:u32le, status:u32le, elems:u32le, workers:u32le]`.
     /// `workers` reports the executing backend width (0 = inline fallback) —

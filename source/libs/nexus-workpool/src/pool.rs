@@ -26,7 +26,15 @@ use crate::partition::chunk_bounds;
 
 /// Worker ceiling (mirrors the kernel CPU ceiling).
 pub const MAX_WORKERS: usize = 4;
-const WORKER_STACK_BYTES: usize = 32 * 1024;
+// 64 KiB per worker: real workloads (SVG rasterization) overflowed 32 KiB —
+// and a static-array stack overflows SILENTLY into neighbouring .bss (the
+// known three-stack-cliff failure mode). The canary below turns the silent
+// cliff into a loud, attributable error.
+const WORKER_STACK_BYTES: usize = 64 * 1024;
+
+/// Written at the LOW end of each worker stack before spawn; checked after
+/// every run. A dead canary = the worker overflowed its stack.
+const STACK_CANARY: u64 = 0xDEAD_5AFE_CAFE_F00D;
 
 /// Job function contract: process items `[start, end)`; `ctx` is the raw
 /// caller context (typically a pointer to input/output arrays). MUST only
@@ -45,6 +53,14 @@ pub enum PoolError {
     Busy,
     /// Invalid arguments (workers == 0).
     InvalidArgs,
+    /// A previous run timed out with workers still executing: worker state is
+    /// unknown, so the pool refuses all further jobs (callers use their
+    /// inline fallback). Fail-closed — never hand a new job to workers that
+    /// may still be writing the old one.
+    Poisoned,
+    /// A worker's stack canary is dead: it overflowed its static stack and
+    /// may have corrupted neighbouring memory. The pool poisons itself.
+    StackOverflow,
     /// fence_create failed during init.
     AbiFence,
     /// thread spawn failed during init.
@@ -63,6 +79,7 @@ const STATE_UNINIT: usize = 0;
 const STATE_INIT_IN_PROGRESS: usize = 1;
 const STATE_READY: usize = 2;
 const STATE_RUNNING: usize = 3;
+const STATE_POISONED: usize = 4;
 
 /// Shared pool state: lives in the process image; workers (same AS) read it
 /// directly. All fields are atomics — no locks on the worker paths.
@@ -162,6 +179,21 @@ pub fn selftest_probe_done_fence() -> bool {
     nexus_abi::fence_wait(done_slot, u64::MAX, deadline).is_err()
 }
 
+/// `true` while every spawned worker's stack-floor canary is intact.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn canaries_intact() -> bool {
+    let workers = SHARED.workers.load(Ordering::Acquire);
+    for idx in 0..workers.min(MAX_WORKERS) {
+        // SAFETY: read-only view of the worker's dedicated static stack; the
+        // bottom 8 bytes are reserved for the canary (never valid stack data).
+        let stack = unsafe { &(*core::ptr::addr_of!(WORKER_STACKS))[idx] };
+        if stack[..8] != STACK_CANARY.to_le_bytes() {
+            return false;
+        }
+    }
+    true
+}
+
 /// Diagnostics for proofs: (alive workers, woke count, done_count).
 pub fn selftest_debug() -> (usize, usize, u64) {
     let mut alive = 0;
@@ -237,6 +269,7 @@ pub fn init(workers: usize) -> Result<(), PoolError> {
             for idx in 0..workers {
                 // SAFETY: each worker gets exactly one dedicated static stack.
                 let stack = unsafe { &mut (*core::ptr::addr_of_mut!(WORKER_STACKS))[idx] };
+                stack[..8].copy_from_slice(&STACK_CANARY.to_le_bytes());
                 let pid = nexus_abi::thread::spawn_thread_suspended(worker_entry, idx, stack)
                     .map_err(|_| PoolError::AbiSpawn)?;
                 // Transfer the fence caps into the (suspended) worker's empty
@@ -286,6 +319,7 @@ pub fn run(total: usize, f: JobFn, ctx: *mut u8, deadline_ns: u64) -> Result<(),
     {
         return match SHARED.state.load(Ordering::Acquire) {
             STATE_RUNNING => Err(PoolError::Busy),
+            STATE_POISONED => Err(PoolError::Poisoned),
             _ => Err(PoolError::NotReady),
         };
     }
@@ -301,17 +335,35 @@ pub fn run(total: usize, f: JobFn, ctx: *mut u8, deadline_ns: u64) -> Result<(),
         let job_slot = SHARED.parent_job_slot.load(Ordering::Acquire) as u32;
         let done_slot = SHARED.parent_done_slot.load(Ordering::Acquire) as u32;
 
-        let result = (|| -> Result<(), PoolError> {
-            nexus_abi::fence_signal(job_slot, seq).map_err(|_| PoolError::Abi)?;
-            let deadline = if deadline_ns == 0 {
-                0
-            } else {
-                nexus_abi::nsec().unwrap_or(0).saturating_add(deadline_ns)
-            };
-            nexus_abi::fence_wait(done_slot, seq, deadline).map_err(|_| PoolError::Timeout)
-        })();
-        SHARED.state.store(STATE_READY, Ordering::Release);
-        result
+        if nexus_abi::fence_signal(job_slot, seq).is_err() {
+            // Signal never reached the workers: no job started, READY is safe.
+            SHARED.state.store(STATE_READY, Ordering::Release);
+            return Err(PoolError::Abi);
+        }
+        let deadline = if deadline_ns == 0 {
+            0
+        } else {
+            nexus_abi::nsec().unwrap_or(0).saturating_add(deadline_ns)
+        };
+        match nexus_abi::fence_wait(done_slot, seq, deadline) {
+            Ok(()) => {
+                if !canaries_intact() {
+                    // A worker ran through its stack floor: its writes may
+                    // have corrupted neighbouring statics. Loud + poisoned.
+                    SHARED.state.store(STATE_POISONED, Ordering::Release);
+                    return Err(PoolError::StackOverflow);
+                }
+                SHARED.state.store(STATE_READY, Ordering::Release);
+                Ok(())
+            }
+            Err(_) => {
+                // Workers may still be executing the old job — handing out a
+                // new one would interleave writes. Poison the pool: every
+                // caller falls back to its inline path from here on.
+                SHARED.state.store(STATE_POISONED, Ordering::Release);
+                Err(PoolError::Poisoned)
+            }
+        }
     }
     #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
     {

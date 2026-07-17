@@ -17,6 +17,7 @@ os-lite = [
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
     "dep:nexus-workpool",
+    "dep:nexus-sync",
 ]
 
 [package.metadata.nexus-service]
@@ -27,6 +28,8 @@ nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-workpool = { path = "../../libs/nexus-workpool", optional = true }
+nexus-svg = { path = "../../../userspace/ui/svg", default-features = false }
+nexus-sync = { path = "../../libs/nexus-sync", optional = true }
 
 [[bin]]
 name = "pinched"

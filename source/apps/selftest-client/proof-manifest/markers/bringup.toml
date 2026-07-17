@@ -57,6 +57,11 @@ phase = "bringup"
 emit_when = { profile = "headless" }
 proves = "VMO CAP_MOVE job round-trip: broker's parallel result equals the local reference and workers >= 1"
 
+[marker."SELFTEST: pinched svg ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "banded parallel SVG raster on the broker is byte-identical to a local full rasterize and workers >= 1 (D4 result-proof)"
+
 [marker."SELFTEST: thread spawn ok"]
 phase = "bringup"
 emit_when = { profile = "headless" }

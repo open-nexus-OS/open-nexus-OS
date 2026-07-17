@@ -24,9 +24,13 @@ use nexus_abi::{debug_putc, yield_};
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
+use alloc::sync::Arc;
+
+use nexus_sync::SpinLock;
+
 use crate::broker::mix_u32;
 use crate::protocol::*;
-use crate::{MAX_JOB_ELEMS, PINCHED_WORKERS};
+use crate::{MAX_JOB_ELEMS, MAX_SVG_BYTES, MAX_SVG_JOB_DIM, PINCHED_WORKERS};
 
 /// Result type for pinched operations.
 pub type PinchedResult<T> = Result<T, PinchedError>;
@@ -75,11 +79,60 @@ static POOL_READY: AtomicBool = AtomicBool::new(false);
 /// One-shot receive crumb (proves the first job frame actually arrived).
 static FIRST_JOB_SEEN: AtomicBool = AtomicBool::new(false);
 
+/// The in-flight SVG job the workers rasterize from. The server publishes the
+/// Arc BEFORE signalling the job fence and clears it after the done fence;
+/// workers take the lock only long enough to clone the Arc (read-only share,
+/// no lock held across the raster loop).
+static SVG_JOB: SpinLock<Option<Arc<SvgJob>>> = SpinLock::new(None);
+
+struct SvgJob {
+    plan: nexus_svg::RasterPlan,
+    w: usize,
+}
+
+/// Worker progress steps for the SVG job (diagnosis: where does it die?).
+/// 1 = entered, 2 = plan cloned, 3 = scratch built, 4 = first row done,
+/// 5 = all rows done.
+static SVG_STEP: [AtomicU32; 4] = [const { AtomicU32::new(0) }; 4];
+
 /// The `JOB_MAP_MIX_U32` job on the shared buffer (workpool JobFn shape).
 extern "C" fn job_map_mix(start: usize, end: usize, _ctx: *mut u8) {
     for slot in JOB_BUF.iter().take(end).skip(start) {
         slot.store(mix_u32(slot.load(Ordering::Relaxed)), Ordering::Relaxed);
     }
+}
+
+/// The `JOB_SVG_RASTER` job: rows `[start, end)` of the published plan.
+/// Each row rasterizes into a stack buffer and lands as u32le pixels in the
+/// shared atomic buffer (disjoint per-row ranges — no worker overlap). The
+/// per-worker scratch is ONE bounded allocation per job (batch path; the
+/// bump allocator never frees, so nothing here allocates per row).
+extern "C" fn job_svg_rows(start: usize, end: usize, _ctx: *mut u8) {
+    let step = &SVG_STEP[start % 4];
+    step.store(1, Ordering::Release);
+    let job = SVG_JOB.lock().clone();
+    let Some(job) = job else {
+        return;
+    };
+    step.store(2, Ordering::Release);
+    let mut scratch = job.plan.scratch();
+    step.store(3, Ordering::Release);
+    let mut row = [0u8; MAX_SVG_JOB_DIM * 4];
+    for y in start..end {
+        let buf = &mut row[..job.w * 4];
+        buf.fill(0);
+        if job.plan.rasterize_rows(y as u32, y as u32 + 1, &mut scratch, buf).is_err() {
+            // Bounded silent: the parent's digest check reports the mismatch.
+            return;
+        }
+        let base = y * job.w;
+        for (x, px) in buf.chunks_exact(4).enumerate() {
+            let value = u32::from_le_bytes([px[0], px[1], px[2], px[3]]);
+            JOB_BUF[base + x].store(value, Ordering::Relaxed);
+        }
+        step.store(4, Ordering::Release);
+    }
+    step.store(5, Ordering::Release);
 }
 
 /// Main service loop for pinched.
@@ -167,13 +220,18 @@ fn handle_compute(frame: &[u8], vmo_slot: Option<u32>, io_buf: &mut Vec<u8>) {
         emit_line("pinched: FAIL compute (no vmo cap)");
         return;
     };
-    if frame.len() != COMPUTE_REQ_LEN {
+    if frame.len() < COMPUTE_REQ_LEN {
         return finish(vmo, STATUS_MALFORMED, 0, 0);
     }
     let kind = frame[4];
     let total = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]) as usize;
-    if kind != JOB_MAP_MIX_U32 {
-        return finish(vmo, STATUS_BAD_KIND, 0, 0);
+    match kind {
+        JOB_MAP_MIX_U32 => {}
+        JOB_SVG_RASTER => return handle_svg(frame, vmo, total, io_buf),
+        _ => return finish(vmo, STATUS_BAD_KIND, 0, 0),
+    }
+    if frame.len() != COMPUTE_REQ_LEN {
+        return finish(vmo, STATUS_MALFORMED, 0, 0);
     }
     if total == 0 || total > MAX_JOB_ELEMS {
         emit_line("pinched: job reject (oversize total)");
@@ -216,6 +274,112 @@ fn handle_compute(frame: &[u8], vmo_slot: Option<u32>, io_buf: &mut Vec<u8>) {
         return finish(vmo, STATUS_IO, 0, 0);
     }
     finish(vmo, STATUS_OK, total as u32, workers)
+}
+
+/// Serves one `JOB_SVG_RASTER`: parse + plan once, publish the plan, rasterize
+/// row bands on the workpool, stage the pixels out. Same bounded/fail-open
+/// contract as the mix job (inline fallback reports `workers = 0`).
+fn handle_svg(frame: &[u8], vmo: u32, total: usize, io_buf: &mut Vec<u8>) {
+    if frame.len() != COMPUTE_SVG_REQ_LEN {
+        return finish(vmo, STATUS_MALFORMED, 0, 0);
+    }
+    let w = u16::from_le_bytes([frame[9], frame[10]]) as usize;
+    let h = u16::from_le_bytes([frame[11], frame[12]]) as usize;
+    let svg_len = u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]) as usize;
+    if w == 0 || h == 0 || w > MAX_SVG_JOB_DIM || h > MAX_SVG_JOB_DIM || w * h > MAX_JOB_ELEMS {
+        emit_line("pinched: svg reject (dimensions)");
+        return finish(vmo, STATUS_OVERSIZED, 0, 0);
+    }
+    if total != h {
+        return finish(vmo, STATUS_MALFORMED, 0, 0);
+    }
+    if svg_len == 0 || svg_len > MAX_SVG_BYTES {
+        emit_line("pinched: svg reject (source size)");
+        return finish(vmo, STATUS_OVERSIZED, 0, 0);
+    }
+    let need = DATA_OFFSET + svg_len.max(w * h * 4);
+    if vmo_capacity(vmo).map_or(true, |len| len < need) {
+        emit_line("pinched: svg reject (vmo capacity)");
+        return finish(vmo, STATUS_OVERSIZED, 0, 0);
+    }
+
+    // Stage in: SVG source bytes.
+    io_buf.clear();
+    io_buf.resize(svg_len, 0);
+    if nexus_abi::vmo_read(vmo, DATA_OFFSET, io_buf.as_mut_slice()).is_err() {
+        return finish(vmo, STATUS_IO, 0, 0);
+    }
+    // Parse + plan ONCE; workers share the immutable plan via Arc. These are
+    // bounded per-job allocations (batch path), not per-row.
+    let Ok(src) = core::str::from_utf8(io_buf.as_slice()) else {
+        return finish(vmo, STATUS_BAD_INPUT, 0, 0);
+    };
+    let plan = match nexus_svg::parse_svg(src)
+        .and_then(|doc| nexus_svg::plan_document_at(&doc, w as u32, h as u32))
+    {
+        Ok(plan) => plan,
+        Err(_) => {
+            emit_line("pinched: svg reject (parse/plan)");
+            return finish(vmo, STATUS_BAD_INPUT, 0, 0);
+        }
+    };
+    *SVG_JOB.lock() = Some(Arc::new(SvgJob { plan, w }));
+
+    // Compute over rows; run() Ok proves every worker finished its band.
+    // Generous deadline: an SVG raster is a batch job and icount TCG
+    // soft-float is slow; a timeout POISONS the pool (workers unknown), so
+    // the deadline must dominate the worst honest run, not the average.
+    let workers: u32 = if POOL_READY.load(Ordering::Acquire) {
+        match nexus_workpool::run(h, job_svg_rows, core::ptr::null_mut(), 6_000_000_000) {
+            Ok(()) => PINCHED_WORKERS as u32,
+            Err(_) => {
+                let (alive, woke, done) = nexus_workpool::pool::selftest_debug();
+                emit_line(match (alive, woke > 0, done) {
+                    (a, _, _) if a < 2 => "pinched: svg run FAIL (worker died)",
+                    (_, false, _) => "pinched: svg run FAIL (workers never woke)",
+                    (_, true, 0) => "pinched: svg run FAIL (woke, done=0)",
+                    (_, true, 1) => "pinched: svg run FAIL (woke, done=1)",
+                    _ => "pinched: svg run FAIL (woke, done=2?)",
+                });
+                // Which step did each worker band reach? (chunk starts: 0 and h/2)
+                emit_line(match (
+                    SVG_STEP[0].load(Ordering::Acquire),
+                    SVG_STEP[(h / 2) % 4].load(Ordering::Acquire),
+                ) {
+                    (0, b) if b > 0 => "pinched: svg step a=0 (band0 never entered)",
+                    (a, 0) if a > 0 => "pinched: svg step b=0 (band1 never entered)",
+                    (0, 0) => "pinched: svg step both=0",
+                    (1, _) | (_, 1) => "pinched: svg step stuck=1 (plan clone)",
+                    (2, _) | (_, 2) => "pinched: svg step stuck=2 (scratch alloc)",
+                    (3, _) | (_, 3) => "pinched: svg step stuck=3 (first row)",
+                    (4, _) | (_, 4) => "pinched: svg step stuck=4 (mid rows)",
+                    _ => "pinched: svg step both=5 (completed?!)",
+                });
+                job_svg_rows(0, h, core::ptr::null_mut());
+                0
+            }
+        }
+    } else {
+        job_svg_rows(0, h, core::ptr::null_mut());
+        0
+    };
+    *SVG_JOB.lock() = None;
+    emit_line(if workers > 0 {
+        "pinched: svg raster done (par)"
+    } else {
+        "pinched: svg raster done (inline)"
+    });
+
+    // Stage out: pixels FIRST, header LAST.
+    io_buf.clear();
+    io_buf.resize(w * h * 4, 0);
+    for (i, chunk) in io_buf.chunks_exact_mut(4).enumerate() {
+        chunk.copy_from_slice(&JOB_BUF[i].load(Ordering::Relaxed).to_le_bytes());
+    }
+    if nexus_abi::vmo_write(vmo, DATA_OFFSET, io_buf.as_slice()).is_err() {
+        return finish(vmo, STATUS_IO, 0, 0);
+    }
+    finish(vmo, STATUS_OK, (w * h) as u32, workers)
 }
 
 /// Writes the completion header (the release fence) and closes the moved cap.

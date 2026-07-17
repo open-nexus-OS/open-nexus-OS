@@ -33,7 +33,10 @@ pub use elements::{PathCommand, PathData, SvgDocument, SvgElement, Transform};
 pub use error::{SvgError, SvgResult};
 pub use limits::{MAX_PATH_SEGMENTS, MAX_SVG_DIMENSION, MAX_SVG_NODES, OUTPUT_BYTES_PER_PIXEL};
 pub use parse::parse_svg;
-pub use raster::{rasterize_document, rasterize_document_at, RasterOutput};
+pub use raster::{
+    plan_document_at, rasterize_document, rasterize_document_at, RasterOutput, RasterPlan,
+    RasterScratch,
+};
 
 pub fn render_svg(svg_str: &str) -> SvgResult<RasterOutput> {
     let doc = parse_svg(svg_str)?;

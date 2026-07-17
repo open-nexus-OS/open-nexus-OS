@@ -36,6 +36,46 @@ pub fn rasterize_document_at(
     if out_w == 0 || out_h == 0 {
         return Ok(RasterOutput { width: out_w, height: out_h, buffer: Vec::new() });
     }
+    let plan = plan_document_at(doc, out_w, out_h)?;
+    let size = (out_w as usize) * (out_h as usize) * OUTPUT_BYTES_PER_PIXEL;
+    let mut buffer = vec![0u8; size];
+    let mut scratch = plan.scratch();
+    plan.rasterize_rows(0, out_h, &mut scratch, &mut buffer)?;
+    Ok(RasterOutput { width: out_w, height: out_h, buffer })
+}
+
+/// Device-space raster plan: the document tessellated ONCE for a fixed
+/// `width × height` target, rasterizable in independent row bands. Rows carry
+/// no cross-row state, so disjoint bands rendered by different workers (or the
+/// same worker, in any order) are byte-identical to one full rasterize — the
+/// contract the compute-broker's parallel SVG job is built on.
+pub struct RasterPlan {
+    width: u32,
+    height: u32,
+    edges: Vec<Edge>,
+    paints: Vec<ShapePaint>,
+    fill_rules: Vec<FillRule>,
+    solids: Vec<Option<[f32; 4]>>,
+    /// Covered row range (clamped to the target); `y_end < y_start` = nothing.
+    y_start: usize,
+    y_end: isize,
+}
+
+/// Reusable per-worker sweep scratch — one allocation per worker per plan,
+/// never per row (bump-allocator-friendly).
+pub struct RasterScratch {
+    acc: Vec<[f32; 4]>,
+    xs: Vec<(f32, u32, i32)>,
+    winds: Vec<ShapeWind>,
+}
+
+/// Build the device-space [`RasterPlan`] for an explicit target size — the
+/// tessellation half of [`rasterize_document_at`], shareable across workers.
+pub fn plan_document_at(
+    doc: &SvgDocument,
+    out_w: u32,
+    out_h: u32,
+) -> Result<RasterPlan, crate::error::SvgError> {
     // Bound the actual raster allocation (`out_w × out_h × 4`). This is the real memory
     // guard — the document's coordinate extent (viewBox) may legitimately exceed this
     // while the render target stays small.
@@ -53,13 +93,92 @@ pub fn rasterize_document_at(
     let root = Transform { a: sx, b: 0.0, c: 0.0, d: sy, e: 0.0, f: 0.0 };
 
     let (edges, paints) = tessellate_document_with(doc, &root);
+    let n_shapes = paints.len();
 
-    let size = (out_w as usize) * (out_h as usize) * OUTPUT_BYTES_PER_PIXEL;
-    let mut buffer = vec![0u8; size];
+    // Global covered y-range.
+    let mut min_y = f32::MAX;
+    let mut max_y = f32::MIN;
+    for e in &edges {
+        min_y = min_y.min(e.y0);
+        max_y = max_y.max(e.y1);
+    }
+    let (y_start, y_end) = if edges.is_empty() || n_shapes == 0 || out_w == 0 || out_h == 0 {
+        (1usize, 0isize) // empty range: nothing to draw
+    } else {
+        (
+            (min_y.nexus_floor() as isize).max(0) as usize,
+            (max_y.nexus_ceil() as isize - 1).min(out_h as isize - 1),
+        )
+    };
 
-    scanline_fill(&edges, &paints, out_w as usize, out_h as usize, &mut buffer);
+    // Per-shape fill rule (all edges of a shape agree — set in tessellation)
+    // and the premultiplied solid fast path (None = gradient, per-pixel eval).
+    let mut fill_rules = vec![FillRule::NonZero; n_shapes];
+    for e in &edges {
+        if let Some(f) = fill_rules.get_mut(e.shape_id as usize) {
+            *f = e.fill_rule;
+        }
+    }
+    let mut solids: Vec<Option<[f32; 4]>> = Vec::with_capacity(n_shapes);
+    for p in &paints {
+        solids.push(match p {
+            ShapePaint::Solid(c) => Some(premult(*c)),
+            ShapePaint::Gradient(_) => None,
+        });
+    }
 
-    Ok(RasterOutput { width: out_w, height: out_h, buffer })
+    Ok(RasterPlan { width: out_w, height: out_h, edges, paints, fill_rules, solids, y_start, y_end })
+}
+
+impl RasterPlan {
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Fresh sweep scratch sized for this plan (one per worker).
+    pub fn scratch(&self) -> RasterScratch {
+        RasterScratch {
+            acc: vec![[0f32; 4]; self.width as usize],
+            xs: Vec::new(),
+            winds: vec![ShapeWind::default(); self.paints.len()],
+        }
+    }
+
+    /// Rasterize rows `[y0, y1)` into `out` (which must hold exactly
+    /// `(y1 - y0) * width * 4` bytes and start zeroed/pre-composited: rows
+    /// composite OVER the existing bytes, exactly like the full rasterize).
+    /// Row `y` lands at `(y - y0) * width * 4` — bands from different calls
+    /// concatenate to the full image, byte-identical.
+    pub fn rasterize_rows(
+        &self,
+        y0: u32,
+        y1: u32,
+        scratch: &mut RasterScratch,
+        out: &mut [u8],
+    ) -> Result<(), crate::error::SvgError> {
+        if y0 > y1 || y1 > self.height {
+            return Err(crate::error::SvgError::DimensionTooLarge {
+                width: y0 as f32,
+                height: y1 as f32,
+                max: self.height as f32,
+            });
+        }
+        let w = self.width as usize;
+        let rows = (y1 - y0) as usize;
+        if out.len() != rows * w * OUTPUT_BYTES_PER_PIXEL {
+            return Err(crate::error::SvgError::DimensionTooLarge {
+                width: out.len() as f32,
+                height: (rows * w * OUTPUT_BYTES_PER_PIXEL) as f32,
+                max: self.height as f32,
+            });
+        }
+        fill_rows(self, y0 as usize, y1 as usize, scratch, out);
+        Ok(())
+    }
 }
 
 /// Vertical supersamples per pixel row. Combined with the analytic horizontal
@@ -119,28 +238,28 @@ fn apply_over(col: &mut [f32; 4], top: [f32; 4]) {
 /// genuinely overlapping translucent shapes still blend `src OVER dst`. The
 /// row accumulates in premultiplied f32 and is composited onto the output
 /// once per row.
+#[cfg(test)]
 fn scanline_fill(edges: &[Edge], paints: &[ShapePaint], w: usize, h: usize, buffer: &mut [u8]) {
-    if edges.is_empty() || w == 0 || h == 0 || paints.is_empty() {
+    // Test-only wrapper over the banded core: builds the plan bits from raw
+    // edges (the unit tests construct edges by hand, without a document).
+    if w == 0 || h == 0 {
         return;
     }
     let n_shapes = paints.len();
-
-    // Global y-range.
     let mut min_y = f32::MAX;
     let mut max_y = f32::MIN;
     for e in edges {
         min_y = min_y.min(e.y0);
         max_y = max_y.max(e.y1);
     }
-    let y_start = (min_y.nexus_floor() as isize).max(0) as usize;
-    let y_end_i = (max_y.nexus_ceil() as isize - 1).min(h as isize - 1);
-    if y_end_i < y_start as isize {
-        return;
-    }
-    let y_end = y_end_i as usize;
-
-    // Per-shape fill rule (all edges of a shape agree — set in tessellation)
-    // and the premultiplied solid fast path (None = gradient, per-pixel eval).
+    let (y_start, y_end) = if edges.is_empty() || n_shapes == 0 {
+        (1usize, 0isize)
+    } else {
+        (
+            (min_y.nexus_floor() as isize).max(0) as usize,
+            (max_y.nexus_ceil() as isize - 1).min(h as isize - 1),
+        )
+    };
     let mut fill_rules = vec![FillRule::NonZero; n_shapes];
     for e in edges {
         if let Some(f) = fill_rules.get_mut(e.shape_id as usize) {
@@ -154,11 +273,54 @@ fn scanline_fill(edges: &[Edge], paints: &[ShapePaint], w: usize, h: usize, buff
             ShapePaint::Gradient(_) => None,
         });
     }
+    let plan = RasterPlan {
+        width: w as u32,
+        height: h as u32,
+        edges: edges.to_vec(),
+        paints: paints.to_vec(),
+        fill_rules,
+        solids,
+        y_start,
+        y_end,
+    };
+    let mut scratch = plan.scratch();
+    fill_rows(&plan, 0, h, &mut scratch, buffer);
+}
+
+/// The banded scanline core: rasterizes plan rows `[band_y0, band_y1)` into
+/// `out` at row offset `y - band_y0`. Every row is computed from the plan's
+/// immutable edge list alone (scratch is reset per row/sub-row), so any band
+/// partition reproduces the full image byte-identically.
+fn fill_rows(
+    plan: &RasterPlan,
+    band_y0: usize,
+    band_y1: usize,
+    scratch: &mut RasterScratch,
+    out: &mut [u8],
+) {
+    let w = plan.width as usize;
+    if w == 0 || band_y1 <= band_y0 {
+        return;
+    }
+    let edges = &plan.edges;
+    let paints = &plan.paints;
+    let fill_rules = &plan.fill_rules;
+    let solids = &plan.solids;
+    let n_shapes = paints.len();
+    let y_last = plan.y_end.min(band_y1 as isize - 1);
+    if edges.is_empty() || n_shapes == 0 || y_last < plan.y_start as isize {
+        return;
+    }
+    let y_start = plan.y_start.max(band_y0);
+    let y_end = y_last as usize;
+    if y_end < y_start {
+        return;
+    }
 
     // Reused row/sweep scratch — no per-row allocations.
-    let mut acc = vec![[0f32; 4]; w]; // premultiplied BGRA row accumulator
-    let mut xs: Vec<(f32, u32, i32)> = Vec::new(); // (crossing x, shape_id, dir)
-    let mut winds = vec![ShapeWind::default(); n_shapes];
+    let acc = &mut scratch.acc;
+    let xs = &mut scratch.xs;
+    let winds = &mut scratch.winds;
     let inv_ss = 1.0 / SUBSAMPLES_Y as f32;
 
     for y in y_start..=y_end {
@@ -273,15 +435,16 @@ fn scanline_fill(edges: &[Edge], paints: &[ShapePaint], w: usize, h: usize, buff
         if !row_any {
             continue;
         }
-        // Composite the accumulated premultiplied row OVER the output once.
-        let row = y * w;
+        // Composite the accumulated premultiplied row OVER the output once
+        // (band-relative row offset).
+        let row = (y - band_y0) * w;
         for (x, px) in acc.iter().enumerate() {
             if px[3] <= 0.24 {
                 continue; // < ~0.001 alpha
             }
             let idx = (row + x) * OUTPUT_BYTES_PER_PIXEL;
             let inv = 1.0 - (px[3] / 255.0).min(1.0);
-            let d = &mut buffer[idx..idx + 4];
+            let d = &mut out[idx..idx + 4];
             for (b, a) in d.iter_mut().zip(px.iter()) {
                 *b = (a + *b as f32 * inv).nexus_round().clamp(0.0, 255.0) as u8;
             }
