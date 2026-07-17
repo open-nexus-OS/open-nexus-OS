@@ -146,9 +146,8 @@ BUILD_TARGET_DIR=${OS2VM_TARGET_DIR:-"$ROOT/target-os2vm"}
 RUSTFLAGS_OS=${RUSTFLAGS_OS:---check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"}
 RUN_TIMEOUT=${RUN_TIMEOUT:-180s}
 AGENT_RUN_ID=${AGENT_RUN_ID:-os2vm_$(date +%s)}
-AGENT_DEBUG_LOG=${AGENT_DEBUG_LOG:-/home/jenning/open-nexus-OS/.cursor/debug.log}
 DEBUG_SESSION_ID=${DEBUG_SESSION_ID:-17b977}
-DEBUG_LOG_PATH=${DEBUG_LOG_PATH:-/home/jenning/open-nexus-OS/.cursor/debug-17b977.log}
+# AGENT_DEBUG_LOG / DEBUG_LOG_PATH defaults derive from LOG_DIR (set below).
 
 set_default_if_unset() {
   local name=$1
@@ -194,6 +193,8 @@ esac
 OS2VM_ARTIFACT_ROOT=${OS2VM_ARTIFACT_ROOT:-"$ROOT/artifacts/os2vm"}
 OS2VM_RUNS_DIR=${OS2VM_RUNS_DIR:-"$OS2VM_ARTIFACT_ROOT/runs"}
 LOG_DIR=${LOG_DIR:-"$OS2VM_RUNS_DIR/$AGENT_RUN_ID"}
+AGENT_DEBUG_LOG=${AGENT_DEBUG_LOG:-"$LOG_DIR/hypothesis.json"}
+DEBUG_LOG_PATH=${DEBUG_LOG_PATH:-"$LOG_DIR/hypothesis-session.jsonl"}
 OS2VM_PCAP_BASENAME=${OS2VM_PCAP_BASENAME:-packets}
 OS2VM_SUMMARY_JSON=${OS2VM_SUMMARY_JSON:-"$LOG_DIR/summary.json"}
 OS2VM_SUMMARY_TXT=${OS2VM_SUMMARY_TXT:-"$LOG_DIR/summary.txt"}

@@ -63,8 +63,8 @@ test-uart.txt
 tmp-uart.txt
 tmp*.txt
 
-# Cursor IDE logs
-.cursor-*.log
+# Claude Code local worktrees (never commit nested checkouts)
+.claude/worktrees/
 
 # Temporary debug/extract files
 tmp*.rs

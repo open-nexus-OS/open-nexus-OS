@@ -73,6 +73,7 @@ help:
     @echo "  just arch-gate           # selftest-client structural gate (ADR-0027)"
     @echo "  just deny-check          # cargo-deny license/advisory check"
     @echo "  just test-all            # host tests + miri + arch-check + kernel selftests"
+    @echo "  just logs-gc             # prune build/logs/ to newest 5 runs per profile (just logs-gc 10 keeps more)"
     @echo
     @echo "[Diagnostics (match rust-analyzer / editor)]"
     @echo "  just diag-host           # cargo check (host cfg) with check-cfg + warnings"
@@ -483,3 +484,29 @@ dep-gate: arch-gate
     else
         echo "[PASS] RFC-0009 dependency hygiene: no forbidden crates in OS graph."
     fi
+
+# -----------------------------------------------------------------------------
+# Log retention — build/logs/ grows one dir per QEMU run (<profile>--<timestamp>).
+# Keep the newest N runs per profile prefix; `latest` symlink and README survive.
+# -----------------------------------------------------------------------------
+logs-gc keep="5":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    logdir="build/logs"
+    [[ -d "$logdir" ]] || { echo "[logs-gc] $logdir does not exist — nothing to do"; exit 0; }
+    before=$(du -sh "$logdir" 2>/dev/null | cut -f1)
+    # Collect profile prefixes from "<profile>--<timestamp>" dir names.
+    prefixes=$(find "$logdir" -mindepth 1 -maxdepth 1 -type d -name '*--*' -printf '%f\n' | sed 's/--.*//' | sort -u)
+    removed=0
+    for prefix in $prefixes; do
+        # Newest first (timestamp suffix sorts lexicographically); drop beyond N.
+        stale=$(find "$logdir" -mindepth 1 -maxdepth 1 -type d -name "${prefix}--*" -printf '%f\n' | sort -r | tail -n +$(( {{keep}} + 1 )))
+        for d in $stale; do
+            rm -rf "${logdir:?}/$d"
+            removed=$(( removed + 1 ))
+        done
+    done
+    # Heal a dangling latest symlink after GC.
+    if [[ -L "$logdir/latest" && ! -e "$logdir/latest" ]]; then rm -f "$logdir/latest"; fi
+    after=$(du -sh "$logdir" 2>/dev/null | cut -f1)
+    echo "[logs-gc] kept newest {{keep}} runs per profile; removed $removed dirs ($before -> $after)"
