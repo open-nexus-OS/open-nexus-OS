@@ -125,14 +125,22 @@ fn apply_sched_recipe(pid: u32, image_id: u8) {
         }
         let aff_ok = nexus_abi::sched::set_affinity_for(pid, *mask).is_ok();
         let shares_ok = nexus_abi::sched::set_shares_for(pid, *shares).is_ok();
+        // RFC-0068: one line per image id per boot (repeat spawns are silent);
+        // failures always print.
+        static RECIPE_LOGGED: core::sync::atomic::AtomicU32 =
+            core::sync::atomic::AtomicU32::new(0);
+        let bit = 1u32 << (image_id % 32);
+        let seen = RECIPE_LOGGED.fetch_or(bit, core::sync::atomic::Ordering::Relaxed) & bit != 0;
         if aff_ok && shares_ok {
-            let msg = alloc::format!(
-                "execd: sched recipe applied (img={} mask={:#x} shares={})\n",
-                image_id,
-                mask,
-                shares
-            );
-            let _ = nexus_abi::debug_write(msg.as_bytes());
+            if !seen {
+                let msg = alloc::format!(
+                    "execd: sched recipe applied (img={} mask={:#x} shares={})\n",
+                    image_id,
+                    mask,
+                    shares
+                );
+                let _ = nexus_abi::debug_write(msg.as_bytes());
+            }
         } else {
             let _ = nexus_abi::debug_write(b"execd: sched recipe FAIL\n");
         }

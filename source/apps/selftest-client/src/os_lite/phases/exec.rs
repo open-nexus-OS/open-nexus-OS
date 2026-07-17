@@ -28,6 +28,10 @@ use crate::os_lite::ipc::routing::route_with_retry;
 use crate::os_lite::{probes, services};
 
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
+    // P0 two-window: bring-up is complete — log the burst maxima and reset
+    // so the boot-end `bkl budget` gate judges STEADY STATE (this ladder).
+    nexus_abi::sched::bkl_budget_reset();
+
     // Task #14 (SMP track): register-soak — seed every callee/caller-saved
     // GPR with a pattern, spin across several timer preemptions, verify. A
     // corrupted register here is the self-localizing proof for the

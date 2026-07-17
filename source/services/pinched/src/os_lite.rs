@@ -79,9 +79,6 @@ static JOB_BUF: [AtomicU32; MAX_JOB_ELEMS] = [const { AtomicU32::new(0) }; MAX_J
 /// Whether the workpool came up; false = inline fallback (workers = 0).
 pub(crate) static POOL_READY: AtomicBool = AtomicBool::new(false);
 
-/// One-shot receive crumb (proves the first job frame actually arrived).
-static FIRST_JOB_SEEN: AtomicBool = AtomicBool::new(false);
-
 /// The in-flight SVG job the workers rasterize from. The server publishes the
 /// Arc BEFORE signalling the job fence and clears it after the done fence;
 /// workers take the lock only long enough to clone the Arc (read-only share,
@@ -183,13 +180,6 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> PinchedResult<()> {
                         core::mem::forget(cap);
                         slot
                     });
-                    if !FIRST_JOB_SEEN.swap(true, Ordering::Relaxed) {
-                        emit_line(if vmo_slot.is_some() {
-                            "pinched: first job recv (vmo)"
-                        } else {
-                            "pinched: first job recv (NO vmo)"
-                        });
-                    }
                     handle_compute(frame, vmo_slot, &mut io_buf);
                     continue;
                 }

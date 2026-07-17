@@ -2909,6 +2909,12 @@ pub mod sched {
         let _ = op(4, 0, 0);
     }
 
+    /// Log the bring-up burst maxima and reset the accounting (P0 two-window:
+    /// called once bring-up completes; the gate then judges steady state).
+    pub fn bkl_budget_reset() {
+        let _ = op(5, 0, 0);
+    }
+
     /// Cross-task affinity (B4: execd applies declarative sched recipes).
     /// Requires QoS-admin standing in the kernel (execd/policyd).
     #[must_use = "sched outcomes must be handled"]

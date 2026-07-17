@@ -323,10 +323,13 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             }
             Attempt::Retry => continue,
             Attempt::Idle => {
-                // P2 zero-frontier: an idle hart pre-zeroes the VMO arena so
-                // vmo_create never memsets inside its syscall (the measured
-                // 82-90ms BKL holds). Pool leaf lock only — never the BKL.
-                // Work done -> re-check the queue before sleeping.
+                // P2 zero-frontier: idle harts (INCLUDING the boot hart — at
+                // SMP=2 the single secondary is saturated by the background
+                // services, and exempting cpu0 measurably starved the
+                // frontier: gate maxima regressed 6ms -> 21ms) pre-zero the
+                // VMO arena so allocations rarely memset inside a syscall.
+                // Pool leaf lock only — never the BKL; one bounded step per
+                // idle pass keeps the boot hart responsive.
                 if crate::smp::runtime_ready()
                     && crate::syscall::api::vmo_idle_zero_step() > 0
                 {

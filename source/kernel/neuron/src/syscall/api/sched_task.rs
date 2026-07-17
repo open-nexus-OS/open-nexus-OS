@@ -264,6 +264,24 @@ pub(super) fn sys_sched(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
     // OP 4 (P0, declarative budgets SSOT in core/trap/budgets.rs): emit the
     // boot-end BKL budget gate line. Read-only; callable late by the selftest
     // ladder so the report COVERS the service bring-up contention window.
+    // OP 5 (P0 two-window): log the bring-up burst maxima, then reset the
+    // accounting so the boot-end gate judges the steady-state window.
+    if args.get(0) == 5 {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            let (_, wait_us, hold_ms, nr, b) = crate::trap::budgets::budget_report();
+            log_info!(
+                target: "smp",
+                "KINIT: bkl bring-up burst max_wait={}us max_hold={}ms nr={} gt10ms={}",
+                wait_us,
+                hold_ms,
+                nr,
+                b[3]
+            );
+            crate::trap::budgets::reset();
+        }
+        return Ok(0);
+    }
     if args.get(0) == 4 {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {

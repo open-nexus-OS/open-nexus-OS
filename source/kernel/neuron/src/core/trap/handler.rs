@@ -863,9 +863,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         {
             let held = (riscv::register::time::read() as u64).saturating_sub(ecall_t0);
             super::budgets::record_ecall_hold(held, ecall_nr as u64);
-            // P2 triage threshold: >2ms holds are the remaining convoy
-            // makers now that the big movers are phased.
-            if held > 20_000 {
+            if held > 100_000 {
                 static LONG_ECALL_LOGGED: core::sync::atomic::AtomicUsize =
                     core::sync::atomic::AtomicUsize::new(0);
                 if LONG_ECALL_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
