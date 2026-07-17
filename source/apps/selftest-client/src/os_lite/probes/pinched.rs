@@ -92,6 +92,10 @@ pub(crate) fn pinched_selftest() {
     // parallel backend must have executed (workers >= 1).
     svg_proof(&client);
 
+    // Interaction-net evaluation (Phase E): normal-form value, bounded arena
+    // reject, and per-worker dispatch counters.
+    inet_proof(&client);
+
     // Determinism + dispatch: result must equal the local reference AND the
     // broker must report its parallel backend (workers >= 1).
     match submit_and_poll(&client, N as u32, N, 5_000_000_000) {
@@ -198,6 +202,94 @@ fn submit_svg_and_poll(client: &KernelClient) -> Option<(u32, u32, u32, Vec<u8>)
     }
     let _ = nexus_abi::cap_close(vmo);
     Some((status, elems, workers, data))
+}
+
+/// Phase E proofs over `JOB_INET_TREE_SUM`.
+fn inet_proof(client: &KernelClient) {
+    // Bounded: an over-deep tree must be rejected via the header.
+    match submit_inet_and_poll(client, 99) {
+        Some((status, _, _, _)) if status == pn::STATUS_OVERSIZED => {
+            emit_line("SELFTEST: inet bounded ok");
+        }
+        Some(_) => emit_line("SELFTEST: inet bounded FAIL (status)"),
+        None => emit_line("SELFTEST: inet bounded FAIL (no completion)"),
+    }
+
+    // Determinism: depth-6 add-tree of leaves 1..=64 must fold to EXACTLY
+    // 2080 (the normal-form digest — confluence makes it order-independent),
+    // with a plausible interaction count and the parallel backend engaged.
+    match submit_inet_and_poll(client, 6) {
+        Some((pn::STATUS_OK, reds, workers, out)) => {
+            let result = i64::from_le_bytes([
+                out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+            ]);
+            let w0 = u32::from_le_bytes([out[8], out[9], out[10], out[11]]);
+            let w1 = u32::from_le_bytes([out[12], out[13], out[14], out[15]]);
+            if result != 2080 {
+                emit_line("SELFTEST: inet determinism FAIL (value)");
+                return;
+            }
+            if reds == 0 {
+                emit_line("SELFTEST: inet determinism FAIL (no interactions)");
+                return;
+            }
+            emit_line("SELFTEST: inet determinism ok");
+            // Parallel dispatch: both workers must have reduced (>0 each) on
+            // the parallel backend. Honest counters from the round driver.
+            if workers >= 1 && w0 > 0 && w1 > 0 {
+                emit_line("SELFTEST: inet parallel exec ok");
+            } else {
+                emit_line("SELFTEST: inet parallel exec FAIL (counters)");
+            }
+        }
+        Some(_) => emit_line("SELFTEST: inet determinism FAIL (status)"),
+        None => emit_line("SELFTEST: inet determinism FAIL (no completion)"),
+    }
+}
+
+/// Submits one `JOB_INET_TREE_SUM` with `depth` and polls the header.
+/// Returns `(status, elems, workers, out_bytes[16])`.
+fn submit_inet_and_poll(client: &KernelClient, depth: u32) -> Option<(u32, u32, u32, [u8; 16])> {
+    let vmo_size = pn::DATA_OFFSET + 16;
+    let Ok(vmo) = nexus_abi::vmo_create(vmo_size) else {
+        emit_line("pinched-probe: FAIL (inet vmo create)");
+        return None;
+    };
+    let pending = [0u8; pn::HDR_LEN];
+    if nexus_abi::vmo_write(vmo, 0, &pending).is_err() {
+        emit_line("pinched-probe: FAIL (inet vmo write)");
+        return None;
+    }
+    let Ok(clone) = nexus_abi::cap_clone(vmo) else {
+        emit_line("pinched-probe: FAIL (inet clone)");
+        return None;
+    };
+    let mut frame = [0u8; pn::COMPUTE_REQ_LEN];
+    frame[0] = pn::MAGIC0;
+    frame[1] = pn::MAGIC1;
+    frame[2] = pn::VERSION;
+    frame[3] = pn::OP_COMPUTE;
+    frame[4] = pn::JOB_INET_TREE_SUM;
+    frame[5..9].copy_from_slice(&depth.to_le_bytes());
+    if client
+        .send_with_cap_move_wait(
+            &frame,
+            clone,
+            IpcWait::Timeout(core::time::Duration::from_millis(1000)),
+        )
+        .is_err()
+    {
+        emit_line("pinched-probe: FAIL (inet send)");
+        return None;
+    }
+    let (status, elems, workers) = poll_header(vmo, 12_000_000_000)?;
+    let mut out = [0u8; 16];
+    if status == pn::STATUS_OK && nexus_abi::vmo_read(vmo, pn::DATA_OFFSET, &mut out).is_err() {
+        let _ = nexus_abi::cap_close(vmo);
+        return None;
+    }
+    let _ = nexus_abi::cap_close(vmo);
+    Some((status, elems, workers, out))
 }
 
 /// Route to pinched with a bounded retry (the service registers its route

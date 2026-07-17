@@ -28,6 +28,8 @@ use alloc::sync::Arc;
 
 use nexus_sync::SpinLock;
 
+use crate::os_lite_inet::handle_inet_tree_sum;
+
 use crate::broker::mix_u32;
 use crate::protocol::*;
 use crate::{MAX_JOB_ELEMS, MAX_SVG_BYTES, MAX_SVG_JOB_DIM, PINCHED_WORKERS};
@@ -74,7 +76,7 @@ impl ReadyNotifier {
 static JOB_BUF: [AtomicU32; MAX_JOB_ELEMS] = [const { AtomicU32::new(0) }; MAX_JOB_ELEMS];
 
 /// Whether the workpool came up; false = inline fallback (workers = 0).
-static POOL_READY: AtomicBool = AtomicBool::new(false);
+pub(crate) static POOL_READY: AtomicBool = AtomicBool::new(false);
 
 /// One-shot receive crumb (proves the first job frame actually arrived).
 static FIRST_JOB_SEEN: AtomicBool = AtomicBool::new(false);
@@ -228,6 +230,7 @@ fn handle_compute(frame: &[u8], vmo_slot: Option<u32>, io_buf: &mut Vec<u8>) {
     match kind {
         JOB_MAP_MIX_U32 => {}
         JOB_SVG_RASTER => return handle_svg(frame, vmo, total, io_buf),
+        JOB_INET_TREE_SUM => return handle_inet_tree_sum(vmo, total),
         _ => return finish(vmo, STATUS_BAD_KIND, 0, 0),
     }
     if frame.len() != COMPUTE_REQ_LEN {
@@ -383,7 +386,7 @@ fn handle_svg(frame: &[u8], vmo: u32, total: usize, io_buf: &mut Vec<u8>) {
 }
 
 /// Writes the completion header (the release fence) and closes the moved cap.
-fn finish(vmo: u32, status: u32, elems: u32, workers: u32) {
+pub(crate) fn finish(vmo: u32, status: u32, elems: u32, workers: u32) {
     let mut hdr = [0u8; HDR_LEN];
     hdr[0..4].copy_from_slice(&DONE_MAGIC.to_le_bytes());
     hdr[4..8].copy_from_slice(&status.to_le_bytes());
@@ -396,7 +399,7 @@ fn finish(vmo: u32, status: u32, elems: u32, workers: u32) {
 }
 
 /// VMO capacity via cap_query (kind_tag 1 = VMO; the vfsd splice pattern).
-fn vmo_capacity(slot: u32) -> Option<usize> {
+pub(crate) fn vmo_capacity(slot: u32) -> Option<usize> {
     let mut query = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     if nexus_abi::cap_query(slot, &mut query).is_err() || query.kind_tag != 1 {
         return None;
@@ -424,7 +427,7 @@ fn route_pinched_blocking() -> Option<KernelServer> {
     KernelServer::new_with_slots(recv_slot, send_slot).ok()
 }
 
-fn emit_line(message: &str) {
+pub(crate) fn emit_line(message: &str) {
     if nexus_abi::service_line(message.as_bytes()) {
         return;
     }

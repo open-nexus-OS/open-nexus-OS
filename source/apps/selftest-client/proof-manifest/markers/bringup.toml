@@ -62,6 +62,21 @@ phase = "bringup"
 emit_when = { profile = "headless" }
 proves = "banded parallel SVG raster on the broker is byte-identical to a local full rasterize and workers >= 1 (D4 result-proof)"
 
+[marker."SELFTEST: inet bounded ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "interaction-net jobs beyond the depth/arena bound are rejected via the completion header (no OOM)"
+
+[marker."SELFTEST: inet determinism ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "depth-6 add-tree folds to the exact normal-form value 2080 on the net evaluator (confluence result-proof)"
+
+[marker."SELFTEST: inet parallel exec ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "both workpool workers performed >0 interactions in the parallel rounds (honest dispatch counters)"
+
 [marker."SELFTEST: thread spawn ok"]
 phase = "bringup"
 emit_when = { profile = "headless" }

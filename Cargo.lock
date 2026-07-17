@@ -2008,6 +2008,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-inet"
+version = "0.1.0"
+dependencies = [
+ "nexus-sync",
+]
+
+[[package]]
 name = "nexus-init"
 version = "0.1.0"
 dependencies = [
@@ -2905,6 +2912,7 @@ name = "pinched"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+ "nexus-inet",
  "nexus-ipc",
  "nexus-service-entry",
  "nexus-svg",

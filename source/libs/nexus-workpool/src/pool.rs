@@ -360,8 +360,12 @@ pub fn run(total: usize, f: JobFn, ctx: *mut u8, deadline_ns: u64) -> Result<(),
                 // Workers may still be executing the old job — handing out a
                 // new one would interleave writes. Poison the pool: every
                 // caller falls back to its inline path from here on.
+                // Returned as `Timeout` (not `Poisoned`): THIS call's job DID
+                // start, so the caller must NOT re-run the same work inline
+                // (double-reduction hazard); `Poisoned` is what LATER calls
+                // see, before any work started — safe to fall back.
                 SHARED.state.store(STATE_POISONED, Ordering::Release);
-                Err(PoolError::Poisoned)
+                Err(PoolError::Timeout)
             }
         }
     }

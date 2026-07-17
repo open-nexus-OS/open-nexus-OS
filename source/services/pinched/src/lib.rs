@@ -28,6 +28,9 @@ extern crate alloc;
 mod os_lite;
 
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
+mod os_lite_inet;
+
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
 pub use os_lite::*;
 
 pub mod broker;
@@ -46,6 +49,13 @@ pub const MAX_SVG_JOB_DIM: usize = 256;
 
 /// Maximum SVG source bytes accepted per job.
 pub const MAX_SVG_BYTES: usize = 16384;
+
+/// Maximum interaction-net tree depth (bounds the arena: depth 10 = 1024
+/// leaves + 1023 adds, comfortably inside [`INET_ARENA_NODES`]).
+pub const MAX_INET_DEPTH: usize = 10;
+
+/// Bounded node arena for the service's interaction net.
+pub const INET_ARENA_NODES: usize = 4096;
 
 /// Wire protocol v1 (system-internal; carried over the init-wired route).
 ///
@@ -86,6 +96,14 @@ pub mod protocol {
     /// pixels (premultiplied, one u32le element each) at [`DATA_OFFSET`],
     /// overwriting the input. Header `elems` reports `w*h`.
     pub const JOB_SVG_RASTER: u8 = 2;
+    /// Interaction-net tree-sum evaluation on the nexus-inet backend (Phase
+    /// E proof workload). `total` = tree depth (1..=MAX_INET_DEPTH); no VMO
+    /// input payload. Output at [`DATA_OFFSET`]: `[result:i64le,
+    /// red_w0:u32le, red_w1:u32le]` (per-worker interaction counters — the
+    /// parallel-dispatch proof). Header `elems` = total interactions. The
+    /// generic net-serialization wire format is a documented follow-up; v1
+    /// clients declare WHAT to evaluate (the workload), never how.
+    pub const JOB_INET_TREE_SUM: u8 = 3;
 
     pub const MIN_FRAME_LEN: usize = 4;
     /// `[MAGIC0, MAGIC1, VERSION, OP, kind:u8, total:u32le]`

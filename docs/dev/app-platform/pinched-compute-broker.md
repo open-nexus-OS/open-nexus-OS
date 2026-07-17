@@ -50,6 +50,7 @@ Job kinds:
 | ---- | ------- | ---------------- |
 | `JOB_MAP_MIX_U32` (1) | u32 elements, pure per-element transform | elements |
 | `JOB_SVG_RASTER` (2) | UTF-8 SVG in, BGRA8888 pixels out | output rows |
+| `JOB_INET_TREE_SUM` (3) | add-tree depth in, folded value + per-worker counters out | redexes per round |
 
 ## First workload: banded SVG rasterization (D4)
 
@@ -76,6 +77,27 @@ et al.), so the selftest is the first runtime client. The intended real
 clients are future runtime bakes and tree-shaped compiler passes; when one
 lands, it adopts the SDK-internal pattern above (inline fallback, batch path
 only).
+
+## Second backend: the interaction-net evaluator (Phase E)
+
+`source/libs/nexus-inet/` is a minimal interaction-combinator net evaluator
+(Lafont-style agents ERA/CON/DUP plus a number leaf and a binary-add pair) —
+the proof that the broker's job-graph interface really is backend-agnostic.
+Nets are stored in a bounded, RECYCLING arena (exhaustion = header reject,
+never OOM); ports are atomics, so workers share the arena in safe Rust; the
+next-round redex queue is a locked deque (no lock-free experiments in v1 —
+atomic port-linking is a later, separately proven step). Reduction is
+round-based on the same workpool: every round partitions the current redex
+list with the deterministic chunk math. The calculus is confluent, so
+`workers = 1 ≡ workers = N` holds by construction — proven by the host
+equality matrix (real threads: identical value AND interaction count) and the
+QEMU markers `SELFTEST: inet determinism / bounded / parallel exec ok`.
+
+Honest v1 scope: clients declare workloads (`JOB_INET_TREE_SUM` carries only
+the tree depth); a generic net-serialization wire format is a documented
+follow-up, as is the first real customer (tree-shaped compiler/type-checker
+passes — symbolic, embarrassingly tree-parallel). GPU/distributed backends
+remain future scope behind the same job-graph interface.
 
 ## Known bounds (v1)
 

@@ -1,0 +1,14 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "nexus-inet"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+nexus-sync = { path = "../nexus-sync" }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }
