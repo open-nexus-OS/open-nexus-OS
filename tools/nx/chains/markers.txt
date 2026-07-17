@@ -12,21 +12,32 @@
 # Changing a marker string means updating the emitting service, this file,
 # the chain contract simulation, and the proof manifest together.
 
-# group: input — hidrawd → inputd → windowd (RFC-0053 live-input path)
-hidrawd: chain I1 device event (raw HID polled)
-hidrawd: chain I2 wire sent to inputd
-inputd: chain I3 wire recv from hidrawd
-inputd: chain I4 normalized
+# group: input-route — inputd → windowd state delivery (fires on every boot
+# via the initial visible-state push; no HID events needed)
 inputd: chain I5 delivered to windowd
 windowd: chain I6 input recv (state applied)
 
-# group: gpu — gpud present-damage → parse → batch → exec → scanout (ADR-0032)
+# group: input-live — hidrawd device-event path (RFC-0053); fires only when
+# virtio-input devices deliver real/injected events — check against
+# interactive/virgl boots: just check-markers --groups input-live
+# NOTE: "inputd: chain I3/I4" exist only in the simulation today — the live
+# recv/normalize hops moved to the 111Hz push path without re-emitting them
+# (see tasks/TRACK-REPO-HYGIENE-FOLLOWUPS.md item 6); re-add here once the
+# real path emits them again.
+hidrawd: chain I1 device event (raw HID polled)
+hidrawd: chain I2 wire sent to inputd
+
+# group: gpu-core — gpud present-damage → parse → exec → scanout (ADR-0032;
+# fires in every boot incl. headless 2D)
 gpud: chain G1 recv present-damage
 gpud: chain G2 parse ok
 gpud: chain G3 exec ok (commands applied)
+gpud: chain G4 scanout ok (frame presented)
+
+# group: gpu-batch — batched GL present path (virgl/PCI command ring); not
+# emitted by the headless 2D path — check against GPU lanes/interactive boots
 gpud: chain G3b batch submit ok (present enqueued)
 gpud: chain G3c batch complete (drained)
-gpud: chain G4 scanout ok (frame presented)
 
 # group: display — compositor first-frame handshake (backend-agnostic core)
 windowd: present visible ok

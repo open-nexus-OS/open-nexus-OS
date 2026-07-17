@@ -1723,7 +1723,7 @@ fi
 if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
   case "${PROFILE:-full}" in
     headless|full|smp|display-gpu)
-      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input,gpu,display || exit 1
+      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,gpu-core,display || exit 1
       ;;
   esac
 fi

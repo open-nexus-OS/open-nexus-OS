@@ -35,3 +35,12 @@ files). Safe to delete after a final skim; kept only as history.
 `scripts/qemu-test.sh` directly (kept self-contained by design — no `just`
 dependency in the make spur). If the make spur ever grows, fold it onto the
 `just ci-os-*` recipes instead.
+
+## 6. inputd chain I3/I4 markers on the live path
+
+`inputd: chain I3 wire recv from hidrawd` / `chain I4 normalized` are only
+emitted by the legacy recv loop (`os_lite.rs` trace_line sites) that the 111Hz
+push path superseded — no real boot emits them anymore (interactive boots show
+I1/I2 from hidrawd and I5/I6 delivery, but not I3/I4). The chain simulation
+still models them. Re-emit both on the live path (logging-only change), then
+move them back into the `input-live` group of `tools/nx/chains/markers.txt`.
