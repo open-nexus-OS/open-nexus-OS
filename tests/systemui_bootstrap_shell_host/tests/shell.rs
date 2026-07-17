@@ -17,15 +17,18 @@ fn enumerate_line(mounted: &Mounted<'_>, query: &str, apps: &[(&str, &str)]) -> 
 }
 
 #[test]
-fn shell_page_renders_across_profiles_with_apps_entry() {
+fn shell_page_renders_across_profiles_with_chrome_texts() {
     let nxir = compile_project("desktop-shell");
     for env in
         [FixtureEnv::default(), FixtureEnv::phone("portrait"), FixtureEnv::tablet("landscape")]
     {
         let mounted = Mounted::new(&nxir, env);
         let t = texts(mounted.view.scene());
-        assert!(t.contains(&"shell.product".to_string()), "product name shown: {t:?}");
-        assert!(t.contains(&"shell.apps".to_string()), "apps entry shown: {t:?}");
+        // Handoff look: every profile carries the top-bar clock and a
+        // battery status text (the app grid + launcher entries are icon
+        // tiles, so the chrome texts are the render witnesses).
+        assert!(t.contains(&"shell.clock".to_string()), "top-bar clock shown: {t:?}");
+        assert!(t.contains(&"shell.battery".to_string()), "battery status shown: {t:?}");
     }
 }
 
@@ -86,7 +89,7 @@ fn launcher_search_refilters_through_the_service() {
     // re-query; only the filtered set remains.
     let (store, path) = {
         let sym = mounted.sym("query");
-        (0u32, vec![sym])
+        (mounted.store_index("LauncherStore"), vec![sym])
     };
     mounted.view.runtime.write_binding(store, &path, Value::Str("cou".into())).expect("writes");
     mounted.dispatch(&mut host, "LauncherEvent", "QueryChanged", vec![]);
@@ -103,14 +106,19 @@ fn launcher_phone_override_diverges_structurally() {
     desktop.navigate("/launcher");
     let mut phone = Mounted::new(&nxir, FixtureEnv::phone("portrait"));
     phone.navigate("/launcher");
-    // Same program bytes, same store — different page structure: the phone
-    // override ends with its own Back button; the desktop header leads with
-    // it. Text ORDER is the structural witness.
+    // Same program bytes, same store — different page structure: the
+    // desktop override is the windowed panel ("Alle Apps" section header
+    // leads, the user-identity footer ends it); the phone override stays
+    // the single-column list that still ends with its own Back button (the
+    // desktop panel has no Back text at all). Text ORDER is the witness.
     let d = texts(desktop.view.scene());
     let p = texts(phone.view.scene());
     assert_ne!(d, p, "profiles must not collapse to one layout");
-    assert_eq!(d.first().map(String::as_str), Some("launcher.back"));
+    assert_eq!(d.first().map(String::as_str), Some("launcher.allApps"));
+    assert_eq!(d.last().map(String::as_str), Some("launcher.userName"));
     assert_eq!(p.last().map(String::as_str), Some("launcher.back"));
+    assert!(!d.contains(&"launcher.back".to_string()), "desktop panel has no Back: {d:?}");
+    assert!(!p.contains(&"launcher.allApps".to_string()), "phone list has no header: {p:?}");
 }
 
 #[test]
@@ -118,7 +126,11 @@ fn greeter_login_success_and_failure_drive_the_contract_states() {
     let nxir = compile_project("greeter");
     let mut mounted = Mounted::new(&nxir, FixtureEnv::default());
     let t = texts(mounted.view.scene());
-    assert!(t.contains(&"greeter.title".to_string()), "greeter renders: {t:?}");
+    // Handoff look: date + big clock top-center, pick-user prompt, the
+    // password pill and the idle hint.
+    assert!(t.contains(&"greeter.clock".to_string()), "greeter renders: {t:?}");
+    assert!(t.contains(&"greeter.pickUser".to_string()), "user prompt shown: {t:?}");
+    assert!(t.contains(&"greeter.hint".to_string()), "idle hint shown: {t:?}");
 
     let transcript = "# nx-transcript v1\n\
         call session.users() -> Ok(List[Str(\"admin\"),Str(\"guest\")])\n\

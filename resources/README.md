@@ -7,14 +7,16 @@ Static assets consumed at build time (mostly via `build.rs` bakes / `include_str
 and by resource pipelines. Two kinds of subdirectories live here:
 
 - **CURATED** — assets we author/select ourselves; everything in the dir is intentional.
-- **VENDORED** — full upstream dumps kept verbatim; only a small subset is used at build time.
+- **VENDORED** — full upstream trees pinned as **git submodules** (`resources/fonts/inter`,
+  `resources/icons/lucide`, `resources/cursors/mocu`; see `.gitmodules`); only a small
+  subset is used at build time.
 
 ## Inventory
 
 | Dir | Kind | Size / files | What it is |
 |---|---|---|---|
-| `fonts/` | VENDORED | ~39 MB, ~6200 files | Full upstream font-family repos. `inter/` is the complete Inter source tree (glyph sources, docs, build tooling). `monospace/` and `noto/` are empty placeholders. |
-| `icons/` | VENDORED (`lucide/`) + curated (`logos/`) | ~22 MB, ~4500 files | `lucide/` is the full upstream Lucide icon repo (~1740 icons as `.svg` + `.json` pairs under `lucide/icons/`). `logos/` holds the project logo (`open-nexus.svg`). |
+| `fonts/` | VENDORED | ~39 MB, ~6200 files | Upstream font repos as submodules. `inter/` is the complete Inter source tree (glyph sources, docs, build tooling). `monospace/` and `noto/` are empty placeholders. |
+| `icons/` | VENDORED (`lucide/`) + curated (`logos/`) | ~22 MB, ~4500 files | `lucide/` is the full upstream Lucide icon repo (submodule) (~1740 icons as `.svg` + `.json` pairs under `lucide/icons/`). `logos/` holds the project logo (`open-nexus.svg`). |
 | `app-icons/` | CURATED | ~600 KB, 148 files | 48 app-icon artworks, SVG-only, baked by `nexus-app-icons`. See `app-icons/README.md`. |
 | `wallpapers/` | CURATED | ~330 KB, 3 files | Wallpaper sets; currently one set `base/` with a light and a dark image. |
 | `cursors/` | CURATED | ~285 KB, 68 files | The `mocu/` cursor theme (SVG sources + build script/license). Specific cursors are included per name by `windowd/build.rs`. |
@@ -53,7 +55,8 @@ and by resource pipelines. Two kinds of subdirectories live here:
 
 ## Follow-up
 
-Pruning the vendored dumps (`fonts/inter/`, `icons/lucide/`) down to the subset
+Pruning the vendored submodules (`fonts/inter/`, `icons/lucide/`) to a curated subset
+(e.g. swapping the submodule for a checked-in asset subset)
 actually consumed is planned but **deferred**: it first needs a usage analysis
 across all recipes/`build.rs` bakes and `source/` references, plus a boot proof
 that nothing resolves icons/fonts dynamically at runtime. Do not delete assets

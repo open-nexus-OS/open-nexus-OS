@@ -120,6 +120,25 @@ impl<'p> Mounted<'p> {
         self.symbols.iter().position(|s| s == name).unwrap_or_else(|| panic!("symbol {name}"))
             as u32
     }
+
+    /// The store INDEX of the store named `name` (binding writes address
+    /// stores positionally; the shell now declares several stores, so index
+    /// 0 is not automatically the one under test).
+    ///
+    /// # Panics
+    /// If the program declares no store by that name.
+    #[must_use]
+    pub fn store_index(&self, name: &str) -> u32 {
+        let sym = self.sym(name);
+        let root = self.view.runtime.reader().root().expect("root");
+        let stores = root.get_stores().expect("stores");
+        for (i, store) in stores.iter().enumerate() {
+            if store.get_name() == sym {
+                return i as u32;
+            }
+        }
+        panic!("store {name}");
+    }
 }
 
 /// Collects every text run in the scene (structural snapshot assertions).
@@ -142,13 +161,20 @@ pub fn texts(scene: &nexus_layout_types::LayoutNode) -> Vec<String> {
     out
 }
 
-/// An `AppEntry` record value (`{id, label}`) with the program's interned
-/// field symbols — what `svc.bundlemgr.enumerate` returns.
+/// An `AppEntry` record value (`{id, label, icon, iconTop, iconBottom,
+/// iconArt}`) with the program's interned field symbols — what
+/// `svc.bundlemgr.enumerate` returns. The icon fields stay empty so the
+/// tiles take the uniform glass-tile branch (no artwork colors needed).
 #[must_use]
 pub fn app_entry(mounted: &Mounted<'_>, id: &str, label: &str) -> Value {
-    let id_sym = mounted.sym("id");
-    let label_sym = mounted.sym("label");
-    let mut fields = vec![(id_sym, Value::Str(id.into())), (label_sym, Value::Str(label.into()))];
+    let mut fields = vec![
+        (mounted.sym("id"), Value::Str(id.into())),
+        (mounted.sym("label"), Value::Str(label.into())),
+        (mounted.sym("icon"), Value::Str("app".into())),
+        (mounted.sym("iconTop"), Value::Str("".into())),
+        (mounted.sym("iconBottom"), Value::Str("".into())),
+        (mounted.sym("iconArt"), Value::Str("".into())),
+    ];
     fields.sort_by_key(|(sym, _)| *sym);
     Value::Record(fields)
 }

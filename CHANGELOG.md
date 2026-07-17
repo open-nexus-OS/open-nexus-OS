@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-07-17
+
+#### Repository hygiene track — structure, docs, gates, zero warnings
+
+- **Agent config SSOT**: `CLAUDE.md` (new) + slim `AGENTS.md` pointer replace the
+  six drifted rule sets (`.cursorrules`, `.clinerules`, `.cursor/`, `cline/`,
+  `.deepseek/`, `agents.md` — all deleted); `.claude/skills/` gains
+  `boot-proof` and `verify` workflows.
+- **Docs restructure**: single architecture index (`docs/architecture/README.md`,
+  old `docs/ARCHITECTURE.md` merged+deleted); `graphics/` + `inference/`
+  subdirs; new `docs/README.md` master index; ADR index + template
+  (ADR-0019 documented as retired); RFC-0033 number collision resolved —
+  DSoftBus mux RFC renumbered to **RFC-0060**; 871-line `testing/index.md`
+  split into seven focused docs; run-log/hypothesis-grid reference now at
+  `docs/testing/run-logs.md`; UI doc duplicates merged; `resources/README.md`.
+- **Build tooling**: `scripts/fmt-clippy-deny.sh` delegates to just recipes
+  (no more divergent flags); `config/os-services.txt` = SSOT of the 17-crate
+  OS slice (dep-gate/diag-os/make); new `just check`, `lint-kernel`,
+  `deadcode`, `logs-gc`, `check-markers`, `test-os2vm`; `test-all` redesigned;
+  `visible-bootstrap` profile removed (headless GPU coverage stays in
+  `ci-os-display-gpu-pci`).
+- **Test infra**: chain-marker contract SSOT `tools/nx/chains/markers.txt`
+  (sim tests + real uart reconciliation via `scripts/check-chain-markers.sh`,
+  wired into proof profiles); stale `ui_v3a_host`/`ui_v3b_host` and
+  `chain_dsl_mount` removed (tested deleted legacy APIs); os2vm runs land in
+  `build/logs/os2vm--<ts>/`; selftest arch-gate green again (dispatch split,
+  51 markers back-filled into the proof manifest).
+- **Zero warnings**: `just diag-host` / `diag-os` / `diag-kernel` all clean
+  (legacy dead code deleted, contract surfaces kept with reasoned allows);
+  workspace-wide rustfmt applied (245 files).
+- **CI + community**: `ci.yml` rewritten as thin just-recipe wrappers
+  (`build.yml`/`ci-kernel.yml` deleted); new `CONTRIBUTING.md`,
+  `CODE_OF_CONDUCT.md`, `SECURITY.md`, `docs/dev/git-workflow.md`;
+  CODEOWNERS fallback owner; README current-state refresh.
+- **Repo state**: nested `.claude/worktrees/` removed (drafts archived on
+  branch `worktree-dsl-0075-frontend-ir-cli`); `neuron-boot.map` untracked;
+  committed scratch/junk deleted; `build/logs/` retention via `just logs-gc`.
+- Follow-ups tracked in `tasks/TRACK-REPO-HYGIENE-FOLLOWUPS.md`.
+
 ### Changed - 2026-06-12
 
 #### TASK-0064 (UI v6a): Rescoped — Window Management v1 (Chat-Window + Drag)
