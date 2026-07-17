@@ -377,8 +377,16 @@ mod tests {
     #[test]
     fn test_reject_visible_bootstrap_mode_capability_and_prescanout_marker() {
         let mode = VisibleBootstrapMode::fixed().expect("fixed visible mode");
+        // v4 display-info: SMALLER visible modes on the fixed VMO layout are
+        // valid (guest follows the device mode); zero and larger-than-layout
+        // stay rejected.
+        assert!(VisibleBootstrapMode { width: 64, ..mode }.validate().is_ok());
         assert_eq!(
-            VisibleBootstrapMode { width: 64, ..mode }.validate(),
+            VisibleBootstrapMode { width: 0, ..mode }.validate(),
+            Err(WindowdError::InvalidDimensions)
+        );
+        assert_eq!(
+            VisibleBootstrapMode { width: mode.width + 1, ..mode }.validate(),
             Err(WindowdError::InvalidDimensions)
         );
         assert_eq!(

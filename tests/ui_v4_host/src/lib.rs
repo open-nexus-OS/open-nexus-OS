@@ -125,35 +125,38 @@ mod tests {
         let shadow = ShadowLevel::Sm.to_box_shadow();
         assert_eq!(shadow.blur_radius.0, 2);
         assert_eq!(shadow.offset_y.0, 1);
-        assert_eq!(shadow.color.a, 32);
+        assert_eq!(shadow.color.a, 31);
     }
 
     #[test]
     fn test_shadow_level_md_to_box_shadow() {
+        // Design-handoff elevation scale: md 0 4 12 .15 (see layout-types border.rs).
         let shadow = ShadowLevel::Md.to_box_shadow();
-        assert_eq!(shadow.blur_radius.0, 6);
-        assert_eq!(shadow.offset_y.0, 2);
-        assert_eq!(shadow.color.a, 48);
+        assert_eq!(shadow.blur_radius.0, 12);
+        assert_eq!(shadow.offset_y.0, 4);
+        assert_eq!(shadow.color.a, 38);
     }
 
     #[test]
     fn test_shadow_level_lg_to_box_shadow() {
         let shadow = ShadowLevel::Lg.to_box_shadow();
-        assert_eq!(shadow.blur_radius.0, 12);
-        assert_eq!(shadow.offset_y.0, 4);
+        assert_eq!(shadow.blur_radius.0, 24);
+        assert_eq!(shadow.offset_y.0, 8);
     }
 
     #[test]
     fn test_shadow_level_xl_to_box_shadow() {
         let shadow = ShadowLevel::Xl.to_box_shadow();
-        assert_eq!(shadow.blur_radius.0, 20);
+        assert_eq!(shadow.blur_radius.0, 32);
+        assert_eq!(shadow.offset_y.0, 12);
     }
 
     #[test]
     fn test_shadow_level_xxl2_to_box_shadow() {
         let shadow = ShadowLevel::Xxl2.to_box_shadow();
-        assert_eq!(shadow.blur_radius.0, 32);
-        assert_eq!(shadow.spread.0, -6);
+        assert_eq!(shadow.blur_radius.0, 50);
+        assert_eq!(shadow.offset_y.0, 25);
+        assert_eq!(shadow.spread.0, 0);
     }
 
     #[test]
