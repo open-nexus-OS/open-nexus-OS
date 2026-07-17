@@ -103,8 +103,7 @@ impl Runtime<'_> {
         let Ok(root) = self.reader().root() else { return false };
         let Ok(ir_stores) = root.get_stores() else { return false };
         for (si, store) in ir_stores.iter().enumerate() {
-            if self.symbols().get(store.get_name() as usize).map(String::as_str)
-                != Some(store_name)
+            if self.symbols().get(store.get_name() as usize).map(String::as_str) != Some(store_name)
             {
                 continue;
             }

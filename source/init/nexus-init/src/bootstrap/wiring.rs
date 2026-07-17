@@ -43,9 +43,7 @@ pub(crate) fn distribute_server_pairs(ctrls: &mut [CtrlChannel], eps: &Endpoints
             // sessiond) are provisioned fresh HERE — same pre-grant
             // hardening. Silent; `wire_services` prints the slots at the
             // historical log position from the recorded values.
-            if crate::service_topology::exposes_server(name.as_bytes())
-                && !is_bespoke_wired(name)
-            {
+            if crate::service_topology::exposes_server(name.as_bytes()) && !is_bespoke_wired(name) {
                 if let Ok(ep) =
                     nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, chan.pid, 8)
                 {
@@ -76,12 +74,54 @@ pub(crate) fn wire_services(
     init_wire: &mut nexus_event::SpanTally,
 ) -> Result<()> {
     let Endpoints {
-        vfs_req, vfs_rsp, pkg_req, pkg_rsp, pol_req, pol_rsp, bnd_req, bnd_rsp,
-        bnd_rsp_updated, bnd_exe_req, bnd_exe_rsp, upd_req, upd_rsp, sam_req, sam_rsp, exe_req,
-        exe_rsp, key_req, key_rsp, state_req, state_rsp, rng_req, rng_rsp, timed_req, timed_rsp,
-        window_req, window_rsp, input_req, input_rsp, gpud_req, gpud_rsp, net_req, net_rsp,
-        net_selftest_rsp, net_dsoft_rsp, dsoft_req, dsoft_rsp, dsoft_reply_ep, execd_reply_ep,
-        reply_ep, log_req, log_rsp, metrics_req, metrics_rsp, sess_req, abil_req, abil_rsp, ..
+        vfs_req,
+        vfs_rsp,
+        pkg_req,
+        pkg_rsp,
+        pol_req,
+        pol_rsp,
+        bnd_req,
+        bnd_rsp,
+        bnd_rsp_updated,
+        bnd_exe_req,
+        bnd_exe_rsp,
+        upd_req,
+        upd_rsp,
+        sam_req,
+        sam_rsp,
+        exe_req,
+        exe_rsp,
+        key_req,
+        key_rsp,
+        state_req,
+        state_rsp,
+        rng_req,
+        rng_rsp,
+        timed_req,
+        timed_rsp,
+        window_req,
+        window_rsp,
+        input_req,
+        input_rsp,
+        gpud_req,
+        gpud_rsp,
+        net_req,
+        net_rsp,
+        net_selftest_rsp,
+        net_dsoft_rsp,
+        dsoft_req,
+        dsoft_rsp,
+        dsoft_reply_ep,
+        execd_reply_ep,
+        reply_ep,
+        log_req,
+        log_rsp,
+        metrics_req,
+        metrics_rsp,
+        sess_req,
+        abil_req,
+        abil_rsp,
+        ..
     } = *eps;
 
     // Services are suspended; they will be resumed atomically at the end
@@ -255,7 +295,9 @@ pub(crate) fn wire_services(
             // `pkg_reply_ep`). Their bespoke arms are deleted.
             "policyd" => {
                 // Already priority-wired before MMIO grants — skip re-wiring.
-                if chan.send(ServiceId::Policyd).is_some() && chan.recv(ServiceId::Policyd).is_some() {
+                if chan.send(ServiceId::Policyd).is_some()
+                    && chan.recv(ServiceId::Policyd).is_some()
+                {
                     if iw(init_wire, init_fold, "init:policyd") {
                         debug_write_bytes(b"init: policyd already priority-wired, skip\n");
                     }
@@ -340,21 +382,19 @@ pub(crate) fn wire_services(
             }
             "bundlemgrd" => {
                 // Server pair: usually distributed pre-grants (task #123).
-                let (recv_slot, send_slot) = match (
-                    chan.recv(ServiceId::Bundlemgrd),
-                    chan.send(ServiceId::Bundlemgrd),
-                ) {
-                    (Some(r), Some(s)) => (r, s),
-                    _ => {
-                        let r = nexus_abi::cap_transfer(pid, bnd_req, Rights::RECV)
-                            .map_err(InitError::Abi)?;
-                        let s = nexus_abi::cap_transfer(pid, bnd_rsp, Rights::SEND)
-                            .map_err(InitError::Abi)?;
-                        chan.set_send(ServiceId::Bundlemgrd, s);
-                        chan.set_recv(ServiceId::Bundlemgrd, r);
-                        (r, s)
-                    }
-                };
+                let (recv_slot, send_slot) =
+                    match (chan.recv(ServiceId::Bundlemgrd), chan.send(ServiceId::Bundlemgrd)) {
+                        (Some(r), Some(s)) => (r, s),
+                        _ => {
+                            let r = nexus_abi::cap_transfer(pid, bnd_req, Rights::RECV)
+                                .map_err(InitError::Abi)?;
+                            let s = nexus_abi::cap_transfer(pid, bnd_rsp, Rights::SEND)
+                                .map_err(InitError::Abi)?;
+                            chan.set_send(ServiceId::Bundlemgrd, s);
+                            chan.set_recv(ServiceId::Bundlemgrd, r);
+                            (r, s)
+                        }
+                    };
                 if iw(init_wire, init_fold, "init:bundlemgrd") {
                     debug_write_bytes(b"init: bundlemgrd slots recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -567,8 +607,7 @@ pub(crate) fn wire_services(
                 // (BUNDLE_SEND_SLOT) — the log line is the boot-time proof.
                 // CLONE (not move): `bnd_req` stays available for later arms.
                 {
-                    let bnd_req_clone =
-                        nexus_abi::cap_clone(bnd_req).map_err(InitError::Abi)?;
+                    let bnd_req_clone = nexus_abi::cap_clone(bnd_req).map_err(InitError::Abi)?;
                     let bundle_send_slot =
                         nexus_abi::cap_transfer(pid, bnd_req_clone, Rights::SEND)
                             .map_err(InitError::Abi)?;
@@ -601,22 +640,18 @@ pub(crate) fn wire_services(
                     let ping_ep =
                         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 4)
                             .map_err(InitError::Abi)?;
-                    let ping_send_slot =
-                        nexus_abi::cap_transfer(pid, ping_ep, Rights::SEND)
-                            .map_err(InitError::Abi)?;
-                    let ping_recv_slot =
-                        nexus_abi::cap_transfer(pid, ping_ep, Rights::RECV)
-                            .map_err(InitError::Abi)?;
+                    let ping_send_slot = nexus_abi::cap_transfer(pid, ping_ep, Rights::SEND)
+                        .map_err(InitError::Abi)?;
+                    let ping_recv_slot = nexus_abi::cap_transfer(pid, ping_ep, Rights::RECV)
+                        .map_err(InitError::Abi)?;
                     let _ = nexus_abi::cap_close(ping_ep);
                     let reply_ep =
                         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 4)
                             .map_err(InitError::Abi)?;
-                    let reply_send_slot =
-                        nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
-                            .map_err(InitError::Abi)?;
-                    let reply_recv_slot =
-                        nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
-                            .map_err(InitError::Abi)?;
+                    let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
+                        .map_err(InitError::Abi)?;
+                    let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
+                        .map_err(InitError::Abi)?;
                     let _ = nexus_abi::cap_close(reply_ep);
                     if iw(init_wire, init_fold, "init:execd") {
                         debug_write_bytes(b"init: execd recv-wake slots ping=0x");
@@ -912,7 +947,9 @@ pub(crate) fn wire_services(
             }
             "windowd" => {
                 // Already priority-wired before MMIO grants — skip re-wiring.
-                if chan.send(ServiceId::Windowd).is_some() && chan.recv(ServiceId::Windowd).is_some() {
+                if chan.send(ServiceId::Windowd).is_some()
+                    && chan.recv(ServiceId::Windowd).is_some()
+                {
                     if iw(init_wire, init_fold, "init:windowd") {
                         debug_write_bytes(b"init: windowd already priority-wired, skip\n");
                     }
@@ -996,7 +1033,8 @@ pub(crate) fn wire_services(
                 }
             }
             "inputd" => {
-                if chan.send(ServiceId::Inputd).is_some() && chan.recv(ServiceId::Inputd).is_some() {
+                if chan.send(ServiceId::Inputd).is_some() && chan.recv(ServiceId::Inputd).is_some()
+                {
                     if iw(init_wire, init_fold, "init:inputd") {
                         debug_write_bytes(b"init: inputd already priority-wired, skip\n");
                     }
@@ -1050,21 +1088,19 @@ pub(crate) fn wire_services(
             "metricsd" => {
                 if let (Some(req), Some(rsp)) = (metrics_req, metrics_rsp) {
                     // Server pair: usually distributed pre-grants (task #123).
-                    let (recv_slot, send_slot) = match (
-                        chan.recv(ServiceId::Metricsd),
-                        chan.send(ServiceId::Metricsd),
-                    ) {
-                        (Some(r), Some(s)) => (r, s),
-                        _ => {
-                            let r = nexus_abi::cap_transfer(pid, req, Rights::RECV)
-                                .map_err(InitError::Abi)?;
-                            let s = nexus_abi::cap_transfer(pid, rsp, Rights::SEND)
-                                .map_err(InitError::Abi)?;
-                            chan.set_send(ServiceId::Metricsd, s);
-                            chan.set_recv(ServiceId::Metricsd, r);
-                            (r, s)
-                        }
-                    };
+                    let (recv_slot, send_slot) =
+                        match (chan.recv(ServiceId::Metricsd), chan.send(ServiceId::Metricsd)) {
+                            (Some(r), Some(s)) => (r, s),
+                            _ => {
+                                let r = nexus_abi::cap_transfer(pid, req, Rights::RECV)
+                                    .map_err(InitError::Abi)?;
+                                let s = nexus_abi::cap_transfer(pid, rsp, Rights::SEND)
+                                    .map_err(InitError::Abi)?;
+                                chan.set_send(ServiceId::Metricsd, s);
+                                chan.set_recv(ServiceId::Metricsd, r);
+                                (r, s)
+                            }
+                        };
                     if iw(init_wire, init_fold, "init:metricsd") {
                         debug_write_bytes(b"init: metricsd slots recv=0x");
                         debug_write_hex(recv_slot as usize);
@@ -1362,8 +1398,7 @@ pub(crate) fn wire_services(
                         // server_pairs`) — announce from the recorded slots so
                         // the marker keeps its historical log position; transfer
                         // here only if the early pass could not.
-                        let recorded = own_id
-                            .and_then(|id| Some((chan.recv(id)?, chan.send(id)?)));
+                        let recorded = own_id.and_then(|id| Some((chan.recv(id)?, chan.send(id)?)));
                         let slots = match recorded {
                             Some(s) => Some(s),
                             None => {
@@ -1449,16 +1484,15 @@ pub(crate) fn wire_services(
                     // transfer RECV+SEND, close the init-side slot.
                     let mut reply_recv_opt: Option<u32> = None;
                     if !spec.routes_to.is_empty() && spec.reply_inbox {
-                        let inbox_ep = own_id.and_then(|id| eps.minted_reply_ep(id)).or_else(
-                            || {
+                        let inbox_ep =
+                            own_id.and_then(|id| eps.minted_reply_ep(id)).or_else(|| {
                                 nexus_abi::ipc_endpoint_create_for(
                                     ENDPOINT_FACTORY_CAP_SLOT,
                                     pid,
                                     8,
                                 )
                                 .ok()
-                            },
-                        );
+                            });
                         if let Some(reply_ep) = inbox_ep {
                             let rr = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV);
                             let rs = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND);
@@ -1573,35 +1607,35 @@ pub(crate) fn wire_services(
     Ok(())
 }
 
-    /// Transfer a capability to a child PID with graceful error handling.
-    /// Returns Some(slot) on success, None on failure (logs the error).
-    /// On success, emits a `cap:` hop marker for traceability.
-    fn try_transfer(pid: u32, cap: u32, rights: Rights, svc: &str, label: &str) -> Option<u32> {
-        match nexus_abi::cap_transfer(pid, cap, rights) {
-            Ok(slot) => {
-                debug_write_bytes(b"cap: route init->");
-                debug_write_str(svc);
-                debug_write_bytes(b" ");
-                debug_write_str(label);
-                debug_write_bytes(b" src=0x");
-                debug_write_hex(cap as usize);
-                debug_write_bytes(b" dst=0x");
-                debug_write_hex(slot as usize);
-                debug_write_byte(b'\n');
-                Some(slot)
-            }
-            Err(e) => {
-                debug_write_bytes(b"init: skip ");
-                debug_write_str(svc);
-                debug_write_bytes(b" ");
-                debug_write_str(label);
-                debug_write_bytes(b": ");
-                debug_write_str(abi_error_label(e));
-                debug_write_byte(b'\n');
-                None
-            }
+/// Transfer a capability to a child PID with graceful error handling.
+/// Returns Some(slot) on success, None on failure (logs the error).
+/// On success, emits a `cap:` hop marker for traceability.
+fn try_transfer(pid: u32, cap: u32, rights: Rights, svc: &str, label: &str) -> Option<u32> {
+    match nexus_abi::cap_transfer(pid, cap, rights) {
+        Ok(slot) => {
+            debug_write_bytes(b"cap: route init->");
+            debug_write_str(svc);
+            debug_write_bytes(b" ");
+            debug_write_str(label);
+            debug_write_bytes(b" src=0x");
+            debug_write_hex(cap as usize);
+            debug_write_bytes(b" dst=0x");
+            debug_write_hex(slot as usize);
+            debug_write_byte(b'\n');
+            Some(slot)
+        }
+        Err(e) => {
+            debug_write_bytes(b"init: skip ");
+            debug_write_str(svc);
+            debug_write_bytes(b" ");
+            debug_write_str(label);
+            debug_write_bytes(b": ");
+            debug_write_str(abi_error_label(e));
+            debug_write_byte(b'\n');
+            None
         }
     }
+}
 
 /// Provisions windowd's RFC-0065 dynamic-Apps-menu route caps: a CAP_MOVE reply
 /// inbox + a SEND cap to bundlemgrd's request endpoint, so windowd's

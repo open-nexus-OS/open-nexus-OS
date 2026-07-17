@@ -108,4 +108,3 @@ pub fn run() -> core::result::Result<(), ()> {
     }
     end
 }
-

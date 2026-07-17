@@ -48,8 +48,7 @@ pub fn zeroed_canonical_bytes(root: ui_program::Reader<'_>) -> Result<Vec<u8>, I
     );
     canonical
         .set_root_canonical(
-            copy.get_root_as_reader::<ui_program::Reader<'_>>()
-                .map_err(|_| IrError::Malformed)?,
+            copy.get_root_as_reader::<ui_program::Reader<'_>>().map_err(|_| IrError::Malformed)?,
         )
         .map_err(|_| IrError::Malformed)?;
     let segments = canonical.get_segments_for_output();

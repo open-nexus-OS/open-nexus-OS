@@ -154,7 +154,9 @@ impl AppIcon {
         // `native` clips the icon to the rounded tile; `wrapped` insets it.
         let (padding, overflow) = match self.variant {
             AppIconVariant::Native => (EdgeInsets::zero(), Overflow::Hidden),
-            AppIconVariant::Wrapped => (EdgeInsets::all(self.size.wrapped_inset()), Overflow::Hidden),
+            AppIconVariant::Wrapped => {
+                (EdgeInsets::all(self.size.wrapped_inset()), Overflow::Hidden)
+            }
             AppIconVariant::Freestanding => (EdgeInsets::zero(), Overflow::Visible),
         };
         let visual = self.style(tokens).visual();

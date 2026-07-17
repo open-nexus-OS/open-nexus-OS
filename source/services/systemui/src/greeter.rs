@@ -12,8 +12,7 @@
 use crate::profile::{parse_entries, string_field, u32_field, Result, SystemUiError};
 
 /// The shipped greeter manifest.
-pub const DEFAULT_GREETER_TOML: &str =
-    include_str!("../manifests/greeter/default/greeter.toml");
+pub const DEFAULT_GREETER_TOML: &str = include_str!("../manifests/greeter/default/greeter.toml");
 
 /// Greeter appearance (display pixels at the canonical mode). Obtained via
 /// [`greeter_config`]; forks tune the manifest, not windowd code.

@@ -138,7 +138,15 @@ impl RowCanvas<'_> {
     }
 
     /// This row's slice of an (optionally rounded) rect fill.
-    pub(crate) fn fill_round_rect_row(&mut self, x: i32, y: i32, w: i32, h: i32, radius: i32, c: Rgba8) {
+    pub(crate) fn fill_round_rect_row(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        radius: i32,
+        c: Rgba8,
+    ) {
         if w <= 0 || h <= 0 || self.y < y || self.y >= y + h {
             return;
         }
@@ -314,13 +322,21 @@ impl RowCanvas<'_> {
 #[inline]
 fn floor_i32(v: f32) -> i32 {
     let t = v as i32;
-    if (t as f32) > v { t - 1 } else { t }
+    if (t as f32) > v {
+        t - 1
+    } else {
+        t
+    }
 }
 
 #[inline]
 fn ceil_i32(v: f32) -> i32 {
     let t = v as i32;
-    if (t as f32) < v { t + 1 } else { t }
+    if (t as f32) < v {
+        t + 1
+    } else {
+        t
+    }
 }
 
 /// Paint one box's contribution to this row (fill + borders).
@@ -400,10 +416,7 @@ pub(crate) fn paint_box_row_at(
                 // beneath a glass region must not bake through — the
                 // COMPOSITOR supplies the backdrop (destination-so-far blur
                 // of everything already composited under the region).
-                if matches!(
-                    b.visual.material,
-                    nexus_layout_types::SurfaceMaterial::Glass(_)
-                ) {
+                if matches!(b.visual.material, nexus_layout_types::SurfaceMaterial::Glass(_)) {
                     let r = radius.max(0).min(w / 2).min(h / 2);
                     canvas.fill_round_rect_row_replace(x, y, w, h, r, bg);
                 } else {
@@ -442,8 +455,8 @@ pub(crate) fn paint_box_row_at(
                     let x0 = x.max(0);
                     let x1 = (x + w).min(canvas.width);
                     for px in x0..x1 {
-                        let sx = ((px - x) as i64 * sw as i64 / w as i64)
-                            .clamp(0, (sw - 1) as i64) as i32;
+                        let sx = ((px - x) as i64 * sw as i64 / w as i64).clamp(0, (sw - 1) as i64)
+                            as i32;
                         let o = ((sy * sw + sx) * 4) as usize;
                         if o + 3 < rgba.len() && rgba[o + 3] > 0 {
                             canvas.blend(
@@ -467,8 +480,8 @@ pub(crate) fn paint_box_row_at(
             }
         }
     }
-    let radius = (b.visual.corner_radius.top_left.0.max(0) as i64 * radius_pct.max(1) as i64
-        / 100) as i32;
+    let radius =
+        (b.visual.corner_radius.top_left.0.max(0) as i64 * radius_pct.max(1) as i64 / 100) as i32;
     paint_borders_row(canvas, x, y, w, h, radius, &b.visual.border);
 }
 
@@ -522,12 +535,15 @@ fn paint_shadow_row(
         if a == 0 {
             continue;
         }
-        canvas.blend(px, nexus_layout_types::Rgba8 {
-            r: shadow.color.r,
-            g: shadow.color.g,
-            b: shadow.color.b,
-            a,
-        });
+        canvas.blend(
+            px,
+            nexus_layout_types::Rgba8 {
+                r: shadow.color.r,
+                g: shadow.color.g,
+                b: shadow.color.b,
+                a,
+            },
+        );
     }
 }
 
@@ -699,8 +715,7 @@ fn paint_one_scrolled(
         }
         if let Some(hw) = hover {
             if b.node_id == hw.node_id && (hw.color.a > 0 || hw.ring_alpha > 0) {
-                let (bx, by, bw, bh) =
-                    (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+                let (bx, by, bw, bh) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
                 // Track the hover-grow: wash + ring follow the ANIMATED rect.
                 let (x, y, w, h, rpct) = match anim {
                     Some(a) => {
@@ -738,7 +753,6 @@ fn paint_one_scrolled(
         }
     }
 }
-
 
 pub(crate) fn paint_borders_row(
     canvas: &mut RowCanvas<'_>,
@@ -812,11 +826,8 @@ mod tests {
         let a = boxed(0, 0, 10, 10, 0, grey);
         let mut b = boxed(10, 0, 10, 10, 4, grey);
         b.node_id = 2;
-        let wash = HoverWash {
-            node_id: 2,
-            color: Rgba8 { r: 255, g: 255, b: 255, a: 64 },
-            ring_alpha: 0,
-        };
+        let wash =
+            HoverWash { node_id: 2, color: Rgba8 { r: 255, g: 255, b: 255, a: 64 }, ring_alpha: 0 };
         let mut row = [0u8; 20 * 4];
         let mut canvas = RowCanvas::new(&mut row, 0, 20);
         paint_row_hover(&mut canvas, &[a, b], Some(wash));

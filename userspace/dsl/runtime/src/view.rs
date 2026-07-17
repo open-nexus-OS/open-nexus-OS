@@ -66,8 +66,7 @@ impl<'p> View<'p> {
             .collect();
         // The program's INITIAL-LOAD effects, derived from the dataflow at
         // mount (no lifecycle hook in the source — see `run_initial_effects`).
-        let initial_effects =
-            crate::initial::root_effect_events(root).map_err(MountError::Rt)?;
+        let initial_effects = crate::initial::root_effect_events(root).map_err(MountError::Rt)?;
         let mut view = Self {
             runtime,
             scene: LayoutNode::Spacer(nexus_layout_types::Spacer::default()),
@@ -184,12 +183,8 @@ impl<'p> View<'p> {
         y: nexus_layout_types::FxPx,
         scroll: Option<((i32, i32, i32, i32), i32, i32)>,
     ) -> Result<Option<Damage>, RtError> {
-        let Some(trigger_sym) = self
-            .runtime
-            .symbols()
-            .iter()
-            .position(|s| s == trigger)
-            .map(|i| i as u32)
+        let Some(trigger_sym) =
+            self.runtime.symbols().iter().position(|s| s == trigger).map(|i| i as u32)
         else {
             return Ok(None);
         };
@@ -250,12 +245,8 @@ impl<'p> View<'p> {
         host: &mut dyn EffectHost,
         trigger: &str,
     ) -> Result<Option<Damage>, RtError> {
-        let Some(trigger_sym) = self
-            .runtime
-            .symbols()
-            .iter()
-            .position(|s| s == trigger)
-            .map(|i| i as u32)
+        let Some(trigger_sym) =
+            self.runtime.symbols().iter().position(|s| s == trigger).map(|i| i as u32)
         else {
             return Ok(None);
         };
@@ -288,12 +279,8 @@ impl<'p> View<'p> {
         y: nexus_layout_types::FxPx,
         scroll: Option<((i32, i32, i32, i32), i32, i32)>,
     ) -> Option<usize> {
-        let trigger_sym = self
-            .runtime
-            .symbols()
-            .iter()
-            .position(|s| s == trigger)
-            .map(|i| i as u32)?;
+        let trigger_sym =
+            self.runtime.symbols().iter().position(|s| s == trigger).map(|i| i as u32)?;
         interact::hit_scrolled(&self.handlers, boxes, trigger_sym, x, y, scroll).map(|(id, _)| id)
     }
 
@@ -312,12 +299,8 @@ impl<'p> View<'p> {
         y: nexus_layout_types::FxPx,
         text: &str,
     ) -> Result<Option<Damage>, RtError> {
-        let Some(trigger_sym) = self
-            .runtime
-            .symbols()
-            .iter()
-            .position(|s| s == "Change")
-            .map(|i| i as u32)
+        let Some(trigger_sym) =
+            self.runtime.symbols().iter().position(|s| s == "Change").map(|i| i as u32)
         else {
             return Ok(None);
         };

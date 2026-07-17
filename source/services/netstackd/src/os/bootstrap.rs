@@ -332,8 +332,7 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
         }
         // #endregion
         if !ok {
-            let _ =
-                nexus_abi::trace_line("netstackd: udp dns unavailable (fallback dhcp proof)");
+            let _ = nexus_abi::trace_line("netstackd: udp dns unavailable (fallback dhcp proof)");
             let _ = nexus_abi::debug_println("netstackd: net dns proof fail");
         } else {
             let _ = nexus_abi::debug_println("SELFTEST: net udp dns ok");

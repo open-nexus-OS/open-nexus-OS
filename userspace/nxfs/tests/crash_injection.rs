@@ -72,7 +72,9 @@ fn listing(fs: &Nxfs<MemBlockDevice>, path: &str) -> Vec<(String, u64)> {
 }
 
 /// Full observable state fingerprint: root listing + file contents.
-fn fingerprint(device: MemBlockDevice) -> (Vec<(String, u64)>, Vec<(String, Vec<u8>)>, MemBlockDevice) {
+fn fingerprint(
+    device: MemBlockDevice,
+) -> (Vec<(String, u64)>, Vec<(String, Vec<u8>)>, MemBlockDevice) {
     let fs = Nxfs::mount(device).expect("mount");
     let names = listing(&fs, "/");
     let mut contents = Vec::new();
@@ -87,8 +89,8 @@ fn fingerprint(device: MemBlockDevice) -> (Vec<(String, u64)>, Vec<(String, Vec<
 
 fn base_image() -> MemBlockDevice {
     let device = MemBlockDevice::new(LOGICAL_BLOCK_SIZE, BLOCKS);
-    let mut fs = Nxfs::mkfs(device, MkfsOptions { uuid: [9; 16], journal_blocks: 32 })
-        .expect("mkfs");
+    let mut fs =
+        Nxfs::mkfs(device, MkfsOptions { uuid: [9; 16], journal_blocks: 32 }).expect("mkfs");
     fs.create("/keep.txt").expect("create");
     fs.write("/keep.txt", 0, b"stable content").expect("write");
     fs.mkdir("/dir").expect("mkdir");
@@ -117,11 +119,7 @@ fn assert_crash_atomic(op: impl Fn(&mut Nxfs<SpyDevice>)) {
         let (names, contents, _) = fingerprint(image);
         let is_pre = names == pre_names && contents == pre_contents;
         let is_post = names == post_names && contents == post_contents;
-        assert!(
-            is_pre || is_post,
-            "cut={cut}/{}: torn state visible: {names:?}",
-            log.len()
-        );
+        assert!(is_pre || is_post, "cut={cut}/{}: torn state visible: {names:?}", log.len());
     }
 }
 
@@ -161,8 +159,7 @@ fn rename_is_exactly_one_name_visible() {
             image.write_block(*idx, data).expect("replay write");
         }
         let fs = Nxfs::mount(image).expect("mount");
-        let names: Vec<String> =
-            listing(&fs, "/").into_iter().map(|(name, _)| name).collect();
+        let names: Vec<String> = listing(&fs, "/").into_iter().map(|(name, _)| name).collect();
         let has_old = names.contains(&"keep.txt".to_string());
         let has_target = names.contains(&"victim.txt".to_string());
         // Exactly one of: old state (both names, victim is the victim) or

@@ -317,8 +317,7 @@ pub(crate) fn parse_svg_tinted(input: &str, tint: Color) -> SvgResult<SvgDocumen
                     }
                     _ => {
                         let elem = {
-                            let inherited =
-                                stack.last().map(|f| &f.style).unwrap_or(&root_style);
+                            let inherited = stack.last().map(|f| &f.style).unwrap_or(&root_style);
                             parse_element(
                                 &tag_lower,
                                 &attrs,
@@ -571,7 +570,15 @@ fn parse_element(
         "path" => {
             let d_str = get_attr(attrs, "d").unwrap_or("");
             let data = parse_path_data(d_str, segments)?;
-            Ok(SvgElement::Path { data, fill, stroke, stroke_width, stroke_style, transform, opacity })
+            Ok(SvgElement::Path {
+                data,
+                fill,
+                stroke,
+                stroke_width,
+                stroke_style,
+                transform,
+                opacity,
+            })
         }
         "rect" => {
             let x = parse_f32_attr(attrs, "x").unwrap_or(0.0);
@@ -599,7 +606,17 @@ fn parse_element(
             let cx = parse_f32_attr(attrs, "cx").unwrap_or(0.0);
             let cy = parse_f32_attr(attrs, "cy").unwrap_or(0.0);
             let r = parse_f32_attr(attrs, "r").unwrap_or(0.0);
-            Ok(SvgElement::Circle { cx, cy, r, fill, stroke, stroke_width, stroke_style, transform, opacity })
+            Ok(SvgElement::Circle {
+                cx,
+                cy,
+                r,
+                fill,
+                stroke,
+                stroke_width,
+                stroke_style,
+                transform,
+                opacity,
+            })
         }
         "ellipse" => {
             let cx = parse_f32_attr(attrs, "cx").unwrap_or(0.0);
@@ -624,12 +641,30 @@ fn parse_element(
             let y1 = parse_f32_attr(attrs, "y1").unwrap_or(0.0);
             let x2 = parse_f32_attr(attrs, "x2").unwrap_or(0.0);
             let y2 = parse_f32_attr(attrs, "y2").unwrap_or(0.0);
-            Ok(SvgElement::Line { x1, y1, x2, y2, stroke, stroke_width, stroke_style, transform, opacity })
+            Ok(SvgElement::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                stroke,
+                stroke_width,
+                stroke_style,
+                transform,
+                opacity,
+            })
         }
         "polygon" => {
             let points_str = get_attr(attrs, "points").unwrap_or("");
             let points = parse_points(points_str)?;
-            Ok(SvgElement::Polygon { points, fill, stroke, stroke_width, stroke_style, transform, opacity })
+            Ok(SvgElement::Polygon {
+                points,
+                fill,
+                stroke,
+                stroke_width,
+                stroke_style,
+                transform,
+                opacity,
+            })
         }
         "lineargradient" => {
             // LinearGradient is a defs entry — parsed inline. Defaults are the SVG
@@ -643,8 +678,15 @@ fn parse_element(
 
             let stops = collect_gradient_stops(tokenizer, "lineargradient")?;
 
-            let grad =
-                SvgElement::LinearGradient { id: id_attr.to_string(), x1, y1, x2, y2, stops, units };
+            let grad = SvgElement::LinearGradient {
+                id: id_attr.to_string(),
+                x1,
+                y1,
+                x2,
+                y2,
+                stops,
+                units,
+            };
             if !id_attr.is_empty() {
                 defs.insert(id_attr.to_string(), grad.clone());
             }
@@ -870,14 +912,11 @@ fn parse_dimensions(attrs: &[(String, String)]) -> SvgResult<(f32, f32)> {
     // allocation (that is bounded by the explicit output size in `rasterize_document_at`),
     // so a large viewBox rendered small is fine and is not clamped here.
     if let Some(vb) = get_attr_ci(attrs, "viewBox") {
-        let mut it = vb
-            .split(|c: char| c == ',' || c.is_whitespace())
-            .filter(|s| !s.is_empty());
+        let mut it = vb.split(|c: char| c == ',' || c.is_whitespace()).filter(|s| !s.is_empty());
         let (_minx, _miny, vw, vh) = (it.next(), it.next(), it.next(), it.next());
-        if let (Some(vw), Some(vh)) = (
-            vw.and_then(|s| s.parse::<f32>().ok()),
-            vh.and_then(|s| s.parse::<f32>().ok()),
-        ) {
+        if let (Some(vw), Some(vh)) =
+            (vw.and_then(|s| s.parse::<f32>().ok()), vh.and_then(|s| s.parse::<f32>().ok()))
+        {
             if vw > 0.0 && vh > 0.0 {
                 return Ok((vw, vh));
             }

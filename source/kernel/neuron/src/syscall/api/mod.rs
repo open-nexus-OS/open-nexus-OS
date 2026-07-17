@@ -49,13 +49,13 @@ mod tests;
 
 use caps::*;
 use exec::*;
+pub(crate) use exec::{exec_phase_a, exec_v2_phase_a, run_copy_plan, CopyPlan};
 use ipc_msg::*;
 use sched_task::*;
 use sync_objects::*;
-use vmo::*;
 pub use vmo::vmo_idle_zero_step;
+use vmo::*;
 pub(crate) use vmo::{vmo_create_finish, vmo_create_reserve};
-pub(crate) use exec::{exec_phase_a, exec_v2_phase_a, run_copy_plan, CopyPlan};
 
 pub(crate) use sched_task::selftest_sched_op;
 

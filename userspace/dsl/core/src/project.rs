@@ -117,8 +117,7 @@ pub fn merge_project(files: &[SourceFile]) -> Result<File, Diagnostic> {
             .into_iter()
             .map(|(profile, view)| (profile_cond(&profile), alloc::vec![view]))
             .collect();
-        page.view =
-            ViewNode::If { arms, els: alloc::vec![base_view], span: Span::default() };
+        page.view = ViewNode::If { arms, els: alloc::vec![base_view], span: Span::default() };
     }
 
     Ok(merged)
@@ -172,8 +171,8 @@ pub fn compile_project_dir(root: &std::path::Path) -> Result<alloc::vec::Vec<u8>
     let mut files: alloc::vec::Vec<SourceFile> = alloc::vec::Vec::new();
     let mut stack = alloc::vec![ui.clone()];
     while let Some(dir) = stack.pop() {
-        let entries = std::fs::read_dir(&dir)
-            .map_err(|e| alloc::format!("read {}: {e}", dir.display()))?;
+        let entries =
+            std::fs::read_dir(&dir).map_err(|e| alloc::format!("read {}: {e}", dir.display()))?;
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -300,10 +299,10 @@ fn load_default_locale_catalog(
 /// else — nesting, arrays, numbers, exotic escapes — is a loud error: the
 /// catalog format is deliberately this small (no serde in the compiler core).
 #[cfg(feature = "std")]
-fn parse_flat_json_map(
-    text: &str,
-) -> Result<alloc::collections::BTreeMap<String, String>, String> {
-    fn parse_string(chars: &mut core::iter::Peekable<core::str::Chars<'_>>) -> Result<String, String> {
+fn parse_flat_json_map(text: &str) -> Result<alloc::collections::BTreeMap<String, String>, String> {
+    fn parse_string(
+        chars: &mut core::iter::Peekable<core::str::Chars<'_>>,
+    ) -> Result<String, String> {
         let mut out = String::new();
         loop {
             match chars.next() {
@@ -516,10 +515,8 @@ mod i18n_catalog_tests {
 
     #[test]
     fn flat_json_parser_handles_escapes_and_whitespace() {
-        let map = parse_flat_json_map(
-            "{ \"a.b\" : \"x \\\" y\", \n  \"c\": \"line\\nbreak\" }",
-        )
-        .expect("parses");
+        let map = parse_flat_json_map("{ \"a.b\" : \"x \\\" y\", \n  \"c\": \"line\\nbreak\" }")
+            .expect("parses");
         assert_eq!(map.get("a.b").map(String::as_str), Some("x \" y"));
         assert_eq!(map.get("c").map(String::as_str), Some("line\nbreak"));
     }
@@ -608,15 +605,15 @@ mod widget_library_tests {
     }
 
     fn scaffold(root: &std::path::Path, lib_component: &str) {
-        write(
-            &root.join("app/manifest.toml"),
-            "name = \"app\"\ndependencies = [\"widgets\"]\n",
-        );
+        write(&root.join("app/manifest.toml"), "name = \"app\"\ndependencies = [\"widgets\"]\n");
         write(
             &root.join("app/ui/pages/Main.nx"),
             "Store S { n: Int = 0, }\nEvent E { Tick, }\nreduce E { Tick => state.n += 1, }\nPage Main { Stack { FancyCard { } } }\n",
         );
-        write(&root.join("widgets/manifest.toml"), "name = \"widgets\"\nbundle_type = \"library\"\n");
+        write(
+            &root.join("widgets/manifest.toml"),
+            "name = \"widgets\"\nbundle_type = \"library\"\n",
+        );
         write(&root.join("widgets/ui/components/FancyCard.nx"), lib_component);
     }
 

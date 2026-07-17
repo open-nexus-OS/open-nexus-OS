@@ -123,9 +123,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // (the tip, ~user (2,2)) stays ≈(2,2) after the 32/36 scale.
     const CURSOR_DIM: u32 = 32;
     const CURSOR_SS: u32 = 4;
-    let cursor_hi = nexus_svg::render_svg_at(cursor_svg, CURSOR_DIM * CURSOR_SS, CURSOR_DIM * CURSOR_SS)
-        .map_err(|err| std::io::Error::other(format!("render Mocu cursor SVG: {err:?}")))?;
-    let cursor_bgra = box_average_downscale(&cursor_hi.buffer, cursor_hi.width, cursor_hi.height, CURSOR_SS);
+    let cursor_hi =
+        nexus_svg::render_svg_at(cursor_svg, CURSOR_DIM * CURSOR_SS, CURSOR_DIM * CURSOR_SS)
+            .map_err(|err| std::io::Error::other(format!("render Mocu cursor SVG: {err:?}")))?;
+    let cursor_bgra =
+        box_average_downscale(&cursor_hi.buffer, cursor_hi.width, cursor_hi.height, CURSOR_SS);
     let cursor_path = out_dir.join("mocu_cursor.bgra");
     fs::write(&cursor_path, &cursor_bgra)?;
     writeln!(generated, "pub const MOCU_CURSOR_WIDTH: u32 = {CURSOR_DIM};")?;
@@ -260,16 +262,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("CLOSE_ICON", 20u32, include_str!("../../../resources/icons/lucide/icons/x.svg")),
         // Title-bar window controls (TASK-0070 Phase 2): minimize "–" +
         // maximize "□", sized to read alongside the 20px close "x".
-        (
-            "MINIMIZE_ICON",
-            20u32,
-            include_str!("../../../resources/icons/lucide/icons/minus.svg"),
-        ),
-        (
-            "MAXIMIZE_ICON",
-            16u32,
-            include_str!("../../../resources/icons/lucide/icons/square.svg"),
-        ),
+        ("MINIMIZE_ICON", 20u32, include_str!("../../../resources/icons/lucide/icons/minus.svg")),
+        ("MAXIMIZE_ICON", 16u32, include_str!("../../../resources/icons/lucide/icons/square.svg")),
         // Dock icons for minimized windows (one per shell window today).
         (
             "DOCK_CHAT_ICON",

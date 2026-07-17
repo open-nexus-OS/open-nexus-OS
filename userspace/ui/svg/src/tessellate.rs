@@ -37,7 +37,10 @@ pub struct Edge {
 /// is the resolved (device-space) paint for that shape — solid or gradient. The
 /// 1:1 indexing is maintained by [`append_shape`], which pushes exactly one paint
 /// per emitted shape.
-pub fn tessellate_document_with(doc: &SvgDocument, root: &Transform) -> (Vec<Edge>, Vec<ShapePaint>) {
+pub fn tessellate_document_with(
+    doc: &SvgDocument,
+    root: &Transform,
+) -> (Vec<Edge>, Vec<ShapePaint>) {
     let mut edges = Vec::new();
     let mut paints = Vec::new();
     let mut next_shape_id = 0;
@@ -117,26 +120,123 @@ fn tessellate_element(
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
             let segments = rect_segments(*x, *y, *width, *height, *rx, *ry, &tf);
-            emit_filled_shape(fill, &segments, FillRule::NonZero, &tf, op, doc, edges, paints, next_shape_id);
-            emit_stroked_shape(stroke, &segments, *stroke_width * transform_scale(&tf), *stroke_style, true, &tf, op, doc, edges, paints, next_shape_id);
+            emit_filled_shape(
+                fill,
+                &segments,
+                FillRule::NonZero,
+                &tf,
+                op,
+                doc,
+                edges,
+                paints,
+                next_shape_id,
+            );
+            emit_stroked_shape(
+                stroke,
+                &segments,
+                *stroke_width * transform_scale(&tf),
+                *stroke_style,
+                true,
+                &tf,
+                op,
+                doc,
+                edges,
+                paints,
+                next_shape_id,
+            );
         }
-        SvgElement::Circle { cx, cy, r, fill, stroke, stroke_width, stroke_style, transform, opacity } => {
+        SvgElement::Circle {
+            cx,
+            cy,
+            r,
+            fill,
+            stroke,
+            stroke_width,
+            stroke_style,
+            transform,
+            opacity,
+        } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
             let segments = circle_segments(*cx, *cy, *r, &tf);
-            emit_filled_shape(fill, &segments, FillRule::NonZero, &tf, op, doc, edges, paints, next_shape_id);
-            emit_stroked_shape(stroke, &segments, *stroke_width * transform_scale(&tf), *stroke_style, true, &tf, op, doc, edges, paints, next_shape_id);
+            emit_filled_shape(
+                fill,
+                &segments,
+                FillRule::NonZero,
+                &tf,
+                op,
+                doc,
+                edges,
+                paints,
+                next_shape_id,
+            );
+            emit_stroked_shape(
+                stroke,
+                &segments,
+                *stroke_width * transform_scale(&tf),
+                *stroke_style,
+                true,
+                &tf,
+                op,
+                doc,
+                edges,
+                paints,
+                next_shape_id,
+            );
         }
-        SvgElement::Ellipse { cx, cy, rx, ry, fill, stroke, stroke_width, stroke_style, transform, opacity } => {
+        SvgElement::Ellipse {
+            cx,
+            cy,
+            rx,
+            ry,
+            fill,
+            stroke,
+            stroke_width,
+            stroke_style,
+            transform,
+            opacity,
+        } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
             let segments = ellipse_segments(*cx, *cy, *rx, *ry, &tf);
-            emit_filled_shape(fill, &segments, FillRule::NonZero, &tf, op, doc, edges, paints, next_shape_id);
-            emit_stroked_shape(stroke, &segments, *stroke_width * transform_scale(&tf), *stroke_style, true, &tf, op, doc, edges, paints, next_shape_id);
+            emit_filled_shape(
+                fill,
+                &segments,
+                FillRule::NonZero,
+                &tf,
+                op,
+                doc,
+                edges,
+                paints,
+                next_shape_id,
+            );
+            emit_stroked_shape(
+                stroke,
+                &segments,
+                *stroke_width * transform_scale(&tf),
+                *stroke_style,
+                true,
+                &tf,
+                op,
+                doc,
+                edges,
+                paints,
+                next_shape_id,
+            );
         }
-        SvgElement::Line { x1, y1, x2, y2, stroke, stroke_width, stroke_style, transform, opacity } => {
+        SvgElement::Line {
+            x1,
+            y1,
+            x2,
+            y2,
+            stroke,
+            stroke_width,
+            stroke_style,
+            transform,
+            opacity,
+        } => {
             let _ = stroke_style;
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
@@ -159,18 +259,54 @@ fn tessellate_element(
                             (ex - nx, ey - ny),
                             (sx - nx, sy - ny),
                         ];
-                        append_shape(edges, paints, next_shape_id, polygon_edges(&pts, FillRule::NonZero), paint);
+                        append_shape(
+                            edges,
+                            paints,
+                            next_shape_id,
+                            polygon_edges(&pts, FillRule::NonZero),
+                            paint,
+                        );
                     }
                 }
             }
         }
-        SvgElement::Polygon { points, fill, stroke, stroke_width, stroke_style, transform, opacity } => {
+        SvgElement::Polygon {
+            points,
+            fill,
+            stroke,
+            stroke_width,
+            stroke_style,
+            transform,
+            opacity,
+        } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
             let pts: Vec<(f32, f32)> = points.iter().map(|(x, y)| tf.apply(*x, *y)).collect();
-            emit_filled_shape(fill, &pts, FillRule::NonZero, &tf, op, doc, edges, paints, next_shape_id);
-            emit_stroked_shape(stroke, &pts, *stroke_width * transform_scale(&tf), *stroke_style, true, &tf, op, doc, edges, paints, next_shape_id);
+            emit_filled_shape(
+                fill,
+                &pts,
+                FillRule::NonZero,
+                &tf,
+                op,
+                doc,
+                edges,
+                paints,
+                next_shape_id,
+            );
+            emit_stroked_shape(
+                stroke,
+                &pts,
+                *stroke_width * transform_scale(&tf),
+                *stroke_style,
+                true,
+                &tf,
+                op,
+                doc,
+                edges,
+                paints,
+                next_shape_id,
+            );
         }
         // Defs entries (gradients) are not rendered directly.
         SvgElement::LinearGradient { .. } | SvgElement::RadialGradient { .. } => {}
@@ -730,8 +866,7 @@ fn subdivide_cubic(
     depth: u32,
     out: &mut Vec<(f32, f32)>,
 ) {
-    if depth >= MAX_SUBDIV
-        || (point_line_dist(p1, p0, p3).max(point_line_dist(p2, p0, p3)) <= tol)
+    if depth >= MAX_SUBDIV || (point_line_dist(p1, p0, p3).max(point_line_dist(p2, p0, p3)) <= tol)
     {
         out.push(p3);
         return;
@@ -878,19 +1013,11 @@ fn stroke_piece_edges(pts: &[(f32, f32)]) -> Vec<Edge> {
 /// `stroke_piece_edges` to guarantee one shared winding orientation. `closed`
 /// wraps the last vertex to the first (a join, no caps) — for
 /// rect/circle/ellipse/polygon outlines.
-fn stroke_edges(
-    points: &[(f32, f32)],
-    width: f32,
-    style: StrokeStyle,
-    closed: bool,
-) -> Vec<Edge> {
+fn stroke_edges(points: &[(f32, f32)], width: f32, style: StrokeStyle, closed: bool) -> Vec<Edge> {
     // Drop consecutive duplicates — zero-length segments have no normal.
     let mut pts: Vec<(f32, f32)> = Vec::with_capacity(points.len());
     for &p in points {
-        if pts
-            .last()
-            .map_or(true, |&q| (p.0 - q.0).abs() > 1e-4 || (p.1 - q.1).abs() > 1e-4)
-        {
+        if pts.last().map_or(true, |&q| (p.0 - q.0).abs() > 1e-4 || (p.1 - q.1).abs() > 1e-4) {
             pts.push(p);
         }
     }
@@ -959,7 +1086,12 @@ fn normalize(dx: f32, dy: f32) -> Option<(f32, f32)> {
 }
 
 /// Intersection of lines (p1 + t·d1) and (p2 + s·d2); `None` if ~parallel.
-fn line_intersect(p1: (f32, f32), d1: (f32, f32), p2: (f32, f32), d2: (f32, f32)) -> Option<(f32, f32)> {
+fn line_intersect(
+    p1: (f32, f32),
+    d1: (f32, f32),
+    p2: (f32, f32),
+    d2: (f32, f32),
+) -> Option<(f32, f32)> {
     let denom = d1.0 * d2.1 - d1.1 * d2.0;
     if denom.abs() < 1e-6 {
         return None;
@@ -989,7 +1121,10 @@ fn join_edges(
     half: f32,
     style: StrokeStyle,
 ) -> Vec<Edge> {
-    let (din, dout) = match (normalize(cur.0 - prev.0, cur.1 - prev.1), normalize(next.0 - cur.0, next.1 - cur.1)) {
+    let (din, dout) = match (
+        normalize(cur.0 - prev.0, cur.1 - prev.1),
+        normalize(next.0 - cur.0, next.1 - cur.1),
+    ) {
         (Some(a), Some(b)) => (a, b),
         _ => return Vec::new(),
     };
@@ -1042,12 +1177,7 @@ fn join_edges(
 /// Cap geometry at an open end `end`, where `from` is the previous point (so the
 /// outward direction is `end - from`). Round = a disc; square = a half-width
 /// extension; butt = nothing.
-fn cap_edges(
-    from: (f32, f32),
-    end: (f32, f32),
-    half: f32,
-    cap: LineCap,
-) -> Vec<Edge> {
+fn cap_edges(from: (f32, f32), end: (f32, f32), half: f32, cap: LineCap) -> Vec<Edge> {
     match cap {
         LineCap::Butt => Vec::new(),
         LineCap::Round => disc_edges(end.0, end.1, half),

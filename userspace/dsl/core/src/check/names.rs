@@ -5,9 +5,7 @@
 //! route/page wiring, widget-vs-component resolution, modifier catalog).
 
 use super::Model;
-use crate::ast::{
-    Decl, Expr, File, HandlerAction, ModifierCall, Pattern, Stmt, ViewNode,
-};
+use crate::ast::{Decl, Expr, File, HandlerAction, ModifierCall, Pattern, Stmt, ViewNode};
 use crate::diag::{DiagCode, Diagnostic, Span};
 use crate::registry;
 use alloc::{collections::BTreeMap, format, string::String, vec::Vec};
@@ -93,8 +91,7 @@ pub(super) fn build_model<'a>(file: &'a File, diags: &mut Vec<Diagnostic>) -> Mo
                 }
             }
             Decl::Query(query) => {
-                if model.query_by_name.insert(&query.name.text, model.queries.len()).is_some()
-                {
+                if model.query_by_name.insert(&query.name.text, model.queries.len()).is_some() {
                     dup(diags, query.name.span, "query", &query.name.text);
                 }
                 model.queries.push(query);
@@ -250,7 +247,9 @@ fn check_query_decl(query: &crate::ast::QueryDecl, diags: &mut Vec<Diagnostic>) 
             _ => diags.push(Diagnostic::new(
                 DiagCode::QueryShape,
                 pred.span,
-                String::from("v1 comparisons are `==`, `>=`, `<=` (strict bounds land with the v2 builder)"),
+                String::from(
+                    "v1 comparisons are `==`, `>=`, `<=` (strict bounds land with the v2 builder)",
+                ),
             )),
         }
         let is_param_ref = matches!(
@@ -267,7 +266,9 @@ fn check_query_decl(query: &crate::ast::QueryDecl, diags: &mut Vec<Diagnostic>) 
             diags.push(Diagnostic::new(
                 DiagCode::QueryShape,
                 pred.value.span(),
-                String::from("predicate values are literals or query params (queries are pure values)"),
+                String::from(
+                    "predicate values are literals or query params (queries are pure values)",
+                ),
             ));
         }
     }
@@ -461,7 +462,10 @@ fn check_svc_call(
         crate::registry::SvcLookup::UnknownService => diags.push(Diagnostic::new(
             DiagCode::UnknownService,
             service.span,
-            format!("`svc.{}` is not a platform service (see docs/dev/dsl/services.md)", service.text),
+            format!(
+                "`svc.{}` is not a platform service (see docs/dev/dsl/services.md)",
+                service.text
+            ),
         )),
         crate::registry::SvcLookup::UnknownMethod => diags.push(Diagnostic::new(
             DiagCode::UnknownServiceMethod,
@@ -507,10 +511,7 @@ pub(super) fn check_view(node: &ViewNode, model: &Model<'_>, diags: &mut Vec<Dia
                             diags.push(Diagnostic::new(
                                 DiagCode::UnknownField,
                                 prop.span,
-                                format!(
-                                    "`{}` has no prop `{}`",
-                                    widget.name.text, prop.text
-                                ),
+                                format!("`{}` has no prop `{}`", widget.name.text, prop.text),
                             ));
                         }
                     }
@@ -535,9 +536,7 @@ pub(super) fn check_view(node: &ViewNode, model: &Model<'_>, diags: &mut Vec<Dia
                             let have: Vec<&str> =
                                 value.split('/').filter(|s| !s.is_empty()).collect();
                             pat.len() == have.len()
-                                && pat.iter().zip(&have).all(|(p, h)| {
-                                    p.starts_with(':') || p == h
-                                })
+                                && pat.iter().zip(&have).all(|(p, h)| p.starts_with(':') || p == h)
                         });
                         if !matches_route {
                             diags.push(Diagnostic::new(
@@ -552,8 +551,7 @@ pub(super) fn check_view(node: &ViewNode, model: &Model<'_>, diags: &mut Vec<Dia
                     let pattern =
                         Pattern { case: case.clone(), binds: Vec::new(), span: case.span };
                     if let Some((event_idx, case_idx)) = resolve_case(&pattern, model, diags) {
-                        let payload_len =
-                            model.events[event_idx].cases[case_idx].payload.len();
+                        let payload_len = model.events[event_idx].cases[case_idx].payload.len();
                         if args.len() != payload_len {
                             diags.push(Diagnostic::new(
                                 DiagCode::WrongArity,

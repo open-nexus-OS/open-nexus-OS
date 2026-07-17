@@ -245,29 +245,79 @@ pub enum BinOp {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
-    Bool { value: bool, span: Span },
-    Int { value: i64, span: Span },
+    Bool {
+        value: bool,
+        span: Span,
+    },
+    Int {
+        value: i64,
+        span: Span,
+    },
     /// Raw Q32.32.
-    Fx { value: i64, span: Span },
-    Str { value: String, span: Span },
+    Fx {
+        value: i64,
+        span: Span,
+    },
+    Str {
+        value: String,
+        span: Span,
+    },
     /// `[a, b, c]`
-    List { items: Vec<Expr>, span: Span },
+    List {
+        items: Vec<Expr>,
+        span: Span,
+    },
     /// `Type::Case` or `Type::Case(args)`
-    EnumLit { ty: Ident, case: Ident, args: Vec<Expr>, span: Span },
+    EnumLit {
+        ty: Ident,
+        case: Ident,
+        args: Vec<Expr>,
+        span: Span,
+    },
     /// `$state.a.b`
-    StateRef { path: Vec<Ident>, span: Span },
+    StateRef {
+        path: Vec<Ident>,
+        span: Span,
+    },
     /// `$props.a`
-    PropsRef { path: Vec<Ident>, span: Span },
+    PropsRef {
+        path: Vec<Ident>,
+        span: Span,
+    },
     /// `device.profile`
-    DeviceRef { path: Vec<Ident>, span: Span },
+    DeviceRef {
+        path: Vec<Ident>,
+        span: Span,
+    },
     /// `user.name` — a local/bind followed by field accesses.
-    Path { segments: Vec<Ident>, span: Span },
+    Path {
+        segments: Vec<Ident>,
+        span: Span,
+    },
     /// `svc.users.list(args)` / builder chains `q.limit(5)` — a path call.
-    Call { path: Vec<Ident>, args: Vec<CallArg>, span: Span },
+    Call {
+        path: Vec<Ident>,
+        args: Vec<CallArg>,
+        span: Span,
+    },
     /// `@t("key", args)`
-    I18n { key: String, key_span: Span, args: Vec<Expr>, span: Span },
-    Unary { op: UnOp, operand: Box<Expr>, span: Span },
-    Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr>, span: Span },
+    I18n {
+        key: String,
+        key_span: Span,
+        args: Vec<Expr>,
+        span: Span,
+    },
+    Unary {
+        op: UnOp,
+        operand: Box<Expr>,
+        span: Span,
+    },
+    Binary {
+        op: BinOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -403,10 +453,18 @@ pub struct HandlerDecl {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandlerAction {
-    Dispatch { case: Ident, args: Vec<Expr> },
-    Emit { prop: Expr, args: Vec<Expr> },
+    Dispatch {
+        case: Ident,
+        args: Vec<Expr>,
+    },
+    Emit {
+        prop: Expr,
+        args: Vec<Expr>,
+    },
     /// `navigate("/detail/7")` — a Str-typed route-path expression.
-    Navigate { path: Expr },
+    Navigate {
+        path: Expr,
+    },
 }
 
 // ---------------------------------------------------------------- routing

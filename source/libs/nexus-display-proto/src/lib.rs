@@ -111,10 +111,7 @@ pub fn decode_display_mode_reply(frame: &[u8]) -> Option<(u16, u16)> {
     if frame.len() < DISPLAY_MODE_REPLY_LEN || frame[0] != STATUS_OK {
         return None;
     }
-    Some((
-        u16::from_le_bytes([frame[1], frame[2]]),
-        u16::from_le_bytes([frame[3], frame[4]]),
-    ))
+    Some((u16::from_le_bytes([frame[1], frame[2]]), u16::from_le_bytes([frame[3], frame[4]])))
 }
 
 /// Encode the layer-transform override (see [`OP_SET_LAYER_TRANSFORM`]).

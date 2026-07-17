@@ -102,13 +102,8 @@ fn init_scaffold_builds_green() {
     let status = nx_dsl().arg("init").arg(&app).status().expect("spawn");
     assert!(status.success());
 
-    let build = nx_dsl()
-        .arg("build")
-        .args(["-o"])
-        .arg(dir.join("out"))
-        .arg(&app)
-        .output()
-        .expect("spawn");
+    let build =
+        nx_dsl().arg("build").args(["-o"]).arg(dir.join("out")).arg(&app).output().expect("spawn");
     assert!(
         build.status.success(),
         "scaffold must build: {}",
@@ -117,21 +112,11 @@ fn init_scaffold_builds_green() {
 
     // add page/component/store scaffolds stay buildable too.
     for args in [["page", "Extra"], ["component", "Chip"], ["store", "Extra"]] {
-        let status = nx_dsl()
-            .arg("add")
-            .args(args)
-            .arg(&app)
-            .status()
-            .expect("spawn");
+        let status = nx_dsl().arg("add").args(args).arg(&app).status().expect("spawn");
         assert!(status.success(), "add {args:?}");
     }
-    let build = nx_dsl()
-        .arg("build")
-        .args(["-o"])
-        .arg(dir.join("out2"))
-        .arg(&app)
-        .output()
-        .expect("spawn");
+    let build =
+        nx_dsl().arg("build").args(["-o"]).arg(dir.join("out2")).arg(&app).output().expect("spawn");
     assert!(
         build.status.success(),
         "extended scaffold must build: {}",
@@ -168,8 +153,7 @@ fn i18n_extract_and_compile_round_trip() {
     assert!(status.success());
     let bytes = std::fs::read(&compiled).expect("compiled catalog");
     let keys = ["library.title", "common.loading"];
-    let catalog =
-        nexus_dsl_runtime::Catalog::from_binary(&keys, &bytes).expect("binary loads");
+    let catalog = nexus_dsl_runtime::Catalog::from_binary(&keys, &bytes).expect("binary loads");
     let names: Vec<String> = keys.iter().map(|k| String::from(*k)).collect();
     let catalogs = [&catalog];
     let chain = nexus_dsl_runtime::LocaleChain::new(&catalogs, &names);

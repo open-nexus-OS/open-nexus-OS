@@ -149,7 +149,12 @@ mod tests {
     use nexus_layout_types::{CornerRadius, Rgba8, Spacer};
 
     fn spacer() -> LayoutNode {
-        LayoutNode::Spacer(Spacer { id: None, flex_grow: 1, min_size: None, item: FlexItem::default() })
+        LayoutNode::Spacer(Spacer {
+            id: None,
+            flex_grow: 1,
+            min_size: None,
+            item: FlexItem::default(),
+        })
     }
 
     #[test]

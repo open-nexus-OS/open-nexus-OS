@@ -396,11 +396,12 @@ mod tests {
         assert_eq!(DarkTokens.color(ColorToken::Background), Rgba8::new(10, 10, 10, 255)); // #0a0a0a
         assert_eq!(DarkTokens.color(ColorToken::Accent), Rgba8::new(96, 165, 250, 255)); // #60a5fa
         assert_eq!(LightTokens.color(ColorToken::Surface), Rgba8::new(255, 255, 255, 255)); // #ffffff
-        // High contrast: pure black background, white foreground.
+                                                                                            // High contrast: pure black background, white foreground.
         assert_eq!(HighContrastTokens.color(ColorToken::Background), Rgba8::new(0, 0, 0, 255));
         assert_eq!(HighContrastTokens.color(ColorToken::OnSurface), Rgba8::new(255, 255, 255, 255));
         // Base falls back for a role a theme doesn't override (Shadow only in base).
-        assert_eq!(DarkTokens.color(ColorToken::Shadow), Rgba8::new(0, 0, 0, 96)); // #00000060
+        assert_eq!(DarkTokens.color(ColorToken::Shadow), Rgba8::new(0, 0, 0, 96));
+        // #00000060
     }
 
     #[test]

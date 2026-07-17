@@ -359,12 +359,8 @@ impl<'a> RenderCommandEncoder<'a> {
         layer: &Layer,
         bounds: (u32, u32),
     ) -> Result<(), GfxError> {
-        let rect = TileRect {
-            x: layer.dst_x,
-            y: layer.dst_y,
-            width: layer.width,
-            height: layer.height,
-        };
+        let rect =
+            TileRect { x: layer.dst_x, y: layer.dst_y, width: layer.width, height: layer.height };
         if let Some(bd) = layer.backdrop {
             // Restore halo: grow the restore blit by `pad` on every side (clamped
             // to the display) so a soft shadow blends over a clean backdrop. The

@@ -74,7 +74,10 @@ fn blend_over_px_matches_fixed_point_reference() {
 #[test]
 fn blend_premultiplied_px_is_additive_over_inverse_alpha() {
     // Premultiplied opaque white over anything → white, opaque.
-    assert_eq!(blend_premultiplied_px([10, 20, 30, 255], [255, 255, 255, 255]), [255, 255, 255, 255]);
+    assert_eq!(
+        blend_premultiplied_px([10, 20, 30, 255], [255, 255, 255, 255]),
+        [255, 255, 255, 255]
+    );
     // Premultiplied half-cover (src already scaled) over white keeps the
     // destination contribution at (1 - a).
     let out = blend_premultiplied_px([200, 200, 200, 255], [0, 0, 0, 128]);

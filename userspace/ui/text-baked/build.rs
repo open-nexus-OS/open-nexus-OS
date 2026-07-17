@@ -76,10 +76,8 @@ fn emit_glyph_atlas(
         let adv = m.advance_width.round().max(1.0) as u32;
         advance_sum += adv;
         advance_max = advance_max.max(adv);
-        glyphs.push_str(&format!(
-            "({off}, {}, {}, {}, {}, {adv}), ",
-            m.width, m.height, m.xmin, top
-        ));
+        glyphs
+            .push_str(&format!("({off}, {}, {}, {}, {}, {adv}), ", m.width, m.height, m.xmin, top));
     }
     let n = charset.len() as u32;
     let cov_path = out_dir.join(format!("{}.a8", name.to_lowercase()));
@@ -99,13 +97,8 @@ fn emit_glyph_atlas(
     )?;
     // The sparse EXTRAS tail (codepoints past ASCII, in glyph-index order
     // 95.. — the runtime maps ASCII by offset and looks these up).
-    let extras_list: String =
-        EXTRAS.iter().map(|c| format!("{c}, ")).collect();
-    writeln!(
-        generated,
-        "pub const {name}_EXTRAS: &[u32; {}] = &[{extras_list}];",
-        EXTRAS.len()
-    )?;
+    let extras_list: String = EXTRAS.iter().map(|c| format!("{c}, ")).collect();
+    writeln!(generated, "pub const {name}_EXTRAS: &[u32; {}] = &[{extras_list}];", EXTRAS.len())?;
     // Sparse kerning: only pairs whose kern rounds to a non-zero pixel count
     // at this size (most round to 0 at 13–16 px). Indices are glyph indices.
     let mut kern = String::new();

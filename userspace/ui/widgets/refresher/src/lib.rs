@@ -92,10 +92,8 @@ impl Refresher {
             // Spinner zone: height follows the pull; the spinner itself keeps
             // its size and clips into view (the classic reveal).
             let spinner = Spinner::new().size(22).phase(self.phase).build(tokens);
-            let zone = clamp_height(
-                Panel::column().align(Align::Center).child(spinner).build(),
-                reveal_h,
-            );
+            let zone =
+                clamp_height(Panel::column().align(Align::Center).child(spinner).build(), reveal_h);
             root = root.child(zone);
         }
         if let Some(content) = self.content {
@@ -132,9 +130,7 @@ mod tests {
 
     #[test]
     fn resting_shows_content_only() {
-        let n = Refresher::new()
-            .content(Panel::column().build())
-            .build(&BaseTokens);
+        let n = Refresher::new().content(Panel::column().build()).build(&BaseTokens);
         assert_eq!(child_count(&n), 1);
     }
 
@@ -149,10 +145,8 @@ mod tests {
 
     #[test]
     fn refreshing_prepends_the_spinner_zone() {
-        let n = Refresher::new()
-            .refreshing(true)
-            .content(Panel::column().build())
-            .build(&BaseTokens);
+        let n =
+            Refresher::new().refreshing(true).content(Panel::column().build()).build(&BaseTokens);
         assert_eq!(child_count(&n), 2, "reveal zone + content");
     }
 }

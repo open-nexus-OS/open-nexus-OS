@@ -117,7 +117,8 @@ impl Window {
     /// Build the window's layout-node subtree.
     pub fn build(self) -> LayoutNode {
         // Title bar: [title?] [flexible spacer] [close?]
-        let mut titlebar = Panel::row().align(Align::Center).padding(self.titlebar_padding).gap(FxPx::new(8));
+        let mut titlebar =
+            Panel::row().align(Align::Center).padding(self.titlebar_padding).gap(FxPx::new(8));
         if let Some(id) = self.titlebar_id {
             titlebar = titlebar.id(id);
         }
@@ -185,7 +186,9 @@ mod tests {
         assert_eq!(children.len(), 3, "titlebar + 2 body nodes");
 
         // First child = the title bar row, ending in the close button.
-        let LayoutNode::Stack(tb, _, tb_children) = &children[0] else { panic!("titlebar is a Stack") };
+        let LayoutNode::Stack(tb, _, tb_children) = &children[0] else {
+            panic!("titlebar is a Stack")
+        };
         assert_eq!(tb.id, Some("chat_titlebar"));
         assert_eq!(tb.direction, Direction::Row);
         let last = tb_children.last().expect("close button present");

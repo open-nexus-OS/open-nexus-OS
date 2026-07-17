@@ -50,9 +50,7 @@ fn hex_decode(text: &str) -> Option<Vec<u8>> {
     if text.len() % 2 != 0 {
         return None;
     }
-    (0..text.len() / 2)
-        .map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).ok())
-        .collect()
+    (0..text.len() / 2).map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).ok()).collect()
 }
 
 impl EffectHost for TranscriptHost {
@@ -206,7 +204,9 @@ fn diag_clip_stamping() {
     for b in boxes.iter().take(12) {
         eprintln!(
             "id={} y={} h={} clip={:?}",
-            b.node_id, b.rect.y.0, b.rect.height.0,
+            b.node_id,
+            b.rect.y.0,
+            b.rect.height.0,
             b.clip_rect.map(|c| (c.x.0, c.y.0, c.width.0, c.height.0))
         );
     }
@@ -222,8 +222,7 @@ fn diag_clip_stamping() {
     let toolbar = boxes.iter().find(|b| b.node_id == 2).expect("toolbar box");
     assert!(toolbar.clip_rect.is_none() && toolbar.rect.height.0 > 30, "toolbar squeezed");
     // Rows keep content height; the content extent exceeds the viewport.
-    let content_bottom =
-        clipped.iter().map(|b| b.rect.y.0 + b.rect.height.0).max().unwrap_or(0);
+    let content_bottom = clipped.iter().map(|b| b.rect.y.0 + b.rect.height.0).max().unwrap_or(0);
     assert!(clipped.iter().all(|b| b.rect.height.0 >= 0), "negative row heights");
     assert!(content_bottom > cy + ch, "content does not overflow the viewport");
 }
@@ -243,15 +242,11 @@ fn end_reached_handler_is_hittable() {
     let mut host = TranscriptHost::seeded(&symbols, 240);
     view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("effects");
     let boxes = common::layout_boxes(&view);
-    let clip = boxes
-        .iter()
-        .find_map(|b| b.clip_rect)
-        .expect("scroll viewport");
+    let clip = boxes.iter().find_map(|b| b.clip_rect).expect("scroll viewport");
     let (cx, cy) = (clip.x.0 + clip.width.0 / 2, clip.y.0 + clip.height.0 / 2);
     let _ = (cx, cy);
-    let damage = view
-        .fire_trigger(&tokens, &device, &locale, &mut host, "EndReached")
-        .expect("fire");
+    let damage =
+        view.fire_trigger(&tokens, &device, &locale, &mut host, "EndReached").expect("fire");
     assert!(damage.is_some(), "EndReached handler not dispatched by name");
     let texts = common::scene_texts(&view);
     assert!(texts.iter().any(|t| t == "msg 61"), "EndReached did not load page 2");

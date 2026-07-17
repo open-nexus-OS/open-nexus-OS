@@ -39,10 +39,7 @@ impl Catalog {
         let templates = program_keys
             .iter()
             .map(|key| {
-                entries
-                    .iter()
-                    .find(|(k, _)| k == key)
-                    .map(|(_, template)| String::from(*template))
+                entries.iter().find(|(k, _)| k == key).map(|(_, template)| String::from(*template))
             })
             .collect();
         Self { templates }
@@ -75,11 +72,9 @@ impl Catalog {
         }
         let mut entries: Vec<(String, String)> = Vec::with_capacity(count);
         for _ in 0..count {
-            let key_len =
-                u32::from_le_bytes(take(&mut cursor, 4)?.try_into().ok()?) as usize;
+            let key_len = u32::from_le_bytes(take(&mut cursor, 4)?.try_into().ok()?) as usize;
             let key = core::str::from_utf8(take(&mut cursor, key_len)?).ok()?;
-            let val_len =
-                u32::from_le_bytes(take(&mut cursor, 4)?.try_into().ok()?) as usize;
+            let val_len = u32::from_le_bytes(take(&mut cursor, 4)?.try_into().ok()?) as usize;
             let value = core::str::from_utf8(take(&mut cursor, val_len)?).ok()?;
             entries.push((String::from(key), String::from(value)));
         }
@@ -167,9 +162,7 @@ pub fn key_names(
     symbols: &[String],
 ) -> Vec<String> {
     let Ok(keys) = root.get_i18n_keys() else { return Vec::new() };
-    keys.iter()
-        .map(|k| symbols.get(k.get_key() as usize).cloned().unwrap_or_default())
-        .collect()
+    keys.iter().map(|k| symbols.get(k.get_key() as usize).cloned().unwrap_or_default()).collect()
 }
 
 #[cfg(test)]
@@ -180,10 +173,8 @@ mod tests {
     fn templates_fill_placeholders_and_chain_falls_through() {
         let keys = ["todo.title", "todo.count"];
         let de = Catalog::from_entries(&keys, &[("todo.count", "{0} Einträge")]);
-        let en = Catalog::from_entries(
-            &keys,
-            &[("todo.title", "Todos"), ("todo.count", "{0} items")],
-        );
+        let en =
+            Catalog::from_entries(&keys, &[("todo.title", "Todos"), ("todo.count", "{0} items")]);
         let names: Vec<String> = keys.iter().map(|k| String::from(*k)).collect();
         let chain_catalogs = [&de, &en];
         let chain = LocaleChain::new(&chain_catalogs, &names);

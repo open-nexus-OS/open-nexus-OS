@@ -65,9 +65,7 @@ impl AlignedBytes {
     #[allow(unsafe_code)]
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
         // SAFETY: same bounds/init argument as `as_bytes`; exclusive borrow.
-        unsafe {
-            core::slice::from_raw_parts_mut(self.words.as_mut_ptr().cast::<u8>(), self.len)
-        }
+        unsafe { core::slice::from_raw_parts_mut(self.words.as_mut_ptr().cast::<u8>(), self.len) }
     }
 }
 

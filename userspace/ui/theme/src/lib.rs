@@ -149,8 +149,11 @@ impl ThemeRuntime {
     /// line-height ×100. See [`SCALE_SECTIONS`].
     pub fn resolve_scale(&self, section: &str, name: &str) -> Option<u32> {
         for qualifier in self.active.resolution_chain() {
-            if let Some(px) =
-                self.themes.get(&qualifier).and_then(|t| t.scales.get(section)).and_then(|m| m.get(name))
+            if let Some(px) = self
+                .themes
+                .get(&qualifier)
+                .and_then(|t| t.scales.get(section))
+                .and_then(|m| m.get(name))
             {
                 return Some(px);
             }
@@ -176,10 +179,7 @@ impl ThemeRuntime {
 
     /// `[icons.symbols]` — OUR symbol names → file stems (sorted, base theme).
     pub fn icon_symbols(&self) -> &[(String, String)] {
-        self.themes
-            .get(&Qualifier::Base)
-            .map(|t| t.icon_symbols.as_slice())
-            .unwrap_or(&[])
+        self.themes.get(&Qualifier::Base).map(|t| t.icon_symbols.as_slice()).unwrap_or(&[])
     }
 
     /// Get the active qualifier.

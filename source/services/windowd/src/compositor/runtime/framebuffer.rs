@@ -254,7 +254,11 @@ impl DisplayServerRuntime {
             match client.send_with_cap_move_wait(&frame, clone, Wait::Blocking) {
                 Ok(()) => true,
                 Err(e) => {
-                    log_gpud_cap_error("windowd: handoff cap-move send failed", e, client.slots().0);
+                    log_gpud_cap_error(
+                        "windowd: handoff cap-move send failed",
+                        e,
+                        client.slots().0,
+                    );
                     self.gpud_client = None;
                     false
                 }

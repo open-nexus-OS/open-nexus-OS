@@ -109,7 +109,6 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     Ok(())
 }
 
-
 // ——— B6 (TASK-0042): sched ABI applied from userspace ———
 
 fn sched_applied_proof() {
@@ -151,7 +150,9 @@ fn ui_runtime_floor_proof() {
     if max_gap <= MAX_GAP_NS {
         emit_line(crate::markers::M_SELFTEST_UI_RUNTIME_FLOOR_OK);
     } else {
-        crate::markers::emit_bytes(crate::markers::M_SELFTEST_UI_RUNTIME_FLOOR_FAIL_GAP_MS_0X_PREFIX);
+        crate::markers::emit_bytes(
+            crate::markers::M_SELFTEST_UI_RUNTIME_FLOOR_FAIL_GAP_MS_0X_PREFIX,
+        );
         crate::markers::emit_hex_u64(max_gap / 1_000_000);
         emit_line(")");
     }
@@ -267,8 +268,7 @@ fn memset_soak_proof() {
             let n = len.min(src.len());
             buf[off..off + n].copy_from_slice(&src[..n]);
             for (i, b) in buf.iter().enumerate() {
-                let want =
-                    if i >= off && i < off + n { src[i - off] } else { (i as u8) ^ 0xC5 };
+                let want = if i >= off && i < off + n { src[i - off] } else { (i as u8) ^ 0xC5 };
                 if *b != want {
                     fail |= 1 << (16 + (off % 16));
                 }
@@ -477,7 +477,6 @@ fn thread_spawn_proof() {
     }
 }
 
-
 // ——— Phase C3: workpool proofs ———
 
 const WP_TOTAL: usize = 1024;
@@ -498,17 +497,22 @@ fn workpool_proof() {
     use core::sync::atomic::Ordering;
 
     // Bounded contract first: run before init and invalid init are REJECTED.
-    let pre_run =
-        nexus_workpool::run(1, wp_job, core::ptr::null_mut(), 1_000_000_000).is_err();
+    let pre_run = nexus_workpool::run(1, wp_job, core::ptr::null_mut(), 1_000_000_000).is_err();
     let zero_init = nexus_workpool::init(0).is_err();
     if let Err(err) = nexus_workpool::init(2) {
         emit_line(match err {
-            nexus_workpool::PoolError::AbiFence => crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_FENCE,
-            nexus_workpool::PoolError::AbiSpawn => crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_SPAWN,
+            nexus_workpool::PoolError::AbiFence => {
+                crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_FENCE
+            }
+            nexus_workpool::PoolError::AbiSpawn => {
+                crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_SPAWN
+            }
             nexus_workpool::PoolError::AbiTransfer => {
                 crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_TRANSFER
             }
-            nexus_workpool::PoolError::AbiResume => crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_RESUME,
+            nexus_workpool::PoolError::AbiResume => {
+                crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_RESUME
+            }
             _ => crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_INIT,
         });
         return;
@@ -523,7 +527,9 @@ fn workpool_proof() {
     // Fence sanity probe: the done fence must NOT satisfy an unsignalled
     // target (catches slot/id mix-ups before the real run).
     if !nexus_workpool::pool::selftest_probe_done_fence() {
-        emit_line(crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_DONE_FENCE_SATISFIED_UNSIGNALLED);
+        emit_line(
+            crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_DONE_FENCE_SATISFIED_UNSIGNALLED,
+        );
         return;
     }
 
@@ -578,7 +584,9 @@ fn workpool_proof() {
                 (_, 0, _, false) => {
                     crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_RUN_WOKE_0_SELFSIG_FAIL
                 }
-                (_, _, 0, _) => crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_RUN_WOKE_GT0_DONE_0,
+                (_, _, 0, _) => {
+                    crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_RUN_WOKE_GT0_DONE_0
+                }
                 _ => crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_RUN_WOKE_GT0_DONE_GT0,
             });
         }

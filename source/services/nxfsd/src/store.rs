@@ -207,9 +207,7 @@ impl DataStore {
     /// Reads a whole file's bytes (bounded by `max`) for the VMO-splice data
     /// plane (TASK-0295). Mount-relative path; errors map to `VfsError`.
     pub fn read_bytes(&self, path: &str, max: usize) -> core::result::Result<Vec<u8>, VfsError> {
-        self.fs
-            .read(&to_nxfs_path(path), 0, max)
-            .map_err(|err| err.to_vfs())
+        self.fs.read(&to_nxfs_path(path), 0, max).map_err(|err| err.to_vfs())
     }
 
     fn handle_read(&self, payload: &[u8]) -> Vec<u8> {

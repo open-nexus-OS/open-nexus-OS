@@ -50,10 +50,8 @@ fn check_symbols(root: ui_program::Reader<'_>) -> Result<(), IrError> {
     let symbols = root.get_symbols().map_err(|_| IrError::Malformed)?;
     let mut prev: Option<&str> = None;
     for symbol in symbols.iter() {
-        let text = symbol
-            .map_err(|_| IrError::Malformed)?
-            .to_str()
-            .map_err(|_| IrError::Malformed)?;
+        let text =
+            symbol.map_err(|_| IrError::Malformed)?.to_str().map_err(|_| IrError::Malformed)?;
         if let Some(p) = prev {
             if p >= text {
                 return Err(IrError::SymbolsNotCanonical);

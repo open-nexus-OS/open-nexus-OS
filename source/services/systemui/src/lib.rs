@@ -41,8 +41,8 @@ mod registry;
 mod shell;
 
 pub use frame::{
-    compose_first_frame, frame_checksum, wallpaper_decoded_size,
-    decode_qoi_row, wallpaper_rle_for, wallpaper_source_is_jpeg, FirstFrame,
+    compose_first_frame, decode_qoi_row, frame_checksum, wallpaper_decoded_size, wallpaper_rle_for,
+    wallpaper_source_is_jpeg, FirstFrame,
 };
 pub use greeter::{greeter_config, parse_greeter_manifest, validate_greeter, GreeterConfig};
 pub use ime_overlay::ImeOverlayState;
@@ -53,9 +53,9 @@ pub use profile::{
 };
 pub use registry::{
     available_shells, next_product_id, product_by_id, profile_by_id, resolve_default,
-    resolve_product, shell_by_id, shell_config_default, shell_config_for, shell_config_next, summary,
-    switch_shell,
-    DeviceEnvironment, ResolvedConfig, ShellConfig, DEFAULT_PRODUCT_ID, PRODUCTS, PROFILES, SHELLS,
+    resolve_product, shell_by_id, shell_config_default, shell_config_for, shell_config_next,
+    summary, switch_shell, DeviceEnvironment, ResolvedConfig, ShellConfig, DEFAULT_PRODUCT_ID,
+    PRODUCTS, PROFILES, SHELLS,
 };
 pub use shell::{
     desktop_shell, parse_shell_manifest, resolve_desktop_shell, validate_profile_shell,
@@ -119,7 +119,12 @@ pub fn service_boot() -> core::result::Result<(), SystemUiError> {
     let sc = registry::shell_config_default();
     let _ = nexus_abi::debug_println(&alloc::format!(
         "systemui: shell resolved product={} profile={} shell={} kind={} chrome={} locked={}",
-        sc.product_id, sc.profile_id, sc.shell_id, sc.shell_kind, sc.desktop_chrome, sc.locked,
+        sc.product_id,
+        sc.profile_id,
+        sc.shell_id,
+        sc.shell_kind,
+        sc.desktop_chrome,
+        sc.locked,
     ));
     Ok(())
 }
@@ -135,9 +140,9 @@ pub fn run() {
 mod tests {
     use super::{
         available_shells, checksum, compose_first_frame, desktop_profile, desktop_shell, execute,
-        parse_profile_manifest, parse_shell_manifest, resolve_default, resolve_product, switch_shell,
-        validate_profile_shell, wallpaper_decoded_size, wallpaper_source_is_jpeg, ImeOverlayState,
-        SystemUiError,
+        parse_profile_manifest, parse_shell_manifest, resolve_default, resolve_product,
+        switch_shell, validate_profile_shell, wallpaper_decoded_size, wallpaper_source_is_jpeg,
+        ImeOverlayState, SystemUiError,
     };
 
     fn pixel(frame: &super::FirstFrame, x: u32, y: u32) -> [u8; 4] {
@@ -303,10 +308,7 @@ settings_entry = false
 "#;
         let shell = parse_shell_manifest(tablet_only_desktop_shell).expect("structurally valid");
         let profile = desktop_profile().expect("desktop profile");
-        assert_eq!(
-            validate_profile_shell(&profile, &shell),
-            Err(SystemUiError::IncompatibleShell)
-        );
+        assert_eq!(validate_profile_shell(&profile, &shell), Err(SystemUiError::IncompatibleShell));
     }
 
     #[test]

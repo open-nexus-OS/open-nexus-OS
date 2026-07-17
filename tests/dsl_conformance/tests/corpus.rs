@@ -186,12 +186,7 @@ reduce E {
 "#,
     );
     let mut h = Harness::mount(&nxir);
-    h.dispatch(
-        &mut NoIo,
-        "E",
-        "Msg",
-        vec![Value::Str("hello".into()), Value::Int(42)],
-    );
+    h.dispatch(&mut NoIo, "E", "Msg", vec![Value::Str("hello".into()), Value::Int(42)]);
     h.assert_field("S", "last", &Value::Str("hello".into()));
     h.assert_field("S", "n", &Value::Int(42));
 }
@@ -509,9 +504,13 @@ Page P {
     );
     let symbols = nexus_dsl_runtime::Runtime::mount(&nxir).unwrap().symbols().to_vec();
     let locale = IdentityLocale { symbols: &symbols, keys: &[] };
-    let mut view =
-        View::mount(&nxir, &nexus_dsl_runtime::theme_tokens::BaseTokens, &FixtureEnv::default(), &locale)
-            .expect("mounts");
+    let mut view = View::mount(
+        &nxir,
+        &nexus_dsl_runtime::theme_tokens::BaseTokens,
+        &FixtureEnv::default(),
+        &locale,
+    )
+    .expect("mounts");
     assert!(collect_texts(view.scene()).contains(&String::from("collapsed")));
 
     // The auto-bind handler targets the implicit local store — flip it.
@@ -529,7 +528,12 @@ Page P {
     assert!(!changes.is_empty());
     let damage = {
         let locale = IdentityLocale { symbols: &symbols, keys: &[] };
-        view.dispatch_noop_reemit(&nexus_dsl_runtime::theme_tokens::BaseTokens, &FixtureEnv::default(), &locale, &changes)
+        view.dispatch_noop_reemit(
+            &nexus_dsl_runtime::theme_tokens::BaseTokens,
+            &FixtureEnv::default(),
+            &locale,
+            &changes,
+        )
     };
     let _ = damage;
     assert!(collect_texts(view.scene()).contains(&String::from("details visible")));

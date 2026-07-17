@@ -112,8 +112,7 @@ impl ProgressBar {
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
         let radius = CornerRadius::uniform(FxPx::new(self.height.0 / 2));
         let track_base = tokens.color(ColorToken::OnSurface);
-        let track =
-            Rgba8::new(track_base.r, track_base.g, track_base.b, TRACK_ALPHA);
+        let track = Rgba8::new(track_base.r, track_base.g, track_base.b, TRACK_ALPHA);
         let fill = tokens.color(self.color);
         let (left, fill_w) = self.fill_geometry();
         let h = Some(self.height);

@@ -17,7 +17,10 @@ fn body_text_pairs_meet_aa() {
         let text = contrast_ratio(t.color(ColorToken::OnSurface), t.color(ColorToken::Surface));
         assert!(text >= CONTRAST_TEXT, "OnSurface/Surface contrast {text:.2} < {CONTRAST_TEXT}");
         let primary = contrast_ratio(t.color(ColorToken::OnPrimary), t.color(ColorToken::Primary));
-        assert!(primary >= CONTRAST_TEXT, "OnPrimary/Primary contrast {primary:.2} < {CONTRAST_TEXT}");
+        assert!(
+            primary >= CONTRAST_TEXT,
+            "OnPrimary/Primary contrast {primary:.2} < {CONTRAST_TEXT}"
+        );
     }
 }
 
@@ -26,8 +29,8 @@ fn filled_control_pairs_meet_ui_contrast() {
     // Filled control fg/bg must clear UI-component contrast (3.0) in both themes.
     for t in [&BaseTokens as &dyn Tokens, &DarkTokens as &dyn Tokens] {
         let pairs = [
-            (ColorToken::OnAccent, ColorToken::Accent),   // Default/Active button
-            (ColorToken::OnDanger, ColorToken::Danger),   // Destructive
+            (ColorToken::OnAccent, ColorToken::Accent), // Default/Active button
+            (ColorToken::OnDanger, ColorToken::Danger), // Destructive
             (ColorToken::OnSuccess, ColorToken::Success), // Success badge
             (ColorToken::OnWarning, ColorToken::Warning), // Warning badge
         ];

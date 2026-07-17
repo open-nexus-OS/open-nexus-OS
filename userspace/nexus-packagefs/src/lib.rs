@@ -264,8 +264,7 @@ impl PackageFsClient {
             capnp::message::ReaderOptions::new(),
         )
         .map_err(|_| VfsError::Io)?;
-        let response =
-            message.get_root::<list_response::Reader<'_>>().map_err(|_| VfsError::Io)?;
+        let response = message.get_root::<list_response::Reader<'_>>().map_err(|_| VfsError::Io)?;
         if let Some(err) = VfsError::from_code(response.get_err()) {
             return Err(err);
         }

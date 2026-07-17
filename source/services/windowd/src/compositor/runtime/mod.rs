@@ -9,7 +9,6 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: 13 unit tests (QEMU) + host smoke integration
 
-use crate::geometry::checked_stride;
 use super::damage::cursor_damage_rect;
 use super::emit_windowd_telemetry;
 use super::filter::filter_layout_variant_index;
@@ -30,18 +29,19 @@ use super::{
     PROOF_PANEL_H, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET, ROUTE_NAME, ROW_WRITE_CHUNK,
     SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SIDEBAR_REST_X, USE_DESKTOP_SHELL,
 };
-use crate::error::WindowdError;
-use crate::ids::CallerCtx;
 use crate::compositor::damage::{
     premerge_damage_rects, select_glass_quality, DamageRect, GlassQuality, LayoutHotPathIndex,
     TargetDamage,
 };
+use crate::error::WindowdError;
+use crate::geometry::checked_stride;
+use crate::ids::CallerCtx;
 use crate::markers::*;
 use crate::smoke::VisibleBootstrapMode;
 use crate::systemui_shell::{DeviceProfile, SystemUiShell};
 use crate::telemetry::WindowdDisplayTelemetryReport;
 use alloc::vec::Vec;
-use animation::{AnimProp, AnimationDriver, LayerId, ScrollConfig, ScrollMomentum, SceneUpdate};
+use animation::{AnimProp, AnimationDriver, LayerId, SceneUpdate, ScrollConfig, ScrollMomentum};
 use core::fmt::Write as _;
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
 use nexus_abi::{cap_clone, debug_println, debug_trace, nsec, vmo_write, Handle};
@@ -90,21 +90,21 @@ const ANIMATION_UPDATE_CAP: usize = 8;
 // file (TASK-0063 modularization). Child modules of `runtime` so they retain
 // access to the struct's private fields without weakening encapsulation.
 mod anim;
+mod app_surface;
+pub(crate) mod app_window;
 mod chrome_widget;
-mod transitions;
 mod cursor;
-mod gpud;
-mod marker_emit;
+mod desktop_surface;
 mod framebuffer;
+mod gpud;
 mod input;
 mod input_scroll;
-mod shell;
-pub(crate) mod app_window;
-mod app_surface;
-mod desktop_surface;
+mod marker_emit;
 mod present;
 mod scene;
 mod session;
+mod shell;
+mod transitions;
 mod wm;
 
 // The split-out `impl` submodules live one module deeper than the original
@@ -141,10 +141,7 @@ fn log_gpud_ipc_error(prefix: &str, err: nexus_ipc::IpcError) {
 /// (e.g. init displacing the gpud caps off slots 5/6) is diagnosable from one
 /// boot line instead of a log dig. Other errors defer to the generic logger.
 fn log_gpud_cap_error(prefix: &str, err: nexus_ipc::IpcError, send_slot: u32) {
-    if matches!(
-        err,
-        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::PermissionDenied)
-    ) {
+    if matches!(err, nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::PermissionDenied)) {
         let _ = debug_println(&alloc::format!(
             "{prefix} kernel-permission-denied (gpud send_slot={send_slot}: cap lacks SEND or slot \
              points at the wrong cap — windowd→gpud handoff contract is slots \
@@ -177,11 +174,7 @@ struct AnimatedSceneState {
 
 impl AnimatedSceneState {
     const fn new() -> Self {
-        Self {
-            hover_opacity: 0.0,
-            sidebar_translate_x: 320.0,
-            sidebar_opacity: 0.0,
-        }
+        Self { hover_opacity: 0.0, sidebar_translate_x: 320.0, sidebar_opacity: 0.0 }
     }
 }
 
@@ -744,32 +737,32 @@ impl DisplayServerRuntime {
         // Production-grade: the compositor must start even without wallpaper assets.
         let (source_width, source_height, source_pixels, source_rows) =
             if systemui::wallpaper_source_is_jpeg() {
-            let _ = debug_println(WALLPAPER_LOADED);
-            let (w, h) = systemui::wallpaper_decoded_size();
-            // Boot theme default is DARK — start on the theme-matched
-            // wallpaper; `set_theme_mode` swaps the source live. ROW-RLE:
-            // both variants full-res inside the image budget.
-            let (data, rows) = systemui::wallpaper_rle_for(true);
-            (w, h, data, Some(rows))
-        } else {
-            let _ = debug_println(WALLPAPER_FALLBACK);
-            // 160×100 solid dark-blue fallback — scaled to fill the display.
-            const FALLBACK_W: u32 = 160;
-            const FALLBACK_H: u32 = 100;
-            static FALLBACK_BGRA: [u8; (FALLBACK_W * FALLBACK_H * 4) as usize] = {
-                let mut buf = [0u8; (FALLBACK_W * FALLBACK_H * 4) as usize];
-                let mut i = 0;
-                while i < buf.len() {
-                    buf[i] = 10; // B
-                    buf[i + 1] = 22; // G
-                    buf[i + 2] = 40; // R
-                    buf[i + 3] = 255; // A
-                    i += 4;
-                }
-                buf
+                let _ = debug_println(WALLPAPER_LOADED);
+                let (w, h) = systemui::wallpaper_decoded_size();
+                // Boot theme default is DARK — start on the theme-matched
+                // wallpaper; `set_theme_mode` swaps the source live. ROW-RLE:
+                // both variants full-res inside the image budget.
+                let (data, rows) = systemui::wallpaper_rle_for(true);
+                (w, h, data, Some(rows))
+            } else {
+                let _ = debug_println(WALLPAPER_FALLBACK);
+                // 160×100 solid dark-blue fallback — scaled to fill the display.
+                const FALLBACK_W: u32 = 160;
+                const FALLBACK_H: u32 = 100;
+                static FALLBACK_BGRA: [u8; (FALLBACK_W * FALLBACK_H * 4) as usize] = {
+                    let mut buf = [0u8; (FALLBACK_W * FALLBACK_H * 4) as usize];
+                    let mut i = 0;
+                    while i < buf.len() {
+                        buf[i] = 10; // B
+                        buf[i + 1] = 22; // G
+                        buf[i + 2] = 40; // R
+                        buf[i + 3] = 255; // A
+                        i += 4;
+                    }
+                    buf
+                };
+                (FALLBACK_W, FALLBACK_H, &FALLBACK_BGRA[..], None)
             };
-            (FALLBACK_W, FALLBACK_H, &FALLBACK_BGRA[..], None)
-        };
         let source_frame = SourceFrame {
             width: source_width,
             height: source_height,

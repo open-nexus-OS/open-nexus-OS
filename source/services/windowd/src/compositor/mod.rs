@@ -83,12 +83,12 @@ use nexus_abi::vmo_create;
 use nexus_abi::{debug_println, debug_trace, nsec, vmo_write, yield_, Handle};
 use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 
-use crate::fixed_sdf;
-use crate::ids::CallerCtx;
 use crate::compositor::damage::{
     premerge_damage_rects, select_glass_quality, DamageRect, GlassQuality, LayoutHotPathIndex,
     TargetDamage,
 };
+use crate::fixed_sdf;
+use crate::ids::CallerCtx;
 use crate::markers::{
     COMPOSE_READY_MARKER, CURSOR_MOVE_VISIBLE_MARKER, DISPLAY_BOOTSTRAP_MARKER,
     DISPLAY_FIRST_SCANOUT_MARKER, DISPLAY_MODE_MARKER, FOCUS_VISIBLE_MARKER,
@@ -295,8 +295,7 @@ fn dispatch_client_frame(
             let response = encode_status(OP_UPDATE_VISIBLE_STATE, status);
             let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
         }
-    } else if frame.get(3).copied()
-        == Some(nexus_display_proto::client_surface::OP_SURFACE_EVENTS)
+    } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_EVENTS)
     {
         // ADR-0042 per-app event channel: the moved capability is the
         // channel's SEND half, attached by the APP-HOST ITSELF and tagged with
@@ -310,8 +309,7 @@ fn dispatch_client_frame(
             slot
         });
         runtime.attach_app_event_channel(send_slot, nonce);
-    } else if frame.get(3).copied()
-        == Some(nexus_display_proto::client_surface::OP_SURFACE_CREATE)
+    } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_CREATE)
     {
         // ADR-0042: the moved capability IS the app's surface VMO (gpud-attach
         // pattern), NOT a reply cap. Retain its slot; the ack returns over the
@@ -336,8 +334,7 @@ fn dispatch_client_frame(
             // back to the shared response endpoint (bring-up paths).
             let _ = server.send(&ack, Wait::Blocking);
         }
-    } else if frame.get(3).copied()
-        == Some(nexus_display_proto::client_surface::OP_SURFACE_PRESENT)
+    } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_PRESENT)
     {
         // Ack routing BY SURFACE OWNER: a desktop present acks on the desktop
         // channel, a floating present on the app channel.
@@ -355,8 +352,7 @@ fn dispatch_client_frame(
         } else {
             let _ = server.send(&ack, Wait::Blocking);
         }
-    } else if frame.get(3).copied()
-        == Some(nexus_display_proto::client_surface::OP_SURFACE_DESTROY)
+    } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_DESTROY)
     {
         // Same owner routing as present — decode BEFORE the destroy drops the
         // surface bookkeeping.
@@ -378,8 +374,7 @@ fn dispatch_client_frame(
         } else {
             let _ = server.send(&ack, Wait::Blocking);
         }
-    } else if frame.get(3).copied()
-        == Some(nexus_display_proto::client_surface::OP_SURFACE_LAYERS)
+    } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_LAYERS)
     {
         // R1 layer seam: the app declares its material-tagged glass regions.
         // Data-only frame (no moved cap, no reply); the next present composites.
@@ -390,14 +385,12 @@ fn dispatch_client_frame(
         // Frame pulse request (Choreographer one-shot): armed here, answered
         // after the next composited frame in the present loop.
         runtime.handle_surface_frame_req(frame);
-    } else if frame.get(3).copied()
-        == Some(nexus_display_proto::client_surface::OP_SURFACE_CONTROL)
+    } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_CONTROL)
     {
         // Presentation control (theme / shell profile) from a shell surface.
         // Data-only frame; windowd applies live + persists via settingsd.
         runtime.handle_surface_control(frame, sender_sid);
-    } else if frame.get(3).copied()
-        == Some(nexus_display_proto::client_surface::OP_SURFACE_INTENT)
+    } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_INTENT)
     {
         // Window intent (before create): the WM stores it + answers the content
         // rect on the app event channel. Data-only frame (no moved cap here).
@@ -550,15 +543,15 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let mut pacer_timer_log_emitted = false;
     // Phase 7: unified pacing timer drives frame submission at display refresh rate.
     const PACER_INTERVAL_NS: u64 = runtime::PACER_INTERVAL_NS; // 120 Hz (SSOT in runtime)
-                                              // Animation pacing. The supervisor-timer IRQ is now ENABLED in the kernel
-                                              // (`timer_irq` default + `enable_timer_interrupts` in kmain), so the 120Hz
-                                              // one-shot timer cap armed below delivers OP_TIMER_FIRED reactively while an
-                                              // animation runs. The monotonic-clock self-pacing (the WouldBlock arm below,
-                                              // reached via the NonBlocking recv) is retained as a robust fallback so a
-                                              // missed/idle-time tick can never freeze the spring; `tick` integrates real
-                                              // elapsed time, so the exact wake rate only affects how many frames we emit,
-                                              // not the animation's duration or final state. (A fully poll-free wait
-                                              // depends on idle-time timer-cap delivery and is a separate step.)
+                                                               // Animation pacing. The supervisor-timer IRQ is now ENABLED in the kernel
+                                                               // (`timer_irq` default + `enable_timer_interrupts` in kmain), so the 120Hz
+                                                               // one-shot timer cap armed below delivers OP_TIMER_FIRED reactively while an
+                                                               // animation runs. The monotonic-clock self-pacing (the WouldBlock arm below,
+                                                               // reached via the NonBlocking recv) is retained as a robust fallback so a
+                                                               // missed/idle-time tick can never freeze the spring; `tick` integrates real
+                                                               // elapsed time, so the exact wake rate only affects how many frames we emit,
+                                                               // not the animation's duration or final state. (A fully poll-free wait
+                                                               // depends on idle-time timer-cap delivery and is a separate step.)
     let mut last_anim_tick_ns: u64 = 0;
     // Loop-cadence telemetry (hyper-smooth diagnosis): counts per ~1s window,
     // emitted only while input/present traffic is flowing (idle stays silent).
@@ -586,7 +579,9 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 if presents >= 8 {
                     let _ = debug_println(&alloc::format!(
                         "windowd: loop hz={} apply={} present={}",
-                        lt_iters, lt_applies, presents
+                        lt_iters,
+                        lt_applies,
+                        presents
                     ));
                 }
                 lt_window_start_ns = now;
@@ -619,21 +614,18 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             // the session decision on its own cadence. While unresolved it
             // needs the pacer's wakes (the loop otherwise blocks on IPC);
             // bounded — resolution or the auto-shell fallback disarms it.
-            let session_pending =
-                runtime.session_probe_tick(nexus_abi::nsec().unwrap_or(0));
+            let session_pending = runtime.session_probe_tick(nexus_abi::nsec().unwrap_or(0));
             // DSL-greeter login watch (Umbau #17): between the greeter swap
             // and the login, poll sessiond on its own slow cadence — same
             // pacing contract as the session probe.
-            let greeter_watch_pending =
-                runtime.greeter_watch_tick(nexus_abi::nsec().unwrap_or(0));
+            let greeter_watch_pending = runtime.greeter_watch_tick(nexus_abi::nsec().unwrap_or(0));
             // Persisted-theme probe (TASK-0072 Phase 10): same cadence — restore
             // `ui.theme.mode` from settingsd once it binds; bounded, then default.
             let theme_pending = runtime.theme_probe_tick(nexus_abi::nsec().unwrap_or(0));
             // Animated wait cursor: while a launch is pending the ring frame
             // advances on the pacer (2-byte SELECT per ~90ms step; bounded by
             // the launch failsafe deadline).
-            let cursor_wait_pending =
-                runtime.cursor_wait_tick(nexus_abi::nsec().unwrap_or(0));
+            let cursor_wait_pending = runtime.cursor_wait_tick(nexus_abi::nsec().unwrap_or(0));
             // Un-acked presents keep the pacer alive too: gpud's ack/NACK replies
             // arrive on the gpud client, not the server recv below — an idle-blocked
             // windowd would otherwise only drain a present NACK (P0.3 requeue
@@ -720,7 +712,13 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                         runtime.flush_frame_pulses();
                         continue;
                     }
-                    dispatch_client_frame(&mut runtime, &server, frame, moved_cap.take(), sender_sid);
+                    dispatch_client_frame(
+                        &mut runtime,
+                        &server,
+                        frame,
+                        moved_cap.take(),
+                        sender_sid,
+                    );
                 }
                 Err(IpcError::WouldBlock)
                 | Err(IpcError::Timeout)

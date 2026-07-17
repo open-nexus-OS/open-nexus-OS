@@ -120,8 +120,10 @@ impl DisplayServerRuntime {
             // windows re-mount as soon as rows free up (retried below and on
             // every band release).
             self.ensure_visible_bands();
-            let _ =
-                debug_println(&alloc::format!("windowd: unfullscreen id={}", Self::window_name(id)));
+            let _ = debug_println(&alloc::format!(
+                "windowd: unfullscreen id={}",
+                Self::window_name(id)
+            ));
         } else {
             // Cover the display; the OP_SURFACE_RECT push below makes the app
             // re-create its surface at display size (the atlas band is
@@ -176,11 +178,8 @@ impl DisplayServerRuntime {
             .find(|&wid| self.app_slot(wid).map(|a| a.win.contains(cx, cy)).unwrap_or(false));
         for idx in 0..self.apps.len() {
             let wid = WindowId::App(idx as u8);
-            let hover: Option<TitleButton> = if owner == Some(wid) {
-                self.apps[idx].win.title_button_at(cx, cy)
-            } else {
-                None
-            };
+            let hover: Option<TitleButton> =
+                if owner == Some(wid) { self.apps[idx].win.title_button_at(cx, cy) } else { None };
             if hover != self.apps[idx].win.title_hover {
                 self.apps[idx].win.title_hover = hover;
                 self.apps[idx].win.surface_dirty = true;
@@ -296,8 +295,11 @@ impl DisplayServerRuntime {
                 if self.windows.is_fullscreen(wid) {
                     self.toggle_fullscreen(wid);
                 }
-                let (x, y, w, h) =
-                    snap::snap_frame(snap::SnapTarget::LeftHalf, self.mode.width, self.work_area_h());
+                let (x, y, w, h) = snap::snap_frame(
+                    snap::SnapTarget::LeftHalf,
+                    self.mode.width,
+                    self.work_area_h(),
+                );
                 self.apps[idx].win.title_h = self.app_title_h(idx);
                 self.apply_window_frame(wid, x, y, w, h);
                 self.push_app_content_rect(idx);
@@ -395,8 +397,8 @@ impl DisplayServerRuntime {
         self.apps[idx].win.set_frame(x, y, w, h);
         self.apps[idx].win.surface_dirty = true;
         self.apps[idx].surface_dirty_rows = None; // resized: full re-blit
-        // TASK #23: keep the title bar sharp at the TRUE frame width while the
-        // band lags (live resize) — re-rasterized only on width change.
+                                                  // TASK #23: keep the title bar sharp at the TRUE frame width while the
+                                                  // band lags (live resize) — re-rasterized only on width change.
         self.update_app_title_overlay(idx);
         let new = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(new);

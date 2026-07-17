@@ -354,10 +354,8 @@ fn handle_get_payload(frame: &[u8], vmo_slot: Option<u32>) {
         let Some(app_id) = wire::decode_get_payload(frame) else {
             return (wire::STATUS_MALFORMED, 0);
         };
-        let Some(payload) = APP_PAYLOADS
-            .iter()
-            .find(|(id, _)| id.as_bytes() == app_id)
-            .map(|(_, bytes)| *bytes)
+        let Some(payload) =
+            APP_PAYLOADS.iter().find(|(id, _)| id.as_bytes() == app_id).map(|(_, bytes)| *bytes)
         else {
             return (wire::PAYLOAD_STATUS_UNKNOWN, 0);
         };
@@ -762,8 +760,7 @@ mod tests {
         assert_eq!(rsp[4], STATUS_OK);
         let count = u16::from_le_bytes([rsp[5], rsp[6]]);
         // Only user-launchable bundles are listed (shell/greeter filtered out).
-        let launchable =
-            APP_REGISTRY.iter().filter(|(_, _, ty, _)| is_launchable(ty)).count();
+        let launchable = APP_REGISTRY.iter().filter(|(_, _, ty, _)| is_launchable(ty)).count();
         assert_eq!(count, launchable as u16);
         // First entry id is "chat".
         let id_len = rsp[7] as usize;

@@ -27,8 +27,8 @@ pub mod text;
 pub mod types;
 
 pub use border::{Border, CornerRadius, EdgeBorder, PathPoint, PathShape, ShapeKind, VisualStyle};
-pub use border::{GlassLevel, SurfaceMaterial};
 pub use border::{BoxShadow, ShadowLevel, TextShadow};
+pub use border::{GlassLevel, SurfaceMaterial};
 pub use color::Rgba8;
 pub use direction::{Align, Direction, Justify, Overflow, Position, ScrollAxis, ZIndex};
 pub use measure::{LineLayout, LineMetrics, MeasureText, PreparedTextHandle};

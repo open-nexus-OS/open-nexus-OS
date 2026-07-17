@@ -63,10 +63,7 @@ fn ui_program_manifests_pack_payload_nxir_and_round_trip_the_kind() {
     run_pack(&dir, &manifest_toml(Some("ui-program")), b"fake-nxir-bytes");
     assert!(dir.join("out/payload.nxir").exists(), "DSL bundles ship payload.nxir");
     assert!(!dir.join("out/payload.elf").exists());
-    assert_eq!(
-        read_payload_kind(&dir),
-        nexus_idl_runtime::manifest_capnp::PayloadKind::UiProgram
-    );
+    assert_eq!(read_payload_kind(&dir), nexus_idl_runtime::manifest_capnp::PayloadKind::UiProgram);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -76,13 +73,9 @@ fn default_manifests_stay_elf_backward_compatible() {
     run_pack(&dir, &manifest_toml(None), b"\x7fELF fake");
     assert!(dir.join("out/payload.elf").exists(), "native bundles keep payload.elf");
     assert!(!dir.join("out/payload.nxir").exists());
-    assert_eq!(
-        read_payload_kind(&dir),
-        nexus_idl_runtime::manifest_capnp::PayloadKind::Elf
-    );
+    assert_eq!(read_payload_kind(&dir), nexus_idl_runtime::manifest_capnp::PayloadKind::Elf);
     let _ = std::fs::remove_dir_all(&dir);
 }
-
 
 fn run_pack_expect_failure(dir: &PathBuf, toml: &str) {
     let toml_path = dir.join("manifest.toml");

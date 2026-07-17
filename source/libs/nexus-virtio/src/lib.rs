@@ -323,7 +323,12 @@ mod tests {
                 REG_QUEUE_NUM_MAX => 256,
                 // After we set FEATURES_OK, report it back so negotiation succeeds.
                 REG_STATUS => {
-                    if self.writes.borrow().iter().any(|(a, v)| *a == REG_STATUS && v & STATUS_FEATURES_OK != 0) {
+                    if self
+                        .writes
+                        .borrow()
+                        .iter()
+                        .any(|(a, v)| *a == REG_STATUS && v & STATUS_FEATURES_OK != 0)
+                    {
                         STATUS_FEATURES_OK
                     } else {
                         0
@@ -349,7 +354,12 @@ mod tests {
         let dev = VirtioMmio::new(MockBus::new(1, VIRTIO_MMIO_VERSION_MODERN));
         assert_eq!(dev.negotiate_features(0x1), Ok(0x1));
         // Driver wrote the accepted low word back.
-        assert!(dev.bus().writes.borrow().iter().any(|(a, v)| *a == REG_DRIVER_FEATURES && *v == 1));
+        assert!(dev
+            .bus()
+            .writes
+            .borrow()
+            .iter()
+            .any(|(a, v)| *a == REG_DRIVER_FEATURES && *v == 1));
     }
 
     #[test]
@@ -357,7 +367,8 @@ mod tests {
         let dev = VirtioMmio::new(MockBus::new(1, VIRTIO_MMIO_VERSION_MODERN));
         let big = QueueSetup { size: 1024, desc_paddr: 0, avail_paddr: 0, used_paddr: 0 };
         assert_eq!(dev.setup_queue(0, &big), Err(VirtioError::Unsupported));
-        let ok = QueueSetup { size: 64, desc_paddr: 0x1000, avail_paddr: 0x2000, used_paddr: 0x3000 };
+        let ok =
+            QueueSetup { size: 64, desc_paddr: 0x1000, avail_paddr: 0x2000, used_paddr: 0x3000 };
         assert_eq!(dev.setup_queue(0, &ok), Ok(()));
         assert!(dev.bus().writes.borrow().iter().any(|(a, _)| *a == REG_QUEUE_READY));
     }

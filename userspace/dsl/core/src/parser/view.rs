@@ -122,10 +122,7 @@ impl Parser<'_> {
                 body.push(self.view_node()?);
             }
             let modifiers = self.modifiers()?;
-            let binding = positional.take().unwrap_or(Expr::Bool {
-                value: false,
-                span: start,
-            });
+            let binding = positional.take().unwrap_or(Expr::Bool { value: false, span: start });
             return Ok(ViewNode::Collection(CollectionNode {
                 kind: name,
                 binding,

@@ -50,11 +50,7 @@ pub(crate) fn encode(state: &State, next_txn: u64) -> Vec<u8> {
 
 /// Deserializes a checkpoint blob into fresh state (bitmap derived from the
 /// reserved regions + loaded extents). Fail-closed on any structural error.
-pub(crate) fn decode(
-    blob: &[u8],
-    total_blocks: u64,
-    data_start: u64,
-) -> Result<(State, u64)> {
+pub(crate) fn decode(blob: &[u8], total_blocks: u64, data_start: u64) -> Result<(State, u64)> {
     let mut off = 0usize;
     let next_object = take_u64(blob, &mut off)?;
     let next_txn = take_u64(blob, &mut off)?;
@@ -91,8 +87,7 @@ pub(crate) fn decode(
             }
             let bytes = blob.get(off..off + name_len).ok_or(NxfsError::Integrity)?;
             off += name_len;
-            let name =
-                String::from(core::str::from_utf8(bytes).map_err(|_| NxfsError::Integrity)?);
+            let name = String::from(core::str::from_utf8(bytes).map_err(|_| NxfsError::Integrity)?);
             let child = take_u64(blob, &mut off)?;
             let kind = take_u8(blob, &mut off)?;
             table.insert(name, (child, kind));
@@ -203,12 +198,7 @@ mod tests {
             }),
             Err(NxfsError::Integrity)
         );
-        state
-            .objects
-            .get_mut(&2)
-            .expect("object")
-            .extents
-            .push(Extent { lb: 500, blocks: 1 });
+        state.objects.get_mut(&2).expect("object").extents.push(Extent { lb: 500, blocks: 1 });
         let blob = encode(&state, 1);
         assert_eq!(decode(&blob, 256, 10).unwrap_err(), NxfsError::Integrity);
     }

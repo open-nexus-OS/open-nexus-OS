@@ -160,11 +160,7 @@ impl EffectHost for Recorder<'_> {
     fn query(&mut self, call: &QueryCall) -> Result<QueryPage, u32> {
         let response = self.inner.query(call);
         let rhs = match &response {
-            Ok(page) => format!(
-                "Ok(next=\"{}\",rows={})",
-                page.next,
-                value_to_text(&page.rows)
-            ),
+            Ok(page) => format!("Ok(next=\"{}\",rows={})", page.next, value_to_text(&page.rows)),
             Err(code) => format!("Err({code})"),
         };
         self.lines.push(format!("{} -> {rhs}", query_text(call)));

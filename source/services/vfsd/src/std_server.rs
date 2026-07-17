@@ -656,9 +656,7 @@ fn handle_open(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {
         .map_err(|err| ServerError::Decode(format!("open path utf8: {err}")))?
         .to_string();
     match dispatcher.open(&path) {
-        Ok((handle, entry)) => {
-            encode_open_response(true, handle, entry.size, entry.kind, CODE_OK)
-        }
+        Ok((handle, entry)) => encode_open_response(true, handle, entry.size, entry.kind, CODE_OK),
         Err(ServerError::Service(err)) => encode_open_response(false, 0, 0, 0, err.code()),
         Err(err) => Err(err),
     }
@@ -839,9 +837,7 @@ fn encode_mount_response(success: bool, msg: String) -> Result<Vec<u8>> {
     })
 }
 
-fn encode_readdir_response(
-    outcome: core::result::Result<&ReadDirPage, u16>,
-) -> Result<Vec<u8>> {
+fn encode_readdir_response(outcome: core::result::Result<&ReadDirPage, u16>) -> Result<Vec<u8>> {
     encode_frame(OPCODE_READDIR, |message| {
         let mut resp = message.init_root::<read_dir_response::Builder<'_>>();
         match outcome {
@@ -900,11 +896,7 @@ mod tests {
             let entries = alloc_entries();
             let start = cursor as usize;
             let page: Vec<_> = entries.iter().skip(start).cloned().collect();
-            Ok(ReadDirPage {
-                next_cursor: (start + page.len()) as u32,
-                eof: true,
-                entries: page,
-            })
+            Ok(ReadDirPage { next_cursor: (start + page.len()) as u32, eof: true, entries: page })
         }
     }
 

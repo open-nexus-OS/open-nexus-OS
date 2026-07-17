@@ -35,10 +35,10 @@ pub use anim::{
     AnimIntent, AnimKind, LOOP_BREATHE, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SWEEP,
 };
 pub use emit::{Damage, Dep};
-pub use nexus_theme_tokens as theme_tokens;
-pub use interact::HandlerEntry;
 pub use i18n::{Catalog, LocaleChain};
+pub use interact::HandlerEntry;
 pub use nav::{Nav, NavEntry};
+pub use nexus_theme_tokens as theme_tokens;
 pub use store::{StoreState, Value};
 pub use view::View;
 
@@ -216,9 +216,9 @@ impl DeviceEnv for FixtureEnv {
             3 => Value::Str(String::from(self.shell_mode)),
             4 => Value::Str(String::from(self.size_class)),
             5 => Value::Str(String::from(self.dpi_class)),
-            6 => Value::List(
-                self.input.iter().map(|name| Value::Str(String::from(*name))).collect(),
-            ),
+            6 => {
+                Value::List(self.input.iter().map(|name| Value::Str(String::from(*name))).collect())
+            }
             _ => Value::Str(String::new()),
         }
     }
@@ -273,8 +273,7 @@ impl<'p> Runtime<'p> {
 
         let root = reader.root().map_err(MountError::Ir)?;
         let mut symbols = Vec::new();
-        for symbol in root.get_symbols().map_err(|_| MountError::Ir(IrError::Malformed))?.iter()
-        {
+        for symbol in root.get_symbols().map_err(|_| MountError::Ir(IrError::Malformed))?.iter() {
             symbols.push(String::from(
                 symbol
                     .map_err(|_| MountError::Ir(IrError::Malformed))?
@@ -282,16 +281,14 @@ impl<'p> Runtime<'p> {
                     .map_err(|_| MountError::Ir(IrError::Malformed))?,
             ));
         }
-        let max_locals =
-            root.get_budgets().map(|b| b.get_max_locals()).unwrap_or(32) as usize;
+        let max_locals = root.get_budgets().map(|b| b.get_max_locals()).unwrap_or(32) as usize;
 
         // Store state from defaults (constant expressions).
         let mut stores = Vec::new();
         let device = FixtureEnv::default();
         let locale = IdentityLocale { symbols: &symbols, keys: &[] };
         for store in root.get_stores().map_err(|_| MountError::Ir(IrError::Malformed))?.iter() {
-            let field_list =
-                store.get_fields().map_err(|_| MountError::Ir(IrError::Malformed))?;
+            let field_list = store.get_fields().map_err(|_| MountError::Ir(IrError::Malformed))?;
             let mut fields = Vec::with_capacity(field_list.len() as usize);
             let mut field_syms = Vec::with_capacity(field_list.len() as usize);
             let mut locals: Vec<Option<Value>> = vec![None; max_locals];
@@ -360,13 +357,7 @@ impl<'p> Runtime<'p> {
     pub fn store_snapshot(&self) -> Vec<Vec<(u32, Value)>> {
         self.stores
             .iter()
-            .map(|s| {
-                s.field_syms
-                    .iter()
-                    .copied()
-                    .zip(s.fields.iter().cloned())
-                    .collect()
-            })
+            .map(|s| s.field_syms.iter().copied().zip(s.fields.iter().cloned()).collect())
             .collect()
     }
 
@@ -469,8 +460,7 @@ impl<'p> Runtime<'p> {
         // FIFO: follow-up dispatches run in the order effects produced them
         // (a LIFO Vec::pop would reverse sibling dispatches — observed-order
         // determinism is part of the written semantics).
-        let mut queue: Vec<Pending> =
-            vec![Pending { event, case, payload, origin: None }];
+        let mut queue: Vec<Pending> = vec![Pending { event, case, payload, origin: None }];
         let mut steps = 0usize;
         while !queue.is_empty() {
             let pending = queue.remove(0);

@@ -135,7 +135,8 @@ mod tests {
     fn fill_tracks_value() {
         assert_eq!(Slider::new().value(0).fill_width(), 0);
         assert_eq!(Slider::new().value(100).fill_width(), USABLE);
-        assert_eq!(Slider::new().value(200).value(50).fill_width(), USABLE / 2); // clamps
+        assert_eq!(Slider::new().value(200).value(50).fill_width(), USABLE / 2);
+        // clamps
     }
 
     #[test]

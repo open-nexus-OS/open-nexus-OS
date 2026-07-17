@@ -51,11 +51,7 @@ pub struct ReadDirPage {
 }
 
 /// Encodes a ReadDir request payload. Fails with `Invalid` on oversize paths.
-pub fn encode_readdir_request(
-    path: &str,
-    cursor: u32,
-    limit: u16,
-) -> Result<Vec<u8>, VfsError> {
+pub fn encode_readdir_request(path: &str, cursor: u32, limit: u16) -> Result<Vec<u8>, VfsError> {
     if path.is_empty() || path.len() > MAX_PATH_LEN {
         return Err(VfsError::Invalid);
     }
@@ -203,8 +199,8 @@ pub fn decode_readdir_response(payload: &[u8]) -> Result<ReadDirPage, VfsError> 
         if name_len == 0 || payload.len() < offset + name_len {
             return Err(VfsError::Io);
         }
-        let name = core::str::from_utf8(&payload[offset..offset + name_len])
-            .map_err(|_| VfsError::Io)?;
+        let name =
+            core::str::from_utf8(&payload[offset..offset + name_len]).map_err(|_| VfsError::Io)?;
         offset += name_len;
         entries.push(DirEntry { name: String::from(name), kind, size });
     }
@@ -249,8 +245,7 @@ mod tests {
     #[test]
     fn response_roundtrip_single_page() {
         let entries = sample(5);
-        let (payload, included) =
-            encode_readdir_response(&entries, 0, 64, true).expect("encode");
+        let (payload, included) = encode_readdir_response(&entries, 0, 64, true).expect("encode");
         assert_eq!(included, 5);
         let page = decode_readdir_response(&payload).expect("decode");
         assert_eq!(page.entries, entries);
@@ -292,8 +287,7 @@ mod tests {
                 size: 1,
             })
             .collect();
-        let (payload, included) =
-            encode_readdir_response(&entries, 0, 64, true).expect("encode");
+        let (payload, included) = encode_readdir_response(&entries, 0, 64, true).expect("encode");
         assert!(payload.len() <= MAX_READDIR_RESPONSE_BYTES, "budget respected");
         assert!(included < 64, "budget must truncate the page");
         let page = decode_readdir_response(&payload).expect("decode");
@@ -328,11 +322,7 @@ mod tests {
 
     #[test]
     fn test_reject_oversize_entry_name_at_encode() {
-        let bad = [DirEntry {
-            name: "x".repeat(MAX_NAME_LEN + 1),
-            kind: FileKind::File,
-            size: 0,
-        }];
+        let bad = [DirEntry { name: "x".repeat(MAX_NAME_LEN + 1), kind: FileKind::File, size: 0 }];
         assert_eq!(encode_readdir_response(&bad, 0, 64, true), Err(VfsError::Invalid));
     }
 }

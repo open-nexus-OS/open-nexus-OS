@@ -102,5 +102,4 @@ impl VirtioGpuBackend {
         }
         true
     }
-
 }

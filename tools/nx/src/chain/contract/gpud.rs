@@ -42,13 +42,7 @@ pub struct GpudContract {
 
 impl GpudContract {
     pub fn probe_only() -> Self {
-        Self {
-            handoff: false,
-            gpu_present: false,
-            animation_frames: 0,
-            batched: false,
-            id: None,
-        }
+        Self { handoff: false, gpu_present: false, animation_frames: 0, batched: false, id: None }
     }
 
     pub fn with_handoff() -> Self {

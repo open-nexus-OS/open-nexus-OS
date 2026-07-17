@@ -474,8 +474,7 @@ impl LayoutEngine {
             measured.height
         };
         let container_index = boxes.len();
-        let is_overflow_hidden =
-            matches!(stack.overflow, Overflow::Hidden | Overflow::Scroll(_));
+        let is_overflow_hidden = matches!(stack.overflow, Overflow::Hidden | Overflow::Scroll(_));
         let container_scroll =
             if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
         let content_width = width.saturating_sub(stack.padding.horizontal());
@@ -916,8 +915,7 @@ impl LayoutEngine {
         let width = measured.width;
         let height = measured.height;
         let container_index = boxes.len();
-        let is_overflow_hidden =
-            matches!(grid.overflow, Overflow::Hidden | Overflow::Scroll(_));
+        let is_overflow_hidden = matches!(grid.overflow, Overflow::Hidden | Overflow::Scroll(_));
         let container_scroll =
             if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
         let content_width = width.saturating_sub(grid.padding.horizontal());
@@ -1325,7 +1323,8 @@ fn update_box_geometry(
     layout_box.rect = Rect::new(x, y, width, height);
     match node {
         LayoutNode::Stack(stack, _, _)
-            if matches!(stack.overflow, Overflow::Hidden | Overflow::Scroll(_)) => {
+            if matches!(stack.overflow, Overflow::Hidden | Overflow::Scroll(_)) =>
+        {
             let own = Rect::new(
                 x + stack.padding.left,
                 y + stack.padding.top,
@@ -1335,7 +1334,8 @@ fn update_box_geometry(
             layout_box.clip_rect = intersect_clip(Some(own), parent_clip);
         }
         LayoutNode::Grid(grid, _, _)
-            if matches!(grid.overflow, Overflow::Hidden | Overflow::Scroll(_)) => {
+            if matches!(grid.overflow, Overflow::Hidden | Overflow::Scroll(_)) =>
+        {
             let own = Rect::new(
                 x + grid.padding.left,
                 y + grid.padding.top,

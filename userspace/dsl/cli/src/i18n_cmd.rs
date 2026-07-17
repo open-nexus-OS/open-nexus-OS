@@ -16,11 +16,7 @@ use std::process::ExitCode;
 /// `i18n compile <file.json> -o <file.nxc>`
 pub fn cmd_i18n(args: &[String]) -> ExitCode {
     let sub = args.first().map(String::as_str).unwrap_or("");
-    let out_path = args
-        .iter()
-        .position(|a| a == "-o")
-        .and_then(|i| args.get(i + 1))
-        .cloned();
+    let out_path = args.iter().position(|a| a == "-o").and_then(|i| args.get(i + 1)).cloned();
     let inputs: Vec<&String> = args[1.min(args.len())..]
         .iter()
         .filter(|a| *a != "-o" && Some(a.as_str()) != out_path.as_deref())
@@ -55,14 +51,13 @@ fn extract(input: &str, out: &str) -> ExitCode {
         return ExitCode::from(1);
     };
     let keys: Vec<String> = {
-        let reader =
-            match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&lowered.nxir) {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("nx-dsl i18n extract: self-read failed: {e:?}");
-                    return ExitCode::from(1);
-                }
-            };
+        let reader = match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&lowered.nxir) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("nx-dsl i18n extract: self-read failed: {e:?}");
+                return ExitCode::from(1);
+            }
+        };
         let Ok(root) = reader.root() else {
             eprintln!("nx-dsl i18n extract: self-read failed");
             return ExitCode::from(1);
@@ -72,10 +67,7 @@ fn extract(input: &str, out: &str) -> ExitCode {
             .map(|list| {
                 list.iter()
                     .map(|s| {
-                        s.ok()
-                            .and_then(|t| t.to_str().ok())
-                            .map(String::from)
-                            .unwrap_or_default()
+                        s.ok().and_then(|t| t.to_str().ok()).map(String::from).unwrap_or_default()
                     })
                     .collect()
             })
@@ -91,11 +83,8 @@ fn extract(input: &str, out: &str) -> ExitCode {
 
     let mut json = String::from("{\n");
     for (i, key) in keys.iter().enumerate() {
-        let value = existing
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.clone())
-            .unwrap_or_default();
+        let value =
+            existing.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone()).unwrap_or_default();
         json.push_str(&format!(
             "  \"{}\": \"{}\"{}\n",
             escape(key),

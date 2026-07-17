@@ -13,8 +13,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use nexus_layout_types::{
-    Align, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, Overflow, Stack,
-    VisualStyle,
+    Align, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, Overflow, Stack, VisualStyle,
 };
 use nexus_theme_tokens::{ColorToken, Tokens};
 use nexus_widget_icon::{Icon, Symbol};
@@ -109,7 +108,11 @@ mod tests {
                 };
                 assert_eq!(star_color(&stars[0]), Some(t.color(ColorToken::Warning)), "filled");
                 assert_eq!(star_color(&stars[2]), Some(t.color(ColorToken::Warning)), "filled");
-                assert_eq!(star_color(&stars[3]), Some(t.color(ColorToken::OnSurfaceVariant)), "muted");
+                assert_eq!(
+                    star_color(&stars[3]),
+                    Some(t.color(ColorToken::OnSurfaceVariant)),
+                    "muted"
+                );
             }
             _ => panic!(),
         }

@@ -90,8 +90,16 @@ fn phased_syscall(
     let (pid, reserved) = {
         let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
             kernel.parts();
-        let ctx =
-            api::Context::new(scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences);
+        let ctx = api::Context::new(
+            scheduler,
+            tasks,
+            router,
+            spaces,
+            timer,
+            hart_timers,
+            waitsets,
+            fences,
+        );
         let pid = ctx.tasks.current_pid();
         if let Some(task) = ctx.tasks.task_mut(pid) {
             *task.frame_mut() = *frame;

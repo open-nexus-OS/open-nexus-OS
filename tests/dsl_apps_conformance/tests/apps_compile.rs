@@ -135,10 +135,7 @@ fn skeleton_clips_without_being_scrollable() {
         )
         .unwrap();
     let has_clip = layout.boxes.iter().any(|b| b.clip_rect.is_some());
-    let has_scroll = layout
-        .boxes
-        .iter()
-        .any(|b| matches!(b.overflow, Overflow::Scroll(_)));
+    let has_scroll = layout.boxes.iter().any(|b| matches!(b.overflow, Overflow::Scroll(_)));
     assert!(has_clip, "animdemo: the Skeleton must clip (the hazard's precondition)");
     assert!(!has_scroll, "animdemo: no `.scroll(...)` container — must NOT be scrollable");
 }

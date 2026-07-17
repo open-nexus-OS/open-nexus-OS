@@ -17,10 +17,9 @@ fn main() {
     // of whichever environment compiled this script — host and container
     // builds share `target/`, so a baked absolute path poisons the other
     // side's cache (/workspace vs the host checkout).
-    let manifest_dir =
-        std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
-    let schema = Path::new(&manifest_dir)
-        .join("../../../tools/nexus-idl/schemas/dsl_services.capnp");
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
+    let schema =
+        Path::new(&manifest_dir).join("../../../tools/nexus-idl/schemas/dsl_services.capnp");
     println!("cargo:rerun-if-changed={}", schema.display());
     let text = std::fs::read_to_string(&schema)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", schema.display()));

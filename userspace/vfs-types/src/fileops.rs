@@ -132,10 +132,7 @@ mod tests {
     #[test]
     fn write_text_roundtrip() {
         let payload = encode_write_text("/notes.txt", "hello").expect("encode");
-        assert_eq!(
-            decode_write_text(&payload),
-            Some(("/notes.txt".into(), "hello".into()))
-        );
+        assert_eq!(decode_write_text(&payload), Some(("/notes.txt".into(), "hello".into())));
     }
 
     #[test]

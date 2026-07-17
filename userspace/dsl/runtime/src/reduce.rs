@@ -50,8 +50,7 @@ pub(crate) fn eval(ctx: &mut EvalCtx<'_>, expr: ir::expr::Reader<'_>) -> Result<
         }
         Which::FieldGet(get) => {
             let get = get.map_err(|_| RtError::Malformed)?;
-            let store =
-                ctx.stores.get(get.get_store() as usize).ok_or(RtError::UnknownField)?;
+            let store = ctx.stores.get(get.get_store() as usize).ok_or(RtError::UnknownField)?;
             let path = get.get_path().map_err(|_| RtError::Malformed)?;
             if path.is_empty() {
                 return Err(RtError::UnknownField);
@@ -73,11 +72,9 @@ pub(crate) fn eval(ctx: &mut EvalCtx<'_>, expr: ir::expr::Reader<'_>) -> Result<
             }
             Ok(value.clone())
         }
-        Which::LocalGet(slot) => ctx
-            .locals
-            .get(slot as usize)
-            .and_then(|v| v.clone())
-            .ok_or(RtError::MissingLocal),
+        Which::LocalGet(slot) => {
+            ctx.locals.get(slot as usize).and_then(|v| v.clone()).ok_or(RtError::MissingLocal)
+        }
         Which::ParamGet(index) => {
             ctx.params.get(index as usize).cloned().ok_or(RtError::MissingLocal)
         }
@@ -298,15 +295,18 @@ pub(crate) fn exec(
                 for i in 0..path_list.len() {
                     path.push(path_list.get(i));
                 }
-                let store =
-                    ctx.stores.get_mut(ctx.store_index).ok_or(RtError::UnknownField)?;
+                let store = ctx.stores.get_mut(ctx.store_index).ok_or(RtError::UnknownField)?;
                 let op = set.get_op().map_err(|_| RtError::Malformed)?;
                 let final_value = match op {
                     ir::AssignOp::Assign => value,
                     ir::AssignOp::AddAssign | ir::AssignOp::SubAssign => {
                         let index = store.field_index(path[0])?;
                         let current = store.get(index)?.clone();
-                        let kind = if op == ir::AssignOp::AddAssign { ir::BinOpKind::Add } else { ir::BinOpKind::Sub };
+                        let kind = if op == ir::AssignOp::AddAssign {
+                            ir::BinOpKind::Add
+                        } else {
+                            ir::BinOpKind::Sub
+                        };
                         binop(kind, current, value)?
                     }
                 };

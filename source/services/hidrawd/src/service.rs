@@ -65,12 +65,7 @@ struct MouseSource {
 impl HidrawdService {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            keyboard: None,
-            mouse: None,
-            recent_batches: Vec::new(),
-            suppress_recent: false,
-        }
+        Self { keyboard: None, mouse: None, recent_batches: Vec::new(), suppress_recent: false }
     }
 
     /// Stop recording ingested batches into `recent_batches`. The OS live loop reads

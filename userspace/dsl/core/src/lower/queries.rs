@@ -75,8 +75,7 @@ fn lower_pred_value(
             b.set_lit_str(capnp::text::Reader::from(value.as_str()));
         }
         Expr::Path { segments, span } if segments.len() == 1 => {
-            let Some(idx) =
-                query.params.iter().position(|p| p.name.text == segments[0].text)
+            let Some(idx) = query.params.iter().position(|p| p.name.text == segments[0].text)
             else {
                 return Err(unsupported(*span, "a non-param name as a predicate value"));
             };
@@ -116,10 +115,7 @@ pub(super) fn fill_query_step(
     }
     {
         let token_builder = step.reborrow().init_token();
-        match args
-            .iter()
-            .find(|a| a.name.as_ref().map(|n| n.text.as_str()) == Some("token"))
-        {
+        match args.iter().find(|a| a.name.as_ref().map(|n| n.text.as_str()) == Some("token")) {
             Some(arg) => lower_expr(env, &arg.value, token_builder)?,
             None => {
                 // Default: first page.

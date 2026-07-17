@@ -127,8 +127,7 @@ fn apply_sched_recipe(pid: u32, image_id: u8) {
         let shares_ok = nexus_abi::sched::set_shares_for(pid, *shares).is_ok();
         // RFC-0068: one line per image id per boot (repeat spawns are silent);
         // failures always print.
-        static RECIPE_LOGGED: core::sync::atomic::AtomicU32 =
-            core::sync::atomic::AtomicU32::new(0);
+        static RECIPE_LOGGED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
         let bit = 1u32 << (image_id % 32);
         let seen = RECIPE_LOGGED.fetch_or(bit, core::sync::atomic::Ordering::Relaxed) & bit != 0;
         if aff_ok && shares_ok {
@@ -966,13 +965,7 @@ fn fetch_app_payload(app_id: &[u8]) -> Option<u32> {
             return None;
         }
     };
-    let hdr = nexus_abi::MsgHeader::new(
-        clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        len as u32,
-    );
+    let hdr = nexus_abi::MsgHeader::new(clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
     // Bounded non-blocking send (bundlemgrd may be busy; never stall execd).
     let deadline = nsec().ok().unwrap_or(0).saturating_add(2_000_000_000);
     loop {
@@ -1385,10 +1378,7 @@ fn provision_app_service_routes(child_pid: u32, app_id: &[u8]) {
         return;
     };
     let caps = caps_for(app);
-    if !caps
-        .iter()
-        .any(|c| nexus_sdk_routes::route_for_permission(c).is_some())
-    {
+    if !caps.iter().any(|c| nexus_sdk_routes::route_for_permission(c).is_some()) {
         // No system-service cap ⇒ nothing to route (the common app case).
         return;
     }
@@ -1437,12 +1427,8 @@ fn provision_app_service_routes(child_pid: u32, app_id: &[u8]) {
         };
         match route_ctrl(route.route.as_bytes()) {
             Some((send_slot, _recv_slot)) => {
-                let ok = grant_clone(
-                    child_pid,
-                    send_slot,
-                    nexus_abi::Rights::SEND,
-                    route.child_slot,
-                );
+                let ok =
+                    grant_clone(child_pid, send_slot, nexus_abi::Rights::SEND, route.child_slot);
                 // Do NOT close these slots: named routes resolve to execd's
                 // PERSISTENT route-table slots (recorded once at wiring) — the
                 // responder answers every later resolve with the SAME slot

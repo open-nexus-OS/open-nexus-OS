@@ -1804,7 +1804,11 @@ mod tests {
             out.push((
                 app.get_id().expect("id").to_str().expect("id utf8").to_string(),
                 app.get_display_name().expect("name").to_str().expect("name utf8").to_string(),
-                app.get_launch_ability().expect("ability").to_str().expect("ability utf8").to_string(),
+                app.get_launch_ability()
+                    .expect("ability")
+                    .to_str()
+                    .expect("ability utf8")
+                    .to_string(),
                 caps,
             ));
         }

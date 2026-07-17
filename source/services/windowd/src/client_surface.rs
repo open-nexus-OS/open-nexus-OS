@@ -103,7 +103,13 @@ impl ClientSurfaces {
     /// Validates and registers a surface in a free slot. Returns the new surface
     /// id, or a wire status code (`MALFORMED` on bad format/bounds, `QUOTA` when
     /// all [`MAX_APP_SURFACES`] slots are full).
-    pub fn create(&mut self, width: u16, height: u16, format: u8, vmo_slot: u32) -> Result<u32, u8> {
+    pub fn create(
+        &mut self,
+        width: u16,
+        height: u16,
+        format: u8,
+        vmo_slot: u32,
+    ) -> Result<u32, u8> {
         if format != FORMAT_BGRA8888 {
             return Err(SURFACE_STATUS_MALFORMED);
         }
@@ -242,10 +248,10 @@ mod tests {
                 id,
                 1,
                 &[
-                    rect(90, 40, 50, 50),  // overhangs → clamped to 10x10
-                    rect(200, 0, 5, 5),    // fully outside → dropped
-                    rect(0, 0, 0, 10),     // empty → dropped
-                    rect(0, 0, 100, 50),   // exact fit
+                    rect(90, 40, 50, 50), // overhangs → clamped to 10x10
+                    rect(200, 0, 5, 5),   // fully outside → dropped
+                    rect(0, 0, 0, 10),    // empty → dropped
+                    rect(0, 0, 100, 50),  // exact fit
                 ],
             )
             .expect("presents");

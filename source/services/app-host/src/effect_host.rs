@@ -167,10 +167,7 @@ impl AppEffectHost {
             label_sym: symbols.iter().position(|s| s == "label").map(|i| i as u32),
             icon_sym: symbols.iter().position(|s| s == "icon").map(|i| i as u32),
             icon_top_sym: symbols.iter().position(|s| s == "iconTop").map(|i| i as u32),
-            icon_bottom_sym: symbols
-                .iter()
-                .position(|s| s == "iconBottom")
-                .map(|i| i as u32),
+            icon_bottom_sym: symbols.iter().position(|s| s == "iconBottom").map(|i| i as u32),
             icon_art_sym: symbols.iter().position(|s| s == "iconArt").map(|i| i as u32),
             seq_sym: symbols.iter().position(|s| s == "seq").map(|i| i as u32),
             text_sym: symbols.iter().position(|s| s == "text").map(|i| i as u32),
@@ -250,11 +247,7 @@ impl AppEffectHost {
     /// `icon` is a `"mime:<stem>"` source (RFC-0073 / TASK-0294): directories
     /// resolve to the directory stem, files to their extension's icon stem via
     /// the mime SSOT. The DSL `Image` primitive turns it into a baked sprite.
-    fn file_entry_record(
-        &self,
-        name_sym: u32,
-        entry: &nexus_vfs_types::DirEntry,
-    ) -> Value {
+    fn file_entry_record(&self, name_sym: u32, entry: &nexus_vfs_types::DirEntry) -> Value {
         let mut fields = alloc::vec![(name_sym, Value::Str(entry.name.clone()))];
         if let Some(sym) = self.id_sym {
             fields.push((sym, Value::Str(entry.name.clone())));
@@ -280,14 +273,10 @@ impl AppEffectHost {
     }
 
     /// One bounded ReadDir page from vfsd (shared by list/count/recent).
-    fn readdir_page(
-        &self,
-        path: &str,
-        cursor: u32,
-    ) -> Result<nexus_vfs_types::ReadDirPage, u32> {
+    fn readdir_page(&self, path: &str, cursor: u32) -> Result<nexus_vfs_types::ReadDirPage, u32> {
         let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
-        let payload = nexus_vfs_types::encode_readdir_request(path, cursor, 64)
-            .map_err(|_| ERR_SVC_SHAPE)?;
+        let payload =
+            nexus_vfs_types::encode_readdir_request(path, cursor, 64).map_err(|_| ERR_SVC_SHAPE)?;
         let mut req = Vec::with_capacity(1 + payload.len());
         req.push(VFS_OPCODE_READDIR);
         req.extend_from_slice(&payload);
@@ -357,10 +346,8 @@ impl AppEffectHost {
         };
         if path == "recent:" {
             let entries = self.collect_recent()?;
-            let rows: Vec<Value> = entries
-                .iter()
-                .map(|entry| self.file_entry_record(name_sym, entry))
-                .collect();
+            let rows: Vec<Value> =
+                entries.iter().map(|entry| self.file_entry_record(name_sym, entry)).collect();
             let mut line = String::from("apphost: dsl svc files.list ok (n=");
             let _ = core::fmt::write(&mut line, format_args!("{}, recent)", rows.len()));
             raw_marker(&line);
@@ -383,7 +370,9 @@ impl AppEffectHost {
             "date" => entries.sort_by(|a, b| {
                 dir_first(a)
                     .cmp(&dir_first(b))
-                    .then_with(|| stub_date_key(&a.name, a.kind).cmp(&stub_date_key(&b.name, b.kind)))
+                    .then_with(|| {
+                        stub_date_key(&a.name, a.kind).cmp(&stub_date_key(&b.name, b.kind))
+                    })
                     .then_with(|| a.name.cmp(&b.name))
             }),
             _ => entries
@@ -422,8 +411,7 @@ impl AppEffectHost {
     /// Routed to vfsd, which forwards to the nxfs `/data` store.
     fn files_write(&self, opcode: u8, path: &str, marker: &str) -> Result<Value, u32> {
         let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
-        let payload =
-            nexus_vfs_types::fileops::encode_path_request(path).ok_or(ERR_SVC_SHAPE)?;
+        let payload = nexus_vfs_types::fileops::encode_path_request(path).ok_or(ERR_SVC_SHAPE)?;
         let mut req = Vec::with_capacity(1 + payload.len());
         req.push(opcode);
         req.extend_from_slice(&payload);
@@ -721,9 +709,7 @@ impl AppEffectHost {
                 "close" => (wire::CONTROL_WIN_CLOSE, sid),
                 // zoom / mode.*: one MODE control; AUTO = toggle fullscreen.
                 "zoom" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_AUTO),
-                "mode.fullscreen" => {
-                    (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FULLSCREEN)
-                }
+                "mode.fullscreen" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FULLSCREEN),
                 "mode.freeform" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FREEFORM),
                 "mode.split" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_SPLIT),
                 _ => {
@@ -739,8 +725,13 @@ impl AppEffectHost {
         // The windowd surface request slot (main.rs WINDOWD_SEND_SLOT).
         const WINDOWD_SEND_SLOT: u32 = 5;
         let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-        match nexus_abi::ipc_send_v1(WINDOWD_SEND_SLOT, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0)
-        {
+        match nexus_abi::ipc_send_v1(
+            WINDOWD_SEND_SLOT,
+            &hdr,
+            &frame,
+            nexus_abi::IPC_SYS_NONBLOCK,
+            0,
+        ) {
             Ok(_) => {
                 raw_marker("apphost: dsl svc settings.set control ok");
                 Ok(Value::Bool(true))
@@ -751,7 +742,6 @@ impl AppEffectHost {
             }
         }
     }
-
 }
 
 fn to_qval(value: &Value) -> Option<nexus_query::QVal> {
@@ -778,9 +768,7 @@ fn hex_decode(text: &str) -> Option<Vec<u8>> {
     if text.len() % 2 != 0 {
         return None;
     }
-    (0..text.len() / 2)
-        .map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).ok())
-        .collect()
+    (0..text.len() / 2).map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).ok()).collect()
 }
 
 impl EffectHost for AppEffectHost {
@@ -849,67 +837,67 @@ impl EffectHost for AppEffectHost {
         // source (statefsd-backed) — see QueryStore.
         #[allow(unreachable_code)]
         {
-        use nexus_query::{PageToken, QuerySpec, Range};
-        let store = self.query_store.get_or_insert_with(QueryStore::seeded);
-        let mut spec = QuerySpec {
-            table: 0,
-            eq: call
-                .eq
-                .iter()
-                .map(|(name, v)| Some((QueryStore::col(name), to_qval(v)?)))
-                .collect::<Option<Vec<_>>>()
-                .ok_or(ERR_SVC_SHAPE)?,
-            range: None,
-            order_col: QueryStore::col(&call.order_col),
-            descending: call.descending,
-            limit: call.limit,
-        };
-        if call.low.is_some() || call.high.is_some() {
-            spec.range = Some(Range {
-                low: call.low.as_ref().and_then(to_qval),
-                high: call.high.as_ref().and_then(to_qval),
-            });
-        }
-        let token = if call.token.is_empty() {
-            None
-        } else {
-            Some(
-                hex_decode(&call.token)
-                    .and_then(|b| PageToken::from_bytes(&b))
+            use nexus_query::{PageToken, QuerySpec, Range};
+            let store = self.query_store.get_or_insert_with(QueryStore::seeded);
+            let mut spec = QuerySpec {
+                table: 0,
+                eq: call
+                    .eq
+                    .iter()
+                    .map(|(name, v)| Some((QueryStore::col(name), to_qval(v)?)))
+                    .collect::<Option<Vec<_>>>()
                     .ok_or(ERR_SVC_SHAPE)?,
-            )
-        };
-        let page = store
-            .engine
-            .query(&store.kv, &spec, token.as_ref())
-            .map_err(|_| ERR_SVC_UNAVAILABLE)?;
-        let rows: Vec<Value> = page
-            .rows
-            .into_iter()
-            .map(|row| {
-                let mut fields: Vec<(u32, Value)> = row
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, qv)| {
-                        let sym = if i == 0 { seq_sym } else { text_sym };
-                        let v = match qv {
-                            nexus_query::QVal::Int(n) => Value::Int(n),
-                            nexus_query::QVal::Str(s) => Value::Str(s),
-                            nexus_query::QVal::Bool(b) => Value::Bool(b),
-                            nexus_query::QVal::Fx(f) => Value::Fx(f),
-                        };
-                        (sym, v)
-                    })
-                    .collect();
-                fields.sort_by_key(|(s, _)| *s);
-                Value::Record(fields)
+                range: None,
+                order_col: QueryStore::col(&call.order_col),
+                descending: call.descending,
+                limit: call.limit,
+            };
+            if call.low.is_some() || call.high.is_some() {
+                spec.range = Some(Range {
+                    low: call.low.as_ref().and_then(to_qval),
+                    high: call.high.as_ref().and_then(to_qval),
+                });
+            }
+            let token = if call.token.is_empty() {
+                None
+            } else {
+                Some(
+                    hex_decode(&call.token)
+                        .and_then(|b| PageToken::from_bytes(&b))
+                        .ok_or(ERR_SVC_SHAPE)?,
+                )
+            };
+            let page = store
+                .engine
+                .query(&store.kv, &spec, token.as_ref())
+                .map_err(|_| ERR_SVC_UNAVAILABLE)?;
+            let rows: Vec<Value> = page
+                .rows
+                .into_iter()
+                .map(|row| {
+                    let mut fields: Vec<(u32, Value)> = row
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, qv)| {
+                            let sym = if i == 0 { seq_sym } else { text_sym };
+                            let v = match qv {
+                                nexus_query::QVal::Int(n) => Value::Int(n),
+                                nexus_query::QVal::Str(s) => Value::Str(s),
+                                nexus_query::QVal::Bool(b) => Value::Bool(b),
+                                nexus_query::QVal::Fx(f) => Value::Fx(f),
+                            };
+                            (sym, v)
+                        })
+                        .collect();
+                    fields.sort_by_key(|(s, _)| *s);
+                    Value::Record(fields)
+                })
+                .collect();
+            raw_marker("apphost: dsl query messages page ok");
+            Ok(QueryPage {
+                rows: Value::List(rows),
+                next: page.next.map(|t| hex_encode(t.as_bytes())).unwrap_or_default(),
             })
-            .collect();
-        raw_marker("apphost: dsl query messages page ok");
-        Ok(QueryPage {
-            rows: Value::List(rows),
-            next: page.next.map(|t| hex_encode(t.as_bytes())).unwrap_or_default(),
-        })
         }
     }
 
@@ -1094,13 +1082,8 @@ fn str_of(v: &Value) -> Option<&str> {
 /// any send/recv failure or timeout (the caller renders the `Err` arm).
 fn call_reply(service_send_slot: u32, req: &[u8], resp: &mut [u8]) -> Option<usize> {
     let reply_send = nexus_abi::cap_clone(CHILD_REPLY_SEND_SLOT).ok()?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        req.len() as u32,
-    );
+    let hdr =
+        nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
     let start = nexus_abi::nsec().unwrap_or(0);
     let deadline = start.saturating_add(SVC_DEADLINE_NS);
 

@@ -31,11 +31,11 @@
 //! STATUS: In progress (unified-window refactor, W1)
 
 use crate::atlas::AtlasSurface;
+use crate::compositor::damage::DamageRect;
 use crate::compositor::{
     DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT, DISPLAY_ROW_OFFSET, RETAINED_ROW_OFFSET,
 };
 use crate::error::WindowdError;
-use crate::compositor::damage::DamageRect;
 use nexus_gfx::{BackdropCache, Layer, LayerBackdrop, LayerShadow, RenderCommandEncoder};
 
 /// Shadow-halo margin around the window when computing its damage rect, so the
@@ -203,7 +203,14 @@ impl ShellWindow {
     /// The pure-geometry frame (host-tested hit-testing / clamp / damage live in
     /// [`Frame`] in `nexus-widget-window`; this component owns only the presentation).
     pub(crate) fn frame(&self) -> Frame {
-        Frame { x: self.x, y: self.y, w: self.w, h: self.h, title_h: self.title_h, close_w: self.close_w }
+        Frame {
+            x: self.x,
+            y: self.y,
+            w: self.w,
+            h: self.h,
+            title_h: self.title_h,
+            close_w: self.close_w,
+        }
     }
 
     /// True if `(cx, cy)` is anywhere inside the window.
@@ -269,7 +276,13 @@ impl ShellWindow {
 
     /// Continue an in-progress drag, clamping the window to the display. Returns
     /// the previous damage rect (to repaint the vacated area) when it moved.
-    pub(crate) fn drag_to(&mut self, cx: i32, cy: i32, mode_w: u32, mode_h: u32) -> Option<DamageRect> {
+    pub(crate) fn drag_to(
+        &mut self,
+        cx: i32,
+        cy: i32,
+        mode_w: u32,
+        mode_h: u32,
+    ) -> Option<DamageRect> {
         let (gx, gy) = self.drag?;
         let old = self.damage_rect(mode_w, mode_h);
         let (nx, ny) = self.frame().clamp_pos(cx - gx, cy - gy, mode_w, mode_h);
@@ -490,7 +503,18 @@ impl ShellWindow {
         //    revealing the rounded body/backdrop underneath, straight bottom edge.
         if header_h > 0 {
             let _ = encoder.try_composite_layer(
-                p.atlas_row, p.atlas_x, p.w, header_h, p.x, p.y, 255, 0, 0, 0, 0, 0,
+                p.atlas_row,
+                p.atlas_x,
+                p.w,
+                header_h,
+                p.x,
+                p.y,
+                255,
+                0,
+                0,
+                0,
+                0,
+                0,
             );
         }
         // 3. Fixed bottom slice (app footer / composer): atlas rows

@@ -27,13 +27,13 @@ pub mod project;
 pub mod registry;
 
 pub use check::{check_file, has_errors};
+pub use diag::{DiagCode, Diagnostic, Severity, Span};
+pub use fmt::format_file;
 pub use lower::{lower_file, lower_file_with_catalog, Lowered};
+pub use parser::parse_file;
 pub use project::{canonical_source_set, merge_project, SourceFile};
 #[cfg(feature = "std")]
 pub use project::{compile_project_dir, parse_native_surface};
-pub use diag::{DiagCode, Diagnostic, Severity, Span};
-pub use fmt::format_file;
-pub use parser::parse_file;
 
 #[cfg(test)]
 mod tests {
@@ -335,8 +335,8 @@ Routes {
 
         // The freshly built program passes the full loader-side validation
         // (schema gate, hash recomputation, symbol canonicality, refs, budgets).
-        let reader = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&a.nxir)
-            .expect("reads back");
+        let reader =
+            nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&a.nxir).expect("reads back");
         let root = reader.root().expect("root");
         nexus_dsl_ir::validate::validate_program(root).expect("validates");
     }

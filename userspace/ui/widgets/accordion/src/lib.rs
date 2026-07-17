@@ -197,7 +197,12 @@ mod tests {
     use nexus_theme_tokens::BaseTokens;
 
     fn body() -> LayoutNode {
-        LayoutNode::Spacer(Sp { id: None, flex_grow: 0, min_size: Some(FxPx::new(20)), item: FlexItem::default() })
+        LayoutNode::Spacer(Sp {
+            id: None,
+            flex_grow: 0,
+            min_size: Some(FxPx::new(20)),
+            item: FlexItem::default(),
+        })
     }
 
     #[test]

@@ -234,7 +234,11 @@ pub enum ShapeKind {
     /// A pre-rasterized straight-alpha RGBA sprite (build-time baked app-icon
     /// artwork). `w × h` pixels, `[r,g,b,a]` per pixel, row-major; the
     /// painter samples nearest, so any box size renders.
-    Raster { w: u16, h: u16, rgba: &'static [u8] },
+    Raster {
+        w: u16,
+        h: u16,
+        rgba: &'static [u8],
+    },
 }
 
 /// Visual style attached to container and text nodes.

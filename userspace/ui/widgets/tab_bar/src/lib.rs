@@ -13,8 +13,7 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use nexus_layout_types::{
-    Align, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, Overflow, Stack,
-    VisualStyle,
+    Align, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, Overflow, Stack, VisualStyle,
 };
 use nexus_style::Style;
 use nexus_theme_tokens::{ColorToken, LengthToken, Tokens, TypographyToken};
@@ -99,12 +98,10 @@ impl TabBar {
 
     /// Build the tab-bar node.
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        let radius = if self.floating {
-            tokens.length(LengthToken::RadiusLarge)
-        } else {
-            FxPx::ZERO
-        };
-        let style = Style::new().background(tokens.color(ColorToken::SurfaceVariant)).rounded(radius);
+        let radius =
+            if self.floating { tokens.length(LengthToken::RadiusLarge) } else { FxPx::ZERO };
+        let style =
+            Style::new().background(tokens.color(ColorToken::SurfaceVariant)).rounded(radius);
 
         let active = self.active;
         let mut slots: Vec<LayoutNode> = Vec::with_capacity(self.tabs.len());
@@ -144,7 +141,11 @@ mod tests {
         let t = BaseTokens;
         let bar = TabBar::new()
             .active(1)
-            .tabs(alloc::vec![TabItem::new("Start"), TabItem::new("Nachrichten"), TabItem::new("Profil")])
+            .tabs(alloc::vec![
+                TabItem::new("Start"),
+                TabItem::new("Nachrichten"),
+                TabItem::new("Profil")
+            ])
             .build(&t);
         let label_color = |slot: &LayoutNode| match slot {
             LayoutNode::Stack(_, _, col) => match col.last().unwrap() {

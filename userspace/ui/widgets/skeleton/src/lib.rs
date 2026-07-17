@@ -207,12 +207,7 @@ impl SkeletonText {
             let last = i + 1 == self.lines;
             // The final line is visibly shorter (handoff: paragraph shape).
             let w = if last && self.lines > 1 { self.width.0 * 60 / 100 } else { self.width.0 };
-            rows.push(
-                Skeleton::new()
-                    .width(w)
-                    .height(self.line_height.0)
-                    .build(tokens),
-            );
+            rows.push(Skeleton::new().width(w).height(self.line_height.0).build(tokens));
         }
         LayoutNode::Stack(
             Stack {

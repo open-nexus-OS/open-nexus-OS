@@ -50,8 +50,7 @@ pub fn texts(scene: &nexus_layout_types::LayoutNode) -> Vec<String> {
 /// The program's i18n key table (key index → symbol id) for locale sources.
 #[must_use]
 pub fn i18n_keys(nxir: &[u8]) -> Vec<u32> {
-    let reader =
-        nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir).expect("reads");
+    let reader = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir).expect("reads");
     reader
         .root()
         .expect("root")

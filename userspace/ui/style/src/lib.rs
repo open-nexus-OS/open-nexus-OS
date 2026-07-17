@@ -25,9 +25,7 @@
 //! This is the modifier vocabulary a future DSL emits — so `Style` is pure and
 //! data-only (no rendering, no app state).
 
-use nexus_layout_types::{
-    BoxShadow, CornerRadius, EdgeBorder, Fraction, FxPx, Rgba8, VisualStyle,
-};
+use nexus_layout_types::{BoxShadow, CornerRadius, EdgeBorder, Fraction, FxPx, Rgba8, VisualStyle};
 use nexus_theme_tokens::{ColorToken, LengthToken, Tokens};
 
 pub mod state;

@@ -88,8 +88,7 @@ fn expect_ack_ok(bytes: &[u8]) {
 /// Returns (row pk ids, next token) from a QueryResponse.
 fn read_page(bytes: &[u8]) -> (Vec<i64>, Vec<u8>) {
     let message = capnp::serialize::read_message(bytes, Default::default()).expect("read");
-    let response =
-        message.get_root::<ws::query_response::Reader<'_>>().expect("root");
+    let response = message.get_root::<ws::query_response::Reader<'_>>().expect("root");
     match response.which().expect("union") {
         ws::query_response::Which::Ok(page) => {
             let page = page.expect("page");
@@ -109,8 +108,7 @@ fn read_page(bytes: &[u8]) -> (Vec<i64>, Vec<u8>) {
 
 fn read_query_err(bytes: &[u8]) -> ws::QueryErr {
     let message = capnp::serialize::read_message(bytes, Default::default()).expect("read");
-    let response =
-        message.get_root::<ws::query_response::Reader<'_>>().expect("root");
+    let response = message.get_root::<ws::query_response::Reader<'_>>().expect("root");
     match response.which().expect("union") {
         ws::query_response::Which::Err(e) => e.expect("err enum"),
         ws::query_response::Which::Ok(_) => panic!("expected error"),
@@ -139,8 +137,7 @@ fn keyset_paging_walks_through_the_wire() {
     let mut all = Vec::new();
     let mut token: Vec<u8> = Vec::new();
     loop {
-        let (ids, next) =
-            read_page(&server.handle_frame("app.demo", &query_frame(1, 3, &token)));
+        let (ids, next) = read_page(&server.handle_frame("app.demo", &query_frame(1, 3, &token)));
         all.extend(ids);
         if next.is_empty() {
             break;

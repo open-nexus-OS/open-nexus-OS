@@ -202,8 +202,7 @@ fn greeter_login_flow_is_tappable_end_to_end() {
         }
     }
 
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../apps/greeter");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/greeter");
     let nxir = nexus_dsl_core::compile_project_dir(&root).expect("greeter compiles");
     let device = FixtureEnv::default();
     let tokens = nexus_theme_tokens::BaseTokens;
@@ -255,8 +254,7 @@ fn greeter_login_flow_is_tappable_end_to_end() {
     // failed-submit re-emit forever). Rounds stay bounded.
     let mut tap_hits = 0usize;
     'outer: for _round in 0..6 {
-        let handler_ids: Vec<usize> =
-            view.handlers().iter().rev().map(|(id, _)| *id).collect();
+        let handler_ids: Vec<usize> = view.handlers().iter().rev().map(|(id, _)| *id).collect();
         assert!(
             !handler_ids.is_empty(),
             "greeter registered no handlers:\n{}",
@@ -358,10 +356,7 @@ Page Main {
         .find(|bx| bx.node_id == *button_box)
         .unwrap_or_else(|| panic!("button box missing:\n{dump}"));
     let right = b.rect.x.as_i32() + b.rect.width.as_i32();
-    assert!(
-        right > 1280 - 64,
-        "Apps button must sit at the right edge (right={right}):\n{dump}"
-    );
+    assert!(right > 1280 - 64, "Apps button must sit at the right edge (right={right}):\n{dump}");
 }
 
 /// Kit exposure (TASK-0073/0074): every design-system widget the DSL exposes
@@ -446,8 +441,8 @@ fn shell_app_grid_tiles_launch_and_hover() {
                             (self.id_sym, Value::Str(id.into())),
                             (self.label_sym, Value::Str(label.into())),
                             (self.icon_sym, Value::Str("star".into())),
-                        (self.icon_top_sym, Value::Str("#4ade80".into())),
-                        (self.icon_bottom_sym, Value::Str("#15803d".into())),
+                            (self.icon_top_sym, Value::Str("#4ade80".into())),
+                            (self.icon_bottom_sym, Value::Str("#15803d".into())),
                             (self.icon_top_sym, Value::Str("#4ade80".into())),
                             (self.icon_bottom_sym, Value::Str("#15803d".into())),
                             (self.icon_art_sym, Value::Str("".into())),
@@ -468,15 +463,16 @@ fn shell_app_grid_tiles_launch_and_hover() {
         }
     }
 
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../apps/desktop-shell");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop-shell");
     let nxir = nexus_dsl_core::compile_project_dir(&root).expect("desktop-shell compiles");
     let program_symbols: Vec<String> =
         nexus_dsl_runtime::Runtime::mount(&nxir).expect("mounts runtime").symbols().to_vec();
     let sym = |name: &str| {
-        program_symbols.iter().position(|s| s == name).unwrap_or_else(|| {
-            panic!("symbol '{name}' missing from the compiled shell")
-        }) as u32
+        program_symbols
+            .iter()
+            .position(|s| s == name)
+            .unwrap_or_else(|| panic!("symbol '{name}' missing from the compiled shell"))
+            as u32
     };
     let mut host = FakeRegistry {
         id_sym: sym("id"),
@@ -547,8 +543,7 @@ fn shell_app_grid_tiles_launch_and_hover() {
         if cy.as_i32() < 60 || cy.as_i32() > 650 {
             continue;
         }
-        view.pointer(&tokens, &device, &locale, &mut host, &boxes, "Tap", cx, cy)
-            .expect("pointer");
+        view.pointer(&tokens, &device, &locale, &mut host, &boxes, "Tap", cx, cy).expect("pointer");
         if !host.launched.is_empty() {
             break;
         }
@@ -585,8 +580,7 @@ fn platform_override_arms_select_by_device_env() {
         }
     }
 
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../apps/desktop-shell");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop-shell");
     let nxir = nexus_dsl_core::compile_project_dir(&root).expect("desktop-shell compiles");
     let tokens = nexus_theme_tokens::BaseTokens;
     let symbols: Vec<String> = Vec::new();
@@ -678,8 +672,7 @@ fn control_center_toggles_reach_settings_set() {
         }
     }
 
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../apps/desktop-shell");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop-shell");
     let nxir = nexus_dsl_core::compile_project_dir(&root).expect("desktop-shell compiles");
     let tokens = nexus_theme_tokens::BaseTokens;
     let symbols: Vec<String> = Vec::new();
@@ -761,7 +754,6 @@ fn control_center_toggles_reach_settings_set() {
     );
 }
 
-
 #[test]
 fn grow_and_size_mods_reach_the_layout_tree() {
     let nxir = compile(
@@ -806,7 +798,6 @@ fn grow_and_size_mods_reach_the_layout_tree() {
     );
 }
 
-
 /// Drop-down panels (design_handoff_launcher): `SetPanel("control")` opens
 /// the Control-Center panel as an `.overlay()` layer — 328 wide, anchored at
 /// the RIGHT edge below the top bar; dispatching the same panel again
@@ -816,8 +807,15 @@ fn grow_and_size_mods_reach_the_layout_tree() {
 fn real_shell_control_panel_overlays_top_right() {
     struct NoServices;
     impl nexus_dsl_runtime::EffectHost for NoServices {
-        fn call(&mut self, _s: &str, _m: &str, _a: &[nexus_dsl_runtime::Value], _t: u32)
-            -> Result<nexus_dsl_runtime::Value, u32> { Err(0) }
+        fn call(
+            &mut self,
+            _s: &str,
+            _m: &str,
+            _a: &[nexus_dsl_runtime::Value],
+            _t: u32,
+        ) -> Result<nexus_dsl_runtime::Value, u32> {
+            Err(0)
+        }
     }
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop-shell");
     let nxir = nexus_dsl_core::compile_project_dir(&root).expect("compiles");
@@ -848,13 +846,29 @@ fn real_shell_control_panel_overlays_top_right() {
             .map(|b| (b.rect.x.as_i32(), b.rect.y.as_i32()))
     };
     assert!(panel_box(&layout_boxes(&view)).is_none(), "panel closed at mount");
-    view.dispatch(&tokens, &device, &locale, &mut host, e, c,
-        vec![nexus_dsl_runtime::Value::Str("control".into())]).expect("open");
+    view.dispatch(
+        &tokens,
+        &device,
+        &locale,
+        &mut host,
+        e,
+        c,
+        vec![nexus_dsl_runtime::Value::Str("control".into())],
+    )
+    .expect("open");
     let opened = panel_box(&layout_boxes(&view)).expect("control panel visible top-right");
     assert!(opened.1 >= 40, "panel anchored below the top bar (y={})", opened.1);
     // Toggle: the SAME panel id closes it.
-    view.dispatch(&tokens, &device, &locale, &mut host, e, c,
-        vec![nexus_dsl_runtime::Value::Str("control".into())]).expect("toggle");
+    view.dispatch(
+        &tokens,
+        &device,
+        &locale,
+        &mut host,
+        e,
+        c,
+        vec![nexus_dsl_runtime::Value::Str("control".into())],
+    )
+    .expect("toggle");
     assert!(panel_box(&layout_boxes(&view)).is_none(), "panel toggled closed");
 }
 
@@ -872,8 +886,15 @@ fn real_shell_control_panel_overlays_top_right() {
 fn real_shell_selects_compact_and_regular_dock_families() {
     struct NoServices;
     impl nexus_dsl_runtime::EffectHost for NoServices {
-        fn call(&mut self, _s: &str, _m: &str, _a: &[nexus_dsl_runtime::Value], _t: u32)
-            -> Result<nexus_dsl_runtime::Value, u32> { Err(0) }
+        fn call(
+            &mut self,
+            _s: &str,
+            _m: &str,
+            _a: &[nexus_dsl_runtime::Value],
+            _t: u32,
+        ) -> Result<nexus_dsl_runtime::Value, u32> {
+            Err(0)
+        }
     }
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop-shell");
     let nxir = nexus_dsl_core::compile_project_dir(&root).expect("compiles");
@@ -896,10 +917,8 @@ fn real_shell_selects_compact_and_regular_dock_families() {
             )
             .expect("lays out");
         // The dock family sits at the BOTTOM at every width class.
-        let dock_bottom = layout
-            .boxes
-            .iter()
-            .any(|b| b.rect.y.as_i32() > 650 && b.rect.height.as_i32() > 30);
+        let dock_bottom =
+            layout.boxes.iter().any(|b| b.rect.y.as_i32() > 650 && b.rect.height.as_i32() > 30);
         assert!(dock_bottom, "{size_class}@{w}: dock family not at the bottom");
     }
 }
@@ -908,8 +927,15 @@ fn real_shell_selects_compact_and_regular_dock_families() {
 fn real_shell_column_grows_on_tablet() {
     struct NoServices;
     impl nexus_dsl_runtime::EffectHost for NoServices {
-        fn call(&mut self, _s: &str, _m: &str, _a: &[nexus_dsl_runtime::Value], _t: u32)
-            -> Result<nexus_dsl_runtime::Value, u32> { Err(0) }
+        fn call(
+            &mut self,
+            _s: &str,
+            _m: &str,
+            _a: &[nexus_dsl_runtime::Value],
+            _t: u32,
+        ) -> Result<nexus_dsl_runtime::Value, u32> {
+            Err(0)
+        }
     }
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop-shell");
     let nxir = nexus_dsl_core::compile_project_dir(&root).expect("compiles");
@@ -932,13 +958,18 @@ fn real_shell_column_grows_on_tablet() {
         .expect("lays out");
     let mut dump = String::new();
     for b in layout.boxes.iter().take(8) {
-        dump.push_str(&format!("node={} y={} h={}\n", b.node_id, b.rect.y.as_i32(), b.rect.height.as_i32()));
+        dump.push_str(&format!(
+            "node={} y={} h={}\n",
+            b.node_id,
+            b.rect.y.as_i32(),
+            b.rect.height.as_i32()
+        ));
     }
     // The dock row must sit at the BOTTOM (y > 700).
-    let dock_bottom = layout.boxes.iter().any(|b| b.rect.y.as_i32() > 700 && b.rect.height.as_i32() > 40);
+    let dock_bottom =
+        layout.boxes.iter().any(|b| b.rect.y.as_i32() > 700 && b.rect.height.as_i32() > 40);
     assert!(dock_bottom, "dock not at the bottom; first boxes:\n{dump}");
 }
-
 
 #[test]
 fn shell_grid_tiles_lay_out_in_a_row() {
@@ -951,8 +982,13 @@ fn shell_grid_tiles_lay_out_in_a_row() {
         icon_art_sym: u32,
     }
     impl nexus_dsl_runtime::EffectHost for Registry {
-        fn call(&mut self, svc: &str, method: &str, _a: &[nexus_dsl_runtime::Value], _t: u32)
-            -> Result<nexus_dsl_runtime::Value, u32> {
+        fn call(
+            &mut self,
+            svc: &str,
+            method: &str,
+            _a: &[nexus_dsl_runtime::Value],
+            _t: u32,
+        ) -> Result<nexus_dsl_runtime::Value, u32> {
             use nexus_dsl_runtime::Value;
             if (svc, method) == ("bundlemgr", "enumerate") {
                 let row = |id: &str, label: &str| {
@@ -968,7 +1004,10 @@ fn shell_grid_tiles_lay_out_in_a_row() {
                     Value::Record(fields)
                 };
                 return Ok(Value::List(vec![
-                    row("a", "Alpha"), row("b", "Beta"), row("c", "Gamma"), row("d", "Delta"),
+                    row("a", "Alpha"),
+                    row("b", "Beta"),
+                    row("c", "Gamma"),
+                    row("d", "Delta"),
                 ]));
             }
             Err(0)
@@ -978,15 +1017,14 @@ fn shell_grid_tiles_lay_out_in_a_row() {
     let nxir = nexus_dsl_core::compile_project_dir(&root).expect("compiles");
     let symbols = symbols_of(&nxir);
     let sym = |n: &str| symbols.iter().position(|s| s == n).expect(n) as u32;
-    let mut host =
-        Registry {
-            id_sym: sym("id"),
-            label_sym: sym("label"),
-            icon_sym: sym("icon"),
-            icon_top_sym: sym("iconTop"),
-            icon_bottom_sym: sym("iconBottom"),
-            icon_art_sym: sym("iconArt"),
-        };
+    let mut host = Registry {
+        id_sym: sym("id"),
+        label_sym: sym("label"),
+        icon_sym: sym("icon"),
+        icon_top_sym: sym("iconTop"),
+        icon_bottom_sym: sym("iconBottom"),
+        icon_art_sym: sym("iconArt"),
+    };
     let device = nexus_dsl_runtime::FixtureEnv::tablet("landscape");
     let tokens = nexus_theme_tokens::BaseTokens;
     let keys: Vec<u32> = Vec::new();
@@ -1016,12 +1054,8 @@ fn shell_grid_tiles_lay_out_in_a_row() {
         .collect();
     assert!(tiles.len() >= 4, "expected 4 grid tiles, got {tiles:?}");
     let first_y = tiles[0].1;
-    assert!(
-        tiles.iter().all(|(_, y)| *y == first_y),
-        "grid tiles must share one row: {tiles:?}"
-    );
+    assert!(tiles.iter().all(|(_, y)| *y == first_y), "grid tiles must share one row: {tiles:?}");
 }
-
 
 #[test]
 fn widget_modifiers_survive_inside_branch_arms() {
@@ -1061,7 +1095,6 @@ Page Main {
     }
     assert!(find_row(view.scene()), "the branch-arm Stack lost its .direction(row)");
 }
-
 
 #[test]
 fn list_modifiers_survive_inside_branch_arms() {

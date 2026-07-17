@@ -112,7 +112,11 @@ impl Pagination {
         let page = self.page;
         let mut row: Vec<LayoutNode> = Vec::new();
         // Prev.
-        row.push(Self::pill(tokens, Text::new("‹").color(ColorToken::OnSurface).build(tokens), false));
+        row.push(Self::pill(
+            tokens,
+            Text::new("‹").color(ColorToken::OnSurface).build(tokens),
+            false,
+        ));
         // Page pills.
         for slot in self.visible_pages() {
             match slot {
@@ -128,7 +132,11 @@ impl Pagination {
             }
         }
         // Next.
-        row.push(Self::pill(tokens, Text::new("›").color(ColorToken::OnSurface).build(tokens), false));
+        row.push(Self::pill(
+            tokens,
+            Text::new("›").color(ColorToken::OnSurface).build(tokens),
+            false,
+        ));
 
         LayoutNode::Stack(
             Stack {

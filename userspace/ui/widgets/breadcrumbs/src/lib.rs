@@ -82,7 +82,11 @@ mod tests {
     #[test]
     fn interleaves_separators_and_bolds_the_last() {
         let t = BaseTokens;
-        let items = alloc::vec![String::from("Home"), String::from("Dokumente"), String::from("Bericht.pdf")];
+        let items = alloc::vec![
+            String::from("Home"),
+            String::from("Dokumente"),
+            String::from("Bericht.pdf")
+        ];
         match Breadcrumbs::new(items).id("path").build(&t) {
             LayoutNode::Stack(stack, _, children) => {
                 assert_eq!(stack.id, Some("path"));
@@ -98,7 +102,9 @@ mod tests {
                 }
                 // first crumb is accent (a link).
                 match &children[0] {
-                    LayoutNode::Text(n, _) => assert_eq!(n.style.color, t.color(ColorToken::Accent)),
+                    LayoutNode::Text(n, _) => {
+                        assert_eq!(n.style.color, t.color(ColorToken::Accent))
+                    }
                     _ => panic!(),
                 }
             }

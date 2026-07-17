@@ -88,9 +88,8 @@ fn rle_encode(bgra: &[u8], width: u32, height: u32) -> (Vec<u8>, Vec<u32>) {
                 data.push(0b1100_0000 | (run - 1));
                 run = 0;
             }
-            let hash =
-                ((px[2] as usize * 3 + px[1] as usize * 5 + px[0] as usize * 7 + 255 * 11) % 64)
-                    as usize;
+            let hash = ((px[2] as usize * 3 + px[1] as usize * 5 + px[0] as usize * 7 + 255 * 11)
+                % 64) as usize;
             if index[hash] == px {
                 data.push(hash as u8); // QOI_OP_INDEX (top bits 00)
                 prev = px;
@@ -110,7 +109,9 @@ fn rle_encode(bgra: &[u8], width: u32, height: u32) -> (Vec<u8>, Vec<u32>) {
             } else {
                 let dr_dg = dr - dg;
                 let db_dg = db - dg;
-                if (-32..=31).contains(&dg) && (-8..=7).contains(&dr_dg) && (-8..=7).contains(&db_dg)
+                if (-32..=31).contains(&dg)
+                    && (-8..=7).contains(&dr_dg)
+                    && (-8..=7).contains(&db_dg)
                 {
                     data.push(0b1000_0000 | ((dg + 32) as u8));
                     data.push((((dr_dg + 8) as u8) << 4) | ((db_dg + 8) as u8));

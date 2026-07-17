@@ -280,8 +280,7 @@ impl Engine {
                     decode_row(value).ok_or(QueryError::Corrupt)?
                 } else {
                     // Index entry: value = pk_key; fetch the primary row.
-                    let bytes =
-                        kv.get(&row_key(spec.table, value)).ok_or(QueryError::Corrupt)?;
+                    let bytes = kv.get(&row_key(spec.table, value)).ok_or(QueryError::Corrupt)?;
                     decode_row(&bytes).ok_or(QueryError::Corrupt)?
                 };
                 if row.len() != def.columns.len() {
@@ -306,11 +305,7 @@ impl Engine {
             }
         }
 
-        let next = if has_more {
-            last_key.map(|k| PageToken::new(query_hash, &k))
-        } else {
-            None
-        };
+        let next = if has_more { last_key.map(|k| PageToken::new(query_hash, &k)) } else { None };
         Ok(Page { rows, next })
     }
 
@@ -360,12 +355,7 @@ mod tests {
     }
 
     fn user(id: i64, name: &str, age: i64, active: bool) -> Vec<QVal> {
-        vec![
-            QVal::Int(id),
-            QVal::Str(String::from(name)),
-            QVal::Int(age),
-            QVal::Bool(active),
-        ]
+        vec![QVal::Int(id), QVal::Str(String::from(name)), QVal::Int(age), QVal::Bool(active)]
     }
 
     fn seeded() -> (Engine, MemKv) {
@@ -386,15 +376,9 @@ mod tests {
     #[test]
     fn get_put_replace_roundtrip() {
         let (engine, mut kv) = seeded();
-        assert_eq!(
-            engine.get(&kv, 1, &QVal::Int(3)).unwrap(),
-            Some(user(3, "cara", 41, true))
-        );
+        assert_eq!(engine.get(&kv, 1, &QVal::Int(3)).unwrap(), Some(user(3, "cara", 41, true)));
         engine.put(&mut kv, 1, &user(3, "cara", 42, true)).unwrap();
-        assert_eq!(
-            engine.get(&kv, 1, &QVal::Int(3)).unwrap(),
-            Some(user(3, "cara", 42, true))
-        );
+        assert_eq!(engine.get(&kv, 1, &QVal::Int(3)).unwrap(), Some(user(3, "cara", 42, true)));
     }
 
     #[test]
@@ -408,10 +392,7 @@ mod tests {
         let spec = QuerySpec {
             table: 1,
             eq: vec![],
-            range: Some(crate::spec::Range {
-                low: Some(QVal::Int(41)),
-                high: Some(QVal::Int(41)),
-            }),
+            range: Some(crate::spec::Range { low: Some(QVal::Int(41)), high: Some(QVal::Int(41)) }),
             order_col: 2,
             descending: false,
             limit: 10,
@@ -467,10 +448,7 @@ mod tests {
         let spec = QuerySpec {
             table: 1,
             eq: vec![],
-            range: Some(crate::spec::Range {
-                low: Some(QVal::Int(29)),
-                high: Some(QVal::Int(35)),
-            }),
+            range: Some(crate::spec::Range { low: Some(QVal::Int(29)), high: Some(QVal::Int(35)) }),
             order_col: 2,
             descending: true,
             limit: 10,
@@ -520,10 +498,7 @@ mod tests {
             // order on an unindexed column (name = col 1)
             (QuerySpec { order_col: 1, ..base.clone() }, QueryError::Unsupported),
             (QuerySpec { order_col: 7, ..base.clone() }, QueryError::UnknownColumn),
-            (
-                QuerySpec { eq: vec![(1, QVal::Int(3))], ..base.clone() },
-                QueryError::TypeMismatch,
-            ),
+            (QuerySpec { eq: vec![(1, QVal::Int(3))], ..base.clone() }, QueryError::TypeMismatch),
         ];
         for (spec, want) in cases {
             assert_eq!(engine.query(&kv, &spec, None).unwrap_err(), want);
@@ -544,10 +519,7 @@ mod tests {
         let spec_b = QuerySpec { limit: 3, ..spec_a.clone() };
         let page = engine.query(&kv, &spec_a, None).unwrap();
         let token = page.next.expect("has more");
-        assert_eq!(
-            engine.query(&kv, &spec_b, Some(&token)).unwrap_err(),
-            QueryError::BadToken
-        );
+        assert_eq!(engine.query(&kv, &spec_b, Some(&token)).unwrap_err(), QueryError::BadToken);
         // The minting query accepts it.
         assert!(engine.query(&kv, &spec_a, Some(&token)).is_ok());
     }

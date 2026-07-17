@@ -134,7 +134,9 @@ impl GlassButton {
             }
             variant => {
                 let base = match variant {
-                    ButtonVariant::Default | ButtonVariant::Active => tokens.color(ColorToken::Accent),
+                    ButtonVariant::Default | ButtonVariant::Active => {
+                        tokens.color(ColorToken::Accent)
+                    }
                     ButtonVariant::Destructive => tokens.color(ColorToken::Danger),
                     ButtonVariant::Secondary => tokens.color(ColorToken::SurfaceVariant),
                     ButtonVariant::Glass => {

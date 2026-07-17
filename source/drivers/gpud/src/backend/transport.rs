@@ -120,10 +120,7 @@ impl VirtioGpuBackend {
     /// wall-clock re-evaluation (the serialized-500ms black screen).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn ctrl_ring_congested(&self) -> bool {
-        self.ctrlq
-            .as_ref()
-            .map(|q| q.ring.in_flight() * 2 > q.ring.capacity())
-            .unwrap_or(false)
+        self.ctrlq.as_ref().map(|q| q.ring.in_flight() * 2 > q.ring.capacity()).unwrap_or(false)
     }
 
     /// End the batch — **pipelined: does NOT block**. Clears the batch flag and
@@ -232,7 +229,11 @@ impl VirtioGpuBackend {
         Ok((backing_va, info.base, backing_len, backing_vmo))
     }
 
-    pub(crate) fn transfer_to_host_os(&mut self, record: ResourceRecord, rect: Rect) -> Result<(), GfxError> {
+    pub(crate) fn transfer_to_host_os(
+        &mut self,
+        record: ResourceRecord,
+        rect: Rect,
+    ) -> Result<(), GfxError> {
         let bytes_per_pixel = 4u64;
         let row_stride = u64::from(record.width)
             .checked_mul(bytes_per_pixel)
@@ -257,7 +258,11 @@ impl VirtioGpuBackend {
         self.ctrl_submit_struct(&cmd)
     }
 
-    pub(crate) fn flush_rect_os(&mut self, record: ResourceRecord, rect: Rect) -> Result<(), GfxError> {
+    pub(crate) fn flush_rect_os(
+        &mut self,
+        record: ResourceRecord,
+        rect: Rect,
+    ) -> Result<(), GfxError> {
         let cmd = protocol::VirtioGpuResourceFlush {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_FLUSH),
             r: protocol::VirtioGpuRect {
@@ -361,5 +366,4 @@ impl VirtioGpuBackend {
         let queue = self.ctrlq.as_mut()?;
         queue.submit_display_info_query(mmio, bytes).ok()
     }
-
 }

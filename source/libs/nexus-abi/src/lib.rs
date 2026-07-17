@@ -727,7 +727,10 @@ pub mod bundlemgrd {
         fn get_payload_round_trip() {
             let mut buf = [0u8; 64];
             let n = encode_get_payload(b"counter", &mut buf).unwrap();
-            assert_eq!(&buf[..n], &[b'B', b'N', 1, OP_GET_PAYLOAD, 7, b'c', b'o', b'u', b'n', b't', b'e', b'r']);
+            assert_eq!(
+                &buf[..n],
+                &[b'B', b'N', 1, OP_GET_PAYLOAD, 7, b'c', b'o', b'u', b'n', b't', b'e', b'r']
+            );
             assert_eq!(decode_get_payload(&buf[..n]).unwrap(), b"counter");
             // Truncated / empty ids rejected.
             assert!(decode_get_payload(&buf[..n - 1]).is_none());
@@ -929,16 +932,8 @@ pub mod sessiond {
 
         #[test]
         fn get_state_rsp_header_roundtrip() {
-            let rsp = [
-                b'S',
-                b'N',
-                1,
-                OP_GET_STATE | 0x80,
-                STATUS_OK,
-                STATE_GREETER,
-                NO_ACTIVE_USER,
-                1,
-            ];
+            let rsp =
+                [b'S', b'N', 1, OP_GET_STATE | 0x80, STATUS_OK, STATE_GREETER, NO_ACTIVE_USER, 1];
             assert_eq!(
                 decode_get_state_header(&rsp),
                 Some((STATUS_OK, STATE_GREETER, NO_ACTIVE_USER, 1))
@@ -952,10 +947,27 @@ pub mod sessiond {
         fn login_roundtrip() {
             let mut req = [0u8; 64];
             let len = encode_login_req(b"jenning", &mut req).unwrap();
-            assert_eq!(&req[..len], &[b'S', b'N', 1, OP_LOGIN, 7, b'j', b'e', b'n', b'n', b'i', b'n', b'g']);
+            assert_eq!(
+                &req[..len],
+                &[b'S', b'N', 1, OP_LOGIN, 7, b'j', b'e', b'n', b'n', b'i', b'n', b'g']
+            );
             assert_eq!(decode_login_req(&req[..len]).unwrap(), b"jenning");
 
-            let rsp = [b'S', b'N', 1, OP_LOGIN | 0x80, STATUS_OK, 7, b'd', b'e', b'f', b'a', b'u', b'l', b't'];
+            let rsp = [
+                b'S',
+                b'N',
+                1,
+                OP_LOGIN | 0x80,
+                STATUS_OK,
+                7,
+                b'd',
+                b'e',
+                b'f',
+                b'a',
+                b'u',
+                b'l',
+                b't',
+            ];
             let (status, product) = decode_login_rsp(&rsp).unwrap();
             assert_eq!(status, STATUS_OK);
             assert_eq!(product, b"default");
@@ -2444,11 +2456,7 @@ fn marker_is_failure(b: &[u8]) -> bool {
     // which false-flagged routine lines like `audit emit deferred` / `interrupt` as failures and so
     // forced them to print raw instead of folding. The real failure markers all use one of these
     // token forms (`recv error`, `registry recv err`, `err={err}`).
-    has(b, b"error")
-        || has(b, b" err")
-        || has(b, b"err=")
-        || has(b, b"FAIL")
-        || has(b, b"denied")
+    has(b, b"error") || has(b, b" err") || has(b, b"err=") || has(b, b"FAIL") || has(b, b"denied")
 }
 
 /// Tally one of this service's markers; returns `true` when the caller should SUPPRESS the line
@@ -3079,13 +3087,7 @@ pub mod thread {
             }
             let handle = as_self()?;
             // Same-AS spawns start suspended by kernel contract.
-            spawn(
-                __nexus_thread_trampoline as usize as u64,
-                sp as u64,
-                handle as u64,
-                0,
-                gp as u64,
-            )
+            spawn(__nexus_thread_trampoline as usize as u64, sp as u64, handle as u64, 0, gp as u64)
         }
         #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
         {

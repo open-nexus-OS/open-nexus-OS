@@ -30,7 +30,7 @@ pub use splice::{
     splice_fits, INLINE_IO_MAX, OP_READ_VMO, SPLICE_DATA_OFFSET, SPLICE_HEADER_LEN, SPLICE_MAGIC,
 };
 pub use wire::{
-    decode_readdir_request, decode_readdir_response, encode_readdir_error,
-    encode_readdir_page, encode_readdir_request, encode_readdir_response, ReadDirPage,
-    ReadDirRequest, MAX_READDIR_RESPONSE_BYTES,
+    decode_readdir_request, decode_readdir_response, encode_readdir_error, encode_readdir_page,
+    encode_readdir_request, encode_readdir_response, ReadDirPage, ReadDirRequest,
+    MAX_READDIR_RESPONSE_BYTES,
 };

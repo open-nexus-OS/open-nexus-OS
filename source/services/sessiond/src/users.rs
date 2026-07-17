@@ -129,12 +129,9 @@ pub fn parse_users_manifest(input: &str) -> Result<UserRegistry, UsersError> {
         return Err(UsersError::InvalidManifest);
     }
     let auto_login = match auto_login_id {
-        Some(id) => Some(
-            users
-                .iter()
-                .position(|u| u.id == id)
-                .ok_or(UsersError::UnknownAutoLogin)?,
-        ),
+        Some(id) => {
+            Some(users.iter().position(|u| u.id == id).ok_or(UsersError::UnknownAutoLogin)?)
+        }
         None => None,
     };
     Ok(UserRegistry { users, auto_login })
@@ -202,10 +199,7 @@ auto_login = "ghost"
 display_name = "A"
 product = "default"
 "#;
-        assert_eq!(
-            parse_users_manifest(manifest),
-            Err(UsersError::UnknownAutoLogin)
-        );
+        assert_eq!(parse_users_manifest(manifest), Err(UsersError::UnknownAutoLogin));
     }
 
     #[test]

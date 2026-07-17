@@ -198,7 +198,9 @@ impl TextArea {
             .error
             .clone()
             .map(|e| Self::caption(tokens, e, ColorToken::Danger))
-            .or_else(|| self.helper.clone().map(|h| Self::caption(tokens, h, ColorToken::OnSurfaceVariant)));
+            .or_else(|| {
+                self.helper.clone().map(|h| Self::caption(tokens, h, ColorToken::OnSurfaceVariant))
+            });
         let counter = (self.show_count && self.max_length.is_some()).then(|| {
             let n = self.value.chars().count();
             Self::caption(

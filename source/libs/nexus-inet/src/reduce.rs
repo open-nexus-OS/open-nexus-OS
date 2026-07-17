@@ -339,8 +339,7 @@ mod tests {
                         let chunk = chunk_bounds(redexes.len(), workers, idx);
                         handles.push(scope.spawn(move || {
                             let mut out = RoundOut::default();
-                            reduce_chunk(net, redexes, chunk.0, chunk.1, &mut out)
-                                .expect("chunk");
+                            reduce_chunk(net, redexes, chunk.0, chunk.1, &mut out).expect("chunk");
                             out
                         }));
                     }

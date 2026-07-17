@@ -40,8 +40,7 @@ impl Contract for HidrawdContract {
     }
 
     fn run(&mut self, bus: &mut SimIpcBus) -> Result<(), ContractError> {
-        let id =
-            self.id.ok_or_else(|| ContractError::new(ServiceId(0), "hidrawd: id not set"))?;
+        let id = self.id.ok_or_else(|| ContractError::new(ServiceId(0), "hidrawd: id not set"))?;
 
         bus.emit_marker(id, "hidrawd: os service payload ready");
         bus.emit_marker(id, "hidrawd: ready");

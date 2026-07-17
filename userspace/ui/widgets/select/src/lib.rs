@@ -109,11 +109,8 @@ impl Select {
 
     /// Build the select trigger node.
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        let border = if self.state.shows_focus_ring() {
-            ColorToken::FocusRing
-        } else {
-            ColorToken::Border
-        };
+        let border =
+            if self.state.shows_focus_ring() { ColorToken::FocusRing } else { ColorToken::Border };
         let mut style = Style::new()
             .background(tokens.color(ColorToken::Surface))
             .rounded(tokens.length(LengthToken::RadiusMedium))

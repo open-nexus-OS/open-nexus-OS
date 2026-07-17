@@ -263,9 +263,16 @@ mod tests {
         let mut binder = OkBinder { next_win: 1 };
         let mut steps = Vec::new();
 
-        let outcome =
-            launch_app(&mut broker, &ActiveGate, &catalog(), &mut spawner, &mut binder, "search", &mut steps)
-                .expect("launch ok");
+        let outcome = launch_app(
+            &mut broker,
+            &ActiveGate,
+            &catalog(),
+            &mut spawner,
+            &mut binder,
+            "search",
+            &mut steps,
+        )
+        .expect("launch ok");
 
         assert_eq!(outcome.app_id, "search");
         assert_eq!(outcome.pid, 1000);
@@ -290,8 +297,16 @@ mod tests {
         let mut spawner = OkSpawner { next_pid: 1 };
         let mut binder = OkBinder { next_win: 1 };
         let mut steps = Vec::new();
-        let err = launch_app(&mut broker, &ActiveGate, &catalog(), &mut spawner, &mut binder, "ghost", &mut steps)
-            .unwrap_err();
+        let err = launch_app(
+            &mut broker,
+            &ActiveGate,
+            &catalog(),
+            &mut spawner,
+            &mut binder,
+            "ghost",
+            &mut steps,
+        )
+        .unwrap_err();
         assert_eq!(err, HandoffError::NotInstalled);
         assert!(broker.is_empty(), "no instance registered for unknown app");
         assert!(steps.is_empty());
@@ -303,8 +318,16 @@ mod tests {
         let mut spawner = FailSpawner;
         let mut binder = OkBinder { next_win: 1 };
         let mut steps = Vec::new();
-        let err = launch_app(&mut broker, &ActiveGate, &catalog(), &mut spawner, &mut binder, "chat", &mut steps)
-            .unwrap_err();
+        let err = launch_app(
+            &mut broker,
+            &ActiveGate,
+            &catalog(),
+            &mut spawner,
+            &mut binder,
+            "chat",
+            &mut steps,
+        )
+        .unwrap_err();
         assert_eq!(err, HandoffError::SpawnFailed);
         // Instance was registered then stopped (terminal), never foregrounded.
         assert_eq!(steps, vec![HandoffStep::Resolved { app_id: "chat".into() }]);
@@ -318,17 +341,22 @@ mod tests {
         let mut spawner = OkSpawner { next_pid: 1 };
         let mut binder = FailBinder;
         let mut steps = Vec::new();
-        let err = launch_app(&mut broker, &ActiveGate, &catalog(), &mut spawner, &mut binder, "chat", &mut steps)
-            .unwrap_err();
+        let err = launch_app(
+            &mut broker,
+            &ActiveGate,
+            &catalog(),
+            &mut spawner,
+            &mut binder,
+            "chat",
+            &mut steps,
+        )
+        .unwrap_err();
         assert_eq!(err, HandoffError::BindFailed);
         assert_eq!(broker.state(1), Some(AbilityState::Stopped));
         // Resolved + Spawned happened; Bound/Foregrounded did not.
         assert_eq!(
             steps,
-            vec![
-                HandoffStep::Resolved { app_id: "chat".into() },
-                HandoffStep::Spawned { pid: 1 },
-            ]
+            vec![HandoffStep::Resolved { app_id: "chat".into() }, HandoffStep::Spawned { pid: 1 },]
         );
     }
 

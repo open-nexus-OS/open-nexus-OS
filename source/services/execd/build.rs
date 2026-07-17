@@ -98,8 +98,7 @@ fn main() {
         caps_out.push_str("]),\n");
     }
     caps_out.push_str("];\n");
-    std::fs::write(out.join("app_manifest_caps.rs"), caps_out)
-        .expect("write app_manifest_caps.rs");
+    std::fs::write(out.join("app_manifest_caps.rs"), caps_out).expect("write app_manifest_caps.rs");
 }
 
 /// Parses `(name, caps[])` from a manifest's `name = "..."` and `caps = [...]`.

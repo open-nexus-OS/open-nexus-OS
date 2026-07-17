@@ -23,10 +23,8 @@ use crate::os_payload::*;
 /// P1: apply the declarative CPU placement (service_topology::affinity_for)
 /// right before waking the service. Best-effort: a rejected mask (e.g. all
 /// target cpus offline) leaves the inherited mask; the kernel clamps.
-static AFFINITY_APPLIED: core::sync::atomic::AtomicUsize =
-    core::sync::atomic::AtomicUsize::new(0);
-static AFFINITY_FAILED: core::sync::atomic::AtomicUsize =
-    core::sync::atomic::AtomicUsize::new(0);
+static AFFINITY_APPLIED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static AFFINITY_FAILED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
 fn apply_affinity(chan_name: &str, pid: u32) {
     let mask = crate::service_topology::affinity_for(chan_name);
@@ -104,5 +102,6 @@ pub(crate) fn resume_drivers(
                 }
             }
         }
-    }    affinity_summary();
+    }
+    affinity_summary();
 }

@@ -22,7 +22,11 @@ pub enum Value {
     Str(String),
     List(Vec<Value>),
     /// An event/enum case value.
-    Enum { event: u32, case: u32, payload: Vec<Value> },
+    Enum {
+        event: u32,
+        case: u32,
+        payload: Vec<Value>,
+    },
     /// Named-field record (field symbol id → value), field-sorted.
     Record(Vec<(u32, Value)>),
 }

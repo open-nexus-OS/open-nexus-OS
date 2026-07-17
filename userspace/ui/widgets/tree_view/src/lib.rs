@@ -111,7 +111,13 @@ impl TreeView {
         )
     }
 
-    fn push_node(&self, tokens: &dyn Tokens, node: TreeNode, depth: i32, out: &mut Vec<LayoutNode>) {
+    fn push_node(
+        &self,
+        tokens: &dyn Tokens,
+        node: TreeNode,
+        depth: i32,
+        out: &mut Vec<LayoutNode>,
+    ) {
         let selected = self.selected == Some(node.id);
         let has_children = !node.children.is_empty();
         let mut style = Style::new().rounded(tokens.length(LengthToken::RadiusSmall));
@@ -226,7 +232,8 @@ mod tests {
     #[test]
     fn selected_row_tints_accent_and_carries_id() {
         let t = BaseTokens;
-        match TreeView::new(alloc::vec![TreeNode::leaf("app", "app.rs")]).selected("app").build(&t) {
+        match TreeView::new(alloc::vec![TreeNode::leaf("app", "app.rs")]).selected("app").build(&t)
+        {
             LayoutNode::Stack(_, _, rows) => match &rows[0] {
                 LayoutNode::Stack(s, v, _) => {
                     assert_eq!(s.id, Some("app"));

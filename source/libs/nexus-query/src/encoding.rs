@@ -123,8 +123,7 @@ pub fn decode_row(bytes: &[u8]) -> Option<Vec<QVal>> {
             1 => QVal::Int(i64::from_le_bytes(take(&mut cursor, 8)?.try_into().ok()?)),
             2 => QVal::Fx(i64::from_le_bytes(take(&mut cursor, 8)?.try_into().ok()?)),
             3 => {
-                let len =
-                    u32::from_le_bytes(take(&mut cursor, 4)?.try_into().ok()?) as usize;
+                let len = u32::from_le_bytes(take(&mut cursor, 4)?.try_into().ok()?) as usize;
                 let raw = take(&mut cursor, len)?;
                 QVal::Str(String::from_utf8(raw.to_vec()).ok()?)
             }
@@ -178,8 +177,7 @@ mod tests {
 
     #[test]
     fn fx_encoding_preserves_order() {
-        let samples: [i64; 6] =
-            [i64::MIN, -(1 << 32), -(1 << 31), 0, 1 << 31, i64::MAX];
+        let samples: [i64; 6] = [i64::MIN, -(1 << 32), -(1 << 31), 0, 1 << 31, i64::MAX];
         for &a in &samples {
             for &b in &samples {
                 assert_eq!(a.cmp(&b), enc(&QVal::Fx(a)).cmp(&enc(&QVal::Fx(b))));
@@ -189,8 +187,7 @@ mod tests {
 
     #[test]
     fn str_encoding_preserves_order_including_prefix_and_nul() {
-        let samples =
-            ["", "a", "a\0", "a\0b", "aa", "ab", "b", "ba", "z", "za", "\0", "\0\0"];
+        let samples = ["", "a", "a\0", "a\0b", "aa", "ab", "b", "ba", "z", "za", "\0", "\0\0"];
         for a in samples {
             for b in samples {
                 assert_eq!(

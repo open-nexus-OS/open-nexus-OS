@@ -23,9 +23,7 @@ pub(crate) fn decode_qval(reader: ws::q_val::Reader<'_>) -> Result<QVal, QueryEr
         ws::q_val::Which::IntVal(i) => Ok(QVal::Int(i)),
         ws::q_val::Which::FxVal(f) => Ok(QVal::Fx(f)),
         ws::q_val::Which::StrVal(s) => Ok(QVal::Str(String::from(
-            s.map_err(|_| QueryError::Corrupt)?
-                .to_str()
-                .map_err(|_| QueryError::Corrupt)?,
+            s.map_err(|_| QueryError::Corrupt)?.to_str().map_err(|_| QueryError::Corrupt)?,
         ))),
     }
 }

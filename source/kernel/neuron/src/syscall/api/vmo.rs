@@ -274,9 +274,7 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
 
 /// P2 phase A (under the BKL): decode + reserve for `SYSCALL_VMO_CREATE`.
 /// Returns (base, aligned_len, needs_zero, slot_raw).
-pub(crate) fn vmo_create_reserve(
-    args: &Args,
-) -> Result<(usize, usize, bool, usize), Error> {
+pub(crate) fn vmo_create_reserve(args: &Args) -> Result<(usize, usize, bool, usize), Error> {
     let typed = VmoCreateArgsTyped::decode(args)?;
     typed.check()?;
     let (base, aligned, needs_zero) = VMO_POOL.lock().allocate_nozero(typed.len)?;
@@ -291,8 +289,7 @@ pub(crate) fn vmo_create_finish(
     aligned: usize,
     slot_raw: usize,
 ) -> SysResult<usize> {
-    let cap =
-        Capability { kind: CapabilityKind::Vmo { base, len: aligned }, rights: Rights::MAP };
+    let cap = Capability { kind: CapabilityKind::Vmo { base, len: aligned }, rights: Rights::MAP };
     let result = if slot_raw == usize::MAX {
         ctx.tasks.current_caps_mut().allocate(cap)
     } else {
@@ -509,7 +506,8 @@ impl VmoPool {
             free_list: [(0, 0); VMO_FREE_SLOTS],
             dirty_list: [(0, 0); VMO_FREE_SLOTS],
             leaked: 0,
-         zeroed_until: 0, }
+            zeroed_until: 0,
+        }
     }
 
     #[cfg(test)]

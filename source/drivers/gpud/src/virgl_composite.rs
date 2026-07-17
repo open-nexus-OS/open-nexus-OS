@@ -520,9 +520,23 @@ impl VirtioGpuBackend {
                     }
                     band_h = clamped;
                 }
-                self.virgl_transfer_to_host(ATLAS_RES, src_x, band_top_rel, src_w, band_h, FB_STRIDE)?;
+                self.virgl_transfer_to_host(
+                    ATLAS_RES,
+                    src_x,
+                    band_top_rel,
+                    src_w,
+                    band_h,
+                    FB_STRIDE,
+                )?;
             } else {
-                self.virgl_transfer_to_host(ATLAS_RES, src_x, src_row_rel, src_w, src_h, FB_STRIDE)?;
+                self.virgl_transfer_to_host(
+                    ATLAS_RES,
+                    src_x,
+                    src_row_rel,
+                    src_w,
+                    src_h,
+                    FB_STRIDE,
+                )?;
             }
         }
         // Composite the content straight onto the scanout RT (alpha-over base).

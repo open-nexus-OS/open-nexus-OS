@@ -94,12 +94,13 @@ impl ListItem {
 
     /// Build the list-row node.
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        let title_color =
-            if self.destructive { ColorToken::Danger } else { ColorToken::OnSurface };
+        let title_color = if self.destructive { ColorToken::Danger } else { ColorToken::OnSurface };
 
         // Title column (title + optional subtitle), left-aligned.
         let mut text_col: Vec<LayoutNode> = Vec::new();
-        text_col.push(Text::new(self.title).weight(FontWeight::Medium).color(title_color).build(tokens));
+        text_col.push(
+            Text::new(self.title).weight(FontWeight::Medium).color(title_color).build(tokens),
+        );
         if let Some(subtitle) = self.subtitle {
             text_col.push(Text::caption(subtitle).build(tokens));
         }
@@ -148,7 +149,12 @@ mod tests {
     use nexus_theme_tokens::BaseTokens;
 
     fn ctrl() -> LayoutNode {
-        LayoutNode::Spacer(Sp { id: None, flex_grow: 0, min_size: Some(FxPx::new(20)), item: FlexItem::default() })
+        LayoutNode::Spacer(Sp {
+            id: None,
+            flex_grow: 0,
+            min_size: Some(FxPx::new(20)),
+            item: FlexItem::default(),
+        })
     }
 
     #[test]
@@ -174,7 +180,9 @@ mod tests {
         match item.build(&t) {
             LayoutNode::Stack(_, _, children) => match &children[0] {
                 LayoutNode::Stack(_, _, tc) => match &tc[0] {
-                    LayoutNode::Text(n, _) => assert_eq!(n.style.color, t.color(ColorToken::Danger)),
+                    LayoutNode::Text(n, _) => {
+                        assert_eq!(n.style.color, t.color(ColorToken::Danger))
+                    }
                     _ => panic!(),
                 },
                 _ => panic!(),

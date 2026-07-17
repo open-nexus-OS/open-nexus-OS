@@ -118,10 +118,7 @@ mod tests {
     #[test]
     fn request_roundtrips_and_bounds() {
         let payload = encode_read_vmo_request("pkg:/system/build.prop").expect("encode");
-        assert_eq!(
-            decode_read_vmo_request(&payload).as_deref(),
-            Some("pkg:/system/build.prop")
-        );
+        assert_eq!(decode_read_vmo_request(&payload).as_deref(), Some("pkg:/system/build.prop"));
         assert!(encode_read_vmo_request("").is_none());
         let long = "x".repeat(MAX_PATH_LEN + 1);
         assert!(encode_read_vmo_request(&long).is_none());
@@ -162,10 +159,7 @@ mod tests {
         assert!(!splice_fits(49, cap));
         // The provider signals E2BIG with a zero-length payload, never a partial.
         let hdr = encode_splice_header(crate::VfsError::TooBig.code(), 0);
-        assert_eq!(
-            decode_splice_header(&hdr),
-            Some((crate::VfsError::TooBig.code(), 0))
-        );
+        assert_eq!(decode_splice_header(&hdr), Some((crate::VfsError::TooBig.code(), 0)));
     }
 
     #[test]

@@ -87,7 +87,8 @@ impl GlassToggle {
 
     /// Build the switch node (track + knob).
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        let mut style = Style::new().background(self.track_color(tokens)).rounded(FxPx::new(TRACK_H / 2));
+        let mut style =
+            Style::new().background(self.track_color(tokens)).rounded(FxPx::new(TRACK_H / 2));
         if self.state.is_disabled() {
             style = style.opacity(self.state.opacity());
         }

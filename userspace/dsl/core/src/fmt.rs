@@ -12,8 +12,8 @@
 //! - parentheses are re-emitted exactly where precedence requires them.
 
 use crate::ast::{
-    AssignOp, BinOp, CallArg, Decl, Expr, File, HandlerAction, HandlerDecl, ModifierCall,
-    Pattern, Stmt, TypeExpr, UnOp, ViewNode, WidgetNode,
+    AssignOp, BinOp, CallArg, Decl, Expr, File, HandlerAction, HandlerDecl, ModifierCall, Pattern,
+    Stmt, TypeExpr, UnOp, ViewNode, WidgetNode,
 };
 use alloc::string::String;
 

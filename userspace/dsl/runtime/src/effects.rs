@@ -68,9 +68,8 @@ pub(crate) fn run_plan(
                     Ok(result) => {
                         let slot = call.get_result_slot();
                         if slot != u32::MAX {
-                            *ctx.locals
-                                .get_mut(slot as usize)
-                                .ok_or(RtError::MissingLocal)? = Some(result.clone());
+                            *ctx.locals.get_mut(slot as usize).ok_or(RtError::MissingLocal)? =
+                                Some(result.clone());
                         }
                         if call.has_on_ok() {
                             let ok = call.get_on_ok().map_err(|_| RtError::Malformed)?;

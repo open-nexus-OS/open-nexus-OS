@@ -145,8 +145,7 @@ fn handle_request(
             let Some(id) = wire::decode_login_req(frame) else {
                 return encode_login_status(wire::STATUS_MALFORMED, b"", rsp);
             };
-            let Some(idx) = core::str::from_utf8(id).ok().and_then(|id| registry.find(id))
-            else {
+            let Some(idx) = core::str::from_utf8(id).ok().and_then(|id| registry.find(id)) else {
                 return encode_login_status(wire::STATUS_UNKNOWN_USER, b"", rsp);
             };
             match state.login(idx) {
@@ -174,21 +173,15 @@ fn handle_request(
 }
 
 /// GET_STATE response: header + one entry per registered user.
-fn encode_state_rsp(
-    registry: &UserRegistry,
-    state: &SessionState,
-    rsp: &mut [u8; 512],
-) -> usize {
+fn encode_state_rsp(registry: &UserRegistry, state: &SessionState, rsp: &mut [u8; 512]) -> usize {
     rsp[0] = wire::MAGIC0;
     rsp[1] = wire::MAGIC1;
     rsp[2] = wire::VERSION;
     rsp[3] = wire::OP_GET_STATE | 0x80;
     rsp[4] = wire::STATUS_OK;
     rsp[5] = state.as_wire();
-    rsp[6] = state
-        .active_user()
-        .and_then(|idx| u8::try_from(idx).ok())
-        .unwrap_or(wire::NO_ACTIVE_USER);
+    rsp[6] =
+        state.active_user().and_then(|idx| u8::try_from(idx).ok()).unwrap_or(wire::NO_ACTIVE_USER);
     let mut at = wire::GET_STATE_BODY_OFFSET;
     let mut count = 0u8;
     for user in registry.users.iter() {

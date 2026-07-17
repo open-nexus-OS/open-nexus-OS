@@ -258,7 +258,10 @@ fn linear_gradient_objectbbox_is_a_horizontal_ramp() {
     assert!(left.0 > 200 && left.2 < 60, "left edge red, got {left:?}");
     assert!(right.2 > 200 && right.0 < 60, "right edge blue, got {right:?}");
     // Midpoint is a genuine blend of the two stops, not a flat single colour.
-    assert!(mid.0 > 60 && mid.0 < 200 && mid.2 > 60 && mid.2 < 200, "midpoint blended, got {mid:?}");
+    assert!(
+        mid.0 > 60 && mid.0 < 200 && mid.2 > 60 && mid.2 < 200,
+        "midpoint blended, got {mid:?}"
+    );
 }
 
 #[test]

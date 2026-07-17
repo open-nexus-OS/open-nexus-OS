@@ -140,7 +140,12 @@ mod tests {
     use nexus_theme_tokens::BaseTokens;
 
     fn opt() -> LayoutNode {
-        LayoutNode::Spacer(Spacer { id: None, flex_grow: 0, min_size: Some(FxPx::new(24)), item: FlexItem::default() })
+        LayoutNode::Spacer(Spacer {
+            id: None,
+            flex_grow: 0,
+            min_size: Some(FxPx::new(24)),
+            item: FlexItem::default(),
+        })
     }
 
     #[test]

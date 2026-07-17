@@ -50,7 +50,11 @@ impl DisplayServerRuntime {
                 ));
                 let _ = self.client_surfaces.destroy(id);
                 let _ = super::app_window::nexus_abi_cap_close(vmo_slot);
-                return wire::encode_surface_ack(wire::OP_SURFACE_CREATE, wire::SURFACE_STATUS_QUOTA, 0);
+                return wire::encode_surface_ack(
+                    wire::OP_SURFACE_CREATE,
+                    wire::SURFACE_STATUS_QUOTA,
+                    0,
+                );
             };
             self.desktop_band = Some(band);
         }

@@ -105,7 +105,8 @@ pub fn parse_gpt<D: BlockDevice>(device: &D) -> Result<Vec<Partition>, GptError>
         if type_guid == [0u8; 16] {
             continue; // unused slot
         }
-        let first_lba = u64::from_le_bytes(entry[32..40].try_into().map_err(|_| GptError::Invalid)?);
+        let first_lba =
+            u64::from_le_bytes(entry[32..40].try_into().map_err(|_| GptError::Invalid)?);
         let last_lba = u64::from_le_bytes(entry[40..48].try_into().map_err(|_| GptError::Invalid)?);
         if first_lba == 0 || last_lba < first_lba || last_lba >= device_blocks {
             return Err(GptError::Invalid);
@@ -201,10 +202,7 @@ pub fn crc32_ieee(data: &[u8]) -> u32 {
 /// Builds a minimal valid GPT (host tooling + tests): protective MBR is
 /// omitted (we never boot from these images), primary header at LBA 1,
 /// entries at LBA 2. Used by tests and by the launcher-side image formatter.
-pub fn write_gpt<D: BlockDevice>(
-    device: &mut D,
-    partitions: &[Partition],
-) -> Result<(), GptError> {
+pub fn write_gpt<D: BlockDevice>(device: &mut D, partitions: &[Partition]) -> Result<(), GptError> {
     let sector = device.block_size();
     if sector < 128 || partitions.len() > MAX_ENTRIES as usize {
         return Err(GptError::Invalid);
@@ -242,9 +240,7 @@ pub fn write_gpt<D: BlockDevice>(
     padded.resize(table_blocks * sector, 0);
     for i in 0..table_blocks as u64 {
         let offset = (i as usize) * sector;
-        device
-            .write_block(2 + i, &padded[offset..offset + sector])
-            .map_err(|_| GptError::Io)?;
+        device.write_block(2 + i, &padded[offset..offset + sector]).map_err(|_| GptError::Io)?;
     }
     device.sync().map_err(|_| GptError::Io)
 }

@@ -11,24 +11,17 @@ use nexus_dsl_runtime::{FixtureEnv, Value};
 use systemui_bootstrap_shell_host::{app_entry, compile_project, texts, Mounted};
 
 fn enumerate_line(mounted: &Mounted<'_>, query: &str, apps: &[(&str, &str)]) -> String {
-    let rows: Vec<String> = apps
-        .iter()
-        .map(|(id, label)| value_to_text(&app_entry(mounted, id, label)))
-        .collect();
-    format!(
-        "call bundlemgr.enumerate(Str(\"{query}\")) -> Ok(List[{}])",
-        rows.join(",")
-    )
+    let rows: Vec<String> =
+        apps.iter().map(|(id, label)| value_to_text(&app_entry(mounted, id, label))).collect();
+    format!("call bundlemgr.enumerate(Str(\"{query}\")) -> Ok(List[{}])", rows.join(","))
 }
 
 #[test]
 fn shell_page_renders_across_profiles_with_apps_entry() {
     let nxir = compile_project("desktop-shell");
-    for env in [
-        FixtureEnv::default(),
-        FixtureEnv::phone("portrait"),
-        FixtureEnv::tablet("landscape"),
-    ] {
+    for env in
+        [FixtureEnv::default(), FixtureEnv::phone("portrait"), FixtureEnv::tablet("landscape")]
+    {
         let mounted = Mounted::new(&nxir, env);
         let t = texts(mounted.view.scene());
         assert!(t.contains(&"shell.product".to_string()), "product name shown: {t:?}");
@@ -45,7 +38,11 @@ fn launcher_lists_registry_apps_and_tap_launches_by_id() {
     mounted.navigate("/launcher");
     let transcript = format!(
         "# nx-transcript v1\n{}\ncall ability.launch(Str(\"counter\")) -> Ok(Bool(true))\n",
-        enumerate_line(&mounted, "", &[("chat", "Chat"), ("counter", "Counter"), ("search", "Search")]),
+        enumerate_line(
+            &mounted,
+            "",
+            &[("chat", "Chat"), ("counter", "Counter"), ("search", "Search")]
+        ),
     );
     let mut host = TranscriptHost::parse(&transcript).expect("transcript parses");
     mounted.dispatch(&mut host, "LauncherEvent", "Refresh", vec![]);
@@ -143,10 +140,7 @@ fn greeter_login_success_and_failure_drive_the_contract_states() {
         .expect("writes");
     mounted.dispatch(&mut host, "SessionEvent", "Submit", vec![]);
     assert_eq!(mounted.view.runtime.field("SessionStore", "phase"), Some(&Value::Int(0)));
-    assert_eq!(
-        mounted.view.runtime.field("SessionStore", "secret"),
-        Some(&Value::Str("".into()))
-    );
+    assert_eq!(mounted.view.runtime.field("SessionStore", "secret"), Some(&Value::Str("".into())));
 
     // Failure: sessiond says no → phase 2, the failure banner renders, the
     // secret never survives a failed attempt.
@@ -190,10 +184,7 @@ fn launcher_grid_reorders_and_inserts_by_key() {
     assert!(chat < counter);
 
     // Reorder + insert: the scene follows the keyed collection order.
-    let next = entries(
-        &mounted,
-        &[("search", "Search"), ("counter", "Counter"), ("chat", "Chat")],
-    );
+    let next = entries(&mounted, &[("search", "Search"), ("counter", "Counter"), ("chat", "Chat")]);
     mounted.dispatch(&mut NoIo, "LauncherEvent", "Loaded", vec![next]);
     let t = texts(mounted.view.scene());
     let search = t.iter().position(|s| s == "Search").expect("search");

@@ -57,9 +57,11 @@ impl Radio {
         } else {
             ColorToken::Border
         };
-        let mut s = Style::new()
-            .rounded(FxPx::new(SIZE / 2))
-            .border_token(tokens, LengthToken::BorderThin, border);
+        let mut s = Style::new().rounded(FxPx::new(SIZE / 2)).border_token(
+            tokens,
+            LengthToken::BorderThin,
+            border,
+        );
         if self.state.is_disabled() {
             s = s.opacity(self.state.opacity());
         }
@@ -97,8 +99,7 @@ impl Radio {
     /// Build the radio node.
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
         let visual = self.style(tokens).visual();
-        let children =
-            if self.selected { alloc::vec![Self::dot(tokens)] } else { alloc::vec![] };
+        let children = if self.selected { alloc::vec![Self::dot(tokens)] } else { alloc::vec![] };
         let d = Some(FxPx::new(SIZE));
         LayoutNode::Stack(
             Stack {

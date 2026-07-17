@@ -67,9 +67,9 @@ mod probe {
 
     mod anim;
     mod boot;
-    mod scroll;
-    mod paint;
     mod interaction;
+    mod paint;
+    mod scroll;
     use boot::*;
 
     /// Fixed child capability slots — execd transfers these AFTER spawn
@@ -213,14 +213,13 @@ mod probe {
         // fullscreen surface is not (the presentation resolver enforces this
         // WM-side too). Carried atomically on SURFACE_CREATE.
         let resizable = level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN;
-        let (mut surf_w, mut surf_h) = if level == wire::WIN_LEVEL_DESKTOP
-            || mode == wire::WIN_MODE_FULLSCREEN
-        {
-            request_content_rect(&client, &events, style, level, mode, nonce)
-                .unwrap_or((SURFACE_W as u32, SURFACE_H as u32))
-        } else {
-            (SURFACE_W as u32, SURFACE_H as u32)
-        };
+        let (mut surf_w, mut surf_h) =
+            if level == wire::WIN_LEVEL_DESKTOP || mode == wire::WIN_MODE_FULLSCREEN {
+                request_content_rect(&client, &events, style, level, mode, nonce)
+                    .unwrap_or((SURFACE_W as u32, SURFACE_H as u32))
+            } else {
+                (SURFACE_W as u32, SURFACE_H as u32)
+            };
         // Content rect arriving DURING an ack wait (windowd's corrective push
         // after a small create) — stashed by `recv_ack` instead of dropped,
         // applied by the event loop as if it had just been received.
@@ -246,36 +245,39 @@ mod probe {
             // read as a solid slab; opaque ELEMENTS still paint fully on top).
             168
         };
-        let mut app =
-            DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
+        let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
         // WebRender scroll band geometry — ONLY for a floating windowed app that
         // actually scrolls (desktop/fullscreen surfaces keep the plain path; the
         // desktop uses a separate windowd path that ignores the scroll band).
-        let band: Option<(u32, u32, u32)> =
-            if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
-                app.as_ref().and_then(|d| d.band_geometry()).filter(|&(h, f, c)| {
-                    // Resident-band budget: the gpud GL atlas holds 4000 rows
-                    // SHARED with every other resident surface (desktop base
-                    // = 800). A taller band still ALLOCATES but gpud clamps
-                    // its upload — the composite then samples transparent
-                    // rows and the window "vanishes" (the chat-thread
-                    // re-create bug). Too-tall content falls back to the
-                    // plain path honestly: visible-sized VMO, wheel-driven
-                    // re-emit scroll — slower, but complete and correct.
-                    let fits = h + f + c <= MAX_BAND_ROWS;
-                    if !fits {
-                        let _ = nexus_abi::debug_write(
-                            b"apphost: band too tall, plain-path fallback\n",
-                        );
-                    }
-                    fits
-                })
-            } else {
-                None
-            };
+        let band: Option<(u32, u32, u32)> = if level != wire::WIN_LEVEL_DESKTOP
+            && mode != wire::WIN_MODE_FULLSCREEN
+        {
+            app.as_ref().and_then(|d| d.band_geometry()).filter(|&(h, f, c)| {
+                // Resident-band budget: the gpud GL atlas holds 4000 rows
+                // SHARED with every other resident surface (desktop base
+                // = 800). A taller band still ALLOCATES but gpud clamps
+                // its upload — the composite then samples transparent
+                // rows and the window "vanishes" (the chat-thread
+                // re-create bug). Too-tall content falls back to the
+                // plain path honestly: visible-sized VMO, wheel-driven
+                // re-emit scroll — slower, but complete and correct.
+                let fits = h + f + c <= MAX_BAND_ROWS;
+                if !fits {
+                    let _ =
+                        nexus_abi::debug_write(b"apphost: band too tall, plain-path fallback\n");
+                }
+                fits
+            })
+        } else {
+            None
+        };
         let (create_content_h, create_header_h, create_footer_h) =
             band.map_or((0u16, 0u16, 0u16), |(h, f, c)| {
-                (c.min(u16::MAX as u32) as u16, h.min(u16::MAX as u32) as u16, f.min(u16::MAX as u32) as u16)
+                (
+                    c.min(u16::MAX as u32) as u16,
+                    h.min(u16::MAX as u32) as u16,
+                    f.min(u16::MAX as u32) as u16,
+                )
             });
         // VMO height: the packed band (header + footer + content) when banded,
         // else the VISIBLE surface height (create `height` field stays VISIBLE).
@@ -320,8 +322,7 @@ mod probe {
         //    (content_h/header_h/footer_h) rides atomically so windowd allocs the
         //    tall atlas band up front (0,0,0 = non-scrollable, unchanged).
         let clone = cap_clone(vmo).map_err(|_| "apphost: cap clone failed")?;
-        let create =
-            wire::encode_surface_create(
+        let create = wire::encode_surface_create(
             surf_w as u16,
             surf_h as u16,
             wire::FORMAT_BGRA8888,
@@ -342,7 +343,8 @@ mod probe {
         raw_marker("APPHOST: surface created");
 
         // 6. SURFACE_PRESENT seq=1, full damage — strictly one in flight.
-        let mut damage = [wire::DamageRect { x: 0, y: 0, width: surf_w as u16, height: surf_h as u16 }];
+        let mut damage =
+            [wire::DamageRect { x: 0, y: 0, width: surf_w as u16, height: surf_h as u16 }];
         let mut buf = [0u8; wire::SURFACE_PRESENT_MAX_LEN];
         let len = wire::encode_surface_present(surface_id, 1, &damage, &mut buf);
         send_retry(&client, &buf[..len])?;
@@ -423,88 +425,89 @@ mod probe {
                     Wait::Blocking
                 };
                 match events.recv_into(wait, &mut event_frame) {
-                Ok(len) => {
-                    recv_err_marked = false;
-                    len
-                }
-                Err(nexus_ipc::IpcError::Timeout) | Err(nexus_ipc::IpcError::WouldBlock) => {
-                    if let Some(dsl) = app.as_mut() {
-                        let (span, end) = dsl.momentum_tick();
-                        if let Some(span) = span {
-                            dirty_rows = match (dirty, dirty_rows) {
-                                (true, None) => None,
-                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
-                                (false, None) => Some(span),
-                            };
-                            dirty = true;
-                        }
-                        if end && dsl.fire_end_reached() {
-                            dirty = true;
-                            dirty_rows = None;
-                        }
-                        // DSL animation physics also advance on the self-paced
-                        // tick — same union-span damage as the frame-pulse arm.
-                        if let Some(span) = dsl.anim_tick() {
-                            dirty_rows = match (dirty, dirty_rows) {
-                                (true, None) => None,
-                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
-                                (false, None) => Some(span),
-                            };
-                            dirty = true;
-                        }
-                        if dirty && !present_in_flight {
-                            // Fall through to the present block via a zero-len
-                            // sentinel is not possible here — render inline.
-                            let ok = match dirty_rows {
-                                Some((y0, y1)) => dsl.render_rows(vmo, y0, y1),
-                                None => dsl.render(vmo),
-                            };
-                            if ok {
-                                seq = seq.wrapping_add(1);
-                                let pd = match dirty_rows {
-                                    Some((y0, y1)) => [wire::DamageRect {
-                                        x: 0,
-                                        y: y0.max(0) as u16,
-                                        width: surf_w as u16,
-                                        height: (y1 - y0).max(0) as u16,
-                                    }],
-                                    None => [wire::DamageRect {
-                                        x: 0,
-                                        y: 0,
-                                        width: surf_w as u16,
-                                        height: surf_h as u16,
-                                    }],
+                    Ok(len) => {
+                        recv_err_marked = false;
+                        len
+                    }
+                    Err(nexus_ipc::IpcError::Timeout) | Err(nexus_ipc::IpcError::WouldBlock) => {
+                        if let Some(dsl) = app.as_mut() {
+                            let (span, end) = dsl.momentum_tick();
+                            if let Some(span) = span {
+                                dirty_rows = match (dirty, dirty_rows) {
+                                    (true, None) => None,
+                                    (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                                    (false, None) => Some(span),
                                 };
-                                let plen =
-                                    wire::encode_surface_present(surface_id, seq, &pd, &mut buf);
-                                if send_retry(&client, &buf[..plen]).is_ok() {
-                                    present_in_flight = true;
-                                }
-                                dirty = false;
+                                dirty = true;
+                            }
+                            if end && dsl.fire_end_reached() {
+                                dirty = true;
                                 dirty_rows = None;
                             }
+                            // DSL animation physics also advance on the self-paced
+                            // tick — same union-span damage as the frame-pulse arm.
+                            if let Some(span) = dsl.anim_tick() {
+                                dirty_rows = match (dirty, dirty_rows) {
+                                    (true, None) => None,
+                                    (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                                    (false, None) => Some(span),
+                                };
+                                dirty = true;
+                            }
+                            if dirty && !present_in_flight {
+                                // Fall through to the present block via a zero-len
+                                // sentinel is not possible here — render inline.
+                                let ok = match dirty_rows {
+                                    Some((y0, y1)) => dsl.render_rows(vmo, y0, y1),
+                                    None => dsl.render(vmo),
+                                };
+                                if ok {
+                                    seq = seq.wrapping_add(1);
+                                    let pd = match dirty_rows {
+                                        Some((y0, y1)) => [wire::DamageRect {
+                                            x: 0,
+                                            y: y0.max(0) as u16,
+                                            width: surf_w as u16,
+                                            height: (y1 - y0).max(0) as u16,
+                                        }],
+                                        None => [wire::DamageRect {
+                                            x: 0,
+                                            y: 0,
+                                            width: surf_w as u16,
+                                            height: surf_h as u16,
+                                        }],
+                                    };
+                                    let plen = wire::encode_surface_present(
+                                        surface_id, seq, &pd, &mut buf,
+                                    );
+                                    if send_retry(&client, &buf[..plen]).is_ok() {
+                                        present_in_flight = true;
+                                    }
+                                    dirty = false;
+                                    dirty_rows = None;
+                                }
+                            }
                         }
+                        continue;
                     }
-                    continue;
-                }
-                Err(nexus_ipc::IpcError::Disconnected)
-                | Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint)) => {
-                    // The compositor released our event channel: the window is
-                    // gone (user close). The app's lifetime IS its window —
-                    // exit cleanly so the kernel frees the process (the
-                    // app-side half of the reaper, #29). Spinning on the dead
-                    // channel would burn the core forever instead.
-                    raw_marker("APPHOST: window closed - exiting");
-                    return Ok(());
-                }
-                Err(_) => {
-                    if !recv_err_marked {
-                        recv_err_marked = true;
-                        raw_marker("apphost: FAIL event recv (yield pacing)");
+                    Err(nexus_ipc::IpcError::Disconnected)
+                    | Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint)) => {
+                        // The compositor released our event channel: the window is
+                        // gone (user close). The app's lifetime IS its window —
+                        // exit cleanly so the kernel frees the process (the
+                        // app-side half of the reaper, #29). Spinning on the dead
+                        // channel would burn the core forever instead.
+                        raw_marker("APPHOST: window closed - exiting");
+                        return Ok(());
                     }
-                    let _ = yield_();
-                    continue;
-                }
+                    Err(_) => {
+                        if !recv_err_marked {
+                            recv_err_marked = true;
+                            raw_marker("apphost: FAIL event recv (yield pacing)");
+                        }
+                        let _ = yield_();
+                        continue;
+                    }
                 }
             };
             // Shared surface re-create trigger (WM resize / band change).
@@ -690,9 +693,7 @@ mod probe {
                     if wheel_rx_markers < 40 {
                         wheel_rx_markers += 1;
                         let d = wire::wheel_delta_from_wire(y);
-                        raw_marker(&alloc::format!(
-                            "APPHOST: wheel rx n={wheel_rx_markers} d={d}"
-                        ));
+                        raw_marker(&alloc::format!("APPHOST: wheel rx n={wheel_rx_markers} d={d}"));
                     }
                     // WebRender compositor-scroll: a banded surface does NOT
                     // self-scroll — windowd owns the scroll (it shifts the gpud
@@ -744,9 +745,9 @@ mod probe {
                         if dsl.tap(i32::from(x), i32::from(y)) {
                             dirty = true;
                             dirty_rows = None; // model change: full repaint
-                            // A tap may have started an animation (`.animate`/
-                            // `.effect` on the changed state): arm the frame
-                            // pulse so the physics ticks on the real cadence.
+                                               // A tap may have started an animation (`.animate`/
+                                               // `.effect` on the changed state): arm the frame
+                                               // pulse so the physics ticks on the real cadence.
                             if dsl.anim_active() {
                                 let req = wire::encode_surface_frame_req(surface_id);
                                 let _ = client.send(&req, Wait::NonBlocking);
@@ -758,9 +759,7 @@ mod probe {
                             // one boot log shows where taps land vs. where the
                             // interactive boxes are.
                             tap_miss_markers += 1;
-                            raw_marker(&alloc::format!(
-                                "apphost: input tap miss at ({x},{y})"
-                            ));
+                            raw_marker(&alloc::format!("apphost: input tap miss at ({x},{y})"));
                             if tap_miss_markers == 1 {
                                 if let Some(dsl) = app.as_ref() {
                                     dsl.dump_handler_boxes();
@@ -781,16 +780,15 @@ mod probe {
             // RE-CREATE — same flow as a WM resize, same size.
             if !recreate_surface && dirty {
                 if let Some(dsl) = app.as_ref() {
-                    let now_band = if level != wire::WIN_LEVEL_DESKTOP
-                        && mode != wire::WIN_MODE_FULLSCREEN
-                    {
-                        // Same MAX_BAND_ROWS budget as surface create — the
-                        // detector and the re-create MUST agree, or a too-tall
-                        // page would re-create into the clamped-band vanish.
-                        dsl.band_geometry().filter(|&(h, f, c)| h + f + c <= MAX_BAND_ROWS)
-                    } else {
-                        None
-                    };
+                    let now_band =
+                        if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
+                            // Same MAX_BAND_ROWS budget as surface create — the
+                            // detector and the re-create MUST agree, or a too-tall
+                            // page would re-create into the clamped-band vanish.
+                            dsl.band_geometry().filter(|&(h, f, c)| h + f + c <= MAX_BAND_ROWS)
+                        } else {
+                            None
+                        };
                     if now_band != dsl.last_band {
                         recreate_surface = true;
                     }
@@ -1075,13 +1073,11 @@ mod probe {
             emit_mounted_hash_marker(nxir);
             emit_window_intent_marker(nxir);
             let keys: alloc::vec::Vec<u32> =
-                match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir)
-                    .and_then(|r| {
-                        r.root().map(|root| {
-                            root.get_i18n_keys()
-                                .map(|l| l.iter().map(|k| k.get_key()).collect())
-                        })
-                    }) {
+                match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir).and_then(|r| {
+                    r.root().map(|root| {
+                        root.get_i18n_keys().map(|l| l.iter().map(|k| k.get_key()).collect())
+                    })
+                }) {
                     Ok(Ok(keys)) => keys,
                     _ => alloc::vec::Vec::new(),
                 };
@@ -1157,7 +1153,6 @@ mod probe {
             app.anim_sync();
             Some(app)
         }
-
     }
 
     // Static theme token sets (ZSTs) → a runtime-selectable `&'static dyn Tokens`.
@@ -1257,7 +1252,12 @@ mod probe {
     fn collect_texts(
         node: &nexus_layout_types::LayoutNode,
         index: &mut usize,
-        out: &mut alloc::vec::Vec<(usize, alloc::string::String, nexus_text_baked::FontSize, [u8; 4])>,
+        out: &mut alloc::vec::Vec<(
+            usize,
+            alloc::string::String,
+            nexus_text_baked::FontSize,
+            [u8; 4],
+        )>,
     ) {
         use nexus_layout_types::LayoutNode as N;
         *index += 1;
@@ -1284,5 +1284,4 @@ mod probe {
             _ => {}
         }
     }
-
 }

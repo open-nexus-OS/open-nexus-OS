@@ -166,8 +166,7 @@ impl DisplayServerRuntime {
         match snapshot.state {
             wire::STATE_ACTIVE => {
                 // Resolved user session selects the SystemUI shell product.
-                let product =
-                    snapshot.active_product().unwrap_or(systemui::DEFAULT_PRODUCT_ID);
+                let product = snapshot.active_product().unwrap_or(systemui::DEFAULT_PRODUCT_ID);
                 self.apply_session_shell(product);
             }
             wire::STATE_GREETER => {

@@ -88,7 +88,9 @@ impl Toolbar {
     fn title_block(&self, tokens: &dyn Tokens) -> Option<LayoutNode> {
         let title = self.title.clone()?;
         let mut col: Vec<LayoutNode> = Vec::new();
-        col.push(Text::new(title).size(TypographyToken::Lg).weight(FontWeight::Semibold).build(tokens));
+        col.push(
+            Text::new(title).size(TypographyToken::Lg).weight(FontWeight::Semibold).build(tokens),
+        );
         if let Some(subtitle) = self.subtitle.clone() {
             col.push(Text::caption(subtitle).build(tokens));
         }
@@ -176,7 +178,12 @@ mod tests {
     use nexus_theme_tokens::BaseTokens;
 
     fn btn() -> LayoutNode {
-        LayoutNode::Spacer(Sp { id: None, flex_grow: 0, min_size: Some(FxPx::new(24)), item: FlexItem::default() })
+        LayoutNode::Spacer(Sp {
+            id: None,
+            flex_grow: 0,
+            min_size: Some(FxPx::new(24)),
+            item: FlexItem::default(),
+        })
     }
 
     #[test]

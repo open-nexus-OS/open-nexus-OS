@@ -348,9 +348,7 @@ impl<D: BlockDevice> Nxfs<D> {
         let (parent, name) = self.resolve_parent(path)?;
         let table = self.state.dirs.get(&parent).ok_or(NxfsError::NotDir)?;
         let (id, kind) = *table.get(&name).ok_or(NxfsError::NotFound)?;
-        if kind == KIND_DIR
-            && self.state.dirs.get(&id).is_some_and(|t| !t.is_empty())
-        {
+        if kind == KIND_DIR && self.state.dirs.get(&id).is_some_and(|t| !t.is_empty()) {
             return Err(NxfsError::Busy);
         }
         let ops = alloc::vec![Op::Remove { parent, id, name }];
@@ -373,21 +371,14 @@ impl<D: BlockDevice> Nxfs<D> {
                 if *existing == moving_id {
                     return Ok(()); // rename onto itself
                 }
-                if *kind == KIND_DIR
-                    && self.state.dirs.get(existing).is_some_and(|t| !t.is_empty())
+                if *kind == KIND_DIR && self.state.dirs.get(existing).is_some_and(|t| !t.is_empty())
                 {
                     return Err(NxfsError::Busy);
                 }
                 *existing
             }
         };
-        let ops = alloc::vec![Op::Rename {
-            from_parent,
-            from_name,
-            to_parent,
-            to_name,
-            replaced,
-        }];
+        let ops = alloc::vec![Op::Rename { from_parent, from_name, to_parent, to_name, replaced }];
         self.run_txn(ops, &[])
     }
 
@@ -464,14 +455,12 @@ impl<D: BlockDevice> Nxfs<D> {
             return Err(NxfsError::NoSpace);
         }
         let slot_idx = self.sb.older_slot();
-        let region_start = self.sb.journal_start
-            + self.sb.journal_blocks
-            + (slot_idx as u64) * self.cp_blocks;
+        let region_start =
+            self.sb.journal_start + self.sb.journal_blocks + (slot_idx as u64) * self.cp_blocks;
         self.dev.write_bytes(region_start, &blob)?;
         self.dev.sync()?;
 
-        let generation =
-            self.sb.slots[0].generation.max(self.sb.slots[1].generation) + 1;
+        let generation = self.sb.slots[0].generation.max(self.sb.slots[1].generation) + 1;
         self.sb.slots[slot_idx] = CheckpointSlot {
             generation,
             root_lb: region_start,
@@ -635,10 +624,7 @@ mod tests {
         assert_eq!(fs.write("/d/f", MAX_FILE_BYTES, b"x"), Err(NxfsError::TooBig));
         // No silent reformat of an existing container.
         let device = fs.into_device();
-        assert_eq!(
-            Nxfs::mkfs(device, MkfsOptions::default()).map(|_| ()),
-            Err(NxfsError::Exists)
-        );
+        assert_eq!(Nxfs::mkfs(device, MkfsOptions::default()).map(|_| ()), Err(NxfsError::Exists));
     }
 
     #[test]

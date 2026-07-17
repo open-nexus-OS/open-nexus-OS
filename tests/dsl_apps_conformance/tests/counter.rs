@@ -34,8 +34,7 @@ fn digit_tap_updates_display_and_damages() {
 
     // The "7" key = the 4th declared handler (authoring order: C, ±, ÷, 7…;
     // handlers() preserves emit order). A digit ALWAYS changes the display.
-    let seven_id =
-        view.handlers().get(3).map(|(box_id, _)| *box_id).expect("handlers exist");
+    let seven_id = view.handlers().get(3).map(|(box_id, _)| *box_id).expect("handlers exist");
     let (x, y) = boxes
         .iter()
         .find(|b| b.node_id == seven_id)
@@ -105,8 +104,7 @@ fn plus_tap_at_device_window_size() {
             e.press_offset
         );
     }
-    let seven_id =
-        view.handlers().get(3).map(|(box_id, _)| *box_id).expect("handlers exist");
+    let seven_id = view.handlers().get(3).map(|(box_id, _)| *box_id).expect("handlers exist");
     let (x, y) = boxes
         .iter()
         .find(|b| b.node_id == seven_id)

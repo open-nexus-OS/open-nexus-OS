@@ -191,7 +191,8 @@ mod tests {
     #[test]
     fn stale_journal_lines_never_brick_the_registry() {
         let mut r = SettingsRegistry::new();
-        let n = r.load_prefs_blob("garbage\nui.gone=1\nui.theme.mode=purple\nui.theme.mode=light\n");
+        let n =
+            r.load_prefs_blob("garbage\nui.gone=1\nui.theme.mode=purple\nui.theme.mode=light\n");
         assert_eq!(n, 1, "only the valid override applies");
         assert_eq!(r.get("ui.theme.mode"), Some("light"));
     }

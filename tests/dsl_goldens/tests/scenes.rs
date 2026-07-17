@@ -16,10 +16,8 @@ struct Mounted<'p> {
 
 impl<'p> Mounted<'p> {
     fn new(nxir: &'p [u8]) -> Self {
-        let symbols = nexus_dsl_runtime::Runtime::mount(nxir)
-            .expect("pre-mount")
-            .symbols()
-            .to_vec();
+        let symbols =
+            nexus_dsl_runtime::Runtime::mount(nxir).expect("pre-mount").symbols().to_vec();
         let keys = i18n_keys(nxir);
         let view = {
             let locale = IdentityLocale { symbols: &symbols, keys: &keys };
@@ -235,12 +233,8 @@ fn live_pointer_tap_dispatches_through_hit_testing() {
         .layout(mounted.view.scene(), FxPx::new(160), &ui_v10_goldens::NoText)
         .expect("lays out");
     let plus_box_id = mounted.view.handlers().last().expect("has entries").0;
-    let plus_rect = result
-        .boxes
-        .iter()
-        .find(|b| b.node_id == plus_box_id)
-        .expect("plus button box")
-        .rect;
+    let plus_rect =
+        result.boxes.iter().find(|b| b.node_id == plus_box_id).expect("plus button box").rect;
     let (cx, cy) = (
         FxPx::new(plus_rect.x.0 + plus_rect.width.0 / 2),
         FxPx::new(plus_rect.y.0 + plus_rect.height.0 / 2),
@@ -365,8 +359,8 @@ fn locale_switch_changes_bound_text_deterministically() {
     use nexus_dsl_runtime::{i18n, Catalog, LocaleChain};
     let nxir = compile(TODO);
     let symbols = nexus_dsl_runtime::Runtime::mount(&nxir).unwrap().symbols().to_vec();
-    let reader = dsl_goldens::nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&nxir)
-        .expect("reads");
+    let reader =
+        dsl_goldens::nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&nxir).expect("reads");
     let names = i18n::key_names(reader.root().expect("root"), &symbols);
     let name_strs: Vec<&str> = names.iter().map(String::as_str).collect();
 
@@ -458,10 +452,8 @@ Routes {
     );
 
     // And back.
-    let damage = mounted
-        .view
-        .navigate_back(&BaseTokens, &FixtureEnv::default(), &locale)
-        .expect("back");
+    let damage =
+        mounted.view.navigate_back(&BaseTokens, &FixtureEnv::default(), &locale).expect("back");
     assert_eq!(damage, Damage::Layout);
     assert!(dsl_goldens::texts(mounted.view.scene()).contains(&String::from("home screen")));
 }
@@ -512,9 +504,7 @@ Page P {
         .view
         .handlers()
         .iter()
-        .find(|(_, h)| {
-            matches!(h.action, nexus_dsl_runtime::interact::HandlerAction::Bind { .. })
-        })
+        .find(|(_, h)| matches!(h.action, nexus_dsl_runtime::interact::HandlerAction::Bind { .. }))
         .expect("bind handler")
         .0;
     let rect = result.boxes.iter().find(|b| b.node_id == toggle_box).expect("box").rect;
@@ -583,8 +573,8 @@ fn masterdetail_project_navigates_and_respects_phone_override() {
     use nexus_layout_types::FxPx;
 
     // Load the example app the same way the CLI project mode does.
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/dsl/masterdetail");
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/dsl/masterdetail");
     let mut files = Vec::new();
     let mut stack = vec![root.join("ui")];
     while let Some(dir) = stack.pop() {

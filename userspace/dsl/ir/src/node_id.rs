@@ -73,10 +73,7 @@ pub fn static_node_id(component_name: &str, structural_path: &[u32]) -> u64 {
 /// Runtime id for a keyed collection item: parent template id ∥ key bytes.
 #[must_use]
 pub fn keyed_item_id(template_node_id: u64, key_bytes: &[u8]) -> u64 {
-    NodeIdHasher::new()
-        .segment(&template_node_id.to_le_bytes())
-        .segment(key_bytes)
-        .finish()
+    NodeIdHasher::new().segment(&template_node_id.to_le_bytes()).segment(key_bytes).finish()
 }
 
 #[cfg(test)]

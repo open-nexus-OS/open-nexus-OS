@@ -112,10 +112,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     {
         let _ = debug_println(GPUD_SCANOUT_OK);
         let _ = debug_println(GPUD_SCANOUT_MODE);
-    } else if backend
-        .attach_bootstrap_solid_scanout(display_w, display_h, [0, 0, 0, 255])
-        .is_ok()
-    {
+    } else if backend.attach_bootstrap_solid_scanout(display_w, display_h, [0, 0, 0, 255]).is_ok() {
         let _ = debug_println("gpud: bootstrap text unavailable, fallback solid");
         let _ = debug_println(GPUD_SCANOUT_OK);
         let _ = debug_println(GPUD_SCANOUT_MODE);
@@ -296,10 +293,9 @@ fn service_requests(
                                     let _ = debug_println(GPUD_CURSOR_ON);
                                     let _ = debug_println(GPUD_DISPLAY_READY);
                                     emit_handoff_timing(
-                                        (nsec()
-                                            .unwrap_or(handoff_t0)
-                                            .saturating_sub(handoff_t0)
-                                            / 1_000_000) as u32,
+                                        (nsec().unwrap_or(handoff_t0).saturating_sub(handoff_t0)
+                                            / 1_000_000)
+                                            as u32,
                                     );
                                     // The GL scanout now exists, so the recv-timeout
                                     // path may re-present the build-up (spin-blur demo).
@@ -354,7 +350,11 @@ fn service_requests(
                                     if trace {
                                         let _ = debug_println(crate::markers::GPUD_CHAIN_PARSE_OK);
                                     }
-                                    let damage_rect = damage_rect_from_cb(&scene_cb, backend.display_w, backend.display_h);
+                                    let damage_rect = damage_rect_from_cb(
+                                        &scene_cb,
+                                        backend.display_w,
+                                        backend.display_h,
+                                    );
                                     // Lift the save-under cursor so scene blits land on
                                     // a cursor-free plane, present, then re-apply it on
                                     // top so the pointer always stays visible.
@@ -511,12 +511,17 @@ fn service_requests(
                         } else {
                             let w = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
                             let h = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-                            let dx = u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
-                            let dy = u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
-                            let dw = u32::from_le_bytes([frame[17], frame[18], frame[19], frame[20]]);
-                            let dh = u32::from_le_bytes([frame[21], frame[22], frame[23], frame[24]]);
+                            let dx =
+                                u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
+                            let dy =
+                                u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
+                            let dw =
+                                u32::from_le_bytes([frame[17], frame[18], frame[19], frame[20]]);
+                            let dh =
+                                u32::from_le_bytes([frame[21], frame[22], frame[23], frame[24]]);
                             let bgra = &frame[25..];
-                            let status = match backend.store_icon_sprite(bgra, w, h, dx, dy, dw, dh) {
+                            let status = match backend.store_icon_sprite(bgra, w, h, dx, dy, dw, dh)
+                            {
                                 Ok(()) => STATUS_OK,
                                 Err(_) => STATUS_MALFORMED,
                             };
@@ -538,10 +543,7 @@ fn service_requests(
                         // clamped to the fixed resource budget). Reply payload
                         // rides the 5-byte status+u32 frame: LE u32 = w | h<<16
                         // — byte-identical to `encode_display_mode_reply`.
-                        (
-                            STATUS_OK,
-                            Some(backend.display_w | (backend.display_h << 16)),
-                        )
+                        (STATUS_OK, Some(backend.display_w | (backend.display_h << 16)))
                     }
                     _ => (handle_frame(&mut backend, frame, &mut scroll_flush_pending), None),
                 };
@@ -881,9 +883,7 @@ fn damage_rect_from_cb(cb: &CommittedBuffer, display_w: u32, display_h: u32) -> 
             // never transferred/flushed to the host. Convert the absolute dst row
             // back to screen-relative; ignore blits aimed elsewhere (atlas/cache).
             Command::BlitAbsolute { dst_x, dst_y_abs, width, height, .. } => {
-                if *dst_y_abs >= DISPLAY_PLANE_ROW
-                    && *dst_y_abs < DISPLAY_PLANE_ROW + display_h
-                {
+                if *dst_y_abs >= DISPLAY_PLANE_ROW && *dst_y_abs < DISPLAY_PLANE_ROW + display_h {
                     (*dst_x, dst_y_abs - DISPLAY_PLANE_ROW, *width, *height)
                 } else {
                     continue;

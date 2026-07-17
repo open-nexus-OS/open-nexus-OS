@@ -330,9 +330,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 // VMO arena so allocations rarely memset inside a syscall.
                 // Pool leaf lock only — never the BKL; one bounded step per
                 // idle pass keeps the boot hart responsive.
-                if crate::smp::runtime_ready()
-                    && crate::syscall::api::vmo_idle_zero_step() > 0
-                {
+                if crate::smp::runtime_ready() && crate::syscall::api::vmo_idle_zero_step() > 0 {
                     continue;
                 }
                 if cpu.is_boot() {

@@ -507,9 +507,21 @@ mod tests {
         // Pins the byte layout both the kernel flush_group and nexus-abi flush previously inlined —
         // render_verdict_line must reproduce it exactly so swapping the call sites is byte-stable.
         let cases = [
-            (163_015_000u64, "kself", Verdict { passed: 53, total: 53, ms: 14, tag: VerdictTag::Ok }),
-            (1_716_000_000, "windowd", Verdict { passed: 22, total: 22, ms: 1716, tag: VerdictTag::Warn }),
-            (360_000_000, "selftest", Verdict { passed: 25, total: 27, ms: 360, tag: VerdictTag::Error }),
+            (
+                163_015_000u64,
+                "kself",
+                Verdict { passed: 53, total: 53, ms: 14, tag: VerdictTag::Ok },
+            ),
+            (
+                1_716_000_000,
+                "windowd",
+                Verdict { passed: 22, total: 22, ms: 1716, tag: VerdictTag::Warn },
+            ),
+            (
+                360_000_000,
+                "selftest",
+                Verdict { passed: 25, total: 27, ms: 360, tag: VerdictTag::Error },
+            ),
         ];
         for (now, subj, v) in cases {
             let mut buf = [0u8; 96];
@@ -522,7 +534,8 @@ mod tests {
     fn render_slow_suffix_only_on_warn() {
         let mk = |tag| {
             let mut b = [0u8; 96];
-            let n = render_verdict_line(&mut b, 0, "x", Verdict { passed: 1, total: 1, ms: 0, tag });
+            let n =
+                render_verdict_line(&mut b, 0, "x", Verdict { passed: 1, total: 1, ms: 0, tag });
             core::str::from_utf8(&b[..n]).unwrap().to_string()
         };
         assert!(mk(VerdictTag::Warn).contains("slow"));

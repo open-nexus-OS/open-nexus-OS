@@ -232,8 +232,7 @@ impl LayoutHotPathIndex {
         mode_height: u32,
     ) -> Self {
         let band_start_y = base_y.min(mode_height);
-        let band_end_y =
-            base_y.saturating_add(260).min(mode_height);
+        let band_end_y = base_y.saturating_add(260).min(mode_height);
         let mut row_masks = [0u64; PANEL_BAND_ROWS];
         let mut row_has_shadow = [false; PANEL_BAND_ROWS];
         let mut overflow_boxes = false;
@@ -526,5 +525,4 @@ mod tests {
         assert!(rects[..count].iter().any(|rect| rect.width == 35 && rect.height == 20));
         assert!(rects[..count].iter().any(|rect| rect.x == 400 && rect.y == 400));
     }
-
 }

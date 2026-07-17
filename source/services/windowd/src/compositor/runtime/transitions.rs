@@ -58,7 +58,13 @@ impl DisplayServerRuntime {
         let now = nexus_abi::nsec().unwrap_or(0);
         self.animation_driver.reset_clock(now);
         self.animation_driver.spring_to(layer, AnimProp::Opacity, 0.0, 1.0, ENTER_SPRING);
-        self.animation_driver.spring_to(layer, AnimProp::ScaleX, OPEN_SCALE_FROM, 1.0, ENTER_SPRING);
+        self.animation_driver.spring_to(
+            layer,
+            AnimProp::ScaleX,
+            OPEN_SCALE_FROM,
+            1.0,
+            ENTER_SPRING,
+        );
         // Record the INITIAL state at gpud BEFORE the first present flush
         // (the gpud queue is sequential) - the window composites from
         // transparent instead of flashing full-on for one frame, and a
@@ -80,7 +86,13 @@ impl DisplayServerRuntime {
         let now = nexus_abi::nsec().unwrap_or(0);
         self.animation_driver.reset_clock(now);
         self.animation_driver.spring_to(layer, AnimProp::Opacity, cur.opacity, 0.0, EXIT_SPRING);
-        self.animation_driver.spring_to(layer, AnimProp::ScaleX, cur.scale, CLOSE_SCALE_TO, EXIT_SPRING);
+        self.animation_driver.spring_to(
+            layer,
+            AnimProp::ScaleX,
+            cur.scale,
+            CLOSE_SCALE_TO,
+            EXIT_SPRING,
+        );
         let _ = debug_println("windowd: transition close");
     }
 
@@ -92,10 +104,7 @@ impl DisplayServerRuntime {
         let (_, n) = self.windows.minimized_list();
         let bar = crate::dock::dock_rect(self.mode.width, self.mode.height, n + 1);
         let cell = crate::dock::dock_slot_rect(bar, n);
-        (
-            cell.x as f32 + cell.width as f32 / 2.0,
-            cell.y as f32 + cell.height as f32 / 2.0,
-        )
+        (cell.x as f32 + cell.width as f32 / 2.0, cell.y as f32 + cell.height as f32 / 2.0)
     }
 
     /// MINIMIZE transition: fly toward the window's own future dock cell
@@ -120,7 +129,13 @@ impl DisplayServerRuntime {
         self.animation_driver.spring_to(layer, AnimProp::TranslateX, cur.dx, target_x, EXIT_SPRING);
         self.animation_driver.spring_to(layer, AnimProp::TranslateY, cur.dy, target_y, EXIT_SPRING);
         self.animation_driver.spring_to(layer, AnimProp::Opacity, cur.opacity, 0.15, EXIT_SPRING);
-        self.animation_driver.spring_to(layer, AnimProp::ScaleX, cur.scale, MIN_SCALE_TO, EXIT_SPRING);
+        self.animation_driver.spring_to(
+            layer,
+            AnimProp::ScaleX,
+            cur.scale,
+            MIN_SCALE_TO,
+            EXIT_SPRING,
+        );
         let _ = debug_println("windowd: transition minimize");
     }
 
@@ -130,7 +145,12 @@ impl DisplayServerRuntime {
     /// carry the transform from the dock origin to identity — convergence
     /// falls into `finish_window_transitions`' `None` arm (settle at
     /// identity), no `PendingWm` needed.
-    pub(super) fn start_restore_transition(&mut self, id: crate::window_scene::WindowId, from_cx: f32, from_cy: f32) {
+    pub(super) fn start_restore_transition(
+        &mut self,
+        id: crate::window_scene::WindowId,
+        from_cx: f32,
+        from_cy: f32,
+    ) {
         let crate::window_scene::WindowId::App(i) = id else {
             return;
         };

@@ -8,8 +8,8 @@
 
 fn main() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
-    let svg_path = std::path::Path::new(&manifest)
-        .join("../../../resources/icons/logos/open-nexus.svg");
+    let svg_path =
+        std::path::Path::new(&manifest).join("../../../resources/icons/logos/open-nexus.svg");
     println!("cargo:rerun-if-changed={}", svg_path.display());
     println!("cargo:rerun-if-changed=build.rs");
 
@@ -21,10 +21,9 @@ fn main() {
     let bgra_dst = std::path::Path::new(&out_dir).join("splash_logo.bgra");
     let dims_dst = std::path::Path::new(&out_dir).join("splash_logo_dims.rs");
 
-    match std::fs::read_to_string(&svg_path)
-        .map_err(|e| e.to_string())
-        .and_then(|svg| nexus_svg::render_svg_at(&svg, LOGO_W, LOGO_H).map_err(|e| format!("{e:?}")))
-    {
+    match std::fs::read_to_string(&svg_path).map_err(|e| e.to_string()).and_then(|svg| {
+        nexus_svg::render_svg_at(&svg, LOGO_W, LOGO_H).map_err(|e| format!("{e:?}"))
+    }) {
         Ok(out) => {
             std::fs::write(&bgra_dst, &out.buffer).expect("write splash_logo.bgra");
             std::fs::write(

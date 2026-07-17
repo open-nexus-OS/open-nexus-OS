@@ -6,20 +6,20 @@
 //! cursor overlay. Holds the cursor sprite store, the procedural arrow fallback
 //! sprite, and the per-present paint/unpaint plumbing.
 
-use super::VirtioGpuBackend;
-use nexus_gfx::backend::error::GfxError;
-use nexus_gfx::backend::traits::GfxBackend;
-use nexus_gfx::backend::types::Rect;
-use nexus_gfx::core::types::PixelFormat;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use super::raster::{blend_pixel_vmo, blend_premultiplied_vmo};
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use super::transport::ctrl_hdr;
+use super::VirtioGpuBackend;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 #[allow(unused_imports)]
 use crate::markers::GPUD_CURSOR_ON;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use crate::protocol;
+use nexus_gfx::backend::error::GfxError;
+use nexus_gfx::backend::traits::GfxBackend;
+use nexus_gfx::backend::types::Rect;
+use nexus_gfx::core::types::PixelFormat;
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 #[allow(clippy::too_many_arguments)]

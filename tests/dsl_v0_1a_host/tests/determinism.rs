@@ -62,10 +62,12 @@ fn loader_rejects_wrong_major_and_corruption() {
     assert!(outcome.is_err());
     // Truncation.
     let outcome = ProgramReader::from_canonical_bytes(&bytes[..bytes.len() - 8]);
-    assert!(outcome.is_err() || {
-        let r = outcome.unwrap_or_else(|_| unreachable!());
-        r.root().and_then(validate_program).is_err()
-    });
+    assert!(
+        outcome.is_err() || {
+            let r = outcome.unwrap_or_else(|_| unreachable!());
+            r.root().and_then(validate_program).is_err()
+        }
+    );
     // Odd length is rejected outright.
     assert!(ProgramReader::from_canonical_bytes(&bytes[..bytes.len() - 3]).is_err());
 }

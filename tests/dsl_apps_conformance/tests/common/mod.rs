@@ -60,7 +60,9 @@ pub fn scene_texts(view: &View) -> Vec<String> {
                     walk(c, out);
                 }
             }
-            nexus_layout_types::LayoutNode::Text(t, _) => out.push(String::from(t.content.as_str())),
+            nexus_layout_types::LayoutNode::Text(t, _) => {
+                out.push(String::from(t.content.as_str()))
+            }
             _ => {}
         }
     }

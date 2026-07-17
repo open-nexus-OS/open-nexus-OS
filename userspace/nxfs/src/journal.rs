@@ -38,13 +38,7 @@ pub(crate) enum Op {
     MkNode { parent: u64, id: u64, kind: u8, name: String },
     Write { id: u64, size: u64, extents: Vec<Extent> },
     Remove { parent: u64, id: u64, name: String },
-    Rename {
-        from_parent: u64,
-        from_name: String,
-        to_parent: u64,
-        to_name: String,
-        replaced: u64,
-    },
+    Rename { from_parent: u64, from_name: String, to_parent: u64, to_name: String, replaced: u64 },
 }
 
 /// Encodes one full transaction (`BEGIN ops… COMMIT`) as a contiguous byte

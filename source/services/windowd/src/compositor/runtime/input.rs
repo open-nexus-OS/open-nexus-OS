@@ -25,7 +25,8 @@ impl DisplayServerRuntime {
             self.wheel_stage_count += 1;
             let _ = debug_println(&alloc::format!(
                 "windowd: wheel staged n={} d={}",
-                self.wheel_stage_count, state.wheel_delta_y
+                self.wheel_stage_count,
+                state.wheel_delta_y
             ));
         }
         if let Some(prev) = self.pending_input.take() {
@@ -135,9 +136,7 @@ impl DisplayServerRuntime {
                 // belongs to the SHELL — its top bar composites above every
                 // window and stays usable (windows sit BEHIND it). Presses
                 // there skip app windows and fall through to the desktop.
-                if matches!(wid, WindowId::App(_))
-                    && cursor_y < super::SHELL_TOPBAR_H as i32
-                {
+                if matches!(wid, WindowId::App(_)) && cursor_y < super::SHELL_TOPBAR_H as i32 {
                     continue;
                 }
                 // A visible app window's frame; the desktop base is chromeless
@@ -236,8 +235,7 @@ impl DisplayServerRuntime {
                                 // Declarative: the body starts below the RESOLVED
                                 // chrome height (0 for chromeless presentations),
                                 // not a hardcoded title constant.
-                                let body_y =
-                                    cursor_y - frame.y - self.apps[idx].win.title_h as i32;
+                                let body_y = cursor_y - frame.y - self.apps[idx].win.title_h as i32;
                                 if body_y >= 0 {
                                     self.send_app_input(idx, local_x, body_y);
                                 }
@@ -541,9 +539,7 @@ impl DisplayServerRuntime {
                 let wid = hit[i];
                 // Shell chrome contract (mirrors the press loop): the top-bar
                 // strip hovers the SHELL, never a window behind it.
-                if matches!(wid, WindowId::App(_))
-                    && cursor_y < super::SHELL_TOPBAR_H as i32
-                {
+                if matches!(wid, WindowId::App(_)) && cursor_y < super::SHELL_TOPBAR_H as i32 {
                     continue;
                 }
                 match wid {
@@ -553,8 +549,7 @@ impl DisplayServerRuntime {
                         match frame.press(cursor_x, cursor_y) {
                             WindowPress::Miss => continue,
                             WindowPress::Body => {
-                                let body_y =
-                                    cursor_y - frame.y - self.apps[idx].win.title_h as i32;
+                                let body_y = cursor_y - frame.y - self.apps[idx].win.title_h as i32;
                                 if body_y >= 0 {
                                     route = HOVER_ROUTE_APP;
                                     route_idx = idx;
@@ -576,8 +571,8 @@ impl DisplayServerRuntime {
         }
         // Route change = target change: leaving one APP window for another is
         // a change too (the old window must clear its hover wash).
-        let route_changed =
-            route != self.hover_route || (route == HOVER_ROUTE_APP && route_idx != self.hover_app_idx);
+        let route_changed = route != self.hover_route
+            || (route == HOVER_ROUTE_APP && route_idx != self.hover_app_idx);
         if route_changed {
             let (lx, ly) = self.hover_last;
             match self.hover_route {

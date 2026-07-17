@@ -76,7 +76,8 @@ pub fn render_to_bgra(node: &LayoutNode) -> SnapResult<Vec<u8>> {
 /// real size in fixtures and touch-target lints.
 pub fn swatch(px: i32) -> LayoutNode {
     let d = Some(FxPx::new(px));
-    let visual = VisualStyle { background: Some(Rgba8::new(200, 200, 205, 255)), ..VisualStyle::default() };
+    let visual =
+        VisualStyle { background: Some(Rgba8::new(200, 200, 205, 255)), ..VisualStyle::default() };
     LayoutNode::Stack(
         Stack {
             id: Some("swatch"),

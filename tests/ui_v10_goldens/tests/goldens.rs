@@ -20,12 +20,14 @@ fn glass_button_variants_and_states() {
     let btn = |v: ButtonVariant, s: InteractionState| {
         GlassButton::new().variant(v).state(s).content(swatch(20)).build(&t)
     };
-    check_golden("button_default", &btn(ButtonVariant::Default, InteractionState::Default)).unwrap();
+    check_golden("button_default", &btn(ButtonVariant::Default, InteractionState::Default))
+        .unwrap();
     check_golden("button_glass", &btn(ButtonVariant::Glass, InteractionState::Default)).unwrap();
     check_golden("button_destructive", &btn(ButtonVariant::Destructive, InteractionState::Default))
         .unwrap();
     check_golden("button_hover", &btn(ButtonVariant::Default, InteractionState::Hover)).unwrap();
-    check_golden("button_pressed", &btn(ButtonVariant::Default, InteractionState::Pressed)).unwrap();
+    check_golden("button_pressed", &btn(ButtonVariant::Default, InteractionState::Pressed))
+        .unwrap();
     check_golden("button_disabled", &btn(ButtonVariant::Default, InteractionState::Disabled))
         .unwrap();
     check_golden("button_focus", &btn(ButtonVariant::Default, InteractionState::Focused)).unwrap();
@@ -33,7 +35,8 @@ fn glass_button_variants_and_states() {
 
 #[test]
 fn glass_button_dark_theme() {
-    let node = GlassButton::new().variant(ButtonVariant::Default).content(swatch(20)).build(&DarkTokens);
+    let node =
+        GlassButton::new().variant(ButtonVariant::Default).content(swatch(20)).build(&DarkTokens);
     check_golden("button_default_dark", &node).unwrap();
 }
 
@@ -63,12 +66,20 @@ fn toggles() {
 fn glass_cards() {
     check_golden(
         "card_panel_dark",
-        &GlassCard::new().level(CardLevel::Panel).padding(FxPx::new(12)).child(swatch(40)).build(&DarkTokens),
+        &GlassCard::new()
+            .level(CardLevel::Panel)
+            .padding(FxPx::new(12))
+            .child(swatch(40))
+            .build(&DarkTokens),
     )
     .unwrap();
     check_golden(
         "card_subtle",
-        &GlassCard::new().level(CardLevel::Subtle).padding(FxPx::new(8)).child(swatch(40)).build(&BaseTokens),
+        &GlassCard::new()
+            .level(CardLevel::Subtle)
+            .padding(FxPx::new(8))
+            .child(swatch(40))
+            .build(&BaseTokens),
     )
     .unwrap();
 }
@@ -213,23 +224,41 @@ fn nav_containers() {
 
 #[test]
 fn icons_and_rating() {
+    use nexus_theme_tokens::ColorToken;
     use nexus_widget_icon::{Icon, Symbol};
     use nexus_widget_rating::Rating;
-    use nexus_theme_tokens::ColorToken;
     let t = BaseTokens;
-    check_golden("icon_plus", &Icon::new(Symbol::Plus).size(28).color(ColorToken::OnSurface).build(&t))
+    check_golden(
+        "icon_plus",
+        &Icon::new(Symbol::Plus).size(28).color(ColorToken::OnSurface).build(&t),
+    )
+    .unwrap();
+    check_golden(
+        "icon_star",
+        &Icon::new(Symbol::Star).size(28).color(ColorToken::Warning).build(&t),
+    )
+    .unwrap();
+    check_golden(
+        "icon_close",
+        &Icon::new(Symbol::Close).size(28).color(ColorToken::Danger).build(&t),
+    )
+    .unwrap();
+    check_golden("icon_chevron_right", &Icon::new(Symbol::ChevronRight).size(28).build(&t))
         .unwrap();
-    check_golden("icon_star", &Icon::new(Symbol::Star).size(28).color(ColorToken::Warning).build(&t))
-        .unwrap();
-    check_golden("icon_close", &Icon::new(Symbol::Close).size(28).color(ColorToken::Danger).build(&t))
-        .unwrap();
-    check_golden("icon_chevron_right", &Icon::new(Symbol::ChevronRight).size(28).build(&t)).unwrap();
     check_golden("rating_3of5", &Rating::new().value(3).max(5).size(20).build(&t)).unwrap();
     // Imported Lucide symbols (multi-contour vectors).
     use nexus_widget_icon::LucideSymbol;
     check_golden("lucide_menu", &Icon::lucide(LucideSymbol::Menu).size(28).build(&t)).unwrap();
-    check_golden("lucide_check", &Icon::lucide(LucideSymbol::Check).size(28).color(ColorToken::Success).build(&t)).unwrap();
-    check_golden("lucide_arrow_right", &Icon::lucide(LucideSymbol::ArrowRight).size(28).color(ColorToken::Accent).build(&t)).unwrap();
+    check_golden(
+        "lucide_check",
+        &Icon::lucide(LucideSymbol::Check).size(28).color(ColorToken::Success).build(&t),
+    )
+    .unwrap();
+    check_golden(
+        "lucide_arrow_right",
+        &Icon::lucide(LucideSymbol::ArrowRight).size(28).color(ColorToken::Accent).build(&t),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -257,11 +286,8 @@ fn feedback_spinner_and_progress() {
     check_golden("spinner_default", &Spinner::new().build(&t)).unwrap();
     check_golden("spinner_phase6", &Spinner::new().phase(6).build(&t)).unwrap();
     check_golden("progress_64", &ProgressBar::new().value(64).build(&t)).unwrap();
-    check_golden(
-        "progress_indeterminate",
-        &ProgressBar::new().indeterminate().phase(40).build(&t),
-    )
-    .unwrap();
+    check_golden("progress_indeterminate", &ProgressBar::new().indeterminate().phase(40).build(&t))
+        .unwrap();
     check_golden("progress_dark", &ProgressBar::new().value(64).build(&DarkTokens)).unwrap();
 }
 

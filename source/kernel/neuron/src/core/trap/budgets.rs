@@ -41,8 +41,7 @@ pub const TICKS_PER_US: u64 = 10;
 /// >10ms). Written on EVERY BKL acquire/ecall (relaxed atomics — accounting,
 /// not synchronization); drained once by the boot-end gate marker.
 pub static BKL_WAIT_MAX_TICKS: AtomicU64 = AtomicU64::new(0);
-pub static BKL_WAIT_BUCKETS: [AtomicUsize; 4] =
-    [const { AtomicUsize::new(0) }; 4];
+pub static BKL_WAIT_BUCKETS: [AtomicUsize; 4] = [const { AtomicUsize::new(0) }; 4];
 pub static ECALL_HOLD_MAX_TICKS: AtomicU64 = AtomicU64::new(0);
 pub static ECALL_HOLD_MAX_NR: AtomicU64 = AtomicU64::new(0);
 
@@ -50,10 +49,10 @@ pub static ECALL_HOLD_MAX_NR: AtomicU64 = AtomicU64::new(0);
 pub fn record_bkl_wait(ticks: u64) {
     BKL_WAIT_MAX_TICKS.fetch_max(ticks, Ordering::Relaxed);
     let bucket = match ticks {
-        0..=1_000 => 0,          // <=100µs
-        1_001..=10_000 => 1,     // <=1ms
-        10_001..=100_000 => 2,   // <=10ms
-        _ => 3,                  // >10ms
+        0..=1_000 => 0,        // <=100µs
+        1_001..=10_000 => 1,   // <=1ms
+        10_001..=100_000 => 2, // <=10ms
+        _ => 3,                // >10ms
     };
     BKL_WAIT_BUCKETS[bucket].fetch_add(1, Ordering::Relaxed);
 }

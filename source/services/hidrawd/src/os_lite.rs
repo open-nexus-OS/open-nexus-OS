@@ -500,9 +500,7 @@ impl LiveDevice {
         }
         let timestamp = TimestampNs::new(nsec().unwrap_or(0));
         scratch.raw_ingress.clear();
-        scratch
-            .raw_ingress
-            .extend(scratch.raw_input.iter().copied().map(raw_ingress_event));
+        scratch.raw_ingress.extend(scratch.raw_input.iter().copied().map(raw_ingress_event));
         let active_class =
             infer_device_class(self.provisional_class, self.confirmed_class, &scratch.raw_ingress);
         let active_pointer_source = pointer_source_for_class(active_class);

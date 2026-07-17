@@ -14,7 +14,9 @@ use super::transport::{
 };
 use super::VirtioGpuBackend;
 use crate::error::GpuDriverError;
-use crate::markers::{GPUD_VIRGL_BLUR_GPU_ON, GPUD_VIRGL_BLUR_PARITY_OFF, GPUD_VIRGL_BLUR_PARITY_OK};
+use crate::markers::{
+    GPUD_VIRGL_BLUR_GPU_ON, GPUD_VIRGL_BLUR_PARITY_OFF, GPUD_VIRGL_BLUR_PARITY_OK,
+};
 use crate::protocol;
 use nexus_gfx::backend::error::GfxError;
 
@@ -958,5 +960,4 @@ END\n";
         write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DRIVER_FEATURES_SEL, 1);
         write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DRIVER_FEATURES, drv_hi);
     }
-
 }

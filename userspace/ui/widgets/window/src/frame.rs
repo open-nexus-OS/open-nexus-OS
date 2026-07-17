@@ -363,7 +363,7 @@ mod tests {
     #[test]
     fn resized_moves_only_the_grabbed_border_and_clamps() {
         let start = frame(); // x=890 y=96 w=366 h=600 (right edge at 1256)
-        // Drag the right edge +20: width grows, origin unchanged (1276 ≤ 1280).
+                             // Drag the right edge +20: width grows, origin unchanged (1276 ≤ 1280).
         let r = Frame::resized(start, ResizeEdge::Right, 20, 0, 100, 100, MODE_W, MODE_H);
         assert_eq!((r.x, r.y, r.w, r.h), (start.x, start.y, start.w + 20, start.h));
         // Drag the left edge +50: x moves right, width shrinks.

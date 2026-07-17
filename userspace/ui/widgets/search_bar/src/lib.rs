@@ -69,11 +69,8 @@ impl SearchBar {
 
     /// Build the search pill node.
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        let border = if self.state.shows_focus_ring() {
-            ColorToken::FocusRing
-        } else {
-            ColorToken::Border
-        };
+        let border =
+            if self.state.shows_focus_ring() { ColorToken::FocusRing } else { ColorToken::Border };
         let mut style = Style::new()
             .background(tokens.color(ColorToken::SurfaceVariant))
             .rounded(FxPx::new(PILL_RADIUS))
@@ -141,7 +138,12 @@ mod tests {
     use nexus_theme_tokens::BaseTokens;
 
     fn icon() -> LayoutNode {
-        LayoutNode::Spacer(Spacer { id: None, flex_grow: 0, min_size: Some(FxPx::new(16)), item: FlexItem::default() })
+        LayoutNode::Spacer(Spacer {
+            id: None,
+            flex_grow: 0,
+            min_size: Some(FxPx::new(16)),
+            item: FlexItem::default(),
+        })
     }
 
     #[test]
@@ -161,7 +163,12 @@ mod tests {
     #[test]
     fn focus_ring_and_trailing_clear() {
         let t = BaseTokens;
-        match SearchBar::new().state(InteractionState::Focused).value("x").trailing(icon()).build(&t) {
+        match SearchBar::new()
+            .state(InteractionState::Focused)
+            .value("x")
+            .trailing(icon())
+            .build(&t)
+        {
             LayoutNode::Stack(_, visual, children) => {
                 assert!(visual.border.top.is_some());
                 assert_eq!(children.len(), 2, "input + clear");

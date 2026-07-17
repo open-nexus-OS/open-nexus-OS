@@ -30,8 +30,7 @@ use nexus_display_proto::client_surface as wire;
 /// LARGEST allowed surface; smaller surfaces render into the top-left of the
 /// body. (`crate::client_surface` enforces the surface-size bounds.)
 pub(crate) const APP_WIN_MAX_W: u32 = crate::client_surface::MAX_SURFACE_W as u32;
-pub(crate) const APP_WIN_MAX_H: u32 =
-    crate::client_surface::MAX_SURFACE_H as u32 + APP_TITLE_H;
+pub(crate) const APP_WIN_MAX_H: u32 = crate::client_surface::MAX_SURFACE_H as u32 + APP_TITLE_H;
 pub(crate) const APP_TITLE_H: u32 = 32;
 /// Rounded-corner radius of the floating app window's glass frame.
 pub(crate) const APP_WIN_RADIUS: u32 = 12;
@@ -114,7 +113,11 @@ impl DisplayServerRuntime {
         let Some(idx) = slot_idx else {
             let _ = nexus_abi_cap_close(vmo_slot);
             let _ = debug_println("WINDOWD: surface create FAIL (window slots exhausted)");
-            return wire::encode_surface_ack(wire::OP_SURFACE_CREATE, wire::SURFACE_STATUS_QUOTA, 0);
+            return wire::encode_surface_ack(
+                wire::OP_SURFACE_CREATE,
+                wire::SURFACE_STATUS_QUOTA,
+                0,
+            );
         };
         // The launch surfaced: stop the wait ring (one waiter done).
         if fresh_launch {
@@ -144,11 +147,8 @@ impl DisplayServerRuntime {
         self.apps[idx].scroll_momentum =
             animation::ScrollMomentum::new(animation::ScrollConfig::default());
         self.apps[idx].scroll_last_ns = 0;
-        self.apps[idx].scroll_id = if content_h > 0 && (idx + 1) <= MAX_SCROLL_IDS {
-            (idx as u32) + 1
-        } else {
-            0
-        };
+        self.apps[idx].scroll_id =
+            if content_h > 0 && (idx + 1) <= MAX_SCROLL_IDS { (idx as u32) + 1 } else { 0 };
         match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => {
                 self.apps[idx].surface_id = Some(id);
@@ -186,8 +186,7 @@ impl DisplayServerRuntime {
                     };
                     self.apps[idx].win.set_frame(0, 0, self.mode.width, h);
                 } else {
-                    let content_h =
-                        u32::from(height).saturating_add(self.apps[idx].win.title_h);
+                    let content_h = u32::from(height).saturating_add(self.apps[idx].win.title_h);
                     let (wx, wy) = (self.apps[idx].win.x, self.apps[idx].win.y);
                     self.apps[idx].win.set_frame(wx, wy, u32::from(width), content_h);
                 }
@@ -203,9 +202,8 @@ impl DisplayServerRuntime {
                     self.apps[idx].surface_id = None;
                     self.apps[idx].win.visible = false;
                     self.windows.hide(wid);
-                    let _ = nexus_abi::debug_write(
-                        b"windowd: surface re-open QUOTA (window hidden)\n",
-                    );
+                    let _ =
+                        nexus_abi::debug_write(b"windowd: surface re-open QUOTA (window hidden)\n");
                     return wire::encode_surface_ack(
                         wire::OP_SURFACE_CREATE,
                         wire::SURFACE_STATUS_QUOTA,
@@ -380,8 +378,7 @@ impl DisplayServerRuntime {
                     // for the band blit and queue only that screen band. A
                     // present with no rects, or a scrollable (banded) surface
                     // (band rows ≠ visible rows), stays a FULL re-blit.
-                    let bounded: Option<(u32, u32)> = if self.apps[idx].scroll_id == 0
-                        && count > 0
+                    let bounded: Option<(u32, u32)> = if self.apps[idx].scroll_id == 0 && count > 0
                     {
                         let mut rows: Option<(u32, u32)> = None;
                         for r in &rects[..count] {
@@ -397,17 +394,14 @@ impl DisplayServerRuntime {
                         None
                     };
                     // Merge with a still-pending blit; FULL (None) wins.
-                    self.apps[idx].surface_dirty_rows =
-                        if self.apps[idx].win.surface_dirty {
-                            match (self.apps[idx].surface_dirty_rows, bounded) {
-                                (Some((a0, a1)), Some((b0, b1))) => {
-                                    Some((a0.min(b0), a1.max(b1)))
-                                }
-                                _ => None,
-                            }
-                        } else {
-                            bounded
-                        };
+                    self.apps[idx].surface_dirty_rows = if self.apps[idx].win.surface_dirty {
+                        match (self.apps[idx].surface_dirty_rows, bounded) {
+                            (Some((a0, a1)), Some((b0, b1))) => Some((a0.min(b0), a1.max(b1))),
+                            _ => None,
+                        }
+                    } else {
+                        bounded
+                    };
                     self.apps[idx].win.surface_dirty = true;
                     let rect = self.app_window_rect(idx);
                     // Other glass windows overlapping this one see it through
@@ -421,8 +415,7 @@ impl DisplayServerRuntime {
                                 .y
                                 .saturating_add(self.apps[idx].win.title_h)
                                 .saturating_add(y0);
-                            let bottom =
-                                (rect.y + rect.height).min(top.saturating_add(y1 - y0));
+                            let bottom = (rect.y + rect.height).min(top.saturating_add(y1 - y0));
                             if bottom > top {
                                 self.queue_dirty_rect(DamageRect {
                                     x: rect.x,
@@ -517,9 +510,8 @@ impl DisplayServerRuntime {
                     // residency may re-mount now (no-op under fullscreen).
                     self.ensure_visible_bands();
                 }
-                let _ = debug_println(&alloc::format!(
-                    "WINDOWD: surface destroyed id={surface_id}"
-                ));
+                let _ =
+                    debug_println(&alloc::format!("WINDOWD: surface destroyed id={surface_id}"));
                 wire::encode_surface_ack(
                     wire::OP_SURFACE_DESTROY,
                     wire::SURFACE_STATUS_OK,
@@ -672,10 +664,7 @@ impl DisplayServerRuntime {
     /// resize RE-create binds the same nonce again.
     #[cfg(nexus_env = "os")]
     pub(super) fn event_channel_for(&self, nonce: u64) -> Option<u32> {
-        self.event_channels[..self.event_channels_len]
-            .iter()
-            .find(|e| e.0 == nonce)
-            .map(|e| e.1)
+        self.event_channels[..self.event_channels_len].iter().find(|e| e.0 == nonce).map(|e| e.1)
     }
 
     pub(crate) fn attach_app_event_channel(&mut self, send_slot: Option<u32>, nonce: Option<u64>) {
@@ -693,9 +682,8 @@ impl DisplayServerRuntime {
                 return;
             };
             // Bind nonce → channel (replace same nonce; LRU-replace when full).
-            if let Some(e) = self.event_channels[..self.event_channels_len]
-                .iter_mut()
-                .find(|e| e.0 == nonce)
+            if let Some(e) =
+                self.event_channels[..self.event_channels_len].iter_mut().find(|e| e.0 == nonce)
             {
                 let _ = nexus_abi_cap_close(e.1);
                 e.1 = slot;
@@ -826,9 +814,8 @@ impl DisplayServerRuntime {
     pub(crate) fn send_app_wheel(&mut self, idx: usize, local_x: u16, wire_delta: u16) {
         #[cfg(nexus_env = "os")]
         {
-            let Some(client) = self.apps[idx]
-                .surface_id
-                .and_then(|id| self.client_surfaces.get_by_id(id))
+            let Some(client) =
+                self.apps[idx].surface_id.and_then(|id| self.client_surfaces.get_by_id(id))
             else {
                 return;
             };
@@ -853,8 +840,7 @@ impl DisplayServerRuntime {
     /// the desktop is composited every frame anyway, so its pulse sends on
     /// the next flush like any window's).
     pub(crate) fn handle_surface_frame_req(&mut self, frame: &[u8]) {
-        let Some(surface_id) =
-            nexus_display_proto::client_surface::decode_surface_frame_req(frame)
+        let Some(surface_id) = nexus_display_proto::client_surface::decode_surface_frame_req(frame)
         else {
             return;
         };
@@ -903,9 +889,7 @@ impl DisplayServerRuntime {
                 // open/close stacked a permanent ~20Hz zombie load (the "mouse
                 // gets slower the longer I use the system" report).
                 if !self.apps[idx].win.visible
-                    || !self
-                        .windows
-                        .is_visible(crate::window_scene::WindowId::App(idx as u8))
+                    || !self.windows.is_visible(crate::window_scene::WindowId::App(idx as u8))
                 {
                     continue;
                 }
@@ -940,19 +924,14 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             let is_tap = kind == nexus_display_proto::client_surface::INPUT_KIND_TAP;
-            let Some(client) = self.apps[idx]
-                .surface_id
-                .and_then(|id| self.client_surfaces.get_by_id(id))
+            let Some(client) =
+                self.apps[idx].surface_id.and_then(|id| self.client_surfaces.get_by_id(id))
             else {
                 return;
             };
             let (x, y) = (local_x.max(0) as u16, local_y.max(0) as u16);
-            let frame = nexus_display_proto::client_surface::encode_surface_input(
-                client.id,
-                kind,
-                x,
-                y,
-            );
+            let frame =
+                nexus_display_proto::client_surface::encode_surface_input(client.id, kind, x, y);
             let Some(slot) = self.apps[idx].event_channel else {
                 if is_tap {
                     let _ = debug_println("WINDOWD: FAIL surface input (no event channel)");

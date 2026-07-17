@@ -14,7 +14,9 @@
 
 use alloc::vec::Vec;
 
-use crate::elements::{Color, GradientStop, GradientUnits, Paint, SvgElement, SvgDocument, Transform};
+use crate::elements::{
+    Color, GradientStop, GradientUnits, Paint, SvgDocument, SvgElement, Transform,
+};
 
 /// Axis-aligned bounding box of a shape in device space `(min_x, min_y, max_x, max_y)`.
 pub type BBox = (f32, f32, f32, f32);
@@ -78,9 +80,7 @@ impl Gradient {
                     ((gx - x0) * dx + (gy - y0) * dy) / len2
                 }
             }
-            GradientKind::Radial { cx, cy, r, fx, fy } => {
-                radial_t(gx, gy, cx, cy, r, fx, fy)
-            }
+            GradientKind::Radial { cx, cy, r, fx, fy } => radial_t(gx, gy, cx, cy, r, fx, fy),
         };
         sample_stops(&self.stops, t)
     }
@@ -192,10 +192,9 @@ pub fn resolve_shape_paint(
 ) -> Option<ShapePaint> {
     match paint {
         Paint::None => None,
-        Paint::Color(c) => Some(ShapePaint::Solid(Color {
-            a: (c.a as f32 * opacity.clamp(0.0, 1.0)) as u8,
-            ..*c
-        })),
+        Paint::Color(c) => {
+            Some(ShapePaint::Solid(Color { a: (c.a as f32 * opacity.clamp(0.0, 1.0)) as u8, ..*c }))
+        }
         Paint::GradientRef(id) => match doc.defs.get(id)? {
             SvgElement::LinearGradient { x1, y1, x2, y2, stops, units, .. } => {
                 if stops.is_empty() {
@@ -284,7 +283,8 @@ mod tests {
         // be black at the left box edge and white at the right, regardless of
         // where the box sits on screen.
         let bbox = (200.0, 100.0, 400.0, 300.0);
-        let inverse = unit_inverse(GradientUnits::ObjectBoundingBox, &Transform::IDENTITY, bbox).unwrap();
+        let inverse =
+            unit_inverse(GradientUnits::ObjectBoundingBox, &Transform::IDENTITY, bbox).unwrap();
         let g = Gradient {
             kind: GradientKind::Linear { x0: 0.0, y0: 0.0, x1: 1.0, y1: 0.0 },
             inverse,

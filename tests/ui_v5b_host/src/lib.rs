@@ -19,12 +19,12 @@ mod tests {
     // -----------------------------------------------------------------------
 
     mod scene_graph {
+        use nexus_gfx::core::types::RenderPassDesc;
+        use nexus_gfx::CommandBuffer;
+        use nexus_layout_types::Rgba8;
         use windowd::scene_graph::{
             InvalidationClass, RenderPrimitive, SceneGraph, SceneNode, SceneNodeId,
         };
-        use nexus_gfx::CommandBuffer;
-        use nexus_gfx::core::types::RenderPassDesc;
-        use nexus_layout_types::Rgba8;
 
         fn make_graph() -> SceneGraph {
             SceneGraph::new()
@@ -53,9 +53,7 @@ mod tests {
         #[test]
         fn batch_insert_returns_ids_in_order() {
             let mut g = make_graph();
-            let nodes: Vec<SceneNode> = (0..5)
-                .map(|_| SceneNode::new(g.next_id()))
-                .collect();
+            let nodes: Vec<SceneNode> = (0..5).map(|_| SceneNode::new(g.next_id())).collect();
             let ids = g.batch_insert(nodes);
             assert_eq!(ids.len(), 5);
             // IDs must be sequential.
@@ -69,15 +67,26 @@ mod tests {
         fn recycle_node_resets_state() {
             let mut g = make_graph();
             let id = make_node(&mut g, None);
-            g.set_primitive(id, RenderPrimitive::Rect {
-                width: 100, height: 50, radius: 4, color: Rgba8::new(255, 0, 0, 255),
-            });
+            g.set_primitive(
+                id,
+                RenderPrimitive::Rect {
+                    width: 100,
+                    height: 50,
+                    radius: 4,
+                    color: Rgba8::new(255, 0, 0, 255),
+                },
+            );
             g.mark_all_clean();
 
             // Recycle with new primitive and position.
             g.recycle_node(
                 id,
-                RenderPrimitive::Rect { width: 200, height: 100, radius: 8, color: Rgba8::new(0, 255, 0, 255) },
+                RenderPrimitive::Rect {
+                    width: 200,
+                    height: 100,
+                    radius: 8,
+                    color: Rgba8::new(0, 255, 0, 255),
+                },
                 10,
                 20,
             );
@@ -135,12 +144,16 @@ mod tests {
             // Generate commands into a CommandBuffer.
             let mut cb = CommandBuffer::new();
             {
-                let mut encoder = cb.try_begin_render_pass(RenderPassDesc {
-                    color_attachments: alloc::vec::Vec::new(),
-                    width: 1280,
-                    height: 800,
-                }).expect("valid render pass");
-                let count = g.generate_commands_into(&dirty, 1280, 800, &mut encoder).expect("generate_commands");
+                let mut encoder = cb
+                    .try_begin_render_pass(RenderPassDesc {
+                        color_attachments: alloc::vec::Vec::new(),
+                        width: 1280,
+                        height: 800,
+                    })
+                    .expect("valid render pass");
+                let count = g
+                    .generate_commands_into(&dirty, 1280, 800, &mut encoder)
+                    .expect("generate_commands");
                 assert!(count > 0, "should emit at least one command");
                 encoder.end_encoding();
             }
@@ -190,9 +203,7 @@ mod tests {
 
             fn with_mixed_heights(count: usize) -> Self {
                 Self {
-                    items: (0..count)
-                        .map(|i| Some(format!("chat line {}", i)))
-                        .collect(),
+                    items: (0..count).map(|i| Some(format!("chat line {}", i))).collect(),
                     heights: (0..count)
                         .map(|i| match i % 5 {
                             0 => 96,  // 2 lines
@@ -268,11 +279,7 @@ mod tests {
         #[test]
         fn prepend_preserves_deterministic_anchor() {
             let provider = TestMessageProvider::new(500);
-            let mut list = VirtualList::new(
-                provider,
-                FxPx::new(200),
-                VirtualListConfig::default(),
-            );
+            let mut list = VirtualList::new(provider, FxPx::new(200), VirtualListConfig::default());
             list.scroll_by(FxPx::new(100));
             list.acknowledge();
             let anchor_before = list.anchor();
@@ -287,11 +294,7 @@ mod tests {
         #[test]
         fn width_bucket_change_remeasures_affected_rows() {
             let provider = TestMessageProvider::new(100);
-            let mut list = VirtualList::new(
-                provider,
-                FxPx::new(200),
-                VirtualListConfig::default(),
-            );
+            let mut list = VirtualList::new(provider, FxPx::new(200), VirtualListConfig::default());
             let range1 = list.visible_range();
             list.scroll_by(FxPx::new(50));
             list.acknowledge();
@@ -360,11 +363,7 @@ mod tests {
             }
 
             let provider = LazyProvider { items: Vec::new(), inflight: false };
-            let mut list = VirtualList::new(
-                provider,
-                FxPx::new(200),
-                VirtualListConfig::default(),
-            );
+            let mut list = VirtualList::new(provider, FxPx::new(200), VirtualListConfig::default());
             // Visible range is pre-computed from len_hint + height_hints.
             assert!(list.visible_range().end > 0, "should have visible items from hints");
             // Trigger load and verify page arrival is handled gracefully.
@@ -376,11 +375,7 @@ mod tests {
         #[test]
         fn anchor_stable_across_sequential_page_loads() {
             let provider = TestMessageProvider::new(300);
-            let mut list = VirtualList::new(
-                provider,
-                FxPx::new(200),
-                VirtualListConfig::default(),
-            );
+            let mut list = VirtualList::new(provider, FxPx::new(200), VirtualListConfig::default());
             // Scroll to position
             list.scroll_by(FxPx::new(500));
             list.acknowledge();
@@ -435,12 +430,10 @@ mod tests {
             let notified = std::sync::Arc::new(std::sync::Mutex::new(None::<Qualifier>));
             let n2 = notified.clone();
 
-            let callbacks: Vec<Box<dyn Fn(Qualifier) + Send + Sync>> = vec![
-                Box::new(move |q| {
-                    let mut guard = n2.lock().unwrap();
-                    *guard = Some(q);
-                })
-            ];
+            let callbacks: Vec<Box<dyn Fn(Qualifier) + Send + Sync>> = vec![Box::new(move |q| {
+                let mut guard = n2.lock().unwrap();
+                *guard = Some(q);
+            })];
 
             for cb in &callbacks {
                 (cb)(Qualifier::Dark);

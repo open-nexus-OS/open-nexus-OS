@@ -85,8 +85,7 @@ fn a_replay_miss_surfaces_as_the_miss_code_never_a_default() {
     // visible in state (the miss code) and on the host (misses recorded).
     let nxir = compile(LOADER);
     let mut h = Harness::mount(&nxir);
-    let mut host =
-        TranscriptHost::parse("call other.method() -> Ok(Unit)\n").expect("parses");
+    let mut host = TranscriptHost::parse("call other.method() -> Ok(Unit)\n").expect("parses");
 
     h.dispatch(&mut host, "E", "LoadRequested", vec![]);
     h.assert_field("S", "err", &Value::Int(i64::from(ERR_TRANSCRIPT_MISS)));

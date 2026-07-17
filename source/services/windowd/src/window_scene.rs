@@ -98,7 +98,9 @@ impl WindowState {
             // The desktop surface is the base layer — it shows whenever visible,
             // never suppressed by the shell-takeover rule (it IS the shell).
             WindowRole::Desktop => self.visible && !self.minimized,
-            WindowRole::Window => should_show(self.visible, desktop_shell_active) && !self.minimized,
+            WindowRole::Window => {
+                should_show(self.visible, desktop_shell_active) && !self.minimized
+            }
         }
     }
 

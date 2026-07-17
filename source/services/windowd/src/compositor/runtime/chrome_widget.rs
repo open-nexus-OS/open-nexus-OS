@@ -106,9 +106,7 @@ impl DisplayServerRuntime {
             if dark { &DARK_TOKENS } else { &LIGHT_TOKENS };
 
         // 1. The title bar as a WIDGET subtree: [title text · spacer · controls].
-        let title = nexus_widget_text::Text::new("App")
-            .size(TypographyToken::Sm)
-            .build(tokens);
+        let title = nexus_widget_text::Text::new("App").size(TypographyToken::Sm).build(tokens);
         let controls = WindowControls::new()
             .minimize(ID_MIN)
             .maximize(ID_MAX)
@@ -195,8 +193,7 @@ impl DisplayServerRuntime {
             // Glyph pass: the title Text node(s).
             for (node_id, content, font, color) in chrome_texts(&bar) {
                 if let Some(bx) = layout.boxes.iter().find(|b| b.node_id == node_id) {
-                    let (tx, ty, th) =
-                        (bx.rect.x.0, bx.rect.y.0, bx.rect.height.0);
+                    let (tx, ty, th) = (bx.rect.x.0, bx.rect.y.0, bx.rect.height.0);
                     if y >= ty && y < ty + th {
                         nexus_text_baked::draw_text_row(
                             row,
@@ -236,7 +233,12 @@ fn chrome_texts(
     fn collect(
         node: &LayoutNode,
         index: &mut usize,
-        out: &mut alloc::vec::Vec<(usize, alloc::string::String, nexus_text_baked::FontSize, [u8; 4])>,
+        out: &mut alloc::vec::Vec<(
+            usize,
+            alloc::string::String,
+            nexus_text_baked::FontSize,
+            [u8; 4],
+        )>,
     ) {
         use nexus_layout_types::LayoutNode as N;
         *index += 1;

@@ -56,8 +56,7 @@ impl MeasureText for BakedTextMeasure {
             baseline: line_height,
             height: line_height,
         };
-        let lines =
-            if matches!(max_lines, Some(0)) { alloc::vec![] } else { alloc::vec![line] };
+        let lines = if matches!(max_lines, Some(0)) { alloc::vec![] } else { alloc::vec![line] };
         LineLayout { lines, natural_width }
     }
 }

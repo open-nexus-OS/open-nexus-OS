@@ -34,8 +34,9 @@ fn main() {
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod probe {
-    use nexus_abi::{ipc_recv_v1, ipc_send_v1, nsec, yield_, MsgHeader, IPC_SYS_NONBLOCK,
-        IPC_SYS_TRUNCATE};
+    use nexus_abi::{
+        ipc_recv_v1, ipc_send_v1, nsec, yield_, MsgHeader, IPC_SYS_NONBLOCK, IPC_SYS_TRUNCATE,
+    };
 
     /// Fixed child capability slots — execd `cap_transfer_to_slot`s these
     /// BEFORE `task_resume` (grants-before-resume discipline), so they are

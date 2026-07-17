@@ -22,9 +22,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::product::{parse_product_manifest, ProductManifest};
-use crate::profile::{
-    parse_profile_manifest, DeviceInput, ProfileManifest, Result, SystemUiError,
-};
+use crate::profile::{parse_profile_manifest, DeviceInput, ProfileManifest, Result, SystemUiError};
 use crate::shell::{parse_shell_manifest, validate_profile_shell, ShellManifest};
 
 /// One registered manifest: a stable id paired with its (compile-time embedded)
@@ -42,7 +40,10 @@ pub const DEFAULT_PRODUCT_ID: &str = "tablet";
 
 /// Registered **profile** manifests (device-class axis).
 pub const PROFILES: &[ManifestEntry] = &[
-    ManifestEntry { id: "desktop", toml: include_str!("../manifests/profiles/desktop/profile.toml") },
+    ManifestEntry {
+        id: "desktop",
+        toml: include_str!("../manifests/profiles/desktop/profile.toml"),
+    },
     ManifestEntry { id: "tablet", toml: include_str!("../manifests/profiles/tablet/profile.toml") },
 ];
 
@@ -55,17 +56,16 @@ pub const SHELLS: &[ManifestEntry] = &[
 
 /// Registered **product** manifests (deployment config = profile + shell + theme).
 pub const PRODUCTS: &[ManifestEntry] = &[
-    ManifestEntry { id: "default", toml: include_str!("../manifests/products/default/product.toml") },
+    ManifestEntry {
+        id: "default",
+        toml: include_str!("../manifests/products/default/product.toml"),
+    },
     ManifestEntry { id: "tablet", toml: include_str!("../manifests/products/tablet/product.toml") },
     ManifestEntry { id: "kiosk", toml: include_str!("../manifests/products/kiosk/product.toml") },
 ];
 
 fn lookup<'a>(catalog: &'a [ManifestEntry], id: &str) -> Result<&'a str> {
-    catalog
-        .iter()
-        .find(|e| e.id == id)
-        .map(|e| e.toml)
-        .ok_or(SystemUiError::ManifestNotFound)
+    catalog.iter().find(|e| e.id == id).map(|e| e.toml).ok_or(SystemUiError::ManifestNotFound)
 }
 
 /// Parse a registered profile by id (deterministic `ManifestNotFound` for unknown).
@@ -165,12 +165,7 @@ pub fn switch_shell(cfg: &ResolvedConfig, new_shell: &str) -> Result<ResolvedCon
     let shell = shell_by_id(new_shell)?;
     validate_profile_shell(&cfg.profile, &shell)?;
     let env = environment_for(&cfg.profile, &shell);
-    Ok(ResolvedConfig {
-        product: cfg.product.clone(),
-        profile: cfg.profile.clone(),
-        shell,
-        env,
-    })
+    Ok(ResolvedConfig { product: cfg.product.clone(), profile: cfg.profile.clone(), shell, env })
 }
 
 /// A short, stable summary line for boot logs / markers.

@@ -5,7 +5,7 @@
 
 use super::Parser;
 use crate::ast::{
-    ComponentDecl, EffectDecl, EventCase, EventDecl, Pattern, PageDecl, PropDecl, QueryDecl,
+    ComponentDecl, EffectDecl, EventCase, EventDecl, PageDecl, Pattern, PropDecl, QueryDecl,
     ReduceArm, ReduceDecl, Route, RoutesDecl, StoreDecl, StoreField, WindowDecl, WindowLevel,
     WindowMode, WindowStyle,
 };
@@ -24,8 +24,7 @@ impl Parser<'_> {
             let field_name = self.ident("a field name")?;
             self.expect(&TokenKind::Colon, "`:`")?;
             let ty = self.type_expr()?;
-            let default =
-                if self.eat(&TokenKind::Eq) { Some(self.expr()?) } else { None };
+            let default = if self.eat(&TokenKind::Eq) { Some(self.expr()?) } else { None };
             let persist = self.eat(&TokenKind::AtPersist);
             let field_span = field_name.span.to(self.prev_span());
             self.expect(&TokenKind::Comma, "`,` after the field")?;
@@ -152,8 +151,7 @@ impl Parser<'_> {
                 let field_name = self.ident("a state field name")?;
                 self.expect(&TokenKind::Colon, "`:`")?;
                 let ty = self.type_expr()?;
-                let default =
-                    if self.eat(&TokenKind::Eq) { Some(self.expr()?) } else { None };
+                let default = if self.eat(&TokenKind::Eq) { Some(self.expr()?) } else { None };
                 let field_span = field_name.span.to(self.prev_span());
                 self.expect(&TokenKind::Comma, "`,` after the state field")?;
                 state.push(crate::ast::StoreField {
@@ -265,9 +263,9 @@ impl Parser<'_> {
                     limit = Some((value, limit_span));
                 }
                 _ => {
-                    return Err(self.unexpected(
-                        "a query clause (`params:`, `where`, `orderBy`, `limit`)",
-                    ))
+                    return Err(
+                        self.unexpected("a query clause (`params:`, `where`, `orderBy`, `limit`)")
+                    )
                 }
             }
         }
@@ -276,7 +274,9 @@ impl Parser<'_> {
             return Err(Diagnostic::new(
                 DiagCode::UnexpectedToken,
                 span,
-                String::from("a query needs an `orderBy` clause (deterministic order is mandatory)"),
+                String::from(
+                    "a query needs an `orderBy` clause (deterministic order is mandatory)",
+                ),
             ));
         };
         let Some((limit, limit_span)) = limit else {
@@ -286,7 +286,17 @@ impl Parser<'_> {
                 String::from("a query needs a `limit` clause (bounded results are mandatory)"),
             ));
         };
-        Ok(QueryDecl { name, source, params, preds, order_col, descending, limit, limit_span, span })
+        Ok(QueryDecl {
+            name,
+            source,
+            params,
+            preds,
+            order_col,
+            descending,
+            limit,
+            limit_span,
+            span,
+        })
     }
 
     /// `Routes { "/path/:id" -> Page(id: Int); ... }`
@@ -406,9 +416,5 @@ impl Parser<'_> {
 
 /// Diagnostic for an unrecognized window enum value.
 fn enum_err(span: crate::diag::Span, field: &str, got: &str) -> Diagnostic {
-    Diagnostic::new(
-        DiagCode::UnknownEnumCase,
-        span,
-        format!("unknown window {field} `{got}`"),
-    )
+    Diagnostic::new(DiagCode::UnknownEnumCase, span, format!("unknown window {field} `{got}`"))
 }

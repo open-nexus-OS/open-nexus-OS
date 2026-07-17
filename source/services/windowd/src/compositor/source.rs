@@ -26,13 +26,9 @@ pub(crate) fn source_row<'a>(
     let row_bytes = frame.width as usize * 4;
     match frame.rows {
         None => {
-            let start = sy
-                .checked_mul(frame.stride as usize)
-                .ok_or(WindowdError::ArithmeticOverflow)?;
-            frame
-                .pixels
-                .get(start..start + row_bytes)
-                .ok_or(WindowdError::BufferLengthMismatch)
+            let start =
+                sy.checked_mul(frame.stride as usize).ok_or(WindowdError::ArithmeticOverflow)?;
+            frame.pixels.get(start..start + row_bytes).ok_or(WindowdError::BufferLengthMismatch)
         }
         Some(rows) => {
             // Per-row QOI (systemui = the codec SSOT; encoder in its build).
@@ -81,9 +77,8 @@ pub(crate) fn copy_scaled_systemui_row_clipped(
             x += run;
             continue;
         }
-        row[dst..dst + 4].copy_from_slice(
-            src_row.get(src..src + 4).ok_or(WindowdError::BufferLengthMismatch)?,
-        );
+        row[dst..dst + 4]
+            .copy_from_slice(src_row.get(src..src + 4).ok_or(WindowdError::BufferLengthMismatch)?);
         x += 1;
     }
     Ok(())

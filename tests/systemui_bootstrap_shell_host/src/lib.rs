@@ -148,8 +148,7 @@ pub fn texts(scene: &nexus_layout_types::LayoutNode) -> Vec<String> {
 pub fn app_entry(mounted: &Mounted<'_>, id: &str, label: &str) -> Value {
     let id_sym = mounted.sym("id");
     let label_sym = mounted.sym("label");
-    let mut fields =
-        vec![(id_sym, Value::Str(id.into())), (label_sym, Value::Str(label.into()))];
+    let mut fields = vec![(id_sym, Value::Str(id.into())), (label_sym, Value::Str(label.into()))];
     fields.sort_by_key(|(sym, _)| *sym);
     Value::Record(fields)
 }

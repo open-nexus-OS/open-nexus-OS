@@ -6,9 +6,9 @@
 //! the retained render-target layer composite, and the scanout VMO accessor.
 
 use super::resources::{map_nexus_error, validate_rect};
-use super::{ResourceRecord, VirtioGpuBackend};
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-use super::{MAX_PENDING_RT_LAYERS, PendingRtLayer};
+use super::{PendingRtLayer, MAX_PENDING_RT_LAYERS};
+use super::{ResourceRecord, VirtioGpuBackend};
 use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::traits::GfxBackend;
 use nexus_gfx::backend::types::{Rect, ResourceId};
@@ -16,8 +16,6 @@ use nexus_gfx::command::buffer::{Command, CommittedBuffer, RgbaColor};
 use nexus_gfx::core::fence::Fence;
 use nexus_gfx::core::types::PixelFormat;
 
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-use crate::protocol;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use super::cursor::blend_cursor_vmo;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -36,6 +34,8 @@ use crate::markers::{
     GPUD_DROPSHADOW_OK, GPUD_GL_SCANOUT_FALLBACK, GPUD_LAYER_COMPOSITE_LIVE,
     GPUD_RESOURCE_VMO_MAP_FAIL, GPUD_SDF_GRAD_OK,
 };
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+use crate::protocol;
 
 impl VirtioGpuBackend {
     /// Attach an externally-owned VMO as the display scanout backing.
@@ -867,10 +867,8 @@ impl VirtioGpuBackend {
                     if l.content_h == 0 {
                         l.content_h = l.height;
                     }
-                    l.dst_x =
-                        (l.dst_x as i32 + (l.width as i32 - nw as i32) / 2).max(0) as u32;
-                    l.dst_y =
-                        (l.dst_y as i32 + (l.height as i32 - nh as i32) / 2).max(0) as u32;
+                    l.dst_x = (l.dst_x as i32 + (l.width as i32 - nw as i32) / 2).max(0) as u32;
+                    l.dst_y = (l.dst_y as i32 + (l.height as i32 - nh as i32) / 2).max(0) as u32;
                     l.width = nw;
                     l.height = nh;
                 }

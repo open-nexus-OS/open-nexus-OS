@@ -126,10 +126,8 @@ pub fn hit_scrolled<'h>(
             py = FxPx::new(y.0 + dy);
         }
         let rect = layout_box.rect;
-        let inside = px >= rect.x
-            && py >= rect.y
-            && px < rect.x + rect.width
-            && py < rect.y + rect.height;
+        let inside =
+            px >= rect.x && py >= rect.y && px < rect.x + rect.width && py < rect.y + rect.height;
         if inside && best.map_or(true, |(id, _)| *box_id > id) {
             best = Some((*box_id, entry));
         }

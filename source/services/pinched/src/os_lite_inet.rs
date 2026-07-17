@@ -48,8 +48,7 @@ extern "C" fn job_inet_round(start: usize, end: usize, _ctx: *mut u8) {
         return;
     };
     let mut out = nexus_inet::RoundOut::default();
-    if nexus_inet::reduce_chunk(&round.net, &round.redexes, start, end, &mut out).is_err()
-    {
+    if nexus_inet::reduce_chunk(&round.net, &round.redexes, start, end, &mut out).is_err() {
         round.failed.store(true, Ordering::Release);
         return;
     }
@@ -197,4 +196,3 @@ pub(crate) fn handle_inet_tree_sum(vmo: u32, depth: usize) {
     }
     finish(vmo, STATUS_OK, total_reds, workers)
 }
-

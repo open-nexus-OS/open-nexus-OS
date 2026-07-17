@@ -139,7 +139,16 @@ pub fn plan_document_at(
         });
     }
 
-    Ok(RasterPlan { width: out_w, height: out_h, edges, paints, fill_rules, solids, y_start, y_end })
+    Ok(RasterPlan {
+        width: out_w,
+        height: out_h,
+        edges,
+        paints,
+        fill_rules,
+        solids,
+        y_start,
+        y_end,
+    })
 }
 
 impl RasterPlan {
@@ -594,7 +603,7 @@ mod tests {
         let green = ShapePaint::Solid(Color { r: 0, g: 255, b: 0, a: 128 });
         let buf = fill(&edges, &[red, green], w, h);
         let p = px(&buf, w, 50, 50); // inside both
-        // a = 0.502 + 0.502·0.498 ≈ 0.752 → 192; g(top) ≈ 128; r(bottom) ≈ 64.
+                                     // a = 0.502 + 0.502·0.498 ≈ 0.752 → 192; g(top) ≈ 128; r(bottom) ≈ 64.
         assert!((p[3] as i32 - 192).abs() <= 2, "overlap alpha OVER, got {}", p[3]);
         assert!((p[1] as i32 - 128).abs() <= 2, "top premult green, got {}", p[1]);
         assert!((p[2] as i32 - 64).abs() <= 2, "bottom attenuated red, got {}", p[2]);

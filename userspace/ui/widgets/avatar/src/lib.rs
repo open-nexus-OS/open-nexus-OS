@@ -12,11 +12,11 @@
 extern crate alloc;
 
 use alloc::string::String;
+use nexus_layout_types::FontWeight;
 use nexus_layout_types::{
     Align, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, Overflow, Stack,
 };
 use nexus_style::Style;
-use nexus_layout_types::FontWeight;
 use nexus_theme_tokens::{ColorToken, LengthToken, Tokens};
 use nexus_widget_text::Text;
 
@@ -103,7 +103,8 @@ impl Avatar {
         } else {
             FxPx::new(self.size / 2)
         };
-        let style = Style::new().background(tokens.color(ColorToken::SurfaceVariant)).rounded(radius);
+        let style =
+            Style::new().background(tokens.color(ColorToken::SurfaceVariant)).rounded(radius);
 
         let content = match (self.image, &self.initials) {
             (Some(image), _) => image,

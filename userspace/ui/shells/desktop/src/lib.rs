@@ -133,7 +133,12 @@ pub fn build_desktop_scene(tokens: &dyn Tokens) -> LayoutNode {
 
 /// One target-test card: a rounded, themed tile with a centered label — built
 /// purely from the widget + style + theme-token components.
-fn target_card(tokens: &dyn Tokens, id: &'static str, text: &'static str, bg: ColorToken) -> LayoutNode {
+fn target_card(
+    tokens: &dyn Tokens,
+    id: &'static str,
+    text: &'static str,
+    bg: ColorToken,
+) -> LayoutNode {
     Panel::column()
         .id(id)
         .style(
@@ -210,7 +215,9 @@ mod tests {
         assert!(visual.background.is_some(), "root has a themed background");
         assert_eq!(children.len(), 2, "topbar + chat window");
         // Chat window child carries the close button (drill into title bar).
-        let LayoutNode::Stack(win, _, win_children) = &children[1] else { panic!("window is a Stack") };
+        let LayoutNode::Stack(win, _, win_children) = &children[1] else {
+            panic!("window is a Stack")
+        };
         assert_eq!(win.id, Some("chat_window"));
         let LayoutNode::Stack(tb, _, tb_kids) = &win_children[0] else { panic!("titlebar") };
         assert_eq!(tb.id, Some("chat_titlebar"));
@@ -237,5 +244,4 @@ mod tests {
         assert_eq!(stack_bg(&card_kids[1]), Some(t.color(ColorToken::Accent)));
         assert_eq!(stack_bg(&card_kids[0]), Some(t.color(ColorToken::SurfaceVariant)));
     }
-
 }

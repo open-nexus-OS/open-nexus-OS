@@ -18,13 +18,7 @@ struct Registry {
     icon_art_sym: u32,
 }
 impl nexus_dsl_runtime::EffectHost for Registry {
-    fn call(
-        &mut self,
-        svc: &str,
-        method: &str,
-        _args: &[Value],
-        _t: u32,
-    ) -> Result<Value, u32> {
+    fn call(&mut self, svc: &str, method: &str, _args: &[Value], _t: u32) -> Result<Value, u32> {
         if (svc, method) == ("bundlemgr", "enumerate") {
             let row = |id: &str, label: &str, icon: &str| {
                 let mut fields = vec![
@@ -54,15 +48,14 @@ fn hover_sweep_never_panics() {
     let nxir = common::compile("desktop-shell");
     let symbols = common::program_symbols(&nxir);
     let sym = |n: &str| symbols.iter().position(|s| s == n).expect(n) as u32;
-    let mut host =
-        Registry {
-            id_sym: sym("id"),
-            label_sym: sym("label"),
-            icon_sym: sym("icon"),
-            icon_top_sym: sym("iconTop"),
-            icon_bottom_sym: sym("iconBottom"),
-            icon_art_sym: sym("iconArt"),
-        };
+    let mut host = Registry {
+        id_sym: sym("id"),
+        label_sym: sym("label"),
+        icon_sym: sym("icon"),
+        icon_top_sym: sym("iconTop"),
+        icon_bottom_sym: sym("iconBottom"),
+        icon_art_sym: sym("iconArt"),
+    };
     let tokens = nexus_theme_tokens::BaseTokens;
     let device = FixtureEnv::tablet("landscape");
     let keys: Vec<u32> = Vec::new();
@@ -104,9 +97,5 @@ fn hover_sweep_never_panics() {
             targets.insert(id);
         }
     }
-    assert!(
-        targets.len() >= 4,
-        "shell should expose several interactive targets, got {targets:?}"
-    );
-
+    assert!(targets.len() >= 4, "shell should expose several interactive targets, got {targets:?}");
 }

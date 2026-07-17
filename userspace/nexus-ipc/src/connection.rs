@@ -52,9 +52,7 @@ pub struct Connection<T: Transport, const PENDING: usize, const MAX_FRAME: usize
     nonces: NonceGen,
 }
 
-impl<T: Transport, const PENDING: usize, const MAX_FRAME: usize>
-    Connection<T, PENDING, MAX_FRAME>
-{
+impl<T: Transport, const PENDING: usize, const MAX_FRAME: usize> Connection<T, PENDING, MAX_FRAME> {
     /// Creates a connection over `transport`, with nonces starting at `nonce_start`.
     pub fn new(transport: T, nonce_start: u64) -> Self {
         Self { transport, pending: ReplyBuffer::new(), nonces: NonceGen::new(nonce_start) }
@@ -147,11 +145,12 @@ mod tests {
 
     #[test]
     fn call_correlates_reply_by_nonce() {
-        let svc = MockService { inbox: MemInbox { frames: RefCell::new(Vec::new()) }, responder: echo_nonce };
+        let svc = MockService {
+            inbox: MemInbox { frames: RefCell::new(Vec::new()) },
+            responder: echo_nonce,
+        };
         let mut conn: Connection<_, 4, 32> = Connection::new(svc, 1);
-        let reply = conn
-            .call(8, |nonce| nonce.to_le_bytes().to_vec(), nonce_le)
-            .expect("reply");
+        let reply = conn.call(8, |nonce| nonce.to_le_bytes().to_vec(), nonce_le).expect("reply");
         assert_eq!(nonce_le(&reply), Some(1));
         assert_eq!(reply[8], 0xAB);
         // Second call uses the next nonce.
@@ -169,7 +168,10 @@ mod tests {
             good.push(0xAB);
             Vec::from([stale, good])
         }
-        let svc = MockService { inbox: MemInbox { frames: RefCell::new(Vec::new()) }, responder: stale_then_match };
+        let svc = MockService {
+            inbox: MemInbox { frames: RefCell::new(Vec::new()) },
+            responder: stale_then_match,
+        };
         let mut conn: Connection<_, 4, 32> = Connection::new(svc, 7);
         let reply = conn.call(8, |n| n.to_le_bytes().to_vec(), nonce_le).expect("reply");
         assert_eq!(nonce_le(&reply), Some(7));
@@ -182,7 +184,10 @@ mod tests {
             wrong.push(0);
             Vec::from([wrong])
         }
-        let svc = MockService { inbox: MemInbox { frames: RefCell::new(Vec::new()) }, responder: no_match };
+        let svc = MockService {
+            inbox: MemInbox { frames: RefCell::new(Vec::new()) },
+            responder: no_match,
+        };
         let mut conn: Connection<_, 4, 32> = Connection::new(svc, 1);
         let r = conn.call(4, |n| n.to_le_bytes().to_vec(), nonce_le);
         assert!(matches!(r, Err(IpcError::Timeout)));

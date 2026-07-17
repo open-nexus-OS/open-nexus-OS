@@ -27,7 +27,11 @@ impl DisplayServerRuntime {
     pub(super) fn apply_shell_config(&mut self, cfg: systemui::ShellConfig) {
         let _ = debug_println(&alloc::format!(
             "windowd: shell switch product={} shell={} kind={} chrome={} locked={}",
-            cfg.product_id, cfg.shell_id, cfg.shell_kind, cfg.desktop_chrome, cfg.locked,
+            cfg.product_id,
+            cfg.shell_id,
+            cfg.shell_kind,
+            cfg.desktop_chrome,
+            cfg.locked,
         ));
         self.shell_config = cfg;
         // The chrome IS the DSL shell app-host's surface now — a shell switch
@@ -78,9 +82,7 @@ impl DisplayServerRuntime {
                 if self.theme_accent != value {
                     self.theme_accent = value;
                     self.push_app_theme();
-                    let _ = debug_println(&alloc::format!(
-                        "uitheme: accent switched (to={value})"
-                    ));
+                    let _ = debug_println(&alloc::format!("uitheme: accent switched (to={value})"));
                     #[cfg(all(nexus_env = "os", target_os = "none"))]
                     {
                         let _ = crate::settings_client::set_theme_accent(value);
@@ -252,8 +254,7 @@ impl DisplayServerRuntime {
         // AND the retained plane from the new pixels.
         #[cfg(nexus_env = "os")]
         if systemui::wallpaper_source_is_jpeg() {
-            let (data, rows) =
-                systemui::wallpaper_rle_for(mode == crate::theme::ThemeMode::Dark);
+            let (data, rows) = systemui::wallpaper_rle_for(mode == crate::theme::ThemeMode::Dark);
             self.source_frame.pixels = data;
             self.source_frame.rows = Some(rows);
             // Plane 0 (the boot-written wallpaper SOURCE plane) is only
@@ -266,10 +267,8 @@ impl DisplayServerRuntime {
             // full-frame damage below picks it up in order).
             if self.ensure_gpud_client() {
                 if let Some(client) = self.gpud_client.as_ref() {
-                    let _ = client.send(
-                        &[nexus_display_proto::OP_WALLPAPER_DIRTY],
-                        Wait::NonBlocking,
-                    );
+                    let _ =
+                        client.send(&[nexus_display_proto::OP_WALLPAPER_DIRTY], Wait::NonBlocking);
                 }
             }
             // Full CPU repaint: mark every tile dirty (the GPU blit rect from
@@ -319,7 +318,6 @@ impl DisplayServerRuntime {
             self.mark_theme_user_set();
         }
     }
-
 }
 
 /// Persisted-theme probe state (TASK-0072 Phase 10). Mirrors `SessionProbe`:
@@ -385,10 +383,8 @@ impl DisplayServerRuntime {
         if let Some(mode) = crate::settings_client::get_theme_mode() {
             self.theme_probe.done = true;
             self.set_theme_mode(mode);
-            let _ = debug_println(&alloc::format!(
-                "windowd: theme restored (mode={})",
-                mode.as_str()
-            ));
+            let _ =
+                debug_println(&alloc::format!("windowd: theme restored (mode={})", mode.as_str()));
             // settingsd is reachable — restore the persisted accent in the
             // same breath (apply-only): pushes the packed theme byte if it
             // differs from the boot default.

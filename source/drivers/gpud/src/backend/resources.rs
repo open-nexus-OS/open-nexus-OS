@@ -6,11 +6,11 @@
 //! by the `GfxBackend` resource methods.
 
 use super::{ResourceRecord, VirtioGpuBackend};
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+use crate::protocol;
 use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::types::{Rect, ResourceId};
 use nexus_gfx::core::types::PixelFormat;
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-use crate::protocol;
 
 impl VirtioGpuBackend {
     /// Convert PixelFormat to virtio-gpu format constant.

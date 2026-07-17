@@ -51,7 +51,9 @@ fn purity(stmts: &[Stmt], model: &Model<'_>, diags: &mut Vec<Diagnostic>) {
                     diags.push(Diagnostic::new(
                         DiagCode::ReducerImpure,
                         span,
-                        String::from("reducers are pure: `svc.*`/query execution belongs in an `@effect`"),
+                        String::from(
+                            "reducers are pure: `svc.*`/query execution belongs in an `@effect`",
+                        ),
                     ));
                 }
             }
@@ -60,7 +62,9 @@ fn purity(stmts: &[Stmt], model: &Model<'_>, diags: &mut Vec<Diagnostic>) {
                     diags.push(Diagnostic::new(
                         DiagCode::ReducerImpure,
                         span,
-                        String::from("reducers are pure: `svc.*`/query execution belongs in an `@effect`"),
+                        String::from(
+                            "reducers are pure: `svc.*`/query execution belongs in an `@effect`",
+                        ),
                     ));
                 }
                 purity(then, model, diags);
@@ -71,7 +75,9 @@ fn purity(stmts: &[Stmt], model: &Model<'_>, diags: &mut Vec<Diagnostic>) {
                     diags.push(Diagnostic::new(
                         DiagCode::ReducerImpure,
                         span,
-                        String::from("reducers are pure: `svc.*`/query execution belongs in an `@effect`"),
+                        String::from(
+                            "reducers are pure: `svc.*`/query execution belongs in an `@effect`",
+                        ),
                     ));
                 }
                 for arm in arms {
@@ -162,9 +168,9 @@ fn svc_discipline(stmts: &[Stmt], diags: &mut Vec<Diagnostic>) {
 fn timeout_check(expr: &Expr, diags: &mut Vec<Diagnostic>) {
     if let Expr::Call { path, args, span } = expr {
         if path.first().map(|seg| seg.text.as_str()) == Some("svc")
-            && !args.iter().any(|arg| {
-                arg.name.as_ref().map(|n| n.text.as_str()) == Some("timeoutMs")
-            })
+            && !args
+                .iter()
+                .any(|arg| arg.name.as_ref().map(|n| n.text.as_str()) == Some("timeoutMs"))
         {
             diags.push(Diagnostic::new(
                 DiagCode::MissingTimeout,

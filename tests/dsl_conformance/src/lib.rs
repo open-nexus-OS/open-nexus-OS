@@ -42,8 +42,7 @@ impl<'p> Harness<'p> {
         let runtime = Runtime::mount(nxir).expect("mounts");
         let symbols = runtime.symbols().to_vec();
         // i18n key table for the identity locale.
-        let reader = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir)
-            .expect("reads");
+        let reader = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir).expect("reads");
         let keys: Vec<u32> = reader
             .root()
             .expect("root")
@@ -59,7 +58,13 @@ impl<'p> Harness<'p> {
     ///
     /// # Panics
     /// On unknown event/case or a runtime error — corpus dispatches must run.
-    pub fn dispatch(&mut self, host: &mut dyn EffectHost, event: &str, case: &str, payload: Vec<Value>) {
+    pub fn dispatch(
+        &mut self,
+        host: &mut dyn EffectHost,
+        event: &str,
+        case: &str,
+        payload: Vec<Value>,
+    ) {
         let (e, c) = self
             .runtime
             .event_case(event, case)
@@ -107,10 +112,8 @@ impl EffectHost for Script {
     ) -> Result<Value, u32> {
         let name = format!("{service}.{method}");
         self.calls.push(name.clone());
-        let (expected, response) = self
-            .responses
-            .get(self.next)
-            .unwrap_or_else(|| panic!("unexpected call {name}"));
+        let (expected, response) =
+            self.responses.get(self.next).unwrap_or_else(|| panic!("unexpected call {name}"));
         assert_eq!(*expected, name, "call order");
         self.next += 1;
         response.clone()
@@ -175,9 +178,7 @@ fn hex_decode(text: &str) -> Option<Vec<u8>> {
     if text.len() % 2 != 0 {
         return None;
     }
-    (0..text.len() / 2)
-        .map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).ok())
-        .collect()
+    (0..text.len() / 2).map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).ok()).collect()
 }
 
 fn to_qval(value: &Value) -> Option<QVal> {
@@ -197,11 +198,8 @@ impl EffectHost for EngineHost {
 
     fn query(&mut self, call: &QueryCall) -> Result<QueryPage, u32> {
         self.queries.push(call.clone());
-        let table = self
-            .sources
-            .iter()
-            .position(|s| *s == call.source)
-            .ok_or(ERR_UNKNOWN_SOURCE)? as u16;
+        let table =
+            self.sources.iter().position(|s| *s == call.source).ok_or(ERR_UNKNOWN_SOURCE)? as u16;
         // Single-column fixture: every column name maps to column 0.
         let mut spec = QuerySpec {
             table,
@@ -225,11 +223,7 @@ impl EffectHost for EngineHost {
         let token = if call.token.is_empty() {
             None
         } else {
-            Some(
-                hex_decode(&call.token)
-                    .and_then(|b| PageToken::from_bytes(&b))
-                    .ok_or(6u32)?,
-            )
+            Some(hex_decode(&call.token).and_then(|b| PageToken::from_bytes(&b)).ok_or(6u32)?)
         };
         let page = self.engine.query(&self.kv, &spec, token.as_ref()).map_err(|_| 7u32)?;
         let rows = Value::List(

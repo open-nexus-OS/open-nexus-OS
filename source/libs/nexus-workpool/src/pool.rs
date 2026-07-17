@@ -245,12 +245,7 @@ pub fn init(workers: usize) -> Result<(), PoolError> {
     }
     if SHARED
         .state
-        .compare_exchange(
-            STATE_UNINIT,
-            STATE_INIT_IN_PROGRESS,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        )
+        .compare_exchange(STATE_UNINIT, STATE_INIT_IN_PROGRESS, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
     {
         return Err(PoolError::AlreadyInitialized);

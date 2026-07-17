@@ -590,7 +590,11 @@ impl CtrlQueue {
     /// RESP_OK_NODATA (like `submit`) therefore always "fails" — the historical
     /// reason the hardware cursor was abandoned. Single read-only descriptor,
     /// completion = used-ring advance.
-    pub(crate) fn submit_no_response(&mut self, mmio_base: usize, bytes: &[u8]) -> Result<(), GfxError> {
+    pub(crate) fn submit_no_response(
+        &mut self,
+        mmio_base: usize,
+        bytes: &[u8],
+    ) -> Result<(), GfxError> {
         // Single read-only command, no response payload to inspect — the used-ring
         // advance IS the completion. Enqueue then wait for that slot (synchronous).
         let slot = self.enqueue_single(mmio_base, bytes)?;
@@ -627,8 +631,7 @@ impl CtrlQueue {
         let slot = self.enqueue_pair_resp_len(mmio_base, cmd, &[], RESP_SLOT_SIZE)?;
         self.wait_slot(slot)?;
         let va = self.resp_slot_va(slot);
-        let hdr =
-            unsafe { core::ptr::read_volatile(va as *const protocol::VirtioGpuCtrlHdr) };
+        let hdr = unsafe { core::ptr::read_volatile(va as *const protocol::VirtioGpuCtrlHdr) };
         if hdr.type_ != protocol::VIRTIO_GPU_RESP_OK_DISPLAY_INFO {
             raw_diag_line(b"gpud: dinfo hdr", &[hdr.type_]);
             return Err(GfxError::CommandRejected);
@@ -640,10 +643,7 @@ impl CtrlQueue {
             )
         };
         if mode.enabled == 0 || mode.r.width == 0 || mode.r.height == 0 {
-            raw_diag_line(
-                b"gpud: dinfo mode",
-                &[mode.enabled, mode.r.width, mode.r.height],
-            );
+            raw_diag_line(b"gpud: dinfo mode", &[mode.enabled, mode.r.width, mode.r.height]);
             return Err(GfxError::CommandRejected);
         }
         Ok((mode.r.width, mode.r.height))

@@ -182,11 +182,8 @@ impl<'a> Ctx<'a> {
         }
         component_order.sort_by_key(|(name, _)| *name);
 
-        let component_index: BTreeMap<&str, u32> = component_order
-            .iter()
-            .enumerate()
-            .map(|(i, (name, _))| (*name, i as u32))
-            .collect();
+        let component_index: BTreeMap<&str, u32> =
+            component_order.iter().enumerate().map(|(i, (name, _))| (*name, i as u32)).collect();
         let event_index: BTreeMap<&str, u32> = event_order
             .iter()
             .enumerate()
@@ -213,10 +210,8 @@ impl<'a> Ctx<'a> {
             for (case_idx, case) in event.cases.iter().enumerate() {
                 if matches!(model.case_lookup.get(case.name.text.as_str()), Some(&(e, c)) if e != usize::MAX && c != usize::MAX)
                 {
-                    case_map.insert(
-                        case.name.text.clone(),
-                        (canonical_idx as u32, case_idx as u32),
-                    );
+                    case_map
+                        .insert(case.name.text.clone(), (canonical_idx as u32, case_idx as u32));
                 }
             }
         }
@@ -610,7 +605,11 @@ fn count_component_usage(model: &Model<'_>, name: &str) -> usize {
         match node {
             V::Widget(widget) => {
                 let own = if widget.name.text == name {
-                    if in_collection { 2 } else { 1 }
+                    if in_collection {
+                        2
+                    } else {
+                        1
+                    }
                 } else {
                     0
                 };
@@ -620,16 +619,13 @@ fn count_component_usage(model: &Model<'_>, name: &str) -> usize {
                     .map(|child| walk(child, name, in_collection))
                     .sum::<usize>()
             }
-            V::If { arms, els, .. } => {
-                arms.iter()
-                    .flat_map(|(_, body)| body.iter())
-                    .chain(els.iter())
-                    .map(|child| walk(child, name, in_collection))
-                    .sum()
-            }
-            V::For { body, .. } => {
-                body.iter().map(|child| walk(child, name, true)).sum()
-            }
+            V::If { arms, els, .. } => arms
+                .iter()
+                .flat_map(|(_, body)| body.iter())
+                .chain(els.iter())
+                .map(|child| walk(child, name, in_collection))
+                .sum(),
+            V::For { body, .. } => body.iter().map(|child| walk(child, name, true)).sum(),
             V::Collection(collection) => {
                 collection.body.iter().map(|child| walk(child, name, true)).sum()
             }
@@ -734,11 +730,8 @@ fn build_message(
     // up front — size it from the working message (default-allocator growth
     // would add a second segment and abort on larger programs, e.g. the
     // 0080B shell).
-    let total_words: usize = message
-        .get_segments_for_output()
-        .iter()
-        .map(|segment| segment.len() / 8)
-        .sum();
+    let total_words: usize =
+        message.get_segments_for_output().iter().map(|segment| segment.len() / 8).sum();
     let mut canonical = capnp::message::Builder::new(
         capnp::message::HeapAllocator::new()
             .first_segment_words(u32::try_from(total_words + 64).unwrap_or(u32::MAX)),

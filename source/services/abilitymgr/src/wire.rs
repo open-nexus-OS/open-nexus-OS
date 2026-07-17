@@ -144,13 +144,22 @@ fn header(op: u8, status: u8) -> Vec<u8> {
 /// consumer's caps come from ITS manifest (`caps::required_caps`).
 fn dispatch_resolve_export(frame: &[u8]) -> Dispatched {
     let Some((consumer, rest)) = take_lp_str(&frame[4..]) else {
-        return Dispatched { response: resp_status(OP_RESOLVE_EXPORT, STATUS_MALFORMED), event: None };
+        return Dispatched {
+            response: resp_status(OP_RESOLVE_EXPORT, STATUS_MALFORMED),
+            event: None,
+        };
     };
     let Some((ability, rest)) = take_lp_str(rest) else {
-        return Dispatched { response: resp_status(OP_RESOLVE_EXPORT, STATUS_MALFORMED), event: None };
+        return Dispatched {
+            response: resp_status(OP_RESOLVE_EXPORT, STATUS_MALFORMED),
+            event: None,
+        };
     };
     if !rest.is_empty() {
-        return Dispatched { response: resp_status(OP_RESOLVE_EXPORT, STATUS_MALFORMED), event: None };
+        return Dispatched {
+            response: resp_status(OP_RESOLVE_EXPORT, STATUS_MALFORMED),
+            event: None,
+        };
     }
     let consumer_caps = crate::caps::required_caps(&consumer);
     match crate::mediation::resolve_export(consumer_caps, &ability) {
@@ -238,7 +247,10 @@ mod tests {
         // Created → Started.
         let d = dispatch(&mut broker, &encode_transition(id, AbilityState::Started));
         assert_eq!(resp_op_status(&d.response), (OP_TRANSITION | OP_RESPONSE, STATUS_OK));
-        assert_eq!(d.event, Some(Event::Transitioned { instance_id: id, to: AbilityState::Started }));
+        assert_eq!(
+            d.event,
+            Some(Event::Transitioned { instance_id: id, to: AbilityState::Started })
+        );
     }
 
     #[test]

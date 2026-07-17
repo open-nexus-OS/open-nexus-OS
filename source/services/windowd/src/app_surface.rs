@@ -130,7 +130,9 @@ impl AppSurfaces {
     /// The surface id resident for an instance, if any.
     pub fn surface_of(&self, instance_id: u32) -> Option<u64> {
         self.slots.iter().find_map(|s| match s.residency {
-            Residency::Loaded { surface_id, .. } if s.instance_id == instance_id => Some(surface_id),
+            Residency::Loaded { surface_id, .. } if s.instance_id == instance_id => {
+                Some(surface_id)
+            }
             _ => None,
         })
     }

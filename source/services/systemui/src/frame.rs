@@ -144,10 +144,7 @@ pub fn decode_qoi_row(
                 }
             },
         }
-        let hash = ((prev[2] as usize * 3
-            + prev[1] as usize * 5
-            + prev[0] as usize * 7
-            + 255 * 11)
+        let hash = ((prev[2] as usize * 3 + prev[1] as usize * 5 + prev[0] as usize * 7 + 255 * 11)
             % 64) as usize;
         index[hash] = prev;
         out[px] = prev[0];
@@ -184,8 +181,7 @@ fn fill_wallpaper(frame: &mut FirstFrame) -> Result<()> {
         let src_y = ((u64::from(y) * u64::from(generated_wallpaper::WALLPAPER_HEIGHT))
             / u64::from(frame.height)) as usize;
         if src_y != decoded_sy {
-            wallpaper_row(src_y, &mut src_row)
-                .ok_or(SystemUiError::InvalidFrameDimensions)?;
+            wallpaper_row(src_y, &mut src_row).ok_or(SystemUiError::InvalidFrameDimensions)?;
             decoded_sy = src_y;
         }
         for x in 0..frame.width {

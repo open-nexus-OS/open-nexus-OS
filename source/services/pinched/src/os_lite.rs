@@ -186,8 +186,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> PinchedResult<()> {
                 // Non-compute traffic: plain frame reply on whichever path
                 // the caller used (rngd's dual-path routing rule).
                 let op = frame.get(3).copied().unwrap_or(0);
-                let rsp =
-                    [MAGIC0, MAGIC1, VERSION, op | OP_RESPONSE, STATUS_MALFORMED as u8];
+                let rsp = [MAGIC0, MAGIC1, VERSION, op | OP_RESPONSE, STATUS_MALFORMED as u8];
                 if let Some(reply) = reply_cap {
                     let _ = reply.reply_and_close(&rsp);
                 } else {
@@ -353,19 +352,21 @@ fn handle_svg(frame: &[u8], vmo: u32, total: usize, io_buf: &mut Vec<u8>) {
                     _ => "pinched: svg run FAIL (woke, done=2?)",
                 });
                 // Which step did each worker band reach? (chunk starts: 0 and h/2)
-                emit_line(match (
-                    SVG_STEP[0].load(Ordering::Acquire),
-                    SVG_STEP[(h / 2) % 4].load(Ordering::Acquire),
-                ) {
-                    (0, b) if b > 0 => "pinched: svg step a=0 (band0 never entered)",
-                    (a, 0) if a > 0 => "pinched: svg step b=0 (band1 never entered)",
-                    (0, 0) => "pinched: svg step both=0",
-                    (1, _) | (_, 1) => "pinched: svg step stuck=1 (plan clone)",
-                    (2, _) | (_, 2) => "pinched: svg step stuck=2 (scratch alloc)",
-                    (3, _) | (_, 3) => "pinched: svg step stuck=3 (first row)",
-                    (4, _) | (_, 4) => "pinched: svg step stuck=4 (mid rows)",
-                    _ => "pinched: svg step both=5 (completed?!)",
-                });
+                emit_line(
+                    match (
+                        SVG_STEP[0].load(Ordering::Acquire),
+                        SVG_STEP[(h / 2) % 4].load(Ordering::Acquire),
+                    ) {
+                        (0, b) if b > 0 => "pinched: svg step a=0 (band0 never entered)",
+                        (a, 0) if a > 0 => "pinched: svg step b=0 (band1 never entered)",
+                        (0, 0) => "pinched: svg step both=0",
+                        (1, _) | (_, 1) => "pinched: svg step stuck=1 (plan clone)",
+                        (2, _) | (_, 2) => "pinched: svg step stuck=2 (scratch alloc)",
+                        (3, _) | (_, 3) => "pinched: svg step stuck=3 (first row)",
+                        (4, _) | (_, 4) => "pinched: svg step stuck=4 (mid rows)",
+                        _ => "pinched: svg step both=5 (completed?!)",
+                    },
+                );
                 job_svg_rows(0, h, core::ptr::null_mut());
                 0
             }

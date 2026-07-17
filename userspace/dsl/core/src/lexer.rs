@@ -175,9 +175,8 @@ pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
                 while i < bytes.len() && bytes[i].is_ascii_digit() {
                     i += 1;
                 }
-                let is_fx = i + 1 < bytes.len()
-                    && bytes[i] == b'.'
-                    && bytes[i + 1].is_ascii_digit();
+                let is_fx =
+                    i + 1 < bytes.len() && bytes[i] == b'.' && bytes[i + 1].is_ascii_digit();
                 if is_fx {
                     let int_part: i64 = parse_int(&source[start..i], start, i)?;
                     i += 1; // '.'
@@ -234,10 +233,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
                         }
                         Some(_) => {
                             // Advance by one UTF-8 char.
-                            let ch_len = source[i..]
-                                .chars()
-                                .next()
-                                .map_or(1, char::len_utf8);
+                            let ch_len = source[i..].chars().next().map_or(1, char::len_utf8);
                             value.push_str(&source[i..i + ch_len]);
                             i += ch_len;
                         }
@@ -323,7 +319,14 @@ pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
                             return Err(Diagnostic::new(
                                 DiagCode::UnexpectedChar,
                                 Span::new(start as u32, (start + 1) as u32),
-                                format!("unexpected character `{}`", &source[i..].chars().next().map(String::from).unwrap_or_default()),
+                                format!(
+                                    "unexpected character `{}`",
+                                    &source[i..]
+                                        .chars()
+                                        .next()
+                                        .map(String::from)
+                                        .unwrap_or_default()
+                                ),
                             ));
                         }
                     },
@@ -357,11 +360,8 @@ fn fx_from_parts(int_part: i64, frac_digits: &str) -> Option<i64> {
     let digits: &str = if frac_digits.len() > 18 { &frac_digits[..18] } else { frac_digits };
     let numerator: u128 = digits.parse().ok()?;
     let denominator: u128 = 10u128.checked_pow(digits.len() as u32)?;
-    let frac = if denominator == 0 {
-        0u128
-    } else {
-        ((numerator << 32) + denominator / 2) / denominator
-    };
+    let frac =
+        if denominator == 0 { 0u128 } else { ((numerator << 32) + denominator / 2) / denominator };
     let frac = i64::try_from(frac).ok()?;
     (int_part << 32).checked_add(frac)
 }

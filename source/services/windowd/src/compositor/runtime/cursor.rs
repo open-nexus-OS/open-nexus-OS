@@ -161,9 +161,7 @@ impl DisplayServerRuntime {
                 let Some(client) = self.gpud_client.as_ref() else {
                     return;
                 };
-                client
-                    .send(&frame, Wait::Timeout(core::time::Duration::from_millis(10)))
-                    .is_ok()
+                client.send(&frame, Wait::Timeout(core::time::Duration::from_millis(10))).is_ok()
             };
             // Give gpud a chance to drain + ack between sprites.
             self.drain_gpud_replies();
@@ -194,9 +192,7 @@ impl DisplayServerRuntime {
                 let Some(client) = self.gpud_client.as_ref() else {
                     return;
                 };
-                client
-                    .send(&frame, Wait::Timeout(core::time::Duration::from_millis(10)))
-                    .is_ok()
+                client.send(&frame, Wait::Timeout(core::time::Duration::from_millis(10))).is_ok()
             };
             self.drain_gpud_replies();
             if !sent {
@@ -254,8 +250,8 @@ impl DisplayServerRuntime {
                 return false; // still no sprites at gpud — plain wait
             }
         }
-        let step = ((now_ns / CURSOR_RING_STEP_NS)
-            % crate::assets::CURSOR_RING_FRAMES.len() as u64) as u8;
+        let step =
+            ((now_ns / CURSOR_RING_STEP_NS) % crate::assets::CURSOR_RING_FRAMES.len() as u64) as u8;
         if !self.cursor_ring_active || step != self.cursor_ring_frame {
             if !self.cursor_ring_active {
                 let _ = debug_println("windowd: cursor ring on");

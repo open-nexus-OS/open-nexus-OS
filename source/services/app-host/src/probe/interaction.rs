@@ -46,9 +46,8 @@ impl super::DslApp {
         }
         // The part's pre-dispatch x (the thumb slides on a toggle flip; the
         // slide-in animates from old − new).
-        let part_x_before = press_part.and_then(|p| {
-            self.layout.boxes.iter().find(|b| b.node_id == p).map(|b| b.rect.x.0)
-        });
+        let part_x_before = press_part
+            .and_then(|p| self.layout.boxes.iter().find(|b| b.node_id == p).map(|b| b.rect.x.0));
         let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
         let damage = match self.view.pointer_scrolled(
             tokens,
@@ -85,12 +84,8 @@ impl super::DslApp {
         // from where it was (node ids are stable across the re-emit).
         if let (Some(h), Some(p), Some(x0)) = (hit, press_part, part_x_before) {
             if p != h {
-                let x1 = self
-                    .layout
-                    .boxes
-                    .iter()
-                    .find(|b| b.node_id == p)
-                    .map_or(x0, |b| b.rect.x.0);
+                let x1 =
+                    self.layout.boxes.iter().find(|b| b.node_id == p).map_or(x0, |b| b.rect.x.0);
                 self.interaction_toggle_thumb(p, (x0 - x1) as f32);
             }
         }

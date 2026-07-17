@@ -1060,9 +1060,9 @@ mod scroll_tag_tests {
             .commands
             .iter()
             .filter_map(|c| match c {
-                Command::CompositeLayer { src_row_abs, scroll_id, content_w, content_h, .. } => {
-                    Some((*src_row_abs, *scroll_id, *content_w, *content_h))
-                }
+                Command::CompositeLayer {
+                    src_row_abs, scroll_id, content_w, content_h, ..
+                } => Some((*src_row_abs, *scroll_id, *content_w, *content_h)),
                 _ => None,
             })
             .collect();

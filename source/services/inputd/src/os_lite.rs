@@ -17,9 +17,9 @@ use hid::HidEvent;
 use hidrawd::PointerSource;
 use input_live_protocol::{
     decode_push_hid_batch_reusing, decode_visible_mode_reply, encode_get_visible_mode,
-    encode_status, encode_update_visible_state, encode_visible_state_frame,
-    frame_has_op, VisibleState, WireHidBatch, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH,
-    STATUS_MALFORMED, STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
+    encode_status, encode_update_visible_state, encode_visible_state_frame, frame_has_op,
+    VisibleState, WireHidBatch, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH, STATUS_MALFORMED,
+    STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
 };
 use keymaps::{KeyAction, KeyOutput};
 use nexus_abi::{debug_println, debug_trace, nsec, yield_};
@@ -289,8 +289,7 @@ impl LiveRouteRuntime {
     /// for more than the short reply timeout, and stops for good once
     /// resolved or the attempt cap is reached (1280×800 fallback stands).
     fn try_resolve_display_mode(&mut self) {
-        if self.display_mode_resolved || self.display_mode_attempts >= DISPLAY_MODE_MAX_ATTEMPTS
-        {
+        if self.display_mode_resolved || self.display_mode_attempts >= DISPLAY_MODE_MAX_ATTEMPTS {
             return;
         }
         let now = nsec().unwrap_or(0);
@@ -366,9 +365,8 @@ impl LiveRouteRuntime {
                     self.chain.hid_malformed = self.chain.hid_malformed.saturating_add(1);
                     // Input-chain hop I4 fail: the wire batch didn't decode.
                     if !self.chain_normalize_fail_emitted {
-                        let _ = debug_println(
-                            "inputd: chain I4 normalize FAIL (malformed wire batch)",
-                        );
+                        let _ =
+                            debug_println("inputd: chain I4 normalize FAIL (malformed wire batch)");
                         self.chain_normalize_fail_emitted = true;
                     }
                     return encode_status(OP_PUSH_HID_BATCH, STATUS_MALFORMED);
@@ -755,10 +753,7 @@ impl LiveRouteRuntime {
                     self.push_rate_window_ns = now_ns;
                 } else if now_ns.saturating_sub(self.push_rate_window_ns) >= 1_000_000_000 {
                     if self.push_rate_count >= 8 {
-                        let _ = debug_println(&format!(
-                            "inputd: push hz={}",
-                            self.push_rate_count
-                        ));
+                        let _ = debug_println(&format!("inputd: push hz={}", self.push_rate_count));
                     }
                     self.push_rate_window_ns = now_ns;
                     self.push_rate_count = 0;
@@ -934,7 +929,7 @@ impl InputdChainTelemetry {
         // default; Phase 3 promotes these to metricsd counters (alloc-free).
         const INPUTD_FPS_TRACE: bool = false;
         if INPUTD_FPS_TRACE {
-        let _ = debug_trace(&format!(
+            let _ = debug_trace(&format!(
             "fps: inputd recv_hz={} hid_ok_hz={} poll_hz={} hid_push={} hid_ok={} malformed={} hid_unsupported={} overflow={} frame_malformed={} wire_count={} wire_kind={} wire_source={} wire_event={} wire_mode={} abs_cal={} abs_axis={} apply_ovf={} deliver_ovf={} raw_events={} norm_events={} dispatch={} delivered={} ptr_d={} kbd_d={} ptr_deliv={} kbd_deliv={} poll_reply={} idle_yields={} pointer_live={} keyboard_live={}",
             recv_hz,
             hid_ok_hz,

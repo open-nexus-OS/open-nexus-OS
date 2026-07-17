@@ -97,11 +97,7 @@ pub(crate) fn load_input(
             if p.is_dir() {
                 stack.push(p);
             } else if p.extension().and_then(|e| e.to_str()) == Some("nx") {
-                let rel = p
-                    .strip_prefix(root)
-                    .unwrap_or(&p)
-                    .to_string_lossy()
-                    .replace('\\', "/");
+                let rel = p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('\\', "/");
                 let source = std::fs::read_to_string(&p).map_err(|e| {
                     eprintln!("nx-dsl: cannot read `{}`: {e}", p.display());
                     ExitCode::from(2)
@@ -214,10 +210,8 @@ fn cmd_build(args: &[String]) -> ExitCode {
         .and_then(|i| args.get(i + 1))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("target/dsl"));
-    let files: Vec<String> = nx_files(args)
-        .into_iter()
-        .filter(|f| f != out_dir.to_str().unwrap_or(""))
-        .collect();
+    let files: Vec<String> =
+        nx_files(args).into_iter().filter(|f| f != out_dir.to_str().unwrap_or("")).collect();
     let Some(path) = files.first() else {
         eprintln!("nx-dsl build: no input file");
         return ExitCode::from(2);
@@ -258,7 +252,12 @@ fn cmd_build(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     }
-    println!("{}: {} bytes, hash {}", nxir_path.display(), lowered.nxir.len(), hex(&lowered.program_hash));
+    println!(
+        "{}: {} bytes, hash {}",
+        nxir_path.display(),
+        lowered.nxir.len(),
+        hex(&lowered.program_hash)
+    );
     ExitCode::SUCCESS
 }
 
@@ -318,10 +317,11 @@ fn cmd_run(args: &[String]) -> ExitCode {
     let profile = flag("--profile").unwrap_or_else(|| String::from("desktop"));
     let transcript_path = flag("--transcript");
     let dispatch_case = flag("--dispatch");
-    let flag_values: Vec<String> = ["--route", "--locale", "--profile", "--transcript", "--dispatch"]
-        .iter()
-        .filter_map(|n| flag(n))
-        .collect();
+    let flag_values: Vec<String> =
+        ["--route", "--locale", "--profile", "--transcript", "--dispatch"]
+            .iter()
+            .filter_map(|n| flag(n))
+            .collect();
     let files: Vec<String> =
         nx_files(args).into_iter().filter(|f| !flag_values.contains(f)).collect();
     let Some(path) = files.first() else {
@@ -383,9 +383,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
         .get_symbols()
         .map(|list| {
             list.iter()
-                .map(|s| {
-                    s.ok().and_then(|t| t.to_str().ok()).map(String::from).unwrap_or_default()
-                })
+                .map(|s| s.ok().and_then(|t| t.to_str().ok()).map(String::from).unwrap_or_default())
                 .collect()
         })
         .unwrap_or_default();
@@ -413,7 +411,10 @@ fn cmd_run(args: &[String]) -> ExitCode {
         match catalog {
             Some(c) => catalogs.push(c),
             None => {
-                eprintln!("nx-dsl run: no readable catalog for locale `{locale}` under `{}`", base.display());
+                eprintln!(
+                    "nx-dsl run: no readable catalog for locale `{locale}` under `{}`",
+                    base.display()
+                );
                 return ExitCode::from(1);
             }
         }
@@ -422,14 +423,13 @@ fn cmd_run(args: &[String]) -> ExitCode {
     let locale = nexus_dsl_runtime::LocaleChain::new(&catalog_refs, &key_names);
 
     let tokens = nexus_theme_tokens::BaseTokens;
-    let mut view =
-        match nexus_dsl_runtime::View::mount(&lowered.nxir, &tokens, &device, &locale) {
-            Ok(view) => view,
-            Err(e) => {
-                eprintln!("nx-dsl run: view mount failed: {e:?}");
-                return ExitCode::from(1);
-            }
-        };
+    let mut view = match nexus_dsl_runtime::View::mount(&lowered.nxir, &tokens, &device, &locale) {
+        Ok(view) => view,
+        Err(e) => {
+            eprintln!("nx-dsl run: view mount failed: {e:?}");
+            return ExitCode::from(1);
+        }
+    };
 
     if let Some(route) = &route {
         if let Err(e) = view.navigate(&tokens, &device, &locale, route) {
@@ -461,7 +461,9 @@ fn cmd_run(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         };
         let result = match transcript_host.as_mut() {
-            Some(host) => view.dispatch(&tokens, &device, &locale, host, event, case_idx, Vec::new()),
+            Some(host) => {
+                view.dispatch(&tokens, &device, &locale, host, event, case_idx, Vec::new())
+            }
             None => {
                 let mut noio = nexus_dsl_runtime::NoIo;
                 view.dispatch(&tokens, &device, &locale, &mut noio, event, case_idx, Vec::new())

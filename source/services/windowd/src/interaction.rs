@@ -277,7 +277,6 @@ fn sidebar_close_hit_rect(mode: VisibleBootstrapMode, sidebar: HitRect) -> HitRe
     }
 }
 
-
 /// Right-hand chat panel viewport (the scrollable message list). Kept distinct
 /// from the proof panel so wheel events route to the control under the cursor.
 pub(crate) fn chat_viewport_rect() -> HitRect {
@@ -377,15 +376,9 @@ mod tests {
     fn greeter_click_hits_avatar_and_nothing_else() {
         let m = mode();
         let rect = greeter_avatar_rect(m, 96);
-        let (cx, cy) = (
-            (rect.x + rect.width / 2) as i32,
-            (rect.y + rect.height / 2) as i32,
-        );
+        let (cx, cy) = ((rect.x + rect.width / 2) as i32, (rect.y + rect.height / 2) as i32);
         // Center of the card logs in.
-        assert_eq!(
-            resolve_click_session(m, false, Some(rect), cx, cy),
-            ClickAction::GreeterUser
-        );
+        assert_eq!(resolve_click_session(m, false, Some(rect), cx, cy), ClickAction::GreeterUser);
         // The card is centered on the display.
         assert_eq!(rect.x + rect.width / 2, m.width / 2);
         // Outside the card: nothing (even on the sidebar button — the shell
@@ -428,11 +421,7 @@ mod tests {
     fn greeter_hover_tracks_avatar() {
         let m = mode();
         let rect = greeter_avatar_rect(m, 96);
-        assert!(hover_over_greeter(
-            rect,
-            (rect.x + 1) as i32,
-            (rect.y + 1) as i32
-        ));
+        assert!(hover_over_greeter(rect, (rect.x + 1) as i32, (rect.y + 1) as i32));
         assert!(!hover_over_greeter(rect, 0, 0));
     }
 

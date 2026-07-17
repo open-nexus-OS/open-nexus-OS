@@ -281,7 +281,18 @@ mod tests {
         assert_eq!(u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]), 0xAABBCCDD);
 
         // A matching ALLOW response decodes to Allow.
-        let rsp = [b'P', b'O', 2, OP_CHECK_CAP_DELEGATED | RESPONSE_BIT, 0xDD, 0xCC, 0xBB, 0xAA, STATUS_ALLOW, 0];
+        let rsp = [
+            b'P',
+            b'O',
+            2,
+            OP_CHECK_CAP_DELEGATED | RESPONSE_BIT,
+            0xDD,
+            0xCC,
+            0xBB,
+            0xAA,
+            STATUS_ALLOW,
+            0,
+        ];
         assert_eq!(decode_decision(&rsp, 0xAABBCCDD), Some(CapDecision::Allow));
         // DENY → Deny.
         let mut deny = rsp;
@@ -291,7 +302,8 @@ mod tests {
 
     #[test]
     fn decode_rejects_nonce_mismatch_and_malformed() {
-        let rsp = [b'P', b'O', 2, OP_CHECK_CAP_DELEGATED | RESPONSE_BIT, 1, 0, 0, 0, STATUS_ALLOW, 0];
+        let rsp =
+            [b'P', b'O', 2, OP_CHECK_CAP_DELEGATED | RESPONSE_BIT, 1, 0, 0, 0, STATUS_ALLOW, 0];
         assert_eq!(decode_decision(&rsp, 999), None);
         assert_eq!(decode_decision(&[0u8; 4], 1), None);
         // Wrong opcode (no response bit).

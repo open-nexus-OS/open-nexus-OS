@@ -49,8 +49,8 @@ pub fn resolve_export(
     consumer_caps: &[&str],
     ability: &str,
 ) -> Result<ResolvedExport, MediationError> {
-    let (exporter, exported_ability, permission) = caps::find_export(ability)
-        .ok_or(MediationError::UnknownAbility)?;
+    let (exporter, exported_ability, permission) =
+        caps::find_export(ability).ok_or(MediationError::UnknownAbility)?;
     if !consumer_caps.iter().any(|cap| *cap == permission) {
         return Err(MediationError::ConsumerNotGranted);
     }

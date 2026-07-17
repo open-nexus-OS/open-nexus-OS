@@ -24,11 +24,11 @@
 //! the per-frame tick is allocation-free (`tick_into` into a stack buffer).
 
 use super::*;
-use animation::{AnimProp, AnimationDriver, Easing, LayerId, MotionToken, SceneUpdate, SpringConfig};
-use nexus_dsl_runtime::theme_tokens::Tokens;
-use nexus_dsl_runtime::{
-    AnimIntent, AnimKind, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SWEEP,
+use animation::{
+    AnimProp, AnimationDriver, Easing, LayerId, MotionToken, SceneUpdate, SpringConfig,
 };
+use nexus_dsl_runtime::theme_tokens::Tokens;
+use nexus_dsl_runtime::{AnimIntent, AnimKind, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SWEEP};
 use nexus_scene_raster::NodeAnim;
 
 /// Max concurrent DSL node transforms (mirrors the engine's active-animation
@@ -63,12 +63,8 @@ const PRESS_POP: f32 = 1.04;
 /// Press pulse duration (down 0.1s + springy release).
 const PRESS_MS: u64 = 280;
 /// Hover spring: swift with subtle overshoot (`--motion-spring-soft`).
-const HOVER_SPRING: animation::SpringConfig = animation::SpringConfig {
-    stiffness: 420.0,
-    damping: 22.0,
-    mass: 1.0,
-    initial_velocity: 0.0,
-};
+const HOVER_SPRING: animation::SpringConfig =
+    animation::SpringConfig { stiffness: 420.0, damping: 22.0, mass: 1.0, initial_velocity: 0.0 };
 /// Toggle-thumb press: peak stretch along the travel axis (the handoff
 /// "toggles stretch the thumb while pressed" — capsule, Y pinned).
 const TOGGLE_STRETCH: f32 = 1.35;
@@ -316,7 +312,13 @@ impl AnimState {
 
     /// First sight of an animated node: seed its resting transform (no motion)
     /// for value/effect tokens, or play the enter for a `.transition`.
-    fn seed(&mut self, node_id: usize, token: MotionToken, intent: AnimIntent, tokens: &dyn Tokens) {
+    fn seed(
+        &mut self,
+        node_id: usize,
+        token: MotionToken,
+        intent: AnimIntent,
+        tokens: &dyn Tokens,
+    ) {
         match intent.kind {
             AnimKind::Animate => {
                 let p = token.primary_prop();
@@ -346,7 +348,13 @@ impl AnimState {
                 let p = token.primary_prop();
                 self.start_prop(node_id, token, p, target_for(token, p, intent.value), tokens);
                 if let Some(sp) = token.secondary_prop() {
-                    self.start_prop(node_id, token, sp, target_for(token, sp, intent.value), tokens);
+                    self.start_prop(
+                        node_id,
+                        token,
+                        sp,
+                        target_for(token, sp, intent.value),
+                        tokens,
+                    );
                 }
             }
             AnimKind::Transition => self.enter(node_id, token, tokens),
@@ -403,9 +411,7 @@ impl AnimState {
     /// Sweep travel distance (px) for a loop root: parent width − band/pip
     /// child width, from the CURRENT layout boxes (layout-fresh each cycle).
     fn sweep_travel(node_id: usize, boxes: &[nexus_layout::LayoutBox]) -> f32 {
-        let w_of = |id: usize| {
-            boxes.iter().find(|b| b.node_id == id).map_or(0, |b| b.rect.width.0)
-        };
+        let w_of = |id: usize| boxes.iter().find(|b| b.node_id == id).map_or(0, |b| b.rect.width.0);
         (w_of(node_id) - w_of(node_id + 1)).max(0) as f32
     }
 
@@ -484,9 +490,7 @@ impl AnimState {
         }
         // Start newly-seen loops.
         for &(node_id, intent) in present {
-            if intent.kind != AnimKind::Loop
-                || self.loops.iter().any(|e| e.node_id == node_id)
-            {
+            if intent.kind != AnimKind::Loop || self.loops.iter().any(|e| e.node_id == node_id) {
                 continue;
             }
             if self.loops.len() >= MAX_NODE_ANIMS {
@@ -509,22 +513,18 @@ impl AnimState {
     /// grid. Returns the union ROW SPAN of loop-driven paint changes the
     /// driver's own updates do NOT cover (the sawtooth jump-back + the
     /// carousel steps). Alloc-free.
-    fn tick_loops(
-        &mut self,
-        now_ns: u64,
-        boxes: &[nexus_layout::LayoutBox],
-    ) -> Option<(i32, i32)> {
+    fn tick_loops(&mut self, now_ns: u64, boxes: &[nexus_layout::LayoutBox]) -> Option<(i32, i32)> {
         let mut span: Option<(i32, i32)> = None;
-        let mut grow = |boxes: &[nexus_layout::LayoutBox], node_id: usize,
-                        span: &mut Option<(i32, i32)>| {
-            if let Some(b) = boxes.iter().find(|b| b.node_id == node_id) {
-                let (y0, y1) = (b.rect.y.0 - 1, b.rect.y.0 + b.rect.height.0 + 1);
-                *span = Some(match *span {
-                    Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
-                    None => (y0, y1),
-                });
-            }
-        };
+        let mut grow =
+            |boxes: &[nexus_layout::LayoutBox], node_id: usize, span: &mut Option<(i32, i32)>| {
+                if let Some(b) = boxes.iter().find(|b| b.node_id == node_id) {
+                    let (y0, y1) = (b.rect.y.0 - 1, b.rect.y.0 + b.rect.height.0 + 1);
+                    *span = Some(match *span {
+                        Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
+                        None => (y0, y1),
+                    });
+                }
+            };
         for idx in 0..self.loops.len() {
             let ent = self.loops[idx];
             match ent.sub {
@@ -537,8 +537,7 @@ impl AnimState {
                     }
                 }
                 LOOP_CAROUSEL => {
-                    let step =
-                        ((now_ns / SPINNER_STEP_NS) % LOOP_CAROUSEL_SPOKES as u64) as u8;
+                    let step = ((now_ns / SPINNER_STEP_NS) % LOOP_CAROUSEL_SPOKES as u64) as u8;
                     if step != ent.step {
                         self.loops[idx].step = step;
                         self.write_carousel(ent.node_id, step);
@@ -600,9 +599,9 @@ impl super::DslApp {
         }
         // Nodes removed from the tree: forget them (no exit motion in the
         // immediate-mode model — an exit needs the node kept alive, Track C).
-        self.anim.seen.retain(|(id, _)| {
-            present.iter().any(|(p, i)| p == id && i.kind != AnimKind::Loop)
-        });
+        self.anim
+            .seen
+            .retain(|(id, _)| present.iter().any(|(p, i)| p == id && i.kind != AnimKind::Loop));
         // Keep a node's transform when it is intent-driven OR its driver
         // animation still runs — INTERACTION motions (hover/press) target
         // handler boxes that carry no intent and must survive re-emits (a tap
@@ -686,8 +685,7 @@ impl super::DslApp {
     fn grow_anim_span(&self, node_id: usize, span: &mut Option<(i32, i32)>) {
         let (y0, y1) = match self.layout.boxes.iter().find(|b| b.node_id == node_id) {
             Some(b) => {
-                let (x, y, w, h) =
-                    (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+                let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
                 match self.anim.anims.iter().find(|a| a.node_id == node_id) {
                     Some(a) => {
                         let (_, ny, _, nh) = a.transform_rect(x, y, w, h);
@@ -807,13 +805,9 @@ impl super::DslApp {
     /// interaction motion targets buttons/tiles/pills, never container
     /// catch-all handlers (overlay backdrops, panel-body tap consumers).
     pub(super) fn interaction_sized(&self, node_id: usize) -> bool {
-        self.layout
-            .boxes
-            .iter()
-            .find(|b| b.node_id == node_id)
-            .is_none_or(|b| {
-                b.rect.width.0 <= INTERACTION_MAX_DIM && b.rect.height.0 <= INTERACTION_MAX_DIM
-            })
+        self.layout.boxes.iter().find(|b| b.node_id == node_id).is_none_or(|b| {
+            b.rect.width.0 <= INTERACTION_MAX_DIM && b.rect.height.0 <= INTERACTION_MAX_DIM
+        })
     }
 
     /// Whether a BOUNDED (non-loop) animation is interpolating — the only
@@ -861,18 +855,13 @@ impl super::DslApp {
             if n >= out.len() {
                 break;
             }
-            let Some(owner) = self.layout.boxes.iter().find(|b| b.node_id == a.node_id)
-            else {
+            let Some(owner) = self.layout.boxes.iter().find(|b| b.node_id == a.node_id) else {
                 out[n] = *a;
                 n += 1;
                 continue;
             };
-            let (ox, oy, ow, oh) = (
-                owner.rect.x.0,
-                owner.rect.y.0,
-                owner.rect.width.0,
-                owner.rect.height.0,
-            );
+            let (ox, oy, ow, oh) =
+                (owner.rect.x.0, owner.rect.y.0, owner.rect.width.0, owner.rect.height.0);
             let (cx, cy) = (ox + ow / 2, oy + oh / 2);
             out[n] = a.anchored_at(cx, cy);
             n += 1;
@@ -883,10 +872,7 @@ impl super::DslApp {
                 if n >= out.len() {
                     break;
                 }
-                if b.node_id <= a.node_id
-                    || b.rect.width.0 <= 0
-                    || b.rect.height.0 <= 0
-                {
+                if b.node_id <= a.node_id || b.rect.width.0 <= 0 || b.rect.height.0 <= 0 {
                     continue;
                 }
                 let contained = b.rect.x.0 >= ox

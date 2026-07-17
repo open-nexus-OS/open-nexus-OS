@@ -96,10 +96,8 @@ pub(super) fn lower_expr(
         }
         Expr::EnumLit { case, args, .. } => {
             set_opaque_type(&mut b);
-            let case_ref = env
-                .ctx
-                .event_case(case.text.as_str())
-                .unwrap_or((0, env.ctx.sym(&case.text)));
+            let case_ref =
+                env.ctx.event_case(case.text.as_str()).unwrap_or((0, env.ctx.sym(&case.text)));
             let mut lit = b.init_lit_enum();
             lit.set_enum_type(case_ref.0);
             lit.set_case(case_ref.1);

@@ -112,11 +112,7 @@ impl Cursor<'_> {
 
     fn int_until(&mut self, terminators: &[u8]) -> Option<i64> {
         let start = self.pos;
-        while self
-            .text
-            .get(self.pos)
-            .is_some_and(|b| !terminators.contains(b))
-        {
+        while self.text.get(self.pos).is_some_and(|b| !terminators.contains(b)) {
             self.pos += 1;
         }
         core::str::from_utf8(&self.text[start..self.pos]).ok()?.parse().ok()

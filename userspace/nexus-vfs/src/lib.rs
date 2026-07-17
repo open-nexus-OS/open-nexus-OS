@@ -375,8 +375,8 @@ impl VfsClient {
         let path = validate_dir_path(path)?;
         #[cfg(nexus_env = "os")]
         {
-            let payload = nexus_vfs_types::encode_readdir_request(path, cursor, limit)
-                .map_err(Error::Vfs)?;
+            let payload =
+                nexus_vfs_types::encode_readdir_request(path, cursor, limit).map_err(Error::Vfs)?;
             let mut frame = Vec::with_capacity(1 + payload.len());
             frame.push(OPCODE_READDIR);
             frame.extend_from_slice(&payload);
@@ -628,7 +628,8 @@ mod os {
                 return Err(Error::Vfs(VfsError::from_code(status).unwrap_or(VfsError::Io)));
             }
             let mut out = alloc::vec![0u8; len as usize];
-            let ok = out.is_empty() || nexus_abi::vmo_read(vmo, SPLICE_DATA_OFFSET, &mut out).is_ok();
+            let ok =
+                out.is_empty() || nexus_abi::vmo_read(vmo, SPLICE_DATA_OFFSET, &mut out).is_ok();
             let _ = nexus_abi::cap_close(vmo);
             if ok {
                 Ok(out)

@@ -10,8 +10,8 @@
 //! TEST_COVERAGE: tests/loopback.rs
 
 use crate::wire::{
-    decode_col_type, decode_qval, encode_err, encode_qval, to_bytes, OP_CREATE_TABLE,
-    OP_DELETE, OP_PUT, OP_QUERY,
+    decode_col_type, decode_qval, encode_err, encode_qval, to_bytes, OP_CREATE_TABLE, OP_DELETE,
+    OP_PUT, OP_QUERY,
 };
 use nexus_idl_runtime::queryspec_capnp as ws;
 use nexus_query::{Engine, Kv, MemKv, PageToken, QueryError, QuerySpec, Range, TableDef};
@@ -187,10 +187,8 @@ impl<C: Caps> QuerydServer<C> {
             pk_col: req.get_pk_col() as usize,
             indexed: indexed.iter().map(|i| i as usize).collect(),
         };
-        self.tables.insert(
-            (String::from(app_id), req.get_table()),
-            TableInfo { def, names: col_names },
-        );
+        self.tables
+            .insert((String::from(app_id), req.get_table()), TableInfo { def, names: col_names });
         ack_ok()
     }
 
@@ -234,8 +232,7 @@ impl<C: Caps> QuerydServer<C> {
         let Ok(req) = message.get_root::<ws::delete_request::Reader<'_>>() else {
             return ack_err(ws::QueryErr::BadRequest);
         };
-        let pk = match req.get_pk().map_err(|_| QueryError::Unsupported).and_then(decode_qval)
-        {
+        let pk = match req.get_pk().map_err(|_| QueryError::Unsupported).and_then(decode_qval) {
             Ok(v) => v,
             Err(e) => return ack_err(encode_err(e)),
         };
@@ -259,8 +256,7 @@ impl<C: Caps> QuerydServer<C> {
             return query_err(ws::QueryErr::UnknownTable);
         };
         let col_index = |name: &str| info.names.iter().position(|n| n == name);
-        let Ok(order_col_name) =
-            req.get_order_col().and_then(|t| t.to_str().map_err(Into::into))
+        let Ok(order_col_name) = req.get_order_col().and_then(|t| t.to_str().map_err(Into::into))
         else {
             return query_err(ws::QueryErr::BadRequest);
         };
@@ -279,17 +275,17 @@ impl<C: Caps> QuerydServer<C> {
         let mut low = None;
         let mut high = None;
         for pred in preds.iter() {
-            let Ok(col_name) = pred.get_col().and_then(|t| t.to_str().map_err(Into::into))
-            else {
+            let Ok(col_name) = pred.get_col().and_then(|t| t.to_str().map_err(Into::into)) else {
                 return query_err(ws::QueryErr::BadRequest);
             };
             let Some(col) = col_index(col_name) else {
                 return query_err(ws::QueryErr::UnknownColumn);
             };
-            let value = match pred.get_value().map_err(|_| QueryError::Unsupported).and_then(decode_qval) {
-                Ok(v) => v,
-                Err(e) => return query_err(encode_err(e)),
-            };
+            let value =
+                match pred.get_value().map_err(|_| QueryError::Unsupported).and_then(decode_qval) {
+                    Ok(v) => v,
+                    Err(e) => return query_err(encode_err(e)),
+                };
             match pred.get_op() {
                 Ok(ws::QueryOp::Eq) => spec.eq.push((col, value)),
                 Ok(ws::QueryOp::Ge) if col == order_col => low = Some(value),
@@ -321,10 +317,8 @@ impl<C: Caps> QuerydServer<C> {
                     {
                         let mut rows = ok.reborrow().init_rows(page.rows.len() as u32);
                         for (i, row) in page.rows.iter().enumerate() {
-                            let mut values = rows
-                                .reborrow()
-                                .get(i as u32)
-                                .init_values(row.len() as u32);
+                            let mut values =
+                                rows.reborrow().get(i as u32).init_values(row.len() as u32);
                             for (j, value) in row.iter().enumerate() {
                                 encode_qval(value, values.reborrow().get(j as u32));
                             }

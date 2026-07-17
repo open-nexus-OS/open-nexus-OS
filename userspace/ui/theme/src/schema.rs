@@ -8,8 +8,16 @@ use crate::error::ThemeError;
 
 /// Known top-level sections in `.nxtheme.toml`.
 const KNOWN_SECTIONS: &[&str] = &[
-    "theme", "tokens", "material", "spacing", "radius", "typography", "leading", "zindex",
-    "motion", "icons",
+    "theme",
+    "tokens",
+    "material",
+    "spacing",
+    "radius",
+    "typography",
+    "leading",
+    "zindex",
+    "motion",
+    "icons",
 ];
 
 /// Known keys in the `[theme]` section.
@@ -128,7 +136,9 @@ pub fn validate_scale_section(
             None => {
                 return Err(ThemeError::SchemaValidation {
                     path: path.to_path_buf(),
-                    message: format!("[{section}] '{key}' must be an integer pixel count, got {value:?}"),
+                    message: format!(
+                        "[{section}] '{key}' must be an integer pixel count, got {value:?}"
+                    ),
                 });
             }
         }

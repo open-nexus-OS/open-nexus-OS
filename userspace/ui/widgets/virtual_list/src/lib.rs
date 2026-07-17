@@ -125,12 +125,7 @@ impl<'a, I, V: ItemView<Item = I>> List<'a, I, V> {
     /// Scrollable mode: a `viewport_height` window over all `items`, scrolled by
     /// the shared `ScrollMomentum` SSOT. Heights start as placeholders; call
     /// [`Self::measure_with`] to fill real per-item heights from the layout engine.
-    pub fn scrollable(
-        items: &'a [I],
-        view: &'a V,
-        viewport_height: FxPx,
-        overscan: usize,
-    ) -> Self {
+    pub fn scrollable(items: &'a [I], view: &'a V, viewport_height: FxPx, overscan: usize) -> Self {
         let measured = (0..items.len()).map(|_| MeasuredRow::placeholder()).collect();
         let core = ListCore::new(viewport_height, measured, overscan, items.len());
         Self { items, view, core }

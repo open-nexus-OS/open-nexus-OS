@@ -100,7 +100,15 @@ fn corner_dist(px: i32, py: i32, cx: i32, cy: i32, r: i32) -> i32 {
 }
 
 /// Anti-aliased rounded-rectangle fill, blended over the destination.
-pub fn fill_rounded_aa(s: &mut Surface, x: u32, y: u32, w: u32, h: u32, radius: u32, color: [u8; 4]) {
+pub fn fill_rounded_aa(
+    s: &mut Surface,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    radius: u32,
+    color: [u8; 4],
+) {
     if color[3] == 0 || w == 0 || h == 0 {
         return;
     }
@@ -125,8 +133,15 @@ pub fn fill_rounded_aa(s: &mut Surface, x: u32, y: u32, w: u32, h: u32, radius: 
             if idx + 4 > buf.len() {
                 continue;
             }
-            let sd =
-                fixed::rounded_rect_sd(fixed::pixel_center(px), pcy, min_x, min_y, max_x, max_y, rad);
+            let sd = fixed::rounded_rect_sd(
+                fixed::pixel_center(px),
+                pcy,
+                min_x,
+                min_y,
+                max_x,
+                max_y,
+                rad,
+            );
             let cov = fixed::fill_alpha(sd); // 0..255 anti-aliased coverage
             if cov == 0 {
                 continue;
@@ -188,8 +203,15 @@ pub fn fill_gradient_aa(
             if idx + 4 > buf.len() {
                 continue;
             }
-            let sd =
-                fixed::rounded_rect_sd(fixed::pixel_center(px), pcy, min_x, min_y, max_x, max_y, rad);
+            let sd = fixed::rounded_rect_sd(
+                fixed::pixel_center(px),
+                pcy,
+                min_x,
+                min_y,
+                max_x,
+                max_y,
+                rad,
+            );
             let cov = fixed::fill_alpha(sd); // 0..255 anti-aliased coverage
             if cov == 0 {
                 continue;

@@ -245,7 +245,11 @@ fn read_entropy_from_device(n: usize) -> Result<Vec<u8>, rng_virtio::RngError> {
 }
 
 /// Check if the caller has the required capability via policyd.
-fn policyd_allows(_pending: &mut reqrep::ReplyBuffer<16, 512>, subject_id: u64, cap: &[u8]) -> bool {
+fn policyd_allows(
+    _pending: &mut reqrep::ReplyBuffer<16, 512>,
+    subject_id: u64,
+    cap: &[u8],
+) -> bool {
     // RFC-0066: the shared route-based CAP_MOVE policy check
     // (nexus_ipc::policyd::check_cap_delegated). The ~140-line hand-rolled copy
     // was removed; the reply-buffer plumbing is retained but now unused.

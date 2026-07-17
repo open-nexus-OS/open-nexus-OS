@@ -178,7 +178,8 @@ fn main() {
         ("Xxxl", "xxxl"),
         ("Display", "display"),
     ];
-    generated.push_str("pub(crate) fn type_size(token: TypographyToken) -> FxPx {\n    match token {\n");
+    generated
+        .push_str("pub(crate) fn type_size(token: TypographyToken) -> FxPx {\n    match token {\n");
     for (variant, name) in type_scale {
         let px = runtime
             .resolve_scale("typography", name)
@@ -206,8 +207,7 @@ fn main() {
         let ms = runtime
             .resolve_scale("motion", name)
             .unwrap_or_else(|| panic!("nexus-theme-tokens: [motion] '{name}' missing"));
-        generated
-            .push_str(&format!("        MotionDurationToken::{variant} => {ms},\n"));
+        generated.push_str(&format!("        MotionDurationToken::{variant} => {ms},\n"));
     }
     generated.push_str("    }\n}\n");
 

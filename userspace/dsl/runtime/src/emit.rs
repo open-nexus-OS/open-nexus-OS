@@ -136,9 +136,7 @@ pub(crate) fn emit_view(
         Which::Branch(branch) => {
             let branch = branch.map_err(|_| RtError::Malformed)?;
             // Branch structure depends on its conds: layout class.
-            let mut chosen: Option<
-                capnp::struct_list::Reader<'_, ir::view_node::Owned>,
-            > = None;
+            let mut chosen: Option<capnp::struct_list::Reader<'_, ir::view_node::Owned>> = None;
             for arm in branch.get_arms().map_err(|_| RtError::Malformed)?.iter() {
                 let cond = arm.get_cond().map_err(|_| RtError::Malformed)?;
                 ctx.record_deps(cond, Damage::Layout);
@@ -182,9 +180,7 @@ pub(crate) fn emit_view(
         }
         Which::ComponentRef(component_ref) => {
             let component_ref = component_ref.map_err(|_| RtError::Malformed)?;
-            let component = ctx
-                .components
-                .get(component_ref.get_component());
+            let component = ctx.components.get(component_ref.get_component());
             // Resolve args in the component's prop order.
             let prop_defs = component.get_props().map_err(|_| RtError::Malformed)?;
             let args = component_ref.get_args().map_err(|_| RtError::Malformed)?;
@@ -302,8 +298,7 @@ fn emit_widget(
             use ir::handler::Which;
             let action = match handler.which() {
                 Ok(Which::Dispatch(Ok(dispatch))) => {
-                    let payload_list =
-                        dispatch.get_payload().map_err(|_| RtError::Malformed)?;
+                    let payload_list = dispatch.get_payload().map_err(|_| RtError::Malformed)?;
                     let mut payload = Vec::with_capacity(payload_list.len() as usize);
                     for arg in payload_list.iter() {
                         // Payload state reads: Paint-class dep so any change
@@ -320,9 +315,7 @@ fn emit_widget(
                 Ok(Which::Navigate(Ok(path_expr))) => {
                     ctx.record_deps(path_expr, Damage::Paint);
                     match ctx.eval(path_expr)? {
-                        crate::store::Value::Str(path) => {
-                            Some(HandlerAction::Navigate { path })
-                        }
+                        crate::store::Value::Str(path) => Some(HandlerAction::Navigate { path }),
                         _ => return Err(RtError::TypeMismatch),
                     }
                 }
@@ -397,9 +390,7 @@ fn loop_subkind(kind: &str, props: &[(String, Value)]) -> Option<i32> {
     match kind {
         "Skeleton" => Some(crate::anim::LOOP_SWEEP),
         "Spinner" => Some(crate::anim::LOOP_CAROUSEL),
-        "ProgressBar"
-            if !props.iter().any(|(n, v)| n == "value" && matches!(v, Value::Int(_))) =>
-        {
+        "ProgressBar" if !props.iter().any(|(n, v)| n == "value" && matches!(v, Value::Int(_))) => {
             Some(crate::anim::LOOP_SWEEP)
         }
         _ => None,
@@ -430,7 +421,9 @@ fn apply_modifier(
     // Raw-px size argument (`.width(320)`); a token (`full`) yields None.
     let px_arg = || -> Option<nexus_layout_types::FxPx> {
         match first.map(|a| a.which()) {
-            Some(Ok(ir::token_arg::Which::Int(i))) => Some(nexus_layout_types::FxPx::new(i.clamp(0, 16384) as i32)),
+            Some(Ok(ir::token_arg::Which::Int(i))) => {
+                Some(nexus_layout_types::FxPx::new(i.clamp(0, 16384) as i32))
+            }
             _ => None,
         }
     };
@@ -450,14 +443,14 @@ fn apply_modifier(
         7 => mods.gap = registry::spacing(int_arg()),                      // gap
         // Sizes are RAW px (modifiers.md: "length token | full | Int px");
         // `full` stays a no-op (cross-axis children stretch by default).
-        9 => mods.width = px_arg(),                            // width
-        10 => mods.height = px_arg(),                          // height
-        11 => mods.min_width = px_arg(),                       // minWidth
-        12 => mods.max_width = px_arg(),                       // maxWidth
-        13 => mods.min_height = px_arg(),                      // minHeight
-        14 => mods.max_height = px_arg(),                      // maxHeight
-        15 => mods.grow = int_arg().max(0) as u32,                          // grow
-        16 => mods.shrink = Some(int_arg().max(0) as u32),                  // shrink
+        9 => mods.width = px_arg(),                        // width
+        10 => mods.height = px_arg(),                      // height
+        11 => mods.min_width = px_arg(),                   // minWidth
+        12 => mods.max_width = px_arg(),                   // maxWidth
+        13 => mods.min_height = px_arg(),                  // minHeight
+        14 => mods.max_height = px_arg(),                  // maxHeight
+        15 => mods.grow = int_arg().max(0) as u32,         // grow
+        16 => mods.shrink = Some(int_arg().max(0) as u32), // shrink
         18 => {
             mods.align = Some(match token_name(ctx).as_str() {
                 "start" => Align::Start,
@@ -480,13 +473,13 @@ fn apply_modifier(
                 _ => Direction::Column,
             });
         } // direction
-        24 => mods.bg = registry::color_token(&token_name(ctx)),           // bg
-        25 => mods.fg = registry::color_token(&token_name(ctx)),           // fg
-        27 => mods.opacity = Some(int_arg().clamp(0, 255) as u8),          // opacity
-        28 => mods.material = registry::material_token(&token_name(ctx)),  // material
-        29 => mods.rounded = Some(registry::radius(&token_name(ctx))),     // rounded
-        31 => mods.shadow = registry::shadow_level(&token_name(ctx)),      // shadow
-        32 => mods.text_size = registry::type_size(&token_name(ctx)),      // textSize
+        24 => mods.bg = registry::color_token(&token_name(ctx)), // bg
+        25 => mods.fg = registry::color_token(&token_name(ctx)), // fg
+        27 => mods.opacity = Some(int_arg().clamp(0, 255) as u8), // opacity
+        28 => mods.material = registry::material_token(&token_name(ctx)), // material
+        29 => mods.rounded = Some(registry::radius(&token_name(ctx))), // rounded
+        31 => mods.shadow = registry::shadow_level(&token_name(ctx)), // shadow
+        32 => mods.text_size = registry::type_size(&token_name(ctx)), // textSize
         21 => {
             if let Some(Ok(ir::token_arg::Which::Boolean(b))) = first.map(|a| a.which()) {
                 mods.wrap = b;
@@ -604,7 +597,9 @@ fn stamp_anim(
                     }
                 }
                 Ok(ir::token_arg::Which::Boolean(b)) => i32::from(b),
-                Ok(ir::token_arg::Which::Int(i)) => i.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+                Ok(ir::token_arg::Which::Int(i)) => {
+                    i.clamp(i32::MIN as i64, i32::MAX as i64) as i32
+                }
                 _ => return,
             }
         }

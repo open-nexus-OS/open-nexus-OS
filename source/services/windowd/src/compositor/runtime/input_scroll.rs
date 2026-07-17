@@ -176,9 +176,7 @@ impl DisplayServerRuntime {
     /// True while any scrollable app window's fling is still easing/coasting —
     /// keeps the compositor pacer armed so `advance_app_scrolls` keeps ticking.
     pub(crate) fn has_scroll_momentum(&self) -> bool {
-        self.apps
-            .iter()
-            .any(|a| a.scroll_id != 0 && a.scroll_momentum.is_animating())
+        self.apps.iter().any(|a| a.scroll_id != 0 && a.scroll_momentum.is_animating())
     }
 
     /// Advance every scrollable window's scroll physics by real elapsed time and
@@ -189,9 +187,7 @@ impl DisplayServerRuntime {
             if self.apps[idx].scroll_id == 0 || !self.apps[idx].scroll_momentum.is_animating() {
                 continue;
             }
-            let dt = now_ns
-                .saturating_sub(self.apps[idx].scroll_last_ns)
-                .min(100_000_000);
+            let dt = now_ns.saturating_sub(self.apps[idx].scroll_last_ns).min(100_000_000);
             self.apps[idx].scroll_last_ns = now_ns;
             let _ = self.apps[idx].scroll_momentum.tick(dt);
             let max_rows = self.max_scroll_rows(idx);

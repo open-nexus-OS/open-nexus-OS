@@ -659,11 +659,9 @@ impl Manifest {
 
     /// Markers forbidden under `profile` (`forbidden_when.profile` matches).
     pub fn forbidden_markers<'a>(&'a self, profile: &'a str) -> impl Iterator<Item = &'a Marker> {
-        self.markers
-            .iter()
-            .filter(move |m| {
-                m.forbidden_when.as_ref().is_some_and(|g| g.profiles.iter().any(|p| p == profile))
-            })
+        self.markers.iter().filter(move |m| {
+            m.forbidden_when.as_ref().is_some_and(|g| g.profiles.iter().any(|p| p == profile))
+        })
     }
 }
 

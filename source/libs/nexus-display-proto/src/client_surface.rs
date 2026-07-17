@@ -100,8 +100,7 @@ pub struct LayerDesc {
 }
 
 const LAYER_DESC_BYTES: usize = 12;
-pub const SURFACE_LAYERS_MAX_LEN: usize =
-    HEADER_LEN + 5 + MAX_SURFACE_LAYERS * LAYER_DESC_BYTES;
+pub const SURFACE_LAYERS_MAX_LEN: usize = HEADER_LEN + 5 + MAX_SURFACE_LAYERS * LAYER_DESC_BYTES;
 
 /// Encodes the layer list; clamps to [`MAX_SURFACE_LAYERS`]. Returns the length.
 #[must_use]
@@ -763,14 +762,38 @@ mod tests {
         );
         assert_eq!(
             decode_surface_create(&f),
-            Some((320, 240, FORMAT_BGRA8888, WIN_STYLE_PLAIN, WIN_LEVEL_DESKTOP, WIN_MODE_FULLSCREEN, false, 0xA1B2_C3D4_E5F6_0718, 2304, 40, 48))
+            Some((
+                320,
+                240,
+                FORMAT_BGRA8888,
+                WIN_STYLE_PLAIN,
+                WIN_LEVEL_DESKTOP,
+                WIN_MODE_FULLSCREEN,
+                false,
+                0xA1B2_C3D4_E5F6_0718,
+                2304,
+                40,
+                48
+            ))
         );
         // A truncated (but not legacy-length) frame is malformed.
         assert_eq!(decode_surface_create(&f[..f.len() - 1]), None);
         // Legacy (no scroll band) frame decodes with content_h/header_h/footer_h = 0.
         assert_eq!(
             decode_surface_create(&f[..SURFACE_CREATE_FRAME_LEN_V1]),
-            Some((320, 240, FORMAT_BGRA8888, WIN_STYLE_PLAIN, WIN_LEVEL_DESKTOP, WIN_MODE_FULLSCREEN, false, 0xA1B2_C3D4_E5F6_0718, 0, 0, 0))
+            Some((
+                320,
+                240,
+                FORMAT_BGRA8888,
+                WIN_STYLE_PLAIN,
+                WIN_LEVEL_DESKTOP,
+                WIN_MODE_FULLSCREEN,
+                false,
+                0xA1B2_C3D4_E5F6_0718,
+                0,
+                0,
+                0
+            ))
         );
         let mut wrong = f;
         wrong[3] = OP_SURFACE_PRESENT;
@@ -844,8 +867,26 @@ mod tests {
     #[test]
     fn layers_round_trip_clamps_and_validates() {
         let layers = [
-            LayerDesc { x: 0, y: 0, w: 1280, h: 48, material: MATERIAL_GLASS, glass_level: GLASS_PANEL, radius: 0, shadow_alpha: 40 },
-            LayerDesc { x: 20, y: 60, w: 200, h: 120, material: MATERIAL_GLASS, glass_level: GLASS_CARD, radius: 12, shadow_alpha: 80 },
+            LayerDesc {
+                x: 0,
+                y: 0,
+                w: 1280,
+                h: 48,
+                material: MATERIAL_GLASS,
+                glass_level: GLASS_PANEL,
+                radius: 0,
+                shadow_alpha: 40,
+            },
+            LayerDesc {
+                x: 20,
+                y: 60,
+                w: 200,
+                h: 120,
+                material: MATERIAL_GLASS,
+                glass_level: GLASS_CARD,
+                radius: 12,
+                shadow_alpha: 80,
+            },
         ];
         let mut buf = [0u8; SURFACE_LAYERS_MAX_LEN];
         let len = encode_surface_layers(7, &layers, &mut buf);

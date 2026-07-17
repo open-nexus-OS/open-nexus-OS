@@ -213,8 +213,7 @@ impl<R: RouteTarget> InputdService<R> {
             (i64::from(pos.x) * i64::from(width) / i64::from(old.width().max(1))) as i32,
             (i64::from(pos.y) * i64::from(height) / i64::from(old.height().max(1))) as i32,
         );
-        self.pointer_state =
-            PointerState::new(display_space, scaled).map_err(InputdError::from)?;
+        self.pointer_state = PointerState::new(display_space, scaled).map_err(InputdError::from)?;
         Ok(())
     }
 

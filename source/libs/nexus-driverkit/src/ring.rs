@@ -60,14 +60,7 @@ impl SubmitRing {
     /// Create a ring with `slots` in-flight slots. `slots` is clamped to `1..=MAX_SLOTS`.
     pub fn new(slots: usize) -> Self {
         let slots = slots.clamp(1, MAX_SLOTS) as u8;
-        Self {
-            slots,
-            busy: 0,
-            next: 0,
-            ticket_of: [0; MAX_SLOTS],
-            submitted: 0,
-            completed: 0,
-        }
+        Self { slots, busy: 0, next: 0, ticket_of: [0; MAX_SLOTS], submitted: 0, completed: 0 }
     }
 
     /// Number of in-flight slots the ring supports.
@@ -283,7 +276,7 @@ mod tests {
         assert!(!r.is_in_flight(s0));
         assert!(r.is_in_flight(s1)); // other slots untouched
         assert_eq!(r.completed(), 0); // abandon does NOT count as a completion
-        // Idempotent / safe on a free or bad slot.
+                                      // Idempotent / safe on a free or bad slot.
         assert!(!r.abandon(s0));
         assert!(!r.abandon(Slot(99)));
     }

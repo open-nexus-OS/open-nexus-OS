@@ -94,10 +94,7 @@ pub fn list_children<'a>(
     if !sub_seen_as_dir {
         return Err(VfsError::NotFound);
     }
-    Ok(children
-        .into_iter()
-        .map(|(name, (kind, size))| DirEntry { name, kind, size })
-        .collect())
+    Ok(children.into_iter().map(|(name, (kind, size))| DirEntry { name, kind, size }).collect())
 }
 
 #[cfg(test)]
@@ -154,9 +151,6 @@ mod tests {
 
     #[test]
     fn test_reject_file_as_dir() {
-        assert_eq!(
-            list_children(entries().into_iter(), "payload.elf"),
-            Err(VfsError::NotDir)
-        );
+        assert_eq!(list_children(entries().into_iter(), "payload.elf"), Err(VfsError::NotDir));
     }
 }

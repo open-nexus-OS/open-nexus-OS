@@ -67,7 +67,13 @@ impl WindowPresentation {
     /// compositing properties. The ONE SSOT — no other windowd code re-derives
     /// "is this the desktop / does it have chrome".
     #[must_use]
-    pub fn resolve(style: u8, level: u8, mode: u8, resizable: bool, policy: WindowingPolicy) -> Self {
+    pub fn resolve(
+        style: u8,
+        level: u8,
+        mode: u8,
+        resizable: bool,
+        policy: WindowingPolicy,
+    ) -> Self {
         let is_desktop = level == wire::WIN_LEVEL_DESKTOP;
         let is_fullscreen = mode == wire::WIN_MODE_FULLSCREEN;
         // The desktop base is inherently full-screen; a fullscreen-mode window

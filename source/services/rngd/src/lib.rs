@@ -69,4 +69,3 @@ pub mod protocol {
     /// Capability required for entropy requests.
     pub const CAP_RNG_ENTROPY: &[u8] = b"rng.entropy";
 }
-

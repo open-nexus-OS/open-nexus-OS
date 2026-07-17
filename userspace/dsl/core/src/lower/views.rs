@@ -6,9 +6,7 @@
 
 use super::exprs::{lower_expr, lower_stmts, lower_type, Env};
 use super::{unsupported, ComponentSource, Ctx};
-use crate::ast::{
-    Expr, HandlerAction, ModifierCall, Stmt, ViewNode, WidgetNode,
-};
+use crate::ast::{Expr, HandlerAction, ModifierCall, Stmt, ViewNode, WidgetNode};
 use crate::check::Model;
 use crate::diag::Diagnostic;
 use crate::registry;
@@ -96,9 +94,7 @@ pub(super) fn build_state(
             let bound_store = resolve_reducer_store(ctx, reduce)?;
             let mut b = reducers.reborrow().get(i as u32);
             b.set_store(bound_store);
-            b.set_event(
-                ctx.event_index.get(reduce.event.text.as_str()).copied().unwrap_or(0),
-            );
+            b.set_event(ctx.event_index.get(reduce.event.text.as_str()).copied().unwrap_or(0));
             let mut arms_sorted: Vec<&crate::ast::ReduceArm> = reduce.arms.iter().collect();
             arms_sorted.sort_by_key(|arm| {
                 ctx.event_case(arm.pattern.case.text.as_str()).map(|(_, c)| c).unwrap_or(0)
@@ -111,12 +107,8 @@ pub(super) fn build_state(
                 );
                 let mut env = Env::new(ctx);
                 {
-                    let slots: Vec<u32> = arm
-                        .pattern
-                        .binds
-                        .iter()
-                        .map(|bind| env.bind_local(&bind.text))
-                        .collect();
+                    let slots: Vec<u32> =
+                        arm.pattern.binds.iter().map(|bind| env.bind_local(&bind.text)).collect();
                     let mut binds = ab.reborrow().init_binds(slots.len() as u32);
                     for (k, slot) in slots.iter().enumerate() {
                         binds.set(k as u32, *slot);
@@ -143,12 +135,8 @@ pub(super) fn build_state(
             b.set_case(case_idx);
             let mut env = Env::new(ctx);
             {
-                let slots: Vec<u32> = effect
-                    .trigger
-                    .binds
-                    .iter()
-                    .map(|bind| env.bind_local(&bind.text))
-                    .collect();
+                let slots: Vec<u32> =
+                    effect.trigger.binds.iter().map(|bind| env.bind_local(&bind.text)).collect();
                 let mut binds = b.reborrow().init_binds(slots.len() as u32);
                 for (k, slot) in slots.iter().enumerate() {
                     binds.set(k as u32, *slot);
@@ -228,10 +216,7 @@ fn resolve_reducer_store(
                                 _ => *found = Some(store),
                             },
                             Err(_) => {
-                                return Err(unsupported(
-                                    *span,
-                                    "an unresolvable state field",
-                                ));
+                                return Err(unsupported(*span, "an unresolvable state field"));
                             }
                         }
                     }
@@ -454,8 +439,7 @@ pub(super) fn build_components(
     model: &Model<'_>,
     program: &mut ir::ui_program::Builder<'_>,
 ) -> Result<(), Diagnostic> {
-    let mut components =
-        program.reborrow().init_components(ctx.component_order.len() as u32);
+    let mut components = program.reborrow().init_components(ctx.component_order.len() as u32);
     for (i, (name, source)) in ctx.component_order.iter().enumerate() {
         let mut b = components.reborrow().get(i as u32);
         b.set_name(ctx.sym(name));
@@ -683,8 +667,7 @@ fn lower_widget(
 
     // Handlers.
     {
-        let mut handlers =
-            w.reborrow().init_handlers((widget.handlers.len() + binds.len()) as u32);
+        let mut handlers = w.reborrow().init_handlers((widget.handlers.len() + binds.len()) as u32);
         for (i, handler) in widget.handlers.iter().enumerate() {
             let mut hb = handlers.reborrow().get(i as u32);
             hb.set_trigger(ctx.sym(&handler.trigger.text));
@@ -785,9 +768,7 @@ fn lower_component_ref(
         return Err(unsupported(widget.span, "positional argument on a component"));
     }
     let mut cr = builder.init_component_ref();
-    cr.set_component(
-        ctx.component_index.get(widget.name.text.as_str()).copied().unwrap_or(0),
-    );
+    cr.set_component(ctx.component_index.get(widget.name.text.as_str()).copied().unwrap_or(0));
     // Args name-sorted (canonical).
     let mut args: Vec<(&str, &Expr)> =
         widget.props.iter().map(|(name, value)| (name.text.as_str(), value)).collect();

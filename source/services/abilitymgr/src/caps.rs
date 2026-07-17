@@ -66,19 +66,14 @@ pub fn is_known_permission(cap: &str) -> bool {
 /// `true` if some installed app exports `cap` under its own namespace
 /// (build-time `APP_EXPORTS` table from `userspace/apps/*/manifest.toml`).
 pub fn is_exported_permission(cap: &str) -> bool {
-    APP_EXPORTS
-        .iter()
-        .any(|(_, entries)| entries.iter().any(|(_, permission)| *permission == cap))
+    APP_EXPORTS.iter().any(|(_, entries)| entries.iter().any(|(_, permission)| *permission == cap))
 }
 
 /// Finds the app exporting `ability` → `(exporter, ability, permission)`.
 /// The resolve primitive of the mediation core (`crate::mediation`).
 pub fn find_export(ability: &str) -> Option<(&'static str, &'static str, &'static str)> {
     APP_EXPORTS.iter().find_map(|(app, entries)| {
-        entries
-            .iter()
-            .find(|(a, _)| *a == ability)
-            .map(|(a, p)| (*app, *a, *p))
+        entries.iter().find(|(a, _)| *a == ability).map(|(a, p)| (*app, *a, *p))
     })
 }
 
@@ -86,21 +81,13 @@ pub fn find_export(ability: &str) -> Option<(&'static str, &'static str, &'stati
 /// resolve source for the mediated-then-direct app-to-app channel
 /// (TASK-0081 decision C2; mediation itself rides with the broker).
 pub fn exports_of(app_id: &str) -> &'static [(&'static str, &'static str)] {
-    APP_EXPORTS
-        .iter()
-        .find(|(app, _)| *app == app_id)
-        .map(|(_, entries)| *entries)
-        .unwrap_or(&[])
+    APP_EXPORTS.iter().find(|(app, _)| *app == app_id).map(|(_, entries)| *entries).unwrap_or(&[])
 }
 
 /// The capabilities an app's manifest declares, or `&[]` if the app has no
 /// manifest entry (an app with no declared permissions).
 pub fn required_caps(app_id: &str) -> &'static [&'static str] {
-    APP_MANIFEST_CAPS
-        .iter()
-        .find(|(id, _)| *id == app_id)
-        .map(|(_, caps)| *caps)
-        .unwrap_or(&[])
+    APP_MANIFEST_CAPS.iter().find(|(id, _)| *id == app_id).map(|(_, caps)| *caps).unwrap_or(&[])
 }
 
 /// Validates a set of declared caps against the known permission set. Returns the

@@ -34,9 +34,8 @@ fn bands_reproduce_full_rasterize_for_any_split() {
             let y0 = h * b / bands;
             let y1 = h * (b + 1) / bands;
             let mut scratch = plan.scratch();
-            let out =
-                &mut assembled[(y0 * w) as usize * OUTPUT_BYTES_PER_PIXEL
-                    ..(y1 * w) as usize * OUTPUT_BYTES_PER_PIXEL];
+            let out = &mut assembled[(y0 * w) as usize * OUTPUT_BYTES_PER_PIXEL
+                ..(y1 * w) as usize * OUTPUT_BYTES_PER_PIXEL];
             plan.rasterize_rows(y0, y1, &mut scratch, out).expect("band");
         }
         assert_eq!(assembled, full, "band split x{bands} must be byte-identical");

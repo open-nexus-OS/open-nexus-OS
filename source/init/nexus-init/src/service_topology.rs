@@ -189,15 +189,15 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Execd, ServiceId::Sessiond),   // svc.session.* (DSL greeter login)
     (ServiceId::Execd, ServiceId::Settingsd),  // svc.settings.* (DSL settings app)
     (ServiceId::Execd, ServiceId::Vfsd),       // svc.files.* (filemanager, RFC-0073/TASK-0291)
-    (ServiceId::Windowd, ServiceId::Bundlemgrd),    // dynamic Apps menu (OP_LIST_APPS)
-    (ServiceId::Windowd, ServiceId::Sessiond),      // greeter/login relay (TASK-0065B)
-    (ServiceId::Windowd, ServiceId::Settingsd),     // theme GET/SET persistence (TASK-0072 P10)
+    (ServiceId::Windowd, ServiceId::Bundlemgrd), // dynamic Apps menu (OP_LIST_APPS)
+    (ServiceId::Windowd, ServiceId::Sessiond), // greeter/login relay (TASK-0065B)
+    (ServiceId::Windowd, ServiceId::Settingsd), // theme GET/SET persistence (TASK-0072 P10)
     // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
-    (ServiceId::Rngd, ServiceId::Logd),    // log sink (optional target)
+    (ServiceId::Rngd, ServiceId::Logd), // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
     (ServiceId::Vfsd, ServiceId::Packagefsd), // pkg:/ resolution (shared response ep)
     (ServiceId::Packagefsd, ServiceId::Bundlemgrd), // slot/manifest queries via CAP_MOVE
-    (ServiceId::Samgrd, ServiceId::Logd),     // structured logs via CAP_MOVE
+    (ServiceId::Samgrd, ServiceId::Logd), // structured logs via CAP_MOVE
     (ServiceId::Statefsd, ServiceId::Policyd), // policy checks via CAP_MOVE
     (ServiceId::Settingsd, ServiceId::Statefsd), // persist prefs (TASK-0072 Phase 8)
 ];
@@ -512,8 +512,8 @@ mod tests {
     /// This makes that omission a `cargo test` failure instead of a boot hunt.
     #[test]
     fn routing_services_are_granted_ipc_core_in_policy() {
-        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../policies/base.toml");
+        let base =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../policies/base.toml");
         let toml = std::fs::read_to_string(&base)
             .unwrap_or_else(|e| panic!("read {}: {e}", base.display()));
 
@@ -526,8 +526,7 @@ mod tests {
             // require it to grant "ipc.core".
             let granted = toml.lines().any(|line| {
                 let l = line.trim_start();
-                (l.starts_with(&format!("\"{name}\""))
-                    || l.starts_with(&format!("{name} ")))
+                (l.starts_with(&format!("\"{name}\"")) || l.starts_with(&format!("{name} ")))
                     && l.contains('=')
                     && l.contains("ipc.core")
             });

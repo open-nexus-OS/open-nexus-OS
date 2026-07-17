@@ -146,7 +146,9 @@ mod tests {
     fn action_adds_spacer_and_accent_label_secondary_wraps_in_column() {
         let t = BaseTokens;
         match SubHeader::new("Geräte").action("Alle").build(&t) {
-            LayoutNode::Stack(_, _, children) => assert_eq!(children.len(), 3, "title + spacer + action"),
+            LayoutNode::Stack(_, _, children) => {
+                assert_eq!(children.len(), 3, "title + spacer + action")
+            }
             _ => panic!(),
         }
         match SubHeader::new("Geräte").secondary("3 verbunden").build(&t) {

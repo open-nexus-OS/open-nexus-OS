@@ -43,8 +43,10 @@ fn checker_rejects_carry_stable_codes() {
     )
     .contains(&DiagCode::NotExhaustive));
     // Keys + labels.
-    assert!(check_codes("Page P { List($state.xs) { x in Text(x.n) } } Store S { xs: List<T> = [], }")
-        .contains(&DiagCode::MissingKey));
+    assert!(check_codes(
+        "Page P { List($state.xs) { x in Text(x.n) } } Store S { xs: List<T> = [], }"
+    )
+    .contains(&DiagCode::MissingKey));
     assert!(check_codes("Page P { Toggle { checked: true } }").contains(&DiagCode::MissingLabel));
     // Unknown widget/modifier.
     assert!(check_codes("Page P { Wobble { } }").contains(&DiagCode::UnknownWidget));
@@ -55,8 +57,10 @@ fn checker_rejects_carry_stable_codes() {
     assert!(check_codes("Page H { Stack { } } Routes { \"/\" -> H; \"/\" -> H; }")
         .contains(&DiagCode::DuplicateRoute));
     // Unknown device field.
-    assert!(check_codes("Page P { Stack { if device.flavor == sweet { Text(\"a\") } else { Text(\"b\") } } }")
-        .contains(&DiagCode::UnknownField));
+    assert!(check_codes(
+        "Page P { Stack { if device.flavor == sweet { Text(\"a\") } else { Text(\"b\") } } }"
+    )
+    .contains(&DiagCode::UnknownField));
 }
 
 #[test]
@@ -93,9 +97,6 @@ Page P {
     ] {
         let file = parse_file(src).unwrap_or_else(|e| panic!("corpus parse: {e:?}\n{src}"));
         let (_, diags) = check_file(&file);
-        assert!(
-            !nexus_dsl_core::has_errors(&diags),
-            "corpus must check clean: {diags:?}\n{src}"
-        );
+        assert!(!nexus_dsl_core::has_errors(&diags), "corpus must check clean: {diags:?}\n{src}");
     }
 }

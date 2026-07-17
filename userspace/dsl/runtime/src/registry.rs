@@ -271,7 +271,11 @@ impl Mods {
     }
 }
 
-fn plain_stack(mods: &Mods, tokens: &dyn Tokens, children: alloc::vec::Vec<LayoutNode>) -> LayoutNode {
+fn plain_stack(
+    mods: &Mods,
+    tokens: &dyn Tokens,
+    children: alloc::vec::Vec<LayoutNode>,
+) -> LayoutNode {
     // `.width(px)`/`.height(px)` pin the box (min == max); explicit min/max
     // win over the pin so `.width(320).maxWidth(400)` still means something.
     let min_w = mods.min_width.or(mods.width);
@@ -395,10 +399,8 @@ pub fn build_widget(
             // `.width`) pins a square, the corner radius is welded to full
             // and content centers on both axes. Round buttons, badges,
             // avatar-like elements; every modifier still applies.
-            let size = prop("size")
-                .and_then(value_px)
-                .or(mods.width)
-                .unwrap_or_else(|| FxPx::new(40));
+            let size =
+                prop("size").and_then(value_px).or(mods.width).unwrap_or_else(|| FxPx::new(40));
             let mut m = mods.clone();
             m.width = Some(size);
             m.height = Some(size);
@@ -413,12 +415,9 @@ pub fn build_widget(
         }
         "Card" => {
             // Kit promotion: GlassCard (Panel + material tokens) is the SSOT.
-            let mut card = nexus_widget_card::GlassCard::new()
-                .padding(if mods.padding == EdgeInsets::zero() {
-                    spacing(3)
-                } else {
-                    mods.padding.top
-                });
+            let mut card = nexus_widget_card::GlassCard::new().padding(
+                if mods.padding == EdgeInsets::zero() { spacing(3) } else { mods.padding.top },
+            );
             if mods.direction == Some(Direction::Row) {
                 card = card.row();
             }
@@ -700,18 +699,13 @@ pub fn build_widget(
                 _ => 64,
             };
             let sprite = if let Some(token) = source.strip_prefix("mime:") {
-                nexus_mime_icons::sprite_for_source(token, size as u32)
-                    .map(|s| (s.size, s.rgba))
+                nexus_mime_icons::sprite_for_source(token, size as u32).map(|s| (s.size, s.rgba))
             } else {
                 nexus_app_icons::sprite(&source, size as u32).map(|s| (s.size, s.rgba))
             };
             let px = FxPx::new(size);
             let mut node = plain_stack(
-                &Mods {
-                    width: Some(px),
-                    height: Some(px),
-                    ..Mods::default()
-                },
+                &Mods { width: Some(px), height: Some(px), ..Mods::default() },
                 tokens,
                 alloc::vec![],
             );

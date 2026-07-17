@@ -105,7 +105,14 @@ pub struct Layer {
 
 impl Layer {
     /// A plain opaque layer: no shadow, no backdrop, full opacity, square corners.
-    pub fn opaque(src_row_abs: u32, src_x: u32, width: u32, height: u32, dst_x: u32, dst_y: u32) -> Self {
+    pub fn opaque(
+        src_row_abs: u32,
+        src_x: u32,
+        width: u32,
+        height: u32,
+        dst_x: u32,
+        dst_y: u32,
+    ) -> Self {
         Self {
             src_row_abs,
             src_x,
@@ -136,8 +143,11 @@ mod tests {
     fn emit(layer: &Layer) -> Vec<Command> {
         let mut cb = CommandBuffer::new();
         {
-            let mut enc = cb
-                .begin_render_pass(RenderPassDesc { color_attachments: alloc::vec![], width: 1280, height: 800 });
+            let mut enc = cb.begin_render_pass(RenderPassDesc {
+                color_attachments: alloc::vec![],
+                width: 1280,
+                height: 800,
+            });
             enc.composite_layer_full(layer, (1280, 800)).expect("emit");
         }
         cb.commands.clone()
@@ -194,7 +204,14 @@ mod tests {
         assert_eq!(cmds.len(), 3);
         assert!(matches!(
             cmds[0],
-            Command::BlitSurface { src_x: 60, src_y: 2118, dst_x: 60, dst_y: 70, width: 256, height: 128 }
+            Command::BlitSurface {
+                src_x: 60,
+                src_y: 2118,
+                dst_x: 60,
+                dst_y: 70,
+                width: 256,
+                height: 128
+            }
         ));
         assert!(matches!(
             cmds[1],
@@ -222,7 +239,11 @@ mod tests {
                 saturation_percent: 140,
                 restore_halo_pad: 0,
                 retained_src_y_offset: 2048,
-                cache: BackdropCache::Write { cache_x: 512, cache_row_abs: 3000, display_row_offset: 1024 },
+                cache: BackdropCache::Write {
+                    cache_x: 512,
+                    cache_row_abs: 3000,
+                    display_row_offset: 1024,
+                },
             }),
             ..Layer::opaque(300, 0, 256, 128, 60, 70)
         };
@@ -254,7 +275,11 @@ mod tests {
                 saturation_percent: 140,
                 restore_halo_pad: 0,
                 retained_src_y_offset: 2048,
-                cache: BackdropCache::Read { cache_x: 512, cache_row_abs: 3000, display_row_offset: 1024 },
+                cache: BackdropCache::Read {
+                    cache_x: 512,
+                    cache_row_abs: 3000,
+                    display_row_offset: 1024,
+                },
             }),
             ..Layer::opaque(300, 0, 256, 128, 60, 70)
         };
@@ -295,12 +320,22 @@ mod tests {
         // Restore covers (100-32, 120-32) sized (400+64, 300+64): a padded halo.
         assert!(matches!(
             cmds[0],
-            Command::BlitSurface { src_x: 68, src_y: 888, dst_x: 68, dst_y: 88, width: 464, height: 364 }
+            Command::BlitSurface {
+                src_x: 68,
+                src_y: 888,
+                dst_x: 68,
+                dst_y: 88,
+                width: 464,
+                height: 364
+            }
         ));
         // Blur covers ONLY the window rect (100,120,400,300), not the halo.
         assert!(matches!(
             cmds[1],
-            Command::BlurBackdrop { rect: crate::core::types::TileRect { x: 100, y: 120, width: 400, height: 300 }, .. }
+            Command::BlurBackdrop {
+                rect: crate::core::types::TileRect { x: 100, y: 120, width: 400, height: 300 },
+                ..
+            }
         ));
     }
 
@@ -316,7 +351,11 @@ mod tests {
                 saturation_percent: 140,
                 restore_halo_pad: 32,
                 retained_src_y_offset: 800,
-                cache: BackdropCache::Read { cache_x: 700, cache_row_abs: 3200, display_row_offset: 1600 },
+                cache: BackdropCache::Read {
+                    cache_x: 700,
+                    cache_row_abs: 3200,
+                    display_row_offset: 1600,
+                },
             }),
             ..Layer::opaque(500, 0, 400, 300, 100, 120)
         };
@@ -325,12 +364,26 @@ mod tests {
         // Halo restore (pad) from the retained plane.
         assert!(matches!(
             cmds[0],
-            Command::BlitSurface { src_x: 68, src_y: 888, dst_x: 68, dst_y: 88, width: 464, height: 364 }
+            Command::BlitSurface {
+                src_x: 68,
+                src_y: 888,
+                dst_x: 68,
+                dst_y: 88,
+                width: 464,
+                height: 364
+            }
         ));
         // Cached blur repaints only the window rect.
         assert!(matches!(
             cmds[1],
-            Command::BlitAbsolute { src_x: 700, src_y_abs: 3200, dst_x: 100, dst_y_abs: 1720, width: 400, height: 300 }
+            Command::BlitAbsolute {
+                src_x: 700,
+                src_y_abs: 3200,
+                dst_x: 100,
+                dst_y_abs: 1720,
+                width: 400,
+                height: 300
+            }
         ));
         assert!(!cmds.iter().any(|c| matches!(c, Command::BlurBackdrop { .. })));
         assert!(matches!(cmds[2], Command::CompositeLayer { .. }));

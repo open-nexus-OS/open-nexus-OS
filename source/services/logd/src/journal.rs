@@ -281,7 +281,8 @@ impl Journal {
         for rec in &self.records {
             let failed = matches!(rec.level, LogLevel::Error | LogLevel::Warn);
             let ts = rec.timestamp_nsec.0;
-            if let Some(entry) = acc.iter_mut().find(|(s, ..)| s.as_slice() == rec.scope.as_slice()) {
+            if let Some(entry) = acc.iter_mut().find(|(s, ..)| s.as_slice() == rec.scope.as_slice())
+            {
                 entry.1 = entry.1.saturating_add(1);
                 if failed {
                     entry.2 = entry.2.saturating_add(1);

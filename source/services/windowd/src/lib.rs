@@ -30,8 +30,10 @@ mod session_client;
 mod settings_client;
 // Pure window-composition decisions (which windows show + z-order) extracted from
 // the runtime monolith so the black-screen-prone logic is host-tested (RFC-0066).
-#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
-mod window_scene;
+/// Pure dock geometry (TASK-0070 Phase 2) — host-tested, like `window_scene`.
+mod dock;
+/// Pure drag-to-edge snap geometry (TASK-0070 Phase 3) — host-tested.
+mod snap;
 /// Declarative window-presentation SSOT (intent ⟂ policy → compositing props) —
 /// host-tested, like `window_scene`. windowd reads this instead of hardcoding
 /// per-window-type behaviour (RFC-0065 / Umbau #17). Same cfg gate as
@@ -39,10 +41,8 @@ mod window_scene;
 /// and under `cargo test`, configured out of the plain host lib.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod surface_presentation;
-/// Pure dock geometry (TASK-0070 Phase 2) — host-tested, like `window_scene`.
-mod dock;
-/// Pure drag-to-edge snap geometry (TASK-0070 Phase 3) — host-tested.
-mod snap;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod window_scene;
 // Per-app surface lifecycle model (RFC-0065 — own VMO per app, lazy load/free).
 // Host-proven now; the gate widens to the OS build when the compositor runtime
 // drives it from the abilitymgr launch handoff (TASK-0065 P4b).
@@ -50,23 +50,23 @@ mod snap;
 mod app_surface;
 // ADR-0042 client-surface bookkeeping (TASK-0080D R1) — host-tested state
 // machine (create/seq/damage); the compositor runtime drives it on OS.
-#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
-mod client_surface;
 mod assets;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod atlas;
 mod bitmap_font;
 mod buffer;
-/// Runtime theme tokens + light/dark selector (TASK-0072 Phase 9).
-mod theme;
+mod cli;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod client_surface;
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod compositor;
 /// Runtime text from the baked A8 glyph atlases (TASK-0070 Phase 6) — the
 /// dynamic-text replacement for `bitmap_font` (which now only backs the legacy
 /// scene-graph tile-text primitive).
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod text;
-mod cli;
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-mod compositor;
+/// Runtime theme tokens + light/dark selector (TASK-0072 Phase 9).
+mod theme;
 // RFC-0067 P3: the desktop-scene adapter moved to `nexus-shell-desktop`
 // (`desktop_scene`); windowd consumes it as a client.
 mod display_backend;

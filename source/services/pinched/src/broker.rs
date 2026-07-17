@@ -92,8 +92,21 @@ pub const LIBM_SOAK_CHECK: u32 = 0x5ca8_ef9f;
 #[must_use]
 pub fn strparse_soak_check() -> u32 {
     let inputs = [
-        "0.8", "0.6", "3.14159", "28", "2", "-18.25", "1e3", "0.0001", "12.5", "255",
-        "1.000001", "9.75", "0.30000000000000004", "6.02e2", "-0.5",
+        "0.8",
+        "0.6",
+        "3.14159",
+        "28",
+        "2",
+        "-18.25",
+        "1e3",
+        "0.0001",
+        "12.5",
+        "255",
+        "1.000001",
+        "9.75",
+        "0.30000000000000004",
+        "6.02e2",
+        "-0.5",
     ];
     let mut check: u32 = 0;
     for s in inputs {
@@ -179,12 +192,9 @@ mod tests {
     #[test]
     fn proof_svg_plan_digest_matches_pinned() {
         let doc = nexus_svg::parse_svg(super::PROOF_SVG).expect("parse");
-        let plan = nexus_svg::plan_document_at(
-            &doc,
-            super::PROOF_SVG_W as u32,
-            super::PROOF_SVG_H as u32,
-        )
-        .expect("plan");
+        let plan =
+            nexus_svg::plan_document_at(&doc, super::PROOF_SVG_W as u32, super::PROOF_SVG_H as u32)
+                .expect("plan");
         let got = plan.debug_digest();
         assert_eq!(
             got,

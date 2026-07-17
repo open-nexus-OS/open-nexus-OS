@@ -109,8 +109,7 @@ impl Nav {
                         }
                     }
                     None => {
-                        let is_int =
-                            route.param_is_int.get(param_idx).copied().unwrap_or(false);
+                        let is_int = route.param_is_int.get(param_idx).copied().unwrap_or(false);
                         param_idx += 1;
                         if is_int {
                             match have.parse::<i64>() {

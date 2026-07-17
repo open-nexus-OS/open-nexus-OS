@@ -183,22 +183,13 @@ pub(crate) fn run_responder_loop(
                 // mint→grant→close per launch (zero cap-table accumulation).
                 // Identity-gated: execd only.
                 let (status, send_slot, recv_slot) = if chan.svc_name == "execd" {
-                    match nexus_abi::ipc_endpoint_create_for(
-                        ENDPOINT_FACTORY_CAP_SLOT,
-                        chan.pid,
-                        8,
-                    ) {
+                    match nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, chan.pid, 8)
+                    {
                         Ok(ep) => {
-                            let send = nexus_abi::cap_transfer(
-                                chan.pid,
-                                ep,
-                                nexus_abi::Rights::SEND,
-                            );
-                            let recv = nexus_abi::cap_transfer(
-                                chan.pid,
-                                ep,
-                                nexus_abi::Rights::RECV,
-                            );
+                            let send =
+                                nexus_abi::cap_transfer(chan.pid, ep, nexus_abi::Rights::SEND);
+                            let recv =
+                                nexus_abi::cap_transfer(chan.pid, ep, nexus_abi::Rights::RECV);
                             let _ = nexus_abi::cap_close(ep);
                             match (send, recv) {
                                 (Ok(s), Ok(r)) => (nexus_abi::routing::STATUS_OK, s, r),
@@ -494,7 +485,7 @@ fn route_deny_first_time(svc: &str, target: &[u8]) -> bool {
         }
         if v == 0 {
             match slot.compare_exchange(0, h, Ordering::Relaxed, Ordering::Relaxed) {
-                Ok(_) => return true,                       // claimed → first time
+                Ok(_) => return true,                         // claimed → first time
                 Err(claimed) if claimed == h => return false, // raced, same pair
                 Err(_) => {} // claimed by a different pair → keep probing
             }

@@ -161,12 +161,8 @@ where
                     debug_write_byte(b'\n');
                 }
 
-                let ctrl = CtrlChannel::new(
-                    image.name,
-                    pid,
-                    ctrl_req_parent_slot,
-                    ctrl_rsp_parent_slot,
-                );
+                let ctrl =
+                    CtrlChannel::new(image.name, pid, ctrl_req_parent_slot, ctrl_rsp_parent_slot);
                 ctrl_channels.push(ctrl);
                 if probes_enabled() {
                     debug_write_bytes(b"!spawn ok pid=0x");
@@ -529,14 +525,59 @@ where
     // `wire_services` (after grants) still owns the reply inboxes, routes and
     // the announce markers — byte-identical boot logs.
     let eps = crate::bootstrap::endpoints::Endpoints {
-        vfs_req, vfs_rsp, pkg_req, pkg_rsp, pkg_reply_ep, pol_req, pol_rsp, bnd_req, bnd_rsp,
-        bnd_rsp_updated, bnd_exe_req, bnd_exe_rsp, upd_req, upd_rsp, sam_req, sam_rsp,
-        exe_req, exe_rsp, key_req, key_rsp, state_req, state_rsp,
-        rng_req, rng_rsp, timed_req, timed_rsp, window_req, window_rsp, input_req, input_rsp,
-        gpud_req, gpud_rsp, net_req, net_rsp, net_selftest_rsp, net_dsoft_rsp, dsoft_req,
-        dsoft_rsp, dsoft_reply_ep, execd_reply_ep, reply_ep, log_req, log_rsp, metrics_req,
-        metrics_rsp, sess_req, sess_rsp, abil_req, abil_rsp, sett_req, sett_rsp,
-        pinch_req, pinch_rsp,
+        vfs_req,
+        vfs_rsp,
+        pkg_req,
+        pkg_rsp,
+        pkg_reply_ep,
+        pol_req,
+        pol_rsp,
+        bnd_req,
+        bnd_rsp,
+        bnd_rsp_updated,
+        bnd_exe_req,
+        bnd_exe_rsp,
+        upd_req,
+        upd_rsp,
+        sam_req,
+        sam_rsp,
+        exe_req,
+        exe_rsp,
+        key_req,
+        key_rsp,
+        state_req,
+        state_rsp,
+        rng_req,
+        rng_rsp,
+        timed_req,
+        timed_rsp,
+        window_req,
+        window_rsp,
+        input_req,
+        input_rsp,
+        gpud_req,
+        gpud_rsp,
+        net_req,
+        net_rsp,
+        net_selftest_rsp,
+        net_dsoft_rsp,
+        dsoft_req,
+        dsoft_rsp,
+        dsoft_reply_ep,
+        execd_reply_ep,
+        reply_ep,
+        log_req,
+        log_rsp,
+        metrics_req,
+        metrics_rsp,
+        sess_req,
+        sess_rsp,
+        abil_req,
+        abil_rsp,
+        sett_req,
+        sett_rsp,
+        pinch_req,
+        pinch_rsp,
     };
     crate::bootstrap::wiring::distribute_server_pairs(&mut ctrl_channels, &eps);
 

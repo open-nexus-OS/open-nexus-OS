@@ -18,14 +18,21 @@ impl DisplayServerRuntime {
     /// C1 (RFC-0067 closure): the proof/target-test panel was deleted, so there
     /// are no target-test rects to damage. Retained as a no-op for the input
     /// state-machine call sites until they're pruned.
-    pub(super) fn queue_target_damage(&mut self, _old_state: VisibleState, _new_state: VisibleState) {
+    pub(super) fn queue_target_damage(
+        &mut self,
+        _old_state: VisibleState,
+        _new_state: VisibleState,
+    ) {
     }
 
     /// Upload the cursor sprite to gpud. gpud arms the virtio-gpu hardware
     /// cursor overlay (64×64 resource on the cursor queue) and keeps the sprite
     /// as the software BlendCursor fallback. Blocking: the 5-byte reply reports
     /// which path is live (`flags == 1` → hardware overlay).
-    pub(super) fn submit_animation_to_gpud(&mut self, updates: &[SceneUpdate]) -> Result<(), WindowdError> {
+    pub(super) fn submit_animation_to_gpud(
+        &mut self,
+        updates: &[SceneUpdate],
+    ) -> Result<(), WindowdError> {
         let mut cmd = CommandBuffer::new();
         {
             let mut encoder = cmd

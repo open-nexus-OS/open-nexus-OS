@@ -144,14 +144,7 @@ impl Superblock {
         {
             return Err(NxfsError::Integrity);
         }
-        Ok(Self {
-            uuid: Uuid(uuid),
-            total_blocks,
-            journal_start,
-            journal_blocks,
-            slots,
-            enc_mode,
-        })
+        Ok(Self { uuid: Uuid(uuid), total_blocks, journal_start, journal_blocks, slots, enc_mode })
     }
 
     /// The slot index the next checkpoint should overwrite (the OLDER one).

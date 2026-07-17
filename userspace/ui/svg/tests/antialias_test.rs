@@ -44,11 +44,7 @@ fn diagonal_edge_is_antialiased() {
         r##"<svg width="48" height="48"><path d="M 0 0 L 48 48 L 0 48 Z" fill="#ffffff" /></svg>"##,
     )
     .unwrap();
-    let partial = out
-        .buffer
-        .chunks_exact(4)
-        .filter(|px| px[3] > 0 && px[3] < 255)
-        .count();
+    let partial = out.buffer.chunks_exact(4).filter(|px| px[3] > 0 && px[3] < 255).count();
     eprintln!("diagonal: partial(AA)={partial}");
     assert!(partial > 20, "diagonal edge must be anti-aliased, got {partial}");
 }

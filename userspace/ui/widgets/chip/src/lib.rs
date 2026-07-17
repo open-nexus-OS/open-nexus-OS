@@ -73,8 +73,7 @@ impl Chip {
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
         let fg = self.foreground();
         let bg = if self.selected { ColorToken::Accent } else { ColorToken::SurfaceVariant };
-        let mut style =
-            Style::new().background(tokens.color(bg)).rounded(FxPx::new(PILL_RADIUS));
+        let mut style = Style::new().background(tokens.color(bg)).rounded(FxPx::new(PILL_RADIUS));
         if !self.selected {
             style = style.border_token(tokens, LengthToken::BorderThin, ColorToken::Border);
         }
@@ -137,7 +136,12 @@ mod tests {
     fn unselected_is_outlined_and_removable_adds_a_child() {
         let t = BaseTokens;
         use nexus_layout_types::{FlexItem, Spacer};
-        let x = LayoutNode::Spacer(Spacer { id: None, flex_grow: 0, min_size: Some(FxPx::new(12)), item: FlexItem::default() });
+        let x = LayoutNode::Spacer(Spacer {
+            id: None,
+            flex_grow: 0,
+            min_size: Some(FxPx::new(12)),
+            item: FlexItem::default(),
+        });
         match Chip::new("anna@firma.de").removable(x).build(&t) {
             LayoutNode::Stack(_, v, children) => {
                 assert_eq!(v.background, Some(t.color(ColorToken::SurfaceVariant)));

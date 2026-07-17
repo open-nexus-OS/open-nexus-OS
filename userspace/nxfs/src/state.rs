@@ -67,9 +67,7 @@ impl State {
             state.mark_used(lb);
         }
         state.mark_used(total_blocks - 1); // superblock mirror
-        state
-            .objects
-            .insert(ROOT_OBJECT, Object { kind: KIND_DIR, size: 0, extents: Vec::new() });
+        state.objects.insert(ROOT_OBJECT, Object { kind: KIND_DIR, size: 0, extents: Vec::new() });
         state.dirs.insert(ROOT_OBJECT, DirTable::new());
         state
     }
@@ -88,9 +86,7 @@ impl State {
     }
 
     fn is_used(&self, lb: u64) -> bool {
-        self.bitmap
-            .get((lb / 64) as usize)
-            .is_none_or(|word| (word >> (lb % 64)) & 1 == 1)
+        self.bitmap.get((lb / 64) as usize).is_none_or(|word| (word >> (lb % 64)) & 1 == 1)
     }
 
     /// `Integrity` unless every extent lies inside the container.
@@ -167,8 +163,7 @@ impl State {
             Op::MkNode { parent, id, kind, name } => {
                 let dir = self.dirs.get_mut(parent).ok_or(NxfsError::Integrity)?;
                 dir.insert(name.clone(), (*id, *kind));
-                self.objects
-                    .insert(*id, Object { kind: *kind, size: 0, extents: Vec::new() });
+                self.objects.insert(*id, Object { kind: *kind, size: 0, extents: Vec::new() });
                 if *kind == KIND_DIR {
                     self.dirs.insert(*id, DirTable::new());
                 }

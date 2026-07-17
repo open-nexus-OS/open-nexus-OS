@@ -29,11 +29,8 @@ impl<'a> Surface<'a> {
     /// and address rows absolutely.
     #[must_use]
     pub fn new(buf: &'a mut [u8], width: u32) -> Self {
-        let height = if width == 0 {
-            0
-        } else {
-            (buf.len() / (width as usize * BYTES_PER_PIXEL)) as u32
-        };
+        let height =
+            if width == 0 { 0 } else { (buf.len() / (width as usize * BYTES_PER_PIXEL)) as u32 };
         Self { buf, width, height }
     }
 

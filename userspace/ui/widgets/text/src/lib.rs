@@ -12,8 +12,8 @@ extern crate alloc;
 
 use alloc::string::String;
 use nexus_layout_types::{
-    FlexItem, FontWeight, FxPx, LayoutNode, LineHeight, TextAlign, TextContent, TextNode, TextStyle,
-    VisualStyle, WhiteSpace,
+    FlexItem, FontWeight, FxPx, LayoutNode, LineHeight, TextAlign, TextContent, TextNode,
+    TextStyle, VisualStyle, WhiteSpace,
 };
 use nexus_theme_tokens::{ColorToken, Tokens, TypographyToken};
 

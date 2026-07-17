@@ -100,10 +100,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                     && !session_gate_active()
                 {
                     emit_line("abilitymgr: launch denied (session)");
-                    crate::wire::Dispatched {
-                        response: launch_denied_response(),
-                        event: None,
-                    }
+                    crate::wire::Dispatched { response: launch_denied_response(), event: None }
                 } else {
                     dispatch(&mut broker, frame.as_slice())
                 };
@@ -395,10 +392,7 @@ const IMG_APPHOST: u8 = 4;
 /// `payload_kind = "ui-program"` (build-time `APP_UI_PROGRAMS` table from
 /// `bundles/<app>/manifest.toml`) spawns the app-host runtime.
 fn image_for_app(app_id: &str) -> Option<u8> {
-    crate::caps::APP_UI_PROGRAMS
-        .iter()
-        .any(|id| *id == app_id)
-        .then_some(IMG_APPHOST)
+    crate::caps::APP_UI_PROGRAMS.iter().any(|id| *id == app_id).then_some(IMG_APPHOST)
 }
 
 /// Requests the process spawn from execd (`OP_EXEC_IMAGE` frame, requester

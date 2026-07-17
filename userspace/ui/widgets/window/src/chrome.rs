@@ -158,7 +158,8 @@ impl WindowControls {
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
         let mut row: Vec<LayoutNode> = Vec::new();
         if let Some(id) = self.minimize {
-            let icon = Icon::new(Symbol::Minus).size(14).color(ColorToken::OnSurfaceVariant).build(tokens);
+            let icon =
+                Icon::new(Symbol::Minus).size(14).color(ColorToken::OnSurfaceVariant).build(tokens);
             row.push(WindowButton::new(icon).id(id).build(tokens));
         }
         if let Some(id) = self.maximize {

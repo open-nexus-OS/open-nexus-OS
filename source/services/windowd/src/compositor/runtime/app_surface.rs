@@ -14,8 +14,8 @@
 //! API_STABILITY: Unstable
 //! ADR: docs/adr/0042-cross-process-surface-transport.md
 
-use super::*;
 use super::app_window::{nexus_abi_cap_close, APP_CLOSE_W, APP_WIN_RADIUS};
+use super::*;
 
 impl DisplayServerRuntime {
     /// Acquire atlas surfaces + show the window (mirrors `open_dsl_demo`).
@@ -28,11 +28,8 @@ impl DisplayServerRuntime {
             // packed header/footer/content band) so a scroll is a pure gpud
             // `src_row` shift, no per-frame re-blit. A non-scroll surface
             // (`scroll_id == 0`) keeps the VISIBLE-sized band (unchanged).
-            let content_rows = if self.apps[idx].scroll_id != 0 {
-                self.app_band_height(idx).max(h)
-            } else {
-                h
-            };
+            let content_rows =
+                if self.apps[idx].scroll_id != 0 { self.app_band_height(idx).max(h) } else { h };
             let Some(content) = self.atlas_alloc.alloc(w, content_rows) else {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface open FAIL atlas (need={}x{} rows_remaining={})",
@@ -90,9 +87,8 @@ impl DisplayServerRuntime {
         }
         #[cfg(nexus_env = "os")]
         if let Some(ch) = self.apps[idx].event_channel.take() {
-            if let Some(pos) = self.event_channels[..self.event_channels_len]
-                .iter()
-                .position(|e| e.1 == ch)
+            if let Some(pos) =
+                self.event_channels[..self.event_channels_len].iter().position(|e| e.1 == ch)
             {
                 // Compact the nonce table (order-preserving shift).
                 for i in pos..self.event_channels_len - 1 {
@@ -186,10 +182,8 @@ impl DisplayServerRuntime {
             return Ok(());
         };
         // BY ID: `get()` (first live) is ambiguous once several surfaces coexist.
-        let Some(client) = self.apps[idx]
-            .surface_id
-            .and_then(|id| self.client_surfaces.get_by_id(id))
-            .copied()
+        let Some(client) =
+            self.apps[idx].surface_id.and_then(|id| self.client_surfaces.get_by_id(id)).copied()
         else {
             return Ok(());
         };
@@ -209,9 +203,7 @@ impl DisplayServerRuntime {
         // the transient user-maximize are edge-to-edge (radius 0); floating
         // windows keep the rounded glass frame.
         let corner_radius = if self.app_presentation(idx).full_screen
-            || self
-                .windows
-                .is_fullscreen(crate::window_scene::WindowId::App(idx as u8))
+            || self.windows.is_fullscreen(crate::window_scene::WindowId::App(idx as u8))
         {
             0
         } else {
@@ -234,10 +226,7 @@ impl DisplayServerRuntime {
             .saturating_add(self.apps[idx].footer_h)
             .saturating_add(self.apps[idx].content_h);
         let (blit_rows, body_limit) = if scrollable {
-            (
-                title_h.saturating_add(band_body_h).min(surface.height),
-                band_body_h,
-            )
+            (title_h.saturating_add(band_body_h).min(surface.height), band_body_h)
         } else {
             (win_h, client.height as u32)
         };
@@ -274,8 +263,7 @@ impl DisplayServerRuntime {
                 // blit only memcpys. Never per-glyph work per present (the
                 // chrome-cache pattern; `alloc-fail svc=gpud` history).
                 let src = ly as usize * row_bytes;
-                row[..row_bytes]
-                    .copy_from_slice(&self.chrome_cache.buf[src..src + row_bytes]);
+                row[..row_bytes].copy_from_slice(&self.chrome_cache.buf[src..src + row_bytes]);
             } else {
                 let body_y = ly - title_h;
                 if body_y < body_limit {
@@ -283,12 +271,8 @@ impl DisplayServerRuntime {
                     #[cfg(nexus_env = "os")]
                     {
                         let src_off = body_y as usize * src_stride;
-                        if nexus_abi::vmo_read(
-                            client.vmo_slot,
-                            src_off,
-                            &mut row[..body_row_bytes],
-                        )
-                        .is_err()
+                        if nexus_abi::vmo_read(client.vmo_slot, src_off, &mut row[..body_row_bytes])
+                            .is_err()
                         {
                             return Err(WindowdError::BufferLengthMismatch);
                         }
@@ -371,9 +355,7 @@ impl DisplayServerRuntime {
             return Err(WindowdError::BufferLengthMismatch);
         }
         let corner_radius = if self.app_presentation(idx).full_screen
-            || self
-                .windows
-                .is_fullscreen(crate::window_scene::WindowId::App(idx as u8))
+            || self.windows.is_fullscreen(crate::window_scene::WindowId::App(idx as u8))
         {
             0
         } else {
@@ -387,8 +369,7 @@ impl DisplayServerRuntime {
         for ly in 0..title_h.min(surface.height) {
             let row = &mut self.band_scratch[0..stride];
             let src = ly as usize * row_bytes;
-            row[..row_bytes]
-                .copy_from_slice(&self.chrome_cache.buf[src..src + row_bytes]);
+            row[..row_bytes].copy_from_slice(&self.chrome_cache.buf[src..src + row_bytes]);
             let dst = (surface.abs_row + ly) as usize * stride + surface.x as usize * 4;
             vmo_write(handle, dst, &self.band_scratch[..w as usize * 4])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
@@ -421,8 +402,6 @@ impl DisplayServerRuntime {
     /// starve the atlas); chrome is decided by `app_title_h`.
     fn app_is_desktop_surface(&self, idx: usize) -> bool {
         self.app_presentation(idx).full_screen
-            || self
-                .windows
-                .is_fullscreen(crate::window_scene::WindowId::App(idx as u8))
+            || self.windows.is_fullscreen(crate::window_scene::WindowId::App(idx as u8))
     }
 }

@@ -139,7 +139,8 @@ impl Sidebar {
             item: FlexItem::default(),
         }));
         if let Some(count) = item.badge {
-            let text = Text::new(alloc::format!("{count}")).color(ColorToken::OnAccent).build(tokens);
+            let text =
+                Text::new(alloc::format!("{count}")).color(ColorToken::OnAccent).build(tokens);
             row.push(Badge::new().variant(BadgeVariant::Active).content(text).build(tokens));
         }
 
@@ -302,7 +303,12 @@ mod tests {
         }
         let sv = SplitView::new(
             Sidebar::new(alloc::vec![SidebarItem::item("a", "A")]).build(&t),
-            LayoutNode::Spacer(Spacer { id: None, flex_grow: 1, min_size: None, item: FlexItem::default() }),
+            LayoutNode::Spacer(Spacer {
+                id: None,
+                flex_grow: 1,
+                min_size: None,
+                item: FlexItem::default(),
+            }),
         )
         .build();
         match sv {

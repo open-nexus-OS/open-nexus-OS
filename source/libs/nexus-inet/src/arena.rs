@@ -184,10 +184,8 @@ impl Arena {
     /// creates an active pair (both principal ports of real agents) — the
     /// caller queues it (per-round out list).
     pub fn link(&self, a: Port, b: Port) -> Option<Redex> {
-        self.nodes[port_node(a) as usize].ports[port_slot(a) as usize]
-            .store(b, Ordering::Release);
-        self.nodes[port_node(b) as usize].ports[port_slot(b) as usize]
-            .store(a, Ordering::Release);
+        self.nodes[port_node(a) as usize].ports[port_slot(a) as usize].store(b, Ordering::Release);
+        self.nodes[port_node(b) as usize].ports[port_slot(b) as usize].store(a, Ordering::Release);
         if port_slot(a) == 0 && port_slot(b) == 0 {
             let (ka, kb) = (self.kind(port_node(a)), self.kind(port_node(b)));
             if ka as u8 >= NodeKind::Era as u8 && kb as u8 >= NodeKind::Era as u8 {

@@ -174,13 +174,7 @@ impl DisplayServerRuntime {
                 }),
                 fullscreen,
                 layer_geom: win.atlas.map(|a| {
-                    (
-                        a.abs_row,
-                        a.x,
-                        win.x.max(0) as u32,
-                        win.y.max(0) as u32,
-                        win.title_h,
-                    )
+                    (a.abs_row, a.x, win.x.max(0) as u32, win.y.max(0) as u32, win.title_h)
                 }),
                 scroll_id: self.apps[idx].scroll_id,
                 header_h: self.apps[idx].header_h,
@@ -194,9 +188,9 @@ impl DisplayServerRuntime {
         // app-host that declared `level: desktop` owns its OWN full-screen band
         // (separate from the floating `app_win`). Snapshot its geometry for the
         // encoder block; composed as an opaque base layer at the bottom band.
-        let desktop_layer = self
-            .desktop_band
-            .map(|b| (b.abs_row, b.x, b.width.min(self.mode.width), b.height.min(self.mode.height)));
+        let desktop_layer = self.desktop_band.map(|b| {
+            (b.abs_row, b.x, b.width.min(self.mode.width), b.height.min(self.mode.height))
+        });
         // R1 seam for the DESKTOP surface: its material-tagged glass regions
         // (topbar/dock/panels) re-composite as frosted layers over the
         // wallpaper AFTER the base blend below.
@@ -442,9 +436,7 @@ impl DisplayServerRuntime {
                 );
                 use nexus_display_proto::client_surface as wire;
                 for l in desktop_glass.iter().take(desktop_glass_count) {
-                    if l.material != wire::MATERIAL_GLASS
-                        || l.glass_level != wire::GLASS_PANEL
-                    {
+                    if l.material != wire::MATERIAL_GLASS || l.glass_level != wire::GLASS_PANEL {
                         continue;
                     }
                     crate::compositor::shell_window::composite_material_glass(

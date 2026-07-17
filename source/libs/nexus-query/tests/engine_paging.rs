@@ -25,12 +25,7 @@ fn table() -> TableDef {
 }
 
 fn row(id: i64, rank: i64) -> Vec<QVal> {
-    vec![
-        QVal::Int(id),
-        QVal::Str(format!("item-{id}")),
-        QVal::Int(rank),
-        QVal::Bool(id % 3 == 0),
-    ]
+    vec![QVal::Int(id), QVal::Str(format!("item-{id}")), QVal::Int(rank), QVal::Bool(id % 3 == 0)]
 }
 
 /// Deterministic but scrambled fixture: ids 1..=n inserted in a shuffled
@@ -205,10 +200,8 @@ fn canonical_hash_is_pinned_and_order_independent() {
         descending: false,
         limit: 4,
     };
-    let swapped = QuerySpec {
-        eq: vec![(1, QVal::Str("x".into())), (3, QVal::Bool(true))],
-        ..spec.clone()
-    };
+    let swapped =
+        QuerySpec { eq: vec![(1, QVal::Str("x".into())), (3, QVal::Bool(true))], ..spec.clone() };
     assert_eq!(spec.hash(), swapped.hash(), "eq order must not change identity");
     // Golden: recomputed only on a DOCUMENTED canonical-bytes change (ir.md-style).
     assert_eq!(spec.hash(), 0x724d_3c50_22ec_6e82, "canonical hash drifted");

@@ -156,10 +156,7 @@ pub(super) fn wait_for_boot_pushes(events: &KernelClient) -> (u8, u8) {
             }
         }
         if nsec().unwrap_or(u64::MAX).saturating_sub(start) > 500_000_000 {
-            return (
-                theme.unwrap_or(wire::THEME_DARK),
-                profile.unwrap_or(wire::PROFILE_TABLET),
-            );
+            return (theme.unwrap_or(wire::THEME_DARK), profile.unwrap_or(wire::PROFILE_TABLET));
         }
         let _ = yield_();
     }
@@ -282,9 +279,7 @@ pub(super) fn recv_ack(
     loop {
         match client.recv_into(Wait::NonBlocking, &mut frame) {
             Ok(len) => {
-                if let Some((status, value)) =
-                    wire::decode_surface_ack(&frame[..len], op)
-                {
+                if let Some((status, value)) = wire::decode_surface_ack(&frame[..len], op) {
                     if status == wire::SURFACE_STATUS_OK {
                         return Ok(value);
                     }

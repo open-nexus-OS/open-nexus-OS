@@ -110,15 +110,9 @@ impl super::DslApp {
             }
             vis_pick.push(bi as u32);
             // Box -> anim mapping ONCE per repaint (not per row).
-            vis_anim.push(
-                anims
-                    .iter()
-                    .position(|a| a.node_id == b.node_id)
-                    .map_or(-1, |i| i as i16),
-            );
-            if let Ok(ti) =
-                self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id)
-            {
+            vis_anim
+                .push(anims.iter().position(|a| a.node_id == b.node_id).map_or(-1, |i| i as i16));
+            if let Ok(ti) = self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id) {
                 vis_text.push((bi as u32, ti as u32));
             }
         }
@@ -132,10 +126,7 @@ impl super::DslApp {
             let t = &self.layout.boxes[bi as usize];
             !self.layout.boxes.iter().any(|g| {
                 g.node_id > t.node_id
-                    && matches!(
-                        g.visual.material,
-                        nexus_layout_types::SurfaceMaterial::Glass(_)
-                    )
+                    && matches!(g.visual.material, nexus_layout_types::SurfaceMaterial::Glass(_))
                     && t.rect.x.0 < g.rect.x.0 + g.rect.width.0
                     && t.rect.x.0 + t.rect.width.0 > g.rect.x.0
                     && t.rect.y.0 < g.rect.y.0 + g.rect.height.0
@@ -167,8 +158,7 @@ impl super::DslApp {
             // blends each run's slice intersecting this row.
             for &(bi, ti) in &vis_text {
                 let b = &self.layout.boxes[bi as usize];
-                let (bx, by, bw, bh) =
-                    (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+                let (bx, by, bw, bh) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
                 if bw <= 0 || bh <= 0 {
                     continue;
                 }
@@ -194,17 +184,15 @@ impl super::DslApp {
                     // by the horizontal translate. Vertical translate + scale on
                     // TEXT are the fill path's domain (documented scope: glyphs
                     // fade + wiggle, filled nodes take the full transform).
-                    let (color, bx_glyph) = match anims
-                        .iter()
-                        .find(|a| a.node_id == b.node_id && !a.is_identity())
-                    {
-                        Some(a) => {
-                            let mut c = *color;
-                            c[3] = (c[3] as u32 * a.opacity as u32 / 255) as u8;
-                            (c, bx_eff - a.dx)
-                        }
-                        None => (*color, bx_eff),
-                    };
+                    let (color, bx_glyph) =
+                        match anims.iter().find(|a| a.node_id == b.node_id && !a.is_identity()) {
+                            Some(a) => {
+                                let mut c = *color;
+                                c[3] = (c[3] as u32 * a.opacity as u32 / 255) as u8;
+                                (c, bx_eff - a.dx)
+                            }
+                            None => (*color, bx_eff),
+                        };
                     nexus_text_baked::draw_text_row(
                         &mut row,
                         y_eff as u32,
@@ -329,32 +317,23 @@ impl super::DslApp {
             // Glyph pass: the runs of this region's boxes intersecting model_y.
             for &bi in pick.iter() {
                 let b = &self.layout.boxes[bi as usize];
-                let (bx, by, bw, bh) = (
-                    b.rect.x.0,
-                    b.rect.y.0,
-                    b.rect.width.0,
-                    b.rect.height.0,
-                );
+                let (bx, by, bw, bh) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
                 if bw <= 0 || bh <= 0 || model_y < by || model_y >= by + bh {
                     continue;
                 }
-                if let Ok(ti) =
-                    self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id)
-                {
+                if let Ok(ti) = self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id) {
                     let (_, content, font, color) = &self.texts[ti];
                     // Animated text node: fade + horizontal shift (same
                     // contract as the plain-path glyph pass).
-                    let (color, bx_glyph) = match anims
-                        .iter()
-                        .find(|a| a.node_id == b.node_id && !a.is_identity())
-                    {
-                        Some(a) => {
-                            let mut c = *color;
-                            c[3] = (c[3] as u32 * a.opacity as u32 / 255) as u8;
-                            (c, bx - a.dx)
-                        }
-                        None => (*color, bx),
-                    };
+                    let (color, bx_glyph) =
+                        match anims.iter().find(|a| a.node_id == b.node_id && !a.is_identity()) {
+                            Some(a) => {
+                                let mut c = *color;
+                                c[3] = (c[3] as u32 * a.opacity as u32 / 255) as u8;
+                                (c, bx - a.dx)
+                            }
+                            None => (*color, bx),
+                        };
                     nexus_text_baked::draw_text_row(
                         &mut row,
                         model_y as u32,

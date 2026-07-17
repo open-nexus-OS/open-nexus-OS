@@ -129,7 +129,12 @@ mod tests {
     use nexus_theme_tokens::BaseTokens;
 
     fn glyph() -> LayoutNode {
-        LayoutNode::Spacer(Spacer { id: None, flex_grow: 0, min_size: Some(FxPx::new(12)), item: FlexItem::default() })
+        LayoutNode::Spacer(Spacer {
+            id: None,
+            flex_grow: 0,
+            min_size: Some(FxPx::new(12)),
+            item: FlexItem::default(),
+        })
     }
 
     #[test]

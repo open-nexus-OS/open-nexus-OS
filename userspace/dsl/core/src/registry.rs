@@ -94,7 +94,11 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     ModifierSpec { name: "role", args: &[ModArg::Token], class: FieldClass::Semantics },
     ModifierSpec { name: "hint", args: &[ModArg::Text], class: FieldClass::Semantics },
     // -- motion (paint)
-    ModifierSpec { name: "animate", args: &[ModArg::Token, ModArg::Expr], class: FieldClass::Paint },
+    ModifierSpec {
+        name: "animate",
+        args: &[ModArg::Token, ModArg::Expr],
+        class: FieldClass::Paint,
+    },
     ModifierSpec { name: "transition", args: &[ModArg::Token], class: FieldClass::Paint },
     ModifierSpec { name: "effect", args: &[ModArg::Token, ModArg::Expr], class: FieldClass::Paint },
     // -- identity (layout)
@@ -114,7 +118,11 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // `linear-gradient(to bottom, …)`). Args are EXPRESSIONS evaluating to
     // "#rrggbb"/"#rrggbbaa" strings, so both literals and props work
     // (per-app icon artwork colors ride the manifest → enumerate → props).
-    ModifierSpec { name: "bgGradient", args: &[ModArg::Expr, ModArg::Expr], class: FieldClass::Paint },
+    ModifierSpec {
+        name: "bgGradient",
+        args: &[ModArg::Expr, ModArg::Expr],
+        class: FieldClass::Paint,
+    },
 ];
 
 #[must_use]
@@ -140,40 +148,196 @@ pub struct WidgetSpec {
 /// v0.1 widget kinds (grows with the kit; the runtime registry is generated
 /// from the same table).
 pub const WIDGETS: &[WidgetSpec] = &[
-    WidgetSpec { name: "Stack", primary_prop: None, interactive: false, label_prop: None, allows_children: true },
-    WidgetSpec { name: "Spacer", primary_prop: None, interactive: false, label_prop: None, allows_children: false },
-    WidgetSpec { name: "Text", primary_prop: Some("value"), interactive: false, label_prop: Some("value"), allows_children: false },
-    WidgetSpec { name: "Icon", primary_prop: Some("symbol"), interactive: false, label_prop: None, allows_children: false },
-    WidgetSpec { name: "Image", primary_prop: Some("source"), interactive: false, label_prop: None, allows_children: false },
-    WidgetSpec { name: "Button", primary_prop: Some("label"), interactive: true, label_prop: Some("label"), allows_children: true },
-    WidgetSpec { name: "Card", primary_prop: None, interactive: false, label_prop: None, allows_children: true },
-    WidgetSpec { name: "TextField", primary_prop: Some("value"), interactive: true, label_prop: Some("label"), allows_children: false },
-    WidgetSpec { name: "Toggle", primary_prop: Some("checked"), interactive: true, label_prop: Some("label"), allows_children: false },
-    WidgetSpec { name: "List", primary_prop: None, interactive: false, label_prop: None, allows_children: true },
-    WidgetSpec { name: "NativeWidget", primary_prop: None, interactive: false, label_prop: None, allows_children: false },
+    WidgetSpec {
+        name: "Stack",
+        primary_prop: None,
+        interactive: false,
+        label_prop: None,
+        allows_children: true,
+    },
+    WidgetSpec {
+        name: "Spacer",
+        primary_prop: None,
+        interactive: false,
+        label_prop: None,
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Text",
+        primary_prop: Some("value"),
+        interactive: false,
+        label_prop: Some("value"),
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Icon",
+        primary_prop: Some("symbol"),
+        interactive: false,
+        label_prop: None,
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Image",
+        primary_prop: Some("source"),
+        interactive: false,
+        label_prop: None,
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Button",
+        primary_prop: Some("label"),
+        interactive: true,
+        label_prop: Some("label"),
+        allows_children: true,
+    },
+    WidgetSpec {
+        name: "Card",
+        primary_prop: None,
+        interactive: false,
+        label_prop: None,
+        allows_children: true,
+    },
+    WidgetSpec {
+        name: "TextField",
+        primary_prop: Some("value"),
+        interactive: true,
+        label_prop: Some("label"),
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Toggle",
+        primary_prop: Some("checked"),
+        interactive: true,
+        label_prop: Some("label"),
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "List",
+        primary_prop: None,
+        interactive: false,
+        label_prop: None,
+        allows_children: true,
+    },
+    WidgetSpec {
+        name: "NativeWidget",
+        primary_prop: None,
+        interactive: false,
+        label_prop: None,
+        allows_children: false,
+    },
     // Design-system kit exposure (TASK-0073/0074): each maps 1:1 onto its
     // `userspace/ui/widgets/*` builder in the runtime registry.
-    WidgetSpec { name: "Badge", primary_prop: Some("label"), interactive: false, label_prop: Some("label"), allows_children: false },
-    WidgetSpec { name: "Chip", primary_prop: Some("label"), interactive: true, label_prop: Some("label"), allows_children: false },
-    WidgetSpec { name: "Avatar", primary_prop: Some("initials"), interactive: false, label_prop: None, allows_children: false },
-    WidgetSpec { name: "Checkbox", primary_prop: Some("checked"), interactive: true, label_prop: Some("label"), allows_children: false },
-    WidgetSpec { name: "Slider", primary_prop: Some("value"), interactive: true, label_prop: None, allows_children: false },
-    WidgetSpec { name: "Spinner", primary_prop: None, interactive: false, label_prop: None, allows_children: false },
-    WidgetSpec { name: "ProgressBar", primary_prop: Some("value"), interactive: false, label_prop: None, allows_children: false },
-    WidgetSpec { name: "Toast", primary_prop: Some("message"), interactive: true, label_prop: Some("message"), allows_children: false },
-    WidgetSpec { name: "Banner", primary_prop: Some("message"), interactive: true, label_prop: Some("title"), allows_children: false },
-    WidgetSpec { name: "Skeleton", primary_prop: None, interactive: false, label_prop: None, allows_children: false },
-    WidgetSpec { name: "ListItem", primary_prop: Some("title"), interactive: true, label_prop: Some("title"), allows_children: false },
-    WidgetSpec { name: "Toolbar", primary_prop: Some("title"), interactive: false, label_prop: None, allows_children: false },
-    WidgetSpec { name: "SearchBar", primary_prop: Some("value"), interactive: true, label_prop: Some("placeholder"), allows_children: false },
+    WidgetSpec {
+        name: "Badge",
+        primary_prop: Some("label"),
+        interactive: false,
+        label_prop: Some("label"),
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Chip",
+        primary_prop: Some("label"),
+        interactive: true,
+        label_prop: Some("label"),
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Avatar",
+        primary_prop: Some("initials"),
+        interactive: false,
+        label_prop: None,
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Checkbox",
+        primary_prop: Some("checked"),
+        interactive: true,
+        label_prop: Some("label"),
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Slider",
+        primary_prop: Some("value"),
+        interactive: true,
+        label_prop: None,
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Spinner",
+        primary_prop: None,
+        interactive: false,
+        label_prop: None,
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "ProgressBar",
+        primary_prop: Some("value"),
+        interactive: false,
+        label_prop: None,
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Toast",
+        primary_prop: Some("message"),
+        interactive: true,
+        label_prop: Some("message"),
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Banner",
+        primary_prop: Some("message"),
+        interactive: true,
+        label_prop: Some("title"),
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Skeleton",
+        primary_prop: None,
+        interactive: false,
+        label_prop: None,
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "ListItem",
+        primary_prop: Some("title"),
+        interactive: true,
+        label_prop: Some("title"),
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Toolbar",
+        primary_prop: Some("title"),
+        interactive: false,
+        label_prop: None,
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "SearchBar",
+        primary_prop: Some("value"),
+        interactive: true,
+        label_prop: Some("placeholder"),
+        allows_children: false,
+    },
     // Container primitives: material surfaces that host arbitrary children
     // (icons/text/stacks) and take every modifier. `Panel` = the panel-glass
     // surface (Control-Center tiles, window content panels, properties
     // sidebar); `Circle` = a perfectly round container (`size` pins a square
     // box, radius welded to full, content centered) for round buttons,
     // badges and avatar-like elements.
-    WidgetSpec { name: "Panel", primary_prop: None, interactive: false, label_prop: None, allows_children: true },
-    WidgetSpec { name: "Circle", primary_prop: Some("size"), interactive: false, label_prop: None, allows_children: true },
+    WidgetSpec {
+        name: "Panel",
+        primary_prop: None,
+        interactive: false,
+        label_prop: None,
+        allows_children: true,
+    },
+    WidgetSpec {
+        name: "Circle",
+        primary_prop: Some("size"),
+        interactive: false,
+        label_prop: None,
+        allows_children: true,
+    },
 ];
 
 #[must_use]
@@ -182,7 +346,8 @@ pub fn widget_spec(name: &str) -> Option<&'static WidgetSpec> {
 }
 
 /// Interaction triggers handlers may bind (`on Tap -> …`).
-pub const TRIGGERS: &[&str] = &["Tap", "Change", "Submit", "Focus", "Blur", "LongPress", "EndReached",];
+pub const TRIGGERS: &[&str] =
+    &["Tap", "Change", "Submit", "Focus", "Blur", "LongPress", "EndReached"];
 
 /// The curated **motion token** vocabulary (docs/dev/ui/foundations/animation.md
 /// "Recommended v1 scope"). The token argument of `.animate`/`.transition`/
@@ -225,7 +390,9 @@ include!(concat!(env!("OUT_DIR"), "/svc_surface.rs"));
 /// Result of looking up `svc.<service>.<method>` against the surface.
 pub enum SvcLookup {
     /// Known method; the checker validates the positional arity.
-    Found { arity: usize },
+    Found {
+        arity: usize,
+    },
     UnknownService,
     UnknownMethod,
 }

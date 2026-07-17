@@ -54,22 +54,22 @@ pub enum DiagCode {
     EmptyMatch,       // NX0106
     InvalidRoutePath, // NX0107
     // --- resolve (NX02xx)
-    UnknownName,         // NX0201
-    DuplicateDefinition, // NX0202
-    ImportConflict,      // NX0203
-    UnknownWidget,       // NX0204
-    UnknownModifier,     // NX0205
-    UnknownEvent,        // NX0206
-    UnknownService,      // NX0207 (svc.<service> not in the platform surface)
+    UnknownName,          // NX0201
+    DuplicateDefinition,  // NX0202
+    ImportConflict,       // NX0203
+    UnknownWidget,        // NX0204
+    UnknownModifier,      // NX0205
+    UnknownEvent,         // NX0206
+    UnknownService,       // NX0207 (svc.<service> not in the platform surface)
     UnknownServiceMethod, // NX0208
     // --- types (NX03xx)
-    TypeMismatch,     // NX0301
-    WrongArity,       // NX0302
-    UnknownField,     // NX0303
-    NotExhaustive,    // NX0304
-    UnknownEnumCase,  // NX0305
-    UnknownType,      // NX0306
-    ConstRequired,    // NX0307
+    TypeMismatch,    // NX0301
+    WrongArity,      // NX0302
+    UnknownField,    // NX0303
+    NotExhaustive,   // NX0304
+    UnknownEnumCase, // NX0305
+    UnknownType,     // NX0306
+    ConstRequired,   // NX0307
     // --- lints (NX04xx)
     MissingKey,         // NX0401
     MissingLabel,       // NX0402
@@ -137,9 +137,9 @@ impl DiagCode {
     #[must_use]
     pub fn severity(self) -> Severity {
         match self {
-            DiagCode::MissingProfileElse
-            | DiagCode::UnhandledResult
-            | DiagCode::MissingTimeout => Severity::Warning,
+            DiagCode::MissingProfileElse | DiagCode::UnhandledResult | DiagCode::MissingTimeout => {
+                Severity::Warning
+            }
             _ => Severity::Error,
         }
     }

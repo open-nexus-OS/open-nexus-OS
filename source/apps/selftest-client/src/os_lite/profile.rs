@@ -292,7 +292,12 @@ mod tests {
             Profile::Full
         );
         assert_eq!(
-            Profile::resolve(Some(RuntimeProfile::None), Some(RuntimeMode::Proof), None, Profile::Full),
+            Profile::resolve(
+                Some(RuntimeProfile::None),
+                Some(RuntimeMode::Proof),
+                None,
+                Profile::Full
+            ),
             Profile::Full
         );
     }
