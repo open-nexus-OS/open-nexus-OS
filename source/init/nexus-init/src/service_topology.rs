@@ -70,15 +70,18 @@ pub enum ServiceId {
     Sessiond = 23,
     /// Typed settings registry daemon (TASK-0072 Phase 8 — persists prefs via statefsd).
     Settingsd = 24,
+    /// System-internal compute broker (batch parallel work on nexus-workpool;
+    /// invisible to apps — no app-facing route, system clients only).
+    Pinched = 25,
 }
 
 impl ServiceId {
     /// Number of entries needed to index a per-service array by `id as usize`
-    /// (discriminants are `1..=24`, so the array spans `0..=24`; index 0 is unused).
-    pub const COUNT: usize = 25;
+    /// (discriminants are `1..=25`, so the array spans `0..=25`; index 0 is unused).
+    pub const COUNT: usize = 26;
 
     /// Every service identifier, for iterating a per-service routing array.
-    pub const ALL: [ServiceId; 24] = [
+    pub const ALL: [ServiceId; 25] = [
         Self::Vfsd,
         Self::Packagefsd,
         Self::Policyd,
@@ -103,6 +106,7 @@ impl ServiceId {
         Self::SelftestClient,
         Self::Sessiond,
         Self::Settingsd,
+        Self::Pinched,
     ];
 
     /// Look up a service by its canonical name. Returns None for unknown names.
@@ -132,6 +136,7 @@ impl ServiceId {
             b"selftest-client" => Self::SelftestClient,
             b"sessiond" => Self::Sessiond,
             b"settingsd" => Self::Settingsd,
+            b"pinched" => Self::Pinched,
             _ => return None,
         })
     }
@@ -163,6 +168,7 @@ impl ServiceId {
             Self::SelftestClient => "selftest-client",
             Self::Sessiond => "sessiond",
             Self::Settingsd => "settingsd",
+            Self::Pinched => "pinched",
         }
     }
 }
@@ -341,6 +347,17 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         exposes_server: true,
         reply_inbox: true,
         routes_to: &[Route { to: ServiceId::Statefsd, kind: RouteKind::ReplyInbox }],
+        announce: false,
+    },
+    // pinched: system-internal compute broker (SMP track Phase D). Exposes a
+    // server for system clients (selftest, SDK batch paths); calls nobody —
+    // its parallelism is in-process threads on nexus-workpool, not IPC.
+    // Deliberately NOT in nexus-sdk-routes: apps must never see it.
+    ServiceSpec {
+        id: ServiceId::Pinched,
+        exposes_server: true,
+        reply_inbox: false,
+        routes_to: &[],
         announce: false,
     },
 ];

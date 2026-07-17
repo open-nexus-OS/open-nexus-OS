@@ -502,15 +502,14 @@ impl CapTransferToArgsTyped {
 }
 
 use super::{
-    Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_BOOT_MODE,
-    SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC,
-    SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE, SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT,
-    SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1, SYSCALL_IPC_SEND_V1, SYSCALL_MAP,
-    SYSCALL_AS_SELF, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SCHED, SYSCALL_SEND,
-    SYSCALL_SPAWN,
-    SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME, SYSCALL_TIMER_CANCEL,
-    SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
-    SYSCALL_YIELD,
+    Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_AS_SELF,
+    SYSCALL_BOOT_MODE, SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO,
+    SYSCALL_DEBUG_PUTC, SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE, SYSCALL_EXEC,
+    SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
+    SYSCALL_IPC_SEND_V1, SYSCALL_MAP, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SCHED,
+    SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME,
+    SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE,
+    SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -959,15 +958,20 @@ fn map_fence_error(err: crate::fence::FenceError) -> Error {
     }
 }
 
-/// Resolves a fence cap slot to its kernel-local id, enforcing ownership (RFC-0033).
+/// Resolves a fence cap slot to its kernel-local id. Authority IS cap
+/// possession (RFC-0033): the slot lookup in the caller's own cap table
+/// proves the fence was created by or transferred to this task — a
+/// creator-pid check on top would render transferred fence caps unusable
+/// (the workpool hands its job/done fences to same-AS worker threads).
+/// The table's `owner_pid` stays lifecycle-only (free/teardown).
 #[inline]
 fn fence_id_from_cap(ctx: &mut Context<'_>, slot: usize) -> Result<crate::fence::FenceId, Error> {
     let cap = ctx.tasks.current_caps_mut().get(slot)?;
     match cap.kind {
         CapabilityKind::Fence(id) => {
             let fence_id = crate::fence::FenceId(id);
-            if !ctx.fences.owned_by(fence_id, ctx.tasks.current_pid().as_raw()) {
-                return Err(Error::Capability(CapError::PermissionDenied));
+            if !ctx.fences.exists(fence_id) {
+                return Err(Error::Capability(CapError::InvalidSlot));
             }
             Ok(fence_id)
         }
@@ -1366,7 +1370,14 @@ fn sys_cap_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             let _ = ctx.waitsets.free(crate::waitset::WaitsetId(id));
         }
         CapabilityKind::Fence(id) => {
-            let _ = ctx.fences.free(crate::fence::FenceId(id));
+            // Fence caps are transferable (workpool workers hold the parent's
+            // fences): only the creator's close frees the kernel object; a
+            // non-owner close drops just the slot so the owner's fence — and
+            // every other holder's cap — stays valid.
+            let fence_id = crate::fence::FenceId(id);
+            if ctx.fences.owned_by(fence_id, ctx.tasks.current_pid().as_raw()) {
+                let _ = ctx.fences.free(fence_id);
+            }
         }
         _ => {}
     }
@@ -3096,15 +3107,17 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
     // RFC-0005 Phase 2 (hardening): `Rights::MANAGE` is not transferable for endpoints.
     //
-    // Exception: allow transferring MANAGE for the EndpointFactory capability, so init-lite can
-    // hold endpoint-create authority without relying on PID/parentage checks.
+    // Exceptions: EndpointFactory (init-lite holds endpoint-create authority)
+    // and Fence caps (Phase C: fences carry only MANAGE and their signal/wait
+    // authority is harmless — a workpool parent hands its fence caps to its
+    // own compute threads before resuming them).
     if rights.contains(Rights::MANAGE) {
         let parent_caps =
             ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))?;
         let base = parent_caps
             .get(typed.parent_slot.0)
             .map_err(|e| Error::Transfer(task::TransferError::Capability(e)))?;
-        if base.kind != CapabilityKind::EndpointFactory {
+        if !matches!(base.kind, CapabilityKind::EndpointFactory | CapabilityKind::Fence(_)) {
             return Err(Error::Transfer(task::TransferError::Capability(
                 CapError::PermissionDenied,
             )));
@@ -3138,15 +3151,17 @@ fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let parent = ctx.tasks.current_pid();
     // RFC-0005 Phase 2 (hardening): `Rights::MANAGE` is not transferable for endpoints.
     //
-    // Exception: allow transferring MANAGE for the EndpointFactory capability, so init-lite can
-    // hold endpoint-create authority without relying on PID/parentage checks.
+    // Exceptions: EndpointFactory (init-lite holds endpoint-create authority)
+    // and Fence caps (Phase C: fences carry only MANAGE and their signal/wait
+    // authority is harmless — a workpool parent hands its fence caps to its
+    // own compute threads before resuming them).
     if rights.contains(Rights::MANAGE) {
         let parent_caps =
             ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))?;
         let base = parent_caps
             .get(typed.parent_slot.0)
             .map_err(|e| Error::Transfer(task::TransferError::Capability(e)))?;
-        if base.kind != CapabilityKind::EndpointFactory {
+        if !matches!(base.kind, CapabilityKind::EndpointFactory | CapabilityKind::Fence(_)) {
             return Err(Error::Transfer(task::TransferError::Capability(
                 CapError::PermissionDenied,
             )));

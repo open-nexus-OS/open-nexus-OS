@@ -25,6 +25,8 @@ std = [
 os-lite = [
     "dep:nexus-service-entry",
     "dep:nexus-abi",
+    "dep:nexus-workpool",
+    "dep:pinched",
     "dep:nexus-hal",
     "dep:nexus-net",
     "dep:nexus-ipc",
@@ -79,6 +81,8 @@ nexus-init = { path = "../../../source/init/nexus-init", features = ["os-lite"],
 
 nexus-service-entry = { path = "../../../source/libs/nexus-service-entry", optional = true, features = ["heap-512k"] }
 nexus-abi = { path = "../../../source/libs/nexus-abi", optional = true }
+nexus-workpool = { path = "../../../source/libs/nexus-workpool", optional = true }
+pinched = { path = "../../../source/services/pinched", optional = true, default-features = false }
 nexus-hal = { path = "../../../source/libs/nexus-hal", optional = true }
 nexus-net = { path = "../../../userspace/nexus-net", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }

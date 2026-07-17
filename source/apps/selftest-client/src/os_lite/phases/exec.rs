@@ -33,6 +33,12 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // thread has an empty cap table by construction (compute-only contract).
     thread_spawn_proof();
 
+    // Phase C3 (SMP track): THE process workpool — deterministic parallel
+    // compute with fence coordination; result must equal the sequential
+    // reference (workers=1 ≡ workers=N contract, TASK-0276).
+    workpool_proof();
+    crate::os_lite::probes::pinched::pinched_selftest();
+
     // logd handle is needed for crash-log verification inside this phase.
     let logd = route_with_retry("logd")?;
 
@@ -119,5 +125,113 @@ fn thread_spawn_proof() {
         emit_line("SELFTEST: thread spawn ok");
     } else {
         emit_line("SELFTEST: thread spawn FAIL");
+    }
+}
+
+
+// ——— Phase C3: workpool proofs ———
+
+const WP_TOTAL: usize = 1024;
+static WP_OUT: [core::sync::atomic::AtomicU32; WP_TOTAL] =
+    [const { core::sync::atomic::AtomicU32::new(0) }; WP_TOTAL];
+
+fn wp_transform(i: usize) -> u32 {
+    (i as u32).wrapping_mul(0x9E37_79B9).rotate_left(7) ^ 0x5A5A
+}
+
+extern "C" fn wp_job(start: usize, end: usize, _ctx: *mut u8) {
+    for i in start..end {
+        WP_OUT[i].store(wp_transform(i), core::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+fn workpool_proof() {
+    use core::sync::atomic::Ordering;
+
+    // Bounded contract first: run before init and invalid init are REJECTED.
+    let pre_run =
+        nexus_workpool::run(1, wp_job, core::ptr::null_mut(), 1_000_000_000).is_err();
+    let zero_init = nexus_workpool::init(0).is_err();
+    if let Err(err) = nexus_workpool::init(2) {
+        emit_line(match err {
+            nexus_workpool::PoolError::AbiFence => "SELFTEST: workpool bounded FAIL (fence)",
+            nexus_workpool::PoolError::AbiSpawn => "SELFTEST: workpool bounded FAIL (spawn)",
+            nexus_workpool::PoolError::AbiTransfer => {
+                "SELFTEST: workpool bounded FAIL (transfer)"
+            }
+            nexus_workpool::PoolError::AbiResume => "SELFTEST: workpool bounded FAIL (resume)",
+            _ => "SELFTEST: workpool bounded FAIL (init)",
+        });
+        return;
+    }
+    let double_init = nexus_workpool::init(2).is_err();
+    if pre_run && zero_init && double_init {
+        emit_line("SELFTEST: workpool bounded ok");
+    } else {
+        emit_line("SELFTEST: workpool bounded FAIL");
+    }
+
+    // Fence sanity probe: the done fence must NOT satisfy an unsignalled
+    // target (catches slot/id mix-ups before the real run).
+    if !nexus_workpool::pool::selftest_probe_done_fence() {
+        emit_line("SELFTEST: workpool determinism FAIL (done fence satisfied unsignalled)");
+        return;
+    }
+
+    // Determinism: parallel result must equal the sequential reference.
+    for slot in WP_OUT.iter() {
+        slot.store(0, Ordering::Relaxed);
+    }
+    match nexus_workpool::run(WP_TOTAL, wp_job, core::ptr::null_mut(), 5_000_000_000) {
+        Ok(()) => {
+            let mut bad_lo = 0usize;
+            let mut bad_hi = 0usize;
+            for i in 0..WP_TOTAL {
+                if WP_OUT[i].load(Ordering::Acquire) != wp_transform(i) {
+                    if i < WP_TOTAL / 2 {
+                        bad_lo += 1;
+                    } else {
+                        bad_hi += 1;
+                    }
+                }
+            }
+            if bad_lo == 0 && bad_hi == 0 {
+                emit_line("SELFTEST: workpool determinism ok");
+                // C4: worker 0 pins itself to CPU 0 (present on every SMP
+                // config), so at least one round-tripped pin is REQUIRED.
+                if nexus_workpool::pool::selftest_pinned() >= 1 {
+                    emit_line("SELFTEST: workpool affinity ok");
+                } else {
+                    emit_line("SELFTEST: workpool affinity FAIL (no pin)");
+                }
+            } else if bad_lo > 0 && bad_hi == 0 {
+                emit_line("SELFTEST: workpool determinism FAIL (lo chunk)");
+            } else if bad_lo == 0 && bad_hi > 0 {
+                emit_line("SELFTEST: workpool determinism FAIL (hi chunk)");
+            } else {
+                let (alive, woke, done) = nexus_workpool::pool::selftest_debug();
+                emit_line(match (alive, woke, done) {
+                    (0, _, _) => "SELFTEST: workpool determinism FAIL (both, alive=0)",
+                    (1, _, _) => "SELFTEST: workpool determinism FAIL (both, alive=1)",
+                    (_, _, 0) => "SELFTEST: workpool determinism FAIL (both, done=0)",
+                    (_, _, 1) => "SELFTEST: workpool determinism FAIL (both, done=1)",
+                    _ => "SELFTEST: workpool determinism FAIL (both, alive=2 done=2)",
+                });
+            }
+        }
+        Err(_) => {
+            let (alive, woke, done) = nexus_workpool::pool::selftest_debug();
+            let self_sig = nexus_workpool::pool::selftest_probe_job_selfsignal();
+            emit_line(match (alive, woke, done, self_sig) {
+                (_, 0, _, true) => {
+                    "SELFTEST: workpool determinism FAIL (run, woke=0 selfsig=ok)"
+                }
+                (_, 0, _, false) => {
+                    "SELFTEST: workpool determinism FAIL (run, woke=0 selfsig=FAIL)"
+                }
+                (_, _, 0, _) => "SELFTEST: workpool determinism FAIL (run, woke>0 done=0)",
+                _ => "SELFTEST: workpool determinism FAIL (run, woke>0 done>0)",
+            });
+        }
     }
 }

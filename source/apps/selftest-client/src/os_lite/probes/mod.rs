@@ -16,6 +16,7 @@
 //!   * `elf`           — header sanity probe over the embedded `HELLO_ELF` payload.
 //!   * `core_service`  — generic "is this core service answering?" probe (logd evidence).
 //!   * `ipc_kernel`    — kernel-IPC plumbing / security / soak probes (RFC-0005).
+//!   * `pinched`       — compute-broker job round-trip (SMP track Phase D).
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
@@ -23,4 +24,5 @@ pub(crate) mod core_service;
 pub(crate) mod device_key;
 pub(crate) mod elf;
 pub(crate) mod ipc_kernel;
+pub(crate) mod pinched;
 pub(crate) mod rng;

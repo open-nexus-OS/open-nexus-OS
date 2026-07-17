@@ -935,6 +935,9 @@ pub(crate) fn abi_error_label(err: AbiError) -> &'static str {
         AbiError::ChildUnavailable => "child-unavailable",
         AbiError::NoSuchPid => "no-such-pid",
         AbiError::InvalidArgument => "invalid-argument",
+        AbiError::TimedOut => "timed-out",
+        AbiError::WouldBlock => "would-block",
+        AbiError::Unknown => "unknown-errno",
         AbiError::Unsupported => "unsupported",
     }
 }

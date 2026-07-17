@@ -1,0 +1,15 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "nexus-workpool"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+
+[dependencies]
+nexus-abi = { path = "../nexus-abi" }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }

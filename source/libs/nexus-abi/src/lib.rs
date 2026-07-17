@@ -2206,6 +2206,14 @@ pub enum AbiError {
     NoSuchPid,
     /// Syscall arguments were invalid for the requested operation.
     InvalidArgument,
+    /// The operation's deadline elapsed (ETIMEDOUT).
+    TimedOut,
+    /// The operation would block / resource temporarily unavailable (EAGAIN).
+    WouldBlock,
+    /// Kernel returned an error code this ABI build does not know. NEVER
+    /// treated as success (fail closed) — a Phase C workpool hang traced back
+    /// to -ETIMEDOUT being decoded as Ok.
+    Unknown,
     /// Operation unsupported on the current build target.
     Unsupported,
 }
@@ -2291,7 +2299,12 @@ impl AbiError {
             3 => Some(Self::NoSuchPid),         // ESRCH
             12 => Some(Self::SpawnFailed),      // ENOMEM (best-effort mapping)
             28 => Some(Self::SpawnFailed),      // ENOSPC (best-effort mapping)
-            _ => None,
+            110 => Some(Self::TimedOut),        // ETIMEDOUT
+            11 => Some(Self::WouldBlock),       // EAGAIN
+            // Fail closed: an unknown NEGATIVE code is an error, never a
+            // success value (Phase C: -ETIMEDOUT used to decode as Ok and
+            // turned every fence/waitset timeout into a silent pseudo-Ok).
+            _ => Some(Self::Unknown),
         }
     }
 }
@@ -2821,7 +2834,7 @@ pub fn task_qos_set_self(qos: QosClass) -> SysResult<()> {
 pub mod sched {
     use super::*;
 
-    const SYSCALL_SCHED: usize = 46;
+    const SYSCALL_SCHED: usize = 48;
     const OP_GET_AFFINITY: usize = 0;
     const OP_SET_AFFINITY: usize = 1;
     const OP_GET_SHARES: usize = 2;
@@ -2948,7 +2961,7 @@ pub fn spawn(
 pub fn as_self() -> SysResult<u32> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        const SYSCALL_AS_SELF: usize = 47;
+        const SYSCALL_AS_SELF: usize = 49;
         let raw = unsafe { ecall0(SYSCALL_AS_SELF) };
         decode_syscall(raw).map(|v| v as u32)
     }
@@ -3007,6 +3020,20 @@ pub mod thread {
         arg: usize,
         stack: &mut [u8],
     ) -> SysResult<Pid> {
+        let pid = spawn_thread_suspended(entry, arg, stack)?;
+        task_resume(pid)?;
+        Ok(pid)
+    }
+
+    /// Like [`spawn_thread`] but leaves the thread SUSPENDED so the parent
+    /// can transfer capabilities (e.g. fence caps for a workpool) into the
+    /// thread's empty cap table before releasing it via [`super::task_resume`].
+    #[must_use = "thread spawn result must be handled"]
+    pub fn spawn_thread_suspended(
+        entry: extern "C" fn(usize),
+        arg: usize,
+        stack: &mut [u8],
+    ) -> SysResult<Pid> {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             if stack.len() < 1024 {
@@ -3026,16 +3053,14 @@ pub mod thread {
                 core::arch::asm!("mv {g}, gp", g = out(reg) gp, options(nomem, nostack, preserves_flags));
             }
             let handle = as_self()?;
-            let pid = spawn(
+            // Same-AS spawns start suspended by kernel contract.
+            spawn(
                 __nexus_thread_trampoline as usize as u64,
                 sp as u64,
                 handle as u64,
                 0,
                 gp as u64,
-            )?;
-            // Same-AS spawns start suspended; release it.
-            task_resume(pid)?;
-            Ok(pid)
+            )
         }
         #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
         {

@@ -62,10 +62,10 @@ pub const SYSCALL_IPC_SEND_V1: usize = 14;
 /// Task QoS ABI (get/set self + privileged set-for-target).
 pub const SYSCALL_TASK_QOS: usize = 15;
 /// B (TASK-0042): multiplexed scheduling-attribute syscall (affinity + shares).
-pub const SYSCALL_SCHED: usize = 46;
+pub const SYSCALL_SCHED: usize = 48;
 /// C (Phase C): returns the caller's own address-space handle (raw) so a
 /// task can spawn threads into its OWN address space.
-pub const SYSCALL_AS_SELF: usize = 47;
+pub const SYSCALL_AS_SELF: usize = 49;
 /// Exec loader v2: adds explicit service metadata (name ptr/len) for RFC-0004 provenance.
 pub const SYSCALL_EXEC_V2: usize = 17;
 /// Debug UART putc for userspace (best-effort, no permissions required).
@@ -246,6 +246,11 @@ impl SyscallTable {
     /// Registers a handler.
     pub fn register(&mut self, number: usize, handler: Handler) {
         if number < MAX_SYSCALL {
+            // Fail-closed at boot: a duplicate syscall number silently
+            // replacing an earlier handler is exactly how the SCHED/AS_SELF
+            // vs VMO_DESTROY/VMO_READ collision (46/47) shipped — the later
+            // registration hijacked vmo_read and every VMO poll read nothing.
+            assert!(self.handlers[number].is_none(), "syscall number registered twice");
             self.handlers[number] = Some(handler);
         }
     }

@@ -1322,6 +1322,21 @@ pub(crate) fn wire_services(
                     .map_err(InitError::Abi)?;
                 chan.set_send(ServiceId::Timed, send_slot);
                 chan.set_recv(ServiceId::Timed, recv_slot);
+
+                // Compute broker (SMP track Phase D): LAST in this arm so every
+                // auto-assigned slot above keeps its historical number (the
+                // deterministic slot constants in the selftest and the wiring
+                // guard depend on that order). Best-effort — a missing pinched
+                // route is reported by the selftest marker, never an init abort.
+                if let Some((pinch_req, pinch_rsp)) = eps.server_pair(ServiceId::Pinched) {
+                    if let (Ok(send_slot), Ok(recv_slot)) = (
+                        nexus_abi::cap_transfer(pid, pinch_req, Rights::SEND),
+                        nexus_abi::cap_transfer(pid, pinch_rsp, Rights::RECV),
+                    ) {
+                        chan.set_send(ServiceId::Pinched, send_slot);
+                        chan.set_recv(ServiceId::Pinched, recv_slot);
+                    }
+                }
             }
             // RFC-0066 Phase 3 (incremental): services whose wiring is just "a
             // server endpoint" are provisioned **data-driven** from the declarative

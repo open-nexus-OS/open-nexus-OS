@@ -53,6 +53,9 @@ pub(crate) fn mmio_map_probe() -> core::result::Result<(), ()> {
             nexus_abi::AbiError::ChildUnavailable => "ChildUnavailable",
             nexus_abi::AbiError::NoSuchPid => "NoSuchPid",
             nexus_abi::AbiError::InvalidArgument => "InvalidArgument",
+            nexus_abi::AbiError::TimedOut => "TimedOut",
+            nexus_abi::AbiError::WouldBlock => "WouldBlock",
+            nexus_abi::AbiError::Unknown => "Unknown",
             nexus_abi::AbiError::Unsupported => "Unsupported",
         };
         emit_bytes(s.as_bytes());

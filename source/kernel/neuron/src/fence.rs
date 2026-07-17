@@ -119,7 +119,14 @@ impl FenceTable {
         self.table.get(&id.0).map(|e| e.value)
     }
 
-    /// Check whether a fence exists and is owned by `pid`.
+    /// Check whether a fence exists (authority for signal/wait is cap
+    /// possession; see `fence_id_from_cap`).
+    pub fn exists(&self, id: FenceId) -> bool {
+        self.table.contains_key(&id.0)
+    }
+
+    /// Check whether a fence exists and is owned by `pid` (lifecycle only:
+    /// free/teardown — NOT signal/wait authority, which travels with the cap).
     pub fn owned_by(&self, id: FenceId, pid: u32) -> bool {
         self.table.get(&id.0).map_or(false, |e| e.owner_pid == pid)
     }

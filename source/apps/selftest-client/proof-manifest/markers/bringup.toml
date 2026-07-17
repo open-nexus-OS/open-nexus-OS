@@ -32,6 +32,31 @@ proves = "kernel selftest: tp/HartLocal CPU identity fast path live, zero heuris
 phase = "bringup"
 proves = "kernel selftest: poisoned tp rejected by identity fast path and counted (anti-fake)"
 
+[marker."SELFTEST: workpool bounded ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "workpool rejects run-before-init, zero-worker init and double init (bounded contract)"
+
+[marker."SELFTEST: workpool determinism ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "fence-coordinated parallel compute equals the sequential reference (workers=1 == workers=N)"
+
+[marker."SELFTEST: workpool affinity ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "worker self-pin round-trips through SYSCALL_SCHED (set_affinity + get_affinity agree; C4)"
+
+[marker."SELFTEST: pinched bounded ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "compute broker rejects oversized jobs via the completion header (bounded contract)"
+
+[marker."SELFTEST: pinched determinism ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "VMO CAP_MOVE job round-trip: broker's parallel result equals the local reference and workers >= 1"
+
 [marker."SELFTEST: thread spawn ok"]
 phase = "bringup"
 emit_when = { profile = "headless" }

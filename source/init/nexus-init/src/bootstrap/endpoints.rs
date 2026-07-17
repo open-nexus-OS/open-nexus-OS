@@ -123,6 +123,11 @@ pub(crate) struct Endpoints {
     pub sett_req: Option<u32>,
     /// settingsd server response endpoint.
     pub sett_rsp: Option<u32>,
+    /// pinched (compute broker) server request endpoint (pre-minted so the
+    /// selftest client route clones the SAME pair pinched serves).
+    pub pinch_req: Option<u32>,
+    /// pinched server response endpoint (owned by selftest-client).
+    pub pinch_rsp: Option<u32>,
 }
 
 impl Endpoints {
@@ -168,6 +173,9 @@ impl Endpoints {
             // Settings authority (TASK-0072 P10 / svc.settings): pre-minted so
             // windowd's theme route and execd's app grants share the served pair.
             ServiceId::Settingsd => self.sett_req.zip(self.sett_rsp),
+            // Compute broker (SMP track Phase D): pre-minted so the selftest
+            // client route targets the pair pinched actually serves.
+            ServiceId::Pinched => self.pinch_req.zip(self.pinch_rsp),
             _ => None,
         }
     }

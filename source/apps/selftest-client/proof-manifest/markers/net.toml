@@ -60,6 +60,12 @@ phase = "net"
 [marker."dsoftbusd: waiting for local ip"]
 phase = "net"
 
+# Bounded error-path marker (fires once, at retry 30, when the local-addr RPC
+# against netstackd keeps failing). Latent before the ABI errno fail-closed
+# fix: -ETIMEDOUT decoded as Ok, so the failure path was unreachable.
+[marker."dsoftbusd: local ip rpc fail"]
+phase = "net"
+
 [marker."dsoftbusd: local ip ok"]
 phase = "net"
 

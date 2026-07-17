@@ -70,6 +70,7 @@ ORDER = [
     'gpud',
     'windowd',
     'inputd',
+    'pinched',
     'selftest-client',
 ]
 rank = {name: idx for idx, name in enumerate(ORDER)}
