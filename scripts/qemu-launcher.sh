@@ -410,13 +410,27 @@ monitor_uart_stream() {
       local grace_secs="${QEMU_READY_GRACE_SECS:-90}"
       local start_nsec
       start_nsec=$(date +%s 2>/dev/null || echo 0)
+      # Early exit: the moment the ladder's FINAL marker flushes, stop after a
+      # short tail-drain instead of sitting out the fixed window (proof lanes
+      # used to waste up to ~85s per run; the fixed window stays as the
+      # fallback when the ladder never finishes).
+      local ladder_done_at=0
       while true; do
         local now
         now=$(date +%s 2>/dev/null || echo 0)
         [[ $(( now - start_nsec )) -ge "$grace_secs" ]] && break
+        if [[ "$ladder_done_at" -ne 0 && $(( now - ladder_done_at )) -ge 2 ]]; then
+          echo "[info] ladder end marker seen – early stop" >&2
+          break
+        fi
         # Read as fast as lines arrive (max 100ms silence = buffer empty)
         IFS= read -r -t 0.1 line 2>/dev/null || true
-        [[ -n "$line" ]] && echo "$line"
+        if [[ -n "$line" ]]; then
+          echo "$line"
+          case "$line" in
+            *"SELFTEST: ui resize ok"*|*"SELFTEST: Completed"*) ladder_done_at=$now ;;
+          esac
+        fi
       done
       echo "[info] init: ready seen, grace period done – stopping QEMU" >&2
       pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
