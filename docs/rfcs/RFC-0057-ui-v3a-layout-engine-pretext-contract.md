@@ -1,6 +1,12 @@
 # RFC-0057: UI v3a layout engine — deterministic flex/grid/stack + text wrapping contract seed
 
 - Status: Done
+
+> Note (2026-07 repo hygiene): the `ui_v3a_host`/`ui_v3b_host` proof crates were
+> removed together with the legacy windowd proof-panel API (RFC-0067 compositor
+> boundary). The proof commands below are historical records of the completed
+> phases, not runnable gates.
+
 - Last Updated: 2026-05-17 (v2: +colors, border, TextStyle, VisualStyle, overflow, position, flex_wrap, z_index, white_space)
 - Owners: @ui
 - Created: 2026-05-15

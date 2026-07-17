@@ -5,6 +5,10 @@
 
 QEMU/UART triage tips and determinism knobs. Split out of the former `docs/testing/index.md`; see [README.md](README.md) for the entry point.
 
+For regression hunting across runs, `scripts/regression-bisect.sh` is a manual
+(not CI-wired) evidence-replay bisect helper — see
+[replay-and-bisect.md](replay-and-bisect.md).
+
 ## Troubleshooting tips
 
 - QEMU runs are bounded by the `RUN_TIMEOUT` environment variable (default `45s`). Increase it only when debugging: `RUN_TIMEOUT=120s just qemu`. During kernel bring-up we rely on marker-driven early exit and strict triage: the kernel prints `map kernel segments ok` once linker-derived mappings are active and `AS: post-satp OK` after each SATP switch; illegal-instruction traps print `sepc/scause/stval` and instruction bytes; optional symbolization (`trap_symbols`) resolves `sepc` to `name+offset`; RX-sanity failures panic with the offending PC before the switch.

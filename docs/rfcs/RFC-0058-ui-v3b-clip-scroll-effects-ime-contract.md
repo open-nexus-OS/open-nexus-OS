@@ -1,6 +1,12 @@
 # RFC-0058: UI v3b clipping/scroll/effects + IME/text-input contract seed
 
 - Status: Done
+
+> Note (2026-07 repo hygiene): the `ui_v3a_host`/`ui_v3b_host` proof crates were
+> removed together with the legacy windowd proof-panel API (RFC-0067 compositor
+> boundary). The proof commands below are historical records of the completed
+> phases, not runnable gates.
+
 - Last Updated: 2026-05-22 (compositor module refactored: `os_lite.rs` → `compositor/`) (Compositor Phases 1–6a implemented, P0/P1 closed, ShadowCache wired)
 - Owners: @ui
 - Created: 2026-05-17
