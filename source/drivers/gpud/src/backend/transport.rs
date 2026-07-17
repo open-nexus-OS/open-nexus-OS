@@ -27,11 +27,11 @@ pub(crate) const GPU_QUEUE_VA: usize = 0x2030_0000;
 // per in-flight command slot, starting here. The multi-entry ring batches a
 // whole present's commands (one buffer each) then completes once — so a textured
 // draw whose completion QEMU defers no longer blocks the next command. Pool ends
-// at GPU_CMD_VA + RING_SLOTS*4096 = 0x2032_0000 (16 slots), just below the resp page.
+// at GPU_CMD_VA + RING_SLOTS*4096 = 0x2033_0000 (32 slots), just below the resp pages.
 pub(crate) const GPU_CMD_VA: usize = 0x2031_0000;
-// Response POOL: one 4 KiB page holding `RING_SLOTS` × 256 B response sub-slots
-// (a virtio-gpu response header is 24 B). Slot i's resp is at GPU_RESP_VA + i*256.
-pub(crate) const GPU_RESP_VA: usize = 0x2032_0000;
+// Response POOL: `RING_SLOTS` × 256 B response sub-slots (grows with the ring;
+// 32 slots = two 4 KiB pages). Slot i's resp is at GPU_RESP_VA + i*256.
+pub(crate) const GPU_RESP_VA: usize = 0x2033_0000;
 // Cursor virtqueue (queue index 1) — separate VA region so it does not collide
 // with the control queue's desc/cmd-pool/resp pages. The hardware cursor overlay is
 // the GPU "hot path" for the pointer: MOVE_CURSOR repositions it host-side

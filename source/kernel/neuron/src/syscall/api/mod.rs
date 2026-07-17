@@ -315,10 +315,13 @@ fn read_u64_le(bytes: &[u8], off: usize) -> Result<u64, Error> {
 /// that touch NO kernel state. Served by the trap handler BEFORE acquiring
 /// the BKL (they were measured holding it for milliseconds under MTTCG:
 /// nr=44 debug_write up to 3ms, nr=1 nsec convoys).
-pub(crate) fn lockfree_syscall(nr: usize, args: &Args) -> Option<SysResult<usize>> {
+pub(crate) fn lockfree_syscall(nr: usize, _args: &Args) -> Option<SysResult<usize>> {
     match nr {
-        SYSCALL_DEBUG_PUTC => Some(debug_putc_impl(args)),
-        SYSCALL_DEBUG_WRITE => Some(debug_write_impl(args)),
+        // debug_putc/debug_write went BACK to the BKL class: running them
+        // lock-free let user UART writes interleave with kernel log lines
+        // emitted under the BKL (`SELFTEST:` markers shredded byte-wise on
+        // the SMP gate) — the BKL was the de-facto log-channel serializer.
+        // Only nsec (writes nothing) stays lock-free.
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         SYSCALL_NSEC => {
             // virt mtime runs at 10MHz (budgets::TICKS_PER_US) — ns = ticks*100.
@@ -327,33 +330,6 @@ pub(crate) fn lockfree_syscall(nr: usize, args: &Args) -> Option<SysResult<usize
         }
         _ => None,
     }
-}
-
-fn debug_putc_impl(args: &Args) -> SysResult<usize> {
-    let byte = (args.get(0) & 0xff) as u8;
-    let mut u = crate::uart::raw_writer();
-    use core::fmt::Write as _;
-    let ch = [byte];
-    let s = core::str::from_utf8(&ch).unwrap_or("");
-    let _ = u.write_str(s);
-    Ok(byte as usize)
-}
-
-fn debug_write_impl(args: &Args) -> SysResult<usize> {
-    const MAX_DEBUG_WRITE: usize = 1024;
-    let ptr = args.get(0);
-    let len = core::cmp::min(args.get(1), MAX_DEBUG_WRITE);
-    if len == 0 {
-        return Ok(0);
-    }
-    ensure_user_slice(ptr, len)?;
-    // SAFETY: `ensure_user_slice` validated [ptr, ptr+len) as user range.
-    let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len) };
-    let text = core::str::from_utf8(bytes).unwrap_or("");
-    let mut uart = crate::uart::KernelUart::lock();
-    use core::fmt::Write as _;
-    let _ = (&mut *uart).write_str(text);
-    Ok(len)
 }
 
 fn sys_debug_putc(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {

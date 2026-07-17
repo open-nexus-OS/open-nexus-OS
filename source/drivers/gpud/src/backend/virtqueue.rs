@@ -21,10 +21,13 @@ pub(crate) const CTRL_QUEUE_INDEX: u32 = 0;
 #[allow(dead_code)]
 pub(crate) const CURSOR_QUEUE_INDEX: u32 = 1;
 /// Maximum in-flight commands on the control queue = command slots in the ring.
-/// A present batches ~8 SUBMIT_3D draws + a flush; 16 gives headroom so a whole
-/// present is enqueued without an intra-batch drain. The cursor queue passes
-/// `slots = 1` (single-slot, unchanged behaviour).
-pub(crate) const RING_SLOTS: usize = 16;
+/// A busy scene CB (base blits + per-window composite layers + glass +
+/// cursor + flush) can exceed 16 ops; an intra-batch drain then SPLITS the
+/// CB across kicks while the GL scanout is live — the visible wallpaper
+/// flash. 32 keeps whole scenes single-batch; the response pool and its
+/// mappings scale with this constant (the hard-coded single resp page was
+/// the earlier breakage).
+pub(crate) const RING_SLOTS: usize = 32;
 /// virtqueue descriptor-table length. Each command slot uses a 2-descriptor chain
 /// (cmd → resp), so the table holds `RING_SLOTS * 2` descriptors. `avail.ring` /
 /// `used.ring` are sized to this; both queues share the length (the cursor queue
@@ -177,11 +180,14 @@ impl CtrlQueue {
         slots: usize,
     ) -> Result<Self, GpuDriverError> {
         debug_assert!(slots >= 1 && slots <= RING_SLOTS);
-        debug_assert!(slots * RESP_SLOT_SIZE <= 4096);
         let cmd_pool_len = slots * 4096;
+        // Response pool grows with the ring (16 slots fit one page; 32 need
+        // two — the hard-coded single page was why raising RING_SLOTS broke).
+        let resp_pool_len = (slots * RESP_SLOT_SIZE).div_ceil(4096) * 4096;
         let q_vmo = nexus_abi::vmo_create(4096).map_err(|_| GpuDriverError::MmioFault)?;
         let cmd_vmo = nexus_abi::vmo_create(cmd_pool_len).map_err(|_| GpuDriverError::MmioFault)?;
-        let resp_vmo = nexus_abi::vmo_create(4096).map_err(|_| GpuDriverError::MmioFault)?;
+        let resp_vmo =
+            nexus_abi::vmo_create(resp_pool_len).map_err(|_| GpuDriverError::MmioFault)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
@@ -193,8 +199,10 @@ impl CtrlQueue {
             nexus_abi::vmo_map_page(cmd_vmo, cmd_va_base + i * 4096, i * 4096, flags)
                 .map_err(|_| GpuDriverError::MmioFault)?;
         }
-        nexus_abi::vmo_map_page(resp_vmo, resp_va_base, 0, flags)
-            .map_err(|_| GpuDriverError::MmioFault)?;
+        for i in 0..resp_pool_len / 4096 {
+            nexus_abi::vmo_map_page(resp_vmo, resp_va_base + i * 4096, i * 4096, flags)
+                .map_err(|_| GpuDriverError::MmioFault)?;
+        }
         let mut q_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         let mut cmd_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         let mut resp_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
