@@ -6,6 +6,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: See lib.rs
+//! ADR: docs/adr/0045-pinched-compute-broker-and-backends.md
 
 #![forbid(unsafe_code)]
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]

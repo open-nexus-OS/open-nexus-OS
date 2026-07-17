@@ -77,6 +77,31 @@ phase = "bringup"
 emit_when = { profile = "headless" }
 proves = "both workpool workers performed >0 interactions in the parallel rounds (honest dispatch counters)"
 
+[marker."SELFTEST: regsoak ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "callee/caller-saved GPRs survive timer preemption unchanged (kernel save/restore path; task #14 detector)"
+
+[marker."SELFTEST: svg local determinism ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "repeated in-process SVG plan+raster is stable and matches the host golden digest (task #14 symptom detector)"
+
+[marker."SELFTEST: f32 soak ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "pure soft-float compute repeats bit-identically in-process (task #14 ingredient probe)"
+
+[marker."SELFTEST: alloc soak ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "bump allocator returns intact patterned and zeroed memory under load (task #14 ingredient probe)"
+
+[marker."SELFTEST: memset soak ok"]
+phase = "bringup"
+emit_when = { profile = "headless" }
+proves = "memset/memcpy builtins are exact across pointer-alignment x length combinations on stack and heap (task #14)"
+
 [marker."SELFTEST: thread spawn ok"]
 phase = "bringup"
 emit_when = { profile = "headless" }

@@ -13,6 +13,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU markers `SELFTEST: pinched determinism ok` /
 //!   `SELFTEST: pinched bounded ok` (just test-os / ci-os-smp).
+//! ADR: docs/adr/0045-pinched-compute-broker-and-backends.md
 
 extern crate alloc;
 

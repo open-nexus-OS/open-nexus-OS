@@ -16,7 +16,7 @@
 //!   `SELFTEST: workpool determinism ok` / `SELFTEST: workpool bounded ok`.
 //! PUBLIC API: init(), run(), chunk_bounds(), PoolError, MAX_WORKERS
 //! DEPENDS_ON: nexus-abi (thread spawn, fences, cap transfer)
-//! ADR: docs/adr/0016-kernel-libs-architecture.md
+//! ADR: docs/adr/0046-deterministic-parallel-compute-workpool.md
 
 pub mod partition;
 pub mod pool;

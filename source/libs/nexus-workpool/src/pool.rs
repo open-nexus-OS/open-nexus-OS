@@ -18,7 +18,7 @@
 //!   - Determinism: chunk boundaries are pure (partition.rs); the caller's
 //!     worker fn must write only its chunk's outputs; reduce = reading the
 //!     outputs in index order after `run` returns.
-//! ADR: docs/adr/0016-kernel-libs-architecture.md (lib placement)
+//! ADR: docs/adr/0046-deterministic-parallel-compute-workpool.md
 
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 

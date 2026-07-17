@@ -1,10 +1,15 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Band-parity proof for the compute-broker SVG job (SMP track Phase D4):
-//! rasterizing a plan in disjoint row bands — any split, any order — must be
-//! byte-identical to one full rasterize. This is the `workers=1 ≡ workers=N`
+//! CONTEXT: Band-parity proof for the compute-broker SVG job — rasterizing a
+//! plan in disjoint row bands (any split, any order, shared or fresh scratch)
+//! must be byte-identical to one full rasterize: the `workers=1 ≡ workers=N`
 //! equality contract at the library level.
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: this file
+//! ADR: docs/adr/0045-pinched-compute-broker-and-backends.md
 
 use nexus_svg::{parse_svg, plan_document_at, rasterize_document_at, OUTPUT_BYTES_PER_PIXEL};
 

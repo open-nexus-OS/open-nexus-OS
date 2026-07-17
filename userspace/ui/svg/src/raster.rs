@@ -1,6 +1,18 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Scanline rasterizer for the SVG subset — full-image entry points
+//! plus the band API (`plan_document_at` + `RasterPlan::rasterize_rows`):
+//! tessellate ONCE into an immutable device-space plan, rasterize any row
+//! band byte-identically to the full image (rows carry no cross-row state).
+//! The band API is the compute-broker's parallel SVG contract.
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: unit tests below + tests/band_parity.rs (split/scratch
+//!   parity) + golden tests; QEMU `SELFTEST: pinched svg ok`
+//! ADR: docs/adr/0045-pinched-compute-broker-and-backends.md
+
 use alloc::vec::Vec;
 
 use crate::elements::{Color, FillRule, SvgDocument, Transform};
@@ -131,6 +143,43 @@ pub fn plan_document_at(
 }
 
 impl RasterPlan {
+    /// FNV-1a over the plan's device-space content (dimensions, edges,
+    /// paints' solidity). A drift-detector: two builds of the same document
+    /// at the same size must produce the same digest — used by the task #14
+    /// pipeline-stage probes to separate plan building from rasterization.
+    #[must_use]
+    pub fn debug_digest(&self) -> u64 {
+        let mut h: u64 = 0xCBF2_9CE4_8422_2325;
+        let mut eat = |v: u64| {
+            for b in v.to_le_bytes() {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x0000_0100_0000_01B3);
+            }
+        };
+        eat(self.width as u64);
+        eat(self.height as u64);
+        eat(self.edges.len() as u64);
+        for e in &self.edges {
+            eat(e.x0.to_bits() as u64);
+            eat(e.y0.to_bits() as u64);
+            eat(e.x1.to_bits() as u64);
+            eat(e.y1.to_bits() as u64);
+            eat(e.shape_id as u64);
+            eat(e.dir as u64 & 0xFFFF_FFFF);
+        }
+        for sp in &self.solids {
+            match sp {
+                Some(c) => {
+                    for ch in c {
+                        eat(ch.to_bits() as u64);
+                    }
+                }
+                None => eat(u64::MAX),
+            }
+        }
+        h
+    }
+
     pub fn width(&self) -> u32 {
         self.width
     }

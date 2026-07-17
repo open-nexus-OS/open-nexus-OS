@@ -12,6 +12,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: host tests below (value, node balance, equality matrix,
 //!   bounded reject, stuck detection)
+//! ADR: docs/adr/0047-interaction-net-evaluator-backend.md
 
 use alloc::vec::Vec;
 

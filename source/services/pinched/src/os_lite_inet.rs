@@ -11,6 +11,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: nexus-inet host tests (rules, equality matrix); QEMU
 //!   markers `SELFTEST: inet determinism/bounded/parallel exec ok`.
+//! ADR: docs/adr/0045-pinched-compute-broker-and-backends.md
 
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};

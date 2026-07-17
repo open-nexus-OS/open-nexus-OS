@@ -30,6 +30,7 @@ nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-workpool = { path = "../../libs/nexus-workpool", optional = true }
 nexus-svg = { path = "../../../userspace/ui/svg", default-features = false }
+libm = "0.2"
 nexus-sync = { path = "../../libs/nexus-sync", optional = true }
 nexus-inet = { path = "../../libs/nexus-inet", optional = true }
 

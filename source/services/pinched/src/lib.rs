@@ -16,7 +16,7 @@
 //!   `SELFTEST: pinched determinism ok` / `SELFTEST: pinched bounded ok`.
 //! PUBLIC API: service_main_loop(), ReadyNotifier, protocol, broker
 //! DEPENDS_ON: nexus-workpool, nexus-ipc, nexus-abi
-//! ADR: docs/adr/0016-kernel-libs-architecture.md
+//! ADR: docs/adr/0045-pinched-compute-broker-and-backends.md
 
 #![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), no_std)]

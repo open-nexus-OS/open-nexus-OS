@@ -11,6 +11,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: host tests in reduce.rs (alloc/free balance, exhaustion)
+//! ADR: docs/adr/0047-interaction-net-evaluator-backend.md
 
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI64, AtomicU64, AtomicU8, Ordering};

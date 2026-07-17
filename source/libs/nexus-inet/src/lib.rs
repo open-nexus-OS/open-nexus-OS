@@ -23,7 +23,7 @@
 //! PUBLIC API: Arena, NodeKind, Redex, build_tree_sum(), reduce_chunk(),
 //!   reduce_to_normal_form(), root_value()
 //! DEPENDS_ON: nexus-sync
-//! ADR: docs/adr/0016-kernel-libs-architecture.md
+//! ADR: docs/adr/0047-interaction-net-evaluator-backend.md
 
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]

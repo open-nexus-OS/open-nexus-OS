@@ -9,6 +9,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: host unit tests (coverage, disjointness, determinism)
+//! ADR: docs/adr/0046-deterministic-parallel-compute-workpool.md
 
 /// Half-open range `[start, end)` of chunk `idx` when splitting `total`
 /// items across `workers` contiguous chunks. Remainder items go to the

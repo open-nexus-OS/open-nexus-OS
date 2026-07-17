@@ -14,6 +14,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU markers `SELFTEST: pinched determinism ok` /
 //!   `pinched bounded ok`; broker transform host-tested in broker.rs.
+//! ADR: docs/adr/0045-pinched-compute-broker-and-backends.md
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;

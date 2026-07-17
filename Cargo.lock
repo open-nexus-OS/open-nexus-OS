@@ -2911,6 +2911,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 name = "pinched"
 version = "0.1.0"
 dependencies = [
+ "libm",
  "nexus-abi",
  "nexus-inet",
  "nexus-ipc",
@@ -3686,6 +3687,7 @@ dependencies = [
  "nexus-noise-xk",
  "nexus-proof-manifest",
  "nexus-service-entry",
+ "nexus-svg",
  "nexus-vfs",
  "nexus-vfs-types",
  "nexus-vmo",

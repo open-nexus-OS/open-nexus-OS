@@ -225,6 +225,33 @@ pub mod os {
     }
 
     static ALLOCATOR: LockedBump = LockedBump::new();
+    /// Task #14 tripwire: the bump cursor is MONOTONE by construction. A
+    /// cursor that moves backwards means the allocator state was overwritten
+    /// (e.g. a stack cliff into .bss) — the root of overlapping allocations
+    /// and "impossible" data corruption. Checked on every alloc; violation
+    /// is reported once, loudly.
+    static LAST_CURSOR: AtomicUsize = AtomicUsize::new(0);
+    static CURSOR_REGRESSED: AtomicBool = AtomicBool::new(false);
+
+    fn check_cursor_monotone(cur_after: usize) {
+        let prev = LAST_CURSOR.swap(cur_after, Ordering::AcqRel);
+        if cur_after < prev && !CURSOR_REGRESSED.swap(true, Ordering::AcqRel) {
+            debug_write_bytes(b"!alloc-cursor-regressed svc=");
+            debug_write_str(service_name());
+            debug_write_bytes(b" prev=0x");
+            debug_write_hex(prev);
+            debug_write_bytes(b" now=0x");
+            debug_write_hex(cur_after);
+            debug_write_byte(b'\n');
+        }
+    }
+
+    /// Heap introspection for proofs: (start, current, end).
+    pub fn heap_cursor() -> (usize, usize, usize) {
+        ALLOCATOR.ensure_init();
+        let bump = ALLOCATOR.inner.lock();
+        (bump.start, bump.current, bump.end)
+    }
     static ALLOC_LOG_COUNT: AtomicUsize = AtomicUsize::new(0);
     static ALLOC_ZERO_LOG_COUNT: AtomicUsize = AtomicUsize::new(0);
     const ALLOC_LOG_LIMIT: usize = 128;
@@ -248,6 +275,7 @@ pub mod os {
             }
             let exhausted = ptr.is_null() && layout.size() != 0;
             drop(bump);
+            check_cursor_monotone(cur_after);
             if exhausted {
                 log_alloc_failure(
                     "alloc",
@@ -276,6 +304,7 @@ pub mod os {
             }
             let exhausted = ptr.is_null() && layout.size() != 0;
             drop(bump);
+            check_cursor_monotone(cur_after);
             if exhausted {
                 log_alloc_failure(
                     "alloc_zeroed",
@@ -290,10 +319,6 @@ pub mod os {
                 return ptr;
             }
 
-            #[allow(unused_assignments)]
-            let mut saved_s5: usize;
-            #[allow(unused_assignments)]
-            let mut saved_s6: usize;
             if !ptr.is_null() && layout.size() != 0 {
                 let addr = ptr as usize;
                 let end = addr.checked_add(layout.size()).unwrap_or(usize::MAX);
@@ -308,29 +333,14 @@ pub mod os {
                     );
                     panic!("alloc_zeroed returned pointer outside heap range");
                 }
-                unsafe {
-                    core::arch::asm!(
-                        "mv {saved_s5}, s5",
-                        "mv {saved_s6}, s6",
-                        "mv s5, {ptr}",
-                        "mv s6, {size}",
-                        saved_s5 = out(reg) saved_s5,
-                        saved_s6 = out(reg) saved_s6,
-                        ptr = in(reg) ptr as usize,
-                        size = in(reg) layout.size(),
-                        options(nostack, preserves_flags)
-                    );
-                }
+                // Task #14 root cause lived here: a debug shim moved ptr/size
+                // into s5/s6 around this write WITHOUT declaring the clobber.
+                // Depending on register allocation (i.e. on the binary
+                // layout), it destroyed live caller values — the wild follow-up
+                // stores reset the bump cursor and overlapped live
+                // allocations ("impossible" empty/à-la-carte corruption in
+                // f32/alloc-heavy code). Plain write_bytes is all this needs.
                 ptr::write_bytes(ptr, 0, layout.size());
-                unsafe {
-                    core::arch::asm!(
-                        "mv s5, {saved_s5}",
-                        "mv s6, {saved_s6}",
-                        saved_s5 = in(reg) saved_s5,
-                        saved_s6 = in(reg) saved_s6,
-                        options(nostack, preserves_flags)
-                    );
-                }
             }
             log_alloc_zeroed(layout.size(), layout.align(), ptr as usize);
             ptr
