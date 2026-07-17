@@ -13,8 +13,8 @@ follow-up-tasks:
   - TASK-0198
   - TASK-0289
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
+  - Vision: docs/architecture/vision.md
+  - Playbook: CLAUDE.md
   - Contract seed (RFC): docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md
   - Depends-on (manifest.nxb baseline, Done): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
   - Depends-on (device identity/keys, Done): tasks/TASK-0008B-device-identity-keys-v1-virtio-rng-rngd-keystored-keygen.md
@@ -100,13 +100,13 @@ Deliver supply-chain v1 for **bundles** first:
 - **YELLOW (policy authority)**:
   - Publisher allowlists are rooted in a **single authority**: `keystored` owns the anchors/key registry and answers `is_key_allowed(publisher, alg, pubkey)`; `policyd` owns the install-time decision (allow/deny) and audit context; `bundlemgrd` only enforces what `policyd` returns. No duplicated allowlist logic in `bundlemgrd`.
 - **YELLOW (keystored API surface)**:
-  - `tools/nexus-idl/schemas/keystored.capnp` today exposes only `getAnchors / verify / deviceId`. v1 must add an explicit `IsKeyAllowedRequest / IsKeyAllowedResponse` capnp method (concrete schema bump, RFC-0014/RFC-0009 dep-gate clean) — not "or equivalent RPC". This is an ABI touch and is in CAUTION territory per `.cursorrules`; treat the schema diff as part of the task review.
+  - `tools/nexus-idl/schemas/keystored.capnp` today exposes only `getAnchors / verify / deviceId`. v1 must add an explicit `IsKeyAllowedRequest / IsKeyAllowedResponse` capnp method (concrete schema bump, RFC-0014/RFC-0009 dep-gate clean) — not "or equivalent RPC". This is an ABI touch and is in CAUTION territory per `CLAUDE.md` protection zones; treat the schema diff as part of the task review.
 - **YELLOW (deterministic markers)**:
   - Per `.cursor/rules/12-debug-discipline.mdc`, gating markers must not embed run-variable data. Replace any `bundlemgrd: sign policy ok (publisher=<…>)` form with stable labels (e.g. `bundlemgrd: sign policy allow ok` / `bundlemgrd: sign policy deny ok`); publisher identity goes into the audit record (logd), not the marker string.
 
 ## Security
 
-This task is security-relevant (signing, key registry, install-time policy, supply-chain artefacts). Section is mandatory per `.cursorrules`.
+This task is security-relevant (signing, key registry, install-time policy, supply-chain artefacts). Section is mandatory per `CLAUDE.md` protection zones.
 
 ### Threat model
 
@@ -269,7 +269,7 @@ Notes:
 - `source/libs/nexus-evidence/` (READ-ONLY — reuse `scan` + reproducible-tar; no API change here)
 - `tests/` (host tests, including the `test_reject_*` set listed in Security)
 - `docs/supplychain/` (new docs)
-- `docs/testing/index.md`
+- `docs/testing/README.md`
 - `scripts/qemu-test.sh` (gated marker update)
 - `source/apps/selftest-client/proof-manifest/` (new markers + profile registration; do NOT touch `[meta]` schema)
 
@@ -312,7 +312,7 @@ These decisions are frozen for TASK-0029 implementation and mirrored in `RFC-003
      - `IsKeyAllowedResponse { allowed @0 :Bool; reason @1 :Text; # @2..@5 reserved-for-v2 (TASK-0197: translog index, sigchain pointer) }`
      - Stable initial reason labels: `publisher_unknown` / `key_unknown` / `alg_unsupported` / `disabled` (open set — v2 may add classes without breaking v1 callers).
      - `alg :Text` (not enum) so v2 can add algorithms without a schema break.
-     - Schema bump is part of the task review (CAUTION zone per `.cursorrules`); document the reserved-field gap in the schema comment so v2 doesn't have to re-discover the contract.
+     - Schema bump is part of the task review (CAUTION zone per `CLAUDE.md` protection zones); document the reserved-field gap in the schema comment so v2 doesn't have to re-discover the contract.
    - Implement the method in `keystored` (load `publishers.toml` once at startup; deny-by-default on unknown).
    - `policyd` consults `keystored::is_key_allowed` and returns the install decision + audit context to `bundlemgrd`.
    - `bundlemgrd` install path enforces (in order):
@@ -334,7 +334,7 @@ These decisions are frozen for TASK-0029 implementation and mirrored in `RFC-003
 - `docs/supplychain/sbom.md`: where SBOM lives in `.nxb`, how to inspect.
 - `docs/supplychain/repro.md`: schema, `SOURCE_DATE_EPOCH`, verifier usage.
 - `docs/supplychain/sign-policy.md`: publisher allowlist format, key rotation, failure modes.
-- `docs/testing/index.md`: how to run host tests; expected OS markers once enabled.
+- `docs/testing/README.md`: how to run host tests; expected OS markers once enabled.
 
 ## Implementation checkpoint (2026-04-22)
 

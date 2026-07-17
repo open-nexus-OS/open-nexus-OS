@@ -160,7 +160,7 @@ The result is that bundle install is *technically* signed but not *policy-bounde
 
 #### 4. Publisher/key allowlist — `keystored` capnp method
 
-Schema diff (ABI; CAUTION zone per `.cursorrules`):
+Schema diff (ABI; CAUTION zone per `CLAUDE.md` protection zones):
 
 ```capnp
 struct IsKeyAllowedRequest {
