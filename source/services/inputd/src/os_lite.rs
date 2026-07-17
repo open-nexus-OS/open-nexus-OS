@@ -156,7 +156,6 @@ struct LiveRouteRuntime {
     chain_normalize_fail_emitted: bool,
     absolute_source_debug_emitted: bool,
     relative_blocked_debug_emitted: bool,
-    wheel_debug_emitted: bool,
     /// Bounded S1 rate diagnostics: wheel deltas shipped to windowd.
     wheel_ship_count: u32,
     /// Wheel notches ACCUMULATED until a push actually LANDS: the visible-
@@ -260,7 +259,6 @@ impl LiveRouteRuntime {
             chain_normalize_fail_emitted: false,
             absolute_source_debug_emitted: false,
             relative_blocked_debug_emitted: false,
-            wheel_debug_emitted: false,
             wheel_ship_count: 0,
             pending_wheel_delta: 0,
             push_fail_count: 0,

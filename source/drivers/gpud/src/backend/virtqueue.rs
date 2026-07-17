@@ -52,7 +52,9 @@ pub(crate) static GPU_IRQ_WAKE_LOGGED: core::sync::atomic::AtomicBool =
 /// Latches once `harvest` first reclaims a completed slot — proof (once) that the
 /// pipelined completion path flows (frame N's commands complete and are observed
 /// asynchronously, without the present ever blocking on them). One marker, not
-/// per-frame.
+/// per-frame. (Only read by the virgl `ctrl_batch_end` pipeline path in
+/// transport.rs; the 2D-only slice never reclaims batches asynchronously.)
+#[cfg_attr(not(feature = "virgl"), allow(dead_code))]
 pub(crate) static PIPELINE_HARVEST_LOGGED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 /// No-alloc IRQ-path telemetry, surfaced in the periodic `gpud: present us …`
@@ -695,7 +697,7 @@ impl CtrlQueue {
 fn raw_diag_line(label: &[u8], vals: &[u32]) {
     let mut buf = [0u8; 96];
     let mut p = 0usize;
-    let mut put = |buf: &mut [u8; 96], p: &mut usize, s: &[u8]| {
+    let put = |buf: &mut [u8; 96], p: &mut usize, s: &[u8]| {
         for &b in s {
             if *p < buf.len() {
                 buf[*p] = b;

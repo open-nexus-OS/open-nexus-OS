@@ -23,9 +23,9 @@ extern crate alloc;
 /// `nexus_layout`, for the compositor to rasterize (RFC-0067 P3).
 pub mod desktop_scene;
 
-use alloc::{vec, vec::Vec};
+use alloc::vec;
 use nexus_layout_types::{
-    FlexItem, FxPx, LayoutNode, Rgba8, TextContent, TextNode, TextStyle, VisualStyle,
+    FlexItem, LayoutNode, Rgba8, TextContent, TextNode, TextStyle, VisualStyle,
 };
 use nexus_style::Style;
 use nexus_theme_tokens::{ColorToken, LengthToken, Tokens};

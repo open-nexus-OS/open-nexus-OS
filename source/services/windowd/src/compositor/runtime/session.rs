@@ -121,6 +121,9 @@ impl DisplayServerRuntime {
     /// DECISION has been made, no login phase owns the display (TASK-0065B),
     /// and no FULLSCREEN window covers it (TASK-0070 Phase 2): the boot order
     /// is splash → login → shell.
+    /// (Policy predicate retained: documents the splash → login → shell display
+    /// ownership contract even though the DSL shell owns chrome today.)
+    #[allow(dead_code)]
     pub(super) fn chrome_composited(&self) -> bool {
         self.shell_config.desktop_chrome
             && self.session_resolved()

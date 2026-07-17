@@ -9,7 +9,7 @@
 //! ADR: docs/adr/0017-service-architecture.md
 //! RFC: docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
 
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::Ordering;
 
 /// policyd OP_ROUTE request (v3, nonce-correlated, ID-based).
 pub(crate) fn policyd_route_allowed(
@@ -19,7 +19,7 @@ pub(crate) fn policyd_route_allowed(
     target: &[u8],
 ) -> Option<bool> {
     use crate::os_payload::{
-        debug_write_byte, debug_write_bytes, debug_write_hex, debug_write_str, POLICY_NONCE,
+        debug_write_byte, debug_write_bytes, debug_write_hex, POLICY_NONCE,
     };
 
     if requester.len() > 48 || target.is_empty() || target.len() > 48 {

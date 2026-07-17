@@ -83,19 +83,6 @@ pub(crate) fn fetch_session_state() -> Option<SessionSnapshot> {
     parse_state_rsp(&rsp)
 }
 
-/// Best-effort LOGIN relay for the greeter click. Returns the logged-in
-/// user's product id on success, `None` on refusal or transport failure.
-pub(crate) fn login(user_id: &str) -> Option<String> {
-    let mut req = [0u8; 300];
-    let len = wire::encode_login_req(user_id.as_bytes(), &mut req)?;
-    let rsp = request_reply(&req[..len])?;
-    let (status, product) = wire::decode_login_rsp(&rsp)?;
-    if status != wire::STATUS_OK {
-        return None;
-    }
-    Some(String::from_utf8_lossy(product).into_owned())
-}
-
 /// One bounded CAP_MOVE request/reply exchange with sessiond (the
 /// registry-client recipe: clone reply-send cap, NONBLOCK send with yield
 /// budget, bounded receive on the shared `@reply` inbox).

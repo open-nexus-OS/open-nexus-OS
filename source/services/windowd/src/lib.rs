@@ -31,8 +31,11 @@ mod settings_client;
 // Pure window-composition decisions (which windows show + z-order) extracted from
 // the runtime monolith so the black-screen-prone logic is host-tested (RFC-0066).
 /// Pure dock geometry (TASK-0070 Phase 2) — host-tested, like `window_scene`.
+/// (Consumed by the os-lite compositor runtime + its own host unit tests.)
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod dock;
 /// Pure drag-to-edge snap geometry (TASK-0070 Phase 3) — host-tested.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod snap;
 /// Declarative window-presentation SSOT (intent ⟂ policy → compositing props) —
 /// host-tested, like `window_scene`. windowd reads this instead of hardcoding
@@ -71,11 +74,9 @@ mod theme;
 // (`desktop_scene`); windowd consumes it as a client.
 mod display_backend;
 mod error;
-// RFC-0067 P5: the fixed-point AA SDF math moved into `nexus-sdf` (the one SDF
-// math SSOT — float + fixed-point), not the compositor. Re-exported under the
-// same cfg so existing `crate::fixed_sdf::…` call sites resolve unchanged.
-#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
-pub(crate) use nexus_sdf::fixed as fixed_sdf;
+// RFC-0067 P5: the fixed-point AA SDF math lives in `nexus-sdf` (the one SDF
+// math SSOT — float + fixed-point); the compositor now consumes it via
+// `nexus-gfx`, so windowd no longer re-exports it.
 mod frame;
 mod geometry;
 mod ids;

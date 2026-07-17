@@ -21,6 +21,7 @@ impl TileMap {
         Self { dirty: [0; TILE_DIRTY_WORDS] }
     }
 
+    #[allow(dead_code)] // tile-damage vocabulary for the compositor-scroll track (plans/webrender-compositor-scroll.md)
     pub(crate) fn tile_index(x: u32, y: u32) -> usize {
         (y / TILE_SIZE) as usize * TILES_X + (x / TILE_SIZE) as usize
     }
@@ -40,6 +41,7 @@ impl TileMap {
         }
     }
 
+    #[allow(dead_code)] // tile-damage vocabulary for the compositor-scroll track (plans/webrender-compositor-scroll.md)
     pub(crate) fn is_dirty(&self, tx: usize, ty: usize) -> bool {
         let idx = ty * TILES_X + tx;
         let word = idx / 64;
@@ -53,10 +55,12 @@ impl TileMap {
         }
     }
 
+    #[allow(dead_code)] // tile-damage vocabulary for the compositor-scroll track (plans/webrender-compositor-scroll.md)
     pub(crate) fn has_dirty(&self) -> bool {
         self.dirty.iter().any(|w| *w != 0)
     }
 
+    #[allow(dead_code)] // tile-damage vocabulary for the compositor-scroll track (plans/webrender-compositor-scroll.md)
     pub(crate) fn dirty_tiles(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
         (0..TILE_COUNT).filter_map(|idx| {
             let word = idx / 64;

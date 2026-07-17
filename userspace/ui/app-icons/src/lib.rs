@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-#![cfg_attr(not(any(test, feature = "std")), no_std)]
+#![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
 
 //! CONTEXT: `nexus-app-icons` — the baked REAL app-icon artwork. Each app

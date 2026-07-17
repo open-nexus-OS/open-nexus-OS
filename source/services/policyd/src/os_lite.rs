@@ -21,7 +21,7 @@ use core::fmt;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
 
-use nexus_abi::{debug_putc, yield_};
+use nexus_abi::debug_putc;
 use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_sel::Policy;
 

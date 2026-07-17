@@ -36,4 +36,5 @@ pub(crate) use plumbing::{
 };
 pub(crate) use security::{cap_move_reply_probe, sender_pid_probe, sender_service_id_probe};
 pub(crate) use soak::ipc_soak_probe;
+#[allow(unused_imports)] // re-export kept: module contract lists probe entry points; vmo probe not yet scheduled
 pub(crate) use vmo::vmo_share_probe;

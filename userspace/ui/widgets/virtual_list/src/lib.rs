@@ -1164,7 +1164,7 @@ mod tests {
     #[test]
     fn overscan_adds_extra_items() {
         let p = make_provider(100);
-        let mut list = VirtualList::new(
+        let list = VirtualList::new(
             p,
             FxPx::new(48), // exactly 1 item tall
             VirtualListConfig { overscan: 2, ..Default::default() },
@@ -1387,7 +1387,7 @@ mod tests {
 
     #[test]
     fn visible_boxes_are_windowed_not_all_items() {
-        use nexus_layout_types::measure::{LineLayout, LineMetrics, PreparedTextHandle};
+        use nexus_layout_types::measure::{LineLayout, PreparedTextHandle};
         use nexus_layout_types::node::TextContent;
         use nexus_layout_types::{
             Align, Direction, EdgeInsets, FlexItem, Justify, MeasureText, Overflow, Rgba8, Stack,

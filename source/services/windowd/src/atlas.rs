@@ -64,6 +64,7 @@ pub(crate) struct AtlasSurface {
 
 impl AtlasSurface {
     /// Byte offset of the surface's top-left pixel within the framebuffer VMO.
+    #[cfg_attr(not(test), allow(dead_code))] // atlas addressing contract, exercised by host unit tests
     pub(crate) fn byte_offset(self, stride_bytes: usize) -> usize {
         self.abs_row as usize * stride_bytes + self.x as usize * 4
     }
@@ -170,6 +171,7 @@ impl AtlasAllocator {
 
     /// Total free area expressed in full-width row-equivalents (telemetry / leak
     /// checks): `Σ(w·h) / ATLAS_WIDTH`.
+    #[cfg_attr(not(test), allow(dead_code))] // leak-check telemetry, exercised by host unit tests
     pub(crate) fn total_free_rows(&self) -> u32 {
         let mut area = 0u64;
         for i in 0..self.free_len {

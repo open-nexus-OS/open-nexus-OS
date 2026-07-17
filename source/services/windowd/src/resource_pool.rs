@@ -14,6 +14,11 @@
 //! API_STABILITY: Contract-locked for Workstreams 3-7
 //! TEST_COVERAGE: Host unit tests in this module
 
+// Documented plane-layout/budget contract, consumed by docs/ADR; the wiring
+// lands with the retained-surface work — module-scoped allow (repo rule: no
+// crate-level blanket).
+#![allow(dead_code)]
+
 // ---------------------------------------------------------------------------
 // VMO plane layout (mirrors compositor/mod.rs)
 // ---------------------------------------------------------------------------

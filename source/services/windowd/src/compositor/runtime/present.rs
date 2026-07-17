@@ -29,6 +29,9 @@ impl DisplayServerRuntime {
     /// cursor overlay (64×64 resource on the cursor queue) and keeps the sprite
     /// as the software BlendCursor fallback. Blocking: the 5-byte reply reports
     /// which path is live (`flags == 1` → hardware overlay).
+    /// (OP_SUBMIT_ANIMATION_FRAME sender — animation now rides widget loops;
+    /// kept: documents the fragment-uniform wire contract gpud still serves.)
+    #[allow(dead_code)]
     pub(super) fn submit_animation_to_gpud(
         &mut self,
         updates: &[SceneUpdate],
@@ -109,8 +112,8 @@ impl DisplayServerRuntime {
         &mut self,
         start_y: u32,
         end_y: u32,
-        glass_quality: GlassQuality,
-        paint_only: bool,
+        _glass_quality: GlassQuality,
+        _paint_only: bool,
     ) -> Result<(), WindowdError> {
         let render_start_ns = nsec().unwrap_or(0);
         let Some(handle) = self.framebuffer else {
@@ -127,7 +130,6 @@ impl DisplayServerRuntime {
         let source_x_lut = self.source_x_lut.as_slice();
         let source_y_lut = self.source_y_lut.as_slice();
         let mode = self.mode;
-        let animated_scene = self.animated_scene;
         let end_y = end_y.min(self.mode.height);
         let render_clip = RenderClip::full(self.mode.width);
         let band_scratch = &mut self.band_scratch;
@@ -179,8 +181,8 @@ impl DisplayServerRuntime {
     pub(super) fn write_damage_rect(
         &mut self,
         rect: DamageRect,
-        glass_quality: GlassQuality,
-        paint_only: bool,
+        _glass_quality: GlassQuality,
+        _paint_only: bool,
     ) -> Result<(), WindowdError> {
         let render_start_ns = nsec().unwrap_or(0);
         let Some(handle) = self.framebuffer else {

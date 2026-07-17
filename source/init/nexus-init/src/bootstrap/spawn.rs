@@ -11,20 +11,6 @@
 
 use crate::os_payload::{InitError, ServiceImage};
 
-/// Spawn a single service image via `exec_v2`. Returns the child PID.
-#[inline]
-pub(crate) fn spawn_service(image: &ServiceImage, probes_enabled: bool) -> Result<u32, InitError> {
-    if image.elf.is_empty() {
-        return Err(InitError::MissingElf);
-    }
-    let stack_pages = image.stack_pages.max(1) as usize;
-    let pid = nexus_abi::exec_v2(image.elf, stack_pages, image.global_pointer, image.name)
-        .map_err(InitError::Abi)?;
-    // Suppress unused warning when probes are compiled out
-    let _ = probes_enabled;
-    Ok(pid)
-}
-
 /// Spawn with debug probe output (when probes are enabled).
 pub(crate) fn spawn_service_with_probe(
     image: &ServiceImage,

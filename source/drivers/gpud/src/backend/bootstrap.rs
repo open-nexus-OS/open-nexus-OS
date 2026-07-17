@@ -209,6 +209,9 @@ impl VirtioGpuBackend {
     /// (see `compose_splash_region`), so the band has no seam against the
     /// static surround. No-op once windowd's framebuffer handoff replaced the
     /// bootstrap scanout.
+    /// (Driven from the virgl frame-paced tick in service.rs; the 2D-only
+    /// slice has no self-tick, hence the scoped allow.)
+    #[cfg_attr(not(feature = "virgl"), allow(dead_code))]
     pub(crate) fn pulse_bootstrap_splash(&mut self, factor_q8: u32) -> Result<(), GfxError> {
         if !self.bootstrap_splash_live || SPLASH_LOGO_W == 0 || SPLASH_LOGO_H == 0 {
             return Ok(());
@@ -344,6 +347,9 @@ const SPLASH_PULSE_DIP: [u8; 32] = [
 ];
 
 /// Boot-splash brightness factor in q8 (256 = full brightness) at `now_ns`.
+/// (Sampled by the virgl service tick and GL splash; unused in the 2D-only
+/// slice, hence the scoped allow.)
+#[cfg_attr(not(feature = "virgl"), allow(dead_code))]
 pub(crate) fn splash_pulse_q8(now_ns: u64) -> u32 {
     let _ = SPLASH_PULSE_ANCHOR_NS.compare_exchange(
         0,

@@ -87,6 +87,9 @@ const GPU_IRQ_NOTIFY_SLOT: u32 = 2;
 /// Display framebuffer dimensions matching windowd's VISIBLE_BOOTSTRAP_WIDTH/HEIGHT.
 /// On QEMU virtio-gpu with `-display gtk`, the GTK window resizes to match this scanout.
 const DISPLAY_WIDTH: u32 = 1280;
+// Documented contract pair with DISPLAY_WIDTH (windowd bootstrap scanout dims);
+// the attach path passes RESOURCE_HEIGHT instead, so only WIDTH is read today.
+#[allow(dead_code)]
 const DISPLAY_HEIGHT: u32 = 800;
 // 9600 rows: 4 display planes (wallpaper/retained/slot-A/slot-B, 3200) + surface
 // atlas (4000) for the retained-surface compositor's cached layers — grown by a

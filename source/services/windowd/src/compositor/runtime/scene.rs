@@ -415,10 +415,8 @@ impl DisplayServerRuntime {
                         }
                     }
                     // Legacy window ids (chat/search/settings): their windowd
-                    // surfaces are DELETED — never registered in the stack, so
-                    // these arms are unreachable; explicit to keep the match
-                    // total until the WindowId enum retires (surface-id roles).
-                    _ => {}
+                    // surfaces are DELETED — the match is total over the
+                    // remaining WindowId variants (surface-id roles).
                 }
             }
 

@@ -14,8 +14,7 @@
 
 use nexus_layout::{LayoutEngine, LayoutResult};
 use nexus_layout_types::{
-    FxPx, LineHeight, LineLayout, LineMetrics, MeasureText, PreparedTextHandle, TextContent,
-    TextStyle,
+    FxPx, LineLayout, LineMetrics, MeasureText, PreparedTextHandle, TextContent, TextStyle,
 };
 use nexus_theme_tokens::BaseTokens;
 
@@ -106,6 +105,7 @@ pub fn build_live_desktop_layouts(content_width: u32) -> Option<Vec<LayoutResult
 
 #[cfg(test)]
 mod tests {
+    use nexus_layout_types::LineHeight;
     use super::*;
 
     fn box_with_id<'a>(result: &'a LayoutResult, id: &str) -> Option<&'a nexus_layout::LayoutBox> {

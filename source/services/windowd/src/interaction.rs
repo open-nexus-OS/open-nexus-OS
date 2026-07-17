@@ -26,60 +26,64 @@ pub(crate) const GLASS_BUTTON_W: u32 = 156;
 pub(crate) const GLASS_BUTTON_H: u32 = 56;
 pub(crate) const GLASS_BUTTON_TOP: u32 = 24;
 pub(crate) const GLASS_BUTTON_RIGHT: u32 = 24;
-pub(crate) const GLASS_BUTTON_RADIUS: u32 = 18;
 
 // ── Sidebar (right-edge glass panel) ──
 pub(crate) const SIDEBAR_WIDTH: u32 = 320;
 pub(crate) const SIDEBAR_MARGIN_TOP: u32 = 18;
 pub(crate) const SIDEBAR_MARGIN_BOTTOM: u32 = 18;
-pub(crate) const SIDEBAR_RADIUS: u32 = 24;
 
 // ── Close (X) icon inside the sidebar ──
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const LUCIDE_ICON_SIZE: u32 = 24;
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const VISIBLE_ROUTE_WIDTH: u32 = 64;
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const VISIBLE_ROUTE_HEIGHT: u32 = 48;
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CLOSE_TARGET_ROUTE_X: u32 = 52;
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CLOSE_TARGET_ROUTE_Y: u32 = 18;
 /// Padding added around the close icon so the clickable area is comfortable.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 const CLOSE_HIT_PAD: u32 = 12;
 
-// ── Left proof/test panel ──
-pub(crate) const PROOF_PANEL_X: u32 = 56;
-pub(crate) const PROOF_PANEL_Y: u32 = 440;
 
-// ── Chat panel (right side, clear of the 826px-wide combined left panel that
-// spans x=56..882). Right edge aligns with the glass button (x..1256). ──
-pub(crate) const CHAT_PANEL_X: u32 = 890;
+// ── Chat panel (right side, clear of the 826px-wide combined left panel).
+// Right edge aligns with the glass button (x..1256). ──
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_PANEL_Y: u32 = 96;
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_PANEL_W: u32 = 366;
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_PANEL_H: u32 = 600;
 /// Inner padding of the chat panel and width reserved for its scrollbar.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_PAD: u32 = 14;
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_SCROLLBAR_W: u32 = 8;
 /// Chat body line height = the baked 16px face's line height (TASK-0070
 /// Phase 6 — runtime glyphs replaced the 5×7 bitmap; the baked value is 20px,
 /// identical to the old bitmap line, so the scroll/height math is unchanged).
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_LINE_H: u32 = crate::text::line_height(crate::text::FontSize::Body);
 /// Vertical padding inside a message bubble (top and bottom).
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_MSG_PAD: u32 = 8;
 
 /// Width in pixels available for chat text (panel minus padding and scrollbar).
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn chat_text_width() -> u32 {
     CHAT_PANEL_W.saturating_sub(CHAT_PAD.saturating_mul(2)).saturating_sub(CHAT_SCROLLBAR_W)
 }
 
-/// Rough characters-per-line estimate (average advance) — only feeds the chat
-/// provider's internal height hint; the real wrap below is measured.
-pub(crate) fn chat_chars_per_line() -> usize {
-    (chat_text_width() / crate::text::avg_advance(crate::text::FontSize::Body)).max(1) as usize
-}
-
 /// Left inset of the text column inside the chat viewport (bubble inset + text
 /// padding) — the renderer's `text_x` offset, subtracted from the wrap width.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_TEXT_INSET: u32 = 10;
 
 /// Pixel width the wrap walker fills — the wrap SSOT width (TASK-0070 Phase 7:
 /// MEASURED word wrap at the 16px face replaces the char-count estimate).
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn chat_wrap_width() -> u32 {
     chat_text_width().saturating_sub(CHAT_TEXT_INSET)
 }
@@ -90,6 +94,7 @@ pub(crate) fn chat_wrap_width() -> u32 {
 /// 16px face's measured advances; a single word wider than `width` breaks
 /// mid-word. Always consumes at least one char. Walking by chars keeps
 /// multi-byte UTF-8 (em-dashes) boundary-safe.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 fn chat_wrap_line_end(text: &str, width: u32, start: usize) -> (usize, usize) {
     let w = width.max(1) as i32;
     let mut pen = 0i32;
@@ -113,6 +118,7 @@ fn chat_wrap_line_end(text: &str, width: u32, start: usize) -> (usize, usize) {
 }
 
 /// Number of wrapped lines `text` occupies at the chat wrap width.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn chat_wrap_lines(text: &str) -> u32 {
     let width = chat_wrap_width();
     let len = text.chars().count();
@@ -129,6 +135,7 @@ pub(crate) fn chat_wrap_lines(text: &str) -> u32 {
 /// Char range `[start, end)` of wrapped line `idx` of `text`, or `None` past
 /// the last line. Walks the same `chat_wrap_line_end` as `chat_wrap_lines`, so
 /// layout heights and painted slices can never drift.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn chat_wrap_line_range(text: &str, idx: u32) -> Option<(usize, usize)> {
     let width = chat_wrap_width();
     let len = text.chars().count();
@@ -147,6 +154,7 @@ pub(crate) fn chat_wrap_line_range(text: &str, idx: u32) -> Option<(usize, usize
 }
 
 /// Total block height of a message (its wrapped lines plus top/bottom padding).
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn chat_message_height(lines: u32) -> u32 {
     lines.saturating_mul(CHAT_LINE_H).saturating_add(CHAT_MSG_PAD.saturating_mul(2))
 }
@@ -164,6 +172,7 @@ pub(crate) struct HitRect {
 /// The action a primary-button press resolves to, given the cursor position and
 /// current sidebar state. Pure and host-testable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) enum ClickAction {
     /// Cursor is over the glass button → toggle the sidebar open/closed.
     ToggleSidebar,
@@ -171,8 +180,6 @@ pub(crate) enum ClickAction {
     CloseSidebar,
     /// Cursor is over the chat button → toggle the chat window open/closed.
     ToggleChat,
-    /// Cursor is over the left proof/test panel → focus it (filter input).
-    FocusPanel,
     /// Cursor is over the greeter's user avatar → log that user in
     /// (TASK-0065B; only reachable while the greeter owns the display).
     GreeterUser,
@@ -186,6 +193,7 @@ pub(crate) enum ClickAction {
 //  TOPMOST window under the cursor scrolls, not a hardcoded chat-first rule.)
 
 #[inline]
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn rect_contains(rect: HitRect, x: i32, y: i32) -> bool {
     if x < 0 || y < 0 {
         return false;
@@ -199,6 +207,7 @@ pub(crate) fn rect_contains(rect: HitRect, x: i32, y: i32) -> bool {
 
 /// Midpoint of a route cell mapped into display extent. Mirrors the renderer's
 /// close-icon placement so the close hit rect tracks the rendered icon exactly.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn route_cell_midpoint(route_coord: u32, route_extent: u32, display_extent: u32) -> u32 {
     let start = route_coord.saturating_mul(display_extent) / route_extent.max(1);
     let end = (route_coord.saturating_add(1))
@@ -219,18 +228,14 @@ pub(crate) fn button_rect(width: u32) -> HitRect {
     }
 }
 
-/// Chat window title bar height (drawn by `compositor::chat`, hit-tested by
-/// `wm`) — single source so the drag/close zones always match the pixels.
-pub(crate) const CHAT_TITLE_BAR_H: u32 = 40;
-/// Close hit-zone width at the right end of the title bar (matches the X).
-pub(crate) const CHAT_CLOSE_ZONE_W: u32 = 48;
-
 /// Chat toggle button — a square glass button in the bottom-right corner
 /// (clear of the chat window's default bounds and the hamburger button).
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_BUTTON_SIZE: u32 = 56;
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) const CHAT_BUTTON_MARGIN: u32 = 24;
-pub(crate) const CHAT_BUTTON_RADIUS: u32 = 16;
 
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn chat_button_rect(width: u32, height: u32) -> HitRect {
     HitRect {
         x: width.saturating_sub(CHAT_BUTTON_SIZE.saturating_add(CHAT_BUTTON_MARGIN)),
@@ -242,6 +247,7 @@ pub(crate) fn chat_button_rect(width: u32, height: u32) -> HitRect {
 
 /// Sidebar rect for a given horizontal `translate` (0 = fully open, SIDEBAR_WIDTH
 /// = fully closed/offscreen). The renderer uses the identical expression.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn sidebar_rect(mode: VisibleBootstrapMode, translate_x: f32) -> HitRect {
     let translate = translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
     let x = mode.width.saturating_sub(SIDEBAR_WIDTH).saturating_add(translate);
@@ -252,6 +258,7 @@ pub(crate) fn sidebar_rect(mode: VisibleBootstrapMode, translate_x: f32) -> HitR
 
 /// The rendered close (X) icon rect inside `sidebar`. Mirrors the renderer's
 /// clamp so the icon never escapes the panel.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn sidebar_close_icon_rect(mode: VisibleBootstrapMode, sidebar: HitRect) -> HitRect {
     let close_mid_x = route_cell_midpoint(CLOSE_TARGET_ROUTE_X, VISIBLE_ROUTE_WIDTH, mode.width);
     let close_mid_y = route_cell_midpoint(CLOSE_TARGET_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, mode.height);
@@ -267,6 +274,7 @@ pub(crate) fn sidebar_close_icon_rect(mode: VisibleBootstrapMode, sidebar: HitRe
 }
 
 /// Comfortable click target around the close icon.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 fn sidebar_close_hit_rect(mode: VisibleBootstrapMode, sidebar: HitRect) -> HitRect {
     let icon = sidebar_close_icon_rect(mode, sidebar);
     HitRect {
@@ -277,14 +285,9 @@ fn sidebar_close_hit_rect(mode: VisibleBootstrapMode, sidebar: HitRect) -> HitRe
     }
 }
 
-/// Right-hand chat panel viewport (the scrollable message list). Kept distinct
-/// from the proof panel so wheel events route to the control under the cursor.
-pub(crate) fn chat_viewport_rect() -> HitRect {
-    HitRect { x: CHAT_PANEL_X, y: CHAT_PANEL_Y, width: CHAT_PANEL_W, height: CHAT_PANEL_H }
-}
-
 /// True when the cursor is over the glass button (hover highlight; never opens
 /// the sidebar — only a click does).
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn hover_over_button(mode: VisibleBootstrapMode, x: i32, y: i32) -> bool {
     rect_contains(button_rect(mode.width), x, y)
 }
@@ -292,6 +295,7 @@ pub(crate) fn hover_over_button(mode: VisibleBootstrapMode, x: i32, y: i32) -> b
 /// Resolve a primary-button press to an action. `sidebar_open` is windowd's
 /// current sidebar state. Order matters: the close icon and the button win over
 /// the panel; a click outside an open sidebar dismisses it.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn resolve_click(
     mode: VisibleBootstrapMode,
     sidebar_open: bool,
@@ -323,6 +327,7 @@ pub(crate) fn resolve_click(
 /// The greeter's clickable avatar card (circle + name label), centered on the
 /// display. Geometry SSOT shared by the renderer and hit-testing; sized from
 /// the SystemUI greeter config's avatar diameter (padding for label + hover).
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn greeter_avatar_rect(mode: VisibleBootstrapMode, avatar_diameter: u32) -> HitRect {
     // Card = circle + label band below; generous horizontal padding so the
     // name stays inside the hover/redraw region.
@@ -340,6 +345,7 @@ pub(crate) fn greeter_avatar_rect(mode: VisibleBootstrapMode, avatar_diameter: u
 /// display ONLY the avatar is interactive — every shell affordance (sidebar,
 /// chat, hotspot) is unreachable. This is windowd's pre-session launch gating,
 /// host-tested. When no greeter is active it defers to [`resolve_click`].
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn resolve_click_session(
     mode: VisibleBootstrapMode,
     sidebar_open: bool,
@@ -360,6 +366,7 @@ pub(crate) fn resolve_click_session(
 }
 
 /// Greeter hover feedback: true while the cursor is over the avatar card.
+#[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 pub(crate) fn hover_over_greeter(rect: HitRect, x: i32, y: i32) -> bool {
     rect_contains(rect, x, y)
 }

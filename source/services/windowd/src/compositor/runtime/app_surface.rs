@@ -14,7 +14,7 @@
 //! API_STABILITY: Unstable
 //! ADR: docs/adr/0042-cross-process-surface-transport.md
 
-use super::app_window::{nexus_abi_cap_close, APP_CLOSE_W, APP_WIN_RADIUS};
+use super::app_window::{nexus_abi_cap_close, APP_WIN_RADIUS};
 use super::*;
 
 impl DisplayServerRuntime {

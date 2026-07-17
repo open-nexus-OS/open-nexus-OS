@@ -10,6 +10,11 @@
 //! Reads service registration status from samgrd without initiating
 //! control-plane IPC (uses logd markers as the health signal).
 
+// RFC-0061 M4 pure-observer toolkit (liveness-checker): declared observer API surface,
+// kept per ADR-0027 until the observer ladder wires it in — module-scoped
+// allow, not crate-level (repo rule).
+#![allow(dead_code)]
+
 extern crate alloc;
 use alloc::vec::Vec;
 

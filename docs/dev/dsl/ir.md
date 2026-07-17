@@ -115,6 +115,10 @@ never a partial mount.
 
 ## Changelog
 
+- **golden refresh (2026-07-17, repo hygiene)** — no schema change: the
+  `proof_surface.nxir` golden had drifted behind the boot-proven compiler
+  output (post-TASK-0078B emitter state); regenerated via `UPDATE_GOLDENS=1
+  cargo test -p dsl_v0_1a_host` (3968 → 4064 bytes).
 - **v1.3 (2026-07-06, TASK-0078B)** — additive: `QuerySpec` grows the v1
   shape (`paramCount`, `preds` (col/op/value; `QueryOp` = eq/ge/le),
   `orderCol`, `descending`, `limit`); `QueryStep` grows `token` (page-token

@@ -11,6 +11,4 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: unit tests live in nexus-text-baked (promoted with the code)
 
-pub(crate) use nexus_text_baked::{
-    advance, avg_advance, draw_text_row, line_height, measure, FontSize,
-};
+pub(crate) use nexus_text_baked::{advance, line_height, FontSize};

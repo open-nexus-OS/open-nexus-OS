@@ -88,6 +88,9 @@ impl RouteTarget for windowd::WindowServer {
 /// distance-threshold pointer coalescing. It replaces the embedded
 /// `windowd::WindowServer` that inputd used to carry — removing the duplicate
 /// hit-testing path.
+/// (Constructed by the os-lite runtime entry; host builds compile the type
+/// for the shared `RouteTarget` seam only, hence the scoped allow.)
+#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
 pub struct NormalizeRouter {
     width: u32,
     height: u32,
@@ -98,6 +101,7 @@ pub struct NormalizeRouter {
     coalesce_px: i32,
 }
 
+#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
 impl NormalizeRouter {
     pub fn new(width: u32, height: u32, coalesce_px: i32) -> Self {
         Self { width, height, seq: 0, last_pointer: None, coalesce_px }

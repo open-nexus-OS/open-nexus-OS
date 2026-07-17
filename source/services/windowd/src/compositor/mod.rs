@@ -63,49 +63,24 @@ mod tile_map;
 mod types;
 
 use damage::*;
-use filter::*;
 use runtime::*;
-use tile_map::TileMap;
 use types::*;
 
 extern crate alloc;
 
-use alloc::vec::Vec;
 use core::fmt::Write as _;
 
 use input_live_protocol::{
     decode_update_visible_state, encode_status, encode_visible_state_frame, frame_has_op,
-    VisibleState, OP_GET_VISIBLE_STATE, OP_UPDATE_VISIBLE_STATE, STATUS_MALFORMED, STATUS_OK,
-    STATUS_UNSUPPORTED,
+    OP_GET_VISIBLE_STATE, OP_UPDATE_VISIBLE_STATE, STATUS_MALFORMED, STATUS_UNSUPPORTED,
 };
 #[cfg(nexus_env = "os")]
 use nexus_abi::vmo_create;
-use nexus_abi::{debug_println, debug_trace, nsec, vmo_write, yield_, Handle};
-use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
+use nexus_abi::{debug_println, debug_trace, nsec, yield_};
+use nexus_ipc::{IpcError, KernelServer, Wait};
 
-use crate::compositor::damage::{
-    premerge_damage_rects, select_glass_quality, DamageRect, GlassQuality, LayoutHotPathIndex,
-    TargetDamage,
-};
-use crate::fixed_sdf;
-use crate::ids::CallerCtx;
-use crate::markers::{
-    COMPOSE_READY_MARKER, CURSOR_MOVE_VISIBLE_MARKER, DISPLAY_BOOTSTRAP_MARKER,
-    DISPLAY_FIRST_SCANOUT_MARKER, DISPLAY_MODE_MARKER, FOCUS_VISIBLE_MARKER,
-    FULL_WINDOW_VISIBLE_MARKER, HOVER_VISIBLE_MARKER, INPUT_ON_MARKER, INPUT_VISIBLE_ON_MARKER,
-    KEYBOARD_VISIBLE_MARKER, LAUNCHER_CLICK_OK_MARKER, LAUNCHER_CLICK_VISIBLE_OK_MARKER,
-    LAYOUT_ENGINE_ON_MARKER, PRESENT_QUEUED_MARKER, PRESENT_SCHEDULER_ON_MARKER,
-    PRESENT_VISIBLE_MARKER, READY_MARKER, SELFTEST_UI_V2_INPUT_OK_MARKER,
-    SELFTEST_UI_V2_PRESENT_OK_MARKER, SELFTEST_UI_VISIBLE_INPUT_OK_MARKER,
-    SELFTEST_UI_VISIBLE_PRESENT_MARKER, SELFTEST_UI_VISIBLE_WHEEL_OK_MARKER,
-    SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, TEXT_WRAPPING_ON_MARKER, VISIBLE_BACKEND_MARKER,
-    WALLPAPER_FAIL, WHEEL_VISIBLE_MARKER,
-};
-use nexus_effects::{blur_separable_zero_alloc, ShadowArena};
-use nexus_layout::LayoutResult;
-use nexus_layout_types::{FxPx, Rgba8};
+use crate::markers::{READY_MARKER, WALLPAPER_FAIL};
 
-use crate::smoke::VisibleBootstrapMode;
 use crate::telemetry::WindowdDisplayTelemetryReport;
 
 pub(crate) const ROUTE_NAME: &str = "windowd";
@@ -121,7 +96,12 @@ pub(crate) const DISPLAY_HEIGHT: u32 = 800;
 // 6400 rows: 4 display planes (3200) + surface atlas (3200) for cached layers.
 // SSOT for the atlas layout is `crate::atlas`. gpud mirrors this value.
 pub(crate) const RESOURCE_HEIGHT: u32 = crate::atlas::RESOURCE_HEIGHT;
+// Byte twins of the live *_ROW_OFFSET values below — documented plane-layout
+// contract (RFC-0067 retained-plane); kept for the layout math even where only
+// the row form is consumed today.
+#[allow(dead_code)]
 pub(crate) const DISPLAY_OFFSET_BYTES: usize = 8_192_000; // Plane 2 / slot A
+#[allow(dead_code)]
 pub(crate) const DISPLAY_SLOT_B_OFFSET_BYTES: usize = 12_288_000;
 /// Plane 1 — retained scene. The CPU compositor renders the full cursor-free
 /// scene (wallpaper + panels + text + glass) here. gpud blits damage regions
@@ -134,17 +114,10 @@ pub(crate) const RETAINED_ROW_OFFSET: u32 = 800;
 /// 8_192_000 / (1280*4) = 1600. Used as the BlitAbsolute source/dst for blur cache writes.
 pub(crate) const DISPLAY_ROW_OFFSET: u32 = 1600;
 /// Absolute VMO row where Plane 3 (Slot B) starts — repurposed as blur cache.
-/// 12_288_000 / (1280*4) = 2400.
+/// 12_288_000 / (1280*4) = 2400. (Documented plane-layout contract; the blur
+/// cache writers address Plane 3 through gpud blits today.)
+#[allow(dead_code)]
 pub(crate) const BLUR_CACHE_ROW_OFFSET: u32 = 2400;
-/// X pixel offset of the sidebar at its resting (fully open) position.
-/// 1280 - 320 = 960. Blur cache is always precomputed for the full 320px at this x.
-pub(crate) const SIDEBAR_REST_X: u32 = 960;
-/// Glass button blur cache in Plane 3 — stored at x=0 (leftmost columns).
-/// Does not conflict with sidebar cache at x=960..1279.
-pub(crate) const BUTTON_BLUR_CACHE_ABS_X: u32 = 0;
-pub(crate) const BUTTON_BLUR_CACHE_ABS_ROW: u32 = BLUR_CACHE_ROW_OFFSET;
-pub(crate) const PROOF_PANEL_X: u32 = 56;
-pub(crate) const PROOF_PANEL_Y: u32 = 440;
 pub(crate) const PROOF_PANEL_H: u32 = 260;
 
 /// Shell-P2b: when `true`, source `proof_layouts` from the flat desktop-shell
@@ -160,20 +133,7 @@ pub(crate) const USE_DESKTOP_SHELL: bool = false;
 // (`DisplayServerRuntime.shell_config.desktop_chrome`), so the active shell —
 // not a hardcoded constant — decides whether the desktop chrome is composited.
 
-/// On-screen origin of the composited scene. The desktop shell sits near the
-/// top-left with a small inset; the proof panel keeps its historic placement.
-pub(crate) const SCENE_ORIGIN_X: u32 = if USE_DESKTOP_SHELL { 24 } else { PROOF_PANEL_X };
-pub(crate) const SCENE_ORIGIN_Y: u32 = if USE_DESKTOP_SHELL { 24 } else { PROOF_PANEL_Y };
 pub(crate) const LIVE_FILTER_VARIANTS: [&str; 5] = ["", "a", "ap", "c", "b"];
-pub(crate) const FILTER_LIST_PADDING_X: u32 = 4;
-pub(crate) const FILTER_LIST_PADDING_Y: u32 = 4;
-pub(crate) const FILTER_LIST_ROW_GAP: u32 = 2;
-pub(crate) const FILTER_INPUT_PADDING_X: u32 = 8;
-pub(crate) const FILTER_INPUT_FONT_W: u32 = 5;
-pub(crate) const FILTER_INPUT_FONT_H: u32 = 7;
-pub(crate) const FILTER_INPUT_FONT_SCALE: u32 = 2;
-pub(crate) const FILTER_INPUT_FONT_ADVANCE: u32 =
-    (FILTER_INPUT_FONT_W + 1) * FILTER_INPUT_FONT_SCALE;
 #[cfg(nexus_env = "os")]
 pub(crate) const ROW_WRITE_CHUNK: usize = 40;
 #[cfg(not(nexus_env = "os"))]
@@ -183,53 +143,64 @@ pub(crate) const ROW_WRITE_CHUNK: usize = 32;
 // queue can't grow stale — the wheel deltas among them are coalesced into a single
 // scroll step (`commit_scroll_input`), so a bigger batch costs no extra scrolling.
 pub(crate) const IPC_BATCH_LIMIT: usize = 64;
+// Backdrop/glass cache budget contract (blur-cache architecture); sizes are
+// documented dimensions even where the current present path bypasses a cache.
+#[allow(dead_code)]
 pub(crate) const BACKDROP_CACHE_ENTRIES: usize = 4;
 // C1: dimensions inlined (was `proof_panel_spec` PANEL_WIDTH 610 / PANEL_HEIGHT
 // 260 / +GAP 16 +FILTER_PANEL_WIDTH 200 = 826). These now size the backdrop/
 // layer caches only; the proof panel itself is deleted.
+#[allow(dead_code)]
 pub(crate) const BACKDROP_CACHE_MAX_WIDTH: usize = 610;
 pub(crate) const COMBINED_PANEL_WIDTH: usize = 826;
+#[allow(dead_code)]
 pub(crate) const COMBINED_PANEL_HEIGHT: usize = 260;
+// Glass-layer downscale budget contract (blur-cache architecture); consumed by
+// the cache sizing docs — the live glass path samples via gpud today.
+#[allow(dead_code)]
 #[cfg(nexus_env = "os")]
 pub(crate) const GLASS_LAYER_SCALE: u32 = 8;
+#[allow(dead_code)]
 #[cfg(not(nexus_env = "os"))]
 pub(crate) const GLASS_LAYER_SCALE: u32 = 4;
+#[allow(dead_code)]
 pub(crate) const GLASS_LAYER_MAX_WIDTH: usize =
     COMBINED_PANEL_WIDTH.div_ceil(GLASS_LAYER_SCALE as usize);
+#[allow(dead_code)]
 pub(crate) const GLASS_LAYER_MAX_HEIGHT: usize =
     COMBINED_PANEL_HEIGHT.div_ceil(GLASS_LAYER_SCALE as usize);
+#[allow(dead_code)]
 pub(crate) const GLASS_LAYER_MAX_BYTES: usize = GLASS_LAYER_MAX_WIDTH * GLASS_LAYER_MAX_HEIGHT * 4;
-pub(crate) const DARK_GLASS_RADIUS: u32 = 12;
 pub(crate) const DARK_GLASS_BLUR_RADIUS: u32 = 20;
-pub(crate) const DARK_GLASS_TINT: Rgba8 = Rgba8::new(28, 28, 30, 178);
-pub(crate) const DARK_GLASS_BORDER: Rgba8 = Rgba8::new(255, 255, 255, 26);
-pub(crate) const SOFT_PANEL_SHADOW_OFFSET_Y: i32 = 4;
-pub(crate) const SOFT_PANEL_SHADOW_BLUR_RADIUS: u32 = 30;
-pub(crate) const SOFT_PANEL_SHADOW_ALPHA: u32 = 128;
-/// Shared window drop shadow (subtle, macOS-like floating panel): a soft, not
-/// heavy, penumbra offset slightly downward. Used by both the chat and search
-/// ShellWindow frames so they cast an identical shadow. The compositor restores
-/// this halo from the retained plane before each (translucent) redraw so it
-/// never accumulates. See `build_scene_cb_into` step 1a.
-pub(crate) const CHAT_SHADOW_BLUR: u32 = 18;
-pub(crate) const CHAT_SHADOW_OFFSET_Y: i32 = 5;
-pub(crate) const CHAT_SHADOW_ALPHA: u8 = 90;
+// Path/layer cache budget contract (blur-cache architecture): documented
+// bounded-memory ceilings for the rounded-corner path cache.
+#[allow(dead_code)]
 pub(crate) const PATH_CACHE_ENTRIES: usize = 2;
 pub(crate) const PATH_CACHE_MAX_SIDE: usize = 16;
+#[allow(dead_code)]
 pub(crate) const PATH_CACHE_MAX_PIXELS: usize = PATH_CACHE_MAX_SIDE * PATH_CACHE_MAX_SIDE * 4;
+#[allow(dead_code)]
 pub(crate) const LAYER_CACHE_MAX_BYTES: usize = 4 * 1024;
+#[allow(dead_code)]
 pub(crate) const LAYER_CACHE_MAX_LAYER_BYTES: usize = PATH_CACHE_MAX_PIXELS;
 pub(crate) const TILE_SIZE: u32 = 64;
 pub(crate) const TILES_X: usize = 20; // 1280 / 64
 pub(crate) const TILES_Y: usize = 13; // 800 / 64 rounded up
 pub(crate) const TILE_COUNT: usize = TILES_X * TILES_Y;
 pub(crate) const TILE_DIRTY_WORDS: usize = (TILE_COUNT + 63) / 64;
+// Shadow arena/scratch budget contract: documented bounded-memory ceilings for
+// the zero-alloc shadow blur (nexus-effects ShadowArena) integration.
+#[allow(dead_code)]
 #[cfg(nexus_env = "os")]
 pub(crate) const WINDOWD_SHADOW_ARENA_SIZE: usize = 8 * 1024;
+#[allow(dead_code)]
 #[cfg(not(nexus_env = "os"))]
 pub(crate) const WINDOWD_SHADOW_ARENA_SIZE: usize = 16 * 1024;
+#[allow(dead_code)]
 pub(crate) const COL_SCRATCH_SIZE: usize = WINDOWD_SHADOW_ARENA_SIZE;
+#[allow(dead_code)]
 pub(crate) const SHADOW_BOX_CACHE_ENTRIES: usize = 8;
+#[allow(dead_code)]
 pub(crate) const SHADOW_CACHE_MAX_DOWNSCALE: u8 = 16;
 pub(crate) const DARK_GLASS_SATURATION_PERCENT: u32 = 140;
 #[cfg(nexus_env = "os")]

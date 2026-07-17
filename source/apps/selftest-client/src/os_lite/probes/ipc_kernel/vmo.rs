@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 /// Progress snapshot for the VMO share probe.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(dead_code)] // seeded VMO-share probe surface; not yet scheduled in the probe ladder
 pub(crate) struct VmoShareProgress {
     pub(crate) producer_sent: bool,
     pub(crate) consumer_mapped: bool,
@@ -24,6 +25,7 @@ pub(crate) struct VmoShareProgress {
 /// 3) capability transfer places the VMO into a known consumer slot,
 /// 4) consumer maps transferred handle read-only and exits with status 0 on byte-match,
 /// 5) producer verifies digest contract over the fixed payload fixture.
+#[allow(dead_code)] // seeded VMO-share probe; not yet scheduled in the probe ladder
 pub(crate) fn vmo_share_probe() -> VmoShareProgress {
     const PROBE_LEN: usize = 4096;
     const CONSUMER_SLOT: u32 = 23;

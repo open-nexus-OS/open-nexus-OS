@@ -9,6 +9,11 @@
 //!
 //! Pure observer: never initiates service IPC beyond reading from logd.
 
+// RFC-0061 M4 pure-observer toolkit (marker-reader): declared observer API surface,
+// kept per ADR-0027 until the observer ladder wires it in — module-scoped
+// allow, not crate-level (repo rule).
+#![allow(dead_code)]
+
 extern crate alloc;
 use alloc::vec::Vec;
 use nexus_abi::yield_;

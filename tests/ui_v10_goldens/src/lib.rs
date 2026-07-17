@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use nexus_layout::{LayoutEngine, LayoutResult};
 use nexus_layout_types::{
     Align, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, LineLayout, MeasureText,
-    Overflow, PreparedTextHandle, Rgba8, ShapeKind, Stack, TextContent, TextStyle, VisualStyle,
+    Overflow, PreparedTextHandle, Rgba8, Stack, TextContent, TextStyle, VisualStyle,
 };
 use ui_host_snap::{compare_hex_golden, hex_bytes, GoldenMode, SnapResult};
 

@@ -159,6 +159,8 @@ impl DisplayServerRuntime {
 
     /// Blocking status request (used only for handoff/bootstrap where
     /// we must confirm gpud accepted the framebuffer VMO).
+    /// (Companion of the blocking handoff variant above — kept with it.)
+    #[allow(dead_code)]
     pub(super) fn send_gpud_status_request(&mut self, frame: &[u8]) -> Result<(), WindowdError> {
         // Drain any stale responses from previous non-blocking presents before
         // sending. Without this, client.recv(Blocking) below may pick up a
@@ -222,6 +224,10 @@ impl DisplayServerRuntime {
     /// Non-blocking: sends damage rect to gpud and returns immediately.
     /// Pixel data is already written to the VMO by CPU compositing.
     /// gpud processes the damage asynchronously — windowd continues its loop.
+    /// (Damage-rect present path — superseded by the whole-scene CB batch;
+    /// kept for the compositor-scroll/damage track, see
+    /// plans/webrender-compositor-scroll.md.)
+    #[allow(dead_code)]
     pub(super) fn present_damage_to_gpud(&mut self, rect: DamageRect) -> bool {
         let frame = encode_gpud_damage_frame(rect);
         if self.send_gpud_present(&frame) {
@@ -245,6 +251,9 @@ impl DisplayServerRuntime {
     /// Phase 2: GPU-first glass panel (Workstreams 1+4).
     /// The BlurBackdrop command samples from the VMO at `DISPLAY_OFFSET_BYTES`,
     /// applies a box blur + saturation, and writes back.
+    /// (GPU-first blur present variant — superseded by the virgl in-scene blur;
+    /// kept: documents the BlurBackdrop wire usage.)
+    #[allow(dead_code)]
     pub(super) fn present_frame_with_gpu_blur(&mut self, bounding: DamageRect) -> bool {
         let mut cmd = CommandBuffer::new();
         {

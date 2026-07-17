@@ -25,7 +25,9 @@ pub const DOCK_PAD_X: u32 = 14;
 pub const DOCK_H: u32 = DOCK_CELL + 16;
 /// Gap between the bar's bottom edge and the display's bottom edge.
 pub const DOCK_MARGIN_BOTTOM: u32 = 14;
-/// Corner radius of the glass bar.
+/// Corner radius of the glass bar. (Painted by the os-lite compositor scene;
+/// the host tests exercise the geometry fns only.)
+#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
 pub const DOCK_RADIUS: u32 = 14;
 
 /// A dock rectangle in display space.

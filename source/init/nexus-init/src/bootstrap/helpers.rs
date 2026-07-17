@@ -12,24 +12,16 @@
 //! Contains: MMIO probing/grants, OTA boot attempts, health checks, debug helpers,
 //! error labels, and all small utility functions.
 
-use alloc::string::String;
-use alloc::vec::Vec;
-use core::fmt;
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use crate::bootstrap::policyd::policyd_cap_allowed;
-use crate::bootstrap::route_builder;
-use crate::bootstrap::CtrlChannel;
 use crate::os_payload::log_topics;
 use crate::os_payload::{
-    self, BootstrapState, InitError, ReadyNotifier, Result, RouteTable, ServiceImage, __data_end,
-    __data_start, __rodata_end, __rodata_start, CTRL_CHILD_RECV_SLOT, CTRL_CHILD_SEND_SLOT,
-    CTRL_EP_DEPTH, INIT_HEALTH_MAGIC0, INIT_HEALTH_MAGIC1, INIT_HEALTH_OP_OK,
-    INIT_HEALTH_STATUS_FAILED, INIT_HEALTH_STATUS_OK, INIT_HEALTH_VERSION, MAX_LOG_STR_LEN,
-    PROBE_ENABLED,
+    self, InitError, Result, __data_end, __data_start, __rodata_end, __rodata_start,
+    INIT_HEALTH_MAGIC0, INIT_HEALTH_MAGIC1, INIT_HEALTH_OP_OK, INIT_HEALTH_VERSION,
+    MAX_LOG_STR_LEN, PROBE_ENABLED,
 };
-use nexus_abi::{self, AbiError, IpcError, MsgHeader, Rights};
-use nexus_ipc::reqrep::FrameStash;
+use nexus_abi::{self, AbiError, IpcError, Rights};
 use nexus_log::{LineBuilder, StrRef};
 
 pub(crate) fn watchdog_limit_ticks() -> Option<usize> {

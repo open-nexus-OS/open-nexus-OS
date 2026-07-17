@@ -96,7 +96,11 @@ pub struct VirtioGpuBackend {
     /// `GET_DISPLAY_INFO` (QEMU: `xres=`/`yres=`), falling back to 1280×800.
     /// The RESOURCE layout (plane rows, strides, atlas budget) stays at the
     /// fixed maximum — this is the visible sub-rect the compositor targets.
+    /// (Read by the os-lite service/present paths and the virgl scanout; the
+    /// host slice only constructs the backend, hence the scoped allow.)
+    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
     pub(crate) display_w: u32,
+    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
     pub(crate) display_h: u32,
     /// True when virgl GPU acceleration is detected at probe time.
     /// Requires `virgl` feature + QEMU `-device virtio-gpu-pci,virgl=on`.
@@ -152,11 +156,17 @@ pub struct VirtioGpuBackend {
     /// on every display backend). `cursor_ox/oy` are the screen-space top-left of
     /// the drawn sprite; `cursor_saveunder` holds the scene pixels it covers.
     cursor_owned: bool,
+    // The paint/unpaint/suspend cursor paths live in os-lite-only methods
+    // (backend/cursor.rs); host builds only initialize these fields.
+    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
     cursor_drawn: bool,
+    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
     cursor_suspended: bool,
     pub(crate) cursor_ox: i32,
     pub(crate) cursor_oy: i32,
+    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
     cursor_dw: u32,
+    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
     cursor_dh: u32,
     /// Frame counter for the build-up spin-blur demo animation (incremented each
     /// build-up present; drives a circular panel offset so the blur re-computes

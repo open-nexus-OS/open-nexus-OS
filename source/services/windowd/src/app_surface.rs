@@ -58,6 +58,7 @@ pub enum AppSurfaceError {
     /// The instance already has a resident surface.
     AlreadyMounted,
     /// No slot for the given instance.
+    #[allow(dead_code)] // declared registry error vocabulary (widget-promotion seam)
     UnknownInstance,
 }
 

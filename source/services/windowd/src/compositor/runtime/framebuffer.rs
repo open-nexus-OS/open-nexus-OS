@@ -98,6 +98,9 @@ impl DisplayServerRuntime {
     }
 
     /// Phase 4: byte offset into VMO for the current display slot.
+    /// (Slot-flip contract companion of `current_display_slot`; the current
+    /// present path scans out slot A only.)
+    #[allow(dead_code)]
     pub(super) fn current_display_offset(&self) -> usize {
         if self.current_display_slot == 0 {
             super::DISPLAY_OFFSET_BYTES
@@ -293,6 +296,9 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// (Bootstrap fast-path variant superseded by the reveal-latch flow; keeps
+    /// the documented pre-handoff frame contract.)
+    #[allow(dead_code)]
     pub(super) fn write_fast_bootstrap_frame(&mut self) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
             return Ok(());
@@ -354,6 +360,9 @@ impl DisplayServerRuntime {
     /// Returns true when at least one animation is active and needs driving.
     /// Send the framebuffer VMO to gpud for zero-copy GPU scanout.
     /// Returns true only after gpud accepted the VMO handoff.
+    /// (Blocking-ack handoff variant; the boot path uses the id-less handoff.
+    /// Kept: documents the OP_SET_FRAMEBUFFER_VMO accept contract.)
+    #[allow(dead_code)]
     pub(super) fn try_handoff_framebuffer_to_gpud(&mut self, fb_handle: Handle) -> bool {
         if !self.ensure_gpud_client() {
             return false;

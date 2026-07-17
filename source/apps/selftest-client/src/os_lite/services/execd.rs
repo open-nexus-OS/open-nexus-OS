@@ -128,6 +128,7 @@ pub(crate) fn execd_spawn_image(
     }
 }
 
+#[allow(dead_code)] // crash-dump/exit-report wire-protocol helper: documents the frame encoding; ladder wiring pending
 pub(crate) fn execd_spawn_image_raw_requester(
     execd: &KernelClient,
     requester: &str,
@@ -156,6 +157,7 @@ pub(crate) fn execd_spawn_image_raw_requester(
     execd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())
 }
 
+#[allow(dead_code)] // crash-dump/exit-report wire-protocol helper: documents the frame encoding; ladder wiring pending
 pub(crate) fn execd_report_exit_with_dump_status(
     execd: &KernelClient,
     pid: Pid,
@@ -207,6 +209,7 @@ pub(crate) fn execd_report_exit_with_dump_status(
     Ok(rsp[4])
 }
 
+#[allow(dead_code)] // crash-dump/exit-report wire-protocol helper: documents the frame encoding; ladder wiring pending
 pub(crate) fn execd_report_exit_with_dump_status_legacy(
     execd: &KernelClient,
     pid: Pid,
@@ -248,6 +251,7 @@ pub(crate) fn execd_report_exit_with_dump_status_legacy(
     Ok(rsp[4])
 }
 
+#[allow(dead_code)] // crash-dump/exit-report wire-protocol helper: documents the frame encoding; ladder wiring pending
 pub(crate) fn execd_report_exit_with_dump(
     execd: &KernelClient,
     pid: Pid,
@@ -265,6 +269,7 @@ pub(crate) fn execd_report_exit_with_dump(
     Ok(())
 }
 
+#[allow(dead_code)] // crash-dump/exit-report wire-protocol helper: documents the frame encoding; ladder wiring pending
 pub(crate) fn wait_for_pid(execd: &KernelClient, pid: Pid) -> Option<i32> {
     // Execd IPC v1:
     // Wait:     [E, X, ver, OP_WAIT_PID=3, pid:u32le]
@@ -326,6 +331,7 @@ pub(crate) fn wait_for_pid(execd: &KernelClient, pid: Pid) -> Option<i32> {
     None
 }
 
+#[allow(dead_code)] // crash-dump/exit-report wire-protocol helper: documents the frame encoding; ladder wiring pending
 pub(crate) fn emit_line_with_pid_status(pid: Pid, status: i32) {
     // Format without fmt/alloc: "execd: child exited pid=<dec> code=<dec>"
     emit_bytes(b"execd: child exited pid=");

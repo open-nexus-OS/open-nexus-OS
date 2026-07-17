@@ -12,7 +12,6 @@
 //! state (a child module of `runtime` may read the parent's private fields).
 
 use super::*;
-use crate::markers::*;
 
 /// RFC-0068: emit a routine windowd STATUS marker that folds into the interactive grid view (recall
 /// with `NEXUS_LOG_EXPAND=windowd`) and prints raw in proof boots (folding off → `verify-uart` sees

@@ -314,7 +314,10 @@ declare -A PHASE_END_MARKER=(
   ["end"]="SELFTEST: end"
 )
 
+# hidrawd emits payload-ready unconditionally at service start (device probe
+# happens later), so all three input services belong in the base ladder.
 declare -a INPUT_STARTUP_MARKERS=(
+  "hidrawd: os service payload ready"
   "touchd: os service payload ready"
   "inputd: os service payload ready"
 )

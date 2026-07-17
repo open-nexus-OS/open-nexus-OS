@@ -35,7 +35,6 @@ use crate::compositor::damage::DamageRect;
 use crate::compositor::{
     DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT, DISPLAY_ROW_OFFSET, RETAINED_ROW_OFFSET,
 };
-use crate::error::WindowdError;
 use nexus_gfx::{BackdropCache, Layer, LayerBackdrop, LayerShadow, RenderCommandEncoder};
 
 /// Shadow-halo margin around the window when computing its damage rect, so the
@@ -124,6 +123,9 @@ pub(crate) struct ShellWindow {
     /// Floating frame remembered while fullscreen, restored on toggle-off.
     pub(crate) fullscreen_restore: Option<(i32, i32, u32, u32)>,
     /// Scroll offset of the body list (rows, for now; GPU-offset in W2).
+    /// (Wheel routing rides the GPU layer-scroll path today; the CPU offset
+    /// stays as the W2 contract field.)
+    #[allow(dead_code)]
     pub(crate) scroll: u32,
     /// Set when the atlas surface needs re-rasterizing (filter/scroll/hover).
     pub(crate) surface_dirty: bool,
@@ -254,11 +256,6 @@ impl ShellWindow {
         if let Some((x, y, w, h)) = self.fullscreen_restore.take() {
             self.set_frame(x, y, w, h);
         }
-    }
-
-    /// Resolve a primary press to a window region.
-    pub(crate) fn press(&self, cx: i32, cy: i32) -> WindowPress {
-        self.frame().press(cx, cy)
     }
 
     /// Begin a title-bar drag at the press point.

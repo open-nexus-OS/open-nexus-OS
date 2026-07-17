@@ -304,6 +304,9 @@ impl DisplayServerRuntime {
     /// live UI immediately, then persist the new mode via settingsd so it survives
     /// a reboot. The live switch already happened, so a transport failure only
     /// misses persistence — never blocks the UI.
+    /// (Settings-panel toggle path — the live switch now arrives via settingsd
+    /// push; kept: documents the switch-then-persist ordering contract.)
+    #[allow(dead_code)]
     pub(super) fn toggle_theme(&mut self) {
         let next = self.theme_mode.toggled();
         self.set_theme_mode(next);

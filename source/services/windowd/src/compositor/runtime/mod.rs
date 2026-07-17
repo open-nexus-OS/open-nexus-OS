@@ -15,23 +15,14 @@ use super::filter::filter_layout_variant_index;
 use super::scene::copy_scene_row;
 use super::source::build_cover_luts;
 use super::tile_map::TileMap;
-use super::types::{
-    FixedDebugLine, ProofBoxRect, ProofCard, ProofPaintPart, ProofPaintRole, RenderClip,
-    SourceFrame,
-};
+use super::types::{RenderClip, SourceFrame};
 use super::{
-    BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, BLUR_CACHE_ROW_OFFSET,
-    BUTTON_BLUR_CACHE_ABS_ROW, BUTTON_BLUR_CACHE_ABS_X, CHAT_SHADOW_ALPHA, CHAT_SHADOW_BLUR,
-    CHAT_SHADOW_OFFSET_Y, COMBINED_PANEL_WIDTH, DARK_GLASS_BLUR_RADIUS,
-    DARK_GLASS_SATURATION_PERCENT, DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES, DISPLAY_ROW_OFFSET,
-    DISPLAY_WIDTH, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
-    LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
-    PROOF_PANEL_H, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET, ROUTE_NAME, ROW_WRITE_CHUNK,
-    SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SIDEBAR_REST_X, USE_DESKTOP_SHELL,
+    COMBINED_PANEL_WIDTH, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT, DISPLAY_HEIGHT,
+    DISPLAY_OFFSET_BYTES, DISPLAY_WIDTH, PROOF_PANEL_H, RETAINED_OFFSET_BYTES,
+    RETAINED_ROW_OFFSET, ROW_WRITE_CHUNK, USE_DESKTOP_SHELL,
 };
 use crate::compositor::damage::{
-    premerge_damage_rects, select_glass_quality, DamageRect, GlassQuality, LayoutHotPathIndex,
-    TargetDamage,
+    premerge_damage_rects, select_glass_quality, DamageRect, GlassQuality,
 };
 use crate::error::WindowdError;
 use crate::geometry::checked_stride;
@@ -39,23 +30,20 @@ use crate::ids::CallerCtx;
 use crate::markers::*;
 use crate::smoke::VisibleBootstrapMode;
 use crate::systemui_shell::{DeviceProfile, SystemUiShell};
-use crate::telemetry::WindowdDisplayTelemetryReport;
 use alloc::vec::Vec;
-use animation::{AnimProp, AnimationDriver, LayerId, SceneUpdate, ScrollConfig, ScrollMomentum};
-use core::fmt::Write as _;
+use animation::{AnimProp, AnimationDriver, SceneUpdate, ScrollConfig, ScrollMomentum};
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
-use nexus_abi::{cap_clone, debug_println, debug_trace, nsec, vmo_write, Handle};
+use nexus_abi::{debug_println, debug_trace, nsec, vmo_write, Handle};
 use nexus_gfx::command::buffer::RgbaColor;
 use nexus_gfx::{
     BackdropCache, CommandBuffer, Layer, LayerBackdrop, LayerShadow, PipelineTimer, RenderPassDesc,
     TileRect,
 };
 use nexus_ipc::{Client as _, KernelClient, Wait};
-use nexus_layout::LayoutResult;
-use nexus_layout_types::{FxPx, PathPoint};
 
 // Gate 2: the windowd↔gpud wire is the shared SSOT in `nexus-display-proto`;
 // these local names just re-source its values (no more hand-mirroring gpud).
+// (Both ops are consumed by the allow-annotated GPU animation/handoff paths.)
 const GPU_ANIMATION_SUBMIT_OP: u8 = nexus_display_proto::OP_SUBMIT_ANIMATION_FRAME;
 const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = nexus_display_proto::OP_SET_FRAMEBUFFER_VMO;
 const GPU_PRESENT_DAMAGE_OP: u8 = nexus_display_proto::OP_PRESENT_DAMAGE;
@@ -79,10 +67,9 @@ const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
 // Interactive geometry lives in `interaction` — the single source of truth shared
 // by the live renderer and the hit-tester (hit area == rendered rect).
-use crate::interaction::{
-    GLASS_BUTTON_H, GLASS_BUTTON_RADIUS, GLASS_BUTTON_RIGHT, GLASS_BUTTON_TOP, GLASS_BUTTON_W,
-    LUCIDE_ICON_SIZE, SIDEBAR_MARGIN_BOTTOM, SIDEBAR_MARGIN_TOP, SIDEBAR_RADIUS, SIDEBAR_WIDTH,
-};
+use crate::interaction::SIDEBAR_WIDTH;
+// Bounded scratch contract for the (currently gpud-sampled) glass overlay strip.
+#[allow(dead_code)]
 const GLASS_OVERLAY_MAX_BYTES: usize = SIDEBAR_WIDTH as usize * 4;
 const ANIMATION_UPDATE_CAP: usize = 8;
 
@@ -159,10 +146,6 @@ fn encode_gpud_damage_frame(rect: DamageRect) -> [u8; 17] {
 
 fn encode_gpud_attach_frame(handoff_id: u32) -> [u8; 5] {
     nexus_display_proto::encode_attach_frame(handoff_id)
-}
-
-fn decode_gpud_handoff_id(reply: &[u8]) -> Option<u32> {
-    nexus_display_proto::decode_handoff_id(reply)
 }
 
 #[derive(Clone, Copy)]
@@ -384,6 +367,8 @@ pub(crate) struct DisplayServerRuntime {
     framebuffer: Option<Handle>,
     band_scratch: Vec<u8>,
     /// Temporary row buffer for horizontal blur (zero-copy — allocated once).
+    /// (Blur-cache architecture state; current present path blurs on gpud.)
+    #[allow(dead_code)]
     blur_row_buf: Vec<u8>,
     state: VisibleState,
     observer_state: VisibleState,
@@ -414,6 +399,9 @@ pub(crate) struct DisplayServerRuntime {
     /// Whether clipping marker was emitted.
     clipping_marker_emitted: bool,
     /// Whether scroll marker was emitted.
+    /// (Marker latch retained for the scroll proof ladder; live path uses the
+    /// live_scroll variant below.)
+    #[allow(dead_code)]
     scroll_marker_emitted: bool,
     /// Whether live scroll marker was emitted.
     live_scroll_marker_emitted: bool,
@@ -429,6 +417,9 @@ pub(crate) struct DisplayServerRuntime {
     animation_proof: AnimationProofState,
     gpud_client: Option<KernelClient>,
     /// Pipeline performance timer with Soll-gate validation.
+    /// (Perf-diagnostic plumbing — sampled by the deferred present-slowdown
+    /// investigation, not on the steady-state path.)
+    #[allow(dead_code)]
     pipeline_timer: PipelineTimer,
     /// Persistent per-frame command buffer. Reused (cleared, not dropped) every
     /// frame so the GPU-first present path records its ~15 commands without any
@@ -461,6 +452,9 @@ pub(crate) struct DisplayServerRuntime {
     /// Latch so a backpressured present logs its failure ONCE per episode instead
     /// of every retry (which would flood the UART at ~120 Hz during the very stall
     /// we want to read). Cleared on the next successful send.
+    /// (Latch contract for the damage-present path; whole-scene CB present
+    /// reports failures through log_gpud_ipc_error today.)
+    #[allow(dead_code)]
     present_fail_reported: bool,
     /// P0.3 self-heal: consecutive present NACKs from gpud (deadline-missed /
     /// lost-command frames). Each NACK requeues full-frame damage; the budget
@@ -482,6 +476,9 @@ pub(crate) struct DisplayServerRuntime {
     desktop_dirty_rows: (u32, u32),
     /// Phase 4: active frame ring slot (0 = Plane 2 / slot A, 1 = Plane 3 / slot B).
     /// Toggled after each successful present. gpud scanout follows on swap.
+    /// (Slot-flip contract documented for the double-buffered present; the
+    /// current path scans out slot A only.)
+    #[allow(dead_code)]
     current_display_slot: u8,
     /// handoff ID for the initial framebuffer VMO transfer to gpud.
     first_handoff_id: u32,
@@ -683,6 +680,7 @@ struct InputMarkerState {
 /// `new()` return a generic error → `windowd: init fail display-server` with no
 /// hint which surface overflowed → the bootsplash stays and the cause is a hunt.
 /// This turns it into one actionable log line (RFC-0066 "actionable errors").
+#[allow(dead_code)] // RFC-0066 actionable-error variant of atlas.alloc_band; call sites use alloc_band directly today
 fn alloc_band_or_log(
     atlas: &mut crate::atlas::AtlasAllocator,
     rows: u32,
@@ -702,6 +700,7 @@ fn alloc_band_or_log(
 
 impl DisplayServerRuntime {
     /// The fixed-maximum 1280×800 mode (tests + host harness).
+    #[allow(dead_code)] // harness/tests entry; the boot path always enters via new_with_mode
     pub(crate) fn new() -> Result<Self, WindowdError> {
         Self::new_with_mode(crate::compositor::DISPLAY_WIDTH, crate::compositor::DISPLAY_HEIGHT)
     }
@@ -810,7 +809,7 @@ impl DisplayServerRuntime {
         // that UI). Bands are acquired on demand: the DESKTOP surface + the
         // floating app window allocate from the free pool; a closed window
         // costs zero rows.
-        let mut atlas = crate::atlas::AtlasAllocator::new();
+        let atlas = crate::atlas::AtlasAllocator::new();
 
         Ok(Self {
             mode,

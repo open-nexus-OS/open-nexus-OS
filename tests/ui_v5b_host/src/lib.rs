@@ -188,7 +188,6 @@ mod tests {
             items: Vec<Option<String>>,
             heights: Vec<u32>,
             inflight: bool,
-            page_size: usize,
         }
 
         impl TestMessageProvider {
@@ -197,7 +196,6 @@ mod tests {
                     items: (0..count).map(|i| Some(format!("message {}", i))).collect(),
                     heights: (0..count).map(|i| if i % 7 == 0 { 72 } else { 48 }).collect(),
                     inflight: false,
-                    page_size: 20,
                 }
             }
 
@@ -214,7 +212,6 @@ mod tests {
                         })
                         .collect(),
                     inflight: false,
-                    page_size: 20,
                 }
             }
         }
@@ -248,7 +245,7 @@ mod tests {
         #[test]
         fn virtual_list_with_1000_items_small_viewport() {
             let provider = TestMessageProvider::new(1000);
-            let mut list = VirtualList::new(
+            let list = VirtualList::new(
                 provider,
                 FxPx::new(400), // small viewport
                 VirtualListConfig::default(),
@@ -398,8 +395,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     mod theme {
-        use nexus_theme::{Qualifier, ThemeRegistry};
-        use std::path::Path;
+        use nexus_theme::Qualifier;
 
         #[test]
         fn qualifier_resolution_chain_base() {

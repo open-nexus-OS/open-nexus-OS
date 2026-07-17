@@ -699,7 +699,14 @@ impl VirtioGpuBackend {
                     // `scroll_id` + the scroll-band bounds only drive the virgl
                     // RT-direct fast path below.
                     #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
-                    let _ = (scroll_id, scroll_band_top_abs, scroll_band_h, layer_id);
+                    let _ = (
+                        scroll_id,
+                        scroll_band_top_abs,
+                        scroll_band_h,
+                        layer_id,
+                        content_w,
+                        content_h,
+                    );
                     // RT-direct (Increment 1): defer non-glass layers and
                     // composite them straight onto the scanout RT after the base
                     // upload — no VMO render + re-upload. Glass (backdrop_blur>0)

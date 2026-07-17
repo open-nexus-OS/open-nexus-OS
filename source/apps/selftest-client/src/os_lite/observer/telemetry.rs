@@ -10,6 +10,11 @@
 //! Reads compose_hz, present_hz, frame latency, and visible input state
 //! from the display pipeline without initiating control-plane IPC.
 
+// RFC-0061 M4 pure-observer toolkit (telemetry-poller): declared observer API surface,
+// kept per ADR-0027 until the observer ladder wires it in — module-scoped
+// allow, not crate-level (repo rule).
+#![allow(dead_code)]
+
 use input_live_protocol::VisibleState;
 
 /// Snapshot of observed display telemetry.

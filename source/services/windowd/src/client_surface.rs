@@ -79,6 +79,7 @@ impl ClientSurfaces {
     /// single-surface render path (retired as the runtime models N windows);
     /// new code addresses surfaces explicitly with [`Self::get_by_id`].
     #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))] // documented back-compat accessor, exercised by host unit tests
     pub fn get(&self) -> Option<&ClientSurface> {
         self.surfaces.iter().flatten().next()
     }
@@ -91,13 +92,9 @@ impl ClientSurfaces {
 
     /// Number of resident surfaces.
     #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))] // registry vocabulary, exercised by host unit tests
     pub fn count(&self) -> usize {
         self.surfaces.iter().flatten().count()
-    }
-
-    /// Iterate the resident surfaces (compositor walks these to compose windows).
-    pub fn iter(&self) -> impl Iterator<Item = &ClientSurface> {
-        self.surfaces.iter().flatten()
     }
 
     /// Validates and registers a surface in a free slot. Returns the new surface

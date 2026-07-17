@@ -246,6 +246,7 @@ pub(crate) fn statefs_persist(client: &KernelClient) -> core::result::Result<(),
     Ok(())
 }
 
+#[allow(dead_code)] // statefs crash-dump contract helper: documents dump paths/cap grants; ladder wiring pending
 pub(crate) fn statefs_has_crash_dump(client: &KernelClient) -> core::result::Result<bool, ()> {
     const CHILD_DUMP_PATH: &str = "/state/crash/child.demo.minidump.nmd";
     let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_DUMP_PATH)
@@ -254,6 +255,7 @@ pub(crate) fn statefs_has_crash_dump(client: &KernelClient) -> core::result::Res
     Ok(statefs_proto::decode_get_response(&rsp).is_ok())
 }
 
+#[allow(dead_code)] // statefs crash-dump contract helper: documents dump paths/cap grants; ladder wiring pending
 pub(crate) fn grant_statefs_caps_to_child(
     statefs: &KernelClient,
     child_pid: Pid,
@@ -280,6 +282,7 @@ pub(crate) fn grant_statefs_caps_to_child(
     Ok(())
 }
 
+#[allow(dead_code)] // statefs crash-dump contract helper: documents dump paths/cap grants; ladder wiring pending
 pub(crate) fn locate_minidump_for_crash(
     client: &KernelClient,
     pid: Pid,

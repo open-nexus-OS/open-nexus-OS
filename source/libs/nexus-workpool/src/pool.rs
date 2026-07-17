@@ -30,10 +30,15 @@ pub const MAX_WORKERS: usize = 4;
 // and a static-array stack overflows SILENTLY into neighbouring .bss (the
 // known three-stack-cliff failure mode). The canary below turns the silent
 // cliff into a loud, attributable error.
+// Only consumed by the OS-side worker spawn path below; host builds compile
+// the API surface without the static stacks.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 const WORKER_STACK_BYTES: usize = 64 * 1024;
 
 /// Written at the LOW end of each worker stack before spawn; checked after
 /// every run. A dead canary = the worker overflowed its stack.
+/// (OS-only like the worker stacks themselves.)
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 const STACK_CANARY: u64 = 0xDEAD_5AFE_CAFE_F00D;
 
 /// Job function contract: process items `[start, end)`; `ctx` is the raw
@@ -87,19 +92,30 @@ struct Shared {
     state: AtomicUsize,
     workers: AtomicUsize,
     /// Job descriptor (valid while state == RUNNING for the current seq).
+    /// Read only by the OS-side worker entry loop; host builds never spawn
+    /// workers, so the fields are write-only there.
+    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
     job_fn: AtomicUsize,
+    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
     job_ctx: AtomicUsize,
+    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
     job_total: AtomicUsize,
     /// Monotonic job sequence; fence targets equal this value.
+    /// (Like the job descriptor above: read on the OS-side worker/run paths.)
+    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
     seq: AtomicU64,
     /// Workers that finished the current seq.
     done_count: AtomicUsize,
     /// Per-worker fence cap slots (in the WORKER's cap table), published
     /// before the worker is resumed.
+    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
     worker_job_slot: [AtomicUsize; MAX_WORKERS],
+    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
     worker_done_slot: [AtomicUsize; MAX_WORKERS],
     /// Parent-side fence cap slots.
+    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
     parent_job_slot: AtomicUsize,
+    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
     parent_done_slot: AtomicUsize,
     /// Diagnostics: workers that reached their entry loop.
     alive: [AtomicUsize; MAX_WORKERS],

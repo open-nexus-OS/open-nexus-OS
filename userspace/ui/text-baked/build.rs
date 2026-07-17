@@ -85,6 +85,8 @@ fn emit_glyph_atlas(
     writeln!(generated, "pub const {name}_ASCENT: i32 = {ascent};")?;
     writeln!(generated, "pub const {name}_LINE_H: u32 = {line_h};")?;
     writeln!(generated, "pub const {name}_AVG_ADVANCE: u32 = {};", advance_sum / n)?;
+    // Part of the baked font metrics API surface; not every consumer reads it.
+    writeln!(generated, "#[allow(dead_code)]")?;
     writeln!(generated, "pub const {name}_MAX_ADVANCE: u32 = {advance_max};")?;
     writeln!(
         generated,

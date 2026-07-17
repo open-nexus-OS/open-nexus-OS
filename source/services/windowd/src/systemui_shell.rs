@@ -14,7 +14,7 @@
 //! STATUS: Phase 8 — contract definition, TASK-0063 proof panel + sidebar
 //! API_STABILITY: Locked for DSL/SystemUI migration
 
-use crate::scene_graph::{InvalidationClass, RenderPrimitive, SceneGraph, SceneNode, SceneNodeId};
+use crate::scene_graph::{RenderPrimitive, SceneGraph, SceneNode, SceneNodeId};
 use animation::LayerId;
 use nexus_layout_types::{BoxShadow, FxPx, Rect, Rgba8};
 
@@ -64,10 +64,17 @@ impl DeviceProfile {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShellMode {
     Desktop,
+    // Declared device-class vocabulary (configurable-shell contract): only the
+    // desktop profile is wired today; the variants are the product surface.
+    #[allow(dead_code)]
     Tablet,
+    #[allow(dead_code)]
     Phone,
+    #[allow(dead_code)]
     Automotive,
+    #[allow(dead_code)]
     Tv,
+    #[allow(dead_code)]
     Headless,
 }
 
@@ -114,9 +121,15 @@ const CARD_RADIUS: u32 = 12;
 const CARD_ICON_SIZE: u32 = 24;
 
 // ── Card slot indices ────────────────────────────────────────────────
+// Declared card-slot vocabulary of the proof panel (contract definition,
+// Phase 8); the runtime addresses cards positionally today.
+#[allow(dead_code)]
 const CARD_HOVER: usize = 0;
+#[allow(dead_code)]
 const CARD_CLICK: usize = 1;
+#[allow(dead_code)]
 const CARD_KEYBOARD: usize = 2;
+#[allow(dead_code)]
 const CARD_SCROLL: usize = 3;
 
 // ---------------------------------------------------------------------------
@@ -614,15 +627,11 @@ impl SystemUiShell {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // scene-graph cursor hook, exercised by host unit tests
     pub(crate) fn update_cursor(&mut self, x: i32, y: i32) {
         self.graph.set_position(self.cursor_id, x, y);
     }
 
-    // ── Mount helpers ────────────────────────────────────────────────
-
-    pub(crate) fn mount_proof_panel(&mut self) -> SceneNodeId {
-        self.proof_panel_id
-    }
 }
 
 // ── Helper: insert a node with common defaults ──────────────────────
@@ -652,6 +661,7 @@ fn insert_node(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scene_graph::InvalidationClass;
 
     #[test]
     fn shell_creates_all_nodes() {
