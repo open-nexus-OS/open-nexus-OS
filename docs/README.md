@@ -27,7 +27,7 @@ task ledger wins for status, the RFC wins for the contract.
 | [`supplychain/`](supplychain/) | Reproducibility, SBOM, signing policy |
 
 Agent guidance lives at the repo root: `CLAUDE.md` (SSOT) and `AGENTS.md`
-(pointer). Run logs and their decode reference: `build/logs/README.md`.
+(pointer). Run logs and their decode reference: `docs/testing/run-logs.md`.
 
 ## Repository layout
 
@@ -69,4 +69,4 @@ Agent guidance lives at the repo root: `CLAUDE.md` (SSOT) and `AGENTS.md`
   system apps.
 - **Boot-gate guidance**: RFC-0013 defines readiness vs ready, spawn failure
   reasons, and resource/leak sentinels; diagnostics via
-  `testing/README.md` and `build/logs/README.md`.
+  `testing/README.md` and `docs/testing/run-logs.md`.

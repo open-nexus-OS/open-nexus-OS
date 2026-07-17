@@ -6,7 +6,6 @@
 
 #![allow(clippy::unwrap_used)]
 
-mod dsl_mount;
 mod gpud;
 mod hidrawd;
 mod inputd;
@@ -14,8 +13,6 @@ mod windowd;
 
 use crate::chain::ServiceId;
 
-#[allow(unused_imports)]
-pub use dsl_mount::{DslMountContract, DSL_ATLAS_ROWS_NEEDED, DSL_WIN_H, DSL_WIN_W};
 #[allow(unused_imports)]
 pub use gpud::GpudContract;
 #[allow(unused_imports)]

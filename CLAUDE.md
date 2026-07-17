@@ -35,7 +35,7 @@ just help         # full task catalog
 ```
 
 - QEMU/build logs land in `build/logs/<profile>--<timestamp>/`
-  (`uart.log`, `hypothesis.json`; decode via `build/logs/README.md`;
+  (`uart.log`, `hypothesis.json`; decode via `docs/testing/run-logs.md`;
   `build/logs/latest` symlink; prune with `just logs-gc`).
 - Formatting: **never plain `cargo fmt`** — config lives in
   `config/rustfmt.toml`. Approved commands:

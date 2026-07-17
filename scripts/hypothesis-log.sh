@@ -11,7 +11,7 @@
 #
 # Usage: hypothesis-log.sh <hypothesisId> <location> <message> [data-json]
 # No-op unless HYPOTHESIS_LOG is set. Record schema matches the writers in
-# scripts/qemu-test.sh / scripts/build.sh; decode via build/logs/README.md.
+# scripts/qemu-test.sh / scripts/build.sh; decode via docs/testing/run-logs.md.
 
 set -euo pipefail
 [[ -z "${HYPOTHESIS_LOG:-}" ]] && exit 0

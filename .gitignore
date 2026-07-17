@@ -1,4 +1,5 @@
-# Build artifacts
+# Build artifacts. Run-log layout + hypothesis grid are documented in
+# docs/testing/run-logs.md (build/ is fully disposable, e.g. via make clean).
 /target/
 /**/target/
 /build/
@@ -74,4 +75,3 @@ tmp*.rs
 # covered by /target/). Keep .tmp/ ignored to absorb any leftover
 # scratch from earlier replay runs.
 .tmp/
-build/logs/

@@ -260,6 +260,20 @@ ci-os-runtime-none:
 os2vm:
     @RUN_OS2VM=1 RUN_TIMEOUT=${RUN_TIMEOUT:-180s} tools/os2vm.sh
 
+# 2-VM harness as a gating test: runs the harness (exit code = harness result)
+# and reconciles the os2vm marker group against the node-A uart log.
+test-os2vm:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    RUN_OS2VM=1 RUN_TIMEOUT=${RUN_TIMEOUT:-180s} tools/os2vm.sh
+    latest=$(ls -dt build/logs/os2vm--* 2>/dev/null | head -1)
+    [[ -n "$latest" ]] || { echo "[error] no build/logs/os2vm--* run dir found" >&2; exit 1; }
+    bash scripts/check-chain-markers.sh --log "$latest/uart-A.txt" --groups os2vm
+
+# Reconcile the chain-marker contract against a uart log (default: latest run).
+check-markers log="build/logs/latest/uart.log":
+    bash scripts/check-chain-markers.sh --log {{log}}
+
 os2vm-pcap:
     @RUN_OS2VM=1 OS2VM_PCAP=1 RUN_TIMEOUT=${RUN_TIMEOUT:-180s} tools/os2vm.sh
 
@@ -489,7 +503,7 @@ dep-gate: arch-gate
 
 # -----------------------------------------------------------------------------
 # Log retention — build/logs/ grows one dir per QEMU run (<profile>--<timestamp>).
-# Keep the newest N runs per profile prefix; `latest` symlink and README survive.
+# Keep the newest N runs per profile prefix; the `latest` symlink survives.
 # -----------------------------------------------------------------------------
 logs-gc keep="5":
     #!/usr/bin/env bash

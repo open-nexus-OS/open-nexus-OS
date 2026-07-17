@@ -28,7 +28,7 @@ enforced by `scripts/qemu-test.sh`.
    harness reported as missing; `build/logs/latest` can be stale, prefer the
    newest `<profile>--<ts>` dir by timestamp.
 2. `build/logs/latest/hypothesis.json` — NDJSON triage records; decode
-   `hypothesisId` via `build/logs/README.md` (H4 = build errors,
+   `hypothesisId` via `docs/testing/run-logs.md` (H4 = build errors,
    H4b = per-service compiler warnings, H5 = gate steps).
 3. `qemu.stderr` / `build.stderr` in the same dir for harness-level failures.
 

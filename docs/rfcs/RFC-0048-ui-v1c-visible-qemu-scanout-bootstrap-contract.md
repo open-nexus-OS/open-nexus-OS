@@ -1,6 +1,12 @@
 # RFC-0048: UI v1c visible QEMU scanout bootstrap contract seed
 
 - Status: Superseded (by RFC-0059 Phase 6 — GPU-only architecture, fbdevd/ramfb removed)
+
+> Note (2026-07 repo hygiene): the `visible-bootstrap` harness profile and the
+> `test-os-visible-pci` recipe were removed. Headless GPU-chain coverage lives in
+> `just ci-os-display-gpu-pci`; interactive visible boots in `just start`. The
+> proof commands below are historical records of the completed phases.
+
 - Owners: @ui @runtime
 - Created: 2026-04-29
 - Last Updated: 2026-06-02

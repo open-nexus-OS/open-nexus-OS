@@ -1714,4 +1714,15 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
   fi
 fi
 
+# Chain-marker contract reconciliation (tools/nx/chains/markers.txt): the
+# simulated chain tests and the real boot must agree on the hop markers.
+# MARKER_CONTRACT=0 disables (e.g. for exotic manual profiles).
+if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
+  case "${PROFILE:-full}" in
+    headless|full|smp|display-gpu)
+      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input,gpu,display || exit 1
+      ;;
+  esac
+fi
+
 echo "SELFTEST: Completed (markers verified)" >&2

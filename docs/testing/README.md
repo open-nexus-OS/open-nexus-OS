@@ -77,7 +77,7 @@ The complete just-target catalog (incl. per-TASK proof floors) lives in [os-mark
 
 ## Test logs
 
-All test/QEMU runs write to `build/logs/<profile>--<timestamp>/` (`latest` symlink can be stale — prefer the newest run directory). See [`build/logs/README.md`](../../build/logs/README.md) for the run-directory layout, the `hypothesis.json` decode grid (H1..H5, H4 = build errors, H4b = build warnings, …), and `just logs-gc [keep]` pruning.
+All test/QEMU runs write to `build/logs/<profile>--<timestamp>/` (`latest` symlink can be stale — prefer the newest run directory). See [`docs/testing/run-logs.md`](run-logs.md) for the run-directory layout, the `hypothesis.json` decode grid (H1..H5, H4 = build errors, H4b = build warnings, …), and `just logs-gc [keep]` pruning.
 
 ## Document map
 

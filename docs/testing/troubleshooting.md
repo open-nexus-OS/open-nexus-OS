@@ -31,4 +31,4 @@ Keep this guide focused on the global testing framework; use the SSOT document f
 
 ### Test log structure
 
-All test/QEMU runs write to `build/logs/<profile>--<timestamp>/` (the `latest` symlink can be stale). See [`build/logs/README.md`](../../build/logs/README.md) for the run-directory layout, the `hypothesis.json` decode grid, and `just logs-gc [keep]` pruning.
+All test/QEMU runs write to `build/logs/<profile>--<timestamp>/` (the `latest` symlink can be stale). See [`docs/testing/run-logs.md`](run-logs.md) for the run-directory layout, the `hypothesis.json` decode grid, and `just logs-gc [keep]` pruning.

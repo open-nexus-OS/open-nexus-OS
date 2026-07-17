@@ -189,3 +189,44 @@ fn sim_ipc_bus_records_timeline() {
     let timeline = bus.timeline();
     assert!(timeline.len() >= 3);
 }
+
+// ═══════════════════════════════════════════════════════════
+// Test: marker-contract coverage (tools/nx/chains/markers.txt)
+// ═══════════════════════════════════════════════════════════
+
+/// Every marker in the chain contract file (except the harness-emitted
+/// `os2vm` group) must be emitted by a simulated service contract under
+/// `src/chain/contract/`. This couples the SSOT file to the simulations at
+/// compile time; `scripts/check-chain-markers.sh` couples it to the real
+/// boot's uart.log. Together they prevent the sim and reality from drifting.
+#[test]
+fn contract_covers_markers() {
+    const CONTRACT: &str = include_str!("../../chains/markers.txt");
+    const SIM_SOURCES: &[&str] = &[
+        include_str!("contract/hidrawd.rs"),
+        include_str!("contract/inputd.rs"),
+        include_str!("contract/gpud.rs"),
+        include_str!("contract/windowd.rs"),
+    ];
+
+    let mut group = String::new();
+    let mut missing = Vec::new();
+    for line in CONTRACT.lines() {
+        if let Some(g) = line.strip_prefix("# group: ") {
+            group = g.split_whitespace().next().unwrap_or("").to_string();
+            continue;
+        }
+        if line.is_empty() || line.starts_with('#') || group == "os2vm" {
+            continue;
+        }
+        let covered = SIM_SOURCES.iter().any(|src| src.contains(line));
+        if !covered {
+            missing.push(format!("[{group}] {line}"));
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "markers.txt entries not emitted by any chain contract simulation:\n{}",
+        missing.join("\n")
+    );
+}

@@ -1,0 +1,40 @@
+# Chain-marker contract (SSOT) — tools/nx/chains/markers.txt
+#
+# One UART marker per line. Consumed twice:
+#   1. tools/nx chain tests (`contract_covers_markers` in src/chain/tests.rs):
+#      every marker here (except the harness-emitted os2vm group) must be
+#      emitted by a simulated service contract under src/chain/contract/.
+#   2. scripts/check-chain-markers.sh: greps each marker against a real
+#      QEMU uart.log (wired into scripts/qemu-test.sh proof profiles;
+#      MARKER_CONTRACT=0 disables) — reconciling the simulation with the
+#      real boot so the two can never silently drift apart.
+#
+# Changing a marker string means updating the emitting service, this file,
+# the chain contract simulation, and the proof manifest together.
+
+# group: input — hidrawd → inputd → windowd (RFC-0053 live-input path)
+hidrawd: chain I1 device event (raw HID polled)
+hidrawd: chain I2 wire sent to inputd
+inputd: chain I3 wire recv from hidrawd
+inputd: chain I4 normalized
+inputd: chain I5 delivered to windowd
+windowd: chain I6 input recv (state applied)
+
+# group: gpu — gpud present-damage → parse → batch → exec → scanout (ADR-0032)
+gpud: chain G1 recv present-damage
+gpud: chain G2 parse ok
+gpud: chain G3 exec ok (commands applied)
+gpud: chain G3b batch submit ok (present enqueued)
+gpud: chain G3c batch complete (drained)
+gpud: chain G4 scanout ok (frame presented)
+
+# group: display — compositor first-frame handshake (backend-agnostic core)
+windowd: present visible ok
+display: first scanout ok
+systemui: first frame visible
+
+# group: os2vm — 2-VM DSoftBus harness ladder (harness-emitted, not simulated)
+dsoftbusd: discovery cross-vm up
+dsoftbusd: cross-vm session ok
+SELFTEST: remote resolve ok
+SELFTEST: remote query ok

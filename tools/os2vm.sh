@@ -145,7 +145,7 @@ TARGET=${TARGET:-riscv64imac-unknown-none-elf}
 BUILD_TARGET_DIR=${OS2VM_TARGET_DIR:-"$ROOT/target-os2vm"}
 RUSTFLAGS_OS=${RUSTFLAGS_OS:---check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"}
 RUN_TIMEOUT=${RUN_TIMEOUT:-180s}
-AGENT_RUN_ID=${AGENT_RUN_ID:-os2vm_$(date +%s)}
+AGENT_RUN_ID=${AGENT_RUN_ID:-os2vm--$(date +%Y-%m-%dT%H-%M-%S)}
 DEBUG_SESSION_ID=${DEBUG_SESSION_ID:-17b977}
 # AGENT_DEBUG_LOG / DEBUG_LOG_PATH defaults derive from LOG_DIR (set below).
 
@@ -190,8 +190,9 @@ case "$OS2VM_PROFILE" in
     ;;
 esac
 
-OS2VM_ARTIFACT_ROOT=${OS2VM_ARTIFACT_ROOT:-"$ROOT/artifacts/os2vm"}
-OS2VM_RUNS_DIR=${OS2VM_RUNS_DIR:-"$OS2VM_ARTIFACT_ROOT/runs"}
+# 2-VM runs land beside all other QEMU runs: build/logs/os2vm--<timestamp>/
+OS2VM_ARTIFACT_ROOT=${OS2VM_ARTIFACT_ROOT:-"$ROOT/build/logs"}
+OS2VM_RUNS_DIR=${OS2VM_RUNS_DIR:-"$OS2VM_ARTIFACT_ROOT"}
 LOG_DIR=${LOG_DIR:-"$OS2VM_RUNS_DIR/$AGENT_RUN_ID"}
 AGENT_DEBUG_LOG=${AGENT_DEBUG_LOG:-"$LOG_DIR/hypothesis.json"}
 DEBUG_LOG_PATH=${DEBUG_LOG_PATH:-"$LOG_DIR/hypothesis-session.jsonl"}
@@ -456,7 +457,7 @@ cleanup_stale_pid_records() {
   local pid_b
   local cmd
   shopt -s nullglob
-  for pid_file in "$OS2VM_RUNS_DIR"/*/pids.env; do
+  for pid_file in "$OS2VM_RUNS_DIR"/os2vm--*/pids.env; do
     [[ "$pid_file" == "$OS2VM_PID_FILE" ]] && continue
     run_id=""
     pid_a=""
@@ -1780,7 +1781,7 @@ gc_run_artifacts() {
   local -a runs=()
   local run
   shopt -s nullglob
-  runs=( "$OS2VM_RUNS_DIR"/* )
+  runs=( "$OS2VM_RUNS_DIR"/os2vm--* )
   shopt -u nullglob
   if (( ${#runs[@]} == 0 )); then
     return 0
@@ -1821,7 +1822,7 @@ gc_run_artifacts() {
   done
 
   shopt -s nullglob
-  runs=( "$OS2VM_RUNS_DIR"/* )
+  runs=( "$OS2VM_RUNS_DIR"/os2vm--* )
   shopt -u nullglob
   if (( ${#runs[@]} == 0 )); then
     return 0
