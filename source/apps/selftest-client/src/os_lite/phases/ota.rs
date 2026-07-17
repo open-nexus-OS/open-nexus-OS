@@ -31,10 +31,10 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // a missing `bundlemgrd: slot a active` with no cause). Name the failing route
     // so the next boot says exactly which resolution failed.
     let bundlemgrd = route_with_retry("bundlemgrd").map_err(|_| {
-        emit_line("SELFTEST: ota route FAIL svc=bundlemgrd");
+        emit_line(crate::markers::M_SELFTEST_OTA_ROUTE_FAIL_SVC_BUNDLEMGRD);
     })?;
     let updated = route_with_retry("updated").map_err(|_| {
-        emit_line("SELFTEST: ota route FAIL svc=updated");
+        emit_line(crate::markers::M_SELFTEST_OTA_ROUTE_FAIL_SVC_UPDATED);
     })?;
 
     // TASK-0007: updated stage/switch/rollback (non-persistent A/B skeleton).
@@ -43,7 +43,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // `let _ =` here hid a delivery failure (route resolved but the send never
     // reached bundlemgrd's serving endpoint) — name it so the cause is visible.
     if services::bundlemgrd::bundlemgrd_v1_set_active_slot(&bundlemgrd, 1).is_err() {
-        emit_line("SELFTEST: ota slot-activate FAIL svc=bundlemgrd");
+        emit_line(crate::markers::M_SELFTEST_OTA_SLOT_ACTIVATE_FAIL_SVC_BUNDLEMGRD);
     }
     // Determinism: updated bootctrl state is persisted via statefs and may survive across runs.
     // Normalize to active-slot A before the OTA flow so rollback assertions are stable.

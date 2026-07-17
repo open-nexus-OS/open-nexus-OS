@@ -77,6 +77,86 @@ phase = "bringup"
 emit_when = { profile = "headless" }
 proves = "both workpool workers performed >0 interactions in the parallel rounds (honest dispatch counters)"
 
+[marker."SELFTEST: pinched bounded FAIL (status)"]
+phase = "bringup"
+proves = "broker returned an unexpected status for the oversized-job reject probe"
+
+[marker."SELFTEST: pinched bounded FAIL (no completion)"]
+phase = "bringup"
+proves = "no completion header arrived for the oversized-job reject probe"
+
+[marker."SELFTEST: pinched determinism FAIL (route)"]
+phase = "bringup"
+proves = "no pinched broker route available for the determinism probe"
+
+[marker."SELFTEST: pinched determinism FAIL (elems)"]
+phase = "bringup"
+proves = "broker result element count mismatched the local reference"
+
+[marker."SELFTEST: pinched determinism FAIL (mismatch)"]
+phase = "bringup"
+proves = "broker result bytes mismatched the local reference"
+
+[marker."SELFTEST: pinched determinism FAIL (inline fallback)"]
+phase = "bringup"
+proves = "broker fell back to inline execution (workers == 0)"
+
+[marker."SELFTEST: pinched determinism FAIL (status)"]
+phase = "bringup"
+proves = "broker returned an unexpected status for the determinism probe"
+
+[marker."SELFTEST: pinched determinism FAIL (no completion)"]
+phase = "bringup"
+proves = "no completion header arrived for the determinism probe"
+
+[marker."SELFTEST: pinched svg FAIL (elems)"]
+phase = "bringup"
+proves = "banded SVG raster result element count mismatched"
+
+[marker."SELFTEST: pinched svg FAIL (digest)"]
+phase = "bringup"
+proves = "banded SVG raster digest mismatched the local rasterize"
+
+[marker."SELFTEST: pinched svg FAIL (inline fallback)"]
+phase = "bringup"
+proves = "SVG raster fell back to inline execution (workers == 0)"
+
+[marker."SELFTEST: pinched svg FAIL (status)"]
+phase = "bringup"
+proves = "broker returned an unexpected status for the SVG raster probe"
+
+[marker."SELFTEST: pinched svg FAIL (no completion)"]
+phase = "bringup"
+proves = "no completion header arrived for the SVG raster probe"
+
+[marker."SELFTEST: inet bounded FAIL (status)"]
+phase = "bringup"
+proves = "net evaluator returned an unexpected status for the bound-reject probe"
+
+[marker."SELFTEST: inet bounded FAIL (no completion)"]
+phase = "bringup"
+proves = "no completion header arrived for the bound-reject probe"
+
+[marker."SELFTEST: inet determinism FAIL (value)"]
+phase = "bringup"
+proves = "net evaluator normal form diverged from the expected value"
+
+[marker."SELFTEST: inet determinism FAIL (no interactions)"]
+phase = "bringup"
+proves = "net evaluator reported zero interactions"
+
+[marker."SELFTEST: inet determinism FAIL (status)"]
+phase = "bringup"
+proves = "net evaluator returned an unexpected status for the determinism probe"
+
+[marker."SELFTEST: inet determinism FAIL (no completion)"]
+phase = "bringup"
+proves = "no completion header arrived for the net determinism probe"
+
+[marker."SELFTEST: inet parallel exec FAIL (counters)"]
+phase = "bringup"
+proves = "parallel dispatch counters show a worker performed no interactions"
+
 [marker."SELFTEST: affinity applied ok"]
 phase = "bringup"
 emit_when = { profile = "headless" }
@@ -747,4 +827,91 @@ phase = "bringup"
 phase = "bringup"
 
 [marker."SELFTEST: timed coalesce FAIL"]
+phase = "bringup"
+
+# Diagnostic / FAIL-variant markers back-filled 2026-07 (repo hygiene):
+# every marker literal in the source tree must be manifest-declared (Rule 3).
+
+[marker."SELFTEST: affinity applied FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: alloc soak FAIL (pattern)"]
+phase = "bringup"
+
+[marker."SELFTEST: alloc soak FAIL (zeroed)"]
+phase = "bringup"
+
+[marker."SELFTEST: f32 soak FAIL (host mismatch)"]
+phase = "bringup"
+
+[marker."SELFTEST: f32 soak FAIL (libm mismatch)"]
+phase = "bringup"
+
+[marker."SELFTEST: qos shares ratio FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: svg local determinism FAIL (raster err)"]
+phase = "bringup"
+
+[marker."SELFTEST: svg local determinism FAIL (varies)"]
+phase = "bringup"
+
+[marker."SELFTEST: svg local determinism FAIL (wrong)"]
+phase = "bringup"
+
+[marker."SELFTEST: thread spawn FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: thread spawn FAIL (spawn)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool affinity FAIL (no pin)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool bounded FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool bounded FAIL (fence)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool bounded FAIL (init)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool bounded FAIL (resume)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool bounded FAIL (spawn)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool bounded FAIL (transfer)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool determinism FAIL (both, alive=0)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool determinism FAIL (both, alive=1)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool determinism FAIL (both, alive=2 done=2)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool determinism FAIL (both, done=0)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool determinism FAIL (both, done=1)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool determinism FAIL (done fence satisfied unsignalled)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool determinism FAIL (hi chunk)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool determinism FAIL (lo chunk)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool determinism FAIL (run, woke=0 selfsig=FAIL)"]
+phase = "bringup"
+
+[marker."SELFTEST: workpool determinism FAIL (run, woke=0 selfsig=ok)"]
 phase = "bringup"

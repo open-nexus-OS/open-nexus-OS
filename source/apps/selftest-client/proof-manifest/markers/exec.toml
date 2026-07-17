@@ -124,3 +124,9 @@ phase = "exec"
 
 [marker."SELFTEST: apphost spawn refused"]
 phase = "exec"
+
+# Diagnostic / FAIL-variant markers back-filled 2026-07 (repo hygiene):
+# every marker literal in the source tree must be manifest-declared (Rule 3).
+
+[marker."SELFTEST: Completed (markers verified)"]
+phase = "exec"

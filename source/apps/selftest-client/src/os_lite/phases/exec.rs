@@ -95,8 +95,8 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // surface presented` when its window is live; a spawn refusal (e.g. no
     // embedded payload in this image) is reported by value, not silence.
     match services::execd::execd_spawn_image(&execd_client, "selftest-client", 4) {
-        Ok(_pid) => emit_line("SELFTEST: apphost spawn requested"),
-        Err(()) => emit_line("SELFTEST: apphost spawn refused"),
+        Ok(_pid) => emit_line(crate::markers::M_SELFTEST_APPHOST_SPAWN_REQUESTED),
+        Err(()) => emit_line(crate::markers::M_SELFTEST_APPHOST_SPAWN_REFUSED),
     }
 
     // RFC-0068 exec migration: the old execd child-exec + crash/minidump proof (exit0 lifecycle /
@@ -118,9 +118,9 @@ fn sched_applied_proof() {
         && nexus_abi::sched::get_affinity() == Ok(0b1)
         && nexus_abi::sched::set_affinity(0xF).is_ok();
     if ok_aff {
-        emit_line("SELFTEST: affinity applied ok");
+        emit_line(crate::markers::M_SELFTEST_AFFINITY_APPLIED_OK);
     } else {
-        emit_line("SELFTEST: affinity applied FAIL");
+        emit_line(crate::markers::M_SELFTEST_AFFINITY_APPLIED_FAIL);
     }
     // Shares: a 3x ratio request must persist exactly (the slice math itself
     // is host-tested in the kernel; this proves the userspace path applies).
@@ -129,9 +129,9 @@ fn sched_applied_proof() {
         && nexus_abi::sched::set_shares(100).is_ok()
         && nexus_abi::sched::get_shares() == Ok(100);
     if ok_shares {
-        emit_line("SELFTEST: qos shares ratio ok");
+        emit_line(crate::markers::M_SELFTEST_QOS_SHARES_RATIO_OK);
     } else {
-        emit_line("SELFTEST: qos shares ratio FAIL");
+        emit_line(crate::markers::M_SELFTEST_QOS_SHARES_RATIO_FAIL);
     }
 }
 
@@ -149,9 +149,9 @@ fn ui_runtime_floor_proof() {
         last = now;
     }
     if max_gap <= MAX_GAP_NS {
-        emit_line("SELFTEST: ui runtime floor ok");
+        emit_line(crate::markers::M_SELFTEST_UI_RUNTIME_FLOOR_OK);
     } else {
-        crate::markers::emit_bytes(b"SELFTEST: ui runtime floor FAIL (gap ms=0x");
+        crate::markers::emit_bytes(crate::markers::M_SELFTEST_UI_RUNTIME_FLOOR_FAIL_GAP_MS_0X_PREFIX);
         crate::markers::emit_hex_u64(max_gap / 1_000_000);
         emit_line(")");
     }
@@ -225,9 +225,9 @@ fn regsoak_proof() {
     crate::markers::emit_hex_u64(elapsed_ms);
     crate::markers::emit_line("");
     if mask == 0 {
-        emit_line("SELFTEST: regsoak ok");
+        emit_line(crate::markers::M_SELFTEST_REGSOAK_OK);
     } else {
-        crate::markers::emit_bytes(b"SELFTEST: regsoak FAIL (mask=0x");
+        crate::markers::emit_bytes(crate::markers::M_SELFTEST_REGSOAK_FAIL_MASK_0X_PREFIX);
         crate::markers::emit_hex_u64(mask);
         crate::markers::emit_bytes(b" ms=0x");
         crate::markers::emit_hex_u64(elapsed_ms);
@@ -292,9 +292,9 @@ fn memset_soak_proof() {
         }
     }
     if fail == 0 {
-        emit_line("SELFTEST: memset soak ok");
+        emit_line(crate::markers::M_SELFTEST_MEMSET_SOAK_OK);
     } else {
-        crate::markers::emit_bytes(b"SELFTEST: memset soak FAIL (mask=0x");
+        crate::markers::emit_bytes(crate::markers::M_SELFTEST_MEMSET_SOAK_FAIL_MASK_0X_PREFIX);
         crate::markers::emit_hex_u64(fail);
         emit_line(")");
     }
@@ -354,7 +354,7 @@ fn svg_local_determinism_proof() {
         }) {
             Ok(out) => *d = fnv1a(&out.buffer),
             Err(_) => {
-                emit_line("SELFTEST: svg local determinism FAIL (raster err)");
+                emit_line(crate::markers::M_SELFTEST_SVG_LOCAL_DETERMINISM_FAIL_RASTER_ERR);
                 return;
             }
         }
@@ -367,17 +367,17 @@ fn svg_local_determinism_proof() {
         crate::markers::emit_bytes(b"/0x");
         crate::markers::emit_hex_u64(digests[2]);
         crate::markers::emit_line("");
-        emit_line("SELFTEST: svg local determinism FAIL (varies)");
+        emit_line(crate::markers::M_SELFTEST_SVG_LOCAL_DETERMINISM_FAIL_VARIES);
         return;
     }
     if digests[0] != PROOF_SVG_DIGEST {
         crate::markers::emit_bytes(b"svg-local: stable digest=0x");
         crate::markers::emit_hex_u64(digests[0]);
         crate::markers::emit_line("");
-        emit_line("SELFTEST: svg local determinism FAIL (wrong)");
+        emit_line(crate::markers::M_SELFTEST_SVG_LOCAL_DETERMINISM_FAIL_WRONG);
         return;
     }
-    emit_line("SELFTEST: svg local determinism ok");
+    emit_line(crate::markers::M_SELFTEST_SVG_LOCAL_DETERMINISM_OK);
 }
 
 /// Pure soft-float compute against the HOST-PINNED answer (shared SSOT in
@@ -389,7 +389,7 @@ fn f32_soak_proof() {
         crate::markers::emit_bytes(b"f32-soak: got=0x");
         crate::markers::emit_hex_u64(basic as u64);
         crate::markers::emit_line("");
-        emit_line("SELFTEST: f32 soak FAIL (host mismatch)");
+        emit_line(crate::markers::M_SELFTEST_F32_SOAK_FAIL_HOST_MISMATCH);
         return;
     }
     let libm = libm_soak_check();
@@ -397,10 +397,10 @@ fn f32_soak_proof() {
         crate::markers::emit_bytes(b"libm-soak: got=0x");
         crate::markers::emit_hex_u64(libm as u64);
         crate::markers::emit_line("");
-        emit_line("SELFTEST: f32 soak FAIL (libm mismatch)");
+        emit_line(crate::markers::M_SELFTEST_F32_SOAK_FAIL_LIBM_MISMATCH);
         return;
     }
-    emit_line("SELFTEST: f32 soak ok");
+    emit_line(crate::markers::M_SELFTEST_F32_SOAK_OK);
 }
 
 /// Pure allocator traffic: fill vecs with patterns, verify, drop (leaked by
@@ -414,17 +414,17 @@ fn alloc_soak_proof() {
         }
         for (i, val) in v.iter().enumerate() {
             if *val != (i as u32).wrapping_mul(0x9E37_79B9) ^ round {
-                emit_line("SELFTEST: alloc soak FAIL (pattern)");
+                emit_line(crate::markers::M_SELFTEST_ALLOC_SOAK_FAIL_PATTERN);
                 return;
             }
         }
         let z = alloc::vec![0u8; 4096];
         if z.iter().any(|b| *b != 0) {
-            emit_line("SELFTEST: alloc soak FAIL (zeroed)");
+            emit_line(crate::markers::M_SELFTEST_ALLOC_SOAK_FAIL_ZEROED);
             return;
         }
     }
-    emit_line("SELFTEST: alloc soak ok");
+    emit_line(crate::markers::M_SELFTEST_ALLOC_SOAK_OK);
 }
 
 // ——— Phase C: thread spawn proof ———
@@ -445,7 +445,7 @@ fn thread_spawn_proof() {
     let pid = match nexus_abi::thread::spawn_thread(thread_entry, SENTINEL, stack) {
         Ok(pid) => pid,
         Err(_) => {
-            emit_line("SELFTEST: thread spawn FAIL (spawn)");
+            emit_line(crate::markers::M_SELFTEST_THREAD_SPAWN_FAIL_SPAWN);
             return;
         }
     };
@@ -471,9 +471,9 @@ fn thread_spawn_proof() {
         }
     }
     if seen && reaped {
-        emit_line("SELFTEST: thread spawn ok");
+        emit_line(crate::markers::M_SELFTEST_THREAD_SPAWN_OK);
     } else {
-        emit_line("SELFTEST: thread spawn FAIL");
+        emit_line(crate::markers::M_SELFTEST_THREAD_SPAWN_FAIL);
     }
 }
 
@@ -503,27 +503,27 @@ fn workpool_proof() {
     let zero_init = nexus_workpool::init(0).is_err();
     if let Err(err) = nexus_workpool::init(2) {
         emit_line(match err {
-            nexus_workpool::PoolError::AbiFence => "SELFTEST: workpool bounded FAIL (fence)",
-            nexus_workpool::PoolError::AbiSpawn => "SELFTEST: workpool bounded FAIL (spawn)",
+            nexus_workpool::PoolError::AbiFence => crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_FENCE,
+            nexus_workpool::PoolError::AbiSpawn => crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_SPAWN,
             nexus_workpool::PoolError::AbiTransfer => {
-                "SELFTEST: workpool bounded FAIL (transfer)"
+                crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_TRANSFER
             }
-            nexus_workpool::PoolError::AbiResume => "SELFTEST: workpool bounded FAIL (resume)",
-            _ => "SELFTEST: workpool bounded FAIL (init)",
+            nexus_workpool::PoolError::AbiResume => crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_RESUME,
+            _ => crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL_INIT,
         });
         return;
     }
     let double_init = nexus_workpool::init(2).is_err();
     if pre_run && zero_init && double_init {
-        emit_line("SELFTEST: workpool bounded ok");
+        emit_line(crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_OK);
     } else {
-        emit_line("SELFTEST: workpool bounded FAIL");
+        emit_line(crate::markers::M_SELFTEST_WORKPOOL_BOUNDED_FAIL);
     }
 
     // Fence sanity probe: the done fence must NOT satisfy an unsignalled
     // target (catches slot/id mix-ups before the real run).
     if !nexus_workpool::pool::selftest_probe_done_fence() {
-        emit_line("SELFTEST: workpool determinism FAIL (done fence satisfied unsignalled)");
+        emit_line(crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_DONE_FENCE_SATISFIED_UNSIGNALLED);
         return;
     }
 
@@ -545,26 +545,26 @@ fn workpool_proof() {
                 }
             }
             if bad_lo == 0 && bad_hi == 0 {
-                emit_line("SELFTEST: workpool determinism ok");
+                emit_line(crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_OK);
                 // C4: worker 0 pins itself to CPU 0 (present on every SMP
                 // config), so at least one round-tripped pin is REQUIRED.
                 if nexus_workpool::pool::selftest_pinned() >= 1 {
-                    emit_line("SELFTEST: workpool affinity ok");
+                    emit_line(crate::markers::M_SELFTEST_WORKPOOL_AFFINITY_OK);
                 } else {
-                    emit_line("SELFTEST: workpool affinity FAIL (no pin)");
+                    emit_line(crate::markers::M_SELFTEST_WORKPOOL_AFFINITY_FAIL_NO_PIN);
                 }
             } else if bad_lo > 0 && bad_hi == 0 {
-                emit_line("SELFTEST: workpool determinism FAIL (lo chunk)");
+                emit_line(crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_LO_CHUNK);
             } else if bad_lo == 0 && bad_hi > 0 {
-                emit_line("SELFTEST: workpool determinism FAIL (hi chunk)");
+                emit_line(crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_HI_CHUNK);
             } else {
                 let (alive, woke, done) = nexus_workpool::pool::selftest_debug();
                 emit_line(match (alive, woke, done) {
-                    (0, _, _) => "SELFTEST: workpool determinism FAIL (both, alive=0)",
-                    (1, _, _) => "SELFTEST: workpool determinism FAIL (both, alive=1)",
-                    (_, _, 0) => "SELFTEST: workpool determinism FAIL (both, done=0)",
-                    (_, _, 1) => "SELFTEST: workpool determinism FAIL (both, done=1)",
-                    _ => "SELFTEST: workpool determinism FAIL (both, alive=2 done=2)",
+                    (0, _, _) => crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_BOTH_ALIVE_0,
+                    (1, _, _) => crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_BOTH_ALIVE_1,
+                    (_, _, 0) => crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_BOTH_DONE_0,
+                    (_, _, 1) => crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_BOTH_DONE_1,
+                    _ => crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_BOTH_ALIVE_2_DONE_2,
                 });
             }
         }
@@ -573,13 +573,13 @@ fn workpool_proof() {
             let self_sig = nexus_workpool::pool::selftest_probe_job_selfsignal();
             emit_line(match (alive, woke, done, self_sig) {
                 (_, 0, _, true) => {
-                    "SELFTEST: workpool determinism FAIL (run, woke=0 selfsig=ok)"
+                    crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_RUN_WOKE_0_SELFSIG_OK
                 }
                 (_, 0, _, false) => {
-                    "SELFTEST: workpool determinism FAIL (run, woke=0 selfsig=FAIL)"
+                    crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_RUN_WOKE_0_SELFSIG_FAIL
                 }
-                (_, _, 0, _) => "SELFTEST: workpool determinism FAIL (run, woke>0 done=0)",
-                _ => "SELFTEST: workpool determinism FAIL (run, woke>0 done>0)",
+                (_, _, 0, _) => crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_RUN_WOKE_GT0_DONE_0,
+                _ => crate::markers::M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_RUN_WOKE_GT0_DONE_GT0,
             });
         }
     }

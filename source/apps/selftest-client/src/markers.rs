@@ -209,3 +209,16 @@ pub fn emit_hex_u64(mut value: u64) {
     }
     emit_bytes(&buf);
 }
+
+// Byte-string marker PREFIXES for no-alloc hex-suffixed emissions.
+// Rule 3 (ADR-0027): marker literals live only here / markers_generated.rs.
+pub(crate) const M_SELFTEST_MEMSET_SOAK_FAIL_MASK_0X_PREFIX: &[u8] = b"SELFTEST: memset soak FAIL (mask=0x";
+pub(crate) const M_SELFTEST_REGSOAK_FAIL_MASK_0X_PREFIX: &[u8] = b"SELFTEST: regsoak FAIL (mask=0x";
+pub(crate) const M_SELFTEST_UI_RUNTIME_FLOOR_FAIL_GAP_MS_0X_PREFIX: &[u8] = b"SELFTEST: ui runtime floor FAIL (gap ms=0x";
+
+// Hand-named marker consts whose literals would collide under `const_key()`
+// normalization (`>0` and `=0` both fold to `_0`). Rule 3 allows literals here.
+pub(crate) const M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_RUN_WOKE_GT0_DONE_0: &str =
+    "SELFTEST: workpool determinism FAIL (run, woke>0 done=0)";
+pub(crate) const M_SELFTEST_WORKPOOL_DETERMINISM_FAIL_RUN_WOKE_GT0_DONE_GT0: &str =
+    "SELFTEST: workpool determinism FAIL (run, woke>0 done>0)";

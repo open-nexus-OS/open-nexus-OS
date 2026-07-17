@@ -69,7 +69,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
         verify_vfs_paths().context("verify vfs namespace")?;
     }
 
-    println!("SELFTEST: Completed (markers verified)");
+    println!("{}", crate::markers_generated::M_SELFTEST_COMPLETED_MARKERS_VERIFIED);
     Ok(())
 }
 

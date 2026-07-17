@@ -75,17 +75,17 @@ const SVG_SRC: &str = PROOF_SVG;
 
 pub(crate) fn pinched_selftest() {
     let Some(client) = route_pinched() else {
-        emit_line("SELFTEST: pinched determinism FAIL (route)");
+        emit_line(crate::markers::M_SELFTEST_PINCHED_DETERMINISM_FAIL_ROUTE);
         return;
     };
 
     // Bounded contract: an oversized job must be REJECTED via the header.
     match submit_and_poll(&client, (pinched::MAX_JOB_ELEMS + 1) as u32, 0, 2_000_000_000) {
         Some((status, _, _, _)) if status == pn::STATUS_OVERSIZED => {
-            emit_line("SELFTEST: pinched bounded ok");
+            emit_line(crate::markers::M_SELFTEST_PINCHED_BOUNDED_OK);
         }
-        Some(_) => emit_line("SELFTEST: pinched bounded FAIL (status)"),
-        None => emit_line("SELFTEST: pinched bounded FAIL (no completion)"),
+        Some(_) => emit_line(crate::markers::M_SELFTEST_PINCHED_BOUNDED_FAIL_STATUS),
+        None => emit_line(crate::markers::M_SELFTEST_PINCHED_BOUNDED_FAIL_NO_COMPLETION),
     }
 
     // SVG raster (Phase D4): the broker's banded parallel raster must be
@@ -102,24 +102,24 @@ pub(crate) fn pinched_selftest() {
     match submit_and_poll(&client, N as u32, N, 5_000_000_000) {
         Some((pn::STATUS_OK, elems, workers, data)) => {
             if elems as usize != N {
-                emit_line("SELFTEST: pinched determinism FAIL (elems)");
+                emit_line(crate::markers::M_SELFTEST_PINCHED_DETERMINISM_FAIL_ELEMS);
                 return;
             }
             for (i, chunk) in data.chunks_exact(4).enumerate() {
                 let got = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
                 if got != mix_u32(i as u32) {
-                    emit_line("SELFTEST: pinched determinism FAIL (mismatch)");
+                    emit_line(crate::markers::M_SELFTEST_PINCHED_DETERMINISM_FAIL_MISMATCH);
                     return;
                 }
             }
             if workers == 0 {
-                emit_line("SELFTEST: pinched determinism FAIL (inline fallback)");
+                emit_line(crate::markers::M_SELFTEST_PINCHED_DETERMINISM_FAIL_INLINE_FALLBACK);
                 return;
             }
-            emit_line("SELFTEST: pinched determinism ok");
+            emit_line(crate::markers::M_SELFTEST_PINCHED_DETERMINISM_OK);
         }
-        Some(_) => emit_line("SELFTEST: pinched determinism FAIL (status)"),
-        None => emit_line("SELFTEST: pinched determinism FAIL (no completion)"),
+        Some(_) => emit_line(crate::markers::M_SELFTEST_PINCHED_DETERMINISM_FAIL_STATUS),
+        None => emit_line(crate::markers::M_SELFTEST_PINCHED_DETERMINISM_FAIL_NO_COMPLETION),
     }
 }
 
@@ -127,7 +127,7 @@ fn svg_proof(client: &KernelClient) {
     match submit_svg_and_poll(client) {
         Some((pn::STATUS_OK, elems, workers, data)) => {
             if elems as usize != SVG_W * SVG_H {
-                emit_line("SELFTEST: pinched svg FAIL (elems)");
+                emit_line(crate::markers::M_SELFTEST_PINCHED_SVG_FAIL_ELEMS);
                 return;
             }
             let digest = fnv1a(&data);
@@ -135,17 +135,17 @@ fn svg_proof(client: &KernelClient) {
                 emit_bytes(b"pinched-probe: svg digest=0x");
                 emit_hex_u64(digest);
                 emit_line("");
-                emit_line("SELFTEST: pinched svg FAIL (digest)");
+                emit_line(crate::markers::M_SELFTEST_PINCHED_SVG_FAIL_DIGEST);
                 return;
             }
             if workers == 0 {
-                emit_line("SELFTEST: pinched svg FAIL (inline fallback)");
+                emit_line(crate::markers::M_SELFTEST_PINCHED_SVG_FAIL_INLINE_FALLBACK);
                 return;
             }
-            emit_line("SELFTEST: pinched svg ok");
+            emit_line(crate::markers::M_SELFTEST_PINCHED_SVG_OK);
         }
-        Some(_) => emit_line("SELFTEST: pinched svg FAIL (status)"),
-        None => emit_line("SELFTEST: pinched svg FAIL (no completion)"),
+        Some(_) => emit_line(crate::markers::M_SELFTEST_PINCHED_SVG_FAIL_STATUS),
+        None => emit_line(crate::markers::M_SELFTEST_PINCHED_SVG_FAIL_NO_COMPLETION),
     }
 }
 
@@ -210,10 +210,10 @@ fn inet_proof(client: &KernelClient) {
     // Bounded: an over-deep tree must be rejected via the header.
     match submit_inet_and_poll(client, 99) {
         Some((status, _, _, _)) if status == pn::STATUS_OVERSIZED => {
-            emit_line("SELFTEST: inet bounded ok");
+            emit_line(crate::markers::M_SELFTEST_INET_BOUNDED_OK);
         }
-        Some(_) => emit_line("SELFTEST: inet bounded FAIL (status)"),
-        None => emit_line("SELFTEST: inet bounded FAIL (no completion)"),
+        Some(_) => emit_line(crate::markers::M_SELFTEST_INET_BOUNDED_FAIL_STATUS),
+        None => emit_line(crate::markers::M_SELFTEST_INET_BOUNDED_FAIL_NO_COMPLETION),
     }
 
     // Determinism: depth-6 add-tree of leaves 1..=64 must fold to EXACTLY
@@ -227,24 +227,24 @@ fn inet_proof(client: &KernelClient) {
             let w0 = u32::from_le_bytes([out[8], out[9], out[10], out[11]]);
             let w1 = u32::from_le_bytes([out[12], out[13], out[14], out[15]]);
             if result != 2080 {
-                emit_line("SELFTEST: inet determinism FAIL (value)");
+                emit_line(crate::markers::M_SELFTEST_INET_DETERMINISM_FAIL_VALUE);
                 return;
             }
             if reds == 0 {
-                emit_line("SELFTEST: inet determinism FAIL (no interactions)");
+                emit_line(crate::markers::M_SELFTEST_INET_DETERMINISM_FAIL_NO_INTERACTIONS);
                 return;
             }
-            emit_line("SELFTEST: inet determinism ok");
+            emit_line(crate::markers::M_SELFTEST_INET_DETERMINISM_OK);
             // Parallel dispatch: both workers must have reduced (>0 each) on
             // the parallel backend. Honest counters from the round driver.
             if workers >= 1 && w0 > 0 && w1 > 0 {
-                emit_line("SELFTEST: inet parallel exec ok");
+                emit_line(crate::markers::M_SELFTEST_INET_PARALLEL_EXEC_OK);
             } else {
-                emit_line("SELFTEST: inet parallel exec FAIL (counters)");
+                emit_line(crate::markers::M_SELFTEST_INET_PARALLEL_EXEC_FAIL_COUNTERS);
             }
         }
-        Some(_) => emit_line("SELFTEST: inet determinism FAIL (status)"),
-        None => emit_line("SELFTEST: inet determinism FAIL (no completion)"),
+        Some(_) => emit_line(crate::markers::M_SELFTEST_INET_DETERMINISM_FAIL_STATUS),
+        None => emit_line(crate::markers::M_SELFTEST_INET_DETERMINISM_FAIL_NO_COMPLETION),
     }
 }
 

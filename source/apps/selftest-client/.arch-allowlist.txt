@@ -32,6 +32,11 @@ os_lite/net/smoltcp_probe.rs
 # loop. RFC-0054 extends that same coordinator with inputd-backed live redraws;
 # the file remains intentionally centralized until a later selftest split.
 os_lite/display_bootstrap.rs
+# `phases/exec.rs` grew past 500 LoC with the phased vmo/exec syscall proofs
+# (CopyPlan, SMP soft-realtime track, 2026-07). The phase is one coherent
+# ladder; splitting it mid-track would blur the proof ordering. Revisit when
+# the SMP track's follow-ups land.
+os_lite/phases/exec.rs
 
 [justfile_require_env]
 # TASK-0023B P4-10 — Rule 6 escape hatch.
