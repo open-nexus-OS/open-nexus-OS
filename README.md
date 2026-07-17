@@ -38,7 +38,7 @@ make run
 ### QEMU (virtio-mmio modern for persistence)
 
 StateFS persistence requires **modern virtio-mmio** semantics for virtio-blk.
-The canonical QEMU harness (`scripts/run-qemu-rv64.sh` via `just test-os`) enforces this by default using:
+The canonical QEMU harness (`scripts/qemu-launcher.sh`, driven by `scripts/qemu-test.sh` / `just test-os`) enforces this by default using:
 `-global virtio-mmio.force-legacy=off`.
 
 If you need a standalone QEMU build with force-modern defaults (e.g. an external harness that cannot set QEMU globals),
@@ -82,24 +82,35 @@ make run             # one QEMU smoke (smart smp/full profile pick) against the 
 | `make test` | no — requires `make build` to have run | yes — SMP=2 (`--profile=smp`) then SMP=1 (`--profile=full`) | Host tests run via `cargo nextest` (instant if `make build` ran), then the QEMU ladder. |
 | `make run` | no — requires `make build` to have run | yes — single boot, profile auto-picked from `SMP` env (or `PROFILE=…`) | For fast local iteration use `RUN_UNTIL_MARKER=1 make run` (default). |
 
-`make test` and `make run` set `NEXUS_SKIP_BUILD=1` when invoking `scripts/qemu-test.sh` / `scripts/run-qemu-rv64.sh`. The script then skips its per-component `cargo build` calls and **fails fast** with a clear `[error] NEXUS_SKIP_BUILD=1 but … artifact is missing — run 'make build' first` message if any artifact is absent. This makes "I forgot `make build`" a loud one-line error instead of a silent 30-second rebuild.
+`make test` and `make run` set `NEXUS_SKIP_BUILD=1` when invoking `scripts/qemu-test.sh` / `scripts/qemu-launcher.sh`. The script then skips its per-component `cargo build` calls and **fails fast** with a clear `[error] NEXUS_SKIP_BUILD=1 but … artifact is missing — run 'make build' first` message if any artifact is absent. This makes "I forgot `make build`" a loud one-line error instead of a silent 30-second rebuild.
 
 If you want the historical eager-rebuild behavior in a one-shot run, use `NEXUS_SKIP_BUILD=0 make run` or chain `make build run`.
 
 `make verify` was retired; the canonical aggregate gate is `just test-all`.
 
-## Current engineering focus
+## Current state
 
-- Kernel baseline behavior is stabilized and continuously regression-tested with deterministic QEMU marker gates.
-- Userspace syscall guardrail hardening (`TASK-0019` / `RFC-0032`) is closed as done with authenticated profile distribution and fail-closed behavior proofs.
-- `TASK-0020` (DSoftBus streams v2) is closed as `Done` with host + single-VM + 2-VM + perf/soak evidence.
-- `TASK-0021` (DSoftBus QUIC v1 host-first scaffold) is closed as `Done` with real host QUIC transport proof, QUIC+mux payload smoke proof, strict fail-closed mode semantics, and deterministic OS fallback markers.
-- `TASK-0023` is closed as a gated-contract slice (`Done`) with blocked/no-go unlock outcome; current sequential queue head is `TASK-0024` unless explicitly resequenced.
-- Canonical security proof ladder:
-  - `cargo test -p nexus-abi -- reject --nocapture`
-  - `just dep-gate`
-  - `just diag-os`
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+The system boots to an interactive graphical desktop in QEMU. The current stack, all
+regression-gated by deterministic QEMU marker proofs:
+
+- **UI stack**: `windowd` compositor service + `gpud` (virtio-gpu 2D and virgl 3D backends)
+  + a declarative DSL app platform — apps are `.nx` files run by the app-host (launcher,
+  settings, file manager, chat, calculator, ...).
+- **SMP**: soft-realtime SMP=4 is the interactive default (declarative CPU placement,
+  phased/lock-free syscall classes).
+- **Storage**: nxfs + VFS v2 provide persistent user-data storage (`svc.files`, cold-boot
+  persistence proofs).
+- **Networking**: DSoftBus with stream mux and QUIC transports, proven host-first and in
+  2-VM QEMU harnesses.
+
+Day-to-day status (open tasks, tracks, blockers) lives in `tasks/STATUS-BOARD.md`.
+
+Canonical security proof ladder:
+
+- `cargo test -p nexus-abi -- reject --nocapture`
+- `just dep-gate`
+- `just diag-os`
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
 
 ## How we work (authority model)
 
@@ -117,6 +128,13 @@ Start here:
 - Run `make initial-setup` to install hooks.
 - Use `just diag-host` and `just dep-gate` before OS commits.
 - Keep commits scoped to a single task intent.
+- Full workflow (branches, commit style, verify-before-commit ladder): `docs/dev/git-workflow.md`
+
+## Contributing
+
+- **How to contribute (setup, verification ladder, PR conventions)**: [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Security policy (scope + how to report)**: [SECURITY.md](SECURITY.md)
+- **Code of conduct**: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ## Updates (OTA v1.0)
 
@@ -156,5 +174,5 @@ See `docs/rfcs/RFC-0016-device-identity-keys-v1.md` and `docs/security/identity-
 
 CI is checked in under `.github/workflows/`:
 
-- **`ci.yml`**: fmt + clippy + host tests + remote E2E + Miri + deadcode scan, plus a bounded QEMU run via `scripts/qemu-test.sh`.
-- **`build.yml`**: build/verification workflow (includes `make initial-setup` and `make build MODE=host`; optional OS smoke job).
+- **`ci.yml`**: thin wrappers over the canonical `just` recipes — `just check` (fmt + clippy + cargo-deny + arch-check), `just test-host` + `just test-e2e`, `just miri-strict` + `just miri-fs`, `just deadcode`, `just build-kernel` + `just lint-kernel`, plus a bounded QEMU selftest run (`scripts/qemu-test.sh --profile=full`; failure artifacts from `build/logs/`).
+- **`cla-check.yml`**: CLA signature check on pull requests (see `.github/CLA.md`).

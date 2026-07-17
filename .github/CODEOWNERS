@@ -1,10 +1,16 @@
-# CODEOWNERS - define reviewers/owners for kernel paths
-# NOTE: Replace @kernel-team with actual GitHub team or usernames
+# CODEOWNERS - define reviewers/owners for repository paths.
+#
+# Effective owner today: the project maintainer owns everything.
+* @jenningschaefer
 
-/source/kernel/neuron/** @kernel-team
-/source/libs/** @runtime
-/source/services/** @runtime
-/userspace/** @runtime
-/docs/ARCHITECTURE.md @kernel-team
-/docs/adr/** @runtime
-/docs/standards/** @runtime
+# Team-based ownership below is the intended future structure — activate these
+# lines once the GitHub teams actually exist. Until then they stay commented
+# out so required-review rules do not point at missing teams.
+#
+# /source/kernel/neuron/** @kernel-team
+# /source/libs/** @runtime
+# /source/services/** @runtime
+# /userspace/** @runtime
+# /docs/ARCHITECTURE.md @kernel-team
+# /docs/adr/** @runtime
+# /docs/standards/** @runtime

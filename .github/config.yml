@@ -3,6 +3,6 @@ contact_links:
   - name: Questions and Discussion
     url: https://github.com/orgs/open-nexus-OS/discussions
     about: Ask general usage questions here
-  - name: Development Roadmap
-    url: https://github.com/open-nexus-OS/open-nexus/wiki/ROADMAP
-    about: See our development priorities
+  - name: Status Board (current priorities)
+    url: https://github.com/open-nexus-OS/open-nexus-OS/blob/main/tasks/STATUS-BOARD.md
+    about: Day-to-day task and track status lives in-repo on the status board
