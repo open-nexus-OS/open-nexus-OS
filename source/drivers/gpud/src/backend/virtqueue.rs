@@ -54,7 +54,7 @@ pub(crate) static GPU_IRQ_WAKE_LOGGED: core::sync::atomic::AtomicBool =
 /// asynchronously, without the present ever blocking on them). One marker, not
 /// per-frame. (Only read by the virgl `ctrl_batch_end` pipeline path in
 /// transport.rs; the 2D-only slice never reclaims batches asynchronously.)
-#[cfg_attr(not(feature = "virgl"), allow(dead_code))]
+#[cfg(feature = "virgl")]
 pub(crate) static PIPELINE_HARVEST_LOGGED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 /// No-alloc IRQ-path telemetry, surfaced in the periodic `gpud: present us …`

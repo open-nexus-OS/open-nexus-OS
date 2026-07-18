@@ -211,7 +211,7 @@ impl VirtioGpuBackend {
     /// bootstrap scanout.
     /// (Driven from the virgl frame-paced tick in service.rs; the 2D-only
     /// slice has no self-tick, hence the scoped allow.)
-    #[cfg_attr(not(feature = "virgl"), allow(dead_code))]
+    #[cfg(feature = "virgl")]
     pub(crate) fn pulse_bootstrap_splash(&mut self, factor_q8: u32) -> Result<(), GfxError> {
         if !self.bootstrap_splash_live || SPLASH_LOGO_W == 0 || SPLASH_LOGO_H == 0 {
             return Ok(());
@@ -325,6 +325,7 @@ pub(crate) fn compose_splash_region(
 
 /// Latches once the first 2D splash-pulse frame is presented (one proof marker
 /// per boot, no UART storm).
+#[cfg(feature = "virgl")]
 static SPLASH_PULSE_LOGGED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
@@ -332,15 +333,18 @@ static SPLASH_PULSE_LOGGED: core::sync::atomic::AtomicBool =
 /// the 2D text phase and the GL glow phase share ONE continuous breathing curve
 /// across the scanout switch (both render `f(now)` — cadence changes never bend
 /// the curve, they only sample it).
+#[cfg(feature = "virgl")]
 static SPLASH_PULSE_ANCHOR_NS: core::sync::atomic::AtomicU64 =
     core::sync::atomic::AtomicU64::new(0);
 
 /// One breathing cycle of the splash pulse.
+#[cfg(feature = "virgl")]
 const SPLASH_PULSE_PERIOD_NS: u64 = 1_200_000_000;
 
 /// Brightness dip per step — one (1-cos)/2 cycle over 32 steps, max dip 56/256
 /// (~22% dimming at the trough). A LUT keeps this integer-only (no float/libm
 /// in the no_std service) — smooth enough at this amplitude.
+#[cfg(feature = "virgl")]
 const SPLASH_PULSE_DIP: [u8; 32] = [
     0, 1, 2, 5, 8, 12, 17, 23, 28, 33, 39, 44, 48, 51, 54, 55, 56, 55, 54, 51, 48, 44, 39, 33, 28,
     23, 17, 12, 8, 5, 2, 1,
@@ -349,7 +353,7 @@ const SPLASH_PULSE_DIP: [u8; 32] = [
 /// Boot-splash brightness factor in q8 (256 = full brightness) at `now_ns`.
 /// (Sampled by the virgl service tick and GL splash; unused in the 2D-only
 /// slice, hence the scoped allow.)
-#[cfg_attr(not(feature = "virgl"), allow(dead_code))]
+#[cfg(feature = "virgl")]
 pub(crate) fn splash_pulse_q8(now_ns: u64) -> u32 {
     let _ = SPLASH_PULSE_ANCHOR_NS.compare_exchange(
         0,

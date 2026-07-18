@@ -67,7 +67,9 @@ pub(crate) use virtqueue::*;
 // (glow + wordmark) the 2D attach, the 2D pulse band and the GL wallpaper seed
 // all render through (one asset copy, one implementation).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-pub(crate) use bootstrap::{compose_splash_region, splash_pulse_q8};
+pub(crate) use bootstrap::compose_splash_region;
+#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+pub(crate) use bootstrap::splash_pulse_q8;
 
 // Bring the moved free-function clusters into the parent namespace so the impl
 // blocks still in this file resolve them by bare name (zero call-site churn).
@@ -101,9 +103,9 @@ pub struct VirtioGpuBackend {
     /// fixed maximum — this is the visible sub-rect the compositor targets.
     /// (Read by the os-lite service/present paths and the virgl scanout; the
     /// host slice only constructs the backend, hence the scoped allow.)
-    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub(crate) display_w: u32,
-    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub(crate) display_h: u32,
     /// True when virgl GPU acceleration is detected at probe time.
     /// Requires `virgl` feature + QEMU `-device virtio-gpu-pci,virgl=on`.
@@ -161,15 +163,15 @@ pub struct VirtioGpuBackend {
     cursor_owned: bool,
     // The paint/unpaint/suspend cursor paths live in os-lite-only methods
     // (backend/cursor.rs); host builds only initialize these fields.
-    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
     cursor_drawn: bool,
-    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
     cursor_suspended: bool,
     pub(crate) cursor_ox: i32,
     pub(crate) cursor_oy: i32,
-    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
     cursor_dw: u32,
-    #[cfg_attr(not(all(feature = "os-lite", target_os = "none")), allow(dead_code))]
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
     cursor_dh: u32,
     /// Frame counter for the build-up spin-blur demo animation (incremented each
     /// build-up present; drives a circular panel offset so the blur re-computes
@@ -449,7 +451,9 @@ impl VirtioGpuBackend {
             _mmio_len: mmio_len,
             next_resource_id: 1,
             probed: false,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
             display_w: 1280,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
             display_h: 800,
             virgl_capable: false,
             virgl_ctx_id: 0,
@@ -473,13 +477,17 @@ impl VirtioGpuBackend {
             cursor_resource_id: None,
             cursor_hot: (0, 0),
             cursor_owned: false,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
             cursor_drawn: false,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
             cursor_suspended: false,
             cursor_ox: 0,
             cursor_oy: 0,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
             cursor_dw: 0,
             buildup_frame: 0,
             ctrl_batch: false,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
             cursor_dh: 0,
             cursor_saveunder: alloc::vec::Vec::new(),
             bootstrap_splash_live: false,

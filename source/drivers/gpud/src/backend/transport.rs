@@ -8,6 +8,7 @@
 
 #![cfg(all(feature = "os-lite", target_os = "none"))]
 
+#[cfg(feature = "virgl")]
 use super::virtqueue::PIPELINE_HARVEST_LOGGED;
 use super::ResourceRecord;
 use super::VirtioGpuBackend;
