@@ -91,3 +91,17 @@ bounded-retry and CI-only. Follow-up: investigate the individual SMP=2 flakes
 (statefsd reply-send robustness under concurrency; runtime-timer-budget margin
 under MTTCG) so the parallelism lane can eventually gate without retry. Larger
 kernel/scheduling scope, likely its own track.
+
+## 11. Remaining `cfg_attr(not(os), allow(dead_code))` items (~120, os-live)
+
+After Phase 2 (blanket allows removed, genuine dead code deleted, kernel clippy
+baseline shrunk 36→7), the remaining dead_code allows in windowd/gpud/nexus-workpool
+are `#[cfg_attr(not(all(feature="os-lite", nexus_env="os", target_os="none")),
+allow(dead_code))]` on items that ARE used under the OS build and only look dead
+under host. Verified: the real OS build (NEXUS_WARN_GATE=1 scripts/build.sh) is
+warning-clean — these are not disabled errors, they are cross-cfg items suppressed
+on the cfg where they aren't compiled into use. The strictly-cleaner form is to
+`#[cfg(nexus_env="os")]`-gate each so host never compiles it (no allow attribute at
+all), but that is a large mechanical pass over functionally-correct code. Optional
+polish; do it if the visible `allow` attributes are undesirable, else leave — the
+warning gate keeps the tree honest either way.
