@@ -18,6 +18,7 @@
 //! only be verified by booting. Moving the decision here makes it a `cargo test`
 //! failure instead of a boot hunt, and shrinks the monolith.
 
+#[cfg(test)]
 use alloc::vec::Vec;
 
 /// A composable shell window (RFC-0065 multi-window).
@@ -41,7 +42,7 @@ pub enum WindowId {
 /// each — the cap is an ATLAS budget as much as a UX choice).
 // (Consumed by the os-lite compositor runtime; host tests exercise the stack
 // logic without the runtime cap.)
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const MAX_APP_WINDOWS: usize = 4;
 
 /// The compositor Z-BAND a window belongs to (RFC-0065 multi-window). Bands are
@@ -130,7 +131,7 @@ pub fn should_show(visible: bool, desktop_shell_active: bool) -> bool {
 
 /// The windows to composite over the base layer, back-to-front (z ascending).
 /// Hidden windows (and all windows when the desktop shell is active) are excluded.
-#[cfg_attr(not(test), allow(dead_code))] // documented z-order contract (composition_order fix), pinned by the host tests below
+#[cfg(test)] // documented z-order contract (composition_order fix), pinned by the host tests below
 pub fn composition_order(windows: &[WindowState], desktop_shell_active: bool) -> Vec<WindowId> {
     let mut visible: Vec<(WindowId, i32)> = windows
         .iter()
@@ -145,7 +146,7 @@ pub fn composition_order(windows: &[WindowState], desktop_shell_active: bool) ->
 /// (wallpaper / shell) below the windows, so an *empty* [`composition_order`] is a
 /// clean desktop — never a black frame. The runtime must honour this; the tests
 /// below pin the contract.
-#[cfg_attr(not(test), allow(dead_code))] // anti-black-screen invariant, pinned by the host tests below
+#[cfg(test)] // anti-black-screen invariant, pinned by the host tests below
 pub const BASE_ALWAYS_PRESENT: bool = true;
 
 /// Hard cap on concurrently managed shell windows. Sized for the current shell

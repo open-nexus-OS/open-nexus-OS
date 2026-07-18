@@ -27,7 +27,7 @@ pub const DOCK_H: u32 = DOCK_CELL + 16;
 pub const DOCK_MARGIN_BOTTOM: u32 = 14;
 /// Corner radius of the glass bar. (Painted by the os-lite compositor scene;
 /// the host tests exercise the geometry fns only.)
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const DOCK_RADIUS: u32 = 14;
 
 /// A dock rectangle in display space.

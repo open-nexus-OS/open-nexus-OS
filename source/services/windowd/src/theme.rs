@@ -20,14 +20,14 @@
 /// The user's light/dark preference (the `ui.theme.mode` settings key).
 /// (Consumed by the os-lite compositor runtime; host builds only see the
 /// baked const types, hence the scoped allows in this module.)
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ThemeMode {
     Dark,
     Light,
 }
 
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 impl ThemeMode {
     /// The `ui.theme.mode` wire value.
     pub(crate) fn as_str(self) -> &'static str {
@@ -59,7 +59,7 @@ impl ThemeMode {
 /// solid RGB (the `.nxtheme.toml` vocabulary); a surface's frosted translucency
 /// is a per-surface material property, so renderers take the token's *color* at
 /// their own tuned alpha rather than the token's (opaque) alpha.
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub(crate) const fn with_alpha(mut c: [u8; 4], alpha: u8) -> [u8; 4] {
     c[3] = alpha;
     c
@@ -67,7 +67,7 @@ pub(crate) const fn with_alpha(mut c: [u8; 4], alpha: u8) -> [u8; 4] {
 
 /// The BGR triple of a BGRA color — the recolor tint for a monochrome glyph
 /// sprite (the sprite's own alpha stays the anti-aliased coverage).
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub(crate) const fn rgb3(c: [u8; 4]) -> [u8; 3] {
     [c[0], c[1], c[2]]
 }

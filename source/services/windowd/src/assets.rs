@@ -25,40 +25,40 @@ pub const CURSOR_HOTSPOT_Y: i32 = generated::MOCU_CURSOR_HOTSPOT_Y;
 /// Real Lucide icon (house), rendered via the nexus-svg HiDPI pipeline at build
 /// time. Uploaded to gpud once and composited as a GPU sprite layer on the virgl
 /// scanout — the "real icon layer" (TASK #61).
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const SHELL_ICON_BGRA: &[u8] = generated::SHELL_ICON_BGRA;
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const SHELL_ICON_WIDTH: u32 = generated::SHELL_ICON_WIDTH;
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const SHELL_ICON_HEIGHT: u32 = generated::SHELL_ICON_HEIGHT;
 /// On-screen (logical) size the icon composites at; the texture above is 2× this
 /// (supersampled) and GPU-downscaled to it.
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const SHELL_ICON_LOGICAL: u32 = generated::SHELL_ICON_LOGICAL;
 
 /// Resize pointer shapes (TASK-0070 Phase 3): vendored cursor-theme
 /// `ew`/`ns`/`nesw`/`nwse` variants, 32×32 like the default pointer,
 /// hotspot = center (16,16).
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const CURSOR_RESIZE_EW_BGRA: &[u8] = generated::CURSOR_RESIZE_EW_BGRA;
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const CURSOR_RESIZE_NS_BGRA: &[u8] = generated::CURSOR_RESIZE_NS_BGRA;
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const CURSOR_RESIZE_NESW_BGRA: &[u8] = generated::CURSOR_RESIZE_NESW_BGRA;
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const CURSOR_RESIZE_NWSE_BGRA: &[u8] = generated::CURSOR_RESIZE_NWSE_BGRA;
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const CURSOR_RESIZE_HOTSPOT: i32 = 16;
 /// Loading-ring wait-cursor frames (animated wait cursor): 32×32 premultiplied
 /// BGRA, hotspot = center, one sprite per ring rotation step.
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const CURSOR_RING_FRAMES: [&[u8]; 8] = generated::CURSOR_RING_FRAMES;
 
 /// Dock icon for minimized windows (Lucide `search`). Consumed by the os-lite
 /// dock rasterizer (`compositor::runtime::wm`).
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const DOCK_SEARCH_ICON_BGRA: &[u8] = generated::DOCK_SEARCH_ICON_BGRA;
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const DOCK_SEARCH_ICON_DIM: u32 = generated::DOCK_SEARCH_ICON_DIM;
 
 pub struct ProofTextAsset {
@@ -213,15 +213,15 @@ pub fn proof_text_asset(id: &str) -> Option<ProofTextAsset> {
 /// kerning of the vendored UI face, baked by build.rs at the two shell text
 /// sizes. Consumed exclusively by `crate::text`. `FONT_FAMILY` is the
 /// manifest-driven default behind the prepared `ui.font.family` settings key.
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const FONT_FAMILY: &str = generated::FONT_FAMILY;
 
 /// Baked dual theme snapshots (TASK-0072 Phase 9): the same token vocabulary in
 /// BGRA for both qualifiers. The compositor swaps between them on a light/dark
 /// switch — see [`crate::theme`].
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const THEME_DARK: crate::theme::ThemeTokens = generated::THEME_DARK;
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const THEME_LIGHT: crate::theme::ThemeTokens = generated::THEME_LIGHT;
 
 #[cfg(test)]
@@ -239,7 +239,7 @@ mod tests {
 /// optionally tinting the glyph. Relocated from the deleted legacy
 /// `desktop_layer` (cleanup-map DELETE): the dock still rasterizes minimized
 /// icons until it moves to the DSL shell (MOVE column).
-#[cfg_attr(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")), allow(dead_code))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub(crate) fn blend_icon_row(
     row: &mut [u8],
     dst_x: u32,
