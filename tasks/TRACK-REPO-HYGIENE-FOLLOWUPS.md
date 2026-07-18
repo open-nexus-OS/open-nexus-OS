@@ -76,3 +76,18 @@ Shrink the allow list incrementally (each removal = fix the underlying sites +
 verify build-kernel + a boot). The two genuine default-deny findings were fixed
 outright (hex-literal regroup, dead self-assignment); `never_loop` and
 `absurd_extreme_comparisons` are intentional idioms kept in the allow list.
+
+## 10. SMP=2 (MTTCG) real-parallelism lane non-determinism
+
+The `just ci-os-smp` lane runs SMP=2 under MTTCG (icount is impossible there —
+it serializes harts and kills the cpu1/per-hart/IPI proofs). Beyond the now-fixed
+UART interleaving (nexus-log `record_lock`, line-atomic), several of its timing
+proofs are inherently non-deterministic under host-scheduling variance and flake
+at ~2-3/5: `KSELFTEST: runtime timer budget ok`, `KSELFTEST: bkl budget ok`
+values, and occasional service selftests (statefsd IPC `reply_and_close` fail
+→ ladder stall, vfs/dsoftbus/apphost). Decision (2026-07): the hard test-all
+boot gate is the DETERMINISTIC `ci-os-smp1` (SMP=1 + icount); the SMP=2 lane is
+bounded-retry and CI-only. Follow-up: investigate the individual SMP=2 flakes
+(statefsd reply-send robustness under concurrency; runtime-timer-budget margin
+under MTTCG) so the parallelism lane can eventually gate without retry. Larger
+kernel/scheduling scope, likely its own track.

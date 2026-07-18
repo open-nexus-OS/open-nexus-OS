@@ -179,7 +179,11 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 fn hex_decode(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) {
+    // `%` not `is_multiple_of`: the pinned OS toolchain (nightly-2025-01-15)
+    // predates the `unsigned_is_multiple_of` stabilization (stable 1.87), and
+    // this is a non-excluded workspace member that `make build` compiles.
+    #[allow(unknown_lints, clippy::manual_is_multiple_of)]
+    if text.len() % 2 != 0 {
         return None;
     }
     (0..text.len() / 2).map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).ok()).collect()

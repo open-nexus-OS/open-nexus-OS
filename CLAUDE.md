@@ -37,12 +37,27 @@ just help         # full task catalog
 - QEMU/build logs land in `build/logs/<profile>--<timestamp>/`
   (`uart.log`, `hypothesis.json`; decode via `docs/testing/run-logs.md`;
   `build/logs/latest` symlink; prune with `just logs-gc`).
+- **One toolchain, pinned.** `rust-toolchain.toml` pins
+  `nightly-2025-01-15` and EVERYTHING uses it — lint, fmt, host tests, the OS
+  cross-build, `just start`, CI. Never introduce a floating `+stable` in a
+  recipe: a stable/nightly split silently diverges (a lint on newer stable
+  accepts APIs like `is_multiple_of` that the pinned build rejects; floating
+  rustfmt reorders imports local≠CI). If clippy suggests an API newer than the
+  pinned toolchain, keep the old form with `#[allow(unknown_lints, clippy::…)]`
+  (the `unknown_lints` guard is required so the allow doesn't error on the
+  pinned clippy). `just test-all` builds with this same toolchain, so a green
+  `test-all` predicts a green `make build` / `just start` / CI.
 - Formatting: **never plain `cargo fmt`** — config lives in
-  `config/rustfmt.toml`. Approved commands:
+  `config/rustfmt.toml`. Approved command:
   ```bash
-  cargo +stable fmt --all -- --config-path config/rustfmt.toml
-  cargo +nightly-2025-01-15 fmt -p neuron -p neuron-boot -- --config-path config/rustfmt.toml
+  cargo +nightly-2025-01-15 fmt --all -- --config-path config/rustfmt.toml
   ```
+- **Warnings are a hard gate**, not telemetry: `just diag` (in `test-all`)
+  denies any warning under host + os + kernel cfgs, and the real OS build
+  (`scripts/build.sh` under `NEXUS_WARN_GATE=1`) fails on per-service warnings.
+  Fix warnings or cfg-gate the code — do not add `#[allow(dead_code)]`; if an
+  item is only used under one cfg, `#[cfg(nexus_env="os")]`-gate it so the
+  other cfg never compiles it. (`NEXUS_ALLOW_WARN=1` is a local-only escape.)
 - OS builds: services use `--no-default-features --features os-lite`;
   host/OS split via `nexus_env = "host" | "os"` cfg — never invent new cfgs.
 

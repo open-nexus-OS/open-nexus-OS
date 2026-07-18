@@ -529,7 +529,9 @@ mod probe {
                     // structural differences.
                     let store_snapshot = app.as_ref().map(|d| d.view.runtime.store_snapshot());
                     // Same drop-first bracketing as the re-theme arm (see there).
-                    app = None;
+                    // `take()` (not `= None`) so the intentional drop reads the
+                    // value — the drop's side effect is the point, not a dead store.
+                    drop(app.take());
                     raw_marker("apphost: profile old app dropped");
                     app = DslApp::mount_restoring(
                         payload,
@@ -573,7 +575,8 @@ mod probe {
                     // walks every runtime collection — if a heap clobber
                     // corrupted them, the panic fires HERE (bracketed by the
                     // markers) and not ambiguously inside the new mount.
-                    app = None;
+                    // `take()` (not `= None`) so the value is read by the drop.
+                    drop(app.take());
                     raw_marker("apphost: re-theme old app dropped");
                     app = DslApp::mount_restoring(
                         payload,

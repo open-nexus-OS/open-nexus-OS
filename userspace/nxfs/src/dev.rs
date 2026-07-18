@@ -27,7 +27,7 @@ impl<D: BlockDevice> Dev<D> {
         let sector = inner.block_size();
         // `%` not `is_multiple_of`: the OS toolchain (nightly-2025-01-15) predates
         // the `unsigned_is_multiple_of` stabilization (stable 1.87).
-        #[allow(clippy::manual_is_multiple_of)]
+        #[allow(unknown_lints, clippy::manual_is_multiple_of)]
         let bad_sector = sector == 0 || LOGICAL_BLOCK_SIZE % sector != 0;
         if bad_sector {
             return Err(NxfsError::Io);

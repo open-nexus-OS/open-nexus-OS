@@ -148,6 +148,16 @@ require_or_build() {
     warn_json="\"${warn_lines:-}\""
     debug_log "H4b" "scripts/build.sh:build-warnings" "cargo build warnings for $label" \
       "{\"label\":\"$label\",\"count\":$warn_count,\"warnings\":[$warn_json]}"
+    # Warning gate: turn the H4b telemetry into an actual gate on the REAL OS
+    # build path. Opt-in via NEXUS_WARN_GATE=1 (set by `just build-os-workspace`
+    # / test-all / CI) so interactive `just start`/`make build` stay friendly.
+    # NEXUS_ALLOW_WARN=1 forces it off even when the gate is on (Phase-2 churn).
+    if [[ "${NEXUS_WARN_GATE:-0}" == "1" && "${NEXUS_ALLOW_WARN:-0}" != "1" && $build_rc -eq 0 ]]; then
+      echo "[error] warning gate: $label emitted $warn_count warning(s) (NEXUS_WARN_GATE=1)." >&2
+      echo "[error] fix them, or set NEXUS_ALLOW_WARN=1 for local exploration." >&2
+      grep -E '^warning' "$stderr_file" >&2 || true
+      build_rc=1
+    fi
   fi
 
   rm -f "$stderr_file"

@@ -10,6 +10,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: consumed by `src/lib.rs` unit tests
 
+use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::io::Write as _;
 use std::path::Path;
@@ -99,7 +100,10 @@ fn emit_glyph_atlas(
     )?;
     // The sparse EXTRAS tail (codepoints past ASCII, in glyph-index order
     // 95.. — the runtime maps ASCII by offset and looks these up).
-    let extras_list: String = EXTRAS.iter().map(|c| format!("{c}, ")).collect();
+    let extras_list: String = EXTRAS.iter().fold(String::new(), |mut acc, c| {
+        let _ = write!(acc, "{c}, ");
+        acc
+    });
     writeln!(generated, "pub const {name}_EXTRAS: &[u32; {}] = &[{extras_list}];", EXTRAS.len())?;
     // Sparse kerning: only pairs whose kern rounds to a non-zero pixel count
     // at this size (most round to 0 at 13–16 px). Indices are glyph indices.

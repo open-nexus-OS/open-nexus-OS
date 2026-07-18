@@ -1226,7 +1226,7 @@ pub struct ChildIter<'a> {
     next: SceneNodeId,
 }
 
-impl<'a> Iterator for ChildIter<'a> {
+impl Iterator for ChildIter<'_> {
     type Item = SceneNodeId;
 
     fn next(&mut self) -> Option<SceneNodeId> {

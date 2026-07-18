@@ -100,7 +100,7 @@ impl<'a> ProgramReader<'a> {
     pub fn from_canonical_bytes(bytes: &'a [u8]) -> Result<Self, IrError> {
         // `%` not `is_multiple_of`: the OS toolchain (nightly-2025-01-15) predates
         // the `unsigned_is_multiple_of` stabilization (stable 1.87).
-        #[allow(clippy::manual_is_multiple_of)]
+        #[allow(unknown_lints, clippy::manual_is_multiple_of)]
         if bytes.is_empty() || bytes.len() % 8 != 0 {
             return Err(IrError::Malformed);
         }

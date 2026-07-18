@@ -588,7 +588,7 @@ fn lower_branch(
             lower_expr(env, cond, ab.reborrow().init_cond())?;
             let mut body_list = ab.init_body(body.len() as u32);
             for (j, child) in body.iter().enumerate() {
-                path.push((i as u32) << 8 | j as u32);
+                path.push(((i as u32) << 8) | j as u32);
                 lower_view(ctx, env, component, path, child, body_list.reborrow().get(j as u32))?;
                 path.pop();
             }

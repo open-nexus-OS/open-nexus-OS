@@ -38,15 +38,13 @@ jobs:
           submodules: recursive
       - name: Install system deps (capnproto, just)
         run: sudo apt-get update && sudo apt-get install -y capnproto just
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - name: Install Rust (nightly, kernel rustfmt)
+      # One pinned toolchain (rust-toolchain.toml drives it) so CI clippy/rustfmt
+      # match the local `just` recipes and every real build path exactly.
+      - name: Install Rust (pinned nightly-2025-01-15)
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2025-01-15
-          components: rustfmt
+          components: rustfmt, clippy
       - name: Cargo cache
         uses: actions/cache@v4
         with:
@@ -74,8 +72,10 @@ jobs:
           submodules: recursive
       - name: Install system deps (capnproto, just)
         run: sudo apt-get update && sudo apt-get install -y capnproto just
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust (pinned nightly-2025-01-15)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-01-15
       - name: Cargo cache
         uses: actions/cache@v4
         with:
@@ -173,9 +173,7 @@ jobs:
             capnproto \
             mold \
             just
-      - name: Install Rust (stable, harness host tools)
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install Rust (nightly, riscv target + llvm-tools)
+      - name: Install Rust (pinned nightly, riscv target + llvm-tools)
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2025-01-15
@@ -199,6 +197,12 @@ jobs:
           RUN_UNTIL_MARKER: "1"
           RUN_TIMEOUT: "180s"
         run: ./scripts/qemu-test.sh --profile=headless
+      # SMP=2 real-parallelism lane (MTTCG). Inherently non-deterministic, so
+      # `just ci-os-smp` retries (bounded); a real regression fails every
+      # attempt. Kept separate from the deterministic gate so a scheduling flake
+      # never reds the build, but parallelism coverage still runs in CI.
+      - name: QEMU SMP=2 parallelism lane (bounded retry)
+        run: just ci-os-smp
       - name: Upload run logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

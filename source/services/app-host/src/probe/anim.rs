@@ -18,7 +18,7 @@
 //! diffs each intent's committed value against the last emit and (re)starts the
 //! token's motion on a change (seeding the mounted resting state on first
 //! sight) → the frame pulse calls [`anim_tick`], folding the driver's
-//! `SceneUpdate`s into the per-node [`NodeAnim`] table → [`node_anims_snapshot`]
+//! `SceneUpdate`s into the per-node [`NodeAnim`] table → the cascade expansion
 //! hands the painter the current transforms. Alloc-bounded: the driver, the
 //! diff table, and the transform table are all capped at [`MAX_NODE_ANIMS`];
 //! the per-frame tick is allocation-free (`tick_into` into a stack buffer).
@@ -515,7 +515,7 @@ impl AnimState {
     /// carousel steps). Alloc-free.
     fn tick_loops(&mut self, now_ns: u64, boxes: &[nexus_layout::LayoutBox]) -> Option<(i32, i32)> {
         let mut span: Option<(i32, i32)> = None;
-        let mut grow =
+        let grow =
             |boxes: &[nexus_layout::LayoutBox], node_id: usize, span: &mut Option<(i32, i32)>| {
                 if let Some(b) = boxes.iter().find(|b| b.node_id == node_id) {
                     let (y0, y1) = (b.rect.y.0 - 1, b.rect.y.0 + b.rect.height.0 + 1);
@@ -831,15 +831,6 @@ impl super::DslApp {
             })
             .count();
         self.anim.driver.active_count() > loop_springs
-    }
-
-    /// Copy the current per-node transforms into `out` for the painter; returns
-    /// the count written. A copy (not a borrow) so the caller can hold its
-    /// render scratch mutably at the same time. Bounded by [`MAX_NODE_ANIMS`].
-    pub(super) fn node_anims_snapshot(&self, out: &mut [NodeAnim]) -> usize {
-        let n = self.anim.anims.len().min(out.len());
-        out[..n].copy_from_slice(&self.anim.anims[..n]);
-        n
     }
 
     /// Expand the per-node transforms into a SUBTREE CASCADE for the painter:
