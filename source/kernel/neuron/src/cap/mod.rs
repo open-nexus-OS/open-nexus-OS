@@ -162,7 +162,7 @@ impl CapTable {
             {
                 use core::fmt::Write as _;
                 let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "CAP-E: invalid slot {} (len={})\n", slot, self.slots.len());
+                let _ = writeln!(u, "CAP-E: invalid slot {} (len={})", slot, self.slots.len());
             }
             return Err(CapError::InvalidSlot);
         }

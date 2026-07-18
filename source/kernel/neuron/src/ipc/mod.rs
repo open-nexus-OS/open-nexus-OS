@@ -239,10 +239,10 @@ impl Router {
     pub fn new(count: usize) -> Self {
         // Global bytes budget: keep total queued payload bytes bounded across all endpoints.
         // Must be comfortably above boot traffic; per-endpoint budgets still apply.
-        const DEFAULT_MAX_QUEUED_BYTES_TOTAL: usize = 1 * 1024 * 1024; // 1 MiB
-                                                                       // Per-owner budget: cap total queued bytes into a single service (owner PID) across all
-                                                                       // endpoints owned by that PID. This prevents one service inbox from consuming the entire
-                                                                       // global budget via many endpoints.
+        const DEFAULT_MAX_QUEUED_BYTES_TOTAL: usize = 1024 * 1024; // 1 MiB
+                                                                   // Per-owner budget: cap total queued bytes into a single service (owner PID) across all
+                                                                   // endpoints owned by that PID. This prevents one service inbox from consuming the entire
+                                                                   // global budget via many endpoints.
         const DEFAULT_MAX_QUEUED_BYTES_PER_OWNER: usize = 256 * 1024; // 256 KiB
         let mut endpoints = Vec::with_capacity(count);
         for _ in 0..count {

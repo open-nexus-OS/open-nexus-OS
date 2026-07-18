@@ -190,7 +190,7 @@ impl HartTimers {
 
     /// Check whether a timer exists and is owned by the given PID.
     pub fn owned_by(&self, timer_id: TimerId, pid: u32) -> bool {
-        self.table.get(&timer_id.0).map_or(false, |t| t.owner_pid == pid)
+        self.table.get(&timer_id.0).is_some_and(|t| t.owner_pid == pid)
     }
 }
 

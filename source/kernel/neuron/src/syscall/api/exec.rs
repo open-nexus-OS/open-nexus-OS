@@ -566,10 +566,11 @@ pub(crate) fn exec_v2_phase_a(
                     continue;
                 }
                 let next_start = load_ranges.get(idx + 1).map(|n| n.start).unwrap_or(usize::MAX);
-                if next_start >= r.end.saturating_add(PAGE_SIZE) && r.end < USER_VADDR_LIMIT {
-                    if space.page_table().lookup(r.end).is_some() {
-                        panic!("exec_v2: PT_LOAD gap page unexpectedly mapped at 0x{:x}", r.end);
-                    }
+                if next_start >= r.end.saturating_add(PAGE_SIZE)
+                    && r.end < USER_VADDR_LIMIT
+                    && space.page_table().lookup(r.end).is_some()
+                {
+                    panic!("exec_v2: PT_LOAD gap page unexpectedly mapped at 0x{:x}", r.end);
                 }
             }
         }

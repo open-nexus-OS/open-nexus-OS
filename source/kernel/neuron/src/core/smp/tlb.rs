@@ -18,7 +18,7 @@
 //!     (sync::spin_irq acquisition contract), so it always acks.
 //!   - Fail-closed: a hart not acking within the time budget is a lost-IPI
 //!     kernel bug → panic (deterministic, never silent staleness).
-//! ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
+//!     ADR: docs/rfcs/RFC-0021-kernel-smp-v1-percpu-runqueues-ipi-contract.md
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
@@ -96,14 +96,14 @@ pub fn shootdown_all() {
     let epoch = TLB_EPOCH.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
 
     let mut targets = 0usize;
-    for idx in 0..MAX_CPUS {
+    for (idx, mail) in TLB_MAIL.iter().enumerate() {
         if idx == me || online & (1 << idx) == 0 {
             continue;
         }
         targets |= 1 << idx;
         // Monotonic max: coalesce with any (impossible today: BKL-serialized)
         // concurrent request.
-        TLB_MAIL[idx].requested.fetch_max(epoch, Ordering::AcqRel);
+        mail.requested.fetch_max(epoch, Ordering::AcqRel);
     }
     if targets == 0 {
         return;
@@ -117,11 +117,11 @@ pub fn shootdown_all() {
         let deadline = (riscv::register::time::read() as u64).saturating_add(ACK_BUDGET_TICKS);
         loop {
             let mut all_acked = true;
-            for idx in 0..MAX_CPUS {
+            for (idx, mail) in TLB_MAIL.iter().enumerate() {
                 if targets & (1 << idx) == 0 {
                     continue;
                 }
-                if TLB_MAIL[idx].acked.load(Ordering::Acquire) < epoch {
+                if mail.acked.load(Ordering::Acquire) < epoch {
                     all_acked = false;
                     break;
                 }

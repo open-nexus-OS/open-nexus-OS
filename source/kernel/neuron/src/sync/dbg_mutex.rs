@@ -62,20 +62,20 @@ pub struct DbgMutexGuard<'a, T> {
     guard: spin::MutexGuard<'a, T>,
 }
 
-impl<'a, T> Deref for DbgMutexGuard<'a, T> {
+impl<T> Deref for DbgMutexGuard<'_, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.guard
     }
 }
 
-impl<'a, T> DerefMut for DbgMutexGuard<'a, T> {
+impl<T> DerefMut for DbgMutexGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.guard
     }
 }
 
-impl<'a, T> Drop for DbgMutexGuard<'a, T> {
+impl<T> Drop for DbgMutexGuard<'_, T> {
     fn drop(&mut self) {
         let start = self.parent.start_ticks.load(Ordering::SeqCst);
         let end = read_time();

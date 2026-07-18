@@ -365,12 +365,10 @@ pub fn request_resched(target: CpuId) -> bool {
 
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        if idx < usize::BITS as usize {
-            if SELFTEST_FORCE_IPI_SEND_FAIL.load(Ordering::Acquire) == 0 {
-                let ret = sbi::send_ipi(1usize << idx, 0);
-                if ret.error == 0 {
-                    RESCHED_IPI_SENT_OK[idx].fetch_add(1, Ordering::AcqRel);
-                }
+        if idx < usize::BITS as usize && SELFTEST_FORCE_IPI_SEND_FAIL.load(Ordering::Acquire) == 0 {
+            let ret = sbi::send_ipi(1usize << idx, 0);
+            if ret.error == 0 {
+                RESCHED_IPI_SENT_OK[idx].fetch_add(1, Ordering::AcqRel);
             }
         }
     }

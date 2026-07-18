@@ -27,7 +27,7 @@ use super::page_table::{HUGE_PAGE_SIZE_2M, PAGE_SIZE};
 /// Maximum ASIDs made available by the allocator.
 const MAX_ASIDS: usize = 256;
 const WORD_BITS: usize = core::mem::size_of::<u64>() * 8;
-const BITMAP_WORDS: usize = (MAX_ASIDS + WORD_BITS - 1) / WORD_BITS;
+const BITMAP_WORDS: usize = MAX_ASIDS.div_ceil(WORD_BITS);
 
 static ADDRESS_SPACES_CREATED: AtomicUsize = AtomicUsize::new(0);
 static ADDRESS_SPACES_DESTROYED: AtomicUsize = AtomicUsize::new(0);
@@ -172,9 +172,7 @@ static_assertions::assert_not_impl_any!(AddressSpaceManager: Send, Sync);
 impl AddressSpaceManager {
     /// Creates an empty manager.
     pub fn new() -> Self {
-        let mgr =
-            Self { spaces: Vec::new(), asids: AsidAllocator::new(), _not_send_sync: PhantomData };
-        mgr
+        Self { spaces: Vec::new(), asids: AsidAllocator::new(), _not_send_sync: PhantomData }
     }
 
     /// Allocates a fresh address space and returns its handle.
@@ -228,7 +226,6 @@ impl AddressSpaceManager {
     }
 
     /// Switches the currently running hardware context to `handle`.
-    #[must_use]
     pub fn activate(&self, handle: AsHandle) -> Result<(), AddressSpaceError> {
         let space = self.get(handle)?;
         #[cfg(feature = "selftest_no_satp")]
@@ -280,7 +277,6 @@ impl AddressSpaceManager {
     }
 
     /// Records that `pid` references the provided address space.
-    #[must_use]
     pub fn attach(&mut self, handle: AsHandle, pid: Pid) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
         space.attach(pid);
@@ -288,7 +284,6 @@ impl AddressSpaceManager {
     }
 
     /// Drops the reference held by `pid` for `handle`.
-    #[must_use]
     pub fn detach(&mut self, handle: AsHandle, pid: Pid) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
         space.detach(pid);
@@ -296,7 +291,6 @@ impl AddressSpaceManager {
     }
 
     /// Destroys an address space once no task references remain.
-    #[must_use]
     pub fn destroy(&mut self, handle: AsHandle) -> Result<(), AddressSpaceError> {
         let slot = self.spaces.get_mut(handle.index()).ok_or(AddressSpaceError::InvalidHandle)?;
         let asid = match slot.as_ref() {
@@ -311,7 +305,6 @@ impl AddressSpaceManager {
     }
 
     /// Maps a single page within the address space referenced by `handle`.
-    #[must_use]
     pub fn map_page(
         &mut self,
         handle: AsHandle,
@@ -323,13 +316,13 @@ impl AddressSpaceManager {
         let res = space.page_table_mut().map(va, pa, flags).map_err(AddressSpaceError::from);
         // Ensure kernel text/UART pages are marked GLOBAL to remain visible across ASIDs
         if res.is_ok() {
-            if va >= 0x8000_0000 && va < 0x8100_0000 {
+            if (0x8000_0000..0x8100_0000).contains(&va) {
                 let _ = space
                     .page_table_mut()
                     .set_leaf_flags(va, PageFlags::GLOBAL)
                     .map_err(AddressSpaceError::from);
             }
-            if va >= 0x1000_0000 && va < 0x1000_1000 {
+            if (0x1000_0000..0x1000_1000).contains(&va) {
                 let _ = space
                     .page_table_mut()
                     .set_leaf_flags(va, PageFlags::GLOBAL)
@@ -766,7 +759,7 @@ fn align_up(addr: usize) -> usize {
     if rem == 0 {
         addr
     } else {
-        addr.checked_add(PAGE_SIZE - rem).unwrap_or_else(|| usize::MAX & !(PAGE_SIZE - 1))
+        addr.checked_add(PAGE_SIZE - rem).unwrap_or(usize::MAX & !(PAGE_SIZE - 1))
     }
 }
 

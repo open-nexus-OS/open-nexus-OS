@@ -198,7 +198,7 @@ impl Scheduler {
             use core::fmt::Write as _;
             if !crate::log::kfold(crate::log::KGroup::Sched, crate::log::Level::Info) {
                 let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "SCHED: new enter\n");
+                let _ = writeln!(u, "SCHED: new enter");
             }
         }
         // Read deterministic timeslice guarded and fall back to constant if needed
@@ -208,7 +208,7 @@ impl Scheduler {
             use core::fmt::Write as _;
             if !crate::log::kfold(crate::log::KGroup::Sched, crate::log::Level::Info) {
                 let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "SCHED: timeslice={}\n", ts);
+                let _ = writeln!(u, "SCHED: timeslice={}", ts);
             }
         }
         let s = Self {
@@ -221,7 +221,7 @@ impl Scheduler {
             use core::fmt::Write as _;
             if !crate::log::kfold(crate::log::KGroup::Sched, crate::log::Level::Info) {
                 let mut u = crate::uart::raw_writer();
-                let _ = write!(u, "SCHED: new exit\n");
+                let _ = writeln!(u, "SCHED: new exit");
             }
         }
         s

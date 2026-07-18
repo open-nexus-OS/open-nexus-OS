@@ -96,7 +96,7 @@ pub fn emit_bringup_gate(expected_mask: usize) {
         if expected_mask.count_ones() <= 1 {
             return;
         }
-        for idx in 1..MAX_CPUS {
+        for (idx, stage) in BRINGUP_STAGE.iter().enumerate().skip(1) {
             let bit = 1usize << idx;
             if expected_mask & bit == 0 {
                 continue;
@@ -107,7 +107,7 @@ pub fn emit_bringup_gate(expected_mask: usize) {
                 "KGATE: smp hart{} online={} stage={} hsm={}",
                 idx,
                 (online & bit != 0) as usize,
-                BRINGUP_STAGE[idx].load(Ordering::Acquire),
+                stage.load(Ordering::Acquire),
                 status.value
             );
         }
@@ -193,7 +193,7 @@ pub fn retry_missing_harts(expected_mask: usize) {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         let online = cpu_online_mask();
-        for idx in 1..MAX_CPUS {
+        for (idx, stage) in BRINGUP_STAGE.iter().enumerate().skip(1) {
             let bit = 1usize << idx;
             if expected_mask & bit == 0 || online & bit != 0 {
                 continue;
@@ -205,7 +205,7 @@ pub fn retry_missing_harts(expected_mask: usize) {
                 target: "smp",
                 "KINIT: hart{} missing (stage={} hsm_err=0x{:x} hsm_state={}) — retrying start",
                 idx,
-                BRINGUP_STAGE[idx].load(Ordering::Acquire),
+                stage.load(Ordering::Acquire),
                 status.error,
                 status.value
             );

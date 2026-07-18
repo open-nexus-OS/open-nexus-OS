@@ -64,15 +64,13 @@ fn panic(info: &PanicInfo) -> ! {
         let _ = w.write_str("PANIC: trap ring snapshot\n");
         trap::visit_trap_ring(|slot, frame| {
             use core::fmt::Write as _;
-            let _ = write!(
+            let _ = writeln!(
                 w,
-                " slot=0x{:02x} sepc=0x{:016x} scause=0x{:016x} stval=0x{:016x}\n",
+                " slot=0x{:02x} sepc=0x{:016x} scause=0x{:016x} stval=0x{:016x}",
                 slot, frame.sepc, frame.scause, frame.stval
             );
         });
     }
-
-    drop(w);
 
     loop {
         crate::arch::riscv::wait_for_interrupt();

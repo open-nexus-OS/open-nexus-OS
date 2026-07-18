@@ -16,14 +16,8 @@
 use super::*;
 
 /// Identifier selecting a trap domain (e.g. syscall table) for a task.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct TrapDomainId(pub(crate) usize);
-
-impl Default for TrapDomainId {
-    fn default() -> Self {
-        TrapDomainId(0)
-    }
-}
 
 #[derive(Clone, Copy)]
 pub(super) struct KernelHandles {

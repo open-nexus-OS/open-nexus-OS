@@ -88,14 +88,14 @@ impl KernelState {
             Err(err) => {
                 use core::fmt::Write as _;
                 let mut w = crate::uart::raw_writer();
-                let _ = write!(w, "KS-E: as_create {:?}\n", err);
+                let _ = writeln!(w, "KS-E: as_create {:?}", err);
                 panic!("kernel address space create failed");
             }
         };
         if let Err(err) = address_spaces.attach(kernel_as, Pid::KERNEL) {
             use core::fmt::Write as _;
             let mut w = crate::uart::raw_writer();
-            let _ = write!(w, "KS-E: as_attach {:?}\n", err);
+            let _ = writeln!(w, "KS-E: as_attach {:?}", err);
         }
         // Activate kernel address space immediately to ensure deterministic
         // RX mapping for subsequent code paths.
@@ -114,7 +114,7 @@ impl KernelState {
         if let Err(err) = address_spaces.activate(kernel_as) {
             use core::fmt::Write as _;
             let mut w = crate::uart::raw_writer();
-            let _ = write!(w, "KS-E: as_activate {:?}\n", err);
+            let _ = writeln!(w, "KS-E: as_activate {:?}", err);
             panic!("kernel address space activate failed");
         }
 
@@ -129,9 +129,9 @@ impl KernelState {
         // If an early trap occurred, print it once to aid bring-up debugging.
         if let Some(tf) = crate::trap::last_trap() {
             let mut u = crate::uart::raw_writer();
-            let _ = write!(
+            let _ = writeln!(
                 u,
-                "TRAP-EARLY: scause=0x{:x} sepc=0x{:x} stval=0x{:x}\n",
+                "TRAP-EARLY: scause=0x{:x} sepc=0x{:x} stval=0x{:x}",
                 tf.scause, tf.sepc, tf.stval
             );
         }

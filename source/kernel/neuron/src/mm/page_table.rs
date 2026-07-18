@@ -495,9 +495,9 @@ impl PageTable {
     /// - Non-leaf entries do not carry leaf permission bits
     /// - Leaf entries are VALID and carry at least one of R/W/X
     /// - W^X is enforced (never both WRITE and EXECUTE)
-    /// This is a best-effort walk that assumes the internal pointers
-    /// are well-formed; only compiled when debug assertions or the
-    /// `debug_pt_verify` feature is enabled.
+    ///   This is a best-effort walk that assumes the internal pointers
+    ///   are well-formed; only compiled when debug assertions or the
+    ///   `debug_pt_verify` feature is enabled.
     #[cfg(debug_assertions)]
     pub fn verify(&self) -> Result<(), &'static str> {
         unsafe fn walk(page: *const PageTablePage) -> Result<(), &'static str> {

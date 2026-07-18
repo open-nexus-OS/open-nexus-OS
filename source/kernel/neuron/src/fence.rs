@@ -128,7 +128,7 @@ impl FenceTable {
     /// Check whether a fence exists and is owned by `pid` (lifecycle only:
     /// free/teardown — NOT signal/wait authority, which travels with the cap).
     pub fn owned_by(&self, id: FenceId, pid: u32) -> bool {
-        self.table.get(&id.0).map_or(false, |e| e.owner_pid == pid)
+        self.table.get(&id.0).is_some_and(|e| e.owner_pid == pid)
     }
 
     /// Advance the fence monotonically to at least `v`. Returns the resulting value.

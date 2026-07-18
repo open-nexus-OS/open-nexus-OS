@@ -192,20 +192,20 @@ pub struct SpinIrqGuard<'a, T> {
     was_enabled: bool,
 }
 
-impl<'a, T> Deref for SpinIrqGuard<'a, T> {
+impl<T> Deref for SpinIrqGuard<'_, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         self.guard.as_ref().expect("guard live until drop")
     }
 }
 
-impl<'a, T> DerefMut for SpinIrqGuard<'a, T> {
+impl<T> DerefMut for SpinIrqGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.guard.as_mut().expect("guard live until drop")
     }
 }
 
-impl<'a, T> Drop for SpinIrqGuard<'a, T> {
+impl<T> Drop for SpinIrqGuard<'_, T> {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
         self.lock.holder.store(0, Ordering::Release);

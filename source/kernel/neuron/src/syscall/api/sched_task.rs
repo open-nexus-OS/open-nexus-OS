@@ -501,7 +501,7 @@ pub(super) fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
 
     // Kernel-spawned tasks (selftest, init-lite) must run immediately.
     // Userspace-spawned services stay suspended until the parent resumes them.
-    if typed.as_handle.map_or(true, |h| h.to_raw() == 0) {
+    if typed.as_handle.is_none_or(|h| h.to_raw() == 0) {
         let _ = ctx.tasks.resume_task(pid, ctx.scheduler);
     }
 

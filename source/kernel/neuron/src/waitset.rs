@@ -132,7 +132,7 @@ impl WaitsetTable {
 
     /// Check whether a waitset exists and is owned by `pid`.
     pub fn owned_by(&self, id: WaitsetId, pid: u32) -> bool {
-        self.table.get(&id.0).map_or(false, |e| e.owner_pid == pid)
+        self.table.get(&id.0).is_some_and(|e| e.owner_pid == pid)
     }
 
     /// Remove a waitset entirely (called on cap close). No dangling members.

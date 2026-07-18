@@ -34,7 +34,7 @@ impl MessageHeader {
 
     /// Serialises the header to a little-endian byte array suitable for golden vector comparisons.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub fn to_le_bytes(&self) -> [u8; 16] {
+    pub fn to_le_bytes(self) -> [u8; 16] {
         let mut bytes = [0u8; 16];
         bytes[0..4].copy_from_slice(&self.src.to_le_bytes());
         bytes[4..8].copy_from_slice(&self.dst.to_le_bytes());

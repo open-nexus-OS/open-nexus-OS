@@ -33,9 +33,8 @@ impl CapTransferArgsTyped {
     }
     #[inline]
     fn check(&self) -> Result<Rights, Error> {
-        Rights::from_bits(self.rights_bits).ok_or_else(|| {
-            Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied))
-        })
+        Rights::from_bits(self.rights_bits)
+            .ok_or(Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied)))
     }
 }
 
@@ -59,9 +58,8 @@ impl CapTransferToArgsTyped {
     }
     #[inline]
     fn check(&self) -> Result<Rights, Error> {
-        Rights::from_bits(self.rights_bits).ok_or_else(|| {
-            Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied))
-        })
+        Rights::from_bits(self.rights_bits)
+            .ok_or(Error::Transfer(task::TransferError::Capability(CapError::PermissionDenied)))
     }
 }
 
@@ -281,12 +279,12 @@ pub(super) fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     {
         // (This block is structured as "check then act" to keep denial deterministic.)
         if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
-            if base.kind == CapabilityKind::EndpointFactory {
-                if !(parent == task::Pid::KERNEL && typed.child == task::Pid::from_raw(1)) {
-                    return Err(Error::Transfer(task::TransferError::Capability(
-                        CapError::PermissionDenied,
-                    )));
-                }
+            if base.kind == CapabilityKind::EndpointFactory
+                && !(parent == task::Pid::KERNEL && typed.child == task::Pid::from_raw(1))
+            {
+                return Err(Error::Transfer(task::TransferError::Capability(
+                    CapError::PermissionDenied,
+                )));
             }
         }
     }
@@ -325,12 +323,12 @@ pub(super) fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResu
     {
         // (This block is structured as "check then act" to keep denial deterministic.)
         if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
-            if base.kind == CapabilityKind::EndpointFactory {
-                if !(parent == task::Pid::KERNEL && typed.child == task::Pid::from_raw(1)) {
-                    return Err(Error::Transfer(task::TransferError::Capability(
-                        CapError::PermissionDenied,
-                    )));
-                }
+            if base.kind == CapabilityKind::EndpointFactory
+                && !(parent == task::Pid::KERNEL && typed.child == task::Pid::from_raw(1))
+            {
+                return Err(Error::Transfer(task::TransferError::Capability(
+                    CapError::PermissionDenied,
+                )));
             }
         }
     }

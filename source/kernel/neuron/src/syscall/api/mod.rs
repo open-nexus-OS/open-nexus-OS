@@ -368,6 +368,6 @@ fn sys_debug_write(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let text = core::str::from_utf8(bytes).unwrap_or("");
     let mut uart = crate::uart::KernelUart::lock();
     use core::fmt::Write as _;
-    let _ = (&mut *uart).write_str(text);
+    let _ = (*uart).write_str(text);
     Ok(len)
 }

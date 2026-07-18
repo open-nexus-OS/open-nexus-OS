@@ -117,7 +117,7 @@ fn phased_syscall(
     };
     match reserved {
         Err(err) => {
-            let errno = encode_error(err.into());
+            let errno = encode_error(err);
             write_result(&mut kernel, errno);
             kernel
         }
@@ -185,15 +185,13 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
             });
         }
         *task.frame_mut() = *frame;
-    } else {
-        if log_syscall {
-            uart_dbg_block!({
-                let mut u = crate::uart::raw_writer();
-                let _ = u.write_str("HECALL missing task pid=0x");
-                uart_write_hex(&mut u, old_pid as usize);
-                let _ = u.write_str("\n");
-            });
-        }
+    } else if log_syscall {
+        uart_dbg_block!({
+            let mut u = crate::uart::raw_writer();
+            let _ = u.write_str("HECALL missing task pid=0x");
+            uart_write_hex(&mut u, old_pid as usize);
+            let _ = u.write_str("\n");
+        });
     }
     record(frame);
     let args =
@@ -326,7 +324,6 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
                 if ctx.address_spaces.activate(handle).is_err() {
                     // Fail-fast: returning with a mismatched SATP is unsafe.
                     ctx.tasks.exit_current(-22);
-                    return;
                 }
             }
         }
@@ -721,7 +718,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             if let Some(result) = api::lockfree_syscall(frame.x[17], &args) {
                 frame.x[10] = match result {
                     Ok(v) => v,
-                    Err(err) => encode_error(err.into()),
+                    Err(err) => encode_error(err),
                 };
                 frame.sepc = frame.sepc.wrapping_add(4);
                 record(frame);
@@ -831,7 +828,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         let domain_id = tasks
             .task(current_pid)
             .map(|task| task.trap_domain())
-            .unwrap_or_else(|| runtime_default_domain());
+            .unwrap_or_else(runtime_default_domain);
         let syscalls_ptr = runtime_domain(domain_id)
             .or_else(|| runtime_domain(runtime_default_domain()))
             .expect("trap domain not available");
@@ -963,15 +960,15 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             let stval_now = riscv::register::stval::read();
             #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
             let stval_now: usize = 0;
-            let _ = write!(
+            let _ = writeln!(
                 u,
-                "ILLEGAL-D: sepc=0x{:x} ra=0x{:x} stval=0x{:x}\n",
+                "ILLEGAL-D: sepc=0x{:x} ra=0x{:x} stval=0x{:x}",
                 frame.sepc, frame.x[1], stval_now
             );
             // Best-effort fetch of instruction bytes at sepc
             let i16 = unsafe { core::ptr::read_volatile(frame.sepc as *const u16) } as u16;
             let i32 = unsafe { core::ptr::read_volatile(frame.sepc as *const u32) } as u32;
-            let _ = write!(u, "ILLEGAL-D: inst16=0x{:04x} inst32=0x{:08x}\n", i16, i32);
+            let _ = writeln!(u, "ILLEGAL-D: inst16=0x{:04x} inst32=0x{:08x}", i16, i32);
             // Extra: dump PTE flags for sepc page if available (debug aid)
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             {
@@ -986,9 +983,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 let ppn = satp_now & ((1 << 44) - 1);
                 if ppn == 0 {
                     let page_va = frame.sepc & !(crate::mm::PAGE_SIZE - 1);
-                    let _ = write!(
+                    let _ = writeln!(
                         u,
-                        "ILLEGAL-D: satp=0x{:x} page=0x{:x} (ppn=0)\n",
+                        "ILLEGAL-D: satp=0x{:x} page=0x{:x} (ppn=0)",
                         satp_now, page_va
                     );
                 } else {
@@ -1021,16 +1018,16 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                     if found {
                         let flags = pte & 0x3ff;
-                        let _ = write!(
+                        let _ = writeln!(
                             u,
-                            "ILLEGAL-D: satp=0x{:x} pte=0x{:x} flags=0x{:x}\n",
+                            "ILLEGAL-D: satp=0x{:x} pte=0x{:x} flags=0x{:x}",
                             satp_now, pte, flags
                         );
                     } else {
                         let page_va = frame.sepc & !(crate::mm::PAGE_SIZE - 1);
-                        let _ = write!(
+                        let _ = writeln!(
                             u,
-                            "ILLEGAL-D: satp=0x{:x} page=0x{:x} (unmapped or non-leaf)\n",
+                            "ILLEGAL-D: satp=0x{:x} page=0x{:x} (unmapped or non-leaf)",
                             satp_now, page_va
                         );
                     }

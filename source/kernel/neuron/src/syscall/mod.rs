@@ -256,7 +256,6 @@ impl SyscallTable {
     }
 
     /// Executes the handler referenced by `number`.
-    #[must_use]
     pub fn dispatch(
         &self,
         number: usize,

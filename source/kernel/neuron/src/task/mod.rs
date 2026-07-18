@@ -463,7 +463,8 @@ impl Task {
             scause: 0,
             stval: 0,
         };
-        let t = Self {
+
+        Self {
             pid: Pid::KERNEL,
             parent: None,
             state: TaskState::Running,
@@ -483,8 +484,7 @@ impl Task {
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
             children: Vec::new(),
-        };
-        t
+        }
     }
 
     /// Returns the saved trap frame.
@@ -645,8 +645,7 @@ static_assertions::assert_not_impl_any!(TaskTable: Send, Sync);
 impl TaskTable {
     /// Creates a new table seeded with the bootstrap task (PID 0).
     pub fn new() -> Self {
-        let mut tasks_vec: Vec<Task> = Vec::new();
-        tasks_vec.push(Task::bootstrap());
+        let tasks_vec: Vec<Task> = alloc::vec![Task::bootstrap()];
         Self {
             tasks: tasks_vec,
             current: [Pid::KERNEL; crate::smp::MAX_CPUS],
@@ -881,8 +880,7 @@ impl TaskTable {
             }
         }
 
-        let mut frame = TrapFrame::default();
-        frame.sepc = entry_pc.raw();
+        let mut frame = TrapFrame { sepc: entry_pc.raw(), ..TrapFrame::default() };
 
         let (child_as, stack_top) = match address_space {
             Some(handle) => {
@@ -977,7 +975,7 @@ impl TaskTable {
         }
 
         // Only enqueue if the task is not suspended (parent will resume later).
-        let suspended = self.tasks.last().map_or(false, |t| t.state == TaskState::Suspended);
+        let suspended = self.tasks.last().is_some_and(|t| t.state == TaskState::Suspended);
         let child_home = self.tasks.last().map_or(crate::types::CpuId::BOOT, |t| t.home_cpu);
         if !suspended {
             let outcome = scheduler.enqueue_on_cpu(child_home, pid, QosClass::Normal);
@@ -1003,7 +1001,6 @@ impl TaskTable {
 
     /// Transitions a suspended task to Running and enqueues it.
     /// Idempotent: if already Running, returns NotSuspended.
-    #[must_use]
     pub fn resume_task(&mut self, pid: Pid, scheduler: &mut Scheduler) -> ResumeOutcome {
         let idx = pid.as_index();
         let Some(task) = self.tasks.get_mut(idx) else {

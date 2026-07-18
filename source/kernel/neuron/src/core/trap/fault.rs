@@ -109,7 +109,7 @@ const INTERRUPT_FLAG: usize = usize::MAX - (usize::MAX >> 1);
 #[allow(dead_code)]
 fn is_csr_op(inst: u32) -> bool {
     // SYSTEM opcode (0b1110011), funct3 in {001,010,011} => CSRRW/CSRRS/CSRRC
-    (inst & 0x7f) == 0b111_0011 && matches!((inst >> 12) & 0x7, 0b001 | 0b010 | 0b011)
+    (inst & 0x7f) == 0b111_0011 && matches!((inst >> 12) & 0x7, 0b001..=0b011)
 }
 #[inline]
 pub(super) fn is_rdcycle_or_time(inst: u32) -> bool {

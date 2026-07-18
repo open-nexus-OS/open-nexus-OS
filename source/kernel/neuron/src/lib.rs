@@ -19,49 +19,37 @@
 #![feature(alloc_error_handler)]
 // Kernel clippy baseline (2026-07): the kernel was never clippy-gated (the old
 // ci-kernel.yml ran clippy with `|| true`). `just lint-kernel` now gates it with
-// `-D warnings`, but the pre-existing style/idiom findings below are grandfathered
-// so the gate blocks NEW issues (and all correctness lints, which stay hard errors)
-// without a mass rewrite of protected kernel code. Shrink this list incrementally —
-// tracked in tasks/TRACK-REPO-HYGIENE-FOLLOWUPS.md item 9. These are style/idiom
-// only; `never_loop` (labeled `loop { break v }`) and `absurd_extreme_comparisons`
-// (defensive `CONST > 0` guards) are intentional idioms, not bugs.
+// `-D warnings`. The original grandfathered baseline (~34 style/idiom categories,
+// 117 sites) has been cleaned up: all mechanical/auto-fixable findings were fixed
+// in place, leaving only the small set below, each kept for a documented reason.
+// Progress tracked in tasks/TRACK-REPO-HYGIENE-FOLLOWUPS.md item 9. The gate blocks
+// NEW issues (and all correctness lints, which stay hard errors). Each entry below
+// is a deliberate keep, not a TODO:
 #![allow(
+    // Intentional defensive `CONST > 0` guards on compile-time constants — the
+    // "always true/false" is by design (guards survive if the constant changes).
     clippy::absurd_extreme_comparisons,
-    clippy::collapsible_else_if,
-    clippy::collapsible_if,
+    // satp trampoline rate-limiter is a partial 2-of-3 chain (`n < LIMIT`, `n ==
+    // LIMIT`, implicit no-op for `>`); the if/else-if reads clearer than a `match`
+    // with an empty `Greater` arm.
     clippy::comparison_chain,
+    // `const X: AtomicU32 = AtomicU32::new(0); [X; N]` is the canonical way to build
+    // a `static` array of atomics: the array-repeat copies the template into each
+    // distinct slot. The shared state is the `static`, not the `const`. Known false
+    // positive of this lint for atomic-array initializers (see core/irq.rs).
     clippy::declare_interior_mutable_const,
-    clippy::derivable_impls,
-    clippy::doc_lazy_continuation,
-    clippy::double_must_use,
-    clippy::drop_non_drop,
-    clippy::field_reassign_with_default,
-    clippy::identity_op,
+    // `TaskTable` is never empty by construction (always seeded with the bootstrap
+    // task PID 0), so an `is_empty()` would be dead/misleading.
     clippy::len_without_is_empty,
-    clippy::let_and_return,
-    clippy::manual_div_ceil,
-    clippy::manual_range_contains,
-    clippy::manual_range_patterns,
-    clippy::manual_unwrap_or,
-    clippy::manual_unwrap_or_default,
-    clippy::match_like_matches_macro,
-    clippy::needless_borrow,
-    clippy::needless_lifetimes,
-    clippy::needless_range_loop,
-    clippy::needless_return,
+    // Labeled `loop { ...; break v }` value-blocks — intentional idiom, not a bug.
     clippy::never_loop,
+    // These `new()`s have construction preconditions/side-effects (heap allocation,
+    // a unique single-use static page-table root under `pt_static_root`, bootstrap
+    // task seeding); a silently-derivable `Default` would be a footgun.
     clippy::new_without_default,
-    clippy::redundant_closure,
-    clippy::too_many_arguments,
-    clippy::unnecessary_cast,
-    clippy::unnecessary_lazy_evaluations,
-    clippy::unnecessary_map_or,
-    clippy::unused_enumerate_index,
-    clippy::unusual_byte_groupings,
-    clippy::useless_conversion,
-    clippy::vec_init_then_push,
-    clippy::write_with_newline,
-    clippy::wrong_self_convention
+    // Kernel syscall/exec/trap dispatch fns mirror the hardware syscall ABI register
+    // layout; bundling args into structs obscures the ABI mapping.
+    clippy::too_many_arguments
 )]
 
 #[cfg(target_os = "none")]
@@ -114,7 +102,7 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
                 align: usize,
                 canary: usize,
             }
-            const CANARY: usize = 0xC0FFEE_CAFE_BABE_usize;
+            const CANARY: usize = 0x00C0_FFEE_CAFE_BABE_usize;
             let header_size = core::mem::size_of::<Header>();
             let total_size = header_size
                 .checked_add(layout.size())
@@ -145,8 +133,7 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
                 let tail = base.add(header_size + layout.size()) as *mut usize;
                 ptr::write_volatile(tail, CANARY);
             }
-            let user_ptr = unsafe { base.add(header_size) };
-            user_ptr
+            unsafe { base.add(header_size) }
         }
         #[cfg(not(debug_assertions))]
         {
@@ -172,7 +159,7 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
                 align: usize,
                 canary: usize,
             }
-            const CANARY: usize = 0xC0FFEE_CAFE_BABE_usize;
+            const CANARY: usize = 0x00C0_FFEE_CAFE_BABE_usize;
             let header_size = core::mem::size_of::<Header>();
             let base = unsafe { ptr.sub(header_size) };
             let h = base as *const Header;

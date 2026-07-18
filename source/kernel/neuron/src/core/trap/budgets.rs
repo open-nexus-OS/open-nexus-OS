@@ -39,7 +39,7 @@ pub const TICKS_PER_US: u64 = 10;
 
 /// Per-boot maxima + a 4-bucket wait histogram (<=100µs, <=1ms, <=10ms,
 /// >10ms). Written on EVERY BKL acquire/ecall (relaxed atomics — accounting,
-/// not synchronization); drained once by the boot-end gate marker.
+/// > not synchronization); drained once by the boot-end gate marker.
 pub static BKL_WAIT_MAX_TICKS: AtomicU64 = AtomicU64::new(0);
 pub static BKL_WAIT_BUCKETS: [AtomicUsize; 4] = [const { AtomicUsize::new(0) }; 4];
 pub static ECALL_HOLD_MAX_TICKS: AtomicU64 = AtomicU64::new(0);

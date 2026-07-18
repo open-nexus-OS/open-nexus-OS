@@ -217,9 +217,9 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             ctx.router,
             ctx.address_spaces,
             timer,
-            &mut ctx.hart_timers,
-            &mut ctx.waitsets,
-            &mut ctx.fences,
+            ctx.hart_timers,
+            ctx.waitsets,
+            ctx.fences,
         );
 
         let h = table
@@ -303,9 +303,9 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             handle_raw, // target AS
             1,          // VMO slot: identity VMO with MAP rights
             guard_bottom + PAGE_SIZE,
-            (STACK_PAGES * PAGE_SIZE) as usize,
-            (PROT_READ | PROT_WRITE) as usize,
-            MAP_FLAG_USER as usize,
+            (STACK_PAGES * PAGE_SIZE),
+            (PROT_READ | PROT_WRITE),
+            MAP_FLAG_USER,
         ]);
         table
             .dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &stack_map_args)
@@ -425,9 +425,9 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
                         ctx.router,
                         ctx.address_spaces,
                         timer,
-                        &mut ctx.hart_timers,
-                        &mut ctx.waitsets,
-                        &mut ctx.fences,
+                        ctx.hart_timers,
+                        ctx.waitsets,
+                        ctx.fences,
                     );
                     const PROT_READ: usize = 1 << 0;
                     const PROT_WRITE: usize = 1 << 1;
@@ -501,9 +501,9 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         ctx.router,
         ctx.address_spaces,
         timer,
-        &mut ctx.hart_timers,
-        &mut ctx.waitsets,
-        &mut ctx.fences,
+        ctx.hart_timers,
+        ctx.waitsets,
+        ctx.fences,
     );
     const PROT_READ: usize = 1 << 0;
     const PROT_WRITE: usize = 1 << 1;
@@ -541,17 +541,14 @@ fn run_exit_wait_selftests(ctx: &mut Context<'_>) {
         ctx.router,
         ctx.address_spaces,
         timer,
-        &mut ctx.hart_timers,
-        &mut ctx.waitsets,
-        &mut ctx.fences,
+        ctx.hart_timers,
+        ctx.waitsets,
+        ctx.fences,
     );
 
     let entry = child_exit_zero as usize;
     let spawn_args = Args::new([entry, 0, 0, 0, 0, 0]);
-    let child_pid = match table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args) {
-        Ok(pid) => pid,
-        Err(_) => 0,
-    };
+    let child_pid = table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args).unwrap_or_default();
     let wait_args = Args::new([child_pid, 0, 0, 0, 0, 0]);
     let _ = table.dispatch(SYSCALL_WAIT, &mut sys_ctx, &wait_args);
     log_info!(target: "selftest", "KSELFTEST: exit ok");
@@ -777,10 +774,7 @@ fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
     let hdr = MessageHeader::new(0, ep, 0, 0, 0);
     let msg = crate::ipc::Message::new(hdr, Vec::new(), None);
     let _ = ctx.router.send(ep, msg);
-    let fifo_ok = match ctx.router.pop_recv_waiter(ep) {
-        Ok(Some(w)) if w == r1.as_raw() => true,
-        _ => false,
-    };
+    let fifo_ok = matches!(ctx.router.pop_recv_waiter(ep), Ok(Some(w)) if w == r1.as_raw());
     if fifo_ok {
         log_info!(target: "selftest", "KSELFTEST: ipc recv waiter fifo ok");
     } else {
@@ -807,10 +801,7 @@ fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
 
     // Drain one message, then wake the next send waiter and check it is s1.
     let _ = ctx.router.recv(ep2);
-    let fifo_ok = match ctx.router.pop_send_waiter(ep2) {
-        Ok(Some(w)) if w == s1.as_raw() => true,
-        _ => false,
-    };
+    let fifo_ok = matches!(ctx.router.pop_send_waiter(ep2), Ok(Some(w)) if w == s1.as_raw());
     if fifo_ok {
         log_info!(target: "selftest", "KSELFTEST: ipc send waiter fifo ok");
     } else {
@@ -1020,9 +1011,9 @@ fn run_timer_cap_selftest(ctx: &mut Context<'_>) {
         ctx.router,
         ctx.address_spaces,
         timer,
-        &mut ctx.hart_timers,
-        &mut ctx.waitsets,
-        &mut ctx.fences,
+        ctx.hart_timers,
+        ctx.waitsets,
+        ctx.fences,
     );
 
     let notify_ep =
@@ -1167,9 +1158,9 @@ fn run_waitset_selftest(ctx: &mut Context<'_>) {
         ctx.router,
         ctx.address_spaces,
         timer,
-        &mut ctx.hart_timers,
-        &mut ctx.waitsets,
-        &mut ctx.fences,
+        ctx.hart_timers,
+        ctx.waitsets,
+        ctx.fences,
     );
     let pid = sys_ctx.tasks.current_pid().as_raw();
 
@@ -1327,9 +1318,9 @@ fn run_fence_selftest(ctx: &mut Context<'_>) {
         ctx.router,
         ctx.address_spaces,
         timer,
-        &mut ctx.hart_timers,
-        &mut ctx.waitsets,
-        &mut ctx.fences,
+        ctx.hart_timers,
+        ctx.waitsets,
+        ctx.fences,
     );
 
     let fence_slot = match table.dispatch(SYSCALL_FENCE_CREATE, &mut sys_ctx, &Args::new([0; 6])) {
@@ -1404,7 +1395,7 @@ fn run_spawn_reason_selftest() {
         (SpawnError::AddressSpace(AddressSpaceError::AsidExhausted), SpawnFailReason::MapFailed),
     ];
 
-    for (_idx, (err, expected)) in cases.iter().enumerate() {
+    for (err, expected) in cases.iter() {
         let got = spawn_fail_reason(err);
         if got == *expected {
             log_info!(
