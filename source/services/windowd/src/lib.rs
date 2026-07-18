@@ -90,7 +90,11 @@ mod resource_pool;
 pub mod scene_graph;
 mod server;
 mod smoke;
-#[cfg(any(test, target_os = "none"))]
+// Consumed only by the `compositor` module (+ host unit tests), so it shares
+// that gate: when windowd is pulled in as a plain library dependency (no
+// `os-lite`, e.g. by inputd) the compositor is absent and this retained-scene
+// registry would otherwise compile with everything unused.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod systemui_shell;
 mod telemetry;
 mod visible_state;

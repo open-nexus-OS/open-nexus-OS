@@ -32,67 +32,15 @@ pub(crate) const SIDEBAR_LAYER_ID: LayerId = LayerId(62);
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub(crate) struct DeviceProfile {
     pub display_width: u32,
     pub display_height: u32,
-    pub dpi: u32,
-    pub shell_mode: ShellMode,
-    pub orientation: Orientation,
-    pub size_class: SizeClass,
-    pub hw_cursor_supported: bool,
-    pub min_ring_slots: u8,
-    pub refresh_interval_ns: u64,
 }
 
 impl DeviceProfile {
     pub(crate) const fn qemu_default() -> Self {
-        Self {
-            display_width: 1280,
-            display_height: 800,
-            dpi: 96,
-            shell_mode: ShellMode::Desktop,
-            orientation: Orientation::Landscape,
-            size_class: SizeClass::Expanded,
-            hw_cursor_supported: true,
-            min_ring_slots: 2,
-            refresh_interval_ns: 8_333_333, // 120 Hz
-        }
+        Self { display_width: 1280, display_height: 800 }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ShellMode {
-    Desktop,
-    // Declared device-class vocabulary (configurable-shell contract): only the
-    // desktop profile is wired today; the variants are the product surface.
-    #[allow(dead_code)]
-    Tablet,
-    #[allow(dead_code)]
-    Phone,
-    #[allow(dead_code)]
-    Automotive,
-    #[allow(dead_code)]
-    Tv,
-    #[allow(dead_code)]
-    Headless,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub(crate) enum Orientation {
-    Landscape,
-    Portrait,
-    LandscapeFlipped,
-    PortraitFlipped,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub(crate) enum SizeClass {
-    Compact,
-    Medium,
-    Expanded,
 }
 
 // ── Glass constants (shared between sidebar, proof panel, button) ─────
@@ -120,52 +68,30 @@ const CARD_GAP: u32 = 16;
 const CARD_RADIUS: u32 = 12;
 const CARD_ICON_SIZE: u32 = 24;
 
-// ── Card slot indices ────────────────────────────────────────────────
-// Declared card-slot vocabulary of the proof panel (contract definition,
-// Phase 8); the runtime addresses cards positionally today.
-#[allow(dead_code)]
-const CARD_HOVER: usize = 0;
-#[allow(dead_code)]
-const CARD_CLICK: usize = 1;
-#[allow(dead_code)]
-const CARD_KEYBOARD: usize = 2;
-#[allow(dead_code)]
-const CARD_SCROLL: usize = 3;
-
 // ---------------------------------------------------------------------------
 // SystemUI shell — canonical shell root
 // ---------------------------------------------------------------------------
 
-#[allow(dead_code)]
+// The retained scene graph is no longer walked for pixels — it is now the
+// animation-target/sidebar/cursor registry the compositor drives through the
+// methods below. Only the ids those methods read are stored; the proof-panel /
+// glass-button / chat scaffold ids were RFC-0067 leftovers (stored, never read)
+// and were removed. `root_id` is retained under `test` only for the punning
+// regression guard.
 pub(crate) struct SystemUiShell {
     pub graph: SceneGraph,
     pub profile: DeviceProfile,
     // Top-level
+    #[cfg(test)]
     pub root_id: SceneNodeId,
-    pub wallpaper_id: SceneNodeId,
-    pub panel_container_id: SceneNodeId,
     pub cursor_id: SceneNodeId,
-    // Proof panel (target test panel)
-    pub proof_panel_id: SceneNodeId,
-    pub proof_backdrop_id: SceneNodeId,
-    pub proof_bg_id: SceneNodeId,
-    // Cards inside proof panel: [hover, click, keyboard, scroll]
-    pub card_group_ids: [SceneNodeId; 4],
+    // Card backgrounds are the hover/click/keyboard animation targets.
     pub card_bg_ids: [SceneNodeId; 4],
-    pub card_icon_ids: [SceneNodeId; 4],
-    // Glass button (hamburger menu)
-    pub glass_button_id: SceneNodeId,
-    pub button_backdrop_id: SceneNodeId,
-    pub button_bg_id: SceneNodeId,
-    pub button_bar_ids: [SceneNodeId; 3],
     // Sidebar
     pub sidebar_id: SceneNodeId,
     pub sidebar_backdrop_id: SceneNodeId,
     pub sidebar_bg_id: SceneNodeId,
     pub sidebar_close_ids: [SceneNodeId; 2],
-    // Chat panel (future virtual list mount point)
-    pub chat_panel_id: SceneNodeId,
-    pub chat_backdrop_id: SceneNodeId,
 }
 
 impl SystemUiShell {
@@ -189,7 +115,7 @@ impl SystemUiShell {
             }),
         );
         // ── Wallpaper ─────────────────────────────────────────────
-        let wallpaper_id = insert_node(
+        insert_node(
             &mut graph,
             Some(root_id),
             0,
@@ -229,7 +155,7 @@ impl SystemUiShell {
             }),
         );
         // Glass backdrop filter on the proof panel
-        let proof_backdrop_id = insert_node(
+        insert_node(
             &mut graph,
             Some(proof_panel_id),
             PROOF_PANEL_X,
@@ -246,7 +172,7 @@ impl SystemUiShell {
             }),
         );
         // Glass tint background
-        let proof_bg_id = insert_node(
+        insert_node(
             &mut graph,
             Some(proof_panel_id),
             PROOF_PANEL_X,
@@ -282,9 +208,7 @@ impl SystemUiShell {
             [255, 149, 0, 200], // keyboard — focus orange
             [255, 204, 0, 200], // scroll — warning yellow
         ];
-        let mut card_group_ids = [SceneNodeId(0); 4];
         let mut card_bg_ids = [SceneNodeId(0); 4];
-        let mut card_icon_ids = [SceneNodeId(0); 4];
 
         for i in 0..4usize {
             let cx = PROOF_PANEL_X + 24 + (CARD_W + CARD_GAP) as i32 * i as i32;
@@ -316,7 +240,7 @@ impl SystemUiShell {
                 }),
                 None,
             );
-            let icon = insert_node(
+            insert_node(
                 &mut graph,
                 Some(card),
                 cx + (CARD_W - CARD_ICON_SIZE) as i32 / 2,
@@ -329,9 +253,7 @@ impl SystemUiShell {
                 }),
                 None,
             );
-            card_group_ids[i] = card;
             card_bg_ids[i] = bg;
-            card_icon_ids[i] = icon;
         }
 
         // ── Glass button (hamburger menu, top-right) ──────────────
@@ -350,7 +272,7 @@ impl SystemUiShell {
                 height: FxPx::new(GLASS_BUTTON_H as i32),
             }),
         );
-        let button_backdrop_id = insert_node(
+        insert_node(
             &mut graph,
             Some(glass_button_id),
             btn_x,
@@ -366,7 +288,7 @@ impl SystemUiShell {
                 height: FxPx::new(GLASS_BUTTON_H as i32),
             }),
         );
-        let button_bg_id = insert_node(
+        insert_node(
             &mut graph,
             Some(glass_button_id),
             btn_x,
@@ -386,10 +308,9 @@ impl SystemUiShell {
         let bar_total = 3 * bar_h + 2 * bar_gap;
         let bar_base_x = btn_x + (GLASS_BUTTON_W - bar_w) as i32 / 2;
         let bar_base_y = btn_y + (GLASS_BUTTON_H - bar_total) as i32 / 2;
-        let mut button_bar_ids = [SceneNodeId(0); 3];
         for b in 0..3 {
             let by = bar_base_y + (bar_h + bar_gap) as i32 * b as i32;
-            button_bar_ids[b] = insert_node(
+            insert_node(
                 &mut graph,
                 Some(glass_button_id),
                 bar_base_x,
@@ -517,7 +438,7 @@ impl SystemUiShell {
                 height: FxPx::new(chat_h as i32),
             }),
         );
-        let chat_backdrop_id = insert_node(
+        insert_node(
             &mut graph,
             Some(chat_panel_id),
             chat_x,
@@ -547,26 +468,14 @@ impl SystemUiShell {
         Self {
             graph,
             profile,
+            #[cfg(test)]
             root_id,
-            wallpaper_id,
-            panel_container_id,
             cursor_id,
-            proof_panel_id,
-            proof_backdrop_id,
-            proof_bg_id,
-            card_group_ids,
             card_bg_ids,
-            card_icon_ids,
-            glass_button_id,
-            button_backdrop_id,
-            button_bg_id,
-            button_bar_ids,
             sidebar_id,
             sidebar_backdrop_id,
             sidebar_bg_id,
             sidebar_close_ids,
-            chat_panel_id,
-            chat_backdrop_id,
         }
     }
 
