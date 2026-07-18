@@ -25,7 +25,11 @@ pub(crate) struct Dev<D: BlockDevice> {
 impl<D: BlockDevice> Dev<D> {
     pub(crate) fn new(inner: D) -> Result<Self> {
         let sector = inner.block_size();
-        if sector == 0 || !LOGICAL_BLOCK_SIZE.is_multiple_of(sector) {
+        // `%` not `is_multiple_of`: the OS toolchain (nightly-2025-01-15) predates
+        // the `unsigned_is_multiple_of` stabilization (stable 1.87).
+        #[allow(clippy::manual_is_multiple_of)]
+        let bad_sector = sector == 0 || LOGICAL_BLOCK_SIZE % sector != 0;
+        if bad_sector {
             return Err(NxfsError::Io);
         }
         let sectors_per_block = (LOGICAL_BLOCK_SIZE / sector) as u64;

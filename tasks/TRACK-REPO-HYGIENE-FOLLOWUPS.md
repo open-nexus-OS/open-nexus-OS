@@ -55,3 +55,12 @@ font rendering — successor is skrifa/fontations), crossbeam-epoch/anyhow
 it). Revisit: migrate host font shaping off ttf-parser/rustybuzz, and drop the
 quinn ignore once the host QUIC dep bumps past the fix. The OS graph stays
 guarded independently by `just dep-gate` (RFC-0009).
+
+## 8. Toolchain skew: `just lint` (+stable) vs OS build (nightly-2025-01-15)
+
+`just lint` runs on floating `+stable` (currently 1.90); the OS/kernel build
+uses the pinned `nightly-2025-01-15`. Newer clippy can suggest APIs the older
+OS toolchain lacks — e.g. `unsigned_is_multiple_of` (stable 1.87) breaks the OS
+build, so those sites keep `%` with `#[allow(clippy::manual_is_multiple_of)]`.
+Consider pinning `just lint`/CI to a stable close to the OS nightly (or bumping
+the OS nightly) so the lint surface matches what the OS build can compile.
