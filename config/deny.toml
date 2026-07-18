@@ -18,6 +18,19 @@ ignore = [
     # atomic-polyfill is archived/unmaintained; transitively via heapless -> smoltcp.
     # Track removal by upgrading smoltcp/heapless to a portable-atomic based stack.
     "RUSTSEC-2023-0089",
+
+    # --- HOST-ONLY advisories (2026 batch). Verified NOT in the OS/QEMU target
+    # graph (cargo tree -i <crate> --target riscv64imac-unknown-none-elf
+    # --no-default-features): every path reaches only host test/tooling/font
+    # crates, never a shipped OS service. The OS graph is independently guarded
+    # by `just dep-gate` (RFC-0009). Tracked in
+    # tasks/TRACK-REPO-HYGIENE-FOLLOWUPS.md item 7 for upgrade-or-remove.
+    "RUSTSEC-2026-0192", # ttf-parser unmaintained — host font rendering (nexus-shape/ui goldens)
+    "RUSTSEC-2026-0206", # rustybuzz unmaintained — host text shaping (same tree; skrifa/fontations is the successor)
+    "RUSTSEC-2026-0186", # memmap2 unmaintained — host-only (font/asset mmap)
+    "RUSTSEC-2026-0204", # crossbeam-epoch: invalid-ptr deref only when formatting a dangling Atomic/Shared — host dev/tooling path, not exercised
+    "RUSTSEC-2026-0190", # anyhow fmt::Pointer invalid deref — host test crates only (e2e_policy/remote_e2e), needs std, never in the no_std OS binary
+    "RUSTSEC-2026-0185", # quinn-proto remote memory exhaustion — host QUIC test/dev stack only; the OS DSoftBus transport does not link quinn-proto
 ]
 
 [bans]

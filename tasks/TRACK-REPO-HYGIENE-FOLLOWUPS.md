@@ -44,3 +44,14 @@ push path superseded — no real boot emits them anymore (interactive boots show
 I1/I2 from hidrawd and I5/I6 delivery, but not I3/I4). The chain simulation
 still models them. Re-emit both on the live path (logging-only change), then
 move them back into the `input-live` group of `tools/nx/chains/markers.txt`.
+
+## 7. cargo-deny host-only advisory ignores (2026 batch)
+
+`config/deny.toml` ignores six 2026 RUSTSEC advisories, all verified host-only
+(not in the riscv OS graph): ttf-parser/rustybuzz/memmap2 (unmaintained, host
+font rendering — successor is skrifa/fontations), crossbeam-epoch/anyhow
+(narrow host dev/test paths), quinn-proto (host QUIC test stack; RUSTSEC-2026-
+0185 is a real remote-memory-exhaustion vuln but the OS transport does not link
+it). Revisit: migrate host font shaping off ttf-parser/rustybuzz, and drop the
+quinn ignore once the host QUIC dep bumps past the fix. The OS graph stays
+guarded independently by `just dep-gate` (RFC-0009).
