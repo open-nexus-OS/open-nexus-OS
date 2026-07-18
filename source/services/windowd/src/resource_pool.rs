@@ -14,40 +14,54 @@
 //! API_STABILITY: Contract-locked for Workstreams 3-7
 //! TEST_COVERAGE: Host unit tests in this module
 
-// Documented plane-layout/budget contract, consumed by docs/ADR; the wiring
-// lands with the retained-surface work — module-scoped allow (repo rule: no
-// crate-level blanket).
-#![allow(dead_code)]
-
 // ---------------------------------------------------------------------------
 // VMO plane layout (mirrors compositor/mod.rs)
+//
+// reason: Phase-5 data-plane contract (STATUS above) — allocation is deferred to
+// the gpud resource manager; these descriptors are consumed by the retained-
+// surface wiring (Workstreams 3-7) and by the host unit tests below. Per-item
+// allow, not a module blanket (repo rule).
 // ---------------------------------------------------------------------------
 
 /// Total VMO size: 1280 × 3200 × 4 = 16,384,000 bytes (16 MB).
+#[allow(dead_code)]
 pub(crate) const VMO_TOTAL_BYTES: usize = 16_384_000;
 
 /// Plane 0: wallpaper source (static, written once at boot).
+#[allow(dead_code)]
 pub(crate) const PLANE_WALLPAPER_OFFSET: usize = 0x000000;
+#[allow(dead_code)]
 pub(crate) const PLANE_WALLPAPER_BYTES: usize = 4_096_000; // 1280×800×4
 
 /// Plane 1: retained scene (backdrop snapshots, frozen-glass surfaces).
+#[allow(dead_code)]
 pub(crate) const PLANE_RETAINED_OFFSET: usize = 0x3E8000; // 4,096,000
+#[allow(dead_code)]
 pub(crate) const PLANE_RETAINED_BYTES: usize = 4_096_000; // 1280×800×4
 
 /// Plane 2: frame ring slot A (active scanout).
+#[allow(dead_code)]
 pub(crate) const PLANE_SLOT_A_OFFSET: usize = 0x7D0000; // 8,192,000
+#[allow(dead_code)]
 pub(crate) const PLANE_SLOT_A_BYTES: usize = 4_096_000; // 1280×800×4
 
 /// Plane 3: frame ring slot B (alternate scanout).
+#[allow(dead_code)]
 pub(crate) const PLANE_SLOT_B_OFFSET: usize = 0xBB8000; // 12,288,000
+#[allow(dead_code)]
 pub(crate) const PLANE_SLOT_B_BYTES: usize = 4_096_000; // 1280×800×4
 
 // ---------------------------------------------------------------------------
 // Resource pool budgets (all sizes in bytes)
+//
+// reason: Phase-5 data-plane contract — budgets locked here and validated by the
+// host unit tests below; enforcement lands with the gpud resource manager
+// (Workstreams 3-7). Per-item allow, not a module blanket (repo rule).
 // ---------------------------------------------------------------------------
 
 /// Maximum total bytes allocated to retained surfaces at any time.
 /// Surfaces above this budget trigger LRU eviction.
+#[allow(dead_code)]
 pub(crate) const SURFACE_POOL_BUDGET: usize = 2_097_152; // 2 MB
 const _: () = assert!(
     SURFACE_POOL_BUDGET >= 512 * 512 * 4,
@@ -56,53 +70,70 @@ const _: () = assert!(
 
 /// Maximum bytes for backdrop snapshots (frozen-glass inputs).
 /// One snapshot per effect region; evicted on invalidation.
+#[allow(dead_code)]
 pub(crate) const BACKDROP_SNAPSHOT_BUDGET: usize = 524_288; // 512 KB
 
 /// Maximum bytes for blur transient buffers.
 /// Transients are valid for one frame only and reused across frames.
+#[allow(dead_code)]
 pub(crate) const BLUR_TRANSIENT_BUDGET: usize = 262_144; // 256 KB
 
 /// Maximum bytes for glyph atlas.
 /// Glyphs are pre-rasterized text glyphs cached for reuse.
+#[allow(dead_code)]
 pub(crate) const GLYPH_ATLAS_BUDGET: usize = 524_288; // 512 KB
 
 /// Maximum bytes for icon/SVG atlas.
 /// Icons are pre-rasterized SVG assets cached at display resolution.
+#[allow(dead_code)]
 pub(crate) const ICON_ATLAS_BUDGET: usize = 262_144; // 256 KB
 
 /// Maximum bytes for cursor resources (hardware cursor bitmap uploads).
+#[allow(dead_code)]
 pub(crate) const CURSOR_RESOURCE_BUDGET: usize = 65_536; // 64 KB
 
 /// Maximum bytes for in-flight command metadata (serialized CommandBuffers
 /// queued between windowd and gpud).
+#[allow(dead_code)]
 pub(crate) const COMMAND_METADATA_BUDGET: usize = 131_072; // 128 KB
 
 // ---------------------------------------------------------------------------
 // Resource handle vocabulary
+//
+// reason: Phase-5 data-plane contract — the by-handle vocabulary windowd will
+// use to reference gpud-owned VMOs; constructed by the retained-surface wiring
+// (Workstreams 3-7) and exercised by the host unit tests below. Per-item allow,
+// not a module blanket (repo rule).
 // ---------------------------------------------------------------------------
 
 /// Opaque handle to a VMO-backed surface in gpud's resource table.
 /// windowd references surfaces by handle; gpud owns the backing VMO.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SurfaceHandle(pub u32);
 
 /// Opaque handle to a backdrop snapshot.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct BackdropHandle(pub u32);
 
 /// Opaque handle to a glyph atlas tile.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct GlyphHandle(pub u32);
 
 /// Opaque handle to an icon/SVG atlas tile.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct IconHandle(pub u32);
 
 /// Opaque handle to a cursor resource.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct CursorHandle(pub u32);
 
 /// Opaque handle to a blur transient buffer.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct BlurTransientHandle(pub u32);
 
@@ -111,6 +142,10 @@ pub(crate) struct BlurTransientHandle(pub u32);
 // ---------------------------------------------------------------------------
 
 /// Residency class for a VMO-backed resource.
+// reason: Phase-5 data-plane contract — residency taxonomy consumed by the gpud
+// resource manager (Workstreams 3-7) and by the host unit tests below. Per-item
+// allow, not a module blanket (repo rule).
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResidencyClass {
     /// CPU-readable or writable (staging, wallpaper source).

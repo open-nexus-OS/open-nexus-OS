@@ -5,8 +5,12 @@
 //! DO NOT EXTEND — new capability belongs at the target, not here.
 //
 
+// reason: machine-generated asset/theme vocabulary (build.rs). windowd consumes
+// a subset today; the remainder is legitimately dead in generated code (repo
+// rule exempts generated code, cf. selftest-client markers_generated.rs). Outer
+// allow scopes only this generated-code boundary — no hand-written module blanket.
+#[allow(dead_code)]
 mod generated {
-    #![allow(dead_code)]
     include!(concat!(env!("OUT_DIR"), "/windowd_generated_assets.rs"));
 }
 

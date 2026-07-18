@@ -9,11 +9,6 @@
 //!
 //! Pure observer: never initiates service IPC beyond reading from logd.
 
-// RFC-0061 M4 pure-observer toolkit (marker-reader): declared observer API surface,
-// kept per ADR-0027 until the observer ladder wires it in — module-scoped
-// allow, not crate-level (repo rule).
-#![allow(dead_code)]
-
 extern crate alloc;
 use alloc::vec::Vec;
 use nexus_abi::yield_;
@@ -22,6 +17,9 @@ use nexus_ipc::KernelClient;
 /// Wait for a specific marker string to appear in logd output.
 ///
 /// Returns `true` if the marker was found within the deadline.
+// reason: RFC-0061 M4 pure-observer toolkit (marker-reader) — reserved API,
+// wired in when the observer ladder polls logd markers (ADR-0027).
+#[allow(dead_code)]
 pub(crate) fn wait_for_marker(logd: &KernelClient, marker: &[u8], deadline_ns: u64) -> bool {
     let start = nexus_abi::nsec().unwrap_or(0);
     let deadline = start.saturating_add(deadline_ns);
@@ -41,6 +39,9 @@ pub(crate) fn wait_for_marker(logd: &KernelClient, marker: &[u8], deadline_ns: u
 
 /// Wait for a list of markers in sequence. Returns the index of the first missing marker,
 /// or `None` if all were found.
+// reason: RFC-0061 M4 pure-observer toolkit (marker-reader) — reserved API,
+// wired in when the observer ladder polls logd markers (ADR-0027).
+#[allow(dead_code)]
 pub(crate) fn wait_for_markers(
     logd: &KernelClient,
     markers: &[&[u8]],
@@ -55,6 +56,9 @@ pub(crate) fn wait_for_markers(
 }
 
 /// Check if logd contains a specific byte sequence after a given offset.
+// reason: RFC-0061 M4 pure-observer toolkit (marker-reader) — reserved helper of
+// the reserved marker-poll API, wired in with the observer ladder (ADR-0027).
+#[allow(dead_code)]
 fn logd_contains(logd: &KernelClient, offset: u64, pattern: &[u8]) -> bool {
     // Use logd's query protocol: send a QUERY frame, check response.
     // Minimal: try to read marker via a non-blocking probe.
@@ -105,6 +109,9 @@ fn logd_contains(logd: &KernelClient, offset: u64, pattern: &[u8]) -> bool {
 }
 
 /// Read all markers since a given timestamp. Returns the concatenated marker text.
+// reason: RFC-0061 M4 pure-observer toolkit (marker-reader) — reserved API,
+// wired in when the observer ladder reads marker history (ADR-0027).
+#[allow(dead_code)]
 pub(crate) fn read_markers_since(
     logd: &KernelClient,
     since_ns: u64,

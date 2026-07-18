@@ -10,14 +10,12 @@
 //! Reads compose_hz, present_hz, frame latency, and visible input state
 //! from the display pipeline without initiating control-plane IPC.
 
-// RFC-0061 M4 pure-observer toolkit (telemetry-poller): declared observer API surface,
-// kept per ADR-0027 until the observer ladder wires it in — module-scoped
-// allow, not crate-level (repo rule).
-#![allow(dead_code)]
-
 use input_live_protocol::VisibleState;
 
 /// Snapshot of observed display telemetry.
+// reason: RFC-0061 M4 pure-observer toolkit (telemetry-poller) — reserved API,
+// wired in when the observer ladder consumes display telemetry (ADR-0027).
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct DisplayTelemetry {
     /// Whether the backend framebuffer is visible.
@@ -36,6 +34,9 @@ pub(crate) struct DisplayTelemetry {
     pub visible_state: VisibleState,
 }
 
+// reason: RFC-0061 M4 pure-observer toolkit (telemetry-poller) — reserved API,
+// wired in when the observer ladder consumes display telemetry (ADR-0027).
+#[allow(dead_code)]
 impl DisplayTelemetry {
     /// Create a fresh telemetry snapshot.
     pub fn new() -> Self {

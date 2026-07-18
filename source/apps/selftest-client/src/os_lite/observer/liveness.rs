@@ -10,15 +10,13 @@
 //! Reads service registration status from samgrd without initiating
 //! control-plane IPC (uses logd markers as the health signal).
 
-// RFC-0061 M4 pure-observer toolkit (liveness-checker): declared observer API surface,
-// kept per ADR-0027 until the observer ladder wires it in — module-scoped
-// allow, not crate-level (repo rule).
-#![allow(dead_code)]
-
 extern crate alloc;
 use alloc::vec::Vec;
 
 /// Service health status as observed from logd markers.
+// reason: RFC-0061 M4 pure-observer toolkit (liveness-checker) — reserved API,
+// wired in when the observer ladder tracks service health (ADR-0027).
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ServiceHealth {
     /// Service emitted its readiness marker.
@@ -31,12 +29,18 @@ pub(crate) enum ServiceHealth {
 
 /// Check whether a service is healthy by looking for its readiness marker
 /// in the marker stream.
+// reason: RFC-0061 M4 pure-observer toolkit (liveness-checker) — reserved API,
+// wired in when the observer ladder tracks service health (ADR-0027).
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub(crate) struct LivenessChecker {
     /// Set of services known to be ready.
     ready_services: Vec<(&'static str, bool)>,
 }
 
+// reason: RFC-0061 M4 pure-observer toolkit (liveness-checker) — reserved API,
+// wired in when the observer ladder tracks service health (ADR-0027).
+#[allow(dead_code)]
 impl LivenessChecker {
     /// Create a liveness checker for the given service list.
     pub fn new(services: &[&'static str]) -> Self {
@@ -72,6 +76,9 @@ impl LivenessChecker {
 /// Parse a service-ready marker from a UART line.
 ///
 /// Recognises markers of the form `servicename: ready`.
+// reason: RFC-0061 M4 pure-observer toolkit (liveness-checker) — reserved API,
+// wired in when the observer ladder parses readiness markers (ADR-0027).
+#[allow(dead_code)]
 pub(crate) fn parse_ready_marker(line: &[u8]) -> Option<&str> {
     let line = core::str::from_utf8(line).ok()?;
     let line = line.trim_end();
@@ -83,6 +90,9 @@ pub(crate) fn parse_ready_marker(line: &[u8]) -> Option<&str> {
 }
 
 /// Parse a service-failure marker from a UART line.
+// reason: RFC-0061 M4 pure-observer toolkit (liveness-checker) — reserved API,
+// wired in when the observer ladder parses failure markers (ADR-0027).
+#[allow(dead_code)]
 pub(crate) fn parse_failure_marker(line: &[u8]) -> Option<&str> {
     let line = core::str::from_utf8(line).ok()?;
     let line = line.trim_end();
