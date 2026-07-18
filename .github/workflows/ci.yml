@@ -55,8 +55,13 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-lint-${{ hashFiles('**/Cargo.lock') }}
-      - name: Install cargo-deny (pinned)
-        run: cargo install --locked cargo-deny --version 0.18.9
+      # Prebuilt binary: `cargo install cargo-deny` would compile it with the
+      # last-installed toolchain (nightly-2025-01-15 = rustc 1.86), but recent
+      # cargo-deny needs rustc >= 1.88. A downloaded binary sidesteps the skew.
+      - name: Install cargo-deny (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.18.9
       - name: just check
         run: just check
 
@@ -152,7 +157,7 @@ jobs:
         run: just lint-kernel
 
   qemu:
-    name: qemu selftests (full profile)
+    name: qemu selftests (headless profile)
     needs: host-tests
     runs-on: ubuntu-latest
     steps:
@@ -184,11 +189,16 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-qemu-${{ hashFiles('**/Cargo.lock') }}
+      # `headless` is the CI profile (justfile: `ci-os-headless`): full service
+      # chain, display phases truncated (GitHub runners have no display/GPU
+      # backend). `full` expects visible/display markers and is for local
+      # interactive use. The chain-marker gate (input-route/gpu-core/display)
+      # runs inside the harness on success.
       - name: QEMU selftests (chain-marker gate runs inside the harness)
         env:
           RUN_UNTIL_MARKER: "1"
           RUN_TIMEOUT: "180s"
-        run: ./scripts/qemu-test.sh --profile=full
+        run: ./scripts/qemu-test.sh --profile=headless
       - name: Upload run logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

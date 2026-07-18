@@ -1503,8 +1503,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 let _ = u.write_str(" stval=0x");
                 uart_write_hex(&mut u, stval_now);
                 let _ = u.write_str("\n");
-                // Hang user task
-                frame.sepc = frame.sepc;
+                // Hang user task: leave `sepc` unchanged so the faulting
+                // instruction re-executes indefinitely (no PC advance).
                 return;
             }
 

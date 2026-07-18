@@ -17,6 +17,52 @@
 #![cfg_attr(all(not(test), target_arch = "riscv64", target_os = "none"), deny(warnings))]
 #![deny(unsafe_op_in_unsafe_fn)] // deny instead of forbid to allow naked functions
 #![feature(alloc_error_handler)]
+// Kernel clippy baseline (2026-07): the kernel was never clippy-gated (the old
+// ci-kernel.yml ran clippy with `|| true`). `just lint-kernel` now gates it with
+// `-D warnings`, but the pre-existing style/idiom findings below are grandfathered
+// so the gate blocks NEW issues (and all correctness lints, which stay hard errors)
+// without a mass rewrite of protected kernel code. Shrink this list incrementally —
+// tracked in tasks/TRACK-REPO-HYGIENE-FOLLOWUPS.md item 9. These are style/idiom
+// only; `never_loop` (labeled `loop { break v }`) and `absurd_extreme_comparisons`
+// (defensive `CONST > 0` guards) are intentional idioms, not bugs.
+#![allow(
+    clippy::absurd_extreme_comparisons,
+    clippy::collapsible_else_if,
+    clippy::collapsible_if,
+    clippy::comparison_chain,
+    clippy::declare_interior_mutable_const,
+    clippy::derivable_impls,
+    clippy::doc_lazy_continuation,
+    clippy::double_must_use,
+    clippy::drop_non_drop,
+    clippy::field_reassign_with_default,
+    clippy::identity_op,
+    clippy::len_without_is_empty,
+    clippy::let_and_return,
+    clippy::manual_div_ceil,
+    clippy::manual_range_contains,
+    clippy::manual_range_patterns,
+    clippy::manual_unwrap_or,
+    clippy::manual_unwrap_or_default,
+    clippy::match_like_matches_macro,
+    clippy::needless_borrow,
+    clippy::needless_lifetimes,
+    clippy::needless_range_loop,
+    clippy::needless_return,
+    clippy::never_loop,
+    clippy::new_without_default,
+    clippy::redundant_closure,
+    clippy::too_many_arguments,
+    clippy::unnecessary_cast,
+    clippy::unnecessary_lazy_evaluations,
+    clippy::unnecessary_map_or,
+    clippy::unused_enumerate_index,
+    clippy::unusual_byte_groupings,
+    clippy::useless_conversion,
+    clippy::vec_init_then_push,
+    clippy::write_with_newline,
+    clippy::wrong_self_convention
+)]
 
 #[cfg(target_os = "none")]
 extern crate alloc;

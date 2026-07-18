@@ -551,7 +551,7 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
 // being limited by a0-a5 register count.
 //
 // Descriptor layout is versioned to keep the ABI extensible.
-pub(super) const IPC_RECV_V2_MAGIC: u32 = 0x4E_58_49_32; // 'N''X''I''2'
+pub(super) const IPC_RECV_V2_MAGIC: u32 = 0x4E58_4932; // 'N''X''I''2'
 pub(super) const IPC_RECV_V2_VERSION: u32 = 1;
 
 #[repr(C)]

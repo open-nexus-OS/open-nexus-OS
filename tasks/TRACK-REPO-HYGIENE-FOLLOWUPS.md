@@ -64,3 +64,15 @@ OS toolchain lacks — e.g. `unsigned_is_multiple_of` (stable 1.87) breaks the O
 build, so those sites keep `%` with `#[allow(clippy::manual_is_multiple_of)]`.
 Consider pinning `just lint`/CI to a stable close to the OS nightly (or bumping
 the OS nightly) so the lint surface matches what the OS build can compile.
+
+## 9. Kernel clippy baseline (grandfathered style lints)
+
+`source/kernel/neuron/src/lib.rs` grandfathers ~34 style/idiom clippy lint
+categories (the kernel was never clippy-gated; the old ci-kernel.yml ran clippy
+with `|| true`). `just lint-kernel` now gates the kernel with `-D warnings`, so
+NEW lint types and all correctness lints stay hard errors, but the pre-existing
+style findings are allowed rather than mass-rewritten in protected kernel code.
+Shrink the allow list incrementally (each removal = fix the underlying sites +
+verify build-kernel + a boot). The two genuine default-deny findings were fixed
+outright (hex-literal regroup, dead self-assignment); `never_loop` and
+`absurd_extreme_comparisons` are intentional idioms kept in the allow list.
