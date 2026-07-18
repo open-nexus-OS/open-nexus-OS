@@ -102,6 +102,11 @@ under host. Verified: the real OS build (NEXUS_WARN_GATE=1 scripts/build.sh) is
 warning-clean — these are not disabled errors, they are cross-cfg items suppressed
 on the cfg where they aren't compiled into use. The strictly-cleaner form is to
 `#[cfg(nexus_env="os")]`-gate each so host never compiles it (no allow attribute at
-all), but that is a large mechanical pass over functionally-correct code. Optional
-polish; do it if the visible `allow` attributes are undesirable, else leave — the
-warning gate keeps the tree honest either way.
+all), but that is a large mechanical pass over functionally-correct code. DONE 2026-07-19: the 35 cross-cfg os/virgl `cfg_attr(not(os/virgl), allow)` items
+in windowd (24) and gpud+inputd (11) were converted to honest `#[cfg(...)]` gating
+(verified under host/os-lite/os-lite+virgl + boot + display-gpu lane; 0 broken).
+STILL OPEN (lower value): 49 `cfg_attr(not(test), allow(dead_code))` items across
+the tree (test-only helpers — the cleaner form is `#[cfg(test)]` on the item, but
+each needs per-item test-only verification), and 9 pre-existing `cfg_attr(not(all))`
+allows inside the kernel (protection zone). The warning gate keeps the tree honest
+regardless.
