@@ -105,8 +105,8 @@ pub fn build_live_desktop_layouts(content_width: u32) -> Option<Vec<LayoutResult
 
 #[cfg(test)]
 mod tests {
-    use nexus_layout_types::LineHeight;
     use super::*;
+    use nexus_layout_types::LineHeight;
 
     fn box_with_id<'a>(result: &'a LayoutResult, id: &str) -> Option<&'a nexus_layout::LayoutBox> {
         result.boxes.iter().find(|b| b.id == Some(id))

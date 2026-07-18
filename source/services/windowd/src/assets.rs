@@ -63,7 +63,6 @@ pub struct ProofTextAsset {
     pub bgra: &'static [u8],
 }
 
-
 pub fn proof_text_asset(id: &str) -> Option<ProofTextAsset> {
     let asset = match id {
         "proof_title" => ProofTextAsset {

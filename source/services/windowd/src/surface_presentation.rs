@@ -36,7 +36,8 @@ pub enum WindowingPolicy {
     /// Single-app / kiosk: the app owns the whole screen with NO chrome and NO
     /// resize (a launcher or a single-app OS — the user's explicit requirement:
     /// "eine app als launcher für ein single app os" gets no close/minimize).
-    #[allow(dead_code)] // declared policy vocabulary (intent ⟂ policy model); product wiring pending
+    #[allow(dead_code)]
+    // declared policy vocabulary (intent ⟂ policy model); product wiring pending
     Kiosk,
     // Tablet / TV profiles land with the shell-profile work; until then a product
     // is either Desktop or Kiosk. `Desktop` is the default.

@@ -94,28 +94,52 @@ struct Shared {
     /// Job descriptor (valid while state == RUNNING for the current seq).
     /// Read only by the OS-side worker entry loop; host builds never spawn
     /// workers, so the fields are write-only there.
-    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     job_fn: AtomicUsize,
-    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     job_ctx: AtomicUsize,
-    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     job_total: AtomicUsize,
     /// Monotonic job sequence; fence targets equal this value.
     /// (Like the job descriptor above: read on the OS-side worker/run paths.)
-    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     seq: AtomicU64,
     /// Workers that finished the current seq.
     done_count: AtomicUsize,
     /// Per-worker fence cap slots (in the WORKER's cap table), published
     /// before the worker is resumed.
-    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     worker_job_slot: [AtomicUsize; MAX_WORKERS],
-    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     worker_done_slot: [AtomicUsize; MAX_WORKERS],
     /// Parent-side fence cap slots.
-    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     parent_job_slot: AtomicUsize,
-    #[cfg_attr(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     parent_done_slot: AtomicUsize,
     /// Diagnostics: workers that reached their entry loop.
     alive: [AtomicUsize; MAX_WORKERS],

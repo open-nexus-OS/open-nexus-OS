@@ -413,10 +413,9 @@ impl DisplayServerRuntime {
                                 );
                             }
                         }
-                    }
-                    // Legacy window ids (chat/search/settings): their windowd
-                    // surfaces are DELETED — the match is total over the
-                    // remaining WindowId variants (surface-id roles).
+                    } // Legacy window ids (chat/search/settings): their windowd
+                      // surfaces are DELETED — the match is total over the
+                      // remaining WindowId variants (surface-id roles).
                 }
             }
 

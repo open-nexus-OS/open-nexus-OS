@@ -631,7 +631,6 @@ impl SystemUiShell {
     pub(crate) fn update_cursor(&mut self, x: i32, y: i32) {
         self.graph.set_position(self.cursor_id, x, y);
     }
-
 }
 
 // ── Helper: insert a node with common defaults ──────────────────────

@@ -18,8 +18,8 @@ use super::tile_map::TileMap;
 use super::types::{RenderClip, SourceFrame};
 use super::{
     COMBINED_PANEL_WIDTH, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT, DISPLAY_HEIGHT,
-    DISPLAY_OFFSET_BYTES, DISPLAY_WIDTH, PROOF_PANEL_H, RETAINED_OFFSET_BYTES,
-    RETAINED_ROW_OFFSET, ROW_WRITE_CHUNK, USE_DESKTOP_SHELL,
+    DISPLAY_OFFSET_BYTES, DISPLAY_WIDTH, PROOF_PANEL_H, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET,
+    ROW_WRITE_CHUNK, USE_DESKTOP_SHELL,
 };
 use crate::compositor::damage::{
     premerge_damage_rects, select_glass_quality, DamageRect, GlassQuality,

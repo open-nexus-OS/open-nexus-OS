@@ -8,7 +8,6 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Covered via compositor integration tests
 
-
 pub(crate) struct FixedDebugLine {
     pub(crate) buf: [u8; 256],
     pub(crate) len: usize,
@@ -65,5 +64,3 @@ pub(crate) struct SourceFrame {
     pub(crate) pixels: &'static [u8],
     pub(crate) rows: Option<&'static [u32]>,
 }
-
-

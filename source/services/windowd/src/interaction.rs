@@ -47,7 +47,6 @@ pub(crate) const CLOSE_TARGET_ROUTE_Y: u32 = 18;
 #[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below
 const CLOSE_HIT_PAD: u32 = 12;
 
-
 // ── Chat panel (right side, clear of the 826px-wide combined left panel).
 // Right edge aligns with the glass button (x..1256). ──
 #[cfg_attr(not(test), allow(dead_code))] // hit-test SSOT vocabulary, exercised by the host unit tests below

@@ -148,7 +148,6 @@ pub(crate) fn select_glass_quality(dirty_span_rows: u32) -> GlassQuality {
 mod tests {
     use super::*;
 
-
     #[test]
     fn glass_quality_degrades_deterministically() {
         assert_eq!(select_glass_quality(32), GlassQuality::High);

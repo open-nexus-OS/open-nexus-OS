@@ -18,9 +18,7 @@ pub(crate) fn policyd_route_allowed(
     requester: &str,
     target: &[u8],
 ) -> Option<bool> {
-    use crate::os_payload::{
-        debug_write_byte, debug_write_bytes, debug_write_hex, POLICY_NONCE,
-    };
+    use crate::os_payload::{debug_write_byte, debug_write_bytes, debug_write_hex, POLICY_NONCE};
 
     if requester.len() > 48 || target.is_empty() || target.len() > 48 {
         return None;
