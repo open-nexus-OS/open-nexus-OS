@@ -18,7 +18,15 @@
 
 extern crate alloc;
 
-#[allow(unsafe_code, clippy::all, clippy::pedantic, missing_docs)]
+// capnp-generated code; restriction lints (unwrap/expect) are not ours to fix.
+#[allow(
+    unsafe_code,
+    clippy::all,
+    clippy::pedantic,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    missing_docs
+)]
 pub mod ui_ir_capnp {
     include!(concat!(env!("OUT_DIR"), "/ui_ir_capnp.rs"));
 }

@@ -1,6 +1,10 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Build scripts fail by panicking (unwrap/expect) — the correct failure mode
+// for build-time codegen; the restriction lints target runtime code only.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 //! CONTEXT: Build script for demo-exit0 application ELF generation
 //! OWNERS: @runtime
 //! STATUS: Functional

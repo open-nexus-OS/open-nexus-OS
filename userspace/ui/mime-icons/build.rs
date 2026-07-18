@@ -1,6 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Build scripts fail by panicking (unwrap/expect) — the correct failure mode
+// for build-time codegen; the restriction lints target runtime code only.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 //! Build script: bakes the platform's file-type icon artwork
 //! (`resources/mimetypes/*.svg`) into straight-alpha RGBA sprites at file-row
 //! sizes, and generates the extension→stem / mime→stem resolution tables from
@@ -58,7 +62,7 @@ fn main() {
                 return icon.to_string();
             }
         }
-        let derived = mime.replace('/', "-").replace('+', "-");
+        let derived = mime.replace(['/', '+'], "-");
         if svgs.contains_key(&derived) {
             return derived;
         }

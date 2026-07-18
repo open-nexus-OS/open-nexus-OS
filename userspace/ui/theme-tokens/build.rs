@@ -1,6 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Build scripts fail by panicking (unwrap/expect) — the correct failure mode
+// for build-time codegen; the restriction lints target runtime code only.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 //! Generate the typed color-token snapshots from the `.nxtheme.toml` SSOT
 //! (RFC-0070 D3). This kills the previously hand-authored `BaseTokens` values,
 //! which had drifted from the theme files. Emits one `<qualifier>_color` fn per

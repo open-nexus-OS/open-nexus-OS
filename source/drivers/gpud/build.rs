@@ -1,6 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Build scripts fail by panicking (unwrap/expect) — the correct failure mode
+// for build-time codegen; the restriction lints target runtime code only.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 //! Build-time rasterization of the boot-splash logo. The Open Nexus wordmark SVG
 //! is rasterized ONCE here (host, std) into a BGRA8888 bitmap embedded in gpud, so
 //! the boot loading screen composites it with zero runtime SVG cost and no pressure

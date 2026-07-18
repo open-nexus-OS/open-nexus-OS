@@ -526,25 +526,23 @@ pub(super) fn check_view(node: &ViewNode, model: &Model<'_>, diags: &mut Vec<Dia
                         format!("unknown interaction `{}`", handler.trigger.text),
                     ));
                 }
-                if let HandlerAction::Navigate { path } = &handler.action {
-                    // A literal path must match a declared route (dynamic
-                    // paths resolve at runtime; unmatched = deterministic error).
-                    if let Expr::Str { value, span } = path {
-                        let matches_route = model.routes.iter().any(|route| {
-                            let pat: Vec<&str> =
-                                route.path.split('/').filter(|s| !s.is_empty()).collect();
-                            let have: Vec<&str> =
-                                value.split('/').filter(|s| !s.is_empty()).collect();
-                            pat.len() == have.len()
-                                && pat.iter().zip(&have).all(|(p, h)| p.starts_with(':') || p == h)
-                        });
-                        if !matches_route {
-                            diags.push(Diagnostic::new(
-                                DiagCode::UnknownName,
-                                *span,
-                                format!("`{value}` matches no declared route"),
-                            ));
-                        }
+                // A literal path must match a declared route (dynamic
+                // paths resolve at runtime; unmatched = deterministic error).
+                if let HandlerAction::Navigate { path: Expr::Str { value, span } } = &handler.action
+                {
+                    let matches_route = model.routes.iter().any(|route| {
+                        let pat: Vec<&str> =
+                            route.path.split('/').filter(|s| !s.is_empty()).collect();
+                        let have: Vec<&str> = value.split('/').filter(|s| !s.is_empty()).collect();
+                        pat.len() == have.len()
+                            && pat.iter().zip(&have).all(|(p, h)| p.starts_with(':') || p == h)
+                    });
+                    if !matches_route {
+                        diags.push(Diagnostic::new(
+                            DiagCode::UnknownName,
+                            *span,
+                            format!("`{value}` matches no declared route"),
+                        ));
                     }
                 }
                 if let HandlerAction::Dispatch { case, args } = &handler.action {
@@ -653,10 +651,7 @@ fn check_motion_token(modifier: &ModifierCall, diags: &mut Vec<Diagnostic>) {
                 "`.{}` expects a motion token ({}), not `{}`",
                 modifier.name.text,
                 registry::MOTION_TOKENS.join(", "),
-                match name {
-                    Some(n) => n,
-                    None => "a value",
-                }
+                name.unwrap_or("a value")
             ),
         )),
     }

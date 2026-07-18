@@ -98,7 +98,7 @@ impl<'a> ProgramReader<'a> {
     /// [`IrError::Malformed`] if the bytes are not a valid message;
     /// [`IrError::UnsupportedMajor`] on a schema-major mismatch.
     pub fn from_canonical_bytes(bytes: &'a [u8]) -> Result<Self, IrError> {
-        if bytes.is_empty() || bytes.len() % 8 != 0 {
+        if bytes.is_empty() || !bytes.len().is_multiple_of(8) {
             return Err(IrError::Malformed);
         }
         let message = Reader::new(SingleSegment(bytes), reader_options());

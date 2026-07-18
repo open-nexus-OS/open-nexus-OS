@@ -238,14 +238,13 @@ fn lower_access_chain(
     fields: &[crate::ast::Ident],
 ) -> Result<(), Diagnostic> {
     set_opaque_type(builder);
-    if fields.is_empty() {
+    let Some((last, front)) = fields.split_last() else {
         match base {
             AccessBase::Local(slot) => builder.set_local_get(slot),
             AccessBase::Param(idx) => builder.set_param_get(idx),
         }
         return Ok(());
-    }
-    let (last, front) = fields.split_last().expect("non-empty");
+    };
     let mut get = builder.reborrow().init_record_get();
     get.set_field(env.ctx.sym(&last.text));
     let mut inner = get.init_base();

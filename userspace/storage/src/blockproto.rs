@@ -97,7 +97,7 @@ pub fn decode_request(frame: &[u8]) -> Option<BlockRequest<'_>> {
             let lba = u64::from_le_bytes(frame[2..10].try_into().ok()?);
             let data = &frame[10..];
             if data.is_empty()
-                || data.len() % SECTOR_SIZE != 0
+                || !data.len().is_multiple_of(SECTOR_SIZE)
                 || data.len() / SECTOR_SIZE > MAX_BLOCKS_PER_REQ as usize
             {
                 return None;

@@ -353,7 +353,7 @@ fn parse_int(text: &str, start: usize, end: usize) -> Result<i64, Diagnostic> {
 /// Q32.32 from integer + decimal-fraction digits, pure integer math.
 /// `frac_digits` are the digits after the dot (decimal). Rounds half-up.
 fn fx_from_parts(int_part: i64, frac_digits: &str) -> Option<i64> {
-    if int_part < -(1i64 << 31) || int_part >= (1i64 << 31) {
+    if !(-(1i64 << 31)..(1i64 << 31)).contains(&int_part) {
         return None;
     }
     // numerator/denominator in u128 to avoid overflow (≤ 19 digits kept).

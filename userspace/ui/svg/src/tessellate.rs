@@ -1017,7 +1017,7 @@ fn stroke_edges(points: &[(f32, f32)], width: f32, style: StrokeStyle, closed: b
     // Drop consecutive duplicates — zero-length segments have no normal.
     let mut pts: Vec<(f32, f32)> = Vec::with_capacity(points.len());
     for &p in points {
-        if pts.last().map_or(true, |&q| (p.0 - q.0).abs() > 1e-4 || (p.1 - q.1).abs() > 1e-4) {
+        if pts.last().is_none_or(|&q| (p.0 - q.0).abs() > 1e-4 || (p.1 - q.1).abs() > 1e-4) {
             pts.push(p);
         }
     }

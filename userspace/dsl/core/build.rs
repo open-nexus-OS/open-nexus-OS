@@ -9,6 +9,12 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Exercised by every core test that checks a `svc.*` call
 
+// Build scripts panic-to-fail by design: an unwrap/expect here aborts the
+// build with a clear message, which is the correct failure mode (there is no
+// caller to propagate to). expect_used/unwrap_used are host-lint denials meant
+// for library/service code, not build-time codegen.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use std::fmt::Write as _;
 use std::path::Path;
 

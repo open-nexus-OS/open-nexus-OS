@@ -1,6 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Build scripts fail by panicking (unwrap/expect) — the correct failure mode
+// for build-time codegen; the restriction lints target runtime code only.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(nexus_env, values(\"os\",\"host\"))");
 

@@ -116,16 +116,11 @@ pub enum SvgElement {
 /// `ObjectBoundingBox` (the SVG default) treats coordinates as 0..1 fractions of
 /// the filled shape's bounding box; `UserSpaceOnUse` treats them as user-space
 /// coordinates subject to the element transform.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GradientUnits {
+    #[default]
     ObjectBoundingBox,
     UserSpaceOnUse,
-}
-
-impl Default for GradientUnits {
-    fn default() -> Self {
-        GradientUnits::ObjectBoundingBox
-    }
 }
 
 /// A gradient color stop.

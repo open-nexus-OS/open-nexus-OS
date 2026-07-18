@@ -52,6 +52,9 @@ impl Capability {
     }
 
     /// Parses a capability name, or `None` if unknown.
+    // Not `FromStr`: this is an infallible-name lookup returning `Option`, not a
+    // `Result`-based trait parse; the name is deliberate and part of the public API.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(name: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|c| c.as_str() == name)
     }
