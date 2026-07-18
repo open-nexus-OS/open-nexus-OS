@@ -441,7 +441,7 @@ fn const_prefix(id: &str) -> String {
 fn box_average_downscale(src: &[u8], sw: u32, sh: u32, factor: u32) -> Vec<u8> {
     let dw = sw / factor;
     let dh = sh / factor;
-    let n = (factor * factor) as u32;
+    let n = factor * factor;
     let mut out = vec![0u8; (dw * dh * 4) as usize];
     for y in 0..dh {
         for x in 0..dw {
@@ -520,8 +520,8 @@ fn unpremultiply_bgra(src: &[u8]) -> Vec<u8> {
             px[1] = 0;
             px[2] = 0;
         } else if a < 255 {
-            for c in 0..3 {
-                px[c] = (((px[c] as u32) * 255 + a / 2) / a).min(255) as u8;
+            for slot in px.iter_mut().take(3) {
+                *slot = (((*slot as u32) * 255 + a / 2) / a).min(255) as u8;
             }
         }
     }

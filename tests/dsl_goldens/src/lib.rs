@@ -8,6 +8,10 @@
 //! STATUS: Functional (TASK-0076)
 //! TEST_COVERAGE: this crate IS the coverage
 
+// reason: test harness — a failed compile/mount step must panic loudly to fail
+// the golden test, not be silently propagated.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 pub use nexus_dsl_ir;
 
 pub const COUNTER: &str = include_str!("../../../examples/dsl/counter/counter.nx");

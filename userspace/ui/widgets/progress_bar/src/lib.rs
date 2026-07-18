@@ -140,7 +140,7 @@ impl ProgressBar {
                 },
                 VisualStyle {
                     background: Some(fill),
-                    corner_radius: radius.clone(),
+                    corner_radius: radius,
                     ..VisualStyle::default()
                 },
                 alloc::vec![],

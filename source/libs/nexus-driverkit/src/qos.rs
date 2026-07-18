@@ -10,20 +10,15 @@
 //! `timed` windows (RFC-0023) on the userland submit side.
 
 /// Submit-pacing QoS class.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Qos {
     /// Keep a single submission in flight — lowest power, drains promptly.
     Frugal,
     /// Balance latency and throughput (about half the ring in flight).
+    #[default]
     Normal,
     /// Fill the ring — maximum throughput / coalescing.
     Burst,
-}
-
-impl Default for Qos {
-    fn default() -> Self {
-        Qos::Normal
-    }
 }
 
 impl Qos {

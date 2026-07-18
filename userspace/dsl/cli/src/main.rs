@@ -541,7 +541,7 @@ fn cmd_hash(args: &[String]) -> ExitCode {
             }
         };
         match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&bytes)
-            .and_then(|r| r.root().map(|root| root.get_program_hash().map(|h| hex(h)).ok()))
+            .and_then(|r| r.root().map(|root| root.get_program_hash().map(hex).ok()))
         {
             Ok(Some(h)) => {
                 println!("{h}");

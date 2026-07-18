@@ -8,6 +8,10 @@
 //! STATUS: Functional (growing every phase)
 //! TEST_COVERAGE: this crate IS the coverage
 
+// reason: test harness — a failed fixture step (parse/lower/mount/put) must
+// panic loudly to fail the conformance test, not be silently propagated.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use nexus_dsl_runtime::{
     EffectHost, FixtureEnv, IdentityLocale, QueryCall, QueryPage, Runtime, Value,
 };
@@ -175,7 +179,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 fn hex_decode(text: &str) -> Option<Vec<u8>> {
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return None;
     }
     (0..text.len() / 2).map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).ok()).collect()

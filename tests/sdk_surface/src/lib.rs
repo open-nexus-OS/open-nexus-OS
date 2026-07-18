@@ -10,6 +10,10 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: this crate IS the coverage (`tests/surface.rs`)
 
+// reason: test harness — an unreadable repo root or SSOT file must panic loudly
+// to fail the guard test, not be silently propagated.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use std::path::{Path, PathBuf};
 
 /// Repo root (this crate lives at `tests/sdk_surface`).

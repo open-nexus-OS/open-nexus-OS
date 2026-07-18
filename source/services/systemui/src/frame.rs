@@ -144,8 +144,8 @@ pub fn decode_qoi_row(
                 }
             },
         }
-        let hash = ((prev[2] as usize * 3 + prev[1] as usize * 5 + prev[0] as usize * 7 + 255 * 11)
-            % 64) as usize;
+        let hash =
+            (prev[2] as usize * 3 + prev[1] as usize * 5 + prev[0] as usize * 7 + 255 * 11) % 64;
         index[hash] = prev;
         out[px] = prev[0];
         out[px + 1] = prev[1];

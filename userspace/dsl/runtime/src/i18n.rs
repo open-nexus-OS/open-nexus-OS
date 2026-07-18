@@ -107,7 +107,7 @@ fn format_template(template: &str, args: &[Value]) -> String {
                     Some(Value::Int(i)) => out.push_str(&i.to_string()),
                     Some(Value::Bool(b)) => out.push_str(if *b { "true" } else { "false" }),
                     Some(Value::Fx(raw)) => out.push_str(&(raw >> 32).to_string()),
-                    _ => out.push_str("?"),
+                    _ => out.push('?'),
                 }
                 continue;
             }

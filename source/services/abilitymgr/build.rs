@@ -134,7 +134,7 @@ fn read_app(manifest: &Path) -> Option<(String, Vec<String>)> {
         .lines()
         .map(str::trim)
         .find(|l| l.starts_with("caps") && l.contains('='))
-        .map(|l| quoted_strings(l))
+        .map(quoted_strings)
         .unwrap_or_default();
     Some((name, caps))
 }

@@ -54,7 +54,7 @@ impl State {
     /// `data_start` (superblock/journal/checkpoint regions) plus the mirror
     /// superblock are reserved.
     pub(crate) fn new_empty(total_blocks: u64, data_start: u64) -> Self {
-        let words = ((total_blocks + 63) / 64) as usize;
+        let words = total_blocks.div_ceil(64) as usize;
         let mut state = Self {
             objects: BTreeMap::new(),
             dirs: BTreeMap::new(),

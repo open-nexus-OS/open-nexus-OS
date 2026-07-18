@@ -1147,7 +1147,7 @@ impl SceneGraph {
                     return Ok(0);
                 }
                 encoder
-                    .try_draw_tiles(&tiles, RgbaColor::new(color.r, color.g, color.b, color.a))?;
+                    .try_draw_tiles(tiles, RgbaColor::new(color.r, color.g, color.b, color.a))?;
                 Ok(1)
             }
             RenderPrimitive::BackdropFilter { blur_radius, saturation_percent } => {

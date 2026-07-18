@@ -71,7 +71,7 @@ impl VisibleBootstrapMode {
     /// shows (dock, snap, damage clamps, surface sizes).
     pub fn for_visible(width: u32, height: u32) -> Result<Self> {
         let stride = checked_stride(VISIBLE_BOOTSTRAP_WIDTH)?;
-        Ok(Self { width, height, stride, format: VISIBLE_BOOTSTRAP_FORMAT }.validate()?)
+        Self { width, height, stride, format: VISIBLE_BOOTSTRAP_FORMAT }.validate()
     }
 
     pub fn validate(self) -> Result<Self> {

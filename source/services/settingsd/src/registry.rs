@@ -140,7 +140,6 @@ impl SettingsRegistry {
     }
 
     /// Every registered key (for LIST-style consumers and tests).
-    #[must_use]
     pub fn keys() -> impl Iterator<Item = &'static str> {
         SPECS.iter().map(|s| s.key)
     }

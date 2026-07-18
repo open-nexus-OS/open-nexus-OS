@@ -146,6 +146,8 @@ pub const CONTRAST_TEXT: f64 = 4.5;
 /// The root box size of a laid-out component (its outer tap target).
 pub fn root_size(node: &LayoutNode) -> (i32, i32) {
     let engine = LayoutEngine::new();
+    // reason: test harness — a layout failure should fail the golden test loudly.
+    #[allow(clippy::expect_used)]
     let result = engine.layout(node, FxPx::new(CANVAS_W), &NoText).expect("layout");
     result.boxes.first().map(|b| (b.rect.width.0, b.rect.height.0)).unwrap_or((0, 0))
 }

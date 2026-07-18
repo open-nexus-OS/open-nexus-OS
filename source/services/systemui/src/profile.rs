@@ -36,7 +36,7 @@ pub const KNOWN_DPI_CLASSES: &[&str] = &["low", "normal", "high"];
 pub const KNOWN_SIZE_CLASSES: &[&str] = &["compact", "regular", "wide"];
 
 fn is_known(value: &str, set: &[&str]) -> bool {
-    set.iter().any(|v| *v == value)
+    set.contains(&value)
 }
 
 pub type Result<T> = core::result::Result<T, SystemUiError>;

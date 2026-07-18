@@ -84,6 +84,9 @@ use raster::*;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) use raster::blend_pixel_vmo;
 
+/// One cached cursor shape: `(premultiplied BGRA, w, h, hot_x, hot_y)`.
+pub(crate) type CursorShapeEntry = (alloc::vec::Vec<u8>, u32, u32, u32, u32);
+
 /// Wraps a virtio-gpu MMIO device and implements GfxBackend.
 /// On real hardware, this would be replaced by a different GfxBackend impl
 /// (e.g., MaliGpuBackend, ImaginationGpuBackend) — same trait, different hardware.
@@ -130,8 +133,8 @@ pub struct VirtioGpuBackend {
     /// pointer shape change is a 2-byte OP_SELECT_CURSOR_SHAPE instead of a
     /// blocking 4KB re-upload per window-edge crossing. Slot = shape id;
     /// entry = (premultiplied BGRA, w, h, hot_x, hot_y).
-    pub(crate) cursor_shape_cache: [Option<(alloc::vec::Vec<u8>, u32, u32, u32, u32)>;
-        nexus_display_proto::CURSOR_SHAPE_SLOTS],
+    pub(crate) cursor_shape_cache:
+        [Option<CursorShapeEntry>; nexus_display_proto::CURSOR_SHAPE_SLOTS],
     /// Real icon sprite (premultiplied BGRA), rendered by windowd from an SVG via
     /// the nexus-svg HiDPI pipeline and uploaded once. Composited as a GPU sprite
     /// layer at (`icon_dst_x`,`icon_dst_y`) in the virgl buildup — the production

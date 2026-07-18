@@ -27,6 +27,9 @@ use nexus_layout::LayoutBox;
 use nexus_layout_types::{PathShape, Rgba8, ShapeKind};
 
 /// Unit circle as a 32-gon (precomputed — `no_std` core has no trig).
+// reason: hand-computed lookup table; every entry is an intentional literal at
+// matching precision — the 0.707107 entries must stay literal, not the constant.
+#[allow(clippy::approx_constant)]
 const CIRCLE_32: [(f32, f32); 32] = [
     (1.0, 0.0),
     (0.980785, 0.19509),
@@ -232,6 +235,9 @@ impl RowCanvas<'_> {
 
     /// This row's slice of a rounded BORDER ring: pixels inside the outer
     /// rounded rect but outside the (border-width-inset) inner one.
+    // reason: geometry primitive — the args are the box rect, radius, border
+    // width and colour; grouping into a struct would not improve clarity.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn stroke_round_rect_row(
         &mut self,
         x: i32,
@@ -378,6 +384,9 @@ fn gradient_row_color(
 /// (rect/triangles/circle/path/vector) scales and translates, so icons and
 /// round buttons animate as whole shapes, not just their bounding fill.
 /// `radius_pct` scales the corner radius (100 = as authored).
+// reason: shared shape-dispatch entry — args are the explicit geometry, fill
+// and radius scale; a struct wrapper would not improve this hot path.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn paint_box_row_at(
     canvas: &mut RowCanvas<'_>,
     b: &LayoutBox,

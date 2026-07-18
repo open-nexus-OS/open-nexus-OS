@@ -18,6 +18,9 @@ use crate::store::Value;
 use alloc::vec::Vec;
 use nexus_layout_types::{FxPx, LayoutNode};
 
+/// A scrolled viewport for hit-testing: `(viewport (x0,y0,x1,y1), dx, dy)`.
+pub type ScrollView = ((i32, i32, i32, i32), i32, i32);
+
 /// What a triggered handler does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandlerAction {
@@ -106,7 +109,7 @@ pub fn hit_scrolled<'h>(
     trigger_sym: u32,
     x: FxPx,
     y: FxPx,
-    scroll: Option<((i32, i32, i32, i32), i32, i32)>,
+    scroll: Option<ScrollView>,
 ) -> Option<(usize, &'h HandlerEntry)> {
     let mut best: Option<(usize, &HandlerEntry)> = None;
     for (box_id, entry) in handlers {
@@ -128,7 +131,7 @@ pub fn hit_scrolled<'h>(
         let rect = layout_box.rect;
         let inside =
             px >= rect.x && py >= rect.y && px < rect.x + rect.width && py < rect.y + rect.height;
-        if inside && best.map_or(true, |(id, _)| *box_id > id) {
+        if inside && best.is_none_or(|(id, _)| *box_id > id) {
             best = Some((*box_id, entry));
         }
     }

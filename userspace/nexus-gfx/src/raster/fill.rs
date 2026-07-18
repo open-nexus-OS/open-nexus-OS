@@ -185,7 +185,7 @@ pub fn fill_gradient_aa(
     let buf = s.buf_mut();
     for py in y..end_y {
         // Per-row gradient interpolation (fixed point, / (h-1)).
-        let t_num = (py - y) as u32;
+        let t_num = py - y;
         let denom = (h - 1).max(1);
         let mut rgba = [0u8; 4];
         for c in 0..4 {

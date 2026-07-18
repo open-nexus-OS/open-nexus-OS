@@ -13,6 +13,10 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: this crate hosts the coverage (`tests/shell.rs`)
 
+// reason: test harness — a failed setup step (parse/lower/mount/dispatch) must
+// panic loudly to fail the test, not be silently propagated.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use nexus_dsl_runtime::{Damage, FixtureEnv, IdentityLocale, Value, View};
 use nexus_theme_tokens::BaseTokens;
 use std::path::Path;

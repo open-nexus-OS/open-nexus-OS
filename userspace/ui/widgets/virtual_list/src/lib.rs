@@ -266,6 +266,12 @@ pub struct MeasuredRow {
     pub estimated: bool,
 }
 
+impl Default for MeasuredRow {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MeasuredRow {
     pub const fn new() -> Self {
         Self { height: FxPx::ZERO, width_bucket: 0, estimated: true }
@@ -663,8 +669,8 @@ impl<P: ItemProvider> VirtualList<P> {
         let engine = LayoutEngine::new();
         // Disjoint field borrows: `provider` (read for items) + `core` (write).
         let items = self.provider.get(0..n);
-        for i in 0..items.len() {
-            let Some(item) = items[i].as_ref() else {
+        for (i, slot) in items.iter().enumerate() {
+            let Some(item) = slot.as_ref() else {
                 continue; // unloaded — keep the height-hint estimate (lazy)
             };
             let node = view.build_item(i, item);

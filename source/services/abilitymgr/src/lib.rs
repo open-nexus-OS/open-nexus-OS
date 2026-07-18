@@ -14,6 +14,7 @@
 //!   - This service is the ONLY app spawner (RFC-0065 / ADR-0036). Spawn-via-execd + resolve-via-bundlemgrd
 //!     are wired in P3 (live launch handoff); P2 ships the broker core + service shell + markers.
 //!   - No `unwrap`/`expect` in production paths; no blanket `allow(dead_code)`.
+//!
 //! ADR: docs/adr/0036-ability-lifecycle-vs-process-vs-registry-service-split.md
 
 #![forbid(unsafe_code)]

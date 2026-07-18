@@ -83,7 +83,10 @@ impl Nav {
     #[must_use]
     pub fn current(&self) -> &NavEntry {
         // The stack is never empty: mount seeds it and `back` keeps the root.
-        self.stack.last().expect("nav stack is never empty")
+        let Some(entry) = self.stack.last() else {
+            unreachable!("nav stack invariant: mount seeds it and `back` keeps the root")
+        };
+        entry
     }
 
     #[must_use]
@@ -147,7 +150,10 @@ impl Nav {
     /// [`RtError::UnknownField`] for an unmatched path.
     pub fn replace(&mut self, path: &str) -> Result<&NavEntry, RtError> {
         let entry = self.resolve(path).ok_or(RtError::UnknownField)?;
-        *self.stack.last_mut().expect("nav stack is never empty") = entry;
+        let Some(slot) = self.stack.last_mut() else {
+            unreachable!("nav stack invariant: mount seeds it and `back` keeps the root")
+        };
+        *slot = entry;
         Ok(self.current())
     }
 

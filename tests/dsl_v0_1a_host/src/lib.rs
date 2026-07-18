@@ -8,6 +8,10 @@
 //! STATUS: Functional
 //! TEST_COVERAGE: this crate IS the coverage
 
+// reason: test harness — a failed parse/lower of a fixture must panic loudly to
+// fail the proof, not be silently propagated.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 /// Compiles a fixture end-to-end and returns the canonical `.nxir` bytes.
 ///
 /// # Panics

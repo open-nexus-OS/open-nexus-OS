@@ -72,7 +72,7 @@ impl EmitCtx<'_> {
         match expr.which() {
             Ok(Which::FieldGet(Ok(get))) => {
                 if let (store, Ok(path)) = (get.get_store(), get.get_path()) {
-                    if path.len() > 0 {
+                    if !path.is_empty() {
                         // Field symbol → index resolution happens at damage
                         // time; store the *symbol* so deps survive re-emits.
                         self.deps.push(Dep { store, field: path.get(0), damage });
@@ -250,7 +250,7 @@ fn emit_for_each_items(
             let key = ctx.eval(key_expr)?;
             let mut bytes = Vec::new();
             key.key_bytes(&mut bytes);
-            if seen_keys.iter().any(|k| *k == bytes) {
+            if seen_keys.contains(&bytes) {
                 return Err(RtError::DuplicateKey);
             }
             seen_keys.push(bytes);

@@ -86,7 +86,7 @@ impl NodeAnim {
             && self.dx == 0
             && self.dy == 0
             && self.scale_pct == 100
-            && self.scale_y_pct.map_or(true, |v| v == 100)
+            && self.scale_y_pct.is_none_or(|v| v == 100)
     }
 
     /// The corner-radius scale: the SMALLER axis, so a non-uniform stretch

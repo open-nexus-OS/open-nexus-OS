@@ -21,7 +21,7 @@ use nexus_widget_spinner::Spinner;
 const REVEAL_H: i32 = 48;
 
 /// A pull-to-refresh wrapper.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Refresher {
     /// Pull progress 0–100 (0 = resting; 100 = threshold reached).
     progress: u32,
@@ -31,12 +31,6 @@ pub struct Refresher {
     phase: usize,
     content: Option<LayoutNode>,
     id: Option<&'static str>,
-}
-
-impl Default for Refresher {
-    fn default() -> Self {
-        Self { progress: 0, refreshing: false, phase: 0, content: None, id: None }
-    }
 }
 
 impl Refresher {

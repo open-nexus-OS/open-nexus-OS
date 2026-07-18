@@ -222,6 +222,6 @@ fn eval_in(ctx: &mut EffectCtx<'_>, expr: ir::expr::Reader<'_>) -> Result<Value,
     eval(&mut eval_ctx, expr)
 }
 
-fn symbol<'a>(symbols: &'a [alloc::string::String], id: u32) -> Result<&'a str, RtError> {
+fn symbol(symbols: &[alloc::string::String], id: u32) -> Result<&str, RtError> {
     symbols.get(id as usize).map(|s| s.as_str()).ok_or(RtError::Malformed)
 }

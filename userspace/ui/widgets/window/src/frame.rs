@@ -189,6 +189,9 @@ impl Frame {
     /// `(dx, dy)` from `start`, clamped to `min_w`/`min_h` and the display.
     /// Deterministic in the drag START frame (not incremental), so a fast
     /// pointer never accumulates rounding drift.
+    // reason: pure resize math — args are the start frame, drag edge and
+    // delta, the min-size clamps and the display mode bounds.
+    #[allow(clippy::too_many_arguments)]
     pub fn resized(
         start: Frame,
         edge: ResizeEdge,

@@ -29,6 +29,7 @@
 //!   - **Touch / trackpad inertia** → [`ScrollMomentum::fling`]: a release
 //!     VELOCITY (px/s) that coasts and decelerates under viscous friction to a
 //!     clean stop, clamped at the edges — Android `OverScroller.fling`.
+//!
 //! Both feed the same `pos`, so the list/grid/search/text view all reuse one
 //! mechanism. (A new wheel notch during a fling cancels the coast and takes over
 //! the ease — direction changes stay instant.)

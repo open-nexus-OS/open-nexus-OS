@@ -25,7 +25,7 @@ pub(crate) struct Dev<D: BlockDevice> {
 impl<D: BlockDevice> Dev<D> {
     pub(crate) fn new(inner: D) -> Result<Self> {
         let sector = inner.block_size();
-        if sector == 0 || LOGICAL_BLOCK_SIZE % sector != 0 {
+        if sector == 0 || !LOGICAL_BLOCK_SIZE.is_multiple_of(sector) {
             return Err(NxfsError::Io);
         }
         let sectors_per_block = (LOGICAL_BLOCK_SIZE / sector) as u64;

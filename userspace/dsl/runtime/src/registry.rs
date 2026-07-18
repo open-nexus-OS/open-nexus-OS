@@ -446,8 +446,10 @@ pub fn build_widget(
             let badge = Badge::new().variant(variant);
             let fg = badge.foreground(tokens);
             let label_node = {
-                let mut mods = Mods::default();
-                mods.text_size = Some(nexus_theme_tokens::TypographyToken::Sm);
+                let mods = Mods {
+                    text_size: Some(nexus_theme_tokens::TypographyToken::Sm),
+                    ..Default::default()
+                };
                 let mut node = text_node(label, &mods, tokens);
                 if let LayoutNode::Text(text, _) = &mut node {
                     text.style.color = fg;

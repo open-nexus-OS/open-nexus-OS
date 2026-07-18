@@ -12,7 +12,7 @@
 
 use crate::anim::AnimIntent;
 use crate::emit::{self, Damage, Dep, EmitCtx};
-use crate::interact::{self, HandlerAction, HandlerEntry};
+use crate::interact::{self, HandlerAction, HandlerEntry, ScrollView};
 use crate::nav::Nav;
 use crate::store::Value;
 use crate::{DeviceEnv, EffectHost, LocaleSource, MountError, RtError, Runtime};
@@ -181,7 +181,7 @@ impl<'p> View<'p> {
         trigger: &str,
         x: nexus_layout_types::FxPx,
         y: nexus_layout_types::FxPx,
-        scroll: Option<((i32, i32, i32, i32), i32, i32)>,
+        scroll: Option<ScrollView>,
     ) -> Result<Option<Damage>, RtError> {
         let Some(trigger_sym) =
             self.runtime.symbols().iter().position(|s| s == trigger).map(|i| i as u32)
@@ -277,7 +277,7 @@ impl<'p> View<'p> {
         trigger: &str,
         x: nexus_layout_types::FxPx,
         y: nexus_layout_types::FxPx,
-        scroll: Option<((i32, i32, i32, i32), i32, i32)>,
+        scroll: Option<ScrollView>,
     ) -> Option<usize> {
         let trigger_sym =
             self.runtime.symbols().iter().position(|s| s == trigger).map(|i| i as u32)?;
@@ -289,6 +289,9 @@ impl<'p> View<'p> {
     ///
     /// # Errors
     /// Runtime errors from the write/emission.
+    // reason: host text-input entry point — args are the ambient environments
+    // (tokens/device/locale), the layout, the point and the text payload.
+    #[allow(clippy::too_many_arguments)]
     pub fn text_input(
         &mut self,
         tokens: &dyn Tokens,
@@ -475,6 +478,9 @@ impl<'p> View<'p> {
     ///
     /// # Errors
     /// Runtime errors from reduce/effects/emission.
+    // reason: event dispatch entry point — args are the ambient environments
+    // (tokens/device/locale/host) plus the event id, case and payload.
+    #[allow(clippy::too_many_arguments)]
     pub fn dispatch(
         &mut self,
         tokens: &dyn Tokens,

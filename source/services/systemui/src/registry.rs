@@ -147,7 +147,7 @@ pub fn available_shells(cfg: &ResolvedConfig) -> Vec<String> {
         .iter()
         .filter(|sid| {
             shell_by_id(sid)
-                .map(|s| s.supported_profiles.iter().any(|p| *p == cfg.profile.id))
+                .map(|s| s.supported_profiles.contains(&cfg.profile.id))
                 .unwrap_or(false)
         })
         .cloned()

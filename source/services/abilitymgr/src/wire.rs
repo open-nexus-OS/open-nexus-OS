@@ -13,6 +13,7 @@
 //! a UART marker. Shared by the OS-lite loop and host tests (no IPC here).
 
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::lifecycle::{AbilityState, Broker, LifecycleError};
@@ -130,13 +131,7 @@ fn dispatch_recents(broker: &Broker, frame: &[u8]) -> Dispatched {
 // --- encoding helpers ---
 
 fn header(op: u8, status: u8) -> Vec<u8> {
-    let mut out = Vec::with_capacity(5);
-    out.push(MAGIC0);
-    out.push(MAGIC1);
-    out.push(VERSION);
-    out.push(op | OP_RESPONSE);
-    out.push(status);
-    out
+    vec![MAGIC0, MAGIC1, VERSION, op | OP_RESPONSE, status]
 }
 
 /// `OP_RESOLVE_EXPORT`: consumer app + ability → exporter app id.
@@ -202,12 +197,7 @@ fn take_lp_str(buf: &[u8]) -> Option<(String, &[u8])> {
 
 /// Encodes a launch request frame (for callers/tests).
 pub fn encode_launch(app_id: &str, launch_ability: &str) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.push(MAGIC0);
-    out.push(MAGIC1);
-    out.push(VERSION);
-    out.push(OP_LAUNCH);
-    out.push(app_id.len() as u8);
+    let mut out = vec![MAGIC0, MAGIC1, VERSION, OP_LAUNCH, app_id.len() as u8];
     out.extend_from_slice(app_id.as_bytes());
     out.push(launch_ability.len() as u8);
     out.extend_from_slice(launch_ability.as_bytes());
@@ -300,12 +290,7 @@ mod tests {
 
 /// Encodes a resolve-export request frame (for callers/tests).
 pub fn encode_resolve_export(consumer: &str, ability: &str) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.push(MAGIC0);
-    out.push(MAGIC1);
-    out.push(VERSION);
-    out.push(OP_RESOLVE_EXPORT);
-    out.push(consumer.len() as u8);
+    let mut out = vec![MAGIC0, MAGIC1, VERSION, OP_RESOLVE_EXPORT, consumer.len() as u8];
     out.extend_from_slice(consumer.as_bytes());
     out.push(ability.len() as u8);
     out.extend_from_slice(ability.as_bytes());
