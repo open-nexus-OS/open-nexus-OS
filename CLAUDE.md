@@ -69,7 +69,7 @@ purpose (`protection_zones`, `critical`, `forbidden`, `verification_gate`) so
 
 <rules>
 
-<protection_zones> <!-- read freely; access="approval" ⇒ modifying needs explicit user approval -->
+<protection_zones> <!-- read freely; access="approval" ⇒ modifying needs explicit user approval; enforced by .claude/hooks/protect-zones.py (PreToolUse → prompts for approval) -->
 <zone path="source/kernel/**" access="approval" reason="microkernel"/>
 <zone path="source/libs/**" access="approval" reason="ABI stability"/>
 <zone path="Cargo.toml" access="approval" scope="root"/>
