@@ -1,6 +1,6 @@
 ---
 title: TASK-0078B QuerySpec v1: typed query values + canonical hash + keyset paging + the pure-Rust engine (nexus-query/queryd)
-status: Draft
+status: Done
 owner: @ui @runtime
 created: 2026-04-03
 updated: 2026-07-06
@@ -201,3 +201,6 @@ riscv64 no_std check green, clippy clean, 21 tests):
 - DSL-side generated typed table handles (v2 ergonomics, TASK-0274); strict
   `<`/`>` bounds (engine Range exclusivity — a documented canonical-bytes
   change).
+
+## Closure (2026-07-19) — Reconciliation
+Delivered + host-proven: `source/libs/nexus-query/` (1264 LOC, zero-dep, `forbid(unsafe)`): order-preserving `encoding.rs`, `spec.rs` with pinned canonical-hash golden `0x724d_3c50_22ec_6e82`; paging correctness in `tests/engine_paging.rs` (paged-walk == one-shot, no dup/gap, foreign/malformed token rejection, hash order-independence). Service path `source/services/queryd/` (634 LOC) + `tests/loopback.rs` (opcode round-trip, wire keyset paging, namespace isolation, fail-closed). Status → Done. Only OPEN item = boot/topology wiring, an explicit Phase-6 Non-Goal.

@@ -104,3 +104,6 @@ UART markers include at least:
 
 ## Reconciliation fold-in (2026-07-19)
 Folded in from **TASK-0065** (Done, minimal notification surface shipped): full notifd persistence/history/unread/badging lands here (with TASK-0124 DND + TASK-0125 systemui headsup/redaction/settings).
+
+## Reconciliation fold-in (2026-07-19) — from TASK-0121
+The Notifications **Center surface** shipped (static placeholder `NotificationsPanel.nx` in desktop-shell). Real notification **delivery** — notifd feed/subscribe wiring into that center (distinct from toasts) — lands here (with TASK-0124/0125).

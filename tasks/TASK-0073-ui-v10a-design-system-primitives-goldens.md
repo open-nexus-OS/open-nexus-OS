@@ -1,6 +1,6 @@
 ---
 title: TASK-0073 UI v10a (host-first): Design-System SSOT — token convergence + glass primitive + core/controls/inputs/nav/window primitives (full contract, fidelity waves) + goldens + a11y/contrast lints + HIG-grade docs
-status: Draft
+status: Done
 owner: @ui
 created: 2025-12-23
 updated: 2026-07-05
@@ -190,3 +190,6 @@ Deliver, per RFC-0070 waves **W1–W3 + W5-non-overlay** (overlays/modal are W4 
 ### Notes for whoever continues
 - Add a component = new crate `userspace/ui/widgets/<name>`, register in **root `Cargo.toml` members** (explicit list, NOT a glob), mirror the builder pattern (tokens → `LayoutNode`, id-based interaction, `InteractionState`), add a golden in `tests/ui_v10_goldens/tests/goldens.rs` (+ dep in its `Cargo.toml`) and regenerate with `UPDATE_GOLDENS=1`.
 - `FontWeight` is in `nexus-layout-types` (NOT theme-tokens). `ShapeKind` is not `Copy`. windowd does NOT yet render `ShapeKind` shapes (Path/Vector/Triangle) → that is W6/TASK-0074 (live-path).
+
+## Closure (2026-07-19) — Reconciliation
+Delivered + host-proven: 37 widget crates under `userspace/ui/widgets/` (button/card/toggle/checkbox/radio/slider/select/stepper/rating/toolbar/tab_bar/sidebar/tree_view/accordion/breadcrumbs/pagination/avatar/chip/spinner/progress_bar/toast/skeleton/banner/text/text_field/…), token SSOT generated in `userspace/ui/theme-tokens/build.rs`, and `tests/ui_v10_goldens/` with 74 golden `.bgra.hex` files + `tests/a11y.rs` (WCAG contrast + touch-target lints). Status → Done.

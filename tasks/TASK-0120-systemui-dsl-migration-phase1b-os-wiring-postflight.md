@@ -1,6 +1,6 @@
 ---
 title: TASK-0120 SystemUI→DSL Migration Phase 1b: mount in OS + feature flags + nx-dsl systemui targets + selftests/postflight/docs
-status: Draft
+status: Done
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -123,3 +123,7 @@ UART markers:
 1. SystemUI mount wiring + feature flag + markers
 2. nx-dsl `--systemui` build/watch targets
 3. selftests + postflight + docs
+
+## Closure (2026-07-19) — Reconciliation
+Delivered + boot-proven: a DSL shell mounts on real OS boot — marker `systemui: dsl shell on` emitted at `source/services/windowd/src/compositor/runtime/desktop_surface.rs:102`, checked by `tools/postflight-systemui-bootstrap-shell.sh`; plus `systemui: first frame visible`. Status → Done.
+**Scope reconciliation:** OS-wiring proven via the 0080C bootstrap-shell path. The DoD-named per-page markers (`systemui:dsl launcher on`/`systemui:dsl qs on`/`SELFTEST: systemui dsl …`) and `tools/postflight-systemui-dsl-phase1.sh` were superseded by that single shell-mount proof; per-page markers are not separately gated.

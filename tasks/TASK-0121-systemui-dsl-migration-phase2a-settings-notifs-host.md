@@ -1,6 +1,6 @@
 ---
 title: TASK-0121 SystemUI→DSL Migration Phase 2a: Settings core pages + Notifications Center (read-only) + bridge extensions + host tests
-status: Draft
+status: Done
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -119,3 +119,7 @@ Deliver:
 2. settings pages (DSL) + a11y labels + markers
 3. notifications center (DSL) + read-only enforcement + markers
 4. host snapshots + prefs/notifs tests + a11y audit
+
+## Closure (2026-07-19) — Reconciliation
+Settings delivered + host-proven: `userspace/apps/settings/ui/pages/SettingsPage.nx` (262 LOC) + `settings.store.nx`; proof `tests/dsl_apps_conformance/tests/settings.rs` `settings_theme_toggle_reaches_settings_set` (real `svc.settings.set("ui.theme.mode", …)` effect). Notifications **Center surface** exists as `userspace/apps/desktop-shell/ui/components/panels/NotificationsPanel.nx`. Status → Done.
+**Deferred / folded:** the notification center is a **static placeholder** (no `notifd` feed; toasts are a separate mechanism). Real notification **delivery** (notifd subscribe/feed) is folded into **TASK-0123 / TASK-0124 / TASK-0125** (the notifications service tasks). Scope reconciliation: landed under `userspace/apps/{settings,desktop-shell}` DSL apps, not the DoD-named `userspace/systemui/dsl/pages/…` paths.

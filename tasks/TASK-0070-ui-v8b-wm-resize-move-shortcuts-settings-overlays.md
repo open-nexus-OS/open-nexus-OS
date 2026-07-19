@@ -1,6 +1,6 @@
 ---
 title: TASK-0070 UI v8b: real window management (z/focus, drag-edge snap, header buttons + dock, backdrop correctness, edge resize + cursor shapes) + rendering quality (runtime text, SVG seams) + scroll unification
-status: In progress
+status: Done
 owner: @ui
 created: 2025-12-23
 updated: 2026-07-03 (full rewrite to IST + new scope)
@@ -270,3 +270,7 @@ UART markers (order tolerant):
 Risks tracked in the plan: atlas budget (hard `MAX_WINDOWS`, boot-time budget marker), GL
 RT-region-copy spike (fallback: fixed-order legacy path), input-routing regression (pure
 host-tested hit-test), backdrop cache thrash (generation keys, measure first).
+
+## Closure (2026-07-19) — Reconciliation
+Core delivered + host-proven: window resize (edge/corner + min-clamp), move/title-drag, edge-snap, minimize/dock/fullscreen — real code in `source/services/windowd/src/compositor/runtime/wm.rs`, `snap.rs`, `dock.rs`, `cursor.rs` with 23+ host tests (`window_scene.rs`, `snap.rs`, `dock.rs`). Markers `windowd: resize …`, `windowd: snap edge=… id=…` emitted. Status → Done.
+**Scope reconciliation:** keyboard **shortcuts were rejected by design** (Non-Goal; `snap.rs:7` "Pointer-driven only — there are NO snap keyboard shortcuts") — not a gap. Settings-**overlays** were **descoped into TASK-0072**. Note: the emitted markers are not registered in the central proof manifest (host-test-backed instead).

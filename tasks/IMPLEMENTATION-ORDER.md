@@ -133,6 +133,13 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0080D | DSL app runtime lifecycle + surface contract | 2026-07-19 (reconciled) |
 | ✅ TASK-0130 | Packages v1b: bundlemgrd install/upgrade/uninstall + trust policy | 2026-07-19 (reconciled; bundlemgrd markers) |
 | ✅ TASK-0269 | Boot gates v1: readiness + spawn-reason + resource sentinel | 2026-07-19 (reconciled; kselftest markers) |
+| ✅ TASK-0070 | UI v8b: WM resize/move/snap/dock (shortcuts = Non-Goal; overlays → 0072) | 2026-07-19 (reconciled; wm.rs/snap.rs/dock.rs + 23 tests) |
+| ✅ TASK-0072 | UI v9b: settingsd + settings panel DSL app (prefsd→settingsd; quick-settings dropped) | 2026-07-19 (reconciled; settingsd markers + settings.rs test) |
+| ✅ TASK-0073 | UI v10a: design-system primitives + goldens | 2026-07-19 (reconciled; 37 widgets + 74 goldens) |
+| ✅ TASK-0078B | DSL v0.2b: QuerySpec v1 (paging + hash) | 2026-07-19 (reconciled; nexus-query/queryd + paging tests; boot-wiring = Non-Goal) |
+| ✅ TASK-0119 | SystemUI→DSL Phase 1a: Launcher + Control-Center DSL pages | 2026-07-19 (reconciled; dsl_apps_conformance) |
+| ✅ TASK-0120 | SystemUI→DSL Phase 1b: OS wiring | 2026-07-19 (reconciled; `systemui: dsl shell on`) |
+| ✅ TASK-0121 | SystemUI→DSL Phase 2a: Settings + Notifications Center surface (notif delivery → 0123–0125) | 2026-07-19 (reconciled; settings.rs test) |
 
 ---
 
@@ -294,10 +301,10 @@ WM-Overlays, Settings-Panel, Design System, App Shell.
 
 | Task | Title |
 |------|-------|
-| TASK-0070 | UI v8b: WM resize/move + shortcuts + settings overlays |
-| TASK-0072 | UI v9b: prefsd + settings panels + quick settings |
-| TASK-0073 | UI v10a: design system primitives + goldens |
-| TASK-0074 | UI v10b: app shell adoption + modals |
+| ✅ TASK-0070 | UI v8b: WM resize/move/snap/dock (Done; keyboard shortcuts = Non-Goal by design; settings overlays descoped → 0072) |
+| ✅ TASK-0072 | UI v9b: settingsd + settings panel DSL app (Done; prefsd replaced by settingsd; quick-settings dropped as Non-Goal) |
+| ✅ TASK-0073 | UI v10a: design system primitives + goldens (Done; 37 widgets + 74 goldens + a11y lints) |
+| TASK-0074 | UI v10b: app shell adoption + **modals** — **still open** (not started; no AppWindow kit, no modal/overlay widgets) |
 
 **Defer aus diesem Bereich:** `0067` (DnD/clipboard v2 — kommt via 0122C), `0068` (screenshot/share), `0069` (notifications v2 advanced), `0071` (searchd/command palette).
 
@@ -311,11 +318,11 @@ Vollständige DSL-Kette: Lexer → Interpreter → AOT → State/Nav → Bootstr
 |------|-------|
 | ✅ TASK-0075 | DSL v0.1a: lexer/parser → AST + Scene-IR + lowering + nx dsl CLI (Done) |
 | ✅ TASK-0076 | DSL v0.1b: interpreter + snapshots + OS demo hook (Done) |
-| TASK-0076B | DSL v0.1c: visible OS mount + first DSL frame in windowd/SystemUI — **partial** |
+| ⤳ TASK-0076B | DSL v0.1c: visible OS mount + first DSL frame — **Superseded by TASK-0080C** (own demo retired; capability lives in 0080C) |
 | ✅ TASK-0077 | DSL v0.2a: state/nav/i18n core (Done) |
 | ✅ TASK-0078 | DSL v0.2b: service stubs + CLI demo (Done) |
-| TASK-0078B | DSL v0.2b: QuerySpec v1 foundation (paging + hash) — **partial (advanced paging open)** |
-| TASK-0079 | DSL v0.3a: AOT codegen + incremental assets — **partial (AOT e2e open)** |
+| ✅ TASK-0078B | DSL v0.2b: QuerySpec v1 foundation (paging + hash) (Done; nexus-query/queryd + tests; boot-wiring = Non-Goal) |
+| TASK-0079 | DSL v0.3a: AOT codegen + incremental assets — **still open (not started; no codegen dir; interpreter-only)** |
 | ✅ TASK-0080B | SystemUI DSL bootstrap shell (host-first): desktop bg + launcher + app launch (Done) |
 | ✅ TASK-0080C | SystemUI DSL bootstrap shell: OS-wiring + QEMU markers (Done) |
 
@@ -327,12 +334,12 @@ Vollständige DSL-Kette: Lexer → Interpreter → AOT → State/Nav → Bootstr
 
 | Task | Title |
 |------|-------|
-| TASK-0119 | SystemUI→DSL Phase 1a: Launcher + Quick Settings DSL pages (host) |
-| TASK-0120 | SystemUI→DSL Phase 1b: OS wiring + postflight markers |
-| TASK-0121 | SystemUI→DSL Phase 2a: Settings + Notifications Center (host) |
-| TASK-0122 | SystemUI→DSL Phase 2b: OS wiring + feature flags + selftests + docs |
-| TASK-0122B | DSL App Platform v1: shared app shell + launch/open contract + host proofs |
-| TASK-0122C | DSL App Integration Kit v1: picker + clipboard + share + print bridges |
+| ✅ TASK-0119 | SystemUI→DSL Phase 1a: Launcher + Control-Center DSL pages (Done; `dsl_apps_conformance`; re-arch path under `apps/desktop-shell`) |
+| ✅ TASK-0120 | SystemUI→DSL Phase 1b: OS wiring (Done; `systemui: dsl shell on` boot-proven via 0080C path) |
+| ✅ TASK-0121 | SystemUI→DSL Phase 2a: Settings + Notifications Center surface (Done; settings host-tested; real notif delivery folded → 0123–0125) |
+| TASK-0122 | SystemUI→DSL Phase 2b: OS wiring + feature flags + selftests + docs — **still open** (depends on notifd feed) |
+| TASK-0122B | DSL App Platform v1: shared app shell + launch/open contract — **still open** (no launch/open contract yet) |
+| TASK-0122C | DSL App Integration Kit v1: picker + clipboard + share + print bridges — **still open** |
 
 ---
 

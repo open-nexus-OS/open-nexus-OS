@@ -1,6 +1,6 @@
 ---
 title: TASK-0119 SystemUI→DSL Migration Phase 1a: Launcher + Quick Settings DSL pages + bridge + host snapshots/interactions
-status: Draft
+status: Done
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -134,3 +134,7 @@ Deliver:
 
 - `TASK-0080B`/`TASK-0080C` establish the early visible shell and launcher for app testing in the `0081–0118` range
 - `TASK-0119` then becomes the parity/polish/Quick Settings phase for the real Launcher + QS DSL surfaces
+
+## Closure (2026-07-19) — Reconciliation
+Delivered + host-proven, under a re-architected path: the Launcher + Quick-Settings/Control-Center surfaces are real DSL pages `userspace/apps/desktop-shell/ui/pages/LauncherPage.nx`, `ControlCenterPage.nx` + `ControlCenterPanel.nx` (stores `launcher.store.nx`, `controlcenter.store.nx`). Proof: `tests/dsl_apps_conformance/tests/apps_compile.rs` `desktop_shell_compiles_and_mounts()` + `hover_sweep.rs`. Status → Done.
+**Scope reconciliation:** the work landed as `userspace/apps/desktop-shell` DSL apps (proven via `dsl_apps_conformance`), NOT under the DoD-named `userspace/systemui/dsl/` + `dsl_bridge` + `tests/systemui_dsl_phase1_host/` paths (those never existed). Launcher/QS light/dark/HC snapshot goldens remain a deferred polish item.

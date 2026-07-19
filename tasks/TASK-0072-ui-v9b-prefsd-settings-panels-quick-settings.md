@@ -1,6 +1,6 @@
 ---
 title: TASK-0072 UI v9b: settingsd typed registry (persisted via statefsd) + Options menu + settings panel + light/dark end-to-end
-status: In progress
+status: Done
 owner: @ui
 created: 2025-12-23
 updated: 2026-07-03 (full rewrite to IST + new scope; prefsd dropped for settingsd)
@@ -194,3 +194,7 @@ Relationship to `TASK-0225`/`TASK-0226`: this task ships the first real slice of
 direction (typed keys, apply hooks, statefsd persistence) and the first real settings surface;
 0225's full schema/scope breadth and 0226's deep links/search/guides remain open on their own
 timelines and must build on — not duplicate — what lands here.
+
+## Closure (2026-07-19) — Reconciliation
+Core delivered + host-proven: `source/services/settingsd/` (807 LOC) typed registry (`ui.theme.mode`/`ui.font.family`/`ui.locale`), service loop markers `settingsd: ready`/`settingsd: set …`, statefs persistence; booted via `service_topology` (`ServiceId::Settingsd`). The settings **panel** evolved into the DSL app `userspace/apps/settings/ui/pages/SettingsPage.nx` (host-tested `settings_theme_toggle_reaches_settings_set`, theme switch end-to-end). Status → Done.
+**Scope reconciliation:** `prefsd` was **replaced by `settingsd`** (per TASK-0225 direction; `source/services/prefsd/` intentionally empty). **Quick-settings overlay was dropped** (Non-Goal; only a `quick_settings` config flag remains). The DoD marker names `windowd: options menu open`/`windowd: settings panel open` were superseded by the DSL-app path above.

@@ -1,6 +1,6 @@
 ---
 title: TASK-0076B DSL v0.1c (OS-gated): visible in-compositor mount + first DSL frame + execd isolation probe
-status: Draft
+status: Superseded
 owner: @ui @runtime
 created: 2026-03-28
 updated: 2026-07-06
@@ -202,3 +202,6 @@ Visual proof:
 - `LayoutBox.node_id` is 1-based pre-order and matches the interpreter's handler box ids AND
   `collect_texts` indices — three consumers of one numbering; don't reorder emission.
 - Body coordinates: interpreter space = window-local minus `DSL_TITLE_H`.
+
+## Closure (2026-07-19) — Superseded by TASK-0080C
+This task’’’s own visible-DSL-mount demo (`dsl_mount.rs`, `WindowId::DslDemo`, markers `DSL: program loaded`/`DSL: first frame presented`/`EXECD: isolation probe ok`) was **retired** (git `e8b292fe` "windowd cleanup dsl mount"); those markers no longer exist in the tree and its DoD was never boot-verified. The **capability it targeted — a DSL-authored frame mounted+rendered on real OS boot — is delivered by TASK-0080C** (Done): live emitter `APPHOST: mounted hash=<hex>` (`source/services/app-host/src/probe/boot.rs`) + `DSL: program loaded hash=…` on real boot, host plumbing in `tests/systemui_bootstrap_shell_host/`. Status → Superseded (not Done: this task’’’s own path is dead; its capability lives in the successor).
