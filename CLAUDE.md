@@ -63,48 +63,70 @@ just help         # full task catalog
 
 ## Hard rules
 
-**Protection zones** (read freely; modifying needs explicit user approval):
-`source/kernel/**`, `source/libs/**` (ABI!), root `Cargo.toml`, `Makefile`,
-`scripts/`, `config/`, `recipes/meta/`, `docs/rfcs/` (RFC process applies).
-Services under `source/services/**` are normal iteration ground; ABI-, security-
-or windowing-relevant ones (windowd, samgr, policyd, dsoftbus, …) deserve extra
-care and tests.
+Canonical rule = inside the tag; prose = the "why". Tag vocabulary is tiny on
+purpose (`protection_zones`, `critical`, `forbidden`, `verification_gate`) so
+`critical` stays scarce.
 
-**Behavior-first proofs — no fake green.** UART markers are the proof of
-behavior. `*: ready` / `SELFTEST: * ok` only after real behavior; stubs emit
-`stub`/`placeholder`, never `ok`. Marker strings are stable, deterministic
-contracts — changing one means updating `scripts/qemu-test.sh`, the marker
-contract (`tools/nx/chains/markers.txt`), and docs in the same change.
+<rules>
 
-**Security invariants** (see `docs/standards/SECURITY_STANDARDS.md`):
-- Never log secrets/keys. Identity = `sender_service_id` from kernel IPC,
-  never payload strings. Bound all input sizes before parsing.
-- Sensitive ops route through `policyd` (single authority, deny-by-default).
-- MMIO maps USER|RW only, never executable.
-- Security-relevant changes need `test_reject_*` negative tests + hardening
-  markers.
-- No `unwrap`/`expect` on untrusted input; daemons propagate errors with
-  context.
+<protection_zones> <!-- read freely; access="approval" ⇒ modifying needs explicit user approval -->
+<zone path="source/kernel/**" access="approval" reason="microkernel"/>
+<zone path="source/libs/**" access="approval" reason="ABI stability"/>
+<zone path="Cargo.toml" access="approval" scope="root"/>
+<zone path="Makefile" access="approval"/>
+<zone path="scripts/**" access="approval"/>
+<zone path="config/**" access="approval"/>
+<zone path="recipes/meta/**" access="approval"/>
+<zone path="docs/rfcs/**" access="approval" reason="RFC process"/>
+<zone path="source/services/**" access="iteration" note="iteration ground; windowd/samgr/policyd/dsoftbus (ABI/security/windowing) need extra care + tests"/>
+</protection_zones>
 
-**Dependency hygiene** (RFC-0009): forbidden in the OS graph:
-`parking_lot`, `parking_lot_core`, `getrandom`. Run `just dep-gate` before
-committing OS-relevant changes. Licenses: Apache-2.0/MIT/BSD only
-(`config/deny.toml`).
+<critical id="no-fake-green"> <!-- gate: scripts/check-chain-markers.sh -->
+UART markers = proof of behavior. `*: ready` / `SELFTEST: * ok` ONLY after real
+behavior. Stubs → `stub`/`placeholder`, never `ok`. Marker = stable contract:
+change one → update `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` + docs
+together.
+</critical>
 
-**Architecture boundaries** (crossing needs an ADR): kernel ↔ userspace
-syscall ABI, service ↔ service IPC contracts, host ↔ OS feature gates,
-policy authority. Keep drivers/policy out of the kernel. No Linux/Wayland
-stacks — the UI path is windowd (compositor service) + app-host widgets.
-windowd is a compositor SERVICE; window UI belongs in widgets, not windowd.
+<critical id="no-auto-commit">
+NO commit without explicit user approval this session. Propose a scoped message
+instead. Small commits, one intent. Feature branches, never `main`.
+</critical>
 
-**Code style**: CONTEXT headers per `docs/standards/DOCUMENTATION_STANDARDS.md`
-stay in sync; `#![forbid(unsafe_code)]` in userspace crates; no blanket
-`#[allow(dead_code)]`; only core libraries carry the `nexus-` prefix; comments
-in English. Prefer modular files (~600 LOC) over monoliths.
+<critical id="security-invariants" ref="docs/standards/SECURITY_STANDARDS.md">
+Never log secrets/keys. Identity = `sender_service_id` from kernel IPC, never
+payload strings. Bound input sizes before parsing. Sensitive ops → `policyd`
+(deny-by-default). MMIO = USER|RW only, never exec. No `unwrap`/`expect` on
+untrusted input. Security changes need `test_reject_*` tests + hardening markers.
+</critical>
 
-**Git**: never commit without explicit user approval in the current session —
-propose a scoped commit message instead. Small commits, one intent each.
-Work on feature branches, not `main`.
+<forbidden>
+<item>Blanket `#[allow(dead_code)]` — cfg-gate under `nexus_env="os"` instead</item>
+<item>`unwrap`/`expect` on untrusted input · logging secrets/keys</item>
+<item>`parking_lot`, `parking_lot_core`, `getrandom` in the OS graph (RFC-0009)</item>
+<item>Floating `+stable` in any recipe (one pinned nightly) · new cfgs beyond `nexus_env="host"|"os"`</item>
+</forbidden>
+
+<verification_gate name="warnings" enforced-by="just diag ; scripts/build.sh NEXUS_WARN_GATE=1">
+Zero warnings under host+os+kernel cfgs is a HARD FAILURE. Fix or cfg-gate — never blanket-allow.
+</verification_gate>
+
+<verification_gate name="dependency-hygiene" enforced-by="just dep-gate ; config/deny.toml">
+Forbidden crates (see &lt;forbidden&gt;) must not enter the OS graph. Licenses: Apache-2.0/MIT/BSD only.
+</verification_gate>
+
+<verification_gate name="architecture-boundaries" enforced-by="just arch-check ; arch-gate ; ADR required">
+Crossing kernel↔userspace ABI, service↔service IPC, host↔OS gates, or policy authority
+needs an ADR. Keep drivers/policy out of the kernel. No Linux/Wayland — the UI path is
+windowd (compositor SERVICE) + app-host widgets; window UI belongs in widgets, not windowd.
+</verification_gate>
+
+</rules>
+
+**Conventions** (style, not damage-on-lapse invariants): CONTEXT headers per
+`docs/standards/DOCUMENTATION_STANDARDS.md` stay in sync; `#![forbid(unsafe_code)]`
+in userspace crates; only core libraries carry the `nexus-` prefix; comments in
+English; prefer modular files (~600 LOC) over monoliths.
 
 ## Workflow
 
