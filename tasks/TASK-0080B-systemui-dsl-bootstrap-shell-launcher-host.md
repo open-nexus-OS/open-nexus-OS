@@ -1,6 +1,6 @@
 ---
 title: TASK-0080B SystemUI DSL bootstrap shell + login greeter (host-first): desktop + launcher grid + greeter pages in .nx
-status: Draft
+status: Done
 owner: @ui
 created: 2026-03-28
 updated: 2026-07-06

@@ -1,6 +1,6 @@
 ---
 title: "TASK-0080D DSL App Runtime: app-host process + packaging (.nxir in .nxb) + execd spawn + cross-process surface (ADR-0042)"
-status: Draft
+status: Done
 owner: "@ui @runtime"
 created: 2026-06-23
 updated: 2026-07-06

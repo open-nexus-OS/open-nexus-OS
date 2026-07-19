@@ -1,6 +1,6 @@
 ---
 title: TASK-0060B UI v4b: glass materials + backdrop snapshots + cached blur + deterministic degrade
-status: Draft
+status: Done
 owner: @ui
 created: 2026-03-29
 depends-on: []

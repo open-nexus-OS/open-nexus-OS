@@ -1,6 +1,6 @@
 ---
 title: TASK-0292 nxfs v1 core (host-first): on-disk format P1 + transactions + checksums + replay + fsck-nxfs + crash-injection determinism
-status: In Review
+status: Done
 owner: @runtime
 created: 2026-07-15
 depends-on:

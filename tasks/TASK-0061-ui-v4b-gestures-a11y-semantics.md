@@ -1,6 +1,6 @@
 ---
 title: TASK-0061 UI v4b: gesture recognizers + inertial scroll + accessibility semantics tree + focus navigation/events
-status: Draft
+status: Done
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -114,3 +114,6 @@ UART markers (order tolerant):
 2. windowd integration + inertial scroll
 3. a11yd service + reader stub + focus navigation
 4. tests + docs + postflight
+
+## Closure (2026-07-19) — Reconciliation
+Core DoD met and boot-proven: gesture recognizers, inertial scroll, accessibility semantics tree + focus/keyboard navigation (UI v4b markers). Remaining a11y-semantics *hardening* (actions surface, adapter coverage) is folded into **TASK-0114** (a11yd tree/actions/focusnav), which already lists this task as its a11y baseline. Status → Done.

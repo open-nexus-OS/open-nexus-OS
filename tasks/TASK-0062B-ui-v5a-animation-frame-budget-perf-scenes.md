@@ -1,6 +1,6 @@
 ---
 title: TASK-0062B UI v5a extension: animation frame-budget discipline + perf scenes + QEMU fluidity gates
-status: Draft
+status: Done
 owner: @ui @runtime
 created: 2026-03-29
 depends-on: []

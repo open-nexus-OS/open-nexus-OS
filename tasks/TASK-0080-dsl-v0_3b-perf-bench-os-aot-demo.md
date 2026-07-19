@@ -1,6 +1,6 @@
 ---
 title: TASK-0080 DSL v0.3b (partly OS-gated): perf benches (AOT vs interp) + cold-start budget breakdown + AOT demo launch + CI perf gates
-status: Draft
+status: Done
 owner: @ui @runtime
 created: 2025-12-23
 updated: 2026-07-06

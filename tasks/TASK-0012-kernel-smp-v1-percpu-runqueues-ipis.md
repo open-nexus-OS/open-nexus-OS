@@ -1,6 +1,6 @@
 ---
 title: TASK-0012 Performance & Power v1 (kernel): SMP bring-up + per-CPU runqueues + IPIs (QEMU riscv virt)
-status: done
+status: Done
 owner: @kernel-team
 created: 2025-12-22
 depends-on:

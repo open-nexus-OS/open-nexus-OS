@@ -1,6 +1,6 @@
 ---
 title: TASK-0295 Zero-copy storage data plane: VMO splice reads (packagefs + nxfs) + VMO-backed writes + inline cap enforcement
-status: In Review
+status: Done
 owner: @runtime
 created: 2026-07-15
 depends-on:

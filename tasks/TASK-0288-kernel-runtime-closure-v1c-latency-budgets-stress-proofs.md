@@ -1,6 +1,6 @@
 ---
 title: TASK-0288 Kernel runtime closure v1c: SMP/timer/IPI latency budgets + deterministic stress proofs
-status: done
+status: Done
 owner: @runtime @kernel-team
 created: 2026-04-13
 depends-on:

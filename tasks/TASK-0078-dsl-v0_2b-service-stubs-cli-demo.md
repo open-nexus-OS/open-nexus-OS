@@ -1,6 +1,6 @@
 ---
 title: TASK-0078 DSL v0.2b: typed svc.* adapters from the real IDL + transcript testing + CLI generators + master-detail demo (host)
-status: Draft
+status: Done
 owner: @ui @runtime
 created: 2025-12-23
 updated: 2026-07-06

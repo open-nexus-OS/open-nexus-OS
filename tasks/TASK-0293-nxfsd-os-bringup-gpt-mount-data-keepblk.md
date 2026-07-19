@@ -1,6 +1,6 @@
 ---
 title: TASK-0293 nxfsd OS bring-up: writable /data mount + stash writes (v1: 2nd blk device, vfsd-hosted DataStore) + NEXUS_KEEP_BLK
-status: In Review
+status: Done
 owner: @runtime
 created: 2026-07-15
 depends-on:

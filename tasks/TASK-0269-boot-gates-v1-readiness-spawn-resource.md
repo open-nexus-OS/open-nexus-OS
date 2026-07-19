@@ -1,6 +1,6 @@
 ---
 title: TASK-0269 Boot gates v1 (OS/QEMU): readiness contract + spawn failure reasons + resource/leak sentinel
-status: Complete
+status: Done
 owner: @runtime @kernel-team @tools-team
 created: 2026-01-16
 depends-on: []

@@ -1,6 +1,6 @@
 ---
 title: TASK-0042 SMP v2: affinity hints + QoS CPU budgets (requires kernel ABI + execd wiring)
-status: done
+status: Done
 owner: @kernel-team @runtime
 created: 2025-12-22
 depends-on: []

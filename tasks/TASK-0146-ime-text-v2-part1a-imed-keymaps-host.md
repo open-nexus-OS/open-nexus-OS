@@ -108,3 +108,6 @@ Deliver:
 
 - Host tests prove that US/DE key sequences produce deterministic preedit/commit results.
 - No OS/QEMU markers are claimed in this part.
+
+## Reconciliation fold-in (2026-07-19)
+Folded in from **TASK-0059** (Done, IME/text-input plumbing baseline shipped): the actual IME engine work (imed core, keymaps, dead/compose) lands here.

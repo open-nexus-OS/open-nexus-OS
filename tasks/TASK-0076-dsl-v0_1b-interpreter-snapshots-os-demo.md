@@ -1,6 +1,6 @@
 ---
 title: TASK-0076 DSL v0.1b: interpreter runtime (mount/dispatch/dirty-index/retained tree) + headless goldens + conformance corpus (host)
-status: Draft
+status: Done
 owner: @ui @runtime
 created: 2025-12-23
 updated: 2026-07-06

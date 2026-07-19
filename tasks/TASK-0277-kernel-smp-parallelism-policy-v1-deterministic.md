@@ -1,6 +1,6 @@
 ---
 title: TASK-0277 Kernel SMP/Parallelism Policy v1 (deterministic, auditable)
-status: done
+status: Done
 owner: @kernel-team
 created: 2025-12-30
 depends-on: []

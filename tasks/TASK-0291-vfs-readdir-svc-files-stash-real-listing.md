@@ -1,6 +1,6 @@
 ---
 title: TASK-0291 VFS ReadDir + stable errors + svc.files (FILES permission, filemanager role) + stash lists real content
-status: In Review
+status: Done
 owner: @runtime
 created: 2026-07-15
 depends-on: []

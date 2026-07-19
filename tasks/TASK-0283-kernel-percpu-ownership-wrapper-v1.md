@@ -1,6 +1,6 @@
 ---
 title: TASK-0283 Kernel SMP prep v1: per-CPU ownership wrapper (`PerCpu<T>`) and `!Send` enforcement
-status: done
+status: Done
 owner: @kernel-team
 created: 2026-01-09
 depends-on: []

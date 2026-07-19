@@ -46,9 +46,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 | Task | Title | Status |
 |------|-------|--------|
-| TASK-0291 | VFS ReadDir + svc.files + filemanager role + stash real listing | In Review (2026-07-15, proofs green) |
-| TASK-0292 | nxfs v1 core (host-first): engine + fsck + crash-injection | In Review (2026-07-15, host-proven) |
-| TASK-0293 | nxfs /data OS bring-up (v1: 2nd blk device, vfsd-hosted DataStore) | In Review (2026-07-15, write + cold-boot persistence boot-proven) |
+| — | — | — |
 
 ---
 
@@ -117,6 +115,54 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0062 | UI v5a: Deterministic Animation + NexusGfx 2D Pipeline + GPU Driver Contract | 2026-06-10 |
 | ✅ TASK-0063 | UI v5b: virtualized list + scene graph + dual-panel GPU blur + virgl pipeline + theme tokens | 2026-06-22 |
 | ✅ TASK-0064 | UI v6a: window management v1 — ShellWindow N-window WM (chat instance + title-bar/X/drag/z-order) | 2026-06-22 |
+| ✅ TASK-0057 | UI v2b: text shaping + font fallback/cache + SVG pipeline | 2026-07-19 (reconciled; ui v2b markers) |
+| ✅ TASK-0058 | UI v3a: layout wrapping + deterministic box model | 2026-07-19 (reconciled; host goldens) |
+| ✅ TASK-0060 | UI v4a: tiled compositor + clip-stack + atlases + perf | 2026-07-19 (reconciled; ui v4 markers) |
+| ✅ TASK-0060B | UI v4b: glass materials + backdrop-cache + degrade | 2026-07-19 (reconciled) |
+| ✅ TASK-0061 | UI v4b: gestures + a11y semantics (a11y-hardening folded → TASK-0114) | 2026-07-19 (reconciled) |
+| ✅ TASK-0062B | UI v5a: animation frame-budget + perf scenes | 2026-07-19 (reconciled) |
+| ✅ TASK-0065 | UI v6b: app lifecycle + navigation (notifications folded → TASK-0123–0125) | 2026-07-19 (reconciled) |
+| ✅ TASK-0065B | Session/Login v0: greeter/dev-session + SystemUI shell handoff | 2026-07-19 (reconciled; greeter boot-proven) |
+| ✅ TASK-0075 | DSL v0.1a: lexer/parser → AST + Scene-IR + lowering + nx dsl CLI | 2026-07-19 (reconciled; dsl_conformance) |
+| ✅ TASK-0076 | DSL v0.1b: interpreter + snapshots + OS demo hook | 2026-07-19 (reconciled; dsl_goldens) |
+| ✅ TASK-0077 | DSL v0.2a: state/nav/i18n core | 2026-07-19 (reconciled) |
+| ✅ TASK-0078 | DSL v0.2b: service stubs + CLI demo | 2026-07-19 (reconciled) |
+| ✅ TASK-0080 | DSL v0.3b: perf-bench + OS AOT demo | 2026-07-19 (reconciled) |
+| ✅ TASK-0080B | SystemUI DSL bootstrap shell (host-first): bg + launcher + app launch | 2026-07-19 (reconciled; bootstrap host test) |
+| ✅ TASK-0080C | SystemUI DSL bootstrap shell: OS-wiring + QEMU markers | 2026-07-19 (reconciled) |
+| ✅ TASK-0080D | DSL app runtime lifecycle + surface contract | 2026-07-19 (reconciled) |
+| ✅ TASK-0130 | Packages v1b: bundlemgrd install/upgrade/uninstall + trust policy | 2026-07-19 (reconciled; bundlemgrd markers) |
+| ✅ TASK-0269 | Boot gates v1: readiness + spawn-reason + resource sentinel | 2026-07-19 (reconciled; kselftest markers) |
+
+---
+
+## Post-0064 — SMP + Filesystem (built after the UI Fast Lane)
+
+These tracks were executed after the Fast-Lane cut and are boot-/host-proven.
+
+### SMP / parallelism (kernel)
+
+| Task | Title | Completed |
+|------|-------|-----------|
+| ✅ TASK-0012 | Kernel SMP v1 (per-CPU runqueues + IPIs) | (earlier) |
+| ✅ TASK-0012B | Kernel SMP v1b hardening bridge (scheduler + SMP internals) | (earlier) |
+| ✅ TASK-0042 | SMP v2: affinity + QoS budgets + kernel ABI | 2026-07-19 (kselftest smp/bkl markers) |
+| ✅ TASK-0276 | Parallelism v1: deterministic threadpools + policy contract | 2026-07-19 |
+| ✅ TASK-0277 | Kernel SMP parallelism policy v1 (deterministic) | 2026-07-19 |
+| ✅ TASK-0283 | Kernel per-CPU ownership wrapper v1 | 2026-07-19 |
+| ✅ TASK-0288 | Kernel runtime closure v1c: latency budgets + stress proofs | 2026-07-19 |
+
+**Still open (SMP closure / release-blockers per STATUS-BOARD):** `0281`, `0282`, `0286`, `0287`, `0290`.
+
+### Filesystem (nxfs / stash user-data)
+
+| Task | Title | Completed |
+|------|-------|-----------|
+| ✅ TASK-0291 | VFS ReadDir + svc.files + filemanager role + stash real listing | 2026-07-19 (boot-proven) |
+| ✅ TASK-0292 | nxfs v1 core (host-first): engine + fsck + crash-injection | 2026-07-19 (host-proven, 17 tests) |
+| ✅ TASK-0293 | nxfs /data OS bring-up (2nd blk device + vfsd DataStore) | 2026-07-19 (write + cold-boot persistence boot-proven) |
+| ✅ TASK-0294 | MIME SSOT: nexus-mime-icons + stash filetype icons | 2026-07-19 (39-icon SSOT boot-proven) |
+| ✅ TASK-0295 | Zero-copy read/write via VMO splice (OP_READ_VMO CAP_MOVE) | 2026-07-19 (boot-proven) |
 
 ---
 
@@ -217,19 +263,19 @@ muessen die entsprechenden Test-Targets sichtbar auf dieser Proof-Surface ersche
 
 | Task | Title |
 |------|-------|
-| TASK-0057 | UI v2b: text shaping (HarfBuzz) + font fallback/cache + SVG pipeline |
-| TASK-0058 | UI v3a: layout wrapping + deterministic box model |
-| ✅ TASK-0059 | UI v3b: clip/scroll/effects + IME/TextInput (Done; ShadowArena + per-box caching + `compositor/` module refactor) |
-| TASK-0146 | IME/Text v2 Part 1a: imed core + US/DE keymaps + deterministic host tests (pulled forward after 0059) |
-| TASK-0147 | IME/Text v2 Part 1b: OSK overlay + focus routing + OS/QEMU proofs (pulled forward after 0146) |
-| TASK-0061 | UI v4b: gestures + a11y semantics |
-| TASK-0062 | UI v5a: reactive runtime + animation/transitions |
+| ✅ TASK-0057 | UI v2b: text shaping (HarfBuzz) + font fallback/cache + SVG pipeline (Done, reconciled) |
+| ✅ TASK-0058 | UI v3a: layout wrapping + deterministic box model (Done, reconciled) |
+| ✅ TASK-0059 | UI v3b: clip/scroll/effects + IME/TextInput (Done; ShadowArena + per-box caching + `compositor/` module refactor; IME engine folded → TASK-0146) |
+| TASK-0146 | IME/Text v2 Part 1a: imed core + US/DE keymaps + deterministic host tests (pulled forward after 0059) — **still open** |
+| TASK-0147 | IME/Text v2 Part 1b: OSK overlay + focus routing + OS/QEMU proofs (pulled forward after 0146) — **still open** |
+| ✅ TASK-0061 | UI v4b: gestures + a11y semantics (Done; a11y-hardening folded → TASK-0114) |
+| ✅ TASK-0062 | UI v5a: reactive runtime + animation/transitions (Done) |
 | ✅ TASK-0063 | UI v5b: virtualized list + theme tokens (Done; scene graph + virgl GPU blur + soft-real-time pacing, boot-verified) |
 | ✅ TASK-0064 | UI v6a: window management + scene transitions (Done; ShellWindow N-window WM, chat instance + drag/z-order, boot-verified; Crossfade/Slide → TASK-0064B) |
-| TASK-0065 | UI v6b: app lifecycle + notifications + navigation |
-| TASK-0065B | Session/Login v0: greeter/dev-session + SystemUI shell handoff |
+| ✅ TASK-0065 | UI v6b: app lifecycle + navigation (Done; notifications folded → TASK-0123–0125) |
+| ✅ TASK-0065B | Session/Login v0: greeter/dev-session + SystemUI shell handoff (Done, boot-proven) |
 
-**Defer aus diesem Bereich:** `0060` (tiled compositor/clip-stack/atlases), `0060B` (glass/backdrop-cache), `0062B` (animation frame-budget perf-scenes), `0066` (WM split/snap).
+**Now Done (reconciled 2026-07-19):** `0060` (tiled compositor/clip-stack/atlases), `0060B` (glass/backdrop-cache), `0062B` (animation frame-budget perf-scenes). Still deferred: `0066` (WM split/snap).
 
 **Fast-Lane-Gap-Check vor 0119/0120:**
 Nach dem aktuellen Uplift müssen vor einem ehrlichen Orbital-Level-Claim mindestens
@@ -263,17 +309,17 @@ Vollständige DSL-Kette: Lexer → Interpreter → AOT → State/Nav → Bootstr
 
 | Task | Title |
 |------|-------|
-| TASK-0075 | DSL v0.1a: lexer/parser → AST + Scene-IR + lowering + nx dsl CLI |
-| TASK-0076 | DSL v0.1b: interpreter + snapshots + OS demo hook |
-| TASK-0076B | DSL v0.1c: visible OS mount + first DSL frame in windowd/SystemUI |
-| TASK-0077 | DSL v0.2a: state/nav/i18n core |
-| TASK-0078 | DSL v0.2b: service stubs + CLI demo |
-| TASK-0078B | DSL v0.2b: QuerySpec v1 foundation (paging + hash) |
-| TASK-0079 | DSL v0.3a: AOT codegen + incremental assets |
-| TASK-0080B | SystemUI DSL bootstrap shell (host-first): desktop bg + launcher + app launch |
-| TASK-0080C | SystemUI DSL bootstrap shell: OS-wiring + QEMU markers |
+| ✅ TASK-0075 | DSL v0.1a: lexer/parser → AST + Scene-IR + lowering + nx dsl CLI (Done) |
+| ✅ TASK-0076 | DSL v0.1b: interpreter + snapshots + OS demo hook (Done) |
+| TASK-0076B | DSL v0.1c: visible OS mount + first DSL frame in windowd/SystemUI — **partial** |
+| ✅ TASK-0077 | DSL v0.2a: state/nav/i18n core (Done) |
+| ✅ TASK-0078 | DSL v0.2b: service stubs + CLI demo (Done) |
+| TASK-0078B | DSL v0.2b: QuerySpec v1 foundation (paging + hash) — **partial (advanced paging open)** |
+| TASK-0079 | DSL v0.3a: AOT codegen + incremental assets — **partial (AOT e2e open)** |
+| ✅ TASK-0080B | SystemUI DSL bootstrap shell (host-first): desktop bg + launcher + app launch (Done) |
+| ✅ TASK-0080C | SystemUI DSL bootstrap shell: OS-wiring + QEMU markers (Done) |
 
-**Defer aus diesem Bereich:** `0077B` (DSL DevX ergonomics), `0080` (DSL v0.3b perf-bench/OS AOT demo).
+**Now Done (reconciled 2026-07-19):** `0080` (DSL v0.3b perf-bench/OS AOT demo). Still deferred: `0077B` (DSL DevX ergonomics).
 
 ---
 
@@ -313,16 +359,36 @@ Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen:
 `0050`, `0051` (Recovery v1a/v1b)
 
 **SMP v2 (voll):**
-`0042` (nur minimaler QoS-Slice via TASK-0054B vorgezogen)
+✅ `0042` Done (see "Post-0064 — SMP + Filesystem" section above); SMP closure `0281`/`0282`/`0286`/`0287`/`0290` still open.
 
 **UI Perf-Polish:**
-`0054B`, `0054C`, `0054D`, `0055D`, `0060`, `0060B`, `0062B`
+`0054B`, `0054C`, `0054D`, `0055D` (still deferred); ✅ `0060`, `0060B`, `0062B` now Done.
 
 **Advanced UI Features:**
-`0066`, `0067`, `0068`, `0069`, `0071`, `0077B`, `0080`
+`0066`, `0067`, `0068`, `0069`, `0071`, `0077B` (still deferred); ✅ `0080` now Done.
 
 **Apps + Plattform (81–118):**
 `0081–0118` (MIME registry, browser, kamera, office apps etc. — nach DSL App Platform 0122B/C)
+
+---
+
+## Genuinely open themes (not started — no daemon/app/marker exists yet)
+
+Honest reconciliation floor (2026-07-19). These are real, unimplemented feature areas — not paperwork drift:
+
+- **IME / text input engine:** `0146`, `0147`, `0096`, `0148–0150`, `0203`, `0204` (plumbing baseline shipped in 0059; the engine itself is open)
+- **Notifications service:** `0069`, `0123`, `0124`, `0125` (minimal surface shipped in 0065; notifd/DND/headsup open)
+- **Search / command palette:** `0071`, `0151–0154`
+- **Clipboard / share / DnD:** `0067`, `0087`, `0126–0128`
+- **Content / files apps:** `0081–0093`, `0232`, `0233`
+- **Media / audio:** `0099–0102`, `0155`, `0156`, `0184–0187`, `0217–0220`, `0254`, `0255`
+- **Accessibility:** `0114–0118` (semantics tree shipped in 0061; a11yd hardening open)
+- **Camera / privacy:** `0103–0106`, `0191`, `0192`
+- **Webview:** `0111–0113`, `0176`, `0177`, `0205`, `0206`
+- **Store / distribution:** `0180`, `0181`, `0221`, `0222`
+- **Backup / L10n / power / sensors:** `0161`, `0162`, `0174`, `0175`, `0240`, `0241`, `0236`, `0237`, `0256–0259`, `0271`, `0272`
+- **Renderer / compositor v2:** `0171`, `0199`, `0200`, `0207`, `0208`, `0215`, `0216`
+- **Foundation partials (core done, in-title sub-deliverable open):** `0136` (policy: foreground-adapters + camera/mic perms), `0140` (updates: settings-UI page)
 
 ---
 
@@ -335,7 +401,7 @@ Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen:
 | TRACK-NEXUSGFX-SDK | Graphics SDK for apps | UI tasks (0054+) |
 | TRACK-NEXUSINFER-SDK | On-device ML runtime (CPU ref + future NPU), hybrid IPC | TASK-0031, TASK-0010, TASK-0280 |
 | TRACK-NEXUSMEDIA-SDK | Audio/video/image SDK | UI tasks, codec tasks |
-| TRACK-STASH-USER-DATA-FS | User-data FS ladder (vfs v2 → nxfs → zero-copy → CoW/enc) + stash | active — TASK-0291 in progress; RFC-0071/0072/0073 |
+| TRACK-STASH-USER-DATA-FS | User-data FS ladder (vfs v2 → nxfs → zero-copy → CoW/enc) + stash | Milestones 1–5 Done (0291–0295); CoW/encryption seed-when-ready; RFC-0071/0072/0073 |
 | TRACK-ZEROCOPY-APP-PLATFORM | RichContent + OpLog + connectors | TASK-0031, TASK-0087 |
 | TRACK-APP-STORE | Distribution + publishing | Packaging tasks |
 | TRACK-DEVSTUDIO-IDE | Developer IDE | DSL tasks (0075+) |

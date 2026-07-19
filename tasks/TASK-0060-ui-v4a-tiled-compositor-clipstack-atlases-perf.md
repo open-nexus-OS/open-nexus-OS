@@ -1,6 +1,6 @@
 ---
 title: TASK-0060 UI v4a: tiled compositor + occlusion + clip stack + atlases/caches + perf/pacing metrics
-status: Draft
+status: Done
 owner: @ui
 created: 2025-12-23
 depends-on: []

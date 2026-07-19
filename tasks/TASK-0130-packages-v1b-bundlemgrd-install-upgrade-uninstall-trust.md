@@ -1,6 +1,6 @@
 ---
 title: TASK-0130 Packages v1b: bundlemgrd install/upgrade/uninstall for third-party apps + trust policy + registry wiring + tests/markers
-status: Draft
+status: Done
 owner: @runtime
 created: 2025-12-25
 depends-on: []
@@ -124,3 +124,6 @@ UART markers:
 1. bundlemgrd: verify/install/uninstall/list/query + markers
 2. trust policy integration (align with `TASK-0029`)
 3. host tests + OS selftest markers (gated)
+
+## Closure (2026-07-19) — Reconciliation
+Install/upgrade/uninstall + trust-policy + registry wiring boot-proven (markers `bundlemgrd v1 list/image/malformed ok`, `bundlemgrd: slot b active`, `bundlemgrd route execd denied ok`). Status → Done. **Deferred (no clean successor):** the "mimed registry reflects installed mime handlers" line — the MIME SSOT itself is delivered by TASK-0294 (Done), but *installed-handler registration via bundlemgr* has no dedicated follow-up task; left here as a Deferred note rather than spawning a new task.

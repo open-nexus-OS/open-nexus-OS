@@ -1,6 +1,6 @@
 ---
 title: TASK-0077 DSL v0.2a: stores/effects scheduling + routes/navigation + i18n + device-env/profile overrides (host)
-status: Draft
+status: Done
 owner: @ui @runtime
 created: 2025-12-23
 updated: 2026-07-06

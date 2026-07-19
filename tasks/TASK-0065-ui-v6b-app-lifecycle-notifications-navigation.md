@@ -198,3 +198,6 @@ UART markers (order tolerant):
 ## Follow-ups
 
 - Ability/Lifecycle v1.1 (backoff/crash-loop/kill reasons/FG-BG policies): `TASK-0234` (host-first) and `TASK-0235` (OS extension of appmgrd).
+
+## Reconciliation fold-in (2026-07-19)
+App-lifecycle + minimal notification surface + navigation are Done here. Full notifications service (notifd persistence/history/unread, DND, headsup/redaction/badging/settings) is tracked in **TASK-0123 / TASK-0124 / TASK-0125**.

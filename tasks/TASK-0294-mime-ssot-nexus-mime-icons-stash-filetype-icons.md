@@ -1,6 +1,6 @@
 ---
 title: TASK-0294 Mime SSOT wiring + nexus-mime-icons bake + stash file-type icons
-status: In Review
+status: Done
 owner: @runtime
 created: 2026-07-15
 depends-on:

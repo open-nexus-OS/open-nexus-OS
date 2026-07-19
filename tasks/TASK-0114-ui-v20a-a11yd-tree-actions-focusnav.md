@@ -96,3 +96,6 @@ UART markers:
 1. a11yd IDL hardening + markers
 2. adapters (SystemUI + kit) + action routing
 3. focus nav + tests + docs
+
+## Reconciliation fold-in (2026-07-19)
+Folded in from **TASK-0061** (Done): the accessibility-semantics *hardening* remainder — actions surface + adapter coverage on top of the shipped semantics tree + focus/keyboard navigation.

@@ -1,6 +1,6 @@
 ---
 title: TASK-0276 Parallelism v1: deterministic threadpools policy (safe-by-default, no-proof-drift)
-status: done
+status: Done
 owner: @arch
 created: 2025-12-30
 depends-on: []

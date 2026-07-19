@@ -1,6 +1,6 @@
 ---
 title: TASK-0080C SystemUI DSL shell + greeter (OS/QEMU): boot→greeter→login→shell→launcher-click→app end-to-end
-status: Draft
+status: Done
 owner: @ui @runtime
 created: 2026-03-28
 updated: 2026-07-06

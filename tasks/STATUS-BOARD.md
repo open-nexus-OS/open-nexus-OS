@@ -14,6 +14,8 @@ Sequential execution order remains `tasks/IMPLEMENTATION-ORDER.md`.
 
 This section adds a navigation layer over the full `TASK-*` set. Task files remain the execution truth; the groups below are for drift-free review, gate planning, and fast kernel/service scanning.
 
+> **Reconciliation note (2026-07-19):** The cumulative Done list below was reconciled against real proof markers/tests (post-0064 UI/DSL, SMP core 0042/0276/0277/0283/0288, filesystem 0291–0295, boot-gates 0269, bundlemgr 0130). The per-group `Done / Total` counters are hand-maintained approximate mirrors and lag the Done list; treat the Done list + each `TASK-*.md` header as authoritative. Counters for the groups touched by this reconciliation (Storage, Windowing) are refreshed here; the rest are refreshed opportunistically.
+
 | Group | Done / Total | Progress | Kernel-touch tasks | Notes |
 |------|---------------|----------|--------------------|-------|
 | Kernel Core & Runtime | 6 / 30 | 20% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
@@ -22,10 +24,10 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Observability, Crash, Perf & Diagnostics | 3 / 33 | 9% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
 | Accounts, Ability & Sessions | 1 / 9 | 11% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. |
 | Security, Policy & Identity | 4 / 36 | 11% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
-| Storage, PackageFS & Content | 2 / 30 | 7% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. Active ladder: `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295). |
+| Storage, PackageFS & Content | 9 / 30 | 30% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done. |
 | Updates, Packaging & Recovery | 1 / 21 | 5% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
 | Bringup, Hardware & Drivers | 0 / 11 | 0% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
-| Windowing, UI & Graphics | 4 / 76 | 5% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
+| Windowing, UI & Graphics | 21 / 76 | 28% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
 | Text, IME, I18N & Accessibility | 0 / 7 | 0% | — | Text stack, input methods, locale, and accessibility foundations. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
@@ -125,7 +127,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Storage, PackageFS & Content
 
-- Progress: `2 / 30` done (`7%`)
+- Progress: `9 / 30` done (`30%`)
 - Kernel-touch tasks: `TASK-0031`
 - Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0051`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`, `TASK-0291`..`TASK-0295`
 - Notes (2026-07-15): `TASK-0025`..`TASK-0027` rebased onto shipped statefs v1; `TASK-0033` superseded by `TASK-0295`; `TASK-0182`/`TASK-0183` superseded by RFC-0071 (nxfs encryption classes); ladder + contracts in `tasks/TRACK-STASH-USER-DATA-FS.md`.
@@ -144,7 +146,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Windowing, UI & Graphics
 
-- Progress: `9 / 76` done (`12%`)
+- Progress: `21 / 76` done (`28%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0088`, `TASK-0091`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`
 
@@ -230,6 +232,30 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0062 | UI v5a: Deterministic Animation + NexusGfx 2D Pipeline + GPU Driver Contract | Done | Animation engine, NexusGfx SDK, gpud, windowd integration; all phases 0-6e proven; RFC-0059 Complete |
 | ✅ TASK-0063 | UI v5b: virtualized list + scene graph + dual-panel GPU blur + virgl pipeline + theme tokens | Done | `nexus-virtual-list` + `nexus-theme`, scene-graph compositor, virgl 3D GPU blur (CPU fallback), soft-real-time pacing (RFC-0033 spine); boot-verified over `GPU_MODE=virgl just start`; RFC-0063 Complete |
 | ✅ TASK-0064 | UI v6a: window management v1 — ShellWindow N-window WM (chat instance + title-bar/X/drag/z-order) | Done | `ShellWindow` + host-tested `window_frame::Frame`, N-window WM (chat + search instances), drag/bounds-clamp/z-order, Lucide X-close; marker ladder (`windowd: wm on`, `chat button click ok`, `chat window open/close/drag ok`, `SELFTEST: ui v6 wm ok`); boot-verified over virgl. Scene-transitions (Crossfade/Slide) → TASK-0064B |
+| ✅ TASK-0060 | UI v4a: tiled compositor + clip-stack + atlases + perf | Done | Reconciled 2026-07-19; ui v4 markers |
+| ✅ TASK-0060B | UI v4b: glass materials + backdrop-cache + degrade | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0061 | UI v4b: gestures + a11y semantics | Done | Reconciled 2026-07-19; a11y-hardening folded → TASK-0114 |
+| ✅ TASK-0062B | UI v5a: animation frame-budget + perf scenes | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0075 | DSL v0.1a: lexer/parser → AST + Scene-IR + lowering + nx dsl CLI | Done | Reconciled 2026-07-19; dsl_conformance |
+| ✅ TASK-0076 | DSL v0.1b: interpreter + snapshots + OS demo hook | Done | Reconciled 2026-07-19; dsl_goldens |
+| ✅ TASK-0077 | DSL v0.2a: state/nav/i18n core | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0078 | DSL v0.2b: service stubs + CLI demo | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0080 | DSL v0.3b: perf-bench + OS AOT demo | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0080B | SystemUI DSL bootstrap shell (host-first) | Done | Reconciled 2026-07-19; bootstrap host test |
+| ✅ TASK-0080C | SystemUI DSL bootstrap shell: OS-wiring + QEMU markers | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0080D | DSL app runtime lifecycle + surface contract | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0130 | Packages v1b: bundlemgrd install/upgrade/uninstall + trust policy | Done | Reconciled 2026-07-19; bundlemgrd markers; mimed-handler line deferred (no successor) |
+| ✅ TASK-0269 | Boot gates v1: readiness + spawn-reason + resource sentinel | Done | Reconciled 2026-07-19; kselftest markers |
+| ✅ TASK-0042 | SMP v2: affinity + QoS budgets + kernel ABI | Done | kselftest smp/bkl markers |
+| ✅ TASK-0276 | Parallelism v1: deterministic threadpools + policy contract | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0277 | Kernel SMP parallelism policy v1 (deterministic) | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0283 | Kernel per-CPU ownership wrapper v1 | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0288 | Kernel runtime closure v1c: latency budgets + stress proofs | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0291 | VFS ReadDir + svc.files + filemanager role + stash real listing | Done | Boot-proven (was In Review) |
+| ✅ TASK-0292 | nxfs v1 core (host-first): engine + fsck + crash-injection | Done | Host-proven, 17 tests (was In Review) |
+| ✅ TASK-0293 | nxfs /data OS bring-up (2nd blk device + vfsd DataStore) | Done | Write + cold-boot persistence boot-proven (was In Review) |
+| ✅ TASK-0294 | MIME SSOT: nexus-mime-icons + stash filetype icons | Done | 39-icon SSOT boot-proven (was In Review) |
+| ✅ TASK-0295 | Zero-copy read/write via VMO splice (OP_READ_VMO CAP_MOVE) | Done | Boot-proven (was In Review) |
 
 `TASK-0065` / UI v6b app lifecycle + notifications + navigation — **DONE (2026-06-23)**. RFC-0065 + ADR-0036/0037; `bundlemgrd` registry **generated from real `bundles/<app>/manifest.toml`** at build time (no hardcoded list; phantom `notes` removed; `windowd: apps ok (n=2)` chat/search); `abilitymgr` real service + lifecycle broker + **manifest-caps launch authority** (fail-closed `STATUS_DENIED`; `abilitymgr: caps ok app=<id>`); policyd `BundleQuery` gating + greppable `!route-deny`/`!cap-deny`; real `.nxb` bundles + Cap'n Proto manifests; per-app-surface model (ADR-0037); `search-app` (no_std) owns its data, windowd hosts it. 25 abilitymgr + 2 nxb-pack + 126 windowd + 10 search-app tests, riscv-checked. **Descoped to follow-ups:** apps as spawned processes w/ own surfaces → DSL App Runtime **`TASK-0080D`** (execd only runs asm stubs today; needs a userspace app runtime + surface handoff) + `TASK-0234`/`0235` + SystemUI DSL phases.
 `TASK-0065B` / Session v1: sessiond session authority + login greeter + SystemUI shell selection — **DONE (2026-07-02)**. `sessiond` = the session authority (host-tested `Greeter → Active` state machine, `Locked`/`OP_LOCK` reserved; manifest user registry `users.toml` with optional `auto_login`; wire protocol `nexus_abi::sessiond` GET_STATE/LOGIN, golden-frame-tested). Login greeter in windowd: blurred+dimmed wallpaper baked into Plane 1 (separable box blur, no atlas cost), round SDF avatar + Lucide `circle-user` + name, hover, click → `OP_LOGIN` → session shell via SystemUI `resolve_product` (the user's `product` selects the shell — profiles.md contract; greeter appearance from `manifests/greeter/default/greeter.toml`). Pre-session gating at BOTH layers: windowd suppresses all shell affordances (host-tested `resolve_click_session`) AND `abilitymgr` refuses `OP_LAUNCH` fail-closed via injected `SessionGate` + live sessiond query (`abilitymgr: launch denied (session)`). Never bricks: bounded probe → `windowd: session unavailable (auto shell)` (proven via an OS_SKIP=sessiond boot). Proof injector logs in like a user; ladder + `docs/dev/ui/shell/session.md` shipped; windowd heap → 2MiB (`heap-2m`). Boot-verified over virgl (greeter → click → desktop). Follow-ups: credential auth behind OP_LOGIN, lock/unlock UI, session switching, multi-user avatar grid.
@@ -326,13 +352,16 @@ Current RFC closure status: `RFC-0060` (formerly RFC-0033), `RFC-0034`, `RFC-003
 | TRACK-APP-STORE | `tasks/TRACK-APP-STORE.md` |
 | TRACK-ARCADE-APP | `tasks/TRACK-ARCADE-APP.md` |
 | TRACK-AUTHORITY-NAMING | `tasks/TRACK-AUTHORITY-NAMING.md` |
+| TRACK-CONSOLE-AND-TOOLCHAINS | `tasks/TRACK-CONSOLE-AND-TOOLCHAINS.md` |
 | TRACK-CORE-UTILITIES | `tasks/TRACK-CORE-UTILITIES.md` |
 | TRACK-CREATIVE-APPS | `tasks/TRACK-CREATIVE-APPS.md` |
 | TRACK-DAW-APP | `tasks/TRACK-DAW-APP.md` |
+| TRACK-DEVELOPER-EXPERIENCE-SURFACES | `tasks/TRACK-DEVELOPER-EXPERIENCE-SURFACES.md` |
 | TRACK-DEVSTUDIO-IDE | `tasks/TRACK-DEVSTUDIO-IDE.md` |
 | TRACK-DRIVERS-ACCELERATORS | `tasks/TRACK-DRIVERS-ACCELERATORS.md` |
 | TRACK-DSL-V1-DEVX | `tasks/TRACK-DSL-V1-DEVX.md` |
 | TRACK-FEEDS-APP | `tasks/TRACK-FEEDS-APP.md` |
+| TRACK-GROUP-AND-DEVICE-MANAGEMENT | `tasks/TRACK-GROUP-AND-DEVICE-MANAGEMENT.md` |
 | TRACK-KEYSTONE-GATES | `tasks/TRACK-KEYSTONE-GATES.md` |
 | TRACK-LIVE-STUDIO-APP | `tasks/TRACK-LIVE-STUDIO-APP.md` |
 | TRACK-LOCATION-STACK | `tasks/TRACK-LOCATION-STACK.md` |
@@ -351,6 +380,8 @@ Current RFC closure status: `RFC-0060` (formerly RFC-0033), `RFC-0034`, `RFC-003
 | TRACK-NEXUSVIDEO | `tasks/TRACK-NEXUSVIDEO.md` |
 | TRACK-NOTES-APP | `tasks/TRACK-NOTES-APP.md` |
 | TRACK-OFFICE-SUITE | `tasks/TRACK-OFFICE-SUITE.md` |
+| TRACK-OPEN-POINTS-2026-07 | `tasks/TRACK-OPEN-POINTS-2026-07.md` |
+| TRACK-OS-PROOF-INFRASTRUCTURE | `tasks/TRACK-OS-PROOF-INFRASTRUCTURE.md` |
 | TRACK-PASSWORD-MANAGER | `tasks/TRACK-PASSWORD-MANAGER.md` |
 | TRACK-PIM-SUITE | `tasks/TRACK-PIM-SUITE.md` |
 | TRACK-PINBALL-APP | `tasks/TRACK-PINBALL-APP.md` |
@@ -360,7 +391,9 @@ Current RFC closure status: `RFC-0060` (formerly RFC-0033), `RFC-0034`, `RFC-003
 | TRACK-RECIPES-APP | `tasks/TRACK-RECIPES-APP.md` |
 | TRACK-REFERENCE-GAMES | `tasks/TRACK-REFERENCE-GAMES.md` |
 | TRACK-REMOVABLE-STORAGE | `tasks/TRACK-REMOVABLE-STORAGE.md` |
+| TRACK-REPO-HYGIENE-FOLLOWUPS | `tasks/TRACK-REPO-HYGIENE-FOLLOWUPS.md` |
 | TRACK-SCORE-APP | `tasks/TRACK-SCORE-APP.md` |
+| TRACK-SETTINGS-FAMILY-MODE | `tasks/TRACK-SETTINGS-FAMILY-MODE.md` |
 | TRACK-STASH-USER-DATA-FS | `tasks/TRACK-STASH-USER-DATA-FS.md` |
 | TRACK-SYSTEM-DELEGATION | `tasks/TRACK-SYSTEM-DELEGATION.md` |
 | TRACK-TELEPROMPTER-APP | `tasks/TRACK-TELEPROMPTER-APP.md` |

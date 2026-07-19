@@ -1,6 +1,6 @@
 ---
 title: TASK-0075 DSL v0.1a: frontend (lexer/parser/AST/typecheck/lints/fmt) + canonical capnp IR + nx-dsl CLI backend + host proofs
-status: Draft
+status: Done
 owner: @ui @runtime
 created: 2025-12-23
 updated: 2026-07-06

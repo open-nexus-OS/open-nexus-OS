@@ -145,3 +145,5 @@ clip boundaries visible on-screen.
 - `userspace/ui/msdf/` (new: MSDF atlas generator + runtime sampler)
 - `userspace/ui/sdf/` (new: analytical SDF shapes)
 - `tests/ui_v4_host/` (new: shadow goldens, blur goldens, MSDF comparison)
+## Reconciliation fold-in (2026-07-19)
+IME/text-input *plumbing* baseline (focus/caret/compose hooks) is Done here. The full IME engine (imed core, US/DE keymaps, dead/compose) is tracked in **TASK-0146** (which already `depends-on` this task).

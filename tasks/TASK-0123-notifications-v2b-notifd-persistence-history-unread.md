@@ -101,3 +101,6 @@ UART markers include at least:
 1. notifd: model + IDL (or on-wire contract) + markers
 2. persistence: channels + history ring (JSONL) with bounds
 3. unread counts + host tests
+
+## Reconciliation fold-in (2026-07-19)
+Folded in from **TASK-0065** (Done, minimal notification surface shipped): full notifd persistence/history/unread/badging lands here (with TASK-0124 DND + TASK-0125 systemui headsup/redaction/settings).
