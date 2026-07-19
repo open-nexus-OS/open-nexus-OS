@@ -201,3 +201,7 @@ UART markers (order tolerant):
 
 ## Reconciliation fold-in (2026-07-19)
 App-lifecycle + minimal notification surface + navigation are Done here. Full notifications service (notifd persistence/history/unread, DND, headsup/redaction/badging/settings) is tracked in **TASK-0123 / TASK-0124 / TASK-0125**.
+
+## Reconciliation note (2026-07-19) — app-lifecycle scope
+The app-lifecycle **spine is proven**: `source/services/abilitymgr` (~2200 LOC, 32 host tests) is the real cooperative lifecycle broker — state machine `AbilityState { Created, Started, Foreground, Background, Suspended, Stopped }` with a transition guard table, live `OP_TRANSITION`, launch authority + manifest-cap gate (fail-closed `STATUS_DENIED`), and postflight-gated markers (`abilitymgr: ready`/`registry ok`/`caps ok`/`launch`/`fg`/`bg`/`launch denied (session)`). Proven transitions: launch, foreground, background, suspend, resume, stop.
+**Explicitly NOT in this task (open in successors):** KILL-with-reasons + backoff + crash-loop handling → **TASK-0234**; FG/BG *resource enforcement* (CPU budget / timer slack) + appmgrd/samgr hooks + nx-ability CLI → **TASK-0235**. Spawned-process + per-app-surface runtime → **TASK-0080D** (Done). Notifications → **TASK-0123-0125** (see fold-in above).

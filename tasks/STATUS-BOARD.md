@@ -22,7 +22,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | DSoftBus & Distributed | 7 / 27 | 26% | — | Distributed session, transport, mux, and remote-service stack. |
 | Networking & Transport | 1 / 8 | 12% | — | Netstack, dev networking, ingress, and OS transport services. |
 | Observability, Crash, Perf & Diagnostics | 3 / 33 | 9% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
-| Accounts, Ability & Sessions | 1 / 9 | 11% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. |
+| Accounts, Ability & Sessions | 2 / 9 | 22% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. Spine done (0065 lifecycle broker + 0065B session authority); continuation open (KILL/backoff → 0234/0235, lock/multi-user → 0109/0110/0223/0224, delegation → 0126B). |
 | Security, Policy & Identity | 4 / 36 | 11% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
 | Storage, PackageFS & Content | 9 / 30 | 30% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done. |
 | Updates, Packaging & Recovery | 1 / 21 | 5% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
@@ -115,7 +115,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Accounts, Ability & Sessions
 
-- Progress: `0 / 9` done (`0%`)
+- Progress: `2 / 9` done (`22%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0065`, `TASK-0065B`, `TASK-0109`..`TASK-0110`, `TASK-0126B`, `TASK-0159`, `TASK-0223`..`TASK-0224`, `TASK-0235`
 

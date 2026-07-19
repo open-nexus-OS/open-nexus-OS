@@ -395,6 +395,7 @@ Honest reconciliation floor (2026-07-19). These are real, unimplemented feature 
 - **Store / distribution:** `0180`, `0181`, `0221`, `0222`
 - **Backup / L10n / power / sensors:** `0161`, `0162`, `0174`, `0175`, `0240`, `0241`, `0236`, `0237`, `0256–0259`, `0271`, `0272`
 - **Renderer / compositor v2:** `0171`, `0199`, `0200`, `0207`, `0208`, `0215`, `0216`
+- **Session / accounts / ability-lifecycle continuation** (spine Done in 0065 broker + 0065B session authority): KILL-with-reasons/backoff/crash-loop `0234`, FG/BG resource enforcement + appmgrd/samgr hooks + nx-ability CLI `0235`, lockd auto-lock/lockscreen `0109`, OOBE/Accounts app `0110`, multi-user/lockout/session-switch `0223`/`0224`, action-based delegation `0126B`, keystore v1.1 `0159`
 - **Foundation partials (core done, in-title sub-deliverable open):** `0136` (policy: foreground-adapters + camera/mic perms), `0140` (updates: settings-UI page)
 
 ---
