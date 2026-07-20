@@ -325,6 +325,99 @@ pub unsafe fn disable_timer_interrupts() {
 
 pub(crate) const OP_TIMER_FIRED: u8 = 0x30;
 
+// ——— Earliest-deadline timer arming (ADR-0052) ———
+
+/// Per-hart shadow of the armed wakeup deadline (ns; 0 = nothing armed). One
+/// compare register per hart, many arming paths — the shadow lets `arm_wakeup`
+/// keep the EARLIEST pending deadline armed instead of letting the last caller
+/// win (windowd's 8.33ms pacer slipping to the 10ms fallback tick — the SMP
+/// frame-jitter class measured by the Stage-0 slip histogram). Written only by
+/// the owning hart under the BKL; Relaxed is sufficient.
+static ARMED_DEADLINE_NS: [core::sync::atomic::AtomicU64; crate::smp::MAX_CPUS] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; crate::smp::MAX_CPUS];
+
+fn armed_slot() -> &'static core::sync::atomic::AtomicU64 {
+    let idx = crate::smp::cpu_current_id().as_index();
+    &ARMED_DEADLINE_NS[if idx < crate::smp::MAX_CPUS { idx } else { 0 }]
+}
+
+/// Arm this hart's wakeup for `deadline_ns`, keeping the earliest pending
+/// deadline (ADR-0052). `Timer::set_wakeup` overwrites the single per-hart
+/// compare register; routing every arming path through here turns a later,
+/// LONGER deadline into a no-op instead of a clobber. `deadline_ns == 0`
+/// means "no deadline" and never arms.
+pub(crate) fn arm_wakeup(timer: &dyn Timer, deadline_ns: u64) {
+    use core::sync::atomic::Ordering;
+    if deadline_ns == 0 {
+        return;
+    }
+    let slot = armed_slot();
+    let armed = slot.load(Ordering::Relaxed);
+    // A shadow deadline suppresses this arm only while it is STILL PENDING.
+    // Not every timer-IRQ path clears the shadow (an S-mode trap re-arms
+    // without running `process_expired_timers`), so an ELAPSED shadow must
+    // self-heal here — otherwise it would read as "earlier" forever and this
+    // hart's timer would fall silent (observed as windowd present-NACK storms
+    // right after boot).
+    if armed > timer.now() && armed <= deadline_ns {
+        return;
+    }
+    slot.store(deadline_ns, Ordering::Relaxed);
+    timer.set_wakeup(deadline_ns);
+}
+
+/// Deterministic KSELFTEST probe for the ADR-0052 earliest-wins contract:
+/// base arm programs, a LATER arm is a no-op, an EARLIER arm re-arms. Runs
+/// against the real timer — the probe deadlines are short/far enough that the
+/// extra IRQs they arm are absorbed by the normal expiry path, and the shadow
+/// is left cleared so the next arm/re-arm starts fresh.
+pub(crate) fn selftest_edt_probe(timer: &dyn Timer) -> bool {
+    use core::sync::atomic::Ordering;
+    let slot = armed_slot();
+    slot.store(0, Ordering::Relaxed);
+    let now = timer.now();
+    let base = now.saturating_add(100_000_000);
+    arm_wakeup(timer, base);
+    let after_base = slot.load(Ordering::Relaxed);
+    arm_wakeup(timer, base.saturating_add(50_000_000));
+    let after_later = slot.load(Ordering::Relaxed);
+    let earlier = now.saturating_add(10_000_000);
+    arm_wakeup(timer, earlier);
+    let after_earlier = slot.load(Ordering::Relaxed);
+    slot.store(0, Ordering::Relaxed);
+    after_base == base && after_later == base && after_earlier == earlier
+}
+
+/// Earliest STILL-PENDING deadline among blocked tasks (IPC recv/send,
+/// waitset, fence) — the sources that arm via `arm_wakeup` and that the
+/// timer-IRQ re-arm previously dropped (it considered only timer caps).
+/// Already-elapsed deadlines are skipped: their tasks are woken by the expiry
+/// walks in this same handler pass, and arming a past deadline would fire a
+/// spurious immediate IRQ.
+fn earliest_blocked_deadline(tasks: &task::TaskTable, now: u64) -> Option<u64> {
+    let mut earliest: Option<u64> = None;
+    for pid_usize in 0..tasks.len() {
+        let pid = task::Pid::from_raw(pid_usize as u32);
+        let Some(t) = tasks.task(pid) else {
+            continue;
+        };
+        if !t.is_blocked() {
+            continue;
+        }
+        let d = match t.block_reason() {
+            Some(task::BlockReason::IpcRecv { deadline_ns, .. })
+            | Some(task::BlockReason::IpcSend { deadline_ns, .. })
+            | Some(task::BlockReason::Waitset { deadline_ns, .. })
+            | Some(task::BlockReason::Fence { deadline_ns, .. }) => deadline_ns,
+            _ => 0,
+        };
+        if d > now {
+            earliest = Some(earliest.map_or(d, |e| e.min(d)));
+        }
+    }
+    earliest
+}
+
 pub(crate) fn process_expired_timers(
     timer: &dyn Timer,
     hart_timers: &mut crate::timer::HartTimers,
@@ -356,13 +449,19 @@ pub(crate) fn process_expired_timers(
         }
     }
 
-    if let Some(next_deadline) = hart_timers.earliest_deadline() {
-        timer.set_wakeup(next_deadline);
-    } else {
-        // Keep a bounded heartbeat armed while no timers are active.
-        let fallback_ns = now.saturating_add(DEFAULT_TICK_CYCLES.saturating_mul(100));
-        timer.set_wakeup(fallback_ns);
+    // ADR-0052: this hart's armed deadline was consumed (timer IRQ) or is
+    // being re-evaluated (idle loop) — clear the shadow, then re-arm to the
+    // TRUE earliest across every deadline source: timer caps AND blocked-task
+    // IPC/waitset/fence deadlines. Previously only timer caps were considered,
+    // so this re-arm clobbered any armed pacer/IPC deadline to the 10ms
+    // fallback tick. The fallback heartbeat stays the safety net.
+    armed_slot().store(0, core::sync::atomic::Ordering::Relaxed);
+    let mut next = hart_timers.earliest_deadline();
+    if let Some(d) = earliest_blocked_deadline(tasks, now) {
+        next = Some(next.map_or(d, |n| n.min(d)));
     }
+    let fallback_ns = now.saturating_add(DEFAULT_TICK_CYCLES.saturating_mul(100));
+    arm_wakeup(timer, next.unwrap_or(fallback_ns));
 }
 
 /// Wake every task whose IPC recv/send deadline has elapsed. A timed recv/send

@@ -145,10 +145,13 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 if crate::smp::cpu_online_mask().count_ones() > 1
                     && crate::smp::steal_rate_gate(cpu, timer.now(), STEAL_MIN_INTERVAL_NS)
                 {
-                    let stolen = scheduler.steal_into_current(QosClass::PerfBurst, |pid| {
+                    let stolen = scheduler.steal_into_current(
+                        QosClass::PerfBurst,
                         // B: never steal a task whose affinity excludes us.
-                        tasks.task(pid).is_some_and(|t| t.affinity_allows(cpu))
-                    });
+                        |pid| tasks.task(pid).is_some_and(|t| t.affinity_allows(cpu)),
+                        // ADR-0052: a rejected task parks on its HOME CPU.
+                        |pid| tasks.task(pid).map_or(0, |t| t.home_cpu().as_index()),
+                    );
                     if let Some(pid) = stolen {
                         // Explicit migration: the thief becomes the home CPU.
                         tasks.set_home_cpu(pid, cpu);

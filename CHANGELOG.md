@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed - 2026-07-20
 
+#### Kernel: earliest-deadline timer arming + affinity-respecting steal park (ADR-0052)
+
+- **`arm_wakeup` (EDT coalescing):** every timer-arming path (timer caps, timed
+  IPC recv/send, waitset, fence) now keeps the EARLIEST pending deadline armed
+  per hart instead of last-writer-wins on the single mtimecmp register; the
+  timer-IRQ re-arm folds in blocked-task IPC/waitset/fence deadlines instead
+  of clobbering them to the 10 ms fallback tick. Fixes windowd's 120 Hz pacer
+  slipping to the 100 Hz tick under SMP=4 (measured: drag-time `slip=` <1 ms
+  bucket 0-3 → 8-14 ticks/s). Self-heal: an elapsed shadow deadline never
+  suppresses a new arm (S-mode timer traps don't clear the shadow).
+- **Steal park respects affinity homes:** an affinity-rejected stolen task is
+  parked on its HOME CPU's queue, not cpu0's — `schedule_next` is
+  affinity-blind, so the old cpu0 park ran background work on the pinned
+  display hart.
+- New deterministic KSELFTESTs: `edt arm ok`, `steal park ok`
+  (`selftest/smp_sched.rs`, split out of `selftest/mod.rs` with the existing
+  steal probes).
+
+#### gpud: double-buffered GL scanout (tear-free SMP=4 presents)
+
+- Every virgl buildup present renders into a BACK render target
+  (`GL_SCANOUT_RES_B`) and flips via `SET_SCANOUT` + `RESOURCE_FLUSH` as the
+  batch tail — the host GTK draw (async under MTTCG) can only ever sample
+  complete frames. This removes the mouse/drag flicker that appeared with
+  SMP=4: previously each present cleared + rebuilt the LIVE scanout texture
+  over a ~21 ms window the host could sample mid-composite. Copy-fallback via
+  `SCANOUT_FLIP = false` (atomic fullscreen `RESOURCE_COPY_REGION`). One-shot
+  honest marker `gpud: gl flip on`; `scanout_sample` reads the front RT.
+
+#### windowd/gpud: SMP-flicker triage diagnostics
+
+- `windowd: loop hz=` gains `nack=`/`fullrq=` counters and a pacer-slip
+  histogram (`slip=a/b/c/d`: <1/1-3/3-8/≥8 ms, decoded from `OP_TIMER_FIRED`
+  deadline+now); `gpud: present us` gains `win_ms=` (window wall-clock → real
+  present rate).
+
 #### nexus-wire: declarative service wire codec + nexus-abi identity split (ADR-0051, TASK-0296)
 
 - **New crate `source/libs/nexus-wire`** (no_std, `forbid(unsafe_code)`, zero

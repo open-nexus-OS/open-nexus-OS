@@ -61,3 +61,4 @@ Note: **ADR-0019 was never filed; the number is retired to keep history stable.*
 - [ADR-0049: BKL lock-classes + soft-realtime CPU placement (SMP=4 interactive)](0049-bkl-lockclass-and-softrt-cpu-placement.md) — Accepted
 - [ADR-0050: Display-mode authority — compositor owns the mode, sourced from fw_cfg](0050-display-mode-authority.md) — Proposed
 - [ADR-0051: Service wire frames are declared, not hand-coded — one codec SSOT crate `nexus-wire`](0051-declarative-wire-codec-nexus-wire.md) — Accepted
+- [ADR-0052: Per-hart earliest-deadline timer arming + affinity-respecting steal park](0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md) — Accepted

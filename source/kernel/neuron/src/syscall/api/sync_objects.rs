@@ -70,7 +70,7 @@ pub(super) fn sys_timer_set(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     let deadline_ns = args.get(1) as u64;
     let timer_id = timer_id_from_cap(ctx, slot)?;
     ctx.hart_timers.arm(timer_id, deadline_ns).map_err(map_timer_error)?;
-    ctx.timer.set_wakeup(deadline_ns);
+    crate::trap::arm_wakeup(ctx.timer, deadline_ns);
     Ok(0)
 }
 
@@ -183,7 +183,7 @@ pub(super) fn sys_waitset_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     let ws_id = waitset_id_from_cap(ctx, ws_slot)?;
 
     if deadline_ns != 0 {
-        ctx.timer.set_wakeup(deadline_ns);
+        crate::trap::arm_wakeup(ctx.timer, deadline_ns);
     }
 
     // Snapshot the (bounded, ≤16) members into a stack buffer: no heap on the wait/block
@@ -316,7 +316,7 @@ pub(super) fn sys_fence_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<us
     let fence_id = fence_id_from_cap(ctx, slot)?;
 
     if deadline_ns != 0 {
-        ctx.timer.set_wakeup(deadline_ns);
+        crate::trap::arm_wakeup(ctx.timer, deadline_ns);
     }
     let cur = ctx.tasks.current_pid();
 

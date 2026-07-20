@@ -496,16 +496,16 @@ impl Scheduler {
         &mut self,
         max_qos: QosClass,
         mut allow: impl FnMut(TaskId) -> bool,
+        mut home_of: impl FnMut(TaskId) -> usize,
     ) -> Option<TaskId> {
         let cur = Self::current_cpu_index();
         let task = self.selftest_try_steal(cur, max_qos)?;
-        // B (TASK-0042): the steal predicate rejects tasks whose affinity
-        // mask excludes the thief. A rejected task is parked (no loss, no
-        // reorder) at the FRONT of the boot CPU's queue of its class; the
-        // next wake/dispatch re-clamps it into its affinity mask.
+        // B (TASK-0042) + ADR-0052: an affinity-rejected task parks (no loss, no
+        // reorder) at the FRONT of its HOME CPU's queue — `schedule_next` has no
+        // affinity check, so the old cpu0 park RAN background work on the display hart.
         if !allow(task.id) {
-            let qos = task.qos;
-            self.cpus[0].queue_mut(qos).push_front(task);
+            let home = home_of(task.id).min(crate::smp::MAX_CPUS - 1);
+            self.cpus[home].queue_mut(task.qos).push_front(task);
             return None;
         }
         let id = task.id;

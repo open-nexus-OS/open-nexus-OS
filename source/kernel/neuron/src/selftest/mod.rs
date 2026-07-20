@@ -38,7 +38,7 @@ use crate::{
     hal::{virt::VirtMachine, Timer},
     ipc::Router,
     mm::{AddressSpaceError, AddressSpaceManager, MapError, PAGE_SIZE},
-    sched::{EnqueueOutcome, QosClass, Scheduler},
+    sched::Scheduler,
     syscall::{
         api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP,
         SYSCALL_CAP_CLOSE, SYSCALL_EXIT, SYSCALL_FENCE_CREATE, SYSCALL_FENCE_SIGNAL,
@@ -57,6 +57,8 @@ use crate::{
 use riscv::register::sstatus;
 
 pub mod assert;
+mod smp_sched;
+use smp_sched::run_steal_selftests;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 core::arch::global_asm!(include_str!("stack_run.S"));
@@ -1783,83 +1785,8 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
 
     run_runtime_budget_selftests(target);
 
-    // Deterministic work-stealing probe:
-    // - put one runnable task only on CPU1
-    // - run CPU0 pick path and require a steal event + expected PID
-    let boot = CpuId::BOOT;
-    let probe_pid = Pid::from_raw(0x7FFF_FF00);
-    ctx.scheduler.selftest_reset_cpu(boot);
-    ctx.scheduler.selftest_reset_cpu(target);
-    if !matches!(
-        ctx.scheduler.selftest_enqueue_on_cpu(target, probe_pid, QosClass::Normal),
-        EnqueueOutcome::Enqueued
-    ) {
-        log_error!(target: "selftest", "KSELFTEST: work stealing FAIL enqueue");
-        return;
-    }
-    let picked = ctx.scheduler.selftest_schedule_on_cpu(boot);
-    let steal_count = crate::smp::work_steal_count();
-    if picked == Some(probe_pid) && steal_count > 0 {
-        log_info!(target: "selftest", "KSELFTEST: work stealing ok");
-    } else {
-        log_error!(
-            target: "selftest",
-            "KSELFTEST: work stealing FAIL picked={:?} steals={}",
-            picked,
-            steal_count
-        );
-    }
+    run_steal_selftests(ctx, CpuId::BOOT, target);
 
-    // Deterministic negative checks for steal policies:
-    // 1) reject stealing more than one task per scheduling tick.
-    ctx.scheduler.selftest_reset_cpu(boot);
-    ctx.scheduler.selftest_reset_cpu(target);
-    if !matches!(
-        ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF10), QosClass::Normal),
-        EnqueueOutcome::Enqueued
-    ) {
-        log_error!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound FAIL enqueue-0");
-        return;
-    }
-    if !matches!(
-        ctx.scheduler.selftest_enqueue_on_cpu(target, Pid::from_raw(0x7FFF_FF11), QosClass::Normal),
-        EnqueueOutcome::Enqueued
-    ) {
-        log_error!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound FAIL enqueue-1");
-        return;
-    }
-    let _ = ctx.scheduler.selftest_schedule_on_cpu(boot);
-    if ctx.scheduler.selftest_queue_len(target, QosClass::Normal) == 1 {
-        log_info!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound ok");
-    } else {
-        log_error!(target: "selftest", "KSELFTEST: test_reject_steal_above_bound FAIL");
-    }
-
-    // 2) reject stealing higher-QoS tasks when current class is lower.
-    ctx.scheduler.selftest_reset_cpu(boot);
-    ctx.scheduler.selftest_reset_cpu(target);
-    if !matches!(
-        ctx.scheduler.selftest_enqueue_on_cpu(
-            target,
-            Pid::from_raw(0x7FFF_FF20),
-            QosClass::Interactive,
-        ),
-        EnqueueOutcome::Enqueued
-    ) {
-        log_error!(target: "selftest", "KSELFTEST: test_reject_steal_higher_qos FAIL enqueue");
-        return;
-    }
-    if ctx.scheduler.selftest_try_steal_for_class(boot, QosClass::Normal).is_none() {
-        log_info!(target: "selftest", "KSELFTEST: test_reject_steal_higher_qos ok");
-    } else {
-        log_error!(target: "selftest", "KSELFTEST: test_reject_steal_higher_qos FAIL");
-    }
-
-    ctx.scheduler.selftest_reset_cpu(boot);
-    ctx.scheduler.selftest_reset_cpu(target);
-    if matches!(ctx.scheduler.enqueue(Pid::KERNEL, QosClass::Normal), EnqueueOutcome::Rejected(_)) {
-        panic!("scheduler selftest bootstrap enqueue rejected");
-    }
     // A5: TLB shootdown — counterfactual first (a poll with no pending epoch
     // must not flush/ack), then the real epoch round-trip with acked
     // evidence from cpu1 (which acks lock-free from its S_SOFT trap).

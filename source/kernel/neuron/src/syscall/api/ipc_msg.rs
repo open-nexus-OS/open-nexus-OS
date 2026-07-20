@@ -212,7 +212,7 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     );
 
     if !nonblock && typed.deadline_ns != 0 {
-        ctx.timer.set_wakeup(typed.deadline_ns);
+        crate::trap::arm_wakeup(ctx.timer, typed.deadline_ns);
     }
     loop {
         // If CAP_MOVE is set, take the cap for this attempt. If the attempt fails (QueueFull,
@@ -374,7 +374,7 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     let truncate = (typed.sys_flags & IPC_SYS_TRUNCATE) != 0;
     let nonblock = (typed.sys_flags & IPC_SYS_NONBLOCK) != 0;
     if !nonblock && typed.deadline_ns != 0 {
-        ctx.timer.set_wakeup(typed.deadline_ns);
+        crate::trap::arm_wakeup(ctx.timer, typed.deadline_ns);
     }
     let mut msg = loop {
         match ctx.router.recv(endpoint) {
@@ -614,7 +614,7 @@ pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     let truncate = (sys_flags & IPC_SYS_TRUNCATE) != 0;
     let nonblock = (sys_flags & IPC_SYS_NONBLOCK) != 0;
     if !nonblock && deadline_ns != 0 {
-        ctx.timer.set_wakeup(deadline_ns);
+        crate::trap::arm_wakeup(ctx.timer, deadline_ns);
     }
 
     let mut msg = loop {
