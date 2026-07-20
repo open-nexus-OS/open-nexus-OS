@@ -59,3 +59,5 @@ Note: **ADR-0019 was never filed; the number is retired to keep history stable.*
 - [ADR-0047: nexus-inet — minimal interaction-net evaluator backend](0047-interaction-net-evaluator-backend.md) — Accepted
 - [ADR-0048: standing userspace runtime-integrity detectors](0048-userspace-runtime-integrity-detectors.md) — Accepted
 - [ADR-0049: BKL lock-classes + soft-realtime CPU placement (SMP=4 interactive)](0049-bkl-lockclass-and-softrt-cpu-placement.md) — Accepted
+- [ADR-0050: Display-mode authority — compositor owns the mode, sourced from fw_cfg](0050-display-mode-authority.md) — Proposed
+- [ADR-0051: Service wire frames are declared, not hand-coded — one codec SSOT crate `nexus-wire`](0051-declarative-wire-codec-nexus-wire.md) — Accepted
