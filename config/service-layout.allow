@@ -1,0 +1,10 @@
+# Grandfathered services without a tests/ dir (unit tests live in src/ today).
+# Ratchet: NEW services must ship src/ + tests/ with contract/reject tests
+# (see .claude/skills/code-quality). Remove a line here once the service gains
+# real tests/*.rs — never add new lines without explicit review.
+bundlemgrd
+packagefsd
+vfsd
+execd
+timed
+metricsd

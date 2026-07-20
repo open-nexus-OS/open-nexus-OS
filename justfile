@@ -399,12 +399,22 @@ miri-fs:
 arch-check:
     cargo +{{toolchain}} run -p arch-check
 
+# Structural quality gate (<1s): module-size ratchet (~600 LOC,
+# config/loc-baseline.txt) + service layout (src/ + tests/,
+# config/service-layout.allow). See .claude/skills/code-quality.
+structure-gate:
+    ./scripts/check-structure.sh
+
+# Regenerate the LOC baseline after real file splits (never to hide growth).
+structure-baseline:
+    ./scripts/check-structure.sh --update-loc-baseline
+
 # -----------------------------------------------------------------------------
 # Aggregates
 # -----------------------------------------------------------------------------
 
-# Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering.
-check: fmt-check lint deny-check arch-check
+# Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
+check: fmt-check lint deny-check arch-check structure-gate
 
 # Kernel clippy (nightly, build-std). Split out of the host `lint` because it
 # needs -Z build-std and the bare-metal target.

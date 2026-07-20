@@ -9,10 +9,12 @@ The SSOT is `docs/standards/RUST_STANDARDS.md` + `docs/testing/`; this is the fa
 checklist that routes there and points at the file to copy. For a *design/scope*
 decision use the `architecture-review` skill; for *which gate to run* use `verify`.
 
-## Non-negotiable structure (every change)
+## Non-negotiable structure (every change — mechanically gated by `just structure-gate`)
 
 - OS crate/service = `src/` + `tests/`. Host-testable contract/reject tests live in `tests/`.
-- Files ≤ ~600 LOC, split by responsibility, never a god-file. More small modules > one monolith.
+  (Legacy exceptions: `config/service-layout.allow` — shrink-only, never extend.)
+- Files ≤ ~600 LOC, split by responsibility, never a god-file. Grandfathered files
+  (`config/loc-baseline.txt`) may shrink but never grow; after a real split run `just structure-baseline`.
 - CONTEXT header on every module (`docs/standards/DOCUMENTATION_STANDARDS.md`), kept in sync.
 - `#![forbid(unsafe_code)]` in userspace crates; `no_std` (+ `alloc` only if needed) in kernel/OS/QEMU.
 - Extend the existing pattern/SSOT — never fork a parallel one where an exemplar already exists.

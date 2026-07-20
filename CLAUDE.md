@@ -115,6 +115,11 @@ Zero warnings under host+os+kernel cfgs is a HARD FAILURE. Fix or cfg-gate — n
 Forbidden crates (see &lt;forbidden&gt;) must not enter the OS graph. Licenses: Apache-2.0/MIT/BSD only.
 </verification_gate>
 
+<verification_gate name="structure" enforced-by="just structure-gate (in just check)">
+Module-size ratchet: no .rs file > ~600 LOC unless grandfathered in config/loc-baseline.txt
+(may shrink, never grow). New OS services ship src/ + tests/ (config/service-layout.allow).
+</verification_gate>
+
 <verification_gate name="architecture-boundaries" enforced-by="just arch-check ; arch-gate ; ADR required">
 Crossing kernel↔userspace ABI, service↔service IPC, host↔OS gates, or policy authority
 needs an ADR. Keep drivers/policy out of the kernel. No Linux/Wayland — the UI path is
