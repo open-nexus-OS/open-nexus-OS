@@ -75,3 +75,4 @@ tmp*.rs
 # covered by /target/). Keep .tmp/ ignored to absorb any leftover
 # scratch from earlier replay runs.
 .tmp/
+__pycache__/
