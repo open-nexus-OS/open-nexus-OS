@@ -9,7 +9,7 @@
 
 #[cfg(all(nexus_env = "os", feature = "virgl"))]
 use core::time::Duration;
-use nexus_abi::{debug_println, debug_write, mmio_map, nsec, yield_, AbiError};
+use nexus_abi::{debug_println, mmio_map, nsec, yield_, AbiError};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use nexus_gfx::backend::error::GfxError;
@@ -24,6 +24,9 @@ use crate::markers::{
     GPUD_CURSOR_ON, GPUD_DISPLAY_READY, GPUD_MMIO_FAULT, GPUD_NO_DEVICE, GPUD_READY,
     GPUD_SCANOUT_MODE, GPUD_SCANOUT_OK, GPUD_VIRTIO_GPU_PROBED,
 };
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+use crate::service_stats::emit_present_deadline_fail;
+use crate::service_stats::{emit_handoff_timing, emit_present_stats};
 
 pub const ROUTE_NAME: &str = "gpud";
 // Wire opcodes/status/cursor magics are the shared SSOT in `nexus-display-proto`
@@ -225,6 +228,11 @@ fn service_requests(
     let mut present_count: u32 = 0;
     let mut present_ns_sum: u64 = 0;
     let mut present_ns_max: u64 = 0;
+    // Wall-clock start of the stats window: `win_ms` in the emitted line makes
+    // the present RATE (n / win_ms) readable, not just per-present cost —
+    // 120 presents over ~1000ms = a healthy 120Hz train; over 3000ms = the
+    // cadence itself is starving (SMP-flicker triage).
+    let mut present_window_start_ns: u64 = 0;
     // Present-chain hop trace (graphical-output bisection): emit the per-frame
     // hops once a frame gets all the way through, but keep re-tracing every frame
     // while the chain is broken so a headless run shows exactly HOW FAR we get.
@@ -431,7 +439,11 @@ fn service_requests(
                                             );
                                         }
                                     }
-                                    let dt = nsec().unwrap_or(t0).saturating_sub(t0);
+                                    let t_end = nsec().unwrap_or(t0);
+                                    let dt = t_end.saturating_sub(t0);
+                                    if present_count == 0 {
+                                        present_window_start_ns = t0;
+                                    }
                                     present_ns_sum += dt;
                                     present_ns_max = present_ns_max.max(dt);
                                     present_count += 1;
@@ -440,6 +452,9 @@ fn service_requests(
                                             (present_ns_sum / present_count as u64 / 1000) as u32,
                                             (present_ns_max / 1000) as u32,
                                             present_count,
+                                            (t_end.saturating_sub(present_window_start_ns)
+                                                / 1_000_000)
+                                                as u32,
                                         );
                                         present_count = 0;
                                         present_ns_sum = 0;
@@ -649,6 +664,7 @@ fn service_requests(
                                 &mut present_count,
                                 &mut present_ns_sum,
                                 &mut present_ns_max,
+                                &mut present_window_start_ns,
                                 PRESENT_STATS_WINDOW,
                             );
                             true
@@ -695,6 +711,7 @@ fn present_buildup_tick(
     present_count: &mut u32,
     present_ns_sum: &mut u64,
     present_ns_max: &mut u64,
+    present_window_start_ns: &mut u64,
     window: u32,
 ) {
     let t0 = nsec().unwrap_or(0);
@@ -704,7 +721,11 @@ fn present_buildup_tick(
         width: backend.display_w,
         height: backend.display_h,
     });
-    let dt = nsec().unwrap_or(t0).saturating_sub(t0);
+    let t_end = nsec().unwrap_or(t0);
+    let dt = t_end.saturating_sub(t0);
+    if *present_count == 0 {
+        *present_window_start_ns = t0;
+    }
     *present_ns_sum = present_ns_sum.saturating_add(dt);
     *present_ns_max = (*present_ns_max).max(dt);
     *present_count += 1;
@@ -713,151 +734,12 @@ fn present_buildup_tick(
             (*present_ns_sum / *present_count as u64 / 1000) as u32,
             (*present_ns_max / 1000) as u32,
             *present_count,
+            (t_end.saturating_sub(*present_window_start_ns) / 1_000_000) as u32,
         );
         *present_count = 0;
         *present_ns_sum = 0;
         *present_ns_max = 0;
     }
-}
-
-/// One-shot boot diagnostic: wall-clock of the framebuffer handoff → display-ready
-/// processing (attach backing + GL scanout + first textured/wallpaper present). This is the
-/// `tail_ms` the init boot table attributes to the display chain; emitting it here localizes
-/// whether that time is gpud's GL work vs gpud blocked waiting on present completion. No alloc.
-fn emit_handoff_timing(ms: u32) {
-    let mut buf = [0u8; 48];
-    let mut p = 0usize;
-    let put = |buf: &mut [u8; 48], p: &mut usize, s: &[u8]| {
-        for &b in s {
-            if *p < buf.len() {
-                buf[*p] = b;
-                *p += 1;
-            }
-        }
-    };
-    let put_dec = |buf: &mut [u8; 48], p: &mut usize, mut v: u32| {
-        let mut tmp = [0u8; 10];
-        let mut n = 0usize;
-        loop {
-            tmp[n] = b'0' + (v % 10) as u8;
-            n += 1;
-            v /= 10;
-            if v == 0 {
-                break;
-            }
-        }
-        while n > 0 {
-            n -= 1;
-            if *p < buf.len() {
-                buf[*p] = tmp[n];
-                *p += 1;
-            }
-        }
-    };
-    put(&mut buf, &mut p, b"gpud: timing handoff_to_ready_ms=");
-    put_dec(&mut buf, &mut p, ms);
-    put(&mut buf, &mut p, b"\n");
-    let _ = debug_write(&buf[..p]);
-}
-
-/// P0.3 honest-present marker: `gpud: FAIL present deadline (cmd=N)` — N
-/// completion waits ran into the `GPU_WAIT_DEADLINE_NS` net during ONE present,
-/// so its commands were abandoned by the ring's degraded recovery and the frame
-/// is (partially) lost. The present is NACKed; windowd requeues the damage.
-/// No-alloc (bump heap, degraded path may repeat).
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-fn emit_present_deadline_fail(expired: u32) {
-    let mut buf = [0u8; 64];
-    let mut p = 0usize;
-    let put = |buf: &mut [u8; 64], p: &mut usize, s: &[u8]| {
-        for &b in s {
-            if *p < buf.len() {
-                buf[*p] = b;
-                *p += 1;
-            }
-        }
-    };
-    let put_dec = |buf: &mut [u8; 64], p: &mut usize, mut v: u32| {
-        let mut tmp = [0u8; 10];
-        let mut n = 0usize;
-        loop {
-            tmp[n] = b'0' + (v % 10) as u8;
-            n += 1;
-            v /= 10;
-            if v == 0 {
-                break;
-            }
-        }
-        while n > 0 {
-            n -= 1;
-            if *p < buf.len() {
-                buf[*p] = tmp[n];
-                *p += 1;
-            }
-        }
-    };
-    put(&mut buf, &mut p, b"gpud: FAIL present deadline (cmd=");
-    put_dec(&mut buf, &mut p, expired);
-    put(&mut buf, &mut p, b")\n");
-    let _ = debug_write(&buf[..p]);
-}
-
-fn emit_present_stats(avg_us: u32, max_us: u32, n: u32) {
-    let mut buf = [0u8; 96];
-    let mut p = 0usize;
-    let put = |buf: &mut [u8; 96], p: &mut usize, s: &[u8]| {
-        for &b in s {
-            if *p < buf.len() {
-                buf[*p] = b;
-                *p += 1;
-            }
-        }
-    };
-    let put_dec = |buf: &mut [u8; 96], p: &mut usize, mut v: u32| {
-        let mut tmp = [0u8; 10];
-        let mut n = 0usize;
-        loop {
-            tmp[n] = b'0' + (v % 10) as u8;
-            n += 1;
-            v /= 10;
-            if v == 0 {
-                break;
-            }
-        }
-        while n > 0 {
-            n -= 1;
-            if *p < buf.len() {
-                buf[*p] = tmp[n];
-                *p += 1;
-            }
-        }
-    };
-    put(&mut buf, &mut p, b"gpud: present us avg=");
-    put_dec(&mut buf, &mut p, avg_us);
-    put(&mut buf, &mut p, b" max=");
-    put_dec(&mut buf, &mut p, max_us);
-    put(&mut buf, &mut p, b" n=");
-    put_dec(&mut buf, &mut p, n);
-    // Reactive-completion health: waits woken by the GPU ring-buffer IRQ vs.
-    // waits that ran into the 500ms deadline net. A healthy boot has dlx=0;
-    // dlx climbing while irqw stays 0 = the IRQ path is wedged/unbound again.
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    {
-        put(&mut buf, &mut p, b" irqw=");
-        put_dec(
-            &mut buf,
-            &mut p,
-            crate::backend::IRQ_WAKE_COUNT.load(core::sync::atomic::Ordering::Relaxed),
-        );
-        put(&mut buf, &mut p, b" dlx=");
-        put_dec(
-            &mut buf,
-            &mut p,
-            crate::backend::IRQ_DEADLINE_EXPIRED_COUNT.load(core::sync::atomic::Ordering::Relaxed),
-        );
-    }
-    put(&mut buf, &mut p, b"\n");
-    let _ = debug_write(&buf[..p]);
 }
 
 fn decode_handoff_id_attach(frame: &[u8]) -> Option<u32> {

@@ -53,6 +53,8 @@
 // glass) deleted — dead on both backends; glass is GPU-rendered.
 mod damage;
 mod filter;
+#[cfg(nexus_env = "os")]
+mod loop_telemetry;
 mod runtime;
 mod scene;
 mod shell_window;
@@ -204,17 +206,7 @@ pub(crate) const SHADOW_BOX_CACHE_ENTRIES: usize = 8;
 pub(crate) const SHADOW_CACHE_MAX_DOWNSCALE: u8 = 16;
 pub(crate) const DARK_GLASS_SATURATION_PERCENT: u32 = 140;
 #[cfg(nexus_env = "os")]
-const OP_TIMER_FIRED: u8 = 0x30;
-
-#[cfg(nexus_env = "os")]
-fn decode_timer_fired_now_ns(frame: &[u8]) -> Option<u64> {
-    if frame.len() < 29 || frame[0] != OP_TIMER_FIRED {
-        return None;
-    }
-    Some(u64::from_le_bytes([
-        frame[21], frame[22], frame[23], frame[24], frame[25], frame[26], frame[27], frame[28],
-    ]))
-}
+use loop_telemetry::{decode_timer_fired, LoopTelemetry};
 
 /// Dispatch ONE client request frame (input state, surface create/present/
 /// destroy/events, or an unknown op). The SINGLE source of truth for the
@@ -524,43 +516,15 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                                                                // not the animation's duration or final state. (A fully poll-free wait
                                                                // depends on idle-time timer-cap delivery and is a separate step.)
     let mut last_anim_tick_ns: u64 = 0;
-    // Loop-cadence telemetry (hyper-smooth diagnosis): counts per ~1s window,
-    // emitted only while input/present traffic is flowing (idle stays silent).
-    // This measures the ACTUAL frame cadence the pointer/scroll pipeline gets,
-    // independent of gpud's own present stats (which only show GPU-side cost).
+    // Loop-cadence telemetry (hyper-smooth + SMP-flicker diagnosis): the ~1s
+    // `windowd: loop hz=` window with NACK counters and the pacer-slip
+    // histogram — see `loop_telemetry.rs`.
     #[cfg(nexus_env = "os")]
-    let mut lt_window_start_ns: u64 = 0;
-    #[cfg(nexus_env = "os")]
-    let (mut lt_iters, mut lt_applies) = (0u32, 0u32);
-    #[cfg(nexus_env = "os")]
-    let mut lt_seq_base: u32 = 0;
+    let mut loop_stats = LoopTelemetry::new();
     loop {
         runtime.drain_gpud_replies();
         #[cfg(nexus_env = "os")]
-        {
-            lt_iters += 1;
-            let now = nexus_abi::nsec().unwrap_or(0);
-            if lt_window_start_ns == 0 {
-                lt_window_start_ns = now;
-                lt_seq_base = runtime.present_seq_value();
-            } else if now.saturating_sub(lt_window_start_ns) >= 1_000_000_000 {
-                let presents = runtime.present_seq_value().wrapping_sub(lt_seq_base);
-                // Only report windows with real traffic (>=8 presents) — boots
-                // and idle periods stay quiet.
-                if presents >= 8 {
-                    let _ = debug_println(&alloc::format!(
-                        "windowd: loop hz={} apply={} present={}",
-                        lt_iters,
-                        lt_applies,
-                        presents
-                    ));
-                }
-                lt_window_start_ns = now;
-                lt_seq_base = runtime.present_seq_value();
-                lt_iters = 0;
-                lt_applies = 0;
-            }
-        }
+        loop_stats.tick(nexus_abi::nsec().unwrap_or(0), &runtime);
         // Stall watchdog: self-reports a "stopped responding" present stall to the
         // UART log (build/logs/*/uart.log). Cheap — one nsec() + integer checks per
         // iteration; only formats on an actual stall (rate-limited).
@@ -660,9 +624,10 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 Ok((frame_len, sender_sid, mut moved_cap)) => {
                     let frame = &recv_frame[..frame_len];
                     #[cfg(nexus_env = "os")]
-                    if let Some(now_ns) = decode_timer_fired_now_ns(frame) {
+                    if let Some((now_ns, deadline_ns)) = decode_timer_fired(frame) {
                         // Phase 7: Pacing tick — drive animation update AND frame flush.
                         pacer_timer_armed = false;
+                        loop_stats.note_timer_fired(now_ns, deadline_ns);
                         if runtime.has_active_animations() {
                             runtime.tick(now_ns);
                         }
@@ -704,9 +669,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         // model).
         let applied = runtime.apply_staged_input();
         #[cfg(nexus_env = "os")]
-        {
-            lt_applies += applied as u32;
-        }
+        loop_stats.note_apply(applied);
         #[cfg(not(nexus_env = "os"))]
         let _ = applied;
         // Phase 4: skip present while handoff is pending — the VMO must arrive
@@ -753,10 +716,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             Ok((frame_len, sender_sid, mut moved_cap)) => {
                 let frame = &recv_frame[..frame_len];
                 #[cfg(nexus_env = "os")]
-                if let Some(now_ns) = decode_timer_fired_now_ns(frame) {
+                if let Some((now_ns, deadline_ns)) = decode_timer_fired(frame) {
                     // One-shot timer auto-disarms on fire — mark as disarmed so
                     // the pacing arm block re-arms it for the next tick.
                     pacer_timer_armed = false;
+                    loop_stats.note_timer_fired(now_ns, deadline_ns);
                     if runtime.has_active_animations() {
                         runtime.tick(now_ns);
                     }

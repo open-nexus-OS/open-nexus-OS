@@ -43,3 +43,8 @@ pub mod cpu_vector;
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub mod service;
+
+/// No-alloc UART stat emitters for the service loop (present stats window,
+/// deadline-NACK marker, handoff timing) — split out of `service.rs`.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) mod service_stats;

@@ -434,6 +434,8 @@ impl DisplayServerRuntime {
         self.last_completed_seq = self.present_seq;
         self.frames_in_flight = self.frames_in_flight.saturating_sub(1);
         self.present_retry_count = self.present_retry_count.saturating_add(1);
+        #[cfg(nexus_env = "os")]
+        NACK_TOTAL.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         if self.present_retry_count <= MAX_PRESENT_RETRIES {
             let _ = debug_println(&alloc::format!(
                 "windowd: present retry n={}",
@@ -448,6 +450,8 @@ impl DisplayServerRuntime {
             // Full recompose, not a paint-only patch: the failed frame's GPU
             // state is undefined.
             self.paint_only_damage = false;
+            #[cfg(nexus_env = "os")]
+            NACK_FULL_RECOMPOSE_TOTAL.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         } else if !self.present_retry_exhausted {
             self.present_retry_exhausted = true;
             let _ = debug_println(&alloc::format!(
@@ -526,4 +530,26 @@ impl DisplayServerRuntime {
     pub(crate) fn present_seq_value(&self) -> u32 {
         self.present_seq
     }
+
+    /// Cumulative present NACKs (loop-cadence telemetry reads window deltas).
+    #[cfg(nexus_env = "os")]
+    pub(crate) fn nack_total(&self) -> u32 {
+        NACK_TOTAL.load(core::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Cumulative NACK-driven full-frame recompose requeues.
+    #[cfg(nexus_env = "os")]
+    pub(crate) fn nack_full_recompose_total(&self) -> u32 {
+        NACK_FULL_RECOMPOSE_TOTAL.load(core::sync::atomic::Ordering::Relaxed)
+    }
 }
+
+/// SMP-flicker triage counters (statics, not runtime fields, so the
+/// grandfathered `runtime/mod.rs` struct stays untouched): cumulative present
+/// NACKs and the full-frame recompose requeues they caused. windowd is
+/// single-threaded — Relaxed is only formal.
+#[cfg(nexus_env = "os")]
+static NACK_TOTAL: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+#[cfg(nexus_env = "os")]
+static NACK_FULL_RECOMPOSE_TOTAL: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);

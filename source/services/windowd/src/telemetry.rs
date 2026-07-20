@@ -126,3 +126,37 @@ impl WindowdDisplayTelemetry {
         ))
     }
 }
+
+/// Pacer-slip bucket for the loop-cadence telemetry: how late a kernel
+/// `OP_TIMER_FIRED` delivery was versus its armed deadline. Buckets:
+/// 0 = <1ms (healthy), 1 = 1-3ms, 2 = 3-8ms, 3 = >=8ms (a whole 120Hz frame).
+/// A populated bucket 2/3 during drag = the kernel timer slipped the pacer
+/// deadline to a later tick (the mtimecmp-overwrite class), not render cost.
+/// Gated like `mod compositor` (its only OS consumer) + `test` for the host
+/// unit test — everywhere else it would be dead code in this private module.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+pub fn pacer_slip_bucket(slip_ns: u64) -> usize {
+    match slip_ns {
+        0..=999_999 => 0,
+        1_000_000..=2_999_999 => 1,
+        3_000_000..=7_999_999 => 2,
+        _ => 3,
+    }
+}
+
+#[cfg(test)]
+mod slip_tests {
+    use super::pacer_slip_bucket;
+
+    #[test]
+    fn buckets_cover_boundaries() {
+        assert_eq!(pacer_slip_bucket(0), 0);
+        assert_eq!(pacer_slip_bucket(999_999), 0);
+        assert_eq!(pacer_slip_bucket(1_000_000), 1);
+        assert_eq!(pacer_slip_bucket(2_999_999), 1);
+        assert_eq!(pacer_slip_bucket(3_000_000), 2);
+        assert_eq!(pacer_slip_bucket(7_999_999), 2);
+        assert_eq!(pacer_slip_bucket(8_000_000), 3);
+        assert_eq!(pacer_slip_bucket(u64::MAX), 3);
+    }
+}
