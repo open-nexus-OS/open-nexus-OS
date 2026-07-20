@@ -292,6 +292,11 @@ build_qemu_args() {
   if [[ -n "${NEXUS_SELFTEST_PROFILE:-}" ]]; then
     args+=(-fw_cfg "name=opt/org.open-nexus/selftest-profile,string=${NEXUS_SELFTEST_PROFILE}")
   fi
+  # fw_cfg: authoritative display mode (RFC-0074 / ADR-0050). The compositor
+  # OWNS the mode; this is the configured source of truth the guest commands
+  # onto the scanout, so the GTK window-realize race can never latch a
+  # transient wrong size. Same value as the virtio-gpu device's xres/yres.
+  args+=(-fw_cfg "name=opt/org.open-nexus/display-mode,string=${QEMU_GPU_XRES}x${QEMU_GPU_YRES}")
 
   # virtio-mmio modern
   if [[ "${QEMU_FORCE_LEGACY:-0}" == "1" ]]; then

@@ -77,6 +77,11 @@ pub const SYSCALL_DEBUG_WRITE: usize = 44;
 /// 0 for proof/unknown (raw markers). Lets U-mode services share the kernel's fw_cfg-derived mode
 /// without each having to map fw_cfg — the keystone for per-service verdict folding.
 pub const SYSCALL_BOOT_MODE: usize = 45;
+/// Boot display-mode query (RFC-0074 / ADR-0050): returns the fw_cfg-configured display mode
+/// packed as `w | (h << 16)`, or 0 when unknown/absent. Lets the display server share the
+/// kernel's fw_cfg-derived mode without mapping fw_cfg — the compositor commands this authoritative
+/// mode onto the scanout instead of latching QEMU's transient window size.
+pub const SYSCALL_BOOT_DISPLAY_MODE: usize = 50;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).

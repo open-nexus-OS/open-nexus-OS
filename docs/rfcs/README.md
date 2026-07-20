@@ -111,6 +111,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0042: Sandboxing v1 userspace confinement contract seed (namespace confinement + CapFd authenticity/replay reject + manifest permission bootstrap)
 - RFC-0071: nxfs user-data filesystem contract seed (integrity fail-closed + AEAD encryption classes via keystored/HKDF + no-silent-reformat + honest no-sealed-storage limitation)
 - RFC-0073: App files surface contract seed (FILES permission ceiling-gated to the filemanager role + fail-closed route provisioning + vfsd namespace mediation)
+- RFC-0074: Display-mode authority seed (compositor OWNS the mode; fw_cfg `display-mode` SSOT + kernel-derived `SYSCALL_BOOT_DISPLAY_MODE`; gpud commands it, GET_DISPLAY_INFO demoted to validated capability — kills the GTK window-realize race)
 
 ## Index
 
@@ -258,3 +259,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
 - RFC-0073: App files surface — `svc.files.*`, `nexus.permission.FILES`, filemanager role, mime SSOT contract seed (Draft 2026-07-15 — stash becomes the first filemanager; pickers stay deferred to TASK-0083/0084)
   - docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md
+- RFC-0074: Display-mode authority — the compositor OWNS the visible mode and commands it onto the scanout; configured via QEMU `fw_cfg opt/org.open-nexus/display-mode`, kernel-derived through `SYSCALL_BOOT_DISPLAY_MODE (50)`; `GET_DISPLAY_INFO` demoted to validated capability data (Draft 2026-07-20 — fixes the GTK window-realize race that latched 640×507; ADR-0050)
+  - docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md

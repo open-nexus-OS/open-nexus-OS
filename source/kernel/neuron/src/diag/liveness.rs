@@ -49,13 +49,21 @@ pub fn last_bump_ticks() -> u64 {
 /// triggers a panic to capture a diagnostic snapshot rather than silently stalling.
 #[inline]
 pub fn check(deadline_ticks: u64) {
-    let last = LAST_BUMP_TICKS.load(Ordering::SeqCst);
-    if last == 0 {
-        return;
-    }
-    let now = read_time();
-    if now.wrapping_sub(last) > deadline_ticks {
+    if is_stalled(deadline_ticks) {
         log_error!(target: "watchdog", "PANIC: watchdog: no progress");
         panic!("watchdog: no progress");
     }
+}
+
+/// Non-panicking stall predicate: true when no progress bump occurred in the last
+/// `deadline_ticks` (and the watchdog is armed). Lets the caller capture a labeled
+/// diagnostic snapshot (blocked-task set) BEFORE panicking, instead of a bare panic.
+#[inline]
+#[must_use]
+pub fn is_stalled(deadline_ticks: u64) -> bool {
+    let last = LAST_BUMP_TICKS.load(Ordering::SeqCst);
+    if last == 0 {
+        return false;
+    }
+    read_time().wrapping_sub(last) > deadline_ticks
 }

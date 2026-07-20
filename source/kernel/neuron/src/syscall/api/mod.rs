@@ -61,7 +61,8 @@ pub(crate) use sched_task::selftest_sched_op;
 
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_AS_SELF,
-    SYSCALL_BOOT_MODE, SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO,
+    SYSCALL_BOOT_DISPLAY_MODE, SYSCALL_BOOT_MODE, SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER,
+    SYSCALL_CAP_TRANSFER_TO,
     SYSCALL_DEBUG_PUTC, SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE, SYSCALL_EXEC,
     SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
     SYSCALL_IPC_SEND_V1, SYSCALL_MAP, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SCHED,
@@ -260,6 +261,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
     table.register(SYSCALL_DEBUG_WRITE, sys_debug_write);
     table.register(SYSCALL_BOOT_MODE, sys_boot_mode);
+    table.register(SYSCALL_BOOT_DISPLAY_MODE, sys_boot_display_mode);
     // RFC-0068: fold this per-process syscall-table install echo into the `syscalls` verdict
     // (NEXUS_LOG_EXPAND=syscalls to see them raw). One tally per install event.
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -348,6 +350,12 @@ fn sys_debug_putc(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 /// `verify-uart` stays deterministic). Pure read of the kernel's fw_cfg-derived flag; no args.
 fn sys_boot_mode(_ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     Ok(usize::from(crate::boot_mode::fold_verdicts()))
+}
+
+/// `SYSCALL_BOOT_DISPLAY_MODE` (50): the fw_cfg-configured display mode packed as
+/// `w | (h << 16)`, or 0 when unknown/absent (RFC-0074 / ADR-0050). Read-only, no capability.
+fn sys_boot_display_mode(_ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
+    Ok(crate::boot_mode::display_mode() as usize)
 }
 
 /// Atomic debug slice write. Emits the whole user byte slice under the UART lock in one

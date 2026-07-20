@@ -38,6 +38,10 @@ const FW_CFG_SIGNATURE: u16 = 0x0000;
 const FW_CFG_FILE_DIR: u16 = 0x0019;
 /// The runtime boot-config key (identical to the userspace reader).
 const SELFTEST_MODE_FILE: &[u8] = b"opt/org.open-nexus/selftest-mode";
+/// Authoritative display-mode key (RFC-0074 / ADR-0050): ASCII `"<w>x<h>"`.
+/// The compositor OWNS the mode; this is the configured source of truth it
+/// commands onto the scanout, immune to the GTK window-realize race.
+const DISPLAY_MODE_FILE: &[u8] = b"opt/org.open-nexus/display-mode";
 
 const MODE_UNKNOWN: u8 = 0;
 const MODE_PROOF: u8 = 1;
@@ -46,6 +50,10 @@ const MODE_INTERACTIVE: u8 = 2;
 /// Resolved boot mode (set once by [`detect`]). Defaults to UNKNOWN, which folds like PROOF
 /// (raw markers) so verify-uart is never disturbed by a failed or absent probe.
 static BOOT_MODE: AtomicU8 = AtomicU8::new(MODE_UNKNOWN);
+
+/// Resolved display mode packed as `w | (h << 16)` (set once by [`detect`]).
+/// `0` = unknown/absent → consumers fall back to their fixed layout maximum.
+static DISPLAY_MODE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn select(key: u16) {
@@ -102,13 +110,19 @@ fn find_file(name: &[u8]) -> Option<u16> {
     None
 }
 
-/// Probe the boot mode from fw_cfg ONCE. Must be called after the kernel address space is
-/// active (fw_cfg is mapped). Safe to leave UNKNOWN (= raw) on any failure.
+/// Probe boot mode + display mode from fw_cfg ONCE. Must be called after the kernel address
+/// space is active (fw_cfg is mapped). Safe to leave UNKNOWN (= raw) on any failure.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub fn detect() {
     if !signature_ok() {
         return;
     }
+    detect_boot_mode();
+    detect_display_mode();
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn detect_boot_mode() {
     let selector = match find_file(SELFTEST_MODE_FILE) {
         Some(sel) => sel,
         None => return,
@@ -141,9 +155,67 @@ pub fn detect() {
     log_info!(target: "boot", "boot-mode={} fold_verdicts={}", label, resolved == MODE_INTERACTIVE);
 }
 
-/// Host builds have no fw_cfg; the mode stays UNKNOWN (raw).
+/// Read + parse `opt/org.open-nexus/display-mode` (`"<w>x<h>"`) into [`DISPLAY_MODE`].
+/// Independent of the boot-mode read; any failure leaves it 0 (consumers use their max).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn detect_display_mode() {
+    let selector = match find_file(DISPLAY_MODE_FILE) {
+        Some(sel) => sel,
+        None => return,
+    };
+    select(selector);
+    let mut buf = [0u8; 16];
+    for byte in &mut buf {
+        *byte = read_u8();
+    }
+    if let Some(packed) = parse_wxh(&buf) {
+        DISPLAY_MODE.store(packed, Ordering::Relaxed);
+        log_info!(target: "boot", "display-mode={}x{}", packed & 0xFFFF, packed >> 16);
+    }
+}
+
+/// Host builds have no fw_cfg; the modes stay UNKNOWN (raw).
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 pub fn detect() {}
+
+/// Parse an ASCII `"<w>x<h>"` fw_cfg value into `w | (h << 16)`. Pure + bounded
+/// (host-testable). Returns `None` on malformed / zero / oversized dimensions.
+#[must_use]
+pub fn parse_wxh(buf: &[u8]) -> Option<u32> {
+    // Bound each dimension to a sane display ceiling; the compositor clamps to
+    // its own layout max separately. Rejects garbage so a bad key never sizes
+    // the scanout to a degenerate value.
+    const MAX_DIM: u32 = 8192;
+    let end = buf.iter().position(|&c| c == 0 || c == b'\n' || c == b'\r' || c == b' ').unwrap_or(buf.len());
+    let text = &buf[..end];
+    let sep = text.iter().position(|&c| c == b'x' || c == b'X')?;
+    let w = parse_dim(&text[..sep], MAX_DIM)?;
+    let h = parse_dim(&text[sep + 1..], MAX_DIM)?;
+    Some(w | (h << 16))
+}
+
+fn parse_dim(bytes: &[u8], max: u32) -> Option<u32> {
+    if bytes.is_empty() || bytes.len() > 5 {
+        return None;
+    }
+    let mut v: u32 = 0;
+    for &c in bytes {
+        if !c.is_ascii_digit() {
+            return None;
+        }
+        v = v.checked_mul(10)?.checked_add(u32::from(c - b'0'))?;
+    }
+    if v == 0 || v > max {
+        return None;
+    }
+    Some(v)
+}
+
+/// The configured display mode packed as `w | (h << 16)`, or `0` when unknown/absent/host.
+#[must_use]
+pub fn display_mode() -> u32 {
+    DISPLAY_MODE.load(Ordering::Relaxed)
+}
 
 /// True when the kernel should FOLD its boot markers into the verdict grid (interactive boot).
 /// Proof and unknown both return `false` → raw markers, keeping `verify-uart` deterministic.

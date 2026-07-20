@@ -107,8 +107,11 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
 
     loop {
         if cpu.is_boot() {
-            // Watchdog: ensure forward progress; ~10ms in mtimer ticks.
-            crate::liveness::check(crate::trap::DEFAULT_TICK_CYCLES * 3);
+            // Watchdog backstop (~20ms): only fires if we can't even ACQUIRE the
+            // kernel lock to snapshot (e.g. a wedged BKL holder). The primary
+            // watchdog runs INSIDE the guard below at ~10ms and dumps the blocked
+            // task set first, so a normal fleet-collapse gets a labeled snapshot.
+            crate::liveness::check(crate::trap::DEFAULT_TICK_CYCLES * 6);
         }
 
         static LOOP_COUNT: core::sync::atomic::AtomicUsize =
@@ -126,6 +129,16 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             };
             let (scheduler, tasks, router, spaces, timer, hart_timers, _waitsets, _fences) =
                 kernel.parts();
+
+            // Primary liveness watchdog (~10ms): we hold the guard, so name the
+            // blocked task set (who is parked on which endpoint/waitset/fence)
+            // before panicking — a fleet-collapse leaves a labeled snapshot for
+            // root-causing the lost-wakeup instead of a bare "no progress".
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            if cpu.is_boot() && crate::liveness::is_stalled(crate::trap::DEFAULT_TICK_CYCLES * 3) {
+                tasks.dump_liveness_snapshot(timer.now());
+                panic!("watchdog: no progress");
+            }
 
             // Own queue first, then a bounded, rate-gated steal (A8).
             let picked = scheduler.schedule_next().or_else(|| {
