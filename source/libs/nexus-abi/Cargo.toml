@@ -8,3 +8,6 @@ license = "Apache-2.0"
 bitflags = { version = "2", default-features = false }
 # RFC-0068: the per-process verdict counters feed the shared SSOT verdict math.
 nexus-event = { path = "../nexus-event" }
+# ADR-0051: service wire protocols moved to the declarative SSOT crate;
+# re-exported here at their historical paths (transitional shim).
+nexus-wire = { path = "../nexus-wire" }

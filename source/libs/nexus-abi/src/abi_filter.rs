@@ -18,8 +18,9 @@ pub const PROFILE_MAGIC1: u8 = b'F';
 /// Profile wire version.
 pub const PROFILE_VERSION: u8 = 1;
 
-/// Maximum encoded profile bytes accepted by the decoder.
-pub const MAX_PROFILE_BYTES: usize = 512;
+/// Maximum encoded profile bytes accepted by the decoder — single definition
+/// lives at the wire bound (`nexus_wire::policyd`, ADR-0051).
+pub use nexus_wire::policyd::MAX_PROFILE_BYTES;
 /// Maximum number of rules accepted by the decoder.
 pub const MAX_RULES: usize = 16;
 /// Maximum bytes for a statefs path-prefix rule matcher.

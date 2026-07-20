@@ -1,0 +1,8 @@
+[package]
+name = "nexus-wire"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "SSOT for service↔service wire frames: per-protocol declarations (frames! DSL) over a tiny no_std codec core. Wire bytes are golden-test locked; kernel↔userspace ABI stays in nexus-abi."
+
+[dependencies]

@@ -1825,6 +1825,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.11.0",
  "nexus-event",
+ "nexus-wire",
 ]
 
 [[package]]
@@ -2633,6 +2634,10 @@ dependencies = [
  "nexus-widget-panel",
  "nexus-widget-text",
 ]
+
+[[package]]
+name = "nexus-wire"
+version = "0.1.0"
 
 [[package]]
 name = "nexus-workpool"
