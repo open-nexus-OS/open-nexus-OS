@@ -148,4 +148,4 @@ English; prefer modular files (~600 LOC) over monoliths.
 - `docs/architecture/README.md` — architecture entry point + reading order
 - `docs/testing/README.md` — test layers, QEMU profiles, marker ladder
 - `docs/standards/` — Rust/build/security/documentation standards
-- `.claude/skills/` — boot-proof and verify workflows for this repo
+- `.claude/skills/` — code-quality + architecture-review (design gate) + boot-proof + verify workflows
