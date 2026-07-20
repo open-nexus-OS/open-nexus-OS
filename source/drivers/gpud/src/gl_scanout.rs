@@ -916,6 +916,10 @@ impl VirtioGpuBackend {
         // once at the end. A textured (sampling) draw whose completion QEMU defers no
         // longer blocks the next command — only the single drain waits for it.
         self.ctrl_batch_begin();
+        // Present-cost triage: split the batch into ENQUEUE (command building +
+        // ring writes below) and DRAIN (`ctrl_batch_end`, which waits on the
+        // PRIOR batch) — reported per stats window as `enq_us`/`drain_us`.
+        let phase_t0 = nexus_abi::nsec().unwrap_or(0);
         // Swapchain: EVERY draw of this present targets the BACK RT; the flip
         // (SET_SCANOUT + flush) is the batch tail, so the host can only ever
         // display complete frames.
@@ -1152,7 +1156,13 @@ impl VirtioGpuBackend {
             let _ = nexus_abi::trace_line("gpud: compositor buildup present");
             let _ = nexus_abi::debug_println(crate::markers::GPUD_CHAIN_BATCH_SUBMIT);
         }
+        let phase_t1 = nexus_abi::nsec().unwrap_or(phase_t0);
         let end = self.ctrl_batch_end();
+        let phase_t2 = nexus_abi::nsec().unwrap_or(phase_t1);
+        crate::service_stats::note_present_phases(
+            phase_t1.saturating_sub(phase_t0),
+            phase_t2.saturating_sub(phase_t1),
+        );
         // Honest one-shot: the first back-RT frame + flip actually reached the
         // ring and the batch closed cleanly — the swapchain is live.
         if SCANOUT_FLIP && flip_submitted && end.is_ok() && !self.gl_swap.flip_marker_done {

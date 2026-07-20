@@ -89,10 +89,22 @@ pub(crate) const fn align_page(value: usize) -> usize {
     (value + 4095) & !4095
 }
 
+/// SUBMIT_3D coalescing cap: the ring writes hdr+tail into one 4 KiB slot
+/// page, so the pending stream must leave room for the rebuilt submit header.
+#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+const SUBMIT3D_COALESCE_CAP: usize = 4096 - core::mem::size_of::<protocol::VirtioGpuSubmit3d>();
+
 impl VirtioGpuBackend {
     /// Submit a `VirtioGpuSubmit3d` header followed by a hand-encoded virgl
     /// command stream on the control queue (one descriptor chain). The response
     /// is validated by `wait_complete` (RESP_OK_NODATA → Ok).
+    ///
+    /// Present-cost fix: in BATCH mode, consecutive SUBMIT_3D streams (same
+    /// virgl ctx) are COALESCED into one pending buffer and shipped as a
+    /// single ring entry — each entry costs a QEMU main-loop round trip, and
+    /// a buildup present used to pay it ~15× (measured `enq_us` ≈ 20ms of the
+    /// 21ms present). Any non-3D command and `ctrl_batch_end` flush first, so
+    /// device-visible command order is unchanged.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn ctrl_submit_header_tail<T>(
         &mut self,
@@ -102,6 +114,26 @@ impl VirtioGpuBackend {
         let hdr_bytes = unsafe {
             core::slice::from_raw_parts((hdr as *const T).cast::<u8>(), core::mem::size_of::<T>())
         };
+        if self.ctrl_batch
+            && hdr_bytes.len() == core::mem::size_of::<protocol::VirtioGpuSubmit3d>()
+            && u32::from_le_bytes([hdr_bytes[0], hdr_bytes[1], hdr_bytes[2], hdr_bytes[3]])
+                == protocol::VIRTIO_GPU_CMD_SUBMIT_3D
+            && tail.len() <= SUBMIT3D_COALESCE_CAP
+        {
+            // `ctx_id` sits at byte 16: type_(4) + flags(4) + fence_id(8) precede it.
+            let ctx =
+                u32::from_le_bytes([hdr_bytes[16], hdr_bytes[17], hdr_bytes[18], hdr_bytes[19]]);
+            if !self.submit3d_pend.is_empty()
+                && (self.submit3d_pend_ctx != ctx
+                    || self.submit3d_pend.len() + tail.len() > SUBMIT3D_COALESCE_CAP)
+            {
+                self.flush_pending_3d()?;
+            }
+            self.submit3d_pend_ctx = ctx;
+            self.submit3d_pend.extend_from_slice(tail);
+            return Ok(());
+        }
+        self.flush_pending_3d()?;
         let mmio = self.mmio_base;
         let batch = self.ctrl_batch;
         let queue = self.ctrlq.as_mut().ok_or(GfxError::DeviceNotFound)?;
@@ -110,6 +142,42 @@ impl VirtioGpuBackend {
         } else {
             queue.submit_two(mmio, hdr_bytes, tail)
         }
+    }
+
+    /// Ship the pending coalesced SUBMIT_3D stream as one ring entry (no-op
+    /// when empty). Called before any non-3D command and at batch end so the
+    /// device sees commands in exactly the order they were issued.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) fn flush_pending_3d(&mut self) -> Result<(), GfxError> {
+        if self.submit3d_pend.is_empty() {
+            return Ok(());
+        }
+        let hdr = protocol::VirtioGpuSubmit3d {
+            hdr: protocol::VirtioGpuCtrlHdr {
+                type_: protocol::VIRTIO_GPU_CMD_SUBMIT_3D,
+                flags: 0,
+                fence_id: 0,
+                ctx_id: self.submit3d_pend_ctx,
+                _padding: 0,
+            },
+            size: self.submit3d_pend.len() as u32,
+            _padding: 0,
+        };
+        let hdr_bytes = unsafe {
+            core::slice::from_raw_parts(
+                (&hdr as *const protocol::VirtioGpuSubmit3d).cast::<u8>(),
+                core::mem::size_of::<protocol::VirtioGpuSubmit3d>(),
+            )
+        };
+        let mmio = self.mmio_base;
+        // Take the buffer out so the borrow of `self.ctrlq` is disjoint; put it
+        // back (cleared) to keep the capacity — no per-frame alloc.
+        let mut pend = core::mem::take(&mut self.submit3d_pend);
+        let queue = self.ctrlq.as_mut().ok_or(GfxError::DeviceNotFound)?;
+        let res = queue.enqueue_pair(mmio, hdr_bytes, &pend).map(|_| ());
+        pend.clear();
+        self.submit3d_pend = pend;
+        res
     }
 
     /// Begin a control-queue command batch: subsequent `ctrl_submit_*` calls
@@ -137,6 +205,7 @@ impl VirtioGpuBackend {
     /// marker once the first prior-frame batch is reclaimed.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn ctrl_batch_end(&mut self) -> Result<(), GfxError> {
+        self.flush_pending_3d()?;
         self.ctrl_batch = false;
         let queue = self.ctrlq.as_mut().ok_or(GfxError::DeviceNotFound)?;
         let before = queue.ring.in_flight();
@@ -323,6 +392,8 @@ impl VirtioGpuBackend {
     }
 
     pub(crate) fn ctrl_submit_pair<A, B>(&mut self, a: &A, b: &B) -> Result<(), GfxError> {
+        #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+        self.flush_pending_3d()?;
         let a_bytes = unsafe {
             core::slice::from_raw_parts((a as *const A).cast::<u8>(), core::mem::size_of::<A>())
         };
@@ -340,6 +411,8 @@ impl VirtioGpuBackend {
     }
 
     pub(crate) fn ctrl_submit_bytes(&mut self, bytes: &[u8]) -> Result<(), GfxError> {
+        #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+        self.flush_pending_3d()?;
         let mmio = self.mmio_base;
         let batch = self.ctrl_batch;
         let queue = self.ctrlq.as_mut().ok_or(GfxError::DeviceNotFound)?;

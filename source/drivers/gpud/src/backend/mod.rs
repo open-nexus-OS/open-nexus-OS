@@ -281,6 +281,16 @@ pub struct VirtioGpuBackend {
     /// Double-buffered scanout swapchain state (see `gl_scanout::GlSwapState`).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) gl_swap: crate::gl_scanout::GlSwapState,
+    /// SUBMIT_3D coalescing buffer (batch mode): consecutive 3D command
+    /// streams append here and go out as ONE ring entry (present-cost fix —
+    /// each entry costs a QEMU main-loop round trip). Flushed before any
+    /// non-3D command and at `ctrl_batch_end`. Reused, no per-frame alloc.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) submit3d_pend: alloc::vec::Vec<u8>,
+    /// virgl ctx of the pending coalesced stream (streams from different
+    /// contexts never merge; in practice gpud uses one ctx).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) submit3d_pend_ctx: u32,
     /// Guest backing VA of the NON-ALIASED display texture (own backing, not a
     /// VMO alias). The present copies windowd's VMO frame here, uploads it, and
     /// blits it to the scanout RT — avoiding the 0xF8 VMO-alias that QEMU's GL
@@ -551,6 +561,10 @@ impl VirtioGpuBackend {
             gl_scanout_backing_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_swap: Default::default(),
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            submit3d_pend: alloc::vec::Vec::new(),
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            submit3d_pend_ctx: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_display_tex_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

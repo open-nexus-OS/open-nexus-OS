@@ -457,6 +457,23 @@ impl CtrlQueue {
         second: &[u8],
         resp_len: usize,
     ) -> Result<RingSlot, GfxError> {
+        // Present-cost telemetry: per-entry wall time (slot alloc incl. any
+        // backpressure wait + buffer write + doorbell) → `ent=`/`entmax_us=`.
+        let entry_t0 = nexus_abi::nsec().unwrap_or(0);
+        let res = self.enqueue_pair_resp_len_inner(mmio_base, first, second, resp_len);
+        crate::service_stats::note_ring_entry(
+            nexus_abi::nsec().unwrap_or(entry_t0).saturating_sub(entry_t0),
+        );
+        res
+    }
+
+    fn enqueue_pair_resp_len_inner(
+        &mut self,
+        mmio_base: usize,
+        first: &[u8],
+        second: &[u8],
+        resp_len: usize,
+    ) -> Result<RingSlot, GfxError> {
         let total = first.len().checked_add(second.len()).ok_or(GfxError::ResourceExhausted)?;
         if total == 0 || total > 4096 || core::mem::size_of::<protocol::VirtioGpuCtrlHdr>() > total
         {
@@ -635,7 +652,7 @@ impl CtrlQueue {
         let va = self.resp_slot_va(slot);
         let hdr = unsafe { core::ptr::read_volatile(va as *const protocol::VirtioGpuCtrlHdr) };
         if hdr.type_ != protocol::VIRTIO_GPU_RESP_OK_DISPLAY_INFO {
-            raw_diag_line(b"gpud: dinfo hdr", &[hdr.type_]);
+            crate::service_stats::raw_diag_line(b"gpud: dinfo hdr", &[hdr.type_]);
             return Err(GfxError::CommandRejected);
         }
         let mode = unsafe {
@@ -645,7 +662,10 @@ impl CtrlQueue {
             )
         };
         if mode.enabled == 0 || mode.r.width == 0 || mode.r.height == 0 {
-            raw_diag_line(b"gpud: dinfo mode", &[mode.enabled, mode.r.width, mode.r.height]);
+            crate::service_stats::raw_diag_line(
+                b"gpud: dinfo mode",
+                &[mode.enabled, mode.r.width, mode.r.height],
+            );
             return Err(GfxError::CommandRejected);
         }
         Ok((mode.r.width, mode.r.height))
@@ -688,42 +708,4 @@ impl CtrlQueue {
         }
         Err(GfxError::CommandRejected)
     }
-}
-
-/// Fold-immune diagnostic line: `<label> v0 v1 …` via the raw atomic
-/// [`nexus_abi::debug_write`] syscall (bypasses verdict folding — these
-/// fire only on device-reply anomalies and must never be swallowed).
-/// Alloc-free: bounded stack buffer, decimal rendering.
-fn raw_diag_line(label: &[u8], vals: &[u32]) {
-    let mut buf = [0u8; 96];
-    let mut p = 0usize;
-    let put = |buf: &mut [u8; 96], p: &mut usize, s: &[u8]| {
-        for &b in s {
-            if *p < buf.len() {
-                buf[*p] = b;
-                *p += 1;
-            }
-        }
-    };
-    put(&mut buf, &mut p, label);
-    for &v in vals {
-        put(&mut buf, &mut p, b" ");
-        let mut tmp = [0u8; 10];
-        let mut n = 0;
-        let mut v = v;
-        loop {
-            tmp[n] = b'0' + (v % 10) as u8;
-            v /= 10;
-            n += 1;
-            if v == 0 {
-                break;
-            }
-        }
-        while n > 0 {
-            n -= 1;
-            put(&mut buf, &mut p, &tmp[n..=n]);
-        }
-    }
-    put(&mut buf, &mut p, b"\n");
-    let _ = nexus_abi::debug_write(&buf[..p]);
 }
