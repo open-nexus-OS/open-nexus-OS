@@ -1,6 +1,6 @@
 # Grandfathered .rs files over 600 LOC (ratchet: may shrink, never grow).
 # Regenerate ONLY after real splits: scripts/check-structure.sh --update-loc-baseline
-823	source/drivers/gpud/src/backend/mod.rs
+822	source/drivers/gpud/src/backend/mod.rs
 951	source/drivers/gpud/src/backend/present.rs
 963	source/drivers/gpud/src/backend/virgl3d.rs
 729	source/drivers/gpud/src/backend/virtqueue.rs
@@ -27,7 +27,6 @@
 1690	source/kernel/neuron/src/syscall/api/tests.rs
 957	source/kernel/neuron/src/syscall/api/vmo.rs
 1360	source/kernel/neuron/src/task/mod.rs
-4103	source/libs/nexus-abi/src/lib.rs
 965	source/libs/nexus-display-proto/src/client_surface.rs
 655	source/libs/nexus-event/src/lib.rs
 651	source/libs/nexus-evidence/src/lib.rs

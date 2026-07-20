@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-07-20
+
+#### nexus-wire: declarative service wire codec + nexus-abi identity split (ADR-0051, TASK-0296)
+
+- **New crate `source/libs/nexus-wire`** (no_std, `forbid(unsafe_code)`, zero
+  deps): SSOT for the nine service↔service wire protocols (execd, updated,
+  routing, bundlemgrd, sessiond, settingsd, bundleimg, policy, policyd).
+  Frames are **declared** via the `frames!` DSL over a small codec core
+  (`Writer`/`Reader`, the magic/version/op guard, `op|0x80` reply convention
+  and length-prefix bounds written once) instead of 66 hand-coded
+  encode/decode functions. Wire bytes unchanged — all golden-byte tests moved
+  verbatim and pass unmodified; every protocol gained a deterministic
+  truncation/mutation reject matrix (`codec::testing::assert_reject_matrix`).
+- **nexus-abi shrinks to its charter** (kernel↔userspace ABI): the wire half
+  moved out; `nexus_abi::<svc>` paths keep resolving via transitional
+  re-exports (zero churn across the ~51 dependent crates). The 4103-LOC
+  `lib.rs` monolith is dissolved: syscall wrappers split into
+  `src/syscall/{mod,ipc,types,task,time,caps,memory,debug}.rs` (root paths
+  preserved via re-exports), root `lib.rs` is now 183 lines, and the
+  grandfathered structure-gate entry is deleted from `config/loc-baseline.txt`.
+- `abi_filter::MAX_PROFILE_BYTES` is now defined at its wire bound
+  (`nexus_wire::policyd`) and re-sourced by `abi_filter` (single definition,
+  clean dependency direction).
+
 ### Changed - 2026-07-17
 
 #### Repository hygiene track — structure, docs, gates, zero warnings
