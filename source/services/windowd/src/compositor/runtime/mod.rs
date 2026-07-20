@@ -535,6 +535,11 @@ pub(crate) struct DisplayServerRuntime {
     desktop_surface_id: Option<u32>,
     #[cfg(nexus_env = "os")]
     desktop_channel: Option<u32>,
+    /// Nonce of a desktop surface whose event-channel attach raced BEHIND its
+    /// `OP_SURFACE_CREATE`; bound late in `complete_deferred_desktop_bind` so the
+    /// desktop is never left channel-less (stuck fallback surface).
+    #[cfg(nexus_env = "os")]
+    desktop_pending_nonce: Option<u64>,
     desktop_band: Option<crate::atlas::AtlasSurface>,
     desktop_dirty: bool,
     /// One-shot frame pulse armed by the desktop surface (shell scroll).
@@ -887,6 +892,8 @@ impl DisplayServerRuntime {
             desktop_surface_id: None,
             #[cfg(nexus_env = "os")]
             desktop_channel: None,
+            #[cfg(nexus_env = "os")]
+            desktop_pending_nonce: None,
             desktop_band: None,
             desktop_dirty: false,
             desktop_frame_pulse: false,

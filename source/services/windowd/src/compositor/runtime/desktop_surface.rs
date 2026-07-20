@@ -69,8 +69,14 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         if let Some(ch) = self.event_channel_for(nonce) {
             self.desktop_channel = Some(ch);
+            self.desktop_pending_nonce = None;
         } else {
-            let _ = debug_println("WINDOWD: FAIL desktop bind (no channel for nonce)");
+            // The event-channel attach for this nonce has not arrived yet — the
+            // desktop's OP_SURFACE_CREATE raced ahead of attach_app_event_channel.
+            // Defer the bind (complete it in that handler) instead of dropping the
+            // channel, which used to leave the desktop stuck at its fallback size.
+            self.desktop_pending_nonce = Some(nonce);
+            let _ = debug_println("WINDOWD: desktop bind deferred (channel not yet attached)");
         }
         self.desktop_dirty = true;
         self.desktop_dirty_rows = (0, u32::MAX);
@@ -107,6 +113,30 @@ impl DisplayServerRuntime {
     /// BEFORE a handler mutates the bookkeeping (destroy clears the id).
     pub(crate) fn desktop_surface_id_for_ack(&self) -> Option<u32> {
         self.desktop_surface_id
+    }
+
+    /// Complete a desktop bind that was deferred because the surface-create raced
+    /// ahead of its event-channel attach (see `create_desktop_surface`). Called
+    /// from `attach_app_event_channel` when the matching nonce lands: binds the
+    /// channel and pushes the full-screen content rect that the create path had
+    /// to skip, so the app re-creates the desktop at display size instead of
+    /// staying stuck at its pre-attach fallback surface.
+    #[cfg(nexus_env = "os")]
+    pub(super) fn complete_deferred_desktop_bind(&mut self, nonce: u64, slot: u32) {
+        if self.desktop_pending_nonce != Some(nonce) {
+            return;
+        }
+        self.desktop_channel = Some(slot);
+        self.desktop_pending_nonce = None;
+        let rect = wire::encode_surface_rect(
+            0,
+            0,
+            self.mode.width.min(u32::from(u16::MAX)) as u16,
+            self.mode.height.min(u32::from(u16::MAX)) as u16,
+        );
+        let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rect.len() as u32);
+        let _ = nexus_abi::ipc_send_v1(slot, &hdr, &rect, nexus_abi::IPC_SYS_NONBLOCK, 0);
+        let _ = debug_println("WINDOWD: desktop bind completed (late channel attach)");
     }
 
     /// Sends a frame on the DESKTOP channel (survives a desktop destroy — the

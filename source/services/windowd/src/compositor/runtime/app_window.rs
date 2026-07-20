@@ -711,6 +711,8 @@ impl DisplayServerRuntime {
             let pframe = wire::encode_surface_profile(self.shell_profile_wire());
             let phdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, pframe.len() as u32);
             let _ = nexus_abi::ipc_send_v1(slot, &phdr, &pframe, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            // Complete a desktop bind that raced ahead of this attach (if any).
+            self.complete_deferred_desktop_bind(nonce, slot);
         }
     }
 

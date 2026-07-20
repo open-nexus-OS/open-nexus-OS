@@ -2374,23 +2374,18 @@ pub fn boot_should_fold_verdicts() -> bool {
     }
 }
 
-/// The fw_cfg-configured display mode (RFC-0074 / ADR-0050), as `(width, height)`, or `None`
-/// when unknown/absent/host. The display server treats this as the AUTHORITATIVE mode it commands
-/// onto the scanout — sharing the kernel's fw_cfg-derived value without mapping fw_cfg itself,
-/// so QEMU's transient GTK window size can never latch a wrong mode.
+/// The fw_cfg-configured display mode (RFC-0074 / ADR-0050) as `(w, h)`, or `None` when
+/// unknown/absent/host. The display server treats this as the AUTHORITATIVE mode it commands
+/// onto the scanout — kernel-derived, so QEMU's transient GTK window size never latches wrong.
+/// (ABI monolith reduction deferred to a separate task — this stays inline for now.)
 #[must_use]
 pub fn boot_display_mode() -> Option<(u32, u32)> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        const SYSCALL_BOOT_DISPLAY_MODE: usize = 50;
-        let raw = unsafe { ecall0(SYSCALL_BOOT_DISPLAY_MODE) };
-        let packed = decode_syscall(raw).unwrap_or(0);
+        // SYSCALL_BOOT_DISPLAY_MODE (50) → packed `w | (h << 16)`, 0 = unknown.
+        let packed = decode_syscall(unsafe { ecall0(50) }).unwrap_or(0);
         let (w, h) = ((packed & 0xFFFF) as u32, (packed >> 16) as u32);
-        if w > 0 && h > 0 {
-            Some((w, h))
-        } else {
-            None
-        }
+        (w > 0 && h > 0).then_some((w, h))
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {

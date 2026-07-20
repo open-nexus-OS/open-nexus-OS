@@ -27,7 +27,7 @@
 1690	source/kernel/neuron/src/syscall/api/tests.rs
 957	source/kernel/neuron/src/syscall/api/vmo.rs
 1360	source/kernel/neuron/src/task/mod.rs
-4084	source/libs/nexus-abi/src/lib.rs
+4103	source/libs/nexus-abi/src/lib.rs
 965	source/libs/nexus-display-proto/src/client_surface.rs
 655	source/libs/nexus-event/src/lib.rs
 651	source/libs/nexus-evidence/src/lib.rs
@@ -62,9 +62,9 @@
 971	source/services/updated/src/os_lite.rs
 980	source/services/vfsd/src/std_server.rs
 853	source/services/windowd/src/compositor/mod.rs
-987	source/services/windowd/src/compositor/runtime/app_window.rs
+989	source/services/windowd/src/compositor/runtime/app_window.rs
 631	source/services/windowd/src/compositor/runtime/input.rs
-1103	source/services/windowd/src/compositor/runtime/mod.rs
+1110	source/services/windowd/src/compositor/runtime/mod.rs
 672	source/services/windowd/src/compositor/shell_window.rs
 1708	source/services/windowd/src/scene_graph.rs
 1328	source/services/windowd/src/server.rs

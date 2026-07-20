@@ -67,3 +67,24 @@ pub fn is_stalled(deadline_ticks: u64) -> bool {
     }
     read_time().wrapping_sub(last) > deadline_ticks
 }
+
+/// Watchdog diagnostic: dump every task's schedulable / blocked state so a
+/// fleet-collapse "no progress" panic names WHO is blocked on WHAT (endpoint /
+/// waitset / fence + deadline). Turns a silent early-boot park into a labeled
+/// snapshot for root-causing the lost-wakeup. Bounded — one line per task.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub fn dump_snapshot(tasks: &crate::task::TaskTable, now_ns: u64) {
+    let n = tasks.len();
+    log_error!(target: "watchdog", "liveness snapshot: now_ns={} tasks={}", now_ns, n);
+    for i in 0..n {
+        let Some(t) = tasks.task(crate::task::Pid::from_raw(i as u32)) else {
+            continue;
+        };
+        match t.block_reason() {
+            Some(r) => {
+                log_error!(target: "watchdog", "  pid={} state={:?} BLOCKED {:?}", i, t.state(), r)
+            }
+            None => log_error!(target: "watchdog", "  pid={} state={:?} runnable", i, t.state()),
+        }
+    }
+}

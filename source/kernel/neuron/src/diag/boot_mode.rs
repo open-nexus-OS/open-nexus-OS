@@ -186,7 +186,10 @@ pub fn parse_wxh(buf: &[u8]) -> Option<u32> {
     // its own layout max separately. Rejects garbage so a bad key never sizes
     // the scanout to a degenerate value.
     const MAX_DIM: u32 = 8192;
-    let end = buf.iter().position(|&c| c == 0 || c == b'\n' || c == b'\r' || c == b' ').unwrap_or(buf.len());
+    let end = buf
+        .iter()
+        .position(|&c| c == 0 || c == b'\n' || c == b'\r' || c == b' ')
+        .unwrap_or(buf.len());
     let text = &buf[..end];
     let sep = text.iter().position(|&c| c == b'x' || c == b'X')?;
     let w = parse_dim(&text[..sep], MAX_DIM)?;

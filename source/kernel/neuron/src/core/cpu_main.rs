@@ -136,7 +136,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             // root-causing the lost-wakeup instead of a bare "no progress".
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             if cpu.is_boot() && crate::liveness::is_stalled(crate::trap::DEFAULT_TICK_CYCLES * 3) {
-                tasks.dump_liveness_snapshot(timer.now());
+                crate::liveness::dump_snapshot(tasks, timer.now());
                 panic!("watchdog: no progress");
             }
 

@@ -766,37 +766,6 @@ impl TaskTable {
         self.tasks.get(pid.as_index())
     }
 
-    /// Watchdog diagnostic: dump every task's schedulable / blocked state so a
-    /// fleet-collapse "no progress" panic names WHO is blocked on WHAT (endpoint /
-    /// waitset / fence + deadline). Turns a silent early-boot park into a labeled
-    /// snapshot for root-causing the lost-wakeup. Bounded — one line per task.
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    pub fn dump_liveness_snapshot(&self, now_ns: u64) {
-        log_error!(
-            target: "watchdog",
-            "liveness snapshot: now_ns={} tasks={}",
-            now_ns,
-            self.tasks.len()
-        );
-        for (idx, task) in self.tasks.iter().enumerate() {
-            match task.block_reason() {
-                Some(reason) => log_error!(
-                    target: "watchdog",
-                    "  pid={} state={:?} BLOCKED {:?}",
-                    idx,
-                    task.state(),
-                    reason
-                ),
-                None => log_error!(
-                    target: "watchdog",
-                    "  pid={} state={:?} runnable",
-                    idx,
-                    task.state()
-                ),
-            }
-        }
-    }
-
     /// Returns the capability table of the current task.
     pub fn current_caps_mut(&mut self) -> &mut CapTable {
         self.current_task_mut().caps_mut()
