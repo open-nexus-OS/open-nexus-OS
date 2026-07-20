@@ -210,7 +210,7 @@ impl VirtioGpuBackend {
         let tc = rgba_f32(top);
         let bc = rgba_f32(bottom);
         let mut s = Submit3d::new();
-        self.emit_vector_state_to(&mut s, crate::gl_scanout::H_GLS_SURF, x, y, w, h);
+        self.emit_vector_state_to(&mut s, self.rt_back_surface(), x, y, w, h);
         s.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
             &[
@@ -372,7 +372,7 @@ impl VirtioGpuBackend {
         let c = rgba_f32(color);
 
         let mut s = Submit3d::new();
-        self.emit_vector_state_to(&mut s, crate::gl_scanout::H_GLS_SURF, sx0, sy0, rw, rh);
+        self.emit_vector_state_to(&mut s, self.rt_back_surface(), sx0, sy0, rw, rh);
         s.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
             &[

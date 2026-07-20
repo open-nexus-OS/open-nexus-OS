@@ -58,6 +58,11 @@ pub(crate) const DISPLAY_PLANE_HEIGHT: u32 = 800;
 pub(crate) const GPU_VIRGL_BACKING_BASE_VA: usize = 0x3800_0000;
 #[cfg(feature = "virgl")]
 pub(crate) const GPU_VIRGL_BACKING_STRIDE: usize = 0x0100_0000;
+/// Backing/scratch slot budget. 12 × 16MB stride ends at 0x4400_0000 — nothing
+/// else in gpud's VA map lives above 0x4000_0000. Was 8; the second scanout RT
+/// (double-buffered swapchain) pushed the worst-case boot allocation to 9.
+#[cfg(feature = "virgl")]
+pub(crate) const GPU_VIRGL_BACKING_SLOTS: usize = 12;
 
 pub(crate) fn ctrl_hdr(type_: u32) -> protocol::VirtioGpuCtrlHdr {
     protocol::VirtioGpuCtrlHdr { type_, flags: 0, fence_id: 0, ctx_id: 0, _padding: 0 }

@@ -44,33 +44,63 @@ use crate::protocol::{
     VIRTIO_GPU_CMD_SUBMIT_3D,
 };
 use crate::virgl::{
-    Submit3d, PIPE_BIND_RENDER_TARGET, PIPE_BIND_SAMPLER_VIEW, PIPE_BIND_SCANOUT,
-    PIPE_CLEAR_COLOR0, PIPE_FORMAT_B8G8R8A8_UNORM, PIPE_PRIM_TRIANGLES, PIPE_SHADER_FRAGMENT,
-    PIPE_SHADER_VERTEX, PIPE_TEXTURE_2D,
+    Submit3d, PIPE_BIND_RENDER_TARGET, PIPE_BIND_SAMPLER_VIEW, PIPE_CLEAR_COLOR0,
+    PIPE_FORMAT_B8G8R8A8_UNORM, PIPE_PRIM_TRIANGLES, PIPE_SHADER_FRAGMENT, PIPE_SHADER_VERTEX,
+    PIPE_TEXTURE_2D,
 };
 
-/// virtio resource id of the GL scanout render target.
-const GL_SCANOUT_RES: u32 = 0xE0;
-/// Surface handle for the scanout RT (context-scoped object namespace; the
+/// virtio resource id of the GL scanout render target (swapchain RT "A").
+pub(crate) const GL_SCANOUT_RES: u32 = 0xE0;
+/// Second swapchain RT ("B"). Every present renders the full buildup frame
+/// into the BACK RT and flips via SET_SCANOUT + RESOURCE_FLUSH as the batch
+/// tail, so the host GTK draw (which samples the scanout texture on QEMU's
+/// main loop, asynchronously under MTTCG) can never observe a mid-composite
+/// frame — the SMP=4 mouse/drag flicker fix.
+pub(crate) const GL_SCANOUT_RES_B: u32 = 0xE7;
+/// Surface handle for scanout RT A (context-scoped object namespace; the
 /// blur path owns 0x30..0x34, selftests 0x20..0x24, gradient 0x30s on 0xF6).
 pub(crate) const H_GLS_SURF: u32 = 0x42;
+/// Surface handle for scanout RT B.
+pub(crate) const H_GLS_SURF_B: u32 = 0x4E;
+/// Presentation mode: `true` = per-frame SET_SCANOUT flip between RT A/B
+/// (zero-copy, the production path). `false` = one-line bisection fallback:
+/// render into RT B, then one fullscreen RESOURCE_COPY_REGION B→A + flush(A)
+/// — a single virgl op, atomic w.r.t. the host redraw, at the cost of one
+/// fullscreen GPU copy per frame. Flip both ways if a QEMU build misbehaves
+/// on per-frame SET_SCANOUT.
+const SCANOUT_FLIP: bool = true;
+
+/// Swapchain state stored on the backend (one field there — see
+/// `VirtioGpuBackend::gl_swap`).
+#[derive(Default)]
+pub(crate) struct GlSwapState {
+    /// Guest backing VA of RT B (display-truth readback when B is front).
+    pub(crate) b_backing_va: usize,
+    /// Which RT the display shows: 0 = A (`GL_SCANOUT_RES`), 1 = B. Every
+    /// present renders into the BACK RT and flips, so the host GTK draw can
+    /// never sample a mid-composite frame (the SMP=4/MTTCG flicker fix).
+    /// Stays 0 forever in the copy-fallback and non-buildup configs.
+    pub(crate) front: u8,
+    /// One-shot latch for the honest `gpud: gl flip on` marker.
+    pub(crate) flip_marker_done: bool,
+}
 /// Fragment shader handle for the display-texture blit (VS is handle 10, the
 /// boot self-test's passthrough vertex shader, which persists in the context).
-const H_FS_BLIT: u32 = 14;
+pub(crate) const H_FS_BLIT: u32 = 14;
 /// Passthrough vertex shader created by `virgl_shader_test` at bringup.
-const H_VS: u32 = 10;
+pub(crate) const H_VS: u32 = 10;
 /// NON-ALIASED display texture: a 1280×800 GL texture with its OWN backing (not
 /// a VMO alias). The present copies windowd's composed frame into its backing,
 /// uploads it, and blits it to the scanout RT. Unlike the 0xF8 VMO-alias, QEMU
 /// presents a draw that samples this to the display (the black-screen fix).
-const H_DISPLAY_TEX: u32 = 0xE1;
+pub(crate) const H_DISPLAY_TEX: u32 = 0xE1;
 /// Sampler view of H_DISPLAY_TEX.
-const H_SV_DISPLAY_TEX: u32 = 0x44;
+pub(crate) const H_SV_DISPLAY_TEX: u32 = 0x44;
 /// Stage-2 wallpaper texture: a 1280×800 GL texture uploaded ONCE at init (no
 /// per-frame transfer) to test whether sampling a pre-uploaded texture presents.
-const H_WALLPAPER_TEX: u32 = 0xE2;
+pub(crate) const H_WALLPAPER_TEX: u32 = 0xE2;
 /// Sampler view of H_WALLPAPER_TEX.
-const H_SV_WALLPAPER: u32 = 0x45;
+pub(crate) const H_SV_WALLPAPER: u32 = 0x45;
 /// Backdrop scratch texture (screen-sized, GPU-only — no guest backing): before
 /// each glass layer composites, the RT region beneath it is copied here
 /// (`RESOURCE_COPY_REGION`) so the blur pass samples the DESTINATION-SO-FAR
@@ -88,9 +118,9 @@ const H_BLUR_TMP_SURF: u32 = 0x4C;
 /// Sampler view of H_BLUR_TMP_TEX.
 const H_SV_BLUR_TMP: u32 = 0x4D;
 /// Default sampler state (created by `virgl_blur_init`).
-const H_SAMPLER: u32 = 0x34;
+pub(crate) const H_SAMPLER: u32 = 0x34;
 /// Fullscreen −1..1 quad VBO (resource 0xFA, created by `virgl_blur_init`).
-const QUAD_RES: u32 = 0xFA;
+pub(crate) const QUAD_RES: u32 = 0xFA;
 
 // self.display_w/H are GONE: the visible mode is `self.display_w/h`, resolved at
 // probe from GET_DISPLAY_INFO (fallback 1280×800). The fixed RESOURCE layout
@@ -100,7 +130,6 @@ const QUAD_RES: u32 = 0xFA;
 // Boot-splash wordmark + glow: owned by `backend::bootstrap` (the earliest
 // phase that draws it — task #122 unified both splash phases onto one image);
 // the GL seed below renders through the same shared compose.
-use crate::backend::compose_splash_region;
 
 /// Incremental GPU compositor build-up — a DEBUG harness. From the confirmed-
 /// working base (solid clear + gradient panel — pure GL draws that DO present),
@@ -171,7 +200,7 @@ const SPIN_ORBIT_LUT: [(i32, i32); 16] = [
 /// CONST[0] = (scale_x, scale_y, offset_x, offset_y). The scale/offset form
 /// lets the caller flip V without a second shader if the host orientation
 /// ever requires it.
-const FS_BLIT: &str = "FRAG\n\
+pub(crate) const FS_BLIT: &str = "FRAG\n\
     DCL IN[0], POSITION, LINEAR\n\
     DCL OUT[0], COLOR\n\
     DCL SAMP[0]\n\
@@ -187,8 +216,8 @@ const FS_BLIT: &str = "FRAG\n\
 /// colour is multiplied by CONST[1] (the breathing brightness). A SEPARATE
 /// shader so the shared display blit path keeps its untouched fast shader —
 /// zero blast radius on steady-state presents.
-const H_FS_BLIT_TINT: u32 = 15;
-const FS_BLIT_TINT: &str = "FRAG\n\
+pub(crate) const H_FS_BLIT_TINT: u32 = 15;
+pub(crate) const FS_BLIT_TINT: &str = "FRAG\n\
     DCL IN[0], POSITION, LINEAR\n\
     DCL OUT[0], COLOR\n\
     DCL SAMP[0]\n\
@@ -201,14 +230,55 @@ const FS_BLIT_TINT: &str = "FRAG\n\
     END\n";
 
 impl VirtioGpuBackend {
+    /// Swapchain: resource id of the BACK RT — the one every present renders
+    /// into. Front/back swap on flip; with `SCANOUT_FLIP = false` the front
+    /// stays A forever, so the back is always B.
+    pub(crate) fn rt_back_res(&self) -> u32 {
+        if self.gl_swap.front == 0 {
+            GL_SCANOUT_RES_B
+        } else {
+            GL_SCANOUT_RES
+        }
+    }
+
+    /// Swapchain: surface handle of the BACK RT (framebuffer-state target for
+    /// every RT draw — buildup base, layers, blur, vector passes).
+    pub(crate) fn rt_back_surface(&self) -> u32 {
+        if self.gl_swap.front == 0 {
+            H_GLS_SURF_B
+        } else {
+            H_GLS_SURF
+        }
+    }
+
+    /// Swapchain: resource id of the FRONT RT — what the display shows.
+    fn rt_front_res(&self) -> u32 {
+        if self.gl_swap.front == 0 {
+            GL_SCANOUT_RES
+        } else {
+            GL_SCANOUT_RES_B
+        }
+    }
+
+    /// Guest backing VA of the FRONT RT (display-truth readback).
+    fn rt_front_backing_va(&self) -> usize {
+        if self.gl_swap.front == 0 {
+            self.gl_scanout_backing_va
+        } else {
+            self.gl_swap.b_backing_va
+        }
+    }
+
     /// P0.3 display truth: reads a small strip of the LIVE scanout render
     /// target back from the host GPU and returns the brightest pixel
     /// (BGRA). `None` when the GL scanout is not active. One-shot caller
     /// (first successful present) — this is the only place display-side
     /// truth exists WITHOUT host tooling: markers above this line are
-    /// compositor claims, this is what the screen actually holds.
+    /// compositor claims, this is what the screen actually holds. Reads the
+    /// FRONT RT — post-flip that is the frame the display actually shows.
     pub(crate) fn scanout_sample(&mut self) -> Option<[u8; 4]> {
-        if self.gl_scanout_backing_va == 0 {
+        let backing_va = self.rt_front_backing_va();
+        if backing_va == 0 {
             return None;
         }
         const SAMPLE_W: u32 = 64;
@@ -216,12 +286,12 @@ impl VirtioGpuBackend {
         let x = (self.display_w - SAMPLE_W) / 2;
         let y = (self.display_h - SAMPLE_H) / 2;
         self.virgl_transfer_from_host(
-            GL_SCANOUT_RES,
+            self.rt_front_res(),
             x,
             y,
             SAMPLE_W,
             SAMPLE_H,
-            (self.display_w * 4),
+            self.display_w * 4,
         )
         .ok()?;
         let mut best = [0u8; 4];
@@ -229,9 +299,7 @@ impl VirtioGpuBackend {
         for row in 0..SAMPLE_H {
             for col in 0..SAMPLE_W {
                 let off = ((y + row) * (self.display_w * 4) + (x + col) * 4) as usize;
-                let px = unsafe {
-                    core::ptr::read_volatile((self.gl_scanout_backing_va + off) as *const [u8; 4])
-                };
+                let px = unsafe { core::ptr::read_volatile((backing_va + off) as *const [u8; 4]) };
                 let sum = px[0] as u32 + px[1] as u32 + px[2] as u32;
                 if sum > best_sum {
                     best_sum = sum;
@@ -240,237 +308,6 @@ impl VirtioGpuBackend {
             }
         }
         Some(best)
-    }
-
-    /// G0: create the GL scanout render target, point the display at it, and
-    /// prove the GPU can put pixels on it (clear + flush). Requires the virgl
-    /// draw pipeline (boot self-tests green) and the framebuffer handoff
-    /// (display texture aliasing needs the fb VMO's physical base).
-    pub(crate) fn gl_scanout_init(&mut self) -> Result<(), GfxError> {
-        if !self.virgl_capable || !self.virgl_draw_ok || self.virgl_ctx_id == 0 {
-            return Err(GfxError::DeviceNotFound);
-        }
-        // Batch the whole GL-scanout bring-up (~49 virgl commands, incl. virgl_blur_init's):
-        // enqueue them onto the DriverKit ring WITHOUT a per-command wait. virgl processes the
-        // ring IN ORDER, so resource/shader creation still precedes the draws that use them.
-        // Previously each command blocked up to GPU_WAIT_DEADLINE_NS (500ms) on QEMU's deferred
-        // used-ring advance — ~49 × 500ms froze the bootsplash for ~12s. This is the same
-        // pipelining the present already uses; the init path was never migrated onto it.
-        // `ctrl_batch_end` runs even on the error path so a failed init can't leave the backend
-        // stuck in batch mode for the 2D fallback's synchronous commands.
-        self.ctrl_batch_begin();
-        let result = self.gl_scanout_init_batched();
-        let _ = self.ctrl_batch_end();
-        result
-    }
-
-    fn gl_scanout_init_batched(&mut self) -> Result<(), GfxError> {
-        // The display texture (0xF8), quad (0xFA), sampler view/state and the
-        // blit's source plumbing are shared with the blur pipeline.
-        if !self.virgl_blur_ready {
-            self.virgl_blur_init()?;
-        }
-
-        // Scanout RT: host GL texture QEMU can present directly. Guest backing
-        // is attached for the one-shot present parity readback (G1 proof).
-        let create = VirtioGpuResourceCreate3d {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
-            resource_id: GL_SCANOUT_RES,
-            target: PIPE_TEXTURE_2D,
-            format: PIPE_FORMAT_B8G8R8A8_UNORM,
-            bind: PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_SCANOUT,
-            width: self.display_w,
-            height: self.display_h,
-            depth: 1,
-            array_size: 1,
-            last_level: 0,
-            nr_samples: 0,
-            flags: 0,
-            _padding: 0,
-        };
-        self.ctrl_submit_struct(&create)?;
-        let ctx_attach = VirtioGpuCtxAttachResource {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
-            resource_id: GL_SCANOUT_RES,
-            _padding: 0,
-        };
-        self.ctrl_submit_struct(&ctx_attach)?;
-        self.gl_scanout_backing_va = self
-            .virgl_attach_backing(GL_SCANOUT_RES, (self.display_w * self.display_h * 4) as usize)?;
-
-        // NON-ALIASED display texture (1280×800, own backing — NOT a VMO alias).
-        // The present copies windowd's composed frame here and blits it to the RT;
-        // sampling this in the scanout draw presents (unlike the 0xF8 VMO-alias).
-        let create_dt = VirtioGpuResourceCreate3d {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
-            resource_id: H_DISPLAY_TEX,
-            target: PIPE_TEXTURE_2D,
-            format: PIPE_FORMAT_B8G8R8A8_UNORM,
-            bind: PIPE_BIND_SAMPLER_VIEW,
-            width: self.display_w,
-            height: self.display_h,
-            depth: 1,
-            array_size: 1,
-            last_level: 0,
-            nr_samples: 0,
-            flags: 0,
-            _padding: 0,
-        };
-        self.ctrl_submit_struct(&create_dt)?;
-        let dt_ctx = VirtioGpuCtxAttachResource {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
-            resource_id: H_DISPLAY_TEX,
-            _padding: 0,
-        };
-        self.ctrl_submit_struct(&dt_ctx)?;
-        self.gl_display_tex_va = self
-            .virgl_attach_backing(H_DISPLAY_TEX, (self.display_w * self.display_h * 4) as usize)?;
-
-        // Wallpaper texture: created here and seeded with recognizable BGRA color
-        // bands as a boot fallback (proves "a sampled texture renders"). The first
-        // build-up present replaces this content with the real wallpaper from VMO
-        // Plane 0 (see `try_upload_wallpaper_from_vmo`) — no per-frame transfer.
-        let create_wp = VirtioGpuResourceCreate3d {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
-            resource_id: H_WALLPAPER_TEX,
-            target: PIPE_TEXTURE_2D,
-            format: PIPE_FORMAT_B8G8R8A8_UNORM,
-            bind: PIPE_BIND_SAMPLER_VIEW,
-            width: self.display_w,
-            height: self.display_h,
-            depth: 1,
-            array_size: 1,
-            last_level: 0,
-            nr_samples: 0,
-            flags: 0,
-            _padding: 0,
-        };
-        self.ctrl_submit_struct(&create_wp)?;
-        let wp_ctx = VirtioGpuCtxAttachResource {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
-            resource_id: H_WALLPAPER_TEX,
-            _padding: 0,
-        };
-        self.ctrl_submit_struct(&wp_ctx)?;
-        let wp_va = self.virgl_attach_backing(
-            H_WALLPAPER_TEX,
-            (self.display_w * self.display_h * 4) as usize,
-        )?;
-        // Remember the backing so the first build-up present can fill it with the real
-        // wallpaper (windowd's decoded JPEG in VMO Plane 0, via try_upload_wallpaper_from_vmo).
-        self.gl_wallpaper_tex_va = wp_va as usize;
-        // Seed with the boot splash (brand radial glow + wordmark) via the ONE
-        // shared compose in `backend::bootstrap` — the identical image the 2D
-        // bootstrap scanout already shows (task #122), so the scanout switch to
-        // GL is visually seamless. The single frame before the real wallpaper
-        // lands reads as one uniform splash → desktop, never a fallback pattern.
-        {
-            let len = self.display_w as usize * self.display_h as usize * 4;
-            let dst = unsafe { core::slice::from_raw_parts_mut(wp_va as *mut u8, len) };
-            compose_splash_region(
-                dst,
-                self.display_w,
-                self.display_h,
-                0,
-                0,
-                self.display_w,
-                self.display_h,
-                256,
-            );
-        }
-        self.virgl_transfer_to_host(
-            H_WALLPAPER_TEX,
-            0,
-            0,
-            self.display_w,
-            self.display_h,
-            (self.display_w * 4),
-        )?;
-
-        // Surface + blit fragment shader (vertex shader 10 persists from boot).
-        let mut s = Submit3d::new();
-        s.emit_create_surface(H_GLS_SURF, GL_SCANOUT_RES, PIPE_FORMAT_B8G8R8A8_UNORM);
-        s.emit_create_sampler_view(H_SV_DISPLAY_TEX, H_DISPLAY_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
-        s.emit_create_sampler_view(H_SV_WALLPAPER, H_WALLPAPER_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
-        s.emit_create_shader(H_FS_BLIT, PIPE_SHADER_FRAGMENT, FS_BLIT);
-        s.emit_create_shader(H_FS_BLIT_TINT, PIPE_SHADER_FRAGMENT, FS_BLIT_TINT);
-        // G0 proof: GPU-clear the scanout RT so the first flip shows GPU output
-        // (dark slate, replaced by the real UI on the first present).
-        s.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
-        s.emit_set_viewport_box(0.0, 0.0, self.display_w as f32, self.display_h as f32);
-        // Initial GPU clear so the first flip shows GPU output (dark slate).
-        s.emit_clear(PIPE_CLEAR_COLOR0, [0.09, 0.10, 0.12, 1.0], 1.0, 0);
-        let bytes = s.as_bytes();
-        let hdr = VirtioGpuSubmit3d {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
-            size: bytes.len() as u32,
-            _padding: 0,
-        };
-        self.ctrl_submit_header_tail(&hdr, bytes)?;
-
-        // Paint the splash INTO the RT before the scanout switches to it, so the
-        // first frame the display ever shows is the branded glow + wordmark —
-        // never the bare clear above. Same fullscreen wallpaper-tex blit as the
-        // build-up present's stage-1 (the texture was seeded with the splash image
-        // earlier in this fn); enqueued in the same batch, so ring order
-        // guarantees it lands before SET_SCANOUT below. Tinted with the shared
-        // pulse curve so this frame is phase-continuous with the 2D text pulse
-        // before it and the hold-phase breathing after it.
-        let splash_f =
-            crate::backend::splash_pulse_q8(nexus_abi::nsec().unwrap_or(0)) as f32 / 256.0;
-        let mut sp = Submit3d::new();
-        sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, 0x20);
-        sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
-        sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
-        sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
-        sp.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
-        sp.emit_set_viewport_box(0.0, 0.0, self.display_w as f32, self.display_h as f32);
-        sp.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
-        sp.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
-        sp.emit_set_constant_buffer(
-            PIPE_SHADER_FRAGMENT,
-            &[
-                1.0 / self.display_w as f32,
-                1.0 / self.display_h as f32,
-                0.0,
-                0.0,
-                splash_f,
-                splash_f,
-                splash_f,
-                1.0,
-            ],
-        );
-        sp.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
-        sp.emit_bind_shader(H_FS_BLIT_TINT, PIPE_SHADER_FRAGMENT);
-        sp.emit_set_vertex_buffers(&[(16, 0, QUAD_RES)]);
-        sp.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
-        let sp_bytes = sp.as_bytes();
-        let sp_hdr = VirtioGpuSubmit3d {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
-            size: sp_bytes.len() as u32,
-            _padding: 0,
-        };
-        self.ctrl_submit_header_tail(&sp_hdr, sp_bytes)?;
-
-        // Point the display at the GL RT (full resource — no plane-row window;
-        // the 2D path's tall-VMO row addressing ends here).
-        let scanout = VirtioGpuSetScanout {
-            hdr: crate::backend::ctrl_hdr(VIRTIO_GPU_CMD_SET_SCANOUT),
-            r: protocol::VirtioGpuRect {
-                x: 0,
-                y: 0,
-                width: self.display_w,
-                height: self.display_h,
-            },
-            scanout_id: 0,
-            resource_id: GL_SCANOUT_RES,
-        };
-        self.ctrl_submit_struct(&scanout)?;
-        self.gl_flush_rect(Rect { x: 0, y: 0, width: self.display_w, height: self.display_h })?;
-
-        self.gl_scanout_active = true;
-        let _ = nexus_abi::debug_println(crate::markers::GPUD_GL_SCANOUT_OK);
-        Ok(())
     }
 
     /// Scroll fast path, RECORD half (analogue of `OP_MOVE_CURSOR`): store the
@@ -561,7 +398,10 @@ impl VirtioGpuBackend {
         sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
         sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
         sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
-        sw.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+        // Warmup draws into the BACK RT: the goal is only to trip QEMU's
+        // deferred-used-ring path once; the pixels are overwritten by the next
+        // present's fullscreen clear, and the visible front keeps the splash.
+        sw.emit_set_framebuffer_state(0, &[self.rt_back_surface()]);
         sw.emit_set_viewport_box(0.0, 0.0, self.display_w as f32, self.display_h as f32);
         sw.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
         sw.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
@@ -626,7 +466,7 @@ impl VirtioGpuBackend {
                 }
             }
         }
-        self.virgl_transfer_to_host(H_DISPLAY_TEX, x, y, w, h, (self.display_w * 4)).map_err(
+        self.virgl_transfer_to_host(H_DISPLAY_TEX, x, y, w, h, self.display_w * 4).map_err(
             |e| {
                 let _ = nexus_abi::debug_println(
                     "gpud: chain G4.1 display-tex upload FAIL (transfer_to_host)",
@@ -644,7 +484,11 @@ impl VirtioGpuBackend {
         s.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
         s.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
         s.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
-        s.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+        // NOTE (swapchain): this non-buildup path is dead on virgl
+        // (`COMPOSITOR_BUILDUP = true` short-circuits above) and documented
+        // black/broken (task #69). It draws into the back RT for consistency;
+        // reviving it means ending with `gl_present_flip`, not a partial flush.
+        s.emit_set_framebuffer_state(0, &[self.rt_back_surface()]);
         s.emit_set_viewport_box(x as f32, y as f32, w as f32, h as f32);
         s.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_DISPLAY_TEX]);
         s.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
@@ -763,7 +607,7 @@ impl VirtioGpuBackend {
                 0,
                 self.display_w,
                 self.display_h,
-                (self.display_w * 4),
+                self.display_w * 4,
             )
             .is_ok()
         {
@@ -880,6 +724,10 @@ impl VirtioGpuBackend {
         let y0 = y.saturating_sub(radius);
         let x1 = (x + w + radius).min(self.display_w);
         let y1 = (y + h + radius).min(self.display_h);
+        // Swapchain: the frame under construction lives in the BACK RT — both
+        // the destination-so-far snapshot and the blur draws must target it.
+        let back_res = self.rt_back_res();
+        let back_surf = self.rt_back_surface();
         let mut sb = Submit3d::new();
         if dst_so_far {
             // Snapshot the RT beneath the layer (+radius halo, clamped).
@@ -888,7 +736,7 @@ impl VirtioGpuBackend {
                     H_BACKDROP_TEX,
                     x0,
                     y0,
-                    GL_SCANOUT_RES,
+                    back_res,
                     x0,
                     y0,
                     x1 - x0,
@@ -927,7 +775,7 @@ impl VirtioGpuBackend {
             );
             sb.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
             // PASS 2 — VERTICAL: scratch → glass RT, exact layer rect.
-            sb.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+            sb.emit_set_framebuffer_state(0, &[back_surf]);
             sb.emit_set_viewport_box(x as f32, y as f32, w as f32, h as f32);
             sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_BLUR_TMP]);
             sb.emit_set_constant_buffer(
@@ -947,7 +795,7 @@ impl VirtioGpuBackend {
         } else {
             // Bring-up fallback (scratch textures not created yet): single
             // vertical pass over the static wallpaper, now with the real k.
-            sb.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+            sb.emit_set_framebuffer_state(0, &[back_surf]);
             sb.emit_set_viewport_box(x as f32, y as f32, w as f32, h as f32);
             sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
             sb.emit_set_constant_buffer(
@@ -1068,9 +916,13 @@ impl VirtioGpuBackend {
         // once at the end. A textured (sampling) draw whose completion QEMU defers no
         // longer blocks the next command — only the single drain waits for it.
         self.ctrl_batch_begin();
+        // Swapchain: EVERY draw of this present targets the BACK RT; the flip
+        // (SET_SCANOUT + flush) is the batch tail, so the host can only ever
+        // display complete frames.
+        let back_surf = self.rt_back_surface();
         // Background: solid clear (a later stage replaces this with the wallpaper).
         let mut s = Submit3d::new();
-        s.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+        s.emit_set_framebuffer_state(0, &[back_surf]);
         s.emit_set_viewport_box(0.0, 0.0, self.display_w as f32, self.display_h as f32);
         s.emit_clear(PIPE_CLEAR_COLOR0, [0.05, 0.07, 0.12, 1.0], 1.0, 0);
         let bytes = s.as_bytes();
@@ -1096,7 +948,7 @@ impl VirtioGpuBackend {
             sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
             sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
             sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
-            sw.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+            sw.emit_set_framebuffer_state(0, &[back_surf]);
             sw.emit_set_viewport_box(0.0, 0.0, self.display_w as f32, self.display_h as f32);
             sw.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
             sw.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
@@ -1179,7 +1031,7 @@ impl VirtioGpuBackend {
                 sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
                 sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
                 sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
-                sb.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+                sb.emit_set_framebuffer_state(0, &[back_surf]);
                 sb.emit_set_viewport_box(px as f32, py as f32, pw as f32, ph as f32);
                 sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
                 sb.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
@@ -1285,26 +1137,74 @@ impl VirtioGpuBackend {
             }
         }
 
-        // Enqueue the flush as the last command in the batch. Pipelined: we do NOT
-        // wait for this frame's completion — `ctrl_batch_end` only harvests prior
-        // frames (the NEXT present's enqueues drive this frame's completion). A
-        // textured draw whose completion QEMU defers therefore never blocks the
-        // present; it is reaped one frame later. (G3c "pipeline flowing" is emitted
-        // by ctrl_batch_end once a prior batch is reclaimed.)
+        // Make the just-rendered back RT visible as the last commands in the
+        // batch (SET_SCANOUT flip or the atomic copy fallback — see
+        // `gl_present_flip`). Pipelined: we do NOT wait for this frame's
+        // completion — `ctrl_batch_end` only harvests prior frames (the NEXT
+        // present's enqueues drive this frame's completion). A textured draw
+        // whose completion QEMU defers therefore never blocks the present; it
+        // is reaped one frame later. (G3c "pipeline flowing" is emitted by
+        // ctrl_batch_end once a prior batch is reclaimed.)
         let first = !self.gl_present_parity_done;
-        let _ =
-            self.gl_flush_rect(Rect { x: 0, y: 0, width: self.display_w, height: self.display_h });
+        let flip_submitted = self.gl_present_flip().is_ok();
         if first {
             self.gl_present_parity_done = true;
             let _ = nexus_abi::trace_line("gpud: compositor buildup present");
             let _ = nexus_abi::debug_println(crate::markers::GPUD_CHAIN_BATCH_SUBMIT);
         }
-        self.ctrl_batch_end()
+        let end = self.ctrl_batch_end();
+        // Honest one-shot: the first back-RT frame + flip actually reached the
+        // ring and the batch closed cleanly — the swapchain is live.
+        if SCANOUT_FLIP && flip_submitted && end.is_ok() && !self.gl_swap.flip_marker_done {
+            self.gl_swap.flip_marker_done = true;
+            let _ = nexus_abi::debug_println("gpud: gl flip on");
+        }
+        end
     }
 
-    /// RESOURCE_FLUSH on the scanout RT — on virtio-gpu-gl this triggers the
-    /// host display update (`dpy_gl_update`), i.e. the visible flip.
-    fn gl_flush_rect(&mut self, rect: Rect) -> Result<(), GfxError> {
+    /// Present the BACK RT. `SCANOUT_FLIP` (production): SET_SCANOUT to the
+    /// back RT, swap front/back, flush the new front — zero-copy page flip.
+    /// Fallback: one fullscreen RESOURCE_COPY_REGION back→front + flush —
+    /// a single virgl op, atomic w.r.t. the host redraw (no swap; the front
+    /// stays RT A). Both variants ride the current batch: ring order places
+    /// them after every draw of the frame.
+    fn gl_present_flip(&mut self) -> Result<(), GfxError> {
+        let full = Rect { x: 0, y: 0, width: self.display_w, height: self.display_h };
+        if SCANOUT_FLIP {
+            let back = self.rt_back_res();
+            let scanout = VirtioGpuSetScanout {
+                hdr: crate::backend::ctrl_hdr(VIRTIO_GPU_CMD_SET_SCANOUT),
+                r: protocol::VirtioGpuRect {
+                    x: 0,
+                    y: 0,
+                    width: self.display_w,
+                    height: self.display_h,
+                },
+                scanout_id: 0,
+                resource_id: back,
+            };
+            self.ctrl_submit_struct(&scanout)?;
+            // The back RT is now the front; the next present renders the other one.
+            self.gl_swap.front ^= 1;
+            self.gl_flush_rect(full)
+        } else {
+            let (front, back) = (self.rt_front_res(), self.rt_back_res());
+            let mut s = Submit3d::new();
+            s.emit_resource_copy_region(front, 0, 0, back, 0, 0, self.display_w, self.display_h);
+            let bytes = s.as_bytes();
+            let hdr = VirtioGpuSubmit3d {
+                hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
+                size: bytes.len() as u32,
+                _padding: 0,
+            };
+            self.ctrl_submit_header_tail(&hdr, bytes)?;
+            self.gl_flush_rect(full)
+        }
+    }
+
+    /// RESOURCE_FLUSH on the FRONT scanout RT — on virtio-gpu-gl this triggers
+    /// the host display update (`dpy_gl_update`), i.e. the visible flip.
+    pub(crate) fn gl_flush_rect(&mut self, rect: Rect) -> Result<(), GfxError> {
         let flush = VirtioGpuResourceFlush {
             hdr: crate::backend::ctrl_hdr(VIRTIO_GPU_CMD_RESOURCE_FLUSH),
             r: protocol::VirtioGpuRect {
@@ -1313,7 +1213,7 @@ impl VirtioGpuBackend {
                 width: rect.width,
                 height: rect.height,
             },
-            resource_id: GL_SCANOUT_RES,
+            resource_id: self.rt_front_res(),
             _padding: 0,
         };
         self.ctrl_submit_struct(&flush)

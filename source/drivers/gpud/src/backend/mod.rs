@@ -278,6 +278,9 @@ pub struct VirtioGpuBackend {
     /// Guest backing VA of the GL scanout RT (parity readback only).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) gl_scanout_backing_va: usize,
+    /// Double-buffered scanout swapchain state (see `gl_scanout::GlSwapState`).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) gl_swap: crate::gl_scanout::GlSwapState,
     /// Guest backing VA of the NON-ALIASED display texture (own backing, not a
     /// VMO alias). The present copies windowd's VMO frame here, uploads it, and
     /// blits it to the scanout RT — avoiding the 0xF8 VMO-alias that QEMU's GL
@@ -547,6 +550,8 @@ impl VirtioGpuBackend {
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_scanout_backing_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            gl_swap: Default::default(),
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_display_tex_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_wallpaper_tex_va: 0,
@@ -678,7 +683,7 @@ impl VirtioGpuBackend {
         {
             let device = if self.ctrlq.is_some() { self.ctrl_query_display_info() } else { None };
             if let Some((w, h)) = device {
-                emit_display_info_marker(w, h); // diagnostic: advertised capability
+                display_mode::emit_display_info_marker(w, h); // diagnostic: advertised capability
             }
             let configured = nexus_abi::boot_display_mode();
             let (rw, rh) = display_mode::resolve_display_mode(configured, device, (1280, 800));
@@ -782,41 +787,4 @@ impl GfxBackend for VirtioGpuBackend {
         self.move_cursor_os(x as u32, y as u32)?;
         Ok(())
     }
-}
-
-/// `gpud: display info WxH` — the resolved visible mode (alloc-free: gpud's
-/// stack-buffer marker pattern, the heap never sees boot markers).
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-fn emit_display_info_marker(w: u32, h: u32) {
-    fn put(buf: &mut [u8; 40], p: &mut usize, s: &[u8]) {
-        for &b in s {
-            if *p < buf.len() {
-                buf[*p] = b;
-                *p += 1;
-            }
-        }
-    }
-    fn put_dec(buf: &mut [u8; 40], p: &mut usize, mut v: u32) {
-        let mut tmp = [0u8; 10];
-        let mut n = 0;
-        loop {
-            tmp[n] = b'0' + (v % 10) as u8;
-            v /= 10;
-            n += 1;
-            if v == 0 {
-                break;
-            }
-        }
-        while n > 0 {
-            n -= 1;
-            put(buf, p, &tmp[n..=n]);
-        }
-    }
-    let mut buf = [0u8; 40];
-    let mut p = 0usize;
-    put(&mut buf, &mut p, b"gpud: display info ");
-    put_dec(&mut buf, &mut p, w);
-    put(&mut buf, &mut p, b"x");
-    put_dec(&mut buf, &mut p, h);
-    let _ = nexus_abi::trace_line(core::str::from_utf8(&buf[..p]).unwrap_or("gpud: display info"));
 }

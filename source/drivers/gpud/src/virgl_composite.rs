@@ -544,7 +544,7 @@ impl VirtioGpuBackend {
             // Live resize: bilinear-scale the band source up to the frame dest —
             // the window body grows; snaps sharp when the client re-renders.
             self.submit_layer_pass_scaled(
-                crate::gl_scanout::H_GLS_SURF,
+                self.rt_back_surface(),
                 ATLAS_SVIEW,
                 1280,
                 ATLAS_ROWS,
@@ -562,7 +562,7 @@ impl VirtioGpuBackend {
             )
         } else {
             self.submit_layer_pass(
-                crate::gl_scanout::H_GLS_SURF,
+                self.rt_back_surface(),
                 ATLAS_SVIEW,
                 1280,
                 ATLAS_ROWS,
@@ -754,7 +754,7 @@ impl VirtioGpuBackend {
         let dw = if self.icon_dst_w == 0 { tw } else { self.icon_dst_w };
         let dh = if self.icon_dst_h == 0 { th } else { self.icon_dst_h };
         self.submit_layer_pass_scaled(
-            crate::gl_scanout::H_GLS_SURF,
+            self.rt_back_surface(),
             H_ICON_SVIEW,
             tw,
             th,
@@ -790,7 +790,7 @@ impl VirtioGpuBackend {
         blend: u32,
     ) -> Result<(), GfxError> {
         self.submit_layer_pass_scaled(
-            crate::gl_scanout::H_GLS_SURF,
+            self.rt_back_surface(),
             content_sview,
             tex_w,
             tex_h,

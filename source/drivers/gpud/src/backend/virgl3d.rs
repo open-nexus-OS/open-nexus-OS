@@ -10,7 +10,8 @@
 
 use super::raster::blur_backdrop_separable_vmo;
 use super::transport::{
-    align_page, read_reg, write_reg, GPU_VIRGL_BACKING_BASE_VA, GPU_VIRGL_BACKING_STRIDE,
+    align_page, read_reg, write_reg, GPU_VIRGL_BACKING_BASE_VA, GPU_VIRGL_BACKING_SLOTS,
+    GPU_VIRGL_BACKING_STRIDE,
 };
 use super::VirtioGpuBackend;
 use crate::error::GpuDriverError;
@@ -23,7 +24,6 @@ use nexus_gfx::backend::error::GfxError;
 impl VirtioGpuBackend {
     /// Create a virgl rendering context for GPU shader dispatch.
     /// Must be called after probe_os() (ctrlq is set up).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn create_virgl_context(&mut self) -> Result<(), GpuDriverError> {
         use crate::protocol::{
             VirtioGpuCtrlHdr, VirtioGpuCtxCreate, VIRTIO_GPU_CAPSET_VIRGL2,
@@ -62,7 +62,6 @@ impl VirtioGpuBackend {
     /// context routing work before the full blur pipeline is built; it does not
     /// touch the blur path (blur stays on the CPU separable gaussian until the
     /// GPU shader lands).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn submit3d_selftest(&mut self) -> Result<(), GfxError> {
         use crate::protocol::{VirtioGpuCtrlHdr, VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
         let mut stream = crate::virgl::Submit3d::new();
@@ -84,7 +83,6 @@ impl VirtioGpuBackend {
 
     /// A virtio-gpu control header carrying our virgl context id (3D commands
     /// are context-scoped, unlike the 2D path which uses ctx_id 0).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn virgl_hdr(&self, type_: u32) -> protocol::VirtioGpuCtrlHdr {
         protocol::VirtioGpuCtrlHdr {
             type_,
@@ -98,7 +96,6 @@ impl VirtioGpuBackend {
     /// Create a 3D render-target texture and attach it to the virgl context.
     /// Bound as both RENDER_TARGET (draw destination) and SAMPLER_VIEW (so the
     /// blur shader can later read a source texture of the same shape).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn virgl_create_rt(&mut self, res_id: u32, w: u32, h: u32) -> Result<(), GfxError> {
         use crate::protocol::{
             VirtioGpuCtxAttachResource, VirtioGpuResourceCreate3d,
@@ -138,7 +135,6 @@ impl VirtioGpuBackend {
     /// (resource → surface → framebuffer → clear) end-to-end against
     /// virglrenderer before shaders/draw are introduced. Does not touch the
     /// blur path.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn virgl_rt_clear_test(&mut self) -> Result<(), GfxError> {
         use crate::protocol::{VirtioGpuCtrlHdr, VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
         use crate::virgl::{Submit3d, PIPE_CLEAR_COLOR0, PIPE_FORMAT_B8G8R8A8_UNORM};
@@ -166,11 +162,20 @@ impl VirtioGpuBackend {
         self.ctrl_submit_header_tail(&hdr, bytes)
     }
 
+    /// Next free backing/scratch VA slot (bounded by `GPU_VIRGL_BACKING_SLOTS`).
+    /// Returns `(slot, va)`; the caller bumps `virgl_backing_count` on success.
+    fn virgl_backing_slot(&self) -> Result<(usize, usize), GfxError> {
+        let slot = self.virgl_backing_count;
+        if slot >= GPU_VIRGL_BACKING_SLOTS {
+            return Err(GfxError::ResourceExhausted);
+        }
+        Ok((slot, GPU_VIRGL_BACKING_BASE_VA + slot * GPU_VIRGL_BACKING_STRIDE))
+    }
+
     /// Allocate a guest VMO, map it into the virgl backing VA region, and
     /// attach it as the backing store of `res_id` (then attach the resource to
     /// the virgl context). Returns the backing VA for CPU access after
     /// TRANSFER_FROM_HOST_3D.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn virgl_attach_backing(
         &mut self,
         res_id: u32,
@@ -180,11 +185,7 @@ impl VirtioGpuBackend {
             VirtioGpuCtxAttachResource, VirtioGpuMemEntry, VirtioGpuResourceAttachBacking,
             VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
         };
-        let slot = self.virgl_backing_count;
-        if slot >= 8 {
-            return Err(GfxError::ResourceExhausted);
-        }
-        let backing_va = GPU_VIRGL_BACKING_BASE_VA + slot * GPU_VIRGL_BACKING_STRIDE;
+        let (slot, backing_va) = self.virgl_backing_slot()?;
         let backing_len = align_page(byte_len);
         let vmo = nexus_abi::vmo_create(backing_len).map_err(|_| GfxError::ResourceExhausted)?;
         let flags = nexus_abi::page_flags::VALID
@@ -218,7 +219,6 @@ impl VirtioGpuBackend {
 
     /// Issue TRANSFER_FROM_HOST_3D for a full-width box of `res_id` and wait
     /// for completion — host GPU contents land in the resource's guest backing.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn virgl_transfer_from_host(
         &mut self,
         res_id: u32,
@@ -250,7 +250,6 @@ impl VirtioGpuBackend {
     ///
     /// This verifies the entire 3D path end-to-end on-device — no display
     /// needed: if the pixels read back red, the GPU really rasterized our draw.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn virgl_draw_selftest(&mut self) -> Result<[u8; 4], GfxError> {
         use crate::protocol::{VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
         use crate::virgl::{
@@ -360,7 +359,6 @@ impl VirtioGpuBackend {
     ///
     /// Returns `true` if the read-back top and bottom rows differ (interpolation
     /// happened), `false` if the quad came out flat.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn virgl_gradient_selftest(&mut self) -> Result<bool, GfxError> {
         use crate::protocol::{VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
         use crate::virgl::{
@@ -524,7 +522,6 @@ END\n";
     /// foundation for the gaussian blur fragment shader). Object handles 10/11
     /// are reserved for these shaders within the virgl context.
     ///
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn virgl_shader_test(&mut self) -> Result<(), GfxError> {
         use crate::protocol::{VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
         use crate::virgl::{Submit3d, PIPE_SHADER_FRAGMENT, PIPE_SHADER_VERTEX};
@@ -544,7 +541,6 @@ END\n";
 
     /// Issue TRANSFER_TO_HOST_3D for a box of `res_id` (guest backing → host
     /// GL texture) and wait for completion.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn virgl_transfer_to_host(
         &mut self,
         res_id: u32,
@@ -576,7 +572,6 @@ END\n";
     /// TRANSFER_FROM_HOST lands the result directly in the scanned-out VMO.
     /// Reuses the boot self-test's blend/DSA/rasterizer/vertex-elements and
     /// vertex shader (context-persistent objects).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn virgl_blur_init(&mut self) -> Result<(), GfxError> {
         use crate::protocol::{
             VirtioGpuCtxAttachResource, VirtioGpuMemEntry, VirtioGpuResourceAttachBacking,
@@ -748,7 +743,6 @@ END\n";
     /// fallback in `blur_backdrop_separable_vmo` remains the parity reference —
     /// on the first GPU blur the result is compared against it (interior of
     /// the region, tolerance 2 LSB) and a parity marker is emitted.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn submit_virgl_blur(
         &mut self,
@@ -912,13 +906,8 @@ END\n";
 
     /// Allocate and map a page-aligned scratch VMO in the virgl backing VA
     /// region (no resource attach). Returns the VA.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn virgl_alloc_scratch(&mut self, byte_len: usize) -> Result<usize, GfxError> {
-        let slot = self.virgl_backing_count;
-        if slot >= 8 {
-            return Err(GfxError::ResourceExhausted);
-        }
-        let va = GPU_VIRGL_BACKING_BASE_VA + slot * GPU_VIRGL_BACKING_STRIDE;
+        let (slot, va) = self.virgl_backing_slot()?;
         let len = align_page(byte_len);
         let vmo = nexus_abi::vmo_create(len).map_err(|_| GfxError::ResourceExhausted)?;
         let flags = nexus_abi::page_flags::VALID
@@ -940,7 +929,6 @@ END\n";
     /// We ack VIRGL (3D), CONTEXT_INIT (so CTX_CREATE may select the VIRGL2
     /// capset), and VERSION_1 (modern virtio — the queue is already driven via
     /// the split DESC/DRIVER/DEVICE registers, so VERSION_1 is the correct mode).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn negotiate_features_virgl(&mut self) {
         // Low feature word (bits 0..31).
         write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DEVICE_FEATURES_SEL, 0);

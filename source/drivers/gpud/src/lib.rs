@@ -28,6 +28,11 @@ pub mod virgl;
 #[cfg(feature = "virgl")]
 pub mod gl_scanout;
 
+/// GL-scanout bring-up (G0): swapchain RTs + textures + shaders + splash +
+/// initial SET_SCANOUT. Split out of `gl_scanout.rs` (structure-gate).
+#[cfg(feature = "virgl")]
+pub mod gl_scanout_init;
+
 /// GPU vector pipeline (G3/M1b-c): SDF gradient fills + soft drop shadows as
 /// virgl fragment-shader passes. Empty unless the virgl OS build is active.
 #[cfg(feature = "virgl")]
