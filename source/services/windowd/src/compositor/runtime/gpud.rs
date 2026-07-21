@@ -113,7 +113,13 @@ impl DisplayServerRuntime {
                             self.note_present_completed();
                             self.note_present_acked_clean();
                         }
-                    } else if n >= 5 {
+                    } else if n >= 5
+                        && matches!(
+                            status,
+                            Some(nexus_display_proto::STATUS_MALFORMED)
+                                | Some(nexus_display_proto::STATUS_DEVICE_ERROR)
+                        )
+                    {
                         // Present NACK (P0.3): gpud measured a failed/deadline-missed
                         // present (`gpud: FAIL present deadline`). The ROUTE is
                         // healthy — the FRAME failed. Requeue the damage (bounded,
@@ -126,6 +132,19 @@ impl DisplayServerRuntime {
                             ));
                         }
                         self.note_present_nacked();
+                    } else if n >= 5 {
+                        // FOREIGN frame on the reply channel — not a gpud present
+                        // verdict (real stati are 0/1/2; observed 0x49/'I' and
+                        // 0x30/OP_TIMER_FIRED bytes at boot). Treating these as
+                        // NACKs triggered full-recompose retry bursts during the
+                        // very bring-up window where the desktop-bind handshake
+                        // runs. Log (the storm is the diagnosis) + skip — no
+                        // accounting change, no requeue.
+                        if let Some(status) = status {
+                            let _ = debug_println(&alloc::format!(
+                                "windowd: gpud reply foreign frame op=0x{status:02x} len={n}"
+                            ));
+                        }
                     } else if n == 1 {
                         // Failed fire-and-forget op (cursor move). Soft-fail: drop to
                         // the software cursor path but keep the present pipeline alive.

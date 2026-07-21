@@ -697,17 +697,18 @@ impl DisplayServerRuntime {
                 let last = self.event_channels.len() - 1;
                 self.event_channels[last] = (nonce, slot);
             }
-            let _ = debug_println("WINDOWD: app event channel attached");
-            // Push the active theme mode NOW (before the app mounts) so it
-            // renders with the same tokens as the compositor (dark desktop ⇒
-            // dark app). Direct to the pending slot — the app is not yet bound
-            // to a role. On a live toggle, `push_app_theme` re-sends to all.
+            // Nonce logged: desktop-bind-race triage matches attach vs deferred bind.
+            let _ = debug_println(&alloc::format!(
+                "WINDOWD: app event channel attached nonce={nonce:#x}"
+            ));
+            // Push the active theme mode NOW (before the app mounts) so it renders
+            // with the compositor's tokens. Direct to the pending slot — the app is
+            // not yet role-bound; a live toggle re-sends via `push_app_theme`.
             let frame = wire::encode_surface_theme(self.theme_wire_byte());
             let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
             let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
-            // And the active SHELL PROFILE, so the app's `device.profile`
-            // selects the right `ui/platform/<profile>/` override arms at
-            // mount (tablet default, desktop override).
+            // And the active SHELL PROFILE: `device.profile` selects the right
+            // `ui/platform/<profile>/` override arms at mount.
             let pframe = wire::encode_surface_profile(self.shell_profile_wire());
             let phdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, pframe.len() as u32);
             let _ = nexus_abi::ipc_send_v1(slot, &phdr, &pframe, nexus_abi::IPC_SYS_NONBLOCK, 0);
@@ -716,8 +717,7 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// The active shell profile as its wire tag (`PROFILE_*`), derived from
-    /// the SystemUI shell config (the windowing-policy SSOT).
+    /// Active shell profile as its wire tag (from the SystemUI shell config SSOT).
     pub(crate) fn shell_profile_wire(&self) -> u8 {
         use nexus_display_proto::client_surface as wire;
         match self.shell_config.profile_id.as_str() {

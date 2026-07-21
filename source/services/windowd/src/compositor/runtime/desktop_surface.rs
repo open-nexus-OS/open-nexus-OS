@@ -76,7 +76,9 @@ impl DisplayServerRuntime {
             // Defer the bind (complete it in that handler) instead of dropping the
             // channel, which used to leave the desktop stuck at its fallback size.
             self.desktop_pending_nonce = Some(nonce);
-            let _ = debug_println("WINDOWD: desktop bind deferred (channel not yet attached)");
+            let _ = debug_println(&alloc::format!(
+                "WINDOWD: desktop bind deferred (channel not yet attached) nonce={nonce:#x}"
+            ));
         }
         self.desktop_dirty = true;
         self.desktop_dirty_rows = (0, u32::MAX);
