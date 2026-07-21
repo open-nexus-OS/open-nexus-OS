@@ -105,6 +105,15 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
     static EXEC_PROOF_EMITTED: [core::sync::atomic::AtomicUsize; crate::smp::MAX_CPUS] =
         [const { core::sync::atomic::AtomicUsize::new(0) }; crate::smp::MAX_CPUS];
 
+    // Fresh liveness window at loop entry: the bring-up phase before this loop
+    // is bounded but can be LONG without any bump — sequential hart_start waits
+    // up to 500ms per LOST hart (`wait_for_online_mask`). Losing hart1 leaves
+    // nobody bumping during that wait (hart2/3 start only afterwards), so the
+    // FIRST watchdog check below inherited a ~600ms-stale window and panicked
+    // before this hart ever scheduled — the fatal hart1-loss boot class (the
+    // user-visible "watchdog: no progress" right after "cpu0 sched loop").
+    crate::liveness::bump();
+
     loop {
         if cpu.is_boot() {
             // Watchdog backstop (~20ms): only fires if we can't even ACQUIRE the

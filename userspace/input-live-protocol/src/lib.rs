@@ -52,6 +52,9 @@ pub const EVENT_KIND_BTN: u8 = 4;
 const HEADER_LEN: usize = 8;
 const EVENT_LEN: usize = 15;
 pub const MAX_HID_BATCH_FRAME_LEN: usize = 256;
+/// Max wire events per frame — burst producers MUST chunk here: the encoder
+/// returns `None` oversize, and dropping a burst was the input-storm collapse.
+pub const MAX_HID_BATCH_EVENTS: usize = (MAX_HID_BATCH_FRAME_LEN - HEADER_LEN - 16) / EVENT_LEN;
 const STATE_LEN: usize = 62;
 pub const VISIBLE_STATE_FRAME_LEN: usize = HEADER_LEN + STATE_LEN;
 pub const MAX_TEXT_INPUT_BYTES: usize = 24;
@@ -167,24 +170,16 @@ impl VisibleState {
     }
 }
 
+/// Allocating convenience wrapper over [`encode_push_hid_batch_into`] (tests /
+/// host callers). Panics on oversize batches — chunk at `MAX_HID_BATCH_EVENTS`.
 pub fn encode_push_hid_batch(batch: &WireHidBatch) -> Vec<u8> {
-    let mut out = Vec::with_capacity(HEADER_LEN + 16 + batch.events.len() * EVENT_LEN);
-    out.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_PUSH_HID_BATCH]);
-    out.extend_from_slice(&(batch.events.len() as u32).to_le_bytes());
-    out.push(batch.device_kind);
-    out.extend_from_slice(&batch.device_id.to_le_bytes());
-    out.push(batch.pointer_source);
-    out.extend_from_slice(&batch.abs_max_x.to_le_bytes());
-    out.extend_from_slice(&batch.abs_max_y.to_le_bytes());
-    out.extend_from_slice(&batch.raw_event_count.to_le_bytes());
-    out.extend_from_slice(&batch.normalized_event_count.to_le_bytes());
-    for event in &batch.events {
-        out.push(event.kind);
-        out.extend_from_slice(&event.code.to_le_bytes());
-        out.extend_from_slice(&event.value.to_le_bytes());
-        out.extend_from_slice(&event.timestamp_ns.to_le_bytes());
+    let mut buf = [0u8; MAX_HID_BATCH_FRAME_LEN];
+    match encode_push_hid_batch_into(batch, &mut buf) {
+        Some(len) => buf[..len].to_vec(),
+        // Oversize (> MAX_HID_BATCH_EVENTS): empty frame — decode rejects it
+        // loudly; producers must chunk.
+        None => Vec::new(),
     }
-    out
 }
 
 /// Encode a HID batch into a pre-allocated stack buffer. Returns bytes written.

@@ -16,7 +16,7 @@ use core::time::Duration;
 use hid::{HidEvent, TimestampNs};
 use input_live_protocol::{
     encode_push_hid_batch_into, WireHidBatch, WireHidEvent, HID_KIND_KEYBOARD, HID_KIND_MOUSE,
-    MAX_HID_BATCH_FRAME_LEN, POINTER_SOURCE_NONE,
+    MAX_HID_BATCH_EVENTS, MAX_HID_BATCH_FRAME_LEN, POINTER_SOURCE_NONE,
 };
 use nexus_abi::{
     cap_clone, cap_close, debug_println, debug_trace, ipc_recv_v1, irq_bind, irq_complete, nsec,
@@ -133,109 +133,153 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
 
         chain.note_wake_for_rate_line();
         let mut sent_any = false;
-        for device in &mut live_devices {
-            let Some(polled) = device.poll_batch(&mut service, &mut scratch) else {
-                continue;
-            };
-            chain.raw_batches = chain.raw_batches.saturating_add(1);
-            chain.raw_events =
-                chain.raw_events.saturating_add(u64::from(polled.evidence.raw_event_count()));
-            chain.note_rx_for_rate_line(u32::from(polled.evidence.raw_event_count()));
-            chain.normalized_events = chain
-                .normalized_events
-                .saturating_add(u64::from(polled.evidence.normalized_event_count()));
-            match polled.pointer_source {
-                None => chain.keyboard_batches = chain.keyboard_batches.saturating_add(1),
-                Some(PointerSource::MouseRelative) => {
-                    chain.mouse_relative_batches = chain.mouse_relative_batches.saturating_add(1)
-                }
-                Some(PointerSource::TabletAbsolute) => {
-                    chain.tablet_absolute_batches = chain.tablet_absolute_batches.saturating_add(1)
-                }
-                Some(PointerSource::TouchAbsolute) => {
-                    chain.touch_absolute_batches = chain.touch_absolute_batches.saturating_add(1)
-                }
+        // Level-triggered drain protocol (the input-rate ceiling fix): ACK the
+        // ISR latch FIRST, then drain — an event landing during the drain sets
+        // the latch FRESH, so it is either caught by the next pass of this loop
+        // or stays pending for immediate redelivery after `irq_complete` below.
+        // The old order (drain, then ack) wiped exactly those late events'
+        // latch: with QEMU refilling the ring the moment we requeue, the chain
+        // collapsed to backstop-paced ~30 wakes/s under a move storm.
+        'drain: loop {
+            for device in &live_devices {
+                device.driver.ack_interrupt();
             }
-            if !raw_gate_emitted && polled.evidence.raw_event_count() > 0 {
-                debug_println("hidrawd: virtio-input raw event seen")?;
-                // Input-chain hop I1: a raw HID event reached us from the device.
-                debug_println("hidrawd: chain I1 device event (raw HID polled)")?;
-                raw_gate_emitted = true;
-            }
-            if !normalized_gate_emitted && polled.evidence.normalized_event_count() > 0 {
-                debug_println("hidrawd: ingress adapter ready")?;
-                normalized_gate_emitted = true;
-            }
-            let Some(meta) = polled.wire_meta else {
-                chain.wire_batches_skipped = chain.wire_batches_skipped.saturating_add(1);
-                continue;
-            };
-            chain.wire_batches = chain.wire_batches.saturating_add(1);
-            let mut frame_buf = [0u8; MAX_HID_BATCH_FRAME_LEN];
-            // Move the reusable wire-event buffer into a transient batch for encoding,
-            // then move it straight back so its heap capacity survives to the next poll
-            // (zero steady-state alloc). `mem::take` leaves an empty `Vec` (no alloc).
-            let mut batch = WireHidBatch {
-                device_kind: meta.device_kind,
-                device_id: meta.device_id,
-                pointer_source: meta.pointer_source,
-                abs_max_x: meta.abs_max_x,
-                abs_max_y: meta.abs_max_y,
-                raw_event_count: meta.raw_event_count,
-                normalized_event_count: meta.normalized_event_count,
-                events: core::mem::take(&mut scratch.wire),
-            };
-            let encoded = encode_push_hid_batch_into(&batch, &mut frame_buf);
-            scratch.wire = core::mem::take(&mut batch.events);
-            let Some(frame_len) = encoded else {
-                continue;
-            };
-            let frame = &frame_buf[..frame_len];
-            let Some(current_client) = client.as_ref() else {
-                break;
-            };
-            // Drain inputd's acks into a stack buffer (the allocating `recv` would leak
-            // a `Vec` per ack on the non-freeing bump heap).
-            let mut drain = [0u8; 64];
-            while current_client.recv_into(Wait::NonBlocking, &mut drain).is_ok() {}
-            match current_client.send(&frame, Wait::NonBlocking) {
-                Ok(()) => {
-                    if !send_ok_emitted {
-                        debug_trace("dbg: hidrawd inputd send ok")?;
-                        // Input-chain hop I2: normalized wire batch sent to inputd.
-                        debug_println("hidrawd: chain I2 wire sent to inputd")?;
-                        send_ok_emitted = true;
+            let mut polled_any = false;
+            for device in &mut live_devices {
+                let Some(polled) = device.poll_batch(&mut service, &mut scratch) else {
+                    continue;
+                };
+                polled_any = true;
+                chain.raw_batches = chain.raw_batches.saturating_add(1);
+                chain.raw_events =
+                    chain.raw_events.saturating_add(u64::from(polled.evidence.raw_event_count()));
+                chain.note_rx_for_rate_line(u32::from(polled.evidence.raw_event_count()));
+                chain.normalized_events = chain
+                    .normalized_events
+                    .saturating_add(u64::from(polled.evidence.normalized_event_count()));
+                match polled.pointer_source {
+                    None => chain.keyboard_batches = chain.keyboard_batches.saturating_add(1),
+                    Some(PointerSource::MouseRelative) => {
+                        chain.mouse_relative_batches =
+                            chain.mouse_relative_batches.saturating_add(1)
+                    }
+                    Some(PointerSource::TabletAbsolute) => {
+                        chain.tablet_absolute_batches =
+                            chain.tablet_absolute_batches.saturating_add(1)
+                    }
+                    Some(PointerSource::TouchAbsolute) => {
+                        chain.touch_absolute_batches =
+                            chain.touch_absolute_batches.saturating_add(1)
                     }
                 }
-                Err(err) => {
-                    chain.send_failures = chain.send_failures.saturating_add(1);
-                    if !send_fail_emitted {
-                        debug_println(live_route_send_fail_label(err))?;
-                        // Input-chain hop I2 fail: inputd unreachable (reason above).
-                        debug_println("hidrawd: chain I2 wire send FAIL (inputd route)")?;
-                        send_fail_emitted = true;
-                    }
-                    if classify_live_route_send_error(map_live_route_send_error(err))
-                        == LiveRouteSendAction::ResetRoute
-                    {
-                        client = None;
-                        break;
+                if !raw_gate_emitted && polled.evidence.raw_event_count() > 0 {
+                    debug_println("hidrawd: virtio-input raw event seen")?;
+                    // Input-chain hop I1: a raw HID event reached us from the device.
+                    debug_println("hidrawd: chain I1 device event (raw HID polled)")?;
+                    raw_gate_emitted = true;
+                }
+                if !normalized_gate_emitted && polled.evidence.normalized_event_count() > 0 {
+                    debug_println("hidrawd: ingress adapter ready")?;
+                    normalized_gate_emitted = true;
+                }
+                let Some(meta) = polled.wire_meta else {
+                    chain.wire_batches_skipped = chain.wire_batches_skipped.saturating_add(1);
+                    // Bounded triage: WHY does a polled batch produce no wire
+                    // events? (raw>0 with norm=0 = the normalize filter; the
+                    // storm-collapse signature tx=0.)
+                    if chain.wire_batches_skipped <= 3 {
+                        let _ = debug_println(&format!(
+                            "hidrawd: wire skip raw={} norm={} role={:?}",
+                            polled.evidence.raw_event_count(),
+                            polled.evidence.normalized_event_count(),
+                            polled.pointer_source,
+                        ));
                     }
                     continue;
+                };
+                chain.wire_batches = chain.wire_batches.saturating_add(1);
+                // CHUNKED send: a burst drain (device-ring backlog) can exceed
+                // MAX_HID_BATCH_EVENTS per frame — the encoder returns None for
+                // oversize batches, and dropping the whole burst silently was
+                // the input-storm collapse (tx=0 while events kept arriving).
+                // The reusable chunk Vec keeps the hot path alloc-free.
+                let mut chunk_start = 0usize;
+                while chunk_start < scratch.wire.len() {
+                    let chunk_end = (chunk_start + MAX_HID_BATCH_EVENTS).min(scratch.wire.len());
+                    scratch.wire_chunk.clear();
+                    scratch.wire_chunk.extend(scratch.wire[chunk_start..chunk_end].iter().copied());
+                    let chunk_len = (chunk_end - chunk_start) as u16;
+                    let mut frame_buf = [0u8; MAX_HID_BATCH_FRAME_LEN];
+                    // Move the reusable chunk buffer into a transient batch for
+                    // encoding, then straight back (capacity survives, no alloc).
+                    let mut batch = WireHidBatch {
+                        device_kind: meta.device_kind,
+                        device_id: meta.device_id,
+                        pointer_source: meta.pointer_source,
+                        abs_max_x: meta.abs_max_x,
+                        abs_max_y: meta.abs_max_y,
+                        raw_event_count: chunk_len,
+                        normalized_event_count: chunk_len,
+                        events: core::mem::take(&mut scratch.wire_chunk),
+                    };
+                    let encoded = encode_push_hid_batch_into(&batch, &mut frame_buf);
+                    scratch.wire_chunk = core::mem::take(&mut batch.events);
+                    chunk_start = chunk_end;
+                    let Some(frame_len) = encoded else {
+                        continue;
+                    };
+                    let frame = &frame_buf[..frame_len];
+                    let Some(current_client) = client.as_ref() else {
+                        break 'drain;
+                    };
+                    // Drain inputd's acks into a stack buffer (the allocating `recv`
+                    // would leak a `Vec` per ack on the non-freeing bump heap).
+                    let mut drain = [0u8; 64];
+                    while current_client.recv_into(Wait::NonBlocking, &mut drain).is_ok() {}
+                    match current_client.send(&frame, Wait::NonBlocking) {
+                        Ok(()) => {
+                            if !send_ok_emitted {
+                                debug_trace("dbg: hidrawd inputd send ok")?;
+                                // Input-chain hop I2: normalized wire batch sent to inputd.
+                                debug_println("hidrawd: chain I2 wire sent to inputd")?;
+                                send_ok_emitted = true;
+                            }
+                        }
+                        Err(err) => {
+                            chain.send_failures = chain.send_failures.saturating_add(1);
+                            if !send_fail_emitted {
+                                debug_println(live_route_send_fail_label(err))?;
+                                // Input-chain hop I2 fail: inputd unreachable (reason above).
+                                debug_println("hidrawd: chain I2 wire send FAIL (inputd route)")?;
+                                send_fail_emitted = true;
+                            }
+                            if classify_live_route_send_error(map_live_route_send_error(err))
+                                == LiveRouteSendAction::ResetRoute
+                            {
+                                client = None;
+                                break 'drain;
+                            }
+                            continue;
+                        }
+                    }
+                    chain.sent_batches = chain.sent_batches.saturating_add(1);
+                    chain.note_tx_for_rate_line();
+                    sent_any = true;
                 }
             }
-            chain.sent_batches = chain.sent_batches.saturating_add(1);
-            chain.note_tx_for_rate_line();
-            sent_any = true;
+            // A pass that drained nothing after an ack ⇒ ring empty AND latch
+            // clear — safe to unmask + park. (Bounded: each pass consumes real
+            // ring entries; an idle chain exits on its first pass.)
+            if !polled_any {
+                break 'drain;
+            }
         }
 
-        // Reactive idle: ack each device (de-assert its level-triggered IRQ) and
-        // re-arm its PLIC source, then BLOCK until the next device IRQ. The kernel
-        // routes the virtio-input IRQ to our endpoint (immediately via S_EXT, or
-        // within a tick via the timer backstop) and wakes this recv — no busy-poll.
-        for device in &live_devices {
-            device.driver.ack_interrupt();
-        }
+        // Reactive idle: the ISR latch was acked BEFORE the final (empty) drain
+        // pass above; re-arm the PLIC source and BLOCK until the next device
+        // IRQ. The kernel routes the virtio-input IRQ to our endpoint
+        // (immediately via S_EXT, or within a tick via the timer backstop) and
+        // wakes this recv — no busy-poll.
         chain.report_if_due();
         if let Some(ep) = irq_endpoint {
             for device in &live_devices {
@@ -488,12 +532,16 @@ struct IngressScratch {
     raw_ingress: Vec<RawIngressEvent>,
     hid: Vec<HidEvent>,
     wire: Vec<WireHidEvent>,
+    /// Reusable per-frame chunk of `wire` (burst drains split at
+    /// `MAX_HID_BATCH_EVENTS` — see the chunked send).
+    wire_chunk: Vec<WireHidEvent>,
 }
 
 impl IngressScratch {
     fn new() -> Self {
         Self {
             raw_input: Vec::with_capacity(64),
+            wire_chunk: Vec::with_capacity(MAX_HID_BATCH_EVENTS),
             raw_ingress: Vec::with_capacity(64),
             hid: Vec::with_capacity(64),
             wire: Vec::with_capacity(64),
