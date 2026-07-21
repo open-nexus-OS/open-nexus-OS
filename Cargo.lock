@@ -199,6 +199,7 @@ dependencies = [
  "nexus-text-baked",
  "nexus-theme-tokens",
  "nexus-vfs-types",
+ "nexus-wire",
 ]
 
 [[package]]
@@ -1408,15 +1409,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "ime"
+name = "ime-core"
 version = "0.1.0"
+dependencies = [
+ "keymaps",
+]
 
 [[package]]
 name = "imed"
 version = "0.1.0"
 dependencies = [
+ "ime-core",
  "nexus-abi",
+ "nexus-ipc",
  "nexus-service-entry",
+ "nexus-wire",
 ]
 
 [[package]]
@@ -1478,6 +1485,7 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-wire",
  "pointer-accel",
  "pointer-state",
  "touch",
@@ -3674,7 +3682,6 @@ dependencies = [
  "execd",
  "hid",
  "hidrawd",
- "ime",
  "input-live-protocol",
  "inputd",
  "keymaps",
@@ -4730,6 +4737,7 @@ dependencies = [
  "nexus-theme-tokens",
  "nexus-widget-text",
  "nexus-widget-window",
+ "nexus-wire",
  "pointer-state",
  "systemui",
 ]

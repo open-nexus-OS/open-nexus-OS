@@ -33,6 +33,7 @@ nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-display-proto = { path = "../../libs/nexus-display-proto" }
+nexus-wire = { path = "../../libs/nexus-wire" }
 # TASK-0080C: SSOT for cap→service→child-slot routing — the effect host
 # derives `svc.<name>` → provisioned fixed slot from this (no_std const table).
 nexus-sdk-routes = { path = "../../libs/nexus-sdk-routes" }

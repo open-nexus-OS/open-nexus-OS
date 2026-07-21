@@ -226,6 +226,13 @@ fn dispatch_client_frame(
     sender_sid: u64,
 ) {
     use nexus_ipc::Server as _;
+    // RFC-0075: imed pushes arrive on the same server endpoint but speak the
+    // `'I','E'` protocol — discriminate by MAGIC before the op switch (the
+    // `'I','N'` op space below would misread them). Fire-and-forget: no reply.
+    if frame.len() >= 4 && frame[0] == b'I' && frame[1] == b'E' {
+        runtime.handle_imed_push(frame, sender_sid);
+        return;
+    }
     if frame_has_op(frame, OP_GET_VISIBLE_STATE) {
         let response = encode_visible_state_frame(runtime.visible_state());
         if let Some(reply) = moved_cap.take() {
@@ -353,6 +360,12 @@ fn dispatch_client_frame(
         // Presentation control (theme / shell profile) from a shell surface.
         // Data-only frame; windowd applies live + persists via settingsd.
         runtime.handle_surface_control(frame, sender_sid);
+    } else if frame.get(3).copied()
+        == Some(nexus_display_proto::surface_text::OP_SURFACE_TEXT_FOCUS)
+    {
+        // Widget text-focus announcement (RFC-0075): record + relay to imed.
+        // Data-only frame; identity-resolved inside (sender's own surface).
+        runtime.handle_surface_text_focus(frame, sender_sid);
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_INTENT)
     {
         // Window intent (before create): the WM stores it + answers the content

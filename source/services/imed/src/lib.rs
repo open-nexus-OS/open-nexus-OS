@@ -1,95 +1,166 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Input Method Editor daemon stub for TASK-0059 / RFC-0058.
+//! CONTEXT: imed — the IME authority (RFC-0075): text-focus state + key
+//! composition (ime-core) + commit/action push planning. This crate half is
+//! host-testable and IPC-free; `os_lite` binds it to the wire.
 //! OWNERS: @ui
-//! STATUS: In Progress
-//! API_STABILITY: Unstable
-//! TEST_COVERAGE: Unit tests
-//! ADR: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
+//! STATUS: Functional
+//! API_STABILITY: Stable for RFC-0075 Phase 1
+//! TEST_COVERAGE: Unit tests below drive the full focus/key state machine.
+//! RFC: docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
 
 #![cfg_attr(all(nexus_env = "os", target_os = "none"), no_std)]
 #![forbid(unsafe_code)]
 
 extern crate alloc;
 
-/// Which surface has keyboard/IME focus.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+pub mod os_lite;
+
+use ime_core::{Commit, Composer, ImeAction, ImeKey};
+use nexus_wire::imed as wire;
+
+/// UART marker proving imed is registered and serving (RFC-0075 semantics:
+/// emitted only after the serve loop is armed — never by a stub).
+pub const READY_MARKER: &str = "imed: ready";
+
+/// The focused field as relayed by windowd (`OP_SET_FOCUS`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TextFocus {
+pub struct FocusState {
     pub surface_id: u64,
-    pub focused: bool,
+    pub field_kind: u8,
 }
 
-/// Caret position and selection range for a text input.
+/// Committed text for one push — bounded to one Latin composition step
+/// (composed char or dead-key fallback pair; ≤ 2 chars ≤ 8 UTF-8 bytes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct CaretSelection {
-    /// Caret position (byte offset into text content).
-    pub caret_pos: usize,
-    /// Selection anchor (start of selection). If equal to caret_pos, no selection.
-    pub anchor: usize,
+pub struct CommitText {
+    bytes: [u8; 8],
+    len: u8,
 }
 
-impl CaretSelection {
-    pub const fn new(caret_pos: usize) -> Self {
-        Self { caret_pos, anchor: caret_pos }
+impl CommitText {
+    fn from_commit(commit: &Commit) -> Self {
+        let mut out = Self::default();
+        for ch in commit.chars() {
+            let mut buf = [0u8; 4];
+            let encoded = ch.encode_utf8(&mut buf).as_bytes();
+            let len = usize::from(out.len);
+            // Bounded by construction (≤ 2 chars); guard anyway, fail-closed.
+            if len + encoded.len() > out.bytes.len() {
+                break;
+            }
+            out.bytes[len..len + encoded.len()].copy_from_slice(encoded);
+            out.len = (len + encoded.len()) as u8;
+        }
+        out
     }
 
-    pub fn has_selection(&self) -> bool {
-        self.caret_pos != self.anchor
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.bytes[..usize::from(self.len)]).unwrap_or("")
     }
 
-    pub fn selection_range(&self) -> core::ops::Range<usize> {
-        if self.anchor <= self.caret_pos {
-            self.anchor..self.caret_pos
-        } else {
-            self.caret_pos..self.anchor
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+/// What one key produced for the focused surface (both may be set: a dead
+/// key flushed by Enter commits the accent AND passes the action through).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct KeyPushes {
+    pub surface_id: u64,
+    pub commit: Option<CommitText>,
+    pub action: Option<u8>,
+}
+
+/// The IME state machine: windowd-relayed focus gates key processing;
+/// ime-core composes; outputs are push plans for the os_lite layer.
+#[derive(Debug, Default)]
+pub struct ImedCore {
+    composer: Composer,
+    focus: Option<FocusState>,
+}
+
+impl ImedCore {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn focus(&self) -> Option<FocusState> {
+        self.focus
+    }
+
+    /// Applies a windowd focus relay. Any focus TRANSITION cancels pending
+    /// composition state (a half-typed accent never leaks across fields).
+    pub fn set_focus(&mut self, surface_id: u64, focused: bool, field_kind: u8) {
+        let next = if focused { Some(FocusState { surface_id, field_kind }) } else { None };
+        if next != self.focus {
+            self.composer.reset();
+        }
+        self.focus = next;
+    }
+
+    /// Feeds one resolved key (wire `KEY_KIND_*`/`ACTION_*` vocabulary).
+    /// Returns `None` when unfocused (keys are DROPPED — imed is the gate;
+    /// inputd forwards unconditionally) or when the key only armed state.
+    pub fn key(&mut self, kind: u8, ch: u32, action: u8) -> Option<KeyPushes> {
+        let focus = self.focus?;
+        let key = decode_key(kind, ch, action)?;
+        let outcome = self.composer.feed(key);
+        if outcome.handled {
+            let commit =
+                (!outcome.commit.is_empty()).then(|| CommitText::from_commit(&outcome.commit));
+            let action = outcome.pass_action.map(encode_action);
+            if commit.is_none() && action.is_none() {
+                return None; // dead key armed — nothing to push yet
+            }
+            return Some(KeyPushes { surface_id: focus.surface_id, commit, action });
+        }
+        // Composition did not consume the key: text commits directly,
+        // actions pass through unchanged.
+        match key {
+            ImeKey::Text(ch) => Some(KeyPushes {
+                surface_id: focus.surface_id,
+                commit: Some(CommitText::from_commit(&Commit::one(ch))),
+                action: None,
+            }),
+            ImeKey::Action(act) => Some(KeyPushes {
+                surface_id: focus.surface_id,
+                commit: None,
+                action: Some(encode_action(act)),
+            }),
+            ImeKey::Dead(_) => None,
         }
     }
 }
 
-/// IME daemon state.
-#[derive(Debug, Clone)]
-pub struct ImedService {
-    pub ready: bool,
-    pub focus: Option<TextFocus>,
-    pub caret: CaretSelection,
+fn decode_key(kind: u8, ch: u32, action: u8) -> Option<ImeKey> {
+    match kind {
+        wire::KEY_KIND_TEXT => Some(ImeKey::Text(char::from_u32(ch)?)),
+        wire::KEY_KIND_DEAD => Some(ImeKey::Dead(char::from_u32(ch)?)),
+        wire::KEY_KIND_ACTION => Some(ImeKey::Action(match action {
+            wire::ACTION_ENTER => ImeAction::Enter,
+            wire::ACTION_ESCAPE => ImeAction::Escape,
+            wire::ACTION_BACKSPACE => ImeAction::Backspace,
+            wire::ACTION_TAB => ImeAction::Tab,
+            _ => return None,
+        })),
+        _ => None,
+    }
 }
 
-impl ImedService {
-    pub fn new() -> Self {
-        Self { ready: true, focus: None, caret: CaretSelection::default() }
-    }
-
-    /// Set keyboard focus to a surface.
-    pub fn set_focus(&mut self, surface_id: u64) {
-        self.focus = Some(TextFocus { surface_id, focused: true });
-    }
-
-    /// Clear keyboard focus.
-    pub fn clear_focus(&mut self) {
-        self.focus = None;
-    }
-
-    /// Move caret by a delta in characters. Clamped to [0, text_len].
-    pub fn move_caret(&mut self, text_len: usize, delta: i32) {
-        let pos = self.caret.caret_pos as i32 + delta;
-        self.caret.caret_pos = pos.max(0).min(text_len as i32) as usize;
-        self.caret.anchor = self.caret.caret_pos;
-    }
-
-    /// Set selection range.
-    pub fn set_selection(&mut self, anchor: usize, caret: usize, text_len: usize) {
-        self.caret.anchor = anchor.min(text_len);
-        self.caret.caret_pos = caret.min(text_len);
-    }
-
-    /// Ready marker string.
-    pub const READY_MARKER: &'static str = "imed: ready";
-}
-
-impl Default for ImedService {
-    fn default() -> Self {
-        Self::new()
+fn encode_action(action: ImeAction) -> u8 {
+    match action {
+        ImeAction::Enter => wire::ACTION_ENTER,
+        ImeAction::Escape => wire::ACTION_ESCAPE,
+        ImeAction::Backspace => wire::ACTION_BACKSPACE,
+        ImeAction::Tab => wire::ACTION_TAB,
     }
 }
 
@@ -97,50 +168,81 @@ impl Default for ImedService {
 mod tests {
     use super::*;
 
-    #[test]
-    fn caret_selection_default_no_selection() {
-        let cs = CaretSelection::default();
-        assert!(!cs.has_selection());
-        assert_eq!(cs.selection_range(), 0..0);
+    fn focused() -> ImedCore {
+        let mut core = ImedCore::new();
+        core.set_focus(7, true, wire::FIELD_KIND_TEXT);
+        core
     }
 
     #[test]
-    fn caret_selection_range_ordered() {
-        let cs = CaretSelection { caret_pos: 5, anchor: 2 };
-        assert!(cs.has_selection());
-        assert_eq!(cs.selection_range(), 2..5);
+    fn unfocused_keys_are_dropped() {
+        let mut core = ImedCore::new();
+        assert_eq!(core.key(wire::KEY_KIND_TEXT, u32::from('a'), 0), None);
     }
 
     #[test]
-    fn caret_selection_range_reverse() {
-        let cs = CaretSelection { caret_pos: 2, anchor: 5 };
-        assert!(cs.has_selection());
-        assert_eq!(cs.selection_range(), 2..5);
+    fn plain_text_commits_directly() {
+        let mut core = focused();
+        let push = core.key(wire::KEY_KIND_TEXT, u32::from('ä'), 0).unwrap();
+        assert_eq!(push.surface_id, 7);
+        assert_eq!(push.commit.unwrap().as_str(), "ä");
+        assert_eq!(push.action, None);
     }
 
     #[test]
-    fn imed_service_ready_emits_marker() {
-        let svc = ImedService::new();
-        assert!(svc.ready);
-        assert_eq!(ImedService::READY_MARKER, "imed: ready");
+    fn dead_key_sequence_commits_composed_char() {
+        let mut core = focused();
+        assert_eq!(core.key(wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
+        let push = core.key(wire::KEY_KIND_TEXT, u32::from('e'), 0).unwrap();
+        assert_eq!(push.commit.unwrap().as_str(), "é");
     }
 
     #[test]
-    fn focus_routing_sets_and_clears() {
-        let mut svc = ImedService::new();
-        assert!(svc.focus.is_none());
-        svc.set_focus(42);
-        assert_eq!(svc.focus.unwrap().surface_id, 42);
-        svc.clear_focus();
-        assert!(svc.focus.is_none());
+    fn dead_key_fallback_commits_both_chars() {
+        let mut core = focused();
+        assert_eq!(core.key(wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
+        let push = core.key(wire::KEY_KIND_TEXT, u32::from('x'), 0).unwrap();
+        assert_eq!(push.commit.unwrap().as_str(), "´x");
     }
 
     #[test]
-    fn caret_movement_clamped() {
-        let mut svc = ImedService::new();
-        svc.move_caret(10, -5);
-        assert_eq!(svc.caret.caret_pos, 0);
-        svc.move_caret(10, 20);
-        assert_eq!(svc.caret.caret_pos, 10);
+    fn actions_pass_through_and_flush_pending() {
+        let mut core = focused();
+        let push = core.key(wire::KEY_KIND_ACTION, 0, wire::ACTION_BACKSPACE).unwrap();
+        assert_eq!(push.action, Some(wire::ACTION_BACKSPACE));
+        assert_eq!(push.commit, None);
+
+        // Pending accent + Enter: commit the accent AND pass Enter through.
+        assert_eq!(core.key(wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
+        let push = core.key(wire::KEY_KIND_ACTION, 0, wire::ACTION_ENTER).unwrap();
+        assert_eq!(push.commit.unwrap().as_str(), "´");
+        assert_eq!(push.action, Some(wire::ACTION_ENTER));
+    }
+
+    #[test]
+    fn escape_cancels_pending_without_pushes() {
+        let mut core = focused();
+        assert_eq!(core.key(wire::KEY_KIND_DEAD, u32::from('^'), 0), None);
+        assert_eq!(core.key(wire::KEY_KIND_ACTION, 0, wire::ACTION_ESCAPE), None);
+        let push = core.key(wire::KEY_KIND_TEXT, u32::from('a'), 0).unwrap();
+        assert_eq!(push.commit.unwrap().as_str(), "a", "accent was cancelled");
+    }
+
+    #[test]
+    fn focus_transition_cancels_pending_accent() {
+        let mut core = focused();
+        assert_eq!(core.key(wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
+        core.set_focus(9, true, wire::FIELD_KIND_PASSWORD);
+        let push = core.key(wire::KEY_KIND_TEXT, u32::from('e'), 0).unwrap();
+        assert_eq!(push.surface_id, 9);
+        assert_eq!(push.commit.unwrap().as_str(), "e", "no ´ leaked across fields");
+    }
+
+    #[test]
+    fn test_reject_malformed_key_kinds() {
+        let mut core = focused();
+        assert_eq!(core.key(99, u32::from('a'), 0), None);
+        assert_eq!(core.key(wire::KEY_KIND_TEXT, 0xD800, 0), None); // invalid scalar
+        assert_eq!(core.key(wire::KEY_KIND_ACTION, 0, 99), None); // unknown action
     }
 }

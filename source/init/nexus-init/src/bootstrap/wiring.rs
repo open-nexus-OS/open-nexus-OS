@@ -11,6 +11,7 @@
 
 use crate::bootstrap::diag::iw;
 use crate::bootstrap::endpoints::Endpoints;
+use crate::bootstrap::route_provision::*;
 use crate::bootstrap::CtrlChannel;
 use crate::os_payload::*;
 use crate::service_topology::ServiceId;
@@ -982,6 +983,10 @@ pub(crate) fn wire_services(
                     if let (Some(req), Some(rsp)) = (abil_req, abil_rsp) {
                         provision_windowd_ability_route(pid, req, rsp, chan);
                     }
+                    // Focus relay route (RFC-0075): windowd → imed OP_SET_FOCUS.
+                    if let Some((imed_req, _)) = eps.server_pair(ServiceId::Imed) {
+                        provision_windowd_imed_route(pid, imed_req, chan);
+                    }
                     continue;
                 }
                 let recv_slot = nexus_abi::cap_transfer(pid, window_req, Rights::RECV)
@@ -1014,6 +1019,10 @@ pub(crate) fn wire_services(
                 // Launch route (TASK-0080D): windowd → abilitymgr OP_LAUNCH.
                 if let (Some(req), Some(rsp)) = (abil_req, abil_rsp) {
                     provision_windowd_ability_route(pid, req, rsp, chan);
+                }
+                // Focus relay route (RFC-0075): windowd → imed OP_SET_FOCUS.
+                if let Some((imed_req, _)) = eps.server_pair(ServiceId::Imed) {
+                    provision_windowd_imed_route(pid, imed_req, chan);
                 }
                 if iw(init_wire, init_fold, "init:windowd") {
                     debug_write_bytes(b"init: windowd slots recv=0x");
@@ -1056,6 +1065,9 @@ pub(crate) fn wire_services(
                             debug_write_byte(b'\n');
                         }
                     }
+                    // RFC-0075: key-forward leg to imed — AFTER the windowd
+                    // legs (their slot numbers are a boot contract).
+                    provision_inputd_imed_route(pid, eps, chan);
                     continue;
                 }
                 let recv_slot = nexus_abi::cap_transfer(pid, input_req, Rights::RECV)
@@ -1070,6 +1082,9 @@ pub(crate) fn wire_services(
                     .map_err(InitError::Abi)?;
                 chan.set_send(ServiceId::Windowd, window_send_slot);
                 chan.set_recv(ServiceId::Windowd, window_recv_slot);
+                // RFC-0075: key-forward leg to imed (after the windowd legs —
+                // their slot numbers are a boot contract).
+                provision_inputd_imed_route(pid, eps, chan);
                 if iw(init_wire, init_fold, "init:inputd") {
                     debug_write_bytes(b"init: inputd slots recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -1373,6 +1388,24 @@ pub(crate) fn wire_services(
                         chan.set_recv(ServiceId::Pinched, recv_slot);
                     }
                 }
+                // IME authority negative probe (RFC-0075): the selftest sends
+                // a FOREIGN OP_KEY and must see DENIED. AFTER pinched so every
+                // slot above keeps its historical number. Best-effort.
+                if let Some((imed_req, imed_rsp)) = eps.server_pair(ServiceId::Imed) {
+                    // Direct transfers (no cap_clone — init's cap table runs
+                    // at its ceiling here; clones allocate init-side → NoSpace).
+                    match (
+                        nexus_abi::cap_transfer(pid, imed_req, Rights::SEND),
+                        nexus_abi::cap_transfer(pid, imed_rsp, Rights::RECV),
+                    ) {
+                        (Ok(send_slot), Ok(recv_slot)) => {
+                            chan.set_send(ServiceId::Imed, send_slot);
+                            chan.set_recv(ServiceId::Imed, recv_slot);
+                            debug_write_bytes(b"init: selftest route->imed ok\n");
+                        }
+                        _ => debug_write_bytes(b"init: selftest route->imed FAIL (xfer)\n"),
+                    }
+                }
             }
             // RFC-0066 Phase 3 (incremental): services whose wiring is just "a
             // server endpoint" are provisioned **data-driven** from the declarative
@@ -1416,6 +1449,22 @@ pub(crate) fn wire_services(
                         };
                         // Launch spawn hop (TASK-0080D): the lifecycle broker
                         // is the ONLY app spawner — grant it the execd route.
+                        // Push leg (RFC-0075): imed → windowd commit/action
+                        // pushes resolve "windowd" by name via this recording.
+                        if name == "imed" {
+                            // Direct transfers (no clone — see the cap-table note).
+                            match (
+                                nexus_abi::cap_transfer(pid, window_req, Rights::SEND),
+                                nexus_abi::cap_transfer(pid, window_rsp, Rights::RECV),
+                            ) {
+                                (Ok(send), Ok(recv)) => {
+                                    chan.set_send(ServiceId::Windowd, send);
+                                    chan.set_recv(ServiceId::Windowd, recv);
+                                    debug_write_bytes(b"init: imed route->windowd ok\n");
+                                }
+                                _ => debug_write_bytes(b"init: imed route->windowd FAIL (xfer)\n"),
+                            }
+                        }
                         if name == "abilitymgr" {
                             if let (Ok(req_c), Ok(rsp_c)) =
                                 (nexus_abi::cap_clone(exe_req), nexus_abi::cap_clone(exe_rsp))
@@ -1634,93 +1683,6 @@ fn try_transfer(pid: u32, cap: u32, rights: Rights, svc: &str, label: &str) -> O
             debug_write_byte(b'\n');
             None
         }
-    }
-}
-
-/// Provisions windowd's RFC-0065 dynamic-Apps-menu route caps: a CAP_MOVE reply
-/// inbox + a SEND cap to bundlemgrd's request endpoint, so windowd's
-/// `route_blocking("bundlemgrd")` / `route_blocking("@reply")` resolve (declared in
-/// `service_topology` as Windowd→Bundlemgrd; granted `bundle.query`+`ipc.core` in
-/// base.toml). MUST be called AFTER windowd's gpud caps are transferred so the
-/// present handoff's hardcoded fallback slots (5/6 = gpud) are not displaced.
-/// Best-effort: a failure leaves the route unwired (the menu falls back to its
-/// seed), never bricks boot.
-fn provision_windowd_registry_route(
-    factory_slot: u32,
-    pid: u32,
-    bnd_req: u32,
-    chan: &mut CtrlChannel,
-) {
-    let Ok(reply_ep) = nexus_abi::ipc_endpoint_create_for(factory_slot, pid, 8) else {
-        return;
-    };
-    let rr = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV);
-    let rs = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND);
-    let _ = nexus_abi::cap_close(reply_ep);
-    if let (Ok(reply_recv), Ok(reply_send)) = (rr, rs) {
-        chan.reply_recv_slot = Some(reply_recv);
-        chan.reply_send_slot = Some(reply_send);
-        if let Ok(s) = nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND) {
-            chan.set_send(ServiceId::Bundlemgrd, s);
-            chan.set_recv(ServiceId::Bundlemgrd, reply_recv);
-            // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
-            debug_write_bytes(b"init: windowd route->bundlemgrd ok\n");
-        }
-    }
-}
-
-/// Provisions windowd's session route (TASK-0065B): a SEND cap to sessiond's
-/// PRE-MINTED request endpoint; replies arrive on the CAP_MOVE reply inbox
-/// `provision_windowd_registry_route` created — call order matters (that
-/// helper first, and both strictly AFTER windowd's gpud caps so the present
-/// handoff's hardcoded fallback slots 5/6 are not displaced). Best-effort: a
-/// failure leaves the session probe unanswered and windowd falls back to the
-/// auto shell — never bricks boot.
-fn provision_windowd_session_route(pid: u32, sess_req: u32, chan: &mut CtrlChannel) {
-    let Some(reply_recv) = chan.reply_recv_slot else {
-        return;
-    };
-    if let Ok(s) = nexus_abi::cap_transfer(pid, sess_req, Rights::SEND) {
-        chan.set_send(ServiceId::Sessiond, s);
-        chan.set_recv(ServiceId::Sessiond, reply_recv);
-        // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
-        debug_write_bytes(b"init: windowd route->sessiond ok\n");
-    }
-}
-
-/// Provisions windowd's settings route (TASK-0072 Phase 10): a SEND cap to
-/// settingsd's PRE-MINTED request endpoint (generic RFC-0069 server pair); the
-/// GET/SET replies arrive on the SAME CAP_MOVE reply inbox the registry route
-/// created (call order: registry route first). Best-effort: a failure leaves the
-/// theme at the build-time default — never bricks boot.
-fn provision_windowd_settings_route(pid: u32, settings_req: u32, chan: &mut CtrlChannel) {
-    let Some(reply_recv) = chan.reply_recv_slot else {
-        return;
-    };
-    if let Ok(s) = nexus_abi::cap_transfer(pid, settings_req, Rights::SEND) {
-        chan.set_send(ServiceId::Settingsd, s);
-        chan.set_recv(ServiceId::Settingsd, reply_recv);
-        debug_write_bytes(b"init: windowd route->settingsd ok\n");
-    }
-}
-
-/// Provisions windowd's launch route (TASK-0080D): SEND on abilitymgr's
-/// pre-minted request endpoint + RECV on its response endpoint, so the Apps
-/// menu's `OP_LAUNCH` reaches the lifecycle broker and the status reply
-/// returns. Best-effort: without it, launch requests log a route FAIL.
-fn provision_windowd_ability_route(pid: u32, abil_req: u32, abil_rsp: u32, chan: &mut CtrlChannel) {
-    let (Ok(req_clone), Ok(rsp_clone)) =
-        (nexus_abi::cap_clone(abil_req), nexus_abi::cap_clone(abil_rsp))
-    else {
-        return;
-    };
-    if let (Ok(s), Ok(r)) = (
-        nexus_abi::cap_transfer(pid, req_clone, Rights::SEND),
-        nexus_abi::cap_transfer(pid, rsp_clone, Rights::RECV),
-    ) {
-        chan.set_send(ServiceId::Abilitymgr, s);
-        chan.set_recv(ServiceId::Abilitymgr, r);
-        debug_write_bytes(b"init: windowd route->abilitymgr ok\n");
     }
 }
 

@@ -829,6 +829,9 @@ phase = "bringup"
 [marker."SELFTEST: timed coalesce FAIL"]
 phase = "bringup"
 
+[marker."SELFTEST: imed reject foreign FAIL"]
+phase = "bringup"
+
 # Diagnostic / FAIL-variant markers back-filled 2026-07 (repo hygiene):
 # every marker literal in the source tree must be manifest-declared (Rule 3).
 

@@ -73,15 +73,18 @@ pub enum ServiceId {
     /// System-internal compute broker (batch parallel work on nexus-workpool;
     /// invisible to apps — no app-facing route, system clients only).
     Pinched = 25,
+    /// Input method editor daemon (RFC-0075 — composes keys for the focused
+    /// surface; inputd forwards resolved keys, windowd relays focus).
+    Imed = 26,
 }
 
 impl ServiceId {
     /// Number of entries needed to index a per-service array by `id as usize`
-    /// (discriminants are `1..=25`, so the array spans `0..=25`; index 0 is unused).
-    pub const COUNT: usize = 26;
+    /// (discriminants are `1..=26`, so the array spans `0..=26`; index 0 is unused).
+    pub const COUNT: usize = 27;
 
     /// Every service identifier, for iterating a per-service routing array.
-    pub const ALL: [ServiceId; 25] = [
+    pub const ALL: [ServiceId; 26] = [
         Self::Vfsd,
         Self::Packagefsd,
         Self::Policyd,
@@ -107,6 +110,7 @@ impl ServiceId {
         Self::Sessiond,
         Self::Settingsd,
         Self::Pinched,
+        Self::Imed,
     ];
 
     /// Look up a service by its canonical name. Returns None for unknown names.
@@ -137,6 +141,7 @@ impl ServiceId {
             b"sessiond" => Self::Sessiond,
             b"settingsd" => Self::Settingsd,
             b"pinched" => Self::Pinched,
+            b"imed" => Self::Imed,
             _ => return None,
         })
     }
@@ -169,6 +174,7 @@ impl ServiceId {
             Self::Sessiond => "sessiond",
             Self::Settingsd => "settingsd",
             Self::Pinched => "pinched",
+            Self::Imed => "imed",
         }
     }
 }
@@ -270,6 +276,7 @@ pub const fn affinity_for(name: &str) -> u8 {
         || eq(name, "inputd")
         || eq(name, "hidrawd")
         || eq(name, "touchd")
+        || eq(name, "imed")
     {
         return 0b0001;
     }
@@ -324,6 +331,15 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
     },
     ServiceSpec {
         id: ServiceId::Timed,
+        exposes_server: true,
+        reply_inbox: false,
+        routes_to: &[],
+        announce: false,
+    },
+    // RFC-0075: imed's server pair is pre-minted; its windowd client leg is
+    // provisioned in the generic arm (fire-and-forget pushes, no reply inbox).
+    ServiceSpec {
+        id: ServiceId::Imed,
         exposes_server: true,
         reply_inbox: false,
         routes_to: &[],

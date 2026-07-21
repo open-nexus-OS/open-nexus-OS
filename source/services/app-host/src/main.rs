@@ -693,43 +693,18 @@ mod probe {
                         }
                     }
                 } else if kind == wire::INPUT_KIND_WHEEL {
-                    if wheel_rx_markers < 40 {
-                        wheel_rx_markers += 1;
-                        let d = wire::wheel_delta_from_wire(y);
-                        raw_marker(&alloc::format!("APPHOST: wheel rx n={wheel_rx_markers} d={d}"));
-                    }
-                    // WebRender compositor-scroll: a banded surface does NOT
-                    // self-scroll — windowd owns the scroll (it shifts the gpud
-                    // layer `src_row`) and pushes `INPUT_KIND_SCROLL_POS`. It also
-                    // won't forward WHEEL to a banded slot, so this is defensive.
-                    if !app.as_ref().map(|d| d.banded).unwrap_or(false) {
-                        // Wheel: an IMPULSE into the scroll physics (paint-only
-                        // over the retained boxes). The momentum decays in the
-                        // loop's timeout ticks; every repaint is the VIEWPORT
-                        // span only, and nearing the end fires the declarative
-                        // `EndReached` handler (lazy loading).
-                        if let Some(dsl) = app.as_mut() {
-                            let delta = wire::wheel_delta_from_wire(y);
-                            let (span, end) = dsl.scroll_wheel(delta);
-                            if let Some(span) = span {
-                                dirty_rows = match (dirty, dirty_rows) {
-                                    (true, None) => None,
-                                    (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
-                                    (false, None) => Some(span),
-                                };
-                                dirty = true;
-                            }
-                            if end && dsl.fire_end_reached() {
-                                dirty = true;
-                                dirty_rows = None; // model changed: full repaint
-                            }
-                            // Choreographer contract: while the ease/fling is
-                            // live, ask the compositor for ONE frame pulse — the
-                            // physics ticks on the REAL frame cadence.
-                            if dsl.momentum_active() {
-                                let req = wire::encode_surface_frame_req(surface_id);
-                                let _ = client.send(&req, Wait::NonBlocking);
-                            }
+                    // Wheel impulse into the scroll physics (banded surfaces
+                    // are compositor-scrolled — see `wheel_event`).
+                    if let Some(dsl) = app.as_mut() {
+                        let (d, rows) =
+                            dsl.wheel_event(&client, surface_id, y, &mut wheel_rx_markers);
+                        if d {
+                            dirty_rows = match (dirty, dirty_rows, rows) {
+                                (_, _, None) | (true, None, _) => None,
+                                (_, Some((a0, a1)), Some(sp)) => Some((a0.min(sp.0), a1.max(sp.1))),
+                                (false, None, Some(sp)) => Some(sp),
+                            };
+                            dirty = true;
                         }
                     }
                 } else if kind == wire::INPUT_KIND_SCROLL_POS {
@@ -745,7 +720,11 @@ mod probe {
                     }
                 } else if kind == wire::INPUT_KIND_TAP {
                     if let Some(dsl) = app.as_mut() {
-                        if dsl.tap(i32::from(x), i32::from(y)) {
+                        let tap_dirty = dsl.tap(i32::from(x), i32::from(y));
+                        // RFC-0075 tap-to-focus: announce widget text-focus
+                        // transitions upward (windowd relays to imed).
+                        dsl.announce_text_focus(&client, i32::from(x), i32::from(y));
+                        if tap_dirty {
                             dirty = true;
                             dirty_rows = None; // model change: full repaint
                                                // A tap may have started an animation (`.animate`/
@@ -770,6 +749,14 @@ mod probe {
                             }
                         }
                     }
+                }
+            } else if nexus_display_proto::surface_text::decode_surface_text(&event_frame[..len])
+                .is_some()
+            {
+                // RFC-0075 composed-text delivery (imed → windowd → here).
+                if app.as_mut().is_some_and(|d| d.apply_surface_text(&event_frame[..len])) {
+                    dirty = true;
+                    dirty_rows = None; // model change: full repaint
                 }
             } else if odd_frame_markers < 8 {
                 // Unrelated frame — bounded marker, never silent.

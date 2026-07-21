@@ -22,6 +22,7 @@ input-live-protocol = { path = "../../../userspace/input-live-protocol" }
 touch = { path = "../../../userspace/touch" }
 touchd = { path = "../touchd" }
 keymaps = { path = "../../../userspace/keymaps" }
+nexus-wire = { path = "../../libs/nexus-wire" }
 key-repeat = { path = "../../../userspace/key-repeat" }
 pointer-accel = { path = "../../../userspace/pointer-accel" }
 pointer-state = { path = "../../../userspace/pointer-state" }

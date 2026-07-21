@@ -26,6 +26,10 @@ proves = "kernel ipc qos pass-through"
 [marker."SELFTEST: timed coalesce ok"]
 phase = "routing"
 
+[marker."SELFTEST: imed reject foreign ok"]
+phase = "routing"
+proves = "imed denies OP_KEY from non-inputd senders (RFC-0075 identity gate)"
+
 [marker."rngd: mmio window mapped ok"]
 phase = "routing"
 

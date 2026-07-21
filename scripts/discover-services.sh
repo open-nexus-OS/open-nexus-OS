@@ -70,6 +70,7 @@ ORDER = [
     'gpud',
     'windowd',
     'inputd',
+    'imed',
     'pinched',
     'selftest-client',
 ]

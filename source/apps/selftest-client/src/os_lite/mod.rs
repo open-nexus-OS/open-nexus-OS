@@ -25,6 +25,7 @@ mod dispatch;
 mod display_bootstrap;
 mod display_observer;
 mod dsoftbus;
+mod imed;
 mod ipc;
 mod mmio;
 mod net;

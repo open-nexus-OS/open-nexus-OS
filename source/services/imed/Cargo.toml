@@ -10,14 +10,24 @@ path = "src/lib.rs"
 
 [features]
 default = []
-os-lite = ["dep:nexus-abi", "dep:nexus-service-entry"]
+os-lite = [
+    "dep:nexus-abi",
+    "dep:nexus-service-entry",
+    "dep:nexus-ipc",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+]
 
 [package.metadata.nexus-service]
-# Host-first IME work exists, but OS init/routing is not wired yet.
-# Keep `imed` out of auto-discovered OS bootstrap until the OS proof phase lands.
-kind = "library"
 stack_pages = 4
 
 [dependencies]
+ime-core = { path = "../../../userspace/ime-core" }
+nexus-wire = { path = "../../libs/nexus-wire" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+
+[[bin]]
+name = "imed"
+path = "src/main.rs"

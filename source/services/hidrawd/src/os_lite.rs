@@ -516,8 +516,6 @@ impl LiveDevice {
                 .map_or(POINTER_SOURCE_NONE, PointerSource::wire_value),
             abs_max_x: self.abs_max_x,
             abs_max_y: self.abs_max_y,
-            raw_event_count: evidence.raw_event_count(),
-            normalized_event_count: evidence.normalized_event_count(),
         });
         Some(PolledDeviceFrame { evidence, pointer_source: active_pointer_source, wire_meta })
     }
@@ -564,8 +562,6 @@ struct WireMeta {
     pointer_source: u8,
     abs_max_x: i32,
     abs_max_y: i32,
-    raw_event_count: u16,
-    normalized_event_count: u16,
 }
 
 fn infer_device_class(

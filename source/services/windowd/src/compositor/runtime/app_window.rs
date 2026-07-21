@@ -89,7 +89,7 @@ impl DisplayServerRuntime {
             self.windowing_policy,
         );
         if presentation.role == crate::window_scene::WindowRole::Desktop {
-            return self.create_desktop_surface(width, height, format, vmo_slot, nonce);
+            return self.create_desktop_surface(width, height, format, vmo_slot, nonce, sender_sid);
         }
         // Multi-window (RFC-0065): the create binds to the slot ALREADY holding
         // this client's event channel (a resize re-create must resume in place,

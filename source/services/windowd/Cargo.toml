@@ -38,6 +38,7 @@ animation = { path = "../../../userspace/ui/animation" }
 # Gate 2: the windowd↔gpud wire SSOT (opcodes/status/cursor magics + control
 # frame codecs), shared with gpud so neither end hand-mirrors the other.
 nexus-display-proto = { path = "../../libs/nexus-display-proto" }
+nexus-wire = { path = "../../libs/nexus-wire" }
 nexus-gfx = { path = "../../../userspace/nexus-gfx" }
 nexus-shell-desktop = { path = "../../../userspace/ui/shells/desktop" }
 nexus-widget-window = { path = "../../../userspace/ui/widgets/window" }

@@ -68,6 +68,10 @@ pub(crate) struct Endpoints {
     pub timed_req: u32,
     /// timed server response endpoint.
     pub timed_rsp: u32,
+    /// imed server request endpoint (RFC-0075).
+    pub imed_req: u32,
+    /// imed server response endpoint (owned by inputd, the direct-reply peer).
+    pub imed_rsp: u32,
     /// windowd server request endpoint.
     pub window_req: u32,
     /// windowd server response endpoint.
@@ -142,6 +146,7 @@ impl Endpoints {
         match id {
             ServiceId::Rngd => Some((self.rng_req, self.rng_rsp)),
             ServiceId::Timed => Some((self.timed_req, self.timed_rsp)),
+            ServiceId::Imed => Some((self.imed_req, self.imed_rsp)),
             ServiceId::Vfsd => Some((self.vfs_req, self.vfs_rsp)),
             ServiceId::Packagefsd => Some((self.pkg_req, self.pkg_rsp)),
             ServiceId::Samgrd => Some((self.sam_req, self.sam_rsp)),

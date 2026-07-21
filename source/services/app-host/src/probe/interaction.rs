@@ -211,6 +211,174 @@ impl super::DslApp {
         }
     }
 
+    /// RFC-0075 tap-to-focus: resolve widget text focus at the tap point
+    /// (AFTER `tap` — its dispatch may have re-laid-out). Returns the
+    /// announcement for windowd when the focus state CHANGED:
+    /// `(focused, field_kind, caret rect)`; `None` = unchanged.
+    pub(super) fn text_focus_update(
+        &mut self,
+        x: i32,
+        y: i32,
+    ) -> Option<(bool, u8, (u16, u16, u16, u16))> {
+        use nexus_display_proto::surface_text;
+        let before = self.view.text_focus();
+        let scroll = self.scroll_param();
+        let snap = self.view.focus_text_at(
+            &self.layout.boxes,
+            nexus_layout_types::FxPx::new(x),
+            nexus_layout_types::FxPx::new(y),
+            scroll,
+        );
+        if snap == before {
+            return None;
+        }
+        match snap {
+            Some(s) => {
+                let clamp = |v: i32| v.max(0).min(i32::from(u16::MAX)) as u16;
+                let rect = self
+                    .layout
+                    .boxes
+                    .iter()
+                    .find(|b| b.node_id == s.box_id)
+                    .map(|b| {
+                        (
+                            clamp(b.rect.x.0),
+                            clamp(b.rect.y.0),
+                            clamp(b.rect.width.0),
+                            clamp(b.rect.height.0),
+                        )
+                    })
+                    .unwrap_or((0, 0, 0, 0));
+                let kind = if s.secure {
+                    surface_text::SURFACE_FIELD_PASSWORD
+                } else {
+                    surface_text::SURFACE_FIELD_TEXT
+                };
+                Some((true, kind, rect))
+            }
+            None => Some((false, surface_text::SURFACE_FIELD_TEXT, (0, 0, 0, 0))),
+        }
+    }
+
+    /// RFC-0075 committed-text delivery: insert into the FOCUSED field.
+    /// Returns whether a re-render is needed.
+    pub(super) fn text_commit(&mut self, text: &str) -> bool {
+        use nexus_dsl_runtime::{Damage, IdentityLocale};
+        let tokens = tokens_for(self.theme_mode);
+        let device = device_for(self.shell_profile, self.w);
+        let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+        let damage = match self.view.insert_text(tokens, &device, &locale, text) {
+            Ok(d) => d,
+            Err(e) => {
+                raw_marker(&alloc::format!("apphost: text commit ERR {e:?}"));
+                None
+            }
+        };
+        if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
+            return false;
+        }
+        if matches!(damage, Some(Damage::Layout)) {
+            self.relayout_retained();
+        }
+        true
+    }
+
+    /// RFC-0075 editing-action delivery (imed wire `ACTION_*` in `aux`).
+    /// Backspace edits the focused field; Escape drops widget focus (the
+    /// caller announces the transition). Enter/Tab are page-level concerns
+    /// (deferred — no focus traversal yet). Returns re-render need.
+    pub(super) fn text_action(&mut self, action: u8) -> bool {
+        use nexus_dsl_runtime::{Damage, IdentityLocale};
+        match action {
+            nexus_wire::imed::ACTION_BACKSPACE => {
+                let tokens = tokens_for(self.theme_mode);
+                let device = device_for(self.shell_profile, self.w);
+                let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+                let damage = match self.view.backspace_text(tokens, &device, &locale) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        raw_marker(&alloc::format!("apphost: text action ERR {e:?}"));
+                        None
+                    }
+                };
+                if matches!(damage, Some(Damage::Layout)) {
+                    self.relayout_retained();
+                }
+                matches!(damage, Some(Damage::Paint) | Some(Damage::Layout))
+            }
+            _ => false,
+        }
+    }
+
+    /// RFC-0075 tap-to-focus announcement: resolve widget focus at the tap
+    /// point and, on a TRANSITION, send `OP_SURFACE_TEXT_FOCUS` to windowd
+    /// (which relays to imed). Marker carries no text content.
+    pub(super) fn announce_text_focus(&mut self, client: &KernelClient, x: i32, y: i32) {
+        use nexus_display_proto::surface_text;
+        let Some((focused, field_kind, caret)) = self.text_focus_update(x, y) else {
+            return;
+        };
+        let f = surface_text::encode_surface_text_focus(focused, field_kind, caret);
+        let _ = client.send(&f, Wait::NonBlocking);
+        raw_marker(if focused { "apphost: text focus set" } else { "apphost: text focus cleared" });
+    }
+
+    /// RFC-0075 composed-text delivery: decode an `OP_SURFACE_TEXT` frame and
+    /// apply it to the focused field. Returns re-render need (`false` also
+    /// for non-text frames). Text content NEVER hits markers/logs.
+    pub(super) fn apply_surface_text(&mut self, frame: &[u8]) -> bool {
+        use nexus_display_proto::surface_text as st;
+        let Some((tkind, aux, text)) = st::decode_surface_text(frame) else {
+            return false;
+        };
+        match tkind {
+            st::SURFACE_TEXT_COMMIT => self.text_commit(text),
+            st::SURFACE_TEXT_ACTION => self.text_action(aux),
+            // Preedit display lands with the candidate UI (RFC-0075 Phase 3).
+            _ => false,
+        }
+    }
+
+    /// Wheel impulse (`INPUT_KIND_WHEEL`, moved out of the main event loop —
+    /// structure-gate): scroll physics + EndReached + frame-pulse arming.
+    /// Banded surfaces are compositor-scrolled (windowd shifts the gpud layer
+    /// `src_row` and pushes `INPUT_KIND_SCROLL_POS`), so this is defensive
+    /// there. Returns `(dirty, row_span)` — span `None` with dirty = full.
+    pub(super) fn wheel_event(
+        &mut self,
+        client: &KernelClient,
+        surface_id: u32,
+        y_raw: u16,
+        rx_markers: &mut u32,
+    ) -> (bool, Option<(i32, i32)>) {
+        if *rx_markers < 40 {
+            *rx_markers += 1;
+            let d = wire::wheel_delta_from_wire(y_raw);
+            raw_marker(&alloc::format!("APPHOST: wheel rx n={rx_markers} d={d}"));
+        }
+        if self.banded {
+            return (false, None);
+        }
+        let delta = wire::wheel_delta_from_wire(y_raw);
+        let (span, end) = self.scroll_wheel(delta);
+        let mut dirty = false;
+        let mut rows = span;
+        if span.is_some() {
+            dirty = true;
+        }
+        if end && self.fire_end_reached() {
+            dirty = true;
+            rows = None; // model changed: full repaint
+        }
+        // Choreographer contract: while the ease/fling is live, ask the
+        // compositor for ONE frame pulse (physics ticks on the real cadence).
+        if self.momentum_active() {
+            let req = wire::encode_surface_frame_req(surface_id);
+            let _ = client.send(&req, Wait::NonBlocking);
+        }
+        (dirty, rows)
+    }
+
     /// R1 layer seam: submit the material-tagged glass regions of the current
     /// layout to windowd (`OP_SURFACE_LAYERS`). Each `LayoutBox` whose
     /// `.material()` is glass becomes a `LayerDesc` (surface-local rect +

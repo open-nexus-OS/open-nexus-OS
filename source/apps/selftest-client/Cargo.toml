@@ -52,7 +52,6 @@ os-lite = [
     "dep:touch",
     "dep:touchd",
     "dep:inputd",
-    "dep:ime",
     "dep:systemui",
     "dep:keymaps",
     "dep:input-live-protocol",
@@ -106,7 +105,6 @@ hidrawd = { path = "../../../source/services/hidrawd", optional = true }
 touch = { path = "../../../userspace/touch", optional = true }
 touchd = { path = "../../../source/services/touchd", optional = true }
 inputd = { path = "../../../source/services/inputd", optional = true }
-ime = { path = "../../../source/services/ime", optional = true }
 systemui = { path = "../../../source/services/systemui", optional = true }
 keymaps = { path = "../../../userspace/keymaps", optional = true }
 input-live-protocol = { path = "../../../userspace/input-live-protocol", optional = true }

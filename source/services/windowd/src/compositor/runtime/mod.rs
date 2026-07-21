@@ -91,6 +91,8 @@ mod present;
 mod scene;
 mod session;
 mod shell;
+mod slots;
+pub(crate) mod text_input;
 mod transitions;
 mod wm;
 
@@ -561,6 +563,13 @@ pub(crate) struct DisplayServerRuntime {
     /// under load; the inputd windowd-route lesson).
     #[cfg(nexus_env = "os")]
     abilitymgr_client: Option<nexus_ipc::KernelClient>,
+    /// Text-focus route (RFC-0075, identity-derived — see `text_input.rs`).
+    text_focus: Option<text_input::TextFocusRoute>,
+    /// The desktop app-host's kernel identity (set at desktop-surface create).
+    desktop_owner_sid: u64,
+    /// Cached IME-authority route (lazy; fire-and-forget focus relays).
+    #[cfg(nexus_env = "os")]
+    imed_client: Option<nexus_ipc::KernelClient>,
     /// Atlas allocator, kept live so windows can acquire surfaces on show and
     /// release them on hide (the on-demand surface pool — a closed window costs
     /// zero atlas rows). The boot layers reserved their bands from it in `new`.
@@ -901,6 +910,10 @@ impl DisplayServerRuntime {
             windowing_policy: crate::surface_presentation::WindowingPolicy::Desktop,
             #[cfg(nexus_env = "os")]
             abilitymgr_client: None,
+            text_focus: None,
+            desktop_owner_sid: 0,
+            #[cfg(nexus_env = "os")]
+            imed_client: None,
             atlas_alloc: atlas,
             pending_input: None,
             desktop_layers: [nexus_display_proto::client_surface::LayerDesc::default();
@@ -956,26 +969,6 @@ impl DisplayServerRuntime {
     }
 
     /// Mutable [`Self::app_slot`].
-    pub(crate) fn app_slot_mut(
-        &mut self,
-        id: crate::window_scene::WindowId,
-    ) -> Option<&mut AppWindowSlot> {
-        match id {
-            crate::window_scene::WindowId::App(i) => self.apps.get_mut(i as usize),
-            crate::window_scene::WindowId::Desktop => None,
-        }
-    }
-
-    /// Slot index currently bound to `surface_id` (present/input routing).
-    pub(crate) fn app_index_by_surface(&self, surface_id: u32) -> Option<usize> {
-        self.apps.iter().position(|a| a.surface_id == Some(surface_id))
-    }
-
-    /// A free slot for a NEW app window (no bound surface).
-    pub(crate) fn free_app_index(&self) -> Option<usize> {
-        self.apps.iter().position(|a| a.surface_id.is_none())
-    }
-
     fn refresh_observer_state(&mut self) {
         self.observer_state.backend_visible |= self.state.backend_visible;
         self.observer_state.display_scanout_ready |= self.state.display_scanout_ready;

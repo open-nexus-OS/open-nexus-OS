@@ -16,5 +16,6 @@ metricsd
 hidrawd
 touchd
 inputd
+imed
 gpud
 windowd

@@ -254,6 +254,7 @@ where
     let _statefsd_pid = find_pid(&ctrl_channels, "statefsd").ok_or(InitError::MissingElf)?;
     let rngd_pid = find_pid(&ctrl_channels, "rngd").ok_or(InitError::MissingElf)?;
     let timed_pid = find_pid(&ctrl_channels, "timed").ok_or(InitError::MissingElf)?;
+    let imed_pid = find_pid(&ctrl_channels, "imed").ok_or(InitError::MissingElf)?;
     let hidrawd_pid = find_pid(&ctrl_channels, "hidrawd").ok_or(InitError::MissingElf)?;
     let windowd_pid = find_pid(&ctrl_channels, "windowd").ok_or(InitError::MissingElf)?;
     let inputd_pid = find_pid(&ctrl_channels, "inputd").ok_or(InitError::MissingElf)?;
@@ -356,30 +357,27 @@ where
     // rngd <-> clients endpoints:
     // - rng_req owned by rngd (server receives requests)
     // - rng_rsp owned by selftest-client (server can send direct replies to selftest without CAP_MOVE)
-    let rng_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, rngd_pid, 8)
-        .map_err(InitError::Abi)?;
-    let rng_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
-    let timed_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, timed_pid, 8)
-        .map_err(InitError::Abi)?;
-    let timed_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
-    let window_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, windowd_pid, 32)
-        .map_err(InitError::Abi)?;
-    let window_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, windowd_pid, 8)
-        .map_err(InitError::Abi)?;
-    let input_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, inputd_pid, 8)
-        .map_err(InitError::Abi)?;
-    let input_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, hidrawd_pid, 8)
-        .map_err(InitError::Abi)?;
+    // Owned-endpoint mint helper (owner pid, queue depth).
+    let mint = |pid: u32, depth: usize| {
+        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, depth)
+            .map_err(InitError::Abi)
+    };
+    let rng_req = mint(rngd_pid, 8)?;
+    let rng_rsp = mint(selftest_pid, 8)?;
+    let timed_req = mint(timed_pid, 8)?;
+    let timed_rsp = mint(selftest_pid, 8)?;
+    let imed_req = mint(imed_pid, 8)?;
+    let imed_rsp = mint(inputd_pid, 8)?;
+    let window_req = mint(windowd_pid, 32)?;
+    let window_rsp = mint(windowd_pid, 8)?;
+    let input_req = mint(inputd_pid, 8)?;
+    let input_rsp = mint(hidrawd_pid, 8)?;
 
     // Priority-wire display services early (right after their endpoints exist)
     // so they get scheduled by the existing yield after MMIO grants.
 
-    let gpud_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, gpud_pid, 8)
-        .map_err(InitError::Abi)?;
-    let gpud_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, gpud_pid, 8)
-        .map_err(InitError::Abi)?;
+    let gpud_req = mint(gpud_pid, 8)?;
+    let gpud_rsp = mint(gpud_pid, 8)?;
 
     // logd (optional) service endpoints (request/response).
     // If logd is present in the image set, selftest-client gets a dedicated pair.
@@ -551,6 +549,8 @@ where
         rng_rsp,
         timed_req,
         timed_rsp,
+        imed_req,
+        imed_rsp,
         window_req,
         window_rsp,
         input_req,

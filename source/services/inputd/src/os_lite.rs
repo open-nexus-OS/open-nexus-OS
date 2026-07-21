@@ -191,6 +191,10 @@ struct LiveRouteRuntime {
     wheel_indicator_direction: WheelIndicatorDirection,
     wheel_indicator_deadline_ns: u64,
     windowd_client: Option<KernelClient>,
+    /// Key-forward channel to imed (RFC-0075). Lazily routed by name; imed
+    /// gates on ITS focus state — inputd forwards resolved keys per batch.
+    imed_client: Option<KernelClient>,
+    imed_forward_ok_emitted: bool,
     last_windowd_push_state: Option<VisibleState>,
     last_windowd_push_ns: u64,
     display_mode_resolved: bool,
@@ -279,6 +283,8 @@ impl LiveRouteRuntime {
             wheel_indicator_direction: WheelIndicatorDirection::None,
             wheel_indicator_deadline_ns: 0,
             windowd_client: KernelClient::new_with_slots(5, 6).ok(),
+            imed_client: None,
+            imed_forward_ok_emitted: false,
             last_windowd_push_state: None,
             last_windowd_push_ns: 0,
             display_mode_resolved: false,
@@ -494,6 +500,7 @@ impl LiveRouteRuntime {
         self.chain.delivered_events =
             self.chain.delivered_events.saturating_add(delivered_count as u64);
         self.apply_visible_text_input();
+        self.forward_keys_to_imed();
         if !self.absolute_source_debug_emitted
             && matches!(
                 active_source,
@@ -559,6 +566,65 @@ impl LiveRouteRuntime {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// RFC-0075 key branch: forward every resolved key of this batch to the
+    /// IME authority. Fire-and-forget (imed drops keys while unfocused); the
+    /// hot pointer path is untouched. No per-key allocation: fixed frames.
+    fn forward_keys_to_imed(&mut self) {
+        use nexus_wire::imed as ime_wire;
+        let mut frames: [Option<[u8; 12]>; 16] = [None; 16];
+        let mut count = 0usize;
+        for dispatch in self.input.recent_dispatches() {
+            if count >= frames.len() {
+                break;
+            }
+            let InputDispatch::Keyboard { output, .. } = dispatch else {
+                continue;
+            };
+            let (kind, ch, action) = match output {
+                KeyOutput::Text(ch) => (ime_wire::KEY_KIND_TEXT, u32::from(*ch), 0),
+                KeyOutput::Dead(ch) => (ime_wire::KEY_KIND_DEAD, u32::from(*ch), 0),
+                KeyOutput::Action(KeyAction::Enter) => {
+                    (ime_wire::KEY_KIND_ACTION, 0, ime_wire::ACTION_ENTER)
+                }
+                KeyOutput::Action(KeyAction::Escape) => {
+                    (ime_wire::KEY_KIND_ACTION, 0, ime_wire::ACTION_ESCAPE)
+                }
+                KeyOutput::Action(KeyAction::Backspace) => {
+                    (ime_wire::KEY_KIND_ACTION, 0, ime_wire::ACTION_BACKSPACE)
+                }
+                KeyOutput::Action(KeyAction::Tab) => {
+                    (ime_wire::KEY_KIND_ACTION, 0, ime_wire::ACTION_TAB)
+                }
+                // Layout switching is inputd's own concern, never composition's.
+                KeyOutput::Action(KeyAction::ImeSwitch) => continue,
+            };
+            frames[count] =
+                Some(ime_wire::encode_key(ime_wire::KEY_SOURCE_HW, kind, ch, action, 0));
+            count += 1;
+        }
+        if count == 0 {
+            return;
+        }
+        if self.imed_client.is_none() {
+            self.imed_client = KernelClient::new_for("imed").ok();
+        }
+        let Some(client) = self.imed_client.as_ref() else {
+            return;
+        };
+        let mut all_ok = true;
+        for frame in frames.iter().flatten() {
+            all_ok &= client.send(frame, Wait::NonBlocking).is_ok();
+        }
+        if all_ok && !self.imed_forward_ok_emitted {
+            let _ = nexus_abi::trace_line("inputd: imed forward ok");
+            self.imed_forward_ok_emitted = true;
+        }
+        if !all_ok {
+            // Drop the cached route; the next batch re-resolves (imed restart).
+            self.imed_client = None;
         }
     }
 

@@ -24,7 +24,7 @@ use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
 use crate::os_lite::context::PhaseCtx;
 use crate::os_lite::ipc::routing::{route_with_retry, routing_v1_get};
-use crate::os_lite::{probes, services, timed};
+use crate::os_lite::{imed, probes, services, timed};
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // keystored v1 (routing + put/get/del + negative cases)
@@ -43,6 +43,12 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_TIMED_COALESCE_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_TIMED_COALESCE_FAIL);
+    }
+    // RFC-0075 identity gate: a foreign OP_KEY must be DENIED by imed.
+    if imed::imed_reject_foreign_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_IMED_REJECT_FOREIGN_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_IMED_REJECT_FOREIGN_FAIL);
     }
     // RNG and device identity key selftests (run early to keep QEMU marker deadlines short).
     probes::rng::rng_entropy_selftest();

@@ -29,6 +29,7 @@ impl DisplayServerRuntime {
         format: u8,
         vmo_slot: u32,
         nonce: u64,
+        sender_sid: u64,
     ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
         let id = match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => id,
@@ -62,6 +63,9 @@ impl DisplayServerRuntime {
         // was already released via destroy; ids never alias — monotonic).
         let fresh = self.desktop_surface_id != Some(id);
         self.desktop_surface_id = Some(id);
+        // Text-focus sender resolution (RFC-0075): the desktop app-host
+        // announces widget focus with only its kernel identity.
+        self.desktop_owner_sid = sender_sid;
         // The shell launch surfaced (greeter → shell swap): stop the wait ring.
         if fresh {
             self.end_cursor_wait();

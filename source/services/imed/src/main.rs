@@ -1,29 +1,23 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: [daemon] entrypoint – IME daemon bootstrap stub
-//! OWNERS: @runtime
-//! STATUS: Placeholder
-//! API_STABILITY: Unstable
-//! TEST_COVERAGE: Refer to lib.rs unit tests
-//! ADR: docs/adr/0017-service-architecture.md
+//! CONTEXT: imed daemon entrypoint wiring for os-lite and host (RFC-0075).
+//! OWNERS: @ui
+//! PUBLIC API: os_entry() (os-lite), main() (host stub)
+//! DEPENDS_ON: imed::os_lite::service_main_loop, nexus-service-entry (os-lite)
 
-#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 #![forbid(unsafe_code)]
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-fn os_entry() -> Result<(), nexus_abi::AbiError> {
-    // Stub: register with samgr, emit ready marker
-    // Full integration deferred to follow-up tasks
-    Ok(())
+fn os_entry() -> Result<(), imed::os_lite::ImedError> {
+    imed::os_lite::service_main_loop()
 }
 
 #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
 fn main() {
-    let svc = imed::ImedService::new();
-    assert!(svc.ready);
-    println!("{}", imed::ImedService::READY_MARKER);
+    println!("imed: host mode - use crate tests");
 }
