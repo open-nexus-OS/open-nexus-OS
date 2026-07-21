@@ -610,6 +610,9 @@ impl LiveRouteRuntime {
         }
         if self.imed_client.is_none() {
             self.imed_client = KernelClient::new_for("imed").ok();
+            if self.imed_client.is_none() && !self.imed_forward_ok_emitted {
+                let _ = nexus_abi::trace_line("inputd: imed route FAIL");
+            }
         }
         let Some(client) = self.imed_client.as_ref() else {
             return;
@@ -623,6 +626,7 @@ impl LiveRouteRuntime {
             self.imed_forward_ok_emitted = true;
         }
         if !all_ok {
+            let _ = nexus_abi::trace_line("inputd: imed send FAIL");
             // Drop the cached route; the next batch re-resolves (imed restart).
             self.imed_client = None;
         }

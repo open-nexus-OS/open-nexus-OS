@@ -889,6 +889,14 @@ where
     // inboxes, routes and the announce markers.
     crate::bootstrap::wiring::wire_services(&mut ctrl_channels, &eps, init_fold, &mut init_wire)?;
 
+    // RFC-0075 cap-table hygiene: every imed leg is granted during wiring —
+    // release init's own imed pair caps NOW (mint→grant→close). Init's table
+    // runs AT its 128-slot ceiling; keeping these two parked slots broke the
+    // runtime `@mint-pair` path (`init: FAIL mint-pair create` → app event
+    // channels dead → 320x240 fallback desktop).
+    let _ = nexus_abi::cap_close(eps.imed_req);
+    let _ = nexus_abi::cap_close(eps.imed_rsp);
+
     // Cumulative boot elapsed just before the display-chain deferred resume. The gap from
     // `grants_done_ms` is the per-service cap-wiring phase; the gap to `total_ms` is the
     // display resume + the updated/bundlemgr OTA handshake tail.
