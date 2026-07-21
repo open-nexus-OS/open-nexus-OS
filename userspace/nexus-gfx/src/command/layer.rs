@@ -99,6 +99,13 @@ pub struct Layer {
     /// + `height` (the overridden scroll position) — only the UPLOAD region grows.
     pub scroll_band_top_abs: u32,
     pub scroll_band_h: u32,
+    /// Content epoch of the layer's atlas source (`0` = unknown → the backend
+    /// always re-uploads, the pre-epoch behavior). The compositor bumps its
+    /// epoch whenever it WRITES atlas content; a present whose layers carry an
+    /// unchanged epoch lets the backend composite from the already-uploaded
+    /// GPU atlas texture with NO per-frame `TRANSFER_TO_HOST` — the window-drag
+    /// present-cost fix (moves/transforms don't touch content).
+    pub content_epoch: u32,
     pub shadow: Option<LayerShadow>,
     pub backdrop: Option<LayerBackdrop>,
 }
@@ -126,6 +133,7 @@ impl Layer {
             corner_radius: 0,
             scroll_id: 0,
             layer_id: 0,
+            content_epoch: 0,
             scroll_band_top_abs: 0,
             scroll_band_h: 0,
             shadow: None,
@@ -179,6 +187,7 @@ mod tests {
                 scroll_band_top_abs: 0,
                 scroll_band_h: 0,
                 layer_id: 0,
+                content_epoch: 0,
             }
         );
     }

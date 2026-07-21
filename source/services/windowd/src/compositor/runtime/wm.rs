@@ -551,6 +551,7 @@ impl DisplayServerRuntime {
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
         }
         self.dock_rendered_n = n;
+        crate::atlas::note_atlas_content_write();
         Ok(())
     }
 }

@@ -341,3 +341,30 @@ mod tests {
         }
     }
 }
+
+/// Global atlas CONTENT epoch (starts at 1; `0` on the wire = "unknown, always
+/// upload"). Bumped by every atlas write choke point; scene emission stamps the
+/// current value into each `Layer::content_epoch`. A present whose layers carry
+/// an unchanged epoch lets gpud composite from its already-uploaded GPU atlas
+/// texture with NO per-frame `TRANSFER_TO_HOST` — the window-drag present-cost
+/// fix (drags/transforms re-emit the scene but never write atlas content).
+/// Deliberately GLOBAL (any content write re-uploads all layers, same as the
+/// old `rt_layers_dirty`): fail-safe over fine-grained — a missed per-surface
+/// bump would show stale pixels, a global bump only costs one extra upload.
+static ATLAS_CONTENT_EPOCH: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
+
+/// Record that atlas content was written (any surface band).
+pub(crate) fn note_atlas_content_write() {
+    ATLAS_CONTENT_EPOCH.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Current atlas content epoch (stamped into `Layer::content_epoch`).
+pub(crate) fn atlas_content_epoch() -> u32 {
+    let e = ATLAS_CONTENT_EPOCH.load(core::sync::atomic::Ordering::Relaxed);
+    // Never hand out 0 (the wire's "unknown" sentinel) even after a wrap.
+    if e == 0 {
+        1
+    } else {
+        e
+    }
+}

@@ -38,6 +38,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SCANOUT_FLIP = false` (atomic fullscreen `RESOURCE_COPY_REGION`). One-shot
   honest marker `gpud: gl flip on`; `scanout_sample` reads the front RT.
 
+#### windowd/gpud: per-layer content epoch — window drags stop re-uploading the atlas
+
+- `Layer`/`Command::CompositeLayer` gain `content_epoch` (wire: 18→19 words;
+  the serializer's bounds check also fixed — it reserved 17 words for an
+  18-word payload). windowd bumps ONE global atlas epoch at every atlas write
+  choke point and stamps it into each emitted layer; gpud re-uploads the GL
+  atlas texture only when the layer set's epoch changed (invalidated on an
+  abandoned present batch). Drags/transforms re-emit the scene every frame but
+  never write content — their per-layer `TRANSFER_TO_HOST` train collapses,
+  and with the SUBMIT_3D coalescer the present drops from ~15 to ~4 ring
+  entries (measured: drag enq 21ms → 11-13ms, entries/present 15 → 4).
+
 #### windowd/gpud: SMP-flicker triage diagnostics
 
 - `windowd: loop hz=` gains `nack=`/`fullrq=` counters and a pacer-slip

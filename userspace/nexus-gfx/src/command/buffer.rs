@@ -144,6 +144,11 @@ pub enum Command {
         scroll_band_h: u32,
         /// Transform identity (`0` = none) — see `Layer::layer_id`.
         layer_id: u32,
+        /// Content epoch of the layer's atlas source (`0` = unknown → always
+        /// re-upload). Unchanged epoch ⇒ the backend composites from the
+        /// already-uploaded GPU atlas texture without a per-frame
+        /// `TRANSFER_TO_HOST` — see `Layer::content_epoch`.
+        content_epoch: u32,
     },
 }
 
@@ -450,6 +455,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 scroll_band_top_abs,
                 scroll_band_h,
                 layer_id,
+                content_epoch,
             } => {
                 pos = ser_composite_layer(
                     buf,
@@ -473,6 +479,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                         *scroll_band_top_abs,
                         *scroll_band_h,
                         *layer_id,
+                        *content_epoch,
                     ],
                 )?;
             }
@@ -631,8 +638,8 @@ fn ser_drop_shadow(
 }
 
 /// 12 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
-fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 18]) -> Result<usize, GfxError> {
-    let needed = pos + 1 + 17 * 4;
+fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 19]) -> Result<usize, GfxError> {
+    let needed = pos + 1 + 19 * 4;
     if buf.len() < needed || needed > MAX_SERIALIZED {
         return Err(GfxError::ResourceExhausted);
     }
@@ -833,10 +840,10 @@ fn deser_drop_shadow(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxErro
 }
 
 fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
-    if buf.len() < pos + 72 {
+    if buf.len() < pos + 76 {
         return Err(GfxError::InvalidArgument);
     }
-    let mut w = [0u32; 18];
+    let mut w = [0u32; 19];
     for (i, slot) in w.iter_mut().enumerate() {
         let b = pos + i * 4;
         *slot = u32::from_le_bytes([buf[b], buf[b + 1], buf[b + 2], buf[b + 3]]);
@@ -861,8 +868,9 @@ fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), Gfx
             scroll_band_top_abs: w[15],
             scroll_band_h: w[16],
             layer_id: w[17],
+            content_epoch: w[18],
         },
-        pos + 72,
+        pos + 76,
     ))
 }
 
@@ -996,81 +1004,4 @@ fn validate_tile(tile: TileRect, render_extent: Option<(u32, u32)>) -> Result<()
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod scroll_tag_tests {
-    use super::*;
-
-    /// The scroll fast path depends on the `scroll_id` surviving the wire to
-    /// gpud. This pins that: a scrollable CompositeLayer serialized + deserialized
-    /// keeps its id (and a normal one stays 0). If this breaks, gpud can't
-    /// identify scrollable layers and the scroll fast path silently dies.
-    #[test]
-    fn scroll_id_roundtrips_over_the_wire() {
-        let cb = CommittedBuffer {
-            commands: alloc::vec![
-                Command::CompositeLayer {
-                    src_row_abs: 3200,
-                    src_x: 0,
-                    width: 366,
-                    height: 600,
-                    dst_x: 100,
-                    dst_y: 80,
-                    opacity: 255,
-                    corner_radius: 18,
-                    shadow_blur: 24,
-                    shadow_offset_y: 12,
-                    shadow_alpha: 180,
-                    backdrop_blur: 0,
-                    scroll_id: 1,
-                    content_w: 200,
-                    content_h: 300,
-                    scroll_band_top_abs: 3200,
-                    scroll_band_h: 2600,
-                    layer_id: 0,
-                },
-                Command::CompositeLayer {
-                    src_row_abs: 4000,
-                    src_x: 0,
-                    width: 64,
-                    height: 800,
-                    dst_x: 0,
-                    dst_y: 0,
-                    opacity: 255,
-                    corner_radius: 0,
-                    shadow_blur: 0,
-                    shadow_offset_y: 0,
-                    shadow_alpha: 0,
-                    backdrop_blur: 0,
-                    scroll_id: 0,
-                    content_w: 0,
-                    content_h: 0,
-                    scroll_band_top_abs: 0,
-                    scroll_band_h: 0,
-                    layer_id: 0,
-                },
-            ],
-        };
-        let mut buf = [0u8; 256];
-        let n = cb.serialize_into(&mut buf).expect("serialize");
-        let (out, consumed) = CommittedBuffer::deserialize_from(&buf[..n]).expect("deserialize");
-        assert_eq!(consumed, n, "consumed all serialized bytes");
-        let tags: alloc::vec::Vec<(u32, u32, u32, u32)> = out
-            .commands
-            .iter()
-            .filter_map(|c| match c {
-                Command::CompositeLayer {
-                    src_row_abs, scroll_id, content_w, content_h, ..
-                } => Some((*src_row_abs, *scroll_id, *content_w, *content_h)),
-                _ => None,
-            })
-            .collect();
-        // scroll_id AND the content sub-size survive the wire (windowd↔gpud).
-        assert_eq!(
-            tags,
-            alloc::vec![(3200, 1, 200, 300), (4000, 0, 0, 0)],
-            "scroll_id + content sub-size preserved per layer"
-        );
-    }
 }

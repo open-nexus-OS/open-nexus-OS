@@ -20,12 +20,11 @@
 //! first instance; the Chat window migrates onto it next (W3), so both windows
 //! share ONE appearance (the nicer Search look) and ONE scroll mechanism.
 //!
-//! The frame reaches the virgl scanout the same way every other shell layer
-//! does — `try_composite_layer` over a pre-blurred backdrop (the retained
-//! Plane 1 is invisible on virgl, see [[black-screen-is-2d-3d-dual-not-host]]).
-//! The body content (filtered words / chat messages) is rasterized into the
-//! window's atlas surface by the caller; this component owns only the chrome,
-//! the glass recipe, hit-testing, drag, and the blur cache.
+//! The frame reaches the virgl scanout like every other shell layer —
+//! `try_composite_layer` over a pre-blurred backdrop (retained Plane 1 is
+//! invisible on virgl, see [[black-screen-is-2d-3d-dual-not-host]]). The body
+//! content is rasterized into the window's atlas surface by the caller; this
+//! component owns only chrome, glass recipe, hit-testing, drag, blur cache.
 //!
 //! OWNERS: @ui
 //! STATUS: In progress (unified-window refactor, W1)
@@ -362,8 +361,7 @@ impl ShellWindow {
         }
         let w = p.w.min(mode_w.saturating_sub(p.x));
         let h = p.h.min(mode_h.saturating_sub(p.y));
-        // A static glass window: no shadow halo (pad 0), blur cached after the
-        // first settled present. Routed through the layer SSOT.
+        // Static glass window: no shadow halo, blur cached after first settle (layer SSOT).
         let _ = encoder.composite_layer_full(
             &Layer {
                 src_row_abs: p.atlas_row,
@@ -378,6 +376,7 @@ impl ShellWindow {
                 corner_radius: p.radius,
                 scroll_id: 0,
                 layer_id: p.layer_id,
+                content_epoch: crate::atlas::atlas_content_epoch(),
                 scroll_band_top_abs: 0,
                 scroll_band_h: 0,
                 shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
@@ -479,6 +478,7 @@ impl ShellWindow {
                     corner_radius: 0,
                     scroll_id,
                     layer_id: p.layer_id,
+                    content_epoch: crate::atlas::atlas_content_epoch(),
                     scroll_band_top_abs: p.atlas_row,
                     scroll_band_h: band_h,
                     shadow: None,
@@ -590,9 +590,9 @@ pub(crate) fn composite_material_glass(
             opacity: 255,
             corner_radius: p.corner_radius,
             scroll_id: 0,
-            // Material glass regions ride their app's DESKTOP surface —
-            // untagged (window transitions target floating windows).
+            // Untagged: material glass rides the app's DESKTOP surface.
             layer_id: 0,
+            content_epoch: crate::atlas::atlas_content_epoch(),
             scroll_band_top_abs: 0,
             scroll_band_h: 0,
             shadow: (p.shadow_alpha > 0).then_some(LayerShadow {

@@ -343,6 +343,7 @@ impl DisplayServerRuntime {
                                         } else {
                                             crate::compositor::runtime::app_window::APP_WIN_RADIUS
                                         },
+                                        content_epoch: crate::atlas::atlas_content_epoch(),
                                         ..Layer::opaque(row, sx, w, h, dx, dy)
                                     },
                                     (mode.width, mode.height),
@@ -371,7 +372,10 @@ impl DisplayServerRuntime {
                         // band→display draw, not a client repaint.
                         if let Some((row, x, w, h)) = desktop_layer {
                             let _ = encoder.composite_layer_full(
-                                &Layer::opaque(row, x, w, h, 0, 0),
+                                &Layer {
+                                    content_epoch: crate::atlas::atlas_content_epoch(),
+                                    ..Layer::opaque(row, x, w, h, 0, 0)
+                                },
                                 (mode.width, mode.height),
                             );
                             // Frosted regions: blur the wallpaper behind each
@@ -428,7 +432,10 @@ impl DisplayServerRuntime {
             if let Some((row, x, w, _h)) = desktop_layer {
                 let bar_h = super::SHELL_TOPBAR_H.min(mode.height);
                 let _ = encoder.composite_layer_full(
-                    &Layer::opaque(row, x, w, bar_h, 0, 0),
+                    &Layer {
+                        content_epoch: crate::atlas::atlas_content_epoch(),
+                        ..Layer::opaque(row, x, w, bar_h, 0, 0)
+                    },
                     (mode.width, mode.height),
                 );
                 use nexus_display_proto::client_surface as wire;
@@ -464,6 +471,7 @@ impl DisplayServerRuntime {
                         corner_radius: crate::dock::DOCK_RADIUS,
                         shadow: Some(LayerShadow { blur: 14, offset_y: 4, alpha: 80 }),
                         backdrop: Some(chrome_glass_backdrop()),
+                        content_epoch: crate::atlas::atlas_content_epoch(),
                         ..Layer::opaque(dock_row, dock_x, bar.width, bar.height, bar.x, bar.y)
                     },
                     (mode.width, mode.height),

@@ -33,6 +33,7 @@ use crate::markers::{
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use crate::protocol;
 
+mod attach;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod bootstrap;
 mod cursor;
@@ -291,6 +292,12 @@ pub struct VirtioGpuBackend {
     /// contexts never merge; in practice gpud uses one ctx).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) submit3d_pend_ctx: u32,
+    /// Atlas content epoch currently uploaded to the GL atlas texture (`0` =
+    /// none/invalidated → next present re-uploads). Compared against the layer
+    /// set's stamped epoch in `composite_pending_rt_layers`; reset to 0 when a
+    /// present's batch is abandoned (its TRANSFER may have been dropped).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) atlas_uploaded_epoch: u32,
     /// Guest backing VA of the NON-ALIASED display texture (own backing, not a
     /// VMO alias). The present copies windowd's VMO frame here, uploads it, and
     /// blits it to the scanout RT — avoiding the 0xF8 VMO-alias that QEMU's GL
@@ -351,7 +358,7 @@ pub struct VirtioGpuBackend {
     /// Cleared after upload — cursor-move presents then re-composite from the
     /// already-uploaded texture WITHOUT the per-frame transfer (the slow path).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    rt_layers_dirty: bool,
+    pub(crate) rt_layers_dirty: bool,
 }
 
 /// One recorded layer-transform override (Track C2): identity = absent.
@@ -403,6 +410,10 @@ struct PendingRtLayer {
     /// DISTINCT from `scroll_id`: all slices of a window share one transform
     /// id, only the scrolling body carries the scroll id.
     layer_id: u32,
+    /// Content epoch of the layer's atlas source (`0` = unknown). The set-level
+    /// max gates the per-present atlas re-upload — see
+    /// `composite_pending_rt_layers`.
+    content_epoch: u32,
 }
 
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -565,6 +576,8 @@ impl VirtioGpuBackend {
             submit3d_pend: alloc::vec::Vec::new(),
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             submit3d_pend_ctx: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            atlas_uploaded_epoch: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_display_tex_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

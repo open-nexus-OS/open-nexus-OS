@@ -8,6 +8,8 @@
 
 pub mod blit_encoder;
 pub mod buffer;
+#[cfg(test)]
+mod buffer_wire_tests;
 pub mod compute_encoder;
 pub mod layer;
 pub mod pass;

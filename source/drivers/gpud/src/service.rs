@@ -491,6 +491,14 @@ fn service_requests(
                                 .wrapping_sub(deadline_expiries_before);
                             if expired > 0 {
                                 emit_present_deadline_fail(expired);
+                                // The abandoned batch may have dropped an atlas
+                                // TRANSFER — invalidate the uploaded epoch so
+                                // the re-presented frame uploads fresh content.
+                                #[cfg(feature = "virgl")]
+                                {
+                                    backend.atlas_uploaded_epoch = 0;
+                                    backend.rt_layers_dirty = true;
+                                }
                                 STATUS_DEVICE_ERROR
                             } else {
                                 status

@@ -247,6 +247,7 @@ impl<'a> RenderCommandEncoder<'a> {
             0,
             0,
             0,
+            0,
         )
     }
 
@@ -290,6 +291,7 @@ impl<'a> RenderCommandEncoder<'a> {
             0,
             0,
             0,
+            0,
         )
     }
 
@@ -314,6 +316,7 @@ impl<'a> RenderCommandEncoder<'a> {
         scroll_band_top_abs: u32,
         scroll_band_h: u32,
         layer_id: u32,
+        content_epoch: u32,
     ) -> Result<(), GfxError> {
         if !self.active {
             return Err(GfxError::CommandRejected);
@@ -337,6 +340,7 @@ impl<'a> RenderCommandEncoder<'a> {
             scroll_band_top_abs,
             scroll_band_h,
             layer_id,
+            content_epoch,
         })
     }
 
@@ -433,6 +437,7 @@ impl<'a> RenderCommandEncoder<'a> {
             layer.scroll_band_top_abs,
             layer.scroll_band_h,
             layer.layer_id,
+            layer.content_epoch,
         )
     }
 

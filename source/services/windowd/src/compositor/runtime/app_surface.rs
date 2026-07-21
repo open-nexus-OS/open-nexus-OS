@@ -294,6 +294,7 @@ impl DisplayServerRuntime {
             vmo_write(handle, dst, &self.band_scratch[..win_w as usize * 4])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
         }
+        crate::atlas::note_atlas_content_write();
         Ok(())
     }
 
@@ -374,6 +375,7 @@ impl DisplayServerRuntime {
             vmo_write(handle, dst, &self.band_scratch[..w as usize * 4])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
         }
+        crate::atlas::note_atlas_content_write();
         Ok(())
     }
 

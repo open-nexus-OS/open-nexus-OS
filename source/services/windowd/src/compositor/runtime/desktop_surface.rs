@@ -202,6 +202,7 @@ impl DisplayServerRuntime {
                 let _ = (row, src_stride, handle, y);
             }
         }
+        crate::atlas::note_atlas_content_write();
         Ok(())
     }
 
