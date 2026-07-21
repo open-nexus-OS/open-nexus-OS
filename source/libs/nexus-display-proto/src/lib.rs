@@ -32,6 +32,7 @@
 
 /// ADR-0042 client-surface transport (app process ↔ windowd).
 pub mod client_surface;
+pub mod surface_text;
 
 // ── Opcodes (frame byte 0) ───────────────────────────────────────────────────
 

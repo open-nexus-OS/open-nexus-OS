@@ -675,7 +675,7 @@ pub fn build_widget(
             if let Some(placeholder) = prop("placeholder").map(value_text) {
                 field = field.placeholder(placeholder);
             }
-            field.build(tokens)
+            field.secure(matches!(prop("secure"), Some(Value::Bool(true)))).build(tokens)
         }
         "Toggle" => {
             let checked = matches!(prop("checked"), Some(Value::Bool(true)));

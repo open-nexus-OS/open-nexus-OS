@@ -30,6 +30,7 @@ pub struct TextField {
     value: String,
     placeholder: Option<String>,
     max_length: Option<u32>,
+    secure: bool,
 }
 
 impl TextField {
@@ -73,6 +74,13 @@ impl TextField {
         self
     }
 
+    /// Password field: renders bullets instead of the value; the IME layer
+    /// disables preedit preview, candidates and learning (RFC-0075).
+    pub fn secure(mut self, secure: bool) -> Self {
+        self.secure = secure;
+        self
+    }
+
     /// The field's interaction id.
     pub fn interaction_id(&self) -> Option<&'static str> {
         self.id
@@ -81,10 +89,18 @@ impl TextField {
     /// Build the layout-node.
     pub fn build(self) -> LayoutNode {
         let cursor_pos = self.value.chars().count();
+        let content = if self.secure {
+            // The real value never reaches the scene for password fields.
+            TextContent::new(alloc::string::String::from_iter(
+                core::iter::repeat('•').take(cursor_pos),
+            ))
+        } else {
+            TextContent::new(self.value)
+        };
         LayoutNode::TextInput(
             TextInputNode {
                 id: self.id,
-                content: TextContent::new(self.value),
+                content,
                 cursor_pos,
                 placeholder: self.placeholder.map(TextContent::new),
                 max_length: self.max_length,
@@ -92,6 +108,7 @@ impl TextField {
                 item: FlexItem::default(),
                 min_width: None,
                 max_width: None,
+                secure: self.secure,
             },
             self.style.visual(),
         )

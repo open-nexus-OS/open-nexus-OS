@@ -24,6 +24,10 @@ pub const fn text(ch: char) -> KeyOutput {
     KeyOutput::Text(ch)
 }
 
+pub const fn dead(ch: char) -> KeyOutput {
+    KeyOutput::Dead(ch)
+}
+
 pub const fn action(action: KeyAction) -> KeyOutput {
     KeyOutput::Action(action)
 }
@@ -116,7 +120,7 @@ pub mod us {
 pub mod de {
     use hid::KeyboardUsage;
 
-    use super::{action, entry, text, MappingEntry};
+    use super::{action, dead, entry, text, MappingEntry};
     use crate::KeyAction;
 
     pub const TABLE: &[MappingEntry] = &[
@@ -158,13 +162,13 @@ pub mod de {
         entry(KeyboardUsage::DIGIT_0, text('0'), Some(text('=')), Some(text('}'))),
         entry(KeyboardUsage::SPACE, text(' '), Some(text(' ')), None),
         entry(KeyboardUsage::MINUS, text('ß'), Some(text('?')), Some(text('\\'))),
-        entry(KeyboardUsage::EQUAL, text('´'), Some(text('`')), None),
+        entry(KeyboardUsage::EQUAL, dead('´'), Some(dead('`')), None),
         entry(KeyboardUsage::LEFT_BRACKET, text('ü'), Some(text('Ü')), None),
         entry(KeyboardUsage::RIGHT_BRACKET, text('+'), Some(text('*')), Some(text('~'))),
         entry(KeyboardUsage::BACKSLASH, text('#'), Some(text('\'')), None),
         entry(KeyboardUsage::SEMICOLON, text('ö'), Some(text('Ö')), None),
         entry(KeyboardUsage::APOSTROPHE, text('ä'), Some(text('Ä')), None),
-        entry(KeyboardUsage::GRAVE, text('^'), Some(text('°')), None),
+        entry(KeyboardUsage::GRAVE, dead('^'), Some(text('°')), None),
         entry(KeyboardUsage::COMMA, text(','), Some(text(';')), None),
         entry(KeyboardUsage::DOT, text('.'), Some(text(':')), None),
         entry(KeyboardUsage::SLASH, text('-'), Some(text('_')), None),

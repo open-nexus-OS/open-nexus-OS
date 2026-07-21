@@ -22,10 +22,12 @@ use nexus_theme_tokens::Tokens;
 
 pub struct View<'p> {
     pub runtime: Runtime<'p>,
-    scene: LayoutNode,
+    pub(crate) scene: LayoutNode,
     deps: Vec<Dep>,
     /// Interactive regions: (pre-order box id, handler).
-    handlers: Vec<(usize, HandlerEntry)>,
+    pub(crate) handlers: Vec<(usize, HandlerEntry)>,
+    /// The focused text field (tap-to-focus; None = no field focused).
+    pub(crate) focused_text: Option<crate::focus::FocusedText>,
     /// Motion intents of the current scene: (pre-order box id, intent). The
     /// host reads these each frame, seeds its `AnimationDriver` on a change,
     /// and paints the interpolated result (docs/dev/ui/foundations/animation.md).
@@ -72,6 +74,7 @@ impl<'p> View<'p> {
             scene: LayoutNode::Spacer(nexus_layout_types::Spacer::default()),
             deps: Vec::new(),
             handlers: Vec::new(),
+            focused_text: None,
             animations: Vec::new(),
             nav,
             keys,
@@ -353,7 +356,7 @@ impl<'p> View<'p> {
     }
 
     /// Maps changed fields onto the dep set (shared by dispatch + bindings).
-    fn apply_changes(
+    pub(crate) fn apply_changes(
         &mut self,
         tokens: &dyn Tokens,
         device: &dyn DeviceEnv,
@@ -429,6 +432,7 @@ impl<'p> View<'p> {
                 self.animations.push((box_id, intent));
             }
         }
+        self.revalidate_text_focus();
         Ok(())
     }
 

@@ -563,6 +563,107 @@ Page P {
     );
 }
 
+/// RFC-0075 focused-field model: tap focuses the innermost Change-bound
+/// field, insert/backspace edit the FOCUSED value (surviving re-emits by
+/// binding identity), `secure` fields report password and mask the scene,
+/// and a tap outside any field clears the focus.
+#[test]
+fn tap_to_focus_insert_backspace_and_secure() {
+    use nexus_layout::LayoutEngine;
+    use nexus_layout_types::FxPx;
+
+    let nxir = compile(
+        r#"
+Store S {
+    query: Str = "",
+    secret: Str = "",
+}
+Event E { Noop, }
+reduce E { Noop => state.query = state.query, }
+Page P {
+    Stack {
+        TextField { label: "Search", value: $state.query }
+        TextField { label: "Secret", value: $state.secret, secure: true }
+        Text($state.query)
+    }
+    .padding(2)
+    .gap(2)
+}
+"#,
+    );
+    let mut mounted = Mounted::new(&nxir);
+    let engine = LayoutEngine::new();
+    let locale = IdentityLocale { symbols: &mounted.symbols, keys: &mounted.keys };
+    let result = engine
+        .layout(mounted.view.scene(), FxPx::new(200), &ui_v10_goldens::NoText)
+        .expect("lays out");
+
+    let center = |box_id: usize| {
+        let rect = result.boxes.iter().find(|b| b.node_id == box_id).expect("box").rect;
+        (FxPx::new(rect.x.0 + rect.width.0 / 2), FxPx::new(rect.y.0 + rect.height.0 / 2))
+    };
+    let bind_boxes: Vec<usize> = mounted
+        .view
+        .handlers()
+        .iter()
+        .filter(|(_, h)| {
+            matches!(h.action, nexus_dsl_runtime::interact::HandlerAction::Bind { .. })
+        })
+        .map(|(id, _)| *id)
+        .collect();
+    assert_eq!(bind_boxes.len(), 2, "two bound fields");
+
+    // Tap the query field: focused, not secure.
+    let (x, y) = center(bind_boxes[0]);
+    let snap = mounted.view.focus_text_at(&result.boxes, x, y, None).expect("focus");
+    assert!(!snap.secure);
+    assert_eq!(mounted.view.text_focus(), Some(snap));
+
+    // Typing edits the focused field — across the re-emit each write causes.
+    for ch in ["h", "é"] {
+        mounted.view.insert_text(&BaseTokens, &FixtureEnv::default(), &locale, ch).expect("insert");
+    }
+    assert_eq!(
+        mounted.view.runtime.field("S", "query"),
+        Some(&nexus_dsl_runtime::Value::Str("hé".into()))
+    );
+    assert!(mounted.view.text_focus().is_some(), "focus survives re-emits");
+    mounted.view.backspace_text(&BaseTokens, &FixtureEnv::default(), &locale).expect("backspace");
+    assert_eq!(
+        mounted.view.runtime.field("S", "query"),
+        Some(&nexus_dsl_runtime::Value::Str("h".into()))
+    );
+
+    // Tap the secret field: password snapshot; the scene shows bullets only.
+    let result = engine
+        .layout(mounted.view.scene(), FxPx::new(200), &ui_v10_goldens::NoText)
+        .expect("relays");
+    let center2 = |box_id: usize| {
+        let rect = result.boxes.iter().find(|b| b.node_id == box_id).expect("box").rect;
+        (FxPx::new(rect.x.0 + rect.width.0 / 2), FxPx::new(rect.y.0 + rect.height.0 / 2))
+    };
+    let (x, y) = center2(bind_boxes[1]);
+    let snap = mounted.view.focus_text_at(&result.boxes, x, y, None).expect("focus secret");
+    assert!(snap.secure, "secure prop reaches the focus snapshot");
+    mounted
+        .view
+        .insert_text(&BaseTokens, &FixtureEnv::default(), &locale, "pw")
+        .expect("insert secret");
+    assert_eq!(
+        mounted.view.runtime.field("S", "secret"),
+        Some(&nexus_dsl_runtime::Value::Str("pw".into()))
+    );
+    let texts = dsl_goldens::texts(mounted.view.scene());
+    assert!(!texts.iter().any(|t| t.contains("pw")), "scene never shows the secret");
+
+    // Tap empty space clears focus; inserts become no-ops.
+    assert!(mounted.view.focus_text_at(&result.boxes, FxPx::new(1), FxPx::new(1), None).is_none());
+    assert_eq!(mounted.view.text_focus(), None);
+    let damage =
+        mounted.view.insert_text(&BaseTokens, &FixtureEnv::default(), &locale, "x").expect("noop");
+    assert_eq!(damage, None);
+}
+
 /// The master–detail example app builds from a PROJECT DIRECTORY (multi-file
 /// merge + phone override) and drives list-tap → detail → back through the
 /// interpreter — the Phase-6 launch-demo payload, proven host-side.

@@ -6,7 +6,7 @@
 
 #[cfg(test)]
 mod scroll_tag_tests {
-    use super::buffer::*;
+    use crate::command::buffer::*;
 
     /// The scroll fast path depends on the `scroll_id` surviving the wire to
     /// gpud. This pins that: a scrollable CompositeLayer serialized + deserialized

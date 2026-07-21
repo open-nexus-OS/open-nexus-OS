@@ -1,0 +1,12 @@
+[package]
+name = "ime-core"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "ime_core"
+path = "src/lib.rs"
+
+[dependencies]
+keymaps = { path = "../keymaps" }

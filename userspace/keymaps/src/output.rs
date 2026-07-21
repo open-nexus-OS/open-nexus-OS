@@ -20,5 +20,8 @@ pub enum KeyAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyOutput {
     Text(char),
+    /// Dead key: does not emit text by itself; the IME compose machine
+    /// (ime-core, RFC-0075) combines it with the next Text key.
+    Dead(char),
     Action(KeyAction),
 }

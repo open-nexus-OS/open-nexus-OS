@@ -129,6 +129,9 @@ pub struct TextInputNode {
     pub item: FlexItem,
     pub min_width: Option<FxPx>,
     pub max_width: Option<FxPx>,
+    /// Password field (RFC-0075): content arrives pre-masked; the IME layer
+    /// disables preedit preview, candidates and learning for this field.
+    pub secure: bool,
 }
 
 impl Default for TextInputNode {
@@ -143,6 +146,7 @@ impl Default for TextInputNode {
             item: FlexItem::default(),
             min_width: None,
             max_width: None,
+            secure: false,
         }
     }
 }

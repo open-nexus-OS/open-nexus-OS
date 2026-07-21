@@ -61,6 +61,7 @@ pub struct GlassTextField {
     size: FieldSize,
     state: InteractionState,
     id: Option<&'static str>,
+    secure: bool,
 }
 
 impl GlassTextField {
@@ -107,6 +108,12 @@ impl GlassTextField {
     }
     pub fn id(mut self, id: &'static str) -> Self {
         self.id = Some(id);
+        self
+    }
+    /// Password field: bullets instead of the value; no IME preview/learning
+    /// (RFC-0075).
+    pub fn secure(mut self, secure: bool) -> Self {
+        self.secure = secure;
         self
     }
 
@@ -170,7 +177,8 @@ impl GlassTextField {
                     color: tokens.color(ColorToken::OnSurface),
                     white_space: WhiteSpace::NoWrap,
                 })
-                .value(self.value.clone());
+                .value(self.value.clone())
+                .secure(self.secure);
             if let Some(p) = &self.placeholder {
                 tf = tf.placeholder(p.clone());
             }

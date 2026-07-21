@@ -9,7 +9,7 @@
 //! OWNERS: @runtime
 //! PUBLIC API: codec::{Writer, Reader, put_hdr, check_hdr, request_op}, frames! DSL,
 //!             per-protocol modules (execd, updated, routing, bundlemgrd, sessiond,
-//!             settingsd, bundleimg, policy, policyd)
+//!             settingsd, bundleimg, policy, policyd, imed)
 //! DEPENDS_ON: nothing (no_std, alloc-free, zero deps)
 //! INVARIANTS: all scalar fields little-endian; decoders are fail-closed (`None` on
 //!             malformed input, exact-length by default); wire bytes are locked by
@@ -23,6 +23,7 @@ pub mod bundlemgrd;
 pub mod codec;
 pub mod execd;
 mod frames;
+pub mod imed;
 pub mod policy;
 pub mod policyd;
 pub mod routing;

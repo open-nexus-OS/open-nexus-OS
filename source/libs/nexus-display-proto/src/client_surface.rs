@@ -13,14 +13,14 @@
 //!
 //! ENVELOPE: these frames arrive on windowd's SERVER endpoint, which speaks
 //! the `[b'I', b'N', version, op]`-header family (input-live-protocol).
-//! The op numbers here live in that shared space and MUST NOT collide with
-//! the input ops (1–4) — pinned by a unit test on the windowd side.
+//! Ops share that space; MUST NOT collide with input ops 1–4 (pinned by a
+//! windowd unit test). Text ops 21/22: `crate::surface_text` (23 reserved).
 
 /// Shared envelope (input-live-protocol family on windowd's server endpoint).
 pub const ENVELOPE_MAGIC0: u8 = b'I';
 pub const ENVELOPE_MAGIC1: u8 = b'N';
 pub const ENVELOPE_VERSION: u8 = 1;
-const HEADER_LEN: usize = 4;
+pub(crate) const HEADER_LEN: usize = 4;
 
 /// Creates an app surface. Payload: `w:u16, h:u16, format:u8`. The message
 /// MOVES the app's surface VMO capability (gpud-attach pattern).
@@ -410,11 +410,11 @@ pub struct DamageRect {
     pub height: u16,
 }
 
-fn header(op: u8) -> [u8; HEADER_LEN] {
+pub(crate) fn header(op: u8) -> [u8; HEADER_LEN] {
     [ENVELOPE_MAGIC0, ENVELOPE_MAGIC1, ENVELOPE_VERSION, op]
 }
 
-fn has_op(frame: &[u8], op: u8) -> bool {
+pub(crate) fn has_op(frame: &[u8], op: u8) -> bool {
     frame.len() >= HEADER_LEN
         && frame[0] == ENVELOPE_MAGIC0
         && frame[1] == ENVELOPE_MAGIC1

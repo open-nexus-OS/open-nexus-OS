@@ -79,6 +79,27 @@ fn keymaps_resolve_deterministic_vectors_for_all_layouts() {
 }
 
 #[test]
+fn keymaps_de_marks_dead_keys() {
+    let none = Modifiers::default();
+    let shift = Modifiers::default().with_shift();
+
+    let de = Keymap::new(LayoutId::try_from("de").expect("de"));
+    assert_eq!(de.resolve(KeyboardUsage::EQUAL, none).expect("de acute"), KeyOutput::Dead('´'));
+    assert_eq!(de.resolve(KeyboardUsage::EQUAL, shift).expect("de grave"), KeyOutput::Dead('`'));
+    assert_eq!(
+        de.resolve(KeyboardUsage::GRAVE, none).expect("de circumflex"),
+        KeyOutput::Dead('^')
+    );
+    // Shifted GRAVE stays plain text (degree sign, not a dead key).
+    assert_eq!(text(de.resolve(KeyboardUsage::GRAVE, shift).expect("de degree")), '°');
+
+    // US has no dead keys: the same physical keys emit plain text.
+    let us = Keymap::new(LayoutId::try_from("us").expect("us"));
+    assert_eq!(text(us.resolve(KeyboardUsage::EQUAL, none).expect("us equal")), '=');
+    assert_eq!(text(us.resolve(KeyboardUsage::GRAVE, none).expect("us backtick")), '`');
+}
+
+#[test]
 fn test_reject_unknown_layout_id() {
     let err = LayoutId::try_from("neo").unwrap_err();
     assert_eq!(err.code(), "keymap.layout.unknown");

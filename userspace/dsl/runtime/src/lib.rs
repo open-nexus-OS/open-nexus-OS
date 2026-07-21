@@ -20,6 +20,7 @@ extern crate alloc;
 pub mod anim;
 pub mod effects;
 pub mod emit;
+pub mod focus;
 pub mod i18n;
 mod initial;
 pub mod interact;
@@ -35,6 +36,7 @@ pub use anim::{
     AnimIntent, AnimKind, LOOP_BREATHE, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SWEEP,
 };
 pub use emit::{Damage, Dep};
+pub use focus::TextFocusSnapshot;
 pub use i18n::{Catalog, LocaleChain};
 pub use interact::HandlerEntry;
 pub use nav::{Nav, NavEntry};
