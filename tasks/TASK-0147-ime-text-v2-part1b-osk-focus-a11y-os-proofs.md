@@ -1,140 +1,166 @@
 ---
-title: TASK-0147 IME/Text v2 Part 1b (OS-gated): OSK overlay + focus routing + a11y announcements + OS selftests/postflight + docs
-status: Draft
+title: TASK-0147 IME v2 Part 1b (OS/QEMU): imed service real + typing lands in apps + OSK overlay app (ime-ui)
+status: In Progress (2026-07-21 — Part 1: typing lands in apps)
 owner: @ui
 created: 2025-12-26
+updated: 2026-07-21 (rewritten against repo reality; architecture per RFC-0075)
 depends-on:
   - TASK-0146
-  - TASK-0059
   - TASK-0253
-follow-up-tasks: []
+follow-up-tasks:
+  - TASK-0149 / TASK-0150 (CJK + candidate UI)
 links:
   - Vision: docs/architecture/vision.md
   - Playbook: CLAUDE.md
-  - IME core + keymaps: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
-  - IME/text-input plumbing baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - Later TextField core (caret/selection): tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
-  - SystemUI→DSL migration baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
-  - Later a11y hardening: tasks/TASK-0114-ui-v20a-a11yd-tree-actions-focusnav.md
-  - Later policy gates (input caps): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - Contract: docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
+  - Host foundation: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
+  - Live input chain (Done): tasks/TASK-0253-input-v1_0b-os-hidraw-touch-inputd-windowd-ime-nx.md
+  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
+  - Settings keymap key (consumer): tasks/TASK-0298-settings-spine-watch-region-keys.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
 ## Context
 
-With IME core logic and keymaps in place (Part 1a), we need the OS-visible integration:
+TASK-0146 delivers ime-core, the DSL focused-field model and the wire codecs —
+all host-proven. This task makes typing real in QEMU, in two OS packages:
 
-- focus/session wiring from windowd/ui-kit into imed,
-- an on-screen keyboard overlay (OSK),
-- accessibility announcements for preedit/commit,
-- deterministic OS selftests and docs.
+- **Part 1 (typing lands in apps)**: imed becomes a real service; the resolved
+  characters inputd already computes (and currently drops) flow
+  `inputd → imed → windowd → focused surface → app-host → focused DSL field`.
+- **Part 2 (OSK)**: an on-screen keyboard as its **own DSL overlay app**
+  (`ime-ui`) — windowd only composites and shows/hides it. The legacy shell
+  keyboard-card visual is retired.
 
-This must not duplicate the “imed stub” scope inside `TASK-0059`; instead it wires the real IME.
-This part provides only the minimal OSK/focus/a11y-announcement/policy-hook floor
-needed before the SystemUI DSL desktop claim. Rich TextField selection/caret
-behavior (`TASK-0095`), candidate UI (`TASK-0096`), full a11yd hardening
-(`TASK-0114`), and app capability-matrix enforcement (`TASK-0136`) remain later
-tasks and are not pulled into the fast lane.
+Authority cleanup: `source/services/ime/` (deprecated placeholder,
+TRACK-AUTHORITY-NAMING) is deleted in Part 1.
 
 ## Goal
 
-Deliver:
+### Part 1 — typing lands in apps (first visible win)
+1. `source/services/imed/` real: samgrd registration, `frames!` imed protocol
+   serve loop, hosts ime-core, fixed buffers (no per-key allocation), src/ + tests/.
+2. inputd: forward resolved `KeyOutput::{Text,Dead,Action}` to imed **only
+   while text focus is active** (`OP_KEY`, source=hw). Pointer path untouched.
+3. windowd: relay `OP_SURFACE_TEXT_FOCUS` (app → imed + inputd `set_text_focus`,
+   which already exists) and route imed `OP_COMMIT`/`OP_PREEDIT` pushes to the
+   focused surface as `OP_SURFACE_TEXT` — pure routing, no IME logic in windowd.
+4. app-host: decode `OP_SURFACE_TEXT` → insert into the focused DSL field.
+5. Delete `source/services/ime/`; imed joins the boot service list.
 
-1. Focus/session wiring:
-   - `Editable` text controls negotiate IME focus with `imed`:
-     - focusIn/focusOut
-     - surrounding text + caret rect queries (as supported)
-   - key routing:
-     - focused control’s key events go to `imed` first
-     - if `handled=false`, fall back to legacy handling
-   - async composition model (foundation):
-     - `imed` emits preedit/candidate updates as queued events per focused session (no reentrancy into UI)
-     - bounded queue depth; deterministic delivery order
-2. OSK overlay (SystemUI):
-   - US/DE layouts
-   - dead-key highlight and modifier state
-   - a11y roles/names per key; optional sticky modifiers (v1)
-   - markers:
-     - `osk: show` / `osk: hide`
-     - `osk: key "<label>"`
-3. Settings integration + shortcuts + CLI:
-   - Settings → Keyboard & Input (US/DE, OSK toggle, sticky modifiers)
-   - shortcuts: Super+Space cycle lang; Ctrl+Space toggle OSK
-   - `nx ime` helpers (lang/osk, simple deterministic typing test)
-4. Policy/a11y:
-- minimal capability hook labels for IME usage and IME management (`input.ime`, `input.ime.manage`), without full `TASK-0136` app matrix enforcement
-- bounded a11y announcement events for preedit/commit changes, without full `TASK-0114` tree/actions hardening
-5. Proof:
-   - OS/QEMU selftests for:
-     - latin typing (US)
-     - dead keys/compose (DE)
-     - OSK typing (e.g., `ß`)
-   - postflight delegates to host tests + QEMU marker run
-6. Docs:
-   - `docs/input/ime-overview.md`
-   - `docs/input/keymaps.md`
-   - `docs/systemui/osk.md`
+### Part 2 — OSK overlay app
+6. `userspace/apps/ime-ui`: OSK as `WIN_LEVEL_OVERLAY` surface; show/hide
+   driven by the existing ImeHook/`keyboard_visible` state; layout follows the
+   `input.keymap` setting (TASK-0298); taps → `OP_KEY` (source=osk).
+7. policyd: deny-by-default — only the ime-ui bundle may inject OSK keys.
 
 ## Non-Goals
 
-- Kernel changes.
-- CJK engines and shaping/bidi/line-breaking (Part 2).
-- Candidate UI anchored near caret (later task; see `TASK-0096` direction).
+- No candidate popup, no CJK layouts (TASK-0150).
+- No a11y announcements (deferred to the a11y track, TASK-0114 direction).
+- No OSK drawing or IME state machine inside windowd (hard boundary, RFC-0075).
 
 ## Constraints / invariants (hard requirements)
 
-- Deterministic markers; bounded timeouts; no busy-wait.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-- Focus guard correctness: only the focused editable receives commits.
-- Async IME events must not leak across focus changes.
+- Input-latency: imed sits only on the key/text branch; the 111 Hz pointer
+  VisibleState push is untouched; existing chain-stats counters are the
+  regression signal.
+- OS services: fixed `[u8; N]` frames, buffer reuse, no per-key `format!`/Vec.
+- Markers honest: `imed: ready` fires only after samgr registration + serve
+  loop armed (upgrades the stub's marker semantics, same string).
+- Marker changes land with `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt`
+  + docs in the same change.
 
-## Red flags / decision points (track explicitly)
+## Security considerations
 
-- **YELLOW (DSL availability)**:
-  - If SystemUI DSL overlays are not yet wired in OS builds, OSK may need a minimal non-DSL overlay first.
-  - This task should explicitly gate OSK-on-OS behind “SystemUI overlay infrastructure is present”.
+### Threat model
+- Key injection: a malicious app posing as keyboard source.
+- Typed-text leakage via logs/markers.
+- Malformed frames from any peer.
+
+### Security invariants (MUST hold)
+- imed accepts `OP_KEY` only from inputd's `sender_service_id`; OSK-sourced
+  keys only from the app-host instance hosting ime-ui, policyd-gated.
+- `OP_SET_FOCUS` accepted only from windowd.
+- `field_kind=password`: no preedit preview push, no downstream learning.
+- Typed text never in logs/markers; selftests use fixed fixture strings.
+
+### Security proof (required tests)
+- `test_reject_key_from_foreign_sender` (imed unit + OS selftest negative path)
+- `test_reject_focus_from_non_windowd`
+- Reject matrices for all imed frames (inherited from TASK-0146 codecs).
 
 ## Contract sources (single source of truth)
 
-- **QEMU marker contract**: `scripts/qemu-test.sh`
-- **IME core behavior**: `TASK-0146`
-- **Input routing/focus**: `TASK-0056`/`TASK-0059`
+- **QEMU marker contract**: `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt`
+- **Wire/composition contract**: RFC-0075 + nexus-wire golden tests
 
 ## Stop conditions (Definition of Done)
 
-- **Proof (tests / host)**:
-  - Command(s):
-    - `cargo test -p ime_v2_part1_host -- --nocapture`
-
-- **Proof (QEMU)**:
-  - Command(s):
-    - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=185s ./scripts/qemu-test.sh`
-  - Required markers (to be added to `scripts/qemu-test.sh` expected list):
-    - `imed: ready`
-    - `SELFTEST: ime v2 latin us ok`
-    - `SELFTEST: ime v2 deadkeys de ok`
-    - `SELFTEST: ime v2 osk ok`
+- **Proof (host)**: imed service-logic tests (focus bookkeeping, outcome
+  routing, reject paths) green; `just test-host` green.
+- **Proof (QEMU) — Part 1** (adjusted 2026-07-21: the deterministic CI lane
+  proves ready + identity gate; the positive typing chain needs input
+  injection, which only exists via QMP (`QEMU_INPUT_AUTOINJECT`) or the OSK
+  (Part 2) — the honest CI markers are:)
+  - `init: start imed` / `init: up imed` / `imed: ready` (boot ladder)
+  - `SELFTEST: imed reject foreign ok` — foreign-identity `OP_KEY` DENIED
+  - Positive chain markers `SELFTEST: ime v2 latin us ok` /
+    `... deadkeys de ok` move to the injection lane / Part 2 OSK selftest;
+    until then the interactive proof (typing in `just start`) is the gate.
+- **Proof (QEMU) — Part 2**:
+  - `SELFTEST: ime v2 osk ok` — programmatic OSK tap → commit at focused field
+  - `imed: reject foreign key source` — negative selftest (hardening marker)
+- **Proof (interactive)**: `just start` — typing into the greeter password
+  field works; OSK usable via touch.
+- **Gates**: `just check`, `just test-all` green; RFC-0075 checklist ticked.
 
 ## Touched paths (allowlist)
 
-- `source/services/imed/`
-- `userspace/ui/kit/` (Editable integration)
-- `source/services/windowd/` (input routing to IME)
-- `userspace/systemui/overlays/osk/` (new)
-- `tools/nx-ime/` (new)
-- `source/apps/selftest-client/`
-- `tools/postflight-ime-v2-part1.sh`
-- `docs/input/` + `docs/systemui/`
+- `source/services/imed/` (real implementation, src/ + tests/)
+- `source/services/ime/` (**delete**) + workspace/boot references scrubbed
+- `source/services/inputd/` (forwarding seam), `source/services/windowd/` (routing only)
+- `source/services/app-host/` (OP_SURFACE_TEXT insert)
+- `userspace/apps/ime-ui/` (new, Part 2), policyd rules (Part 2)
+- `scripts/qemu-test.sh`, `tools/nx/chains/markers.txt` — **approval zone**
+- Boot service list (Makefile/scripts), `config/service-layout.allow` if needed — **approval zone**
+- `source/apps/selftest-client/`, `docs/dev/ui/input/**`, `docs/rfcs/RFC-0075-*.md`, `CHANGELOG.md`
+
+## Part 1 status (2026-07-21)
+
+Part 1 is code-complete and boot-proven in the deterministic lane
+(`just ci-os-smp1`: `init: up imed`, `imed: ready`, all four routes wired,
+`SELFTEST: imed reject foreign ok`; `just check` + `just test-host` green).
+The INTERACTIVE typing proof (QMP-driven tap + key into the greeter secret
+field) is **blocked by a pre-existing interactive-boot bug**: the greeter
+app-host's event-channel attach fails every interactive boot
+(`APPHOST: FAIL events attach (no send clone)` → `WINDOWD: FAIL desktop
+input (no event channel)`) — desktop input is dead before IME is even
+involved. That failure is owned by the boot-park/desktop-bind debugging
+track (root cause in progress); re-run the typing proof once it lands.
+Part 1 stays In Progress until the interactive proof (or the Part 2 OSK
+selftest) confirms the positive chain.
+
+## Recorded follow-up (2026-07-21)
+
+- **init cap-table headroom**: init's kernel cap table (`DEFAULT_CAP_SLOTS =
+  128`) runs at its ceiling by the end of wiring — every late `cap_clone`
+  (allocates init-side) fails NoSpace. The imed routes were switched to
+  direct `cap_transfer` (allocates target-side only), but the NEXT service
+  with late clone-based wiring will hit the same wall. Either raise the
+  kernel constant (kernel-touch, ADR) or audit the remaining clone sites.
 
 ## Plan (small PRs)
 
-1. wire focus/key routing: windowd + ui-kit → imed
-2. implement OSK overlay + markers
-3. settings/shortcuts + nx-ime
-4. selftests + postflight + docs
+1. imed real service + inputd forwarding + windowd routing + app-host insert
+   (one package: typing works) + markers + selftests.
+2. `source/services/ime/` deletion + TRACK-AUTHORITY-NAMING update.
+3. ime-ui OSK app + policyd gate + OSK markers/selftests.
 
 ## Acceptance criteria (behavioral)
 
-- OSK and physical keyboard both drive the same preedit/commit pipeline.
-- US/DE compose/dead-key behavior is deterministic and tested.
-- Only the focused editable receives commits; unfocused inputs do not.
+- Typing on the QEMU keyboard appears live in the greeter password field and
+  any focused DSL TextField; DE dead keys compose correctly.
+- OSK shows on text focus (tablet profile), taps commit through the same imed
+  path as hardware keys; foreign-app injection is rejected (proven).
+- RFC-0058 gains a pointer: stub contract superseded by RFC-0075.

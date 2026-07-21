@@ -53,7 +53,16 @@ This exists to remove “warnings” by making the architecture **decided** and 
 - **Input event routing**: `inputd`
 - **HID device driver**: `hidrawd`
 - **Touch device driver**: `touchd`
-- **IME engine**: `imed` (**canonical**; `ime` is a deprecated placeholder name)
+- **IME engine**: `imed` (**canonical**; `ime` is a deprecated placeholder name — deletion scheduled in TASK-0147 Part 1, RFC-0075)
+- **IME UI (OSK + candidate strip)**: `ime-ui` DSL overlay app (`userspace/apps/ime-ui`) — never inside `windowd` (compositor stays UI-free)
+- **Locale/i18n**: **no daemon by design** (RFC-0077) — settingsd owns `ui.locale`, windowd relays via `OP_SURFACE_REGION`, app-host applies locale packs; an `l10nd` service is explicitly rejected
+
+### Time
+
+- **Monotonic timers + wall-clock (UTC)**: `timed` (single time authority; walltime = RTC anchor + monotonic delta, RFC-0076)
+- **RTC hardware driver**: `rtcd` (`source/drivers/rtc/goldfish-rtc`; sole client = timed)
+- **Network time sync**: `time-syncd` (placeholder today; SNTP seed = TASK-0299; may only refine timed's anchor, never a second clock authority)
+- **Timezone conversion**: `tz-lite` (client-side library, no service; zone table = validator SSOT for `time.zone`)
 
 ### Power & device health
 
@@ -125,7 +134,7 @@ It is not a promise of compatibility for placeholder names.
 - **`source/services/powermgr/`** → `powerd` (see `TASK-0236`/`TASK-0237`)
 - **`source/services/batterymgr/`** → `batteryd` (see `TASK-0256`/`TASK-0257`)
 - **`source/services/thermalmgr/`** → `thermald` (see `TASK-0272`/`TASK-0271`)
-- **`source/services/ime/`** → `imed` (see `TASK-0146`/`TASK-0147`)
+- ~~**`source/services/ime/`** → `imed`~~ — DONE 2026-07-21: placeholder deleted, `imed` is real (TASK-0147, RFC-0075)
 - **`source/services/abilitymgr/`** → `appmgrd` (see `TASK-0065`/`TASK-0235`)
 - **`source/services/compositor/`** → removed in favor of `windowd` (see `TASK-0055`/`TASK-0170`/`TASK-0251`)
 

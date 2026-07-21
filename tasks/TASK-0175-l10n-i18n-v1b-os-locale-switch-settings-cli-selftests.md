@@ -1,6 +1,6 @@
 ---
 title: TASK-0175 L10n/i18n v1b (OS/QEMU): runtime locale switching + Settings Language/Region + nx-l10n + RTL toggle + CJK font fallbacks + selftests/docs
-status: Draft
+status: Superseded (2026-07-21 — replaced by TASK-0241 (runtime locale switch via OP_SURFACE_REGION push, no l10nd/Fluent) per RFC-0077)
 owner: @ui
 created: 2025-12-27
 depends-on: []

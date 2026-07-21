@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-21 (later)
+
+#### IME v2 Phase 1 (RFC-0075, TASK-0147 Part 1): imed service real — typing lands in apps
+
+- **imed is a real bootstrapped service**: `ImedCore` (focus gate + ime-core
+  composition + push planning, host-tested) + os-lite serve loop with kernel
+  `sender_service_id` identity gates (OP_KEY only from inputd, OP_SET_FOCUS
+  only from windowd; rejects answer non-blocking, OK pushes stay silent).
+  Boot: `init: start/up imed`, `imed: ready` in the deterministic ladder.
+- **Init topology**: `ServiceId::Imed = 26`, pre-minted server pair, cpu0
+  affinity (interactive chain), routes inputd→imed / windowd→imed /
+  imed→windowd / selftest→imed. **Cap-table lesson:** init's 128-slot cap
+  table is at its ceiling by late wiring — the routes use direct
+  `cap_transfer` (target-side allocation); late `cap_clone`s NoSpace-fail
+  (recorded follow-up in TASK-0147).
+- **inputd** forwards every resolved key (Text/Dead/Action) to imed
+  fire-and-forget per batch (`forward_keys_to_imed`, fixed frames, hot
+  pointer path untouched); imed is the focus gate.
+- **windowd** routes text as pure compositor plumbing
+  (`compositor/runtime/text_input.rs`): `OP_SURFACE_TEXT_FOCUS` from apps is
+  identity-resolved (owner sid; desktop surface included) and relayed to
+  imed; imed's `'I','E'` pushes (magic-discriminated on the server endpoint)
+  are translated to `OP_SURFACE_TEXT` on the focused surface's event channel.
+- **app-host**: tap-to-focus announces widget focus transitions upward
+  (`apphost: text focus set/cleared`); `OP_SURFACE_TEXT` commits/actions
+  insert into the focused DSL field (imed wire `OP_ACTION=7` added for
+  Enter/Backspace pass-through).
+- **Legacy `source/services/ime` deleted** (TRACK-AUTHORITY-NAMING closure);
+  dead selftest dep removed.
+- **Proofs**: `SELFTEST: imed reject foreign ok` (foreign-identity OP_KEY
+  DENIED — deterministic every boot); `just ci-os-smp1` green end-to-end;
+  the positive typing chain is the interactive `just start` proof until the
+  OSK selftest lands (TASK-0147 Part 2).
+- Side fix: hidrawd dead `WireMeta` count fields (warning-gate break from the
+  2026-07-20 input-storm commit) removed.
+
+### Added - 2026-07-21
+
+#### IME v2 Phase 0 (RFC-0075, TASK-0146): host composition core + focused-field model + wire codecs
+
+- **RFC-0075 seeded** — the IME v2 contract: two-level text-focus model,
+  imed wire protocol, composed-text delivery, typed-text security invariants
+  (supersedes the RFC-0058 stub contract for everything beyond TASK-0059).
+- **`userspace/ime-core` (new):** no_std/alloc-free dead-key/compose state
+  machine (DE `´` `` ` `` `^`, const compose tables, bounded preedit,
+  deterministic `ImeOutcome`); 12 contract tests incl. fallback (`´`+`x` →
+  `´x`), cancel (Escape/Backspace), flush-and-pass (Enter).
+- **`userspace/keymaps`:** DE dead keys are now marked `KeyOutput::Dead(char)`
+  (EQUAL `´`/`` ` ``, GRAVE `^`); only the composer interprets them — US and
+  the merged jp/kr/zh tables are unchanged.
+- **Wire codecs (golden bytes + reject matrices):**
+  `nexus-wire/src/imed.rs` (MAGIC `'I','E'`: SET_FOCUS/KEY/COMMIT/PREEDIT/
+  CANDIDATES/CANDIDATE_SELECT, bounded candidate-list packing) and
+  `nexus-display-proto/src/surface_text.rs` (new module: `OP_SURFACE_TEXT=21`,
+  `OP_SURFACE_TEXT_FOCUS=22` with caret-anchor rect; op 23 reserved for
+  RFC-0077 region push).
+- **DSL focused-field model (`nexus-dsl-runtime/src/focus.rs`):**
+  tap-to-focus on Change-bound fields, focused `insert_text`/`backspace_text`
+  (bounded 256 chars), focus survives re-emits by binding identity;
+  `TextField { secure: true }` renders bullets (the real value never enters
+  the scene), reports password in the focus snapshot.
+- Fixed a latent test-compile break in `nexus-gfx`
+  (`command/buffer_wire_tests.rs` used `super::buffer` from a nested module —
+  landed broken in the 2026-07-20 content-epoch commit).
+- No OS/QEMU behavior change yet — typing lands in apps with TASK-0147
+  (`imed` service wiring); no markers added in this slice.
+
 ### Changed - 2026-07-20
 
 #### Kernel: earliest-deadline timer arming + affinity-respecting steal park (ADR-0052)

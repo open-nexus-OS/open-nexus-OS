@@ -261,3 +261,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md
 - RFC-0074: Display-mode authority — the compositor OWNS the visible mode and commands it onto the scanout; configured via QEMU `fw_cfg opt/org.open-nexus/display-mode`, kernel-derived through `SYSCALL_BOOT_DISPLAY_MODE (50)`; `GET_DISPLAY_INFO` demoted to validated capability data (Draft 2026-07-20 — fixes the GTK window-realize race that latched 640×507; ADR-0050)
   - docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md
+- RFC-0075: IME v2 — text focus, composition and delivery contract: two-level focus model, imed wire (`'I','E'`), display-proto `OP_SURFACE_TEXT`/`OP_SURFACE_TEXT_FOCUS`, OSK/candidates as `ime-ui` overlay app, typed-text security invariants (Draft 2026-07-21 — supersedes the RFC-0058 stub contract; execution TASK-0146/0147/0149/0150/0203/0204)
+  - docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md

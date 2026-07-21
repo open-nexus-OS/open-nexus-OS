@@ -16,6 +16,14 @@ links:
   - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
+> **Reconciliation note (2026-07-21):** the core of this plan already shipped —
+> `source/services/settingsd/src/registry.rs` has the typed SPECS registry with
+> validators, and persistence lands via the prefs blob at `state:/prefs/device.nxs`
+> (TASK-0072 line). The remaining live scope (new region/keymap/time keys +
+> `OP_WATCH` change propagation) moved to **TASK-0298** (RFC-0078). This ledger
+> stays Draft only for the provider-"apply"-hook generalization; do not re-plan
+> the registry from here.
+
 ## Context
 
 The repo already has a `settingsd` service crate and a `userspace/settings` client crate. The missing piece is a

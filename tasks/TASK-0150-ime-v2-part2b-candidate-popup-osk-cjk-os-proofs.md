@@ -1,124 +1,99 @@
 ---
-title: TASK-0150 IME v2 Part 2b (OS-gated): candidate popup UI + OSK JP/KR/ZH layouts + selftests/postflight + docs
+title: TASK-0150 IME v2 Part 2b (OS/QEMU): candidate strip in ime-ui + CJK OSK layouts + selftests
 status: Draft
 owner: @ui
 created: 2025-12-26
-depends-on: []
-follow-up-tasks: []
+updated: 2026-07-21 (rewritten against repo reality; candidate UI lives in the ime-ui overlay app, not windowd)
+depends-on:
+  - TASK-0147
+  - TASK-0149
+follow-up-tasks:
+  - TASK-0203 / TASK-0204 (adaptive ranking + persistence)
 links:
   - Vision: docs/architecture/vision.md
   - Playbook: CLAUDE.md
-  - IME v2 Part 1 OS wiring: tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md
-  - IME v2 Part 2a engines/dict: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
-  - Existing IME+OSK umbrella: tasks/TASK-0096-ui-v15c-ime-candidate-ui-osk.md
-  - Text primitives + caret anchoring: tasks/TASK-0094-ui-v15a-text-primitives-uax-bidi-hittest.md
-  - TextField core (caret/selection): tasks/TASK-0095-ui-v15b-selection-caret-textfield-core.md
-  - Quotas (dict bounds): tasks/TASK-0133-statefs-quotas-v1-accounting-enforcement.md
-  - Policy caps (input): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
+  - Contract: docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
+  - OSK app baseline: tasks/TASK-0147-ime-text-v2-part1b-osk-focus-a11y-os-proofs.md
+  - CJK engines: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
 ## Context
 
-With CJK engines present (Part 2a), we need the UI integration:
-
-- a candidate popup anchored at caret,
-- selection/paging via keyboard and OSK,
-- OSK layouts for JP/KR/ZH,
-- OS selftests + postflight + docs.
-
-This task is OS/QEMU-facing and must remain bounded and deterministic.
+With CJK engines host-proven (TASK-0149), this task wires the visible half:
+the candidate strip and CJK OSK layouts — both inside the **ime-ui overlay
+app** from TASK-0147. windowd only composites and routes; the caret rect
+carried by `OP_SURFACE_TEXT_FOCUS` is the popup anchor. The imed wire ops
+(`OP_PREEDIT`/`OP_CANDIDATES`/`OP_CANDIDATE_SELECT`) already exist from
+TASK-0146 — this task is their first real consumer.
 
 ## Goal
 
-Deliver:
-
-1. Candidate popup overlay (SystemUI):
-   - anchored to caret rect
-   - shows preedit (seg underline) + candidate list + paging
-   - selection:
-     - arrows / tab navigation
-     - enter commits selected candidate
-     - mouse/touch selects and commits
-   - A11y:
-     - listbox/listitem roles, polite announcements (“3 candidates”)
-   - markers:
-     - `ime:popup open`
-     - `ime:popup select idx=<n>`
-     - `ime:popup commit`
-2. OSK layouts extension:
-   - JP kana layout (full keyboard layout; phone-like 12-key is a follow-up)
-   - KR 2-set layout (3-set can be an explicit stub behind an option)
-   - ZH uses latin layout (pinyin); tone digits as long-press (v1 can be stubbed explicitly)
-   - markers:
-     - `osk: layout jp`
-     - `osk: layout kr`
-     - `osk: layout zh`
-3. Policy + focus guards:
-   - commits only delivered to focused editable
-   - option/dict changes gated by caps (`input.ime.options`, `input.ime.dict.write`)
-   - async composition events:
-     - candidate selection and preedit updates are delivered asynchronously (event queue) per focused window/session
-     - bounded queue length; deterministic draining order (no reentrancy into UI)
-4. Proof:
-   - host tests for overlay selection logic are optional, but OS markers are required
-   - OS selftests for JP/KR/ZH + dict learn/persist (dict persist gated on `/state`)
-   - postflight delegates to canonical proofs (host tests + `scripts/qemu-test.sh`)
-5. Docs:
-   - `docs/input/ime-cjk.md`
-   - `docs/text/textshape.md` (link to `TASK-0148`)
-   - update `docs/systemui/osk.md` with CJK layouts
+1. **Candidate strip** in ime-ui: anchored near the focus caret rect,
+   shows preedit underline text + up to 8 candidates + paging; selection via
+   number keys, arrows+Enter, Tab, tap; Escape cancels composition.
+2. **CJK OSK layouts** in ime-ui: JP kana, KR 2-set, ZH latin (pinyin);
+   layout follows `input.keymap`.
+3. imed: engine wiring so hw + OSK keys drive preedit/candidate pushes for
+   the active CJK engine; `OP_CANDIDATE_SELECT` commits.
+4. Selftests: deterministic injected sequences prove conversion + selection
+   end-to-end at the app side.
 
 ## Non-Goals
 
-- Kernel changes.
-- Multi-VM input sharing.
-- Full production candidate UX (fuzzy search, cloud dicts, etc.).
+- No adaptive/personalized ranking (TASK-0203/0204) — table order only.
+- No a11y listbox roles yet (a11y track).
+- No windowd-side popup drawing or anchoring logic beyond passing the caret rect.
 
 ## Constraints / invariants (hard requirements)
 
-- Deterministic candidate ordering and selection behavior.
-- Bounded list sizes and bounded UI work per frame.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-- No fake success markers: popup/osk markers only when UI actually opened/handled events.
-- Async composition is deterministic:
-  - a session has a stable ID,
-  - events are processed FIFO per session,
-  - focus change clears/isolates sessions deterministically.
+- Bounded pushes: candidates ≤ 8×32 B per frame, paging by page index —
+  never a full-lexicon dump over IPC.
+- Fixed buffers in imed for candidate frames; no per-key allocation.
+- Overlay positioning: on-screen clamping so the strip never leaves the
+  visible area (atlas over-read trap: clamp to surface dims).
+- Markers honest; marker changes ride qemu-test.sh + markers.txt + docs together.
+
+## Security considerations
+
+- Candidate selection (`OP_CANDIDATE_SELECT`) accepted only from windowd
+  (relayed UI) — same sender gate as `OP_SET_FOCUS`; `test_reject_*` present.
+- Password fields: no candidate strip, no preedit push (invariant from
+  RFC-0075, re-proven here with a negative selftest path host-side).
+- No typed text in logs/markers; selftest fixtures fixed.
+
+## Contract sources (single source of truth)
+
+- **QEMU marker contract**: `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt`
+- **Wire contract**: nexus-wire imed goldens (unchanged; consumer-only task)
 
 ## Stop conditions (Definition of Done)
 
-- **Proof (Host)**:
-  - Command(s):
-    - `cargo test -p ime_v2_part2_host -- --nocapture`
-
 - **Proof (QEMU)**:
-  - Command(s):
-    - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=195s ./scripts/qemu-test.sh`
-  - Required markers (to be added to `scripts/qemu-test.sh` expected list):
-    - `text: bidi on` (or equivalent from `TASK-0094`/`TASK-0148` when enabled)
-    - `imed: ready`
-    - `SELFTEST: ime v2 jp ok`
-    - `SELFTEST: ime v2 kr ok`
-    - `SELFTEST: ime v2 zh ok`
-    - `SELFTEST: ime v2 dict ok` (only when `/state` persistence is available; otherwise must be explicitly skipped with a `stub/placeholder` marker)
+  - `SELFTEST: ime v2 cjk jp ok` — injected romaji fixture → expected kanji
+    commit observed app-side
+  - `SELFTEST: ime v2 candidates ok` — candidate push → select → commit round-trip
+- **Proof (interactive)**: `just start` — switch keymap to jp in Settings,
+  type romaji in a TextField, pick a candidate from the strip (touch + keys).
+- **Gates**: `just check`, `just test-all` green; RFC-0075 checklist updated.
 
 ## Touched paths (allowlist)
 
-- `userspace/systemui/overlays/ime_popup/` (new)
-- `userspace/systemui/overlays/osk/` (extend)
+- `userspace/apps/ime-ui/` (candidate strip + CJK layouts)
+- `source/services/imed/` (engine wiring, candidate frame emit)
 - `source/apps/selftest-client/`
-- `tools/postflight-ime-v2-part2.sh`
-- `docs/input/` + `docs/systemui/` + `docs/text/`
-- `scripts/qemu-test.sh` (marker contract update)
+- `scripts/qemu-test.sh`, `tools/nx/chains/markers.txt` — **approval zone**
+- `docs/dev/ui/input/ime.md`, `CHANGELOG.md`
 
 ## Plan (small PRs)
 
-1. Candidate popup overlay + a11y + markers
-2. OSK CJK layouts + long-press minimal hooks (explicit stubs OK)
-3. Selftests + marker contract + docs + postflight
+1. imed engine wiring + candidate pushes + host tests.
+2. ime-ui candidate strip (anchor, paging, selection) + JP OSK layout.
+3. KR/ZH OSK layouts + selftests + markers + docs.
 
 ## Acceptance criteria (behavioral)
 
-- In QEMU, JP/KR/ZH flows reach commit via candidate popup and are proven via selftest markers.
-- User dict learn/persist is proven when `/state` is available; otherwise it is explicitly marked as `stub/placeholder` (never “ok”).
+- JP/KR/ZH typing works end-to-end with visible candidates and commit by
+  tap, number key, or Enter — deterministic under the selftest fixtures.
+- Candidate strip follows the caret between fields and never renders for
+  password fields.

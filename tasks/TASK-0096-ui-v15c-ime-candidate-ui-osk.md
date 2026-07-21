@@ -1,6 +1,6 @@
 ---
 title: TASK-0096 UI v15c: IME service (latin+pinyin stub+emoji) + candidate UI + on-screen keyboard + focus guards
-status: Draft
+status: Superseded (2026-07-21 — replaced by the IME v2 line: TASK-0146/0147 engine+OSK, TASK-0149/0150 CJK+candidates, per RFC-0075; this umbrella predates the imed architecture)
 owner: @ui
 created: 2025-12-23
 depends-on: []

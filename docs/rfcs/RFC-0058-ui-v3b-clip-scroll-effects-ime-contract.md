@@ -2,6 +2,11 @@
 
 - Status: Done
 
+> **IME contract superseded (2026-07-21):** everything beyond the TASK-0059
+> stub baseline — focus model, composition, delivery, OSK — is owned by
+> `RFC-0075-ime-v2-text-focus-composition-delivery.md`. The `imed: ready`
+> marker's semantics were upgraded there (real serve loop, same string).
+
 > Note (2026-07 repo hygiene): the `ui_v3a_host`/`ui_v3b_host` proof crates were
 > removed together with the legacy windowd proof-panel API (RFC-0067 compositor
 > boundary). The proof commands below are historical records of the completed

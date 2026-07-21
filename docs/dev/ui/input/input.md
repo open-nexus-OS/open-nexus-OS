@@ -95,9 +95,10 @@ Current landed host slice:
   ticking, pointer acceleration reuse, and routing into the existing
   `windowd::route_pointer_move()`, `route_pointer_down()`, `route_keyboard()`,
   and `route_touch()` authority seams.
-- `source/services/ime/` and `source/services/systemui/` currently expose only
-  bounded show/hide hook state for this slice. Full IME/OSK behavior remains
-  follow-up scope in `TASK-0146` / `TASK-0147`.
+- `source/services/imed/` is the IME authority (RFC-0075): inputd forwards
+  resolved keys, imed composes for the focused surface and pushes commits via
+  windowd (`docs/dev/ui/input/ime.md`). The deprecated `source/services/ime/`
+  placeholder was deleted (TASK-0147).
 - `source/services/settingsd/` now exposes a host-verified input settings
   snapshot plus canonical key constants that translate layout/repeat/accel keys
   into `inputd` config.

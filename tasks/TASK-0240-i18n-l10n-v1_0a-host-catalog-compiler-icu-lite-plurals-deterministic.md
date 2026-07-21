@@ -1,139 +1,103 @@
 ---
-title: TASK-0240 i18n/L10n v1.0a (host-first): catalog compiler + ICU-lite plurals & interpolation + pseudolocale + deterministic tests
+title: TASK-0240 i18n v2a (host-first): locale-pack compiler in nx build + PackLocaleSource + deterministic goldens
 status: Draft
 owner: @runtime
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+updated: 2026-07-21 (rewritten: replaces both old i18n families — no Fluent/ICU4X (ex 0174/0175), packs ride the existing DSL catalog; architecture per RFC-0077)
+depends-on:
+  - TASK-0077
+follow-up-tasks:
+  - TASK-0241 (OS runtime switch + region push + Settings language picker)
 links:
   - Vision: docs/architecture/vision.md
   - Playbook: CLAUDE.md
-  - L10n/i18n v1a baseline (Fluent + ICU4X): tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
-  - Settings v2 (provider keys): tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - Contract seed: docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md (seeded by this task)
+  - DSL i18n core (Done): tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - Superseded heavy line: tasks/TASK-0174-l10n-i18n-v1a-host-core-fluent-icu-fontsel-goldens.md
+  - Data formats rubric: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
 ## Context
 
-We need a lightweight i18n foundation with:
+Repo reality: DSL apps already have compile-time i18n — `@t("key")` resolves
+through NXIR `i18n_keys`, and the runtime already routes lookups through a
+`LocaleSource::format(key, args)` trait (app-host mounts `IdentityLocale`).
+The default locale catalog (`i18n/en.json`) is baked into the program at build.
 
-- compiled string catalogs (compact binary format),
-- ICU-lite message formatting (plurals, interpolation),
-- pseudolocale for testing,
-- deterministic catalog compiler.
-
-The prompt proposes compiled catalogs (`.lc`) with JSON source format and ICU-lite, while `TASK-0174` uses Fluent (`.ftl`) + ICU4X. This task delivers a **lightweight alternative** that can coexist with or complement the Fluent-based system. The catalog compiler produces compact binaries suitable for OS/no_std constraints.
+That means runtime language switching needs **no compiler-semantics change**:
+compile every `i18n/<tag>.json` into a compact binary **locale pack** shipped
+next to the app, and swap the `LocaleSource` at runtime. The old plans —
+Fluent + ICU4X (TASK-0174/0175, now Superseded) and an l10nd service with its
+own catalog compiler (old 0240/0241) — are replaced by this minimal line:
+no new daemon, no new authority, no forbidden/heavy deps.
 
 ## Goal
 
-Deliver on host:
-
-1. **Catalog compiler** (`tools/nx-l10n`):
-   - source format: JSON with ICU-lite fragments (e.g., `{count, plural, one {# file} other {# files}}`)
-   - produces `.lc` (compact binary, Cap'n Proto encoded):
-     - schema-defined, versionable, deterministic bytes (signable if needed later)
-     - interning key strings, bytecode for message AST (literals, `{var}`, `plural`, `number`)
-   - deterministic ordering and stable hashing
-   - CLI: `extract`, `compile`, `pseudo`, `coverage`
-   - markers: `i18n-compile: en-US keys=n`, `i18n-extract: found=m`, `i18n-coverage: de-DE missing=k`
-2. **ICU-lite runtime** (`userspace/libs/i18n_catalog/`):
-   - plural rules for `en`, `de` (cardinal `one/other`), and generic fallback
-   - interpolation: `{var}` substitution
-   - number formatting: fixed grouping (`en: 1,234.5`, `de: 1.234,5`)
-   - date/time formatting: deterministic templates (`short` → `YYYY-MM-DD`, `HH:MM`)
-   - deterministic outputs (no host locale leakage)
-3. **Pseudolocale** (`qps-ploc`):
-   - widen + accent + pad: `"Open Nexus"` → `⟦ Ōpēn Nēxūs ⟧`
-   - deterministic transformation
-4. **Bidi helper**:
-   - inserts LRM/RLM around foreign-direction spans when `dir=auto`
-   - deterministic marking
-5. **Host tests** proving:
-   - catalog compilation produces stable `.lc` files
-   - plural rules work correctly for EN/DE
-   - interpolation handles variables correctly
-   - number/date formatting matches templates
-   - pseudolocale transformation is deterministic
-   - bidi marking works correctly
+1. **Pack format** (versioned, deterministic): header (magic `NXLP`, version,
+   locale tag, key count) + key-indexed string table (key order = NXIR
+   `i18n_keys` order; strings deduped; all offsets bounded). Byte-stable
+   across identical inputs (golden tests).
+2. **Pack compiler** in the `nx` build (`userspace/dsl/core` + `tools/nx`):
+   compiles every `i18n/<tag>.json` beside the manifest into
+   `<bundle>/locales/<tag>.nxlp`. Missing key in a non-default catalog →
+   pack marks it absent (fallback to baked default at runtime); malformed
+   catalog → build error (same policy as today's default catalog).
+3. **`PackLocaleSource`** (host-testable lib in `userspace/dsl/runtime`):
+   mounts a pack buffer, serves `format(key, args)` with the existing
+   interpolation semantics; fallback chain: requested tag → primary language
+   tag → baked default. Bounded parsing (fail-closed on truncated packs).
+4. Deterministic host goldens: pack bytes, fallback chain, reemit-on-swap
+   (swap source → `view.reemit()` yields translated strings).
 
 ## Non-Goals
 
-- Fluent format support (handled by `TASK-0174`).
-- Full ICU4X datasets (ICU-lite only).
-- OS/QEMU markers (deferred to v1.0b).
-- Font fallback (handled by `TASK-0174`).
+- No OS wiring, no windowd push, no Settings UI (TASK-0241).
+- No plural rules / no ICU-lite formatter in this slice — `{0}`-style
+  interpolation subset only; plurals are a documented RFC-0077 follow-up.
+- No l10nd service, no Fluent, no ICU4X, no font-fallback work.
+- No RTL (revisit with an RTL locale; TASK-0148 stays Deferred).
 
 ## Constraints / invariants (hard requirements)
 
-- **No duplicate i18n authority**: This task provides a lightweight alternative to Fluent (`TASK-0174`). If both systems coexist, they must share locale resolution and not conflict.
-- **Determinism**: catalog compilation, plural rules, formatting, and pseudolocale must be stable given the same inputs.
-- **Bounded resources**: compiled catalogs are size-bounded; formatting rules are deterministic.
-- **no_std compatibility**: compiled catalogs (`.lc`) must be decodable in no_std environments.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
+- Determinism: identical inputs → byte-identical packs (goldens are contract).
+- NXIR unchanged: packs are a **sidecar** artifact; baked default remains —
+  apps without extra catalogs behave exactly as today.
+- Pack parsing is fail-closed and bounded (truncation/mutation reject tests).
+- no_std-compatible runtime path; no new dependencies.
 
-## Red flags / decision points
+## Security considerations
 
-- **RED (i18n authority drift)**:
-  - Do not create a parallel i18n system that conflicts with `TASK-0174` (Fluent). If both coexist, they must share locale resolution and message lookup APIs, or this task must explicitly replace Fluent as the canonical system.
-- **YELLOW (format choice)**:
-  - JSON source + compiled `.lc` is lighter than Fluent but less expressive. Document trade-offs explicitly.
+- Packs are untrusted at mount time (they travel with bundles): bounds-check
+  header/offsets before use; reject matrix over golden packs (truncations +
+  header mutations → clean fallback to baked default, never a panic).
+- No format-string interpretation beyond the fixed `{n}` placeholder subset.
 
 ## Contract sources (single source of truth)
 
-- L10n/i18n baseline: `TASK-0174` (Fluent + ICU4X)
-- Settings v2: `TASK-0225` (provider keys)
+- **Pack format**: RFC-0077 + golden pack fixtures in
+  `userspace/dsl/runtime/tests/` (bytes = contract).
 
 ## Stop conditions (Definition of Done)
 
-### Proof (Host) — required
-
-`cargo test -p i18n_v1_0_host` green (new):
-
-- catalog compilation: JSON → `.lc` produces stable binaries
-- plural rules: `files.count` with 1 and 5 in EN/DE → correct forms
-- interpolation: `{var}` substitution works correctly
-- number/date formatting: `fmtNumber(0.123,"percent")` → `12%` (EN), `12 %` (DE); `fmtDate` matches template
-- pseudolocale: switch to `qps-ploc` → returned strings padded and widened
-- bidi: `bidiMark("שלום", "auto")` wraps with RLM
+- **Proof (host)**: pack-compiler goldens (en/de fixture app), fallback-chain
+  tests, reemit-swap test, reject matrix — all green.
+- **Gates**: `just check` + `just test-host` green.
 
 ## Touched paths (allowlist)
 
-- `userspace/libs/i18n_catalog/` (new; ICU-lite runtime)
-- `tools/nx-l10n/` (new; catalog compiler CLI)
-- `schemas/i18n_v1_0.schema.json` (new)
-- `tests/i18n_v1_0_host/` (new)
-- `pkg://i18n/src/` (source catalogs: `en-US.json`, `de-DE.json`)
-- `pkg://i18n/catalogs/` (compiled `.lc` files)
-- `docs/i18n/compiler.md` (new, host-first sections)
+- `userspace/dsl/core/` (pack compiler), `tools/nx/` (build step)
+- `userspace/dsl/runtime/` (PackLocaleSource + tests)
+- `docs/rfcs/RFC-0077-*.md` (new seed) — **approval zone**
+- `docs/dev/dsl/i18n.md`, `CHANGELOG.md`
 
 ## Plan (small PRs)
 
-1. **Catalog compiler**
-   - JSON source parser + ICU-lite fragment parser
-   - `.lc` binary format (compact, deterministic)
-   - CLI: extract/compile/pseudo/coverage
-   - host tests
-
-2. **ICU-lite runtime**
-   - plural rules (EN/DE + fallback)
-   - interpolation
-   - number/date formatting
-   - host tests
-
-3. **Pseudolocale + bidi**
-   - pseudolocale transformation
-   - bidi marking helper
-   - host tests
-
-4. **Schema + docs**
-   - `schemas/i18n_v1_0.schema.json`
-   - host-first docs
+1. RFC-0077 seed (format + fallback + runtime-switch contract).
+2. Pack format + compiler + goldens.
+3. PackLocaleSource + fallback + reemit tests + reject matrix.
 
 ## Acceptance criteria (behavioral)
 
-- Catalog compilation produces stable `.lc` files.
-- Plural rules work correctly for EN/DE.
-- Interpolation handles variables correctly.
-- Number/date formatting matches templates.
-- Pseudolocale transformation is deterministic.
-- Bidi marking works correctly.
+- `nx build` of an app with `i18n/{en,de}.json` emits two byte-stable packs;
+  swapping the mounted source at runtime re-renders `@t()` strings in German
+  with English fallback for missing keys — proven on host.

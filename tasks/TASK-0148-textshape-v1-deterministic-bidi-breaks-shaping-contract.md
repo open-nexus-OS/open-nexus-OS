@@ -1,6 +1,6 @@
 ---
 title: TASK-0148 Text stack v1 (deterministic): bidi/line-break contract + shaping integration for editing
-status: Draft
+status: Deferred (2026-07-21 — IME v2 Latin+CJK (RFC-0075) needs no bidi/line-break substrate; revisit when an RTL locale ships. Explicit non-goal in the IME v2 ledgers.)
 owner: @ui
 created: 2025-12-26
 depends-on: []

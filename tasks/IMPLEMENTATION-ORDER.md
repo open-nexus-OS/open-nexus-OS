@@ -273,8 +273,8 @@ muessen die entsprechenden Test-Targets sichtbar auf dieser Proof-Surface ersche
 | ✅ TASK-0057 | UI v2b: text shaping (HarfBuzz) + font fallback/cache + SVG pipeline (Done, reconciled) |
 | ✅ TASK-0058 | UI v3a: layout wrapping + deterministic box model (Done, reconciled) |
 | ✅ TASK-0059 | UI v3b: clip/scroll/effects + IME/TextInput (Done; ShadowArena + per-box caching + `compositor/` module refactor; IME engine folded → TASK-0146) |
-| TASK-0146 | IME/Text v2 Part 1a: imed core + US/DE keymaps + deterministic host tests (pulled forward after 0059) — **still open** |
-| TASK-0147 | IME/Text v2 Part 1b: OSK overlay + focus routing + OS/QEMU proofs (pulled forward after 0146) — **still open** |
+| ✅ TASK-0146 | IME v2 Part 1a: ime-core dead/compose + DSL focused-field model + wire codecs (Done 2026-07-21, host-proven; RFC-0075 Phase 0) |
+| TASK-0147 | IME v2 Part 1b: imed real + typing lands in apps + OSK app ime-ui (rewritten 2026-07-21, RFC-0075) — **active track, still open** |
 | ✅ TASK-0061 | UI v4b: gestures + a11y semantics (Done; a11y-hardening folded → TASK-0114) |
 | ✅ TASK-0062 | UI v5a: reactive runtime + animation/transitions (Done) |
 | ✅ TASK-0063 | UI v5b: virtualized list + theme tokens (Done; scene graph + virgl GPU blur + soft-real-time pacing, boot-verified) |
@@ -383,7 +383,7 @@ Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen:
 
 Honest reconciliation floor (2026-07-19). These are real, unimplemented feature areas — not paperwork drift:
 
-- **IME / text input engine:** `0146`, `0147`, `0096`, `0148–0150`, `0203`, `0204` (plumbing baseline shipped in 0059; the engine itself is open)
+- **IME / text input engine (ACTIVE TRACK 2026-07-21, RFC-0075):** `0146`, `0147`, `0149`, `0150`, `0203`, `0204` — ledgers rewritten against repo reality; `0096` Superseded, `0148` Deferred (no bidi need for Latin+CJK)
 - **Notifications service:** `0069`, `0123`, `0124`, `0125` (minimal surface shipped in 0065; notifd/DND/headsup open)
 - **Search / command palette:** `0071`, `0151–0154`
 - **Clipboard / share / DnD:** `0067`, `0087`, `0126–0128`
@@ -393,7 +393,8 @@ Honest reconciliation floor (2026-07-19). These are real, unimplemented feature 
 - **Camera / privacy:** `0103–0106`, `0191`, `0192`
 - **Webview:** `0111–0113`, `0176`, `0177`, `0205`, `0206`
 - **Store / distribution:** `0180`, `0181`, `0221`, `0222`
-- **Backup / L10n / power / sensors:** `0161`, `0162`, `0174`, `0175`, `0240`, `0241`, `0236`, `0237`, `0256–0259`, `0271`, `0272`
+- **Backup / L10n / power / sensors:** `0161`, `0162`, `0240`, `0241` (i18n v2 locale packs, ACTIVE TRACK, RFC-0077; `0174`/`0175` Superseded), `0236`, `0237`, `0256–0259`, `0271`, `0272`
+- **Time / wall-clock + General-management settings (ACTIVE TRACK 2026-07-21):** `0297` (rtcd + walltime + tz-lite + live clock, RFC-0076), `0298` (settings watch spine + region/keymap/time keys, RFC-0078); seeds `0299` (SNTP), `0300` (IME-store encryption)
 - **Renderer / compositor v2:** `0171`, `0199`, `0200`, `0207`, `0208`, `0215`, `0216`
 - **Session / accounts / ability-lifecycle continuation** (spine Done in 0065 broker + 0065B session authority): KILL-with-reasons/backoff/crash-loop `0234`, FG/BG resource enforcement + appmgrd/samgr hooks + nx-ability CLI `0235`, lockd auto-lock/lockscreen `0109`, OOBE/Accounts app `0110`, multi-user/lockout/session-switch `0223`/`0224`, action-based delegation `0126B`, keystore v1.1 `0159`
 - **Foundation partials (core done, in-title sub-deliverable open):** `0136` (policy: foreground-adapters + camera/mic perms), `0140` (updates: settings-UI page)

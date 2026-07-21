@@ -1,6 +1,6 @@
 ---
 title: TASK-0174 L10n/i18n v1a (host-first): locale resolver + Fluent bundles + ICU4X formatting + pseudo-locale + font fallback resolver + goldens
-status: Draft
+status: Superseded (2026-07-21 — replaced by the i18n v2 locale-pack line TASK-0240/0241 per RFC-0077; Fluent+ICU4X rejected for the no_std OS graph, packs ride the existing DSL catalog instead)
 owner: @ui
 created: 2025-12-27
 depends-on: []

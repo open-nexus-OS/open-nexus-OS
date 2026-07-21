@@ -1,110 +1,104 @@
 ---
-title: TASK-0203 IME v2.1a (host-first): adaptive deterministic ranking + training model (freq/recency/bigrams) + user dict core + export/import + quota eviction + tests
+title: TASK-0203 IME v2.1a (host-first): deterministic adaptive ranking (Q8.8 freq/recency/bigram) + training + export/import + quota eviction
 status: Draft
 owner: @ui
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+updated: 2026-07-21 (rewritten against repo reality; store trait targets statefsd in TASK-0204, not securefsd)
+depends-on:
+  - TASK-0149
+follow-up-tasks:
+  - TASK-0204 (OS persistence on statefsd + Settings UI)
 links:
   - Vision: docs/architecture/vision.md
   - Playbook: CLAUDE.md
-  - IME v2 Part 1 core: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
-  - IME v2 Part 2 engines + dict learning baseline: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
-  - Policy model (scoped grants/expiry) direction: tasks/TASK-0167-policy-v1_1-host-scoped-grants-expiry-enumeration.md
-  - SecureFS storage wiring (OS-gated): tasks/TASK-0183-encryption-at-rest-v1b-os-securefsd-unlock-ui-migration-cli-selftests.md
+  - Contract: docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
+  - CJK engines + user-dict API: tasks/TASK-0149-ime-v2-part2-cjk-engines-userdict.md
+  - OS persistence (follow-up): tasks/TASK-0204-ime-v2_1b-os-statefs-personal-dict-ui-cli-selftests.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
 ## Context
 
-IME v2 already plans deterministic engines and a bounded learning dictionary (`TASK-0149`).
-IME v2.1 adds a more explicit, deterministic adaptive ranking pipeline and user-personalization features:
-
-- personal frequency and recency,
-- context bigram boosting,
-- “forget suggestion” semantics,
-- deterministic export/import,
-- deterministic quota enforcement/eviction.
-
-This task is host-first and defines ranking + storage semantics independently of SecureFS.
-OS persistence under `state:/secure/...` is implemented in v2.1b.
+TASK-0149 ships engines with table-order candidates and an in-memory user-dict
+API. This task adds the deterministic personalization layer on host: adaptive
+ranking that learns from commits without ever becoming nondeterministic or
+unbounded. Storage stays behind a trait — TASK-0204 binds it to statefsd
+(`state:/ime/…`); securefsd does not exist (TASK-0183 Superseded), so the old
+SecureFS gating is dropped. Encryption-at-rest is TASK-0300 (seed).
 
 ## Goal
 
-Deliver:
-
-1. `userspace/libs/ime_ranker`:
-   - deterministic scoring with fixed-point math (Q8.8 weights)
-   - stable tie-breakers:
-     - candidate text lexicographic, then engine order, then stable candidate id
-   - features:
-     - personal frequency (`pf`)
-     - context bigram boost (`pc`)
-     - length term (`pl`) for tie breaking in applicable engines
-     - locale prior (`ploc`) (engine-provided)
-     - recency bucket (`pr`) computed from a clock-injected “now”
-2. Training model (pure Rust; deterministic):
-   - on commit:
-     - bump user dict frequency
-     - bump `(prev_commit, candidate)` bigram frequency
-     - store `last_seen_bucket` (bucket index), not raw timestamps, to keep determinism
-   - “forget suggestion”:
-     - deterministic decrement or delete rule (documented)
-3. Storage interface `ime_personal_store`:
-   - trait-based store with:
-     - `upsert_dict`, `upsert_bigram`, `forget`, `top_stats`, `export_ndjson`, `import_ndjson`
-   - reference implementation for host tests uses a tempdir + JSONL or a compact binary format
-   - NOTE: SQLite/libSQL may exist as an optional host-only backend, but must not be required for OS viability
-4. NDJSON export/import format:
-   - stable keys and stable ordering rules
-   - merge rules and clamps to quotas are deterministic
-5. Quotas + eviction:
-   - per-locale caps (rows/bytes) with deterministic eviction:
-     - least-recent bucket, then lowest freq, then stable key ordering
-6. Deterministic host tests `tests/ime_v2_1_host/`:
-   - ranking uses personalization to move candidate to top
-   - bigram boosting increases rank after a prior commit
-   - forget causes drop deterministically
-   - export/import round-trip yields identical top-k
-   - quota enforcement evicts deterministically
+1. `userspace/ime-ranker` (new, no_std-capable, zero deps): fixed-point Q8.8
+   scoring — personal frequency, context bigram `(prev, cand)`, length prior,
+   recency bucket (coarse buckets, never raw timestamps); **stable
+   tie-breakers** (score, then base table order, then codepoint).
+2. Training on commit: frequency increment + bigram upsert +
+   `last_seen_bucket` update; bounded counters (saturating).
+3. `PersonalStore` trait: `upsert_dict/upsert_bigram/forget/top_stats/
+   export_ndjson/import_ndjson` — storage-agnostic, deterministic iteration order.
+4. NDJSON export/import (versioned header line; import validates bounds,
+   rejects oversized/malformed lines fail-closed).
+5. Per-locale quota eviction: deterministic order (lowest score, oldest
+   bucket, stable tiebreak), caps configurable, defaults ≤ 4096 entries/lang.
 
 ## Non-Goals
 
-- SecureFS persistence and OS UI/CLI wiring (v2.1b).
-- Claims of privacy/security beyond offline local storage (documented later).
+- No OS wiring, no persistence backend, no UI, no markers (TASK-0204).
+- No raw timestamps, no RNG, no floating point (Q8.8 only — reproducible).
+- No cross-user concepts (single-user session today).
 
 ## Constraints / invariants (hard requirements)
 
-- Determinism:
-  - fixed-point math only in scoring
-  - injected clock for tests; production uses monotonic bucketization
-  - stable ordering everywhere
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
+- Deterministic: identical training sequence → identical ranking + identical
+  export bytes (golden test).
+- Bounded: all counters saturate; import enforces quotas; line length ≤ 256 B.
+- No `unwrap`/`expect` on import input; fail-closed line-by-line with a
+  bounded error count.
 
-## Red flags / decision points (track explicitly)
+## Security considerations
 
-- **RED (libSQL in OS)**:
-  - Do not require SQLite/libSQL for OS builds. Keep any SQL backend host-only behind a feature flag and prove pure-Rust backend.
+### Threat model
+- Import of a hostile NDJSON profile (oversized, malformed, quota-busting).
+- Learning as a side channel (password/secret content entering the store).
+
+### Security invariants (MUST hold)
+- Import is fail-closed and bounded before parsing each line.
+- The training API takes only committed candidate IDs + language — never raw
+  field text; password-field commits must not reach `train` (caller-gated in
+  imed, re-proven in TASK-0204's OS tests).
+- Export contains only dict entries/bigrams the user trained — no session data.
+
+### Security proof
+- `test_reject_import_oversize_line`, `test_reject_import_bad_version`,
+  `test_import_quota_enforced`, determinism goldens.
+
+## Contract sources (single source of truth)
+
+- **Ranking/store semantics**: RFC-0075 personalization section (extended by
+  this task) + `userspace/ime-ranker/tests/` goldens (export bytes = contract).
 
 ## Stop conditions (Definition of Done)
 
-- **Proof (Host)**:
-  - `cargo test -p ime_v2_1_host -- --nocapture`
+- **Proof (host)**: `cargo test -p ime-ranker` — ranking goldens (trained
+  candidate overtakes table order after N commits; bigram boost only in
+  context), eviction determinism, export/import round-trip byte-identical,
+  reject tests green.
+- **Gates**: `just check` + `just test-host` green.
 
 ## Touched paths (allowlist)
 
-- `userspace/libs/ime_ranker/` (new)
-- `userspace/libs/ime_personal_store/` (new; naming to be aligned with existing ime-* crates)
-- `tests/ime_v2_1_host/` (new)
-- `docs/ime/personalization.md` (may land in v2.1b)
+- `userspace/ime-ranker/` (new: src/ + tests/)
+- `Cargo.toml` (workspace member), `docs/dev/ui/input/ime.md` (personalization
+  section), `CHANGELOG.md`
 
 ## Plan (small PRs)
 
-1. ranker crate + golden scoring tests
-2. store trait + pure Rust reference backend + tests
-3. NDJSON export/import + tests
-4. quota eviction + tests
+1. Q8.8 scorer + training + goldens.
+2. PersonalStore trait + in-memory impl + eviction + goldens.
+3. NDJSON export/import + reject matrix + docs.
 
 ## Acceptance criteria (behavioral)
 
-- Host tests deterministically prove adaptive ranking, training updates, forget semantics, export/import, and quota eviction.
+- After a deterministic training script, ranking output changes exactly as the
+  goldens specify and exports byte-identically across runs.
+- A hostile import cannot exceed quotas, panic, or corrupt existing state.

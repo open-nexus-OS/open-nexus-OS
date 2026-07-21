@@ -28,7 +28,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Updates, Packaging & Recovery | 1 / 21 | 5% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
 | Bringup, Hardware & Drivers | 0 / 11 | 0% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
 | Windowing, UI & Graphics | 27 / 76 | 36% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
-| Text, IME, I18N & Accessibility | 0 / 7 | 0% | — | Text stack, input methods, locale, and accessibility foundations. |
+| Text, IME, I18N & Accessibility | 0 / 7 | 0% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
 | DSL, App Platform & SDK | 2 / 14 | 14% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
@@ -131,6 +131,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 - Kernel-touch tasks: `TASK-0031`
 - Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0051`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`, `TASK-0291`..`TASK-0295`
 - Notes (2026-07-15): `TASK-0025`..`TASK-0027` rebased onto shipped statefs v1; `TASK-0033` superseded by `TASK-0295`; `TASK-0182`/`TASK-0183` superseded by RFC-0071 (nxfs encryption classes); ladder + contracts in `tasks/TRACK-STASH-USER-DATA-FS.md`.
+- Notes (2026-07-21): `TASK-0298` (settingsd region/keymap/time keys + `OP_WATCH` spine, RFC-0078) added to this family next to `TASK-0225` (which keeps only the provider-apply-hook remainder); `TASK-0300` (IME-store encryption-at-rest) seeded, gated on an accepted encryption substrate.
 
 ### Updates, Packaging & Recovery
 
@@ -142,7 +143,8 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 - Progress: `0 / 11` done (`0%`)
 - Kernel-touch tasks: `TASK-0244`, `TASK-0251`
-- Tasks: `TASK-0055D`, `TASK-0244`, `TASK-0250`..`TASK-0251`, `TASK-0255`..`TASK-0258`, `TASK-0271`..`TASK-0272`, `TASK-0280`
+- Tasks: `TASK-0055D`, `TASK-0244`, `TASK-0250`..`TASK-0251`, `TASK-0255`..`TASK-0258`, `TASK-0271`..`TASK-0272`, `TASK-0280`, `TASK-0297`, `TASK-0299`
+- Notes (2026-07-21): `TASK-0297` (goldfish rtcd + timed walltime + tz-lite + live clock, RFC-0076) is part of the active IME/General-management track; `TASK-0299` (SNTP time-syncd) is a seed gated on netstackd UDP readiness.
 
 ### Windowing, UI & Graphics
 
@@ -155,6 +157,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 - Progress: `0 / 7` done (`0%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0077`, `TASK-0148`..`TASK-0149`, `TASK-0151`, `TASK-0175`, `TASK-0240`..`TASK-0241`
+- Notes (2026-07-21): IME v2 + i18n v2 track active — ledgers 0146/0147/0149/0150/0203/0204/0240/0241 rewritten against repo reality (RFC-0075/0077); `TASK-0096`/`TASK-0174`/`TASK-0175` Superseded; `TASK-0148` Deferred (no bidi need for Latin+CJK); 0204 retargeted securefsd → statefsd (`state:/ime`), encryption follow-up seeded as `TASK-0300`.
 
 ### Media & Creative
 
