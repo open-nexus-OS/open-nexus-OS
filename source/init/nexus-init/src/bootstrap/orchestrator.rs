@@ -11,6 +11,7 @@
 
 use crate::bootstrap::diag::{expanded, il, iw};
 use crate::bootstrap::route_builder;
+use crate::bootstrap::route_provision::grant_rtc_mmio_to_timed;
 use crate::bootstrap::{BootstrapState, CtrlChannel};
 use crate::os_payload::*;
 use crate::service_topology::ServiceId;
@@ -262,32 +263,24 @@ where
     let logd_pid = find_pid(&ctrl_channels, "logd");
     let metricsd_pid = find_pid(&ctrl_channels, "metricsd");
 
-    // selftest-client <-> service endpoint pairs
-    let vfs_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, vfsd_pid, 8)
-        .map_err(InitError::Abi)?;
-    let vfs_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
-    let pkg_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, packagefsd_pid, 8)
-        .map_err(InitError::Abi)?;
-    let pkg_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
-    let pol_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, policyd_pid, 8)
-        .map_err(InitError::Abi)?;
-    let pol_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
-    let bnd_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, bundlemgrd_pid, 8)
-        .map_err(InitError::Abi)?;
-    let bnd_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
-    let bnd_rsp_updated =
-        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, updated_pid, 8)
-            .map_err(InitError::Abi)?;
-    let upd_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, updated_pid, 8)
-        .map_err(InitError::Abi)?;
-    let upd_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
-    let sam_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, samgrd_pid, 8)
-        .map_err(InitError::Abi)?;
+    // selftest-client <-> service endpoint pairs.
+    // Owned-endpoint mint helper (owner pid, queue depth).
+    let mint = |pid: u32, depth: usize| {
+        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, depth)
+            .map_err(InitError::Abi)
+    };
+    let vfs_req = mint(vfsd_pid, 8)?;
+    let vfs_rsp = mint(selftest_pid, 8)?;
+    let pkg_req = mint(packagefsd_pid, 8)?;
+    let pkg_rsp = mint(selftest_pid, 8)?;
+    let pol_req = mint(policyd_pid, 8)?;
+    let pol_rsp = mint(selftest_pid, 8)?;
+    let bnd_req = mint(bundlemgrd_pid, 8)?;
+    let bnd_rsp = mint(selftest_pid, 8)?;
+    let bnd_rsp_updated = mint(updated_pid, 8)?;
+    let upd_req = mint(updated_pid, 8)?;
+    let upd_rsp = mint(selftest_pid, 8)?;
+    let sam_req = mint(samgrd_pid, 8)?;
     // Clone so init-lite keeps a SEND cap to samgrd for registry population.
     let init_sam_send = nexus_abi::cap_clone(sam_req).map_err(InitError::Abi)?;
     let sam_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
@@ -357,17 +350,14 @@ where
     // rngd <-> clients endpoints:
     // - rng_req owned by rngd (server receives requests)
     // - rng_rsp owned by selftest-client (server can send direct replies to selftest without CAP_MOVE)
-    // Owned-endpoint mint helper (owner pid, queue depth).
-    let mint = |pid: u32, depth: usize| {
-        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, depth)
-            .map_err(InitError::Abi)
-    };
     let rng_req = mint(rngd_pid, 8)?;
     let rng_rsp = mint(selftest_pid, 8)?;
     let timed_req = mint(timed_pid, 8)?;
     let timed_rsp = mint(selftest_pid, 8)?;
     let imed_req = mint(imed_pid, 8)?;
     let imed_rsp = mint(inputd_pid, 8)?;
+    let inputd_watch_ep = mint(inputd_pid, 8)?;
+    let windowd_watch_ep = mint(windowd_pid, 8)?;
     let window_req = mint(windowd_pid, 32)?;
     let window_rsp = mint(windowd_pid, 8)?;
     let input_req = mint(inputd_pid, 8)?;
@@ -551,6 +541,8 @@ where
         timed_rsp,
         imed_req,
         imed_rsp,
+        inputd_watch_ep,
+        windowd_watch_ep,
         window_req,
         window_rsp,
         input_req,
@@ -783,6 +775,8 @@ where
         DEVICE_MMIO_CAP_SLOT,
     )?;
     grant_mmio_with_wait(rngd_pid, "rngd", "device.mmio.rng", rng_slot, DEVICE_MMIO_CAP_SLOT)?;
+    // RFC-0076: RTC window → timed (own anchor read; no rtcd). Best-effort.
+    grant_rtc_mmio_to_timed(timed_pid, pol_ctl_route_req, pol_ctl_route_rsp)?;
     let gpu_slot = gpu_slot.ok_or(InitError::Map("virtio-gpu slot not found"))?;
     grant_mmio_with_wait(gpud_pid, "gpud", "device.mmio.gpu", gpu_slot, DEVICE_MMIO_CAP_SLOT)?;
     grant_mmio_with_wait(
@@ -889,13 +883,11 @@ where
     // inboxes, routes and the announce markers.
     crate::bootstrap::wiring::wire_services(&mut ctrl_channels, &eps, init_fold, &mut init_wire)?;
 
-    // RFC-0075 cap-table hygiene: every imed leg is granted during wiring —
-    // release init's own imed pair caps NOW (mint→grant→close). Init's table
-    // runs AT its 128-slot ceiling; keeping these two parked slots broke the
-    // runtime `@mint-pair` path (`init: FAIL mint-pair create` → app event
-    // channels dead → 320x240 fallback desktop).
-    let _ = nexus_abi::cap_close(eps.imed_req);
-    let _ = nexus_abi::cap_close(eps.imed_rsp);
+    // Cap-table hygiene (RFC-0075/0078): all legs granted during wiring —
+    // release init's slots (parked slots at the 128 ceiling broke @mint-pair).
+    for cap in [eps.imed_req, eps.imed_rsp, eps.inputd_watch_ep, eps.windowd_watch_ep] {
+        let _ = nexus_abi::cap_close(cap);
+    }
 
     // Cumulative boot elapsed just before the display-chain deferred resume. The gap from
     // `grants_done_ms` is the per-service cap-wiring phase; the gap to `total_ms` is the

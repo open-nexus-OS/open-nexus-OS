@@ -14,6 +14,21 @@ Store SessionStore {
     secret: Str = "",
     phase: Int = 0,
     lastError: Int = 0,
+    clock: Str = "--:--",
+    date: Str = "",
+}
+
+// RFC-0076: the app-host drives this once per minute with the tz-converted
+// wall time ("14:32", "Tuesday, July 21"). Placeholder until anchored.
+Event ClockEvent {
+    Tick(Str, Str),
+}
+
+reduce ClockEvent {
+    Tick(time, date) => {
+        state.clock = time;
+        state.date = date;
+    },
 }
 
 Event SessionEvent {

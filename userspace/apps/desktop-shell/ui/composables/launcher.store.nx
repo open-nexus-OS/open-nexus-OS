@@ -16,6 +16,21 @@ Store LauncherStore {
     loading: Bool = false,
     lastError: Int = 0,
     launching: Str = "",
+    clock: Str = "--:--",
+    date: Str = "",
+}
+
+// RFC-0076: host-driven minute tick (tz-converted wall time; "--:--" until
+// walltime anchors — never a fake time).
+Event ClockEvent {
+    Tick(Str, Str),
+}
+
+reduce ClockEvent {
+    Tick(time, date) => {
+        state.clock = time;
+        state.date = date;
+    },
 }
 
 Event LauncherEvent {

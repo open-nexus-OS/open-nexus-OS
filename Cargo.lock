@@ -200,6 +200,7 @@ dependencies = [
  "nexus-theme-tokens",
  "nexus-vfs-types",
  "nexus-wire",
+ "tz-lite",
 ]
 
 [[package]]
@@ -3452,6 +3453,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtc-goldfish"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3716,6 +3724,7 @@ dependencies = [
  "tar",
  "touch",
  "touchd",
+ "tz-lite",
  "updates",
  "vfsd",
  "windowd",
@@ -3801,8 +3810,10 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-wire",
  "settings",
  "statefs",
+ "tz-lite",
 ]
 
 [[package]]
@@ -4108,6 +4119,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-metrics",
  "nexus-service-entry",
+ "rtc-goldfish",
 ]
 
 [[package]]
@@ -4305,6 +4317,10 @@ name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
+
+[[package]]
+name = "tz-lite"
+version = "0.1.0"
 
 [[package]]
 name = "ui_host_snap"

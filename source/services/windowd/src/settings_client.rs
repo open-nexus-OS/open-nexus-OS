@@ -126,6 +126,13 @@ pub(crate) fn set_shell_mode(mode: &str) -> bool {
     matches!(wire::decode_response(wire::OP_SET, &rsp), Some((wire::STATUS_OK, _)))
 }
 
+/// The resolved settingsd `(send, recv)` slots — for callers that need the
+/// raw request endpoint (the region watch subscription cap-moves its push
+/// channel alongside an `OP_WATCH` frame).
+pub(crate) fn settingsd_slots() -> Option<(u32, u32)> {
+    route_blocking(b"settingsd")
+}
+
 /// Resolves a service (or `@reply`) to its `(send, recv)` slots via the responder.
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(

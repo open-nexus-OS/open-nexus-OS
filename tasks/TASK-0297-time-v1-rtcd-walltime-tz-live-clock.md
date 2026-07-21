@@ -1,6 +1,6 @@
 ---
 title: TASK-0297 Time v1 (OS/QEMU): goldfish rtcd + timed walltime + tz-lite + live clock + timezone Settings
-status: Draft
+status: Done (2026-07-21)
 owner: @runtime
 created: 2026-07-21
 depends-on:
@@ -120,6 +120,30 @@ existing recv-timeout pacing (minute boundary), no VSYNC coupling.
 2. timed walltime op + anchor + markers + selftest.
 3. tz-lite + goldens.
 4. app-host tick + shell/greeter live clock + Settings pickers + selftest + docs.
+
+## Evidence (2026-07-21)
+
+- **Deviation (documented in RFC-0076)**: no rtcd service — `timed` reads the
+  RTC via the `rtc-goldfish` driver lib (`source/drivers/rtc/goldfish-rtc`),
+  policy-gated MMIO grant `device.mmio.rtc` (fixed window 0x101000,
+  dtb-verified). tz-lite lives at `userspace/tz-lite` (workspace glob).
+- Host: tz-lite 5 goldens (EU/US DST boundaries, 12/24h formatting);
+  settingsd pin test (TIME_ZONES == tz-lite table); rtc-goldfish register
+  combine test; `just check` + `just test-host` green.
+- QEMU deterministic (`ci-os-smp1` green): `timed: walltime anchored`,
+  `SELFTEST: walltime rtc ok` (epoch > 2020 + monotonic-consistent),
+  `SELFTEST: clock tz ok`.
+- LIVE (visible boot 2026-07-21): **`apphost: clock tick applied`** — RTC →
+  timed OP_GET_WALLTIME → app-host minute tick (svc.time route slot 17,
+  `nexus.permission.TIME`) → tz-lite → `ClockEvent::Tick` → greeter clock
+  state changed. Region push (`OP_SURFACE_REGION=23`) pulled forward from
+  RFC-0077: windowd watches `time.` and relays tz/hour-format at attach +
+  change.
+- Cap-table fallout fixed en route: windowd→abilitymgr and abilitymgr→execd
+  routes converted from cap_clone to direct transfers (clones NoSpace-failed
+  after the new pre-mints and silently killed the greeter launch chain).
+  REMAINING clone audit + `DEFAULT_CAP_SLOTS` raise = urgent follow-up in
+  TASK-0147.
 
 ## Acceptance criteria (behavioral)
 

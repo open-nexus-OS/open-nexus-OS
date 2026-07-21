@@ -249,3 +249,58 @@ pub(crate) fn timed_coalesce_probe() -> core::result::Result<(), ()> {
 
     Ok(())
 }
+
+/// RFC-0076 walltime probe: two `OP_GET_WALLTIME` reads must be (a) anchored,
+/// (b) past 2020-01-01 (a zeroed/absent RTC can never fake this), and
+/// (c) monotonic-consistent (the walltime delta tracks the monotonic delta).
+pub(crate) fn walltime_probe() -> core::result::Result<(), ()> {
+    fn read_walltime(client: &KernelClient, nonce: u32) -> core::result::Result<u64, ()> {
+        let mut req = [0u8; 8];
+        req[0] = b'T';
+        req[1] = b'M';
+        req[2] = 1;
+        req[3] = 4; // OP_GET_WALLTIME
+        req[4..8].copy_from_slice(&nonce.to_le_bytes());
+        if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(300))).is_err() {
+            return Err(());
+        }
+        let rsp = match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(300))) {
+            Ok(v) => v,
+            Err(_) => return Err(()),
+        };
+        if rsp.len() != 17
+            || rsp[0] != b'T'
+            || rsp[1] != b'M'
+            || rsp[2] != 1
+            || rsp[3] != (4 | 0x80)
+            || rsp[4] != 0
+        {
+            return Err(());
+        }
+        let got_nonce = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
+        if got_nonce != nonce {
+            return Err(());
+        }
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&rsp[9..17]);
+        Ok(u64::from_le_bytes(b))
+    }
+
+    const EPOCH_2020_NS: u64 = 1_577_836_800_000_000_000;
+    let timed = route_with_retry("timed").map_err(|_| ())?;
+    let mono_a = nexus_abi::nsec().map_err(|_| ())?;
+    let wall_a = read_walltime(&timed, 0x574C_0001)?;
+    if wall_a < EPOCH_2020_NS {
+        return Err(());
+    }
+    let wall_b = read_walltime(&timed, 0x574C_0002)?;
+    let mono_b = nexus_abi::nsec().map_err(|_| ())?;
+    // Consistency: the walltime delta lies within the monotonic bracket
+    // (± 50ms slack for the IPC round-trips).
+    let wall_delta = wall_b.saturating_sub(wall_a);
+    let mono_delta = mono_b.saturating_sub(mono_a);
+    if wall_delta > mono_delta.saturating_add(50_000_000) {
+        return Err(());
+    }
+    Ok(())
+}

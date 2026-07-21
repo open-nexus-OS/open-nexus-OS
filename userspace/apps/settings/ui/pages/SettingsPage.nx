@@ -143,12 +143,124 @@ Page SettingsPage {
                             }
                             .gap(1)
                         } else {
-                            Stack {
-                                ListItem { title: @t("settings.language"), subtitle: @t("settings.languageValue"), showChevron: true }
-                                ListItem { title: @t("settings.time"), subtitle: @t("settings.timeValue"), showChevron: true }
-                                ListItem { title: @t("settings.about"), showChevron: true }
+                            if $state.section == "general" {
+                                Stack {
+                                    Text(@t("settings.country")).textSize(sm).fg(onSurfaceVariant)
+                                    Stack {
+                                        Stack {
+                                            Chip { label: "DE", selected: $state.country == "DE" }
+                                        }
+                                        on Tap -> dispatch(SetCountry("DE"))
+                                        Stack {
+                                            Chip { label: "US", selected: $state.country == "US" }
+                                        }
+                                        on Tap -> dispatch(SetCountry("US"))
+                                        Stack {
+                                            Chip { label: "GB", selected: $state.country == "GB" }
+                                        }
+                                        on Tap -> dispatch(SetCountry("GB"))
+                                        Stack {
+                                            Chip { label: "FR", selected: $state.country == "FR" }
+                                        }
+                                        on Tap -> dispatch(SetCountry("FR"))
+                                        Stack {
+                                            Chip { label: "JP", selected: $state.country == "JP" }
+                                        }
+                                        on Tap -> dispatch(SetCountry("JP"))
+                                    }
+                                    .direction(row)
+                                    .wrap(true)
+                                    .gap(1)
+                                    Text(@t("settings.keyboard")).textSize(sm).fg(onSurfaceVariant)
+                                    Stack {
+                                        Stack {
+                                            Chip { label: @t("settings.keymapDe"), selected: $state.keymap == "de" }
+                                        }
+                                        on Tap -> dispatch(SetKeymap("de"))
+                                        Stack {
+                                            Chip { label: @t("settings.keymapUs"), selected: $state.keymap == "us" }
+                                        }
+                                        on Tap -> dispatch(SetKeymap("us"))
+                                        Stack {
+                                            Chip { label: "JP", selected: $state.keymap == "jp" }
+                                        }
+                                        on Tap -> dispatch(SetKeymap("jp"))
+                                        Stack {
+                                            Chip { label: "KR", selected: $state.keymap == "kr" }
+                                        }
+                                        on Tap -> dispatch(SetKeymap("kr"))
+                                        Stack {
+                                            Chip { label: "ZH", selected: $state.keymap == "zh" }
+                                        }
+                                        on Tap -> dispatch(SetKeymap("zh"))
+                                    }
+                                    .direction(row)
+                                    .wrap(true)
+                                    .gap(1)
+                                    Text(@t("settings.timezone")).textSize(sm).fg(onSurfaceVariant)
+                                    Stack {
+                                        Stack {
+                                            Chip { label: "Berlin", selected: $state.zone == "Europe/Berlin" }
+                                        }
+                                        on Tap -> dispatch(SetZone("Europe/Berlin"))
+                                        Stack {
+                                            Chip { label: "London", selected: $state.zone == "Europe/London" }
+                                        }
+                                        on Tap -> dispatch(SetZone("Europe/London"))
+                                        Stack {
+                                            Chip { label: "New York", selected: $state.zone == "America/New_York" }
+                                        }
+                                        on Tap -> dispatch(SetZone("America/New_York"))
+                                        Stack {
+                                            Chip { label: "Los Angeles", selected: $state.zone == "America/Los_Angeles" }
+                                        }
+                                        on Tap -> dispatch(SetZone("America/Los_Angeles"))
+                                        Stack {
+                                            Chip { label: "Tokyo", selected: $state.zone == "Asia/Tokyo" }
+                                        }
+                                        on Tap -> dispatch(SetZone("Asia/Tokyo"))
+                                        Stack {
+                                            Chip { label: "Sydney", selected: $state.zone == "Australia/Sydney" }
+                                        }
+                                        on Tap -> dispatch(SetZone("Australia/Sydney"))
+                                        Stack {
+                                            Chip { label: "UTC", selected: $state.zone == "UTC" }
+                                        }
+                                        on Tap -> dispatch(SetZone("UTC"))
+                                    }
+                                    .direction(row)
+                                    .wrap(true)
+                                    .gap(1)
+                                    Text(@t("settings.hourFormat")).textSize(sm).fg(onSurfaceVariant)
+                                    Stack {
+                                        Stack {
+                                            Chip { label: @t("settings.hour24"), selected: $state.hourFmt == "24h" }
+                                        }
+                                        on Tap -> dispatch(SetHourFmt("24h"))
+                                        Stack {
+                                            Chip { label: @t("settings.hour12"), selected: $state.hourFmt == "12h" }
+                                        }
+                                        on Tap -> dispatch(SetHourFmt("12h"))
+                                    }
+                                    .direction(row)
+                                    .gap(1)
+                                    if $state.applyError != 0 {
+                                        Text(@t("settings.applyFailed")).fg(danger)
+                                    } else {
+                                        Stack { }
+                                    }
+                                    ListItem { title: @t("settings.language"), subtitle: @t("settings.languageValue"), showChevron: true }
+                                    ListItem { title: @t("settings.about"), showChevron: true }
+                                }
+                                .gap(2)
+                            } else {
+                                Stack {
+                                    ListItem { title: @t("settings.language"), subtitle: @t("settings.languageValue"), showChevron: true }
+                                    ListItem { title: @t("settings.time"), subtitle: @t("settings.timeValue"), showChevron: true }
+                                    ListItem { title: @t("settings.about"), showChevron: true }
+                                }
+                                .gap(1)
                             }
-                            .gap(1)
                         }
                     }
                 }

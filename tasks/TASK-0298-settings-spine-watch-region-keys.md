@@ -1,6 +1,6 @@
 ---
 title: TASK-0298 Settings spine: region/keymap/time keys + OP_WATCH push propagation + General-management pickers
-status: Draft
+status: Done (2026-07-21)
 owner: @runtime
 created: 2026-07-21
 depends-on: []
@@ -35,7 +35,7 @@ predates this). Two gaps block the "General management" goals:
 1. **New SPECS rows** (all TYPE_TEXT, validated, persisted via the existing
    prefs blob):
    - `region.country` — default `DE`, validator: exactly 2 ASCII uppercase
-   - `input.keymap` — default `us`, validator: `us|de|jp|kr|zh`
+   - `input.keymap` — default `de`, validator: `us|de|jp|kr|zh` (shipped QEMU profile is a German keyboard)
    - `time.zone` — default `Europe/Berlin`, validator: membership in the
      tz-lite zone table (TASK-0297; until tz-lite lands, a const mirror list
      with a test pinning it to tz-lite)
@@ -119,6 +119,27 @@ predates this). Two gaps block the "General management" goals:
 1. RFC-0078 seed; new keys + validators + host tests.
 2. OP_WATCH/OP_EVENT codec + settingsd spine + reject matrix + selftest.
 3. inputd watch consumer + marker; Settings General pickers + interactive proof.
+
+## Evidence (2026-07-21)
+
+- Host: `cargo test -p settingsd` 14 green (5 new keys + validators, reject
+  cases, WatchTable: prefix match / rewatch-replace / overflow / resync /
+  dead-subscriber reclaim); `cargo test -p nexus-wire settingsd` 7 green
+  (OP_WATCH/OP_EVENT goldens + full reject matrices; OP_GET/OP_SET
+  byte-identical). `just check` + `just test-host` (591 suites) green.
+- QEMU (`ci-os-smp1`): `settingsd: watch registered`,
+  `SELFTEST: settings watch ok` (subscribe via @mint-pair channel → flip
+  `input.keymap` us→de → both pushes observed, end state = default),
+  `inputd: keymap set us` + `inputd: keymap set de` — the LIVE keymap swap
+  through the push spine; `settingsd: set … persist=ok` both times.
+- Settings app: General management pane real (country + keyboard chip
+  pickers via `svc.settings.set`); compiled into the image (build green).
+- Traps found en route (documented in RFC-0078 implementation notes):
+  late init mints NoSpace-fail (pre-mint + close-after-wiring),
+  `@mint-pair` allowlist (execd + selftest-client), yield-spin settles
+  suppress the kernel tick-budget proof (deadline-blocked recvs), UART
+  interleaving hard-fails evidence assembly (pre-existing fragility — also
+  hits unrelated marker pairs; owned by the observability/boot track).
 
 ## Acceptance criteria (behavioral)
 

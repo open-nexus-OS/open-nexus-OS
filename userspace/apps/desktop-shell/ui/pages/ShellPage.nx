@@ -31,7 +31,7 @@ Page ShellPage {
         Stack {
             if device.sizeClass == "compact" {
                 Stack {
-                    Text(@t("shell.clock")).textSize(xs).fg(onSurface)
+                    Text($state.clock).textSize(xs).fg(onSurface)
                     Icon { symbol: "bell", size: 13 }
                         .fg(onSurface)
                 }
@@ -45,7 +45,7 @@ Page ShellPage {
             } else {
                 Stack {
                     Stack {
-                        TopBarPill { label: @t("shell.clock") }
+                        TopBarPill { label: $state.clock }
                     }
                     on Tap -> dispatch(SetPanel("calendar"))
                     Stack {

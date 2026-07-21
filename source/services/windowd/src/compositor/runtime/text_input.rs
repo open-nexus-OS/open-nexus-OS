@@ -34,16 +34,26 @@ pub(crate) enum TextFocusTarget {
 }
 
 impl DisplayServerRuntime {
-    /// `OP_SURFACE_TEXT_FOCUS` from an app: resolve the SENDER's surface by
-    /// kernel identity (never by payload), record the route, relay to imed.
-    pub(crate) fn handle_surface_text_focus(&mut self, frame: &[u8], sender_sid: u64) {
-        let Some((focused, field_kind, caret)) = surface_text::decode_surface_text_focus(frame)
+    /// `OP_SURFACE_TEXT_FOCUS` from an app: the app CLAIMS its own surface
+    /// (windowd's server endpoint carries no per-sender identity for app
+    /// processes — sender_sid arrives as 0; same trust level and same
+    /// recorded follow-up as `OP_SURFACE_CONTROL`). Blast radius is focus
+    /// misdirection only: imed output always routes to the CLAIMED surface's
+    /// own event channel, never to the announcer.
+    pub(crate) fn handle_surface_text_focus(&mut self, frame: &[u8], _sender_sid: u64) {
+        let Some((surface_id, focused, field_kind, caret)) =
+            surface_text::decode_surface_text_focus(frame)
         else {
             let _ = debug_println("WINDOWD: FAIL text-focus (malformed)");
             return;
         };
-        let Some((target, surface_id)) = self.text_sender_surface(sender_sid) else {
-            // Unknown sender: no surface of this identity — fail closed.
+        let target = if self.desktop_surface_id == Some(surface_id) {
+            TextFocusTarget::Desktop
+        } else if let Some(idx) = self.app_index_by_surface(surface_id) {
+            TextFocusTarget::App(idx)
+        } else {
+            // Unknown surface — fail closed (stale claim after destroy).
+            let _ = debug_println("WINDOWD: FAIL text-focus (unknown surface)");
             return;
         };
         if focused {
@@ -116,20 +126,6 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Resolves the sender's surface: floating app slot by `owner_sid`, else
-    /// the desktop surface. `None` for identities that own no surface.
-    fn text_sender_surface(&self, sender_sid: u64) -> Option<(TextFocusTarget, u32)> {
-        if let Some(idx) =
-            self.apps.iter().position(|a| a.owner_sid == sender_sid && a.surface_id.is_some())
-        {
-            return self.apps[idx].surface_id.map(|sid| (TextFocusTarget::App(idx), sid));
-        }
-        if sender_sid != 0 && sender_sid == self.desktop_owner_sid {
-            return self.desktop_surface_id.map(|sid| (TextFocusTarget::Desktop, sid));
-        }
-        None
-    }
-
     /// Fire-and-forget frame to the desktop surface's event channel.
     #[allow(unused_variables)]
     fn send_desktop_frame(&mut self, frame: &[u8]) {
@@ -172,6 +168,7 @@ impl DisplayServerRuntime {
             );
             use nexus_ipc::Client as _;
             if client.send(&frame, Wait::NonBlocking).is_err() {
+                let _ = debug_println("WINDOWD: FAIL imed relay send");
                 // Drop the cached route; the next transition re-resolves.
                 self.imed_client = None;
             }

@@ -84,6 +84,15 @@ pub const SERVICE_ROUTES: &[ServiceRoute] = &[
         permission: "nexus.permission.FILES",
         child_slot: 16,
     },
+    // Wall-clock reads (RFC-0076): the app-host queries `timed`'s
+    // OP_GET_WALLTIME to drive the minute clock tick; DSL-facing `svc.time.*`
+    // methods land with a later slice (route provisioned now, host-driven).
+    ServiceRoute {
+        svc: "time",
+        route: "timed",
+        permission: "nexus.permission.TIME",
+        child_slot: 17,
+    },
 ];
 
 /// The route for a DSL service namespace, if the platform backs it.

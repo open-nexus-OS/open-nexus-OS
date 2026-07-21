@@ -20,6 +20,6 @@ min_sdk = "1.0.0"
 bundle_type = "shell"
 payload_kind = "ui-program"
 abilities = ["desktop-shell.ShellAbility"]
-caps = ["nexus.permission.WINDOW", "nexus.permission.LAUNCH", "nexus.permission.ENUMERATE"]
+caps = ["nexus.permission.WINDOW", "nexus.permission.LAUNCH", "nexus.permission.ENUMERATE", "nexus.permission.TIME"]
 provides = []
 resources = []

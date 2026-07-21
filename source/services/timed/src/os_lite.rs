@@ -23,6 +23,39 @@ use nexus_metrics::client::MetricsClient;
 use crate::protocol::*;
 use crate::{coalesced_deadline, RegisterReject, TimerRegistry};
 
+/// RFC-0076 wall-clock anchor: `epoch_at_anchor + (mono_now − mono_at_anchor)`.
+/// `None` until the goldfish RTC was read successfully (honest unavailability).
+struct WallclockAnchor {
+    epoch_ns: u64,
+    mono_ns: u64,
+}
+
+/// Policy-gated `device.mmio.rtc` grant lands here (init, fixed slot — the
+/// same deterministic slot every MMIO owner uses).
+const RTC_MMIO_CAP_SLOT: u32 = 48;
+/// Per-process VA for the RTC window (4 KiB, USER|RW, never exec).
+const RTC_MMIO_VA: usize = 0x2000_e000;
+
+fn try_anchor(anchor: &mut Option<WallclockAnchor>) {
+    if anchor.is_some() {
+        return;
+    }
+    let Ok(epoch_ns) = rtc_goldfish::read_epoch_ns(RTC_MMIO_CAP_SLOT, RTC_MMIO_VA) else {
+        return;
+    };
+    let Ok(mono_ns) = nsec() else {
+        return;
+    };
+    *anchor = Some(WallclockAnchor { epoch_ns, mono_ns });
+    emit_line("timed: walltime anchored");
+}
+
+fn walltime_now(anchor: &Option<WallclockAnchor>) -> Option<u64> {
+    let a = anchor.as_ref()?;
+    let now = nsec().ok()?;
+    Some(a.epoch_ns.saturating_add(now.saturating_sub(a.mono_ns)))
+}
+
 static READY_MARKER_EMITTED: AtomicBool = AtomicBool::new(false);
 static REGISTER_ALLOW_AUDIT_EMITTED: AtomicBool = AtomicBool::new(false);
 
@@ -37,12 +70,22 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> TimedResult<()> {
         emit_line("timed: ready");
     }
     let mut registry = TimerRegistry::new();
+    // RFC-0076: anchor the wall clock from the goldfish RTC (policy-gated
+    // MMIO grant). Best-effort at start; re-tried on each walltime request
+    // while unanchored — unavailability stays honest, never fatal.
+    let mut wall_anchor: Option<WallclockAnchor> = None;
+    try_anchor(&mut wall_anchor);
 
     nexus_abi::service_verdict_flush("timed");
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
-                let rsp = handle_frame(&mut registry, sender_service_id, frame.as_slice());
+                let rsp = handle_frame(
+                    &mut registry,
+                    &mut wall_anchor,
+                    sender_service_id,
+                    frame.as_slice(),
+                );
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);
                 } else {
@@ -58,7 +101,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> TimedResult<()> {
     }
 }
 
-fn handle_frame(registry: &mut TimerRegistry, sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
+fn handle_frame(
+    registry: &mut TimerRegistry,
+    wall_anchor: &mut Option<WallclockAnchor>,
+    sender_service_id: u64,
+    frame: &[u8],
+) -> Vec<u8> {
     let op = frame.get(3).copied().unwrap_or(0);
     let nonce = read_u32(frame, 4).unwrap_or(0);
     if frame.len() < MIN_FRAME_LEN
@@ -73,6 +121,7 @@ fn handle_frame(registry: &mut TimerRegistry, sender_service_id: u64, frame: &[u
         OP_REGISTER => handle_register(registry, sender_service_id, frame),
         OP_CANCEL => handle_cancel(registry, sender_service_id, frame),
         OP_SLEEP_UNTIL => handle_sleep_until(frame),
+        OP_GET_WALLTIME => handle_walltime(wall_anchor, frame),
         _ => rsp_status(op, STATUS_MALFORMED, nonce),
     }
 }
@@ -145,6 +194,33 @@ fn handle_sleep_until(frame: &[u8]) -> Vec<u8> {
         }
         let _ = yield_();
     }
+}
+
+/// `OP_GET_WALLTIME` (RFC-0076): `[T, M, ver, 4, nonce:u32]` →
+/// `[T, M, ver, 4|0x80, status, nonce:u32, epoch_ns:u64]`.
+fn handle_walltime(wall_anchor: &mut Option<WallclockAnchor>, frame: &[u8]) -> Vec<u8> {
+    let nonce = read_u32(frame, 4).unwrap_or(0);
+    if frame.len() != WALLTIME_REQ_LEN {
+        return rsp_walltime(STATUS_MALFORMED, nonce, 0);
+    }
+    // Late anchor (RTC grant may land after boot-time first try).
+    try_anchor(wall_anchor);
+    match walltime_now(wall_anchor) {
+        Some(epoch_ns) => rsp_walltime(STATUS_OK, nonce, epoch_ns),
+        None => rsp_walltime(STATUS_UNAVAILABLE, nonce, 0),
+    }
+}
+
+fn rsp_walltime(status: u8, nonce: u32, epoch_ns: u64) -> Vec<u8> {
+    let mut out = Vec::with_capacity(17);
+    out.push(MAGIC0);
+    out.push(MAGIC1);
+    out.push(VERSION);
+    out.push(OP_GET_WALLTIME | OP_RESPONSE);
+    out.push(status);
+    out.extend_from_slice(&nonce.to_le_bytes());
+    out.extend_from_slice(&epoch_ns.to_le_bytes());
+    out
 }
 
 fn route_timed_blocking() -> Option<KernelServer> {

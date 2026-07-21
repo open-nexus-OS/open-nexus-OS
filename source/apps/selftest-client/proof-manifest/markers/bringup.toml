@@ -832,6 +832,18 @@ phase = "bringup"
 [marker."SELFTEST: imed reject foreign FAIL"]
 phase = "bringup"
 
+[marker."SELFTEST: settings watch FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: walltime rtc FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: clock tz FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: settings watch step=0x"]
+phase = "bringup"
+
 # Diagnostic / FAIL-variant markers back-filled 2026-07 (repo hygiene):
 # every marker literal in the source tree must be manifest-declared (Rule 3).
 

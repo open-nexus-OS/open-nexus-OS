@@ -19,6 +19,7 @@ extern crate alloc;
 /// validation + prefs-blob (de)serialization — the core the service loop and
 /// the statefsd persistence wrap.
 pub mod registry;
+pub mod watch;
 
 /// OS-lite service runtime: binds the settingsd server, loads persisted prefs,
 /// serves GET/SET (validate → persist → apply). Boot service (RFC-0069).

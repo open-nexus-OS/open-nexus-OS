@@ -88,6 +88,7 @@ mod input;
 mod input_scroll;
 mod marker_emit;
 mod present;
+pub(crate) mod region;
 mod scene;
 mod session;
 mod shell;
@@ -565,11 +566,11 @@ pub(crate) struct DisplayServerRuntime {
     abilitymgr_client: Option<nexus_ipc::KernelClient>,
     /// Text-focus route (RFC-0075, identity-derived — see `text_input.rs`).
     text_focus: Option<text_input::TextFocusRoute>,
-    /// The desktop app-host's kernel identity (set at desktop-surface create).
-    desktop_owner_sid: u64,
     /// Cached IME-authority route (lazy; fire-and-forget focus relays).
     #[cfg(nexus_env = "os")]
     imed_client: Option<nexus_ipc::KernelClient>,
+    /// Region relay cache (RFC-0076/0077 — see `region.rs`).
+    pub(crate) region: region::RegionState,
     /// Atlas allocator, kept live so windows can acquire surfaces on show and
     /// release them on hide (the on-demand surface pool — a closed window costs
     /// zero atlas rows). The boot layers reserved their bands from it in `new`.
@@ -911,7 +912,7 @@ impl DisplayServerRuntime {
             #[cfg(nexus_env = "os")]
             abilitymgr_client: None,
             text_focus: None,
-            desktop_owner_sid: 0,
+            region: region::RegionState::new(),
             #[cfg(nexus_env = "os")]
             imed_client: None,
             atlas_alloc: atlas,

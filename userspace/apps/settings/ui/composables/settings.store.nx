@@ -15,6 +15,10 @@ Store SettingsStore {
     tool: Str = "",
     selection: Str = "",
     accent: Str = "default",
+    country: Str = "DE",
+    keymap: Str = "de",
+    zone: Str = "Europe/Berlin",
+    hourFmt: Str = "24h",
     applyError: Int = 0,
 }
 
@@ -29,6 +33,10 @@ Event SettingsEvent {
     WinNav(Str),
     SetTheme(Str),
     SetAccent(Str),
+    SetCountry(Str),
+    SetKeymap(Str),
+    SetZone(Str),
+    SetHourFmt(Str),
     Applied(Bool),
     ApplyFailed(Int),
 }
@@ -121,6 +129,22 @@ reduce SettingsEvent {
         state.accent = name;
         state.applyError = 0;
     },
+    SetCountry(code) => {
+        state.country = code;
+        state.applyError = 0;
+    },
+    SetKeymap(layout) => {
+        state.keymap = layout;
+        state.applyError = 0;
+    },
+    SetZone(z) => {
+        state.zone = z;
+        state.applyError = 0;
+    },
+    SetHourFmt(f) => {
+        state.hourFmt = f;
+        state.applyError = 0;
+    },
     Applied(ok) => state.applyError = 0,
     ApplyFailed(code) => state.applyError = code,
 }
@@ -134,6 +158,34 @@ reduce SettingsEvent {
 
 @effect on SetAccent(name) {
     match svc.settings.set("ui.theme.accent", name, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}
+
+@effect on SetCountry(code) {
+    match svc.settings.set("region.country", code, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}
+
+@effect on SetKeymap(layout) {
+    match svc.settings.set("input.keymap", layout, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}
+
+@effect on SetZone(z) {
+    match svc.settings.set("time.zone", z, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}
+
+@effect on SetHourFmt(f) {
+    match svc.settings.set("time.format", f, timeoutMs: 250) {
         Ok(ok) => dispatch(Applied(ok)),
         Err(e) => dispatch(ApplyFailed(e)),
     }

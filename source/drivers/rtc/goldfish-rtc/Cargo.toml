@@ -1,0 +1,12 @@
+[package]
+name = "rtc-goldfish"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "rtc_goldfish"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-abi = { path = "../../../libs/nexus-abi" }

@@ -6,8 +6,8 @@
 // a submit arrow mid-center, the user switcher bottom-left (avatar circles
 // from sessiond's REAL user list) and session action buttons bottom-right
 // (demo). Failure/authenticating states still render sessiond's phases —
-// never local guesses. Clock/date are the static demo values until the
-// time service lands (consistent with the shell's top-bar clock).
+// never local guesses. Clock/date are LIVE (RFC-0076): the app-host ticks
+// ClockEvent with tz-converted wall time; "--:--" until walltime anchors.
 
 // The greeter is the pre-session desktop surface: chromeless, full-screen,
 // desktop z-band (same declared intent as the shell).
@@ -20,8 +20,8 @@ Window {
 Page GreeterPage {
     Stack {
         Stack {
-            Text(@t("greeter.date")).textSize(sm).fg(onSurface)
-            Text(@t("greeter.clock")).textSize(xl).fg(onSurface)
+            Text($state.date).textSize(sm).fg(onSurface)
+            Text($state.clock).textSize(xl).fg(onSurface)
         }
         .align(center)
         .gap(1)

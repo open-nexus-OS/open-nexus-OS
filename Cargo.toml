@@ -11,6 +11,7 @@ members = [
     "source/apps/init-lite",
     "userspace/apps/launcher",
     "source/drivers/net/virtio",
+    "source/drivers/rtc/goldfish-rtc",
     "source/drivers/storage/virtio-blk",
     "source/drivers/gpud",
     "source/drivers/console/virtio",

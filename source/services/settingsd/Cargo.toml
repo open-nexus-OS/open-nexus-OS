@@ -18,11 +18,16 @@ os-lite = [
 [package.metadata.nexus-service]
 stack_pages = 0
 
+[dev-dependencies]
+tz-lite = { path = "../../../userspace/tz-lite" }
+
 [dependencies]
 # Host-only legacy input-settings snapshot (TASK-0253).
 settings = { path = "../../../userspace/settings", optional = true }
 inputd = { path = "../inputd", optional = true }
 keymaps = { path = "../../../userspace/keymaps", optional = true }
+# Wire SSOT (watch table builds OP_EVENT frames; host-testable).
+nexus-wire = { path = "../../libs/nexus-wire" }
 # OS boot service (TASK-0072 Phase 8).
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }

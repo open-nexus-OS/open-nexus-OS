@@ -61,14 +61,59 @@ fn is_locale(v: &str) -> bool {
         && parts.all(|p| (2..=3).contains(&p.len()) && p.chars().all(|c| c.is_ascii_uppercase()))
 }
 
+fn is_country(v: &str) -> bool {
+    // ISO-3166-ish alpha-2: exactly two ASCII uppercase letters.
+    v.len() == 2 && v.chars().all(|c| c.is_ascii_uppercase())
+}
+
+fn is_keymap(v: &str) -> bool {
+    // = `keymaps::LayoutId` names (kept literal: this crate stays
+    // keymaps-independent; the layout enum is append-only).
+    matches!(v, "us" | "de" | "jp" | "kr" | "zh")
+}
+
+/// Curated zone list (RFC-0078): MUST mirror `tz-lite`'s zone table once it
+/// lands (RFC-0076) — a pin test there keeps the two in sync.
+pub const TIME_ZONES: &[&str] = &[
+    "UTC",
+    "Europe/Berlin",
+    "Europe/London",
+    "America/New_York",
+    "America/Los_Angeles",
+    "Asia/Tokyo",
+    "Asia/Shanghai",
+    "Asia/Seoul",
+    "Australia/Sydney",
+];
+
+fn is_time_zone(v: &str) -> bool {
+    TIME_ZONES.contains(&v)
+}
+
+fn is_time_format(v: &str) -> bool {
+    matches!(v, "24h" | "12h")
+}
+
+fn is_on_off(v: &str) -> bool {
+    matches!(v, "on" | "off")
+}
+
 /// The registered key table (the SSOT of what exists). Adding a setting =
 /// adding a row here; unknown keys are refused on every path.
+/// NON-SECRET CHARTER (RFC-0078): nothing sensitive may be added without a
+/// policyd write gate.
 const SPECS: &[KeySpec] = &[
     KeySpec { key: "ui.theme.mode", default: "dark", validate: is_theme_mode },
     KeySpec { key: "ui.theme.accent", default: "default", validate: is_theme_accent },
     KeySpec { key: "ui.shell.mode", default: "tablet", validate: is_shell_mode },
     KeySpec { key: "ui.font.family", default: "inter", validate: is_font_family },
     KeySpec { key: "ui.locale", default: "de-DE", validate: is_locale },
+    // RFC-0078 General-management keys (TASK-0298).
+    KeySpec { key: "region.country", default: "DE", validate: is_country },
+    KeySpec { key: "input.keymap", default: "de", validate: is_keymap },
+    KeySpec { key: "time.zone", default: "Europe/Berlin", validate: is_time_zone },
+    KeySpec { key: "time.format", default: "24h", validate: is_time_format },
+    KeySpec { key: "ime.personalization", default: "on", validate: is_on_off },
 ];
 
 /// The typed registry: current values per registered key (default until set).
@@ -202,5 +247,44 @@ mod tests {
         assert_eq!(r.set("ui.locale", "en-US"), Ok(true));
         assert_eq!(r.set("ui.locale", "de"), Ok(true));
         assert_eq!(r.set("ui.locale", "EN_us"), Err(SetError::InvalidValue));
+    }
+
+    #[test]
+    fn general_management_keys_defaults_and_validators() {
+        let mut r = SettingsRegistry::new();
+        // Defaults (RFC-0078 schema).
+        assert_eq!(r.get("region.country"), Some("DE"));
+        assert_eq!(r.get("input.keymap"), Some("de"));
+        assert_eq!(r.get("time.zone"), Some("Europe/Berlin"));
+        assert_eq!(r.get("time.format"), Some("24h"));
+        assert_eq!(r.get("ime.personalization"), Some("on"));
+        // Valid transitions.
+        assert_eq!(r.set("region.country", "US"), Ok(true));
+        assert_eq!(r.set("input.keymap", "us"), Ok(true));
+        assert_eq!(r.set("time.zone", "Asia/Tokyo"), Ok(true));
+        assert_eq!(r.set("time.format", "12h"), Ok(true));
+        assert_eq!(r.set("ime.personalization", "off"), Ok(true));
+    }
+
+    #[test]
+    fn time_zone_validator_pins_the_tz_lite_table() {
+        // RFC-0076: tz-lite's zone table is the SSOT; this const mirror must
+        // never drift (a zone settable here but unknown to tz-lite would
+        // break the clock fail-closed).
+        let names: std::vec::Vec<&str> = tz_lite::ZONES.iter().map(|z| z.name).collect();
+        assert_eq!(TIME_ZONES, names.as_slice());
+    }
+
+    #[test]
+    fn test_reject_general_management_invalid_values() {
+        let mut r = SettingsRegistry::new();
+        assert_eq!(r.set("region.country", "Deu"), Err(SetError::InvalidValue));
+        assert_eq!(r.set("region.country", "de"), Err(SetError::InvalidValue));
+        assert_eq!(r.set("input.keymap", "neo"), Err(SetError::InvalidValue));
+        assert_eq!(r.set("time.zone", "Mars/Olympus"), Err(SetError::InvalidValue));
+        assert_eq!(r.set("time.format", "13h"), Err(SetError::InvalidValue));
+        assert_eq!(r.set("ime.personalization", "maybe"), Err(SetError::InvalidValue));
+        // Failed sets never mutate.
+        assert_eq!(r.get("input.keymap"), Some("de"));
     }
 }

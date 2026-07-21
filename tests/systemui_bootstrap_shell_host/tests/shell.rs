@@ -27,7 +27,9 @@ fn shell_page_renders_across_profiles_with_chrome_texts() {
         // Handoff look: every profile carries the top-bar clock and a
         // battery status text (the app grid + launcher entries are icon
         // tiles, so the chrome texts are the render witnesses).
-        assert!(t.contains(&"shell.clock".to_string()), "top-bar clock shown: {t:?}");
+        // RFC-0076: the clock is LIVE state now — the placeholder renders
+        // until the host's first ClockEvent tick.
+        assert!(t.contains(&"--:--".to_string()), "top-bar clock placeholder shown: {t:?}");
         assert!(t.contains(&"shell.battery".to_string()), "battery status shown: {t:?}");
     }
 }
@@ -128,7 +130,8 @@ fn greeter_login_success_and_failure_drive_the_contract_states() {
     let t = texts(mounted.view.scene());
     // Handoff look: date + big clock top-center, pick-user prompt, the
     // password pill and the idle hint.
-    assert!(t.contains(&"greeter.clock".to_string()), "greeter renders: {t:?}");
+    // RFC-0076: live clock state — placeholder until the first tick.
+    assert!(t.contains(&"--:--".to_string()), "greeter clock placeholder renders: {t:?}");
     assert!(t.contains(&"greeter.pickUser".to_string()), "user prompt shown: {t:?}");
     assert!(t.contains(&"greeter.hint".to_string()), "idle hint shown: {t:?}");
 

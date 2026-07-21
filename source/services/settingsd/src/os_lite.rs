@@ -24,6 +24,7 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::registry::{SetError, SettingsRegistry};
 use crate::statefs_client;
+use crate::watch::WatchTable;
 
 /// Result alias for the lite settingsd backend.
 pub type SettingsdResult<T> = Result<T, SettingsdError>;
@@ -64,10 +65,28 @@ pub fn service_main_loop() -> SettingsdResult<()> {
     nexus_abi::service_verdict_flush("settingsd");
 
     let mut rsp = [0u8; 300];
+    let mut watchers = WatchTable::new();
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, _sender_service_id, reply)) => {
-                let len = handle_request(frame.as_slice(), &mut registry, &mut rsp);
+                // OP_WATCH (RFC-0078): the moved cap IS the subscription's
+                // push channel — keep it, never reply_and_close it.
+                if let Some((wire::OP_WATCH, prefix, _)) = wire::decode_request(frame.as_slice()) {
+                    match reply {
+                        Some(chan) if watchers.register(chan.slot(), prefix) => {
+                            let _ = nexus_abi::debug_println("settingsd: watch registered");
+                        }
+                        _ => {
+                            // No moved cap / table full: honest reject on the
+                            // shared endpoint (the would-be subscriber's recv).
+                            let len =
+                                encode(wire::OP_WATCH, wire::STATUS_PERSIST_FAIL, "", &mut rsp);
+                            let _ = server.send(&rsp[..len], Wait::NonBlocking);
+                        }
+                    }
+                    continue;
+                }
+                let len = handle_request(frame.as_slice(), &mut registry, &mut rsp, &mut watchers);
                 let out = &rsp[..len];
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(out);
@@ -87,7 +106,12 @@ pub fn service_main_loop() -> SettingsdResult<()> {
 }
 
 /// Serves one request frame into `rsp`; returns the response length.
-fn handle_request(frame: &[u8], registry: &mut SettingsRegistry, rsp: &mut [u8; 300]) -> usize {
+fn handle_request(
+    frame: &[u8],
+    registry: &mut SettingsRegistry,
+    rsp: &mut [u8; 300],
+    watchers: &mut WatchTable,
+) -> usize {
     let Some((op, key, value)) = wire::decode_request(frame) else {
         // Pre-protocol / malformed frame: honest malformed header (GET-shaped).
         return encode(wire::OP_GET, wire::STATUS_MALFORMED, "", rsp);
@@ -101,6 +125,13 @@ fn handle_request(frame: &[u8], registry: &mut SettingsRegistry, rsp: &mut [u8; 
             Ok(changed) => {
                 if changed {
                     apply_change(registry, key, value);
+                    // RFC-0078: notify subscribers of the APPLIED change
+                    // (fire-and-forget, bounded; failures set resync).
+                    watchers.notify(key, value, |chan, ev| {
+                        let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, ev.len() as u32);
+                        nexus_abi::ipc_send_v1(chan, &hdr, ev, nexus_abi::IPC_SYS_NONBLOCK, 0)
+                            .is_ok()
+                    });
                 }
                 // Echo the now-current value (the validated new one).
                 let current = registry.get(key).unwrap_or(value);

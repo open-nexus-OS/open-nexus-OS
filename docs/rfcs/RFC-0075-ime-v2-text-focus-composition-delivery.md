@@ -133,7 +133,7 @@ Additive evolution only; version bump on any breaking change.
 | Op | Direction | Payload |
 |----|-----------|---------|
 | `OP_SURFACE_TEXT=21` | windowd→app | `kind:u8 (0=commit,1=preedit,2=action), payload:str8(max 64), aux:u8` |
-| `OP_SURFACE_TEXT_FOCUS=22` | app→windowd | `focused:u8, field_kind:u8, caret x/y/w/h:u16×4` |
+| `OP_SURFACE_TEXT_FOCUS=22` | app→windowd | `surface_id:u32, focused:u8, field_kind:u8, caret x/y/w/h:u16×4` — the app CLAIMS its own surface: windowd's server endpoint carries no per-sender identity for app processes (sender_sid arrives as 0), so identity-derived resolution is impossible today. Blast radius is focus misdirection only (imed output always routes to the claimed surface's own event channel). Recorded follow-up (shared with `OP_SURFACE_CONTROL`): enforce the sender once the execd requester-id pattern lands. |
 
 ### Composition semantics (normative)
 
@@ -219,9 +219,13 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 - `SELFTEST: imed reject foreign ok` — deterministic CI negative proof
   (Phase 1): a foreign-identity `OP_KEY` is DENIED; proves imed serves AND
   the identity gate holds every boot
+- `apphost: text commit applied` — one-shot count-only marker: the first
+  commit that changed a focused field (PROVEN LIVE 2026-07-21: QMP tap on the
+  greeter secret field + `key a` → marker fired — the full chain
+  hidrawd→inputd→imed→windowd→app-host insert)
 - `SELFTEST: ime v2 latin us ok` — injected `a` observed as commit app-side
   (QMP-injection lane / OSK-driven in Phase 2 — not in the deterministic CI
-  ladder; the interactive proof is typing in `just start`)
+  ladder; the interactive proof above is the current gate)
 - `SELFTEST: ime v2 deadkeys de ok` — `´`+`e` → `é` end-to-end (same lane)
 - `SELFTEST: ime v2 osk ok` — OSK tap → commit at focused field (Phase 2)
 - `imed: reject foreign key source` — negative injection selftest (Phase 2)

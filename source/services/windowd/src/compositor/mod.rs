@@ -681,6 +681,9 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         // independent of how many raw events arrived (the Android Choreographer
         // model).
         let applied = runtime.apply_staged_input();
+        // RFC-0076/0077: settings-watch pump (subscribe once; drain pushed
+        // time./locale changes; re-push region to surfaces on change).
+        runtime.pump_region_watch();
         #[cfg(nexus_env = "os")]
         loop_stats.note_apply(applied);
         #[cfg(not(nexus_env = "os"))]

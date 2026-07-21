@@ -277,6 +277,13 @@ impl super::DslApp {
         if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
             return false;
         }
+        // One-shot end-to-end proof (RFC-0075): the first commit that changed
+        // the focused field. Count-only — typed text NEVER hits markers.
+        static COMMIT_MARKED: core::sync::atomic::AtomicBool =
+            core::sync::atomic::AtomicBool::new(false);
+        if !COMMIT_MARKED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+            raw_marker("apphost: text commit applied");
+        }
         if matches!(damage, Some(Damage::Layout)) {
             self.relayout_retained();
         }
@@ -313,12 +320,21 @@ impl super::DslApp {
     /// RFC-0075 tap-to-focus announcement: resolve widget focus at the tap
     /// point and, on a TRANSITION, send `OP_SURFACE_TEXT_FOCUS` to windowd
     /// (which relays to imed). Marker carries no text content.
-    pub(super) fn announce_text_focus(&mut self, client: &KernelClient, x: i32, y: i32) {
+    pub(super) fn announce_text_focus(
+        &mut self,
+        client: &KernelClient,
+        surface_id: u32,
+        x: i32,
+        y: i32,
+    ) {
         use nexus_display_proto::surface_text;
+        if surface_id == 0 {
+            return; // no surface yet — nothing to claim
+        }
         let Some((focused, field_kind, caret)) = self.text_focus_update(x, y) else {
             return;
         };
-        let f = surface_text::encode_surface_text_focus(focused, field_kind, caret);
+        let f = surface_text::encode_surface_text_focus(surface_id, focused, field_kind, caret);
         let _ = client.send(&f, Wait::NonBlocking);
         raw_marker(if focused { "apphost: text focus set" } else { "apphost: text focus cleared" });
     }

@@ -72,6 +72,12 @@ pub(crate) struct Endpoints {
     pub imed_req: u32,
     /// imed server response endpoint (owned by inputd, the direct-reply peer).
     pub imed_rsp: u32,
+    /// inputd's settings-watch push channel (RFC-0078; both halves go to
+    /// inputd at fixed slots, init's cap closes after wiring).
+    pub inputd_watch_ep: u32,
+    /// windowd's settings-watch push channel (RFC-0076/0077 region relay;
+    /// both halves to windowd at fixed slots, init's cap closes after wiring).
+    pub windowd_watch_ep: u32,
     /// windowd server request endpoint.
     pub window_req: u32,
     /// windowd server response endpoint.

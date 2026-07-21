@@ -13,7 +13,7 @@ Page ShellPage {
     Stack {
         Stack {
             Stack {
-                TopBarPill { label: @t("shell.clock") }
+                TopBarPill { label: $state.clock }
             }
             on Tap -> dispatch(SetPanel("calendar"))
             Stack {

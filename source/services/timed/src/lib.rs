@@ -38,6 +38,9 @@ pub mod protocol {
     pub const OP_REGISTER: u8 = 1;
     pub const OP_CANCEL: u8 = 2;
     pub const OP_SLEEP_UNTIL: u8 = 3;
+    /// RFC-0076: UTC wall-time read (`walltime = rtc_anchor + monotonic
+    /// delta`); `STATUS_UNAVAILABLE` while unanchored — never fake time.
+    pub const OP_GET_WALLTIME: u8 = 4;
     pub const OP_RESPONSE: u8 = 0x80;
 
     pub const STATUS_OK: u8 = 0;
@@ -46,11 +49,15 @@ pub mod protocol {
     pub const STATUS_NOT_FOUND: u8 = 3;
     pub const STATUS_MALFORMED: u8 = 4;
     pub const STATUS_INTERNAL: u8 = 5;
+    /// RFC-0076: no RTC anchor (device unreadable) — honest unavailability.
+    pub const STATUS_UNAVAILABLE: u8 = 6;
 
     pub const MIN_FRAME_LEN: usize = 4;
     pub const REGISTER_REQ_LEN: usize = 18;
     pub const CANCEL_REQ_LEN: usize = 12;
     pub const SLEEP_REQ_LEN: usize = 18;
+    /// `[T, M, ver, OP_GET_WALLTIME, nonce:u32]`.
+    pub const WALLTIME_REQ_LEN: usize = 8;
 }
 
 /// Hard per-owner timer registration cap.

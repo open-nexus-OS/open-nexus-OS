@@ -17,6 +17,21 @@ pub const VERSION: u8 = 1;
 pub const OP_GET: u8 = 1;
 /// Write one key's typed value (validated, applied, persisted).
 pub const OP_SET: u8 = 2;
+/// Subscribe to APPLIED changes under a key prefix (RFC-0078). The request
+/// MUST cap-move the subscriber's push-channel SEND half; settingsd keeps it
+/// and pushes `OP_EVENT` frames on every matching change. A second watch on
+/// the same channel replaces the prefix. No ack frame (the moved cap is the
+/// subscription; a malformed request without a moved cap is answered
+/// MALFORMED on the shared endpoint).
+pub const OP_WATCH: u8 = 3;
+/// Change push (settingsd → subscriber): `flags` bit0 = resync (events were
+/// dropped — re-read via OP_GET).
+pub const OP_EVENT: u8 = 4;
+
+/// `OP_EVENT` flags bit0: deliveries were dropped since the last event.
+pub const EVENT_FLAG_RESYNC: u8 = 0x01;
+/// Maximum watch-prefix bytes (RFC-0078 bound).
+pub const WATCH_PREFIX_MAX: usize = 64;
 
 /// Operation succeeded.
 pub const STATUS_OK: u8 = 0;
@@ -64,6 +79,18 @@ crate::frames! {
         _type: lit(TYPE_TEXT),
         value: str8(min = 0, max = 255),
     }
+    /// WATCH request: `[S, T, ver, OP_WATCH, prefix_len:u8, prefix...]`
+    /// (cap-moves the subscriber's push SEND half alongside).
+    request encode_watch_req / decode_watch_req (op = OP_WATCH) {
+        prefix: str8(min = 1, max = WATCH_PREFIX_MAX),
+    }
+    /// Change push: `[S, T, ver, OP_EVENT, flags:u8, key_len:u8, key...,
+    /// val_len:u8, val...]`.
+    request encode_event / decode_event (op = OP_EVENT) {
+        flags: u8,
+        key: str8(min = 1, max = 255),
+        value: str8(min = 0, max = 255),
+    }
     /// Response: `[S, T, ver, op|0x80, status:u8, type:u8, val_len:u8, val...]`
     /// (`val` is the key's current value for OK GET/SET; empty otherwise).
     reply encode_response / decode_response (op = caller) {
@@ -79,6 +106,7 @@ pub fn decode_request(frame: &[u8]) -> Option<(u8, &str, &str)> {
     match crate::codec::request_op(frame, MAGIC0, MAGIC1, VERSION)? {
         OP_GET => decode_get_req(frame).map(|key| (OP_GET, key, "")),
         OP_SET => decode_set_req(frame).map(|(key, value)| (OP_SET, key, value)),
+        OP_WATCH => decode_watch_req(frame).map(|prefix| (OP_WATCH, prefix, "")),
         _ => None,
     }
 }
@@ -132,6 +160,35 @@ mod tests {
         let mut buf = [0u8; 32];
         let n = encode_get_req("a", &mut buf).unwrap();
         assert_eq!(decode_request(&buf[..n + 1]), None);
+    }
+
+    #[test]
+    fn watch_and_event_golden_bytes_and_roundtrip() {
+        let mut buf = [0u8; 96];
+        let n = encode_watch_req("input.", &mut buf).unwrap();
+        assert_eq!(&buf[..5], &[b'S', b'T', 1, OP_WATCH, 6]);
+        assert_eq!(decode_request(&buf[..n]), Some((OP_WATCH, "input.", "")));
+        // Prefix bounds: empty and oversized reject on encode.
+        assert_eq!(encode_watch_req("", &mut buf), None);
+        let long = core::str::from_utf8(&[b'a'; WATCH_PREFIX_MAX + 1]).unwrap();
+        assert_eq!(encode_watch_req(long, &mut buf), None);
+
+        let mut ev = [0u8; 600];
+        let n = encode_event(EVENT_FLAG_RESYNC, "input.keymap", "de", &mut ev).unwrap();
+        assert_eq!(&ev[..4], &[b'S', b'T', 1, OP_EVENT]);
+        assert_eq!(decode_event(&ev[..n]), Some((EVENT_FLAG_RESYNC, "input.keymap", "de")));
+    }
+
+    #[test]
+    fn test_reject_watch_event_matrix() {
+        let mut buf = [0u8; 96];
+        let n = encode_watch_req("time.", &mut buf).unwrap();
+        crate::codec::testing::assert_reject_matrix(&buf[..n], 4, &|f| {
+            decode_watch_req(f).is_some()
+        });
+        let mut ev = [0u8; 600];
+        let m = encode_event(0, "time.zone", "UTC", &mut ev).unwrap();
+        crate::codec::testing::assert_reject_matrix(&ev[..m], 4, &|f| decode_event(f).is_some());
     }
 
     #[test]

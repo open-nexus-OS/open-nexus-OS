@@ -1,6 +1,6 @@
 ---
 title: TASK-0147 IME v2 Part 1b (OS/QEMU): imed service real + typing lands in apps + OSK overlay app (ime-ui)
-status: In Progress (2026-07-21 — Part 1: typing lands in apps)
+status: In Progress (Part 1 DONE + live-proven 2026-07-21; Part 2 OSK next)
 owner: @ui
 created: 2025-12-26
 updated: 2026-07-21 (rewritten against repo reality; architecture per RFC-0075)
@@ -126,20 +126,28 @@ TRACK-AUTHORITY-NAMING) is deleted in Part 1.
 - Boot service list (Makefile/scripts), `config/service-layout.allow` if needed — **approval zone**
 - `source/apps/selftest-client/`, `docs/dev/ui/input/**`, `docs/rfcs/RFC-0075-*.md`, `CHANGELOG.md`
 
-## Part 1 status (2026-07-21)
+## Part 1 status: DONE (2026-07-21)
 
-Part 1 is code-complete and boot-proven in the deterministic lane
-(`just ci-os-smp1`: `init: up imed`, `imed: ready`, all four routes wired,
-`SELFTEST: imed reject foreign ok`; `just check` + `just test-host` green).
-The INTERACTIVE typing proof (QMP-driven tap + key into the greeter secret
-field) is **blocked by a pre-existing interactive-boot bug**: the greeter
-app-host's event-channel attach fails every interactive boot
-(`APPHOST: FAIL events attach (no send clone)` → `WINDOWD: FAIL desktop
-input (no event channel)`) — desktop input is dead before IME is even
-involved. That failure is owned by the boot-park/desktop-bind debugging
-track (root cause in progress); re-run the typing proof once it lands.
-Part 1 stays In Progress until the interactive proof (or the Part 2 OSK
-selftest) confirms the positive chain.
+Deterministic lane green (`just ci-os-smp1`: `init: up imed`, `imed: ready`,
+all four routes, `SELFTEST: imed reject foreign ok`) AND the interactive
+positive chain PROVEN LIVE: QMP tap on the greeter secret field →
+`apphost: text focus set` → `key a` → **`apphost: text commit applied`**
+(one-shot count-only marker) — the full chain
+hidrawd→inputd→imed(focus-gated)→windowd→app-host insert.
+
+Landed on the way (debug findings):
+- **windowd's server endpoint carries NO per-sender identity for app
+  processes** (`sender_sid == 0`) — `OP_SURFACE_TEXT_FOCUS` therefore
+  carries the app's own `surface_id` (same trust level + same recorded
+  follow-up as `OP_SURFACE_CONTROL`); identity-derived sender resolution
+  was removed.
+- init's cap-table ceiling (128) broke runtime `@mint-pair` after the imed
+  endpoint mints → init now closes its imed pair caps after wiring
+  (mint→grant→close); app event channels restored (this was the
+  "320x240 desktop / splash hang" regression).
+- inputd needed `ipc.core` (`!route-deny: inputd → imed`).
+- `trace_line` folds routine markers in interactive boots — success markers
+  are invisible there by design; failure markers always print.
 
 ## Recorded follow-up (2026-07-21)
 

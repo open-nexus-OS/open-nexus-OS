@@ -40,6 +40,8 @@ fn main() {
 // The DSL `EffectHost` over execd-provisioned fixed slots (TASK-0080C #16).
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_host;
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod time_client;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod probe {
@@ -67,6 +69,7 @@ mod probe {
 
     mod anim;
     mod boot;
+    mod clock;
     mod interaction;
     mod paint;
     mod scroll;
@@ -419,11 +422,7 @@ mod probe {
                     .as_ref()
                     .map(|d| d.momentum_active() || d.anim_transient_active())
                     .unwrap_or(false);
-                let wait = if animating {
-                    Wait::Timeout(core::time::Duration::from_millis(12))
-                } else {
-                    Wait::Blocking
-                };
+                let wait = app.as_ref().map(|d| d.event_wait(animating)).unwrap_or(Wait::Blocking);
                 match events.recv_into(wait, &mut event_frame) {
                     Ok(len) => {
                         recv_err_marked = false;
@@ -431,6 +430,10 @@ mod probe {
                     }
                     Err(nexus_ipc::IpcError::Timeout) | Err(nexus_ipc::IpcError::WouldBlock) => {
                         if let Some(dsl) = app.as_mut() {
+                            if dsl.clock_supported() && dsl.clock_tick() {
+                                dirty = true;
+                                dirty_rows = None;
+                            }
                             let (span, end) = dsl.momentum_tick();
                             if let Some(span) = span {
                                 dirty_rows = match (dirty, dirty_rows) {
@@ -693,8 +696,7 @@ mod probe {
                         }
                     }
                 } else if kind == wire::INPUT_KIND_WHEEL {
-                    // Wheel impulse into the scroll physics (banded surfaces
-                    // are compositor-scrolled — see `wheel_event`).
+                    // Wheel impulse into the scroll physics (see `wheel_event`).
                     if let Some(dsl) = app.as_mut() {
                         let (d, rows) =
                             dsl.wheel_event(&client, surface_id, y, &mut wheel_rx_markers);
@@ -721,9 +723,7 @@ mod probe {
                 } else if kind == wire::INPUT_KIND_TAP {
                     if let Some(dsl) = app.as_mut() {
                         let tap_dirty = dsl.tap(i32::from(x), i32::from(y));
-                        // RFC-0075 tap-to-focus: announce widget text-focus
-                        // transitions upward (windowd relays to imed).
-                        dsl.announce_text_focus(&client, i32::from(x), i32::from(y));
+                        dsl.announce_text_focus(&client, surface_id, i32::from(x), i32::from(y));
                         if tap_dirty {
                             dirty = true;
                             dirty_rows = None; // model change: full repaint
@@ -750,10 +750,16 @@ mod probe {
                         }
                     }
                 }
+            } else if let Some((hf, loc, tzv)) =
+                nexus_display_proto::surface_text::decode_surface_region(&event_frame[..len])
+            {
+                if app.as_mut().is_some_and(|d| d.apply_region(hf, loc, tzv)) {
+                    dirty = true;
+                    dirty_rows = None; // region change: full repaint
+                }
             } else if nexus_display_proto::surface_text::decode_surface_text(&event_frame[..len])
                 .is_some()
             {
-                // RFC-0075 composed-text delivery (imed → windowd → here).
                 if app.as_mut().is_some_and(|d| d.apply_surface_text(&event_frame[..len])) {
                     dirty = true;
                     dirty_rows = None; // model change: full repaint
@@ -977,6 +983,10 @@ mod probe {
         /// the compositor frame pulse. Host owns the clock (the DSL stays pure);
         /// see `probe/anim.rs`.
         anim: anim::AnimState,
+        /// Clock state (RFC-0076, `probe/clock.rs`): tz, format, next wait.
+        clock_tz: alloc::string::String,
+        clock_hour24: bool,
+        clock_next_wait_ms: u64,
         /// EndReached latch: fired once per approach to the content end;
         /// re-armed whenever layout re-runs (content grew/shrank).
         end_fired: bool,
@@ -1128,6 +1138,9 @@ mod probe {
                 momentum: animation::ScrollMomentum::new(animation::ScrollConfig::default()),
                 momentum_last_ns: 0,
                 anim: anim::AnimState::new(),
+                clock_tz: alloc::string::String::from("Europe/Berlin"),
+                clock_hour24: true,
+                clock_next_wait_ms: 1_000,
                 end_fired: false,
                 vis_pick: alloc::vec::Vec::new(),
                 vis_anim: alloc::vec::Vec::new(),

@@ -60,7 +60,7 @@ This exists to remove “warnings” by making the architecture **decided** and 
 ### Time
 
 - **Monotonic timers + wall-clock (UTC)**: `timed` (single time authority; walltime = RTC anchor + monotonic delta, RFC-0076)
-- **RTC hardware driver**: `rtcd` (`source/drivers/rtc/goldfish-rtc`; sole client = timed)
+- **RTC hardware access**: `rtc-goldfish` LIBRARY in `source/drivers/rtc/goldfish-rtc` — consumed by `timed` directly (RFC-0076 deviation: no rtcd service; the time authority reads its own anchor)
 - **Network time sync**: `time-syncd` (placeholder today; SNTP seed = TASK-0299; may only refine timed's anchor, never a second clock authority)
 - **Timezone conversion**: `tz-lite` (client-side library, no service; zone table = validator SSOT for `time.zone`)
 

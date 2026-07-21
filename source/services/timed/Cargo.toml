@@ -23,6 +23,7 @@ path = "src/lib.rs"
 stack_pages = 0
 
 [dependencies]
+rtc-goldfish = { path = "../../drivers/rtc/goldfish-rtc" }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }

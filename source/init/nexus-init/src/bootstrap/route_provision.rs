@@ -128,6 +128,66 @@ pub(crate) fn provision_inputd_imed_route(pid: u32, eps: &Endpoints, chan: &mut 
     }
 }
 
+/// Fixed child slots for inputd's settings-watch channel (RFC-0078). The
+/// inputd side hardcodes these (`os_lite.rs` — kept in sync by comment):
+/// 0x20 = SEND on settingsd's request endpoint (OP_WATCH + future GETs),
+/// 0x21 = RECV of the minted watch channel (event inbox),
+/// 0x22 = SEND of the minted watch channel (cap-moved to settingsd inside
+/// the OP_WATCH request).
+const INPUTD_SETTINGS_SEND_SLOT: u32 = 0x20;
+const INPUTD_WATCH_RECV_SLOT: u32 = 0x21;
+const INPUTD_WATCH_SEND_SLOT: u32 = 0x22;
+
+/// Provisions inputd's settings-watch channel (RFC-0078): a fresh minted
+/// endpoint (both halves to inputd at FIXED slots — mint→grant→close, zero
+/// init cap-table accumulation) + SEND on settingsd's request endpoint.
+/// Best-effort: without it, live keymap switching stays inert (honest
+/// failure; the boot keymap default applies).
+pub(crate) fn provision_inputd_settings_watch(pid: u32, eps: &Endpoints, chan: &mut CtrlChannel) {
+    let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) else {
+        return;
+    };
+    let ok =
+        nexus_abi::cap_transfer_to_slot(pid, settings_req, Rights::SEND, INPUTD_SETTINGS_SEND_SLOT)
+            .is_ok();
+    // Pre-minted in the orchestrator (init's cap table is at its ceiling by
+    // wiring time — a late mint NoSpace-fails); init's cap closes after wiring.
+    let ep = eps.inputd_watch_ep;
+    let recv_ok =
+        nexus_abi::cap_transfer_to_slot(pid, ep, Rights::RECV, INPUTD_WATCH_RECV_SLOT).is_ok();
+    let send_ok =
+        nexus_abi::cap_transfer_to_slot(pid, ep, Rights::SEND, INPUTD_WATCH_SEND_SLOT).is_ok();
+    if ok && recv_ok && send_ok {
+        chan.set_send(ServiceId::Settingsd, INPUTD_SETTINGS_SEND_SLOT);
+        debug_write_bytes(b"init: inputd settings-watch ok\n");
+    } else {
+        debug_write_bytes(b"init: inputd settings-watch FAIL (xfer)\n");
+    }
+}
+
+/// Fixed windowd slots for its settings-watch channel (RFC-0076/0077 —
+/// windowd relays region data to surfaces). Kept in sync with
+/// `windowd/src/compositor/runtime/region.rs`.
+const WINDOWD_WATCH_RECV_SLOT: u32 = 0x40;
+const WINDOWD_WATCH_SEND_SLOT: u32 = 0x41;
+
+/// Provisions windowd's settings-watch channel (pre-minted; both halves to
+/// fixed slots; windowd's settingsd SEND route already exists via
+/// `provision_windowd_settings_route`). Best-effort.
+pub(crate) fn provision_windowd_settings_watch(pid: u32, eps: &Endpoints, chan: &mut CtrlChannel) {
+    let _ = chan;
+    let ep = eps.windowd_watch_ep;
+    let recv_ok =
+        nexus_abi::cap_transfer_to_slot(pid, ep, Rights::RECV, WINDOWD_WATCH_RECV_SLOT).is_ok();
+    let send_ok =
+        nexus_abi::cap_transfer_to_slot(pid, ep, Rights::SEND, WINDOWD_WATCH_SEND_SLOT).is_ok();
+    if recv_ok && send_ok {
+        debug_write_bytes(b"init: windowd settings-watch ok\n");
+    } else {
+        debug_write_bytes(b"init: windowd settings-watch FAIL (xfer)\n");
+    }
+}
+
 /// Provisions windowd's launch route (TASK-0080D): SEND on abilitymgr's
 /// pre-minted request endpoint + RECV on its response endpoint, so the Apps
 /// menu's `OP_LAUNCH` reaches the lifecycle broker and the status reply
@@ -138,17 +198,53 @@ pub(crate) fn provision_windowd_ability_route(
     abil_rsp: u32,
     chan: &mut CtrlChannel,
 ) {
-    let (Ok(req_clone), Ok(rsp_clone)) =
-        (nexus_abi::cap_clone(abil_req), nexus_abi::cap_clone(abil_rsp))
-    else {
-        return;
-    };
-    if let (Ok(s), Ok(r)) = (
-        nexus_abi::cap_transfer(pid, req_clone, Rights::SEND),
-        nexus_abi::cap_transfer(pid, rsp_clone, Rights::RECV),
+    // Direct transfers (no cap_clone — init's table runs at its ceiling by
+    // this point; clones NoSpace-fail and silently killed the launch route).
+    match (
+        nexus_abi::cap_transfer(pid, abil_req, Rights::SEND),
+        nexus_abi::cap_transfer(pid, abil_rsp, Rights::RECV),
     ) {
-        chan.set_send(ServiceId::Abilitymgr, s);
-        chan.set_recv(ServiceId::Abilitymgr, r);
-        debug_write_bytes(b"init: windowd route->abilitymgr ok\n");
+        (Ok(s), Ok(r)) => {
+            chan.set_send(ServiceId::Abilitymgr, s);
+            chan.set_recv(ServiceId::Abilitymgr, r);
+            debug_write_bytes(b"init: windowd route->abilitymgr ok\n");
+        }
+        _ => debug_write_bytes(b"init: windowd route->abilitymgr FAIL (xfer)\n"),
+    }
+}
+
+/// RFC-0076: policy-gated grant of the goldfish-RTC MMIO window (fixed
+/// platform device, dtb-verified `rtc@101000`) to timed — the time authority
+/// reads its own wall-clock anchor. Best-effort with a bounded wait: a
+/// denied/failed grant leaves walltime honestly UNAVAILABLE, never fatal.
+pub(crate) fn grant_rtc_mmio_to_timed(
+    timed_pid: u32,
+    pol_ctl_route_req: u32,
+    pol_ctl_route_rsp: u32,
+) -> crate::os_payload::Result<()> {
+    use crate::os_payload::{grant_mmio_cap, DEVICE_MMIO_CAP_SLOT};
+    const RTC_MMIO_BASE: usize = 0x0010_1000;
+    const RTC_MMIO_LEN: usize = 0x1000;
+    let deadline = nexus_abi::nsec().map(|n| n.saturating_add(1_000_000_000)).unwrap_or(0);
+    loop {
+        match grant_mmio_cap(
+            timed_pid,
+            "timed",
+            "device.mmio.rtc",
+            RTC_MMIO_BASE,
+            RTC_MMIO_LEN,
+            pol_ctl_route_req,
+            pol_ctl_route_rsp,
+            DEVICE_MMIO_CAP_SLOT,
+        )? {
+            Some(_) => return Ok(()),
+            None => {
+                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
+                    debug_write_bytes(b"init: rtc mmio grant timeout\n");
+                    return Ok(());
+                }
+                let _ = nexus_abi::yield_();
+            }
+        }
     }
 }

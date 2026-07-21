@@ -34,6 +34,7 @@ mod phases;
 mod probes;
 mod profile;
 mod services;
+mod settings_watch;
 mod timed;
 mod updated;
 mod vfs;

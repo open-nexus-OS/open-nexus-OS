@@ -89,7 +89,7 @@ impl DisplayServerRuntime {
             self.windowing_policy,
         );
         if presentation.role == crate::window_scene::WindowRole::Desktop {
-            return self.create_desktop_surface(width, height, format, vmo_slot, nonce, sender_sid);
+            return self.create_desktop_surface(width, height, format, vmo_slot, nonce);
         }
         // Multi-window (RFC-0065): the create binds to the slot ALREADY holding
         // this client's event channel (a resize re-create must resume in place,
@@ -701,17 +701,11 @@ impl DisplayServerRuntime {
             let _ = debug_println(&alloc::format!(
                 "WINDOWD: app event channel attached nonce={nonce:#x}"
             ));
-            // Push the active theme mode NOW (before the app mounts) so it renders
-            // with the compositor's tokens. Direct to the pending slot — the app is
-            // not yet role-bound; a live toggle re-sends via `push_app_theme`.
-            let frame = wire::encode_surface_theme(self.theme_wire_byte());
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-            let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
-            // And the active SHELL PROFILE: `device.profile` selects the right
-            // `ui/platform/<profile>/` override arms at mount.
-            let pframe = wire::encode_surface_profile(self.shell_profile_wire());
-            let phdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, pframe.len() as u32);
-            let _ = nexus_abi::ipc_send_v1(slot, &phdr, &pframe, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            // Push theme + shell profile + region NOW (before the app
+            // mounts) so it renders with the compositor's tokens, the right
+            // `ui/platform/<profile>/` arms and correct clock/locale data
+            // from the first frame (see `region.rs::send_attach_pushes`).
+            self.send_attach_pushes(slot);
             // Complete a desktop bind that raced ahead of this attach (if any).
             self.complete_deferred_desktop_bind(nonce, slot);
         }

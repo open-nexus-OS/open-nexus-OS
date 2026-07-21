@@ -13,7 +13,7 @@ dsoftbusd = ["ipc.core", "statefs.read", "statefs.write"]
 metricsd = ["ipc.core", "statefs.write"]
 # timed routes to metricsd to report timer metrics — surfaced by the new
 # !route-deny marker as a previously-silent denial (it lacked ipc.core).
-timed = ["ipc.core"]
+timed = ["ipc.core", "device.mmio.rtc"]
 # imed routes to windowd to push composed text for the focused surface
 # (RFC-0075); without ipc.core the name-route is !route-deny'd.
 imed = ["ipc.core"]

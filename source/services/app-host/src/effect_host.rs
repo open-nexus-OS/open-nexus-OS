@@ -183,7 +183,7 @@ impl AppEffectHost {
 
     /// The SEND slot the route for `svc` landed in (execd provisioned it iff
     /// the manifest granted the backing permission). `None` = not routable.
-    fn svc_send_slot(svc: &str) -> Option<u32> {
+    pub(crate) fn svc_send_slot(svc: &str) -> Option<u32> {
         route_for_svc(svc).map(|r| r.child_slot)
     }
 
@@ -1080,7 +1080,7 @@ fn str_of(v: &Value) -> Option<&str> {
 /// answers our inbox, send on `service_send_slot` (bounded), then receive on
 /// the reply RECV (child slot 9). Returns the reply frame length, or `None` on
 /// any send/recv failure or timeout (the caller renders the `Err` arm).
-fn call_reply(service_send_slot: u32, req: &[u8], resp: &mut [u8]) -> Option<usize> {
+pub(crate) fn call_reply(service_send_slot: u32, req: &[u8], resp: &mut [u8]) -> Option<usize> {
     let reply_send = nexus_abi::cap_clone(CHILD_REPLY_SEND_SLOT).ok()?;
     let hdr =
         nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);

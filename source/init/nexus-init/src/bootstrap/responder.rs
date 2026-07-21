@@ -181,8 +181,12 @@ pub(crate) fn run_responder_loop(
                 // children: shared queue = reply theft across processes). No
                 // pre-sized pool, no slot-order contract; execd does
                 // mint→grant→close per launch (zero cap-table accumulation).
-                // Identity-gated: execd only.
-                let (status, send_slot, recv_slot) = if chan.svc_name == "execd" {
+                // Identity-gated allowlist: execd (app launches) and the
+                // selftest harness (RFC-0078 watch probe mints its private
+                // push channel). Everything else stays denied.
+                let (status, send_slot, recv_slot) = if chan.svc_name == "execd"
+                    || chan.svc_name == "selftest-client"
+                {
                     match nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, chan.pid, 8)
                     {
                         Ok(ep) => {
@@ -205,7 +209,7 @@ pub(crate) fn run_responder_loop(
                         }
                     }
                 } else {
-                    debug_write_bytes(b"init: mint-pair denied (not execd)\n");
+                    debug_write_bytes(b"init: mint-pair denied (not allowlisted)\n");
                     (nexus_abi::routing::STATUS_NOT_FOUND, 0, 0)
                 };
                 if let Some(nonce) = route_nonce {

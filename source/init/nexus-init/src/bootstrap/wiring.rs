@@ -708,6 +708,17 @@ pub(crate) fn wire_services(
                         }
                     }
                 }
+                // svc.time.* / clock tick (RFC-0076): direct transfer of the
+                // pre-minted timed request endpoint (non-consuming). Named
+                // route; replies ride the child's CAP_MOVE inbox (timed is
+                // ReplyCap-aware).
+                if let Ok(s) = nexus_abi::cap_transfer(pid, timed_req, Rights::SEND) {
+                    chan.set_send(ServiceId::Timed, s);
+                    chan.set_recv(ServiceId::Timed, reply_recv_slot);
+                    if iw(init_wire, init_fold, "init:execd") {
+                        debug_write_bytes(b"init: execd route->timed ok\n");
+                    }
+                }
                 // svc.files.* (filemanager role, RFC-0073/TASK-0291): CLONE of
                 // the pre-minted vfsd request endpoint — the generic vfsd arm
                 // transfers the original to vfsd itself. Named route, replies
@@ -986,6 +997,7 @@ pub(crate) fn wire_services(
                     // Focus relay route (RFC-0075): windowd → imed OP_SET_FOCUS.
                     if let Some((imed_req, _)) = eps.server_pair(ServiceId::Imed) {
                         provision_windowd_imed_route(pid, imed_req, chan);
+                        provision_windowd_settings_watch(pid, eps, chan);
                     }
                     continue;
                 }
@@ -1024,6 +1036,7 @@ pub(crate) fn wire_services(
                 if let Some((imed_req, _)) = eps.server_pair(ServiceId::Imed) {
                     provision_windowd_imed_route(pid, imed_req, chan);
                 }
+                provision_windowd_settings_watch(pid, eps, chan);
                 if iw(init_wire, init_fold, "init:windowd") {
                     debug_write_bytes(b"init: windowd slots recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -1068,6 +1081,7 @@ pub(crate) fn wire_services(
                     // RFC-0075: key-forward leg to imed — AFTER the windowd
                     // legs (their slot numbers are a boot contract).
                     provision_inputd_imed_route(pid, eps, chan);
+                    provision_inputd_settings_watch(pid, eps, chan);
                     continue;
                 }
                 let recv_slot = nexus_abi::cap_transfer(pid, input_req, Rights::RECV)
@@ -1085,6 +1099,7 @@ pub(crate) fn wire_services(
                 // RFC-0075: key-forward leg to imed (after the windowd legs —
                 // their slot numbers are a boot contract).
                 provision_inputd_imed_route(pid, eps, chan);
+                provision_inputd_settings_watch(pid, eps, chan);
                 if iw(init_wire, init_fold, "init:inputd") {
                     debug_write_bytes(b"init: inputd slots recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -1388,6 +1403,23 @@ pub(crate) fn wire_services(
                         chan.set_recv(ServiceId::Pinched, recv_slot);
                     }
                 }
+                // Settings-watch probe route (RFC-0078): SEND on settingsd's
+                // request endpoint + RECV on its response endpoint (direct
+                // transfers — cap-table note above). AFTER pinched/imed so
+                // every earlier slot keeps its historical number.
+                if let Some((sett_req, sett_rsp)) = eps.server_pair(ServiceId::Settingsd) {
+                    match (
+                        nexus_abi::cap_transfer(pid, sett_req, Rights::SEND),
+                        nexus_abi::cap_transfer(pid, sett_rsp, Rights::RECV),
+                    ) {
+                        (Ok(send_slot), Ok(recv_slot)) => {
+                            chan.set_send(ServiceId::Settingsd, send_slot);
+                            chan.set_recv(ServiceId::Settingsd, recv_slot);
+                            debug_write_bytes(b"init: selftest route->settingsd ok\n");
+                        }
+                        _ => debug_write_bytes(b"init: selftest route->settingsd FAIL (xfer)\n"),
+                    }
+                }
                 // IME authority negative probe (RFC-0075): the selftest sends
                 // a FOREIGN OP_KEY and must see DENIED. AFTER pinched so every
                 // slot above keeps its historical number. Best-effort.
@@ -1466,17 +1498,19 @@ pub(crate) fn wire_services(
                             }
                         }
                         if name == "abilitymgr" {
-                            if let (Ok(req_c), Ok(rsp_c)) =
-                                (nexus_abi::cap_clone(exe_req), nexus_abi::cap_clone(exe_rsp))
-                            {
-                                if let (Ok(send), Ok(recv)) = (
-                                    nexus_abi::cap_transfer(pid, req_c, Rights::SEND),
-                                    nexus_abi::cap_transfer(pid, rsp_c, Rights::RECV),
-                                ) {
+                            // Direct transfers (no clone — cap-table ceiling).
+                            match (
+                                nexus_abi::cap_transfer(pid, exe_req, Rights::SEND),
+                                nexus_abi::cap_transfer(pid, exe_rsp, Rights::RECV),
+                            ) {
+                                (Ok(send), Ok(recv)) => {
                                     chan.set_send(ServiceId::Execd, send);
                                     chan.set_recv(ServiceId::Execd, recv);
                                     debug_write_bytes(b"init: abilitymgr route->execd ok\n");
                                 }
+                                _ => debug_write_bytes(
+                                    b"init: abilitymgr route->execd FAIL (xfer)\n",
+                                ),
                             }
                         }
                         match slots {

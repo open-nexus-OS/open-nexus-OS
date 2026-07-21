@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-21 (night)
+
+#### Wall-clock v1 (RFC-0076, TASK-0297 Done): live clock end-to-end
+
+- **timed reads the goldfish RTC itself** (documented deviation: no rtcd
+  service — a 2-register read-only device vs scarce init cap-table headroom);
+  `rtc-goldfish` driver lib (`source/drivers/rtc/goldfish-rtc`, dtb-verified
+  window 0x101000), policy-gated `device.mmio.rtc` grant, anchor =
+  RTC epoch + monotonic delta; `OP_GET_WALLTIME=4` serves UTC,
+  `STATUS_UNAVAILABLE` while unanchored — never fake time.
+- **tz-lite** (`userspace/tz-lite`): 9-zone curated table (= `time.zone`
+  validator SSOT, settingsd pin test), EU/US/AU DST rules, Hinnant civil
+  conversion, 12/24h formatting — 5 host goldens incl. DST boundaries.
+- **Region fan-out pulled forward from RFC-0077**: `OP_SURFACE_REGION=23`;
+  windowd watches settingsd (`time.`) on its own init-provisioned channel
+  and pushes tz/hour-format at attach + on change.
+- **Live clock**: app-host minute tick (`svc.time` SDK route slot 17,
+  `nexus.permission.TIME`) dispatches `ClockEvent::Tick(time, date)`;
+  greeter + shell bind `$state.clock/date` (static demo strings removed);
+  Settings General: timezone + 24h/12h chip pickers.
+- **Proofs**: `timed: walltime anchored`, `SELFTEST: walltime rtc ok`,
+  `SELFTEST: clock tz ok` deterministic in `ci-os-smp1`; **live**
+  `apphost: clock tick applied` (visible boot — greeter clock state changed).
+- **Cap-table cascade fixed**: windowd→abilitymgr and abilitymgr→execd
+  routes were still `cap_clone`-based and NoSpace-failed after the new
+  pre-mints (silently killing the greeter launch); both converted to direct
+  transfers. Kernel `DEFAULT_CAP_SLOTS` raise = urgent recorded follow-up.
+
+### Added - 2026-07-21 (evening)
+
+#### Settings spine (RFC-0078, TASK-0298): General-management keys + OP_WATCH push propagation
+
+- **5 new registry keys** (validated, persisted, non-secret charter pinned):
+  `region.country` (DE), `input.keymap` (de — DE QWERTZ ships), `time.zone`
+  (Europe/Berlin, curated zone list = future tz-lite SSOT), `time.format`
+  (24h), `ime.personalization` (on).
+- **`OP_WATCH`/`OP_EVENT`**: bounded change propagation — the watch request
+  cap-moves the subscriber's push channel; ≤8 subscribers, drop-oldest +
+  resync flag, dead-subscriber reclaim (host-tested `WatchTable`).
+- **inputd consumer**: watches `input.` on an init-provisioned fixed-slot
+  channel (pre-minted — cap-table ceiling — and closed after wiring) and
+  swaps the live keymap on push (`inputd: keymap set <layout>`).
+- **Settings app**: General management is real — Country/Region and
+  Keyboard-layout chip pickers write through `svc.settings`.
+- **Proofs**: `SELFTEST: settings watch ok` (subscribe → flip `input.keymap`
+  us→de → both pushes observed; end state = shipped default) deterministic in
+  `ci-os-smp1`. `@mint-pair` allowlist extended to the selftest harness.
+  Trap fixed en route: a yield-spin settle suppressed the kernel
+  `KSELFTEST: runtime timer budget ok` proof — waits are deadline-blocked
+  recvs now.
+
 ### Added - 2026-07-21 (later)
 
 #### IME v2 Phase 1 (RFC-0075, TASK-0147 Part 1): imed service real — typing lands in apps
@@ -38,8 +89,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dead selftest dep removed.
 - **Proofs**: `SELFTEST: imed reject foreign ok` (foreign-identity OP_KEY
   DENIED — deterministic every boot); `just ci-os-smp1` green end-to-end;
-  the positive typing chain is the interactive `just start` proof until the
-  OSK selftest lands (TASK-0147 Part 2).
+  positive chain PROVEN LIVE (QMP tap + key → `apphost: text focus set` →
+  `apphost: text commit applied`, one-shot count-only marker).
+- **`OP_SURFACE_TEXT_FOCUS` carries the app's own `surface_id`**: windowd's
+  server endpoint has no per-sender identity for app processes
+  (`sender_sid == 0`) — identity-derived sender resolution was replaced by
+  surface claims (focus-misdirection-only blast radius; recorded follow-up
+  shared with `OP_SURFACE_CONTROL`).
+- **Regression fixed (was: "320x240 desktop / splash hang")**: the two imed
+  endpoint mints pushed init's 128-slot cap table to its ceiling, breaking
+  runtime `@mint-pair` for app event channels — init now closes its imed
+  pair caps after wiring (mint→grant→close). Plus `inputd = ["ipc.core"]`
+  (`!route-deny: inputd → imed`) and key-forward failure instrumentation.
 - Side fix: hidrawd dead `WireMeta` count fields (warning-gate break from the
   2026-07-20 input-storm commit) removed.
 

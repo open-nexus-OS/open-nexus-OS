@@ -14,7 +14,7 @@ Page LauncherPage {
         Stack {
             Stack {
                 Text(@t("launcher.greeting")).textSize(xl).fg(onSurface)
-                Text(@t("launcher.date")).textSize(sm).fg(onSurfaceVariant)
+                Text($state.date).textSize(sm).fg(onSurfaceVariant)
             }
             .gap(1)
             Spacer

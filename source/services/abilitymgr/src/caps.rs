@@ -53,6 +53,9 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
     // Browse/manage user-visible files via vfsd (`svc.files`, RFC-0073) —
     // filemanager-type only (privilege ceiling in nxb-pack).
     "nexus.permission.FILES",
+    // Read wall-clock time via timed (RFC-0076): the app-host drives the
+    // minute clock tick for apps that declare it (greeter, shell).
+    "nexus.permission.TIME",
 ];
 
 /// `true` if `cap` is a recognized platform permission — OR an app-owned

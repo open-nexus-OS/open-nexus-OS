@@ -30,6 +30,18 @@ phase = "routing"
 phase = "routing"
 proves = "imed denies OP_KEY from non-inputd senders (RFC-0075 identity gate)"
 
+[marker."SELFTEST: settings watch ok"]
+phase = "routing"
+proves = "settingsd OP_WATCH pushes applied changes (RFC-0078 spine)"
+
+[marker."SELFTEST: walltime rtc ok"]
+phase = "routing"
+proves = "timed serves RTC-anchored UTC walltime (RFC-0076; plausible + monotonic-consistent)"
+
+[marker."SELFTEST: clock tz ok"]
+phase = "routing"
+proves = "tz-lite civil conversion correct in the OS build (RFC-0076)"
+
 [marker."rngd: mmio window mapped ok"]
 phase = "routing"
 

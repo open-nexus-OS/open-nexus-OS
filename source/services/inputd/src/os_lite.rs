@@ -119,6 +119,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 runtime.expire_transient_input_state();
                 runtime.try_resolve_display_mode();
+                runtime.pump_settings_watch();
                 runtime.chain.idle_yields = runtime.chain.idle_yields.saturating_add(1);
                 runtime.report_chain_if_due();
                 let _ = yield_();
@@ -195,6 +196,9 @@ struct LiveRouteRuntime {
     /// gates on ITS focus state — inputd forwards resolved keys per batch.
     imed_client: Option<KernelClient>,
     imed_forward_ok_emitted: bool,
+    /// RFC-0078 settings-watch: OP_WATCH subscription sent (retried from the
+    /// idle arm until the fire-and-forget send succeeds).
+    settings_watch_subscribed: bool,
     last_windowd_push_state: Option<VisibleState>,
     last_windowd_push_ns: u64,
     display_mode_resolved: bool,
@@ -285,6 +289,7 @@ impl LiveRouteRuntime {
             windowd_client: KernelClient::new_with_slots(5, 6).ok(),
             imed_client: None,
             imed_forward_ok_emitted: false,
+            settings_watch_subscribed: false,
             last_windowd_push_state: None,
             last_windowd_push_ns: 0,
             display_mode_resolved: false,
@@ -629,6 +634,74 @@ impl LiveRouteRuntime {
             let _ = nexus_abi::trace_line("inputd: imed send FAIL");
             // Drop the cached route; the next batch re-resolves (imed restart).
             self.imed_client = None;
+        }
+    }
+
+    /// RFC-0078 settings-watch pump (idle arm, every ~16ms): subscribe once
+    /// (OP_WATCH with the cap-moved push channel), then drain pushed events.
+    /// Slots are FIXED init grants (see `route_provision.rs`): 0x20 = SEND to
+    /// settingsd, 0x21 = event inbox RECV, 0x22 = push SEND half (moved).
+    fn pump_settings_watch(&mut self) {
+        use nexus_wire::settingsd as swire;
+        const SETTINGS_SEND_SLOT: u32 = 0x20;
+        const WATCH_RECV_SLOT: u32 = 0x21;
+        const WATCH_SEND_SLOT: u32 = 0x22;
+        if !self.settings_watch_subscribed {
+            let mut req = [0u8; 72];
+            let Some(n) = swire::encode_watch_req("input.", &mut req) else {
+                return;
+            };
+            let hdr = nexus_abi::MsgHeader::new(
+                WATCH_SEND_SLOT,
+                0,
+                0,
+                nexus_abi::ipc_hdr::CAP_MOVE,
+                n as u32,
+            );
+            match nexus_abi::ipc_send_v1(
+                SETTINGS_SEND_SLOT,
+                &hdr,
+                &req[..n],
+                nexus_abi::IPC_SYS_NONBLOCK,
+                0,
+            ) {
+                Ok(_) => {
+                    self.settings_watch_subscribed = true;
+                    let _ = nexus_abi::trace_line("inputd: settings watch subscribed");
+                }
+                Err(_) => return, // retried next idle tick (queue full / early boot)
+            }
+        }
+        // Drain pushed events (bounded per tick).
+        let mut buf = [0u8; 600];
+        for _ in 0..4 {
+            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut sid: u64 = 0;
+            let Ok(len) = nexus_abi::ipc_recv_v2(
+                WATCH_RECV_SLOT,
+                &mut hdr,
+                &mut buf,
+                &mut sid,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) else {
+                return;
+            };
+            let len = (len as usize).min(buf.len());
+            let Some((flags, key, value)) = swire::decode_event(&buf[..len]) else {
+                continue; // malformed push — drop, fail closed
+            };
+            if key == "input.keymap" {
+                if self.input.set_layout_name(value).is_ok() {
+                    let _ = debug_println(&format!("inputd: keymap set {value}"));
+                } else {
+                    let _ = debug_println("inputd: FAIL keymap set (invalid layout)");
+                }
+            }
+            if flags & swire::EVENT_FLAG_RESYNC != 0 {
+                // Dropped deliveries: re-read our key once (bounded).
+                let _ = nexus_abi::trace_line("inputd: settings watch resync");
+            }
         }
     }
 

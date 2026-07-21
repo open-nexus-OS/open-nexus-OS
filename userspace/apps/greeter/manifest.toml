@@ -17,6 +17,6 @@ min_sdk = "1.0.0"
 bundle_type = "greeter"
 payload_kind = "ui-program"
 abilities = ["greeter.GreeterAbility"]
-caps = ["nexus.permission.WINDOW", "nexus.permission.SESSION"]
+caps = ["nexus.permission.WINDOW", "nexus.permission.SESSION", "nexus.permission.TIME"]
 provides = []
 resources = []

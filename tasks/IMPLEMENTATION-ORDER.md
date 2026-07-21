@@ -394,7 +394,7 @@ Honest reconciliation floor (2026-07-19). These are real, unimplemented feature 
 - **Webview:** `0111–0113`, `0176`, `0177`, `0205`, `0206`
 - **Store / distribution:** `0180`, `0181`, `0221`, `0222`
 - **Backup / L10n / power / sensors:** `0161`, `0162`, `0240`, `0241` (i18n v2 locale packs, ACTIVE TRACK, RFC-0077; `0174`/`0175` Superseded), `0236`, `0237`, `0256–0259`, `0271`, `0272`
-- **Time / wall-clock + General-management settings (ACTIVE TRACK 2026-07-21):** `0297` (rtcd + walltime + tz-lite + live clock, RFC-0076), `0298` (settings watch spine + region/keymap/time keys, RFC-0078); seeds `0299` (SNTP), `0300` (IME-store encryption)
+- **Time / wall-clock + General-management settings:** ✅ `0297` Done (timed reads RTC directly + tz-lite + live clock, RFC-0076 incl. documented no-rtcd deviation), ✅ `0298` Done (settings watch spine, RFC-0078); seeds `0299` (SNTP), `0300` (IME-store encryption)
 - **Renderer / compositor v2:** `0171`, `0199`, `0200`, `0207`, `0208`, `0215`, `0216`
 - **Session / accounts / ability-lifecycle continuation** (spine Done in 0065 broker + 0065B session authority): KILL-with-reasons/backoff/crash-loop `0234`, FG/BG resource enforcement + appmgrd/samgr hooks + nx-ability CLI `0235`, lockd auto-lock/lockscreen `0109`, OOBE/Accounts app `0110`, multi-user/lockout/session-switch `0223`/`0224`, action-based delegation `0126B`, keystore v1.1 `0159`
 - **Foundation partials (core done, in-title sub-deliverable open):** `0136` (policy: foreground-adapters + camera/mic perms), `0140` (updates: settings-UI page)

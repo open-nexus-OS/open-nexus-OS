@@ -24,7 +24,7 @@ use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
 use crate::os_lite::context::PhaseCtx;
 use crate::os_lite::ipc::routing::{route_with_retry, routing_v1_get};
-use crate::os_lite::{imed, probes, services, timed};
+use crate::os_lite::{imed, probes, services, settings_watch, timed};
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // keystored v1 (routing + put/get/del + negative cases)
@@ -49,6 +49,24 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_IMED_REJECT_FOREIGN_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_IMED_REJECT_FOREIGN_FAIL);
+    }
+    // RFC-0076 wall clock: RTC-anchored UTC, plausible and monotonic-consistent.
+    if timed::walltime_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_WALLTIME_RTC_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_WALLTIME_RTC_FAIL);
+    }
+    // RFC-0076: tz-lite civil conversion (fixed epoch, two zones).
+    if settings_watch::clock_tz_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_CLOCK_TZ_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_CLOCK_TZ_FAIL);
+    }
+    // RFC-0078 watch spine: a keymap flip must arrive as a pushed OP_EVENT.
+    if settings_watch::settings_watch_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_SETTINGS_WATCH_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_SETTINGS_WATCH_FAIL);
     }
     // RNG and device identity key selftests (run early to keep QEMU marker deadlines short).
     probes::rng::rng_entropy_selftest();
