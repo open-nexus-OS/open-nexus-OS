@@ -28,7 +28,7 @@ use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 use crate::route::NormalizeRouter;
 use crate::{
     decode_wire_batch_reusing, live_push::should_push_visible_state, visible_display_space,
-    visible_display_start_position, InputDispatch, InputdConfig, InputdService, WireBatchReject,
+    visible_display_start_position, InputDispatch, InputdConfig, InputdService,
     LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
     LIVE_POINTER_THRESHOLD,
 };
@@ -41,6 +41,8 @@ const ROUTE_BIND_RETRIES: usize = 256;
 /// fallback space — exactly the pre-mode behaviour).
 const DISPLAY_MODE_RETRY_NS: u64 = 200_000_000;
 const DISPLAY_MODE_MAX_ATTEMPTS: u32 = 100;
+
+use crate::chain_stats::InputdChainTelemetry;
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     // Caps are pre-granted by init before resume — no yield needed.
@@ -86,6 +88,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                         runtime.chain.visible_state_polls.saturating_add(1);
                 } else if frame_has_op(&frame, OP_PUSH_HID_BATCH) {
                     runtime.chain.hid_push_frames = runtime.chain.hid_push_frames.saturating_add(1);
+                    runtime.note_hid_rx_for_rate_line();
                 } else {
                     runtime.chain.unsupported_frames =
                         runtime.chain.unsupported_frames.saturating_add(1);
@@ -168,6 +171,8 @@ struct LiveRouteRuntime {
     push_fail_count: u32,
     /// Delivered visible-state pushes in the current ~1s telemetry window.
     push_rate_count: u32,
+    hid_rx_rate_window_ns: u64,
+    hid_rx_rate_count: u32,
     /// Start of the current push-rate telemetry window (0 = not started).
     push_rate_window_ns: u64,
     /// Recycled HID-event decode buffer (capacity reused across batches —
@@ -263,6 +268,8 @@ impl LiveRouteRuntime {
             pending_wheel_delta: 0,
             push_fail_count: 0,
             push_rate_count: 0,
+            hid_rx_rate_window_ns: 0,
+            hid_rx_rate_count: 0,
             push_rate_window_ns: 0,
             hid_events_scratch: Vec::new(),
             wire_events_scratch: Vec::new(),
@@ -692,6 +699,22 @@ impl LiveRouteRuntime {
         }
     }
 
+    /// Plain (unfolded) HID-batch RX-rate line, >=8/s gate — pairs with
+    /// `hidrawd: tx hz` and `inputd: push hz` to localize input-rate loss.
+    fn note_hid_rx_for_rate_line(&mut self) {
+        let now_ns = nexus_abi::nsec().unwrap_or(0);
+        self.hid_rx_rate_count = self.hid_rx_rate_count.saturating_add(1);
+        if self.hid_rx_rate_window_ns == 0 {
+            self.hid_rx_rate_window_ns = now_ns;
+        } else if now_ns.saturating_sub(self.hid_rx_rate_window_ns) >= 1_000_000_000 {
+            if self.hid_rx_rate_count >= 8 {
+                let _ = debug_println(&format!("inputd: hid rx hz={}", self.hid_rx_rate_count));
+            }
+            self.hid_rx_rate_window_ns = now_ns;
+            self.hid_rx_rate_count = 0;
+        }
+    }
+
     fn expire_transient_input_state(&mut self) {
         let now_ns = nsec().unwrap_or(0);
         let old_up = self.visible_state.wheel_up_visible;
@@ -785,212 +808,6 @@ impl LiveRouteRuntime {
                 self.windowd_client = None;
             }
         }
-    }
-}
-
-struct InputdChainTelemetry {
-    last_report_ns: u64,
-    total_frames: u64,
-    hid_push_frames: u64,
-    visible_state_polls: u64,
-    visible_state_replies: u64,
-    unsupported_frames: u64,
-    hid_ok: u64,
-    hid_malformed: u64,
-    hid_unsupported: u64,
-    hid_overflow: u64,
-    frame_decode_malformed: u64,
-    wire_count_rejects: u64,
-    wire_device_kind_rejects: u64,
-    wire_pointer_source_rejects: u64,
-    wire_event_kind_rejects: u64,
-    wire_source_mode_rejects: u64,
-    wire_abs_calibration_rejects: u64,
-    wire_abs_axis_rejects: u64,
-    route_overflow_apply: u64,
-    route_overflow_delivery: u64,
-    raw_events: u64,
-    normalized_events: u64,
-    dispatch_events: u64,
-    delivered_events: u64,
-    pointer_dispatch_batches: u64,
-    keyboard_dispatch_batches: u64,
-    pointer_delivery_batches: u64,
-    keyboard_delivery_batches: u64,
-    idle_yields: u64,
-}
-
-impl InputdChainTelemetry {
-    const REPORT_INTERVAL_NS: u64 = 1_000_000_000;
-
-    fn new() -> Self {
-        Self {
-            last_report_ns: nsec().unwrap_or(0),
-            total_frames: 0,
-            hid_push_frames: 0,
-            visible_state_polls: 0,
-            visible_state_replies: 0,
-            unsupported_frames: 0,
-            hid_ok: 0,
-            hid_malformed: 0,
-            hid_unsupported: 0,
-            hid_overflow: 0,
-            frame_decode_malformed: 0,
-            wire_count_rejects: 0,
-            wire_device_kind_rejects: 0,
-            wire_pointer_source_rejects: 0,
-            wire_event_kind_rejects: 0,
-            wire_source_mode_rejects: 0,
-            wire_abs_calibration_rejects: 0,
-            wire_abs_axis_rejects: 0,
-            route_overflow_apply: 0,
-            route_overflow_delivery: 0,
-            raw_events: 0,
-            normalized_events: 0,
-            dispatch_events: 0,
-            delivered_events: 0,
-            pointer_dispatch_batches: 0,
-            keyboard_dispatch_batches: 0,
-            pointer_delivery_batches: 0,
-            keyboard_delivery_batches: 0,
-            idle_yields: 0,
-        }
-    }
-
-    fn record_hid_status(&mut self, status: u8) {
-        match status {
-            STATUS_OK => self.hid_ok = self.hid_ok.saturating_add(1),
-            STATUS_MALFORMED => self.hid_malformed = self.hid_malformed.saturating_add(1),
-            STATUS_UNSUPPORTED => self.hid_unsupported = self.hid_unsupported.saturating_add(1),
-            STATUS_OVERFLOW => self.hid_overflow = self.hid_overflow.saturating_add(1),
-            _ => {}
-        }
-    }
-
-    fn record_wire_reject(&mut self, reject: WireBatchReject) {
-        match reject {
-            WireBatchReject::CountMismatch | WireBatchReject::RawCountUnderflow => {
-                self.wire_count_rejects = self.wire_count_rejects.saturating_add(1)
-            }
-            WireBatchReject::UnknownDeviceKind(_) => {
-                self.wire_device_kind_rejects = self.wire_device_kind_rejects.saturating_add(1)
-            }
-            WireBatchReject::KeyboardPointerSource(_)
-            | WireBatchReject::MissingPointerSource
-            | WireBatchReject::UnknownPointerSource(_) => {
-                self.wire_pointer_source_rejects =
-                    self.wire_pointer_source_rejects.saturating_add(1)
-            }
-            WireBatchReject::KeyboardEventKind(_)
-            | WireBatchReject::PointerKeyEvent
-            | WireBatchReject::UnknownEventKind(_) => {
-                self.wire_event_kind_rejects = self.wire_event_kind_rejects.saturating_add(1)
-            }
-            WireBatchReject::RelativeOnAbsoluteSource(_)
-            | WireBatchReject::AbsoluteOnRelativeSource(_) => {
-                self.wire_source_mode_rejects = self.wire_source_mode_rejects.saturating_add(1)
-            }
-            WireBatchReject::InvalidAbsoluteCalibration(_) => {
-                self.wire_abs_calibration_rejects =
-                    self.wire_abs_calibration_rejects.saturating_add(1)
-            }
-            WireBatchReject::InvalidAbsoluteAxis(_) => {
-                self.wire_abs_axis_rejects = self.wire_abs_axis_rejects.saturating_add(1)
-            }
-        }
-    }
-
-    fn report_if_due(&mut self, state: VisibleState) {
-        let now_ns = nsec().unwrap_or(0);
-        if now_ns == 0 || self.last_report_ns == 0 {
-            if now_ns != 0 {
-                self.last_report_ns = now_ns;
-            }
-            return;
-        }
-        let elapsed = now_ns.saturating_sub(self.last_report_ns);
-        if elapsed < Self::REPORT_INTERVAL_NS {
-            return;
-        }
-        let recv_hz =
-            self.total_frames.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
-        let hid_ok_hz = self.hid_ok.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
-        let poll_hz = self
-            .visible_state_polls
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
-        // #region agent log — periodic inputd counter dump. MUST stay behind
-        // this const gate: the `format!` allocates a ~600-byte String that the
-        // non-freeing bump allocator never reclaims, so an ungated periodic dump
-        // steadily exhausts inputd's heap (the resize-flood OOM crash). Off by
-        // default; Phase 3 promotes these to metricsd counters (alloc-free).
-        const INPUTD_FPS_TRACE: bool = false;
-        if INPUTD_FPS_TRACE {
-            let _ = debug_trace(&format!(
-            "fps: inputd recv_hz={} hid_ok_hz={} poll_hz={} hid_push={} hid_ok={} malformed={} hid_unsupported={} overflow={} frame_malformed={} wire_count={} wire_kind={} wire_source={} wire_event={} wire_mode={} abs_cal={} abs_axis={} apply_ovf={} deliver_ovf={} raw_events={} norm_events={} dispatch={} delivered={} ptr_d={} kbd_d={} ptr_deliv={} kbd_deliv={} poll_reply={} idle_yields={} pointer_live={} keyboard_live={}",
-            recv_hz,
-            hid_ok_hz,
-            poll_hz,
-            self.hid_push_frames,
-            self.hid_ok,
-            self.hid_malformed,
-            self.hid_unsupported,
-            self.hid_overflow,
-            self.frame_decode_malformed,
-            self.wire_count_rejects,
-            self.wire_device_kind_rejects,
-            self.wire_pointer_source_rejects,
-            self.wire_event_kind_rejects,
-            self.wire_source_mode_rejects,
-            self.wire_abs_calibration_rejects,
-            self.wire_abs_axis_rejects,
-            self.route_overflow_apply,
-            self.route_overflow_delivery,
-            self.raw_events,
-            self.normalized_events,
-            self.dispatch_events,
-            self.delivered_events,
-            self.pointer_dispatch_batches,
-            self.keyboard_dispatch_batches,
-            self.pointer_delivery_batches,
-            self.keyboard_delivery_batches,
-            self.visible_state_replies,
-            self.idle_yields,
-            u8::from(state.pointer_route_live),
-            u8::from(state.keyboard_route_live)
-        ));
-        }
-        // #endregion
-        self.last_report_ns = now_ns;
-        self.total_frames = 0;
-        self.hid_push_frames = 0;
-        self.visible_state_polls = 0;
-        self.visible_state_replies = 0;
-        self.unsupported_frames = 0;
-        self.hid_ok = 0;
-        self.hid_malformed = 0;
-        self.hid_unsupported = 0;
-        self.hid_overflow = 0;
-        self.frame_decode_malformed = 0;
-        self.wire_count_rejects = 0;
-        self.wire_device_kind_rejects = 0;
-        self.wire_pointer_source_rejects = 0;
-        self.wire_event_kind_rejects = 0;
-        self.wire_source_mode_rejects = 0;
-        self.wire_abs_calibration_rejects = 0;
-        self.wire_abs_axis_rejects = 0;
-        self.route_overflow_apply = 0;
-        self.route_overflow_delivery = 0;
-        self.raw_events = 0;
-        self.normalized_events = 0;
-        self.dispatch_events = 0;
-        self.delivered_events = 0;
-        self.pointer_dispatch_batches = 0;
-        self.keyboard_dispatch_batches = 0;
-        self.pointer_delivery_batches = 0;
-        self.keyboard_delivery_batches = 0;
-        self.idle_yields = 0;
     }
 }
 

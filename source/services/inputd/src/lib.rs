@@ -11,6 +11,8 @@
 #![cfg_attr(all(nexus_env = "os", target_os = "none"), no_std)]
 #![forbid(unsafe_code)]
 
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod chain_stats;
 mod config;
 mod error;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]

@@ -73,7 +73,7 @@
 863	tools/qemu-src/rust/bql/src/cell.rs
 781	tools/qemu-src/rust/hw/char/pl011/src/device.rs
 1139	tools/qemu-src/rust/hw/timer/hpet/src/device.rs
-679	tools/qemu-src/rust/migration/src/vmstate.rs
+680	tools/qemu-src/rust/migration/src/vmstate.rs
 956	tools/qemu-src/rust/qom/src/qom.rs
 710	userspace/config/nexus-config/src/lib.rs
 646	userspace/dsl/cli/src/main.rs

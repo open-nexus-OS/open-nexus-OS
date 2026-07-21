@@ -39,6 +39,8 @@ const INPUT_MMIO_VAS: [usize; 3] = [0x2003_0000, 0x2003_1000, 0x2003_2000];
 const INPUT_QUEUE_VAS: [usize; 3] = [0x2004_0000, 0x2005_0000, 0x2006_0000];
 const INPUT_BUFFER_VAS: [usize; 3] = [0x2007_0000, 0x2008_0000, 0x2009_0000];
 
+use crate::telemetry::HidrawChainTelemetry;
+
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // NOTE: hidrawd is currently resumed by init BEFORE its input MMIO is granted + the inputd
     // route is wired, so the loop below busy-yields until both land (measured by `load_span`).
@@ -129,6 +131,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             }
         }
 
+        chain.note_wake_for_rate_line();
         let mut sent_any = false;
         for device in &mut live_devices {
             let Some(polled) = device.poll_batch(&mut service, &mut scratch) else {
@@ -137,6 +140,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             chain.raw_batches = chain.raw_batches.saturating_add(1);
             chain.raw_events =
                 chain.raw_events.saturating_add(u64::from(polled.evidence.raw_event_count()));
+            chain.note_rx_for_rate_line(u32::from(polled.evidence.raw_event_count()));
             chain.normalized_events = chain
                 .normalized_events
                 .saturating_add(u64::from(polled.evidence.normalized_event_count()));
@@ -221,6 +225,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
                 }
             }
             chain.sent_batches = chain.sent_batches.saturating_add(1);
+            chain.note_tx_for_rate_line();
             sent_any = true;
         }
 
@@ -286,99 +291,6 @@ fn live_route_send_fail_label(err: nexus_ipc::IpcError) -> &'static str {
         LiveRouteSendErrorClass::Backpressure => "dbg: hidrawd inputd send fail backpressure",
         LiveRouteSendErrorClass::Disconnected => "dbg: hidrawd inputd send fail disconnected",
         LiveRouteSendErrorClass::Fatal => "dbg: hidrawd inputd send fail fatal",
-    }
-}
-
-struct HidrawChainTelemetry {
-    last_report_ns: u64,
-    raw_batches: u64,
-    wire_batches: u64,
-    wire_batches_skipped: u64,
-    sent_batches: u64,
-    raw_events: u64,
-    normalized_events: u64,
-    keyboard_batches: u64,
-    mouse_relative_batches: u64,
-    tablet_absolute_batches: u64,
-    touch_absolute_batches: u64,
-    send_failures: u64,
-    route_rebinds: u64,
-    idle_yields: u64,
-}
-
-impl HidrawChainTelemetry {
-    const REPORT_INTERVAL_NS: u64 = 1_000_000_000;
-
-    fn new() -> Self {
-        Self {
-            last_report_ns: nsec().unwrap_or(0),
-            raw_batches: 0,
-            wire_batches: 0,
-            wire_batches_skipped: 0,
-            sent_batches: 0,
-            raw_events: 0,
-            normalized_events: 0,
-            keyboard_batches: 0,
-            mouse_relative_batches: 0,
-            tablet_absolute_batches: 0,
-            touch_absolute_batches: 0,
-            send_failures: 0,
-            route_rebinds: 0,
-            idle_yields: 0,
-        }
-    }
-
-    fn report_if_due(&mut self) {
-        let now_ns = nsec().unwrap_or(0);
-        if now_ns == 0 || self.last_report_ns == 0 {
-            if now_ns != 0 {
-                self.last_report_ns = now_ns;
-            }
-            return;
-        }
-        let elapsed = now_ns.saturating_sub(self.last_report_ns);
-        if elapsed < Self::REPORT_INTERVAL_NS {
-            return;
-        }
-        let ingress_hz =
-            self.raw_batches.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
-        let sent_hz =
-            self.sent_batches.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
-        // #region agent log — RFC-0068: the 30-field fps counter dump folds in interactive boots
-        // (recall `NEXUS_LOG_EXPAND=hidrawd`) and prints raw in proof. Gated via `service_trace`
-        // directly (NOT trace_line) because the `send_fail=` field would trip the failure safety net.
-        let _ = (!nexus_abi::service_trace()).then(|| debug_println(&format!(
-            "fps: hidrawd ingress_hz={} sent_hz={} raw_batches={} wire_batches={} wire_skip={} raw_events={} norm_events={} kbd_batches={} mouse_rel={} tablet_abs={} touch_abs={} send_fail={} rebinds={} idle_yields={}",
-            ingress_hz,
-            sent_hz,
-            self.raw_batches,
-            self.wire_batches,
-            self.wire_batches_skipped,
-            self.raw_events,
-            self.normalized_events,
-            self.keyboard_batches,
-            self.mouse_relative_batches,
-            self.tablet_absolute_batches,
-            self.touch_absolute_batches,
-            self.send_failures,
-            self.route_rebinds,
-            self.idle_yields
-        )));
-        // #endregion
-        self.last_report_ns = now_ns;
-        self.raw_batches = 0;
-        self.wire_batches = 0;
-        self.wire_batches_skipped = 0;
-        self.sent_batches = 0;
-        self.raw_events = 0;
-        self.normalized_events = 0;
-        self.keyboard_batches = 0;
-        self.mouse_relative_batches = 0;
-        self.tablet_absolute_batches = 0;
-        self.touch_absolute_batches = 0;
-        self.send_failures = 0;
-        self.route_rebinds = 0;
-        self.idle_yields = 0;
     }
 }
 
