@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-22 (later)
+
+#### IME v2 CJK engines, host (TASK-0149 Done)
+
+- **`ImeEngine` trait + `Engine` enum-dispatch** in `userspace/ime-core`
+  (no_std, alloc-free): one deterministic composition contract for Latin
+  (the Phase-0 composer, adapted), **JP** (romaji→kana longest-match with
+  っ sokuon + ん rules and a const kana→kanji lexicon; trailing lone `n`
+  resolves to ん on the final commit; the kana reading is always the last
+  candidate), **KR** (2-set dubeolsik: Latin→jamo, Unicode syllable
+  algebra, compound medials/finals, jong-steal, jamo-splitting backspace)
+  and **ZH** (pinyin exact-buffer lookup with paging). All outputs bounded
+  (preedit ≤ 64 B, candidates ≤ 8 × 32 B/page); `EngineId::for_layout`
+  follows `input.keymap` (unknown → Latin, fail-open).
+- **Bounded user-dict API** (`UserDict<N>`, default 1024/lang):
+  `train`/`lookup`/`forget` with frequency ranking, insertion-order
+  tie-breaks and lowest-freq-oldest-first eviction — deterministic;
+  storage + adaptive ranking land with TASK-0203/0204.
+- **Proofs**: 12 host goldens (`tests/cjk_contract.rs`) — にほんご→日本語,
+  きって/かんじ/ん edges, 한 + backspace split + jong steal + 닭/와
+  compounds, 你好 + 10-candidate paging, user-dict determinism, one-session
+  engine swap behind the trait, 10k-key fixed-seed no-panic soak per engine.
+
 ### Added - 2026-07-22
 
 #### IME v2 Phase 2 (RFC-0075, TASK-0147 Done): on-screen keyboard

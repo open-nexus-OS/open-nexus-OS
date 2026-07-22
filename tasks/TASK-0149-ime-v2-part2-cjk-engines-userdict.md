@@ -1,6 +1,6 @@
 ---
 title: TASK-0149 IME v2 Part 2a (host-first): JP/KR/ZH engines in ime-core + bounded user-dict API
-status: Draft
+status: Done (2026-07-22)
 owner: @ui
 created: 2025-12-26
 updated: 2026-07-21 (rewritten against repo reality; engines live in ime-core, persistence moved to TASK-0204 on statefsd)
@@ -104,3 +104,15 @@ With Latin typing proven end-to-end (TASK-0147), Part 2a adds the CJK engines �
 - All conversion goldens green and deterministic across runs.
 - imed can host any engine behind the trait without imed-side changes
   (proven by a host test swapping engines on one session).
+
+## Result (2026-07-22)
+
+All five goals landed in `userspace/ime-core` (engine.rs / jp.rs / kr.rs /
+zh.rs / userdict.rs — each under the 600-LOC ratchet), 12 goldens green in
+`tests/cjk_contract.rs` incl. the one-session engine-swap proof and the
+10k-key fixed-seed no-panic soak. Deltas vs the plan: the JP trailing lone
+`n` resolves to ん on the FINAL commit (ambiguity is gone at flush); ZH is
+exact-buffer lookup (general segmentation recorded as a later slice); the
+`shi` row carries 10 candidates as the standing paging fixture. Gates:
+`just check` + `just test-host` green. OS wiring (imed hosts `Engine`,
+candidate pushes, CJK OSK layouts) = TASK-0150.

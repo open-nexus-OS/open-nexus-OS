@@ -19,7 +19,22 @@ hidrawd → inputd ──(keymap resolve, exists)──► imed ──► window
   is deprecated and gets deleted in TASK-0147.
 - **ime-core** (`userspace/ime-core`): no_std, alloc-free composition —
   dead-key/compose state machine (DE `´` `` ` `` `^`), bounded preedit,
-  deterministic `ImeOutcome`. Engine trait for CJK lands in TASK-0149.
+  deterministic `ImeOutcome`.
+- **Engines (TASK-0149)**: ONE `ImeEngine` trait (feed/select/page_next/
+  reset → bounded `EngineOutcome` snapshots: preedit ≤ 64 B, candidates ≤
+  8 × 32 B/page); `Engine` enum-dispatch hosts Latin (the composer), **JP**
+  (romaji→kana longest-match, っ sokuon, ん rules, const kana→kanji lexicon
+  — the reading is always the last candidate), **KR** (2-set jamo, Unicode
+  syllable algebra, compound medials/finals, jamo-splitting backspace) and
+  **ZH** (pinyin exact-buffer lookup, paging). `EngineId::for_layout`
+  follows `input.keymap` (unknown → Latin, fail-open to plain typing).
+  Const tables are correctness-proof sized; real lexica ride bundle assets
+  in a later slice.
+- **User dictionary (TASK-0149 API, storage = TASK-0203/0204)**: bounded
+  in-memory `train`/`lookup`/`forget` (≤ 1024 entries/lang), frequency
+  ranking with insertion-order tie-breaks, lowest-freq-oldest-first
+  eviction — training is a separate call so imed's password gate cannot be
+  bypassed.
 - **Keymaps** stay in `userspace/keymaps` (TASK-0252); dead keys are marked
   `KeyOutput::Dead(char)` and only the composer interprets them.
 - **OSK + candidate strip** live in the `ime-ui` DSL overlay app — never in
@@ -35,8 +50,10 @@ hidrawd → inputd ──(keymap resolve, exists)──► imed ──► window
 
 ## Security invariants
 
-- imed accepts `OP_KEY` only from inputd (`sender_service_id`); OSK keys only
-  from the vetted ime-ui host, policyd-gated (deny-by-default).
+- imed accepts `OP_KEY` only from inputd (`sender_service_id`); OSK keys
+  only via imed's DEDICATED `imed-osk` endpoint — possession of the route
+  cap is the authorization (`nexus.permission.IME`, `ime` bundle-type
+  ceiling; RFC-0075 Phase 2).
 - Password fields (`field_kind=password`): no preedit push, no candidates,
   no personalization learning — enforced in imed, fail-closed.
 - Typed text NEVER appears in logs or markers; selftests use fixed fixtures.
