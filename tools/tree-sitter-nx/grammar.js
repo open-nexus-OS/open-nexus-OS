@@ -10,18 +10,22 @@
  *          docs/dev/dsl/grammar.md (normative prose)
  *
  * Where the two disagree, this grammar follows the COMPILER, because the
- * compiler is what actually accepts or rejects a file. Deltas found while
- * writing this (present in the parser, absent from grammar.md):
+ * compiler is what actually accepts or rejects a file. Deriving this grammar
+ * surfaced about twenty divergences in grammar.md; they were fixed there in
+ * v1.1 (2026-07-22), whose changelog carries the full list. The ones that
+ * shaped rules below:
  *
+ *   - `Window { style:, mode:, level:, resizable: }` declarations
+ *     (parser/decls.rs window_decl) — absent from the prose entirely
  *   - `Component` may carry a `state: { ... }` block after `props: { ... }`
  *     (parser/decls.rs component_decl)
- *   - `Window { style:, mode:, level:, resizable: }` declarations
- *     (parser/decls.rs window_decl)
- *   - handler action `navigate(expr)` alongside `dispatch` / `emit`
- *     (parser/view.rs handler)
+ *   - handler action `navigate(expr)` alongside `dispatch` / `emit`, and
+ *     `emit` takes an Expr, not an Ident (parser/view.rs handler)
  *   - handlers may appear INSIDE a widget's brace body, not only after it
- *   - `Query` is a contextual keyword: an ordinary identifier everywhere
- *     except in declaration position (parser/mod.rs decl)
+ *   - a widget's positional sugar and prop block are each optional
+ *   - the statement `;` belongs to the in-block form, not to a single-
+ *     statement arm (parser/stmt.rs `stmt(in_block)`)
+ *   - Args may mix positional and named (parser/expr.rs call_args)
  *
  * Bounds from the lexer that are NOT enforced here (they are semantic limits,
  * and a grammar that rejected them would break editing rather than help):
@@ -338,6 +342,10 @@ module.exports = grammar({
 
     params_clause: ($) => seq('params', ':', '{', repeat($.prop_declaration), '}', ','),
 
+    // `>` and `<` are accepted here because parser/decls.rs accepts them, but
+    // the CHECKER rejects them (NX0410: strict bounds are reserved for the v2
+    // builder) so they are not part of the v1 surface. Matching the parser
+    // keeps the buffer highlighted while `nx-dsl lint` reports the real error.
     where_clause: ($) =>
       seq(
         'where',

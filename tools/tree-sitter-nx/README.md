@@ -38,16 +38,22 @@ The grammar is derived from the **compiler**, not from the prose:
 | Declarations, views, statements, expressions | `userspace/dsl/core/src/parser/*.rs` |
 | Normative prose (EBNF) | `docs/dev/dsl/grammar.md` |
 
-Where prose and compiler disagreed, the compiler won. Deltas found while writing
-this grammar — present in the parser, absent from `grammar.md`:
+Where prose and compiler disagreed, the compiler won. Deriving this grammar surfaced
+about twenty divergences in `grammar.md` — behaviour the parser already had, that the
+prose either omitted or described wrongly. The largest:
 
+- `Window { style:, mode:, level:, resizable: }` declarations were absent entirely
 - `Component` may carry a `state: { ... }` block after `props: { ... }`
-- `Window { style:, mode:, level:, resizable: }` declarations
-- handler action `navigate(expr)` alongside `dispatch` / `emit`
+- handler action `navigate(expr)` alongside `dispatch` / `emit`, and `emit` takes an
+  expression rather than an identifier
 - handlers may appear *inside* a widget's brace body, not only after it
-- `Query` is contextual: an ordinary identifier outside declaration position
+- a widget's positional sugar and prop block are each optional (`Spacer` is complete)
+- the statement `;` belongs to the in-block form, not to a single-statement arm
+- `Args` may mix positional and named (`svc.settings.set("k", v, timeoutMs: 250)`)
+- a plain dotted path (`user.name`) was not expressible by the old `CallChain`
 
-These are documentation bugs in `grammar.md` and should be fixed there.
+**All fixed** in `grammar.md` v1.1 (2026-07-22); its changelog carries the full list.
+No language change was involved — only the prose was wrong.
 
 ## Build and install
 
