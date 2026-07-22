@@ -1,0 +1,9 @@
+# Build output of `tree-sitter build`. The generated src/parser.c IS committed
+# (tree-sitter convention: consumers must not need the CLI), but the compiled
+# shared object is per-machine.
+nx.so
+*.wasm
+
+# tree-sitter CLI scratch
+/build/
+/node_modules/

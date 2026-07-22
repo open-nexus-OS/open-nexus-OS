@@ -1,0 +1,281 @@
+================================================================================
+Operator precedence: || < && < compare < +- < */% < unary
+================================================================================
+
+Page PrecPage {
+    Text("x")
+        .when($state.a || $state.b && $state.c == 1 + 2 * 3)
+        .also(!$state.flag)
+        .neg(-$state.n)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (string_literal)
+      (modifier
+        (identifier)
+        (arguments
+          (binary_expression
+            (state_reference
+              (identifier))
+            (binary_expression
+              (state_reference
+                (identifier))
+              (binary_expression
+                (state_reference
+                  (identifier))
+                (binary_expression
+                  (integer_literal)
+                  (binary_expression
+                    (integer_literal)
+                    (integer_literal))))))))
+      (modifier
+        (identifier)
+        (arguments
+          (unary_expression
+            (state_reference
+              (identifier)))))
+      (modifier
+        (identifier)
+        (arguments
+          (unary_expression
+            (state_reference
+              (identifier))))))))
+
+================================================================================
+Literals: int, fixed-point, string with escapes, bool, list
+================================================================================
+
+Store LiteralStore {
+    count: Int = 42,
+    scale: Fx = 0.25,
+    label: Str = "a \"quoted\" line\nwith tab\there",
+    flag: Bool = true,
+    items: List<Int> = [1, 2, 3],
+    empty: List<Int> = [],
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (store_declaration
+    (type_identifier)
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (integer_literal))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (fixed_literal))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (string_literal
+        (escape_sequence)
+        (escape_sequence)
+        (escape_sequence)
+        (escape_sequence)))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (boolean_literal))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier)
+        (type
+          (type_identifier)))
+      (list_literal
+        (integer_literal)
+        (integer_literal)
+        (integer_literal)))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier)
+        (type
+          (type_identifier)))
+      (list_literal))))
+
+================================================================================
+Ambient roots: $state, $props, device, svc
+================================================================================
+
+@effect on Probe {
+    let a = $state.deep.nested.field;
+    let b = $props.user.name;
+    let c = device.profile;
+    svc.users.list(limit: 10);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (effect_declaration
+    (pattern
+      (type_identifier))
+    (block
+      (let_statement
+        (identifier)
+        (state_reference
+          (identifier)
+          (identifier)
+          (identifier)))
+      (let_statement
+        (identifier)
+        (props_reference
+          (identifier)
+          (identifier)))
+      (let_statement
+        (identifier)
+        (device_reference
+          (identifier)))
+      (expression_statement
+        (service_call
+          (identifier)
+          (identifier)
+          (arguments
+            (named_argument
+              (identifier)
+              (integer_literal))))))))
+
+================================================================================
+i18n, enum literals, calls with named and positional args
+================================================================================
+
+Page CallPage {
+    Stack {
+        Text(@t("common.loading"))
+        Text(@t("greeting.hello", $state.name, 2))
+        Icon { symbol: Theme::Dark }
+        Badge { value: Level::Warn(3) }
+        Chart { spec: buildSpec(1, mode: "fast") }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (widget_body
+        (widget
+          (type_identifier)
+          (i18n_call
+            (string_literal)))
+        (widget
+          (type_identifier)
+          (i18n_call
+            (string_literal)
+            (state_reference
+              (identifier))
+            (integer_literal)))
+        (widget
+          (type_identifier)
+          (widget_body
+            (property
+              (identifier)
+              (enum_literal
+                (type_identifier)
+                (type_identifier)))))
+        (widget
+          (type_identifier)
+          (widget_body
+            (property
+              (identifier)
+              (enum_literal
+                (type_identifier)
+                (type_identifier)
+                (integer_literal)))))
+        (widget
+          (type_identifier)
+          (widget_body
+            (property
+              (identifier)
+              (call_expression
+                (path_expression
+                  (identifier))
+                (arguments
+                  (integer_literal)
+                  (named_argument
+                    (identifier)
+                    (string_literal)))))))))))
+
+================================================================================
+Fixed-point is not a float and dotted paths still parse
+================================================================================
+
+Page FxPage {
+    Text("x").opacity(0.5).offset(1.25, 2).path($state.a.b.c)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (string_literal)
+      (modifier
+        (identifier)
+        (arguments
+          (fixed_literal)))
+      (modifier
+        (identifier)
+        (arguments
+          (fixed_literal)
+          (integer_literal)))
+      (modifier
+        (identifier)
+        (arguments
+          (state_reference
+            (identifier)
+            (identifier)
+            (identifier)))))))
+
+================================================================================
+Parenthesized expressions and nested generics
+================================================================================
+
+Store GenericStore {
+    grid: List<List<Int>> = [],
+    total: Int = (1 + 2) * 3,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (store_declaration
+    (type_identifier)
+    (store_field
+      (identifier)
+      (type
+        (type_identifier)
+        (type
+          (type_identifier)
+          (type
+            (type_identifier))))
+      (list_literal))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (binary_expression
+        (parenthesized_expression
+          (binary_expression
+            (integer_literal)
+            (integer_literal)))
+        (integer_literal)))))

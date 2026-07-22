@@ -1,0 +1,224 @@
+================================================================================
+Assignment operators on state places
+================================================================================
+
+reduce CounterEvent {
+    Inc => state.value += 1,
+    Dec => state.value -= 1,
+    Reset => state.value = 0,
+    Deep => state.a.b.c = 1,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (reduce_declaration
+    (type_identifier)
+    (reduce_arm
+      (pattern
+        (type_identifier))
+      (assignment_statement
+        (state_place
+          (identifier))
+        (integer_literal)))
+    (reduce_arm
+      (pattern
+        (type_identifier))
+      (assignment_statement
+        (state_place
+          (identifier))
+        (integer_literal)))
+    (reduce_arm
+      (pattern
+        (type_identifier))
+      (assignment_statement
+        (state_place
+          (identifier))
+        (integer_literal)))
+    (reduce_arm
+      (pattern
+        (type_identifier))
+      (assignment_statement
+        (state_place
+          (identifier)
+          (identifier)
+          (identifier))
+        (integer_literal)))))
+
+================================================================================
+let, dispatch and service calls inside an effect block
+================================================================================
+
+@effect on LoadUsers {
+    let users = svc.users.list(timeoutMs: 250);
+    dispatch(UsersLoaded(users));
+    dispatch(Done);
+    svc.log.write("loaded");
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (effect_declaration
+    (pattern
+      (type_identifier))
+    (block
+      (let_statement
+        (identifier)
+        (service_call
+          (identifier)
+          (identifier)
+          (arguments
+            (named_argument
+              (identifier)
+              (integer_literal)))))
+      (dispatch_statement
+        (type_identifier)
+        (path_expression
+          (identifier)))
+      (dispatch_statement
+        (type_identifier))
+      (expression_statement
+        (service_call
+          (identifier)
+          (identifier)
+          (arguments
+            (string_literal)))))))
+
+================================================================================
+if / else if / else in statement position
+================================================================================
+
+@effect on Check {
+    if $state.count > 10 {
+        dispatch(TooMany);
+    } else if $state.count > 5 {
+        dispatch(Some);
+    } else {
+        dispatch(None);
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (effect_declaration
+    (pattern
+      (type_identifier))
+    (block
+      (if_statement
+        (binary_expression
+          (state_reference
+            (identifier))
+          (integer_literal))
+        (block
+          (dispatch_statement
+            (type_identifier)))
+        (if_statement
+          (binary_expression
+            (state_reference
+              (identifier))
+            (integer_literal))
+          (block
+            (dispatch_statement
+              (type_identifier)))
+          (block
+            (dispatch_statement
+              (type_identifier))))))))
+
+================================================================================
+match arms taking a single statement or a block
+================================================================================
+
+@effect on Query {
+    match svc.db.query(limit: 60) {
+        Ok(rows, next) => dispatch(Loaded(rows, next)),
+        Err(e) => {
+            state.lastError = e;
+            dispatch(LoadFailed(e));
+        },
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (effect_declaration
+    (pattern
+      (type_identifier))
+    (block
+      (match_statement
+        (service_call
+          (identifier)
+          (identifier)
+          (arguments
+            (named_argument
+              (identifier)
+              (integer_literal))))
+        (match_statement_arm
+          (pattern
+            (type_identifier)
+            (identifier)
+            (identifier))
+          (dispatch_statement
+            (type_identifier)
+            (path_expression
+              (identifier))
+            (path_expression
+              (identifier))))
+        (match_statement_arm
+          (pattern
+            (type_identifier)
+            (identifier))
+          (block
+            (assignment_statement
+              (state_place
+                (identifier))
+              (path_expression
+                (identifier)))
+            (dispatch_statement
+              (type_identifier)
+              (path_expression
+                (identifier)))))))))
+
+================================================================================
+Comments are ignored between declarations and inside bodies
+================================================================================
+
+// leading comment
+Store CommentStore {
+    // field comment
+    value: Int = 0, // trailing comment
+}
+
+// between declarations
+Page CommentPage {
+    Stack {
+        // inside a view body
+        Text("hi")
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (comment)
+  (store_declaration
+    (type_identifier)
+    (comment)
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (integer_literal))
+    (comment))
+  (comment)
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (widget_body
+        (comment)
+        (widget
+          (type_identifier)
+          (string_literal))))))

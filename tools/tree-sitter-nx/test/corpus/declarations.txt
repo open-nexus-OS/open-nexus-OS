@@ -1,0 +1,369 @@
+================================================================================
+Store with defaults and @persist
+================================================================================
+
+Store SettingsStore {
+    theme: Str = "dark",
+    users: List<User> = [],
+    scale: Fx = 1.5,
+    remember: Bool = false @persist,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (store_declaration
+    (type_identifier)
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (string_literal))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier)
+        (type
+          (type_identifier)))
+      (list_literal))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (fixed_literal))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (boolean_literal)
+      (persist_attribute))))
+
+================================================================================
+Event with and without payloads
+================================================================================
+
+Event ChatEvent {
+    CloseThread,
+    OpenThread(Str, Str),
+    Loaded(List<Msg>, Str),
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (event_declaration
+    (type_identifier)
+    (event_case
+      (type_identifier))
+    (event_case
+      (type_identifier)
+      (type
+        (type_identifier))
+      (type
+        (type_identifier)))
+    (event_case
+      (type_identifier)
+      (type
+        (type_identifier)
+        (type
+          (type_identifier)))
+      (type
+        (type_identifier)))))
+
+================================================================================
+reduce with single-statement arms and block arms
+================================================================================
+
+reduce CounterEvent {
+    Inc => state.value += 1,
+    Dec => state.value -= 1,
+    OpenThread(id, name) => {
+        state.thread = id;
+        state.threadName = name;
+    },
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (reduce_declaration
+    (type_identifier)
+    (reduce_arm
+      (pattern
+        (type_identifier))
+      (assignment_statement
+        (state_place
+          (identifier))
+        (integer_literal)))
+    (reduce_arm
+      (pattern
+        (type_identifier))
+      (assignment_statement
+        (state_place
+          (identifier))
+        (integer_literal)))
+    (reduce_arm
+      (pattern
+        (type_identifier)
+        (identifier)
+        (identifier))
+      (block
+        (assignment_statement
+          (state_place
+            (identifier))
+          (path_expression
+            (identifier)))
+        (assignment_statement
+          (state_place
+            (identifier))
+          (path_expression
+            (identifier)))))))
+
+================================================================================
+Effect with service call and match
+================================================================================
+
+@effect on LoadUsers {
+    match svc.users.list(timeoutMs: 250) {
+        Ok(users) => dispatch(UsersLoaded(users)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (effect_declaration
+    (pattern
+      (type_identifier))
+    (block
+      (match_statement
+        (service_call
+          (identifier)
+          (identifier)
+          (arguments
+            (named_argument
+              (identifier)
+              (integer_literal))))
+        (match_statement_arm
+          (pattern
+            (type_identifier)
+            (identifier))
+          (dispatch_statement
+            (type_identifier)
+            (path_expression
+              (identifier))))
+        (match_statement_arm
+          (pattern
+            (type_identifier)
+            (identifier))
+          (dispatch_statement
+            (type_identifier)
+            (path_expression
+              (identifier))))))))
+
+================================================================================
+Component with props and a local state block
+================================================================================
+
+Component UserRow {
+    props: {
+        user: User,
+        onOpen: EventRef,
+    }
+    state: {
+        hovered: Bool = false,
+    }
+    Stack {
+        Text($props.user.name)
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (component_declaration
+    (type_identifier)
+    (props_block
+      (prop_declaration
+        (identifier)
+        (type
+          (type_identifier)))
+      (prop_declaration
+        (identifier)
+        (type
+          (type_identifier))))
+    (state_block
+      (state_field
+        (identifier)
+        (type
+          (type_identifier))
+        (boolean_literal)))
+    (widget
+      (type_identifier)
+      (widget_body
+        (widget
+          (type_identifier)
+          (props_reference
+            (identifier)
+            (identifier)))))))
+
+================================================================================
+Routes with and without parameters
+================================================================================
+
+Routes {
+    "/" -> HomePage;
+    "/user/:id" -> DetailPage(id: Int, tab: Str);
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (routes_declaration
+    (route
+      (string_literal)
+      (type_identifier))
+    (route
+      (string_literal)
+      (type_identifier)
+      (route_parameter
+        (identifier)
+        (type
+          (type_identifier)))
+      (route_parameter
+        (identifier)
+        (type
+          (type_identifier))))))
+
+================================================================================
+Window intent declaration
+================================================================================
+
+Window {
+    style: plain,
+    mode: fullscreen,
+    level: desktop,
+    resizable: false
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (window_declaration
+    (window_field
+      (identifier)
+      (identifier))
+    (window_field
+      (identifier)
+      (identifier))
+    (window_field
+      (identifier)
+      (identifier))
+    (window_field
+      (identifier)
+      (boolean_literal))))
+
+================================================================================
+Query with every clause
+================================================================================
+
+Query RecentMessages on messages {
+    params: {
+        thread: Str,
+    },
+    where thread == $state.thread,
+    where ts >= 0,
+    orderBy ts desc,
+    limit 60,
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (query_declaration
+    (type_identifier)
+    (identifier)
+    (params_clause
+      (prop_declaration
+        (identifier)
+        (type
+          (type_identifier))))
+    (where_clause
+      (identifier)
+      (state_reference
+        (identifier)))
+    (where_clause
+      (identifier)
+      (integer_literal))
+    (order_by_clause
+      (identifier))
+    (limit_clause
+      (integer_literal))))
+
+================================================================================
+Imports precede declarations
+================================================================================
+
+import "ui/composables/settings.store.nx"
+import "ui/components/window-kit.nx"
+
+Page BlankPage {
+    Stack {}
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (import
+    (string_literal))
+  (import
+    (string_literal))
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (widget_body))))
+
+================================================================================
+Contextual keywords stay usable as ordinary names
+================================================================================
+
+Store QueryStore {
+    where: Str = "",
+    limit: Int = 10,
+    params: Str = "",
+    asc: Bool = true,
+    orderBy: Str = "ts",
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (store_declaration
+    (type_identifier)
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (string_literal))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (integer_literal))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (string_literal))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (boolean_literal))
+    (store_field
+      (identifier)
+      (type
+        (type_identifier))
+      (string_literal))))

@@ -1,0 +1,385 @@
+================================================================================
+Widget forms: bare, positional sugar, prop block, children
+================================================================================
+
+Page FormsPage {
+    Stack {
+        Divider
+        Text("Hi")
+        Button { label: "Save", enabled: true }
+        Panel {
+            Icon { symbol: "play" }
+            Text("nested")
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (widget_body
+        (widget
+          (type_identifier))
+        (widget
+          (type_identifier)
+          (string_literal))
+        (widget
+          (type_identifier)
+          (widget_body
+            (property
+              (identifier)
+              (string_literal))
+            (property
+              (identifier)
+              (boolean_literal))))
+        (widget
+          (type_identifier)
+          (widget_body
+            (widget
+              (type_identifier)
+              (widget_body
+                (property
+                  (identifier)
+                  (string_literal))))
+            (widget
+              (type_identifier)
+              (string_literal))))))))
+
+================================================================================
+Modifier chains across lines
+================================================================================
+
+Page ModifiersPage {
+    Stack {
+        Text($state.value).textSize(xl)
+        Button { label: "-" }
+            .bg(surfaceVariant)
+            .fg(onSurface)
+    }
+    .padding(4)
+    .gap(3)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (widget_body
+        (widget
+          (type_identifier)
+          (state_reference
+            (identifier))
+          (modifier
+            (identifier)
+            (arguments
+              (path_expression
+                (identifier)))))
+        (widget
+          (type_identifier)
+          (widget_body
+            (property
+              (identifier)
+              (string_literal)))
+          (modifier
+            (identifier)
+            (arguments
+              (path_expression
+                (identifier))))
+          (modifier
+            (identifier)
+            (arguments
+              (path_expression
+                (identifier))))))
+      (modifier
+        (identifier)
+        (arguments
+          (integer_literal)))
+      (modifier
+        (identifier)
+        (arguments
+          (integer_literal))))))
+
+================================================================================
+Handler binds to the inner widget, not the enclosing body
+================================================================================
+
+Page HandlerPage {
+    Stack {
+        Button { label: "-" }
+            .bg(surfaceVariant)
+        on Tap -> dispatch(Dec)
+        Button { label: "+" }
+        on Tap -> dispatch(Inc)
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (widget_body
+        (widget
+          (type_identifier)
+          (widget_body
+            (property
+              (identifier)
+              (string_literal)))
+          (modifier
+            (identifier)
+            (arguments
+              (path_expression
+                (identifier))))
+          (handler
+            (type_identifier)
+            (dispatch_action
+              (type_identifier))))
+        (widget
+          (type_identifier)
+          (widget_body
+            (property
+              (identifier)
+              (string_literal)))
+          (handler
+            (type_identifier)
+            (dispatch_action
+              (type_identifier))))))))
+
+================================================================================
+Handler actions: dispatch with args, emit, navigate
+================================================================================
+
+Component ActionRow {
+    props: {
+        onOpen: EventRef,
+    }
+    Stack {
+        Button { label: "open" }
+        on Tap -> emit($props.onOpen)
+        Button { label: "detail" }
+        on Tap -> navigate("/user/1")
+        Button { label: "set" }
+        on Change -> dispatch(SetTheme(2))
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (component_declaration
+    (type_identifier)
+    (props_block
+      (prop_declaration
+        (identifier)
+        (type
+          (type_identifier))))
+    (widget
+      (type_identifier)
+      (widget_body
+        (widget
+          (type_identifier)
+          (widget_body
+            (property
+              (identifier)
+              (string_literal)))
+          (handler
+            (type_identifier)
+            (emit_action
+              (props_reference
+                (identifier)))))
+        (widget
+          (type_identifier)
+          (widget_body
+            (property
+              (identifier)
+              (string_literal)))
+          (handler
+            (type_identifier)
+            (navigate_action
+              (string_literal))))
+        (widget
+          (type_identifier)
+          (widget_body
+            (property
+              (identifier)
+              (string_literal)))
+          (handler
+            (type_identifier)
+            (dispatch_action
+              (type_identifier)
+              (integer_literal))))))))
+
+================================================================================
+Collection template with item binding
+================================================================================
+
+Page ListPage {
+    List($state.users) { user in
+        UserRow { user: user }.key(user.id)
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (state_reference
+        (identifier))
+      (widget_body
+        (item_binding
+          (identifier))
+        (widget
+          (type_identifier)
+          (widget_body
+            (property
+              (identifier)
+              (path_expression
+                (identifier))))
+          (modifier
+            (identifier)
+            (arguments
+              (path_expression
+                (identifier)
+                (identifier)))))))))
+
+================================================================================
+if / else if / else in view position
+================================================================================
+
+Page BranchPage {
+    Stack {
+        if $state.loading {
+            Text("loading")
+        } else if device.profile == desktop {
+            SplitView {}
+        } else {
+            Text("done")
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (widget_body
+        (if_view
+          (state_reference
+            (identifier))
+          (view_block
+            (widget
+              (type_identifier)
+              (string_literal)))
+          (binary_expression
+            (device_reference
+              (identifier))
+            (path_expression
+              (identifier)))
+          (view_block
+            (widget
+              (type_identifier)
+              (widget_body)))
+          (view_block
+            (widget
+              (type_identifier)
+              (string_literal))))))))
+
+================================================================================
+for and match in view position
+================================================================================
+
+Page LoopPage {
+    Stack {
+        for row in $state.rows {
+            Text(row.label)
+        }
+        match $state.mode {
+            Ok(v) => {
+                Text("ok")
+            },
+            Err(e) => {
+                Text("err")
+            },
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (widget_body
+        (for_view
+          (identifier)
+          (state_reference
+            (identifier))
+          (view_block
+            (widget
+              (type_identifier)
+              (path_expression
+                (identifier)
+                (identifier)))))
+        (match_view
+          (state_reference
+            (identifier))
+          (match_view_arm
+            (pattern
+              (type_identifier)
+              (identifier))
+            (view_block
+              (widget
+                (type_identifier)
+                (string_literal))))
+          (match_view_arm
+            (pattern
+              (type_identifier)
+              (identifier))
+            (view_block
+              (widget
+                (type_identifier)
+                (string_literal)))))))))
+
+================================================================================
+Inline handler inside a widget body
+================================================================================
+
+Page InlinePage {
+    Stack {
+        on Tap -> dispatch(Background);
+        Text("tap the background")
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (page_declaration
+    (type_identifier)
+    (widget
+      (type_identifier)
+      (widget_body
+        (handler
+          (type_identifier)
+          (dispatch_action
+            (type_identifier)))
+        (widget
+          (type_identifier)
+          (string_literal))))))
