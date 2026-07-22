@@ -14,7 +14,7 @@ impl super::DslApp {
     pub(super) fn tap(&mut self, x: i32, y: i32) -> bool {
         use nexus_dsl_runtime::Damage;
         let tokens = tokens_for(self.theme_mode);
-        let device = device_for(self.shell_profile, self.w);
+        let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
         let scroll = self.scroll_param();
         // Interaction motion (handoff "Press: instant down, springy release"):
         // the pressed control dips to 92% and pops back elastically. Resolved
@@ -160,7 +160,7 @@ impl super::DslApp {
     pub(super) fn reemit_for_size_class(&mut self, new_w: u32) {
         let tokens = tokens_for(self.theme_mode);
         self.w = new_w;
-        let device = device_for(self.shell_profile, new_w);
+        let device = device_for(self.shell_profile, new_w, &self.locale_tag, &self.keymap);
         let locale = super::app_locale!(self);
         if self.view.reemit(tokens, &device, &locale).is_err() {
             raw_marker("apphost: FAIL size-class reemit");
@@ -264,7 +264,7 @@ impl super::DslApp {
     pub(super) fn text_commit(&mut self, text: &str) -> bool {
         use nexus_dsl_runtime::Damage;
         let tokens = tokens_for(self.theme_mode);
-        let device = device_for(self.shell_profile, self.w);
+        let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
         let locale = super::app_locale!(self);
         let damage = match self.view.insert_text(tokens, &device, &locale, text) {
             Ok(d) => d,
@@ -298,7 +298,7 @@ impl super::DslApp {
         match action {
             nexus_wire::imed::ACTION_BACKSPACE => {
                 let tokens = tokens_for(self.theme_mode);
-                let device = device_for(self.shell_profile, self.w);
+                let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
                 let locale = super::app_locale!(self);
                 let damage = match self.view.backspace_text(tokens, &device, &locale) {
                     Ok(d) => d,
@@ -380,7 +380,7 @@ impl super::DslApp {
             return false;
         };
         let tokens = tokens_for(self.theme_mode);
-        let device = device_for(self.shell_profile, self.w);
+        let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
         let locale = super::app_locale!(self);
         let damage =
             self.view.dispatch(tokens, &device, &locale, &mut self.host, event, case, args);

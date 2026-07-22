@@ -182,11 +182,18 @@ fn handle_osk_frame(
             Some((op, wire::STATUS_OK, echo))
         }
         wire::OP_SET_LAYOUT => {
-            // The OSK globe key switches the engine (capability-gated).
+            // The OSK globe key: a SYSTEM-WIDE switch (RFC-0075 Phase 8b) —
+            // set the engine now AND persist `input.keymap` (settingsd =
+            // SSOT; the watch spine fans out to inputd/windowd/OSK rows).
+            // Cycle guard: the later inputd relay of the SAME tag is a
+            // no-op write-wise (persist only on an actual change).
             let Some(layout) = wire::decode_set_layout(frame) else {
                 return Some((op, wire::STATUS_MALFORMED, empty));
             };
-            core.set_layout(layout);
+            if core.layout_tag() != layout {
+                core.set_layout(layout);
+                persist_layout(layout);
+            }
             Some((op, wire::STATUS_OK, empty))
         }
         wire::OP_CANDIDATE_SELECT => {
@@ -251,14 +258,17 @@ fn handle_frame(
             Some((op, wire::STATUS_OK))
         }
         wire::OP_SET_LAYOUT => {
-            // Engine follows `input.keymap` — relayed by inputd only.
+            // Engine follows `input.keymap` — relayed by inputd only. Never
+            // persists (the value CAME from settingsd; guard vs. cycles).
             if sender_sid != inputd_sid {
                 return Some((op, wire::STATUS_DENIED));
             }
             let Some(layout) = wire::decode_set_layout(frame) else {
                 return Some((op, wire::STATUS_MALFORMED));
             };
-            core.set_layout(layout);
+            if core.layout_tag() != layout {
+                core.set_layout(layout);
+            }
             Some((op, wire::STATUS_OK))
         }
         wire::OP_CANDIDATE_SELECT => {
@@ -350,6 +360,49 @@ const IMED_SEND_SLOT: u32 = 0x04;
 /// The dedicated OSK endpoint's RECV half (init cap_transfer, third leg;
 /// RFC-0075 Phase 2). Absent when init predates the OSK wiring.
 const OSK_RECV_SLOT: u32 = 0x05;
+/// settingsd request SEND (layout persistence, RFC-0075 Phase 8b).
+const SETTINGS_SEND_SLOT: u32 = 0x08;
+/// Private reply inbox for settingsd OP_SET answers (RECV / SEND halves).
+const SETTINGS_REPLY_RECV_SLOT: u32 = 0x09;
+const SETTINGS_REPLY_SEND_SLOT: u32 = 0x0A;
+
+/// Persists an OSK-driven layout switch to `input.keymap` (settingsd is the
+/// SSOT; the watch spine then fans out to inputd/windowd/every OSK). The
+/// reply-SEND is CLONED per request and CAP_MOVEd (mint→grant, zero
+/// accumulation); the answer is drained bounded so the inbox never fills.
+fn persist_layout(layout: &str) {
+    use nexus_wire::settingsd as sw;
+    let mut req = [0u8; 300];
+    let Some(n) = sw::encode_set_req("input.keymap", layout, &mut req) else {
+        return;
+    };
+    let Ok(reply_send) = nexus_abi::cap_clone(SETTINGS_REPLY_SEND_SLOT) else {
+        emit_line("imed: FAIL layout persist (reply clone)");
+        return;
+    };
+    let hdr = nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
+    if nexus_abi::ipc_send_v1(SETTINGS_SEND_SLOT, &hdr, &req[..n], nexus_abi::IPC_SYS_NONBLOCK, 0)
+        .is_err()
+    {
+        emit_line("imed: FAIL layout persist (send)");
+        let _ = nexus_abi::cap_close(reply_send);
+        return;
+    }
+    // Bounded answer drain (deadline-blocked, never a spin): layout
+    // switches are human-rate — a short wait keeps the inbox empty.
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(200_000_000);
+    let mut rhdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut sid: u64 = 0;
+    let mut buf = [0u8; 64];
+    let _ = nexus_abi::ipc_recv_v2(
+        SETTINGS_REPLY_RECV_SLOT,
+        &mut rhdr,
+        &mut buf,
+        &mut sid,
+        nexus_abi::IPC_SYS_TRUNCATE,
+        deadline,
+    );
+}
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     const CTRL_SEND_SLOT: u32 = 1;

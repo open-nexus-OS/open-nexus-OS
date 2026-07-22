@@ -118,3 +118,34 @@ fn test_reject_alt_gr_on_layout_without_support() {
     let err = us.resolve(KeyboardUsage::Q, Modifiers::default().with_alt_gr()).unwrap_err();
     assert_eq!(err.code(), KeymapError::UnsupportedModifierCombination.code());
 }
+
+#[test]
+fn osk_rows_are_data_complete_and_aligned() {
+    use keymaps::{osk_rows, LayoutId, OSK_ROWS};
+    // Every layout serves all rows; row 0 is always the digit row; every
+    // text key has label+key, every action key has an action (never both).
+    for layout in [LayoutId::Us, LayoutId::De, LayoutId::Jp, LayoutId::Kr, LayoutId::Zh] {
+        for row in 0..OSK_ROWS {
+            let keys = osk_rows(layout, row);
+            assert!(!keys.is_empty(), "{layout:?} row {row}");
+            for k in keys {
+                if k.action.is_empty() {
+                    assert!(!k.label.is_empty() && !k.key.is_empty());
+                } else {
+                    assert!(k.key.is_empty(), "action key must not carry a text key");
+                }
+            }
+        }
+        assert_eq!(osk_rows(layout, 0)[0].key, "1");
+        // Out-of-range rows are EMPTY (the app renders nothing) — bounded.
+        assert!(osk_rows(layout, OSK_ROWS).is_empty());
+    }
+    // KR shows jamo labels over 2-set Latin keys (label ≠ key by design).
+    let kr = osk_rows(LayoutId::Kr, 1);
+    assert_eq!((kr[0].label, kr[0].key), ("ㅂ", "q"));
+    // DE carries the umlaut tail + ß; JP/ZH share the us rows (the engine
+    // converts romaji/pinyin — data, not per-language branches).
+    assert_eq!(osk_rows(LayoutId::De, 1).last().unwrap().key, "ü");
+    assert_eq!(osk_rows(LayoutId::Jp, 1), osk_rows(LayoutId::Us, 1));
+    assert_eq!(osk_rows(LayoutId::Zh, 2), osk_rows(LayoutId::Us, 2));
+}

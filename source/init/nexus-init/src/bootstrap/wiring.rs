@@ -1491,7 +1491,14 @@ pub(crate) fn wire_services(
                         // Push leg (RFC-0075): imed → windowd commit/action
                         // pushes resolve "windowd" by name via this recording.
                         if name == "imed" {
-                            provision_imed_legs(pid, eps.imed_osk, window_req, window_rsp, chan);
+                            provision_imed_legs(
+                                pid,
+                                eps.imed_osk,
+                                window_req,
+                                window_rsp,
+                                eps.server_pair(ServiceId::Settingsd).map(|(req, _)| req),
+                                chan,
+                            );
                         }
                         if name == "abilitymgr" {
                             // Direct transfers (no clone — cap-table ceiling).

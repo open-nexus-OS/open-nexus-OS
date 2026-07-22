@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //! CONTEXT: windowd compositor runtime — RFC-0076/0077 region relay: windowd
-//! watches settingsd (`time.` + `ui.locale`, two subscriptions on ONE
-//! channel via a cloned push cap) on its init-provisioned channel
+//! watches settingsd (`time.` + `ui.locale` + `input.keymap`, three
+//! subscriptions on ONE channel via cloned push caps) on its channel
 //! and pushes `OP_SURFACE_REGION` (locale, tz, hour format) to every app
 //! surface — at event-channel attach and on every applied change. PURE
 //! RELAY: no clock, no conversion, no locale logic here.
@@ -30,9 +30,12 @@ pub(crate) struct RegionState {
     pub(crate) locale_len: u8,
     pub(crate) tz: [u8; surface_text::REGION_TZ_MAX],
     pub(crate) tz_len: u8,
+    pub(crate) keymap: [u8; surface_text::REGION_KEYMAP_MAX],
+    pub(crate) keymap_len: u8,
     pub(crate) hour_fmt: u8,
     pub(crate) subscribed_time: bool,
     pub(crate) subscribed_locale: bool,
+    pub(crate) subscribed_keymap: bool,
 }
 
 impl RegionState {
@@ -42,12 +45,16 @@ impl RegionState {
             locale_len: 0,
             tz: [0; surface_text::REGION_TZ_MAX],
             tz_len: 0,
+            keymap: [0; surface_text::REGION_KEYMAP_MAX],
+            keymap_len: 0,
             hour_fmt: surface_text::REGION_HOUR_24,
             subscribed_time: false,
             subscribed_locale: false,
+            subscribed_keymap: false,
         };
         s.set_locale("de-DE");
         s.set_tz("Europe/Berlin");
+        s.set_keymap("de");
         s
     }
 
@@ -65,6 +72,18 @@ impl RegionState {
             self.tz[..b.len()].copy_from_slice(b);
             self.tz_len = b.len() as u8;
         }
+    }
+
+    fn set_keymap(&mut self, v: &str) {
+        let b = v.as_bytes();
+        if b.len() <= self.keymap.len() {
+            self.keymap[..b.len()].copy_from_slice(b);
+            self.keymap_len = b.len() as u8;
+        }
+    }
+
+    pub(crate) fn keymap_str(&self) -> &str {
+        core::str::from_utf8(&self.keymap[..usize::from(self.keymap_len)]).unwrap_or("")
     }
 
     pub(crate) fn locale_str(&self) -> &str {
@@ -94,6 +113,10 @@ impl RegionState {
                 self.set_locale(value);
                 true
             }
+            "input.keymap" => {
+                self.set_keymap(value);
+                true
+            }
             _ => false,
         }
     }
@@ -108,6 +131,7 @@ impl DisplayServerRuntime {
             self.region.hour_fmt,
             self.region.locale_str(),
             self.region.tz_str(),
+            self.region.keymap_str(),
         )
     }
 
@@ -118,7 +142,10 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             use nexus_wire::settingsd as swire;
-            if !(self.region.subscribed_time && self.region.subscribed_locale) {
+            if !(self.region.subscribed_time
+                && self.region.subscribed_locale
+                && self.region.subscribed_keymap)
+            {
                 // Two OP_WATCH subscriptions ride ONE push channel: each
                 // watch cap-moves a SEND half, so the second one moves a
                 // local CLONE of the half (cloned BEFORE the first move;
@@ -129,11 +156,19 @@ impl DisplayServerRuntime {
                 };
                 static LOCALE_SEND_SLOT: core::sync::atomic::AtomicU32 =
                     core::sync::atomic::AtomicU32::new(0);
+                static KEYMAP_SEND_SLOT: core::sync::atomic::AtomicU32 =
+                    core::sync::atomic::AtomicU32::new(0);
                 if LOCALE_SEND_SLOT.load(core::sync::atomic::Ordering::Relaxed) == 0 {
                     let Ok(clone) = nexus_abi::cap_clone(WATCH_SEND_SLOT) else {
                         return;
                     };
                     LOCALE_SEND_SLOT.store(clone, core::sync::atomic::Ordering::Relaxed);
+                }
+                if KEYMAP_SEND_SLOT.load(core::sync::atomic::Ordering::Relaxed) == 0 {
+                    let Ok(clone) = nexus_abi::cap_clone(WATCH_SEND_SLOT) else {
+                        return;
+                    };
+                    KEYMAP_SEND_SLOT.store(clone, core::sync::atomic::Ordering::Relaxed);
                 }
                 let watch = |prefix: &str, cap_slot: u32| -> bool {
                     let mut req = [0u8; 72];
@@ -162,6 +197,10 @@ impl DisplayServerRuntime {
                 if self.region.subscribed_time && !self.region.subscribed_locale {
                     let clone = LOCALE_SEND_SLOT.load(core::sync::atomic::Ordering::Relaxed);
                     self.region.subscribed_locale = watch("ui.locale", clone);
+                }
+                if self.region.subscribed_locale && !self.region.subscribed_keymap {
+                    let clone = KEYMAP_SEND_SLOT.load(core::sync::atomic::Ordering::Relaxed);
+                    self.region.subscribed_keymap = watch("input.keymap", clone);
                 }
                 return;
             }

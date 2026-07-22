@@ -23,10 +23,12 @@ extern crate alloc;
 mod error;
 mod layout;
 mod modifiers;
+mod osk;
 mod output;
 mod table;
 
 pub use error::KeymapError;
 pub use layout::{Keymap, LayoutId};
 pub use modifiers::Modifiers;
+pub use osk::{osk_rows, OskKey, OSK_ROWS};
 pub use output::{KeyAction, KeyOutput};

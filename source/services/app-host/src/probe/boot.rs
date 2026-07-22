@@ -141,11 +141,12 @@ pub(super) struct RegionPush {
     pub hour_fmt: u8,
     pub locale: alloc::string::String,
     pub tz: alloc::string::String,
+    pub keymap: alloc::string::String,
 }
 
 /// Stashes `frame` when it is a region push (LATEST wins). False otherwise.
 pub(super) fn stash_region(frame: &[u8], slot: &mut Option<RegionPush>) -> bool {
-    let Some((hf, loc, tzv)) = nexus_display_proto::surface_text::decode_surface_region(frame)
+    let Some((hf, loc, tzv, km)) = nexus_display_proto::surface_text::decode_surface_region(frame)
     else {
         return false;
     };
@@ -153,6 +154,7 @@ pub(super) fn stash_region(frame: &[u8], slot: &mut Option<RegionPush>) -> bool 
         hour_fmt: hf,
         locale: alloc::string::String::from(loc),
         tz: alloc::string::String::from(tzv),
+        keymap: alloc::string::String::from(km),
     });
     true
 }
@@ -308,6 +310,7 @@ pub(super) fn recv_ack(
     client: &KernelClient,
     op: u8,
     pending_rect: &mut Option<(u16, u16)>,
+    region: &mut Option<RegionPush>,
 ) -> Result<u32, &'static str> {
     let mut frame = [0u8; 64];
     let start = nsec().unwrap_or(0);
@@ -327,6 +330,13 @@ pub(super) fn recv_ack(
                 // Dropping it left the surface at the probe size forever.
                 if let Some((_, _, w, h)) = wire::decode_surface_rect(&frame[..len]) {
                     *pending_rect = Some((w, h));
+                    continue;
+                }
+                // The attach-time region push races the create/present acks
+                // for LAUNCHED window apps (no content-rect wait ran) —
+                // stash it or fresh mounts stay un-localized (the chat-app
+                // English-despite-de finding, RFC-0075 Phase 8b).
+                if stash_region(&frame[..len], region) {
                     continue;
                 }
                 // Unrelated frame on the shared channel — keep waiting.

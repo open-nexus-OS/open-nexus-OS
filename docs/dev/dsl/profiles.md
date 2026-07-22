@@ -73,3 +73,12 @@ not think of gets the default branch, not a blank screen.
 - **v1 (2026-07-06)** — environment SSOT documented (shell-config registry, ADR-0035);
   `if/else` replaces the former `@when/@else` form; `shellMode`/`posture`/
   `orientation` added; override provenance recorded in IR.
+
+## Region axes: `device.locale` / `device.keymap` (RFC-0075 Phase 8b)
+
+Runtime-varying axes fed by the windowd region push (`ui.locale` /
+`input.keymap` settings): string equality in `if device.locale == "…"` /
+`if device.keymap == "…"` arms, re-selected on reemit like a size-class
+change. Use them for RARE structural decisions only — repeated per-language
+content belongs in DATA (locale packs for text, `svc.ime.rows` for key
+layouts), never in per-language `if` trees.

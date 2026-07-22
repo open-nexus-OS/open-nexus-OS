@@ -60,6 +60,12 @@ const dslSurface :List(DslMethod) = [
   (service = "ime", method = "action", args = ["Str"], result = "Bool"),
   (service = "ime", method = "select", args = ["Int"], result = "Bool"),
   (service = "ime", method = "layout", args = ["Str"], result = "Bool"),
+  # OSK row DATA (RFC-0075 Phase 8b): rows come from the keymaps SSOT —
+  # adding a language is adding data, never an if-arm in an app.
+  (service = "ime", method = "rows", args = ["Str", "Int"], result = "List<OskKey>"),
+  # Cycles to the platform's NEXT layout after `current` (order = keymaps
+  # SSOT) and switches it system-wide (imed persists input.keymap).
+  (service = "ime", method = "cycle", args = ["Str"], result = "Bool"),
   (service = "stats", method = "count", args = ["Str"], result = "Int"),
   (service = "todos", method = "list", args = [], result = "List<Str>"),
   (service = "users", method = "list", args = [], result = "List<User>"),

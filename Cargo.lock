@@ -181,6 +181,7 @@ name = "app-host"
 version = "0.1.0"
 dependencies = [
  "animation",
+ "keymaps",
  "nexus-abi",
  "nexus-app-icons",
  "nexus-display-proto",

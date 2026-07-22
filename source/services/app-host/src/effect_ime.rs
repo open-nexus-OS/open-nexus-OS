@@ -63,6 +63,49 @@ impl AppEffectHost {
         self.ime_send(&buf[..n])
     }
 
+    /// `svc.ime.cycle(current)` → switches to the platform's NEXT layout
+    /// (cycle order = the keymaps SSOT — never an app-side if-chain). The
+    /// switch is SYSTEM-WIDE: imed persists `input.keymap` and the change
+    /// returns as a `KeymapEvent` region push.
+    pub(crate) fn ime_cycle(&self, current: &str) -> Result<Value, u32> {
+        const ORDER: &[&str] = &["de", "us", "jp", "kr", "zh"];
+        let idx = ORDER.iter().position(|l| *l == current).unwrap_or(0);
+        let next = ORDER[(idx + 1) % ORDER.len()];
+        self.ime_layout(next)
+    }
+
+    /// `svc.ime.rows(layout, row)` → the OSK row DATA from the keymaps SSOT
+    /// (RFC-0075 Phase 8b): `List<OskKey{label,key,action}>`. Unknown layout
+    /// or row = empty list (the app's `List` renders nothing — bounded,
+    /// never an error popup for data the platform simply lacks).
+    pub(crate) fn ime_rows(&self, layout: &str, row: i64) -> Result<Value, u32> {
+        use alloc::string::String;
+        let (Some(label_sym), Some(key_sym), Some(action_sym)) =
+            (self.label_sym, self.key_sym, self.action_sym)
+        else {
+            return Err(ERR_SVC_SHAPE); // program never reads the fields
+        };
+        let Ok(layout) = keymaps::LayoutId::try_from(layout) else {
+            return Ok(Value::List(alloc::vec::Vec::new()));
+        };
+        let Ok(row) = usize::try_from(row) else {
+            return Ok(Value::List(alloc::vec::Vec::new()));
+        };
+        let rows: alloc::vec::Vec<Value> = keymaps::osk_rows(layout, row)
+            .iter()
+            .map(|k| {
+                let mut fields = alloc::vec![
+                    (label_sym, Value::Str(String::from(k.label))),
+                    (key_sym, Value::Str(String::from(k.key))),
+                    (action_sym, Value::Str(String::from(k.action))),
+                ];
+                fields.sort_by_key(|(sym, _)| *sym);
+                Value::Record(fields)
+            })
+            .collect();
+        Ok(Value::List(rows))
+    }
+
     pub(crate) fn ime_send(&self, frame: &[u8]) -> Result<Value, u32> {
         let send_slot = Self::svc_send_slot("ime").ok_or(ERR_SVC_UNKNOWN)?;
         let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);

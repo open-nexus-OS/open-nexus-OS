@@ -126,3 +126,26 @@ Landed per RFC-0075 Phase 3 with these shape deltas vs the plan above:
   fields render `?` for kana/hangul/han. The byte path is proven end-to-end
   (probes + markers); glyph coverage is a FONT task, not IME logic.
 - ja/ko/zh locale catalogs added for all six `@t()` apps (with de parity).
+
+## Addendum 8b (2026-07-22): data-driven layouts + env axes
+
+User insert after Phase 8: 180 languages must never mean 180 `if` trees.
+
+- `userspace/keymaps::osk_rows(LayoutId, row) -> &[OskKey{label,key,action}]`
+  is the layout-data SSOT (KR shows jamo labels over 2-set Latin keys;
+  jp/zh share the us rows). Golden: `keymaps_contract.rs`.
+- `svc.ime.rows(layout, row) -> List<OskKey>` (app-host answers natively
+  from the SSOT); ime-ui renders four `List(...)` templates — the OskPage
+  layout branches are GONE (the existing collection mechanism carries it;
+  a new KeyRow primitive was evaluated and REJECTED as accidental
+  complexity — no compile-time child generation exists or is needed).
+- `KeymapEvent::Changed(tag)` (app-host, region-push driven) reloads the
+  rows; `svc.ime.cycle(current)` cycles the SYSTEM layout (order = platform
+  data) — imed persists `input.keymap` via a new settingsd route
+  (init-wired slots 8/9/10; cycle guard: the inputd relay of the same tag
+  never re-writes).
+- `device.locale` / `device.keymap` are env axes (DEVICE_FIELDS rows 7/8,
+  `FixtureEnv` runtime-varying String fields) for the rare STRUCTURAL
+  per-region arms; `OP_SURFACE_REGION` gained an optional trailing keymap
+  field (old frames decode with an empty tag) and windowd a third watch
+  subscription (`input.keymap`).

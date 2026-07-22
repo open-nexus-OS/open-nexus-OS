@@ -36,16 +36,74 @@ impl super::DslApp {
 
     /// Region push from windowd (`OP_SURFACE_REGION`): update tz/hour-format
     /// and re-tick immediately; a locale change swaps the active pack catalog
-    /// and re-emits the scene (RFC-0077). Returns whether a re-render is needed.
-    pub(super) fn apply_region(&mut self, hour_fmt: u8, locale: &str, tz: &str) -> bool {
+    /// and re-emits the scene (RFC-0077); a keymap change re-emits the
+    /// `device.keymap` axis + dispatches `KeymapEvent::Changed` (RFC-0075
+    /// Phase 8b). Returns whether a re-render is needed.
+    pub(super) fn apply_region(
+        &mut self,
+        hour_fmt: u8,
+        locale: &str,
+        tz: &str,
+        keymap: &str,
+    ) -> bool {
         self.clock_hour24 = hour_fmt == nexus_display_proto::surface_text::REGION_HOUR_24;
         if tz_lite::zone(tz).is_some() {
             self.clock_tz.clear();
             self.clock_tz.push_str(tz);
         }
         let locale_changed = self.apply_locale(locale);
+        let keymap_changed = self.apply_keymap(keymap);
         let ticked = self.clock_tick();
-        locale_changed || ticked
+        locale_changed || keymap_changed || ticked
+    }
+
+    /// Applies a pushed keymap tag: updates the `device.keymap` env axis
+    /// (reemit re-selects `if device.keymap` arms — the size-class pattern)
+    /// and dispatches `KeymapEvent::Changed(tag)` into programs that declare
+    /// it (the ime-ui reloads its data-driven rows). Returns scene-changed.
+    fn apply_keymap(&mut self, keymap: &str) -> bool {
+        use nexus_dsl_runtime::Value;
+        if keymap.is_empty() || keymap == self.keymap {
+            return false;
+        }
+        self.keymap.clear();
+        self.keymap.push_str(keymap);
+        let tokens = tokens_for(self.theme_mode);
+        let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
+        let mut changed = false;
+        let reemit_ok = {
+            let locale_src = super::app_locale!(self);
+            self.view.reemit(tokens, &device, &locale_src).is_ok()
+        };
+        if reemit_ok {
+            self.relayout_retained();
+            self.hovered = None;
+            self.anim_sync();
+            changed = true;
+        }
+        if let Some((event, case)) = self.view.runtime.event_case("KeymapEvent", "Changed") {
+            let damage = {
+                let locale_src = super::app_locale!(self);
+                self.view.dispatch(
+                    tokens,
+                    &device,
+                    &locale_src,
+                    &mut self.host,
+                    event,
+                    case,
+                    alloc::vec![Value::Str(alloc::string::String::from(keymap))],
+                )
+            };
+            match damage {
+                Ok(nexus_dsl_runtime::Damage::Layout) => {
+                    self.relayout_retained();
+                    changed = true;
+                }
+                Ok(nexus_dsl_runtime::Damage::Paint) => changed = true,
+                _ => {}
+            }
+        }
+        changed
     }
 
     /// Selects the pack catalog for a pushed locale tag — exact tag first,
@@ -69,7 +127,7 @@ impl super::DslApp {
         }
         self.active_catalog = idx;
         let tokens = tokens_for(self.theme_mode);
-        let device = device_for(self.shell_profile, self.w);
+        let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
         let locale_src = super::app_locale!(self);
         if self.view.reemit(tokens, &device, &locale_src).is_err() {
             raw_marker("apphost: FAIL locale reemit");
@@ -136,7 +194,7 @@ impl super::DslApp {
         let sec_in_min = (epoch_ns / 1_000_000_000) % 60;
         self.clock_next_wait_ms = (60 - sec_in_min) * 1000 + 200;
         let tokens = tokens_for(self.theme_mode);
-        let device = device_for(self.shell_profile, self.w);
+        let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
         let locale = super::app_locale!(self);
         let damage = self.view.dispatch(
             tokens,

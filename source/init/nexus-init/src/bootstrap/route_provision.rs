@@ -258,6 +258,7 @@ pub(crate) fn provision_imed_legs(
     imed_osk: u32,
     window_req: u32,
     window_rsp: u32,
+    settings_req: Option<u32>,
     chan: &mut CtrlChannel,
 ) {
     match nexus_abi::cap_transfer_to_slot(pid, imed_osk, Rights::RECV, 5) {
@@ -274,6 +275,34 @@ pub(crate) fn provision_imed_legs(
             debug_write_bytes(b"init: imed route->windowd ok\n");
         }
         _ => debug_write_bytes(b"init: imed route->windowd FAIL (xfer)\n"),
+    }
+
+    // Layout persistence (RFC-0075 Phase 8b, user decision: the OSK globe
+    // switch is SYSTEM-WIDE): imed writes `input.keymap` to settingsd — a
+    // SEND clone of the settings request endpoint PINNED to slot 8, plus a
+    // private reply inbox (RECV slot 9 / SEND slot 10; imed clones + moves
+    // the SEND per OP_SET — mint→grant, zero accumulation).
+    if let Some(settings_req) = settings_req {
+        let granted = nexus_abi::cap_clone(settings_req)
+            .ok()
+            .and_then(|clone| nexus_abi::cap_transfer_to_slot(pid, clone, Rights::SEND, 8).ok());
+        let reply = nexus_abi::ipc_endpoint_create_for(
+            crate::os_payload::ENDPOINT_FACTORY_CAP_SLOT,
+            pid,
+            4,
+        )
+        .ok()
+        .and_then(|ep| {
+            let recv = nexus_abi::cap_transfer_to_slot(pid, ep, Rights::RECV, 9).ok();
+            let send = nexus_abi::cap_transfer_to_slot(pid, ep, Rights::SEND, 10).ok();
+            let _ = nexus_abi::cap_close(ep);
+            recv.and(send)
+        });
+        if granted.is_some() && reply.is_some() {
+            debug_write_bytes(b"init: imed route->settingsd ok\n");
+        } else {
+            debug_write_bytes(b"init: imed route->settingsd FAIL\n");
+        }
     }
 }
 

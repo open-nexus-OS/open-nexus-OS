@@ -1,16 +1,21 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// OSK state (RFC-0075 Phase 2/3): the layout cycle (globe key — de → us →
-// jp → kr → zh; each switch also retargets imed's composition engine via
-// svc.ime.layout) and the composition strip (preedit + candidate page,
-// pushed by windowd as ImeStripEvent). Taps flow through `svc.ime.*` to
-// imed's DEDICATED osk endpoint — the app never sees the focused field.
+// OSK state (RFC-0075 Phase 8b): the rows are DATA from the keymaps SSOT —
+// `KeymapEvent::Changed` (windowd region push, follows `input.keymap`)
+// reloads them via `svc.ime.rows`; adding a language never adds a branch
+// here. The globe key cycles the SYSTEM layout (`svc.ime.layout` → imed
+// persists `input.keymap`; the change comes BACK as KeymapEvent — the
+// store never guesses). The strip mirrors imed's preedit/candidate pushes.
 
 Store OskStore {
-    layout: Str = "de",
+    keymap: Str = "",
     sent: Int = 0,
     preedit: Str = "",
+    row0: List<OskKey> = [],
+    row1: List<OskKey> = [],
+    row2: List<OskKey> = [],
+    row3: List<OskKey> = [],
     c1: Str = "",
     c2: Str = "",
     c3: Str = "",
@@ -24,10 +29,18 @@ Store OskStore {
 Event OskEvent {
     Key(Str),
     Action(Str),
-    SetLayout(Str),
+    CycleLayout,
     Select(Int),
     Sent(Bool),
     SendFailed(Int),
+    Rows0(List<OskKey>),
+    Rows1(List<OskKey>),
+    Rows2(List<OskKey>),
+    Rows3(List<OskKey>),
+}
+
+Event KeymapEvent {
+    Changed(Str),
 }
 
 Event ImeStripEvent {
@@ -38,8 +51,25 @@ Event ImeStripEvent {
 reduce OskEvent {
     Key(k) => state.sent = state.sent,
     Action(a) => state.sent = state.sent,
-    SetLayout(l) => {
-        state.layout = l;
+    CycleLayout => state.sent = state.sent,
+    Select(i) => state.sent = state.sent,
+    Sent(ok) => {
+        if ok {
+            state.sent = state.sent + 1;
+        } else {
+            state.sent = state.sent;
+        }
+    },
+    SendFailed(e) => state.sent = state.sent,
+    Rows0(rows) => state.row0 = rows,
+    Rows1(rows) => state.row1 = rows,
+    Rows2(rows) => state.row2 = rows,
+    Rows3(rows) => state.row3 = rows,
+}
+
+reduce KeymapEvent {
+    Changed(tag) => {
+        state.keymap = tag;
         state.preedit = "";
         state.c1 = "";
         state.c2 = "";
@@ -50,15 +80,6 @@ reduce OskEvent {
         state.c7 = "";
         state.c8 = "";
     },
-    Select(i) => state.sent = state.sent,
-    Sent(ok) => {
-        if ok {
-            state.sent = state.sent + 1;
-        } else {
-            state.sent = state.sent;
-        }
-    },
-    SendFailed(e) => state.sent = state.sent,
 }
 
 reduce ImeStripEvent {
@@ -73,6 +94,25 @@ reduce ImeStripEvent {
         state.c7 = g;
         state.c8 = h;
     },
+}
+
+@effect on Changed(tag) {
+    match svc.ime.rows(tag, 0, timeoutMs: 250) {
+        Ok(rows) => dispatch(Rows0(rows)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+    match svc.ime.rows(tag, 1, timeoutMs: 250) {
+        Ok(rows) => dispatch(Rows1(rows)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+    match svc.ime.rows(tag, 2, timeoutMs: 250) {
+        Ok(rows) => dispatch(Rows2(rows)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+    match svc.ime.rows(tag, 3, timeoutMs: 250) {
+        Ok(rows) => dispatch(Rows3(rows)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
 }
 
 @effect on Key(k) {
@@ -96,8 +136,8 @@ reduce ImeStripEvent {
     }
 }
 
-@effect on SetLayout(l) {
-    match svc.ime.layout(l, timeoutMs: 100) {
+@effect on CycleLayout {
+    match svc.ime.cycle(state.keymap, timeoutMs: 100) {
         Ok(ok) => dispatch(Sent(ok)),
         Err(e) => dispatch(SendFailed(e)),
     }

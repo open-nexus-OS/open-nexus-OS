@@ -268,7 +268,7 @@ mod probe {
         };
         let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
         if let (Some(dsl), Some(r)) = (app.as_mut(), boot_region.take()) {
-            let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz);
+            let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
         }
         // WebRender scroll band geometry — ONLY for a floating windowed app that
         // actually scrolls (desktop/fullscreen surfaces keep the plain path; the
@@ -360,7 +360,8 @@ mod probe {
             create_footer_h,
         );
         send_retry_cap(&client, &create, clone)?;
-        let mut surface_id = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect)?;
+        let mut surface_id =
+            recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect, &mut boot_region)?;
         if let Some(dsl) = app.as_mut() {
             dsl.set_surface_id(surface_id);
         }
@@ -372,7 +373,7 @@ mod probe {
         let mut buf = [0u8; wire::SURFACE_PRESENT_MAX_LEN];
         let len = wire::encode_surface_present(surface_id, 1, &damage, &mut buf);
         send_retry(&client, &buf[..len])?;
-        let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT, &mut pending_rect)?;
+        let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT, &mut pending_rect, &mut boot_region)?;
         raw_marker("APPHOST: probe surface presented");
         // R1 layer seam: declare the initial glass regions to windowd.
         if let Some(dsl) = app.as_ref() {
@@ -771,10 +772,10 @@ mod probe {
                         }
                     }
                 }
-            } else if let Some((hf, loc, tzv)) =
+            } else if let Some((hf, loc, tzv, km)) =
                 nexus_display_proto::surface_text::decode_surface_region(&event_frame[..len])
             {
-                if app.as_mut().is_some_and(|d| d.apply_region(hf, loc, tzv)) {
+                if app.as_mut().is_some_and(|d| d.apply_region(hf, loc, tzv, km)) {
                     dirty = true;
                     dirty_rows = None; // region change: full repaint
                 }
@@ -870,9 +871,17 @@ mod probe {
                             rc_footer_h,
                         );
                         if send_retry_cap(&client, &create, clone).is_ok() {
-                            if let Ok(id) =
-                                recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect)
-                            {
+                            let mut late_region: Option<boot::RegionPush> = None;
+                            let ack = recv_ack(
+                                &events,
+                                wire::OP_SURFACE_CREATE,
+                                &mut pending_rect,
+                                &mut late_region,
+                            );
+                            if let (Some(dsl), Some(r)) = (app.as_mut(), late_region.take()) {
+                                let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
+                            }
+                            if let Ok(id) = ack {
                                 surface_id = id;
                                 if let Some(dsl) = app.as_mut() {
                                     dsl.set_surface_id(id);
@@ -1019,6 +1028,8 @@ mod probe {
         active_catalog: Option<usize>,
         /// The last region-pushed locale tag (e.g. `de-DE`).
         locale_tag: alloc::string::String,
+        /// The active keymap layout tag (`us`/`de`/… — `device.keymap`).
+        keymap: alloc::string::String,
         /// Clock state (RFC-0076, `probe/clock.rs`): tz, format, next wait.
         clock_tz: alloc::string::String,
         clock_hour24: bool,
@@ -1113,7 +1124,7 @@ mod probe {
             let tokens = tokens_for(theme_mode);
             // The pushed shell profile IS the device env: `device.profile`
             // selects the platform override arms (tablet base / desktop).
-            let device = device_for(shell_profile, w);
+            let device = device_for(shell_profile, w, "", "");
             let mut view = {
                 let locale = IdentityLocale { symbols: &symbols, keys: &keys };
                 View::mount(nxir, tokens, &device, &locale).ok()?
@@ -1170,6 +1181,7 @@ mod probe {
                 catalogs,
                 active_catalog: None,
                 locale_tag: alloc::string::String::new(),
+                keymap: alloc::string::String::new(),
                 clock_tz: alloc::string::String::from("Europe/Berlin"),
                 clock_hour24: true,
                 clock_next_wait_ms: 1_000,

@@ -68,7 +68,9 @@ pub(crate) fn raw_marker(line: &str) {
 /// record shapes need (resolved once from the program's symbol table).
 pub(crate) struct AppEffectHost {
     id_sym: Option<u32>,
-    label_sym: Option<u32>,
+    pub(crate) label_sym: Option<u32>,
+    pub(crate) key_sym: Option<u32>,
+    pub(crate) action_sym: Option<u32>,
     icon_sym: Option<u32>,
     /// App-icon artwork gradient stops (`iconTop`/`iconBottom`), split from
     /// the manifest's packed `icon = "symbol|#top|#bottom"` (design-handoff
@@ -165,6 +167,8 @@ impl AppEffectHost {
         Self {
             id_sym: symbols.iter().position(|s| s == "id").map(|i| i as u32),
             label_sym: symbols.iter().position(|s| s == "label").map(|i| i as u32),
+            key_sym: symbols.iter().position(|s| s == "key").map(|i| i as u32),
+            action_sym: symbols.iter().position(|s| s == "action").map(|i| i as u32),
             icon_sym: symbols.iter().position(|s| s == "icon").map(|i| i as u32),
             icon_top_sym: symbols.iter().position(|s| s == "iconTop").map(|i| i as u32),
             icon_bottom_sym: symbols.iter().position(|s| s == "iconBottom").map(|i| i as u32),
@@ -860,6 +864,12 @@ impl EffectHost for AppEffectHost {
             }
             ("ime", "layout") => {
                 self.ime_layout(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?)
+            }
+            ("ime", "cycle") => self.ime_cycle(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?),
+            ("ime", "rows") => {
+                let layout = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                let row = args.get(1).and_then(int_of).ok_or(ERR_SVC_SHAPE)?;
+                self.ime_rows(layout, row)
             }
             ("session", "login") => {
                 let user = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;

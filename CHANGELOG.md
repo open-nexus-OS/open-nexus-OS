@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-22 (night, 8b)
+
+#### IME v2 Phase 8b (RFC-0075): data-driven OSK layouts + region env axes
+
+- **180 languages ≠ 180 `if` trees**: the OSK rows are DATA —
+  `keymaps::osk_rows(LayoutId, row) → &[OskKey{label,key,action}]` is the
+  layout SSOT (KR shows jamo labels over the 2-set Latin keys it
+  dispatches; jp/zh share the us rows), served to the app as
+  `svc.ime.rows(layout, row) → List<OskKey>` (app-host answers natively).
+  The ime-ui renders four `List(...)` templates (the launcher-grid
+  mechanism — a new KeyRow primitive was evaluated and REJECTED as
+  accidental complexity); its per-layout view branches are gone.
+- **`device.locale` / `device.keymap` env axes** (DEVICE_FIELDS rows 7/8,
+  runtime-varying `FixtureEnv` String fields): string-equality arms for the
+  RARE structural cases, re-selected on reemit like a size-class change.
+  `OP_SURFACE_REGION` carries the keymap tag as an OPTIONAL trailing field
+  (old frames decode with an empty tag); windowd holds a third watch
+  subscription (`input.keymap`, second cloned push cap).
+- **Globe = system-wide layout switch (user decision)**:
+  `svc.ime.cycle(current)` (cycle order = platform data) → imed sets the
+  engine AND persists `input.keymap` via a new settingsd route (init-wired
+  slots 8/9/10, private reply inbox, mint→grant per request; cycle guard —
+  the inputd relay of the same tag never re-writes). settingsd stays the
+  SSOT: Settings picker, hardware keymap, engine and every OSK follow.
+  `KeymapEvent::Changed(tag)` (region-push driven) reloads the rows.
+- **Fix found on the way**: the create/present ack waits (`recv_ack`)
+  DROPPED the attach-time region push for LAUNCHED window apps — the
+  chat-app "English despite de-DE" gap. All three pre-loop drains now
+  stash region pushes; the recreate path applies them.
+- Splits: dsl-runtime `fixture_env.rs`.
+
 ### Added - 2026-07-22 (night)
 
 #### IME v2 Phase 3 (RFC-0075, TASK-0150): candidate strip + CJK OSK, OS

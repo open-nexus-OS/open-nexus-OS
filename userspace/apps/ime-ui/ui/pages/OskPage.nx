@@ -1,13 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The on-screen keyboard surface (RFC-0075 Phase 2/3): a chromeless OVERLAY
+// The on-screen keyboard surface (RFC-0075 Phase 8b): a chromeless OVERLAY
 // window docked by windowd to the bottom display edge. Top line = the
-// composition STRIP (preedit + up to 8 candidates; tap commits). Layouts:
-// de/us letter rows; jp/zh reuse the us rows (romaji/pinyin input — the
-// engine composes); kr shows 2-set jamo labels and dispatches the Latin
-// keys the engine maps. The globe key cycles de → us → jp → kr → zh and
-// retargets imed's engine (svc.ime.layout). Shift/uppercase = follow-up.
+// composition STRIP (preedit + up to 8 candidates; tap commits). The key
+// rows are pure DATA (`svc.ime.rows` from the keymaps SSOT, reloaded on
+// `KeymapEvent::Changed`) — 180 languages are 180 data tables, never an
+// `if` tree here. The globe key cycles the SYSTEM layout (order = platform
+// data); the change round-trips through settingsd and comes back as the
+// next KeymapEvent.
 
 Window {
     style: plain,
@@ -92,294 +93,65 @@ Page OskPage {
         .gap(1)
         .align(center)
         .height(24)
+        List($state.row0) { cell in
+            Stack {
+                Button { label: cell.label }
+            }
+            .key(cell.label)
+            on Tap -> dispatch(Key(cell.key))
+        }
+        .direction(row)
+        .gap(1)
+        .justify(center)
+        List($state.row1) { cell in
+            Stack {
+                Button { label: cell.label }
+            }
+            .key(cell.label)
+            on Tap -> dispatch(Key(cell.key))
+        }
+        .direction(row)
+        .gap(1)
+        .justify(center)
+        List($state.row2) { cell in
+            Stack {
+                Button { label: cell.label }
+            }
+            .key(cell.label)
+            on Tap -> dispatch(Key(cell.key))
+        }
+        .direction(row)
+        .gap(1)
+        .justify(center)
         Stack {
-            Button { label: "1" }
-            on Tap -> dispatch(Key("1"))
-            Button { label: "2" }
-            on Tap -> dispatch(Key("2"))
-            Button { label: "3" }
-            on Tap -> dispatch(Key("3"))
-            Button { label: "4" }
-            on Tap -> dispatch(Key("4"))
-            Button { label: "5" }
-            on Tap -> dispatch(Key("5"))
-            Button { label: "6" }
-            on Tap -> dispatch(Key("6"))
-            Button { label: "7" }
-            on Tap -> dispatch(Key("7"))
-            Button { label: "8" }
-            on Tap -> dispatch(Key("8"))
-            Button { label: "9" }
-            on Tap -> dispatch(Key("9"))
-            Button { label: "0" }
-            on Tap -> dispatch(Key("0"))
+            List($state.row3) { cell in
+                Stack {
+                    if cell.action == "" {
+                        Stack {
+                            Button { label: cell.label }
+                        }
+                        on Tap -> dispatch(Key(cell.key))
+                    } else {
+                        Stack {
+                            Button { label: cell.label }
+                        }
+                        on Tap -> dispatch(Action(cell.action))
+                    }
+                }
+                .key(cell.label)
+            }
+            .direction(row)
+            .gap(1)
+            .justify(center)
         }
         .direction(row)
         .gap(1)
         .align(center)
-        if $state.layout == "de" {
-            Stack {
-                Stack {
-                    Button { label: "q" }
-                    on Tap -> dispatch(Key("q"))
-                    Button { label: "w" }
-                    on Tap -> dispatch(Key("w"))
-                    Button { label: "e" }
-                    on Tap -> dispatch(Key("e"))
-                    Button { label: "r" }
-                    on Tap -> dispatch(Key("r"))
-                    Button { label: "t" }
-                    on Tap -> dispatch(Key("t"))
-                    Button { label: "z" }
-                    on Tap -> dispatch(Key("z"))
-                    Button { label: "u" }
-                    on Tap -> dispatch(Key("u"))
-                    Button { label: "i" }
-                    on Tap -> dispatch(Key("i"))
-                    Button { label: "o" }
-                    on Tap -> dispatch(Key("o"))
-                    Button { label: "p" }
-                    on Tap -> dispatch(Key("p"))
-                    Button { label: "ü" }
-                    on Tap -> dispatch(Key("ü"))
-                }
-                .direction(row)
-                .gap(1)
-                .align(center)
-                Stack {
-                    Button { label: "a" }
-                    on Tap -> dispatch(Key("a"))
-                    Button { label: "s" }
-                    on Tap -> dispatch(Key("s"))
-                    Button { label: "d" }
-                    on Tap -> dispatch(Key("d"))
-                    Button { label: "f" }
-                    on Tap -> dispatch(Key("f"))
-                    Button { label: "g" }
-                    on Tap -> dispatch(Key("g"))
-                    Button { label: "h" }
-                    on Tap -> dispatch(Key("h"))
-                    Button { label: "j" }
-                    on Tap -> dispatch(Key("j"))
-                    Button { label: "k" }
-                    on Tap -> dispatch(Key("k"))
-                    Button { label: "l" }
-                    on Tap -> dispatch(Key("l"))
-                    Button { label: "ö" }
-                    on Tap -> dispatch(Key("ö"))
-                    Button { label: "ä" }
-                    on Tap -> dispatch(Key("ä"))
-                }
-                .direction(row)
-                .gap(1)
-                .align(center)
-                Stack {
-                    Button { label: "y" }
-                    on Tap -> dispatch(Key("y"))
-                    Button { label: "x" }
-                    on Tap -> dispatch(Key("x"))
-                    Button { label: "c" }
-                    on Tap -> dispatch(Key("c"))
-                    Button { label: "v" }
-                    on Tap -> dispatch(Key("v"))
-                    Button { label: "b" }
-                    on Tap -> dispatch(Key("b"))
-                    Button { label: "n" }
-                    on Tap -> dispatch(Key("n"))
-                    Button { label: "m" }
-                    on Tap -> dispatch(Key("m"))
-                    Button { label: "ß" }
-                    on Tap -> dispatch(Key("ß"))
-                    Button { label: "⌫" }
-                    on Tap -> dispatch(Action("backspace"))
-                }
-                .direction(row)
-                .gap(1)
-                .align(center)
-            }
-            .gap(1)
-        } else {
-            if $state.layout == "kr" {
-                Stack {
-                    Stack {
-                        Button { label: "ㅂ" }
-                        on Tap -> dispatch(Key("q"))
-                        Button { label: "ㅈ" }
-                        on Tap -> dispatch(Key("w"))
-                        Button { label: "ㄷ" }
-                        on Tap -> dispatch(Key("e"))
-                        Button { label: "ㄱ" }
-                        on Tap -> dispatch(Key("r"))
-                        Button { label: "ㅅ" }
-                        on Tap -> dispatch(Key("t"))
-                        Button { label: "ㅛ" }
-                        on Tap -> dispatch(Key("y"))
-                        Button { label: "ㅕ" }
-                        on Tap -> dispatch(Key("u"))
-                        Button { label: "ㅑ" }
-                        on Tap -> dispatch(Key("i"))
-                        Button { label: "ㅐ" }
-                        on Tap -> dispatch(Key("o"))
-                        Button { label: "ㅔ" }
-                        on Tap -> dispatch(Key("p"))
-                    }
-                    .direction(row)
-                    .gap(1)
-                    .align(center)
-                    Stack {
-                        Button { label: "ㅁ" }
-                        on Tap -> dispatch(Key("a"))
-                        Button { label: "ㄴ" }
-                        on Tap -> dispatch(Key("s"))
-                        Button { label: "ㅇ" }
-                        on Tap -> dispatch(Key("d"))
-                        Button { label: "ㄹ" }
-                        on Tap -> dispatch(Key("f"))
-                        Button { label: "ㅎ" }
-                        on Tap -> dispatch(Key("g"))
-                        Button { label: "ㅗ" }
-                        on Tap -> dispatch(Key("h"))
-                        Button { label: "ㅓ" }
-                        on Tap -> dispatch(Key("j"))
-                        Button { label: "ㅏ" }
-                        on Tap -> dispatch(Key("k"))
-                        Button { label: "ㅣ" }
-                        on Tap -> dispatch(Key("l"))
-                    }
-                    .direction(row)
-                    .gap(1)
-                    .align(center)
-                    Stack {
-                        Button { label: "ㅋ" }
-                        on Tap -> dispatch(Key("z"))
-                        Button { label: "ㅌ" }
-                        on Tap -> dispatch(Key("x"))
-                        Button { label: "ㅊ" }
-                        on Tap -> dispatch(Key("c"))
-                        Button { label: "ㅍ" }
-                        on Tap -> dispatch(Key("v"))
-                        Button { label: "ㅠ" }
-                        on Tap -> dispatch(Key("b"))
-                        Button { label: "ㅜ" }
-                        on Tap -> dispatch(Key("n"))
-                        Button { label: "ㅡ" }
-                        on Tap -> dispatch(Key("m"))
-                        Button { label: "⌫" }
-                        on Tap -> dispatch(Action("backspace"))
-                    }
-                    .direction(row)
-                    .gap(1)
-                    .align(center)
-                }
-                .gap(1)
-            } else {
-                Stack {
-                    Stack {
-                        Button { label: "q" }
-                        on Tap -> dispatch(Key("q"))
-                        Button { label: "w" }
-                        on Tap -> dispatch(Key("w"))
-                        Button { label: "e" }
-                        on Tap -> dispatch(Key("e"))
-                        Button { label: "r" }
-                        on Tap -> dispatch(Key("r"))
-                        Button { label: "t" }
-                        on Tap -> dispatch(Key("t"))
-                        Button { label: "y" }
-                        on Tap -> dispatch(Key("y"))
-                        Button { label: "u" }
-                        on Tap -> dispatch(Key("u"))
-                        Button { label: "i" }
-                        on Tap -> dispatch(Key("i"))
-                        Button { label: "o" }
-                        on Tap -> dispatch(Key("o"))
-                        Button { label: "p" }
-                        on Tap -> dispatch(Key("p"))
-                    }
-                    .direction(row)
-                    .gap(1)
-                    .align(center)
-                    Stack {
-                        Button { label: "a" }
-                        on Tap -> dispatch(Key("a"))
-                        Button { label: "s" }
-                        on Tap -> dispatch(Key("s"))
-                        Button { label: "d" }
-                        on Tap -> dispatch(Key("d"))
-                        Button { label: "f" }
-                        on Tap -> dispatch(Key("f"))
-                        Button { label: "g" }
-                        on Tap -> dispatch(Key("g"))
-                        Button { label: "h" }
-                        on Tap -> dispatch(Key("h"))
-                        Button { label: "j" }
-                        on Tap -> dispatch(Key("j"))
-                        Button { label: "k" }
-                        on Tap -> dispatch(Key("k"))
-                        Button { label: "l" }
-                        on Tap -> dispatch(Key("l"))
-                    }
-                    .direction(row)
-                    .gap(1)
-                    .align(center)
-                    Stack {
-                        Button { label: "z" }
-                        on Tap -> dispatch(Key("z"))
-                        Button { label: "x" }
-                        on Tap -> dispatch(Key("x"))
-                        Button { label: "c" }
-                        on Tap -> dispatch(Key("c"))
-                        Button { label: "v" }
-                        on Tap -> dispatch(Key("v"))
-                        Button { label: "b" }
-                        on Tap -> dispatch(Key("b"))
-                        Button { label: "n" }
-                        on Tap -> dispatch(Key("n"))
-                        Button { label: "m" }
-                        on Tap -> dispatch(Key("m"))
-                        Button { label: "⌫" }
-                        on Tap -> dispatch(Action("backspace"))
-                    }
-                    .direction(row)
-                    .gap(1)
-                    .align(center)
-                }
-                .gap(1)
-            }
-        }
         Stack {
-            if $state.layout == "de" {
-                Stack {
-                    Button { label: "🌐 DE" }
-                }
-                on Tap -> dispatch(SetLayout("us"))
-            } else {
-                if $state.layout == "us" {
-                    Stack {
-                        Button { label: "🌐 EN" }
-                    }
-                    on Tap -> dispatch(SetLayout("jp"))
-                } else {
-                    if $state.layout == "jp" {
-                        Stack {
-                            Button { label: "🌐 あ" }
-                        }
-                        on Tap -> dispatch(SetLayout("kr"))
-                    } else {
-                        if $state.layout == "kr" {
-                            Stack {
-                                Button { label: "🌐 한" }
-                            }
-                            on Tap -> dispatch(SetLayout("zh"))
-                        } else {
-                            Stack {
-                                Button { label: "🌐 拼" }
-                            }
-                            on Tap -> dispatch(SetLayout("de"))
-                        }
-                    }
-                }
+            Stack {
+                Button { label: $state.keymap }
             }
+            on Tap -> dispatch(CycleLayout)
             Stack {
                 Button { label: @t("osk.space") }
                 on Tap -> dispatch(Key(" "))

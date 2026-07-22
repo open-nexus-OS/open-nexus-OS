@@ -352,15 +352,13 @@ fn cmd_run(args: &[String]) -> ExitCode {
         "desktop" => nexus_dsl_runtime::FixtureEnv::desktop(),
         "phone" => nexus_dsl_runtime::FixtureEnv::phone("portrait"),
         "tablet" => nexus_dsl_runtime::FixtureEnv::tablet("landscape"),
-        "tv" => nexus_dsl_runtime::FixtureEnv {
-            profile: "tv",
-            posture: "",
-            orientation: "landscape",
-            shell_mode: "tv",
-            size_class: "wide",
-            dpi_class: "normal",
-            input: &["remote"],
-        },
+        "tv" => {
+            let mut env = nexus_dsl_runtime::FixtureEnv::desktop();
+            env.profile = "tv";
+            env.shell_mode = "tv";
+            env.input = &["remote"];
+            env
+        }
         other => {
             eprintln!("nx-dsl run: unknown profile `{other}`");
             return ExitCode::from(2);

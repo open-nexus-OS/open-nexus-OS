@@ -374,6 +374,10 @@ pub const DEVICE_FIELDS: &[(&str, &[&str])] = &[
     ("sizeClass", &["compact", "regular", "wide"]),
     ("dpiClass", &["low", "normal", "high"]),
     ("input", &["touch", "mouse", "kbd", "remote", "rotary"]),
+    // Region axes (RFC-0075/0077 Phase 8b): free-form strings (BCP-47-ish
+    // locale tag / keymap layout tag) — no enum vocabulary, like shellMode.
+    ("locale", &[]),
+    ("keymap", &[]),
 ];
 
 #[must_use]

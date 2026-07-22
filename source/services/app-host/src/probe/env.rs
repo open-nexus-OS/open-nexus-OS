@@ -87,9 +87,14 @@ pub(crate) fn size_class_for(w: u32) -> &'static str {
 /// select to the environment's windowing policy. Touch profiles derive
 /// `device.sizeClass` from the REAL surface width (the handoff's `vw`
 /// axis); desktop mode ignores width (one taskbar layout).
-pub(crate) fn device_for(profile: u8, w: u32) -> nexus_dsl_runtime::FixtureEnv {
+pub(crate) fn device_for(
+    profile: u8,
+    w: u32,
+    locale: &str,
+    keymap: &str,
+) -> nexus_dsl_runtime::FixtureEnv {
     use nexus_dsl_runtime::FixtureEnv;
-    match profile {
+    let mut env = match profile {
         wire::PROFILE_DESKTOP => FixtureEnv::desktop(),
         profile => {
             let mut env = if profile == wire::PROFILE_PHONE {
@@ -101,5 +106,10 @@ pub(crate) fn device_for(profile: u8, w: u32) -> nexus_dsl_runtime::FixtureEnv {
             env.size_class = size_class_for(w);
             env
         }
-    }
+    };
+    // Region axes (RFC-0075 Phase 8b): runtime-varying, from the windowd
+    // region push — `if device.locale/keymap` arms re-select on reemit.
+    env.locale = alloc::string::String::from(locale);
+    env.keymap = alloc::string::String::from(keymap);
+    env
 }

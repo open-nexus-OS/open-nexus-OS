@@ -97,6 +97,9 @@ pub struct KeyPushes {
 #[derive(Debug)]
 pub struct ImedCore {
     engine: Engine,
+    /// The active layout tag (cycle guard for OSK-driven persistence).
+    layout: [u8; 8],
+    layout_len: u8,
     focus: Option<FocusState>,
     /// Non-empty preedit/candidates were pushed — an empty snapshot must
     /// follow once to CLEAR the strip (then stop pushing empties).
@@ -119,7 +122,19 @@ pub struct StepEcho {
 impl ImedCore {
     #[must_use]
     pub fn new() -> Self {
-        Self { engine: Engine::new(EngineId::Latin), focus: None, strip_dirty: false }
+        Self {
+            engine: Engine::new(EngineId::Latin),
+            layout: [0; 8],
+            layout_len: 0,
+            focus: None,
+            strip_dirty: false,
+        }
+    }
+
+    /// The last applied layout tag (empty until the first switch).
+    #[must_use]
+    pub fn layout_tag(&self) -> &str {
+        core::str::from_utf8(&self.layout[..usize::from(self.layout_len)]).unwrap_or("")
     }
 
     #[must_use]
@@ -132,6 +147,10 @@ impl ImedCore {
     pub fn set_layout(&mut self, layout: &str) {
         self.engine = Engine::new(EngineId::for_layout(layout));
         self.strip_dirty = false;
+        let b = layout.as_bytes();
+        let n = b.len().min(self.layout.len());
+        self.layout[..n].copy_from_slice(&b[..n]);
+        self.layout_len = n as u8;
     }
 
     /// Applies a windowd focus relay. Any focus TRANSITION cancels pending
