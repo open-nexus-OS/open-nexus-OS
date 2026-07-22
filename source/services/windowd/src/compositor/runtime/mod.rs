@@ -240,10 +240,9 @@ pub(crate) struct AppWindowSlot {
     /// of the scroll position: a wheel notch shifts the gpud layer `src_row`
     /// (`OP_SET_LAYER_SCROLL`) instead of the app re-rendering per frame.
     pub(crate) scroll_id: u32,
-    /// Scroll band geometry from `SURFACE_CREATE` (surface rows): the tall
-    /// resident-content height, and the fixed top/bottom chrome heights the app
-    /// packed into the band (chat: Toolbar / composer). `content_h == 0` ⇒ not
-    /// scrollable.
+    /// Scroll band geometry from `SURFACE_CREATE` (surface rows): tall
+    /// resident-content height + fixed top/bottom chrome heights the app
+    /// packed into the band. `content_h == 0` ⇒ not scrollable.
     pub(crate) content_h: u32,
     pub(crate) header_h: u32,
     pub(crate) footer_h: u32,
@@ -251,29 +250,27 @@ pub(crate) struct AppWindowSlot {
     /// `content_h - visible_body_h`; drives the `src_row` override.
     pub(crate) scroll_rows: u32,
     /// Per-slot scroll physics (reused `animation::ScrollMomentum`): a wheel
-    /// notch extends a target the offset eases toward; the pacer ticks it while
-    /// animating and re-emits `OP_SET_LAYER_SCROLL` each tick (flings without
-    /// the app in the per-frame loop).
+    /// notch extends a target the offset eases toward; the pacer ticks it and
+    /// re-emits `OP_SET_LAYER_SCROLL` (flings without the app in the loop).
     pub(crate) scroll_momentum: ScrollMomentum,
     /// Last scroll-physics tick (ns) for dt integration.
     pub(crate) scroll_last_ns: u64,
     /// Damage-bounded band blit (ADR-0042, the 120Hz damage contract): union
     /// of the client's presented damage rows (surface/body coords, end
-    /// exclusive) still to blit. `None` = FULL body re-blit (a present with no
-    /// rects, resize, scrollable band). `render_app_surface` copies only these
-    /// rows out of the client VMO — a 16-row animation present costs 16
-    /// row-copies, not the whole window body + title chrome re-raster.
+    /// exclusive) still to blit; `None` = FULL body re-blit.
+    /// `render_app_surface` copies only these rows out of the client VMO.
     pub(crate) surface_dirty_rows: Option<(u32, u32)>,
-    /// Track C3: the window's CURRENT animated whole-layer transform (window
-    /// transitions — open/close/minimize). Identity at rest; windowd's own
-    /// `AnimationDriver` interpolates it and each tick emits ONE
-    /// `OP_SET_LAYER_TRANSFORM` (gpud records + re-composites, no re-render).
-    /// Full presents BAKE translate+opacity into the encoded layer (gpud
-    /// clears its override table then — the scroll snap-back contract).
+    /// Track C3: the window's CURRENT animated whole-layer transform
+    /// (open/close/minimize). Identity at rest; the `AnimationDriver` ticks
+    /// it, each tick emits ONE `OP_SET_LAYER_TRANSFORM` (no re-render). Full
+    /// presents BAKE translate+opacity into the encoded layer (gpud clears
+    /// its override table then — the scroll snap-back contract).
     pub(crate) transform: WinTransform,
     /// Deferred WM action executed when the transition converges (close
     /// after fade-out, minimize after fly-to-dock).
     pub(crate) pending_wm: Option<PendingWm>,
+    /// `OP_SURFACE_CURSOR_HINT` shape while the pointer hovers the body.
+    pub(crate) cursor_hint: u8,
 }
 
 /// A window's animated whole-layer transform (identity = no visible change).
@@ -345,6 +342,7 @@ impl AppWindowSlot {
             surface_dirty_rows: None,
             transform: WinTransform::IDENTITY,
             pending_wm: None,
+            cursor_hint: 0,
         }
     }
 }
@@ -533,11 +531,12 @@ pub(crate) struct DisplayServerRuntime {
     event_channels: [(u64, u32); 8],
     #[cfg(nexus_env = "os")]
     event_channels_len: usize,
-    /// The DESKTOP surface (RFC-0065 Umbau #17): the shell/greeter app-host that
-    /// declared `level: desktop`. Own slot — id, event channel, full-screen
-    /// atlas band, dirty flag — fully separate from the floating `app_win`
-    /// (counter), so both coexist. Composited as the base layer (bottom z-band).
+    /// The DESKTOP surface (RFC-0065 Umbau #17): the shell/greeter app-host
+    /// that declared `level: desktop`. Own slot — fully separate from the
+    /// floating `app_win`; composited as the base layer (bottom z-band).
     desktop_surface_id: Option<u32>,
+    /// Cursor hint of the DESKTOP surface (greeter/shell text fields).
+    desktop_cursor_hint: u8,
     #[cfg(nexus_env = "os")]
     desktop_channel: Option<u32>,
     /// Nonce of a desktop surface whose event-channel attach raced BEHIND its
@@ -906,6 +905,7 @@ impl DisplayServerRuntime {
             #[cfg(nexus_env = "os")]
             event_channels_len: 0,
             desktop_surface_id: None,
+            desktop_cursor_hint: 0,
             #[cfg(nexus_env = "os")]
             desktop_channel: None,
             #[cfg(nexus_env = "os")]

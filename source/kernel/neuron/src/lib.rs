@@ -71,8 +71,14 @@ use spin::Mutex;
 // Kernel heap backs page-table allocations, kernel stacks, and early bring-up metadata.
 // NOTE: This region lives in `.bss.heap` and must not overlap the page-table pool range.
 // Keep it large enough to avoid ALLOC-FAIL during bring-up selftests, but below the pool base.
+// 2 MiB → 8 MiB (2026-07-22, RFC-0075 Phase 8d fallout): page tables are
+// heap-backed and each app maps a larger image now (CJK atlases) — a live
+// session PANICked (ALLOC-FAIL, heap full at ~20 address spaces) on its 6th
+// app launch. Dead apps also keep their AS until a parent WAITs (zombie
+// reap is follow-up #29) — the grown heap is the bridge, the reaper is the
+// fix. Image headroom to the page-pool window is CI-checked (`layout ok`).
 #[cfg(target_os = "none")]
-const HEAP_SIZE: usize = 2048 * 1024; // 2.00 MiB
+const HEAP_SIZE: usize = 8192 * 1024; // 8.00 MiB
 
 #[cfg(target_os = "none")]
 #[repr(align(4096))]

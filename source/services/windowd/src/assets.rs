@@ -49,6 +49,9 @@ pub const CURSOR_RESIZE_NESW_BGRA: &[u8] = generated::CURSOR_RESIZE_NESW_BGRA;
 pub const CURSOR_RESIZE_NWSE_BGRA: &[u8] = generated::CURSOR_RESIZE_NWSE_BGRA;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const CURSOR_RESIZE_HOTSPOT: i32 = 16;
+/// Text I-beam (RFC-0075 cursor-hint): same theme/pipeline, hotspot = center.
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+pub const CURSOR_TEXT_BGRA: &[u8] = generated::CURSOR_TEXT_BGRA;
 /// Loading-ring wait-cursor frames (animated wait cursor): 32×32 premultiplied
 /// BGRA, hotspot = center, one sprite per ring rotation step.
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]

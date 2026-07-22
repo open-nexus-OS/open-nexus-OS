@@ -299,18 +299,24 @@ impl<R: RouteTarget> InputdService<R> {
             }
             self.update_non_modifier_key_hold(usage, pressed);
             if pressed {
-                let output = self
-                    .keymap
-                    .resolve(usage, self.modifiers.snapshot())
-                    .map_err(InputdError::from)?;
+                // Per-EVENT resilience: fast typing packs several keys into
+                // one batch (chunked hidraw drains), and any `?` here threw
+                // the WHOLE batch away (STATUS_OVERFLOW) — one Ctrl-chord,
+                // unmapped usage, or non-monotonic hidraw timestamp silently
+                // ate every other key ("fast typing loses input"). A key the
+                // layout cannot produce skips ITS event only; repeat arming
+                // is best-effort (it re-arms on the next press).
+                let Ok(output) = self.keymap.resolve(usage, self.modifiers.snapshot()) else {
+                    continue;
+                };
                 let delivery = self
                     .router
                     .route_keyboard(u32::from(event.code().raw()))
                     .map_err(InputdError::from)?;
-                let repeat_key = RepeatKey::new(event.code().raw()).map_err(InputdError::from)?;
-                self.repeat
-                    .press(repeat_key, MonotonicNs::new(event.timestamp().raw()))
-                    .map_err(InputdError::from)?;
+                let Ok(repeat_key) = RepeatKey::new(event.code().raw()) else {
+                    continue;
+                };
+                let _ = self.repeat.press(repeat_key, MonotonicNs::new(event.timestamp().raw()));
                 let dispatch = InputDispatch::Keyboard {
                     delivery,
                     key_code: u32::from(event.code().raw()),

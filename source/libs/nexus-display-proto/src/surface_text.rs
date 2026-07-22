@@ -308,6 +308,47 @@ pub fn decode_ime_state(frame: &[u8]) -> Option<ImeStatePush<'_>> {
     }
 }
 
+/// App → windowd (pointer-cursor hint): the app owns hover semantics INSIDE
+/// its surface (windowd hit-tests only window chrome/edges) — a hint arms the
+/// named shape while the pointer stays over that surface's body, and the app
+/// clears it with `CURSOR_HINT_DEFAULT` on hover-out. Semantic ids (not
+/// windowd shape-cache slots) so the wire stays stable; unknown ids are
+/// rejected by the decoder.
+pub const OP_SURFACE_CURSOR_HINT: u8 = 25;
+
+/// Cursor-hint shape: the platform default pointer.
+pub const CURSOR_HINT_DEFAULT: u8 = 0;
+/// Cursor-hint shape: the text I-beam.
+pub const CURSOR_HINT_TEXT: u8 = 1;
+
+pub const SURFACE_CURSOR_HINT_FRAME_LEN: usize = HEADER_LEN + 5;
+
+/// Encodes a cursor hint for `surface_id`.
+#[must_use]
+pub fn encode_surface_cursor_hint(
+    surface_id: u32,
+    shape: u8,
+) -> [u8; SURFACE_CURSOR_HINT_FRAME_LEN] {
+    let mut f = [0u8; SURFACE_CURSOR_HINT_FRAME_LEN];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_CURSOR_HINT));
+    f[4..8].copy_from_slice(&surface_id.to_le_bytes());
+    f[8] = shape;
+    f
+}
+
+/// `(surface_id, shape)` — fail-closed on length/op/unknown shape.
+#[must_use]
+pub fn decode_surface_cursor_hint(frame: &[u8]) -> Option<(u32, u8)> {
+    if !has_op(frame, OP_SURFACE_CURSOR_HINT) || frame.len() != SURFACE_CURSOR_HINT_FRAME_LEN {
+        return None;
+    }
+    let shape = frame[8];
+    if shape > CURSOR_HINT_TEXT {
+        return None;
+    }
+    Some((u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]), shape))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,6 +374,27 @@ mod tests {
         let mut lying = f;
         lying[5] = 12;
         assert_eq!(decode_surface_region(&lying[..n]), None);
+    }
+
+    #[test]
+    fn surface_cursor_hint_round_trip() {
+        let f = encode_surface_cursor_hint(7, CURSOR_HINT_TEXT);
+        assert_eq!(decode_surface_cursor_hint(&f), Some((7, CURSOR_HINT_TEXT)));
+        let f = encode_surface_cursor_hint(0, CURSOR_HINT_DEFAULT);
+        assert_eq!(decode_surface_cursor_hint(&f), Some((0, CURSOR_HINT_DEFAULT)));
+    }
+
+    #[test]
+    fn test_reject_surface_cursor_hint_malformed() {
+        let f = encode_surface_cursor_hint(7, CURSOR_HINT_TEXT);
+        // Truncation, unknown shape id, wrong op all fail closed.
+        assert_eq!(decode_surface_cursor_hint(&f[..f.len() - 1]), None);
+        let mut bad_shape = f;
+        bad_shape[8] = 9;
+        assert_eq!(decode_surface_cursor_hint(&bad_shape), None);
+        let mut wrong_op = f;
+        wrong_op[3] = OP_SURFACE_INPUT;
+        assert_eq!(decode_surface_cursor_hint(&wrong_op), None);
     }
 
     #[test]

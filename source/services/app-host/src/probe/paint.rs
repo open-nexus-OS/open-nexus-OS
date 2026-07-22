@@ -86,6 +86,10 @@ impl super::DslApp {
             [nexus_scene_raster::NodeAnim::identity(0); super::anim::MAX_EXPANDED_ANIMS];
         let anim_n = self.expand_node_anims(&mut anim_buf);
         let anims = &anim_buf[..anim_n];
+        // Caret v1 (RFC-0075 8c follow-through): the FOCUSED TextField paints
+        // a static 2-px bar after its content (append-only caret model; blink
+        // needs a frame pulse = recorded follow-up). Resolved once per repaint.
+        let caret = self.caret_probe();
         let mut vis_pick = core::mem::take(&mut self.vis_pick);
         let mut vis_anim = core::mem::take(&mut self.vis_anim);
         let mut vis_text = core::mem::take(&mut self.vis_text);
@@ -203,6 +207,11 @@ impl super::DslApp {
                         *font,
                         color,
                     );
+                    if let Some((cnid, cw, ccol)) = caret {
+                        if b.node_id == cnid {
+                            paint_caret_row(&mut row, y_eff, by, bh, bx_glyph, cw, right, ccol);
+                        }
+                    }
                 }
             }
             if vmo_write(vmo, y as usize * row_bytes, &row[..row_bytes]).is_err() {
@@ -262,6 +271,9 @@ impl super::DslApp {
         if row.len() < row_bytes {
             row.resize(row_bytes, 0);
         }
+        // The caret paints on the banded path too (a composer in a fixed
+        // footer is exactly this path).
+        let caret = self.caret_probe();
         // Per-node animation transforms apply on the banded path too (an
         // animated fixed header / a breathing Skeleton in the content) —
         // same snapshot contract as `render_rows`.
@@ -344,6 +356,11 @@ impl super::DslApp {
                         *font,
                         color,
                     );
+                    if let Some((cnid, cw, ccol)) = caret {
+                        if b.node_id == cnid {
+                            paint_caret_row(&mut row, model_y, by, bh, bx_glyph, cw, self.w, ccol);
+                        }
+                    }
                 }
             }
             if vmo_write(vmo, br as usize * row_bytes, &row[..row_bytes]).is_err() {
@@ -355,5 +372,149 @@ impl super::DslApp {
         self.vis_pick = clipped;
         self.band_pick = unclipped;
         ok
+    }
+
+    /// Caret geometry for the row painters: `(node_id, content_width_px,
+    /// color)` of the focused TextInput — `None` without focus. The focus
+    /// snapshot names the HANDLER box; the input node lives in its subtree
+    /// (same containment contract as `subtree_is_secure`).
+    fn caret_probe(&self) -> Option<(usize, i32, [u8; 4])> {
+        let f = self.view.text_focus()?;
+        let mut idx = 0usize;
+        let (nid, content, font, color) =
+            caret_input(self.view.scene(), &mut idx, f.box_id, false)?;
+        Some((nid, nexus_text_baked::measure(content.chars(), font) as i32, color))
+    }
+}
+
+/// Pre-order text collection (index parallels `LayoutBox::node_id` − 1;
+/// the same three-consumer numbering as windowd's demo mount — do not
+/// reorder emission).
+pub(super) fn collect_texts(
+    node: &nexus_layout_types::LayoutNode,
+    index: &mut usize,
+    out: &mut alloc::vec::Vec<(usize, alloc::string::String, nexus_text_baked::FontSize, [u8; 4])>,
+) {
+    use nexus_layout_types::LayoutNode as N;
+    *index += 1;
+    match node {
+        N::Text(text, _) => {
+            let font = if text.style.font_size.0 >= 15 {
+                nexus_text_baked::FontSize::Body
+            } else {
+                nexus_text_baked::FontSize::Small
+            };
+            let c = text.style.color;
+            out.push((
+                *index,
+                alloc::string::String::from(text.content.as_str()),
+                font,
+                [c.b, c.g, c.r, c.a],
+            ));
+        }
+        N::TextInput(input, _) => {
+            // RFC-0075 Phase 8c: a TextField's typed content (already
+            // bullet-masked for `secure`) — or its dimmed placeholder
+            // while empty. This arm was MISSING: no TextField ever
+            // painted its text (the store/insert side was always fine).
+            let font = if input.style.font_size.0 >= 15 {
+                nexus_text_baked::FontSize::Body
+            } else {
+                nexus_text_baked::FontSize::Small
+            };
+            let c = input.style.color;
+            if !input.content.as_str().is_empty() {
+                out.push((
+                    *index,
+                    alloc::string::String::from(input.content.as_str()),
+                    font,
+                    [c.b, c.g, c.r, c.a],
+                ));
+            } else if let Some(placeholder) = &input.placeholder {
+                // Placeholder at ~55% of the content color (dimmed).
+                let dim = |v: u8| ((u16::from(v) * 140) / 255) as u8;
+                out.push((
+                    *index,
+                    alloc::string::String::from(placeholder.as_str()),
+                    font,
+                    [dim(c.b), dim(c.g), dim(c.r), c.a],
+                ));
+            } else {
+                // Empty field without placeholder: keep an (empty) run —
+                // the caret bar anchors to a paint entry.
+                out.push((*index, alloc::string::String::new(), font, [c.b, c.g, c.r, c.a]));
+            }
+        }
+        N::Stack(_, _, children) | N::Grid(_, _, children) => {
+            for child in children {
+                collect_texts(child, index, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Pre-order walk to the focused TextInput: same traversal/count contract as
+/// `collect_texts` (ids must line up with the paint entries).
+fn caret_input<'a>(
+    node: &'a nexus_layout_types::LayoutNode,
+    index: &mut usize,
+    target: usize,
+    inside: bool,
+) -> Option<(usize, &'a str, nexus_text_baked::FontSize, [u8; 4])> {
+    use nexus_layout_types::LayoutNode as N;
+    *index += 1;
+    let here = *index;
+    let inside = inside || here == target;
+    match node {
+        N::TextInput(input, _) if inside => {
+            let font = if input.style.font_size.0 >= 15 {
+                nexus_text_baked::FontSize::Body
+            } else {
+                nexus_text_baked::FontSize::Small
+            };
+            let c = input.style.color;
+            Some((here, input.content.as_str(), font, [c.b, c.g, c.r, c.a]))
+        }
+        N::Stack(_, _, children) | N::Grid(_, _, children) => {
+            for child in children {
+                if let Some(hit) = caret_input(child, index, target, inside) {
+                    return Some(hit);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Paints the caret's 2-px slice of one row (vertical inset 2 px; clipped to
+/// `right` and the row buffer).
+#[allow(clippy::too_many_arguments)]
+fn paint_caret_row(
+    row: &mut [u8],
+    y: i32,
+    by: i32,
+    bh: i32,
+    bx: i32,
+    content_w: i32,
+    right: u32,
+    color: [u8; 4],
+) {
+    if y < by + 2 || y >= by + bh - 2 {
+        return;
+    }
+    let x = (bx + content_w + 1).max(0);
+    for px in x..x + 2 {
+        if px < 0 || px as u32 >= right {
+            continue;
+        }
+        let o = px as usize * 4;
+        if o + 4 <= row.len() {
+            row[o] = color[0];
+            row[o + 1] = color[1];
+            row[o + 2] = color[2];
+            row[o + 3] = 255;
+        }
     }
 }

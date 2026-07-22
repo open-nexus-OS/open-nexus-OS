@@ -156,6 +156,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "CURSOR_RESIZE_NWSE",
             include_str!("../../../resources/cursors/mocu/src/svg/nwse-resize.svg"),
         ),
+        // Text I-beam (RFC-0075 cursor-hint): hovering an editable field.
+        ("CURSOR_TEXT", include_str!("../../../resources/cursors/mocu/src/svg/text.svg")),
     ] {
         // The theme's shape sources use `<defs>` + `<use>` (unsupported by
         // nexus-svg) — normalize like the default pointer: inline the shared

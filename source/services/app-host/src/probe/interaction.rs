@@ -126,6 +126,35 @@ impl super::DslApp {
         self.hover_span(old, target)
     }
 
+    /// Whether the pointer sits over an editable (Change-bound) field —
+    /// `Some(state)` only on a CHANGE; the caller sends the windowd cursor
+    /// hint then (I-beam over fields, RFC-0075). Same hit-test family as
+    /// tap-to-focus, so hint and focusability can never disagree.
+    pub(super) fn text_hover(&mut self, x: i32, y: i32) -> Option<bool> {
+        let scroll = self.scroll_param();
+        let over = self
+            .view
+            .hover_box_id_scrolled(
+                &self.layout.boxes,
+                "Change",
+                nexus_layout_types::FxPx::new(x),
+                nexus_layout_types::FxPx::new(y),
+                scroll,
+            )
+            .is_some();
+        if over == self.hover_text {
+            return None;
+        }
+        self.hover_text = over;
+        Some(over)
+    }
+
+    /// Pointer left the surface: drop the text-hover latch. Returns whether
+    /// it was set (the caller clears the windowd hint then).
+    pub(super) fn text_hover_clear(&mut self) -> bool {
+        core::mem::replace(&mut self.hover_text, false)
+    }
+
     /// Pointer left the surface (`INPUT_KIND_LEAVE`): clear the wash.
     /// Returns the cleared box's row span for the partial repaint.
     pub(super) fn hover_clear(&mut self) -> Option<(i32, i32)> {

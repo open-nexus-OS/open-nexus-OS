@@ -127,6 +127,26 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// `OP_SURFACE_CURSOR_HINT` from an app: the desired pointer shape while
+    /// the pointer hovers that surface's body (I-beam over editable fields).
+    /// Data-only; the shape re-resolves immediately so a hint under a static
+    /// pointer takes effect without a pointer move.
+    pub(crate) fn handle_surface_cursor_hint(&mut self, frame: &[u8]) {
+        let Some((surface_id, shape)) = surface_text::decode_surface_cursor_hint(frame) else {
+            return;
+        };
+        if self.desktop_surface_id == Some(surface_id) {
+            self.desktop_cursor_hint = shape;
+        } else if let Some(idx) =
+            (0..self.apps.len()).find(|&i| self.apps[i].surface_id == Some(surface_id))
+        {
+            self.apps[idx].cursor_hint = shape;
+        } else {
+            return;
+        }
+        self.update_cursor_shape_for_pointer(self.state.cursor_x, self.state.cursor_y);
+    }
+
     /// Whether app slot `idx` declared the OVERLAY level (the OSK band).
     fn app_is_overlay(&self, idx: usize) -> bool {
         self.apps[idx].intent_level == nexus_display_proto::client_surface::WIN_LEVEL_OVERLAY

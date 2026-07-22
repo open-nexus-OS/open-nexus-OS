@@ -159,6 +159,34 @@ pub(super) fn stash_region(frame: &[u8], slot: &mut Option<RegionPush>) -> bool 
     true
 }
 
+/// Drains a still-queued attach-burst REGION frame, non-blocking. The attach
+/// burst is theme+profile+REGION and `wait_for_boot_pushes` returns on
+/// profile — for a NORMAL window the region frame is still queued at mount
+/// (desktop/fullscreen surfaces consume it inside `request_content_rect`;
+/// nothing else is legal pre-create). Without this drain the app paints its
+/// baked-default locale and the create/present ack-wait stashes are never
+/// applied.
+pub(super) fn drain_region(events: &KernelClient, slot: &mut Option<RegionPush>) {
+    if slot.is_some() {
+        return;
+    }
+    let mut frame = [0u8; 64];
+    while let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
+        if stash_region(&frame[..len], slot) {
+            break;
+        }
+    }
+}
+
+/// Fire-and-forget cursor hint to windowd (`OP_SURFACE_CURSOR_HINT`):
+/// I-beam while the pointer hovers an editable field, default otherwise.
+pub(super) fn send_cursor_hint(client: &KernelClient, surface_id: u32, over_text: bool) {
+    use nexus_display_proto::surface_text as st;
+    let shape = if over_text { st::CURSOR_HINT_TEXT } else { st::CURSOR_HINT_DEFAULT };
+    let hint = st::encode_surface_cursor_hint(surface_id, shape);
+    let _ = client.send(&hint, Wait::NonBlocking);
+}
+
 /// Bounded wait for windowd's boot pushes (`OP_SURFACE_THEME` +
 /// `OP_SURFACE_PROFILE`, sent when the event channel attaches — before we
 /// mount). Returns `(theme, profile)`; either defaults (dark / tablet, the

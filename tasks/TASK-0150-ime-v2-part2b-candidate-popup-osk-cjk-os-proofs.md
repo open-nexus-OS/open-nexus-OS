@@ -207,3 +207,32 @@ User findings after live use, both root-caused by exploration:
 - `PAYLOAD_BUDGET_NS` 3s→8s (same early-boot-lag class as the 8s
   content-rect budget; the ci apphost-spawn lane still FAILs honestly —
   that lane never receives a payload grant by design).
+
+## Addendum 8e (2026-07-22, evening): live-use hardening after user round 2
+
+User findings: crash on tablet switch + OSK, fast typing loses input, no
+caret, no I-beam, language "didn't switch". All root-caused:
+
+- **Kernel heap OOM crash**: heap-backed page tables × bigger app images ×
+  unreaped zombie address spaces exhausted the 2 MiB kernel heap on the 6th
+  app launch (`PANIC ALLOC-FAIL`). Bridge: `HEAP_SIZE` 8 MiB. Real fix
+  stays follow-up #29 (zombie reap) — and the reap path's
+  `TASK: destroy as failed err=InUse` needs a look when #29 lands.
+- **Fast-typing input loss**: any per-event error in `apply_keyboard`
+  aborted the WHOLE batch (chords/unmapped keys/non-monotonic hidraw
+  timestamps + chunked multi-key batches). Per-event skip now; host test
+  `tests/keyboard_batch.rs`.
+- **Caret v1** painted on both app-host render paths (focused TextInput,
+  2-px bar after content; empty fields keep an anchor run). Blink =
+  follow-up (needs a frame pulse).
+- **I-beam**: `OP_SURFACE_CURSOR_HINT=25` + windowd `CursorShape::Text`
+  (theme `text.svg`, slot 5; ring base → 6). App sends on field
+  enter/leave only (`text_hover` latch, "Change"-handler hit-test — hint
+  and focusability share one source).
+- **Remount language/keymap loss** (the real "language switch broke"):
+  profile/theme remounts fell back to the baked catalog and lost the
+  keymap axis (empty OSK rows). app-host now remembers `last_region` and
+  re-applies it after every remount.
+- The user's Settings taps landed on the KEYBOARD-layout chips (JP/KR at
+  y≈276), not the language chips (y≈168) — keymap sets worked as designed;
+  with the remount fix the language now also survives mode switches.

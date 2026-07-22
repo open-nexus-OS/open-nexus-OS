@@ -15,10 +15,10 @@
 
 use super::*;
 
-/// First shape-cache slot of the loading-ring frames (after the 5 pointer
+/// First shape-cache slot of the loading-ring frames (after the 6 pointer
 /// shapes); `CURSOR_RING_FRAMES.len()` consecutive slots follow. Fits
 /// `nexus_display_proto::CURSOR_SHAPE_SLOTS` (16).
-const RING_SLOT_BASE: u8 = 5;
+const RING_SLOT_BASE: u8 = 6;
 /// Ring rotation step (~90ms → 8 frames ≈ 0.72s per revolution).
 const CURSOR_RING_STEP_NS: u64 = 90_000_000;
 /// Wait-ring failsafe: give up on a launch that never surfaces.
@@ -34,6 +34,8 @@ pub(crate) enum CursorShape {
     ResizeNs,
     ResizeNesw,
     ResizeNwse,
+    /// Text I-beam (app cursor-hint over editable fields, RFC-0075).
+    Text,
 }
 
 impl CursorShape {
@@ -52,16 +54,18 @@ impl CursorShape {
             CursorShape::ResizeNs => (crate::assets::CURSOR_RESIZE_NS_BGRA, 32, 32, hot, hot),
             CursorShape::ResizeNesw => (crate::assets::CURSOR_RESIZE_NESW_BGRA, 32, 32, hot, hot),
             CursorShape::ResizeNwse => (crate::assets::CURSOR_RESIZE_NWSE_BGRA, 32, 32, hot, hot),
+            CursorShape::Text => (crate::assets::CURSOR_TEXT_BGRA, 32, 32, hot, hot),
         }
     }
 
     /// All shapes, in shape-cache slot order (`id` = index).
-    pub(crate) const ALL: [CursorShape; 5] = [
+    pub(crate) const ALL: [CursorShape; 6] = [
         CursorShape::Default,
         CursorShape::ResizeEw,
         CursorShape::ResizeNs,
         CursorShape::ResizeNesw,
         CursorShape::ResizeNwse,
+        CursorShape::Text,
     ];
 
     /// Stable shape-cache slot id (gpud side: OP_UPLOAD/SELECT_CURSOR_SHAPE).
@@ -72,6 +76,7 @@ impl CursorShape {
             CursorShape::ResizeNs => 2,
             CursorShape::ResizeNesw => 3,
             CursorShape::ResizeNwse => 4,
+            CursorShape::Text => 5,
         }
     }
 
@@ -83,6 +88,7 @@ impl CursorShape {
             CursorShape::ResizeNs => "ns-resize",
             CursorShape::ResizeNesw => "nesw-resize",
             CursorShape::ResizeNwse => "nwse-resize",
+            CursorShape::Text => "text",
         }
     }
 

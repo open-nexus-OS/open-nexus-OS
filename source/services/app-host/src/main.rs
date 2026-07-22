@@ -80,6 +80,7 @@ mod probe {
     use boot::*;
     pub(crate) use env::{device_for, size_class_for, tokens_for};
     pub(crate) use locale::app_locale;
+    use paint::collect_texts;
 
     /// Fixed child capability slots — execd transfers these AFTER spawn
     /// (`cap_transfer_to_slot`): SEND on windowd's server endpoint into 5,
@@ -246,6 +247,12 @@ mod probe {
         // after a small create) — stashed by `recv_ack` instead of dropped,
         // applied by the event loop as if it had just been received.
         let mut pending_rect: Option<(u16, u16)> = None;
+        // The last-APPLIED region push (locale/tz/keymap/hour). REMOUNTS
+        // (theme toggle, profile switch) rebuild the DslApp from the payload
+        // and must re-apply it — or a tablet/theme switch silently falls
+        // back to the baked English catalog (windowd re-pushes only on
+        // CHANGE, never on remount).
+        let mut last_region: Option<boot::RegionPush> = None;
 
         // 4. Mount the DSL program FIRST (before the VMO) so its scroll-region
         //    geometry decides the VMO size. The DSL lays out at the VISIBLE
@@ -270,23 +277,13 @@ mod probe {
             168
         };
         let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
-        // The attach burst is theme+profile+REGION and `wait_for_boot_pushes`
-        // returns on profile — for a NORMAL window the region frame is still
-        // queued here (desktop/fullscreen surfaces consume it inside
-        // `request_content_rect`; nothing else is legal pre-create). Drain it
-        // non-blocking BEFORE the first render, else the app paints its
-        // baked-default locale and the create/present ack-wait stashes are
-        // never applied (the launched-chat "English despite de-DE" gap).
-        if boot_region.is_none() {
-            let mut frame = [0u8; 64];
-            while let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
-                if boot::stash_region(&frame[..len], &mut boot_region) {
-                    break;
-                }
-            }
-        }
+        // Drain the still-queued attach-burst REGION frame before the first
+        // render (see `boot::drain_region` — the launched-chat "English
+        // despite de-DE" gap).
+        boot::drain_region(&events, &mut boot_region);
         if let (Some(dsl), Some(r)) = (app.as_mut(), boot_region.take()) {
             let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
+            last_region = Some(r);
         }
         // WebRender scroll band geometry — ONLY for a floating windowed app that
         // actually scrolls (desktop/fullscreen surfaces keep the plain path; the
@@ -585,6 +582,11 @@ mod probe {
                         base_alpha,
                         store_snapshot.as_deref(),
                     );
+                    // The fresh mount is at the BAKED catalog — re-apply the
+                    // live region (locale/tz/keymap) before painting.
+                    if let (Some(dsl), Some(r)) = (app.as_mut(), last_region.as_ref()) {
+                        let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
+                    }
                     if let Some(dsl) = app.as_mut() {
                         if dsl.render(vmo) {
                             seq = seq.wrapping_add(1);
@@ -630,6 +632,11 @@ mod probe {
                         base_alpha,
                         store_snapshot.as_deref(),
                     );
+                    // Re-apply the live region — same contract as the
+                    // profile remount above (baked catalog otherwise).
+                    if let (Some(dsl), Some(r)) = (app.as_mut(), last_region.as_ref()) {
+                        let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
+                    }
                     if let Some(dsl) = app.as_mut() {
                         let _ = dsl.render(vmo);
                         // Remount re-seeded loops/transitions: re-arm the pulse.
@@ -704,6 +711,11 @@ mod probe {
                     // span of the old+new hovered boxes (never a re-layout,
                     // never a full-frame repaint — the damage contract).
                     if let Some(dsl) = app.as_mut() {
+                        // Editable-field hover → windowd cursor hint (I-beam),
+                        // sent only on CHANGE (enter/leave), never per move.
+                        if let Some(over) = dsl.text_hover(i32::from(x), i32::from(y)) {
+                            boot::send_cursor_hint(&client, surface_id, over);
+                        }
                         if let Some(span) = dsl.hover(i32::from(x), i32::from(y)) {
                             dirty_rows = match (dirty, dirty_rows) {
                                 (true, None) => None, // full repaint already pending
@@ -721,6 +733,9 @@ mod probe {
                     }
                 } else if kind == wire::INPUT_KIND_LEAVE {
                     if let Some(dsl) = app.as_mut() {
+                        if dsl.text_hover_clear() {
+                            boot::send_cursor_hint(&client, surface_id, false);
+                        }
                         if let Some(span) = dsl.hover_clear() {
                             dirty_rows = match (dirty, dirty_rows) {
                                 (true, None) => None,
@@ -797,6 +812,8 @@ mod probe {
                     dirty = true;
                     dirty_rows = None; // region change: full repaint
                 }
+                // Remember the LATEST region for remount re-apply.
+                let _ = boot::stash_region(&event_frame[..len], &mut last_region);
             } else if nexus_display_proto::surface_text::decode_surface_text(&event_frame[..len])
                 .is_some()
             {
@@ -898,6 +915,7 @@ mod probe {
                             );
                             if let (Some(dsl), Some(r)) = (app.as_mut(), late_region.take()) {
                                 let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
+                                last_region = Some(r);
                             }
                             if let Ok(id) = ack {
                                 surface_id = id;
@@ -1019,6 +1037,9 @@ mod probe {
         /// MOVE events → `hover()`), washed at PAINT time. Presentation-only
         /// state: hover never re-runs layout (pretext), only a repaint.
         hovered: Option<usize>,
+        /// Whether the pointer sits over an editable (Change-bound) field —
+        /// the windowd cursor-hint latch (I-beam), sent only on change.
+        hover_text: bool,
         /// Reused render row buffer (width×4). The bump allocator NEVER
         /// frees: a per-render `vec!` leaked ~5KB per hover repaint until the
         /// heap page-faulted (the "nothing clickable after mousing around"
@@ -1190,6 +1211,7 @@ mod probe {
                 theme_mode,
                 shell_profile,
                 hovered: None,
+                hover_text: false,
                 row_scratch: alloc::vec![0u8; w as usize * 4],
                 scroll_x: 0,
                 scroll_y: 0,
@@ -1217,74 +1239,6 @@ mod probe {
             // `.transition` nodes (the first present's frame pulse plays them).
             app.anim_sync();
             Some(app)
-        }
-    }
-
-    /// Pre-order text collection (index parallels `LayoutBox::node_id` − 1;
-    /// the same three-consumer numbering as windowd's demo mount — do not
-    /// reorder emission).
-    fn collect_texts(
-        node: &nexus_layout_types::LayoutNode,
-        index: &mut usize,
-        out: &mut alloc::vec::Vec<(
-            usize,
-            alloc::string::String,
-            nexus_text_baked::FontSize,
-            [u8; 4],
-        )>,
-    ) {
-        use nexus_layout_types::LayoutNode as N;
-        *index += 1;
-        match node {
-            N::Text(text, _) => {
-                let font = if text.style.font_size.0 >= 15 {
-                    nexus_text_baked::FontSize::Body
-                } else {
-                    nexus_text_baked::FontSize::Small
-                };
-                let c = text.style.color;
-                out.push((
-                    *index,
-                    alloc::string::String::from(text.content.as_str()),
-                    font,
-                    [c.b, c.g, c.r, c.a],
-                ));
-            }
-            N::TextInput(input, _) => {
-                // RFC-0075 Phase 8c: a TextField's typed content (already
-                // bullet-masked for `secure`) — or its dimmed placeholder
-                // while empty. This arm was MISSING: no TextField ever
-                // painted its text (the store/insert side was always fine).
-                let font = if input.style.font_size.0 >= 15 {
-                    nexus_text_baked::FontSize::Body
-                } else {
-                    nexus_text_baked::FontSize::Small
-                };
-                let c = input.style.color;
-                if !input.content.as_str().is_empty() {
-                    out.push((
-                        *index,
-                        alloc::string::String::from(input.content.as_str()),
-                        font,
-                        [c.b, c.g, c.r, c.a],
-                    ));
-                } else if let Some(placeholder) = &input.placeholder {
-                    // Placeholder at ~55% of the content color (dimmed).
-                    let dim = |v: u8| ((u16::from(v) * 140) / 255) as u8;
-                    out.push((
-                        *index,
-                        alloc::string::String::from(placeholder.as_str()),
-                        font,
-                        [dim(c.b), dim(c.g), dim(c.r), c.a],
-                    ));
-                }
-            }
-            N::Stack(_, _, children) | N::Grid(_, _, children) => {
-                for child in children {
-                    collect_texts(child, index, out);
-                }
-            }
-            _ => {}
         }
     }
 }

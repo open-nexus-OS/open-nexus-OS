@@ -413,23 +413,38 @@ impl DisplayServerRuntime {
         } else {
             let (hit, n) = self.windows.hit_order(USE_DESKTOP_SHELL);
             let mut shape = cursor::CursorShape::Default;
+            let mut over_window = false;
             for &wid in &hit[..n] {
                 // Only floating app windows have resizable borders; the
                 // desktop base fills the display and never shows a resize
                 // cursor (it would read as a broken affordance on the shell
                 // and the greeter).
-                if self.app_slot(wid).is_none() {
+                let Some(slot) = self.app_slot(wid) else {
                     continue;
-                }
+                };
+                let hint = slot.cursor_hint;
                 let frame = self.window_frame(wid);
                 if frame.contains(cx, cy) {
+                    over_window = true;
                     if !self.windows.is_fullscreen(wid) {
                         if let Some(edge) = frame.resize_edge_at(cx, cy) {
                             shape = cursor::CursorShape::for_edge(edge);
+                            break;
                         }
+                    }
+                    // Body (no resize edge): the app's cursor hint decides
+                    // (I-beam over editable fields, RFC-0075).
+                    if hint == nexus_display_proto::surface_text::CURSOR_HINT_TEXT {
+                        shape = cursor::CursorShape::Text;
                     }
                     break; // topmost window under the pointer decides
                 }
+            }
+            // Pointer over the desktop base (greeter/shell fields).
+            if !over_window
+                && self.desktop_cursor_hint == nexus_display_proto::surface_text::CURSOR_HINT_TEXT
+            {
+                shape = cursor::CursorShape::Text;
             }
             shape
         };

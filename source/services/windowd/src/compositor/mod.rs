@@ -366,6 +366,12 @@ fn dispatch_client_frame(
         // Widget text-focus announcement (RFC-0075): record + relay to imed.
         // Data-only frame; identity-resolved inside (sender's own surface).
         runtime.handle_surface_text_focus(frame, sender_sid);
+    } else if frame.get(3).copied()
+        == Some(nexus_display_proto::surface_text::OP_SURFACE_CURSOR_HINT)
+    {
+        // Pointer-cursor hint (I-beam over editable fields): the app owns
+        // hover semantics inside its surface. Data-only frame.
+        runtime.handle_surface_cursor_hint(frame);
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_INTENT)
     {
         // Window intent (before create): the WM stores it + answers the content

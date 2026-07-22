@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-22 (evening, input-UX hardening II)
+
+#### IME v2 follow-through: crash fix, typing resilience, caret, I-beam, remount locale
+
+- **Kernel heap 2→8 MiB (crash fix)**: page tables are heap-backed and every
+  app now maps a larger image (CJK atlases) — a live session PANICked
+  (`ALLOC-FAIL`, heap full at ~20 address spaces) when the OSK launched as
+  the 6th app. Dead apps also keep their address space until a parent WAITs
+  (zombie reap = follow-up #29; a failing `destroy as failed err=InUse` on
+  the reap path is recorded) — the grown heap is the bridge, the reaper is
+  the fix.
+- **Fast typing no longer loses input**: inputd aborted the WHOLE keyboard
+  batch (`STATUS_OVERFLOW`) on any per-event error — one Ctrl chord,
+  unmapped usage, or non-monotonic hidraw timestamp silently ate every
+  other key of the batch (fast typing packs several keys per chunked
+  drain). Per-event resilience now: an unproducible key skips ITS event,
+  repeat arming is best-effort. New host test `keyboard_batch.rs`
+  (rollover, chord-skip, timestamp-regress survival); 5/5-key burst proven
+  live in greeter and chat composer.
+- **Text caret (v1)**: the focused TextField paints a 2-px bar after its
+  content on both render paths (plain + banded) — append-only caret model;
+  blink needs a frame pulse and stays a recorded follow-up. Empty fields
+  keep an anchor run so the caret shows before the first character.
+- **I-beam cursor over editable fields**: new `OP_SURFACE_CURSOR_HINT=25`
+  (app → windowd, semantic shape ids, fail-closed decode + tests) — the
+  app owns hover semantics inside its surface and sends hints only on
+  enter/leave; windowd arms the vendored theme's `text.svg` I-beam (new
+  shape-cache slot 5, ring slots moved to 6+) for app windows AND the
+  desktop surface (greeter/shell).
+- **Mode/theme switches keep the language (the "tablet switch broke my
+  language" report)**: profile/theme remounts rebuild the DslApp from the
+  payload at the BAKED catalog — the last-applied region (locale/tz/keymap)
+  is now remembered and re-applied after every remount. This also restores
+  the OSK rows after a mode switch (the keymap axis survives, the
+  `KeymapEvent` reload fires again); live-proven: control center stays
+  German after desktop→tablet, OSK keeps full rows at the session composer.
+- Composer latency note: each commit still re-emits the whole banded scene
+  (~texts=125) — keys are never lost now, but fast bursts render with lag;
+  the per-commit re-emit ceiling is the known WebRender-stage follow-up.
+
 ### Added - 2026-07-22 (morning, 8c/8d)
 
 #### IME v2 Phases 8c+8d (RFC-0075): input UX hardening + CJK font foundation
