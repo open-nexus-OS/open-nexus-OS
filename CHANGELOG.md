@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added - 2026-07-22 (later)
 
+#### Full de/en catalogs for every DSL app (RFC-0077 follow-through)
+
+- Every `@t()`-using app now ships BOTH `i18n/en.json` (the baked default)
+  and `i18n/de.json` with full key parity: **stash**'s baked default was
+  authored in German — it moved verbatim to `de.json` and `en.json` is now
+  real English (sidebar labels are catalog keys; the on-disk folder names
+  `/Bilder` … are paths, not labels, and stay); **chat** got its German
+  catalog and consistent English fixtures. greeter, desktop-shell,
+  settings, ime-ui were already complete. `calculator` uses no `@t()`
+  (digits/operators) and `window-kit` is a library whose `win.*` keys
+  resolve in the consuming app's catalogs — neither needs own files.
+
+
 #### IME v2 CJK engines, host (TASK-0149 Done)
 
 - **`ImeEngine` trait + `Engine` enum-dispatch** in `userspace/ime-core`
