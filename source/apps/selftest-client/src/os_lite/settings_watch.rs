@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: RFC-0078 settings-watch probe: subscribe with a freshly minted
+//! CONTEXT: RFC-0078/0077 settings-watch probes: subscribe with a freshly minted
 //! push channel (`@mint-pair`), flip `input.keymap`, and require the pushed
 //! `OP_EVENT` to arrive — proving the OP_WATCH spine end-to-end. Restores
 //! the default afterwards (the second event is verified too).
@@ -79,9 +79,9 @@ fn recv_event(recv_slot: u32, want_key: &str, want_value: &str) -> Result<(), ()
     }
 }
 
-fn fail(code: u32) -> Result<(), ()> {
-    let mut msg = [0u8; 40];
-    let text = b"SELFTEST: settings watch step=0x";
+fn fail(prefix: &str, code: u32) -> Result<(), ()> {
+    let mut msg = [0u8; 48];
+    let text = prefix.as_bytes();
     msg[..text.len()].copy_from_slice(text);
     let hex = b"0123456789abcdef";
     msg[text.len()] = hex[((code >> 4) & 0xF) as usize];
@@ -92,42 +92,15 @@ fn fail(code: u32) -> Result<(), ()> {
     Err(())
 }
 
-pub(crate) fn settings_watch_probe() -> Result<(), ()> {
-    let Ok(client) = route_with_retry("settingsd") else {
-        return fail(0x01);
-    };
-    let Some((ev_send, ev_recv)) = mint_pair() else {
-        return fail(0x02);
-    };
-    // Subscribe: OP_WATCH with the cap-moved push SEND half.
-    let mut req = [0u8; 72];
-    let Some(n) = wire::encode_watch_req("input.", &mut req) else {
-        return fail(0x03);
-    };
-    let hdr = nexus_abi::MsgHeader::new(ev_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
-    let (send_slot, _) = client.slots();
-    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..n], nexus_abi::IPC_SYS_NONBLOCK, 0).is_err() {
-        return fail(0x04);
-    }
-    // Flip the keymap and require the pushed event; then restore the default
-    // (and require that push too — end state = shipped default).
-    if set_key(&client, "input.keymap", "us").is_err() {
-        return fail(0x05);
-    }
-    if recv_event(ev_recv, "input.keymap", "us").is_err() {
-        return fail(0x06);
-    }
-    if set_key(&client, "input.keymap", "de").is_err() {
-        return fail(0x07);
-    }
-    if recv_event(ev_recv, "input.keymap", "de").is_err() {
-        return fail(0x08);
-    }
-    // Settle: inputd receives the same OP_EVENTs and prints its keymap
-    // markers concurrently — give those UART lines time to complete before
-    // the verdict marker (interleaved lines hard-fail evidence assembly).
-    // A deadline-blocked recv on the now-idle event channel sleeps without
-    // yield-spinning (which would disturb the kernel tick-budget proof).
+const WATCH_STEP: &str = "SELFTEST: settings watch step=0x";
+const I18N_STEP: &str = "SELFTEST: i18n switch step=0x";
+
+/// Settle: concurrent services receive the same OP_EVENTs and print their
+/// own UART lines — give those time to complete before the verdict marker
+/// (interleaved lines hard-fail evidence assembly). A deadline-blocked recv
+/// on the now-idle event channel sleeps without yield-spinning (which would
+/// disturb the kernel tick-budget proof).
+fn settle(ev_recv: u32) {
     let settle_deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(150_000_000);
     let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut sid: u64 = 0;
@@ -140,6 +113,77 @@ pub(crate) fn settings_watch_probe() -> Result<(), ()> {
         nexus_abi::IPC_SYS_TRUNCATE,
         settle_deadline,
     );
+}
+
+pub(crate) fn settings_watch_probe() -> Result<(), ()> {
+    let Ok(client) = route_with_retry("settingsd") else {
+        return fail(WATCH_STEP, 0x01);
+    };
+    let Some((ev_send, ev_recv)) = mint_pair() else {
+        return fail(WATCH_STEP, 0x02);
+    };
+    // Subscribe: OP_WATCH with the cap-moved push SEND half.
+    let mut req = [0u8; 72];
+    let Some(n) = wire::encode_watch_req("input.", &mut req) else {
+        return fail(WATCH_STEP, 0x03);
+    };
+    let hdr = nexus_abi::MsgHeader::new(ev_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
+    let (send_slot, _) = client.slots();
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..n], nexus_abi::IPC_SYS_NONBLOCK, 0).is_err() {
+        return fail(WATCH_STEP, 0x04);
+    }
+    // Flip the keymap and require the pushed event; then restore the default
+    // (and require that push too — end state = shipped default).
+    if set_key(&client, "input.keymap", "us").is_err() {
+        return fail(WATCH_STEP, 0x05);
+    }
+    if recv_event(ev_recv, "input.keymap", "us").is_err() {
+        return fail(WATCH_STEP, 0x06);
+    }
+    if set_key(&client, "input.keymap", "de").is_err() {
+        return fail(WATCH_STEP, 0x07);
+    }
+    if recv_event(ev_recv, "input.keymap", "de").is_err() {
+        return fail(WATCH_STEP, 0x08);
+    }
+    settle(ev_recv);
+    Ok(())
+}
+
+/// RFC-0077: flip `ui.locale` and require both pushed `OP_EVENT`s — proving
+/// the settings leg of the runtime language switch (windowd subscribes the
+/// same key and relays `OP_SURFACE_REGION`; the app re-render is proven by
+/// `apphost: locale <tag> applied` in visible boots). End state = the
+/// shipped default (`de-DE`).
+pub(crate) fn i18n_switch_probe() -> Result<(), ()> {
+    let Ok(client) = route_with_retry("settingsd") else {
+        return fail(I18N_STEP, 0x01);
+    };
+    let Some((ev_send, ev_recv)) = mint_pair() else {
+        return fail(I18N_STEP, 0x02);
+    };
+    let mut req = [0u8; 72];
+    let Some(n) = wire::encode_watch_req("ui.locale", &mut req) else {
+        return fail(I18N_STEP, 0x03);
+    };
+    let hdr = nexus_abi::MsgHeader::new(ev_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
+    let (send_slot, _) = client.slots();
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..n], nexus_abi::IPC_SYS_NONBLOCK, 0).is_err() {
+        return fail(I18N_STEP, 0x04);
+    }
+    if set_key(&client, "ui.locale", "en-US").is_err() {
+        return fail(I18N_STEP, 0x05);
+    }
+    if recv_event(ev_recv, "ui.locale", "en-US").is_err() {
+        return fail(I18N_STEP, 0x06);
+    }
+    if set_key(&client, "ui.locale", "de-DE").is_err() {
+        return fail(I18N_STEP, 0x07);
+    }
+    if recv_event(ev_recv, "ui.locale", "de-DE").is_err() {
+        return fail(I18N_STEP, 0x08);
+    }
+    settle(ev_recv);
     Ok(())
 }
 

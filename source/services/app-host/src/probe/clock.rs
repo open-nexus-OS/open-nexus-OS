@@ -35,14 +35,57 @@ impl super::DslApp {
     }
 
     /// Region push from windowd (`OP_SURFACE_REGION`): update tz/hour-format
-    /// and re-tick immediately. Returns whether a re-render is needed.
-    pub(super) fn apply_region(&mut self, hour_fmt: u8, _locale: &str, tz: &str) -> bool {
+    /// and re-tick immediately; a locale change swaps the active pack catalog
+    /// and re-emits the scene (RFC-0077). Returns whether a re-render is needed.
+    pub(super) fn apply_region(&mut self, hour_fmt: u8, locale: &str, tz: &str) -> bool {
         self.clock_hour24 = hour_fmt == nexus_display_proto::surface_text::REGION_HOUR_24;
         if tz_lite::zone(tz).is_some() {
             self.clock_tz.clear();
             self.clock_tz.push_str(tz);
         }
-        self.clock_tick()
+        let locale_changed = self.apply_locale(locale);
+        let ticked = self.clock_tick();
+        locale_changed || ticked
+    }
+
+    /// Selects the pack catalog for a pushed locale tag — exact tag first,
+    /// then primary language subtag (`de-DE` → `de`); no match = baked
+    /// default. On an actual swap: `reemit` + relayout + bounded proof marker
+    /// (tag only, never content). Returns whether the scene changed.
+    fn apply_locale(&mut self, locale: &str) -> bool {
+        if locale.is_empty() || locale == self.locale_tag {
+            return false;
+        }
+        self.locale_tag.clear();
+        self.locale_tag.push_str(locale);
+        let lang = locale.split('-').next().unwrap_or(locale);
+        let idx = self
+            .catalogs
+            .iter()
+            .position(|(tag, _)| tag == locale)
+            .or_else(|| self.catalogs.iter().position(|(tag, _)| tag == lang));
+        if idx == self.active_catalog {
+            return false;
+        }
+        self.active_catalog = idx;
+        let tokens = tokens_for(self.theme_mode);
+        let device = device_for(self.shell_profile, self.w);
+        let locale_src = super::app_locale!(self);
+        if self.view.reemit(tokens, &device, &locale_src).is_err() {
+            raw_marker("apphost: FAIL locale reemit");
+            return false;
+        }
+        self.relayout_retained();
+        self.hovered = None;
+        self.anim_sync();
+        // Bounded end-to-end proof (RFC-0077): ≤8 per boot, tag only.
+        static LOCALE_MARKS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+        let marks = LOCALE_MARKS.load(core::sync::atomic::Ordering::Relaxed);
+        if marks < 8 {
+            LOCALE_MARKS.store(marks + 1, core::sync::atomic::Ordering::Relaxed);
+            raw_marker(&alloc::format!("apphost: locale {locale} applied"));
+        }
+        true
     }
 
     /// The event-loop wait: animation ticks (12ms) win; a declared clock
@@ -63,7 +106,7 @@ impl super::DslApp {
     /// Returns whether the app changed (re-render). Bounded: one IPC + const
     /// math per minute.
     pub(super) fn clock_tick(&mut self) -> bool {
-        use nexus_dsl_runtime::{IdentityLocale, Value};
+        use nexus_dsl_runtime::Value;
         let Some((event, case)) = self.view.runtime.event_case("ClockEvent", "Tick") else {
             return false;
         };
@@ -94,7 +137,7 @@ impl super::DslApp {
         self.clock_next_wait_ms = (60 - sec_in_min) * 1000 + 200;
         let tokens = tokens_for(self.theme_mode);
         let device = device_for(self.shell_profile, self.w);
-        let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+        let locale = super::app_locale!(self);
         let damage = self.view.dispatch(
             tokens,
             &device,

@@ -145,6 +145,19 @@ Page SettingsPage {
                         } else {
                             if $state.section == "general" {
                                 Stack {
+                                    Text(@t("settings.language")).textSize(sm).fg(onSurfaceVariant)
+                                    Stack {
+                                        Stack {
+                                            Chip { label: @t("settings.langDe"), selected: $state.locale == "de-DE" }
+                                        }
+                                        on Tap -> dispatch(SetLocale("de-DE"))
+                                        Stack {
+                                            Chip { label: @t("settings.langEn"), selected: $state.locale == "en-US" }
+                                        }
+                                        on Tap -> dispatch(SetLocale("en-US"))
+                                    }
+                                    .direction(row)
+                                    .gap(1)
                                     Text(@t("settings.country")).textSize(sm).fg(onSurfaceVariant)
                                     Stack {
                                         Stack {
@@ -249,7 +262,6 @@ Page SettingsPage {
                                     } else {
                                         Stack { }
                                     }
-                                    ListItem { title: @t("settings.language"), subtitle: @t("settings.languageValue"), showChevron: true }
                                     ListItem { title: @t("settings.about"), showChevron: true }
                                 }
                                 .gap(2)

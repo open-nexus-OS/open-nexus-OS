@@ -85,6 +85,122 @@ impl Catalog {
             entries.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         Some(Self::from_entries(program_keys, &borrowed))
     }
+
+    /// Parses an INDEX-ALIGNED `NXL1` locale pack (RFC-0077: compiled at
+    /// bundle build against the program's key order — no name matching at
+    /// runtime). Fail-closed: any truncation/oversize/UTF-8 error ⇒ `None`
+    /// (callers fall back to the baked default, never render raw bytes).
+    #[must_use]
+    pub fn from_indexed_pack(bytes: &[u8]) -> Option<Self> {
+        const MAX_KEYS: usize = 4096;
+        const MAX_TEMPLATE: usize = 4096;
+        if bytes.get(..4)? != b"NXL1" {
+            return None;
+        }
+        let count = u32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?) as usize;
+        if count > MAX_KEYS {
+            return None;
+        }
+        let mut cursor = 8usize;
+        let mut templates: Vec<Option<String>> = Vec::with_capacity(count);
+        for _ in 0..count {
+            match bytes.get(cursor)? {
+                0 => {
+                    cursor += 1;
+                    templates.push(None);
+                }
+                1 => {
+                    let len =
+                        u16::from_le_bytes(bytes.get(cursor + 1..cursor + 3)?.try_into().ok()?)
+                            as usize;
+                    if len > MAX_TEMPLATE {
+                        return None;
+                    }
+                    let text =
+                        core::str::from_utf8(bytes.get(cursor + 3..cursor + 3 + len)?).ok()?;
+                    templates.push(Some(String::from(text)));
+                    cursor += 3 + len;
+                }
+                _ => return None,
+            }
+        }
+        if cursor != bytes.len() {
+            return None;
+        }
+        Some(Self { templates })
+    }
+}
+
+/// The RFC-0077 runtime chain: the ACTIVE catalog over the program's BAKED
+/// default text (the terminal — shipped apps never render raw key names).
+pub struct CatalogOverBaked<'a> {
+    /// The active locale's catalog (`None` = baked default only).
+    pub catalog: Option<&'a Catalog>,
+    /// Program symbol table (baked display texts live here).
+    pub symbols: &'a [String],
+    /// i18n key table: key index → symbol id of the baked display text.
+    pub keys: &'a [u32],
+}
+
+impl LocaleSource for CatalogOverBaked<'_> {
+    fn format(&self, key: u32, args: &[Value]) -> String {
+        if let Some(template) = self.catalog.and_then(|c| c.lookup(key)) {
+            return format_template(template, args);
+        }
+        self.keys
+            .get(key as usize)
+            .and_then(|&sym| self.symbols.get(sym as usize))
+            .cloned()
+            .unwrap_or_default()
+    }
+}
+
+/// One locale pack inside an `NXLC` payload container (borrowed slices).
+pub struct ContainerPack<'a> {
+    /// Locale tag (the `i18n/<tag>.json` stem, e.g. `de`).
+    pub tag: &'a str,
+    /// The raw `NXL1` pack bytes (parse via [`Catalog::from_indexed_pack`]).
+    pub pack: &'a [u8],
+}
+
+/// Splits an `NXLC` payload container (RFC-0077) into the NXIR slice and its
+/// locale packs. `None` = not a container (callers treat the payload as raw
+/// NXIR) or malformed (fail-closed — no partial packs).
+#[must_use]
+pub fn parse_payload_container(bytes: &[u8]) -> Option<(&[u8], Vec<ContainerPack<'_>>)> {
+    if bytes.get(..4)? != b"NXLC" || *bytes.get(4)? != 1 {
+        return None;
+    }
+    let nxir_len = u32::from_le_bytes(bytes.get(8..12)?.try_into().ok()?) as usize;
+    // 16-byte header keeps the NXIR at an 8-ALIGNED offset (capnp canonical
+    // bytes require it); bytes 12..16 are reserved padding (must be zero).
+    if bytes.get(12..16)? != [0u8; 4] {
+        return None;
+    }
+    let nxir = bytes.get(16..16 + nxir_len)?;
+    let mut cursor = 16 + nxir_len;
+    let count = usize::from(*bytes.get(cursor)?);
+    cursor += 1;
+    let mut packs = Vec::with_capacity(count);
+    for _ in 0..count {
+        let tag_len = usize::from(*bytes.get(cursor)?);
+        if tag_len == 0 || tag_len > 16 {
+            return None;
+        }
+        let tag = core::str::from_utf8(bytes.get(cursor + 1..cursor + 1 + tag_len)?).ok()?;
+        cursor += 1 + tag_len;
+        let pack_len = u32::from_le_bytes(bytes.get(cursor..cursor + 4)?.try_into().ok()?) as usize;
+        let pack = bytes.get(cursor + 4..cursor + 4 + pack_len)?;
+        cursor += 4 + pack_len;
+        packs.push(ContainerPack { tag, pack });
+    }
+    // The container tail is zero-padded to a multiple of 8 (payload-length
+    // invariant of the bundle path); anything else is a malformed container.
+    let pad = bytes.get(cursor..)?;
+    if pad.len() >= 8 || pad.iter().any(|&b| b != 0) || bytes.len() % 8 != 0 {
+        return None;
+    }
+    Some((nxir, packs))
 }
 
 /// Fills `{n}` placeholders from the argument values.

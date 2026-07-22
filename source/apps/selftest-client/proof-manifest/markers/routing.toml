@@ -42,6 +42,10 @@ proves = "timed serves RTC-anchored UTC walltime (RFC-0076; plausible + monotoni
 phase = "routing"
 proves = "tz-lite civil conversion correct in the OS build (RFC-0076)"
 
+[marker."SELFTEST: i18n switch ok"]
+phase = "routing"
+proves = "ui.locale flips arrive as pushed OP_EVENTs (RFC-0077 settings leg; app re-render proven by `apphost: locale <tag> applied` in visible boots)"
+
 [marker."rngd: mmio window mapped ok"]
 phase = "routing"
 

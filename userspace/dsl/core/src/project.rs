@@ -20,6 +20,8 @@
 
 use crate::ast::{Decl, Expr, File, Ident, ViewNode};
 use crate::diag::{DiagCode, Diagnostic, Span};
+#[cfg(feature = "std")]
+use crate::locale_pack::ProjectBuild;
 use alloc::{
     collections::BTreeMap,
     format,
@@ -167,6 +169,12 @@ pub fn canonical_source_set(files: &[SourceFile]) -> String {
 /// build scripts fail the BUILD with it (fail-closed, no phantom payloads).
 #[cfg(feature = "std")]
 pub fn compile_project_dir(root: &std::path::Path) -> Result<alloc::vec::Vec<u8>, String> {
+    compile_project_build(root).map(|b| b.nxir)
+}
+
+/// Compiles a project tree keeping the lowering metadata (RFC-0077 packs).
+#[cfg(feature = "std")]
+pub fn compile_project_build(root: &std::path::Path) -> Result<ProjectBuild, String> {
     let ui = root.join("ui");
     let mut files: alloc::vec::Vec<SourceFile> = alloc::vec::Vec::new();
     let mut stack = alloc::vec![ui.clone()];
@@ -273,88 +281,10 @@ pub fn compile_project_dir(root: &std::path::Path) -> Result<alloc::vec::Vec<u8>
     // `@t()` renders real text (keys never leak to the screen). Missing
     // catalog = keys as text (the pre-catalog behavior); a MALFORMED catalog
     // fails the build loudly. Runtime locale switching = TASK-0081 i18n.
-    let catalog = load_default_locale_catalog(root)?;
+    let catalog = crate::locale_pack::load_default_locale_catalog(root)?;
     crate::lower_file_with_catalog(&merged, &model, &canonical, &catalog)
-        .map(|lowered| lowered.nxir)
+        .map(|l| ProjectBuild { nxir: l.nxir, i18n_keys: l.i18n_keys })
         .map_err(|d| alloc::format!("lower: {d:?}"))
-}
-
-/// Loads the app's DEFAULT-locale catalog (`i18n/en.json`, a flat JSON object
-/// of `"key": "text"`). Absent file = empty catalog; malformed = build error.
-#[cfg(feature = "std")]
-fn load_default_locale_catalog(
-    root: &std::path::Path,
-) -> Result<alloc::collections::BTreeMap<String, String>, String> {
-    let path = root.join("i18n/en.json");
-    if !path.is_file() {
-        return Ok(alloc::collections::BTreeMap::new());
-    }
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| alloc::format!("read {}: {e}", path.display()))?;
-    parse_flat_json_map(&text).map_err(|e| alloc::format!("{}: {e}", path.display()))
-}
-
-/// Minimal flat-JSON parser for locale catalogs: ONE object of string→string
-/// pairs (the catalog contract). Escapes: `\"`, `\\`, `\n`, `\t`. Anything
-/// else — nesting, arrays, numbers, exotic escapes — is a loud error: the
-/// catalog format is deliberately this small (no serde in the compiler core).
-#[cfg(feature = "std")]
-fn parse_flat_json_map(text: &str) -> Result<alloc::collections::BTreeMap<String, String>, String> {
-    fn parse_string(
-        chars: &mut core::iter::Peekable<core::str::Chars<'_>>,
-    ) -> Result<String, String> {
-        let mut out = String::new();
-        loop {
-            match chars.next() {
-                Some('"') => return Ok(out),
-                Some('\\') => match chars.next() {
-                    Some('"') => out.push('"'),
-                    Some('\\') => out.push('\\'),
-                    Some('n') => out.push('\n'),
-                    Some('t') => out.push('\t'),
-                    other => return Err(alloc::format!("unsupported escape {other:?}")),
-                },
-                Some(c) => out.push(c),
-                None => return Err(String::from("unterminated string")),
-            }
-        }
-    }
-    let mut map = alloc::collections::BTreeMap::new();
-    let mut chars = text.chars().peekable();
-    let mut expect = "{";
-    loop {
-        // Skip whitespace between tokens.
-        while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
-            chars.next();
-        }
-        match (expect, chars.next()) {
-            ("{", Some('{')) => expect = "key-or-end",
-            ("key-or-end", Some('}')) | ("key-or-comma-end", Some('}')) => break,
-            ("key-or-end", Some('"')) | ("key", Some('"')) => {
-                let key = parse_string(&mut chars)?;
-                while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
-                    chars.next();
-                }
-                if chars.next() != Some(':') {
-                    return Err(alloc::format!("expected ':' after key {key:?}"));
-                }
-                while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
-                    chars.next();
-                }
-                if chars.next() != Some('"') {
-                    return Err(alloc::format!("expected string value for key {key:?}"));
-                }
-                let value = parse_string(&mut chars)?;
-                map.insert(key, value);
-                expect = "key-or-comma-end";
-            }
-            ("key-or-comma-end", Some(',')) => expect = "key",
-            (state, token) => {
-                return Err(alloc::format!("unexpected {token:?} (expected {state})"));
-            }
-        }
-    }
-    Ok(map)
 }
 
 /// Reads the app manifest's `dependencies = ["lib", "lib@^1.0", …]` names
@@ -515,8 +445,10 @@ mod i18n_catalog_tests {
 
     #[test]
     fn flat_json_parser_handles_escapes_and_whitespace() {
-        let map = parse_flat_json_map("{ \"a.b\" : \"x \\\" y\", \n  \"c\": \"line\\nbreak\" }")
-            .expect("parses");
+        let map = crate::locale_pack::parse_flat_json_map(
+            "{ \"a.b\" : \"x \\\" y\", \n  \"c\": \"line\\nbreak\" }",
+        )
+        .expect("parses");
         assert_eq!(map.get("a.b").map(String::as_str), Some("x \" y"));
         assert_eq!(map.get("c").map(String::as_str), Some("line\nbreak"));
     }

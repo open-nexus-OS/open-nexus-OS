@@ -97,8 +97,11 @@ keyboard; the first Settings win is switching it live.
 `nexus-wire/src/settingsd.rs`, additive (frames! codec, goldens + reject matrix):
 
 - `OP_WATCH = 3` request: `prefix: str8(min=1, max=64)`. Reply = the standard
-  response frame (`status`). Registers the CALLER's connection as a
-  subscriber; a second watch from the same connection replaces its prefix.
+  response frame (`status`). Registers the cap-moved PUSH CHANNEL as a
+  subscriber; a second watch moving the SAME channel cap replaces its prefix.
+  One client may hold several subscriptions by moving DISTINCT caps
+  (`cap_clone` a SEND half per prefix — windowd does this for
+  `time.` + `ui.locale`, RFC-0077); each moved cap = one subscriber slot.
 - `OP_EVENT = 4` push (settingsd → subscriber): `flags:u8, key:str8, value:str8`.
   `flags` bit0 = `resync`: events were dropped (queue overflow) — the
   subscriber must re-read its keys via OP_GET.

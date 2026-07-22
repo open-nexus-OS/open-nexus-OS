@@ -844,6 +844,12 @@ phase = "bringup"
 [marker."SELFTEST: settings watch step=0x"]
 phase = "bringup"
 
+[marker."SELFTEST: i18n switch FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: i18n switch step=0x"]
+phase = "bringup"
+
 # Diagnostic / FAIL-variant markers back-filled 2026-07 (repo hygiene):
 # every marker literal in the source tree must be manifest-declared (Rule 3).
 

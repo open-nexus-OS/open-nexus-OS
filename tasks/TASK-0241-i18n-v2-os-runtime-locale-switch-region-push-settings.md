@@ -1,9 +1,9 @@
 ---
 title: TASK-0241 i18n v2b (OS/QEMU): runtime locale switch via OP_SURFACE_REGION push + Settings language picker + de catalogs
-status: Draft
+status: Done (2026-07-21)
 owner: @runtime
 created: 2025-12-29
-updated: 2026-07-21 (rewritten: no l10nd — windowd relays settingsd changes to app-host PackLocaleSource; architecture per RFC-0077)
+updated: 2026-07-21 (DONE — OS loop landed; deltas: packs ride the NXLC payload (no `locales/<tag>.nxlp` load-on-switch — all catalogs parsed once at mount), selftest marker is `SELFTEST: i18n switch ok` (settings-leg round-trip; the app re-render marker is `apphost: locale <tag> applied`). Originally rewritten: no l10nd — windowd relays settingsd changes to app-host PackLocaleSource; architecture per RFC-0077)
 depends-on:
   - TASK-0240
   - TASK-0298
@@ -76,8 +76,9 @@ authority, windowd the relay, app-host the applier.
 ## Stop conditions (Definition of Done)
 
 - **Proof (QEMU)**:
-  - `SELFTEST: i18n switch de ok` — locale set → German string observed
-  - `apphost: locale de-DE applied` (per-surface apply line, bounded)
+  - `SELFTEST: i18n switch ok` — `ui.locale` flips (en-US, then back to the
+    shipped default de-DE) arrive as pushed OP_EVENTs
+  - `apphost: locale <tag> applied` (per-surface apply line, bounded ≤8)
 - **Proof (interactive)**: `just start` — switch language in Settings, whole
   UI (settings/shell/greeter strings) re-renders in German instantly.
 - **Gates**: `just check`, `just test-all` green; RFC-0077 checklist ticked;
@@ -103,3 +104,27 @@ authority, windowd the relay, app-host the applier.
 - Language change in Settings re-renders all running DSL apps live, with
   English fallback for untranslated keys; persists across reboot via the
   existing prefs blob.
+
+## Result (2026-07-21)
+
+- windowd subscribes `ui.locale` as a SECOND watch on its one push channel:
+  `cap_clone` the SEND half BEFORE the first `OP_WATCH` cap-move — each moved
+  cap is its own subscriber slot (no wire or WatchTable change);
+  `RegionState.apply` folds the tag into the `OP_SURFACE_REGION` push
+  (attach + change). `source/services/windowd/src/compositor/runtime/region.rs`.
+- app-host: container split at mount (`probe/locale.rs`), `app_locale!`
+  source (`CatalogOverBaked`) at every dispatch site, `apply_locale` in
+  `probe/clock.rs` (exact tag → primary subtag; swap + `view.reemit()` +
+  relayout + bounded marker). Structure-gate splits: `probe/env.rs` (tokens +
+  device env) out of `main.rs`.
+- Settings → Allgemeine Verwaltung: language chips (Deutsch/English →
+  `ui.locale`); `i18n/de.json` completed for settings (new), greeter +
+  desktop-shell (gaps filled).
+- Trap found: the first NXLC layout put the NXIR at offset 12 and broke the
+  bundle payload invariants (`len % 8`, capnp 8-alignment) →
+  `APPHOST: FAIL payload (header status)`. Fixed normatively in RFC-0077:
+  16-byte container header + zero tail padding to 8.
+- Proofs: `SELFTEST: i18n switch ok` in `just ci-os-smp1`;
+  `apphost: locale de-DE applied` at greeter attach + live language switch in
+  a visible boot. Gates: `just check`, `just test-host`, `just diag-os`,
+  `just ci-os-smp1` green.

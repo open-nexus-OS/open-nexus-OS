@@ -17,6 +17,7 @@ Store SettingsStore {
     accent: Str = "default",
     country: Str = "DE",
     keymap: Str = "de",
+    locale: Str = "de-DE",
     zone: Str = "Europe/Berlin",
     hourFmt: Str = "24h",
     applyError: Int = 0,
@@ -35,6 +36,7 @@ Event SettingsEvent {
     SetAccent(Str),
     SetCountry(Str),
     SetKeymap(Str),
+    SetLocale(Str),
     SetZone(Str),
     SetHourFmt(Str),
     Applied(Bool),
@@ -137,6 +139,10 @@ reduce SettingsEvent {
         state.keymap = layout;
         state.applyError = 0;
     },
+    SetLocale(tag) => {
+        state.locale = tag;
+        state.applyError = 0;
+    },
     SetZone(z) => {
         state.zone = z;
         state.applyError = 0;
@@ -172,6 +178,13 @@ reduce SettingsEvent {
 
 @effect on SetKeymap(layout) {
     match svc.settings.set("input.keymap", layout, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}
+
+@effect on SetLocale(tag) {
+    match svc.settings.set("ui.locale", tag, timeoutMs: 250) {
         Ok(ok) => dispatch(Applied(ok)),
         Err(e) => dispatch(ApplyFailed(e)),
     }

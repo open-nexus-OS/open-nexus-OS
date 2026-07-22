@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-21 (late night)
+
+#### i18n v2 (RFC-0077, TASK-0240/0241 Done): runtime language switch
+
+- **Locale packs**: bundle build compiles every `i18n/<tag>.json` into an
+  index-aligned `NXL1` pack (key order = NXIR `i18nKeys`; absent keys fall
+  back to the baked default text) and ships apps as an `NXLC` payload
+  container (`nexus_dsl_core::compile_project_bundle`, new `locale_pack`
+  module; pack-less apps keep the raw `.nxir` payload). Deterministic bytes;
+  fail-closed bounded parsing on both sides (`test_reject_*` truncation +
+  mutation matrices in `tests/dsl_goldens/tests/i18n_packs.rs`).
+- **Runtime swap**: app-host splits the container at mount (`probe/locale.rs`),
+  resolves `@t()` through `CatalogOverBaked` (active pack catalog → baked
+  default) at every dispatch site, and applies the `OP_SURFACE_REGION`
+  locale tag (exact tag, then primary subtag `de-DE`→`de`): swap +
+  `view.reemit()` + relayout + bounded `apphost: locale <tag> applied`.
+- **windowd** subscribes `ui.locale` as a second watch on its one push
+  channel (`cap_clone` the SEND half before the first `OP_WATCH` cap-move —
+  each moved cap = one subscriber slot; no wire/table change).
+- **Settings → Allgemeine Verwaltung**: language picker (Deutsch/English →
+  `ui.locale`); full German catalogs for settings, greeter and desktop-shell
+  (gaps in the existing `de.json` files filled).
+- **Proofs**: `SELFTEST: i18n switch ok` (ui.locale flip round-trip through
+  the watch spine, end state = shipped default `de-DE`) in the boot gate;
+  live re-render via `apphost: locale <tag> applied` in a visible boot.
+- Structure-gate splits: app-host `probe/env.rs` (theme tokens + device env)
+  + `probe/locale.rs`; dsl-core `locale_pack.rs`.
+
 ### Added - 2026-07-21 (night)
 
 #### Wall-clock v1 (RFC-0076, TASK-0297 Done): live clock end-to-end

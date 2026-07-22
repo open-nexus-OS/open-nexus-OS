@@ -265,5 +265,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
 - RFC-0076: Wall-clock v1 — goldfish `rtcd` (MMIO 0x101000, dtb-verified) anchors `timed` (walltime = RTC epoch + monotonic delta, UTC only, `OP_GET_WALLTIME`); tz conversion client-side via `tz-lite` (zone table = `time.zone` validator SSOT); never fake time (Draft 2026-07-21 — execution TASK-0297; NTP = TASK-0299 seed)
   - docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md
+- RFC-0077: i18n v2 — index-aligned locale packs (`NXL1`) + payload container (`NXLC`) + region-driven runtime locale switch (`OP_SURFACE_REGION` locale → catalog swap → reemit); no l10nd/Fluent/ICU4X (In Progress, all phases proven 2026-07-21 — execution TASK-0240/0241 Done)
+  - docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md
 - RFC-0078: Settings spine — region/input/time key schema (`region.country`, `input.keymap`, `time.zone`, `time.format`, `ime.personalization`) + bounded `OP_WATCH`/`OP_EVENT` change propagation; non-secret charter (Draft 2026-07-21 — execution TASK-0298; consumers TASK-0147/0204/0241/0297)
   - docs/rfcs/RFC-0078-settings-region-keys-watch.md

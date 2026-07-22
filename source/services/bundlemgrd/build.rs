@@ -83,7 +83,11 @@ fn main() {
     for id in &ui_programs {
         let src = manifest_dir.join(format!("../../../userspace/apps/{id}"));
         println!("cargo:rerun-if-changed={}", src.join("ui").display());
-        let nxir = nexus_dsl_core::compile_project_dir(&src)
+        println!("cargo:rerun-if-changed={}", src.join("i18n").display());
+        // RFC-0077: the payload is the BUNDLE artifact — raw NXIR for
+        // pack-less apps, an NXLC container (NXIR + index-aligned locale
+        // packs from `i18n/*.json`) otherwise.
+        let nxir = nexus_dsl_core::compile_project_bundle(&src)
             .unwrap_or_else(|e| panic!("ui-program payload {id}: {e}"));
         let dest = out_dir.join(format!("payload_{id}.nxir"));
         std::fs::write(&dest, &nxir).expect("write payload nxir");

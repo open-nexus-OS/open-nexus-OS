@@ -3,5 +3,9 @@
   "greeter.secret": "Passwort",
   "greeter.login": "Anmelden",
   "greeter.authenticating": "Prüfe…",
-  "greeter.failed": "Anmeldung fehlgeschlagen"
+  "greeter.failed": "Anmeldung fehlgeschlagen",
+  "greeter.date": "Sunday, 5 July",
+  "greeter.clock": "09:41",
+  "greeter.pickUser": "Benutzer wählen",
+  "greeter.hint": "Zum Anmelden auf den Pfeil tippen"
 }

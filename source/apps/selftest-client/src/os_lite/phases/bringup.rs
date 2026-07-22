@@ -68,6 +68,12 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_SETTINGS_WATCH_FAIL);
     }
+    // RFC-0077 i18n switch: a ui.locale flip must arrive as a pushed OP_EVENT.
+    if settings_watch::i18n_switch_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_I18N_SWITCH_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_I18N_SWITCH_FAIL);
+    }
     // RNG and device identity key selftests (run early to keep QEMU marker deadlines short).
     probes::rng::rng_entropy_selftest();
     probes::rng::rng_entropy_oversized_selftest();

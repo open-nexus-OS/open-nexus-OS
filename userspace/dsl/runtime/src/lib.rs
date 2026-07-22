@@ -37,7 +37,7 @@ pub use anim::{
 };
 pub use emit::{Damage, Dep};
 pub use focus::TextFocusSnapshot;
-pub use i18n::{Catalog, LocaleChain};
+pub use i18n::{Catalog, CatalogOverBaked, LocaleChain};
 pub use interact::HandlerEntry;
 pub use nav::{Nav, NavEntry};
 pub use nexus_theme_tokens as theme_tokens;

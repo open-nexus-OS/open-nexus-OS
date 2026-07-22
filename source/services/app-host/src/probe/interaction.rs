@@ -12,7 +12,7 @@ impl super::DslApp {
     /// damage re-lays-out + refreshes the text runs. Returns whether a
     /// re-render is needed.
     pub(super) fn tap(&mut self, x: i32, y: i32) -> bool {
-        use nexus_dsl_runtime::{Damage, IdentityLocale};
+        use nexus_dsl_runtime::Damage;
         let tokens = tokens_for(self.theme_mode);
         let device = device_for(self.shell_profile, self.w);
         let scroll = self.scroll_param();
@@ -48,7 +48,7 @@ impl super::DslApp {
         // slide-in animates from old − new).
         let part_x_before = press_part
             .and_then(|p| self.layout.boxes.iter().find(|b| b.node_id == p).map(|b| b.rect.x.0));
-        let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+        let locale = super::app_locale!(self);
         let damage = match self.view.pointer_scrolled(
             tokens,
             &device,
@@ -158,11 +158,10 @@ impl super::DslApp {
     /// arms select a different structure). Store state survives — this is a
     /// re-emit, never a remount. The caller runs `resize` (relayout) after.
     pub(super) fn reemit_for_size_class(&mut self, new_w: u32) {
-        use nexus_dsl_runtime::IdentityLocale;
         let tokens = tokens_for(self.theme_mode);
         self.w = new_w;
         let device = device_for(self.shell_profile, new_w);
-        let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+        let locale = super::app_locale!(self);
         if self.view.reemit(tokens, &device, &locale).is_err() {
             raw_marker("apphost: FAIL size-class reemit");
             return;
@@ -263,10 +262,10 @@ impl super::DslApp {
     /// RFC-0075 committed-text delivery: insert into the FOCUSED field.
     /// Returns whether a re-render is needed.
     pub(super) fn text_commit(&mut self, text: &str) -> bool {
-        use nexus_dsl_runtime::{Damage, IdentityLocale};
+        use nexus_dsl_runtime::Damage;
         let tokens = tokens_for(self.theme_mode);
         let device = device_for(self.shell_profile, self.w);
-        let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+        let locale = super::app_locale!(self);
         let damage = match self.view.insert_text(tokens, &device, &locale, text) {
             Ok(d) => d,
             Err(e) => {
@@ -295,12 +294,12 @@ impl super::DslApp {
     /// caller announces the transition). Enter/Tab are page-level concerns
     /// (deferred — no focus traversal yet). Returns re-render need.
     pub(super) fn text_action(&mut self, action: u8) -> bool {
-        use nexus_dsl_runtime::{Damage, IdentityLocale};
+        use nexus_dsl_runtime::Damage;
         match action {
             nexus_wire::imed::ACTION_BACKSPACE => {
                 let tokens = tokens_for(self.theme_mode);
                 let device = device_for(self.shell_profile, self.w);
-                let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+                let locale = super::app_locale!(self);
                 let damage = match self.view.backspace_text(tokens, &device, &locale) {
                     Ok(d) => d,
                     Err(e) => {

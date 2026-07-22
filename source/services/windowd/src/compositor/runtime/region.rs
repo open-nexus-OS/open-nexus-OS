@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //! CONTEXT: windowd compositor runtime — RFC-0076/0077 region relay: windowd
-//! watches settingsd (`time.` / `ui.locale`) on its init-provisioned channel
+//! watches settingsd (`time.` + `ui.locale`, two subscriptions on ONE
+//! channel via a cloned push cap) on its init-provisioned channel
 //! and pushes `OP_SURFACE_REGION` (locale, tz, hour format) to every app
 //! surface — at event-channel attach and on every applied change. PURE
 //! RELAY: no clock, no conversion, no locale logic here.
@@ -30,7 +31,8 @@ pub(crate) struct RegionState {
     pub(crate) tz: [u8; surface_text::REGION_TZ_MAX],
     pub(crate) tz_len: u8,
     pub(crate) hour_fmt: u8,
-    pub(crate) subscribed: bool,
+    pub(crate) subscribed_time: bool,
+    pub(crate) subscribed_locale: bool,
 }
 
 impl RegionState {
@@ -41,7 +43,8 @@ impl RegionState {
             tz: [0; surface_text::REGION_TZ_MAX],
             tz_len: 0,
             hour_fmt: surface_text::REGION_HOUR_24,
-            subscribed: false,
+            subscribed_time: false,
+            subscribed_locale: false,
         };
         s.set_locale("de-DE");
         s.set_tz("Europe/Berlin");
@@ -115,33 +118,50 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             use nexus_wire::settingsd as swire;
-            if !self.region.subscribed {
-                // OP_WATCH with the cap-moved push SEND half. The settingsd
-                // request route is windowd's recorded named route.
+            if !(self.region.subscribed_time && self.region.subscribed_locale) {
+                // Two OP_WATCH subscriptions ride ONE push channel: each
+                // watch cap-moves a SEND half, so the second one moves a
+                // local CLONE of the half (cloned BEFORE the first move;
+                // cached so retries never re-clone). The settingsd request
+                // route is windowd's recorded named route.
                 let Some((send_slot, _)) = crate::settings_client::settingsd_slots() else {
                     return; // early boot — retried next frame
                 };
-                let mut req = [0u8; 72];
-                let Some(n) = swire::encode_watch_req("time.", &mut req) else {
-                    return;
+                static LOCALE_SEND_SLOT: core::sync::atomic::AtomicU32 =
+                    core::sync::atomic::AtomicU32::new(0);
+                if LOCALE_SEND_SLOT.load(core::sync::atomic::Ordering::Relaxed) == 0 {
+                    let Ok(clone) = nexus_abi::cap_clone(WATCH_SEND_SLOT) else {
+                        return;
+                    };
+                    LOCALE_SEND_SLOT.store(clone, core::sync::atomic::Ordering::Relaxed);
+                }
+                let watch = |prefix: &str, cap_slot: u32| -> bool {
+                    let mut req = [0u8; 72];
+                    let Some(n) = swire::encode_watch_req(prefix, &mut req) else {
+                        return false;
+                    };
+                    let hdr = nexus_abi::MsgHeader::new(
+                        cap_slot,
+                        0,
+                        0,
+                        nexus_abi::ipc_hdr::CAP_MOVE,
+                        n as u32,
+                    );
+                    nexus_abi::ipc_send_v1(
+                        send_slot,
+                        &hdr,
+                        &req[..n],
+                        nexus_abi::IPC_SYS_NONBLOCK,
+                        0,
+                    )
+                    .is_ok()
                 };
-                let hdr = nexus_abi::MsgHeader::new(
-                    WATCH_SEND_SLOT,
-                    0,
-                    0,
-                    nexus_abi::ipc_hdr::CAP_MOVE,
-                    n as u32,
-                );
-                if nexus_abi::ipc_send_v1(
-                    send_slot,
-                    &hdr,
-                    &req[..n],
-                    nexus_abi::IPC_SYS_NONBLOCK,
-                    0,
-                )
-                .is_ok()
-                {
-                    self.region.subscribed = true;
+                if !self.region.subscribed_time {
+                    self.region.subscribed_time = watch("time.", WATCH_SEND_SLOT);
+                }
+                if self.region.subscribed_time && !self.region.subscribed_locale {
+                    let clone = LOCALE_SEND_SLOT.load(core::sync::atomic::Ordering::Relaxed);
+                    self.region.subscribed_locale = watch("ui.locale", clone);
                 }
                 return;
             }

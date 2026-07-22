@@ -27,8 +27,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use nexus_dsl_ir::ui_ir_capnp as ir;
-use nexus_dsl_ir::{hashing, DIGEST_LEN, SCHEMA_MAJOR, SCHEMA_MINOR};
+use nexus_dsl_ir::{hashing, ui_ir_capnp as ir, DIGEST_LEN, SCHEMA_MAJOR, SCHEMA_MINOR};
 
 /// Default program budgets (v1.0): view nodes, expr nodes, list len, str len,
 /// effect steps, locals, children.
@@ -36,9 +35,10 @@ pub const DEFAULT_BUDGETS: (u32, u32, u32, u32, u32, u32, u32) =
     (4096, 1024, 1024, 4096, 16, 32, 64);
 
 pub struct Lowered {
-    /// Canonical single-segment `.nxir` bytes (hash patched).
     pub nxir: Vec<u8>,
     pub program_hash: [u8; DIGEST_LEN],
+    /// i18n keys in KEY-INDEX ORDER (RFC-0077 packs are index-aligned).
+    pub i18n_keys: Vec<String>,
 }
 
 /// Lowers a checked file. `source` is the canonical (formatted) source text —
@@ -81,7 +81,7 @@ pub fn lower_file_with_catalog(
             .map_err(|_| internal(Span::default(), "hashing freshly built IR failed"))?
     };
     let nxir = build_message(&ctx, model, source, &hash)?;
-    Ok(Lowered { nxir, program_hash: hash })
+    Ok(Lowered { nxir, program_hash: hash, i18n_keys: ctx.i18n_keys.clone() })
 }
 
 fn internal(span: Span, message: &str) -> Diagnostic {

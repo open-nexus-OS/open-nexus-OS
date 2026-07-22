@@ -1,9 +1,9 @@
 ---
 title: TASK-0240 i18n v2a (host-first): locale-pack compiler in nx build + PackLocaleSource + deterministic goldens
-status: Draft
+status: Done (2026-07-21)
 owner: @runtime
 created: 2025-12-29
-updated: 2026-07-21 (rewritten: replaces both old i18n families — no Fluent/ICU4X (ex 0174/0175), packs ride the existing DSL catalog; architecture per RFC-0077)
+updated: 2026-07-21 (DONE — host layer landed; naming deltas: pack magic `NXL1` index-aligned inline in the `NXLC` payload container (no `locales/*.nxlp` sidecar files), runtime source = `Catalog::from_indexed_pack` + `CatalogOverBaked` (no separate `PackLocaleSource` type). Originally rewritten: replaces both old i18n families — no Fluent/ICU4X (ex 0174/0175), packs ride the existing DSL catalog; architecture per RFC-0077)
 depends-on:
   - TASK-0077
 follow-up-tasks:
@@ -101,3 +101,21 @@ no new daemon, no new authority, no forbidden/heavy deps.
 - `nx build` of an app with `i18n/{en,de}.json` emits two byte-stable packs;
   swapping the mounted source at runtime re-renders `@t()` strings in German
   with English fallback for missing keys — proven on host.
+
+## Result (2026-07-21)
+
+Landed per RFC-0077 with two naming/shape deltas vs the plan above:
+
+- Packs are **not sidecar files** — `compile_project_bundle`
+  (`userspace/dsl/core/src/locale_pack.rs`) compiles every `i18n/<tag>.json`
+  into an `NXL1` index-aligned pack and ships them INLINE in the `NXLC`
+  payload container (16-byte header keeps the NXIR 8-aligned; total length
+  padded to a multiple of 8 — bundle-payload invariant). Pack-less apps keep
+  the raw `.nxir` payload byte-identically.
+- The runtime source is `Catalog::from_indexed_pack` (fail-closed `NXL1`
+  parser) + `CatalogOverBaked` (active catalog → baked default terminal) in
+  `userspace/dsl/runtime/src/i18n.rs` — no separate `PackLocaleSource` type.
+- Proofs: `tests/dsl_goldens/tests/i18n_packs.rs` — golden bytes, round-trip,
+  swap-reemit (en→de re-renders via `view.reemit()`), pack-less parity, and
+  `test_reject_*` truncation/mutation matrices for packs AND containers.
+  Gates: `just check` + `just test-host` green.

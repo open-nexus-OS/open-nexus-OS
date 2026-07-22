@@ -21,6 +21,7 @@ pub mod check;
 pub mod diag;
 pub mod fmt;
 pub mod lexer;
+pub mod locale_pack;
 pub mod lower;
 pub mod parser;
 pub mod project;
@@ -29,8 +30,12 @@ pub mod registry;
 pub use check::{check_file, has_errors};
 pub use diag::{DiagCode, Diagnostic, Severity, Span};
 pub use fmt::format_file;
+pub use locale_pack::encode_locale_pack;
+#[cfg(feature = "std")]
+pub use locale_pack::{compile_project_bundle, ProjectBuild};
 pub use lower::{lower_file, lower_file_with_catalog, Lowered};
 pub use parser::parse_file;
+pub use project::compile_project_build;
 pub use project::{canonical_source_set, merge_project, SourceFile};
 #[cfg(feature = "std")]
 pub use project::{compile_project_dir, parse_native_surface};

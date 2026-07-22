@@ -191,10 +191,10 @@ impl super::DslApp {
     /// `dispatch(LoadMore)` continuing a QuerySpec page token). Returns
     /// whether the model changed (caller full-repaints like a tap).
     pub(super) fn fire_end_reached(&mut self) -> bool {
-        use nexus_dsl_runtime::{Damage, IdentityLocale};
+        use nexus_dsl_runtime::Damage;
         let tokens = tokens_for(self.theme_mode);
         let device = device_for(self.shell_profile, self.w);
-        let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+        let locale = super::app_locale!(self);
         // Container-scoped event: dispatched by NAME, never by hit-test —
         // the handler may sit on a (scrolled-away) content node, and "the
         // end was reached" has no pixel anyway.

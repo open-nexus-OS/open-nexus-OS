@@ -70,10 +70,14 @@ mod probe {
     mod anim;
     mod boot;
     mod clock;
+    mod env;
     mod interaction;
+    mod locale;
     mod paint;
     mod scroll;
     use boot::*;
+    pub(crate) use env::{device_for, size_class_for, tokens_for};
+    pub(crate) use locale::app_locale;
 
     /// Fixed child capability slots — execd transfers these AFTER spawn
     /// (`cap_transfer_to_slot`): SEND on windowd's server endpoint into 5,
@@ -983,6 +987,12 @@ mod probe {
         /// the compositor frame pulse. Host owns the clock (the DSL stays pure);
         /// see `probe/anim.rs`.
         anim: anim::AnimState,
+        /// RFC-0077 locale packs from the payload container: (tag, catalog).
+        catalogs: alloc::vec::Vec<(alloc::string::String, nexus_dsl_runtime::Catalog)>,
+        /// Index into `catalogs` of the ACTIVE locale (None = baked default).
+        active_catalog: Option<usize>,
+        /// The last region-pushed locale tag (e.g. `de-DE`).
+        locale_tag: alloc::string::String,
         /// Clock state (RFC-0076, `probe/clock.rs`): tz, format, next wait.
         clock_tz: alloc::string::String,
         clock_hour24: bool,
@@ -1068,19 +1078,12 @@ mod probe {
         ) -> Option<Self> {
             use nexus_dsl_runtime::{IdentityLocale, View};
 
+            let (nxir, catalogs) = locale::split_payload(nxir);
             let runtime = nexus_dsl_runtime::Runtime::mount(nxir).ok()?;
             let symbols = runtime.symbols().to_vec();
             emit_mounted_hash_marker(nxir);
             emit_window_intent_marker(nxir);
-            let keys: alloc::vec::Vec<u32> =
-                match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir).and_then(|r| {
-                    r.root().map(|root| {
-                        root.get_i18n_keys().map(|l| l.iter().map(|k| k.get_key()).collect())
-                    })
-                }) {
-                    Ok(Ok(keys)) => keys,
-                    _ => alloc::vec::Vec::new(),
-                };
+            let keys = locale::i18n_key_table(nxir);
             let tokens = tokens_for(theme_mode);
             // The pushed shell profile IS the device env: `device.profile`
             // selects the platform override arms (tablet base / desktop).
@@ -1138,6 +1141,9 @@ mod probe {
                 momentum: animation::ScrollMomentum::new(animation::ScrollConfig::default()),
                 momentum_last_ns: 0,
                 anim: anim::AnimState::new(),
+                catalogs,
+                active_catalog: None,
+                locale_tag: alloc::string::String::new(),
                 clock_tz: alloc::string::String::from("Europe/Berlin"),
                 clock_hour24: true,
                 clock_next_wait_ms: 1_000,
@@ -1155,97 +1161,6 @@ mod probe {
             // `.transition` nodes (the first present's frame pulse plays them).
             app.anim_sync();
             Some(app)
-        }
-    }
-
-    // Static theme token sets (ZSTs) → a runtime-selectable `&'static dyn Tokens`.
-    static BASE_TOKENS: nexus_dsl_runtime::theme_tokens::BaseTokens =
-        nexus_dsl_runtime::theme_tokens::BaseTokens;
-    static DARK_TOKENS: nexus_dsl_runtime::theme_tokens::DarkTokens =
-        nexus_dsl_runtime::theme_tokens::DarkTokens;
-    static LIGHT_TOKENS: nexus_dsl_runtime::theme_tokens::LightTokens =
-        nexus_dsl_runtime::theme_tokens::LightTokens;
-
-    /// One accent-overridden snapshot per palette entry × mode (alloc-free —
-    /// `tokens_for` returns `&'static`). Index = palette index − 1.
-    const fn accented(
-        base: &'static (dyn nexus_dsl_runtime::theme_tokens::Tokens + Sync),
-        idx: u8,
-        dark: bool,
-    ) -> nexus_dsl_runtime::theme_tokens::AccentTokens {
-        let accent = match nexus_dsl_runtime::theme_tokens::accent_color(idx, dark) {
-            Some(c) => c,
-            // Unreachable for 1..=5; keep the built-in blue as a safe value.
-            None => nexus_layout_types::Rgba8::new(59, 130, 246, 255),
-        };
-        nexus_dsl_runtime::theme_tokens::AccentTokens { base, accent }
-    }
-    static ACCENTED_DARK: [nexus_dsl_runtime::theme_tokens::AccentTokens; 5] = [
-        accented(&DARK_TOKENS, 1, true),
-        accented(&DARK_TOKENS, 2, true),
-        accented(&DARK_TOKENS, 3, true),
-        accented(&DARK_TOKENS, 4, true),
-        accented(&DARK_TOKENS, 5, true),
-    ];
-    static ACCENTED_LIGHT: [nexus_dsl_runtime::theme_tokens::AccentTokens; 5] = [
-        accented(&LIGHT_TOKENS, 1, false),
-        accented(&LIGHT_TOKENS, 2, false),
-        accented(&LIGHT_TOKENS, 3, false),
-        accented(&LIGHT_TOKENS, 4, false),
-        accented(&LIGHT_TOKENS, 5, false),
-    ];
-
-    /// The token set for a PACKED wire theme byte (`mode | accent << 4`) — the
-    /// app renders with the SAME tokens the compositor pushed (dark desktop ⇒
-    /// dark app; user accent ⇒ accented widgets). The packed byte flows
-    /// through `theme_mode` unchanged, so an accent switch re-mounts via the
-    /// same `mode != theme_mode` path as a light/dark toggle.
-    fn tokens_for(packed: u8) -> &'static dyn nexus_dsl_runtime::theme_tokens::Tokens {
-        let (mode, accent) = wire::unpack_theme(packed);
-        let accent_slot = (accent as usize).checked_sub(1);
-        match (mode, accent_slot) {
-            (wire::THEME_DARK, Some(i)) if i < ACCENTED_DARK.len() => &ACCENTED_DARK[i],
-            (wire::THEME_LIGHT, Some(i)) if i < ACCENTED_LIGHT.len() => &ACCENTED_LIGHT[i],
-            (wire::THEME_DARK, _) => &DARK_TOKENS,
-            (wire::THEME_LIGHT, _) => &LIGHT_TOKENS,
-            _ => &BASE_TOKENS,
-        }
-    }
-
-    /// The width class of the TOUCH axis (design_handoff_launcher: mode ⟂
-    /// width — `desktopMode` is an explicit toggle, width only picks between
-    /// the touch layouts). Mobile-first breakpoints, `device.sizeClass`:
-    /// compact = phone (<640), regular = tablet portrait (<1024), wide =
-    /// landscape (≥1024).
-    fn size_class_for(w: u32) -> &'static str {
-        if w < 640 {
-            "compact"
-        } else if w < 1024 {
-            "regular"
-        } else {
-            "wide"
-        }
-    }
-
-    /// The device environment for a pushed shell profile — what the DSL's
-    /// `device.profile` reads, so `ui/platform/<profile>/` override arms
-    /// select to the environment's windowing policy. Touch profiles derive
-    /// `device.sizeClass` from the REAL surface width (the handoff's `vw`
-    /// axis); desktop mode ignores width (one taskbar layout).
-    fn device_for(profile: u8, w: u32) -> nexus_dsl_runtime::FixtureEnv {
-        use nexus_dsl_runtime::FixtureEnv;
-        match profile {
-            wire::PROFILE_DESKTOP => FixtureEnv::desktop(),
-            profile => {
-                let mut env = if profile == wire::PROFILE_PHONE {
-                    FixtureEnv::phone("portrait")
-                } else {
-                    // Our display is landscape 1280×800 (touch-landscape).
-                    FixtureEnv::tablet("landscape")
-                };
-                env.size_class = size_class_for(w);
-                env
-            }
         }
     }
 
