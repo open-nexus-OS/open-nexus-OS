@@ -20,7 +20,7 @@
 
 - **Phase 0 (host core: ime-core + focus model + wire codecs)**: ✅ (TASK-0146 Done 2026-07-21)
 - **Phase 1 (OS typing path: imed real, commit delivery)**: ✅ (TASK-0147 Part 1, boot-proven 2026-07-21 — `imed: ready` + `SELFTEST: imed reject foreign ok` in `ci-os-smp1`; interactive typing = `just start` proof until the Part 2 OSK selftest)
-- **Phase 2 (OSK overlay app ime-ui)**: ⬜ (TASK-0147 Part 2)
+- **Phase 2 (OSK overlay app ime-ui)**: ✅ (TASK-0147 Part 2, boot-proven 2026-07-22 — `SELFTEST: ime v2 osk ok` in `ci-os-smp1`; interactive OSK typing proven in a visible boot)
 - **Phase 3 (CJK engines + candidate UI)**: ⬜ (TASK-0149/0150)
 - **Phase 4 (personalization: ranking + statefs store)**: ⬜ (TASK-0203/0204)
 
@@ -173,8 +173,14 @@ visual is retired in Phase 2.
   frames from any peer; learning as a side channel for secrets.
 - **Mitigations (normative invariants)**:
   - imed accepts `OP_KEY` only from inputd's kernel `sender_service_id`;
-    `source=osk` keys only from the app-host identity hosting the `ime-ui`
-    bundle, policyd-gated (deny-by-default).
+    `source=osk` keys only on imed's DEDICATED osk endpoint (`imed-osk`) —
+    **possession of the route cap IS the authorization** (app processes carry
+    no sender identity on server endpoints): init mints the endpoint, execd
+    provisions its SEND only to bundles holding `nexus.permission.IME`, and
+    the `ime` bundle TYPE is the pack-time privilege ceiling for that
+    permission (deny-by-default without any runtime identity check).
+    `source=osk` on the MAIN endpoint stays DENIED; a mis-tagged `source=hw`
+    frame on the osk endpoint is DENIED too.
   - `OP_SET_FOCUS` / `OP_CANDIDATE_SELECT` accepted only from windowd.
   - Apps trust `OP_SURFACE_TEXT` only on windowd's established push channel.
   - `field_kind=password`: no preedit push, no candidate strip, no learning —
@@ -227,7 +233,9 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
   (QMP-injection lane / OSK-driven in Phase 2 — not in the deterministic CI
   ladder; the interactive proof above is the current gate)
 - `SELFTEST: ime v2 deadkeys de ok` — `´`+`e` → `é` end-to-end (same lane)
-- `SELFTEST: ime v2 osk ok` — OSK tap → commit at focused field (Phase 2)
+- `SELFTEST: ime v2 osk ok` — the DEDICATED osk endpoint accepts an
+  authorized `source=osk` key AND denies a mis-tagged frame (deterministic
+  lane; the tap→commit-at-field chain is the interactive proof)
 - `imed: reject foreign key source` — negative injection selftest (Phase 2)
 - `SELFTEST: ime v2 cjk jp ok`, `SELFTEST: ime v2 candidates ok` (Phase 3)
 - `SELFTEST: ime ranking persist ok` (Phase 4)
@@ -247,7 +255,9 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 ## Open questions
 
-- OSK bundle identity for the policyd injection rule: app-host instance id vs
+- ~~OSK bundle identity for the policyd injection rule~~ RESOLVED (Phase 2):
+  a dedicated endpoint makes possession the authorization — no runtime
+  identity needed. Original question: app-host instance id vs
   bundle id — decide in TASK-0147 Part 2 (owner @ui) before the gate lands.
 
 ## RFC Quality Guidelines (for authors)
@@ -269,7 +279,7 @@ When writing this RFC, ensure:
 
 - [x] **Phase 0**: ime-core + focused-field model + wire codecs — proof: `cargo test -p ime-core -p keymaps -p nexus-wire -p nexus-display-proto` + DSL runtime focus tests (green 2026-07-21; evidence in TASK-0146)
 - [x] **Phase 1**: imed real + typing lands in apps + `ime` deleted — proof: boot ladder (`init: up imed`, `imed: ready`) + `SELFTEST: imed reject foreign ok` (green in `ci-os-smp1` 2026-07-21); positive typing chain interactive until Phase 2's OSK selftest
-- [ ] **Phase 2**: ime-ui OSK + policyd gate — proof: `SELFTEST: ime v2 osk ok`, `imed: reject foreign key source`
+- [x] **Phase 2**: ime-ui OSK + capability-gated injection (dedicated `imed-osk` endpoint + `nexus.permission.IME` + `ime` bundle-type ceiling) — proof: `SELFTEST: ime v2 osk ok` (green in `ci-os-smp1` 2026-07-22) + interactive OSK typing; `imed: reject foreign key source` covers the main-endpoint deny
 - [ ] **Phase 3**: CJK engines + candidate strip — proof: `SELFTEST: ime v2 cjk jp ok`, `SELFTEST: ime v2 candidates ok`
 - [ ] **Phase 4**: ranking + statefs store — proof: `SELFTEST: ime ranking persist ok`
 - [ ] Task(s) linked with stop conditions + proof commands.

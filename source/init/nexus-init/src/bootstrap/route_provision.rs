@@ -248,3 +248,67 @@ pub(crate) fn grant_rtc_mmio_to_timed(
         }
     }
 }
+
+/// imed's wiring legs: the OSK-endpoint RECV PINNED to its fixed slot 5
+/// (`OSK_RECV_SLOT`, RFC-0075 Phase 2 — before the windowd legs so the
+/// number is stable) + the windowd push route (direct transfers, no clone
+/// — the cap-table note in `wiring.rs`).
+pub(crate) fn provision_imed_legs(
+    pid: u32,
+    imed_osk: u32,
+    window_req: u32,
+    window_rsp: u32,
+    chan: &mut CtrlChannel,
+) {
+    match nexus_abi::cap_transfer_to_slot(pid, imed_osk, Rights::RECV, 5) {
+        Ok(_) => debug_write_bytes(b"init: imed osk recv ok\n"),
+        Err(_) => debug_write_bytes(b"init: imed osk recv FAIL (xfer)\n"),
+    }
+    match (
+        nexus_abi::cap_transfer(pid, window_req, Rights::SEND),
+        nexus_abi::cap_transfer(pid, window_rsp, Rights::RECV),
+    ) {
+        (Ok(send), Ok(recv)) => {
+            chan.set_send(ServiceId::Windowd, send);
+            chan.set_recv(ServiceId::Windowd, recv);
+            debug_write_bytes(b"init: imed route->windowd ok\n");
+        }
+        _ => debug_write_bytes(b"init: imed route->windowd FAIL (xfer)\n"),
+    }
+}
+
+/// execd's `imed-osk` named route (RFC-0075 Phase 2): the DEDICATED osk
+/// endpoint — possession IS the authorization; execd provisions it only to
+/// `nexus.permission.IME` bundles. Pre-cloned in the orchestrator (a
+/// transfer MOVES the cap).
+pub(crate) fn provision_execd_imed_osk(
+    pid: u32,
+    imed_osk_execd: u32,
+    reply_recv_slot: u32,
+    chan: &mut CtrlChannel,
+) {
+    if let Ok(s) = nexus_abi::cap_transfer(pid, imed_osk_execd, Rights::SEND) {
+        chan.set_send(ServiceId::ImedOsk, s);
+        chan.set_recv(ServiceId::ImedOsk, reply_recv_slot);
+        debug_write_bytes(b"init: execd route->imed-osk ok\n");
+    }
+}
+
+/// The selftest harness's `imed-osk` probe route (positive + mis-tag
+/// negative); the reply rides the probe's own `@mint-pair` channel, so the
+/// recorded recv slot (imed's) is never read.
+pub(crate) fn provision_selftest_imed_osk(
+    pid: u32,
+    imed_osk_selftest: u32,
+    recv_slot: u32,
+    chan: &mut CtrlChannel,
+) {
+    match nexus_abi::cap_transfer(pid, imed_osk_selftest, Rights::SEND) {
+        Ok(osk_send) => {
+            chan.set_send(ServiceId::ImedOsk, osk_send);
+            chan.set_recv(ServiceId::ImedOsk, recv_slot);
+            debug_write_bytes(b"init: selftest route->imed-osk ok\n");
+        }
+        Err(_) => debug_write_bytes(b"init: selftest route->imed-osk FAIL (xfer)\n"),
+    }
+}

@@ -76,15 +76,20 @@ pub enum ServiceId {
     /// Input method editor daemon (RFC-0075 — composes keys for the focused
     /// surface; inputd forwards resolved keys, windowd relays focus).
     Imed = 26,
+    /// ROUTE-ONLY pseudo id (no process): imed's dedicated OSK-injection
+    /// endpoint (RFC-0075 Phase 2). Possession of this route's SEND cap IS
+    /// the injection authorization — execd provisions it only to
+    /// `nexus.permission.IME` bundles; the selftest harness probes it.
+    ImedOsk = 27,
 }
 
 impl ServiceId {
     /// Number of entries needed to index a per-service array by `id as usize`
-    /// (discriminants are `1..=26`, so the array spans `0..=26`; index 0 is unused).
-    pub const COUNT: usize = 27;
+    /// (discriminants are `1..=27`, so the array spans `0..=27`; index 0 is unused).
+    pub const COUNT: usize = 28;
 
     /// Every service identifier, for iterating a per-service routing array.
-    pub const ALL: [ServiceId; 26] = [
+    pub const ALL: [ServiceId; 27] = [
         Self::Vfsd,
         Self::Packagefsd,
         Self::Policyd,
@@ -111,6 +116,7 @@ impl ServiceId {
         Self::Settingsd,
         Self::Pinched,
         Self::Imed,
+        Self::ImedOsk,
     ];
 
     /// Look up a service by its canonical name. Returns None for unknown names.
@@ -142,6 +148,7 @@ impl ServiceId {
             b"settingsd" => Self::Settingsd,
             b"pinched" => Self::Pinched,
             b"imed" => Self::Imed,
+            b"imed-osk" => Self::ImedOsk,
             _ => return None,
         })
     }
@@ -175,6 +182,7 @@ impl ServiceId {
             Self::Settingsd => "settingsd",
             Self::Pinched => "pinched",
             Self::Imed => "imed",
+            Self::ImedOsk => "imed-osk",
         }
     }
 }

@@ -170,7 +170,18 @@ impl DisplayServerRuntime {
                 // only an intent-chromeless surface (plain / desktop / fullscreen
                 // intent — a shell or single-app-OS launcher) goes edge-to-edge.
                 self.apps[idx].win.title_h = self.app_title_h(idx);
-                if self.app_presentation(idx).full_screen || self.windows.is_fullscreen(wid) {
+                if self.app_presentation(idx).docked_bottom {
+                    // OVERLAY dock (OSK): bottom edge, full width, no chrome.
+                    let h = u32::from(height);
+                    #[allow(clippy::cast_possible_wrap)]
+                    self.apps[idx].win.set_frame(
+                        0,
+                        self.mode.height.saturating_sub(h) as i32,
+                        self.mode.width,
+                        h,
+                    );
+                } else if self.app_presentation(idx).full_screen || self.windows.is_fullscreen(wid)
+                {
                     // Full-screen presentation (declared desktop level /
                     // fullscreen mode — the shell/greeter base or a kiosk app) or
                     // the transient user-maximize: cover the WORK AREA. The
@@ -477,6 +488,13 @@ impl DisplayServerRuntime {
         match self.client_surfaces.destroy(surface_id) {
             Ok(vmo_slot) => {
                 let _ = nexus_abi_cap_close(vmo_slot);
+                // A dying surface takes its text focus with it — and the OSK
+                // band must follow (RFC-0075: never a keyboard without a
+                // field; e.g. the greeter is destroyed at session start).
+                if self.text_focus.map(|f| f.surface_id) == Some(surface_id) {
+                    self.text_focus = None;
+                    self.update_osk_visibility();
+                }
                 if self.desktop_surface_id == Some(surface_id) {
                     // The desktop surface dropped (shell exit / re-create): free
                     // its band + hide the base layer until a new one connects.
@@ -519,79 +537,6 @@ impl DisplayServerRuntime {
                 )
             }
             Err(status) => wire::encode_surface_ack(wire::OP_SURFACE_DESTROY, status, surface_id),
-        }
-    }
-
-    /// Window intent (`OP_SURFACE_INTENT`, sent before create): store the
-    /// style/level/mode and answer the composed **content rect** the app sizes
-    /// its surface VMO to (the WM owns geometry — no display-mode query). Under
-    /// the v1 Desktop policy a `desktop`/`fullscreen` surface fills the display;
-    /// otherwise it gets the default window body size. Reply rides the app event
-    /// channel; if it is not attached yet the app's bounded wait falls back.
-    pub(crate) fn handle_surface_intent(&mut self, frame: &[u8]) {
-        let Some((style, level, mode, resizable, nonce)) = wire::decode_surface_intent(frame)
-        else {
-            return;
-        };
-        // STATELESS: the reply is computed from THIS frame's intent only.
-        // Storing it here poisoned the floating window's `app_intent_*` when a
-        // desktop app (shell/greeter) asked while a window was open — the
-        // create carries the intent atomically, so nothing needs it stored.
-        let p = crate::surface_presentation::WindowPresentation::resolve(
-            style,
-            level,
-            mode,
-            resizable,
-            self.windowing_policy,
-        );
-        let (rw, rh) = if p.full_screen {
-            // Same work-area rule as the create branch: shell/greeter span
-            // the display; a fullscreen APP window gets the work-area height.
-            let h = if level == wire::WIN_LEVEL_DESKTOP {
-                self.mode.height
-            } else {
-                self.work_area_h()
-            };
-            (self.mode.width as u16, h as u16)
-        } else {
-            // Default body size for a NEW window: the next free slot's default
-            // frame (a re-creating client will re-negotiate through create).
-            let idx = self.free_app_index().unwrap_or(0);
-            let win = &self.apps[idx].win;
-            (win.w as u16, win.h.saturating_sub(win.title_h) as u16)
-        };
-        let rect = wire::encode_surface_rect(0, 0, rw, rh);
-        // Reply on the ASKING client's own event channel (nonce correlation —
-        // the same contract as create/events). The last-attached-channel send
-        // this replaces let concurrent mounts steal each other's rect: every
-        // app then mounted at the probe fallback size.
-        #[cfg(nexus_env = "os")]
-        {
-            if let Some(slot) = self.event_channel_for(nonce) {
-                let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rect.len() as u32);
-                let _ = nexus_abi::ipc_send_v1(slot, &hdr, &rect, nexus_abi::IPC_SYS_NONBLOCK, 0);
-            } else {
-                let _ = debug_println("WINDOWD: FAIL intent reply (no channel for nonce)");
-            }
-        }
-        #[cfg(not(nexus_env = "os"))]
-        let _ = rect;
-        let _ = debug_println(&alloc::format!(
-            "WINDOWD: surface intent style={style} level={level} mode={mode} -> {rw}x{rh}"
-        ));
-    }
-
-    /// The work-area HEIGHT for fullscreen/maximized APP windows: the display
-    /// minus the desktop taskbar (desktop profile only — "nicht über die
-    /// Taskleiste"); the tablet dock is overlaid, so fullscreen reaches the
-    /// bottom edge there. The top is NOT inset — windows sit BEHIND the shell
-    /// top bar (it composites above them, `SHELL_TOPBAR_H`).
-    pub(crate) fn work_area_h(&self) -> u32 {
-        use nexus_display_proto::client_surface as wire;
-        if self.shell_profile_wire() == wire::PROFILE_DESKTOP {
-            self.mode.height.saturating_sub(super::SHELL_TASKBAR_H)
-        } else {
-            self.mode.height
         }
     }
 

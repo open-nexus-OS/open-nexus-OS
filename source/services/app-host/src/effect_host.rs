@@ -34,9 +34,9 @@ use nexus_sdk_routes::{route_for_svc, CHILD_REPLY_RECV_SLOT, CHILD_REPLY_SEND_SL
 
 /// Stable effect error codes (surfaced to the DSL `Err(e)` arm) — the same
 /// numbering windowd's host uses, so a program is host-agnostic.
-const ERR_SVC_UNAVAILABLE: u32 = 1;
-const ERR_SVC_UNKNOWN: u32 = 2;
-const ERR_SVC_SHAPE: u32 = 3;
+pub(crate) const ERR_SVC_UNAVAILABLE: u32 = 1;
+pub(crate) const ERR_SVC_UNKNOWN: u32 = 2;
+pub(crate) const ERR_SVC_SHAPE: u32 = 3;
 
 /// Per-call budget: the fixed slots are populated before resume, but the
 /// backing service may still be finishing bring-up. Time-bounded (not
@@ -55,7 +55,7 @@ const VFS_OPCODE_READDIR: u8 = 6;
 /// Proof marker that bypasses verdict folding (the app-host process arms
 /// folding for every line via `nexus-service-entry`; the svc chain must stay
 /// visible for boot verification).
-fn raw_marker(line: &str) {
+pub(crate) fn raw_marker(line: &str) {
     let mut buf = [0u8; 96];
     let bytes = line.as_bytes();
     let n = bytes.len().min(buf.len() - 1);
@@ -673,75 +673,6 @@ impl AppEffectHost {
         });
         Ok(Value::Bool(ok))
     }
-
-    /// Sends a presentation control to windowd on the surface request channel
-    /// (fire-and-forget NONBLOCK; windowd pushes the resulting theme/profile
-    /// back over the event channel, which re-mounts the view).
-    fn presentation_control(&self, key: &str, value: &str) -> Result<Value, u32> {
-        use nexus_abi::settingsd as sw;
-        use nexus_display_proto::client_surface as wire;
-        let (control, v) = if key == sw::KEY_UI_THEME_MODE {
-            let v = if value == "light" { wire::THEME_LIGHT } else { wire::THEME_DARK };
-            (wire::CONTROL_THEME, v)
-        } else if key == sw::KEY_UI_THEME_ACCENT {
-            // Accent-palette pick: name → index (unknown names fail closed —
-            // settingsd would refuse them too; the palette is the SSOT).
-            let Some(idx) = nexus_dsl_runtime::theme_tokens::accent_index(value) else {
-                raw_marker("apphost: dsl svc settings.set FAIL (accent name)");
-                return Err(ERR_SVC_UNAVAILABLE);
-            };
-            (wire::CONTROL_THEME_ACCENT, idx)
-        } else if key == "window.control" {
-            // App-chrome window controls (the window-kit app menu). The recv
-            // path carries no sender identity, so the value byte names the
-            // caller's own surface: minimize/close = the surface id; mode =
-            // `id << 4 | WIN_MODE_*` (ids and modes are both < 16).
-            // RECORDED FOLLOW-UP (same class as the CONTROL sender-role
-            // check): a client could name a foreign id — presentation-only
-            // blast radius until per-sender identity lands.
-            let sid = (self.surface_id & 0x0F) as u8;
-            if sid == 0 {
-                raw_marker("apphost: dsl svc settings.set FAIL (no surface id)");
-                return Err(ERR_SVC_UNAVAILABLE);
-            }
-            match value {
-                "minimize" => (wire::CONTROL_WIN_MINIMIZE, sid),
-                "close" => (wire::CONTROL_WIN_CLOSE, sid),
-                // zoom / mode.*: one MODE control; AUTO = toggle fullscreen.
-                "zoom" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_AUTO),
-                "mode.fullscreen" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FULLSCREEN),
-                "mode.freeform" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FREEFORM),
-                "mode.split" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_SPLIT),
-                _ => {
-                    raw_marker("apphost: dsl svc settings.set FAIL (window control)");
-                    return Err(ERR_SVC_UNAVAILABLE);
-                }
-            }
-        } else {
-            let v = if value == "desktop" { wire::PROFILE_DESKTOP } else { wire::PROFILE_TABLET };
-            (wire::CONTROL_SHELL_PROFILE, v)
-        };
-        let frame = wire::encode_surface_control(control, v);
-        // The windowd surface request slot (main.rs WINDOWD_SEND_SLOT).
-        const WINDOWD_SEND_SLOT: u32 = 5;
-        let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-        match nexus_abi::ipc_send_v1(
-            WINDOWD_SEND_SLOT,
-            &hdr,
-            &frame,
-            nexus_abi::IPC_SYS_NONBLOCK,
-            0,
-        ) {
-            Ok(_) => {
-                raw_marker("apphost: dsl svc settings.set control ok");
-                Ok(Value::Bool(true))
-            }
-            Err(_) => {
-                raw_marker("apphost: dsl svc settings.set control FAIL (send)");
-                Err(ERR_SVC_UNAVAILABLE)
-            }
-        }
-    }
 }
 
 fn to_qval(value: &Value) -> Option<nexus_query::QVal> {
@@ -920,6 +851,10 @@ impl EffectHost for AppEffectHost {
                 self.settings_set(key, value)
             }
             ("session", "users") => self.session_users(),
+            ("ime", "key") => self.ime_key(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?),
+            ("ime", "action") => {
+                self.ime_action(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?)
+            }
             ("session", "login") => {
                 let user = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
                 self.session_login(user)

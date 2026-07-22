@@ -144,6 +144,10 @@ enum BundleType {
   # (browse/manage user-visible files via vfsd `svc.files`). Sandboxed apps
   # reach files only through pickers (deferred, TASK-0083/0084).
   filemanager @8;
+  # The input-method UI (RFC-0075 Phase 2): the ONLY bundle type that may
+  # hold IME (inject OSK keys via imed's dedicated endpoint). Not
+  # user-launchable (windowd shows/hides it on text focus).
+  ime @9;
 }
 
 enum ResourceKind {

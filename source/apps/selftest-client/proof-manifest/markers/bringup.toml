@@ -832,6 +832,9 @@ phase = "bringup"
 [marker."SELFTEST: imed reject foreign FAIL"]
 phase = "bringup"
 
+[marker."SELFTEST: ime v2 osk FAIL"]
+phase = "bringup"
+
 [marker."SELFTEST: settings watch FAIL"]
 phase = "bringup"
 

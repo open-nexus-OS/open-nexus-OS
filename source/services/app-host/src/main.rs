@@ -41,6 +41,8 @@ fn main() {
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_host;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod effect_ime;
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod time_client;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
@@ -225,14 +227,18 @@ mod probe {
         // Declared resize intent: floating windows are resizable; a desktop/
         // fullscreen surface is not (the presentation resolver enforces this
         // WM-side too). Carried atomically on SURFACE_CREATE.
-        let resizable = level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN;
-        let (mut surf_w, mut surf_h) =
-            if level == wire::WIN_LEVEL_DESKTOP || mode == wire::WIN_MODE_FULLSCREEN {
-                request_content_rect(&client, &events, style, level, mode, nonce, &mut boot_region)
-                    .unwrap_or((SURFACE_W as u32, SURFACE_H as u32))
-            } else {
-                (SURFACE_W as u32, SURFACE_H as u32)
-            };
+        let resizable = level != wire::WIN_LEVEL_DESKTOP
+            && level != wire::WIN_LEVEL_OVERLAY
+            && mode != wire::WIN_MODE_FULLSCREEN;
+        let (mut surf_w, mut surf_h) = if level == wire::WIN_LEVEL_DESKTOP
+            || level == wire::WIN_LEVEL_OVERLAY
+            || mode == wire::WIN_MODE_FULLSCREEN
+        {
+            request_content_rect(&client, &events, style, level, mode, nonce, &mut boot_region)
+                .unwrap_or((SURFACE_W as u32, SURFACE_H as u32))
+        } else {
+            (SURFACE_W as u32, SURFACE_H as u32)
+        };
         // Content rect arriving DURING an ack wait (windowd's corrective push
         // after a small create) — stashed by `recv_ack` instead of dropped,
         // applied by the event loop as if it had just been received.
@@ -250,7 +256,9 @@ mod probe {
         // owns every pixel. Normal floating windows keep the frosted glass.
         let base_alpha: u8 = if level == wire::WIN_LEVEL_DESKTOP {
             0
-        } else if mode == wire::WIN_MODE_FULLSCREEN {
+        } else if level == wire::WIN_LEVEL_OVERLAY || mode == wire::WIN_MODE_FULLSCREEN {
+            // The OSK band (overlay) paints opaque — keys must never blend
+            // with the content below (glass material = follow-up).
             255
         } else {
             // Frosted floating window: the page base leaves ~1/3 of the blurred

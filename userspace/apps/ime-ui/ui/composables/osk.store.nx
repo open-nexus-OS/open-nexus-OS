@@ -1,0 +1,54 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// OSK state (RFC-0075 Phase 2): the layout toggle (de/us, the on-keyboard
+// globe key — keymap-driven layout is a recorded follow-up) and the key
+// effects. Every tap flows through `svc.ime.*` to imed's DEDICATED osk
+// endpoint — the app never sees the focused field or any typed context.
+
+Store OskStore {
+    layout: Str = "de",
+    sent: Int = 0,
+}
+
+Event OskEvent {
+    Key(Str),
+    Action(Str),
+    Layout,
+    Sent(Bool),
+    SendFailed(Int),
+}
+
+reduce OskEvent {
+    Key(k) => state.sent = state.sent,
+    Action(a) => state.sent = state.sent,
+    Layout => {
+        if state.layout == "de" {
+            state.layout = "us";
+        } else {
+            state.layout = "de";
+        }
+    },
+    Sent(ok) => {
+        if ok {
+            state.sent = state.sent + 1;
+        } else {
+            state.sent = state.sent;
+        }
+    },
+    SendFailed(e) => state.sent = state.sent,
+}
+
+@effect on Key(k) {
+    match svc.ime.key(k, timeoutMs: 100) {
+        Ok(ok) => dispatch(Sent(ok)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+}
+
+@effect on Action(a) {
+    match svc.ime.action(a, timeoutMs: 100) {
+        Ok(ok) => dispatch(Sent(ok)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+}

@@ -63,6 +63,8 @@ pub(crate) const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
 /// tablet dock is overlaid (fullscreen reaches the bottom edge).
 pub(crate) const SHELL_TOPBAR_H: u32 = 36;
 pub(crate) const SHELL_TASKBAR_H: u32 = 56;
+/// OSK overlay band height (RFC-0075 Phase 2; WM owns overlay geometry).
+pub(crate) const OSK_BAND_H: u32 = 264;
 const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
 // Interactive geometry lives in `interaction` — the single source of truth shared
@@ -86,9 +88,10 @@ mod framebuffer;
 mod gpud;
 mod input;
 mod input_scroll;
+pub(crate) mod intent;
 mod marker_emit;
 mod present;
-pub(crate) mod region;
+mod region;
 mod scene;
 mod session;
 mod shell;
@@ -543,6 +546,8 @@ pub(crate) struct DisplayServerRuntime {
     /// desktop is never left channel-less (stuck fallback surface).
     #[cfg(nexus_env = "os")]
     desktop_pending_nonce: Option<u64>,
+    /// RFC-0075 Phase 2: ime-ui overlay launch requested (once per boot).
+    osk_launch_requested: bool,
     desktop_band: Option<crate::atlas::AtlasSurface>,
     desktop_dirty: bool,
     /// One-shot frame pulse armed by the desktop surface (shell scroll).
@@ -904,6 +909,7 @@ impl DisplayServerRuntime {
             desktop_channel: None,
             #[cfg(nexus_env = "os")]
             desktop_pending_nonce: None,
+            osk_launch_requested: false,
             desktop_band: None,
             desktop_dirty: false,
             desktop_frame_pulse: false,

@@ -30,6 +30,10 @@ phase = "routing"
 phase = "routing"
 proves = "imed denies OP_KEY from non-inputd senders (RFC-0075 identity gate)"
 
+[marker."SELFTEST: ime v2 osk ok"]
+phase = "routing"
+proves = "imed's DEDICATED osk endpoint accepts an authorized source=osk key and denies a mis-tagged frame (RFC-0075 Phase 2; capability possession = injection authority — the commit-at-field chain is the interactive OSK proof)"
+
 [marker."SELFTEST: settings watch ok"]
 phase = "routing"
 proves = "settingsd OP_WATCH pushes applied changes (RFC-0078 spine)"

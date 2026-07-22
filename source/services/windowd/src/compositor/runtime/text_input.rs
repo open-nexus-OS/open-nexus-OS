@@ -68,6 +68,64 @@ impl DisplayServerRuntime {
             }
         }
         self.relay_focus_to_imed(u64::from(surface_id), focused, field_kind, caret);
+        self.update_osk_visibility();
+    }
+
+    /// OSK show/hide (RFC-0075 Phase 2): text focus in a TOUCH profile shows
+    /// the on-screen keyboard; losing it hides the band. windowd only
+    /// composites — the OSK is the `ime-ui` overlay app, lazily launched on
+    /// the first focus (abilitymgr owns the spawn). Desktop profile keeps
+    /// the hardware-keyboard-only flow.
+    pub(crate) fn update_osk_visibility(&mut self) {
+        use nexus_display_proto::client_surface as wire;
+        let want_osk = self.text_focus.is_some()
+            && self.shell_profile_wire() != wire::PROFILE_DESKTOP
+            // The OSK never targets ITSELF (its own taps must not re-anchor it).
+            && !self
+                .text_focus
+                .and_then(|f| match f.target {
+                    TextFocusTarget::App(idx) => Some(idx),
+                    TextFocusTarget::Desktop => None,
+                })
+                .is_some_and(|idx| self.app_is_overlay(idx));
+        let osk_idx = (0..self.apps.len())
+            .find(|&i| self.apps[i].surface_id.is_some() && self.app_is_overlay(i));
+        match (want_osk, osk_idx) {
+            (true, Some(idx)) => {
+                let wid = crate::window_scene::WindowId::App(idx as u8);
+                if !self.windows.is_visible(wid) {
+                    self.apps[idx].win.visible = true;
+                    self.windows.show_unfocused(wid);
+                    self.apps[idx].win.surface_dirty = true;
+                    self.apps[idx].surface_dirty_rows = None;
+                    let rect = self.app_window_rect(idx);
+                    self.queue_dirty_rect(rect);
+                }
+            }
+            (true, None) => {
+                // Lazily launch the ime-ui overlay ONCE per boot; its create
+                // lands as a normal `OP_SURFACE_CREATE` with `level: overlay`.
+                if !self.osk_launch_requested {
+                    self.osk_launch_requested = true;
+                    self.launch_app("ime-ui");
+                }
+            }
+            (false, Some(idx)) => {
+                let wid = crate::window_scene::WindowId::App(idx as u8);
+                if self.windows.is_visible(wid) {
+                    let rect = self.app_window_rect(idx);
+                    self.apps[idx].win.visible = false;
+                    self.windows.hide(wid);
+                    self.queue_dirty_rect(rect);
+                }
+            }
+            (false, None) => {}
+        }
+    }
+
+    /// Whether app slot `idx` declared the OVERLAY level (the OSK band).
+    fn app_is_overlay(&self, idx: usize) -> bool {
+        self.apps[idx].intent_level == nexus_display_proto::client_surface::WIN_LEVEL_OVERLAY
     }
 
     /// imed push (`'I','E'` frames): route commit/action to the focused

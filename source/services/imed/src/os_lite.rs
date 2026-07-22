@@ -9,6 +9,10 @@
 //! - ready marker emits once, only after route/server are armed
 //! - OP_KEY accepted ONLY from inputd, OP_SET_FOCUS ONLY from windowd
 //!   (kernel sender_service_id — never payload identity)
+//! - OSK keys arrive ONLY on the dedicated `imed-osk` endpoint (RFC-0075
+//!   Phase 2): possession of that route cap IS the authorization (init
+//!   wires it to imed; execd provisions it only to `nexus.permission.IME`
+//!   bundles). `source=osk` on the MAIN endpoint stays DENIED.
 //! - typed text NEVER appears in log lines or markers
 //! - fixed frame buffers; no per-key allocation in the loop
 
@@ -31,12 +35,21 @@ pub enum ImedError {
     Ipc(&'static str),
 }
 
-/// Main imed service loop: serve the imed wire protocol, compose keys for
-/// the focused surface, push commits/actions to windowd.
+/// Main imed service loop: serve the imed wire protocol on the MAIN endpoint
+/// (inputd/windowd) and the dedicated OSK endpoint (ime-ui route holders),
+/// multiplexed by a kernel waitset; compose keys for the focused surface,
+/// push commits/actions to windowd.
 pub fn service_main_loop() -> Result<(), ImedError> {
-    let server = match route_imed_blocking() {
+    let (server, main_recv_slot) = match route_imed_blocking() {
         Some(v) => v,
         None => return Err(ImedError::Ipc("route failed")),
+    };
+    // OSK endpoint: init transfers the RECV half to the fixed slot. Absent
+    // slot = OSK disabled (older init) — the hw chain must keep working.
+    let osk = KernelServer::new_with_slots(OSK_RECV_SLOT, IMED_SEND_SLOT).ok();
+    let Some(waitset) = build_waitset(main_recv_slot, osk.is_some()) else {
+        emit_line("imed: FAIL waitset");
+        return Err(ImedError::Ipc("waitset"));
     };
     if !READY_MARKER_EMITTED.swap(true, Ordering::Relaxed) {
         emit_line(crate::READY_MARKER);
@@ -50,17 +63,47 @@ pub fn service_main_loop() -> Result<(), ImedError> {
 
     nexus_abi::service_verdict_flush("imed");
     loop {
-        match server.recv_request_with_meta_into(Wait::Blocking, &mut frame_buf) {
+        let member = match nexus_abi::waitset_wait(waitset, 0) {
+            Ok(m) => m,
+            Err(_) => {
+                let _ = yield_();
+                continue;
+            }
+        };
+        if member == 0 {
+            drain_main(&server, &mut core, &mut windowd, inputd_sid, windowd_sid, &mut frame_buf);
+        } else if let Some(osk_server) = osk.as_ref() {
+            drain_osk(osk_server, &mut core, &mut windowd, &mut frame_buf);
+        }
+    }
+}
+
+/// Waitset over the main RECV (member 0) and, when wired, the OSK RECV
+/// (member 1). `None` on any syscall failure (fail-loud at boot).
+fn build_waitset(main_recv_slot: u32, osk_wired: bool) -> Option<nexus_abi::Cap> {
+    let ws = nexus_abi::waitset_create().ok()?;
+    nexus_abi::waitset_add(ws, main_recv_slot).ok()?;
+    if osk_wired {
+        nexus_abi::waitset_add(ws, OSK_RECV_SLOT).ok()?;
+    }
+    Some(ws)
+}
+
+/// Drains the MAIN endpoint (inputd hw keys, windowd focus) until empty.
+fn drain_main(
+    server: &KernelServer,
+    core: &mut ImedCore,
+    windowd: &mut Option<KernelClient>,
+    inputd_sid: u64,
+    windowd_sid: u64,
+    frame_buf: &mut [u8; 512],
+) {
+    loop {
+        match server.recv_request_with_meta_into(Wait::NonBlocking, frame_buf) {
             Ok((len, sender_sid, reply)) => {
                 let frame = &frame_buf[..len];
-                let status = handle_frame(
-                    &mut core,
-                    &mut windowd,
-                    sender_sid,
-                    inputd_sid,
-                    windowd_sid,
-                    frame,
-                );
+                let status =
+                    handle_frame(core, windowd, sender_sid, inputd_sid, windowd_sid, frame);
                 // Push senders fire-and-forget: OK produces no reply. Rejects
                 // (DENIED/MALFORMED) answer on the reply cap when attached,
                 // else non-blocking on the shared response endpoint — the
@@ -75,13 +118,62 @@ pub fn service_main_loop() -> Result<(), ImedError> {
                     }
                 }
             }
-            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                let _ = yield_();
-            }
-            Err(nexus_ipc::IpcError::Disconnected) => return Err(ImedError::Ipc("disconnected")),
-            Err(_) => return Err(ImedError::Ipc("recv")),
+            Err(_) => return,
         }
     }
+}
+
+/// Drains the OSK endpoint until empty. Possession of the route cap IS the
+/// authorization (RFC-0075 Phase 2) — no sender gate; but ONLY `OP_KEY`
+/// with `source=osk` is meaningful here. Replies ride ONLY an attached
+/// reply cap (the selftest probe); fire-and-forget OSK taps get none.
+fn drain_osk(
+    server: &KernelServer,
+    core: &mut ImedCore,
+    windowd: &mut Option<KernelClient>,
+    frame_buf: &mut [u8; 512],
+) {
+    loop {
+        match server.recv_request_with_meta_into(Wait::NonBlocking, frame_buf) {
+            Ok((len, _sender_sid, reply)) => {
+                let frame = &frame_buf[..len];
+                let status = handle_osk_frame(core, windowd, frame);
+                if let (Some((op, status)), Some(reply)) = (status, reply) {
+                    let rsp = wire::encode_response(op, status);
+                    let _ = reply.reply_and_close(&rsp);
+                }
+            }
+            Err(_) => return,
+        }
+    }
+}
+
+/// Dispatches one OSK-endpoint frame; returns `(op, status)` for an
+/// optional reply. Composition is the SAME focus-gated path as hw keys —
+/// an OSK tap without an active text focus is dropped (status still OK:
+/// the frame was authorized + parsed; there is just no target field).
+fn handle_osk_frame(
+    core: &mut ImedCore,
+    windowd: &mut Option<KernelClient>,
+    frame: &[u8],
+) -> Option<(u8, u8)> {
+    if frame.len() < 4 || frame[0] != wire::MAGIC0 || frame[1] != wire::MAGIC1 {
+        return None;
+    }
+    let op = frame[3];
+    if op != wire::OP_KEY {
+        return Some((op, wire::STATUS_DENIED));
+    }
+    let Some((source, kind, ch, action, _modifiers)) = wire::decode_key(frame) else {
+        return Some((op, wire::STATUS_MALFORMED));
+    };
+    if source != wire::KEY_SOURCE_OSK {
+        return Some((op, wire::STATUS_DENIED));
+    }
+    if let Some(pushes) = core.key(kind, ch, action) {
+        push_to_windowd(windowd, &pushes);
+    }
+    Some((op, wire::STATUS_OK))
 }
 
 /// Dispatches one frame; returns `(op, status)` for an optional reply.
@@ -165,20 +257,23 @@ fn push_to_windowd(windowd: &mut Option<KernelClient>, pushes: &crate::KeyPushes
     }
 }
 
-fn route_imed_blocking() -> Option<KernelServer> {
+fn route_imed_blocking() -> Option<(KernelServer, u32)> {
     if let Some((send_slot, recv_slot)) = route_blocking(b"imed") {
-        return KernelServer::new_with_slots(recv_slot, send_slot).ok();
+        return KernelServer::new_with_slots(recv_slot, send_slot).ok().map(|s| (s, recv_slot));
     }
     // Routing budget expired (slow boots) — fall back to the deterministic
     // slots init wires via cap_transfer (recv=3, send=4; timed pattern).
     emit_line("imed: route fallback slots");
-    KernelServer::new_with_slots(IMED_RECV_SLOT, IMED_SEND_SLOT).ok()
+    KernelServer::new_with_slots(IMED_RECV_SLOT, IMED_SEND_SLOT).ok().map(|s| (s, IMED_RECV_SLOT))
 }
 
 /// Deterministic slots wired by init's cap_transfer for imed (recv first →
 /// slot 3, send second → slot 4; same order as timed/metricsd).
 const IMED_RECV_SLOT: u32 = 0x03;
 const IMED_SEND_SLOT: u32 = 0x04;
+/// The dedicated OSK endpoint's RECV half (init cap_transfer, third leg;
+/// RFC-0075 Phase 2). Absent when init predates the OSK wiring.
+const OSK_RECV_SLOT: u32 = 0x05;
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     const CTRL_SEND_SLOT: u32 = 1;

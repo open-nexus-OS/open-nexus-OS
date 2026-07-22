@@ -1,0 +1,19 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The on-screen keyboard (RFC-0075 Phase 2) — a DSL overlay app.
+# windowd shows/hides it on text focus (touch profiles); its taps inject
+# keys through imed's DEDICATED osk endpoint (`svc.ime.*`). The `ime`
+# bundle type is the privilege ceiling for `nexus.permission.IME` — a
+# normal app can never hold the injection route. Not user-launchable.
+# Schema: tools/nexus-idl/schemas/manifest.capnp  ·  Docs: docs/packaging/nxb.md
+
+name = "ime-ui"
+version = "0.1.0"
+min_sdk = "1.0.0"
+bundle_type = "ime"
+payload_kind = "ui-program"
+abilities = ["ime-ui.OskAbility"]
+caps = ["nexus.permission.WINDOW", "nexus.permission.IME"]
+provides = []
+resources = []

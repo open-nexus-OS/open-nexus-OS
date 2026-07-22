@@ -46,6 +46,8 @@ mod snap;
 mod surface_presentation;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod window_scene;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod window_state;
 // Per-app surface lifecycle model (RFC-0065 — own VMO per app, lazy load/free).
 // Host-proven now; the gate widens to the OS build when the compositor runtime
 // drives it from the abilitymgr launch handoff (TASK-0065 P4b).

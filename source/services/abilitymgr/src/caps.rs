@@ -56,6 +56,9 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
     // Read wall-clock time via timed (RFC-0076): the app-host drives the
     // minute clock tick for apps that declare it (greeter, shell).
     "nexus.permission.TIME",
+    // Inject OSK keys via imed's dedicated osk endpoint (RFC-0075 Phase 2)
+    // — ime-type bundles only (privilege ceiling in nxb-pack).
+    "nexus.permission.IME",
 ];
 
 /// `true` if `cap` is a recognized platform permission — OR an app-owned

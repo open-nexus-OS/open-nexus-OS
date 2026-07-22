@@ -59,10 +59,12 @@ fn main() {
                 if field_value(&text_again, "payload_kind").as_deref() == Some("ui-program") {
                     ui_programs.push(name.clone());
                 }
-                // The GREETER role is the pre-session surface by definition —
-                // abilitymgr's session gate admits it BEFORE login (declarative
-                // via bundle_type, never a hardcoded app name).
-                if field_value(&text_again, "bundle_type").as_deref() == Some("greeter") {
+                // Pre-session surfaces by ROLE (declarative via bundle_type,
+                // never a hardcoded app name): the GREETER is the login
+                // surface, and the IME is part of it — the OSK must type the
+                // password BEFORE a session exists (RFC-0075 Phase 2).
+                let btype = field_value(&text_again, "bundle_type");
+                if matches!(btype.as_deref(), Some("greeter") | Some("ime")) {
                     pre_session.push(name.clone());
                 }
                 apps.push((name, caps));

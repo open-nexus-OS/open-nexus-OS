@@ -719,6 +719,7 @@ pub(crate) fn wire_services(
                         debug_write_bytes(b"init: execd route->timed ok\n");
                     }
                 }
+                provision_execd_imed_osk(pid, eps.imed_osk_execd, reply_recv_slot, chan);
                 // svc.files.* (filemanager role, RFC-0073/TASK-0291): CLONE of
                 // the pre-minted vfsd request endpoint — the generic vfsd arm
                 // transfers the original to vfsd itself. Named route, replies
@@ -1434,6 +1435,12 @@ pub(crate) fn wire_services(
                             chan.set_send(ServiceId::Imed, send_slot);
                             chan.set_recv(ServiceId::Imed, recv_slot);
                             debug_write_bytes(b"init: selftest route->imed ok\n");
+                            provision_selftest_imed_osk(
+                                pid,
+                                eps.imed_osk_selftest,
+                                recv_slot,
+                                chan,
+                            );
                         }
                         _ => debug_write_bytes(b"init: selftest route->imed FAIL (xfer)\n"),
                     }
@@ -1484,18 +1491,7 @@ pub(crate) fn wire_services(
                         // Push leg (RFC-0075): imed → windowd commit/action
                         // pushes resolve "windowd" by name via this recording.
                         if name == "imed" {
-                            // Direct transfers (no clone — see the cap-table note).
-                            match (
-                                nexus_abi::cap_transfer(pid, window_req, Rights::SEND),
-                                nexus_abi::cap_transfer(pid, window_rsp, Rights::RECV),
-                            ) {
-                                (Ok(send), Ok(recv)) => {
-                                    chan.set_send(ServiceId::Windowd, send);
-                                    chan.set_recv(ServiceId::Windowd, recv);
-                                    debug_write_bytes(b"init: imed route->windowd ok\n");
-                                }
-                                _ => debug_write_bytes(b"init: imed route->windowd FAIL (xfer)\n"),
-                            }
+                            provision_imed_legs(pid, eps.imed_osk, window_req, window_rsp, chan);
                         }
                         if name == "abilitymgr" {
                             // Direct transfers (no clone — cap-table ceiling).

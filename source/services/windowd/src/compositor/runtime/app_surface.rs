@@ -51,7 +51,16 @@ impl DisplayServerRuntime {
             self.apps[idx].win.mount(content, blur);
         }
         self.apps[idx].win.visible = true;
-        self.show_window(crate::window_scene::WindowId::App(idx as u8));
+        let wid = crate::window_scene::WindowId::App(idx as u8);
+        let presentation = self.app_presentation(idx);
+        // The surface's DECLARED level resolves its z-band (overlay = above
+        // all floating windows); an overlay never steals window focus.
+        self.windows.set_role(wid, presentation.role);
+        if presentation.role == crate::window_scene::WindowRole::Overlay {
+            self.windows.show_unfocused(wid);
+        } else {
+            self.show_window(wid);
+        }
         self.apps[idx].win.surface_dirty = true;
         self.apps[idx].surface_dirty_rows = None; // (re)shown: full re-blit
         let rect = self.app_window_rect(idx);

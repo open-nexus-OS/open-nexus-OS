@@ -53,6 +53,11 @@ const dslSurface :List(DslMethod) = [
   #    renders and dispatches — sessiond DECIDES (authority stays there))
   (service = "session", method = "login", args = ["Str", "Str"], result = "Bool"),
   (service = "session", method = "users", args = [], result = "List<Str>"),
+  # -- OSK key injection (imed's dedicated osk endpoint, RFC-0075 Phase 2;
+  #    ime-type bundles only). `key` commits ONE character; `action` sends a
+  #    control action ("backspace" | "enter").
+  (service = "ime", method = "key", args = ["Str"], result = "Bool"),
+  (service = "ime", method = "action", args = ["Str"], result = "Bool"),
   (service = "stats", method = "count", args = ["Str"], result = "Int"),
   (service = "todos", method = "list", args = [], result = "List<Str>"),
   (service = "users", method = "list", args = [], result = "List<User>"),

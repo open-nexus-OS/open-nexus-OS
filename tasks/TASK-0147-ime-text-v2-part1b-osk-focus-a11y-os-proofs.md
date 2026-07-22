@@ -1,6 +1,6 @@
 ---
 title: TASK-0147 IME v2 Part 1b (OS/QEMU): imed service real + typing lands in apps + OSK overlay app (ime-ui)
-status: In Progress (Part 1 DONE + live-proven 2026-07-21; Part 2 OSK next)
+status: Done (2026-07-22 — Part 1 live-proven 2026-07-21, Part 2 OSK boot- + live-proven 2026-07-22)
 owner: @ui
 created: 2025-12-26
 updated: 2026-07-21 (rewritten against repo reality; architecture per RFC-0075)
@@ -172,3 +172,41 @@ Landed on the way (debug findings):
 - OSK shows on text focus (tablet profile), taps commit through the same imed
   path as hardware keys; foreign-app injection is rejected (proven).
 - RFC-0058 gains a pointer: stub contract superseded by RFC-0075.
+
+## Part 2 status: DONE (2026-07-22)
+
+Security model LANDED DIFFERENTLY (better) than planned: instead of a
+policyd rule over a runtime identity (apps carry NO sender identity on
+server endpoints — the Part 1 finding), OSK injection is **capability-
+gated end to end**:
+
+- imed serves a second, DEDICATED `imed-osk` endpoint (kernel waitset
+  multiplexes main + osk; RECV pinned to imed slot 5 by init).
+- **Possession of the route cap IS the authorization**: execd provisions
+  the SEND only to bundles holding `nexus.permission.IME`, and the new
+  `ime` bundle TYPE is the pack-time privilege ceiling (nxb-pack +
+  manifest.capnp) — a normal app can never hold the route.
+- `source=osk` on the MAIN endpoint stays DENIED (`imed: reject foreign
+  key source`); a mis-tagged `source=hw` frame on the osk endpoint is
+  DENIED as well.
+
+Pieces: `userspace/apps/ime-ui` (DSL overlay app, de/us globe toggle),
+`svc.ime.key/action` (dsl_services.capnp + sdk-route slot 18 + app-host
+`effect_ime.rs`), windowd `WindowRole::Overlay` z-band + bottom dock
+(`OSK_BAND_H`) + `show_unfocused` (no focus steal) + text-focus-driven
+show/hide with a once-per-boot lazy `launch_app("ime-ui")`, abilitymgr
+pre-session gate widened DECLARATIVELY to the `ime` bundle type (the OSK
+must type the greeter password before a session exists), kernel
+`DEFAULT_CAP_SLOTS` 128→256 (the recorded urgent follow-up).
+
+Proofs: `init: imed osk recv ok` / `execd route->imed-osk ok` /
+`selftest route->imed-osk ok` / `SELFTEST: ime v2 osk ok` green in
+`ci-os-smp1`; interactive: OSK appears on greeter password focus and taps
+commit into the field (visible boot).
+
+Recorded follow-ups: OSK shift/uppercase layer; keymap-driven layout
+(currently the on-keyboard globe toggle); glass material for the band;
+`⌫`/`🌐` glyphs missing from the UI font (render as `?` — same class as
+the calculator's `±÷×−` gap); OSK hide when a surface is destroyed is
+covered, tap-outside blur is the DSL field's contract; candidate strip =
+TASK-0150.

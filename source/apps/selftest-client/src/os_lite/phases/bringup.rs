@@ -24,7 +24,7 @@ use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
 use crate::os_lite::context::PhaseCtx;
 use crate::os_lite::ipc::routing::{route_with_retry, routing_v1_get};
-use crate::os_lite::{imed, probes, services, settings_watch, timed};
+use crate::os_lite::{imed, imed_osk, probes, services, settings_watch, timed};
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // keystored v1 (routing + put/get/del + negative cases)
@@ -49,6 +49,13 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_IMED_REJECT_FOREIGN_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_IMED_REJECT_FOREIGN_FAIL);
+    }
+    // RFC-0075 Phase 2: the DEDICATED osk endpoint accepts an authorized
+    // osk-sourced key and denies a mis-tagged one (capability = authority).
+    if imed_osk::imed_osk_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_IME_V2_OSK_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_IME_V2_OSK_FAIL);
     }
     // RFC-0076 wall clock: RTC-anchored UTC, plausible and monotonic-consistent.
     if timed::walltime_probe().is_ok() {

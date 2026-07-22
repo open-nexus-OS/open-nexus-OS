@@ -1,0 +1,217 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The on-screen keyboard surface (RFC-0075 Phase 2): a chromeless OVERLAY
+// window docked by windowd to the bottom display edge. Taps dispatch through
+// `svc.ime.*` (imed's dedicated osk endpoint); the globe key toggles the
+// de/us layout locally (keymap-driven layout = recorded follow-up). Shift /
+// uppercase is a recorded follow-up too — lowercase, digits and umlauts
+// cover the login/text v1 chain.
+
+Window {
+    style: plain,
+    level: overlay,
+    resizable: false,
+}
+
+Page OskPage {
+    Stack {
+        Stack {
+            Button { label: "1" }
+            on Tap -> dispatch(Key("1"))
+            Button { label: "2" }
+            on Tap -> dispatch(Key("2"))
+            Button { label: "3" }
+            on Tap -> dispatch(Key("3"))
+            Button { label: "4" }
+            on Tap -> dispatch(Key("4"))
+            Button { label: "5" }
+            on Tap -> dispatch(Key("5"))
+            Button { label: "6" }
+            on Tap -> dispatch(Key("6"))
+            Button { label: "7" }
+            on Tap -> dispatch(Key("7"))
+            Button { label: "8" }
+            on Tap -> dispatch(Key("8"))
+            Button { label: "9" }
+            on Tap -> dispatch(Key("9"))
+            Button { label: "0" }
+            on Tap -> dispatch(Key("0"))
+        }
+        .direction(row)
+        .gap(1)
+        .align(center)
+        if $state.layout == "de" {
+            Stack {
+                Stack {
+                    Button { label: "q" }
+                    on Tap -> dispatch(Key("q"))
+                    Button { label: "w" }
+                    on Tap -> dispatch(Key("w"))
+                    Button { label: "e" }
+                    on Tap -> dispatch(Key("e"))
+                    Button { label: "r" }
+                    on Tap -> dispatch(Key("r"))
+                    Button { label: "t" }
+                    on Tap -> dispatch(Key("t"))
+                    Button { label: "z" }
+                    on Tap -> dispatch(Key("z"))
+                    Button { label: "u" }
+                    on Tap -> dispatch(Key("u"))
+                    Button { label: "i" }
+                    on Tap -> dispatch(Key("i"))
+                    Button { label: "o" }
+                    on Tap -> dispatch(Key("o"))
+                    Button { label: "p" }
+                    on Tap -> dispatch(Key("p"))
+                    Button { label: "ü" }
+                    on Tap -> dispatch(Key("ü"))
+                }
+                .direction(row)
+                .gap(1)
+                .align(center)
+                Stack {
+                    Button { label: "a" }
+                    on Tap -> dispatch(Key("a"))
+                    Button { label: "s" }
+                    on Tap -> dispatch(Key("s"))
+                    Button { label: "d" }
+                    on Tap -> dispatch(Key("d"))
+                    Button { label: "f" }
+                    on Tap -> dispatch(Key("f"))
+                    Button { label: "g" }
+                    on Tap -> dispatch(Key("g"))
+                    Button { label: "h" }
+                    on Tap -> dispatch(Key("h"))
+                    Button { label: "j" }
+                    on Tap -> dispatch(Key("j"))
+                    Button { label: "k" }
+                    on Tap -> dispatch(Key("k"))
+                    Button { label: "l" }
+                    on Tap -> dispatch(Key("l"))
+                    Button { label: "ö" }
+                    on Tap -> dispatch(Key("ö"))
+                    Button { label: "ä" }
+                    on Tap -> dispatch(Key("ä"))
+                }
+                .direction(row)
+                .gap(1)
+                .align(center)
+                Stack {
+                    Button { label: "y" }
+                    on Tap -> dispatch(Key("y"))
+                    Button { label: "x" }
+                    on Tap -> dispatch(Key("x"))
+                    Button { label: "c" }
+                    on Tap -> dispatch(Key("c"))
+                    Button { label: "v" }
+                    on Tap -> dispatch(Key("v"))
+                    Button { label: "b" }
+                    on Tap -> dispatch(Key("b"))
+                    Button { label: "n" }
+                    on Tap -> dispatch(Key("n"))
+                    Button { label: "m" }
+                    on Tap -> dispatch(Key("m"))
+                    Button { label: "ß" }
+                    on Tap -> dispatch(Key("ß"))
+                    Button { label: "⌫" }
+                    on Tap -> dispatch(Action("backspace"))
+                }
+                .direction(row)
+                .gap(1)
+                .align(center)
+            }
+            .gap(1)
+        } else {
+            Stack {
+                Stack {
+                    Button { label: "q" }
+                    on Tap -> dispatch(Key("q"))
+                    Button { label: "w" }
+                    on Tap -> dispatch(Key("w"))
+                    Button { label: "e" }
+                    on Tap -> dispatch(Key("e"))
+                    Button { label: "r" }
+                    on Tap -> dispatch(Key("r"))
+                    Button { label: "t" }
+                    on Tap -> dispatch(Key("t"))
+                    Button { label: "y" }
+                    on Tap -> dispatch(Key("y"))
+                    Button { label: "u" }
+                    on Tap -> dispatch(Key("u"))
+                    Button { label: "i" }
+                    on Tap -> dispatch(Key("i"))
+                    Button { label: "o" }
+                    on Tap -> dispatch(Key("o"))
+                    Button { label: "p" }
+                    on Tap -> dispatch(Key("p"))
+                }
+                .direction(row)
+                .gap(1)
+                .align(center)
+                Stack {
+                    Button { label: "a" }
+                    on Tap -> dispatch(Key("a"))
+                    Button { label: "s" }
+                    on Tap -> dispatch(Key("s"))
+                    Button { label: "d" }
+                    on Tap -> dispatch(Key("d"))
+                    Button { label: "f" }
+                    on Tap -> dispatch(Key("f"))
+                    Button { label: "g" }
+                    on Tap -> dispatch(Key("g"))
+                    Button { label: "h" }
+                    on Tap -> dispatch(Key("h"))
+                    Button { label: "j" }
+                    on Tap -> dispatch(Key("j"))
+                    Button { label: "k" }
+                    on Tap -> dispatch(Key("k"))
+                    Button { label: "l" }
+                    on Tap -> dispatch(Key("l"))
+                }
+                .direction(row)
+                .gap(1)
+                .align(center)
+                Stack {
+                    Button { label: "z" }
+                    on Tap -> dispatch(Key("z"))
+                    Button { label: "x" }
+                    on Tap -> dispatch(Key("x"))
+                    Button { label: "c" }
+                    on Tap -> dispatch(Key("c"))
+                    Button { label: "v" }
+                    on Tap -> dispatch(Key("v"))
+                    Button { label: "b" }
+                    on Tap -> dispatch(Key("b"))
+                    Button { label: "n" }
+                    on Tap -> dispatch(Key("n"))
+                    Button { label: "m" }
+                    on Tap -> dispatch(Key("m"))
+                    Button { label: "⌫" }
+                    on Tap -> dispatch(Action("backspace"))
+                }
+                .direction(row)
+                .gap(1)
+                .align(center)
+            }
+            .gap(1)
+        }
+        Stack {
+            Button { label: "🌐" }
+            on Tap -> dispatch(Layout)
+            Stack {
+                Button { label: @t("osk.space") }
+                on Tap -> dispatch(Key(" "))
+            }
+            .paddingX(8)
+            Button { label: @t("osk.enter") }
+            on Tap -> dispatch(Action("enter"))
+        }
+        .direction(row)
+        .gap(1)
+        .align(center)
+    }
+    .gap(1)
+    .padding(2)
+    .align(center)
+}

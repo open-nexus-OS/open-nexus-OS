@@ -93,6 +93,16 @@ pub const SERVICE_ROUTES: &[ServiceRoute] = &[
         permission: "nexus.permission.TIME",
         child_slot: 17,
     },
+    // OSK key injection (RFC-0075 Phase 2): the route resolves imed's
+    // DEDICATED osk endpoint (`imed-osk`, not the main endpoint) —
+    // possession of the SEND cap IS the injection authorization. IME is
+    // ceiling-gated to the `ime` bundle type at pack time (nxb-pack).
+    ServiceRoute {
+        svc: "ime",
+        route: "imed-osk",
+        permission: "nexus.permission.IME",
+        child_slot: 18,
+    },
 ];
 
 /// The route for a DSL service namespace, if the platform backs it.

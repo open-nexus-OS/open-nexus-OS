@@ -10,6 +10,7 @@
 //! RFC: docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
 
 use crate::bootstrap::diag::{expanded, il, iw};
+use crate::bootstrap::endpoints;
 use crate::bootstrap::route_builder;
 use crate::bootstrap::route_provision::grant_rtc_mmio_to_timed;
 use crate::bootstrap::{BootstrapState, CtrlChannel};
@@ -356,6 +357,8 @@ where
     let timed_rsp = mint(selftest_pid, 8)?;
     let imed_req = mint(imed_pid, 8)?;
     let imed_rsp = mint(inputd_pid, 8)?;
+    let imed_osk = mint(imed_pid, 8)?; // OSK ep (RFC-0075 P2; wiring MOVES it + the clones)
+    let (imed_osk_execd, imed_osk_selftest) = endpoints::clone_osk_pair(imed_osk)?;
     let inputd_watch_ep = mint(inputd_pid, 8)?;
     let windowd_watch_ep = mint(windowd_pid, 8)?;
     let window_req = mint(windowd_pid, 32)?;
@@ -541,6 +544,9 @@ where
         timed_rsp,
         imed_req,
         imed_rsp,
+        imed_osk,
+        imed_osk_execd,
+        imed_osk_selftest,
         inputd_watch_ep,
         windowd_watch_ep,
         window_req,
@@ -872,26 +878,20 @@ where
         (None, _) => debug_write_bytes(b"init: nxfs data blk SKIP (no vfsd pid)\n"),
         (_, None) => debug_write_bytes(b"init: nxfs data blk SKIP (no 2nd blk slot)\n"),
     }
-    // Cumulative boot elapsed at the end of the MMIO-grant phase (spawn + resume + early
-    // wiring + grants). The gap to `total_ms` is the per-service cap-wiring phase, during which
-    // init yields and the resumed services co-run their self-init.
+    // Boot elapsed after the MMIO-grant phase (spawn + resume + early wiring
+    // + grants); the gap to `total_ms` is the co-run cap-wiring phase.
     let grants_done_ms = boot_span.elapsed_ms();
 
-    // Per-service cap-distribution phase (the bespoke `match` + the declarative
-    // generic arm). Server pairs for declared services were already distributed
-    // pre-grants (see `distribute_server_pairs` above); this pass adds reply
-    // inboxes, routes and the announce markers.
+    // Per-service cap-distribution (bespoke `match` + declarative arm);
+    // server pairs went out pre-grants — this pass adds reply inboxes,
+    // routes and the announce markers.
     crate::bootstrap::wiring::wire_services(&mut ctrl_channels, &eps, init_fold, &mut init_wire)?;
 
-    // Cap-table hygiene (RFC-0075/0078): all legs granted during wiring —
-    // release init's slots (parked slots at the 128 ceiling broke @mint-pair).
-    for cap in [eps.imed_req, eps.imed_rsp, eps.inputd_watch_ep, eps.windowd_watch_ep] {
-        let _ = nexus_abi::cap_close(cap);
-    }
+    // Cap-table hygiene (RFC-0075/0078): a parked full table broke @mint-pair.
+    endpoints::close_wired_eps(&eps);
 
-    // Cumulative boot elapsed just before the display-chain deferred resume. The gap from
-    // `grants_done_ms` is the per-service cap-wiring phase; the gap to `total_ms` is the
-    // display resume + the updated/bundlemgr OTA handshake tail.
+    // Boot elapsed before the display-chain deferred resume; the gap to
+    // `total_ms` is that resume + the OTA handshake tail.
     let wiring_done_ms = boot_span.elapsed_ms();
 
     // Resume display + input device-driver services after MMIO grants and route wiring.

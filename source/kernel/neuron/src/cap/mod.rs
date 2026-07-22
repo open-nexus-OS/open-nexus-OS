@@ -143,8 +143,13 @@ impl CapTable {
         Self { slots: table, _not_send_sync: PhantomData }
     }
 
-    /// Default slot count for task capability tables.
-    const DEFAULT_CAP_SLOTS: usize = 128;
+    /// Default slot count for task capability tables. Raised 128 → 256
+    /// (2026-07-22, TASK-0147 recorded follow-up): init's table ran AT the
+    /// 128 ceiling by the end of wiring — every late `cap_clone` (allocates
+    /// caller-side) failed NoSpace, silently breaking runtime `@mint-pair`
+    /// and app-launch legs. 256 × 16-byte entries = 4 KiB per task — still
+    /// bounded (DoS ceiling), with wiring headroom for new service pairs.
+    const DEFAULT_CAP_SLOTS: usize = 256;
 
     /// Convenience constructor for the bootstrap task.
     pub fn new() -> Self {

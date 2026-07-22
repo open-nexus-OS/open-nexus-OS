@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-22
+
+#### IME v2 Phase 2 (RFC-0075, TASK-0147 Done): on-screen keyboard
+
+- **Capability-gated OSK injection**: imed serves a second, DEDICATED
+  `imed-osk` endpoint via a kernel waitset (main + osk multiplexed) —
+  possession of the route cap IS the injection authorization (app processes
+  carry no sender identity on server endpoints). init mints the endpoint
+  (RECV pinned to imed slot 5), execd provisions the SEND only to bundles
+  holding the new `nexus.permission.IME`, and the new `ime` bundle TYPE is
+  the pack-time privilege ceiling (nxb-pack) — deny-by-default with zero
+  runtime identity checks. `source=osk` on the main endpoint stays DENIED;
+  mis-tagged `source=hw` frames on the osk endpoint are DENIED.
+- **ime-ui overlay app** (`userspace/apps/ime-ui`): the OSK as a DSL app —
+  `Window { style: plain, level: overlay }`, de/us layouts (on-keyboard
+  globe toggle; keymap-driven layout + shift = recorded follow-ups), taps
+  dispatch through the new `svc.ime.key/action` DSL surface (route slot 18,
+  fire-and-forget). Not user-launchable (launcher type allowlist).
+- **Overlay window band**: new `WindowRole::Overlay` z-band (above all
+  floating windows), chromeless, docked to the bottom display edge
+  (`OSK_BAND_H` = 264, WM-owned geometry), shown WITHOUT stealing window
+  focus (`WindowStack::show_unfocused`). windowd shows/hides the band on
+  text focus in touch profiles and lazily launches `ime-ui` on first use —
+  pure compositing + lifecycle request, no OSK drawing in windowd.
+- **Kernel**: `DEFAULT_CAP_SLOTS` 128 → 256 (recorded urgent follow-up —
+  init's table ran AT the ceiling; late clones NoSpace-failed).
+- **Proofs**: `init: imed osk recv ok` + `execd/selftest route->imed-osk
+  ok`, `SELFTEST: ime v2 osk ok` (positive accept + mis-tag deny) in
+  `ci-os-smp1`; interactive OSK typing in a visible boot.
+- Structure-gate splits: windowd `runtime/intent.rs` + `window_state.rs`;
+  app-host `effect_ime.rs`; init `route_provision` osk legs +
+  `endpoints::clone_osk_pair/close_wired_eps`.
+
 ### Fixed - 2026-07-22
 
 #### i18n v2 follow-up: two container regressions (RFC-0077)

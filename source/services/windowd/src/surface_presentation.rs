@@ -61,6 +61,10 @@ pub struct WindowPresentation {
     /// Whether the user may resize it: freeform intent, and only under a policy
     /// that permits it (never a kiosk, never a full-screen/desktop surface).
     pub resizable: bool,
+    /// OVERLAY surfaces dock to the bottom display edge (RFC-0075 Phase 2:
+    /// the OSK band) — full display width, WM-owned height, above all
+    /// floating windows, never focused.
+    pub docked_bottom: bool,
 }
 
 impl WindowPresentation {
@@ -77,6 +81,7 @@ impl WindowPresentation {
         policy: WindowingPolicy,
     ) -> Self {
         let is_desktop = level == wire::WIN_LEVEL_DESKTOP;
+        let is_overlay = level == wire::WIN_LEVEL_OVERLAY;
         let is_fullscreen = mode == wire::WIN_MODE_FULLSCREEN;
         // The desktop base is inherently full-screen; a fullscreen-mode window
         // covers the display too.
@@ -85,19 +90,26 @@ impl WindowPresentation {
         // Z-band from the declared level (wlr-layer-shell style): desktop → base
         // band, everything else → the floating window band. (OVERLAY bands above
         // — a follow-up when the overlay role exists; today it floats.)
-        let role = if is_desktop { WindowRole::Desktop } else { WindowRole::Window };
+        let role = if is_desktop {
+            WindowRole::Desktop
+        } else if is_overlay {
+            WindowRole::Overlay
+        } else {
+            WindowRole::Window
+        };
 
         // Chrome = intent ⟂ policy. The app drops it by declaring `plain`, or
         // implicitly for a desktop/fullscreen surface; a kiosk policy drops it
         // unconditionally (single-app OS = no window controls).
-        let intent_chromeless = style == wire::WIN_STYLE_PLAIN || full_screen;
+        let intent_chromeless = style == wire::WIN_STYLE_PLAIN || full_screen || is_overlay;
         let has_chrome = !intent_chromeless && !matches!(policy, WindowingPolicy::Kiosk);
 
         // Resize = intent ⟂ policy. Only a freeform, non-fullscreen, non-desktop
         // surface under a resize-permitting policy is user-resizable.
-        let resizable = resizable && !full_screen && !matches!(policy, WindowingPolicy::Kiosk);
+        let resizable =
+            resizable && !full_screen && !is_overlay && !matches!(policy, WindowingPolicy::Kiosk);
 
-        Self { role, has_chrome, full_screen, resizable }
+        Self { role, has_chrome, full_screen, resizable, docked_bottom: is_overlay }
     }
 }
 
