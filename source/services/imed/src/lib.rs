@@ -18,7 +18,7 @@ extern crate alloc;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 pub mod os_lite;
 
-use ime_core::{Commit, Composer, ImeAction, ImeKey};
+use ime_core::{Engine, EngineId, EngineOutcome, ImeAction, ImeEngine, ImeKey, TextRun};
 use nexus_wire::imed as wire;
 
 /// UART marker proving imed is registered and serving (RFC-0075 semantics:
@@ -32,29 +32,33 @@ pub struct FocusState {
     pub field_kind: u8,
 }
 
-/// Committed text for one push — bounded to one Latin composition step
-/// (composed char or dead-key fallback pair; ≤ 2 chars ≤ 8 UTF-8 bytes).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Committed text for one push (RFC-0075 bound = one `TextRun`, ≤ 64 B —
+/// a CJK candidate commit like 日本語 fits; Latin steps use ≤ 8 B of it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CommitText {
-    bytes: [u8; 8],
+    bytes: [u8; wire::TEXT_MAX_BYTES],
     len: u8,
 }
 
+impl Default for CommitText {
+    fn default() -> Self {
+        Self { bytes: [0; wire::TEXT_MAX_BYTES], len: 0 }
+    }
+}
+
 impl CommitText {
-    fn from_commit(commit: &Commit) -> Self {
+    fn from_str(text: &str) -> Self {
         let mut out = Self::default();
-        for ch in commit.chars() {
-            let mut buf = [0u8; 4];
-            let encoded = ch.encode_utf8(&mut buf).as_bytes();
-            let len = usize::from(out.len);
-            // Bounded by construction (≤ 2 chars); guard anyway, fail-closed.
-            if len + encoded.len() > out.bytes.len() {
-                break;
-            }
-            out.bytes[len..len + encoded.len()].copy_from_slice(encoded);
-            out.len = (len + encoded.len()) as u8;
-        }
+        let bytes = text.as_bytes();
+        let n = bytes.len().min(out.bytes.len());
+        out.bytes[..n].copy_from_slice(&bytes[..n]);
+        out.len = n as u8;
         out
+    }
+
+    fn from_char(ch: char) -> Self {
+        let mut buf = [0u8; 4];
+        Self::from_str(ch.encode_utf8(&mut buf))
     }
 
     #[must_use]
@@ -70,25 +74,52 @@ impl CommitText {
 
 /// What one key produced for the focused surface (both may be set: a dead
 /// key flushed by Enter commits the accent AND passes the action through).
+/// The CJK engines add preedit/candidate snapshots (`None` = unchanged;
+/// `Some(empty)` = clear).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct KeyPushes {
     pub surface_id: u64,
     pub commit: Option<CommitText>,
     pub action: Option<u8>,
+    /// Preedit snapshot to push (composition preview; empty clears).
+    pub preedit: Option<TextRun>,
+    /// Candidate page to push: (page, total, up-to-8 texts).
+    pub candidates: Option<ime_core::CandidatePage>,
 }
 
-/// The IME state machine: windowd-relayed focus gates key processing;
-/// ime-core composes; outputs are push plans for the os_lite layer.
-#[derive(Debug, Default)]
+/// The IME state machine (RFC-0075 Phase 3 semantics): COMPOSITION is
+/// focus-independent (the engine always runs — the deterministic osk probe
+/// exercises it without a field), DELIVERY is focus-gated (pushes exist
+/// only while a surface holds text focus), and any focus TRANSITION resets
+/// composition (half-typed state never leaks across fields). Password
+/// fields BYPASS the engine entirely: direct commit, no preedit, no
+/// candidates, no learning — fail-closed at this layer.
+#[derive(Debug)]
 pub struct ImedCore {
-    composer: Composer,
+    engine: Engine,
     focus: Option<FocusState>,
+    /// Non-empty preedit/candidates were pushed — an empty snapshot must
+    /// follow once to CLEAR the strip (then stop pushing empties).
+    strip_dirty: bool,
+}
+
+impl Default for ImedCore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Outcome of one engine step, before delivery gating.
+#[derive(Debug, Clone, Copy)]
+pub struct StepEcho {
+    /// The commit this step produced (probe echo; empty = none).
+    pub commit: CommitText,
 }
 
 impl ImedCore {
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self { engine: Engine::new(EngineId::Latin), focus: None, strip_dirty: false }
     }
 
     #[must_use]
@@ -96,47 +127,136 @@ impl ImedCore {
         self.focus
     }
 
+    /// Switches the composition engine (`input.keymap` relay / OSK globe).
+    /// A switch resets composition state.
+    pub fn set_layout(&mut self, layout: &str) {
+        self.engine = Engine::new(EngineId::for_layout(layout));
+        self.strip_dirty = false;
+    }
+
     /// Applies a windowd focus relay. Any focus TRANSITION cancels pending
     /// composition state (a half-typed accent never leaks across fields).
     pub fn set_focus(&mut self, surface_id: u64, focused: bool, field_kind: u8) {
         let next = if focused { Some(FocusState { surface_id, field_kind }) } else { None };
         if next != self.focus {
-            self.composer.reset();
+            self.engine.reset();
+            self.strip_dirty = false;
         }
         self.focus = next;
     }
 
-    /// Feeds one resolved key (wire `KEY_KIND_*`/`ACTION_*` vocabulary).
-    /// Returns `None` when unfocused (keys are DROPPED — imed is the gate;
-    /// inputd forwards unconditionally) or when the key only armed state.
-    pub fn key(&mut self, kind: u8, ch: u32, action: u8) -> Option<KeyPushes> {
-        let focus = self.focus?;
-        let key = decode_key(kind, ch, action)?;
-        let outcome = self.composer.feed(key);
-        if outcome.handled {
-            let commit =
-                (!outcome.commit.is_empty()).then(|| CommitText::from_commit(&outcome.commit));
-            let action = outcome.pass_action.map(encode_action);
-            if commit.is_none() && action.is_none() {
-                return None; // dead key armed — nothing to push yet
-            }
-            return Some(KeyPushes { surface_id: focus.surface_id, commit, action });
+    fn password_focused(&self) -> bool {
+        self.focus.is_some_and(|f| f.field_kind == wire::FIELD_KIND_PASSWORD)
+    }
+
+    /// Converts an engine outcome into a focused-surface push plan.
+    fn plan(&mut self, outcome: &EngineOutcome) -> (Option<KeyPushes>, StepEcho) {
+        let echo = StepEcho { commit: CommitText::from_str(outcome.commit.as_str()) };
+        let Some(focus) = self.focus else {
+            return (None, echo); // composition ran; delivery is focus-gated
+        };
+        let commit =
+            (!outcome.commit.is_empty()).then(|| CommitText::from_str(outcome.commit.as_str()));
+        let action = outcome.pass_action.map(encode_action);
+        // Strip snapshots: push while non-empty; after a non-empty run push
+        // ONE empty snapshot to clear (never a steady stream of empties).
+        // Password fields never see a strip (security invariant).
+        let strip_active = !outcome.preedit.is_empty() || !outcome.candidates.is_empty();
+        let (preedit, candidates) = if self.password_focused() {
+            (None, None)
+        } else if strip_active {
+            self.strip_dirty = true;
+            (Some(outcome.preedit), Some(outcome.candidates))
+        } else if self.strip_dirty {
+            self.strip_dirty = false;
+            (Some(TextRun::empty()), Some(ime_core::CandidatePage::empty()))
+        } else {
+            (None, None)
+        };
+        if commit.is_none() && action.is_none() && preedit.is_none() && candidates.is_none() {
+            return (None, echo);
         }
-        // Composition did not consume the key: text commits directly,
-        // actions pass through unchanged.
-        match key {
-            ImeKey::Text(ch) => Some(KeyPushes {
+        (
+            Some(KeyPushes { surface_id: focus.surface_id, commit, action, preedit, candidates }),
+            echo,
+        )
+    }
+
+    /// Feeds one resolved key (wire `KEY_KIND_*`/`ACTION_*` vocabulary).
+    /// Returns the focused-surface push plan (None = nothing to deliver)
+    /// plus the probe echo.
+    pub fn key(&mut self, kind: u8, ch: u32, action: u8) -> (Option<KeyPushes>, StepEcho) {
+        let empty_echo = StepEcho { commit: CommitText::default() };
+        let Some(key) = decode_key(kind, ch, action) else {
+            return (None, empty_echo);
+        };
+        // Password bypass: no composition, no preview, no learning — text
+        // commits directly, actions pass through.
+        if self.password_focused() {
+            let Some(focus) = self.focus else {
+                return (None, empty_echo); // unreachable: password implies focus
+            };
+            return match key {
+                ImeKey::Text(ch) => {
+                    let commit = CommitText::from_char(ch);
+                    (
+                        Some(KeyPushes {
+                            surface_id: focus.surface_id,
+                            commit: Some(commit),
+                            ..KeyPushes::default()
+                        }),
+                        StepEcho { commit },
+                    )
+                }
+                ImeKey::Action(act) => (
+                    Some(KeyPushes {
+                        surface_id: focus.surface_id,
+                        action: Some(encode_action(act)),
+                        ..KeyPushes::default()
+                    }),
+                    empty_echo,
+                ),
+                ImeKey::Dead(_) => (None, empty_echo),
+            };
+        }
+        let outcome = self.engine.feed(key);
+        if outcome.handled {
+            return self.plan(&outcome);
+        }
+        // Engine passed the key through: text commits directly, actions
+        // pass through unchanged.
+        let echo_commit = match key {
+            ImeKey::Text(ch) => CommitText::from_char(ch),
+            _ => CommitText::default(),
+        };
+        let echo = StepEcho { commit: echo_commit };
+        let Some(focus) = self.focus else {
+            return (None, echo);
+        };
+        let pushes = match key {
+            ImeKey::Text(_) => Some(KeyPushes {
                 surface_id: focus.surface_id,
-                commit: Some(CommitText::from_commit(&Commit::one(ch))),
-                action: None,
+                commit: Some(echo_commit),
+                ..KeyPushes::default()
             }),
             ImeKey::Action(act) => Some(KeyPushes {
                 surface_id: focus.surface_id,
-                commit: None,
                 action: Some(encode_action(act)),
+                ..KeyPushes::default()
             }),
             ImeKey::Dead(_) => None,
+        };
+        (pushes, echo)
+    }
+
+    /// Commits candidate `index` of the current page (windowd relay or the
+    /// vetted OSK route).
+    pub fn candidate_select(&mut self, index: usize) -> (Option<KeyPushes>, StepEcho) {
+        let outcome = self.engine.select(index);
+        if !outcome.handled {
+            return (None, StepEcho { commit: CommitText::default() });
         }
+        self.plan(&outcome)
     }
 }
 
@@ -174,16 +294,22 @@ mod tests {
         core
     }
 
+    fn key(core: &mut ImedCore, kind: u8, ch: u32, action: u8) -> Option<KeyPushes> {
+        core.key(kind, ch, action).0
+    }
+
     #[test]
-    fn unfocused_keys_are_dropped() {
+    fn unfocused_keys_compose_but_deliver_nothing() {
         let mut core = ImedCore::new();
-        assert_eq!(core.key(wire::KEY_KIND_TEXT, u32::from('a'), 0), None);
+        let (pushes, echo) = core.key(wire::KEY_KIND_TEXT, u32::from('a'), 0);
+        assert_eq!(pushes, None, "delivery is focus-gated");
+        assert_eq!(echo.commit.as_str(), "a", "the probe echo sees the step");
     }
 
     #[test]
     fn plain_text_commits_directly() {
         let mut core = focused();
-        let push = core.key(wire::KEY_KIND_TEXT, u32::from('ä'), 0).unwrap();
+        let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from('ä'), 0).unwrap();
         assert_eq!(push.surface_id, 7);
         assert_eq!(push.commit.unwrap().as_str(), "ä");
         assert_eq!(push.action, None);
@@ -192,57 +318,105 @@ mod tests {
     #[test]
     fn dead_key_sequence_commits_composed_char() {
         let mut core = focused();
-        assert_eq!(core.key(wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
-        let push = core.key(wire::KEY_KIND_TEXT, u32::from('e'), 0).unwrap();
+        assert_eq!(key(&mut core, wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
+        let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from('e'), 0).unwrap();
         assert_eq!(push.commit.unwrap().as_str(), "é");
     }
 
     #[test]
     fn dead_key_fallback_commits_both_chars() {
         let mut core = focused();
-        assert_eq!(core.key(wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
-        let push = core.key(wire::KEY_KIND_TEXT, u32::from('x'), 0).unwrap();
+        assert_eq!(key(&mut core, wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
+        let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from('x'), 0).unwrap();
         assert_eq!(push.commit.unwrap().as_str(), "´x");
     }
 
     #[test]
     fn actions_pass_through_and_flush_pending() {
         let mut core = focused();
-        let push = core.key(wire::KEY_KIND_ACTION, 0, wire::ACTION_BACKSPACE).unwrap();
+        let push = key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_BACKSPACE).unwrap();
         assert_eq!(push.action, Some(wire::ACTION_BACKSPACE));
         assert_eq!(push.commit, None);
 
         // Pending accent + Enter: commit the accent AND pass Enter through.
-        assert_eq!(core.key(wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
-        let push = core.key(wire::KEY_KIND_ACTION, 0, wire::ACTION_ENTER).unwrap();
+        assert_eq!(key(&mut core, wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
+        let push = key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_ENTER).unwrap();
         assert_eq!(push.commit.unwrap().as_str(), "´");
         assert_eq!(push.action, Some(wire::ACTION_ENTER));
     }
 
     #[test]
-    fn escape_cancels_pending_without_pushes() {
-        let mut core = focused();
-        assert_eq!(core.key(wire::KEY_KIND_DEAD, u32::from('^'), 0), None);
-        assert_eq!(core.key(wire::KEY_KIND_ACTION, 0, wire::ACTION_ESCAPE), None);
-        let push = core.key(wire::KEY_KIND_TEXT, u32::from('a'), 0).unwrap();
-        assert_eq!(push.commit.unwrap().as_str(), "a", "accent was cancelled");
-    }
-
-    #[test]
     fn focus_transition_cancels_pending_accent() {
         let mut core = focused();
-        assert_eq!(core.key(wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
-        core.set_focus(9, true, wire::FIELD_KIND_PASSWORD);
-        let push = core.key(wire::KEY_KIND_TEXT, u32::from('e'), 0).unwrap();
+        assert_eq!(key(&mut core, wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
+        core.set_focus(9, true, wire::FIELD_KIND_TEXT);
+        let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from('e'), 0).unwrap();
         assert_eq!(push.surface_id, 9);
         assert_eq!(push.commit.unwrap().as_str(), "e", "no ´ leaked across fields");
     }
 
     #[test]
+    fn jp_layout_composes_and_pushes_preedit_then_candidates() {
+        let mut core = focused();
+        core.set_layout("jp");
+        // "n" shows the romaji tail as preedit; "i" resolves it to に.
+        let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from('n'), 0).unwrap();
+        assert_eq!(push.preedit.unwrap().as_str(), "n");
+        let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from('i'), 0).unwrap();
+        assert_eq!(push.commit, None);
+        assert_eq!(push.preedit.unwrap().as_str(), "に");
+        // Enter commits the kana and CLEARS the strip (empty snapshots).
+        let push = key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_ENTER).unwrap();
+        assert_eq!(push.commit.unwrap().as_str(), "に");
+        assert!(push.preedit.unwrap().is_empty());
+    }
+
+    #[test]
+    fn candidate_select_commits_from_current_page() {
+        let mut core = focused();
+        core.set_layout("zh");
+        for ch in "nihao".chars() {
+            let _ = core.key(wire::KEY_KIND_TEXT, u32::from(ch), 0);
+        }
+        // Space opens candidates.
+        let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from(' '), 0).unwrap();
+        let cands = push.candidates.unwrap();
+        assert_eq!(cands.get(0).map(|c| c.as_str()), Some("你好"));
+        let (push, echo) = core.candidate_select(0);
+        assert_eq!(push.unwrap().commit.unwrap().as_str(), "你好");
+        assert_eq!(echo.commit.as_str(), "你好");
+    }
+
+    #[test]
+    fn test_reject_password_fields_bypass_engine_and_strip() {
+        let mut core = ImedCore::new();
+        core.set_layout("jp");
+        core.set_focus(7, true, wire::FIELD_KIND_PASSWORD);
+        // Romaji is NOT composed in a password field — raw chars commit,
+        // and no preedit/candidate snapshot is ever pushed.
+        let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from('n'), 0).unwrap();
+        assert_eq!(push.commit.unwrap().as_str(), "n");
+        assert_eq!(push.preedit, None);
+        assert_eq!(push.candidates, None);
+        let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from('i'), 0).unwrap();
+        assert_eq!(push.commit.unwrap().as_str(), "i");
+    }
+
+    #[test]
+    fn layout_switch_resets_composition() {
+        let mut core = focused();
+        core.set_layout("jp");
+        let _ = core.key(wire::KEY_KIND_TEXT, u32::from('n'), 0);
+        core.set_layout("us");
+        let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from('i'), 0).unwrap();
+        assert_eq!(push.commit.unwrap().as_str(), "i", "no romaji tail survived");
+    }
+
+    #[test]
     fn test_reject_malformed_key_kinds() {
         let mut core = focused();
-        assert_eq!(core.key(99, u32::from('a'), 0), None);
-        assert_eq!(core.key(wire::KEY_KIND_TEXT, 0xD800, 0), None); // invalid scalar
-        assert_eq!(core.key(wire::KEY_KIND_ACTION, 0, 99), None); // unknown action
+        assert_eq!(key(&mut core, 99, u32::from('a'), 0), None);
+        assert_eq!(key(&mut core, wire::KEY_KIND_TEXT, 0xD800, 0), None); // invalid scalar
+        assert_eq!(key(&mut core, wire::KEY_KIND_ACTION, 0, 99), None); // unknown action
     }
 }

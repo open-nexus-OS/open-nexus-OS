@@ -71,7 +71,7 @@ pub mod ipc_hdr {
 // paths compiling unchanged (transitional shim — consumers migrate to
 // `nexus_wire::<svc>` in a follow-up task).
 pub use nexus_wire::{
-    bundleimg, bundlemgrd, execd, policy, policyd, routing, sessiond, settingsd, updated,
+    bundleimg, bundlemgrd, execd, imed, policy, policyd, routing, sessiond, settingsd, updated,
 };
 
 /// Computes a stable service identifier from the UTF-8 service name bytes.

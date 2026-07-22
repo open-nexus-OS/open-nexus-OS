@@ -58,6 +58,8 @@ const dslSurface :List(DslMethod) = [
   #    control action ("backspace" | "enter").
   (service = "ime", method = "key", args = ["Str"], result = "Bool"),
   (service = "ime", method = "action", args = ["Str"], result = "Bool"),
+  (service = "ime", method = "select", args = ["Int"], result = "Bool"),
+  (service = "ime", method = "layout", args = ["Str"], result = "Bool"),
   (service = "stats", method = "count", args = ["Str"], result = "Int"),
   (service = "todos", method = "list", args = [], result = "List<Str>"),
   (service = "users", method = "list", args = [], result = "List<User>"),

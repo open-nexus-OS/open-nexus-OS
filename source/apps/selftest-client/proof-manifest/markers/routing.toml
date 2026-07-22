@@ -34,6 +34,14 @@ proves = "imed denies OP_KEY from non-inputd senders (RFC-0075 identity gate)"
 phase = "routing"
 proves = "imed's DEDICATED osk endpoint accepts an authorized source=osk key and denies a mis-tagged frame (RFC-0075 Phase 2; capability possession = injection authority — the commit-at-field chain is the interactive OSK proof)"
 
+[marker."SELFTEST: ime v2 cjk jp ok"]
+phase = "routing"
+proves = "the jp engine composes through the REAL service path: OP_SET_LAYOUT jp + romaji nn + Enter echoes ん to the injecting probe (RFC-0075 Phase 3; fixture text, delivery stays focus-gated)"
+
+[marker."SELFTEST: ime v2 candidates ok"]
+phase = "routing"
+proves = "candidate machinery end-to-end in imed: pinyin nihao + space opens candidates, OP_CANDIDATE_SELECT(0) commits 你好 (RFC-0075 Phase 3; strip rendering is the interactive proof)"
+
 [marker."SELFTEST: settings watch ok"]
 phase = "routing"
 proves = "settingsd OP_WATCH pushes applied changes (RFC-0078 spine)"

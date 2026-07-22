@@ -785,6 +785,15 @@ mod probe {
                     dirty = true;
                     dirty_rows = None; // model change: full repaint
                 }
+            } else if nexus_display_proto::surface_text::decode_ime_state(&event_frame[..len])
+                .is_some()
+            {
+                // Composition-strip push (RFC-0075 Phase 3, ime-ui only —
+                // apps without the event ignore it).
+                if app.as_mut().is_some_and(|d| d.apply_ime_state(&event_frame[..len])) {
+                    dirty = true;
+                    dirty_rows = None;
+                }
             } else if odd_frame_markers < 8 {
                 // Unrelated frame — bounded marker, never silent.
                 odd_frame_markers += 1;

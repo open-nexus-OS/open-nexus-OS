@@ -32,6 +32,14 @@ pub const OP_CANDIDATE_SELECT: u8 = 6;
 /// composition (Enter/Backspace/Tab/Escape) for the focused surface —
 /// windowd translates it to `SURFACE_TEXT_ACTION` on the app channel.
 pub const OP_ACTION: u8 = 7;
+/// Engine-layout switch (RFC-0075 Phase 3): inputd forwards `input.keymap`
+/// changes on the MAIN endpoint (identity-gated); the OSK's globe key sends
+/// it on the DEDICATED osk endpoint (capability-gated). The tag selects the
+/// composition engine (`us`/`de` → Latin, `jp`, `kr`, `zh`).
+pub const OP_SET_LAYOUT: u8 = 8;
+
+/// Maximum layout-tag bytes (`OP_SET_LAYOUT`).
+pub const LAYOUT_MAX_BYTES: usize = 8;
 
 /// Operation succeeded.
 pub const STATUS_OK: u8 = 0;
@@ -125,6 +133,10 @@ crate::frames! {
     request fixed encode_candidate_select / decode_candidate_select (op = OP_CANDIDATE_SELECT) {
         index: u8,
     }
+    /// Layout switch: `[I, E, ver, OP_SET_LAYOUT, tag_len:u8, tag...]`.
+    request encode_set_layout / decode_set_layout (op = OP_SET_LAYOUT) {
+        layout: str8(min = 1, max = LAYOUT_MAX_BYTES),
+    }
     /// Action push: `[I, E, ver, OP_ACTION, surface_id:u64, action:u8]`
     /// (`ACTION_*` code that passed through composition).
     request fixed encode_action / decode_action (op = OP_ACTION) {
@@ -134,6 +146,14 @@ crate::frames! {
     /// Response: `[I, E, ver, op|0x80, status:u8]`.
     reply fixed encode_response / decode_response (op = caller) {
         status: u8,
+    }
+    /// OSK-endpoint reply (reply-cap probes only): `[I, E, ver, op|0x80,
+    /// status:u8, text_len:u8, text...]` — `text` echoes the COMMIT this
+    /// step produced back to the INJECTING sender itself (never a third
+    /// party; the ime-ui app sends fire-and-forget and gets no reply).
+    reply encode_osk_reply / decode_osk_reply (op = caller) {
+        status: u8,
+        text: str8(min = 0, max = TEXT_MAX_BYTES),
     }
 }
 
@@ -274,5 +294,30 @@ mod tests {
         crate::codec::testing::assert_reject_matrix(&rsp, 4, &|f| {
             decode_response(OP_KEY, f).is_some()
         });
+    }
+
+    #[test]
+    fn set_layout_round_trip_and_rejects() {
+        let mut buf = [0u8; 16];
+        let n = encode_set_layout("jp", &mut buf).expect("encodes");
+        assert_eq!(decode_set_layout(&buf[..n]), Some("jp"));
+        // Empty and oversized tags fail closed.
+        assert_eq!(encode_set_layout("", &mut buf), None);
+        assert_eq!(encode_set_layout("wayyytoolong", &mut buf), None);
+        // Truncation rejects.
+        assert_eq!(decode_set_layout(&buf[..n - 1]), None);
+    }
+
+    #[test]
+    fn osk_reply_round_trip_and_rejects() {
+        let mut buf = [0u8; 80];
+        let n = encode_osk_reply(OP_KEY, STATUS_OK, "ん", &mut buf).expect("encodes");
+        assert_eq!(decode_osk_reply(OP_KEY, &buf[..n]), Some((STATUS_OK, "ん")));
+        // Empty echo is legal (no commit this step).
+        let n = encode_osk_reply(OP_KEY, STATUS_OK, "", &mut buf).expect("encodes");
+        assert_eq!(decode_osk_reply(OP_KEY, &buf[..n]), Some((STATUS_OK, "")));
+        // Wrong op and truncation reject.
+        assert_eq!(decode_osk_reply(OP_SET_FOCUS, &buf[..n]), None);
+        assert_eq!(decode_osk_reply(OP_KEY, &buf[..n - 1]), None);
     }
 }

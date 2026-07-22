@@ -1,6 +1,6 @@
 ---
 title: TASK-0150 IME v2 Part 2b (OS/QEMU): candidate strip in ime-ui + CJK OSK layouts + selftests
-status: Draft
+status: Done (2026-07-22)
 owner: @ui
 created: 2025-12-26
 updated: 2026-07-21 (rewritten against repo reality; candidate UI lives in the ime-ui overlay app, not windowd)
@@ -97,3 +97,32 @@ TASK-0146 — this task is their first real consumer.
   tap, number key, or Enter — deterministic under the selftest fixtures.
 - Candidate strip follows the caret between fields and never renders for
   password fields.
+
+## Result (2026-07-22)
+
+Landed per RFC-0075 Phase 3 with these shape deltas vs the plan above:
+
+- The strip lives INSIDE the OSK band (ime-ui top row), not as a separate
+  caret-anchored popup — the caret rect stays recorded for the future
+  floating popup; the OSK band is the v1 anchor.
+- imed hosts `ime_core::Engine`: composition is focus-INDEPENDENT (the
+  deterministic probes exercise the real engine without a field), delivery
+  stays focus-gated, PASSWORD fields bypass the engine entirely.
+- `OP_SET_LAYOUT=8` (new, additive): inputd relays `input.keymap` on the
+  main endpoint; the OSK globe cycles de→us→jp→kr→zh over the
+  capability-gated osk endpoint (`svc.ime.layout`). The osk reply echoes
+  the step's commit to the INJECTING sender only (probe observability).
+- Strip data path: imed `OP_PREEDIT`/`OP_CANDIDATES` → windowd →
+  `OP_SURFACE_IME_STATE=24` → ime-ui `ImeStripEvent::Preedit/Cands`;
+  candidate taps ride `svc.ime.select`. KR OSK rows show 2-set jamo labels;
+  jp/zh ride the us rows (romaji/pinyin). OSK shows in EVERY profile
+  (profile = layout, not keyboard presence; HID-presence hiding = follow-up).
+- Proofs: `SELFTEST: ime v2 cjk jp ok` (layout jp, `nn`+Enter echoes ん) and
+  `SELFTEST: ime v2 candidates ok` (`nihao`+space, select(0) commits 你好)
+  green in `ci-os-smp1`; INTERACTIVE: composer focus → OSK → globe → jp →
+  romaji preedit in the strip → candidates (kanji + reading) → tap →
+  `apphost: text commit applied` + strip cleared (visible boot 2026-07-22).
+- KNOWN GAP (recorded): the UI font has NO CJK glyph coverage — strip and
+  fields render `?` for kana/hangul/han. The byte path is proven end-to-end
+  (probes + markers); glyph coverage is a FONT task, not IME logic.
+- ja/ko/zh locale catalogs added for all six `@t()` apps (with de parity).

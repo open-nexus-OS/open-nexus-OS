@@ -49,6 +49,20 @@ impl AppEffectHost {
         self.ime_send(&frame)
     }
 
+    /// `svc.ime.select(i)` → commits candidate `i` of the current page.
+    pub(crate) fn ime_select(&self, index: i64) -> Result<Value, u32> {
+        let index = u8::try_from(index).map_err(|_| ERR_SVC_SHAPE)?;
+        let frame = nexus_wire::imed::encode_candidate_select(index);
+        self.ime_send(&frame)
+    }
+
+    /// `svc.ime.layout(tag)` → switches the composition engine (globe key).
+    pub(crate) fn ime_layout(&self, layout: &str) -> Result<Value, u32> {
+        let mut buf = [0u8; 16];
+        let n = nexus_wire::imed::encode_set_layout(layout, &mut buf).ok_or(ERR_SVC_SHAPE)?;
+        self.ime_send(&buf[..n])
+    }
+
     pub(crate) fn ime_send(&self, frame: &[u8]) -> Result<Value, u32> {
         let send_slot = Self::svc_send_slot("ime").ok_or(ERR_SVC_UNKNOWN)?;
         let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);

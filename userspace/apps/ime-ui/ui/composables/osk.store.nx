@@ -1,34 +1,56 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// OSK state (RFC-0075 Phase 2): the layout toggle (de/us, the on-keyboard
-// globe key — keymap-driven layout is a recorded follow-up) and the key
-// effects. Every tap flows through `svc.ime.*` to imed's DEDICATED osk
-// endpoint — the app never sees the focused field or any typed context.
+// OSK state (RFC-0075 Phase 2/3): the layout cycle (globe key — de → us →
+// jp → kr → zh; each switch also retargets imed's composition engine via
+// svc.ime.layout) and the composition strip (preedit + candidate page,
+// pushed by windowd as ImeStripEvent). Taps flow through `svc.ime.*` to
+// imed's DEDICATED osk endpoint — the app never sees the focused field.
 
 Store OskStore {
     layout: Str = "de",
     sent: Int = 0,
+    preedit: Str = "",
+    c1: Str = "",
+    c2: Str = "",
+    c3: Str = "",
+    c4: Str = "",
+    c5: Str = "",
+    c6: Str = "",
+    c7: Str = "",
+    c8: Str = "",
 }
 
 Event OskEvent {
     Key(Str),
     Action(Str),
-    Layout,
+    SetLayout(Str),
+    Select(Int),
     Sent(Bool),
     SendFailed(Int),
+}
+
+Event ImeStripEvent {
+    Preedit(Str),
+    Cands(Str, Str, Str, Str, Str, Str, Str, Str),
 }
 
 reduce OskEvent {
     Key(k) => state.sent = state.sent,
     Action(a) => state.sent = state.sent,
-    Layout => {
-        if state.layout == "de" {
-            state.layout = "us";
-        } else {
-            state.layout = "de";
-        }
+    SetLayout(l) => {
+        state.layout = l;
+        state.preedit = "";
+        state.c1 = "";
+        state.c2 = "";
+        state.c3 = "";
+        state.c4 = "";
+        state.c5 = "";
+        state.c6 = "";
+        state.c7 = "";
+        state.c8 = "";
     },
+    Select(i) => state.sent = state.sent,
     Sent(ok) => {
         if ok {
             state.sent = state.sent + 1;
@@ -37,6 +59,20 @@ reduce OskEvent {
         }
     },
     SendFailed(e) => state.sent = state.sent,
+}
+
+reduce ImeStripEvent {
+    Preedit(t) => state.preedit = t,
+    Cands(a, b, c, d, e, f, g, h) => {
+        state.c1 = a;
+        state.c2 = b;
+        state.c3 = c;
+        state.c4 = d;
+        state.c5 = e;
+        state.c6 = f;
+        state.c7 = g;
+        state.c8 = h;
+    },
 }
 
 @effect on Key(k) {
@@ -48,6 +84,20 @@ reduce OskEvent {
 
 @effect on Action(a) {
     match svc.ime.action(a, timeoutMs: 100) {
+        Ok(ok) => dispatch(Sent(ok)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+}
+
+@effect on Select(i) {
+    match svc.ime.select(i, timeoutMs: 100) {
+        Ok(ok) => dispatch(Sent(ok)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+}
+
+@effect on SetLayout(l) {
+    match svc.ime.layout(l, timeoutMs: 100) {
         Ok(ok) => dispatch(Sent(ok)),
         Err(e) => dispatch(SendFailed(e)),
     }

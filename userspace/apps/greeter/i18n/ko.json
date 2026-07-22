@@ -1,0 +1,11 @@
+{
+  "greeter.title": "로그인",
+  "greeter.secret": "비밀번호 입력",
+  "greeter.login": "로그인",
+  "greeter.authenticating": "확인 중…",
+  "greeter.failed": "로그인 실패",
+  "greeter.date": "Sunday, 5 July",
+  "greeter.clock": "09:41",
+  "greeter.pickUser": "사용자 선택",
+  "greeter.hint": "화살표를 눌러 로그인"
+}

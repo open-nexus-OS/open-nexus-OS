@@ -354,6 +354,46 @@ impl super::DslApp {
         }
     }
 
+    /// Composition-strip push (`OP_SURFACE_IME_STATE`, RFC-0075 Phase 3):
+    /// dispatched into the mounted program as `ImeStripEvent::Preedit(text)`
+    /// / `ImeStripEvent::Cands(8 × text)` — only the ime-ui app declares
+    /// them; every other app ignores the frame (no event case = no work).
+    pub(super) fn apply_ime_state(&mut self, frame: &[u8]) -> bool {
+        use nexus_display_proto::surface_text as st;
+        use nexus_dsl_runtime::Value;
+        let Some(push) = st::decode_ime_state(frame) else {
+            return false;
+        };
+        let (case_name, args) = match push {
+            st::ImeStatePush::Preedit(text) => {
+                ("Preedit", alloc::vec![Value::Str(alloc::string::String::from(text))])
+            }
+            st::ImeStatePush::Candidates(_page, items, _count) => (
+                "Cands",
+                items
+                    .iter()
+                    .map(|t| Value::Str(alloc::string::String::from(*t)))
+                    .collect::<alloc::vec::Vec<_>>(),
+            ),
+        };
+        let Some((event, case)) = self.view.runtime.event_case("ImeStripEvent", case_name) else {
+            return false;
+        };
+        let tokens = tokens_for(self.theme_mode);
+        let device = device_for(self.shell_profile, self.w);
+        let locale = super::app_locale!(self);
+        let damage =
+            self.view.dispatch(tokens, &device, &locale, &mut self.host, event, case, args);
+        match damage {
+            Ok(nexus_dsl_runtime::Damage::Layout) => {
+                self.relayout_retained();
+                true
+            }
+            Ok(nexus_dsl_runtime::Damage::Paint) => true,
+            _ => false,
+        }
+    }
+
     /// Wheel impulse (`INPUT_KIND_WHEEL`, moved out of the main event loop —
     /// structure-gate): scroll physics + EndReached + frame-pulse arming.
     /// Banded surfaces are compositor-scrolled (windowd shifts the gpud layer

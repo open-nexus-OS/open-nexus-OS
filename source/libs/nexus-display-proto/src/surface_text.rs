@@ -176,6 +176,118 @@ pub fn decode_surface_text_focus(frame: &[u8]) -> Option<(u32, bool, u8, CaretRe
     Some((surface_id, frame[8] != 0, frame[9], (x, y, w, h)))
 }
 
+/// windowd → the ime-ui overlay (RFC-0075 Phase 3): the composition strip
+/// state — preedit preview + one bounded candidate page. Two kinds ride one
+/// op so a single push atomically replaces the strip's line.
+pub const OP_SURFACE_IME_STATE: u8 = 24;
+
+/// `OP_SURFACE_IME_STATE` kind: preedit text (empty clears the line).
+pub const IME_STATE_PREEDIT: u8 = 0;
+/// `OP_SURFACE_IME_STATE` kind: candidate page (count == 0 clears it).
+pub const IME_STATE_CANDIDATES: u8 = 1;
+
+/// Preedit bound (mirrors the imed wire bound).
+pub const IME_PREEDIT_MAX: usize = 64;
+/// Candidates per page (mirrors the imed wire bound).
+pub const IME_CANDIDATES_MAX: usize = 8;
+/// Bytes per candidate (mirrors the imed wire bound).
+pub const IME_CANDIDATE_MAX_BYTES: usize = 32;
+/// Maximum `OP_SURFACE_IME_STATE` frame:
+/// header + kind + page + count + 8 × (len + 32).
+pub const SURFACE_IME_STATE_FRAME_MAX: usize =
+    HEADER_LEN + 3 + IME_CANDIDATES_MAX * (1 + IME_CANDIDATE_MAX_BYTES);
+
+/// Preedit push: `[hdr, kind=PREEDIT, len:u8, text…]`.
+#[must_use]
+pub fn encode_ime_preedit(text: &str) -> Option<([u8; SURFACE_IME_STATE_FRAME_MAX], usize)> {
+    let b = text.as_bytes();
+    if b.len() > IME_PREEDIT_MAX {
+        return None;
+    }
+    let mut f = [0u8; SURFACE_IME_STATE_FRAME_MAX];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_IME_STATE));
+    f[4] = IME_STATE_PREEDIT;
+    f[5] = b.len() as u8;
+    f[6..6 + b.len()].copy_from_slice(b);
+    Some((f, 6 + b.len()))
+}
+
+/// Candidate-page push: `[hdr, kind=CANDIDATES, page:u8, count:u8,
+/// (len:u8, bytes…)×count]`.
+#[must_use]
+pub fn encode_ime_candidates(
+    page: u8,
+    candidates: &[&str],
+) -> Option<([u8; SURFACE_IME_STATE_FRAME_MAX], usize)> {
+    if candidates.len() > IME_CANDIDATES_MAX {
+        return None;
+    }
+    let mut f = [0u8; SURFACE_IME_STATE_FRAME_MAX];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_IME_STATE));
+    f[4] = IME_STATE_CANDIDATES;
+    f[5] = page;
+    f[6] = candidates.len() as u8;
+    let mut n = 7;
+    for c in candidates {
+        let b = c.as_bytes();
+        if b.is_empty() || b.len() > IME_CANDIDATE_MAX_BYTES {
+            return None;
+        }
+        f[n] = b.len() as u8;
+        n += 1;
+        f[n..n + b.len()].copy_from_slice(b);
+        n += b.len();
+    }
+    Some((f, n))
+}
+
+/// The decoded strip push (borrowed slices; fail-closed).
+pub enum ImeStatePush<'a> {
+    Preedit(&'a str),
+    /// `(page, candidates ≤ 8)` — unused slots are empty strings.
+    Candidates(u8, [&'a str; IME_CANDIDATES_MAX], usize),
+}
+
+/// Fail-closed decode of `OP_SURFACE_IME_STATE`.
+#[must_use]
+pub fn decode_ime_state(frame: &[u8]) -> Option<ImeStatePush<'_>> {
+    if !has_op(frame, OP_SURFACE_IME_STATE) || frame.len() < HEADER_LEN + 1 {
+        return None;
+    }
+    match frame[4] {
+        IME_STATE_PREEDIT => {
+            let len = usize::from(*frame.get(5)?);
+            if len > IME_PREEDIT_MAX || frame.len() != 6 + len {
+                return None;
+            }
+            core::str::from_utf8(&frame[6..6 + len]).ok().map(ImeStatePush::Preedit)
+        }
+        IME_STATE_CANDIDATES => {
+            let page = *frame.get(5)?;
+            let count = usize::from(*frame.get(6)?);
+            if count > IME_CANDIDATES_MAX {
+                return None;
+            }
+            let mut out: [&str; IME_CANDIDATES_MAX] = [""; IME_CANDIDATES_MAX];
+            let mut n = 7;
+            for slot in out.iter_mut().take(count) {
+                let len = usize::from(*frame.get(n)?);
+                if len == 0 || len > IME_CANDIDATE_MAX_BYTES {
+                    return None;
+                }
+                n += 1;
+                *slot = core::str::from_utf8(frame.get(n..n + len)?).ok()?;
+                n += len;
+            }
+            if frame.len() != n {
+                return None;
+            }
+            Some(ImeStatePush::Candidates(page, out, count))
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,5 +354,28 @@ mod tests {
             decode_surface_text_focus(&clear),
             Some((1, false, SURFACE_FIELD_TEXT, (0, 0, 0, 0)))
         );
+    }
+
+    #[test]
+    fn ime_state_round_trips_and_rejects() {
+        let (f, n) = encode_ime_preedit("にほ").unwrap();
+        match decode_ime_state(&f[..n]) {
+            Some(ImeStatePush::Preedit(t)) => assert_eq!(t, "にほ"),
+            _ => panic!("preedit decodes"),
+        }
+        let (f, n) = encode_ime_candidates(1, &["你好", "泥"]).unwrap();
+        match decode_ime_state(&f[..n]) {
+            Some(ImeStatePush::Candidates(page, items, count)) => {
+                assert_eq!((page, count), (1, 2));
+                assert_eq!(items[0], "你好");
+                assert_eq!(items[1], "泥");
+            }
+            _ => panic!("candidates decode"),
+        }
+        // Truncation + oversize fail closed.
+        assert!(decode_ime_state(&f[..n - 1]).is_none());
+        assert!(encode_ime_candidates(0, &[""]).is_none());
+        let long = core::str::from_utf8(&[b'x'; IME_CANDIDATE_MAX_BYTES + 1]).unwrap();
+        assert!(encode_ime_candidates(0, &[long]).is_none());
     }
 }

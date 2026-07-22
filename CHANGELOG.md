@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-22 (night)
+
+#### IME v2 Phase 3 (RFC-0075, TASK-0150): candidate strip + CJK OSK, OS
+
+- **imed hosts the engines**: `ImedCore` now drives `ime_core::Engine`
+  (enum dispatch) — new semantics: COMPOSITION is focus-independent (the
+  deterministic probes exercise the real engine without a field), DELIVERY
+  stays focus-gated, and PASSWORD fields bypass the engine entirely (raw
+  commits, no preedit/candidates/learning — fail-closed in the core).
+  `CommitText` widened to the 64-B `TextRun` bound (CJK candidate commits).
+- **Wire (additive)**: `OP_SET_LAYOUT=8` (inputd relays applied
+  `input.keymap` changes on the main endpoint; the OSK globe sends it on
+  the capability-gated osk endpoint) + the osk-endpoint reply now echoes
+  the step's COMMIT to the injecting sender only (probe observability;
+  ime-ui sends fire-and-forget and never gets an echo).
+- **Strip data path**: imed pushes `OP_PREEDIT`/`OP_CANDIDATES` (bounded
+  ≤ 8 × 32 B) → windowd relays to the ime-ui overlay as the new
+  `OP_SURFACE_IME_STATE=24` (preedit / candidate-page kinds) — never to
+  the focused app; app-host dispatches `ImeStripEvent::Preedit/Cands`.
+- **ime-ui**: composition strip row (preedit + up to 8 tappable candidate
+  chips → `svc.ime.select`), layout cycle de → us → jp → kr → zh on the
+  globe key (`svc.ime.layout` retargets the engine; SetLayout clears the
+  strip), KR rows show 2-set jamo labels (dispatching the Latin keys the
+  engine maps), jp/zh ride the us rows (romaji/pinyin).
+- **Proofs**: `SELFTEST: ime v2 cjk jp ok` (layout jp + `nn`+Enter echoes
+  ん through the REAL service path) and `SELFTEST: ime v2 candidates ok`
+  (pinyin `nihao` + space + select(0) commits 你好) green in `ci-os-smp1`;
+  interactive: chat-composer focus → OSK → globe to jp → romaji preedit in
+  the strip → candidate tap → `apphost: text commit applied` + strip clear.
+- **ja/ko/zh catalogs for every `@t()` app** (user request): chat,
+  desktop-shell, greeter, ime-ui, settings, stash — full key parity with
+  de/en; `ui.locale` `ja-JP`/`ko-KR`/`zh-CN` selects them by primary subtag.
+- **Known gap (recorded)**: the UI font has NO CJK glyph coverage — kana/
+  hangul/han render as `?`. The byte path is proven (probes + markers);
+  glyph coverage is a font task (same class as the `⌫`/`🌐` gaps).
+- OSK shows in EVERY shell profile now (profile = layout, not keyboard
+  presence; HID-presence-based hiding is a recorded follow-up); band 312 px.
+
 ### Added - 2026-07-22 (later)
 
 #### Full de/en catalogs for every DSL app (RFC-0077 follow-through)

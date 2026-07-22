@@ -137,10 +137,14 @@ fn drain_osk(
         match server.recv_request_with_meta_into(Wait::NonBlocking, frame_buf) {
             Ok((len, _sender_sid, reply)) => {
                 let frame = &frame_buf[..len];
-                let status = handle_osk_frame(core, windowd, frame);
-                if let (Some((op, status)), Some(reply)) = (status, reply) {
-                    let rsp = wire::encode_response(op, status);
-                    let _ = reply.reply_and_close(&rsp);
+                let outcome = handle_osk_frame(core, windowd, frame);
+                if let (Some((op, status, echo)), Some(reply)) = (outcome, reply) {
+                    let mut rsp = [0u8; 96];
+                    if let Some(n) =
+                        wire::encode_osk_reply(op, status, echo.commit.as_str(), &mut rsp)
+                    {
+                        let _ = reply.reply_and_close(&rsp[..n]);
+                    }
                 }
             }
             Err(_) => return,
@@ -148,32 +152,55 @@ fn drain_osk(
     }
 }
 
-/// Dispatches one OSK-endpoint frame; returns `(op, status)` for an
-/// optional reply. Composition is the SAME focus-gated path as hw keys —
-/// an OSK tap without an active text focus is dropped (status still OK:
-/// the frame was authorized + parsed; there is just no target field).
+/// Dispatches one OSK-endpoint frame; returns `(op, status, echo)` for an
+/// optional reply. COMPOSITION is focus-independent (RFC-0075 Phase 3 —
+/// the deterministic probe exercises the real engine without a field);
+/// DELIVERY stays focus-gated inside `ImedCore`. The echo carries the
+/// commit this step produced back to the INJECTING sender only.
 fn handle_osk_frame(
     core: &mut ImedCore,
     windowd: &mut Option<KernelClient>,
     frame: &[u8],
-) -> Option<(u8, u8)> {
+) -> Option<(u8, u8, crate::StepEcho)> {
+    let empty = crate::StepEcho { commit: crate::CommitText::default() };
     if frame.len() < 4 || frame[0] != wire::MAGIC0 || frame[1] != wire::MAGIC1 {
         return None;
     }
     let op = frame[3];
-    if op != wire::OP_KEY {
-        return Some((op, wire::STATUS_DENIED));
+    match op {
+        wire::OP_KEY => {
+            let Some((source, kind, ch, action, _modifiers)) = wire::decode_key(frame) else {
+                return Some((op, wire::STATUS_MALFORMED, empty));
+            };
+            if source != wire::KEY_SOURCE_OSK {
+                return Some((op, wire::STATUS_DENIED, empty));
+            }
+            let (pushes, echo) = core.key(kind, ch, action);
+            if let Some(pushes) = pushes {
+                push_to_windowd(windowd, &pushes);
+            }
+            Some((op, wire::STATUS_OK, echo))
+        }
+        wire::OP_SET_LAYOUT => {
+            // The OSK globe key switches the engine (capability-gated).
+            let Some(layout) = wire::decode_set_layout(frame) else {
+                return Some((op, wire::STATUS_MALFORMED, empty));
+            };
+            core.set_layout(layout);
+            Some((op, wire::STATUS_OK, empty))
+        }
+        wire::OP_CANDIDATE_SELECT => {
+            let Some(index) = wire::decode_candidate_select(frame) else {
+                return Some((op, wire::STATUS_MALFORMED, empty));
+            };
+            let (pushes, echo) = core.candidate_select(usize::from(index));
+            if let Some(pushes) = pushes {
+                push_to_windowd(windowd, &pushes);
+            }
+            Some((op, wire::STATUS_OK, echo))
+        }
+        _ => Some((op, wire::STATUS_DENIED, empty)),
     }
-    let Some((source, kind, ch, action, _modifiers)) = wire::decode_key(frame) else {
-        return Some((op, wire::STATUS_MALFORMED));
-    };
-    if source != wire::KEY_SOURCE_OSK {
-        return Some((op, wire::STATUS_DENIED));
-    }
-    if let Some(pushes) = core.key(kind, ch, action) {
-        push_to_windowd(windowd, &pushes);
-    }
-    Some((op, wire::STATUS_OK))
 }
 
 /// Dispatches one frame; returns `(op, status)` for an optional reply.
@@ -203,8 +230,8 @@ fn handle_frame(
             Some((op, wire::STATUS_OK))
         }
         wire::OP_KEY => {
-            // Phase 1: hardware chain only. OSK-sourced keys (source=osk from
-            // the vetted ime-ui host) arrive with RFC-0075 Phase 2.
+            // Hardware chain only on the MAIN endpoint; OSK-sourced keys
+            // ride the DEDICATED osk endpoint (capability = authorization).
             if sender_sid != inputd_sid {
                 if !FOREIGN_KEY_REJECT_EMITTED.swap(true, Ordering::Relaxed) {
                     emit_line("imed: reject foreign key source");
@@ -217,17 +244,36 @@ fn handle_frame(
             if source != wire::KEY_SOURCE_HW {
                 return Some((op, wire::STATUS_DENIED));
             }
-            if let Some(pushes) = core.key(kind, ch, action) {
+            let (pushes, _echo) = core.key(kind, ch, action);
+            if let Some(pushes) = pushes {
                 push_to_windowd(windowd, &pushes);
             }
             Some((op, wire::STATUS_OK))
         }
+        wire::OP_SET_LAYOUT => {
+            // Engine follows `input.keymap` — relayed by inputd only.
+            if sender_sid != inputd_sid {
+                return Some((op, wire::STATUS_DENIED));
+            }
+            let Some(layout) = wire::decode_set_layout(frame) else {
+                return Some((op, wire::STATUS_MALFORMED));
+            };
+            core.set_layout(layout);
+            Some((op, wire::STATUS_OK))
+        }
         wire::OP_CANDIDATE_SELECT => {
+            // windowd relays UI selection (RFC-0075 Phase 3).
             if sender_sid != windowd_sid {
                 return Some((op, wire::STATUS_DENIED));
             }
-            // Candidates arrive with the CJK engines (RFC-0075 Phase 3).
-            Some((op, wire::STATUS_UNSUPPORTED))
+            let Some(index) = wire::decode_candidate_select(frame) else {
+                return Some((op, wire::STATUS_MALFORMED));
+            };
+            let (pushes, _echo) = core.candidate_select(usize::from(index));
+            if let Some(pushes) = pushes {
+                push_to_windowd(windowd, &pushes);
+            }
+            Some((op, wire::STATUS_OK))
         }
         _ => Some((op, wire::STATUS_MALFORMED)),
     }
@@ -250,6 +296,36 @@ fn push_to_windowd(windowd: &mut Option<KernelClient>, pushes: &crate::KeyPushes
     if let Some(action) = pushes.action {
         let frame = wire::encode_action(pushes.surface_id, action);
         sent_ok &= client.send(&frame, Wait::NonBlocking).is_ok();
+    }
+    // Strip snapshots (RFC-0075 Phase 3): preedit + candidate page ride to
+    // windowd, which relays them to the ime-ui overlay (never the app).
+    if let Some(preedit) = pushes.preedit {
+        let mut buf = [0u8; 96];
+        if let Some(n) = wire::encode_preedit(pushes.surface_id, 0, preedit.as_str(), &mut buf) {
+            sent_ok &= client.send(&buf[..n], Wait::NonBlocking).is_ok();
+        }
+    }
+    if let Some(page) = pushes.candidates {
+        let mut texts: [&str; wire::CANDIDATES_MAX] = [""; wire::CANDIDATES_MAX];
+        let count = page.len().min(wire::CANDIDATES_MAX);
+        for (i, slot) in texts.iter_mut().enumerate().take(count) {
+            if let Some(c) = page.get(i) {
+                *slot = c.as_str();
+            }
+        }
+        let mut list = [0u8; wire::CANDIDATE_LIST_MAX_BYTES];
+        if let Some(list_len) = wire::encode_candidate_list(&texts[..count], &mut list) {
+            let mut buf = [0u8; 512];
+            if let Some(n) = wire::encode_candidates(
+                pushes.surface_id,
+                page.page,
+                count as u8,
+                &list[..list_len],
+                &mut buf,
+            ) {
+                sent_ok &= client.send(&buf[..n], Wait::NonBlocking).is_ok();
+            }
+        }
     }
     if !sent_ok {
         // Drop the cached client; the next push re-routes (windowd restart).

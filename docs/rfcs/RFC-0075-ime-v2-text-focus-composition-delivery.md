@@ -21,6 +21,7 @@
 - **Phase 0 (host core: ime-core + focus model + wire codecs)**: ✅ (TASK-0146 Done 2026-07-21)
 - **Phase 1 (OS typing path: imed real, commit delivery)**: ✅ (TASK-0147 Part 1, boot-proven 2026-07-21 — `imed: ready` + `SELFTEST: imed reject foreign ok` in `ci-os-smp1`; interactive typing = `just start` proof until the Part 2 OSK selftest)
 - **Phase 2 (OSK overlay app ime-ui)**: ✅ (TASK-0147 Part 2, boot-proven 2026-07-22 — `SELFTEST: ime v2 osk ok` in `ci-os-smp1`; interactive OSK typing proven in a visible boot)
+- **Phase 3 (CJK engines + candidate strip)**: ✅ (TASK-0149 host + TASK-0150 OS, 2026-07-22 — `SELFTEST: ime v2 cjk jp ok` + `SELFTEST: ime v2 candidates ok` in `ci-os-smp1`; strip interactive proof in a visible boot. Semantics: composition focus-INDEPENDENT, delivery focus-gated, password fields bypass the engine; `OP_SET_LAYOUT` follows `input.keymap` (inputd) and the OSK globe)
 - **Phase 3 (CJK engines + candidate UI)**: ⬜ (TASK-0149/0150)
 - **Phase 4 (personalization: ranking + statefs store)**: ⬜ (TASK-0203/0204)
 

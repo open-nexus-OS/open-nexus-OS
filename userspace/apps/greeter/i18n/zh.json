@@ -1,0 +1,11 @@
+{
+  "greeter.title": "登录",
+  "greeter.secret": "输入密码",
+  "greeter.login": "登录",
+  "greeter.authenticating": "正在验证…",
+  "greeter.failed": "登录失败",
+  "greeter.date": "Sunday, 5 July",
+  "greeter.clock": "09:41",
+  "greeter.pickUser": "选择用户",
+  "greeter.hint": "点按箭头登录"
+}

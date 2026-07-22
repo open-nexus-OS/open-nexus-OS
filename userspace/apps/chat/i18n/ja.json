@@ -1,0 +1,17 @@
+{
+  "chat.title": "チャット",
+  "chat.subtitle": "ローカルエコー",
+  "chat.message": "メッセージ",
+  "chat.send": "送信",
+  "chat.online": "オンライン",
+  "chat.you": "あなた",
+  "chat.mira": "ミラ",
+  "chat.miraLast": "このメッセージはまさにそのためのものです。",
+  "chat.ben": "ベン",
+  "chat.benLast": "また明日！",
+  "chat.team": "チーム・ネクサス",
+  "chat.teamLast": "ビルドはグリーン — リリース準備完了。",
+  "chat.lea": "レア",
+  "chat.leaLast": "ありがとう！",
+  "chat.yesterday": "昨日"
+}

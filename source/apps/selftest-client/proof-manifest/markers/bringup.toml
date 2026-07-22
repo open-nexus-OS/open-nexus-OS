@@ -835,6 +835,12 @@ phase = "bringup"
 [marker."SELFTEST: ime v2 osk FAIL"]
 phase = "bringup"
 
+[marker."SELFTEST: ime v2 cjk jp FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: ime v2 candidates FAIL"]
+phase = "bringup"
+
 [marker."SELFTEST: settings watch FAIL"]
 phase = "bringup"
 

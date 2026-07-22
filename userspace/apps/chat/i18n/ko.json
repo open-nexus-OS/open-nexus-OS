@@ -1,0 +1,17 @@
+{
+  "chat.title": "채팅",
+  "chat.subtitle": "로컬 에코",
+  "chat.message": "메시지",
+  "chat.send": "보내기",
+  "chat.online": "온라인",
+  "chat.you": "나",
+  "chat.mira": "미라",
+  "chat.miraLast": "이 메시지가 바로 그걸 위한 거예요.",
+  "chat.ben": "벤",
+  "chat.benLast": "내일 봐요!",
+  "chat.team": "팀 넥서스",
+  "chat.teamLast": "빌드는 그린 — 릴리스 준비 완료.",
+  "chat.lea": "레아",
+  "chat.leaLast": "고마워요!",
+  "chat.yesterday": "어제"
+}

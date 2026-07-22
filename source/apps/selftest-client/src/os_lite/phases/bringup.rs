@@ -57,6 +57,18 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_IME_V2_OSK_FAIL);
     }
+    // RFC-0075 Phase 3: the REAL jp engine + the candidate machinery
+    // through the service path (fixture text; delivery stays focus-gated).
+    if imed_osk::imed_cjk_jp_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_IME_V2_CJK_JP_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_IME_V2_CJK_JP_FAIL);
+    }
+    if imed_osk::imed_candidates_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_IME_V2_CANDIDATES_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_IME_V2_CANDIDATES_FAIL);
+    }
     // RFC-0076 wall clock: RTC-anchored UTC, plausible and monotonic-consistent.
     if timed::walltime_probe().is_ok() {
         emit_line(crate::markers::M_SELFTEST_WALLTIME_RTC_OK);

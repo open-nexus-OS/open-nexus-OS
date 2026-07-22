@@ -855,6 +855,12 @@ impl EffectHost for AppEffectHost {
             ("ime", "action") => {
                 self.ime_action(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?)
             }
+            ("ime", "select") => {
+                self.ime_select(args.first().and_then(int_of).ok_or(ERR_SVC_SHAPE)?)
+            }
+            ("ime", "layout") => {
+                self.ime_layout(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?)
+            }
             ("session", "login") => {
                 let user = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
                 self.session_login(user)

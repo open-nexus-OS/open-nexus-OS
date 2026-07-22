@@ -63,8 +63,8 @@ pub(crate) const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
 /// tablet dock is overlaid (fullscreen reaches the bottom edge).
 pub(crate) const SHELL_TOPBAR_H: u32 = 36;
 pub(crate) const SHELL_TASKBAR_H: u32 = 56;
-/// OSK overlay band height (RFC-0075 Phase 2; WM owns overlay geometry).
-pub(crate) const OSK_BAND_H: u32 = 264;
+/// OSK band height (RFC-0075; strip + digits + 3 letter rows + actions).
+pub(crate) const OSK_BAND_H: u32 = 312;
 const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
 // Interactive geometry lives in `interaction` — the single source of truth shared

@@ -1,0 +1,11 @@
+{
+  "greeter.title": "サインイン",
+  "greeter.secret": "パスワードを入力",
+  "greeter.login": "ログイン",
+  "greeter.authenticating": "確認中…",
+  "greeter.failed": "サインインに失敗しました",
+  "greeter.date": "Sunday, 5 July",
+  "greeter.clock": "09:41",
+  "greeter.pickUser": "ユーザーを選択",
+  "greeter.hint": "矢印をタップしてサインイン"
+}

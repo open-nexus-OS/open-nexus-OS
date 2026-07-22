@@ -71,15 +71,15 @@ impl DisplayServerRuntime {
         self.update_osk_visibility();
     }
 
-    /// OSK show/hide (RFC-0075 Phase 2): text focus in a TOUCH profile shows
-    /// the on-screen keyboard; losing it hides the band. windowd only
+    /// OSK show/hide (RFC-0075 Phase 2): text focus shows the on-screen
+    /// keyboard in EVERY profile — the shell profile describes the LAYOUT,
+    /// not keyboard presence (a touch device in the desktop layout still
+    /// needs to type; hiding the band when a hardware keyboard is present
+    /// is a recorded follow-up on real HID presence). windowd only
     /// composites — the OSK is the `ime-ui` overlay app, lazily launched on
-    /// the first focus (abilitymgr owns the spawn). Desktop profile keeps
-    /// the hardware-keyboard-only flow.
+    /// the first focus (abilitymgr owns the spawn).
     pub(crate) fn update_osk_visibility(&mut self) {
-        use nexus_display_proto::client_surface as wire;
         let want_osk = self.text_focus.is_some()
-            && self.shell_profile_wire() != wire::PROFILE_DESKTOP
             // The OSK never targets ITSELF (its own taps must not re-anchor it).
             && !self
                 .text_focus
@@ -128,6 +128,40 @@ impl DisplayServerRuntime {
         self.apps[idx].intent_level == nexus_display_proto::client_surface::WIN_LEVEL_OVERLAY
     }
 
+    /// The OSK overlay's app slot, when its surface is live.
+    fn osk_idx(&self) -> Option<usize> {
+        (0..self.apps.len()).find(|&i| self.apps[i].surface_id.is_some() && self.app_is_overlay(i))
+    }
+
+    /// Relays a preedit snapshot to the ime-ui strip (`OP_SURFACE_IME_STATE`).
+    fn push_ime_state_to_osk_preedit(&mut self, text: &str) {
+        let Some(idx) = self.osk_idx() else { return };
+        if let Some((frame, n)) = surface_text::encode_ime_preedit(text) {
+            let _ = self.send_app_frame(idx, &frame[..n]);
+        }
+    }
+
+    /// Relays a candidate page to the ime-ui strip. The imed wire packs
+    /// entries as `len:u8, bytes…` — unpack bounded, re-encode for the app.
+    fn push_ime_state_to_osk_candidates(&mut self, page: u8, count: u8, list: &[u8]) {
+        let Some(idx) = self.osk_idx() else { return };
+        let mut texts: [&str; surface_text::IME_CANDIDATES_MAX] =
+            [""; surface_text::IME_CANDIDATES_MAX];
+        let count = usize::from(count).min(surface_text::IME_CANDIDATES_MAX);
+        let mut n = 0usize;
+        for slot in texts.iter_mut().take(count) {
+            let Some(&len) = list.get(n) else { return };
+            n += 1;
+            let Some(bytes) = list.get(n..n + usize::from(len)) else { return };
+            let Ok(text) = core::str::from_utf8(bytes) else { return };
+            *slot = text;
+            n += usize::from(len);
+        }
+        if let Some((frame, fl)) = surface_text::encode_ime_candidates(page, &texts[..count]) {
+            let _ = self.send_app_frame(idx, &frame[..fl]);
+        }
+    }
+
     /// imed push (`'I','E'` frames): route commit/action to the focused
     /// surface's app channel. Sender-gated to the IME authority.
     pub(crate) fn handle_imed_push(&mut self, frame: &[u8], sender_sid: u64) {
@@ -154,17 +188,17 @@ impl DisplayServerRuntime {
             };
             buf = b;
             len = n;
-        } else if let Some((sid, caret, text)) = ime_wire::decode_preedit(frame) {
-            surface_id = sid;
-            kind = surface_text::SURFACE_TEXT_PREEDIT;
-            aux = caret;
-            let Some((b, n)) = surface_text::encode_surface_text(kind, aux, text) else {
-                return;
-            };
-            buf = b;
-            len = n;
+        } else if let Some((_sid, _caret, text)) = ime_wire::decode_preedit(frame) {
+            // Strip state (RFC-0075 Phase 3): preedit previews live in the
+            // ime-ui overlay, never inline in the app — relay + done (imed
+            // only pushes while a surface holds text focus).
+            self.push_ime_state_to_osk_preedit(text);
+            return;
+        } else if let Some((_sid, page, count, list)) = ime_wire::decode_candidates(frame) {
+            self.push_ime_state_to_osk_candidates(page, count, list);
+            return;
         } else {
-            return; // candidates land with RFC-0075 Phase 3; unknown = drop
+            return; // unknown = drop
         }
         // Route ONLY to the recorded focus holder — a surface id in the push
         // that doesn't match the focus route is dropped (stale focus race).

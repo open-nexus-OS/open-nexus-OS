@@ -575,6 +575,26 @@ impl LiveRouteRuntime {
     }
 
     /// RFC-0075 key branch: forward every resolved key of this batch to the
+    /// Relays an APPLIED keymap change to imed (`OP_SET_LAYOUT`, RFC-0075
+    /// Phase 3): the composition engine follows `input.keymap`. Fire-and-
+    /// forget on the same lazily-routed channel as the key forward.
+    fn forward_layout_to_imed(&mut self, layout: &str) {
+        use nexus_wire::imed as ime_wire;
+        if self.imed_client.is_none() {
+            self.imed_client = KernelClient::new_for("imed").ok();
+        }
+        let Some(client) = self.imed_client.as_ref() else {
+            return;
+        };
+        let mut frame = [0u8; 16];
+        let Some(n) = ime_wire::encode_set_layout(layout, &mut frame) else {
+            return;
+        };
+        if client.send(&frame[..n], Wait::NonBlocking).is_err() {
+            self.imed_client = None; // re-route on the next forward
+        }
+    }
+
     /// IME authority. Fire-and-forget (imed drops keys while unfocused); the
     /// hot pointer path is untouched. No per-key allocation: fixed frames.
     fn forward_keys_to_imed(&mut self) {
@@ -694,6 +714,7 @@ impl LiveRouteRuntime {
             if key == "input.keymap" {
                 if self.input.set_layout_name(value).is_ok() {
                     let _ = debug_println(&format!("inputd: keymap set {value}"));
+                    self.forward_layout_to_imed(value);
                 } else {
                     let _ = debug_println("inputd: FAIL keymap set (invalid layout)");
                 }

@@ -1,0 +1,17 @@
+{
+  "chat.title": "聊天",
+  "chat.subtitle": "本地回声",
+  "chat.message": "消息",
+  "chat.send": "发送",
+  "chat.online": "在线",
+  "chat.you": "你",
+  "chat.mira": "米拉",
+  "chat.miraLast": "这条消息正是为此而存在。",
+  "chat.ben": "本",
+  "chat.benLast": "明天见！",
+  "chat.team": "Nexus 团队",
+  "chat.teamLast": "构建通过 — 发布就绪。",
+  "chat.lea": "蕾亚",
+  "chat.leaLast": "谢谢你！",
+  "chat.yesterday": "昨天"
+}
