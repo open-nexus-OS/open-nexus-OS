@@ -72,5 +72,8 @@
   "win.viewGrid": "网格",
   "win.viewProps": "显示属性",
   "settings.langDe": "Deutsch",
-  "settings.langEn": "English"
+  "settings.langEn": "English",
+  "settings.langJa": "日本語",
+  "settings.langKo": "한국어",
+  "settings.langZh": "中文"
 }

@@ -111,8 +111,11 @@ mod probe {
     /// channel↔surface by nonce (deterministic under concurrent connects).
     const EVENTS_SEND_CLONE_SLOT: u32 = 14;
     /// Header-poll budget: the fetch is kicked BEFORE our ELF even loads, so
-    /// the header normally beats us; the budget only bounds failure.
-    const PAYLOAD_BUDGET_NS: u64 = 3_000_000_000;
+    /// the header normally beats us; the budget only bounds failure. 3s→8s
+    /// (RFC-0075 Phase 8d): the CJK-atlas-grown image lengthened early-boot
+    /// loads enough that the grant lagged 3s on busy boots (same class as
+    /// the content-rect budget below).
+    const PAYLOAD_BUDGET_NS: u64 = 8_000_000_000;
     /// Upper payload bound accepted from the header (matches execd's VMO
     /// budget; anything larger is a malformed header by contract).
     const PAYLOAD_MAX_LEN: usize = 256 * 1024;
@@ -267,6 +270,21 @@ mod probe {
             168
         };
         let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
+        // The attach burst is theme+profile+REGION and `wait_for_boot_pushes`
+        // returns on profile — for a NORMAL window the region frame is still
+        // queued here (desktop/fullscreen surfaces consume it inside
+        // `request_content_rect`; nothing else is legal pre-create). Drain it
+        // non-blocking BEFORE the first render, else the app paints its
+        // baked-default locale and the create/present ack-wait stashes are
+        // never applied (the launched-chat "English despite de-DE" gap).
+        if boot_region.is_none() {
+            let mut frame = [0u8; 64];
+            while let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
+                if boot::stash_region(&frame[..len], &mut boot_region) {
+                    break;
+                }
+            }
+        }
         if let (Some(dsl), Some(r)) = (app.as_mut(), boot_region.take()) {
             let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
         }
@@ -1231,6 +1249,35 @@ mod probe {
                     font,
                     [c.b, c.g, c.r, c.a],
                 ));
+            }
+            N::TextInput(input, _) => {
+                // RFC-0075 Phase 8c: a TextField's typed content (already
+                // bullet-masked for `secure`) — or its dimmed placeholder
+                // while empty. This arm was MISSING: no TextField ever
+                // painted its text (the store/insert side was always fine).
+                let font = if input.style.font_size.0 >= 15 {
+                    nexus_text_baked::FontSize::Body
+                } else {
+                    nexus_text_baked::FontSize::Small
+                };
+                let c = input.style.color;
+                if !input.content.as_str().is_empty() {
+                    out.push((
+                        *index,
+                        alloc::string::String::from(input.content.as_str()),
+                        font,
+                        [c.b, c.g, c.r, c.a],
+                    ));
+                } else if let Some(placeholder) = &input.placeholder {
+                    // Placeholder at ~55% of the content color (dimmed).
+                    let dim = |v: u8| ((u16::from(v) * 140) / 255) as u8;
+                    out.push((
+                        *index,
+                        alloc::string::String::from(placeholder.as_str()),
+                        font,
+                        [dim(c.b), dim(c.g), dim(c.r), c.a],
+                    ));
+                }
             }
             N::Stack(_, _, children) | N::Grid(_, _, children) => {
                 for child in children {

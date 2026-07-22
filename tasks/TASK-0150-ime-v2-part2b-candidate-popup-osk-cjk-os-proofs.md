@@ -149,3 +149,61 @@ User insert after Phase 8: 180 languages must never mean 180 `if` trees.
   per-region arms; `OP_SURFACE_REGION` gained an optional trailing keymap
   field (old frames decode with an empty tag) and windowd a third watch
   subscription (`input.keymap`).
+
+## Addendum 8c/8d (2026-07-22): input UX hardening + CJK font foundation
+
+User findings after live use, both root-caused by exploration:
+
+**8c — input UX**:
+- Typed text was NEVER visible in any TextField: the store/insert side was
+  fully wired (compiler-synthesized `Change → Bind`), but the app-host
+  painter's `collect_texts` dropped `LayoutNode::TextInput` — no TextField
+  ever painted content OR placeholder. Fixed with a `TextInput` arm
+  (+ dimmed placeholder); caret paint (`cursor_pos`) = recorded follow-up.
+- greeter password field gained `secure: true` (was missing — would have
+  shown plaintext once painting worked).
+- OSK X key: `window.control minimize` → windowd treats minimize on an
+  OVERLAY as dismiss (latch; the next focus announce re-opens); same-field
+  taps re-announce focus so tapping the field re-opens the keyboard.
+- OSK policy reverted to TOUCH profiles only (desktop layout = hardware
+  keyboard flow; user decision).
+- Settings language picker gained 日本語 / 한국어 / 中文 chips
+  (`settings.langJa/Ko/Zh` in all six catalogs).
+
+**8d — CJK font foundation (font-library.md contract)**:
+- The notofonts/noto-cjk repo is far too large for a submodule — pinned RAW
+  downloads instead: `scripts/fetch-fonts.sh` (commit-pinned + SHA-256
+  verified Noto Sans JP/KR/SC OTFs into resources/fonts/noto/, gitignored;
+  BUILD inputs only).
+- `nexus-text-baked` bakes MULTI-FACE atlases: script-aware face pick
+  (Inter Latin; Noto JP kana/punctuation; Noto KR jamo + the FULL hangul
+  syllable block — typing composes arbitrary syllables; Noto SC han) over a
+  bounded WIDE charset: fixed ranges + the EXTRACTED han/kanji set from
+  every app i18n catalog + the IME engine output tables + OSK labels
+  (ime-core/keymaps became build-deps exposing them). New sorted WIDE tail
+  in the Face lookup (kern stays Latin-only/u8). ~4.2 MB atlases.
+- Image consequences (kernel-touch, documented in mm/mod.rs + link.ld):
+  init-lite RAM window 8M→24M, `KERNEL_PAGE_POOL` moved 0x80c0_0000→
+  0x8200_0000 and grown 8M→24M (the loader allocates the whole embedded
+  init image from it), `USER_VMO_ARENA_BASE` 0x8180_0000→0x8380_0000.
+  FOLLOW-UP: share ONE atlas via read-only VMO instead of embedding it in
+  windowd AND app-host (~4 MB duplicated today).
+- `USER_VMO_ARENA_LEN` 160→224 MB: the atlases ride in EVERY app-host
+  instance, and a logged-in session EXHAUSTED the 160 MB arena (silent
+  app-death: `VMO-POOL exhausted want=0x3e8000 used=0x9e0b000`) — the
+  RO-VMO sharing follow-up is now load-bearing, the grown arena is the
+  bridge.
+- The secure-field bullet `•` (U+2022) joined the WIDE charset — password
+  dots rendered as `?` on first live proof (text_field masks with U+2022,
+  which no face covered); lib test asserts it resolves off the fallback.
+- Build-dep crates (hid/keymaps/ime-core) gained check-cfg build.rs stubs
+  (host-compiled without the workspace RUSTFLAGS, warn-gate clean).
+- Launched-window locale gap closed on the way: `wait_for_boot_pushes`
+  returns on profile, leaving the attach-burst REGION frame queued for
+  NORMAL windows (desktop/fullscreen consume it in `request_content_rect`)
+  — launched apps painted baked-default English. app-host drains the
+  queued region non-blocking after mount, before the first render
+  (live-proven: chat mounts German, `apphost: locale de-DE applied` ×3).
+- `PAYLOAD_BUDGET_NS` 3s→8s (same early-boot-lag class as the 8s
+  content-rect budget; the ci apphost-spawn lane still FAILs honestly —
+  that lane never receives a payload grant by design).

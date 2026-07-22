@@ -653,6 +653,24 @@ impl DisplayServerRuntime {
             self.send_attach_pushes(slot);
             // Complete a desktop bind that raced ahead of this attach (if any).
             self.complete_deferred_desktop_bind(nonce, slot);
+            // Flush a PARKED intent reply for this nonce (boot-park track):
+            // the geometry answer the racing intent could not deliver.
+            for entry in self.pending_intent_replies.iter_mut() {
+                if let Some((n, rect)) = entry {
+                    if *n == nonce {
+                        let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rect.len() as u32);
+                        let _ = nexus_abi::ipc_send_v1(
+                            slot,
+                            &hdr,
+                            rect,
+                            nexus_abi::IPC_SYS_NONBLOCK,
+                            0,
+                        );
+                        let _ = debug_println("WINDOWD: parked intent reply flushed");
+                        *entry = None;
+                    }
+                }
+            }
         }
     }
 

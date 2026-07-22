@@ -58,6 +58,8 @@ impl DisplayServerRuntime {
         };
         if focused {
             self.text_focus = Some(TextFocusRoute { target, surface_id, field_kind });
+            // An explicit focus announce (field tap) re-opens a dismissed OSK.
+            self.osk_dismissed = false;
         } else {
             // Only the current holder can clear (a stale unfocus from a
             // background surface must not drop the active field's focus).
@@ -71,15 +73,17 @@ impl DisplayServerRuntime {
         self.update_osk_visibility();
     }
 
-    /// OSK show/hide (RFC-0075 Phase 2): text focus shows the on-screen
-    /// keyboard in EVERY profile — the shell profile describes the LAYOUT,
-    /// not keyboard presence (a touch device in the desktop layout still
-    /// needs to type; hiding the band when a hardware keyboard is present
-    /// is a recorded follow-up on real HID presence). windowd only
-    /// composites — the OSK is the `ime-ui` overlay app, lazily launched on
-    /// the first focus (abilitymgr owns the spawn).
+    /// OSK show/hide (RFC-0075 Phase 8c policy): text focus shows the
+    /// on-screen keyboard in TOUCH profiles only (desktop layout = hardware
+    /// keyboard flow — user decision) and never while the user dismissed it
+    /// (its X; the next field tap re-opens). windowd only composites — the
+    /// OSK is the `ime-ui` overlay app, lazily launched on the first focus
+    /// (abilitymgr owns the spawn).
     pub(crate) fn update_osk_visibility(&mut self) {
+        use nexus_display_proto::client_surface as wire;
         let want_osk = self.text_focus.is_some()
+            && self.shell_profile_wire() != wire::PROFILE_DESKTOP
+            && !self.osk_dismissed
             // The OSK never targets ITSELF (its own taps must not re-anchor it).
             && !self
                 .text_focus

@@ -23,7 +23,15 @@
 - **Phase 2 (OSK overlay app ime-ui)**: ✅ (TASK-0147 Part 2, boot-proven 2026-07-22 — `SELFTEST: ime v2 osk ok` in `ci-os-smp1`; interactive OSK typing proven in a visible boot)
 - **Phase 8b (data-driven OSK layouts + `device.locale`/`device.keymap`)**: ✅ (2026-07-22 — OSK rows are DATA from the keymaps SSOT (`osk_rows`, `svc.ime.rows`); the globe cycles the SYSTEM layout (imed persists `input.keymap` via settingsd — user decision; cycle guard against the inputd relay); `OP_SURFACE_REGION` carries the keymap tag (optional trailing field); `device.locale`/`device.keymap` are checker-known env axes (registry rows 7/8) that re-select arms on reemit. Adding a language = adding data rows, never an `if` tree.)
 - **Phase 3 (CJK engines + candidate strip)**: ✅ (TASK-0149 host + TASK-0150 OS, 2026-07-22 — `SELFTEST: ime v2 cjk jp ok` + `SELFTEST: ime v2 candidates ok` in `ci-os-smp1`; strip interactive proof in a visible boot. Semantics: composition focus-INDEPENDENT, delivery focus-gated, password fields bypass the engine; `OP_SET_LAYOUT` follows `input.keymap` (inputd) and the OSK globe)
-- **Phase 3 (CJK engines + candidate UI)**: ⬜ (TASK-0149/0150)
+- **Phase 8c/8d (input UX hardening + CJK font foundation)**: ✅ (2026-07-22 —
+  TextFields PAINT content/placeholder (the missing `collect_texts` arm; caret
+  paint = follow-up), greeter field `secure`, OSK gains an `X` dismiss
+  (windowd overlay-minimize latch, re-announce on same-field tap) and is
+  **tablet-profile-only** (user decision — revert of the every-profile choice;
+  profile = OSK policy), and the font gap is CLOSED: `nexus-text-baked` bakes
+  Inter + pinned Noto Sans CJK per script (full hangul block; han extracted
+  from catalogs/engines/labels) so kana/hangul/han render real glyphs
+  system-wide. `ui.font.family` live switching stays a recorded follow-up.)
 - **Phase 4 (personalization: ranking + statefs store)**: ⬜ (TASK-0203/0204)
 
 Definition:

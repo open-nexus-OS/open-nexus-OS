@@ -102,7 +102,14 @@ impl DisplayServerRuntime {
             // kernel meta carries it (presentation-only blast radius).
             wire::CONTROL_WIN_MINIMIZE => {
                 if let Some(idx) = self.app_idx_by_surface(u32::from(value)) {
-                    self.start_minimize_transition(idx);
+                    if self.apps[idx].intent_level == wire::WIN_LEVEL_OVERLAY {
+                        // OSK X (RFC-0075 Phase 8c): dismiss the band — it
+                        // stays hidden until the next field tap re-announces.
+                        self.osk_dismissed = true;
+                        self.update_osk_visibility();
+                    } else {
+                        self.start_minimize_transition(idx);
+                    }
                 } else {
                     let _ = debug_println("WINDOWD: control win (no window for id)");
                 }

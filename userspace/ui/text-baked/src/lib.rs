@@ -49,11 +49,16 @@ struct Face {
     cov: &'static [u8],
     /// `(cov_offset, w, h, left_bearing, top_from_band_top, advance_px)` per
     /// charset glyph: dense ASCII 32..=126 first (index = code − 32), then
-    /// the sparse EXTRAS tail (umlauts/ß + math symbols — see build.rs).
-    glyphs: &'static [(u32, u16, u16, i16, i16, u16); 106],
+    /// the sparse EXTRAS tail (umlauts/ß + math symbols), then the sorted
+    /// WIDE tail (kana/jamo/hangul/han — RFC-0075 Phase 8d, see build.rs).
+    glyphs: &'static [(u32, u16, u16, i16, i16, u16)],
     /// The sparse tail's codepoints, sorted ascending; glyph index = 95 + i.
     extras: &'static [u32; 11],
-    /// Sparse kerning: `(left_glyph_idx, right_glyph_idx, px)`.
+    /// The WIDE tail's codepoints, sorted ascending; glyph index =
+    /// 95 + extras.len() + i. Unkerned by design.
+    wide: &'static [u32],
+    /// Sparse kerning: `(left_glyph_idx, right_glyph_idx, px)` — Latin span
+    /// only (indices < 107 fit the u8 table).
     kern: &'static [(u8, u8, i8)],
     line_h: u32,
     avg_advance: u32,
@@ -64,6 +69,7 @@ const SMALL: Face = Face {
     cov: baked::FONT13_COV,
     glyphs: baked::FONT13_GLYPHS,
     extras: baked::FONT13_EXTRAS,
+    wide: baked::FONT13_WIDE,
     kern: baked::FONT13_KERN,
     line_h: baked::FONT13_LINE_H,
     avg_advance: baked::FONT13_AVG_ADVANCE,
@@ -74,6 +80,7 @@ const BODY: Face = Face {
     cov: baked::FONT16_COV,
     glyphs: baked::FONT16_GLYPHS,
     extras: baked::FONT16_EXTRAS,
+    wide: baked::FONT16_WIDE,
     kern: baked::FONT16_KERN,
     line_h: baked::FONT16_LINE_H,
     avg_advance: baked::FONT16_AVG_ADVANCE,
@@ -108,16 +115,20 @@ pub const fn avg_advance(size: FontSize) -> u32 {
 }
 
 /// Glyph index for a char: dense ASCII by offset, the sparse EXTRAS tail
-/// (umlauts/ß, ± ÷ × −) by binary search; anything else falls back to `?`
-/// (same policy as the old bitmap font's replacement glyph).
+/// (umlauts/ß, ± ÷ × −) then the WIDE tail (kana/jamo/hangul/han, RFC-0075
+/// Phase 8d) by binary search; anything else falls back to `?` (same
+/// policy as the old bitmap font's replacement glyph).
 #[inline]
 fn glyph_index_in(f: &Face, ch: char) -> usize {
     let c = ch as u32;
     if (32..=126).contains(&c) {
         return (c - 32) as usize;
     }
-    match f.extras.binary_search(&c) {
-        Ok(i) => 95 + i,
+    if let Ok(i) = f.extras.binary_search(&c) {
+        return 95 + i;
+    }
+    match f.wide.binary_search(&c) {
+        Ok(i) => 95 + f.extras.len() + i,
         Err(_) => ('?' as u32 - 32) as usize,
     }
 }
@@ -295,5 +306,23 @@ mod tests {
         let lh_s = line_height(FontSize::Small);
         assert!((13..=20).contains(&lh_s), "13px face line height plausible, got {lh_s}");
         assert!(ascent(FontSize::Body) > 0);
+    }
+
+    #[test]
+    fn wide_tail_serves_cjk_glyphs() {
+        // RFC-0075 Phase 8d: kana / hangul / han resolve to REAL glyphs —
+        // wider than the `?` fallback and mutually distinct.
+        let q = measure("?".chars(), FontSize::Body);
+        for text in ["ん", "日本語", "한", "你好"] {
+            let w = measure(text.chars(), FontSize::Body);
+            assert!(w > q, "{text} must not be the ? fallback (w={w}, q={q})");
+        }
+        // Latin metrics unchanged: the EXTRAS tail still resolves.
+        assert!(measure("ä".chars(), FontSize::Small) > 0);
+        // The secure-field bullet resolves (else passwords mask as `?`).
+        let f = face(FontSize::Body);
+        assert_ne!(glyph_index_in(f, '•'), glyph_index_in(f, '?'));
+        // A codepoint OUTSIDE the baked set still falls back to `?`.
+        assert_eq!(measure("\u{1F600}".chars(), FontSize::Body), q);
     }
 }

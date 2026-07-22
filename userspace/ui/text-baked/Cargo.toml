@@ -24,4 +24,6 @@ layout = ["dep:nexus-layout-types"]
 nexus-layout-types = { path = "../layout-types", optional = true }
 
 [build-dependencies]
+ime-core = { path = "../../ime-core" }
+keymaps = { path = "../../keymaps" }
 fontdue = "0.9"

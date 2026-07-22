@@ -2248,6 +2248,8 @@ name = "nexus-text-baked"
 version = "0.1.0"
 dependencies = [
  "fontdue",
+ "ime-core",
+ "keymaps",
  "nexus-layout-types",
 ]
 

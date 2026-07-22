@@ -63,7 +63,6 @@ pub(crate) const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
 /// tablet dock is overlaid (fullscreen reaches the bottom edge).
 pub(crate) const SHELL_TOPBAR_H: u32 = 36;
 pub(crate) const SHELL_TASKBAR_H: u32 = 56;
-/// OSK band height (RFC-0075; strip + digits + 3 letter rows + actions).
 pub(crate) const OSK_BAND_H: u32 = 312;
 const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
@@ -546,8 +545,10 @@ pub(crate) struct DisplayServerRuntime {
     /// desktop is never left channel-less (stuck fallback surface).
     #[cfg(nexus_env = "os")]
     desktop_pending_nonce: Option<u64>,
-    /// RFC-0075 Phase 2: ime-ui overlay launch requested (once per boot).
+    /// RFC-0075: launch-once + X-dismiss latch + parked intent replies.
     osk_launch_requested: bool,
+    osk_dismissed: bool,
+    pending_intent_replies: [Option<(u64, [u8; 12])>; 4],
     desktop_band: Option<crate::atlas::AtlasSurface>,
     desktop_dirty: bool,
     /// One-shot frame pulse armed by the desktop surface (shell scroll).
@@ -910,6 +911,8 @@ impl DisplayServerRuntime {
             #[cfg(nexus_env = "os")]
             desktop_pending_nonce: None,
             osk_launch_requested: false,
+            osk_dismissed: false,
+            pending_intent_replies: [None; 4],
             desktop_band: None,
             desktop_dirty: false,
             desktop_frame_pulse: false,
@@ -1048,9 +1051,7 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Mirror a window becoming visible into the stack: it is raised to the top
-    /// and focused (opening is user intent). Callers still run their own
-    /// mount/damage logic — this only owns ordering + focus + markers.
+    /// Mirror a window showing into the stack (raise + focus + markers).
     pub(super) fn show_window(&mut self, id: crate::window_scene::WindowId) {
         self.windows.show(id);
         let _ = debug_println(&alloc::format!(
@@ -1061,9 +1062,8 @@ impl DisplayServerRuntime {
     }
 
     /// Mirror a window hiding into the stack; focus falls to the topmost
-    /// remaining visible window (marker only when focus actually moved). A
-    /// close also leaves the dock and forgets fullscreen (fresh open =
-    /// floating at the remembered origin), so the dock is reconciled here.
+    /// remaining visible window (marker only on actual moves). Close also
+    /// leaves the dock + forgets fullscreen (dock reconciled here).
     pub(super) fn hide_window(&mut self, id: crate::window_scene::WindowId) {
         let before = self.windows.focused();
         self.windows.hide(id);

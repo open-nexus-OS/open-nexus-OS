@@ -30,6 +30,17 @@ Scope:
   - Korean: Noto Sans KR (SIL OFL 1.1)
 - **Fallback (everything else)**: Noto Sans (SIL OFL 1.1)
 
+**Implementation status (2026-07-22, RFC-0075 Phase 8d)**: the UI Sans chain
+is applied at **bake time** — `userspace/ui/text-baked/build.rs` resolves each
+codepoint to its face (Inter → Noto Sans JP/KR/SC per script) and bakes the
+shared A8 atlases; the OS image carries only atlases, never font files. The
+Noto CJK OTFs are build inputs fetched by `scripts/fetch-fonts.sh` (pinned
+upstream commit + SHA256 — the noto-cjk repo is too large for a submodule);
+Inter stays the `resources/fonts/inter` submodule. Coverage is bounded:
+full kana + compat jamo + the FULL hangul syllable block + the han set
+actually used by shipped catalogs/engines/OSK labels. A runtime font cache
+(TASK-0202) and `ui.font.family` live switching are recorded follow-ups.
+
 ### UI Mono (code, logs, terminal-ish surfaces)
 
 - **Primary**: IBM Plex Mono (SIL OFL 1.1)

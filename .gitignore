@@ -76,3 +76,4 @@ tmp*.rs
 # scratch from earlier replay runs.
 .tmp/
 __pycache__/
+resources/fonts/noto/*.otf

@@ -263,7 +263,11 @@ pub(super) fn request_content_rect(
             // stash it (dropping it un-localized every fresh mount).
             let _ = stash_region(&frame[..len], region);
         }
-        if nsec().unwrap_or(u64::MAX).saturating_sub(start) > 2_000_000_000 {
+        // 8s: early-boot windowd can lag several seconds before it drains
+        // the request queue (grown image); with the parked-reply flush a
+        // LATE answer is correct — falling back early re-created the
+        // 320x240/splash-hang class this budget exists to avoid.
+        if nsec().unwrap_or(u64::MAX).saturating_sub(start) > 8_000_000_000 {
             raw_marker("apphost: no content rect (fallback)");
             return None;
         }

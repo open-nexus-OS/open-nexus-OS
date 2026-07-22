@@ -30,6 +30,7 @@ Event OskEvent {
     Key(Str),
     Action(Str),
     CycleLayout,
+    Dismiss,
     Select(Int),
     Sent(Bool),
     SendFailed(Int),
@@ -52,6 +53,7 @@ reduce OskEvent {
     Key(k) => state.sent = state.sent,
     Action(a) => state.sent = state.sent,
     CycleLayout => state.sent = state.sent,
+    Dismiss => state.sent = state.sent,
     Select(i) => state.sent = state.sent,
     Sent(ok) => {
         if ok {
@@ -131,6 +133,13 @@ reduce ImeStripEvent {
 
 @effect on Select(i) {
     match svc.ime.select(i, timeoutMs: 100) {
+        Ok(ok) => dispatch(Sent(ok)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+}
+
+@effect on Dismiss {
+    match svc.settings.set("window.control", "minimize", timeoutMs: 100) {
         Ok(ok) => dispatch(Sent(ok)),
         Err(e) => dispatch(SendFailed(e)),
     }

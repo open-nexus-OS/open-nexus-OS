@@ -72,5 +72,8 @@
   "win.viewGrid": "Grid",
   "win.viewProps": "Show properties",
   "settings.langDe": "Deutsch",
-  "settings.langEn": "English"
+  "settings.langEn": "English",
+  "settings.langJa": "日本語",
+  "settings.langKo": "한국어",
+  "settings.langZh": "中文"
 }

@@ -2,7 +2,12 @@ OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
 MEMORY {
-  RAM (rwx) : ORIGIN = 0x10400000, LENGTH = 8M
+  /* User VA window for the embedded service bundle. 8M -> 24M (RFC-0075
+     Phase 8d): the baked CJK glyph atlases ride in windowd AND app-host
+     (~4.2M each); the next neighbor is the stack region at 0x2000_0000,
+     so the window has ample VA headroom. Follow-up: share ONE atlas via a
+     read-only VMO instead of two embedded copies. */
+  RAM (rwx) : ORIGIN = 0x10400000, LENGTH = 24M
 }
 
 SECTIONS {

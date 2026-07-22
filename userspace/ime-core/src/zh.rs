@@ -30,6 +30,17 @@ const PINYIN_HAN: &[(&str, &[&str])] = &[
     ("xiexie", &["谢谢"]),
 ];
 
+/// Every character the zh engine can OUTPUT (han lexicon) — font-bake input.
+/// Host-only (the bake is a build-time consumer).
+#[cfg(not(all(nexus_env = "os", target_os = "none")))]
+pub(crate) fn output_chars(out: &mut Vec<char>) {
+    for (_, han) in PINYIN_HAN {
+        for h in *han {
+            out.extend(h.chars());
+        }
+    }
+}
+
 /// Deterministic pinyin engine (exact-buffer lookup).
 #[derive(Debug, Clone, Copy)]
 pub struct ZhEngine {

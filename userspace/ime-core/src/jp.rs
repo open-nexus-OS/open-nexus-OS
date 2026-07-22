@@ -148,6 +148,24 @@ const KANA_KANJI: &[(&str, &[&str])] = &[
 /// Maximum candidates a lookup can yield (table row ≤ 8 + the reading).
 const JP_MATCH_MAX: usize = 9;
 
+/// Every character the jp engine can OUTPUT (kana table + lexicon) — the
+/// font bake consumes this so candidate/commit glyphs are always covered.
+/// Host-only (the bake is a build-time consumer).
+#[cfg(not(all(nexus_env = "os", target_os = "none")))]
+pub(crate) fn output_chars(out: &mut Vec<char>) {
+    for (_, kana) in ROMAJI_KANA {
+        out.extend(kana.chars());
+    }
+    for (reading, kanji) in KANA_KANJI {
+        out.extend(reading.chars());
+        for k in *kanji {
+            out.extend(k.chars());
+        }
+    }
+    out.push('っ');
+    out.push('ん');
+}
+
 fn kana_of(romaji: &str) -> Option<&'static str> {
     ROMAJI_KANA.iter().find(|(r, _)| *r == romaji).map(|(_, k)| *k)
 }

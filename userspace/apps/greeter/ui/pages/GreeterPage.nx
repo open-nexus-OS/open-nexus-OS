@@ -39,7 +39,7 @@ Page GreeterPage {
                 Text($state.selected).textSize(base).fg(onSurface)
             }
             Stack {
-                TextField { label: @t("greeter.secret"), value: $state.secret }
+                TextField { label: @t("greeter.secret"), value: $state.secret, secure: true }
                 Circle { size: 32
                     Icon { symbol: "arrow.right", size: 14 }
                         .fg(onSurface)

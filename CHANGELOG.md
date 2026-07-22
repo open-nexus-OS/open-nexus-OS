@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-22 (morning, 8c/8d)
+
+#### IME v2 Phases 8c+8d (RFC-0075): input UX hardening + CJK font foundation
+
+- **TextFields finally PAINT their text** (root cause, not a patch): the
+  store/insert side was always wired (compiler-synthesized `Change → Bind`,
+  `write_binding`, re-emit) — but `collect_texts` only harvested
+  `LayoutNode::Text`, so no TextField ever painted content OR placeholder.
+  New `TextInput` arm paints the content (bullet-masked when `secure`) or
+  the dimmed placeholder (~55 %); caret painting = recorded follow-up.
+  The greeter password field is now `secure: true` (was about to echo
+  plaintext the moment painting worked).
+- **OSK dismiss + tablet-only (user decisions)**: an `X` key in the action
+  row dismisses the OSK via the existing `window.control` path — windowd
+  treats minimize on `WIN_LEVEL_OVERLAY` as a dismiss latch
+  (`osk_dismissed`, cleared on the next focused=1 announce), and app-host
+  re-announces focus when an already-focused field is tapped again so the
+  next tap reopens it. `want_osk` is gated to
+  `shell_profile_wire() != PROFILE_DESKTOP` (revert of the 8-phase
+  every-profile choice — profile = OSK policy).
+- **CJK glyphs are REAL now (8d)**: `nexus-text-baked` bakes multi-face
+  A8 atlases — Inter for Latin + the PINNED Noto Sans CJK faces per script
+  (JP kana/punctuation, KR compat jamo + the FULL hangul syllable block —
+  typing composes arbitrary syllables, SC han). The WIDE tail is bounded
+  by construction: fixed ranges + the han actually used (extracted from
+  every app i18n catalog + the IME engines' output tables + OSK labels)
+  + the secure-field bullet `•`; misses still render an honest `?`.
+  Fonts arrive via `scripts/fetch-fonts.sh` (pinned commit + SHA256 —
+  the noto-cjk repo is too large for a submodule); OTFs are build inputs
+  only, never image payload.
+- **Kernel memory layout followed the image** (~+8 MB atlases): init-lite
+  RAM window 8M→24M, kernel page pool 0x8200_0000/24M, user VMO arena
+  0x8380_0000 and grown 160→224 MB — the atlases ride in EVERY app-host
+  instance and a logged-in session exhausted 160 MB (silent app-death
+  failure mode). Follow-up recorded (now load-bearing): share ONE atlas
+  via RO VMO instead of per-instance duplicates.
+- **Settings offers 日本語/한국어/中文** language chips (natively labeled,
+  readable now that the glyphs exist) → `ui.locale` ja-JP/ko-KR/zh-CN.
+- **Boot-race mitigation (pulled forward)**: windowd parks composed
+  intent replies until the app's event channel attaches
+  (`pending_intent_replies`, flushed on attach) and the app-side
+  content-rect + payload budgets are 8 s (the grown image lengthened
+  early-boot drains); the deep cause (windowd lagging seconds at early
+  boot) stays a recorded follow-up.
+- **Launched-window locale gap CLOSED (found on the way)**: the attach
+  burst is theme+profile+REGION, but `wait_for_boot_pushes` returns on
+  profile — a NORMAL window left the region frame queued and the
+  create/present ack-wait stashes were never applied, so launched apps
+  (chat) painted their baked-default English. app-host now drains the
+  queued region non-blocking after mount, before the first render.
+
 ### Added - 2026-07-22 (night, 8b)
 
 #### IME v2 Phase 8b (RFC-0075): data-driven OSK layouts + region env axes

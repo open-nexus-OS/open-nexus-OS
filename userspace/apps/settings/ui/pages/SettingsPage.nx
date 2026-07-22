@@ -155,6 +155,18 @@ Page SettingsPage {
                                             Chip { label: @t("settings.langEn"), selected: $state.locale == "en-US" }
                                         }
                                         on Tap -> dispatch(SetLocale("en-US"))
+                                        Stack {
+                                            Chip { label: @t("settings.langJa"), selected: $state.locale == "ja-JP" }
+                                        }
+                                        on Tap -> dispatch(SetLocale("ja-JP"))
+                                        Stack {
+                                            Chip { label: @t("settings.langKo"), selected: $state.locale == "ko-KR" }
+                                        }
+                                        on Tap -> dispatch(SetLocale("ko-KR"))
+                                        Stack {
+                                            Chip { label: @t("settings.langZh"), selected: $state.locale == "zh-CN" }
+                                        }
+                                        on Tap -> dispatch(SetLocale("zh-CN"))
                                     }
                                     .direction(row)
                                     .gap(1)

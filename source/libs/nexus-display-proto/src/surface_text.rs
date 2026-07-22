@@ -315,18 +315,21 @@ mod tests {
 
     #[test]
     fn surface_region_round_trip_and_bounds() {
-        let (f, n) = encode_surface_region(REGION_HOUR_24, "de-DE", "Europe/Berlin").unwrap();
+        let (f, n) = encode_surface_region(REGION_HOUR_24, "de-DE", "Europe/Berlin", "de").unwrap();
         assert_eq!(
             decode_surface_region(&f[..n]),
-            Some((REGION_HOUR_24, "de-DE", "Europe/Berlin"))
+            Some((REGION_HOUR_24, "de-DE", "Europe/Berlin", "de"))
         );
-        // Empty locale is valid (unset); oversize rejects on encode.
-        let (f, n) = encode_surface_region(REGION_HOUR_12, "", "UTC").unwrap();
-        assert_eq!(decode_surface_region(&f[..n]), Some((REGION_HOUR_12, "", "UTC")));
-        assert!(encode_surface_region(0, "x-way-too-long-locale", "UTC").is_none());
-        // Reject paths: truncation + lying length fields.
-        let (f, n) = encode_surface_region(0, "de", "UTC").unwrap();
-        assert_eq!(decode_surface_region(&f[..n - 1]), None);
+        // Empty locale/keymap are valid (unset); oversize rejects on encode.
+        let (f, n) = encode_surface_region(REGION_HOUR_12, "", "UTC", "").unwrap();
+        assert_eq!(decode_surface_region(&f[..n]), Some((REGION_HOUR_12, "", "UTC", "")));
+        assert!(encode_surface_region(0, "x-way-too-long-locale", "UTC", "").is_none());
+        assert!(encode_surface_region(0, "de", "UTC", "way-too-long").is_none());
+        // A pre-8b frame WITHOUT the keymap tail decodes with an empty tag.
+        let (f, n) = encode_surface_region(0, "de", "UTC", "").unwrap();
+        assert_eq!(decode_surface_region(&f[..n - 1]), Some((0, "de", "UTC", "")));
+        // Reject paths: truncation into the tz field + lying length fields.
+        assert_eq!(decode_surface_region(&f[..n - 2]), None);
         let mut lying = f;
         lying[5] = 12;
         assert_eq!(decode_surface_region(&lying[..n]), None);

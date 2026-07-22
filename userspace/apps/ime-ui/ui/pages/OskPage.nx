@@ -159,6 +159,11 @@ Page OskPage {
             .paddingX(8)
             Button { label: @t("osk.enter") }
             on Tap -> dispatch(Action("enter"))
+            Stack {
+                Button { label: "X" }
+            }
+            .paddingX(4)
+            on Tap -> dispatch(Dismiss)
         }
         .direction(row)
         .gap(1)

@@ -68,7 +68,14 @@ impl DisplayServerRuntime {
                 let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rect.len() as u32);
                 let _ = nexus_abi::ipc_send_v1(slot, &hdr, &rect, nexus_abi::IPC_SYS_NONBLOCK, 0);
             } else {
-                let _ = debug_println("WINDOWD: FAIL intent reply (no channel for nonce)");
+                // The execd attach RACES this intent (~40% of boots — the
+                // 320x240-fallback/splash-hang class): PARK the composed
+                // rect; `attach_app_event_channel` flushes it (bounded,
+                // drop-oldest — the app's 2s wait covers the flush).
+                let slot_idx =
+                    self.pending_intent_replies.iter().position(Option::is_none).unwrap_or(0);
+                self.pending_intent_replies[slot_idx] = Some((nonce, rect));
+                let _ = debug_println("WINDOWD: intent reply parked (awaiting attach)");
             }
         }
         #[cfg(not(nexus_env = "os"))]

@@ -228,7 +228,11 @@ impl super::DslApp {
             nexus_layout_types::FxPx::new(y),
             scroll,
         );
-        if snap == before {
+        // Same-field taps STILL announce when focused (RFC-0075 Phase 8c):
+        // the tap is the user's explicit "open the keyboard" gesture — it
+        // must re-open a dismissed OSK. Only a no-op UNFOCUSED state stays
+        // silent (pointer taps outside any field).
+        if snap == before && snap.is_none() {
             return None;
         }
         match snap {
