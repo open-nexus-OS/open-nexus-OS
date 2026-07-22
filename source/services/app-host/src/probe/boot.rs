@@ -132,12 +132,41 @@ pub(super) fn emit_window_intent_marker(nxir: &[u8]) {
     ));
 }
 
+/// The attach-time `OP_SURFACE_REGION` push (locale/tz/hour format),
+/// stashed by the pre-mount event-channel drains instead of dropped —
+/// windowd only re-pushes region data on CHANGE, so a dropped attach push
+/// left every fresh mount at the baked defaults (English UI, default tz)
+/// until the next settings change.
+pub(super) struct RegionPush {
+    pub hour_fmt: u8,
+    pub locale: alloc::string::String,
+    pub tz: alloc::string::String,
+}
+
+/// Stashes `frame` when it is a region push (LATEST wins). False otherwise.
+pub(super) fn stash_region(frame: &[u8], slot: &mut Option<RegionPush>) -> bool {
+    let Some((hf, loc, tzv)) = nexus_display_proto::surface_text::decode_surface_region(frame)
+    else {
+        return false;
+    };
+    *slot = Some(RegionPush {
+        hour_fmt: hf,
+        locale: alloc::string::String::from(loc),
+        tz: alloc::string::String::from(tzv),
+    });
+    true
+}
+
 /// Bounded wait for windowd's boot pushes (`OP_SURFACE_THEME` +
 /// `OP_SURFACE_PROFILE`, sent when the event channel attaches — before we
 /// mount). Returns `(theme, profile)`; either defaults (dark / tablet, the
 /// compositor defaults) if it does not arrive in time — the app still
-/// renders, just possibly not matched until the next push.
-pub(super) fn wait_for_boot_pushes(events: &KernelClient) -> (u8, u8) {
+/// renders, just possibly not matched until the next push. A region push
+/// interleaving here is STASHED for the post-mount apply, never dropped.
+pub(super) fn wait_for_boot_pushes(
+    events: &KernelClient,
+    region: &mut Option<RegionPush>,
+) -> (u8, u8) {
     let start = nsec().unwrap_or(0);
     let mut frame = [0u8; 64];
     let mut theme: Option<u8> = None;
@@ -150,6 +179,8 @@ pub(super) fn wait_for_boot_pushes(events: &KernelClient) -> (u8, u8) {
             } else if let Some(p) = wire::decode_surface_profile(&frame[..len]) {
                 raw_marker("APPHOST: profile received");
                 profile = Some(p);
+            } else {
+                let _ = stash_region(&frame[..len], region);
             }
             if let (Some(t), Some(p)) = (theme, profile) {
                 return (t, p);
@@ -202,6 +233,7 @@ pub(super) fn request_content_rect(
     level: u8,
     mode: u8,
     nonce: u64,
+    region: &mut Option<RegionPush>,
 ) -> Option<(u32, u32)> {
     // Nonce-correlated: windowd answers on OUR event channel — without it,
     // concurrent mounts stole each other's rect and every app fell back.
@@ -225,6 +257,9 @@ pub(super) fn request_content_rect(
                 raw_marker("APPHOST: content rect received");
                 return Some((u32::from(w), u32::from(h)));
             }
+            // The attach-time region push races the rect on this channel —
+            // stash it (dropping it un-localized every fresh mount).
+            let _ = stash_region(&frame[..len], region);
         }
         if nsec().unwrap_or(u64::MAX).saturating_sub(start) > 2_000_000_000 {
             raw_marker("apphost: no content rect (fallback)");

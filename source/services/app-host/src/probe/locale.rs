@@ -25,6 +25,14 @@ macro_rules! app_locale {
 }
 pub(crate) use app_locale;
 
+/// The NXIR inside a bundle payload WITHOUT parsing the packs — for
+/// pre-mount readers (window intent). An NXLC container is NOT a program:
+/// reading it raw silently yields default tags (the greeter-in-a-window
+/// regression), so every `ProgramReader` consumer must go through here.
+pub(super) fn payload_nxir(payload: &'static [u8]) -> &'static [u8] {
+    nexus_dsl_runtime::i18n::parse_payload_container(payload).map(|(n, _)| n).unwrap_or(payload)
+}
+
 /// Splits a bundle payload into NXIR + `(tag, Catalog)` pairs. The payload
 /// may be an `NXLC` container (NXIR + locale packs); parsing is fail-closed —
 /// a malformed pack only loses that locale (baked default), never the program.

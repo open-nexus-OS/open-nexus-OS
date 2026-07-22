@@ -206,7 +206,11 @@ mod probe {
         // 1b. Theme: the compositor pushes the active mode (`OP_SURFACE_THEME`)
         //     when the event channel attaches — capture it BEFORE mount so the
         //     app renders with the same tokens as the desktop.
-        let (mut theme_mode, mut shell_profile) = wait_for_boot_pushes(&events);
+        // Attach-time region push (locale/tz/hour): stashed by the pre-mount
+        // drains, applied right after mount — the FIRST frame renders in the
+        // configured language (windowd re-pushes only on change).
+        let mut boot_region: Option<boot::RegionPush> = None;
+        let (mut theme_mode, mut shell_profile) = wait_for_boot_pushes(&events, &mut boot_region);
 
         // 2. The DSL payload + its window intent → the geometry handshake. The
         //    WM owns geometry: a desktop/full-screen surface asks windowd for
@@ -215,14 +219,16 @@ mod probe {
         // No payload = LOUD visible failure: mount(&[]) fails and the probe
         // fill renders (never a silently substituted program).
         let payload = resolve_payload().unwrap_or(&[]);
-        let (style, level, mode) = read_window_intent_tags(payload);
+        // RFC-0077: the payload may be an NXLC container — the intent tags
+        // live in the NXIR inside (raw container bytes read as defaults).
+        let (style, level, mode) = read_window_intent_tags(locale::payload_nxir(payload));
         // Declared resize intent: floating windows are resizable; a desktop/
         // fullscreen surface is not (the presentation resolver enforces this
         // WM-side too). Carried atomically on SURFACE_CREATE.
         let resizable = level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN;
         let (mut surf_w, mut surf_h) =
             if level == wire::WIN_LEVEL_DESKTOP || mode == wire::WIN_MODE_FULLSCREEN {
-                request_content_rect(&client, &events, style, level, mode, nonce)
+                request_content_rect(&client, &events, style, level, mode, nonce, &mut boot_region)
                     .unwrap_or((SURFACE_W as u32, SURFACE_H as u32))
             } else {
                 (SURFACE_W as u32, SURFACE_H as u32)
@@ -253,6 +259,9 @@ mod probe {
             168
         };
         let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
+        if let (Some(dsl), Some(r)) = (app.as_mut(), boot_region.take()) {
+            let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz);
+        }
         // WebRender scroll band geometry — ONLY for a floating windowed app that
         // actually scrolls (desktop/fullscreen surfaces keep the plain path; the
         // desktop uses a separate windowd path that ignores the scroll band).

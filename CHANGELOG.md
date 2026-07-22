@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-22
+
+#### i18n v2 follow-up: two container regressions (RFC-0077)
+
+- **Greeter/shell opened as a floating window** (session start broken): the
+  pre-mount window-intent reader parsed the raw payload — for apps with
+  locale packs that is now an NXLC container, not a program, so the intent
+  tags silently fell back to defaults. All pre-mount `ProgramReader` uses now
+  go through `probe/locale.rs::payload_nxir` (container-aware).
+- **Fresh mounts ignored the configured locale/tz** (Settings opened English
+  despite `ui.locale=de-DE`): the attach-time `OP_SURFACE_REGION` push was
+  drained and DROPPED by the pre-mount waits (`wait_for_boot_pushes`,
+  `request_content_rect`) — and windowd re-pushes only on change. The drains
+  now STASH the region push (`boot::RegionPush`) and app-host applies it
+  right after mount, so the FIRST frame renders in the configured language.
+
 ### Added - 2026-07-21 (late night)
 
 #### i18n v2 (RFC-0077, TASK-0240/0241 Done): runtime language switch

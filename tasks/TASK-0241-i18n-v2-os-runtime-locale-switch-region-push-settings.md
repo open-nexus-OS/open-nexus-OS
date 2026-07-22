@@ -120,6 +120,12 @@ authority, windowd the relay, app-host the applier.
 - Settings → Allgemeine Verwaltung: language chips (Deutsch/English →
   `ui.locale`); `i18n/de.json` completed for settings (new), greeter +
   desktop-shell (gaps filled).
+- Trap found (2026-07-22): pre-mount readers must NEVER parse the raw
+  payload as a program — the window-intent reader did and greeter/shell fell
+  back to floating windows (fixed via `payload_nxir`). And the attach-time
+  region push was dropped by the pre-mount event-channel drains (fresh
+  mounts stayed English/default-tz until the next settings change) — fixed
+  by stashing (`boot::RegionPush`) + applying right after mount.
 - Trap found: the first NXLC layout put the NXIR at offset 12 and broke the
   bundle payload invariants (`len % 8`, capnp 8-alignment) →
   `APPHOST: FAIL payload (header status)`. Fixed normatively in RFC-0077:
