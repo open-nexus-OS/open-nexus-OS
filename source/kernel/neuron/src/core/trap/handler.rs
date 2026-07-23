@@ -352,6 +352,7 @@ const ENOSYS: usize = 38;
 const ESRCH: usize = 3;
 const ECHILD: usize = 10;
 const ETIMEDOUT: usize = 110;
+const EPIPE: usize = 32; // RFC-0079: EOF-opted recv, last sender gone.
 
 #[allow(dead_code)]
 fn encode_error(err: SysError) -> usize {
@@ -381,6 +382,7 @@ fn ipc_errno(err: &crate::ipc::IpcError) -> usize {
         crate::ipc::IpcError::PermissionDenied => errno(EPERM),
         crate::ipc::IpcError::TimedOut => errno(ETIMEDOUT),
         crate::ipc::IpcError::NoSpace => errno(ENOSPC),
+        crate::ipc::IpcError::PeerClosed => errno(EPIPE),
     }
 }
 
@@ -1292,17 +1294,17 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                 }
 
-                // Fail-fast: kill the offending user task and hand control back to the scheduler.
-                // Leaving the task alive produces an infinite fault storm and blocks boot markers.
+                // Fail-fast: kill the offending user task (leaving it alive = an
+                // infinite fault storm that blocks boot markers) → back to sched.
                 if let Ok(mut kernel) = KernelGuard::acquire() {
                     // U-mode fault → this hart holds no BKL; safe to acquire.
                     {
                         let (scheduler, tasks, router, spaces, _timer, _ht, _ws, _fences) =
                             kernel.parts();
 
-                        // Kill the faulting task and ensure it won't be scheduled again.
+                        // Kill the faulting task (never scheduled again). RFC-0005
+                        // lifecycle: close its endpoints + wake any blocked peers.
                         let doomed = tasks.current_pid();
-                        // RFC-0005 lifecycle hardening: close endpoints owned by the task and wake any blocked peers.
                         let waiters = router.close_endpoints_for_owner(doomed.as_raw());
                         for pid in waiters {
                             match tasks.wake(crate::types::Pid::from_raw(pid), scheduler) {
@@ -1313,7 +1315,6 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                                 | crate::task::WakeOutcome::EnqueueRejected => {}
                             }
                         }
-                        // Also remove this PID from any waiter queues it may be registered in.
                         router.remove_waiter_from_all(doomed.as_raw());
                         crate::syscall::api::exit_current_and_release(tasks, -22);
                         scheduler.purge(doomed);
@@ -1333,7 +1334,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                                     tasks.task(next_pid).and_then(|t| t.address_space());
                                 if let Some(handle) = as_handle {
                                     if spaces.activate(handle).is_err() {
-                                        // Fail-fast: this task cannot be safely resumed.
+                                        // Fail-fast: this task cannot be resumed.
                                         let doomed = tasks.current_pid();
                                         crate::syscall::api::exit_current_and_release(tasks, -22);
                                         scheduler.purge(doomed);
@@ -1358,8 +1359,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                 }
 
-                // If runtime handles are unavailable, safest is to stop here.
-                return;
+                return; // runtime handles unavailable — stop here.
             }
 
             // Kernel page fault - emit minimal diagnostics via raw MMIO then panic

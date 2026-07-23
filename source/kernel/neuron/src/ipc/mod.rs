@@ -14,7 +14,6 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
-use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
@@ -52,135 +51,15 @@ pub enum IpcError {
     TimedOut,
     /// Not enough resources to complete the IPC operation (e.g. receiver cap table full).
     NoSpace,
+    /// RFC-0079: an EOF-opted receiver's endpoint had a sender and now has none
+    /// (the last SEND cap closed). The endpoint is still alive; there will just
+    /// never be another message unless a new sender attaches.
+    PeerClosed,
 }
 
 /// Representation of an endpoint queue.
-#[derive(Default)]
-struct Endpoint {
-    queue: VecDeque<Message>,
-    depth: usize,
-    queued_bytes: usize,
-    max_queued_bytes: usize,
-    owner: Option<WaiterId>,
-    alive: bool,
-    recv_waiters: VecDeque<WaiterId>,
-    send_waiters: VecDeque<WaiterId>,
-}
-
-impl Endpoint {
-    fn with_depth(depth: usize, owner: Option<WaiterId>) -> Self {
-        // Byte-based DoS hardening: in addition to queue depth, cap the total bytes that can be
-        // buffered in an endpoint. This keeps memory use bounded even if messages are large.
-        //
-        // NOTE: Payloads are already bounded at syscall entry (MAX_FRAME_BYTES); this compounds
-        // that bound over the queue depth.
-        const MAX_FRAME_BYTES: usize = 8 * 1024;
-        let max_queued_bytes = depth.saturating_mul(MAX_FRAME_BYTES);
-        Self {
-            queue: VecDeque::new(),
-            depth,
-            queued_bytes: 0,
-            max_queued_bytes,
-            owner,
-            alive: true,
-            recv_waiters: VecDeque::new(),
-            send_waiters: VecDeque::new(),
-        }
-    }
-
-    fn push(&mut self, msg: Message) -> core::result::Result<(), (IpcError, Message)> {
-        if !self.alive {
-            return Err((IpcError::NoSuchEndpoint, msg));
-        }
-        if self.queue.len() >= self.depth {
-            return Err((IpcError::QueueFull, msg));
-        }
-        let len = msg.payload.len();
-        if self.queued_bytes.saturating_add(len) > self.max_queued_bytes {
-            return Err((IpcError::NoSpace, msg));
-        }
-        self.queue.push_back(msg);
-        self.queued_bytes = self.queued_bytes.saturating_add(len);
-        Ok(())
-    }
-
-    fn pop(&mut self) -> Result<Message, IpcError> {
-        if !self.alive {
-            return Err(IpcError::NoSuchEndpoint);
-        }
-        let msg = self.queue.pop_front().ok_or(IpcError::QueueEmpty)?;
-        self.queued_bytes = self.queued_bytes.saturating_sub(msg.payload.len());
-        Ok(msg)
-    }
-
-    fn push_front(&mut self, msg: Message) -> Result<(), IpcError> {
-        if !self.alive {
-            return Err(IpcError::NoSuchEndpoint);
-        }
-        if self.queue.len() >= self.depth {
-            return Err(IpcError::QueueFull);
-        }
-        let len = msg.payload.len();
-        if self.queued_bytes.saturating_add(len) > self.max_queued_bytes {
-            return Err(IpcError::NoSpace);
-        }
-        self.queue.push_front(msg);
-        self.queued_bytes = self.queued_bytes.saturating_add(len);
-        Ok(())
-    }
-
-    fn register_recv_waiter(&mut self, pid: WaiterId) {
-        if !self.alive {
-            return;
-        }
-        if self.recv_waiters.iter().any(|p| *p == pid) {
-            return;
-        }
-        self.recv_waiters.push_back(pid);
-    }
-
-    fn register_send_waiter(&mut self, pid: WaiterId) {
-        if !self.alive {
-            return;
-        }
-        if self.send_waiters.iter().any(|p| *p == pid) {
-            return;
-        }
-        self.send_waiters.push_back(pid);
-    }
-
-    fn pop_recv_waiter(&mut self) -> Option<WaiterId> {
-        self.recv_waiters.pop_front()
-    }
-
-    fn pop_send_waiter(&mut self) -> Option<WaiterId> {
-        self.send_waiters.pop_front()
-    }
-
-    fn remove_recv_waiter(&mut self, pid: WaiterId) -> bool {
-        let before = self.recv_waiters.len();
-        self.recv_waiters.retain(|p| *p != pid);
-        before != self.recv_waiters.len()
-    }
-
-    fn remove_send_waiter(&mut self, pid: WaiterId) -> bool {
-        let before = self.send_waiters.len();
-        self.send_waiters.retain(|p| *p != pid);
-        before != self.send_waiters.len()
-    }
-
-    fn close_if_owned_by(&mut self, owner: WaiterId) -> Option<(Vec<WaiterId>, Vec<WaiterId>)> {
-        if !self.alive || self.owner != Some(owner) {
-            return None;
-        }
-        self.alive = false;
-        self.queue.clear();
-        self.queued_bytes = 0;
-        let recv: Vec<WaiterId> = self.recv_waiters.drain(..).collect();
-        let send: Vec<WaiterId> = self.send_waiters.drain(..).collect();
-        Some((recv, send))
-    }
-}
+mod endpoint;
+use endpoint::Endpoint;
 
 /// Message combining header and inline payload.
 #[derive(Clone, Debug)]
@@ -333,11 +212,18 @@ impl Router {
             if let Some(owner) = owner {
                 *self.owner_queued_bytes.entry(owner).or_insert(0) += msg_len;
             }
+            // RFC-0079: a successful send proves a sender exists — latch it so a
+            // later EOF-opted recv can tell "never had a sender" (block) from
+            // "had one, now gone" (EOF).
+            if let Some(ep) = self.endpoints.get_mut(id as usize) {
+                ep.had_sender = true;
+            }
         }
         #[cfg(feature = "debug_uart")]
         {
             match res {
                 Ok(()) => log_debug!(target: "ipc", "send ok"),
+                Err((IpcError::PeerClosed, _)) => log_debug!(target: "ipc", "send peerclosed"),
                 Err((IpcError::QueueFull, _)) => log_debug!(target: "ipc", "send queue full"),
                 Err((IpcError::NoSuchEndpoint, _)) => {
                     log_debug!(target: "ipc", "send no such endpoint")
@@ -411,6 +297,9 @@ impl Router {
                 }
                 Err(IpcError::NoSpace) => {
                     log_debug!(target: "ipc", "recv nospace (unexpected)")
+                }
+                Err(IpcError::PeerClosed) => {
+                    log_debug!(target: "ipc", "recv peerclosed (unexpected)")
                 }
             }
         }
@@ -495,6 +384,32 @@ impl Router {
             return Err(IpcError::NoSuchEndpoint);
         }
         Ok(ep.remove_send_waiter(pid))
+    }
+
+    /// RFC-0079: whether endpoint `id` has EVER had a sender (the monotonic
+    /// latch). `false` for a missing/dead endpoint. The EOF decision requires
+    /// this true, so an endpoint that never had a sender never wrongly EOFs.
+    #[must_use]
+    pub fn endpoint_had_sender(&self, id: EndpointId) -> bool {
+        self.endpoints.get(id as usize).is_some_and(|ep| ep.had_sender)
+    }
+
+    /// RFC-0079: latches endpoint `id` as having had a sender (called when the
+    /// recv-block scan observes a live SEND cap, complementing the send path).
+    pub fn mark_endpoint_had_sender(&mut self, id: EndpointId) {
+        if let Some(ep) = self.endpoints.get_mut(id as usize) {
+            ep.had_sender = true;
+        }
+    }
+
+    /// RFC-0079: drains endpoint `id`'s recv-waiters so they re-run recv (used
+    /// when the last SEND cap closed — a blocked EOF-opted receiver re-scans
+    /// and returns `PeerClosed`). Empty for a missing/dead endpoint.
+    pub fn drain_recv_waiters(&mut self, id: EndpointId) -> Vec<WaiterId> {
+        match self.endpoints.get_mut(id as usize) {
+            Some(ep) if ep.alive => ep.recv_waiters.drain(..).collect(),
+            _ => Vec::new(),
+        }
     }
 
     /// Creates a new kernel endpoint and returns its identifier.

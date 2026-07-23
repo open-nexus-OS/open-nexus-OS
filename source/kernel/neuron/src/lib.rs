@@ -370,6 +370,9 @@ mod fence;
 // the same reason as `waitset`/`fence` (pure usize ranges, host-unit-tested).
 // `exec` records the ranges, task teardown returns them to `VMO_POOL`.
 mod image_allocs;
+// RFC-0079: the pure last-sender-EOF decision predicate — NOT target-gated so
+// its fail-safe reject-matrix truth table runs on host. Fed by the recv path.
+mod ipc_eof;
 #[cfg(target_os = "none")]
 #[path = "core/trap/mod.rs"]
 mod trap;

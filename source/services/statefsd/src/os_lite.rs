@@ -122,11 +122,9 @@ impl BlockDevice for Backend {
 /// Main statefsd bring-up service loop (os-lite).
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     emit_line("statefsd: entry");
-    // init-lite transfers the statefsd service endpoints into deterministic slots:
-    // - recv: slot 3
-    // - send: slot 4
-    //
-    // Using these directly avoids routing-time races during early bring-up.
+    // init-lite transfers the statefsd service endpoints into deterministic
+    // slots (recv: slot 3, send: slot 4); using these directly avoids
+    // routing-time races during early bring-up.
     let server = {
         const RECV_SLOT: u32 = 0x03;
         const SEND_SLOT: u32 = 0x04;
@@ -511,6 +509,7 @@ fn emit_ipc_error(err: nexus_ipc::IpcError) {
             nexus_abi::IpcError::PermissionDenied => "statefsd: ipc permission-denied",
             nexus_abi::IpcError::TimedOut => "statefsd: ipc timed-out",
             nexus_abi::IpcError::NoSpace => "statefsd: ipc no-space",
+            nexus_abi::IpcError::PeerClosed => "statefsd: ipc peer-closed",
             nexus_abi::IpcError::Unsupported => "statefsd: ipc unsupported",
         },
         nexus_ipc::IpcError::Unsupported => "statefsd: ipc unsupported",

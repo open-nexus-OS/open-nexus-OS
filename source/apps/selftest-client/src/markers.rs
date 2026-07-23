@@ -12,7 +12,7 @@
 
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-use nexus_abi::debug_putc;
+use nexus_abi::{debug_putc, debug_write};
 
 // ─── Verdict aggregation (the minimal-but-powerful console) ──────────────────────────────────
 //
@@ -82,8 +82,22 @@ pub fn emit_line(message: &str) {
     if CONSOLE_VERDICT.load(Ordering::Relaxed) && !failed {
         return;
     }
-    emit_bytes(bytes);
-    emit_byte(b'\n');
+    // Emit the WHOLE line (message + newline) in ONE `debug_write` — the kernel
+    // serializes it under the UART lock, so it can never interleave with
+    // another hart's concurrent marker. Byte-by-byte `debug_putc` (below) left
+    // a per-byte window that merged SELFTEST lines with e.g. `inputd: keymap
+    // set …` under SMP, tripping the evidence assembler. Oversize lines (rare)
+    // fall back to the byte path.
+    const LINE_CAP: usize = 512;
+    if bytes.len() + 1 <= LINE_CAP {
+        let mut buf = [0u8; LINE_CAP];
+        buf[..bytes.len()].copy_from_slice(bytes);
+        buf[bytes.len()] = b'\n';
+        let _ = debug_write(&buf[..bytes.len() + 1]);
+    } else {
+        emit_bytes(bytes);
+        emit_byte(b'\n');
+    }
 }
 
 /// Emit `value` right-padded with leading zeros to `width` digits (no alloc).

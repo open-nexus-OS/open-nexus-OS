@@ -509,6 +509,7 @@ fn map_transfer_rights(rights: TransferRights) -> Result<nexus_abi::Rights> {
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 fn map_ipc_error(err: nexus_abi::IpcError) -> Error {
     match err {
+        nexus_abi::IpcError::PeerClosed => Error::Unsupported,
         nexus_abi::IpcError::Unsupported => Error::Unsupported,
         _ => Error::KernelFailure,
     }

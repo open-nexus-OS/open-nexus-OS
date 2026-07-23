@@ -269,3 +269,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md
 - RFC-0078: Settings spine — region/input/time key schema (`region.country`, `input.keymap`, `time.zone`, `time.format`, `ime.personalization`) + bounded `OP_WATCH`/`OP_EVENT` change propagation; non-secret charter (Draft 2026-07-21 — execution TASK-0298; consumers TASK-0147/0204/0241/0297)
   - docs/rfcs/RFC-0078-settings-region-keys-watch.md
+- RFC-0079: IPC last-sender EOF — opt-in receiver disconnect (`IPC_SYS_EOF` recv flag + `PeerClosed`); an endpoint that HAD a sender and now has none returns EOF (monotonic `had_sender` latch + all-tables SEND-cap scan, fail-safe), letting a closed-window app-host self-exit so its image returns to the arena (RFC-0075 8f loop closed). NOT a cross-task kill (Draft 2026-07-23 — execution TASK-0301)
+  - docs/rfcs/RFC-0079-ipc-last-sender-eof.md

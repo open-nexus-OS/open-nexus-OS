@@ -190,6 +190,11 @@ mod probe {
                     ) {
                         Ok(_) => {
                             raw_marker("APPHOST: events attached (nonce)");
+                            // RFC-0079: relinquish our OWN send cap to our event
+                            // inbox — windowd is the sole sender now. Otherwise
+                            // this leftover SEND cap keeps the last-sender scan
+                            // non-zero and the window-close EOF never fires.
+                            let _ = nexus_abi::cap_close(EVENTS_SEND_CLONE_SLOT);
                             break;
                         }
                         Err(nexus_abi::IpcError::QueueFull) => {
@@ -460,7 +465,11 @@ mod probe {
                     .map(|d| d.momentum_active() || d.anim_transient_active())
                     .unwrap_or(false);
                 let wait = app.as_ref().map(|d| d.event_wait(animating)).unwrap_or(Wait::Blocking);
-                match events.recv_into(wait, &mut event_frame) {
+                // RFC-0079: opt into last-sender EOF — when windowd closes our
+                // event channel (window closed), recv returns `Disconnected`
+                // and the app self-exits (handled below) so its image returns
+                // to the arena instead of parking forever (#29 app-side).
+                match events.recv_into_eof(wait, &mut event_frame) {
                     Ok(len) => {
                         recv_err_marked = false;
                         len

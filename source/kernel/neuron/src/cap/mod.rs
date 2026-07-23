@@ -235,6 +235,21 @@ impl CapTable {
             .count()
     }
 
+    /// RFC-0079: counts live SEND-right caps referencing endpoint `id` in this
+    /// table. Summed over every task's table it answers "does any sender still
+    /// hold this endpoint?" — the last-sender-EOF gate (mirrors
+    /// `vmo_overlap_count`). RECV/MANAGE-only caps do not count as senders.
+    pub fn endpoint_send_cap_count(&self, id: EndpointId) -> usize {
+        self.slots
+            .iter()
+            .flatten()
+            .filter(|cap| {
+                matches!(cap.kind, CapabilityKind::Endpoint(ep) if ep == id)
+                    && cap.rights.contains(Rights::SEND)
+            })
+            .count()
+    }
+
     /// Returns a capability without consuming it.
     pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
         self.slots.get(slot).and_then(|entry| *entry).ok_or(CapError::InvalidSlot)

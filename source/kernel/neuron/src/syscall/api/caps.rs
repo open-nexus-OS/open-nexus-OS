@@ -149,6 +149,26 @@ pub(super) fn sys_cap_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     let cap = ctx.tasks.current_caps_mut().take(slot)?;
     // Release the backing kernel object for caps that own one (no dangling table entries).
     match cap.kind {
+        CapabilityKind::Endpoint(id) if cap.rights.contains(Rights::SEND) => {
+            // RFC-0079 last-sender EOF: this dropped a SEND cap. If it was the
+            // last one, wake the endpoint's recv-waiters so a blocked EOF-opted
+            // receiver re-runs recv and returns `PeerClosed` (it self-exits).
+            // The cap is already removed above, so the scan reflects the drop.
+            let mut any = false;
+            for raw in 0..ctx.tasks.len() as u32 {
+                if let Some(caps) = ctx.tasks.caps_of(task::Pid::from_raw(raw)) {
+                    if caps.endpoint_send_cap_count(id) > 0 {
+                        any = true;
+                        break;
+                    }
+                }
+            }
+            if !any {
+                for pid in ctx.router.drain_recv_waiters(id) {
+                    observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler));
+                }
+            }
+        }
         CapabilityKind::Timer(id) => {
             let _ = ctx.hart_timers.free(crate::timer::TimerId(id));
         }

@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-23 (kernel, IPC last-sender EOF — RFC-0079)
+
+#### Closing a window now terminates the app process (arena reclaim fires)
+
+- **The other half of the leak fix**: RFC-0075 8f reclaims a process image
+  when a task EXITS, but a closed app WINDOW never exited its process — the
+  app-host parked forever on its event-channel `recv` (windowd closes its
+  SEND cap on window-close, but the endpoint stays alive). Each launch spawned
+  a fresh ~14 MB app-host; none were ever reaped.
+- **IPC last-sender EOF (opt-in)**: a new `IPC_SYS_EOF` recv flag makes a
+  blocking `recv` return `PeerClosed` (errno EPIPE → `IpcError::Disconnected`)
+  when the endpoint HAD a sender and its last SEND cap has closed, instead of
+  blocking. Fail-safe by construction — EOF requires BOTH a monotonic
+  per-endpoint `had_sender` latch AND a fresh all-tables scan proving zero
+  live SEND caps (`endpoint_send_cap_count`, mirroring `vmo_overlap_count`).
+  A recv WITHOUT the flag is never affected, so every server that blocks
+  before its first client is safe. `cap_close` of the last SEND cap wakes the
+  endpoint's recv-waiters so a blocked receiver returns promptly.
+- **app-host self-exits on window close**: its event loop opts into EOF and
+  exits on `Disconnected` (a process may always exit ITSELF — no cross-task
+  kill, no policyd gate; the reaper #29 stays a separate design). The exit
+  runs the RFC-0075 8f reclaim, closing the loop.
+- **Two cap-leak fixes were required** for the last-sender scan to reach zero:
+  execd's `grant_clone` now closes its COPIED grant clone after transferring
+  it (`cap_transfer_to_slot` copies — execd was retaining a live SEND cap to
+  every child's event channel, a per-launch leak), and app-host closes its own
+  leftover SEND clone after attaching it to windowd.
+- **Marker atomicity (infra)**: `selftest-client`'s `emit_line` wrote markers
+  byte-by-byte via `debug_putc`, leaving a per-byte window that merged
+  concurrent SMP markers (e.g. a `SELFTEST:` line spliced with
+  `inputd: keymap set …`) and tripped the evidence assembler. It now emits the
+  whole line in one `debug_write` (serialized under the kernel UART lock).
+- **Refactors** (module ratchet): `ipc/endpoint.rs` (the `Endpoint` struct out
+  of `ipc/mod.rs`) and `syscall/api/ipc_recv_v2.rs` (recv-v2 out of `ipc_msg`);
+  the pure decision lives in the host-tested `ipc_eof.rs`.
+- Proof: `ipc_eof::should_disconnect` host reject-matrix; `ci-os-smp1` green
+  (every non-opted server recv still blocks); visible boot — each window close
+  yields exactly one app exit (1:1) and an open/close storm keeps the arena
+  bounded (zero `VMO-POOL exhausted`).
+
 ### Fixed - 2026-07-23 (kernel, process-image arena reclaim)
 
 #### Process images return to the VMO arena on task exit (RFC-0075 8e)

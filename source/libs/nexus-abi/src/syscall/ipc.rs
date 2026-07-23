@@ -15,6 +15,11 @@ pub const IPC_SYS_NONBLOCK: u32 = 1 << 0;
 /// Permit payload truncation on receive.
 #[cfg(nexus_env = "os")]
 pub const IPC_SYS_TRUNCATE: u32 = 1 << 1;
+/// RFC-0079 opt-in: a blocking recv with this flag returns
+/// [`IpcError::PeerClosed`] instead of blocking once the endpoint has had a
+/// sender and its last SEND cap has closed.
+#[cfg(nexus_env = "os")]
+pub const IPC_SYS_EOF: u32 = 1 << 2;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn decode_ipc_send(value: usize) -> Result<usize> {
@@ -40,6 +45,7 @@ fn decode_ipc_recv(value: usize) -> Result<usize> {
             3 => Err(IpcError::NoSuchEndpoint),   // ESRCH
             11 => Err(IpcError::QueueEmpty),      // EAGAIN
             28 => Err(IpcError::NoSpace),         // ENOSPC
+            32 => Err(IpcError::PeerClosed),      // EPIPE (RFC-0079)
             110 => Err(IpcError::TimedOut),       // ETIMEDOUT
             _ => Err(IpcError::Unsupported),
         }

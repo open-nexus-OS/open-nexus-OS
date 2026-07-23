@@ -220,6 +220,8 @@ fn map_recv_err(err: nexus_abi::IpcError, wait: Wait) -> IpcError {
         }
         nexus_abi::IpcError::TimedOut => IpcError::Timeout,
         nexus_abi::IpcError::NoSpace => IpcError::NoSpace,
+        // RFC-0079: last-sender EOF surfaces as a peer disconnect.
+        nexus_abi::IpcError::PeerClosed => IpcError::Disconnected,
         other => IpcError::Kernel(other),
     }
 }
@@ -325,8 +327,24 @@ impl KernelClient {
     /// a non-freeing bump allocator — e.g. windowd draining gpud present-acks every
     /// frame — where a per-call `Vec` would monotonically consume the heap.
     pub fn recv_into(&self, wait: Wait, out: &mut [u8]) -> Result<usize> {
+        self.recv_into_flags(wait, out, false)
+    }
+
+    /// Like [`recv_into`](Self::recv_into) but OPTS INTO last-sender EOF
+    /// (RFC-0079): once this channel has had a sender and its last SEND cap
+    /// closes, a blocking recv returns [`IpcError::Disconnected`] instead of
+    /// blocking forever. For dedicated per-connection channels (the app-host
+    /// event channel) whose owner should terminate when the peer goes away.
+    pub fn recv_into_eof(&self, wait: Wait, out: &mut [u8]) -> Result<usize> {
+        self.recv_into_flags(wait, out, true)
+    }
+
+    fn recv_into_flags(&self, wait: Wait, out: &mut [u8], eof: bool) -> Result<usize> {
         let (flags, deadline_ns) = wait_to_sys(wait)?;
-        let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
+        let mut sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
+        if eof {
+            sys_flags |= nexus_abi::IPC_SYS_EOF;
+        }
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let n = nexus_abi::ipc_recv_v1(self.recv_slot, &mut hdr, out, sys_flags, deadline_ns)
             .map_err(|e| map_recv_err(e, wait))?;

@@ -33,6 +33,9 @@ pub enum IpcError {
     TimedOut,
     /// Not enough resources to complete the IPC operation (e.g. receiver cap table full).
     NoSpace,
+    /// RFC-0079: an EOF-opted recv whose endpoint had a sender and now has none
+    /// (errno EPIPE). Surfaced by `nexus-ipc` as `IpcError::Disconnected`.
+    PeerClosed,
     /// IPC is not supported for this configuration.
     Unsupported,
 }

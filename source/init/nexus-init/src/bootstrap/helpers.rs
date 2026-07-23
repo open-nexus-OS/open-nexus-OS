@@ -9,8 +9,7 @@
 //! ADR: docs/adr/0017-service-architecture.md
 //! RFC: docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
 //!
-//! Contains: MMIO probing/grants, OTA boot attempts, health checks, debug helpers,
-//! error labels, and all small utility functions.
+//! Contains: MMIO probing/grants, OTA boot, health checks, debug helpers, error labels, utils.
 
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
@@ -954,6 +953,7 @@ pub(crate) fn ipc_error_label(err: IpcError) -> &'static str {
         IpcError::PermissionDenied => "permission-denied",
         IpcError::TimedOut => "timed-out",
         IpcError::NoSpace => "no-space",
+        IpcError::PeerClosed => "peer-closed",
         IpcError::Unsupported => "unsupported",
     }
 }

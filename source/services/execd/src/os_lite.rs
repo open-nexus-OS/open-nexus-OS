@@ -342,8 +342,7 @@ impl State {
                 line.text(name);
             });
         }
-        // Also append directly to logd so the crash-report selftest can deterministically query it,
-        // independent of the global nexus-log sink wiring.
+        // Append directly to logd (independent of the global sink) so the crash-report selftest can query it.
         let mut ok = false;
         for _ in 0..8 {
             if append_crash_to_logd(pid, code, name, build_id, dump_path).is_ok() {
@@ -462,6 +461,7 @@ fn ipc_error_label(err: nexus_abi::IpcError) -> &'static str {
         nexus_abi::IpcError::QueueEmpty => "QueueEmpty",
         nexus_abi::IpcError::NoSpace => "NoSpace",
         nexus_abi::IpcError::TimedOut => "TimedOut",
+        nexus_abi::IpcError::PeerClosed => "PeerClosed",
         nexus_abi::IpcError::Unsupported => "Unsupported",
     }
 }
@@ -1227,29 +1227,14 @@ fn grant_event_channel(child_pid: u32) {
         let _ = nexus_abi::debug_println("execd: FAIL app event channel mint");
         return;
     };
-    let recv_ok = nexus_abi::cap_clone(recv_slot)
-        .and_then(|clone| {
-            nexus_abi::cap_transfer_to_slot(
-                child_pid as nexus_abi::Pid,
-                clone,
-                nexus_abi::Rights::RECV,
-                CHILD_EVENTS_SLOT,
-            )
-            .map_err(|_| nexus_abi::AbiError::Unsupported)
-        })
-        .is_ok();
-    let send_ok = nexus_abi::cap_clone(send_slot)
-        .and_then(|clone| {
-            nexus_abi::cap_transfer_to_slot(
-                child_pid as nexus_abi::Pid,
-                clone,
-                nexus_abi::Rights::SEND,
-                CHILD_EVENTS_SEND_SLOT,
-            )
-            .map_err(|_| nexus_abi::AbiError::Unsupported)
-        })
-        .is_ok();
-    // Close execd's own halves (the child holds the live ones).
+    // NOTE: `cap_transfer_to_slot` COPIES, so `grant_clone` closes each clone
+    // after the transfer — else execd retains a live SEND cap to every child's
+    // event channel, which both LEAKS a cap per launch AND keeps the RFC-0079
+    // last-sender scan non-zero (the window-close EOF never fires).
+    let recv_ok = grant_clone(child_pid, recv_slot, nexus_abi::Rights::RECV, CHILD_EVENTS_SLOT);
+    let send_ok =
+        grant_clone(child_pid, send_slot, nexus_abi::Rights::SEND, CHILD_EVENTS_SEND_SLOT);
+    // Close execd's own minted halves too (the child holds the live ones).
     let _ = nexus_abi::cap_close(send_slot);
     let _ = nexus_abi::cap_close(recv_slot);
     if recv_ok && send_ok {
@@ -1356,12 +1341,18 @@ fn route_ctrl(name: &[u8]) -> Option<(u32, u32)> {
 /// Clones `src_slot` and transfers the clone into the child's `child_slot`
 /// with `rights`; returns whether the grant landed.
 fn grant_clone(child_pid: u32, src_slot: u32, rights: nexus_abi::Rights, child_slot: u32) -> bool {
-    nexus_abi::cap_clone(src_slot)
-        .and_then(|clone| {
-            nexus_abi::cap_transfer_to_slot(child_pid as nexus_abi::Pid, clone, rights, child_slot)
-                .map_err(|_| nexus_abi::AbiError::Unsupported)
-        })
-        .is_ok()
+    // `cap_transfer_to_slot` COPIES, so close execd's clone after the transfer
+    // — otherwise execd accumulates a live cap per grant (RFC-0079: a retained
+    // SEND cap to a child's event channel keeps the last-sender scan non-zero
+    // and the window-close EOF never fires).
+    let Ok(clone) = nexus_abi::cap_clone(src_slot) else {
+        return false;
+    };
+    let ok =
+        nexus_abi::cap_transfer_to_slot(child_pid as nexus_abi::Pid, clone, rights, child_slot)
+            .is_ok();
+    let _ = nexus_abi::cap_close(clone);
+    ok
 }
 
 /// TASK-0080C declarative routing: provisions the spawned app-host child's

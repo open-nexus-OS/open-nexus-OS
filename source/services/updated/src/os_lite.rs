@@ -109,11 +109,9 @@ pub fn touch_schemas() {}
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     emit_line("updated: entry");
     notifier.notify();
-    // init-lite transfers the updated service endpoints into deterministic slots:
-    // - recv: slot 3
-    // - send: slot 4
-    //
-    // Using these directly avoids routing-time races during early bring-up.
+    // init-lite transfers the updated service endpoints into deterministic
+    // slots (recv: slot 3, send: slot 4); using these directly avoids
+    // routing-time races during early bring-up.
     let server = {
         const RECV_SLOT: u32 = 0x03;
         const SEND_SLOT: u32 = 0x04;
@@ -154,8 +152,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let (recv_slot, _) = server.slots();
     let mut statefs = None;
     emit_line("updated: statefs init");
-    // init-lite distributes a per-service statefsd SEND cap plus a per-service reply inbox
-    // for CAP_MOVE. Prefer these deterministic slots during early bring-up to avoid routing races.
+    // init-lite distributes a per-service statefsd SEND cap + reply inbox for
+    // CAP_MOVE; prefer these deterministic slots during early bring-up.
     const STATEFS_SEND_SLOT: u32 = 0x09;
     const REPLY_RECV_SLOT: u32 = 0x0a;
     const REPLY_SEND_SLOT: u32 = 0x0b;
@@ -311,6 +309,7 @@ fn ipc_error_label(err: nexus_abi::IpcError) -> &'static str {
         nexus_abi::IpcError::NoSpace => "NoSpace",
         nexus_abi::IpcError::NoSuchEndpoint => "NoSuchEndpoint",
         nexus_abi::IpcError::PermissionDenied => "PermissionDenied",
+        nexus_abi::IpcError::PeerClosed => "PeerClosed",
         nexus_abi::IpcError::Unsupported => "Unsupported",
     }
 }
@@ -668,6 +667,7 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
                     nexus_abi::IpcError::PermissionDenied => "reply-denied",
                     nexus_abi::IpcError::QueueFull => "reply-full",
                     nexus_abi::IpcError::NoSpace => "reply-nospace",
+                    nexus_abi::IpcError::PeerClosed => "reply-peer-closed",
                     nexus_abi::IpcError::Unsupported => "reply-unsupported",
                     nexus_abi::IpcError::QueueEmpty => "reply-empty",
                 })

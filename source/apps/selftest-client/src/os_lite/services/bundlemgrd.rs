@@ -49,6 +49,7 @@ pub(crate) fn bundlemgrd_v1_list(client: &KernelClient) -> core::result::Result<
                                 nexus_abi::IpcError::PermissionDenied => emit_bytes(b"denied"),
                                 nexus_abi::IpcError::TimedOut => emit_bytes(b"timedout"),
                                 nexus_abi::IpcError::NoSpace => emit_bytes(b"nospace"),
+                                nexus_abi::IpcError::PeerClosed => emit_bytes(b"peer-closed"),
                                 nexus_abi::IpcError::Unsupported => emit_bytes(b"unsupported"),
                             }
                         }
