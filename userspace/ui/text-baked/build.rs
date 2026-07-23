@@ -151,8 +151,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let wide = wide_charset();
     let mut generated = File::create(out_dir.join("baked_fonts.rs"))?;
-    emit_glyph_atlas(&mut generated, out_dir, &faces, &wide, 13.0, "FONT13")?;
-    emit_glyph_atlas(&mut generated, out_dir, &faces, &wide, 16.0, "FONT16")?;
+    // Bake each face's coverage; concatenate into ONE atlas blob (font13 first,
+    // font16 after) so the runtime can back it with a single shared RO VMO
+    // (RFC-0080). Each face resolves `cov` as `atlas[offset .. offset+len]`.
+    let cov13 = emit_glyph_atlas(&mut generated, &faces, &wide, 13.0, "FONT13", 0)?;
+    let cov16 = emit_glyph_atlas(&mut generated, &faces, &wide, 16.0, "FONT16", cov13.len())?;
+    let mut atlas = cov13;
+    atlas.extend_from_slice(&cov16);
+    let atlas_path = out_dir.join("atlas.a8");
+    fs::write(&atlas_path, &atlas)?;
+    writeln!(generated, "pub const ATLAS_LEN: usize = {};", atlas.len())?;
+    // The embedded blob is the DEFAULT backing (feature `embedded-atlas`, on
+    // for windowd/host/tests + the VMO owner). Consumers that map a shared
+    // atlas VMO build with it OFF, so the 4.25 MB never enters their image.
+    if std::env::var_os("CARGO_FEATURE_EMBEDDED_ATLAS").is_some() {
+        writeln!(
+            generated,
+            "pub const EMBEDDED_ATLAS: &[u8] = include_bytes!(r#\"{}\"#);",
+            atlas_path.display()
+        )?;
+    }
     Ok(())
 }
 
@@ -163,12 +181,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Inter's ascent so mixed-script runs align).
 fn emit_glyph_atlas(
     generated: &mut File,
-    out_dir: &Path,
     faces: &Faces,
     wide: &[u32],
     px: f32,
     name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+    cov_offset: usize,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let latin: Vec<u32> = (32u32..=126).chain(EXTRAS.iter().copied()).collect();
     let charset: Vec<u32> = latin.iter().copied().chain(wide.iter().copied()).collect();
     let lm = faces
@@ -200,19 +218,17 @@ fn emit_glyph_atlas(
             .push_str(&format!("({off}, {}, {}, {}, {}, {adv}), ", m.width, m.height, m.xmin, top));
     }
     let n_latin = latin.len() as u32;
-    let cov_path = out_dir.join(format!("{}.a8", name.to_lowercase()));
-    fs::write(&cov_path, &cov)?;
     writeln!(generated, "pub const {name}_ASCENT: i32 = {ascent};")?;
     writeln!(generated, "pub const {name}_LINE_H: u32 = {line_h};")?;
     writeln!(generated, "pub const {name}_AVG_ADVANCE: u32 = {};", advance_sum / n_latin)?;
     // Part of the baked font metrics API surface; not every consumer reads it.
     writeln!(generated, "#[allow(dead_code)]")?;
     writeln!(generated, "pub const {name}_MAX_ADVANCE: u32 = {advance_max};")?;
-    writeln!(
-        generated,
-        "pub const {name}_COV: &[u8] = include_bytes!(r#\"{}\"#);",
-        cov_path.display()
-    )?;
+    // This face's coverage lives at `atlas[COV_OFFSET .. COV_OFFSET + COV_LEN]`
+    // (RFC-0080 — the runtime resolves it from the shared VMO or the embedded
+    // blob). Per-glyph `off` stays 0-based WITHIN this face's slice.
+    writeln!(generated, "pub const {name}_COV_OFFSET: usize = {cov_offset};")?;
+    writeln!(generated, "pub const {name}_COV_LEN: usize = {};", cov.len())?;
     writeln!(
         generated,
         "pub const {name}_GLYPHS: &[(u32, u16, u16, i16, i16, u16)] = &[{glyphs}];"
@@ -244,5 +260,5 @@ fn emit_glyph_atlas(
         }
     }
     writeln!(generated, "pub const {name}_KERN: &[(u8, u8, i8)] = &[{kern}];")?;
-    Ok(())
+    Ok(cov)
 }

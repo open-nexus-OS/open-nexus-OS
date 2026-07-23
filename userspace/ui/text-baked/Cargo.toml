@@ -12,13 +12,18 @@ name = "nexus_text_baked"
 path = "src/lib.rs"
 
 [features]
-default = ["std"]
+default = ["std", "embedded-atlas"]
 # Host conveniences only; the renderer itself is no_std (the tables are
 # baked at build time — no runtime font parsing anywhere).
 std = []
 # The pixel-real `MeasureText` implementation over these atlases (used by
 # the DSL layout path in windowd's demo mount and the app-host runtime).
 layout = ["dep:nexus-layout-types"]
+# RFC-0080: link the ~4.25 MB coverage blob (`EMBEDDED_ATLAS`) as the DEFAULT
+# atlas backing. windowd/host/tests + the VMO owner keep it ON; a consumer
+# that maps a shared atlas VMO (app-host) turns it OFF so the blob never
+# enters its image, and MUST `set_atlas_base` before the first render.
+embedded-atlas = []
 
 [dependencies]
 nexus-layout-types = { path = "../layout-types", optional = true }

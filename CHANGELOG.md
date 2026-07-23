@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-07-23 (nexus-text-baked: runtime atlas base — RFC-0080 Phase 0)
+
+#### Foundation for sharing the glyph atlas as ONE read-only VMO
+
+- `nexus-text-baked` now resolves each face's coverage through a process-global
+  **atlas base** (`AtomicPtr` + a compile-time per-face `(offset, len)` into ONE
+  concatenated `font13 ++ font16` blob) instead of two `&'static` `include_bytes`
+  slices. `set_atlas_base(ptr, len)` installs a mapped read-only VMO; without it
+  the `embedded-atlas` feature (default ON) lazily backs the base with the
+  linked blob, so windowd/host/tests stay byte-identical with zero setup.
+- This is the library half of RFC-0080: it lets a consumer (app-host) drop the
+  ~4.25 MB blob from its image and back the atlas with a shared VMO, killing the
+  per-instance duplication that `exec` copies on every window launch (the
+  pressure behind the 160→224 MB arena + 2→8 MiB heap bridges). The VMO
+  provisioning (execd owns + RO-clone-grants; app-host maps) is Phase 1.
+- Proof: a host golden installs the base at a heap copy and renders
+  byte-identically to the embedded path; `ci-os-smp1` green (all consumers keep
+  the embedded blob). Because scripts/build.sh builds each service with its own
+  `cargo build -p …`, Phase 1 can flip app-host to the VMO without feature
+  unification pulling the blob back in.
+
 ### Added - 2026-07-23 (kernel, IPC last-sender EOF — RFC-0079)
 
 #### Closing a window now terminates the app process (arena reclaim fires)

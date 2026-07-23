@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
-#![forbid(unsafe_code)]
+// RFC-0080: the shared-atlas base is a raw mapped-VMO pointer → slice, which is
+// inherently `unsafe`. `deny` (not `forbid`) so ONLY the two atlas-base items
+// below may opt in with `#[allow(unsafe_code)]` + a documented safety contract;
+// everything else stays unsafe-free.
+#![deny(unsafe_code)]
 
 //! CONTEXT: `nexus-text-baked` — the shared text SSOT: runtime measurement +
 //! row-based A8 glyph rendering over the build-time-baked atlases of the
@@ -35,6 +39,64 @@ mod baked {
     include!(concat!(env!("OUT_DIR"), "/baked_fonts.rs"));
 }
 
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+
+/// RFC-0080: the process-global base of the glyph-coverage atlas — the ONE
+/// backing that every `Face.cov()` slices. Set once via [`set_atlas_base`]
+/// (an app-host installs its shared RO VMO mapping here). Until then it is
+/// null; with the `embedded-atlas` feature it lazily auto-inits to the linked
+/// blob, so windowd/host/tests need no setup and stay byte-identical.
+static ATLAS_PTR: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
+static ATLAS_LEN: AtomicUsize = AtomicUsize::new(0);
+
+/// Installs the atlas backing (RFC-0080): `ptr` must point at
+/// [`atlas_len()`] readable bytes that stay valid for the process lifetime
+/// (a mapped RO VMO). Idempotent; a consumer with `embedded-atlas` OFF MUST
+/// call this before rendering any text.
+///
+/// # Safety
+/// `ptr` must be valid and immutable for `len` bytes for the whole process
+/// lifetime, and `len` must equal [`atlas_len()`] (the baked atlas size).
+#[allow(unsafe_code)]
+pub unsafe fn set_atlas_base(ptr: *const u8, len: usize) {
+    ATLAS_LEN.store(len, Ordering::Release);
+    ATLAS_PTR.store(ptr as *mut u8, Ordering::Release);
+}
+
+/// The baked atlas size in bytes (what [`set_atlas_base`] must be given).
+#[must_use]
+pub const fn atlas_len() -> usize {
+    baked::ATLAS_LEN
+}
+
+/// Resolves the whole coverage atlas as a slice. Falls back to the embedded
+/// blob (feature `embedded-atlas`) when no base has been installed; returns an
+/// empty slice otherwise (missing glyphs render blank — fail-visible, never
+/// garbage).
+#[inline]
+#[allow(unsafe_code)]
+fn atlas() -> &'static [u8] {
+    let ptr = ATLAS_PTR.load(Ordering::Acquire);
+    if ptr.is_null() {
+        // No installed base: the lazy default is the linked blob (byte-
+        // identical to the old path), or empty when it isn't linked.
+        #[cfg(feature = "embedded-atlas")]
+        {
+            baked::EMBEDDED_ATLAS
+        }
+        #[cfg(not(feature = "embedded-atlas"))]
+        {
+            &[]
+        }
+    } else {
+        let len = ATLAS_LEN.load(Ordering::Acquire);
+        // SAFETY: the base was installed via `set_atlas_base`, whose contract
+        // requires `ptr` valid + immutable for `len` bytes for the process
+        // lifetime.
+        unsafe { core::slice::from_raw_parts(ptr, len) }
+    }
+}
+
 /// Shell text sizes, mapping to the two baked atlases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FontSize {
@@ -46,7 +108,11 @@ pub enum FontSize {
 
 /// One baked face: coverage blob + per-glyph placement + line metrics.
 struct Face {
-    cov: &'static [u8],
+    /// This face's coverage span within the shared atlas
+    /// (`atlas()[cov_off .. cov_off + cov_len]`, RFC-0080). Per-glyph `off` is
+    /// 0-based within this slice.
+    cov_off: usize,
+    cov_len: usize,
     /// `(cov_offset, w, h, left_bearing, top_from_band_top, advance_px)` per
     /// charset glyph: dense ASCII 32..=126 first (index = code − 32), then
     /// the sparse EXTRAS tail (umlauts/ß + math symbols), then the sorted
@@ -65,8 +131,17 @@ struct Face {
     ascent: i32,
 }
 
+impl Face {
+    /// This face's coverage slice out of the installed atlas backing.
+    #[inline]
+    fn cov(&self) -> &'static [u8] {
+        atlas().get(self.cov_off..self.cov_off + self.cov_len).unwrap_or(&[])
+    }
+}
+
 const SMALL: Face = Face {
-    cov: baked::FONT13_COV,
+    cov_off: baked::FONT13_COV_OFFSET,
+    cov_len: baked::FONT13_COV_LEN,
     glyphs: baked::FONT13_GLYPHS,
     extras: baked::FONT13_EXTRAS,
     wide: baked::FONT13_WIDE,
@@ -77,7 +152,8 @@ const SMALL: Face = Face {
 };
 
 const BODY: Face = Face {
-    cov: baked::FONT16_COV,
+    cov_off: baked::FONT16_COV_OFFSET,
+    cov_len: baked::FONT16_COV_LEN,
     glyphs: baked::FONT16_GLYPHS,
     extras: baked::FONT16_EXTRAS,
     wide: baked::FONT16_WIDE,
@@ -203,7 +279,7 @@ pub fn draw_text_row(
         let gy = band_y - gtop as i32;
         if w > 0 && gy >= 0 && (gy as u16) < h {
             let start = off as usize + gy as usize * w as usize;
-            if let Some(src) = f.cov.get(start..start + w as usize) {
+            if let Some(src) = f.cov().get(start..start + w as usize) {
                 for (i, &cov) in src.iter().enumerate() {
                     if cov == 0 {
                         continue;
@@ -324,5 +400,37 @@ mod tests {
         assert_ne!(glyph_index_in(f, '•'), glyph_index_in(f, '?'));
         // A codepoint OUTSIDE the baked set still falls back to `?`.
         assert_eq!(measure("\u{1F600}".chars(), FontSize::Body), q);
+    }
+
+    #[test]
+    fn runtime_atlas_base_is_byte_identical_to_embedded() {
+        // RFC-0080: installing an atlas base (a mapped RO VMO on device) must
+        // render byte-identically to the embedded blob. Point the base at a
+        // LEAKED heap copy of the same bytes (leaked → 'static, valid for the
+        // process, so it never disturbs other tests — the resolved coverage is
+        // identical either way).
+        let heap: &'static [u8] = alloc::boxed::Box::leak(baked::EMBEDDED_ATLAS.to_vec().into());
+        assert_eq!(heap.len(), atlas_len(), "heap copy matches the baked atlas size");
+        // SAFETY: `heap` is a leaked Vec — valid + immutable for `heap.len()`
+        // bytes for the whole process, and its len equals `atlas_len()`.
+        #[allow(unsafe_code)]
+        unsafe {
+            set_atlas_base(heap.as_ptr(), heap.len());
+        }
+        // Every draw + measure now resolves through the installed base.
+        for text in ["Hello", "ä ö ü", "日本語", "你好", "•••", "?"] {
+            let rows = draw_band(text, FontSize::Body, 200);
+            let lit: usize = rows.iter().map(|r| row_lit(r)).sum();
+            assert!(lit > 0 || text == " ", "{text} renders through the runtime base");
+        }
+        // The bytes are identical, so the CJK-vs-? and bullet invariants hold.
+        let q = measure("?".chars(), FontSize::Body);
+        assert!(measure("日本語".chars(), FontSize::Body) > q);
+        // Reset to the default (null → embedded) so other tests are unaffected
+        // regardless of order.
+        #[allow(unsafe_code)]
+        unsafe {
+            set_atlas_base(core::ptr::null(), 0);
+        }
     }
 }

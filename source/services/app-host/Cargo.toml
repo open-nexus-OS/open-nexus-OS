@@ -62,7 +62,7 @@ nexus-theme-tokens = { path = "../../../userspace/ui/theme-tokens" }
 nexus-style = { path = "../../../userspace/ui/style" }
 # The shared text SSOT (promoted out of windowd, RFC-0067 P5): pixel-real
 # measurement + row-based glyph rendering for the DSL frame.
-nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false, features = ["layout"] }
+nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false, features = ["layout", "embedded-atlas"] }
 
 [build-dependencies]
 nexus-dsl-core = { path = "../../../userspace/dsl/core" }

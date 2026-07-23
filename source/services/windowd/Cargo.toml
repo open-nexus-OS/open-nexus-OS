@@ -47,7 +47,7 @@ nexus-widget-window = { path = "../../../userspace/ui/widgets/window" }
 nexus-scene-raster = { path = "../../../userspace/ui/scene_raster" }
 nexus-widget-text = { path = "../../../userspace/ui/widgets/text" }
 nexus-theme-tokens = { path = "../../../userspace/ui/theme-tokens" }
-nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false, features = ["layout"] }
+nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false, features = ["layout", "embedded-atlas"] }
 # RFC-0065 / ADR-0037 step 1: the search window's content (word list + filter) is
 
 [build-dependencies]
