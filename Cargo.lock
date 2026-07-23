@@ -981,6 +981,7 @@ dependencies = [
  "nexus-metrics",
  "nexus-sdk-routes",
  "nexus-service-entry",
+ "nexus-text-baked",
  "thiserror",
 ]
 

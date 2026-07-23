@@ -69,6 +69,15 @@ pub const fn atlas_len() -> usize {
     baked::ATLAS_LEN
 }
 
+/// The embedded atlas bytes (feature `embedded-atlas`) — the VMO owner's fill
+/// source (RFC-0080 Phase 1): it `vmo_write`s these into a shared RO VMO that
+/// every app-host maps via [`set_atlas_base`].
+#[cfg(feature = "embedded-atlas")]
+#[must_use]
+pub fn embedded_atlas() -> &'static [u8] {
+    baked::EMBEDDED_ATLAS
+}
+
 /// Resolves the whole coverage atlas as a slice. Falls back to the embedded
 /// blob (feature `embedded-atlas`) when no base has been installed; returns an
 /// empty slice otherwise (missing glyphs render blank — fail-visible, never

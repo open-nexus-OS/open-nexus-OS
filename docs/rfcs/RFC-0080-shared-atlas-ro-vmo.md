@@ -21,7 +21,16 @@
   current consumer keeps the embedded blob, zero behavior change. The
   build-separates-per-service check (scripts/build.sh `cargo build -p …`)
   confirms Phase 1 can drop the blob from app-host without unifying it back.)
-- **Phase 1 (provisioning: shared atlas VMO, mapped RO)**: ⬜
+- **Phase 1 (provisioning: shared atlas VMO, mapped RO)**: ✅
+  (2026-07-23 — execd creates + fills ONE atlas VMO from the embedded blob at
+  startup (`execd: atlas vmo ready`) and RO-clone-grants it into each app-host's
+  fixed slot before resume; app-host `vmo_map_page`s it read-only at
+  `0x3000_0000` and `set_atlas_base`s it (`APPHOST: atlas mapped`) — no embedded
+  blob (app-host ELF 5.9→1.66 MB, −4.25 MB). windowd keeps its embed. Visible
+  boot: Latin + CJK render from the shared VMO; a 5-launch open/close storm
+  adds ~0 atlas bytes, zero `VMO-POOL exhausted`; `ci-os-smp1` green with the
+  atlas markers. `execd`/`app-host` went `forbid`→`deny(unsafe_code)` for the
+  one mapped-pointer install; atlas VMO logic split to `execd/src/atlas_vmo.rs`.)
 
 Definition: “Complete” = the atlas exists as ONE shared read-only mapping;
 opening N app windows adds ~0 atlas bytes (was ~4.25 MB each); proof = boot

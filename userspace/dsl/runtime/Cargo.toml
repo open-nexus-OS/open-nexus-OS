@@ -49,4 +49,4 @@ animation = { path = "../../ui/animation" }
 
 [dev-dependencies]
 nexus-dsl-core = { path = "../core" }
-nexus-text-baked = { path = "../../ui/text-baked", features = ["layout"] }
+nexus-text-baked = { path = "../../ui/text-baked", default-features = false, features = ["layout"] }

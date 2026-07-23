@@ -18,7 +18,10 @@
 //! itself is proven via QEMU markers (`APPHOST: …`).
 //! ADR: docs/adr/0042-cross-process-surface-transport.md
 
-#![forbid(unsafe_code)]
+// RFC-0080: installing the shared-atlas base is one raw mapped-VMO pointer →
+// `unsafe`. `deny` (not `forbid`) so ONLY `map_atlas_base` may opt in with a
+// documented safety contract; everything else stays unsafe-free.
+#![deny(unsafe_code)]
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
@@ -142,8 +145,42 @@ mod probe {
         (&PAYLOAD_BUDGET_NS) as *const u64 as usize
     }
 
+    /// RFC-0080: the fixed slot execd grants the shared glyph-atlas VMO into.
+    const ATLAS_VMO_SLOT: u32 = 15;
+    /// VA where the atlas maps (read-only) — clear of the ELF image and the
+    /// stack/meta window at 0x2000_0000.
+    const ATLAS_VA: usize = 0x3000_0000;
+
+    /// Maps the shared atlas VMO READ-only and installs it as the text atlas
+    /// base, so this app-host renders from ONE shared copy instead of its own
+    /// embedded 4.25 MB (the blob is not in this image). Best-effort: any
+    /// failure falls back to blank text (never a crash) with a loud marker.
+    #[allow(unsafe_code)]
+    fn map_atlas_base() {
+        use nexus_abi::page_flags;
+        let len = nexus_text_baked::atlas_len();
+        let pages = len.div_ceil(4096);
+        let flags = page_flags::VALID | page_flags::USER | page_flags::READ;
+        for page in 0..pages {
+            let va = ATLAS_VA + page * 4096;
+            if nexus_abi::vmo_map_page(ATLAS_VMO_SLOT, va, page * 4096, flags).is_err() {
+                raw_marker("APPHOST: FAIL atlas map");
+                return;
+            }
+        }
+        // SAFETY: the range [ATLAS_VA, ATLAS_VA + len) is now mapped read-only
+        // from the shared VMO and stays valid for the process lifetime; `len`
+        // is the baked atlas size.
+        unsafe {
+            nexus_text_baked::set_atlas_base(ATLAS_VA as *const u8, len);
+        }
+        raw_marker("APPHOST: atlas mapped");
+    }
+
     pub(super) fn run() -> Result<(), &'static str> {
         raw_marker("apphost: start");
+        // RFC-0080: install the shared atlas BEFORE any text renders.
+        map_atlas_base();
 
         // 1. windowd client + the app's DEDICATED event channel come up FIRST:
         //    the geometry handshake's content-rect reply (and later acks/input)

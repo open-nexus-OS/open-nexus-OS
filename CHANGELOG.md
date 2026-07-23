@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-23 (shared glyph-atlas RO VMO — RFC-0080 Phase 1)
+
+#### Opening N app windows adds ~0 atlas bytes
+
+- **The atlas is ONE shared read-only copy now.** execd creates + fills a single
+  glyph-atlas VMO from the embedded blob at startup (`execd: atlas vmo ready`)
+  and RO-clone-grants it into every app-host's fixed slot before resume;
+  app-host `vmo_map_page`s it read-only at `0x3000_0000` and installs it as the
+  text atlas base (`APPHOST: atlas mapped`). The physical pages are shared, so
+  N open windows share ONE copy instead of `exec` copying ~4.25 MB per launch.
+- **app-host no longer embeds the blob** (its ELF shrank 5.9 → 1.66 MB, −4.25 MB):
+  its `nexus-text-baked` (and dsl-runtime's — layout only measures, never draws,
+  so it needs no coverage) build with `embedded-atlas` OFF. windowd keeps its
+  embed (single instance). Because scripts/build.sh builds each service
+  separately, the feature split holds without unification.
+- **Fail-visible, never fake**: a missing/failed atlas VMO makes text render
+  blank (empty coverage), never garbage or a crash; markers record it.
+- Proof: visible boot renders Latin + CJK from the shared VMO; a 5-launch
+  open/close storm adds ~0 atlas bytes with zero `VMO-POOL exhausted`;
+  `ci-os-smp1` green with the atlas markers. `execd`/`app-host` went
+  `forbid`→`deny(unsafe_code)` for the one mapped-pointer install; the atlas
+  VMO logic lives in `execd/src/atlas_vmo.rs`.
+- Follow-up: a RO-only VMO right (so the MAP cap can't be mapped WRITE), a
+  kernel static-VMO zero-copy variant (no owner copy at all), and shrinking the
+  224 MB arena / 8 MiB heap bridges now that growth is bounded.
+
 ### Changed - 2026-07-23 (nexus-text-baked: runtime atlas base — RFC-0080 Phase 0)
 
 #### Foundation for sharing the glyph atlas as ONE read-only VMO

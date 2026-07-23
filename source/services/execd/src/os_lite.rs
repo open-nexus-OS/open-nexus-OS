@@ -249,6 +249,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?,
     };
     let mut state = State::new();
+    // RFC-0080: create the shared glyph-atlas VMO ONCE (RO-cloned per spawn).
+    state.atlas_vmo = crate::atlas_vmo::create();
     loop {
         match server.recv_with_header_meta(Wait::Blocking) {
             Ok((_hdr, sender_service_id, frame)) => {
@@ -274,11 +276,18 @@ struct State {
     children: Vec<TrackedChild>,
     policy_nonce: u32,
     pending_policy: ReplyBuffer<8, 16>,
+    /// RFC-0080: cap slot of the SHARED atlas VMO (`atlas_vmo` module); RO-cloned per spawn.
+    atlas_vmo: Option<u32>,
 }
 
 impl State {
     fn new() -> Self {
-        Self { children: Vec::new(), policy_nonce: 1, pending_policy: ReplyBuffer::new() }
+        Self {
+            children: Vec::new(),
+            policy_nonce: 1,
+            pending_policy: ReplyBuffer::new(),
+            atlas_vmo: None,
+        }
     }
 
     fn track_child(&mut self, pid: u32, image_id: u8) {
@@ -412,11 +421,9 @@ fn append_crash_to_logd(
     frame.extend_from_slice(&msg);
     frame.extend_from_slice(&fields);
 
-    // Determinism: treat the crash append as fire-and-forget.
-    //
-    // logd reply delivery via CAP_MOVE is not relied upon here because the reply inbox
-    // plumbing can be flaky under QEMU. The selftest proves persistence by querying logd
-    // for the crash record contents (not by receiving the APPEND response).
+    // Determinism: the crash append is fire-and-forget. logd reply delivery via
+    // CAP_MOVE isn't relied on (the reply inbox can be flaky under QEMU); the
+    // selftest proves persistence by QUERYING logd for the crash record.
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
     let clock = nexus_ipc::budget::OsClock;
     let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
@@ -905,6 +912,8 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
                 // windowd holds the channel before the create), then hand
                 // the RECV half to the child — all before resume.
                 grant_event_channel(pid as u32);
+                // RFC-0080: RO clone of the shared atlas VMO (before resume).
+                crate::atlas_vmo::grant(pid as u32, state.atlas_vmo);
                 // TASK-0080C: provision the app's DECLARED service routes
                 // (@reply inbox + one SEND per routable manifest cap) into the
                 // child's fixed SDK slots — cap-gated, before resume.
