@@ -316,3 +316,22 @@ pub fn vmo_destroy(handle: Handle) -> SysResult<()> {
         Err(AbiError::Unsupported)
     }
 }
+
+/// RFC-0080: derives a READ-ONLY alias of the VMO in `slot` and returns its
+/// new cap slot. Holders of the alias can only map it read-only (WRITE|EXECUTE
+/// are stripped by the kernel) and cannot `vmo_write` it — used to share the
+/// glyph atlas so no app-host can corrupt the pages the others read.
+#[cfg(nexus_env = "os")]
+pub fn vmo_share_readonly(slot: Handle) -> SysResult<Handle> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_VMO_SHARE_RO: usize = 51;
+        let raw = unsafe { ecall1(SYSCALL_VMO_SHARE_RO, slot as usize) };
+        decode_syscall(raw).map(|s| s as Handle)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = slot;
+        Err(AbiError::Unsupported)
+    }
+}

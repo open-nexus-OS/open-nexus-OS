@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-23 (RO-only VMO right — RFC-0080 hardening)
+
+#### The shared atlas is now write-protected by the kernel, not by convention
+
+- **`CapabilityKind::VmoRo`** — a READ-ONLY alias of a VMO's physical pages,
+  derived from a `Vmo` via the new `vmo_share_readonly` syscall (51). It is a
+  *contained* addition: existing `Vmo` caps behave exactly as before, so there
+  is zero audit surface on the write path. `sys_map` runs a `VmoRo` cap's
+  requested page flags through `vmo_ro::force_readonly` (WRITE|EXECUTE are
+  ALWAYS cleared, VALID|READ|USER always set) before installing the mapping, and
+  `vmo_write` rejects `VmoRo` — a holder can never obtain a writable or
+  executable view, even if it asks.
+- **execd drops the writable cap.** After filling the shared glyph atlas, execd
+  derives the RO alias and closes the writable one, keeping only the alias. It
+  therefore grants RO-only clones to every app-host, and not even execd can
+  corrupt the atlas after fill. Closes the RFC-0080 "compromised app-host
+  runtime" corruption vector.
+- The RO-forcing bit function lives in the pure, host-tested `vmo_ro` module
+  (like `waitset`/`fence`/`image_allocs`/`ipc_eof`), kept out of the
+  target-gated `mm`/`syscall` tree so its security invariant is unit-tested.
+- Refactor (module-size ratchet): the kernel-managed user VMO arena
+  (`VMO_POOL`/`VmoPool`) moved from `syscall/api/vmo.rs` (987 → 648 LOC) into a
+  new `syscall/api/vmo_pool.rs`; behavior unchanged (pure code move).
+- Proof: `neuron` host tests (`vmo_ro` truth table, 2/2, + 29 total green);
+  `ci-os-smp1` atlas-RO chain (`execd: atlas vmo ready/granted` →
+  `APPHOST: atlas mapped`, Latin+CJK render, no `VMO-POOL exhausted`).
+
 ### Added - 2026-07-23 (shared glyph-atlas RO VMO — RFC-0080 Phase 1)
 
 #### Opening N app windows adds ~0 atlas bytes
@@ -29,9 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ci-os-smp1` green with the atlas markers. `execd`/`app-host` went
   `forbid`→`deny(unsafe_code)` for the one mapped-pointer install; the atlas
   VMO logic lives in `execd/src/atlas_vmo.rs`.
-- Follow-up: a RO-only VMO right (so the MAP cap can't be mapped WRITE), a
-  kernel static-VMO zero-copy variant (no owner copy at all), and shrinking the
-  224 MB arena / 8 MiB heap bridges now that growth is bounded.
+- Follow-up: a RO-only VMO right (so the MAP cap can't be mapped WRITE) — DONE,
+  see the RFC-0080 hardening entry above. A kernel static-VMO zero-copy variant
+  (no owner copy at all) remains deferred; the 224 MB arena / 8 MiB heap bridges
+  are intentionally left as-is (desktop system, conservative headroom).
 
 ### Changed - 2026-07-23 (nexus-text-baked: runtime atlas base — RFC-0080 Phase 0)
 

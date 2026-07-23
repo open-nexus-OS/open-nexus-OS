@@ -22,7 +22,7 @@
 //!     kernel mappings; a hart idling with a stale `satp` keeps running
 //!     kernel text, which is not part of any returned range.
 
-use super::vmo::VMO_POOL;
+use super::vmo_pool::VMO_POOL;
 use crate::image_allocs::ImageAllocs;
 use crate::task::TaskTable;
 

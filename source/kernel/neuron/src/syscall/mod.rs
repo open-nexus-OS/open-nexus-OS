@@ -82,6 +82,9 @@ pub const SYSCALL_BOOT_MODE: usize = 45;
 /// kernel's fw_cfg-derived mode without mapping fw_cfg — the compositor commands this authoritative
 /// mode onto the scanout instead of latching QEMU's transient window size.
 pub const SYSCALL_BOOT_DISPLAY_MODE: usize = 50;
+/// RFC-0080: derive a READ-ONLY alias (`VmoRo`) of a VMO for shared read-only
+/// mapping (the glyph atlas). Args: (vmo_cap_slot) → new alias slot.
+pub const SYSCALL_VMO_SHARE_RO: usize = 51;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).

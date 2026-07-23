@@ -40,6 +40,12 @@ pub enum CapabilityKind {
     EndpointFactory,
     /// Virtual memory object.
     Vmo { base: usize, len: usize },
+    /// RFC-0080: a READ-ONLY alias of a VMO's physical pages. Derived from a
+    /// `Vmo` via `vmo_share_readonly`; `sys_map` force-strips WRITE|EXECUTE so
+    /// the holder can only map it read-only, and `vmo_write` rejects it. Used
+    /// to share the glyph atlas across app-hosts without letting any of them
+    /// corrupt the pages the others read.
+    VmoRo { base: usize, len: usize },
     /// Device MMIO window (physical base + length), mapped into userspace only via a dedicated
     /// syscall that enforces USER|RW and never EXEC.
     ///
@@ -229,7 +235,12 @@ impl CapTable {
             .iter()
             .flatten()
             .filter(|cap| match cap.kind {
-                CapabilityKind::Vmo { base: b, len: l } => b < end && base < b.saturating_add(l),
+                // A VmoRo alias references the SAME physical pages, so it counts
+                // toward the sole-owner check (RFC-0080).
+                CapabilityKind::Vmo { base: b, len: l }
+                | CapabilityKind::VmoRo { base: b, len: l } => {
+                    b < end && base < b.saturating_add(l)
+                }
                 _ => false,
             })
             .count()

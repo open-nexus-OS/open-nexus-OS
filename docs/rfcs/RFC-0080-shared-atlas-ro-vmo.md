@@ -74,9 +74,13 @@ heap 2→8 MiB as bridges; the recorded fix is to share ONE copy.
 ## Constraints / invariants
 
 - **Read-only sharing**: consumers map the atlas READ-only. The atlas VMO must
-  never be mapped WRITE by an app-host (a shared-page corruption vector). The
-  map is done by the trusted app-host RUNTIME, not app code; a RO-only VMO
-  right is a hardening follow-up (today: convention + code review).
+  never be mapped WRITE by an app-host (a shared-page corruption vector). This
+  is now KERNEL-ENFORCED, not convention: execd derives a `VmoRo` alias
+  (`vmo_share_readonly`, SYSCALL 51) and drops the writable cap, so it grants
+  only the RO alias; `sys_map` runs a `VmoRo` cap's page flags through
+  `vmo_ro::force_readonly` (WRITE|EXECUTE always stripped) and `vmo_write`
+  rejects `VmoRo` — a compromised app-host runtime cannot obtain a writable
+  view even if it asks. See Follow-ups (done).
 - **Pixel parity**: the resolved coverage bytes are byte-identical to the
   embedded blob — host goldens (`draw_text_row`, `measure`) unchanged.
 - **No hot-path syscalls**: the atlas is MAPPED (direct reads), never
@@ -125,9 +129,17 @@ heap 2→8 MiB as bridges; the recorded fix is to share ONE copy.
 
 ## Follow-ups
 
-- A RO-only VMO right (kernel) so a MAP cap cannot be mapped WRITE — hardens
-  the shared atlas against a compromised app-host runtime.
+- ✅ **DONE** — A RO-only VMO right (kernel) so a MAP cap cannot be mapped
+  WRITE. Implemented as `CapabilityKind::VmoRo` (a contained alias — existing
+  `Vmo` caps are untouched, zero audit risk): `vmo_share_readonly` (SYSCALL 51)
+  derives it from a `Vmo` with `MAP` rights; `sys_map` force-strips WRITE|EXEC
+  via the pure host-tested `vmo_ro::force_readonly`; `vmo_write` rejects it.
+  execd grants only the RO alias to app-hosts. Proven: `neuron` host tests
+  (`vmo_ro`, 2/2), ci-os-smp1 atlas-RO chain (`execd: atlas vmo ready/granted`
+  → `APPHOST: atlas mapped`, text renders, no exhaustion).
 - Zero-copy variant: a kernel “static VMO” over the atlas embedded ONCE in the
   kernel image (identity-mapped) — no owner copy at all. Bigger (kernel +
   linker + security); deferred.
-- Once shared, the arena 224→smaller and heap 8→smaller bridges can shrink.
+- The arena 224→smaller and heap 8→smaller bridges are INTENTIONALLY left as-is:
+  Open Nexus targets a desktop system, where conservative memory headroom is
+  preferred over shrinking these bridges. Not pursued.

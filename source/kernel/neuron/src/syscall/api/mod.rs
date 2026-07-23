@@ -45,6 +45,7 @@ mod sched_task;
 mod sync_objects;
 mod task_image;
 mod vmo;
+mod vmo_pool;
 
 #[cfg(test)]
 mod tests;
@@ -60,6 +61,7 @@ pub(crate) use task_image::exit_current_and_release;
 pub use vmo::vmo_idle_zero_step;
 use vmo::*;
 pub(crate) use vmo::{vmo_create_finish, vmo_create_reserve};
+use vmo_pool::*;
 
 pub(crate) use sched_task::selftest_sched_op;
 
@@ -225,6 +227,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_VMO_CREATE, sys_vmo_create);
     table.register(SYSCALL_VMO_WRITE, sys_vmo_write);
     table.register(crate::syscall::SYSCALL_VMO_DESTROY, sys_vmo_destroy);
+    table.register(crate::syscall::SYSCALL_VMO_SHARE_RO, sys_vmo_share_ro);
     table.register(crate::syscall::SYSCALL_VMO_READ, sys_vmo_read);
     table.register(SYSCALL_SPAWN, sys_spawn);
     table.register(SYSCALL_CAP_TRANSFER, sys_cap_transfer);

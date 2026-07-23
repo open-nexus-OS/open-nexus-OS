@@ -42,8 +42,21 @@ pub(crate) fn create() -> Option<u32> {
         }
         off = end;
     }
+    // RFC-0080 hardening: derive a READ-ONLY alias and DROP the writable cap —
+    // execd keeps only the RO alias, so not even execd (nor any app-host) can
+    // corrupt the shared atlas after it is filled. The physical pages stay
+    // alive via the alias (the writable close is a local drop, not a free).
+    let ro = match nexus_abi::vmo_share_readonly(vmo) {
+        Ok(ro) => ro,
+        Err(_) => {
+            let _ = nexus_abi::debug_println("execd: FAIL atlas vmo (share-ro)");
+            let _ = nexus_abi::cap_close(vmo);
+            return None;
+        }
+    };
+    let _ = nexus_abi::cap_close(vmo);
     let _ = nexus_abi::debug_println("execd: atlas vmo ready");
-    Some(vmo)
+    Some(ro)
 }
 
 /// Grants a READ-ONLY clone of the shared atlas VMO into the child's fixed slot
