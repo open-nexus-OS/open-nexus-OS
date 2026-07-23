@@ -236,3 +236,31 @@ caret, no I-beam, language "didn't switch". All root-caused:
 - The user's Settings taps landed on the KEYBOARD-layout chips (JP/KR at
   y≈276), not the language chips (y≈168) — keymap sets worked as designed;
   with the remount fix the language now also survives mode switches.
+
+## Addendum 8f (2026-07-23): process-image arena reclaim (kernel)
+
+Root-cause of the OOM crash, one level below the heap/arena bridges:
+
+- `exec` allocated every PT_LOAD segment + stack + meta/info pages from
+  `VMO_POOL` and NOTHING freed them — the arena was bump-only for process
+  images (~14 MB per launch, RO segment alone ~5.5 MB with CJK atlases).
+- Fix: `ImageAllocs` (fixed-capacity per-task record, host-unit-tested)
+  records the ranges in `exec`; `exit_current` returns them; a single funnel
+  `exit_current_and_release` covers `sys_exit` + the trap handler's 4 fault
+  exits. `free()` validates bounds+overlap; exec_v2's failure path returns
+  partial allocations too.
+- **Still gated on the reaper**: reclaim only fires when a task EXITS. A
+  closed app WINDOW parks the process (`app_surface.rs` "open reaper" #29),
+  so the user's open/close storm needs #29 — or IPC last-sender-EOF so
+  app-host self-exits — to actually trigger reclaim. This change is the
+  mechanism that half depends on. **Forward follow-up (#29 / IPC-EOF):**
+  make a window close terminate the process; safest path = kernel IPC
+  sender-refcount → wake receiver on last-sender-close → app-host self-exits
+  (a process may always exit itself; no cross-task kill / policyd gate).
+- Ratchet-driven refactor: `exec::map_process_stack` (dedup of the identical
+  sys_exec/exec_v2 stack mapping); legacy guarded-stack allocator moved to
+  `task/stack_pool.rs`.
+- Proof: `ImageAllocs` host tests + ci-os-smp1 green (real `e2e exec-elf`
+  child exit runs the path; zero `IMAGE-RECLAIM incomplete`, zero pool
+  corruption) + visible boot open/close storm (5 launches / 2 closes, zero
+  PANIC/exhaustion).

@@ -202,6 +202,11 @@ pub(crate) fn exec_phase_a(
 
     let as_handle = ctx.address_spaces.create()?;
 
+    // Every arena range this exec allocates for the child (segments + stack)
+    // is recorded here and attached to the spawned task, so teardown returns
+    // it to the pool instead of leaking one process image per launch.
+    let mut image = crate::task::ImageAllocs::new();
+
     // Map PT_LOAD segments
     //
     // We also capture the first RW PT_LOAD vaddr so we can derive a sensible
@@ -266,6 +271,7 @@ pub(crate) fn exec_phase_a(
             align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
                 .ok_or(AddressSpaceError::InvalidArgs)?;
         let (base, alloc_len, needs_zero) = VMO_POOL.lock().allocate_nozero(alloc_len)?;
+        image.push(base, alloc_len);
         // Staged (phase B): zero the whole range first (BSS tail guarantee),
         // then lay the file payload over it.
         if needs_zero {
@@ -327,64 +333,11 @@ pub(crate) fn exec_phase_a(
         log_debug!(target: "exec", "EXEC-ELF gp=0x{:x} src={}", gp, src);
     }
 
-    // Stack
-    // Userspace init-lite expects its stack at 0x2000_0000; map downward from there.
-    // Map head pages so the top-of-stack address (0x2000_0000) and a boundary page
-    // above it are mapped, then seed SP two pages below the mapped top to avoid
-    // touching the boundary. Leave a guard page above the boundary.
-    let total_pages = typed
-        .stack_pages
-        .checked_add(11) // requested + 9 head pages + boundary page; guard stays unmapped
-        .ok_or(AddressSpaceError::InvalidArgs)?;
-    let stack_bytes = total_pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-    let (stack_base, stack_len, stack_needs_zero) = VMO_POOL.lock().allocate_nozero(stack_bytes)?;
-    if stack_needs_zero {
-        plan.push(CopyOp { src: usize::MAX, dst: stack_base, len: stack_len })?;
-    }
-    let user_stack_top: usize = 0x2000_0000;
-    // Map through the former faulting address (boundary) and leave a guard above.
-    let mapped_top =
-        user_stack_top.checked_add(10 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?; // boundary page mapped; guard sits above
-    let stack_bottom = mapped_top.checked_sub(stack_len).ok_or(AddressSpaceError::InvalidArgs)?;
-
-    let stack_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
-    for page in 0..total_pages {
-        let va =
-            stack_bottom.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        let pa = stack_base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        ctx.address_spaces.map_page(as_handle, va, pa, stack_flags)?;
-    }
-    log_debug!(
-        target: "exec",
-        "STACK-MAP: va=0x{:x}-0x{:x} pa=0x{:x} pages={} sp=0x{:x}",
-        stack_bottom,
-        mapped_top.saturating_sub(1),
-        stack_base,
-        total_pages,
-        user_stack_top
-    );
-
-    let sp_probe = mapped_top.checked_sub(2 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-    if let Ok(space) = ctx.address_spaces.get(as_handle) {
-        let pt = space.page_table();
-        let t_sp = pt.translate(sp_probe);
-        let t_top_minus_1 = pt.translate(mapped_top.saturating_sub(1));
-        let t_top = pt.translate(mapped_top);
-        log_debug!(
-            target: "exec",
-            "STACK-CHECK: base=0x{:x} top=0x{:x} top-1->0x{:x?} top->0x{:x?} sp->0x{:x?}",
-            stack_bottom,
-            mapped_top,
-            t_top_minus_1,
-            t_top,
-            t_sp
-        );
-    }
+    // Stack + guarded top (shared with exec_v2; records into `image`).
+    let (stack_sp, mapped_top) =
+        map_process_stack(ctx.address_spaces, as_handle, typed.stack_pages, plan, &mut image)?;
 
     let entry_pc = VirtAddr::instr_aligned(e_entry).ok_or(AddressSpaceError::InvalidArgs)?;
-    // Start SP one full page below the mapped top to stay clear of the boundary, 16-byte aligned.
-    let stack_sp_raw = sp_probe & !0xf;
-    let stack_sp = VirtAddr::new(stack_sp_raw).ok_or(AddressSpaceError::InvalidArgs)?;
     let bootstrap_slot = SlotIndex::decode(0);
 
     let parent = ctx.tasks.current_pid();
@@ -407,7 +360,57 @@ pub(crate) fn exec_phase_a(
             info_guard_va: None,
         });
     }
+    // Hand the arena ranges to the task so teardown returns them to the pool.
+    ctx.tasks.set_image_allocs(pid, image);
     Ok(pid.as_index())
+}
+
+/// Allocates, records and maps a task's guard-paged user stack (identical
+/// policy for `sys_exec` and `exec_v2`): the stack sits below 0x2000_0000
+/// with head + boundary pages mapped and a guard page left unmapped above.
+/// The arena range is pushed into `image` so teardown returns it to the pool.
+/// Returns `(stack_sp, mapped_top)` — SP one page below the boundary,
+/// 16-byte aligned; `mapped_top` anchors the caller's meta/info pages.
+fn map_process_stack(
+    address_spaces: &mut crate::mm::AddressSpaceManager,
+    as_handle: crate::mm::AsHandle,
+    stack_pages: usize,
+    plan: &mut CopyPlan,
+    image: &mut crate::task::ImageAllocs,
+) -> SysResult<(VirtAddr, usize)> {
+    // requested + 9 head pages + boundary page; guard stays unmapped.
+    let total_pages = stack_pages.checked_add(11).ok_or(AddressSpaceError::InvalidArgs)?;
+    let stack_bytes = total_pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+    let (stack_base, stack_len, needs_zero) = VMO_POOL.lock().allocate_nozero(stack_bytes)?;
+    image.push(stack_base, stack_len);
+    if needs_zero {
+        plan.push(CopyOp { src: usize::MAX, dst: stack_base, len: stack_len })?;
+    }
+    let user_stack_top: usize = 0x2000_0000;
+    // Map through the former faulting address (boundary); guard sits above.
+    let mapped_top =
+        user_stack_top.checked_add(10 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+    let stack_bottom = mapped_top.checked_sub(stack_len).ok_or(AddressSpaceError::InvalidArgs)?;
+    let stack_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
+    for page in 0..total_pages {
+        let va =
+            stack_bottom.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+        let pa = stack_base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+        address_spaces.map_page(as_handle, va, pa, stack_flags)?;
+    }
+    log_debug!(
+        target: "exec",
+        "STACK-MAP: va=0x{:x}-0x{:x} pa=0x{:x} pages={} sp=0x{:x}",
+        stack_bottom,
+        mapped_top.saturating_sub(1),
+        stack_base,
+        total_pages,
+        user_stack_top
+    );
+    // SP one full page below the mapped top (clear of the boundary), 16-aligned.
+    let sp_probe = mapped_top.checked_sub(2 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+    let stack_sp = VirtAddr::new(sp_probe & !0xf).ok_or(AddressSpaceError::InvalidArgs)?;
+    Ok((stack_sp, mapped_top))
 }
 
 /// Kernel-side exec loader v2: like [`sys_exec`] but also copies the provided service name bytes
@@ -459,6 +462,10 @@ pub(crate) fn exec_v2_phase_a(
     const PF_X: u32 = 1;
 
     let as_handle = ctx.address_spaces.create()?;
+    // Arena ranges allocated for the child (segments + stack + meta/info):
+    // recorded so success attaches them to the task and failure returns them
+    // to the pool (the closure below can early-return on any map error).
+    let mut image = crate::task::ImageAllocs::new();
     let exec_result = (|| -> SysResult<usize> {
         let mut first_rw_vaddr: Option<usize> = None;
         let mut max_end_va: usize = 0;
@@ -513,6 +520,7 @@ pub(crate) fn exec_v2_phase_a(
                 align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
                     .ok_or(AddressSpaceError::InvalidArgs)?;
             let (base, alloc_len, needs_zero) = VMO_POOL.lock().allocate_nozero(alloc_len)?;
+            image.push(base, alloc_len);
             // Staged (phase B): zero first (BSS guarantee), then the payload.
             if needs_zero {
                 plan.push(CopyOp { src: usize::MAX, dst: base, len: alloc_len })?;
@@ -585,29 +593,9 @@ pub(crate) fn exec_v2_phase_a(
             .unwrap_or(0);
         let gp = if typed.global_pointer != 0 { typed.global_pointer } else { derived_gp };
 
-        // Stack (same policy as sys_exec).
-        let total_pages =
-            typed.stack_pages.checked_add(11).ok_or(AddressSpaceError::InvalidArgs)?;
-        let stack_bytes =
-            total_pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        let (stack_base, stack_len, v2_stack_needs_zero) =
-            VMO_POOL.lock().allocate_nozero(stack_bytes)?;
-        if v2_stack_needs_zero {
-            plan.push(CopyOp { src: usize::MAX, dst: stack_base, len: stack_len })?;
-        }
-        let user_stack_top: usize = 0x2000_0000;
-        let mapped_top =
-            user_stack_top.checked_add(10 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        let stack_bottom =
-            mapped_top.checked_sub(stack_len).ok_or(AddressSpaceError::InvalidArgs)?;
-        let stack_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
-        for page in 0..total_pages {
-            let va =
-                stack_bottom.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-            let pa =
-                stack_base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-            ctx.address_spaces.map_page(as_handle, va, pa, stack_flags)?;
-        }
+        // Stack + guarded top (shared helper; records into `image`).
+        let (stack_sp, mapped_top) =
+            map_process_stack(ctx.address_spaces, as_handle, typed.stack_pages, plan, &mut image)?;
 
         // Per-service metadata mapping (RO) + bootstrap info page (RO).
         //
@@ -628,7 +616,8 @@ pub(crate) fn exec_v2_phase_a(
             return Err(AddressSpaceError::InvalidArgs.into());
         }
 
-        let (meta_pa, _meta_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
+        let (meta_pa, meta_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
+        image.push(meta_pa, meta_len);
         let mut service_id: u64 = 0;
         if typed.name_len != 0 {
             // SAFETY: checked in ExecV2ArgsTyped::check.
@@ -652,7 +641,8 @@ pub(crate) fn exec_v2_phase_a(
         ctx.address_spaces.map_page(as_handle, meta_va, meta_pa, meta_flags)?;
 
         // Bootstrap info page describing the metadata mapping (RO).
-        let (info_pa, _info_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
+        let (info_pa, info_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
+        image.push(info_pa, info_len);
         {
             let info = crate::BootstrapInfo {
                 version: 2,
@@ -704,10 +694,6 @@ pub(crate) fn exec_v2_phase_a(
         }
 
         let entry_pc = VirtAddr::instr_aligned(e_entry).ok_or(AddressSpaceError::InvalidArgs)?;
-        let sp_probe =
-            mapped_top.checked_sub(2 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        let stack_sp_raw = sp_probe & !0xf;
-        let stack_sp = VirtAddr::new(stack_sp_raw).ok_or(AddressSpaceError::InvalidArgs)?;
         let bootstrap_slot = SlotIndex::decode(0);
         let guard_va = info_va.checked_add(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
 
@@ -742,11 +728,18 @@ pub(crate) fn exec_v2_phase_a(
         // `flags::HAS_INFO_PAGE` and `argv_ptr=info_va`. For now, the info/meta pages are at stable
         // addresses and can be read directly by early services.
 
+        // Success: hand the arena ranges to the task (teardown returns them).
+        // `take` leaves the outer record empty, so the error path below can't
+        // double-free.
+        ctx.tasks.set_image_allocs(pid, image.take());
         Ok(pid.as_index())
     })();
 
     if exec_result.is_err() {
         let _ = ctx.address_spaces.destroy(as_handle);
+        // The child never spawned: return its (still-recorded) arena ranges to
+        // the pool instead of leaking them.
+        let _ = super::task_image::release_image(&image);
     }
     exec_result
 }

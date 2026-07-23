@@ -398,7 +398,11 @@ pub(super) fn sys_exit(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // RFC-0005 lifecycle: close endpoints owned by this task and wake any blocked peers.
     let waiters = ctx.router.close_endpoints_for_owner(exiting.as_raw());
     ctx.router.remove_waiter_from_all(exiting.as_raw());
-    ctx.tasks.exit_current(status);
+    // Exit AND return this task's process image to the arena. The zombie is
+    // already purged from the scheduler below, so its image pages are
+    // unreachable (RFC-0075 8e — process images were bump-only, exhausting
+    // the arena after a handful of app launches).
+    super::exit_current_and_release(ctx.tasks, status);
     for pid in waiters {
         observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler));
     }

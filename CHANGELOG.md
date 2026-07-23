@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-23 (kernel, process-image arena reclaim)
+
+#### Process images return to the VMO arena on task exit (RFC-0075 8e)
+
+- **Root cause of the arena exhaustion**: `exec` allocated every PT_LOAD
+  segment, the user stack and the bootstrap meta/info pages from `VMO_POOL`
+  but NOTHING ever freed them — the arena was bump-only for process images.
+  Each launch consumed ~14 MB (a service ELF's RO segment alone is ~5.5 MB
+  with the CJK atlases) permanently; the earlier 160→224 MB arena bump was a
+  bridge over this leak.
+- **The fix**: each task now records the arena ranges backing its image
+  (`ImageAllocs`, a fixed-capacity per-task record — no kernel-heap churn);
+  `exec` fills it, and `exit_current` returns it. A single teardown funnel
+  (`exit_current_and_release`) covers `sys_exit` AND the trap handler's four
+  fault-exit paths, so no exit can forget the memory. `free()` validates
+  bounds + overlap (a wrong range is logged, never blindly freed); the
+  exec_v2 failure path also returns its partial allocations instead of
+  leaking them.
+- **Honest scope**: this reclaims memory only when a task actually EXITS.
+  Closing an app WINDOW today does not terminate the app process — it parks
+  (the "open reaper", follow-up #29) — so the user's open/close storm still
+  needs #29 (or IPC last-sender-EOF so app-host self-exits) to trigger this
+  reclaim. This change is the mechanism that half needs; the 8 MiB kernel
+  heap + 224 MB arena bridges stay until #29 lands.
+- Refactor (module-size ratchet): the exec stack-mapping logic (identical in
+  `sys_exec`/`exec_v2`) is now one `map_process_stack` helper, and the legacy
+  guarded-stack allocator moved to `task/stack_pool.rs`.
+- Proof: `ImageAllocs` host unit tests (record/drain/overflow) + `ci-os-smp1`
+  green (real `e2e exec-elf` child exit runs the reclaim path; zero
+  `IMAGE-RECLAIM incomplete`, zero pool corruption).
+
 ### Fixed - 2026-07-22 (evening, input-UX hardening II)
 
 #### IME v2 follow-through: crash fix, typing resilience, caret, I-beam, remount locale

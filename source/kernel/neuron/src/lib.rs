@@ -366,6 +366,10 @@ mod waitset;
 // RFC-0033: timeline fence table — host-testable for the same reason as `waitset` (pure
 // `alloc` + raw u64 value / u32 ids). See `docs/architecture/02-selftest-and-ci.md`.
 mod fence;
+// RFC-0075 8e: per-task process-image arena bookkeeping — NOT target-gated for
+// the same reason as `waitset`/`fence` (pure usize ranges, host-unit-tested).
+// `exec` records the ranges, task teardown returns them to `VMO_POOL`.
+mod image_allocs;
 #[cfg(target_os = "none")]
 #[path = "core/trap/mod.rs"]
 mod trap;

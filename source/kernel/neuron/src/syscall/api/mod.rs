@@ -42,6 +42,7 @@ mod exec;
 mod ipc_msg;
 mod sched_task;
 mod sync_objects;
+mod task_image;
 mod vmo;
 
 #[cfg(test)]
@@ -53,6 +54,7 @@ pub(crate) use exec::{exec_phase_a, exec_v2_phase_a, run_copy_plan, CopyPlan};
 use ipc_msg::*;
 use sched_task::*;
 use sync_objects::*;
+pub(crate) use task_image::exit_current_and_release;
 pub use vmo::vmo_idle_zero_step;
 use vmo::*;
 pub(crate) use vmo::{vmo_create_finish, vmo_create_reserve};

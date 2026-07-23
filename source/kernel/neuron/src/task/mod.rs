@@ -13,18 +13,18 @@
 
 extern crate alloc;
 
+pub use crate::image_allocs::ImageAllocs;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use crate::{
     cap::{CapError, CapTable, Capability, CapabilityKind, Rights},
     ipc::{self, Router},
-    mm::{AddressSpaceError, AddressSpaceManager, AsHandle, PageFlags, PAGE_SIZE},
+    mm::{AddressSpaceError, AddressSpaceManager, AsHandle},
     sched::{EnqueueOutcome, QosClass, Scheduler},
     trap::{TrapDomainId, TrapFrame},
     types::{SlotIndex, VirtAddr},
 };
-use spin::Mutex;
 
 pub use crate::types::Pid;
 
@@ -140,104 +140,10 @@ pub enum WaitError {
     WouldBlock,
 }
 
-const USER_STACK_TOP: usize = 0x4000_0000;
-const STACK_PAGES: usize = 4;
-const STACK_POOL_BASE: usize = 0x8000_0000 + 0x10_0000;
-const STACK_POOL_LIMIT: usize = 0x8000_0000 + 0x20_0000;
-
-struct StackPool {
-    cursor: usize,
-}
-
-impl StackPool {
-    const fn new() -> Self {
-        Self { cursor: STACK_POOL_LIMIT }
-    }
-
-    fn alloc(&mut self, pages: usize) -> Option<usize> {
-        // Robust bring-up: if `.data` initializers are unavailable (or if this static lives in
-        // a NOLOAD region), `cursor` may be zero. Treat zero as "uninitialized" and seed it from
-        // the compile-time limit.
-        if self.cursor == 0 {
-            self.cursor = STACK_POOL_LIMIT;
-        }
-        // Integrity gate (P0.1 layout audit): a cursor OUTSIDE the pool window
-        // means the `.data` initializer was corrupted/mis-loaded — say the
-        // VALUE loudly (the value fingerprints the writer) instead of failing
-        // as an anonymous StackExhausted at some later spawn.
-        if self.cursor < STACK_POOL_BASE || self.cursor > STACK_POOL_LIMIT {
-            log_error!(
-                "STACK-POOL cursor corrupt: 0x{:x} (window 0x{:x}..0x{:x}) — image/.data integrity",
-                self.cursor,
-                STACK_POOL_BASE,
-                STACK_POOL_LIMIT
-            );
-            self.cursor = STACK_POOL_LIMIT;
-        }
-        let bytes = pages.checked_mul(PAGE_SIZE)?;
-        let next = self.cursor.checked_sub(bytes)?;
-        if next < STACK_POOL_BASE {
-            log_error!(
-                "STACK-POOL exhausted: cursor=0x{:x} want={} pages (window 0x{:x}..0x{:x})",
-                self.cursor,
-                pages,
-                STACK_POOL_BASE,
-                STACK_POOL_LIMIT
-            );
-            None
-        } else {
-            self.cursor = next;
-            Some(next)
-        }
-    }
-}
-
-static STACK_ALLOCATOR: Mutex<StackPool> = Mutex::new(StackPool::new());
-
-fn allocate_guarded_stack(
-    address_spaces: &mut AddressSpaceManager,
-    handle: AsHandle,
-) -> Result<VirtAddr, SpawnError> {
-    let phys_base = {
-        let mut pool = STACK_ALLOCATOR.lock();
-        pool.alloc(STACK_PAGES).ok_or(SpawnError::StackExhausted)?
-    };
-    // RFC-0004: zero newly allocated stack pages so no stale bytes leak into user space.
-    // This relies on the kernel identity-mapping `STACK_POOL_BASE..STACK_POOL_LIMIT`.
-    unsafe {
-        core::ptr::write_bytes(phys_base as *mut u8, 0, STACK_PAGES * PAGE_SIZE);
-    }
-    let flags = PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::USER;
-    let guard_bottom = USER_STACK_TOP - (STACK_PAGES + 1) * PAGE_SIZE;
-    #[cfg(feature = "debug_uart")]
-    {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = write!(
-            u,
-            "STACK: base=0x{:x} guard_bottom=0x{:x} pages={}\n",
-            phys_base, guard_bottom, STACK_PAGES
-        );
-    }
-    for page in 0..STACK_PAGES {
-        let page_va = guard_bottom + PAGE_SIZE + page * PAGE_SIZE;
-        let page_pa = phys_base + page * PAGE_SIZE;
-        address_spaces.map_page(handle, page_va, page_pa, flags)?;
-        #[cfg(feature = "debug_uart")]
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "STACK: map idx={} va=0x{:x} pa=0x{:x}\n", page, page_va, page_pa);
-        }
-    }
-    #[cfg(feature = "debug_uart")]
-    {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = write!(u, "STACK: top=0x{:x}\n", USER_STACK_TOP);
-    }
-    VirtAddr::page_aligned(USER_STACK_TOP).ok_or(SpawnError::InvalidStackPointer)
-}
+#[cfg(target_os = "none")]
+mod stack_pool;
+#[cfg(target_os = "none")]
+use stack_pool::allocate_guarded_stack;
 
 fn ensure_entry_in_kernel_text(
     entry: VirtAddr,
@@ -433,6 +339,8 @@ pub struct Task {
     last_spawn_fail_reason: Option<SpawnFailReason>,
     bootstrap_slot: Option<usize>,
     children: Vec<Pid>,
+    /// Arena ranges backing this task's image (`exec` records; teardown frees).
+    image_allocs: ImageAllocs,
 }
 
 /// Minimal guard metadata used by the trap handler to attribute user page faults.
@@ -484,6 +392,7 @@ impl Task {
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
             children: Vec::new(),
+            image_allocs: ImageAllocs::new(),
         }
     }
 
@@ -716,6 +625,7 @@ impl TaskTable {
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
             children: Vec::new(),
+            image_allocs: ImageAllocs::new(),
         };
         // B: the round-robin placement must respect the inherited mask.
         let clamped = clamp_home_to_affinity(
@@ -957,6 +867,7 @@ impl TaskTable {
             last_spawn_fail_reason: None,
             bootstrap_slot: Some(slot),
             children: Vec::new(),
+            image_allocs: ImageAllocs::new(),
         };
         // B: the round-robin placement must respect the inherited mask.
         task.home_cpu = clamp_home_to_affinity(
@@ -1085,17 +996,29 @@ impl TaskTable {
         Ok(())
     }
 
-    /// Marks the current task as exited and transitions it to the zombie state.
-    pub fn exit_current(&mut self, status: i32) {
-        let pid = self.current_pid().as_index();
-        if let Some(task) = self.tasks.get_mut(pid) {
-            task.state = TaskState::Zombie;
-            task.exit_code = Some(status);
-            task.caps = CapTable::default();
-            task.bootstrap_slot = None;
-            task.frame = TrapFrame::default();
-            task.children.clear();
+    /// Records the arena ranges backing `pid`'s process image (`exec`).
+    pub fn set_image_allocs(&mut self, pid: Pid, allocs: ImageAllocs) {
+        if let Some(task) = self.tasks.get_mut(pid.as_index()) {
+            task.image_allocs = allocs;
         }
+    }
+
+    /// Exits the current task (→ Zombie) and RETURNS its process-image ranges:
+    /// the zombie keeps only its exit code, so its image memory is the
+    /// caller's to hand back to the arena (see `syscall::api::task_image`).
+    #[must_use = "a dropped image record leaks the task's arena memory"]
+    pub fn exit_current(&mut self, status: i32) -> ImageAllocs {
+        let pid = self.current_pid().as_index();
+        let Some(task) = self.tasks.get_mut(pid) else {
+            return ImageAllocs::new();
+        };
+        task.state = TaskState::Zombie;
+        task.exit_code = Some(status);
+        task.caps = CapTable::default();
+        task.bootstrap_slot = None;
+        task.frame = TrapFrame::default();
+        task.children.clear();
+        task.image_allocs.take()
     }
 
     /// Blocks the current task and removes it from the scheduler (not runnable).

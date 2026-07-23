@@ -323,7 +323,7 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
             if let Some(handle) = task.address_space() {
                 if ctx.address_spaces.activate(handle).is_err() {
                     // Fail-fast: returning with a mismatched SATP is unsafe.
-                    ctx.tasks.exit_current(-22);
+                    crate::syscall::api::exit_current_and_release(ctx.tasks, -22);
                 }
             }
         }
@@ -816,7 +816,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                                 let _ = u.write_str("\n");
                             });
                             frame.x[10] = errno(EINVAL);
-                            tasks.exit_current(-22);
+                            crate::syscall::api::exit_current_and_release(tasks, -22);
                             return;
                         }
                     }
@@ -1315,7 +1315,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         }
                         // Also remove this PID from any waiter queues it may be registered in.
                         router.remove_waiter_from_all(doomed.as_raw());
-                        tasks.exit_current(-22);
+                        crate::syscall::api::exit_current_and_release(tasks, -22);
                         scheduler.purge(doomed);
                         scheduler.finish_current();
 
@@ -1335,7 +1335,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                                     if spaces.activate(handle).is_err() {
                                         // Fail-fast: this task cannot be safely resumed.
                                         let doomed = tasks.current_pid();
-                                        tasks.exit_current(-22);
+                                        crate::syscall::api::exit_current_and_release(tasks, -22);
                                         scheduler.purge(doomed);
                                         scheduler.finish_current();
                                         continue;
