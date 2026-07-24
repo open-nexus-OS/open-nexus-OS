@@ -35,6 +35,26 @@ hidrawd → inputd ──(keymap resolve, exists)──► imed ──► window
   ranking with insertion-order tie-breaks, lowest-freq-oldest-first
   eviction — training is a separate call so imed's password gate cannot be
   bypassed.
+- **Adaptive ranking (`userspace/ime-ranker`, TASK-0203)**: reorders an
+  engine's table-order candidates by learned use. Scoring is fixed-point
+  **Q8.8** — four saturating signals (personal frequency, in-context
+  `(prev, cand)` bigram, mild length prior, coarse recency **bucket** — a
+  caller counter, never a raw timestamp). No floats/RNG → bit-reproducible.
+  `rank` tie-breaks stably: **score desc → engine index → candidate bytes**,
+  so untrained candidates keep table order and a trained one overtakes it.
+  `train` takes only committed candidate bytes (password fields never call
+  it). The `PersonalStore` trait is storage-agnostic (TASK-0204 binds
+  statefsd `state:/ime/<lang>/…`); the in-memory `MemStore` is bounded by a
+  per-locale quota (≤ 4096) with deterministic least-valuable-first eviction,
+  and `forget` erases a candidate plus every bigram that referenced it.
+  **NDJSON** export/import (`export_ndjson`/`import_ndjson`) is a
+  byte-identical round trip written once over the trait: a versioned header
+  then one JSON line per record with hex-encoded candidate bytes (pure ASCII
+  → exact length bound, no CJK escaping). Import is fail-closed — bound the
+  line before parsing, skip malformed/oversized lines with a capped error
+  count, reject a bad-version header outright, and enforce the quota via the
+  store's eviction (a hostile profile can neither panic, overflow, nor grow
+  the store past its cap).
 - **Keymaps** stay in `userspace/keymaps` (TASK-0252); dead keys are marked
   `KeyOutput::Dead(char)` and only the composer interprets them.
 - **OSK + candidate strip** live in the `ime-ui` DSL overlay app — never in

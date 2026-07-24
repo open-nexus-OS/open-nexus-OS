@@ -20,11 +20,15 @@
 
 extern crate alloc;
 
+mod ndjson;
 mod score;
 mod store;
 
 use alloc::vec::Vec;
 
+pub use ndjson::{
+    export_ndjson, import_ndjson, ImportError, ImportReport, NDJSON_LINE_MAX, NDJSON_VERSION,
+};
 pub use score::{score, Bucket, ScoreInput, Q8_8};
 pub use store::{CandKey, DictStat, MemStore, PersonalStore, CAND_MAX, DEFAULT_QUOTA};
 

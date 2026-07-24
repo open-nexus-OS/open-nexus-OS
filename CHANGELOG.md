@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Added - 2026-07-24 (IME adaptive ranking engine — RFC-0075 Phase 4, TASK-0203 Package 1)
+### Added - 2026-07-24 (IME adaptive ranking + NDJSON — RFC-0075 Phase 4, TASK-0203 complete)
 
 - **`userspace/ime-ranker`** (new, no_std-capable, zero deps): the deterministic
   personalization layer that reorders an engine's table-order candidates by what
@@ -26,9 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     iteration, bounded per-locale quota (≤4096) with deterministic
     least-valuable-first eviction; `forget` erases a candidate and every bigram
     that referenced it.
-  - Proof: `cargo test -p ime-ranker` 9/9 goldens (overtake, in-context bigram,
-    recency, determinism, fail-closed oversized, eviction bound + determinism).
-  - NDJSON export/import + its reject matrix are Package 2 (next).
+  - NDJSON interchange (`ndjson.rs`): `export_ndjson`/`import_ndjson` written
+    once over the trait — a versioned header then one JSON line per record with
+    hex-encoded candidate bytes (pure ASCII → exact length bound, no CJK
+    escaping). A byte-identical round trip; import is fail-closed (bound the
+    line before parsing, skip malformed/oversized with a capped error count,
+    reject a bad-version header outright, enforce the quota via eviction).
+  - Proof: `cargo test -p ime-ranker` 16/16 (overtake, in-context bigram,
+    recency, determinism, fail-closed oversized candidate, eviction bound +
+    determinism, NDJSON round-trip + reject matrix + quota); `just check` +
+    `test-host` green. Next: TASK-0204 binds the store to statefsd + Settings UI.
 
 ### Fixed - 2026-07-24 (Shared-AS reap ordering — TASK-0304 Part 1)
 

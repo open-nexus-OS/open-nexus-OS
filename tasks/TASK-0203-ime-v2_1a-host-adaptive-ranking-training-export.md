@@ -1,6 +1,6 @@
 ---
 title: TASK-0203 IME v2.1a (host-first): deterministic adaptive ranking (Q8.8 freq/recency/bigram) + training + export/import + quota eviction
-status: In Progress (Package 1 done 2026-07-24 — ranking engine; Package 2 = NDJSON pending)
+status: Done (2026-07-24 — ranking engine + NDJSON; `cargo test -p ime-ranker` 16/16, just check + test-host green)
 owner: @ui
 created: 2025-12-27
 updated: 2026-07-21 (rewritten against repo reality; store trait targets statefsd in TASK-0204, not securefsd)
@@ -95,7 +95,7 @@ SecureFS gating is dropped. Encryption-at-rest is TASK-0300 (seed).
 
 1. Q8.8 scorer + training + goldens. ✅ (2026-07-24)
 2. PersonalStore trait + in-memory impl + eviction + goldens. ✅ (2026-07-24)
-3. NDJSON export/import + reject matrix + docs. ⬜ (Package 2, next)
+3. NDJSON export/import + reject matrix + docs. ✅ (2026-07-24)
 
 ## Progress
 
@@ -108,10 +108,22 @@ also erases referencing bigrams), `lib.rs` (`train` — saturating freq + bigram
 recency bucket; `rank` — stable tie-breakers: score desc → table index → bytes).
 Goldens pin: untrained keeps table order, one commit overtakes it, bigram lifts
 in-context only, recency favors recently-seen, training snapshot byte-identical,
-oversized candidate ignored fail-closed. NDJSON export/import + its reject matrix
-(`test_reject_import_*`) are Package 2. Design note: NDJSON is written ONCE as
+oversized candidate ignored fail-closed. Design note: NDJSON is written ONCE as
 free functions over the `PersonalStore` iteration methods, not per-backend trait
 methods (statefsd backend in TASK-0204 implements only storage primitives).
+
+**Package 2 — NDJSON interchange (DONE 2026-07-24, +7 goldens → 16/16):**
+`ndjson.rs` — `export_ndjson`/`import_ndjson` over the trait. Format: versioned
+header (`{"v":1,"kind":"ime-personal"}`) then one JSON line per dict/bigram
+record with **hex-encoded** candidate bytes (pure ASCII → exact length bound, no
+CJK escaping). Import is fail-closed: `data.is_empty()`→`Empty`; header
+mismatch→`BadHeader` (whole file rejected, nothing loaded); each line bounded to
+`NDJSON_LINE_MAX`=256 BEFORE parsing; malformed lines skipped with a
+`MAX_IMPORT_ERRORS`=256 cap; quota enforced via the store's eviction. Reject
+matrix + round-trip goldens: `export_import_round_trip_is_byte_identical`,
+`reject_import_{empty,bad_version,oversize_line,malformed_lines}`,
+`import_quota_enforced`, `export_is_deterministic`. **DoD met** (host proof +
+`just check`/`test-host` green). NEXT = TASK-0204 (statefsd OS wiring + Settings).
 
 ## Acceptance criteria (behavioral)
 
