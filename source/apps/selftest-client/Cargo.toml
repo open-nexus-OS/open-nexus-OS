@@ -54,6 +54,7 @@ os-lite = [
     "dep:inputd",
     "dep:systemui",
     "dep:keymaps",
+    "dep:ime-ranker",
     "dep:input-live-protocol",
 ]
 # Optional: legacy/bounded smoltcp-over-virtio probe for bring-up debugging.
@@ -108,6 +109,7 @@ touchd = { path = "../../../source/services/touchd", optional = true }
 inputd = { path = "../../../source/services/inputd", optional = true }
 systemui = { path = "../../../source/services/systemui", optional = true }
 keymaps = { path = "../../../userspace/keymaps", optional = true }
+ime-ranker = { path = "../../../userspace/ime-ranker", optional = true }
 input-live-protocol = { path = "../../../userspace/input-live-protocol", optional = true }
 smoltcp = { version = "0.10", default-features = false, features = ["alloc", "proto-ipv4", "socket-icmp", "socket-udp", "medium-ethernet"], optional = true }
 nexus-net-os = { path = "../../../userspace/nexus-net-os", default-features = false, features = ["os-lite"], optional = true }

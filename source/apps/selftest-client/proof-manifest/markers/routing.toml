@@ -42,6 +42,10 @@ proves = "the jp engine composes through the REAL service path: OP_SET_LAYOUT jp
 phase = "routing"
 proves = "candidate machinery end-to-end in imed: pinyin nihao + space opens candidates, OP_CANDIDATE_SELECT(0) commits 你好 (RFC-0075 Phase 3; strip rendering is the interactive proof)"
 
+[marker."SELFTEST: ime ranking ok"]
+phase = "routing"
+proves = "the deterministic ime-ranker runs in the OS runtime: one commit lifts a table-last candidate to the front, and that learned order survives an NDJSON export→import round trip (RFC-0075 Phase 4; the statefs-backed transport + live imed wiring are follow-up cuts)"
+
 [marker."SELFTEST: settings watch ok"]
 phase = "routing"
 proves = "settingsd OP_WATCH pushes applied changes (RFC-0078 spine)"

@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-24 (IME ranking runs in the OS — RFC-0075 Phase 4, TASK-0204 Package 2a)
+
+- **`SELFTEST: ime ranking ok`** — selftest-client now depends on `ime-ranker`
+  and drives a pure-crate probe in the bringup ladder: one commit lifts a
+  table-last candidate to the front, and that learned order survives an NDJSON
+  export→import (the shape the statefs load path reconstructs). Proves the
+  deterministic ranker runs correctly under the REAL service allocator
+  (no_std + alloc), not just on host. Green in `ci-os-smp1` (9/9 chain markers
+  unchanged); marker registered in the proof-manifest + qemu-test.sh sequence.
+  Chosen as the first OS slice because it needs no init wiring (the
+  imed→statefsd route is delicate) and no live candidate-flow surgery — those
+  land in 2b with the real statefs round-trip (`SELFTEST: ime ranking persist ok`).
+
+### Added - 2026-07-24 (IME personalization persistence binding — RFC-0075 Phase 4, TASK-0204 Package 1)
+
+- **`ime-ranker` persistence binding** (`persist.rs`): the host-testable half of
+  wiring the ranking store to disk, storage-agnostic behind a `BlobIo` trait
+  (imed will back it with statefsd `state:/ime/<lang>/…`; tests use a fake map).
+  - `PersistentStore` wraps `MemStore` with a dirty flag and the
+    `ime.personalization` on/off gate. One NDJSON blob per locale holds dict +
+    bigrams (self-describing format → one file, not two).
+  - **Coalesced write-back**: `train` only marks dirty; `flush` writes once, and
+    only when dirty + enabled + under `BLOB_MAX` (64 KiB) — never per-keystroke.
+  - **Fail-closed load**: a missing / oversized / non-UTF-8 / bad-header blob
+    yields an EMPTY store, never a failure (reuses the TASK-0203 reject matrix on
+    the read buffer).
+  - **Toggle gate**: off means no reads, no writes, no learning; `set_enabled`
+    off drops in-memory learning immediately; `forget_all` clears + truncates.
+  - Proof: `cargo test -p ime-ranker` 23/23 (round-trip preserves ranking across
+    reload, coalesced flush, toggle-off does zero IO, disabling drops learning,
+    corrupt/oversize load empty, forget truncates); `just check` + `test-host`
+    green. Package 2 binds it into imed + Settings + selftest.
+
 ### Added - 2026-07-24 (IME adaptive ranking + NDJSON — RFC-0075 Phase 4, TASK-0203 complete)
 
 - **`userspace/ime-ranker`** (new, no_std-capable, zero deps): the deterministic

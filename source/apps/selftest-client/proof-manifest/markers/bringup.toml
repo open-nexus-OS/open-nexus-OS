@@ -841,6 +841,9 @@ phase = "bringup"
 [marker."SELFTEST: ime v2 candidates FAIL"]
 phase = "bringup"
 
+[marker."SELFTEST: ime ranking FAIL"]
+phase = "bringup"
+
 [marker."SELFTEST: settings watch FAIL"]
 phase = "bringup"
 

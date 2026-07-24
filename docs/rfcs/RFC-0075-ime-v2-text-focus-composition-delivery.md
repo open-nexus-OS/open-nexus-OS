@@ -263,7 +263,11 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
   lane; the tap→commit-at-field chain is the interactive proof)
 - `imed: reject foreign key source` — negative injection selftest (Phase 2)
 - `SELFTEST: ime v2 cjk jp ok`, `SELFTEST: ime v2 candidates ok` (Phase 3)
-- `SELFTEST: ime ranking persist ok` (Phase 4)
+- `SELFTEST: ime ranking ok` (Phase 4, TASK-0204 2a — the deterministic ranker
+  runs in the OS runtime: one commit lifts a table-last candidate, and the order
+  survives an NDJSON export→import) ✅
+- `SELFTEST: ime ranking persist ok` (Phase 4, TASK-0204 2b — the real statefs
+  round-trip; pending)
 
 ## Alternatives considered
 

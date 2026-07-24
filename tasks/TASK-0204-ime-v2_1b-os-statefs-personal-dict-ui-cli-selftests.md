@@ -1,6 +1,6 @@
 ---
 title: TASK-0204 IME v2.1b (OS/QEMU): personalization store on statefsd (state:/ime) + Settings toggle/forget + selftests
-status: Draft
+status: In Progress (Package 1 done 2026-07-24 — host-testable persistence binding; Package 2 = imed/Settings/selftest OS wiring)
 owner: @ui
 created: 2025-12-27
 updated: 2026-07-21 (rewritten: retargeted securefsd → statefsd; securefsd does not exist, TASK-0183 Superseded; encryption-at-rest = TASK-0300 seed)
@@ -101,8 +101,55 @@ smallest honest production slice instead.
 ## Plan (small PRs)
 
 1. statefs PersonalStore binding + load/write-back + host tests against a
-   fake statefs.
+   fake statefs. ✅ (2026-07-24)
 2. ranking→candidate wiring + Settings toggle/forget + selftest + markers + docs.
+   - 2a. In-OS ranker selftest (`SELFTEST: ime ranking ok`). ✅ (2026-07-24)
+   - 2b. imed statefs BlobIo + live train-on-commit + rank-the-strip + Settings
+         toggle/forget + `SELFTEST: ime ranking persist ok`. ⬜
+
+## Progress
+
+**Package 1 — persistence binding (DONE 2026-07-24, host `cargo test -p ime-ranker`
+7 new / 23 total):** `ime-ranker/src/persist.rs` — the binding is host-testable,
+so it lives in the ranker crate (extends TASK-0203; slightly outside this task's
+imed-only allowlist by design — the statefs backend + wiring in Package 2 stay
+inside it). `BlobIo` trait (read/write whole blobs by path — imed backs it with
+statefsd, host tests with a fake map) + `PersistentStore` (wraps `MemStore` +
+dirty flag + `ime.personalization` enabled gate). Semantics:
+- **ONE NDJSON blob per locale** (`state:/ime/<lang>/personal.ndjson`) holds dict
+  + bigrams (the format is self-describing → one file replaces the sketched two).
+- **Coalesced write-back**: `train` only marks dirty; `flush` writes once, only
+  when dirty + enabled + under `BLOB_MAX` (64 KiB).
+- **Fail-closed load**: missing / oversized / non-UTF-8 / bad-header blob →
+  EMPTY store, never a failure (reuses the TASK-0203 reject matrix on the read
+  buffer).
+- **Toggle gate**: `enabled=off` → no reads, no writes, no learning;
+  `set_enabled(false)` drops in-memory learning immediately; `forget_all`
+  clears + truncates on next flush.
+- Goldens: round-trip preserves ranking across reload, flush coalesced,
+  toggle-off does zero IO, disabling drops learning, corrupt/oversize load
+  empty, forget truncates.
+**Package 2a — in-OS ranker selftest (DONE 2026-07-24, `SELFTEST: ime ranking ok`
+green in ci-os-smp1):** selftest-client depends on `ime-ranker` and drives a
+pure-crate probe (`os_lite/ime_ranking.rs`) in the bringup ladder — one commit
+lifts a table-last candidate to the front, and that order survives an NDJSON
+export→import (the shape the statefs load path reconstructs). Proves the
+deterministic ranker runs correctly under the REAL service allocator (no_std +
+alloc), not just on host. Marker registered in the proof-manifest
+(routing/bringup) + qemu-test.sh full sequence. Chosen as the first OS slice
+because it needs no init wiring (the imed→statefsd route is delicate) and no
+live candidate-flow surgery — those land in 2b where they can be verified
+interactively.
+
+**Package 2b (next)**: imed implements `BlobIo` over statefsd (init route +
+statefs client, mirroring settingsd's `statefs_client` + imed's existing
+settingsd-route precedent), loads at engine activation + writes back on
+idle/focus-loss, ranks the candidate strip, the Settings toggle/forget UI
+(`ime.personalization` key via TASK-0298 spine), the password-never-trains +
+toggle-off OS negative tests, and `SELFTEST: ime ranking persist ok` (real
+statefs round-trip; approval zone: qemu-test.sh + markers.txt). imed's commit
+hook = `candidate_select` (`os_lite.rs`); flush trigger = focus-loss
+(`set_focus(focused=false)`).
 
 ## Acceptance criteria (behavioral)
 

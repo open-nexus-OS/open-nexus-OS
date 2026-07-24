@@ -24,7 +24,7 @@ use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
 use crate::os_lite::context::PhaseCtx;
 use crate::os_lite::ipc::routing::{route_with_retry, routing_v1_get};
-use crate::os_lite::{imed, imed_osk, probes, services, settings_watch, timed};
+use crate::os_lite::{ime_ranking, imed, imed_osk, probes, services, settings_watch, timed};
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // keystored v1 (routing + put/get/del + negative cases)
@@ -68,6 +68,14 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_IME_V2_CANDIDATES_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_IME_V2_CANDIDATES_FAIL);
+    }
+    // RFC-0075 Phase 4: the deterministic ranker runs in the OS runtime — one
+    // commit lifts a table-last candidate, and that order survives an NDJSON
+    // export→import (the statefs reload shape). Pure crate proof, no IPC.
+    if ime_ranking::ime_ranking_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_IME_RANKING_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_IME_RANKING_FAIL);
     }
     // RFC-0076 wall clock: RTC-anchored UTC, plausible and monotonic-consistent.
     if timed::walltime_probe().is_ok() {

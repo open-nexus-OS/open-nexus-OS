@@ -3698,6 +3698,7 @@ dependencies = [
  "execd",
  "hid",
  "hidrawd",
+ "ime-ranker",
  "input-live-protocol",
  "inputd",
  "keymaps",
