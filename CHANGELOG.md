@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-24 (IME personalization is toggleable — RFC-0075 Phase 4, TASK-0204 complete)
+
+- **"Adaptive suggestions" On/Off toggle** in Settings → General management,
+  completing the personalizable IME (RFC-0075 Phase 4 / TASK-0204).
+  - imed reads `ime.personalization` (settingsd `OP_GET` over its existing
+    settings route, on focus-gain, 30 ms bounded so it never blocks the serve
+    loop) and applies it via `store.set_enabled`. Off = no reads, no writes, no
+    learning, and drops any in-memory learning immediately; a transient GET miss
+    keeps the current state (never a silent flip).
+  - Settings UI: the toggle dispatches `SetPersonalization` →
+    `svc.settings.set("ime.personalization", …)`; i18n in all 5 catalogs.
+  - Proof: imed host tests 15/15 (incl. `toggle_off_disables_learning`);
+    `ci-os-smp1` green (9/9, every ime marker unchanged). imed's unit tests were
+    split to `imed/src/tests.rs` (module-size ratchet). "Forget learned words"
+    UI is a noted follow-up (`ImedCore::forget_learned` exists; needs a
+    Settings→imed command path).
+
 ### Added - 2026-07-24 (IME candidates adapt to use — RFC-0075 Phase 4, TASK-0204 2b-live)
 
 - **imed now learns from commits and reranks the candidate strip.** `ImedCore`

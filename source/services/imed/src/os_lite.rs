@@ -239,10 +239,18 @@ fn handle_frame(
                 return Some((op, wire::STATUS_MALFORMED));
             };
             core.set_focus(surface_id, focused != 0, field_kind);
-            // TASK-0204: persist learned words on focus loss (coalesced write-back
-            // — only writes when the store is dirty).
-            if focused == 0 {
-                let _ = core.flush_store(&mut crate::statefs::StatefsBlobIo);
+            // TASK-0204: persist any pending learning across the focus change
+            // (coalesced — only writes when dirty), then on focus-GAIN re-read
+            // the `ime.personalization` toggle (settingsd SSOT, so a Settings
+            // change applies on the next focus) and reload the locale's blob
+            // (both no-op when personalization is off).
+            let mut io = crate::statefs::StatefsBlobIo;
+            let _ = core.flush_store(&mut io);
+            if focused != 0 {
+                if let Some(on) = read_personalization() {
+                    core.set_personalization(on);
+                }
+                core.load_store(&io);
             }
             Some((op, wire::STATUS_OK))
         }
@@ -414,6 +422,60 @@ fn persist_layout(layout: &str) {
         nexus_abi::IPC_SYS_TRUNCATE,
         deadline,
     );
+}
+
+/// TASK-0204: reads the `ime.personalization` toggle from settingsd (the SSOT)
+/// via imed's existing settings route. Returns the state, or `None` on any
+/// failure — the caller then KEEPS the current state, so a transient miss never
+/// silently flips personalization. Bounded drain; filters on OP_GET so a stale
+/// OP_SET reply on the shared inbox is skipped.
+fn read_personalization() -> Option<bool> {
+    use nexus_wire::settingsd as sw;
+    let mut req = [0u8; 64];
+    let n = sw::encode_get_req("ime.personalization", &mut req)?;
+    let reply_send = nexus_abi::cap_clone(SETTINGS_REPLY_SEND_SLOT).ok()?;
+    let hdr = nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
+    if nexus_abi::ipc_send_v1(SETTINGS_SEND_SLOT, &hdr, &req[..n], nexus_abi::IPC_SYS_NONBLOCK, 0)
+        .is_err()
+    {
+        let _ = nexus_abi::cap_close(reply_send);
+        return None;
+    }
+    // Short bound: settingsd answers a KV GET in ~1ms; this runs on the focus
+    // hot path, so a slow/busy settingsd must NOT block imed's serve loop —
+    // time out fast and keep the current toggle state.
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(30_000_000);
+    loop {
+        let mut rhdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 64];
+        let mut sid: u64 = 0;
+        match nexus_abi::ipc_recv_v2(
+            SETTINGS_REPLY_RECV_SLOT,
+            &mut rhdr,
+            &mut buf,
+            &mut sid,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(nn) => {
+                let nn = core::cmp::min(nn as usize, buf.len());
+                if let Some((status, value)) = sw::decode_response(sw::OP_GET, &buf[..nn]) {
+                    return (status == sw::STATUS_OK).then(|| value == "on");
+                }
+                if nexus_abi::nsec().unwrap_or(0) >= deadline {
+                    return None;
+                }
+                let _ = yield_();
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                if nexus_abi::nsec().unwrap_or(0) >= deadline {
+                    return None;
+                }
+                let _ = yield_();
+            }
+            Err(_) => return None,
+        }
+    }
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {

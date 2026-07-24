@@ -1,6 +1,6 @@
 ---
 title: TASK-0204 IME v2.1b (OS/QEMU): personalization store on statefsd (state:/ime) + Settings toggle/forget + selftests
-status: In Progress (Package 1 done 2026-07-24 — host-testable persistence binding; Package 2 = imed/Settings/selftest OS wiring)
+status: Done (2026-07-24 — statefs persist + live train/rank + `ime.personalization` toggle; "forget words" UI = noted follow-up)
 owner: @ui
 created: 2025-12-27
 updated: 2026-07-21 (rewritten: retargeted securefsd → statefsd; securefsd does not exist, TASK-0183 Superseded; encryption-at-rest = TASK-0300 seed)
@@ -108,8 +108,11 @@ smallest honest production slice instead.
      + real round-trip proof `SELFTEST: ime ranking persist ok`. ✅ (2026-07-24)
    - 2b-live. train-on-commit + rank-the-strip + load-on-activate +
      flush-on-focus-loss (in ImedCore). ✅ (2026-07-24)
-   - 2b-Settings. `ime.personalization` toggle wiring (imed reads/watches →
-     `store.set_enabled`) + Settings toggle/"forget" UI + toggle-off OS test. ⬜
+   - 2b-Settings. `ime.personalization` toggle: imed reads it (settingsd GET on
+     focus-gain) → `store.set_enabled`; Settings "Adaptive suggestions" On/Off
+     toggle; toggle-off host test. ✅ (2026-07-24) — "forget learned words" UI is
+     a noted follow-up (needs a Settings→imed command path; `ImedCore::forget_learned`
+     already exists).
 
 ## Progress
 
@@ -182,10 +185,20 @@ ImedCore now owns the personalization loop.
 - Visible reordering is verified interactively (`just start`) — the deterministic
   ladder uses an untrained store (identity order).
 
-**Package 2b-Settings (next)**: wire the `ime.personalization` key (already in
-settingsd's registry, TASK-0298 Done) into imed (read at boot + watch → 
-`store.set_enabled`), the Settings General-management toggle + "forget learned
-words" action, and the toggle-off OS negative test (off = no reads/writes/learning).
+**Package 2b-Settings (DONE 2026-07-24, imed host 15/15 + ci-os-smp1 green):**
+- **imed reads the toggle**: `read_personalization()` does a settingsd `OP_GET`
+  of `ime.personalization` over imed's existing settings route (no new wiring),
+  on focus-gain (30 ms bounded — never blocks the serve loop), applied via
+  `ImedCore::set_personalization` → `store.set_enabled`. A transient miss keeps
+  the current state (never a silent flip). Off = no reads/writes/learning + drops
+  in-memory learning (host test `toggle_off_disables_learning`).
+- **Settings UI**: an "Adaptive suggestions" On/Off toggle in General management
+  (`SettingsPage.nx` + `settings.store.nx` `SetPersonalization` → `svc.settings.set
+  ("ime.personalization", …)`), i18n keys in all 5 catalogs.
+- Module-size ratchet: imed's unit tests split to `imed/src/tests.rs`.
+- **"Forget learned words"** UI is a noted follow-up — `ImedCore::forget_learned`
+  exists, but there's no Settings→imed command path yet (Settings talks to
+  settingsd, not imed); a `ime.forget` pulse-key or a dedicated route is the cut.
 
 ## Acceptance criteria (behavioral)
 

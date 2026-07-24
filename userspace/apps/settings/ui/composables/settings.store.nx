@@ -20,6 +20,7 @@ Store SettingsStore {
     locale: Str = "de-DE",
     zone: Str = "Europe/Berlin",
     hourFmt: Str = "24h",
+    personalization: Str = "on",
     applyError: Int = 0,
 }
 
@@ -39,6 +40,7 @@ Event SettingsEvent {
     SetLocale(Str),
     SetZone(Str),
     SetHourFmt(Str),
+    SetPersonalization(Str),
     Applied(Bool),
     ApplyFailed(Int),
 }
@@ -151,6 +153,10 @@ reduce SettingsEvent {
         state.hourFmt = f;
         state.applyError = 0;
     },
+    SetPersonalization(v) => {
+        state.personalization = v;
+        state.applyError = 0;
+    },
     Applied(ok) => state.applyError = 0,
     ApplyFailed(code) => state.applyError = code,
 }
@@ -199,6 +205,13 @@ reduce SettingsEvent {
 
 @effect on SetHourFmt(f) {
     match svc.settings.set("time.format", f, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}
+
+@effect on SetPersonalization(v) {
+    match svc.settings.set("ime.personalization", v, timeoutMs: 250) {
         Ok(ok) => dispatch(Applied(ok)),
         Err(e) => dispatch(ApplyFailed(e)),
     }

@@ -32,7 +32,10 @@
   Inter + pinned Noto Sans CJK per script (full hangul block; han extracted
   from catalogs/engines/labels) so kana/hangul/han render real glyphs
   system-wide. `ui.font.family` live switching stays a recorded follow-up.)
-- **Phase 4 (personalization: ranking + statefs store)**: ⬜ (TASK-0203/0204)
+- **Phase 4 (personalization: ranking + statefs store)**: ✅
+  (2026-07-24 — `ime-ranker` deterministic ranking; imed trains on commit
+  (password-gated) + reranks the strip + persists per-locale through statefsd;
+  `ime.personalization` toggle. TASK-0203 + TASK-0204. "Forget words" UI = follow-up)
 
 Definition:
 
@@ -310,7 +313,9 @@ When writing this RFC, ensure:
 - [x] **Phase 1**: imed real + typing lands in apps + `ime` deleted — proof: boot ladder (`init: up imed`, `imed: ready`) + `SELFTEST: imed reject foreign ok` (green in `ci-os-smp1` 2026-07-21); positive typing chain interactive until Phase 2's OSK selftest
 - [x] **Phase 2**: ime-ui OSK + capability-gated injection (dedicated `imed-osk` endpoint + `nexus.permission.IME` + `ime` bundle-type ceiling) — proof: `SELFTEST: ime v2 osk ok` (green in `ci-os-smp1` 2026-07-22) + interactive OSK typing; `imed: reject foreign key source` covers the main-endpoint deny
 - [ ] **Phase 3**: CJK engines + candidate strip — proof: `SELFTEST: ime v2 cjk jp ok`, `SELFTEST: ime v2 candidates ok`
-- [ ] **Phase 4**: ranking + statefs store — proof: `SELFTEST: ime ranking persist ok`
+- [x] **Phase 4**: ranking + statefs store — proof: `SELFTEST: ime ranking persist ok`
+      (+ `ime ranking ok`; imed host tests 15/15; interactive: candidates reorder,
+      toggle On/Off) — TASK-0203/0204 Done (2026-07-24)
 - [ ] Task(s) linked with stop conditions + proof commands.
 - [ ] QEMU markers appear in `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` and pass.
 - [ ] Security-relevant negative tests exist (`test_reject_*`: foreign key source, non-windowd focus, password-field guards).

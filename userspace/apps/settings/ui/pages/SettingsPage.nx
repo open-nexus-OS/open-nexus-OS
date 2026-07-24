@@ -269,6 +269,19 @@ Page SettingsPage {
                                     }
                                     .direction(row)
                                     .gap(1)
+                                    Text(@t("settings.suggestions")).textSize(sm).fg(onSurfaceVariant)
+                                    Stack {
+                                        Stack {
+                                            Chip { label: @t("settings.on"), selected: $state.personalization == "on" }
+                                        }
+                                        on Tap -> dispatch(SetPersonalization("on"))
+                                        Stack {
+                                            Chip { label: @t("settings.off"), selected: $state.personalization == "off" }
+                                        }
+                                        on Tap -> dispatch(SetPersonalization("off"))
+                                    }
+                                    .direction(row)
+                                    .gap(1)
                                     if $state.applyError != 0 {
                                         Text(@t("settings.applyFailed")).fg(danger)
                                     } else {
