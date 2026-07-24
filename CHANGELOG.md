@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-24 (IME candidates adapt to use — RFC-0075 Phase 4, TASK-0204 2b-live)
+
+- **imed now learns from commits and reranks the candidate strip.** `ImedCore`
+  owns a per-locale `PersistentStore`:
+  - **train**: the single commit choke point (`plan()`, for engine-handled
+    commits — CJK candidate selects, dead-key composes) bumps the committed
+    candidate's frequency + the `(prev, cand)` bigram + recency. NEVER for
+    password fields (the password bypass never reaches `plan()`).
+  - **rank**: `plan()` reranks the visible candidate page via the store
+    (`ime-core CandidatePage::reordered`) — the user's frequent/recent/in-context
+    picks surface first; untrained candidates keep the engine's table order (so
+    `SELFTEST: ime v2 candidates ok` is unchanged).
+  - **persist**: `os_lite` loads the locale blob on layout switch
+    (`core.load_store`) and flushes on focus loss (`core.flush_store`,
+    coalesced), both over the statefsd `StatefsBlobIo`.
+  - Proof: imed host tests 14/14 (`text_field_commit_trains`,
+    `password_field_never_trains`, `learned_words_persist_across_reload`);
+    `ci-os-smp1` green with every ime marker unchanged (no regression). The
+    visible reordering is an interactive proof (`just start`).
+  - Next (2b-Settings): the `ime.personalization` toggle + "forget" UI.
+
 ### Added - 2026-07-24 (IME personalization persists through statefsd — RFC-0075 Phase 4, TASK-0204 2b-substrate)
 
 - **`SELFTEST: ime ranking persist ok`** — imed now persists its adaptive-ranking

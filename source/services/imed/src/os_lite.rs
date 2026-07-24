@@ -195,6 +195,8 @@ fn handle_osk_frame(
             };
             if core.layout_tag() != layout {
                 core.set_layout(layout);
+                // TASK-0204: load the new locale's personalization blob.
+                core.load_store(&crate::statefs::StatefsBlobIo);
                 persist_layout(layout);
             }
             Some((op, wire::STATUS_OK, empty))
@@ -237,6 +239,11 @@ fn handle_frame(
                 return Some((op, wire::STATUS_MALFORMED));
             };
             core.set_focus(surface_id, focused != 0, field_kind);
+            // TASK-0204: persist learned words on focus loss (coalesced write-back
+            // — only writes when the store is dirty).
+            if focused == 0 {
+                let _ = core.flush_store(&mut crate::statefs::StatefsBlobIo);
+            }
             Some((op, wire::STATUS_OK))
         }
         wire::OP_KEY => {
@@ -271,6 +278,8 @@ fn handle_frame(
             };
             if core.layout_tag() != layout {
                 core.set_layout(layout);
+                // TASK-0204: load the new locale's personalization blob.
+                core.load_store(&crate::statefs::StatefsBlobIo);
             }
             Some((op, wire::STATUS_OK))
         }

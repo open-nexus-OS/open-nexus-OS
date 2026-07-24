@@ -107,7 +107,9 @@ smallest honest production slice instead.
    - 2b-substrate. imed↔statefsd route (init) + statefs `BlobIo` + policy grant
      + real round-trip proof `SELFTEST: ime ranking persist ok`. ✅ (2026-07-24)
    - 2b-live. train-on-commit + rank-the-strip + load-on-activate +
-     flush-on-focus-loss + Settings toggle/forget UI. ⬜
+     flush-on-focus-loss (in ImedCore). ✅ (2026-07-24)
+   - 2b-Settings. `ime.personalization` toggle wiring (imed reads/watches →
+     `store.set_enabled`) + Settings toggle/"forget" UI + toggle-off OS test. ⬜
 
 ## Progress
 
@@ -161,13 +163,29 @@ green in ci-os-smp1):** the real statefs persistence chain, end to end.
   so the marker can't be lost). Marker registered in the proof-manifest +
   qemu-test.sh.
 
-**Package 2b-live (next)**: imed holds a `PersistentStore` per active locale,
-loads it at engine activation (`set_layout`), **trains** on `candidate_select`
-commits (password-gated via `field_kind`), **ranks** the candidate strip before
-pushing, and **flushes** on focus-loss (`set_focus(focused=false)`). Plus the
-Settings General-management toggle + "forget learned words" (`ime.personalization`
-key — already in settingsd's registry, TASK-0298 Done) + the password-never-trains
-/ toggle-off OS negative tests. Interactive proof (`just start`).
+**Package 2b-live (DONE 2026-07-24, imed host 14/14 + ci-os-smp1 no-regression):**
+ImedCore now owns the personalization loop.
+- `ImedCore` holds a `PersistentStore` (default enabled) + a `last_commit`
+  bigram-context buffer + a coarse `bucket` (bumped once per focus-gain).
+- **train**: `plan()` (the single commit choke point for engine-handled
+  commits — CJK candidate selects, dead-key composes) trains the committed
+  candidate + `(prev, cand)` bigram — NEVER for password fields (the password
+  bypass never reaches `plan()`; proven by `password_field_never_trains`).
+- **rank**: `plan()` reranks the visible candidate page via the store
+  (`ime-core CandidatePage::reordered`) — untrained candidates keep table order,
+  so `SELFTEST: ime v2 candidates ok` is unchanged.
+- **load/flush**: `os_lite` calls `core.load_store` on `set_layout` (per-locale
+  blob) and `core.flush_store` on focus-loss (coalesced write-back), both via
+  `StatefsBlobIo`.
+- Host tests: `text_field_commit_trains`, `password_field_never_trains`,
+  `learned_words_persist_across_reload` (fake `BlobIo`).
+- Visible reordering is verified interactively (`just start`) — the deterministic
+  ladder uses an untrained store (identity order).
+
+**Package 2b-Settings (next)**: wire the `ime.personalization` key (already in
+settingsd's registry, TASK-0298 Done) into imed (read at boot + watch → 
+`store.set_enabled`), the Settings General-management toggle + "forget learned
+words" action, and the toggle-off OS negative test (off = no reads/writes/learning).
 
 ## Acceptance criteria (behavioral)
 

@@ -14,7 +14,6 @@ os-lite = [
     "dep:nexus-abi",
     "dep:nexus-service-entry",
     "dep:nexus-ipc",
-    "dep:ime-ranker",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
 ]
@@ -24,7 +23,7 @@ stack_pages = 4
 
 [dependencies]
 ime-core = { path = "../../../userspace/ime-core" }
-ime-ranker = { path = "../../../userspace/ime-ranker", optional = true }
+ime-ranker = { path = "../../../userspace/ime-ranker" }
 nexus-wire = { path = "../../libs/nexus-wire" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }

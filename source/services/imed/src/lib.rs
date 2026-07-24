@@ -20,7 +20,11 @@ pub mod os_lite;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod statefs;
 
-use ime_core::{Engine, EngineId, EngineOutcome, ImeAction, ImeEngine, ImeKey, TextRun};
+use ime_core::{
+    CandidatePage, Engine, EngineId, EngineOutcome, ImeAction, ImeEngine, ImeKey, TextRun,
+    CANDIDATE_PAGE_MAX,
+};
+use ime_ranker::{BlobIo, Bucket, PersistentStore, CAND_MAX};
 use nexus_wire::imed as wire;
 
 /// UART marker proving imed is registered and serving (RFC-0075 semantics:
@@ -106,6 +110,17 @@ pub struct ImedCore {
     /// Non-empty preedit/candidates were pushed — an empty snapshot must
     /// follow once to CLEAR the strip (then stop pushing empties).
     strip_dirty: bool,
+    /// TASK-0204: adaptive-ranking personalization store for the active locale
+    /// (loaded by `os_lite` from statefsd on layout switch, flushed on focus
+    /// loss). Ranks the candidate strip and learns from commits.
+    store: PersistentStore,
+    /// The previously committed candidate's bytes — the `(prev, cand)` bigram
+    /// context. Reset on any focus/layout change (no cross-field learning).
+    last_commit: [u8; CAND_MAX],
+    last_commit_len: u8,
+    /// Coarse recency bucket: bumped once per focus-gain (a new editing
+    /// session), never a raw timestamp.
+    bucket: Bucket,
 }
 
 impl Default for ImedCore {
@@ -130,6 +145,12 @@ impl ImedCore {
             layout_len: 0,
             focus: None,
             strip_dirty: false,
+            // Personalization defaults ON; the `ime.personalization` Settings
+            // toggle is wired in a later cut (2b-Settings).
+            store: PersistentStore::new(true),
+            last_commit: [0; CAND_MAX],
+            last_commit_len: 0,
+            bucket: 0,
         }
     }
 
@@ -149,6 +170,7 @@ impl ImedCore {
     pub fn set_layout(&mut self, layout: &str) {
         self.engine = Engine::new(EngineId::for_layout(layout));
         self.strip_dirty = false;
+        self.reset_last_commit(); // no bigram across a language switch
         let b = layout.as_bytes();
         let n = b.len().min(self.layout.len());
         self.layout[..n].copy_from_slice(&b[..n]);
@@ -162,6 +184,12 @@ impl ImedCore {
         if next != self.focus {
             self.engine.reset();
             self.strip_dirty = false;
+            // No `(prev, cand)` bigram across a field boundary.
+            self.reset_last_commit();
+            // A new editing session advances the coarse recency bucket.
+            if focused {
+                self.bucket = self.bucket.saturating_add(1);
+            }
         }
         self.focus = next;
     }
@@ -170,12 +198,83 @@ impl ImedCore {
         self.focus.is_some_and(|f| f.field_kind == wire::FIELD_KIND_PASSWORD)
     }
 
+    fn last_commit_bytes(&self) -> Option<&[u8]> {
+        (self.last_commit_len > 0).then(|| &self.last_commit[..usize::from(self.last_commit_len)])
+    }
+
+    fn set_last_commit(&mut self, bytes: &[u8]) {
+        let n = bytes.len().min(CAND_MAX);
+        self.last_commit[..n].copy_from_slice(&bytes[..n]);
+        self.last_commit_len = n as u8;
+    }
+
+    fn reset_last_commit(&mut self) {
+        self.last_commit_len = 0;
+    }
+
+    /// statefsd key for the active locale's personalization blob.
+    fn store_key(&self) -> alloc::string::String {
+        let lang = if self.layout_len == 0 { "us" } else { self.layout_tag() };
+        alloc::format!("/state/ime/{lang}/personal")
+    }
+
+    /// Reranks a candidate page by the personalization store. Identity when the
+    /// page has 0/1 items (the store's own gate handles disabled/password).
+    fn rank_candidates(&self, page: &CandidatePage) -> CandidatePage {
+        let n = page.len();
+        if n <= 1 {
+            return *page;
+        }
+        let mut cands: [&[u8]; CANDIDATE_PAGE_MAX] = [b"".as_slice(); CANDIDATE_PAGE_MAX];
+        for (i, slot) in cands.iter_mut().enumerate().take(n) {
+            if let Some(c) = page.get(i) {
+                *slot = c.as_str().as_bytes();
+            }
+        }
+        let order = self.store.rank(self.last_commit_bytes(), &cands[..n], self.bucket);
+        page.reordered(&order)
+    }
+
+    /// Loads the active locale's personalization blob (statefsd on OS, a fake in
+    /// host tests). Called on engine activation / layout switch.
+    pub fn load_store<B: BlobIo>(&mut self, io: &B) {
+        let key = self.store_key();
+        self.store.load(io, &key);
+    }
+
+    /// Flushes the personalization blob back if dirty; returns whether it wrote.
+    /// Called on focus loss.
+    pub fn flush_store<B: BlobIo>(&mut self, io: &mut B) -> bool {
+        let key = self.store_key();
+        self.store.flush(io, &key)
+    }
+
+    /// Test-only: how many candidates the store has learned (0 = nothing).
+    #[cfg(test)]
+    fn learned_count(&self) -> usize {
+        use ime_ranker::PersonalStore;
+        self.store.store().dict_entries().len()
+    }
+
     /// Converts an engine outcome into a focused-surface push plan.
     fn plan(&mut self, outcome: &EngineOutcome) -> (Option<KeyPushes>, StepEcho) {
         let echo = StepEcho { commit: CommitText::from_str(outcome.commit.as_str()) };
         let Some(focus) = self.focus else {
             return (None, echo); // composition ran; delivery is focus-gated
         };
+        // TASK-0204: learn from a commit — NEVER for password fields (security
+        // invariant). Bumps the committed candidate's frequency, the
+        // `(prev, cand)` bigram, and its recency bucket; the store's own gate
+        // no-ops when personalization is off.
+        if !outcome.commit.is_empty() && !self.password_focused() {
+            // Copy `prev` to a stack buffer so the store can be borrowed mutably.
+            let prev_len = usize::from(self.last_commit_len);
+            let mut prev_buf = [0u8; CAND_MAX];
+            prev_buf[..prev_len].copy_from_slice(&self.last_commit[..prev_len]);
+            let prev = (prev_len > 0).then_some(&prev_buf[..prev_len]);
+            self.store.train(prev, outcome.commit.as_str().as_bytes(), self.bucket);
+            self.set_last_commit(outcome.commit.as_str().as_bytes());
+        }
         let commit =
             (!outcome.commit.is_empty()).then(|| CommitText::from_str(outcome.commit.as_str()));
         let action = outcome.pass_action.map(encode_action);
@@ -187,7 +286,9 @@ impl ImedCore {
             (None, None)
         } else if strip_active {
             self.strip_dirty = true;
-            (Some(outcome.preedit), Some(outcome.candidates))
+            // Personalization reorders the visible candidates (best-learned
+            // first); untrained candidates keep the engine's table order.
+            (Some(outcome.preedit), Some(self.rank_candidates(&outcome.candidates)))
         } else if self.strip_dirty {
             self.strip_dirty = false;
             (Some(TextRun::empty()), Some(ime_core::CandidatePage::empty()))
@@ -439,5 +540,55 @@ mod tests {
         assert_eq!(key(&mut core, 99, u32::from('a'), 0), None);
         assert_eq!(key(&mut core, wire::KEY_KIND_TEXT, 0xD800, 0), None); // invalid scalar
         assert_eq!(key(&mut core, wire::KEY_KIND_ACTION, 0, 99), None); // unknown action
+    }
+
+    // ——— TASK-0204: personalization learning + persistence integration ———
+
+    /// In-memory `BlobIo` for the load/flush round-trip test.
+    struct FakeIo(std::collections::BTreeMap<String, Vec<u8>>);
+    impl BlobIo for FakeIo {
+        fn read(&self, path: &str) -> Option<Vec<u8>> {
+            self.0.get(path).cloned()
+        }
+        fn write(&mut self, path: &str, bytes: &[u8]) -> bool {
+            self.0.insert(path.to_string(), bytes.to_vec());
+            true
+        }
+    }
+
+    /// A composed commit routed through `plan()` (dead key `´` + `e` → `é`) is
+    /// learned by the personalization store.
+    #[test]
+    fn text_field_commit_trains() {
+        let mut core = focused();
+        assert_eq!(key(&mut core, wire::KEY_KIND_DEAD, u32::from('´'), 0), None);
+        let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from('e'), 0).unwrap();
+        assert_eq!(push.commit.unwrap().as_str(), "é");
+        assert_eq!(core.learned_count(), 1, "the committed candidate is learned");
+    }
+
+    /// Security invariant: a PASSWORD field never trains — the password bypass
+    /// commits directly without routing through `plan()`.
+    #[test]
+    fn password_field_never_trains() {
+        let mut core = ImedCore::new();
+        core.set_focus(7, true, wire::FIELD_KIND_PASSWORD);
+        let _ = key(&mut core, wire::KEY_KIND_DEAD, u32::from('´'), 0);
+        let _ = key(&mut core, wire::KEY_KIND_TEXT, u32::from('e'), 0);
+        assert_eq!(core.learned_count(), 0, "password fields never learn");
+    }
+
+    /// Learned words survive a flush → reload (the statefs shape, faked here).
+    #[test]
+    fn learned_words_persist_across_reload() {
+        let mut io = FakeIo(std::collections::BTreeMap::new());
+        let mut core = focused();
+        let _ = key(&mut core, wire::KEY_KIND_DEAD, u32::from('´'), 0);
+        let _ = key(&mut core, wire::KEY_KIND_TEXT, u32::from('e'), 0);
+        assert!(core.flush_store(&mut io), "a dirty store flushes");
+
+        let mut restored = focused();
+        restored.load_store(&io);
+        assert_eq!(restored.learned_count(), 1, "learned words survive reload");
     }
 }

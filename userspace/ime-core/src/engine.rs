@@ -109,6 +109,22 @@ impl CandidatePage {
             self.len += 1;
         }
     }
+
+    /// Returns a copy of this page with its visible items reordered by `order`
+    /// (a permutation of `0..len` — e.g. from the personalization ranker). The
+    /// window identity (`page`/`total`/`len`) is preserved; only the on-screen
+    /// order changes. Out-of-range or short `order` entries fall back to the
+    /// original slot, so a malformed permutation can never lose or alias items.
+    #[must_use]
+    pub fn reordered(&self, order: &[usize]) -> Self {
+        let n = usize::from(self.len);
+        let mut out = *self;
+        for dst in 0..n {
+            let src = order.get(dst).copied().filter(|&s| s < n).unwrap_or(dst);
+            out.items[dst] = self.items[src];
+        }
+        out
+    }
 }
 
 /// Result of one engine step — a full bounded SNAPSHOT (preedit + candidate
