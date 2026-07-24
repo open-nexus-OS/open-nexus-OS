@@ -1,0 +1,12 @@
+[package]
+name = "ime-ranker"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "ime_ranker"
+path = "src/lib.rs"
+
+# Zero dependencies: core + alloc only (no_std-capable, deterministic).
+[dependencies]

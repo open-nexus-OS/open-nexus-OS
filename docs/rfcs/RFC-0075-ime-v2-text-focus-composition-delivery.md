@@ -175,6 +175,21 @@ visual is retired in Phase 2.
 - **Phase 3**: CJK engines + candidate strip (TASK-0149/0150).
 - **Phase 4**: personalization — deterministic ranking + statefs store,
   toggle/forget (TASK-0203/0204; encryption-at-rest = TASK-0300 seed).
+  - **Ranking model (TASK-0203, `userspace/ime-ranker`)**: a candidate's rank
+    score is a pure fixed-point **Q8.8** sum of four saturating signals —
+    personal **frequency**, an in-context **`(prev, cand)` bigram**, a mild
+    **length prior**, and a coarse **recency bucket** (a caller-supplied
+    monotonic counter, NEVER a raw timestamp). Ranking is deterministic with
+    stable tie-breakers: **score desc → engine table index → candidate bytes**,
+    so untrained candidates keep table order and a trained one overtakes it.
+    `train` takes only committed candidate bytes (never raw field text) and
+    bumps freq + bigram + recency; a `password` field never calls it.
+  - **Store (`PersonalStore`)**: storage-agnostic trait (TASK-0204 backs it with
+    statefsd `state:/ime/<lang>/…`); deterministic sorted iteration; bounded by
+    a per-locale quota (≤4096) with deterministic least-valuable-first eviction;
+    `forget` erases a candidate and every bigram that referenced it. NDJSON
+    export/import (versioned, fail-closed, quota-enforced) is written once as
+    free functions over the trait.
 
 ## Security considerations
 

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-24 (IME adaptive ranking engine — RFC-0075 Phase 4, TASK-0203 Package 1)
+
+- **`userspace/ime-ranker`** (new, no_std-capable, zero deps): the deterministic
+  personalization layer that reorders an engine's table-order candidates by what
+  the user actually picks — without ever becoming nondeterministic or unbounded.
+  - Fixed-point **Q8.8** scoring (`score.rs`): four saturating signals — personal
+    frequency, in-context `(prev, cand)` bigram, a mild length prior, and a
+    coarse recency bucket (a caller-supplied monotonic counter, never a raw
+    timestamp). No floats, no RNG → bit-reproducible.
+  - `train`/`rank` (`lib.rs`): `train` bumps freq + bigram + recency from a
+    committed candidate (never raw field text; password fields never call it);
+    `rank` returns a permutation with stable tie-breakers (score desc → engine
+    table index → candidate bytes), so untrained candidates keep table order and
+    a trained one overtakes it.
+  - `PersonalStore` trait + `MemStore` reference impl (`store.rs`):
+    storage-agnostic (TASK-0204 binds it to statefsd), deterministic sorted
+    iteration, bounded per-locale quota (≤4096) with deterministic
+    least-valuable-first eviction; `forget` erases a candidate and every bigram
+    that referenced it.
+  - Proof: `cargo test -p ime-ranker` 9/9 goldens (overtake, in-context bigram,
+    recency, determinism, fail-closed oversized, eviction bound + determinism).
+  - NDJSON export/import + its reject matrix are Package 2 (next).
+
 ### Fixed - 2026-07-24 (Shared-AS reap ordering — TASK-0304 Part 1)
 
 - **A reaped thread no longer logs a spurious `TASK: destroy as failed InUse`.**

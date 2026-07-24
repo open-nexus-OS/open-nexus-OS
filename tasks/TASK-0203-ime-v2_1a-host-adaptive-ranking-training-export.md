@@ -1,6 +1,6 @@
 ---
 title: TASK-0203 IME v2.1a (host-first): deterministic adaptive ranking (Q8.8 freq/recency/bigram) + training + export/import + quota eviction
-status: Draft
+status: In Progress (Package 1 done 2026-07-24 — ranking engine; Package 2 = NDJSON pending)
 owner: @ui
 created: 2025-12-27
 updated: 2026-07-21 (rewritten against repo reality; store trait targets statefsd in TASK-0204, not securefsd)
@@ -93,9 +93,25 @@ SecureFS gating is dropped. Encryption-at-rest is TASK-0300 (seed).
 
 ## Plan (small PRs)
 
-1. Q8.8 scorer + training + goldens.
-2. PersonalStore trait + in-memory impl + eviction + goldens.
-3. NDJSON export/import + reject matrix + docs.
+1. Q8.8 scorer + training + goldens. ✅ (2026-07-24)
+2. PersonalStore trait + in-memory impl + eviction + goldens. ✅ (2026-07-24)
+3. NDJSON export/import + reject matrix + docs. ⬜ (Package 2, next)
+
+## Progress
+
+**Package 1 — ranking engine (DONE 2026-07-24, `cargo test -p ime-ranker` 9/9):**
+`userspace/ime-ranker` (new, no_std-capable, zero deps): `score.rs` (Q8.8
+scoring — freq/bigram/length/recency, all saturating, `now`-relative recency),
+`store.rs` (`PersonalStore` trait + `MemStore` BTree reference impl + bounded
+per-locale quota eviction, deterministic least-valuable-first + `forget` that
+also erases referencing bigrams), `lib.rs` (`train` — saturating freq + bigram +
+recency bucket; `rank` — stable tie-breakers: score desc → table index → bytes).
+Goldens pin: untrained keeps table order, one commit overtakes it, bigram lifts
+in-context only, recency favors recently-seen, training snapshot byte-identical,
+oversized candidate ignored fail-closed. NDJSON export/import + its reject matrix
+(`test_reject_import_*`) are Package 2. Design note: NDJSON is written ONCE as
+free functions over the `PersonalStore` iteration methods, not per-backend trait
+methods (statefsd backend in TASK-0204 implements only storage primitives).
 
 ## Acceptance criteria (behavioral)
 
