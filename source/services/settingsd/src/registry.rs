@@ -94,8 +94,11 @@ fn is_time_format(v: &str) -> bool {
     matches!(v, "24h" | "12h")
 }
 
-fn is_on_off(v: &str) -> bool {
-    matches!(v, "on" | "off")
+/// `ime.personalization` (TASK-0204): `on`/`off` are the persisted toggle
+/// states; `forget` is a one-shot command — imed clears its learned store,
+/// re-enables, and writes the key back to `on` (so it never rests at `forget`).
+fn is_personalization(v: &str) -> bool {
+    matches!(v, "on" | "off" | "forget")
 }
 
 /// The registered key table (the SSOT of what exists). Adding a setting =
@@ -113,7 +116,7 @@ const SPECS: &[KeySpec] = &[
     KeySpec { key: "input.keymap", default: "de", validate: is_keymap },
     KeySpec { key: "time.zone", default: "Europe/Berlin", validate: is_time_zone },
     KeySpec { key: "time.format", default: "24h", validate: is_time_format },
-    KeySpec { key: "ime.personalization", default: "on", validate: is_on_off },
+    KeySpec { key: "ime.personalization", default: "on", validate: is_personalization },
 ];
 
 /// The typed registry: current values per registered key (default until set).

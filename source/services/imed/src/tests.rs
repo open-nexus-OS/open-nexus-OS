@@ -199,3 +199,15 @@ fn toggle_off_disables_learning() {
     let _ = key(&mut core, wire::KEY_KIND_TEXT, u32::from('e'), 0);
     assert_eq!(core.learned_count(), 0, "personalization off = no learning");
 }
+
+/// "Forget learned words" clears the store but keeps personalization enabled.
+#[test]
+fn forget_clears_learned_words() {
+    let mut core = focused();
+    let _ = key(&mut core, wire::KEY_KIND_DEAD, u32::from('´'), 0);
+    let _ = key(&mut core, wire::KEY_KIND_TEXT, u32::from('e'), 0);
+    assert_eq!(core.learned_count(), 1);
+    core.forget_learned();
+    assert_eq!(core.learned_count(), 0, "forget clears all learned words");
+    assert!(core.personalization_enabled(), "forget keeps personalization on");
+}

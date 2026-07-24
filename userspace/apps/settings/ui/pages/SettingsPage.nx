@@ -279,8 +279,13 @@ Page SettingsPage {
                                             Chip { label: @t("settings.off"), selected: $state.personalization == "off" }
                                         }
                                         on Tap -> dispatch(SetPersonalization("off"))
+                                        Stack {
+                                            Chip { label: @t("settings.forgetWords"), selected: false }
+                                        }
+                                        on Tap -> dispatch(Forget)
                                     }
                                     .direction(row)
+                                    .wrap(true)
                                     .gap(1)
                                     if $state.applyError != 0 {
                                         Text(@t("settings.applyFailed")).fg(danger)

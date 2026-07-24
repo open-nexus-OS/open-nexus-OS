@@ -14,8 +14,12 @@
 //!   `APPHOST: atlas mapped`) + arena-flat open/close storm
 
 /// The child's fixed slot for the shared atlas VMO (read-only). The app-host
-/// maps it and installs it as its text atlas base.
-const CHILD_ATLAS_VMO_SLOT: u32 = 15;
+/// maps it and installs it as its text atlas base. MUST stay clear of the
+/// `nexus-sdk-routes` `child_slot` range (11..=18) — slot 15 collided with the
+/// `settings` route (`nexus.permission.SETTINGS`), so the settings app's
+/// settingsd grant failed and no toggled setting applied. Kept at 19 (above the
+/// route range); the matching constant is `app-host`'s `ATLAS_VMO_SLOT`.
+const CHILD_ATLAS_VMO_SLOT: u32 = 19;
 
 /// Creates the shared glyph-atlas VMO and fills it from the embedded blob (one
 /// copy for ALL app-hosts). Returns execd's cap slot, or `None` on any failure

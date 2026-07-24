@@ -247,8 +247,19 @@ fn handle_frame(
             let mut io = crate::statefs::StatefsBlobIo;
             let _ = core.flush_store(&mut io);
             if focused != 0 {
-                if let Some(on) = read_personalization() {
-                    core.set_personalization(on);
+                match read_personalization() {
+                    Some(PersonalizationSetting::On) => core.set_personalization(true),
+                    Some(PersonalizationSetting::Off) => core.set_personalization(false),
+                    Some(PersonalizationSetting::Forget) => {
+                        // "Forget learned words": clear + re-enable + truncate
+                        // the blob now, and reset the key so it never rests at
+                        // `forget` (settingsd is the SSOT).
+                        core.forget_learned();
+                        core.set_personalization(true);
+                        let _ = core.flush_store(&mut io);
+                        set_setting("ime.personalization", "on");
+                    }
+                    None => {}
                 }
                 core.load_store(&io);
             }
@@ -386,30 +397,28 @@ const SETTINGS_SEND_SLOT: u32 = 0x08;
 const SETTINGS_REPLY_RECV_SLOT: u32 = 0x09;
 const SETTINGS_REPLY_SEND_SLOT: u32 = 0x0A;
 
-/// Persists an OSK-driven layout switch to `input.keymap` (settingsd is the
-/// SSOT; the watch spine then fans out to inputd/windowd/every OSK). The
-/// reply-SEND is CLONED per request and CAP_MOVEd (mint→grant, zero
-/// accumulation); the answer is drained bounded so the inbox never fills.
-fn persist_layout(layout: &str) {
+/// Writes a settingsd key (settingsd is the SSOT; its watch spine then fans out
+/// to inputd/windowd/OSK). The reply-SEND is CLONED per request and CAP_MOVEd
+/// (mint→grant, zero accumulation); the answer is drained bounded so the inbox
+/// never fills. Human-rate — never on the per-key hot path.
+fn set_setting(key: &str, value: &str) {
     use nexus_wire::settingsd as sw;
     let mut req = [0u8; 300];
-    let Some(n) = sw::encode_set_req("input.keymap", layout, &mut req) else {
+    let Some(n) = sw::encode_set_req(key, value, &mut req) else {
         return;
     };
     let Ok(reply_send) = nexus_abi::cap_clone(SETTINGS_REPLY_SEND_SLOT) else {
-        emit_line("imed: FAIL layout persist (reply clone)");
+        emit_line("imed: FAIL setting write (reply clone)");
         return;
     };
     let hdr = nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
     if nexus_abi::ipc_send_v1(SETTINGS_SEND_SLOT, &hdr, &req[..n], nexus_abi::IPC_SYS_NONBLOCK, 0)
         .is_err()
     {
-        emit_line("imed: FAIL layout persist (send)");
+        emit_line("imed: FAIL setting write (send)");
         let _ = nexus_abi::cap_close(reply_send);
         return;
     }
-    // Bounded answer drain (deadline-blocked, never a spin): layout
-    // switches are human-rate — a short wait keeps the inbox empty.
     let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(200_000_000);
     let mut rhdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut sid: u64 = 0;
@@ -424,12 +433,25 @@ fn persist_layout(layout: &str) {
     );
 }
 
-/// TASK-0204: reads the `ime.personalization` toggle from settingsd (the SSOT)
-/// via imed's existing settings route. Returns the state, or `None` on any
-/// failure — the caller then KEEPS the current state, so a transient miss never
-/// silently flips personalization. Bounded drain; filters on OP_GET so a stale
-/// OP_SET reply on the shared inbox is skipped.
-fn read_personalization() -> Option<bool> {
+/// Persists an OSK-driven layout switch to `input.keymap`.
+fn persist_layout(layout: &str) {
+    set_setting("input.keymap", layout);
+}
+
+/// The `ime.personalization` setting as imed sees it: the persisted `On`/`Off`
+/// toggle, or the one-shot `Forget` command (Settings "forget learned words").
+enum PersonalizationSetting {
+    On,
+    Off,
+    Forget,
+}
+
+/// TASK-0204: reads `ime.personalization` from settingsd (the SSOT) via imed's
+/// existing settings route. Returns the state, or `None` on any failure — the
+/// caller then KEEPS the current state, so a transient miss never silently
+/// flips personalization. Bounded drain; filters on OP_GET so a stale OP_SET
+/// reply on the shared inbox is skipped.
+fn read_personalization() -> Option<PersonalizationSetting> {
     use nexus_wire::settingsd as sw;
     let mut req = [0u8; 64];
     let n = sw::encode_get_req("ime.personalization", &mut req)?;
@@ -460,7 +482,14 @@ fn read_personalization() -> Option<bool> {
             Ok(nn) => {
                 let nn = core::cmp::min(nn as usize, buf.len());
                 if let Some((status, value)) = sw::decode_response(sw::OP_GET, &buf[..nn]) {
-                    return (status == sw::STATUS_OK).then(|| value == "on");
+                    if status != sw::STATUS_OK {
+                        return None;
+                    }
+                    return match value {
+                        "on" => Some(PersonalizationSetting::On),
+                        "forget" => Some(PersonalizationSetting::Forget),
+                        _ => Some(PersonalizationSetting::Off),
+                    };
                 }
                 if nexus_abi::nsec().unwrap_or(0) >= deadline {
                     return None;

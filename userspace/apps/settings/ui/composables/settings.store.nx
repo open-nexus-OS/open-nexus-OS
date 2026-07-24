@@ -41,6 +41,7 @@ Event SettingsEvent {
     SetZone(Str),
     SetHourFmt(Str),
     SetPersonalization(Str),
+    Forget,
     Applied(Bool),
     ApplyFailed(Int),
 }
@@ -157,6 +158,10 @@ reduce SettingsEvent {
         state.personalization = v;
         state.applyError = 0;
     },
+    Forget => {
+        state.personalization = "on";
+        state.applyError = 0;
+    },
     Applied(ok) => state.applyError = 0,
     ApplyFailed(code) => state.applyError = code,
 }
@@ -212,6 +217,13 @@ reduce SettingsEvent {
 
 @effect on SetPersonalization(v) {
     match svc.settings.set("ime.personalization", v, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}
+
+@effect on Forget {
+    match svc.settings.set("ime.personalization", "forget", timeoutMs: 250) {
         Ok(ok) => dispatch(Applied(ok)),
         Err(e) => dispatch(ApplyFailed(e)),
     }

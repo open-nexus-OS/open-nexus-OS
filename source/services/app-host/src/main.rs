@@ -145,8 +145,8 @@ mod probe {
         (&PAYLOAD_BUDGET_NS) as *const u64 as usize
     }
 
-    /// RFC-0080: the fixed slot execd grants the shared glyph-atlas VMO into.
-    const ATLAS_VMO_SLOT: u32 = 15;
+    /// RFC-0080: slot execd grants the shared atlas VMO into (=execd `CHILD_ATLAS_VMO_SLOT`; clear of sdk-routes child_slots 11..=18).
+    const ATLAS_VMO_SLOT: u32 = 19;
     /// VA where the atlas maps (read-only) — clear of the ELF image and the
     /// stack/meta window at 0x2000_0000.
     const ATLAS_VA: usize = 0x3000_0000;

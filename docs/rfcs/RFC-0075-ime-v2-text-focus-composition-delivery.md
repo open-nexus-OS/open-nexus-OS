@@ -1,6 +1,6 @@
 # RFC-0075: IME v2 — text focus, composition and delivery contract
 
-- Status: In Progress (Phase 0 proven on host 2026-07-21)
+- Status: Complete (2026-07-24 — all phases 0–4 + 8b/8c/8d proven; TASK-0146/0147/0149/0150/0203/0204 Done. Follow-ups: `ui.font.family` live switch, TASK-0202 runtime font cache)
 - Owners: @ui
 - Created: 2026-07-21
 - Last Updated: 2026-07-21

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-24 (Settings app couldn't reach settingsd — atlas slot collision)
+
+- **Toggling a setting in the Settings app now applies.** RFC-0080 granted the
+  shared glyph-atlas VMO into app-host child slot **15**, but that is exactly the
+  `nexus-sdk-routes` `child_slot` of the `settings` route — so execd's settingsd
+  grant to the Settings app failed (`execd: FAIL app route grant svc=settings`)
+  and every toggle died with `apphost: dsl svc settings.set FAIL (settingsd
+  unreachable)`. The atlas VMO moved to slot **19** (clear of the route range
+  11..=18) in execd (`CHILD_ATLAS_VMO_SLOT`) + app-host (`ATLAS_VMO_SLOT`); the
+  atlas still maps (boot-proven), and the settings route now gets slot 15.
+
+### Added - 2026-07-24 ("Forget learned words" — RFC-0075 Phase 4, TASK-0204)
+
+- **A "Forget learned words" button** in Settings → General management clears the
+  IME's learned personalization. Implemented as a one-shot value on the existing
+  key: the button sets `ime.personalization = "forget"`; on the next focus imed
+  clears its store, re-enables learning, truncates the on-disk blob, and writes
+  the key back to `on` (so it never rests at `forget`). settingsd's validator
+  accepts `on`/`off`/`forget`. Proof: imed host tests 16/16
+  (`forget_clears_learned_words`); `ci-os-smp1` green.
+
 ### Added - 2026-07-24 (IME personalization is toggleable — RFC-0075 Phase 4, TASK-0204 complete)
 
 - **"Adaptive suggestions" On/Off toggle** in Settings → General management,

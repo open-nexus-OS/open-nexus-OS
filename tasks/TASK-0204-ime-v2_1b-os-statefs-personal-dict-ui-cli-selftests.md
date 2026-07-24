@@ -108,11 +108,10 @@ smallest honest production slice instead.
      + real round-trip proof `SELFTEST: ime ranking persist ok`. ✅ (2026-07-24)
    - 2b-live. train-on-commit + rank-the-strip + load-on-activate +
      flush-on-focus-loss (in ImedCore). ✅ (2026-07-24)
-   - 2b-Settings. `ime.personalization` toggle: imed reads it (settingsd GET on
-     focus-gain) → `store.set_enabled`; Settings "Adaptive suggestions" On/Off
-     toggle; toggle-off host test. ✅ (2026-07-24) — "forget learned words" UI is
-     a noted follow-up (needs a Settings→imed command path; `ImedCore::forget_learned`
-     already exists).
+   - 2b-Settings. `ime.personalization` toggle + "forget learned words": imed
+     reads the key (settingsd GET on focus-gain) → `store.set_enabled`; the
+     `forget` value clears the store + re-enables + writes `on` back; Settings
+     On/Off toggle + Forget button; toggle-off + forget host tests. ✅ (2026-07-24)
 
 ## Progress
 
@@ -196,9 +195,14 @@ ImedCore now owns the personalization loop.
   (`SettingsPage.nx` + `settings.store.nx` `SetPersonalization` → `svc.settings.set
   ("ime.personalization", …)`), i18n keys in all 5 catalogs.
 - Module-size ratchet: imed's unit tests split to `imed/src/tests.rs`.
-- **"Forget learned words"** UI is a noted follow-up — `ImedCore::forget_learned`
-  exists, but there's no Settings→imed command path yet (Settings talks to
-  settingsd, not imed); a `ime.forget` pulse-key or a dedicated route is the cut.
+- **"Forget learned words"** (DONE): a one-shot value on the SAME key
+  (`ime.personalization = "forget"`) avoids a Settings→imed route — imed clears
+  the store, re-enables, truncates the blob, and writes `on` back (never rests at
+  `forget`). settingsd validator accepts on/off/forget; Settings Forget button;
+  host test `forget_clears_learned_words`.
+- **Settings-apply bug FIXED (pre-req)**: RFC-0080 granted the shared atlas VMO
+  into child slot 15 = the `settings` route's `child_slot`, so execd's settingsd
+  grant to the Settings app failed and NO toggle applied. Atlas moved to slot 19.
 
 ## Acceptance criteria (behavioral)
 
