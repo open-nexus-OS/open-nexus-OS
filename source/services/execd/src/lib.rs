@@ -21,6 +21,8 @@ extern crate alloc;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod atlas_vmo;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod crash_fields;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub use os_lite::*;

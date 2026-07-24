@@ -271,3 +271,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0078-settings-region-keys-watch.md
 - RFC-0079: IPC last-sender EOF — opt-in receiver disconnect (`IPC_SYS_EOF` recv flag + `PeerClosed`); an endpoint that HAD a sender and now has none returns EOF (monotonic `had_sender` latch + all-tables SEND-cap scan, fail-safe), letting a closed-window app-host self-exit so its image returns to the arena (RFC-0075 8f loop closed). NOT a cross-task kill (Draft 2026-07-23 — execution TASK-0301)
   - docs/rfcs/RFC-0079-ipc-last-sender-eof.md
+- RFC-0080: Shared glyph-atlas RO VMO — the ~4.25 MB baked atlas is ONE shared read-only mapping (execd owns + RO-clone-grants it per app-host at a fixed slot; `sys_map` maps it RO). Kill per-instance duplication; the RO-only VMO right (`VmoRo`, `vmo_share_readonly` SYSCALL 51, kernel-enforced WRITE|EXEC strip) hardens it against a compromised runtime (Draft 2026-07-23 — execution TASK-0302)
+  - docs/rfcs/RFC-0080-shared-atlas-ro-vmo.md
+- RFC-0081: Process reaper — non-blocking service-driven zombie reclaim. `SYSCALL_WAIT_NOHANG (52)` + `nexus-abi::wait_nohang`; execd becomes reaper-of-record, sweeping its exited children each serve-loop iteration so a closed-window app-host's address space (heap-backed page tables) is reclaimed with no client waiting — closes the RFC-0079 self-exit → RFC-0075 8f reclaim loop and removes the `ALLOC-FAIL` bridge. Thread-teardown deferred to TASK-0304 (Draft 2026-07-23 — execution TASK-0303)
+  - docs/rfcs/RFC-0081-process-reaper-nonblocking-reclaim.md

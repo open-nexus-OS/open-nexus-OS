@@ -512,6 +512,30 @@ pub(super) fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
     Ok(pid.as_index())
 }
 
+/// RFC-0081: non-blocking reap. Reaps ONE ready zombie child of the caller and
+/// returns its pid (a0) + exit status (a1); returns 0 (a0) WITHOUT blocking when
+/// no child is ready (`WouldBlock`) or the caller has no children. A reaped
+/// child is always pid >= 1 (PID 0 is the kernel), so 0 is an unambiguous
+/// "nothing reaped" sentinel. Real errors propagate. `wait` (blocking) is
+/// untouched — this is a pure sibling for service reaper loops.
+pub(super) fn sys_wait_nohang(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
+    match ctx.tasks.reap_child(None, ctx.address_spaces) {
+        Ok((pid, status)) => {
+            if let Some(task) = ctx.tasks.task_mut(ctx.tasks.current_pid()) {
+                task.frame_mut().x[11] = status as usize;
+            }
+            Ok(pid.as_index())
+        }
+        Err(task::WaitError::WouldBlock) | Err(task::WaitError::NoChildren) => {
+            if let Some(task) = ctx.tasks.task_mut(ctx.tasks.current_pid()) {
+                task.frame_mut().x[11] = 0;
+            }
+            Ok(0)
+        }
+        Err(err) => Err(Error::from(err)),
+    }
+}
+
 pub(super) fn sys_task_resume(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let pid_raw = args.get(0) as u32;
     let pid = task::Pid::from_raw(pid_raw);

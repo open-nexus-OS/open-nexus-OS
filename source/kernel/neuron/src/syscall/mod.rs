@@ -85,6 +85,12 @@ pub const SYSCALL_BOOT_DISPLAY_MODE: usize = 50;
 /// RFC-0080: derive a READ-ONLY alias (`VmoRo`) of a VMO for shared read-only
 /// mapping (the glyph atlas). Args: (vmo_cap_slot) → new alias slot.
 pub const SYSCALL_VMO_SHARE_RO: usize = 51;
+/// RFC-0081: non-blocking reap of ONE ready zombie child. Like `SYSCALL_WAIT`
+/// (12) but returns 0 (in a0) instead of blocking when no child is ready; a
+/// reaped child returns its pid in a0 and exit status in a1. Lets a service
+/// (execd) reap fire-and-forget children in its serve loop so their address
+/// space is reclaimed without a client waiting.
+pub const SYSCALL_WAIT_NOHANG: usize = 52;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-24 (Process reaper — service-driven zombie reclaim — RFC-0081)
+
+#### Repeated app launches no longer exhaust the kernel heap
+
+- **execd is now the reaper-of-record.** Since RFC-0079 a closed-window app-host
+  self-exits, but nothing reaped it: `execd` only waited on an explicit
+  `OP_WAIT_PID`, and no client waits for a fire-and-forget window. The exited
+  task stayed a Zombie, so its heap-backed page-table address space was never
+  destroyed — a handful of launches filled the 8 MiB kernel heap and PANICked
+  (`ALLOC-FAIL`, the heap had been bumped 2→8 MiB purely as a bridge).
+- **`SYSCALL_WAIT_NOHANG` (52)** — a non-blocking sibling of `wait`: reaps one
+  ready zombie child (`reap_child` → detach + destroy AS) or returns `0` instead
+  of blocking. `nexus-abi::wait_nohang() -> Option<(Pid, i32)>`.
+- **execd sweeps its exited children each serve-loop iteration** (before handling
+  the request), so a new spawn first reclaims prior closures — the arena and heap
+  never accumulate across launches. Exit codes are cached on the child record so
+  an `OP_WAIT_PID` client still gets its status after the sweep reaped the child;
+  crash reporting is factored into an idempotent `handle_child_exit` (runs once,
+  no double-report).
+- Proof: `ci-os-smp1` green (9/9); the boot log shows `execd: reaped pid=44
+  code=0` firing exactly at the greeter launch (reclaim-before-spawn), no
+  `ALLOC-FAIL` / `VMO-POOL exhausted`. The reap→free invariant is pinned by the
+  existing target `address_space::tests`. The `8 MiB` heap stays as conservative
+  desktop headroom (no longer a bridge).
+- Refactor (module-size ratchet): execd's pure crash-field byte serializers
+  moved to `execd/src/crash_fields.rs` (`os_lite.rs` back under baseline).
+- Not in scope: terminating sibling **threads** that share an AS on process exit
+  (the `destroy as failed InUse` seen only for the kernel workpool selftest) —
+  needs race-free cross-hart teardown, seeded as TASK-0304.
+
 ### Added - 2026-07-23 (RO-only VMO right — RFC-0080 hardening)
 
 #### The shared atlas is now write-protected by the kernel, not by convention

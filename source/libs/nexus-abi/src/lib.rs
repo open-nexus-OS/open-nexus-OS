@@ -10,7 +10,7 @@
 
 //! CONTEXT: Shared ABI definitions exposed to userland crates
 //! OWNERS: @runtime
-//! PUBLIC API: MsgHeader, IpcError; OS-only syscalls: yield_, spawn, exit, wait, cap_transfer, as_*, vmo_*, debug_*
+//! PUBLIC API: MsgHeader, IpcError; OS-only syscalls: yield_, spawn, exit, wait, wait_nohang, cap_transfer, as_*, vmo_*, debug_*
 //! DEPENDS_ON: no_std (OS), riscv ecall asm (OS), bitflags
 //! INVARIANTS: Header is 16 bytes LE; userspace wrappers map to stable kernel syscall IDs
 //! ADR: docs/adr/0016-kernel-libs-architecture.md

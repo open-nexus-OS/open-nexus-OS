@@ -74,9 +74,12 @@ use spin::Mutex;
 // 2 MiB → 8 MiB (2026-07-22, RFC-0075 Phase 8d fallout): page tables are
 // heap-backed and each app maps a larger image now (CJK atlases) — a live
 // session PANICked (ALLOC-FAIL, heap full at ~20 address spaces) on its 6th
-// app launch. Dead apps also keep their AS until a parent WAITs (zombie
-// reap is follow-up #29) — the grown heap is the bridge, the reaper is the
-// fix. Image headroom to the page-pool window is CI-checked (`layout ok`).
+// app launch because dead apps kept their AS until a parent WAITed. RFC-0081
+// (TASK-0303) landed the fix: execd is the reaper-of-record and auto-reaps its
+// exited children (`SYSCALL_WAIT_NOHANG`), so a closed window's AS is reclaimed
+// each launch — the heap stays 8 MiB as conservative desktop headroom, no
+// longer a bridge. Image headroom to the page-pool window is CI-checked
+// (`layout ok`).
 #[cfg(target_os = "none")]
 const HEAP_SIZE: usize = 8192 * 1024; // 8.00 MiB
 

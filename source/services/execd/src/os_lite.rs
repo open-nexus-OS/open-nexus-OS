@@ -22,7 +22,10 @@ use core::fmt;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;
 
-use nexus_abi::{debug_putc, exec, nsec, service_id_from_name, wait, yield_, Pid};
+use crate::crash_fields::{
+    append_field, append_field_i32, append_field_u32, append_field_u64, push_i32_dec, push_u32_dec,
+};
+use nexus_abi::{debug_putc, exec, nsec, service_id_from_name, wait, wait_nohang, yield_, Pid};
 use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
 use nexus_ipc::{KernelServer, Server as _, Wait};
@@ -234,6 +237,36 @@ static EXEC_SPAN_LOCAL: AtomicU64 = AtomicU64::new(1);
 const RUNTIME_APP_CAPS: [&str; 4] = ["vfsd", "samgrd", "policyd", "logd"];
 
 /// Stubbed service loop that reports readiness and yields forever.
+/// Builds the `OP_WAIT_PID` success reply `[E,X,ver,OP|0x80, STATUS_OK, pid, code]`.
+fn wait_ok_response(pid: u32, code: i32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(13);
+    out.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_WAIT_PID | 0x80, STATUS_OK]);
+    out.extend_from_slice(&pid.to_le_bytes());
+    out.extend_from_slice(&code.to_le_bytes());
+    out
+}
+
+/// RFC-0081: reaper-of-record sweep. Drains every child that has exited since
+/// the last call, non-blocking — each `wait_nohang` reap frees that child's
+/// address space (heap-backed page tables) in the kernel, and records the exit
+/// (idempotent crash handling) so a later `OP_WAIT_PID` answers from cache.
+/// Bounded by the tracked-child count; human-rate, so the per-reap marker and
+/// `format!` are acceptable (same discipline as the spawn markers).
+fn reap_ready_children(state: &mut State) {
+    // Children are bounded to 16; 32 iterations covers any transient burst.
+    for _ in 0..32 {
+        match wait_nohang() {
+            Ok(Some((pid, code))) => {
+                state.handle_child_exit(pid, code);
+                let _ = nexus_abi::debug_println(&alloc::format!(
+                    "execd: reaped pid={pid} code={code}"
+                ));
+            }
+            Ok(None) | Err(_) => break,
+        }
+    }
+}
+
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // Verdict folding → `execd N/N` (interactive); flushed at ready, later exec markers print raw.
     nexus_abi::service_verdict_arm();
@@ -254,6 +287,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     loop {
         match server.recv_with_header_meta(Wait::Blocking) {
             Ok((_hdr, sender_service_id, frame)) => {
+                // RFC-0081: reap children that exited since the last request so a
+                // spawn first reclaims their AS (heap-backed page tables) — the
+                // fix for the app-launch ALLOC-FAIL. Non-blocking, bounded.
+                reap_ready_children(&mut state);
                 let rsp = handle_frame(&mut state, sender_service_id, frame.as_slice());
                 let _ = server.send(rsp.as_slice(), Wait::Blocking);
             }
@@ -270,6 +307,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
 struct TrackedChild {
     pid: u32,
     image_id: u8,
+    /// RFC-0081: exit code once reaped (by the auto-sweep or an `OP_WAIT_PID`);
+    /// `None` while still running. Lets `OP_WAIT_PID` answer from cache after
+    /// the sweep already reaped the child in the kernel.
+    exit: Option<i32>,
+    /// The crash-marker / minidump / nexus-log path ran for this exit (once).
+    reported: bool,
 }
 
 struct State {
@@ -296,7 +339,7 @@ impl State {
         if self.children.len() >= MAX {
             self.children.remove(0);
         }
-        self.children.push(TrackedChild { pid, image_id });
+        self.children.push(TrackedChild { pid, image_id, exit: None, reported: false });
     }
 
     fn child_name(image_id: u8) -> &'static str {
@@ -306,6 +349,36 @@ impl State {
             IMG_APPHOST => "app.probe",
             IMG_EXIT42 => "demo.minidump",
             _ => "unknown",
+        }
+    }
+
+    /// RFC-0081: records a reaped child's exit and runs the crash-marker /
+    /// minidump / nexus-log path EXACTLY once (idempotent via `reported`).
+    /// Called by both the auto-reap sweep and `OP_WAIT_PID` so exit handling
+    /// happens once regardless of which observed the exit first.
+    fn handle_child_exit(&mut self, pid: u32, code: i32) {
+        let (image_id, already) = match self.children.iter_mut().find(|c| c.pid == pid) {
+            Some(child) => {
+                let already = child.reported;
+                child.exit = Some(code);
+                child.reported = true;
+                (Some(child.image_id), already)
+            }
+            None => (None, false),
+        };
+        if already {
+            return;
+        }
+        if code != 0 {
+            let name = image_id.map(State::child_name).unwrap_or("unknown");
+            // For minidump-managed payloads, crash publication is deferred to
+            // OP_REPORT_EXIT so dump metadata can be validated before markers.
+            if name != "demo.minidump" {
+                let build_id = deterministic_build_id(name);
+                let dump_path = write_minidump_artifact(pid, code, name, &build_id);
+                emit_crash_marker(pid, code, name);
+                self.log_crash_via_nexus_log(pid, code, name, &build_id, dump_path.as_deref());
+            }
         }
     }
 
@@ -473,67 +546,6 @@ fn ipc_error_label(err: nexus_abi::IpcError) -> &'static str {
     }
 }
 
-fn push_u32_dec(out: &mut Vec<u8>, mut value: u32) {
-    let mut tmp = [0u8; 10];
-    let mut i = tmp.len();
-    if value == 0 {
-        out.push(b'0');
-        return;
-    }
-    while value != 0 && i != 0 {
-        let digit = (value % 10) as u8;
-        value /= 10;
-        i -= 1;
-        tmp[i] = b'0' + digit;
-    }
-    out.extend_from_slice(&tmp[i..]);
-}
-
-fn push_i32_dec(out: &mut Vec<u8>, value: i32) {
-    if value < 0 {
-        out.push(b'-');
-        push_u32_dec(out, (-value) as u32);
-    } else {
-        push_u32_dec(out, value as u32);
-    }
-}
-
-fn append_field(out: &mut Vec<u8>, key: &[u8], value: &[u8]) {
-    out.extend_from_slice(key);
-    out.extend_from_slice(value);
-    out.push(b'\n');
-}
-
-fn append_field_u32(out: &mut Vec<u8>, key: &[u8], value: u32) {
-    out.extend_from_slice(key);
-    push_u32_dec(out, value);
-    out.push(b'\n');
-}
-
-fn append_field_u64(out: &mut Vec<u8>, key: &[u8], mut value: u64) {
-    out.extend_from_slice(key);
-    let mut tmp = [0u8; 20];
-    let mut i = tmp.len();
-    if value == 0 {
-        out.push(b'0');
-        out.push(b'\n');
-        return;
-    }
-    while value != 0 && i != 0 {
-        i -= 1;
-        tmp[i] = b'0' + (value % 10) as u8;
-        value /= 10;
-    }
-    out.extend_from_slice(&tmp[i..]);
-    out.push(b'\n');
-}
-
-fn append_field_i32(out: &mut Vec<u8>, key: &[u8], value: i32) {
-    out.extend_from_slice(key);
-    push_i32_dec(out, value);
-    out.push(b'\n');
-}
-
 fn write_minidump_artifact(pid: u32, code: i32, name: &str, build_id: &str) -> Option<String> {
     let ts = nsec().ok().unwrap_or(0);
     let path = normalize_dump_path(ts, pid, name).ok()?;
@@ -617,33 +629,20 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             return rsp(op, STATUS_MALFORMED, 0).to_vec();
         }
         let pid = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]) as i32;
+        // RFC-0081: the auto-reap sweep may have already reaped this child (its
+        // AS freed, exit handled once). Answer from the cached record so a
+        // client wait still succeeds instead of failing on a gone kernel zombie.
+        if pid > 0 {
+            if let Some(code) =
+                state.children.iter().find(|c| c.pid == pid as u32).and_then(|c| c.exit)
+            {
+                return wait_ok_response(pid as u32, code);
+            }
+        }
         return match wait(pid) {
             Ok((got, code)) => {
-                let got_u32 = got as u32;
-                if code != 0 {
-                    let image_id =
-                        state.children.iter().find(|c| c.pid == got_u32).map(|c| c.image_id);
-                    let name = image_id.map(State::child_name).unwrap_or("unknown");
-                    // For minidump-managed payloads, crash publication is deferred to OP_REPORT_EXIT
-                    // so dump metadata can be validated before emitting success markers.
-                    if name != "demo.minidump" {
-                        let build_id = deterministic_build_id(name);
-                        let dump_path = write_minidump_artifact(got_u32, code, name, &build_id);
-                        emit_crash_marker(got_u32, code, name);
-                        state.log_crash_via_nexus_log(
-                            got_u32,
-                            code,
-                            name,
-                            &build_id,
-                            dump_path.as_deref(),
-                        );
-                    }
-                }
-                let mut out = Vec::with_capacity(13);
-                out.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_WAIT_PID | 0x80, STATUS_OK]);
-                out.extend_from_slice(&(got as u32).to_le_bytes());
-                out.extend_from_slice(&code.to_le_bytes());
-                out
+                state.handle_child_exit(got, code);
+                wait_ok_response(got, code)
             }
             Err(_) => {
                 let mut out = Vec::with_capacity(13);

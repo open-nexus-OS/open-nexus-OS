@@ -463,3 +463,28 @@ pub fn wait(pid: i32) -> SysResult<(Pid, i32)> {
         Err(AbiError::Unsupported)
     }
 }
+
+/// RFC-0081: non-blocking reap of ONE ready zombie child. Returns
+/// `Ok(Some((pid, status)))` when a child was reaped, or `Ok(None)` when no
+/// child is ready — never blocks. A service reaper loop drains this until
+/// `None` so its exited children's address spaces are reclaimed promptly.
+#[cfg(nexus_env = "os")]
+pub fn wait_nohang() -> SysResult<Option<(Pid, i32)>> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_WAIT_NOHANG: usize = 52;
+        // Arg is ignored by the kernel (reaps any ready child); pass 0.
+        let (raw_pid, raw_status) = unsafe { ecall1_pair(SYSCALL_WAIT_NOHANG, 0) };
+        let pid = decode_syscall(raw_pid)?;
+        if pid == 0 {
+            // 0 = nothing ready to reap (a reaped child is always pid >= 1).
+            Ok(None)
+        } else {
+            Ok(Some((pid as Pid, raw_status as i32)))
+        }
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}

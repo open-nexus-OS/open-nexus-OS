@@ -236,6 +236,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_AS_MAP, sys_as_map);
     table.register(SYSCALL_EXIT, sys_exit);
     table.register(SYSCALL_WAIT, sys_wait);
+    table.register(crate::syscall::SYSCALL_WAIT_NOHANG, sys_wait_nohang);
     table.register(SYSCALL_EXEC, sys_exec);
     table.register(SYSCALL_IPC_SEND_V1, sys_ipc_send_v1);
     table.register(SYSCALL_EXEC_V2, sys_exec_v2);
