@@ -1206,13 +1206,26 @@ impl TaskTable {
                         err
                     );
                 }
-                if let Err(err) = address_spaces.destroy(handle) {
-                    log_error!(
-                        target: "task",
-                        "TASK: destroy as failed pid={} err={:?}",
-                        selected_pid.as_raw(),
-                        err
-                    );
+                // TASK-0304: destroy the address space ONLY when this task was
+                // its last owner. A reaped THREAD shares its AS with a
+                // still-living parent (and parked sibling worker threads);
+                // `detach` released this task's reference, but the shared AS
+                // must survive until its final owner is reaped. `destroy` then
+                // (correctly) refuses with `InUse` — a co-owner is still alive,
+                // NOT an error, so we accept it silently and reclaim the AS when
+                // that last owner is reaped. (Active teardown of parked daemon
+                // threads when their owning service itself exits is the deferred
+                // hard part — see TASK-0304.)
+                match address_spaces.destroy(handle) {
+                    Ok(()) | Err(AddressSpaceError::InUse) => {}
+                    Err(err) => {
+                        log_error!(
+                            target: "task",
+                            "TASK: destroy as failed pid={} err={:?}",
+                            selected_pid.as_raw(),
+                            err
+                        );
+                    }
                 }
             }
         }

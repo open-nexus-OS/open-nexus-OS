@@ -44,9 +44,14 @@ app-host is single-threaded: reaping it drives its AS `owners` set to empty
 
 ## Non-goals
 
-- Terminating sibling **threads** that share an AS on process exit (the
-  `destroy as failed InUse` case, today only the kernel workpool selftest). That
-  needs race-free cross-hart thread termination → deferred to TASK-0304.
+- Terminating sibling **threads** that share an AS on process exit → TASK-0304.
+  Its **Part 1 landed alongside this RFC** (2026-07-24): `reap_child` now
+  destroys a shared AS only when the reaped task was its last owner, so reaping a
+  thread whose parent is still alive no longer logs a spurious
+  `destroy as failed InUse` (the AS is correctly reclaimed when the last owner is
+  reaped — it was never leaked). Part 2 — active teardown of *parked daemon*
+  worker threads when their owning service exits (needs cross-hart quiesce) —
+  stays deferred; no shipping service needs it yet.
 - Making `OP_WAIT_PID` for a still-running child non-blocking (it blocks execd's
   serve loop today; unchanged here — noted as a follow-up).
 - Kernel-side auto-reap (adopt-and-reap in the kernel): rejected because execd

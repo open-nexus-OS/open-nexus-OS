@@ -1,44 +1,68 @@
-# TASK-0304: Thread teardown on process exit — shared-AS refcount lifecycle (seed)
+# TASK-0304: Shared-AS reap ordering + thread teardown
 
-- Status: Seed (not started)
+- Status: Part 1 Done (reap ordering, boot-proven 2026-07-24); Part 2 deferred
 - Owners: @kernel-team
 - Related: TASK-0303 (process reaper), RFC-0081, TASK-0276 (compute-only threads)
 
-## Problem
+## What the `destroy as failed InUse` actually was (investigated 2026-07-24)
 
-A process that spawns threads via `SYSCALL_SPAWN(as_self)` shares ONE address
-space: `attach` adds each thread pid to the AS `owners` set. `sys_exit` on the
-main task does NOT terminate its sibling threads, so the AS `refcount` never
-reaches 0 → `reap_child`'s `destroy` fails with `InUse` and the page-table heap
-leaks. Observed today ONLY for the kernel **workpool selftest**
-(`TASK: destroy as failed pid=48 err=InUse`, right before `SELFTEST: thread
-spawn ok`); no shipping service spawns threads, so it is bounded and not the
-app-launch pressure that TASK-0303 fixes.
+The boot log's `TASK: destroy as failed pid=48 err=InUse` (right before
+`SELFTEST: thread spawn ok`) was NOT a leak needing cross-hart thread teardown.
+Investigation of the actual thread lifecycle:
 
-## Why it was split out of TASK-0303
+- pid 48 is the **thread-spawn selftest** thread
+  (`selftest-client .../phases/exec.rs::thread_spawn_proof`): `thread_entry`
+  returns → the trampoline exits 0 → the parent (selftest-client) reaps it via
+  `wait(pid)`. The thread DOES exit and IS reaped.
+- The `InUse` came from `reap_child`: it unconditionally called
+  `address_spaces.destroy(handle)` after detaching the reaped task. For a
+  **thread**, the handle is the AS **shared** with the still-living parent (and
+  the parked workpool worker threads), so `destroy` correctly refused with
+  `InUse` — but `reap_child` logged it as an error.
 
-The correct fix requires terminating threads that may be **running on other
-harts** under SMP. There is no race-free "kill a task executing on another CPU"
-primitive today — doing it wrong risks tearing an AS out from under a running
-thread. That is genuine SMP-quiescence design (IPI + acknowledge + stack
-reclaim) and an ADR (kernel task-lifecycle contract), i.e. multi-day. Kept
-separate so the load-bearing reaper (TASK-0303) can land now.
+So the address space was never leaked: `detach` released the reaped thread's
+reference, and the shared AS is correctly reclaimed when its **last** owner
+(the leader) is reaped. The defect was purely reap ordering + a misleading log.
 
-## Candidate designs (to evaluate)
+## Part 1 — reap ordering (DONE, boot-proven)
 
-1. **Detach-on-own-exit + destroy-on-last-detach**: every task (thread or
-   leader) detaches its own AS reference in `exit_current`; the AS is destroyed
-   when the last owner detaches, regardless of order. No cross-hart kill, but
-   orphan threads must still be reaped to exit — needs an orphan-adoption path.
-2. **Leader-exit terminates siblings**: on process exit, actively stop every
-   task sharing the AS (cross-hart IPI + quiesce), then destroy. Strongest
-   semantics; hardest (SMP safety).
-3. **Deferred-destroy list**: reap parks the AS on a bounded "pending destroy"
-   list; the last thread detach triggers the actual destroy. Self-healing IF
-   threads eventually exit; needs the detach hook from (1).
+`reap_child` (`task/mod.rs`) now destroys the AS only when the reaped task was
+its last owner: `destroy` is attempted and a returned `InUse` is accepted
+silently (a co-owner — parent or sibling thread — is still alive; not an error);
+any other error is still logged. Invariant covered by the existing target unit
+`address_space::tests::destroy_rejects_address_space_with_owner` (destroy
+refuses while an owner remains, succeeds once the owners set empties).
 
-## Proof (when taken)
+- [x] `reap_child` destroys the shared AS only when last owner (`InUse` accepted)
+- [x] Boot proof: `ci-os-smp1` green; `TASK: destroy as failed InUse` gone;
+      `SELFTEST: thread spawn ok` + `workpool bounded ok` still green (thread
+      reaped correctly, AS kept alive for the living parent).
 
-Host: refcount reaches 0 across leader/thread exit in any order; `destroy`
-succeeds. QEMU: `destroy as failed InUse` disappears from the selftest boot;
-AS live-count returns to baseline after the workpool selftest.
+## Part 2 — active teardown of parked daemon threads (DEFERRED, genuinely hard)
+
+The ONE case the refcount model cannot reclaim on its own: a service that spawns
+**persistent** worker threads (like `nexus-workpool`, whose workers park on the
+job fence forever, `pool.rs`) and then **exits**. Its reap detaches the leader,
+but the parked workers still own the AS → it survives until they are terminated.
+No shipping service does this today (the workpool's only users — selftest-client,
+pinched — are long-lived), so there is no live leak.
+
+When a shipping service needs a restartable worker pool, terminate its sibling
+threads on exit. The tractable slice is that workpool workers are **blocked**
+(parked on a fence) at their owner's exit, so terminating a blocked task is
+race-free (dequeue from the block set → mark dead → detach → free its stack).
+The genuinely hard slice — a sibling thread **running on another hart** at exit —
+needs cross-hart quiesce (IPI + acknowledge) and an ADR (kernel task-lifecycle
+contract). Candidate designs:
+
+1. **Detach-on-own-exit + destroy-on-last-detach**: each task detaches its AS
+   reference in `exit_current`; the AS is destroyed when the last owner leaves.
+   Needs a safe deferred-destroy context (not while any hart has that SATP).
+2. **Leader-exit terminates siblings**: on process exit, stop every task
+   sharing the AS (blocked ones directly; running ones via cross-hart quiesce),
+   then destroy. Strongest semantics; hardest.
+
+## Proof (Part 2, when taken)
+
+QEMU: a service with a worker pool exits and restarts N times with AS live-count
+returning to baseline each cycle (no growth); no `destroy as failed`.

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-24 (Shared-AS reap ordering — TASK-0304 Part 1)
+
+- **A reaped thread no longer logs a spurious `TASK: destroy as failed InUse`.**
+  `reap_child` used to unconditionally `destroy` the reaped task's address space;
+  for a thread that shares its AS with a still-living parent (and parked worker
+  threads), `destroy` correctly refused with `InUse` but the refusal was logged
+  as an error. It now destroys the shared AS only when the reaped task was its
+  **last** owner (a returned `InUse` is accepted silently — a co-owner is still
+  alive, and the AS is reclaimed when that last owner is reaped). Investigation
+  confirmed this was never a leak: `detach` releases the reaped thread's
+  reference, and the AS is reference-counted by its owner set. Active teardown of
+  *parked daemon* worker threads when their owning service exits stays deferred
+  (TASK-0304 Part 2 — needs cross-hart quiesce; no shipping service needs it).
+  Proof: `ci-os-smp1` green; the `InUse` line is gone; `SELFTEST: thread spawn
+  ok` / `workpool bounded ok` still green.
+
 ### Added - 2026-07-24 (Process reaper — service-driven zombie reclaim — RFC-0081)
 
 #### Repeated app launches no longer exhaust the kernel heap
