@@ -104,8 +104,10 @@ smallest honest production slice instead.
    fake statefs. ✅ (2026-07-24)
 2. ranking→candidate wiring + Settings toggle/forget + selftest + markers + docs.
    - 2a. In-OS ranker selftest (`SELFTEST: ime ranking ok`). ✅ (2026-07-24)
-   - 2b. imed statefs BlobIo + live train-on-commit + rank-the-strip + Settings
-         toggle/forget + `SELFTEST: ime ranking persist ok`. ⬜
+   - 2b-substrate. imed↔statefsd route (init) + statefs `BlobIo` + policy grant
+     + real round-trip proof `SELFTEST: ime ranking persist ok`. ✅ (2026-07-24)
+   - 2b-live. train-on-commit + rank-the-strip + load-on-activate +
+     flush-on-focus-loss + Settings toggle/forget UI. ⬜
 
 ## Progress
 
@@ -141,15 +143,31 @@ because it needs no init wiring (the imed→statefsd route is delicate) and no
 live candidate-flow surgery — those land in 2b where they can be verified
 interactively.
 
-**Package 2b (next)**: imed implements `BlobIo` over statefsd (init route +
-statefs client, mirroring settingsd's `statefs_client` + imed's existing
-settingsd-route precedent), loads at engine activation + writes back on
-idle/focus-loss, ranks the candidate strip, the Settings toggle/forget UI
-(`ime.personalization` key via TASK-0298 spine), the password-never-trains +
-toggle-off OS negative tests, and `SELFTEST: ime ranking persist ok` (real
-statefs round-trip; approval zone: qemu-test.sh + markers.txt). imed's commit
-hook = `candidate_select` (`os_lite.rs`); flush trigger = focus-loss
-(`set_focus(focused=false)`).
+**Package 2b-substrate (DONE 2026-07-24, `SELFTEST: ime ranking persist ok`
+green in ci-os-smp1):** the real statefs persistence chain, end to end.
+- **init route** (`provision_imed_legs`): imed gets a SEND clone of statefsd's
+  request endpoint pinned to slot 0x0B + a private CAP_MOVE reply inbox (RECV
+  0x0C / SEND 0x0D) — the same imperative recipe as imed's settingsd leg. No
+  fleet collapse; `init: imed route->statefsd ok`. (imed's routes are imperative,
+  so this is NOT a declarative `REQUIRED_ROUTES` edge — the host topology test
+  covers only declarative specs.)
+- **`imed/src/statefs.rs`**: a `StatefsBlobIo` (ime-ranker `BlobIo`) over the
+  pinned slots — statefsd v1 GET/PUT wire, fixed-slot CAP_MOVE transport,
+  bounded + fail-closed.
+- **policy** (`policies/base.toml`): `imed = [..., "statefs.read", "statefs.write"]`
+  (deny-by-default; imed persists only committed candidates, never field text).
+- **proof**: imed round-trips a trained fixture through statefsd at boot
+  (`state:/ime/…` PUT → GET → ranking preserved), emitted RAW (post-verdict-flush,
+  so the marker can't be lost). Marker registered in the proof-manifest +
+  qemu-test.sh.
+
+**Package 2b-live (next)**: imed holds a `PersistentStore` per active locale,
+loads it at engine activation (`set_layout`), **trains** on `candidate_select`
+commits (password-gated via `field_kind`), **ranks** the candidate strip before
+pushing, and **flushes** on focus-loss (`set_focus(focused=false)`). Plus the
+Settings General-management toggle + "forget learned words" (`ime.personalization`
+key — already in settingsd's registry, TASK-0298 Done) + the password-never-trains
+/ toggle-off OS negative tests. Interactive proof (`just start`).
 
 ## Acceptance criteria (behavioral)
 

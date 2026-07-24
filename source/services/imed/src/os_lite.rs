@@ -62,6 +62,9 @@ pub fn service_main_loop() -> Result<(), ImedError> {
     let mut frame_buf = [0u8; 512];
 
     nexus_abi::service_verdict_flush("imed");
+    // TASK-0204: prove the personalization store persists through statefsd
+    // (bounded, once, after ready). Live train/rank wiring layers on top.
+    ime_ranking_persist_selftest();
     loop {
         let member = match nexus_abi::waitset_wait(waitset, 0) {
             Ok(m) => m,
@@ -417,6 +420,38 @@ fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }
+}
+
+/// TASK-0204 boot proof: round-trip an ime-ranker fixture through the REAL
+/// statefsd route (init `provision_imed_legs`). Train a table-last candidate so
+/// it leads, `flush` it to `state:/ime/...` via statefsd, reload into a fresh
+/// store, and re-check the learned order. Bounded + fail-closed (a statefs miss
+/// just FAILs the marker, never hangs boot). Runs once, after `ready`.
+fn ime_ranking_persist_selftest() {
+    use ime_ranker::{PersistentStore, PersonalStore};
+    const KEY: &str = "/state/ime/selftest/personal";
+    let cands = [b"aa".as_slice(), b"bb".as_slice(), b"cc".as_slice()];
+    let mut io = crate::statefs::StatefsBlobIo;
+
+    let mut store = PersistentStore::new(true);
+    store.train(None, b"cc", 5);
+    let learned = store.rank(None, &cands, 5).first() == Some(&2);
+    let wrote = store.flush(&mut io, KEY);
+
+    let mut restored = PersistentStore::new(true);
+    restored.load(&io, KEY);
+    let reloaded = restored.store().get_dict(b"cc").is_some()
+        && restored.rank(None, &cands, 5).first() == Some(&2);
+
+    // Emit RAW (not the verdict-buffered `emit_line`): this runs AFTER
+    // `service_verdict_flush`, so a buffered line would never be flushed again
+    // and the marker would be lost non-deterministically.
+    let line: &[u8] = if learned && wrote && reloaded {
+        b"SELFTEST: ime ranking persist ok\n"
+    } else {
+        b"SELFTEST: ime ranking persist FAIL\n"
+    };
+    let _ = nexus_abi::debug_write(line);
 }
 
 fn emit_line(message: &str) {

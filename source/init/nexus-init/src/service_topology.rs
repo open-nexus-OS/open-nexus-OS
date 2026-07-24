@@ -215,6 +215,11 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Statefsd, ServiceId::Policyd), // policy checks via CAP_MOVE
     (ServiceId::Settingsd, ServiceId::Statefsd), // persist prefs (TASK-0072 Phase 8)
 ];
+// NOTE: imed's routes (windowd/settingsd/statefsd) are provisioned IMPERATIVELY
+// in `provision_imed_legs` (fixed pinned slots, RFC-0075 / TASK-0204), not via
+// the declarative `routes_to` arm — so, like imed's settingsd leg, its statefsd
+// leg is intentionally NOT listed in REQUIRED_ROUTES (which cross-checks only
+// the declarative specs).
 
 /// How a service receives the target's replies on a declared route (RFC-0069).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

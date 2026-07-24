@@ -1427,6 +1427,7 @@ name = "imed"
 version = "0.1.0"
 dependencies = [
  "ime-core",
+ "ime-ranker",
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",

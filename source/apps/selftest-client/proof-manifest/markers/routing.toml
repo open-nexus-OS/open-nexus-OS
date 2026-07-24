@@ -46,6 +46,14 @@ proves = "candidate machinery end-to-end in imed: pinyin nihao + space opens can
 phase = "routing"
 proves = "the deterministic ime-ranker runs in the OS runtime: one commit lifts a table-last candidate to the front, and that learned order survives an NDJSON export→import round trip (RFC-0075 Phase 4; the statefs-backed transport + live imed wiring are follow-up cuts)"
 
+[marker."SELFTEST: ime ranking persist ok"]
+phase = "routing"
+proves = "imed persists the ranking store through the REAL statefsd route (init provision_imed_legs + policy statefs.read/write): a trained fixture flushed to state:/ime/… reloads into a fresh store with the learned order intact (RFC-0075 Phase 4, TASK-0204)"
+
+[marker."SELFTEST: ime ranking persist FAIL"]
+phase = "routing"
+proves = "negative: imed's statefs personalization round-trip failed (route/policy/IPC) — surfaced, never silent"
+
 [marker."SELFTEST: settings watch ok"]
 phase = "routing"
 proves = "settingsd OP_WATCH pushes applied changes (RFC-0078 spine)"

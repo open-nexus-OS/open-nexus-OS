@@ -17,6 +17,8 @@ extern crate alloc;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 pub mod os_lite;
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod statefs;
 
 use ime_core::{Engine, EngineId, EngineOutcome, ImeAction, ImeEngine, ImeKey, TextRun};
 use nexus_wire::imed as wire;

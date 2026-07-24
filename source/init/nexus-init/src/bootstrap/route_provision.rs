@@ -259,6 +259,7 @@ pub(crate) fn provision_imed_legs(
     window_req: u32,
     window_rsp: u32,
     settings_req: Option<u32>,
+    statefs_req: Option<u32>,
     chan: &mut CtrlChannel,
 ) {
     match nexus_abi::cap_transfer_to_slot(pid, imed_osk, Rights::RECV, 5) {
@@ -302,6 +303,34 @@ pub(crate) fn provision_imed_legs(
             debug_write_bytes(b"init: imed route->settingsd ok\n");
         } else {
             debug_write_bytes(b"init: imed route->settingsd FAIL\n");
+        }
+    }
+
+    // IME personalization persistence (TASK-0204): imed loads/stores its
+    // per-locale ranking blob in statefsd — the SAME recipe as the settingsd
+    // leg above: a SEND clone of statefsd's request endpoint PINNED to slot
+    // 0x0B, plus a private reply inbox (RECV slot 0x0C / SEND slot 0x0D; imed
+    // clones + moves the SEND per request — mint→grant, zero accumulation).
+    if let Some(statefs_req) = statefs_req {
+        let granted = nexus_abi::cap_clone(statefs_req)
+            .ok()
+            .and_then(|clone| nexus_abi::cap_transfer_to_slot(pid, clone, Rights::SEND, 0x0B).ok());
+        let reply = nexus_abi::ipc_endpoint_create_for(
+            crate::os_payload::ENDPOINT_FACTORY_CAP_SLOT,
+            pid,
+            4,
+        )
+        .ok()
+        .and_then(|ep| {
+            let recv = nexus_abi::cap_transfer_to_slot(pid, ep, Rights::RECV, 0x0C).ok();
+            let send = nexus_abi::cap_transfer_to_slot(pid, ep, Rights::SEND, 0x0D).ok();
+            let _ = nexus_abi::cap_close(ep);
+            recv.and(send)
+        });
+        if granted.is_some() && reply.is_some() {
+            debug_write_bytes(b"init: imed route->statefsd ok\n");
+        } else {
+            debug_write_bytes(b"init: imed route->statefsd FAIL\n");
         }
     }
 }

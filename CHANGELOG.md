@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-24 (IME personalization persists through statefsd — RFC-0075 Phase 4, TASK-0204 2b-substrate)
+
+- **`SELFTEST: ime ranking persist ok`** — imed now persists its adaptive-ranking
+  store through the REAL statefsd route, end to end:
+  - **init route** (`provision_imed_legs`): imed gets a SEND clone of statefsd's
+    request endpoint (pinned slot 0x0B) + a private CAP_MOVE reply inbox (0x0C/
+    0x0D) — the same imperative recipe as its settingsd leg, no fleet collapse
+    (`init: imed route->statefsd ok`).
+  - **`imed/src/statefs.rs`**: a `StatefsBlobIo` (ime-ranker `BlobIo`) over the
+    pinned slots — statefsd v1 GET/PUT, bounded + fail-closed (a statefs miss
+    degrades to no-persist, never a boot hang).
+  - **policy** (`policies/base.toml`): `imed` granted `statefs.read` +
+    `statefs.write` (deny-by-default; imed persists only committed candidates
+    under `state:/ime/…`, never typed field text).
+  - **proof**: imed round-trips a trained fixture at boot (PUT → GET → ranking
+    preserved), the marker emitted RAW so it can't be lost post-verdict-flush.
+    `ci-os-smp1` green (9/9 chain markers unchanged).
+  - Next (2b-live): train-on-commit + rank-the-strip + flush-on-focus-loss +
+    the Settings toggle/forget UI.
+
 ### Added - 2026-07-24 (IME ranking runs in the OS — RFC-0075 Phase 4, TASK-0204 Package 2a)
 
 - **`SELFTEST: ime ranking ok`** — selftest-client now depends on `ime-ranker`

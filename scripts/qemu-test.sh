@@ -456,6 +456,7 @@ expected_sequence=(
   "SELFTEST: ime v2 cjk jp ok"
   "SELFTEST: ime v2 candidates ok"
   "SELFTEST: ime ranking ok"
+  "SELFTEST: ime ranking persist ok"
   "SELFTEST: settings watch ok"
   "SELFTEST: i18n switch ok"
   "SELFTEST: walltime rtc ok"

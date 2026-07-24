@@ -15,8 +15,11 @@ metricsd = ["ipc.core", "statefs.write"]
 # !route-deny marker as a previously-silent denial (it lacked ipc.core).
 timed = ["ipc.core", "device.mmio.rtc"]
 # imed routes to windowd to push composed text for the focused surface
-# (RFC-0075); without ipc.core the name-route is !route-deny'd.
-imed = ["ipc.core"]
+# (RFC-0075); without ipc.core the name-route is !route-deny'd. statefs
+# read/write (TASK-0204): imed persists its adaptive-ranking personalization
+# store under state:/ime/<lang>/… (never typed field text — committed
+# candidates only; password fields never train).
+imed = ["ipc.core", "statefs.read", "statefs.write"]
 # inputd routes to imed by name to forward resolved keys (RFC-0075) — its
 # windowd leg predates name-routing (fixed fallback slots), so the missing
 # grant only surfaced as `!route-deny: inputd -> imed`.

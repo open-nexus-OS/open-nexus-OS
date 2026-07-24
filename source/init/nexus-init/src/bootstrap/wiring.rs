@@ -1497,6 +1497,7 @@ pub(crate) fn wire_services(
                                 window_req,
                                 window_rsp,
                                 eps.server_pair(ServiceId::Settingsd).map(|(req, _)| req),
+                                eps.server_pair(ServiceId::Statefsd).map(|(req, _)| req),
                                 chan,
                             );
                         }
