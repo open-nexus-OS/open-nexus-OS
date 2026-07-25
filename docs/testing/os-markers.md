@@ -130,7 +130,8 @@ The QEMU marker ladder, harness profile catalog, and runtime selftest profile ca
 |---       |---              |---                              |---|
 | Harness  | `full`          | `scripts/qemu-test.sh`          | Default 12-phase ladder (`just test-os` / `just ci-os-full`). |
 | Harness  | `visible-bootstrap` | `scripts/qemu-test.sh`      | TASK-0055B/0055C/0056/TASK-0057 visible `ramfb`, SystemUI, v2a, live-input, and Minimal DisplayServer v0 asset marker ladder (`just test-os visible-bootstrap`); not a SystemUI start profile or screenshot proof. |
-| Harness  | `smp`           | `scripts/qemu-test.sh`          | SMP-only marker contract; consumed by `just ci-os-smp` (SMP=2 strict + SMP=1 parity). |
+| Harness  | `smp`           | `scripts/qemu-test.sh`          | Real-parallelism lane: declares `SMP=2` + `REQUIRE_SMP=1` + icount off (MTTCG), so the secondary-hart proofs (`KINIT: cpu1 online`, `smp exec cpu1`, `smp per-hart ticks`, `runtime timer budget` — emitted from a non-boot hart) are required; `bkl budget ok` is required here too but is not hart-dependent. Non-deterministic by nature → bounded retry via `just ci-os-smp`. |
+| Harness  | `smp1`          | `scripts/qemu-test.sh`          | Deterministic single-hart gate (`just ci-os-smp1`, the hard `test-all` boot proof): declares `SMP=1` + icount on, extends `headless`, and does NOT set `REQUIRE_SMP` — one hart cannot emit secondary-hart proofs, so `KSELFTEST: tlb shootdown skipped (smp=1)` is the explicit absence line. |
 | Harness  | `dhcp`          | `scripts/qemu-test.sh`          | DHCP requested; deterministic fallback allowed (`just ci-os-dhcp`). |
 | Harness  | `dhcp-strict`   | `scripts/qemu-test.sh`          | DHCP must bind (`just ci-os-dhcp-strict`); extends `dhcp`. |
 | Harness  | `quic-required` | `scripts/qemu-test.sh`          | QUIC required; `transport selected tcp` is forbidden (`just ci-os-quic`). |

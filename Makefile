@@ -97,9 +97,9 @@ test:
 			fi'
 	@echo "==> Running headless QEMU smoke (full service chain, no display)"
 	@NEXUS_SKIP_BUILD=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-120s} ./scripts/qemu-test.sh --profile=headless
-	@echo "==> Running SMP ladder (SMP=2 strict + SMP=1 parity)"
+	@echo "==> Running SMP ladder (profile smp = 2 harts strict + profile smp1 = 1-hart parity)"
 	@NEXUS_SKIP_BUILD=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} ./scripts/qemu-test.sh --profile=smp
-	@NEXUS_SKIP_BUILD=1 SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} ./scripts/qemu-test.sh --profile=smp
+	@NEXUS_SKIP_BUILD=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} ./scripts/qemu-test.sh --profile=smp1
 	@echo "==> Running DHCP smoke (network stack proof)"
 	@NEXUS_SKIP_BUILD=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-120s} ./scripts/qemu-test.sh --profile=dhcp
 

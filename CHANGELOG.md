@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-25 (the "deterministic" boot gate was the MTTCG lane — flaky `runtime timer budget ok`)
+
+- **`just ci-os-smp1` now really runs one hart with icount.** It passed `SMP=1`
+  to `--profile=smp`, but that profile declares
+  `env = { REQUIRE_SMP = "1", SMP = "2", QEMU_NO_ICOUNT = "1" }` and
+  `pm_apply_profile_env` overrode the caller silently — so the hard `test-all`
+  boot gate was the 2-hart MTTCG lane (every run dir records `"smp":"2"`,
+  `"require_smp":"1"`, empty `qemu_icount_args`). That is where the flaky
+  `KSELFTEST: runtime timer budget ok` came from: it is a *secondary-hart*
+  proof, and MTTCG hart bring-up is nondeterministic — two runs on 2026-07-25
+  lost cpu1 outright (`cpu1_online=0`, `tlb shootdown skipped (smp=1)`), one
+  brought cpu1 up but never reached the tick proof. The `make test` "SMP=1
+  parity" run had the same defect, making it a duplicate of the strict run.
+- **The lane is now a declaration, not an env tweak.** New
+  `[profile.smp1]` (extends `headless`, `env = { SMP = "1", QEMU_NO_ICOUNT =
+  "0" }`, no `REQUIRE_SMP`) in the proof-manifest owns the deterministic
+  topology; `ci-os-smp1`, `make test`'s parity run, and the docs select it by
+  name and pass no topology env at all. Because it extends `headless`, the
+  one-hart gate now verifies the **full** userspace ladder (init → services →
+  `SELFTEST: *`) instead of the 10-marker SMP subset, with
+  `KSELFTEST: tlb shootdown skipped (smp=1)` as the explicit "no secondary
+  hart" line.
+- **The contradiction can't come back.** A caller env value that contradicts a
+  manifest-declared profile key is a hard error before any build or boot
+  (`NEXUS_PROFILE_ENV_OVERRIDE=1` = loud local escape hatch), redundant
+  topology env was removed from `ci-os-smp`, and two host tests pin the pair:
+  `accept_boot_lane_topology_is_declared` plus
+  `reject_require_smp_without_two_harts_on_disk` (any lane demanding
+  secondary-hart proofs must declare `SMP >= 2`). Also dropped the floating
+  `cargo +stable` used to build the manifest CLI inside the harness — one
+  pinned toolchain, per CLAUDE.md.
+
 ### Fixed - 2026-07-24 (Settings app couldn't reach settingsd — atlas slot collision)
 
 - **Toggling a setting in the Settings app now applies.** RFC-0080 granted the

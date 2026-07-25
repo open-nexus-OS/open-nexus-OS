@@ -93,7 +93,10 @@ pm_cli() {
     fi
   done
   echo "[info] building nexus-proof-manifest CLI..." >&2
-  (cd "$ROOT" && cargo +stable build -p nexus-proof-manifest --bin nexus-proof-manifest --quiet) 1>&2
+  # One pinned toolchain (rust-toolchain.toml) — no floating `+stable`: the
+  # harness gate must not build the manifest CLI with a different compiler
+  # than the rest of the tree (same rule as `just check` / `scripts/build.sh`).
+  (cd "$ROOT" && cargo build -p nexus-proof-manifest --bin nexus-proof-manifest --quiet) 1>&2
   for cand in \
     "$ROOT/target/debug/nexus-proof-manifest" \
     /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-proof-manifest; do
@@ -113,6 +116,22 @@ pm_cli() {
 }
 
 # Source env from the manifest profile chain (extends-aware).
+#
+# The profile is the SINGLE SOURCE OF TRUTH for lane topology (harts, icount,
+# REQUIRE_* gates). A caller-exported value for a manifest-declared key used
+# to be silently clobbered here, which let a lane lie about what it ran:
+# `ci-os-smp1` passed `SMP=1` (deterministic 1 hart + icount by name and by
+# comment) and got the profile's `SMP=2 QEMU_NO_ICOUNT=1` — i.e. `test-all`'s
+# "deterministic boot gate" was really the 2-hart MTTCG lane, and it
+# inherited that lane's nondeterministic cpu1 bring-up (the flaky
+# `KSELFTEST: runtime timer budget ok`). A caller value that CONTRADICTS the
+# profile is therefore a hard stop: declare the lane you want as a profile.
+# NEXUS_PROFILE_ENV_OVERRIDE=1 keeps the caller's value (loudly) for a local
+# one-off — never in a gate, never in CI.
+#
+# Note: keys the manifest can declare must not be defaulted by this script
+# before this function runs, otherwise the script's own default reads as
+# "caller intent" here.
 pm_apply_profile_env() {
   local profile=$1
   local cli
@@ -123,6 +142,7 @@ pm_apply_profile_env() {
     echo "$env_lines" >&2
     return 1
   fi
+  local conflicts=0
   while IFS='=' read -r k v; do
     [[ -z "$k" ]] && continue
     # Strip surrounding single-quotes added by `shell_quote`.
@@ -130,9 +150,32 @@ pm_apply_profile_env() {
       v="${v#\'}"
       v="${v%\'}"
     fi
+    if [[ -n "${!k+x}" && "${!k}" != "$v" ]]; then
+      if [[ "${NEXUS_PROFILE_ENV_OVERRIDE:-0}" == "1" ]]; then
+        echo "[warn] proof-manifest($profile): caller override KEPT $k=${!k} (profile declares '$v')" >&2
+        continue
+      fi
+      echo "[error] proof-manifest($profile): env conflict for $k — caller='${!k}', profile declares '$v'" >&2
+      conflicts=$((conflicts + 1))
+      continue
+    fi
     export "$k=$v"
     echo "[info] proof-manifest($profile): $k=$v" >&2
   done <<< "$env_lines"
+  if (( conflicts > 0 )); then
+    cat >&2 <<EOF
+[error] $conflicts profile-env conflict(s) for profile=$profile — refusing to run a
+        lane that would not match its own declaration. The proof-manifest
+        profile owns lane topology; pick the profile that declares what you
+        want instead of overriding it:
+          --profile=smp1   deterministic 1 hart + icount (the test-all gate)
+          --profile=smp    2 harts, MTTCG, secondary-hart proofs required
+        Profiles live in source/apps/selftest-client/proof-manifest/profiles/.
+        NEXUS_PROFILE_ENV_OVERRIDE=1 forces the caller's value for a local
+        one-off (never in CI or a gate).
+EOF
+    return 1
+  fi
 }
 
 # Mirror-check disabled — manifest is the single source of truth.
@@ -562,9 +605,12 @@ case "${PROFILE:-full}" in
       "init: ready"
     )
     ;;
-  headless|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain)
+  headless|smp1|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain)
     # Use a reduced expected sequence for headless — omits display-gated
     # child lifecycle, minidump, metrics, VFS, sandbox, and windowd markers.
+    # `smp1` (deterministic 1 hart + icount) shares this ladder: it is the
+    # headless service chain on one hart, so the `tlb shootdown skipped
+    # (smp=1)` line below is its explicit "no secondary hart" proof.
     expected_sequence=(
       "neuron vers."
       "KSELFTEST: spawn reasons ok"
@@ -1575,7 +1621,7 @@ fi
 PM_VERIFY_UART=${PM_VERIFY_UART:-1}
 # Skip manifest verify-uart for headless/display-gpu — manifest markers
 # are still being populated for non-display profiles.
-if [[ "${PROFILE:-full}" == "headless" || "${PROFILE:-full}" == "display-gpu" || "${PROFILE:-full}" == "smp" || "${PROFILE:-full}" == "dhcp" || "${PROFILE:-full}" == "dhcp-strict" || "${PROFILE:-full}" == "quic-required" || "${PROFILE:-full}" == "os2vm" || "${PROFILE:-full}" == "supply-chain" ]]; then
+if [[ "${PROFILE:-full}" == "headless" || "${PROFILE:-full}" == "display-gpu" || "${PROFILE:-full}" == "smp" || "${PROFILE:-full}" == "smp1" || "${PROFILE:-full}" == "dhcp" || "${PROFILE:-full}" == "dhcp-strict" || "${PROFILE:-full}" == "quic-required" || "${PROFILE:-full}" == "os2vm" || "${PROFILE:-full}" == "supply-chain" ]]; then
   PM_VERIFY_UART=0
 fi
 if [[ "$PM_VERIFY_UART" == "1" ]]; then
@@ -1746,7 +1792,7 @@ fi
 # MARKER_CONTRACT=0 disables (e.g. for exotic manual profiles).
 if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
   case "${PROFILE:-full}" in
-    headless|full|smp|display-gpu)
+    headless|full|smp|smp1|display-gpu)
       bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,gpu-core,display || exit 1
       ;;
   esac

@@ -91,10 +91,21 @@ The 1:1 binding gives Phase-4 cuts a single review surface: a manifest review ca
 
 Phase 4 introduces two disjoint kinds of profile:
 
-- **Harness profiles** (`full`, `smp`, `dhcp`, `os2vm`, `quic-required`) — consumed by [`scripts/qemu-test.sh`](../../scripts/qemu-test.sh) and [`tools/os2vm.sh`](../../tools/os2vm.sh) to decide which QEMU runner / env / required markers apply. These shape the **outside** of the run.
+- **Harness profiles** (`full`, `smp`, `smp1`, `dhcp`, `os2vm`, `quic-required`) — consumed by [`scripts/qemu-test.sh`](../../scripts/qemu-test.sh) and [`tools/os2vm.sh`](../../tools/os2vm.sh) to decide which QEMU runner / env / required markers apply. These shape the **outside** of the run.
 - **Runtime profiles** (`full`, `bringup`, `quick`, `ota`, `net`, `none`) — consumed by [`source/apps/selftest-client/src/os_lite/profile.rs`](../../source/apps/selftest-client/src/os_lite/) (added in P4-08) to decide which phases the binary itself emits. These shape the **inside** of the run.
 
 Runtime-only profiles MUST set `runtime_only = true` (validated from P4-08); harness profiles MUST NOT. The `full` profile is the only legal name in both spaces — by construction it means the same thing on each side (every phase, no env extras).
+
+## The profile owns lane topology (env-conflict rule)
+
+A harness profile's `env` block is the **single source of truth** for what the lane runs on: hart count (`SMP`), determinism (`QEMU_NO_ICOUNT`), and which result-proofs are demanded (`REQUIRE_*`). Callers select a lane by naming a profile — they do not hand the harness a topology.
+
+`scripts/qemu-test.sh::pm_apply_profile_env` therefore treats a caller-exported value that **contradicts** a manifest-declared key as a hard error (exit 1, before any build or boot), and prints which key, which caller value, and what the profile declares. `NEXUS_PROFILE_ENV_OVERRIDE=1` keeps the caller's value with a `[warn]` line — a local one-off escape hatch, never valid in CI or a gate.
+
+Why the rule exists (2026-07-25): the recipe `just ci-os-smp1` passed `SMP=1` to `[profile.smp]`, which declares `SMP=2 QEMU_NO_ICOUNT=1`. The manifest value silently won, so `just test-all`'s "deterministic single-hart boot gate" was in fact the 2-hart MTTCG lane — including its nondeterministic cpu1 bring-up, which surfaced as a flaky `KSELFTEST: runtime timer budget ok` (a secondary-hart proof). The lane now exists as its own declaration, [`profile.smp1`](../../source/apps/selftest-client/proof-manifest/profiles/harness.toml), and two host tests keep the pair honest without booting (`cargo test -p nexus-proof-manifest --test profiles`):
+
+- `accept_boot_lane_topology_is_declared` — pins the resolved env of both boot lanes.
+- `reject_require_smp_without_two_harts_on_disk` — any profile demanding secondary-hart proofs (`REQUIRE_SMP=1`) must declare `SMP >= 2`; a one-hart lane asking for cpu1 proofs is a contradiction that fails here instead of after a 3-minute boot.
 
 ## How to extend (post-Phase-4)
 

@@ -48,8 +48,8 @@ help:
     @echo "  just test-os             # run kernel selftests in QEMU (default profile=headless)"
     @echo "  just ci-os-headless       # headless CI (no display, full service chain)"
     @echo "  just ci-os-display-gpu    # GPU pipeline verification via UART markers"
-    @echo "  just test-os smp         # SMP-gated QEMU smoke (REQUIRE_SMP enforced via manifest)"
-    @echo "  just ci-os-smp1          # deterministic SMP=1 boot gate (icount; the test-all boot proof)"
+    @echo "  just test-os smp         # SMP-gated QEMU smoke (2 harts; REQUIRE_SMP declared by the manifest)"
+    @echo "  just ci-os-smp1          # deterministic 1-hart boot gate (profile smp1: -smp 1 + icount; the test-all boot proof)"
     @echo "  just ci-os-smp           # SMP=2 real-parallelism lane (MTTCG, bounded retry; CI coverage)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
     @echo "  just ci-os-dhcp           # QEMU smoke with DHCP requested (deterministic fallback allowed)"
@@ -143,7 +143,10 @@ start-vnc *args:
 # `scripts/qemu-test.sh` forwards to the manifest CLI (`nexus-proof-manifest
 # list-env --profile=…`). Default `headless` runs without display.
 # Use `just test-os full` for display (requires GTK), `just test-os headless` for CI.
-# Migration target: invoke `just test-os <headless|smp|dhcp|quic-required|os2vm>`
+# The profile owns the lane's topology (harts, icount, REQUIRE_* gates) — do
+# NOT hand it `SMP=`/`QEMU_NO_ICOUNT=` env; a contradicting value is a hard
+# error, and a matching one is a second copy that can drift.
+# Migration target: invoke `just test-os <headless|smp1|smp|dhcp|quic-required|os2vm>`
 # (positional arg; just 1.47 parses `PROFILE=foo` after the recipe name as
 # another recipe name, not a parameter override) everywhere.
 test-os profile='headless':
@@ -204,13 +207,19 @@ ci-os-display-gpu-pci:
 # 2026-07 (repo hygiene): headless GPU coverage lives in `ci-os-display-gpu-pci`,
 # interactive visible boots in `just start`. See docs/testing/os-markers.md.
 
-# Deterministic SMP boot gate (the hard `test-all` boot proof): SMP=1 runs the
-# `smp` profile WITH icount (qemu-launcher forces icount off only for SMP>1), so
-# it is fully reproducible — same input, same result, zero flake. It proves the
-# SMP-capable kernel boots and drives the full selftest ladder + chain-marker
-# contract deterministically on one hart.
+# Deterministic single-hart boot gate (the hard `test-all` boot proof): the
+# `smp1` profile DECLARES `-smp 1` + icount, which removes the MTTCG/host
+# scheduling variance — the proof ladder is reproducible (two back-to-back
+# runs on 2026-07-25 produced an identical marker set; only diagnostic counter
+# values move). It proves the SMP-capable kernel boots and drives the full
+# selftest ladder + chain-marker contract on one hart.
+# Topology is NOT passed as env here: until 2026-07-25 this recipe passed
+# `SMP=1` to the `smp` profile, which declares `SMP=2 QEMU_NO_ICOUNT=1` and
+# silently won — so the "deterministic gate" actually ran the 2-hart MTTCG
+# lane and inherited its flaky `runtime timer budget ok`. Profile env
+# conflicts are now a hard error (scripts/qemu-test.sh:pm_apply_profile_env).
 ci-os-smp1:
-    SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-200s} just test-os smp
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-200s} just test-os smp1
 
 # SMP=2 REAL-PARALLELISM lane (MTTCG, icount impossible — it forces
 # single-threaded round-robin vCPUs and would kill the cpu1/per-hart/IPI
@@ -221,13 +230,15 @@ ci-os-smp1:
 # attempt; a scheduling flake passes on retry. Interleaved-UART marker
 # corruption is separately fixed by the line-atomic kernel log (nexus-log
 # record_lock). Run in CI for parallelism coverage. RETRY count via SMP_RETRIES.
+# Topology (SMP=2, icount off) is declared by `[profile.smp]`, not here — a
+# second copy in this recipe could only drift out of sync with it.
 ci-os-smp:
     #!/usr/bin/env bash
     set -uo pipefail
     tries="${SMP_RETRIES:-3}"
     for attempt in $(seq 1 "$tries"); do
         echo "==> ci-os-smp (SMP=2 MTTCG) attempt $attempt/$tries"
-        if SMP=2 QEMU_NO_ICOUNT=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT="${RUN_TIMEOUT:-300s}" just test-os smp; then
+        if RUN_UNTIL_MARKER=1 RUN_TIMEOUT="${RUN_TIMEOUT:-300s}" just test-os smp; then
             echo "[ok] ci-os-smp passed on attempt $attempt/$tries"
             exit 0
         fi

@@ -45,9 +45,14 @@ The full layer reference — including the end-to-end coverage table and the per
 4. Rebuild the Podman development container (`podman build -t open-nexus-os-dev -f podman/Containerfile`) so host tooling matches CI.
 5. **Run OS build hygiene checks**: `just diag-os` and `just dep-gate` (catches forbidden dependencies).
 6. Run OS smoke coverage via QEMU: `just test-os` (bounded by `RUN_TIMEOUT`, exits on readiness markers).
-7. For SMP changes, run dual-mode proof commands sequentially:
-   - `SMP=2 REQUIRE_SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-   - `SMP=1 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
+7. For SMP changes, run both boot lanes sequentially. Select the lane by
+   **profile** — the profile declares the topology (harts, icount,
+   `REQUIRE_SMP`), and passing a contradicting `SMP=`/`QEMU_NO_ICOUNT=` in the
+   environment is a hard error, not a silent override:
+   - `just ci-os-smp1` — deterministic gate: `-smp 1` + icount, no
+     secondary-hart demands (`[profile.smp1]`).
+   - `just ci-os-smp` — real parallelism: `-smp 2`, MTTCG, secondary-hart
+     proofs required, bounded retry (`[profile.smp]`).
 
 ## Quick commands
 

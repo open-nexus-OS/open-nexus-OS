@@ -32,7 +32,7 @@ fn accept_on_disk_catalog() {
     let m = nexus_proof_manifest::parse_path(std::path::Path::new(path))
         .unwrap_or_else(|e| panic!("on-disk manifest must parse: {e}"));
 
-    for required in ["full", "smp", "dhcp", "os2vm", "quic-required"] {
+    for required in ["full", "smp", "smp1", "dhcp", "os2vm", "quic-required"] {
         assert!(m.profiles.contains_key(required), "manifest must declare profile `{required}`");
     }
 
@@ -59,6 +59,81 @@ fn accept_on_disk_catalog() {
         assert!(
             !quic_expected.contains(forb),
             "marker `{forb}` is forbidden under quic-required, must not appear in expected list"
+        );
+    }
+}
+
+/// Lane topology is DECLARED, and the two boot lanes must not blur into each
+/// other: `smp1` is the deterministic 1-hart gate (`-smp 1` + icount, no
+/// secondary-hart demands), `smp` is the 2-hart MTTCG lane. This pins the
+/// exact env the harness resolves for both, so a lane cannot silently become
+/// the other one again (2026-07-25: `ci-os-smp1` passed `SMP=1` to
+/// `[profile.smp]`, whose `SMP=2 QEMU_NO_ICOUNT=1` won — the "deterministic"
+/// gate was the MTTCG lane and inherited its flaky
+/// `KSELFTEST: runtime timer budget ok`).
+#[test]
+fn accept_boot_lane_topology_is_declared() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../apps/selftest-client/proof-manifest/manifest.toml"
+    );
+    let m = nexus_proof_manifest::parse_path(std::path::Path::new(path))
+        .unwrap_or_else(|e| panic!("on-disk manifest must parse: {e}"));
+
+    let smp1 = m.resolve_env_chain("smp1").expect("smp1 env resolution");
+    assert_eq!(smp1.get("SMP").map(String::as_str), Some("1"), "smp1 lane must declare 1 hart");
+    assert_eq!(
+        smp1.get("QEMU_NO_ICOUNT").map(String::as_str),
+        Some("0"),
+        "smp1 lane must keep icount ON — it is the reproducible gate"
+    );
+    assert!(
+        !smp1.contains_key("REQUIRE_SMP"),
+        "smp1 runs on one hart: it must not demand secondary-hart proofs"
+    );
+    assert_eq!(
+        smp1.get("QEMU_DISPLAY_BACKEND").map(String::as_str),
+        Some("none"),
+        "smp1 extends headless, so the display backend stays off"
+    );
+
+    let smp = m.resolve_env_chain("smp").expect("smp env resolution");
+    assert_eq!(smp.get("SMP").map(String::as_str), Some("2"), "smp lane must declare 2 harts");
+    assert_eq!(smp.get("REQUIRE_SMP").map(String::as_str), Some("1"));
+    assert_eq!(
+        smp.get("QEMU_NO_ICOUNT").map(String::as_str),
+        Some("1"),
+        "real parallelism is impossible under icount"
+    );
+}
+
+/// Cross-lane invariant: demanding the secondary-hart result-proofs
+/// (`REQUIRE_SMP=1` → `KINIT: cpu1 online`, `smp exec cpu1`, `smp per-hart
+/// ticks`, `runtime timer budget`) is only satisfiable with at least two
+/// harts. A profile that asks for them on one hart is a contradiction the
+/// harness can only discover by booting and failing, so it fails here instead.
+#[test]
+fn reject_require_smp_without_two_harts_on_disk() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../apps/selftest-client/proof-manifest/manifest.toml"
+    );
+    let m = nexus_proof_manifest::parse_path(std::path::Path::new(path))
+        .unwrap_or_else(|e| panic!("on-disk manifest must parse: {e}"));
+
+    for name in m.profiles.keys() {
+        let env = m.resolve_env_chain(name).expect("env resolution");
+        if env.get("REQUIRE_SMP").map(String::as_str) != Some("1") {
+            continue;
+        }
+        let harts: u32 = env
+            .get("SMP")
+            .unwrap_or_else(|| panic!("profile `{name}` sets REQUIRE_SMP=1 but declares no SMP"))
+            .parse()
+            .unwrap_or_else(|e| panic!("profile `{name}` has a non-numeric SMP: {e}"));
+        assert!(
+            harts >= 2,
+            "profile `{name}` demands secondary-hart proofs (REQUIRE_SMP=1) with SMP={harts}"
         );
     }
 }

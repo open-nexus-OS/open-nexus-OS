@@ -37,13 +37,46 @@ extends = "headless"
 # 4 harts (HSM reports STARTED, the hart never executes the kernel entry —
 # proven via a first-instruction UART crumb; independent of aclint on/off,
 # settle-waits, sequential starts and retries). Interactive boots default to
-# SMP=4 with degraded-continue + the `KGATE: smp` evidence lines; the CI gate
-# stays at the deterministic 2-hart contract. Also: with all MAX_CPUS harts
+# SMP=4 with degraded-continue + the `KGATE: smp` evidence lines; this lane
+# stays at the 2-hart contract. Also: with all MAX_CPUS harts
 # online, `test_reject_offline_cpu_resched` has no offline CPU to test.
 # QEMU_NO_ICOUNT: icount forces single-threaded round-robin vCPUs (no real
 # parallelism, spinlock-quantum convoys); the SMP markers are result-proofs
 # without timing asserts, so MTTCG nondeterminism is safe here.
+#
+# 2026-07-25: the hart-loss window is NOT exclusive to 4 harts — two runs at
+# SMP=2 (`build/logs/smp--2026-07-25T13-21-39`, `…T13-26-51`) came up with
+# cpu1_online=0 (`tlb shootdown skipped (smp=1)`, no `KINIT: cpu1 online`),
+# and one run (`…T18-00-48`) brought cpu1 up but never reached the secondary-
+# hart tick proof. That is why THIS lane is bounded-retry (`just ci-os-smp`)
+# and NOT the hard gate; the deterministic gate is `[profile.smp1]` below.
 env = { REQUIRE_SMP = "1", SMP = "2", QEMU_NO_ICOUNT = "1" }
+
+# Deterministic single-hart lane — the hard `just test-all` boot proof.
+#
+# The topology lives HERE, not in the caller's env: `-smp 1` + icount (the
+# launcher enables icount whenever SMP=1 and QEMU_NO_ICOUNT is not "1", and
+# the explicit "0" keeps that intent readable). One hart under icount removes
+# the MTTCG/host-scheduling variance, so the PROOF LADDER is reproducible —
+# two back-to-back runs (`smp1--2026-07-25T15-49-22`, `…T15-51-44`) produced
+# an identical marker set. Note what determinism does NOT mean here: guest
+# entropy (virtio-rng from /dev/urandom) and host block I/O still move
+# counter VALUES in diagnostic lines (`KINIT: bkl histogram le100us=…`), so
+# never gate on a counter value, only on a result marker.
+# No REQUIRE_SMP: the secondary-hart result-proofs (`KINIT: cpu1
+# online`, `smp exec cpu1`, `smp per-hart ticks`, `runtime timer budget` —
+# that one is emitted from a non-boot hart) cannot exist on one hart, so
+# demanding them here is a contradiction — they belong to `[profile.smp]`.
+# (`bkl budget ok` is NOT in that set: it emits on one hart too, verified in
+# `build/logs/smp1--2026-07-25T15-49-22`.) Absence stays explicit via
+# the `KSELFTEST: tlb shootdown skipped (smp=1)` line in the ladder, never a
+# silent pass. This profile inherits the full headless service chain, so the
+# one-hart gate verifies the whole userspace ladder (init → services →
+# SELFTEST) plus the chain-marker contract.
+[profile.smp1]
+runner = "scripts/qemu-test.sh"
+extends = "headless"
+env = { SMP = "1", QEMU_NO_ICOUNT = "0" }
 
 [profile.dhcp]
 runner = "scripts/qemu-test.sh"

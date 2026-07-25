@@ -92,6 +92,26 @@ bounded-retry and CI-only. Follow-up: investigate the individual SMP=2 flakes
 under MTTCG) so the parallelism lane can eventually gate without retry. Larger
 kernel/scheduling scope, likely its own track.
 
+**Correction + fix (2026-07-25).** The decision above was recorded but not
+actually in force: `ci-os-smp1` passed `SMP=1` to `--profile=smp`, whose
+declared `env = { REQUIRE_SMP = "1", SMP = "2", QEMU_NO_ICOUNT = "1" }`
+silently overrode it in `pm_apply_profile_env`. Evidence: every recent run dir
+records `"smp":"2"`, `"require_smp":"1"`, `"qemu_icount_args":""` — i.e. the
+hard `test-all` gate WAS the MTTCG lane, which is why the secondary-hart proof
+`KSELFTEST: runtime timer budget ok` flaked in it. Two of my 2026-07-25 runs
+even lost cpu1 entirely at 2 harts (`smp--2026-07-25T13-21-39`, `…T13-26-51`:
+cpu1_online=0, `tlb shootdown skipped (smp=1)`) — the OpenSBI/QEMU MTTCG
+hart_start window documented for 4 harts also opens at 2. Declarative fix:
+the deterministic lane is now its own declaration `[profile.smp1]`
+(`SMP=1`, icount on, no `REQUIRE_SMP`), `ci-os-smp1` / `make test`'s parity
+run select it by name, and a caller env value that contradicts a profile key
+is a hard error instead of a silent override (`NEXUS_PROFILE_ENV_OVERRIDE=1`
+for local one-offs). Host tests pin both lanes and reject any profile that
+demands secondary-hart proofs with `SMP < 2`
+(`cargo test -p nexus-proof-manifest --test profiles`). The MTTCG flake
+follow-up above stays open — it now only affects the bounded-retry lane, which
+is where it belongs.
+
 ## 11. Remaining `cfg_attr(not(os), allow(dead_code))` items (~120, os-live)
 
 After Phase 2 (blanket allows removed, genuine dead code deleted, kernel clippy
