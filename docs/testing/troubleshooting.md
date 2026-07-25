@@ -21,6 +21,33 @@ For regression hunting across runs, `scripts/regression-bisect.sh` is a manual
 - Escape-coded UART (E-prefixed) is currently forced off to keep logs clean. Old logs can still be decoded with `tools/uart-filter.py --strip-escape uart.log`. If you need probe framing, add it locally in code, but keep it disabled for shared runs.
 - For stubborn host/container mismatches, rebuild the Podman image and ensure the same targets are installed inside and outside the container.
 
+### Dead interactive session (`just start`): desktop at 320x240, no input
+
+Symptom grid from `build/logs/manual--*/uart.log`, in the order it appears:
+
+| Line | Means |
+|---|---|
+| `windowd: gpud reply foreign frame op=0x49 …` | **`0x49` is `b'I'`** — the first byte of the client-surface envelope `[b'I', b'N', version, op]` (`nexus-display-proto::client_surface`, shared with the input-live ops), NOT a gpud status byte (those are 0/1/2). Something is draining client traffic off an endpoint it does not own and discarding it. |
+| no `WINDOWD: app event channel attached` | the desktop's events-attach frame (`len=12`) was one of the discarded ones |
+| `WINDOWD: desktop bind deferred (channel not yet attached)` | the deferral is waiting for an attach that was already consumed — it can never complete |
+| `apphost: no content rect (fallback)` ~8 s after the intent | the geometry intent (`len=32`) was discarded too |
+| `WINDOWD: desktop surface created id=1 320x240` | the app-host fell back to the probe size; the desktop presents frames and never routes input |
+| `inputd: push backpressure n=…` + `hidrawd: chain I2 wire send FAIL` | inputd's batches (`len=32`) are being discarded as well |
+
+Root cause (fixed 2026-07-25): windowd's gpud route came from a runtime
+`new_for("gpud")` query whose recv side aliased windowd's own server endpoint,
+and `drain_gpud_replies` — which runs on every present — consumed the client
+frames queued there. The drain now refuses any endpoint that IS windowd's own
+inbox (`windowd: FAIL gpud reply endpoint aliases server inbox slot=… — drain
+skipped`), and a client-envelope frame that reaches it anyway stops it at once
+(`windowd: FAIL gpud reply ate client frame op=… len=…`). Note the route
+SELECTION was left alone on purpose: pinning the runtime to the init-wired pair
+(slots 5/6) instead breaks the framebuffer handoff in the headless lane
+(`gpud: ERROR attach framebuffer resource create failed` → `chain G4 scanout
+FAIL`) — so if you see G4 fail after touching `ensure_gpud_client`, that is why.
+A `just start`-class regression needs `just start`-class boots to see: this race
+never fires in the headless 1–2-hart proof lanes, only at 4 harts + virgl.
+
 ### QEMU smoke proof knobs (determinism)
 
 Network/distributed debugging runbooks, packet capture workflow, `os2vm` phase controls, typed error matrix, and slot-mismatch triage are maintained in:

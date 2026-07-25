@@ -54,8 +54,8 @@ const GPU_UPLOAD_ICON_OP: u8 = nexus_display_proto::OP_UPLOAD_ICON;
 const GPU_UPLOAD_CURSOR_SHAPE_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR_SHAPE;
 const GPU_SELECT_CURSOR_SHAPE_OP: u8 = nexus_display_proto::OP_SELECT_CURSOR_SHAPE;
 const GPUD_STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
-pub(crate) const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
-pub(crate) const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
+pub(crate) const GPUD_WIRED_SEND_SLOT: u32 = 5; // init-wired windowd<->gpud
+pub(crate) const GPUD_WIRED_RECV_SLOT: u32 = 6; // pair (see gpud.rs)
 /// Shell chrome contract (design-handoff shell — the DSL shell draws these,
 /// windowd reserves/overlays them): the top bar is ALWAYS above app windows
 /// (windows sit BEHIND it; its strip stays clickable), the desktop taskbar
@@ -84,7 +84,7 @@ mod chrome_widget;
 mod cursor;
 mod desktop_surface;
 mod framebuffer;
-mod gpud;
+pub(crate) mod gpud;
 mod input;
 mod input_scroll;
 pub(crate) mod intent;
@@ -137,7 +137,7 @@ fn log_gpud_cap_error(prefix: &str, err: nexus_ipc::IpcError, send_slot: u32) {
         let _ = debug_println(&alloc::format!(
             "{prefix} kernel-permission-denied (gpud send_slot={send_slot}: cap lacks SEND or slot \
              points at the wrong cap — windowd→gpud handoff contract is slots \
-             {GPUD_FALLBACK_SEND_SLOT}/{GPUD_FALLBACK_RECV_SLOT}; check init cap-transfer order \
+             {GPUD_WIRED_SEND_SLOT}/{GPUD_WIRED_RECV_SLOT}; check init cap-transfer order \
              didn't displace them)"
         ));
     } else {

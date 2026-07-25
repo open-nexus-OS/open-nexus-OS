@@ -276,12 +276,12 @@ mod probe {
         let resizable = level != wire::WIN_LEVEL_DESKTOP
             && level != wire::WIN_LEVEL_OVERLAY
             && mode != wire::WIN_MODE_FULLSCREEN;
+        let win = WindowIntent { style, level, mode, nonce };
         let (mut surf_w, mut surf_h) = if level == wire::WIN_LEVEL_DESKTOP
             || level == wire::WIN_LEVEL_OVERLAY
             || mode == wire::WIN_MODE_FULLSCREEN
         {
-            request_content_rect(&client, &events, style, level, mode, nonce, &mut boot_region)
-                .unwrap_or((SURFACE_W as u32, SURFACE_H as u32))
+            compositor_owned_geometry(&client, &events, &win, &mut boot_region)?
         } else {
             (SURFACE_W as u32, SURFACE_H as u32)
         };

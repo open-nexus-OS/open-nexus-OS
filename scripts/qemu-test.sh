@@ -1432,10 +1432,23 @@ if grep -aFq "SELFTEST: ui resize ok" "$UART_LOG" && ! grep -aFq "SELFTEST: ui l
   exit 1
 fi
 
+# Lanes that run WITHOUT a display/GPU device. Their guest still emits the UI
+# summary markers, but never the scanout/visible prerequisites, so the display
+# fake-green guards below must not run for them. ONE list, three consumers: the
+# same predicate used to live as three hand-maintained `!=` chains, and adding
+# the `smp1` lane to two of them but not the third turned the deterministic gate
+# red with "GPU chain contract broken" on a headless boot (2026-07-25).
+profile_has_display() {
+  case "${PROFILE:-full}" in
+    headless | smp | smp1 | dhcp | dhcp-strict | quic-required | os2vm | supply-chain) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 # TASK-0055B fake-green guard (GPU-capable profiles): the guest marker summarizes a
 # configured GPU scanout and must not appear without mode/present/handoff prerequisites.
 # Only enforced for GPU-capable profiles (headless has no virtio-gpu device).
-if [[ "${PROFILE:-full}" != "headless" && "${PROFILE:-full}" != "smp" && "${PROFILE:-full}" != "dhcp" && "${PROFILE:-full}" != "dhcp-strict" && "${PROFILE:-full}" != "quic-required" && "${PROFILE:-full}" != "os2vm" && "${PROFILE:-full}" != "supply-chain" ]]; then
+if profile_has_display; then
 if grep -aFq "SELFTEST: ui v2 present ok" "$UART_LOG"; then
   for m in \
     "display: bootstrap on" \
@@ -1455,7 +1468,8 @@ fi
 # TASK-0055C visible-present fake-green guard: the UI visible marker summarizes
 # a configured visible backend, visible present, scanout, and SystemUI first frame.
 # Skip for headless/display-gpu profiles which run UI phases without GPU scanout.
-if [[ "${PROFILE:-full}" != "headless" && "${PROFILE:-full}" != "display-gpu" && "${PROFILE:-full}" != "smp" && "${PROFILE:-full}" != "dhcp" && "${PROFILE:-full}" != "dhcp-strict" && "${PROFILE:-full}" != "quic-required" && "${PROFILE:-full}" != "os2vm" && "${PROFILE:-full}" != "supply-chain" ]]; then
+# (`display-gpu` HAS a GPU device but no visible backend, hence the extra term.)
+if profile_has_display && [[ "${PROFILE:-full}" != "display-gpu" ]]; then
 if grep -aFq "SELFTEST: ui visible present ok" "$UART_LOG"; then
   for m in \
     "gpud: virtio-gpu probed" \
@@ -1619,9 +1633,9 @@ fi
 # nexus-proof-manifest yet) — non-strict by env opt-out for now; will
 # become hard-required in P4-10.
 PM_VERIFY_UART=${PM_VERIFY_UART:-1}
-# Skip manifest verify-uart for headless/display-gpu — manifest markers
-# are still being populated for non-display profiles.
-if [[ "${PROFILE:-full}" == "headless" || "${PROFILE:-full}" == "display-gpu" || "${PROFILE:-full}" == "smp" || "${PROFILE:-full}" == "smp1" || "${PROFILE:-full}" == "dhcp" || "${PROFILE:-full}" == "dhcp-strict" || "${PROFILE:-full}" == "quic-required" || "${PROFILE:-full}" == "os2vm" || "${PROFILE:-full}" == "supply-chain" ]]; then
+# Skip manifest verify-uart for the non-display lanes + display-gpu — manifest
+# markers are still being populated for them (same one list as the guards above).
+if ! profile_has_display || [[ "${PROFILE:-full}" == "display-gpu" ]]; then
   PM_VERIFY_UART=0
 fi
 if [[ "$PM_VERIFY_UART" == "1" ]]; then

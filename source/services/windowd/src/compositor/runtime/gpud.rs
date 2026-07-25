@@ -13,6 +13,28 @@
 //! `pub(super)` so the parent and sibling submodules can still call them.
 
 use super::*;
+use core::sync::atomic::{AtomicU32, Ordering};
+
+/// windowd's OWN server recv slot, published by `compositor::run` right after
+/// the server binds (`KernelServer::slots().0`). `u32::MAX` = not yet known.
+///
+/// The gpud reply drain needs it to answer one question: is the endpoint I am
+/// about to drain exclusively MINE? The ctrl-plane can answer a
+/// `new_for("gpud")` route query with a recv slot that aliases this very inbox,
+/// and a non-blocking drain on it consumes CLIENT requests — on 2026-07-25 a
+/// 4-hart virgl `just start` (`build/logs/manual--2026-07-25T15-57-20`) ate 29
+/// of them: the app-host's events-attach (len=12) — hence `desktop bind
+/// deferred` with no attach left to complete it — its geometry intent (hence
+/// the 8 s content-rect timeout and a 320x240 "desktop") and inputd's batches
+/// (hence the `push backpressure` flood and a session that never routed input).
+static SERVER_RECV_SLOT: AtomicU32 = AtomicU32::new(u32::MAX);
+/// One-shot latch for the alias FAIL line (the drain runs per present).
+static ALIAS_REPORTED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Publishes windowd's server recv slot for the alias check above.
+pub(crate) fn note_server_recv_slot(slot: u32) {
+    SERVER_RECV_SLOT.store(slot, Ordering::Relaxed);
+}
 
 impl DisplayServerRuntime {
     pub(super) fn ensure_gpud_client(&mut self) -> bool {
@@ -24,10 +46,9 @@ impl DisplayServerRuntime {
             self.gpud_client = Some(client);
             return true;
         }
-        if let Ok(client) =
-            KernelClient::new_with_slots(GPUD_FALLBACK_SEND_SLOT, GPUD_FALLBACK_RECV_SLOT)
+        if let Ok(client) = KernelClient::new_with_slots(GPUD_WIRED_SEND_SLOT, GPUD_WIRED_RECV_SLOT)
         {
-            let _ = debug_println("windowd: gpud route fallback slots");
+            let _ = debug_println("windowd: gpud route wired slots");
             self.gpud_client = Some(client);
             return true;
         }
@@ -86,8 +107,25 @@ impl DisplayServerRuntime {
 
     /// Drain non-blocking gpud status replies for OP_PRESENT_DAMAGE so gpud cannot
     /// block on a full reply queue and freeze visible updates.
+    ///
+    /// Drains ONLY an endpoint that is exclusively ours: see [`SERVER_RECV_SLOT`]
+    /// for the boot where it was not, and what that cost. A skipped drain merely
+    /// stops crediting present completions (the in-flight bound throttles
+    /// presents); consuming a client's request instead loses it forever, because
+    /// the capability an events-attach carries cannot be re-delivered.
     pub(crate) fn drain_gpud_replies(&mut self) {
-        if self.framebuffer_pending_first_write || self.gpud_client.is_none() {
+        if self.framebuffer_pending_first_write {
+            return;
+        }
+        let Some(recv_slot) = self.gpud_client.as_ref().map(|c| c.slots().1) else {
+            return;
+        };
+        if recv_slot == SERVER_RECV_SLOT.load(Ordering::Relaxed) {
+            if !ALIAS_REPORTED.swap(true, Ordering::Relaxed) {
+                let _ = debug_println(&alloc::format!(
+                    "windowd: FAIL gpud reply endpoint aliases server inbox slot={recv_slot} — drain skipped"
+                ));
+            }
             return;
         }
         // Stack-buffer drain: recv_into avoids the per-call Vec<u8> that
@@ -132,14 +170,27 @@ impl DisplayServerRuntime {
                             ));
                         }
                         self.note_present_nacked();
+                    } else if nexus_display_proto::client_surface::is_client_envelope(
+                        &reply_buf[..n],
+                    ) {
+                        // Belt to the bind-time check's braces: a CLIENT frame here
+                        // means this endpoint carries someone else's requests after
+                        // all (a slot the alias check could not see). Stop at once —
+                        // one lost frame, loudly, instead of a silent stream.
+                        let op = reply_buf.get(3).copied().unwrap_or(0);
+                        let _ = debug_println(&alloc::format!(
+                            "windowd: FAIL gpud reply ate client frame op={op} len={n}"
+                        ));
+                        self.reset_gpud_client();
+                        return;
                     } else if n >= 5 {
-                        // FOREIGN frame on the reply channel — not a gpud present
-                        // verdict (real stati are 0/1/2; observed 0x49/'I' and
-                        // 0x30/OP_TIMER_FIRED bytes at boot). Treating these as
-                        // NACKs triggered full-recompose retry bursts during the
-                        // very bring-up window where the desktop-bind handshake
-                        // runs. Log (the storm is the diagnosis) + skip — no
-                        // accounting change, no requeue.
+                        // Foreign, non-client frame on the reply channel — not a
+                        // gpud present verdict (real stati are 0/1/2; observed
+                        // 0x30/OP_TIMER_FIRED at boot). Treating these as NACKs
+                        // triggered full-recompose retry bursts during the very
+                        // bring-up window where the desktop-bind handshake runs.
+                        // Log (the storm is the diagnosis) + skip — no accounting
+                        // change, no requeue.
                         if let Some(status) = status {
                             let _ = debug_println(&alloc::format!(
                                 "windowd: gpud reply foreign frame op=0x{status:02x} len={n}"

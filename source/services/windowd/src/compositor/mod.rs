@@ -413,8 +413,8 @@ fn query_gpud_display_mode() -> (u32, u32) {
         // close on drop), so the temporary client leaves the slots intact
         // for the runtime.
         let Ok(client) = KernelClient::new_with_slots(
-            runtime::GPUD_FALLBACK_SEND_SLOT,
-            runtime::GPUD_FALLBACK_RECV_SLOT,
+            runtime::GPUD_WIRED_SEND_SLOT,
+            runtime::GPUD_WIRED_RECV_SLOT,
         ) else {
             raw_line("windowd: display-mode query no slots (1280x800)");
             return fallback;
@@ -472,6 +472,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             KernelServer::new_with_slots(3, 4).map_err(|_| "windowd: init fail kernel-server")?
         }
     };
+    // Publish our own inbox FIRST — before anything can present and therefore
+    // drain gpud replies — so the drain can refuse to consume from it
+    // (runtime::gpud::SERVER_RECV_SLOT documents the boot that needed this).
+    #[cfg(nexus_env = "os")]
+    runtime::gpud::note_server_recv_slot(server.slots().0);
     // Resolve the VISIBLE display mode from gpud BEFORE anything sizes to it
     // (gpud resolved it at probe from the device's GET_DISPLAY_INFO; the
     // framebuffer-handoff ack would be far too late — atlas/dock/damage all

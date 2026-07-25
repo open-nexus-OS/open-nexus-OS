@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-25 (`just start` dead-session race — windowd was eating client frames off an aliased endpoint)
+
+- **The desktop-bind race is a lost-frame bug, not a reordering one.** In a
+  4-hart virgl `just start` (`build/logs/manual--2026-07-25T15-57-20`) windowd
+  bound its gpud route via a runtime `KernelClient::new_for("gpud")` route
+  query instead of the persistent pair init wires into slots 5/6. That query's
+  recv side aliased windowd's OWN server endpoint, so `drain_gpud_replies`
+  consumed **29 client frames** as unknown present verdicts and logged them as
+  `gpud reply foreign frame op=0x49` — `0x49` is `b'I'`, the first byte of the
+  client-surface envelope `[b'I', b'N', version, op]`. The casualties explain
+  every symptom of that boot: the app-host's events-attach (`len=12` =
+  `SURFACE_EVENTS_FRAME_LEN`) → `WINDOWD: desktop bind deferred` with no
+  attach left to complete it; its geometry intent → the 8 s content-rect
+  timeout at 2.4 s + 8 s = the `desktop surface created id=1 320x240` observed
+  at 11.2 s; inputd's batches (`len=32`) → the `push backpressure` flood,
+  `hidrawd: chain I2 wire send FAIL` and a desktop that never logged
+  `desktop input routed`. The healthy boot 70 s later had **0** such drops.
+- **The drain now only reads an endpoint that is exclusively windowd's.**
+  `compositor::run` publishes windowd's own server recv slot
+  (`KernelServer::slots().0`) before anything can present, and
+  `drain_gpud_replies` refuses to consume from a gpud route whose recv slot IS
+  that inbox (one-shot `windowd: FAIL gpud reply endpoint aliases server inbox
+  slot=… — drain skipped`). Skipping the drain only stops crediting present
+  completions — the in-flight bound throttles presents — whereas consuming a
+  client request loses it forever, because the capability an events-attach
+  carries cannot be re-delivered. Route SELECTION is deliberately unchanged:
+  binding the runtime to the init-wired pair instead broke the framebuffer
+  handoff in the headless lane (`gpud: ERROR attach framebuffer resource
+  create failed` → `chain G4 scanout FAIL`, reproduced 4/4), so the fix stays
+  on the drain, which is where the defect was.
+- **Belt-and-braces + host test.** `nexus-display-proto` gained
+  `envelope::is_client_envelope()` (the envelope moved into its own module,
+  shrinking the 978-LOC `client_surface.rs`; covered by
+  `tests/client_envelope.rs` against every client op and every gpud status
+  byte). The drain uses it as a second line of defence: a client frame that
+  reaches it anyway stops the drain at once with `windowd: FAIL gpud reply ate
+  client frame op=… len=…` instead of eating a stream.
+- **No more probe-size desktop.** `request_content_rect` re-drives the intent
+  once (a lost ask is indistinguishable from a slow WM until the second one
+  also goes unanswered), and app-host now treats "no content rect" for a
+  compositor-owned surface (desktop/overlay/fullscreen) as a hard failure —
+  `APPHOST: FAIL no content rect …` + `exit(-1)` — instead of mounting a
+  320x240 "desktop" that presents frames and never routes input.
+
 ### Fixed - 2026-07-25 (the "deterministic" boot gate was the MTTCG lane — flaky `runtime timer budget ok`)
 
 - **`just ci-os-smp1` now really runs one hart with icount.** It passed `SMP=1`

@@ -16,11 +16,10 @@
 //! Ops share that space; MUST NOT collide with input ops 1–4 (pinned by a
 //! windowd unit test). Text ops 21/22: `crate::surface_text` (23 reserved).
 
-/// Shared envelope (input-live-protocol family on windowd's server endpoint).
-pub const ENVELOPE_MAGIC0: u8 = b'I';
-pub const ENVELOPE_MAGIC1: u8 = b'N';
-pub const ENVELOPE_VERSION: u8 = 1;
-pub(crate) const HEADER_LEN: usize = 4;
+// The envelope itself lives in `crate::envelope` (one home for "is this frame
+// mine?"); re-exported here so `client_surface::ENVELOPE_*` stays the path.
+pub(crate) use crate::envelope::{has_op, header, HEADER_LEN};
+pub use crate::envelope::{is_client_envelope, ENVELOPE_MAGIC0, ENVELOPE_MAGIC1, ENVELOPE_VERSION};
 
 /// Creates an app surface. Payload: `w:u16, h:u16, format:u8`. The message
 /// MOVES the app's surface VMO capability (gpud-attach pattern).
@@ -408,18 +407,6 @@ pub struct DamageRect {
     pub y: u16,
     pub width: u16,
     pub height: u16,
-}
-
-pub(crate) fn header(op: u8) -> [u8; HEADER_LEN] {
-    [ENVELOPE_MAGIC0, ENVELOPE_MAGIC1, ENVELOPE_VERSION, op]
-}
-
-pub(crate) fn has_op(frame: &[u8], op: u8) -> bool {
-    frame.len() >= HEADER_LEN
-        && frame[0] == ENVELOPE_MAGIC0
-        && frame[1] == ENVELOPE_MAGIC1
-        && frame[2] == ENVELOPE_VERSION
-        && frame[3] == op
 }
 
 // ------------------------------------------------------------------ create

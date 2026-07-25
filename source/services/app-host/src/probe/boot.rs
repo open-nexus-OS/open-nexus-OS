@@ -251,55 +251,105 @@ pub(super) fn read_window_intent_tags(nxir: &[u8]) -> (u8, u8, u8) {
     (style, level, mode)
 }
 
+/// The declared window intent for one geometry handshake, kept together so the
+/// nonce can never drift away from the style/level/mode it belongs to.
+pub(super) struct WindowIntent {
+    pub(super) style: u8,
+    pub(super) level: u8,
+    pub(super) mode: u8,
+    pub(super) nonce: u64,
+}
+
 /// Geometry handshake: send the window intent (`OP_SURFACE_INTENT`) and wait
 /// (bounded) for windowd's composed content rect (`OP_SURFACE_RECT`) on the
-/// event channel. `None` if windowd never answers (older WM) — the caller
-/// falls back to the probe default. The WM owns geometry; the app sizes its
-/// VMO to whatever rect it gets.
+/// event channel. `None` if windowd never answers. The WM owns geometry; the
+/// app sizes its VMO to whatever rect it gets.
+///
+/// The intent is RE-DRIVEN once before giving up: the first ask can be lost
+/// outright (2026-07-25, `build/logs/manual--2026-07-25T15-57-20`: windowd's
+/// gpud-reply drain was consuming client frames off an aliased endpoint, so
+/// both the attach and this intent vanished), and a lost ask is
+/// indistinguishable from a slow WM until the second one also goes unanswered.
+/// Callers for whom geometry is MANDATORY use [`compositor_owned_geometry`]
+/// instead of substituting a default for `None`.
 pub(super) fn request_content_rect(
     client: &KernelClient,
     events: &KernelClient,
-    style: u8,
-    level: u8,
-    mode: u8,
-    nonce: u64,
+    win: &WindowIntent,
     region: &mut Option<RegionPush>,
 ) -> Option<(u32, u32)> {
     // Nonce-correlated: windowd answers on OUR event channel — without it,
     // concurrent mounts stole each other's rect and every app fell back.
-    let intent = wire::encode_surface_intent(style, level, mode, false, nonce);
-    let mut sent = false;
-    for _ in 0..SEND_RETRIES {
-        if client.send(&intent, Wait::NonBlocking).is_ok() {
-            sent = true;
-            break;
-        }
-        let _ = yield_();
-    }
-    if !sent {
-        return None;
-    }
-    let start = nsec().unwrap_or(0);
+    let intent = wire::encode_surface_intent(win.style, win.level, win.mode, false, win.nonce);
+    // Attempt 1 pays the full early-boot budget; attempt 2 re-drives the ask
+    // with a short budget, so a LOST intent costs ~1s instead of a session.
+    const BUDGETS_NS: [u64; 2] = [8_000_000_000, 1_000_000_000];
     let mut frame = [0u8; 64];
-    loop {
-        if let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
-            if let Some((_, _, w, h)) = wire::decode_surface_rect(&frame[..len]) {
-                raw_marker("APPHOST: content rect received");
-                return Some((u32::from(w), u32::from(h)));
+    for (attempt, budget_ns) in BUDGETS_NS.iter().enumerate() {
+        let mut sent = false;
+        for _ in 0..SEND_RETRIES {
+            if client.send(&intent, Wait::NonBlocking).is_ok() {
+                sent = true;
+                break;
             }
-            // The attach-time region push races the rect on this channel —
-            // stash it (dropping it un-localized every fresh mount).
-            let _ = stash_region(&frame[..len], region);
+            let _ = yield_();
         }
-        // 8s: early-boot windowd can lag several seconds before it drains
-        // the request queue (grown image); with the parked-reply flush a
-        // LATE answer is correct — falling back early re-created the
-        // 320x240/splash-hang class this budget exists to avoid.
-        if nsec().unwrap_or(u64::MAX).saturating_sub(start) > 8_000_000_000 {
-            raw_marker("apphost: no content rect (fallback)");
+        if !sent {
             return None;
         }
-        let _ = yield_();
+        if attempt > 0 {
+            raw_marker("apphost: content rect re-driven");
+        }
+        let start = nsec().unwrap_or(0);
+        loop {
+            if let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
+                if let Some((_, _, w, h)) = wire::decode_surface_rect(&frame[..len]) {
+                    raw_marker("APPHOST: content rect received");
+                    return Some((u32::from(w), u32::from(h)));
+                }
+                // The attach-time region push races the rect on this channel —
+                // stash it (dropping it un-localized every fresh mount).
+                let _ = stash_region(&frame[..len], region);
+            }
+            // 8s on the first ask: early-boot windowd can lag several seconds
+            // before it drains the request queue (grown image); with the
+            // parked-reply flush a LATE answer is correct — falling back early
+            // re-created the 320x240/splash-hang class this budget exists to
+            // avoid.
+            if nsec().unwrap_or(u64::MAX).saturating_sub(start) > *budget_ns {
+                break;
+            }
+            let _ = yield_();
+        }
+    }
+    raw_marker("apphost: no content rect (fallback)");
+    None
+}
+
+/// Geometry for a surface whose size the COMPOSITOR owns (desktop, overlay,
+/// fullscreen): windowd's content rect is the only legitimate answer, so a
+/// missing one is a hard failure — never the probe default.
+///
+/// Substituting the default was a fake green: on 2026-07-25 a lost intent
+/// produced a `320x240` "desktop" that mounted, presented frames and never
+/// routed input (`build/logs/manual--2026-07-25T15-57-20`) — a dead session
+/// that looked alive for 20 s of backpressure before anyone could tell. Failing
+/// here exits the process with a logged error (`nexus-service-entry` maps `Err`
+/// to `exit(-1)`), which is diagnosable in one line and reclaimable by execd.
+pub(super) fn compositor_owned_geometry(
+    client: &KernelClient,
+    events: &KernelClient,
+    win: &WindowIntent,
+    region: &mut Option<RegionPush>,
+) -> Result<(u32, u32), &'static str> {
+    match request_content_rect(client, events, win, region) {
+        Some(rect) => Ok(rect),
+        None => {
+            raw_marker(
+                "APPHOST: FAIL no content rect (compositor owns this surface — refusing probe-size desktop)",
+            );
+            Err("apphost: no content rect for compositor-owned surface")
+        }
     }
 }
 
