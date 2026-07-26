@@ -18,6 +18,67 @@ use nexus_display_proto::client_surface::{
     SURFACE_STATUS_BAD_SURFACE, SURFACE_STATUS_MALFORMED, SURFACE_STATUS_QUOTA,
 };
 
+/// How a frame must reach a client's event channel (TASK-0306).
+///
+/// The distinction is not "important vs unimportant" — it is **whether the
+/// client is waiting**. Getting it wrong is invisible in the code and very
+/// visible on screen: a dropped present-ack does not lose a pixel, it leaves
+/// the client blocked on a reply that will never come, and the user sees a
+/// frozen UI. That is the exact shape of the 2026-07-26 report.
+///
+/// `Blocking` is a REACTIVE park, not a retry loop. The kernel already
+/// implements the rendezvous — a non-NONBLOCK `ipc_send_v1` registers the
+/// sender as a send-waiter on the endpoint and the receive path pops it the
+/// moment capacity appears. Polling with `yield_()` instead would issue
+/// hundreds of syscalls of the very kind measured at up to 21 ms under lock
+/// contention, and could still lose the frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Delivery {
+    /// The client is (or may be) BLOCKED on this frame: present, create and
+    /// destroy acks, and input taps. Retried until the budget is spent;
+    /// failure is real and must be reported as failure.
+    Blocking,
+    /// The NEXT frame supersedes this one: hover motion, region/theme pushes.
+    /// One attempt — a full queue means the client is behind, and the newer
+    /// frame carries the newer truth anyway. Retrying would only add latency
+    /// to data that is already stale.
+    Coalescing,
+}
+
+/// How long the compositor will wait for a blocked client to drain before
+/// giving up on one frame, in nanoseconds (16 ms — one frame at 60 Hz).
+///
+/// This is a DEADLINE handed to the kernel, not a retry budget: `ipc_send_v1`
+/// without `IPC_SYS_NONBLOCK` parks the sender on the endpoint
+/// (`register_send_waiter`) and the receive path wakes it the moment the queue
+/// drains (`pop_send_waiter`). One syscall, no polling.
+///
+/// The bound exists so a wedged client cannot stall the compositor loop; when
+/// it expires the caller falls back to the blocking reply path, which cannot
+/// be lost.
+pub(crate) const BLOCKING_SEND_DEADLINE_NS: u64 = 16_000_000;
+
+impl Delivery {
+    /// Deadline in ns for a blocking send; `None` = do not block at all.
+    pub(crate) const fn deadline_ns(self) -> Option<u64> {
+        match self {
+            Delivery::Blocking => Some(BLOCKING_SEND_DEADLINE_NS),
+            Delivery::Coalescing => None,
+        }
+    }
+
+    /// The class an input kind belongs to. A tap is discrete — nothing
+    /// downstream can reconstruct it. Hover motion is superseded by the next
+    /// move, so retrying it only delivers stale coordinates late.
+    pub(crate) const fn for_input(is_tap: bool) -> Self {
+        if is_tap {
+            Delivery::Blocking
+        } else {
+            Delivery::Coalescing
+        }
+    }
+}
+
 /// Bounds for app surfaces (ADR-0037's MAX_APP_SURFACES caps the count when the
 /// table grows past one). Sized to the display so an app can go TRUE fullscreen
 /// (the "□" toggle re-creates its surface at display size — see
@@ -274,5 +335,39 @@ mod tests {
         assert_eq!(t.destroy(a), Ok(10));
         let b = t.create(320, 240, FORMAT_BGRA8888, 11).expect("creates");
         assert_ne!(a, b, "ids are not recycled");
+    }
+}
+
+#[cfg(test)]
+mod delivery_tests {
+    use super::{Delivery, BLOCKING_SEND_DEADLINE_NS};
+
+    /// TASK-0306: the bug was a POLICY bug, so the policy is what gets pinned.
+    /// A frame the client is blocked on must be retried; a frame the next one
+    /// supersedes must not be. Getting this backwards is invisible in review
+    /// and shows up as a frozen UI — a present-ack was fired once, dropped on
+    /// a full queue, and the client waited 504 ms for a reply that never came.
+    #[test]
+    fn blocking_retries_and_coalescing_does_not() {
+        assert_eq!(Delivery::Coalescing.deadline_ns(), None, "stale data must not block");
+        assert_eq!(
+            Delivery::Blocking.deadline_ns(),
+            Some(BLOCKING_SEND_DEADLINE_NS),
+            "a client is waiting on this frame — park on the endpoint, do not poll"
+        );
+        assert!(
+            BLOCKING_SEND_DEADLINE_NS <= 16_000_000,
+            "the compositor must not stall longer than a frame for one client"
+        );
+    }
+
+    #[test]
+    fn taps_block_hover_coalesces() {
+        assert_eq!(Delivery::for_input(true), Delivery::Blocking, "a tap is discrete");
+        assert_eq!(
+            Delivery::for_input(false),
+            Delivery::Coalescing,
+            "the next motion supersedes this one"
+        );
     }
 }

@@ -50,6 +50,16 @@ core::arch::global_asm!(
     .align 4
 __secondary_hart_start:
     /* SBI HSM contract: a0=hartid, a1=opaque. We pass stack-top via opaque. */
+    /* TASK-0306: record arrival BEFORE touching sp/gp. `stage=0` alone cannot
+       distinguish "SBI never jumped here" from "jumped and died in this stub",
+       and those have opposite fixes. This store uses only a0 + scratch regs
+       and no stack, so it is valid at the very first instruction. */
+    la    t0, BRINGUP_ASM_SEEN
+    slli  t1, a0, 3
+    add   t0, t0, t1
+    li    t2, 1
+    sd    t2, 0(t0)
+    fence w, w
     mv    sp, a1
     .option push
     .option norelax
@@ -59,6 +69,19 @@ __secondary_hart_start:
     .size __secondary_hart_start, .-__secondary_hart_start
 "#
 );
+
+/// Set by [`__secondary_hart_start`] as its FIRST action, indexed by hartid.
+/// Distinguishes the two failure modes behind `stage=0`:
+/// `asm=0` ⇒ SBI reported STARTED but never transferred control to us;
+/// `asm=1, stage=0` ⇒ we were entered and died inside the stub (sp/gp/satp).
+///
+/// `AtomicU64`, not `u64`: a plain non-`mut` static can be placed in
+/// `.rodata` (flags `AM`, no `W` in this image), and the asm store would then
+/// be dropped — an instrument that always reads 0 and "proves" whatever you
+/// hoped. The `UnsafeCell` inside an atomic forces writable placement.
+#[no_mangle]
+pub static BRINGUP_ASM_SEEN: [core::sync::atomic::AtomicU64; MAX_CPUS] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; MAX_CPUS];
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 extern "C" {
@@ -104,9 +127,10 @@ pub fn emit_bringup_gate(expected_mask: usize) {
             let status = sbi::hart_get_status(idx);
             log_info!(
                 target: "smp",
-                "KGATE: smp hart{} online={} stage={} hsm={}",
+                "KGATE: smp hart{} online={} asm={} stage={} hsm={}",
                 idx,
                 (online & bit != 0) as usize,
+                BRINGUP_ASM_SEEN[idx].load(Ordering::Acquire),
                 stage.load(Ordering::Acquire),
                 status.value
             );
@@ -203,8 +227,9 @@ pub fn retry_missing_harts(expected_mask: usize) {
             let status = sbi::hart_get_status(hart.as_index());
             log_error!(
                 target: "smp",
-                "KINIT: hart{} missing (stage={} hsm_err=0x{:x} hsm_state={}) — retrying start",
+                "KINIT: hart{} missing (asm={} stage={} hsm_err=0x{:x} hsm_state={}) — retrying start",
                 idx,
+                BRINGUP_ASM_SEEN[idx].load(Ordering::Acquire),
                 stage.load(Ordering::Acquire),
                 status.error,
                 status.value
@@ -225,21 +250,81 @@ pub fn retry_missing_harts(expected_mask: usize) {
 /// online. Iteration budgets are meaningless across icount/MTTCG — 2M
 /// spin_loops are microseconds under MTTCG, which flakily timed out hart 3
 /// on SMP=4 bring-up.
+/// Poll interval while waiting for a hart, in mtime ticks (10 MHz ⇒ 1 ms).
+/// Short enough that bring-up latency is unaffected, long enough that the
+/// emulator gets a real slice to run the hart we are waiting for.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+const ONLINE_POLL_TICKS: u64 = 10_000;
+
+/// Parks this hart for ~[`ONLINE_POLL_TICKS`] instead of spinning.
+///
+/// TASK-0306. The old loop called `spin_loop()`, which under TCG burns the
+/// boot hart's entire scheduler quantum — starving the very vCPU it is
+/// waiting for. That is why a *different* hart went missing on each boot
+/// (`KGATE: smp bringup DEGRADED expected=0xf got=0x7`, then `got=0xb`), and
+/// why it got worse under host load. `kmain_secondary` already parks in WFI
+/// for exactly this reason ("under icount/TCG a spinning vCPU steals whole
+/// scheduler quanta"); the bring-up wait never got the same treatment.
+///
+/// Deadlock-free by construction: the timer is armed HERE, so a wake always
+/// arrives even though no scheduler timer exists yet at this point in kmain
+/// (`start_secondary_harts` runs ~180 lines before `KINIT: timer sbi`).
+/// `sstatus.SIE` stays clear throughout, so the timer only ever *wakes* WFI —
+/// it is never taken as a trap into a half-built scheduler. A pending-but-
+/// masked interrupt still releases WFI (the same RISC-V property the
+/// secondary park loop relies on).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn park_until_poll() {
+    let next = (riscv::register::time::read() as u64).saturating_add(ONLINE_POLL_TICKS);
+    sbi::set_timer(next);
+    // SAFETY: enables the timer bit in `sie` and executes WFI with
+    // `sstatus.SIE` clear (the caller cleared it for the whole wait). The
+    // pending timer releases WFI without being taken as a trap.
+    unsafe {
+        riscv::register::sie::set_stimer();
+        core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
+    }
+}
+
 pub fn wait_for_online_mask(expected_mask: usize, budget_ns: u64) -> bool {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         // QEMU virt mtime runs at 10 MHz (100ns/tick).
         let deadline = (riscv::register::time::read() as u64).saturating_add(budget_ns / 100);
-        loop {
+        // Keep traps masked for the whole wait: we want the timer as a WFI
+        // wake source only, never as a trap into a scheduler that does not
+        // exist yet. Restored before returning.
+        let sie_was_set = riscv::register::sstatus::read().sie();
+        // SAFETY: masking S-mode interrupts around a bounded wait; restored
+        // on every return path below.
+        unsafe {
+            riscv::register::sstatus::clear_sie();
+        }
+        let result = loop {
             if cpu_online_mask() & expected_mask == expected_mask {
-                return true;
+                break true;
             }
             if (riscv::register::time::read() as u64) >= deadline {
-                return false;
+                break false;
             }
-            core::hint::spin_loop();
+            // The bring-up phase can be long without any other progress
+            // signal; keep the liveness watchdog informed so a slow hart
+            // start cannot be mistaken for a wedged kernel (the documented
+            // "watchdog: no progress right after cpu0 sched loop" class).
+            crate::liveness::bump();
+            park_until_poll();
+        };
+        // Disarm: leave no stale compare behind for the real scheduler timer.
+        sbi::set_timer(u64::MAX);
+        if sie_was_set {
+            // SAFETY: restoring the caller's interrupt-enable state.
+            unsafe {
+                riscv::register::sstatus::set_sie();
+            }
         }
+        return result;
     }
+    #[allow(unreachable_code)]
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
         let _ = budget_ns;

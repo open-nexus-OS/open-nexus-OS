@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-26 (the UI "barely reacted" — a dropped ack, not a dropped click; TASK-0306)
+
+Diagnosed from a real interactive boot, and the first hypothesis was wrong in
+a useful way: **no tap was ever lost.** `FAIL desktop input send` = 0 across
+the whole session. The input path already retries a tap 400 times.
+
+What was lost were **ACKs**. All three ack senders did this:
+
+```rust
+Err(_) => { debug_println("WINDOWD: FAIL desktop event send"); true }
+```
+
+One attempt, no retry, and `true` returned on failure. The asymmetry was the
+bug: the frame a client merely *reads* got 400 retries, the frame a client is
+**blocked waiting on** got one shot and a lie. A dropped present-ack does not
+lose a pixel — it leaves the client waiting for a reply that never comes.
+The 504 ms `STALL present stuck` in the log lands **1.2 ms** after exactly
+that send failing, and the compositor loop falls from 56 Hz to 17 Hz.
+
+- **One delivery contract** (`client_surface::Delivery`) replaces three copies
+  of the same guesswork: `Blocking` for anything a client waits on (present /
+  create / destroy acks, taps), `Coalescing` for anything the next frame
+  supersedes (hover motion, region pushes). `send_client_frame` returns
+  whether it actually delivered.
+- The recovery was **already in the tree** — `compositor/mod.rs` falls back to
+  `reply_and_close_wait` / `server.send`, both `Wait::Blocking` and neither
+  losable. The `true`-on-failure return is what kept it from ever running.
+- Measured over 8 boots: `FAIL desktop event send` 2 → **0**,
+  `surface present stale` 4 → **0**.
+
+### Changed - 2026-07-26 (SMP bring-up: stop starving the hart we wait for)
+
+Every boot came up with **3 of 4 harts**, and a *different* hart went missing
+each time (`got=0x7`, then `got=0xb`, then `got=0xd`) — a race, not dead
+silicon. The boot hart waited like this:
+
+```rust
+loop { if online() { return true } if timeout() { return false } spin_loop(); }
+```
+
+A **hot spin, up to 500 ms per hart**. Under TCG that burns the boot hart's
+whole scheduler quantum and starves the very vCPU it is waiting for. The
+kernel already knew this 400 lines away — `kmain_secondary` parks in WFI with
+the comment *"under icount/TCG a spinning vCPU steals whole scheduler
+quanta"* — the bring-up wait never got the same treatment.
+
+- The wait now parks in WFI on a self-armed SBI timer (no scheduler timer
+  exists yet at that point in kmain, so it arms its own; `sstatus.SIE` stays
+  clear so the timer only *wakes* WFI and is never taken as a trap into a
+  half-built scheduler). It also bumps liveness, removing the documented
+  "watchdog: no progress right after cpu0 sched loop" hazard.
+- All-4-hart rate: **0 / 3 boots → 7 / 8 boots.**
+- **Not deterministic, and not claimed as fixed.** New instrumentation
+  (`BRINGUP_ASM_SEEN`, written by the entry stub as its first instruction)
+  shows the residual failure as `asm=0 stage=0`: the hart never executes even
+  the first instruction of our stub while SBI reports it STARTED. That is
+  below our code, and the existing retry cannot help because SBI then answers
+  `ALREADY_AVAILABLE`.
+- Methodology note: the first version of that instrument was a plain
+  `static [u64; N]`, which can land in `.rodata` (`AM`, no `W`) — the store
+  would be dropped and it would read 0 forever, "confirming" whatever you
+  hoped. It is an `AtomicU64` now.
+
+Still open (measured, not fixed): IPC syscalls hold the global kernel lock for
+10–25 ms (`long ecall nr=14 25ms`, `nr=0 21ms`, `nr=26 13ms`), which is what
+makes 17 service selftests start inside a 241 ms window and drain over 2.6 s.
+See `tasks/TASK-0306`.
+
 ### Added - 2026-07-26 (the type ramp the design system always assumed it had — RFC-0082 / TASK-0305)
 
 The login greeter was supposed to be a re-skin. It turned out the platform

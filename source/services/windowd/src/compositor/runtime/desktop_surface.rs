@@ -147,14 +147,14 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             let Some(slot) = self.desktop_channel else { return false };
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-            match nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-                Ok(_) => true,
-                Err(_) => {
-                    let _ = debug_println("WINDOWD: FAIL desktop event send");
-                    true // channel exists — no shared-endpoint fallback
-                }
+            // The client BLOCKS on this ack — retry it (TASK-0306).
+            use super::app_window::send_client_frame;
+            use crate::client_surface::Delivery;
+            if send_client_frame(slot, frame, Delivery::Blocking) {
+                return true;
             }
+            let _ = debug_println("WINDOWD: FAIL desktop event send");
+            false
         }
         #[cfg(not(nexus_env = "os"))]
         {

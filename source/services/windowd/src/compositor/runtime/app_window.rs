@@ -24,6 +24,7 @@
 //! ADR: docs/adr/0042-cross-process-surface-transport.md
 
 use super::*;
+use crate::client_surface::Delivery;
 use nexus_display_proto::client_surface as wire;
 
 /// Window bounds: the pool reserve + `ShellWindow` frame are sized for the
@@ -263,14 +264,14 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             let Some(slot) = self.event_channel_for(nonce) else { return false };
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-            match nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-                Ok(_) => true,
-                Err(_) => {
-                    let _ = debug_println("WINDOWD: FAIL nonce event send");
-                    true // the channel exists — do not fall back to the shared endpoint
-                }
+            // The creating client BLOCKS in `recv_ack` on this frame.
+            if send_client_frame(slot, frame, Delivery::Blocking) {
+                return true;
             }
+            let _ = debug_println("WINDOWD: FAIL nonce event send");
+            // Report the truth: the client is now waiting for a reply that
+            // never arrived, and the caller has to be able to see that.
+            false
         }
         #[cfg(not(nexus_env = "os"))]
         {
@@ -287,14 +288,15 @@ impl DisplayServerRuntime {
         {
             if self.desktop_surface_id == Some(surface_id) {
                 let Some(slot) = self.desktop_channel else { return false };
-                let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-                match nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-                    Ok(_) => return true,
-                    Err(_) => {
-                        let _ = debug_println("WINDOWD: FAIL desktop event send");
-                        return true; // channel exists — no shared-endpoint fallback
-                    }
+                // PRESENT/DESTROY ack — the client is blocked on it. Dropping
+                // one stalls the client until its own timeout: the 504 ms
+                // `STALL present stuck` in the 2026-07-26 log landed 1.2 ms
+                // after exactly this send failing.
+                if send_client_frame(slot, frame, Delivery::Blocking) {
+                    return true;
                 }
+                let _ = debug_println("WINDOWD: FAIL desktop event send");
+                return false;
             }
             let Some(idx) = self.app_index_by_surface(surface_id) else { return false };
             self.send_app_frame(idx, frame)
@@ -918,19 +920,33 @@ impl DisplayServerRuntime {
 /// pre-click mouse motion filled the queue). MOVE/LEAVE stay single-shot
 /// NONBLOCK — dropping motion under pressure is correct.
 #[cfg(nexus_env = "os")]
-pub(super) fn send_input_frame(slot: u32, frame: &[u8], is_tap: bool) -> bool {
+/// Sends one frame on a client's event channel with the given delivery
+/// discipline. Returns whether it was **actually delivered**.
+///
+/// Callers must not paper over a `false`. Before TASK-0306 the three ack
+/// paths returned `true` on failure with the note "channel exists — no
+/// shared-endpoint fallback" — but the callers in `compositor/mod.rs` already
+/// had the right recovery (`reply_and_close_wait` / `server.send`, both
+/// `Wait::Blocking`, neither losable). The lie is what kept that recovery
+/// from ever running.
+pub(super) fn send_client_frame(slot: u32, frame: &[u8], delivery: Delivery) -> bool {
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-    let attempts = if is_tap { 400 } else { 1 };
-    for i in 0..attempts {
-        match nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => return true,
-            Err(nexus_abi::IpcError::QueueFull) if i + 1 < attempts => {
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => return false,
-        }
-    }
-    false
+    let Some(budget_ns) = delivery.deadline_ns() else {
+        // Coalescing: one attempt. A full queue means the client is behind,
+        // and the frame after this one carries the newer truth.
+        return nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0).is_ok();
+    };
+    // REACTIVE, not polled: dropping NONBLOCK makes the kernel park us as a
+    // send-waiter on the endpoint and wake us the instant the client drains
+    // (`register_send_waiter` / `pop_send_waiter`). One syscall, one wakeup.
+    // The absolute deadline bounds our exposure to a wedged client; on expiry
+    // the caller falls back to the blocking reply path, which cannot be lost.
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(budget_ns);
+    nexus_abi::ipc_send_v1(slot, &hdr, frame, 0, deadline).is_ok()
+}
+
+pub(super) fn send_input_frame(slot: u32, frame: &[u8], is_tap: bool) -> bool {
+    send_client_frame(slot, frame, Delivery::for_input(is_tap))
 }
 
 /// Thin cap-close shim so the handlers above read cleanly on host builds
