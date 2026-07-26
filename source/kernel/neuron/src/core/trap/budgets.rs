@@ -79,6 +79,93 @@ pub fn reset() {
     for b in &BKL_WAIT_BUCKETS {
         b.store(0, Ordering::Relaxed);
     }
+    SWEEP_MAX_TICKS.store(0, Ordering::Relaxed);
+    SWEEP_MAX_TASKS.store(0, Ordering::Relaxed);
+    SWEEP_CALLS.store(0, Ordering::Relaxed);
+    SWEEP_TICKS_TOTAL.store(0, Ordering::Relaxed);
+    SWEEP_SKIPPED.store(0, Ordering::Relaxed);
+    // NEXT_DEADLINE_NS is LIVE state, not accounting — never reset it here.
+}
+
+/// Earliest pending block deadline across all tasks, or `u64::MAX` when none
+/// is armed — the O(1) gate in front of the O(tasks) deadline sweep.
+///
+/// The sweep used to run on EVERY scheduling transition: 242k–389k calls per
+/// 4-hart interactive boot at ~6–7 µs each (measured 2026-07-25 with
+/// `record_sweep`), i.e. **~1.7–2.3 s of BKL held per boot** scanning for
+/// deadlines that had overwhelmingly not expired, plus 6–13 ms outliers that
+/// were the worst BKL holds in the run.
+///
+/// SAFETY OF THE SHORTCUT: skipping the scan while `now < min` can never miss
+/// an expiry, because (a) every task that blocks WITH a deadline lowers this
+/// bound via [`note_block_deadline`] before it can expire, and (b) the scan
+/// itself recomputes the exact minimum of the deadlines still pending, so the
+/// bound is never stale-high. A bound that is too LOW only costs one
+/// unnecessary scan; a bound that is too high would lose a wakeup, which the
+/// two rules above prevent.
+pub static NEXT_DEADLINE_NS: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// Lowers the sweep gate when a task blocks with a deadline.
+#[inline]
+pub fn note_block_deadline(deadline_ns: u64) {
+    if deadline_ns != 0 {
+        NEXT_DEADLINE_NS.fetch_min(deadline_ns, Ordering::Relaxed);
+    }
+}
+
+/// True if the deadline sweep can be skipped entirely at `now_ns`.
+#[inline]
+pub fn sweep_can_skip(now_ns: u64) -> bool {
+    now_ns < NEXT_DEADLINE_NS.load(Ordering::Relaxed)
+}
+
+/// Publishes the exact minimum the sweep just observed (`u64::MAX` = none).
+#[inline]
+pub fn set_next_deadline(min_ns: u64) {
+    NEXT_DEADLINE_NS.store(min_ns, Ordering::Relaxed);
+}
+
+/// Sweeps actually performed vs skipped by the gate (proof the gate works).
+pub static SWEEP_SKIPPED: AtomicUsize = AtomicUsize::new(0);
+
+#[inline]
+pub fn record_sweep_skipped() {
+    SWEEP_SKIPPED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Deadline-sweep attribution (`syscall::api::wake_expired_blocked`): the one
+/// body shared by every >10 ms BKL holder observed so far (`yield`,
+/// `ipc_recv_v1/v2`, `waitset_wait`). Diagnostic only — it answers "is the
+/// hold the O(tasks) sweep, or something else in the syscall?" before anyone
+/// optimises the wrong half.
+pub static SWEEP_MAX_TICKS: AtomicU64 = AtomicU64::new(0);
+pub static SWEEP_MAX_TASKS: AtomicUsize = AtomicUsize::new(0);
+pub static SWEEP_CALLS: AtomicUsize = AtomicUsize::new(0);
+pub static SWEEP_TICKS_TOTAL: AtomicU64 = AtomicU64::new(0);
+
+#[inline]
+pub fn record_sweep(ticks: u64, tasks: usize) {
+    let prev = SWEEP_MAX_TICKS.fetch_max(ticks, Ordering::Relaxed);
+    if ticks > prev {
+        SWEEP_MAX_TASKS.store(tasks, Ordering::Relaxed);
+    }
+    SWEEP_CALLS.fetch_add(1, Ordering::Relaxed);
+    SWEEP_TICKS_TOTAL.fetch_add(ticks, Ordering::Relaxed);
+}
+
+/// `(max_us, tasks_at_max, calls, mean_us, skipped)` for the sweep since the
+/// last [`reset`]. `skipped` is the O(1)-gate win.
+pub fn sweep_report() -> (u64, usize, usize, u64, usize) {
+    let calls = SWEEP_CALLS.load(Ordering::Relaxed);
+    let total = SWEEP_TICKS_TOTAL.load(Ordering::Relaxed);
+    let mean_us = if calls == 0 { 0 } else { total / (calls as u64) / TICKS_PER_US };
+    (
+        SWEEP_MAX_TICKS.load(Ordering::Relaxed) / TICKS_PER_US,
+        SWEEP_MAX_TASKS.load(Ordering::Relaxed),
+        calls,
+        mean_us,
+        SWEEP_SKIPPED.load(Ordering::Relaxed),
+    )
 }
 
 /// Gate evaluation: `(ok, max_wait_us, max_hold_ms, max_hold_nr, buckets)`.

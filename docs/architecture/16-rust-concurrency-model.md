@@ -286,6 +286,18 @@ impl GlobalIpcRouter {
   cursor reproducibly wedged the boot; the pool uses a bounded lr/sc CAS loop
   instead (same primitive class as the spin locks). Prefer lr/sc-based RMW in
   early-boot/mm paths until the AMO behavior is root-caused.
+- **Nothing O(tasks) runs under the BKL on a per-transition path.** Because the
+  BKL is global, work that looks cheap per call becomes the machine's
+  throughput ceiling when it runs on every scheduling transition. Measured
+  2026-07-25 in a 4-hart interactive boot: the deadline sweep
+  (`syscall::api::wake_expired_blocked`, O(tasks), ~6–7 µs) ran 242k–389k times
+  = **~1.7–2.3 s of BKL held per boot**, and its outliers (6–13 ms) were the
+  worst holds in the run. The fix is the shape to copy: an O(1) gate
+  (`trap::budgets::NEXT_DEADLINE_NS` — the earliest armed deadline, lowered
+  when a task blocks and recomputed exactly by each scan that does run) in
+  front of the scan, which skipped 97–99 % of them (per-boot BKL occupancy in
+  the sweep down ~87–94 %, `KINIT: sweep …` reports `calls` vs `skipped`).
+  When adding a per-transition hook, publish a bound that lets it be skipped.
 
 ---
 

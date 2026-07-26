@@ -158,9 +158,30 @@ fn observe_wake_outcome(outcome: task::WakeOutcome) {
     }
 }
 
+/// Deadline sweep run at EVERY scheduling transition (`yield`, blocking
+/// `ipc_recv_v1/v2`, `waitset_wait`) — i.e. the one body all three of the
+/// >10 ms BKL holders observed on 2026-07-25 have in common
+/// (`KINIT: long ecall nr=0|18|26|40 10..26ms`, 146 waits >10 ms in an
+/// interactive 4-hart boot). It is O(tasks) and each expiry it finds wakes a
+/// task, which can IPI another hart — so its cost is attributed separately
+/// (`trap::budgets::record_sweep`) and, since 2026-07-25, gated: the scan is
+/// skipped outright while `now` is before the earliest armed deadline
+/// (`budgets::NEXT_DEADLINE_NS`, which documents why that cannot lose a
+/// wakeup). Every scan that does run recomputes the exact minimum of the
+/// deadlines still pending, so the gate re-arms itself.
 fn wake_expired_blocked(ctx: &mut Context<'_>) {
     let now = ctx.timer.now();
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    if crate::trap::budgets::sweep_can_skip(now) {
+        crate::trap::budgets::record_sweep_skipped();
+        return;
+    }
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    let sweep_t0 = riscv::register::time::read() as u64;
     let len = ctx.tasks.len();
+    // Exact minimum of the deadlines that remain pending after this sweep —
+    // published at the end so the O(1) gate above is precise, not heuristic.
+    let mut next_min = u64::MAX;
     for pid_usize in 0..len {
         let pid = task::Pid::from_raw(pid_usize as u32);
         let Some(t) = ctx.tasks.task(pid) else {
@@ -168,6 +189,11 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
         };
         if !t.is_blocked() {
             continue;
+        }
+        if let Some(d) = t.block_reason().and_then(block_reason_deadline) {
+            if d != 0 && d > now && d < next_min {
+                next_min = d;
+            }
         }
         match t.block_reason() {
             Some(BlockReason::IpcRecv { endpoint, deadline_ns })
@@ -211,6 +237,27 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
             }
             _ => {}
         }
+    }
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        crate::trap::budgets::set_next_deadline(next_min);
+        crate::trap::budgets::record_sweep(
+            (riscv::register::time::read() as u64).saturating_sub(sweep_t0),
+            len,
+        );
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    let _ = next_min;
+}
+
+/// The deadline a block reason carries, if any (0 / none = no deadline).
+fn block_reason_deadline(reason: BlockReason) -> Option<u64> {
+    match reason {
+        BlockReason::IpcRecv { deadline_ns, .. }
+        | BlockReason::IpcSend { deadline_ns, .. }
+        | BlockReason::Waitset { deadline_ns, .. }
+        | BlockReason::Fence { deadline_ns, .. } => Some(deadline_ns),
+        _ => None,
     }
 }
 

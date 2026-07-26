@@ -1024,6 +1024,20 @@ impl TaskTable {
     /// Blocks the current task and removes it from the scheduler (not runnable).
     pub fn block_current(&mut self, reason: BlockReason, scheduler: &mut Scheduler) {
         let pid = self.current_pid();
+        // Arm the O(1) deadline-sweep gate BEFORE the task can expire: the
+        // sweep skips its O(tasks) scan while `now` is below this bound, so a
+        // deadline that never lowered it would be missed
+        // (`trap::budgets::NEXT_DEADLINE_NS`).
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        match reason {
+            BlockReason::IpcRecv { deadline_ns, .. }
+            | BlockReason::IpcSend { deadline_ns, .. }
+            | BlockReason::Waitset { deadline_ns, .. }
+            | BlockReason::Fence { deadline_ns, .. } => {
+                crate::trap::budgets::note_block_deadline(deadline_ns);
+            }
+            _ => {}
+        }
         if let Some(task) = self.task_mut(pid) {
             task.set_blocked(reason);
         }

@@ -278,6 +278,17 @@ pub(super) fn sys_sched(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
                 nr,
                 b[3]
             );
+            let (sweep_us, sweep_tasks, sweep_calls, sweep_mean_us, sweep_skipped) =
+                crate::trap::budgets::sweep_report();
+            log_info!(
+                target: "smp",
+                "KINIT: sweep bring-up max={}us tasks={} calls={} mean={}us skipped={}",
+                sweep_us,
+                sweep_tasks,
+                sweep_calls,
+                sweep_mean_us,
+                sweep_skipped
+            );
             crate::trap::budgets::reset();
         }
         return Ok(0);
@@ -293,6 +304,17 @@ pub(super) fn sys_sched(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
                 b[1],
                 b[2],
                 b[3]
+            );
+            let (sweep_us, sweep_tasks, sweep_calls, sweep_mean_us, sweep_skipped) =
+                crate::trap::budgets::sweep_report();
+            log_info!(
+                target: "smp",
+                "KINIT: sweep steady max={}us tasks={} calls={} mean={}us skipped={}",
+                sweep_us,
+                sweep_tasks,
+                sweep_calls,
+                sweep_mean_us,
+                sweep_skipped
             );
             if ok {
                 log_info!(

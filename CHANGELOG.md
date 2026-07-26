@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-07-25 (soft-RT: the deadline sweep no longer holds the BKL ~2 s per boot)
+
+- **Attribution first.** All three syscalls observed holding the BKL >10 ms in a
+  4-hart interactive boot (`KINIT: long ecall nr=0|18|26|40`, i.e. `yield`,
+  `ipc_recv_v1/v2`, `waitset_wait`) share exactly one body: the deadline sweep
+  `syscall::api::wake_expired_blocked`, which is O(tasks) and runs at EVERY
+  scheduling transition. New probe (`trap::budgets::record_sweep`, reported as
+  `KINIT: sweep bring-up|steady max=… tasks=… calls=… mean=… skipped=…`)
+  measured it: **241,917 and 388,736 calls per boot at 6–7 µs each ≈ 1.7–2.3
+  seconds of BKL held**, with 6–13 ms outliers that were the worst holds in the
+  run. On a global lock, per-transition O(tasks) work *is* the throughput
+  ceiling.
+- **O(1) gate in front of the scan.** `trap::budgets::NEXT_DEADLINE_NS` holds
+  the earliest armed deadline: `TaskTable::block_current` lowers it whenever a
+  task blocks with one, and every scan that does run republishes the exact
+  minimum still pending, so skipping while `now < min` cannot lose a wakeup.
+  Result on the same boots: **6,251 / 3,787 scans executed vs 819,145 / 268,006
+  skipped** (97–99 % gone), sweep max 13.1 ms → 4.2 ms and 6.2 ms → 1.1 ms,
+  aggregate BKL time in the sweep down ~87–94 %. In the deterministic 1-hart
+  lane the sweep is now 2 µs max with 87,500 skips in the steady window.
+- **Not fixed by this, and now isolated:** the worst-case ~12 ms hold persists
+  in `ipc_recv_v2`/`yield` with the sweep down at 1–4 ms, so the remaining
+  spike is elsewhere in those syscalls (next suspects: `Scheduler::purge` —
+  O(cpus × queues) on every block — and the wake IPI path). Gates green:
+  `just check`, `build-kernel`, `ci-os-smp1` (`KSELFTEST: bkl budget ok`),
+  `ci-os-smp` (2-hart).
+
 ### Fixed - 2026-07-25 (`just start` dead-session race — windowd was eating client frames off an aliased endpoint)
 
 - **The desktop-bind race is a lost-frame bug, not a reordering one.** In a
