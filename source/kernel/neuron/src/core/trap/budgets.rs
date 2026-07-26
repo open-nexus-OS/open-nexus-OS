@@ -142,20 +142,60 @@ pub static SWEEP_MAX_TICKS: AtomicU64 = AtomicU64::new(0);
 pub static SWEEP_MAX_TASKS: AtomicUsize = AtomicUsize::new(0);
 pub static SWEEP_CALLS: AtomicUsize = AtomicUsize::new(0);
 pub static SWEEP_TICKS_TOTAL: AtomicU64 = AtomicU64::new(0);
+/// Second-order attribution for the sweep's worst call: how many expiries it
+/// actually processed, and how many of its ticks went into the DEREGISTER +
+/// WAKE half (each wake can IPI another hart) rather than the O(tasks) scan.
+///
+/// This exists because the first-order numbers are contradictory on their own:
+/// `mean=101us` over 4527 calls with `max=17341us` at `tasks=54` is 171x the
+/// mean for the same task count, so the scan length cannot be the explanation.
+/// Only splitting scan from wake tells you which half to fix.
+pub static SWEEP_MAX_WAKES: AtomicUsize = AtomicUsize::new(0);
+pub static SWEEP_MAX_WAKE_TICKS: AtomicU64 = AtomicU64::new(0);
+/// Cross-core wake IPI cost (`smp::request_resched` -> `sbi::send_ipi`), which
+/// today runs INSIDE the held BKL from `Tasks::wake`. Split out because the
+/// two candidates for an expensive wake — `Scheduler::purge` (a scan of 4 CPUs
+/// x 4 short queues over an 8-byte element) and a firmware-mediated IPI — have
+/// opposite fixes, and only the second justifies restructuring the wake path.
+pub static WAKE_IPI_MAX_TICKS: AtomicU64 = AtomicU64::new(0);
+pub static WAKE_IPI_TICKS_TOTAL: AtomicU64 = AtomicU64::new(0);
+pub static WAKE_IPI_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[inline]
-pub fn record_sweep(ticks: u64, tasks: usize) {
+pub fn record_wake_ipi(ticks: u64) {
+    WAKE_IPI_MAX_TICKS.fetch_max(ticks, Ordering::Relaxed);
+    WAKE_IPI_TICKS_TOTAL.fetch_add(ticks, Ordering::Relaxed);
+    WAKE_IPI_COUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+/// `(max_us, mean_us, count)` for the cross-core wake IPI.
+pub fn wake_ipi_report() -> (u64, u64, usize) {
+    let n = WAKE_IPI_COUNT.load(Ordering::Relaxed);
+    let total = WAKE_IPI_TICKS_TOTAL.load(Ordering::Relaxed);
+    (
+        WAKE_IPI_MAX_TICKS.load(Ordering::Relaxed) / TICKS_PER_US,
+        if n == 0 { 0 } else { total / (n as u64) / TICKS_PER_US },
+        n,
+    )
+}
+
+#[inline]
+pub fn record_sweep(ticks: u64, tasks: usize, wakes: usize, wake_ticks: u64) {
     let prev = SWEEP_MAX_TICKS.fetch_max(ticks, Ordering::Relaxed);
     if ticks > prev {
         SWEEP_MAX_TASKS.store(tasks, Ordering::Relaxed);
+        SWEEP_MAX_WAKES.store(wakes, Ordering::Relaxed);
+        SWEEP_MAX_WAKE_TICKS.store(wake_ticks, Ordering::Relaxed);
     }
     SWEEP_CALLS.fetch_add(1, Ordering::Relaxed);
     SWEEP_TICKS_TOTAL.fetch_add(ticks, Ordering::Relaxed);
 }
 
-/// `(max_us, tasks_at_max, calls, mean_us, skipped)` for the sweep since the
-/// last [`reset`]. `skipped` is the O(1)-gate win.
-pub fn sweep_report() -> (u64, usize, usize, u64, usize) {
+/// `(max_us, tasks_at_max, calls, mean_us, skipped, wakes_at_max,
+/// wake_us_at_max)` for the sweep since the last [`reset`]. `skipped` is the
+/// O(1)-gate win; the last two split the worst call into its wake half and
+/// (by subtraction) its scan half.
+pub fn sweep_report() -> (u64, usize, usize, u64, usize, usize, u64) {
     let calls = SWEEP_CALLS.load(Ordering::Relaxed);
     let total = SWEEP_TICKS_TOTAL.load(Ordering::Relaxed);
     let mean_us = if calls == 0 { 0 } else { total / (calls as u64) / TICKS_PER_US };
@@ -165,6 +205,8 @@ pub fn sweep_report() -> (u64, usize, usize, u64, usize) {
         calls,
         mean_us,
         SWEEP_SKIPPED.load(Ordering::Relaxed),
+        SWEEP_MAX_WAKES.load(Ordering::Relaxed),
+        SWEEP_MAX_WAKE_TICKS.load(Ordering::Relaxed) / TICKS_PER_US,
     )
 }
 

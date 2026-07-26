@@ -42,6 +42,7 @@ mod exec;
 mod ipc_msg;
 mod ipc_recv_v2;
 mod sched_task;
+mod sched_telemetry;
 mod sync_objects;
 mod task_image;
 mod vmo;
@@ -179,6 +180,10 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     let sweep_t0 = riscv::register::time::read() as u64;
     let len = ctx.tasks.len();
+    // Wake-half attribution (see `budgets::SWEEP_MAX_WAKES`): counted only on
+    // tasks that actually expired, so a quiet sweep pays nothing for it.
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    let (mut wakes, mut wake_ticks) = (0usize, 0u64);
     // Exact minimum of the deadlines that remain pending after this sweep —
     // published at the end so the O(1) gate above is precise, not heuristic.
     let mut next_min = u64::MAX;
@@ -195,6 +200,13 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
                 next_min = d;
             }
         }
+        // Does an arm below actually fire for this task? Computed up front so
+        // the wake half can be timed without duplicating every arm's guard.
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        let expired =
+            t.block_reason().and_then(block_reason_deadline).is_some_and(|d| d != 0 && now >= d);
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        let arm_t0 = if expired { riscv::register::time::read() as u64 } else { 0 };
         match t.block_reason() {
             Some(BlockReason::IpcRecv { endpoint, deadline_ns })
                 if deadline_ns != 0 && now >= deadline_ns =>
@@ -237,6 +249,11 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
             }
             _ => {}
         }
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        if expired {
+            wakes += 1;
+            wake_ticks += (riscv::register::time::read() as u64).saturating_sub(arm_t0);
+        }
     }
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
@@ -244,6 +261,8 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
         crate::trap::budgets::record_sweep(
             (riscv::register::time::read() as u64).saturating_sub(sweep_t0),
             len,
+            wakes,
+            wake_ticks,
         );
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]

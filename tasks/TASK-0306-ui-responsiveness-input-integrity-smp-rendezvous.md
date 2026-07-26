@@ -357,11 +357,71 @@ Pinned by `a_tap_outlives_a_slow_frame`, which asserts against the measured
 Lesson recorded: a deadline is only as good as its escape hatch. Reusing one
 budget for two call sites was wrong the moment one of them had no fallback.
 
-### Phase 3 — BKL holds: NOT STARTED
+### Phase 3 — BKL holds: instrumented, target identified, fix NOT applied
 
-Measurement stands (`long ecall nr=14 25ms` / `nr=0 21ms` / `nr=26 13ms`,
-`max_hold=13ms gt10ms=13`), the work does not. This is the open remainder of
-RFC-0033 and wants its own session.
+The plan said "instrument first: find *where* inside send/recv/yield the
+milliseconds go, then move that work out of the lock." The first half is done
+and it changed the answer twice, which is exactly why it was worth doing.
+
+**What the numbers looked like going in.** `sweep steady max=17341us tasks=54
+calls=4527 mean=101us`. The obvious reading — an O(tasks) scan that is simply
+too long — cannot be right: 171x the mean at the same task count is not a cost
+curve, it is an outlier. So the sweep was split into its two halves.
+
+**Round 1 — wakes vs scan.** `wakes` / `wakeus` added to the sweep report:
+
+    sweep bring-up max=6914us tasks=47 wakes=1 wakeus=206
+
+One wake, 206 us, 3 % of the total. Reading that alone, the scan looked
+guilty (97 %, 143 us per task for a field compare).
+
+**Round 2 — which iteration.** A per-iteration maximum was added, because
+"the scan is uniformly slow" and "one iteration stalled" have opposite fixes:
+
+    sweep bring-up max=1155us tasks=45 wakes=1 wakeus=1056 itermax=1057us
+    sweep bring-up max=5042us tasks=48 wakes=1 wakeus=83   itermax=4460us
+
+The first says the whole sweep IS the wake. The second says one iteration ate
+4.46 ms and it was NOT the wake — a `_ => {}` arm cannot do that, so the wall
+clock absorbed an interrupt or a host-side vCPU deschedule under TCG. **The
+peak is not ours.** Four boots produced maxima of 6914 / 1155 / 5042 / 5986 us
+at the same task count; that spread is the artifact, not a workload.
+
+**Round 3 — the aggregate, which IS ours.** Timing `smp::request_resched`
+(`sbi::send_ipi`) directly:
+
+    wake ipi max=2313us mean=63us n=9029
+    wake ipi max=6263us mean=52us n=1448
+
+A cross-core wake IPI costs ~50-60 us on average and runs INSIDE the held BKL
+from `Tasks::wake`. At 1448-9029 per boot that is 75-570 ms of lock time spent
+in firmware-mediated IPIs. And with the measurement noise removed it is usually
+the peak too: `max=5986us wakes=1 wakeus=5947` — 99 % of the worst sweep was
+one wake. `Scheduler::purge` was cleared by inspection: `sched::Task` is
+`{id, qos}`, so 4 CPUs x 4 short queues cannot cost a millisecond.
+
+**Target: get `sbi::send_ipi` out of the BKL.** `request_resched` already sets
+`RESCHED_PENDING` + the wake hint synchronously (plain atomics); the IPI only
+kicks a hart out of WFI. Record the target CPU in a pending mask and flush the
+actual IPIs once, after `KernelGuard` drops. That coalesces duplicates and
+removes the firmware round-trip from the lock.
+
+**Not applied, deliberately.** A correct flush has to run on EVERY kernel exit
+path, not just the syscall one. Miss one and a hart sits in WFI with
+`RESCHED_PENDING` set until its next timer tick — the exact failure class that
+produced the documented early-boot fleet collapse. That deserves its own pass
+with the bring-up boot gate watched, not the tail of this session.
+
+**Kept in tree:** the wake/wake-IPI attribution (proportionate: two CSR reads
+per cross-core wake, and it is the metric the fix must drive down).
+**Removed again:** the per-iteration probe. It answered its question, and it
+was not free — the sweep mean read 101 us before it, 129-189 us with it, and
+40 us after removing it. A diagnostic that distorts the hot path it measures
+does not get to stay once it has spoken.
+
+`sched_task.rs` hit 604 LOC (> 600, not grandfathered) as the reports grew, so
+the telemetry ops moved to `syscall/api/sched_telemetry.rs`. Scheduling
+syscalls stay scheduling syscalls.
 
 ### Open finding — present cost is the largest remaining lever (measured, unfixed)
 

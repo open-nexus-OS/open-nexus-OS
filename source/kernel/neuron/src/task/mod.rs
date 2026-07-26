@@ -1099,7 +1099,13 @@ impl TaskTable {
             // Cross-core wake: kick the home CPU out of WFI/user so the task
             // runs promptly (best-effort IPI; the evidence chain records it).
             if home_cpu != crate::smp::cpu_current_id() {
+                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+                let ipi_t0 = riscv::register::time::read() as u64;
                 let _ = crate::smp::request_resched(home_cpu);
+                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+                crate::trap::budgets::record_wake_ipi(
+                    (riscv::register::time::read() as u64).saturating_sub(ipi_t0),
+                );
             }
             return WakeOutcome::Woken;
         }
