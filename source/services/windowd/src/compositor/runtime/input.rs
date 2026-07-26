@@ -88,18 +88,18 @@ impl DisplayServerRuntime {
         self.state.launcher_click_visible = primary_down;
 
         let mut window_consumed_press = false;
-        // Shell switcher hotspot: a fixed bottom-left corner cycles the active
-        // shell via SystemUI's resolver (desktop → tablet → kiosk → …).
-        // Reachable in EVERY shell so the runtime switch is always demonstrable.
-        if primary_press
-            && !window_consumed_press
-            && cursor_x >= 0
-            && cursor_x < 28
-            && cursor_y >= (mode.height as i32 - 28)
-        {
-            window_consumed_press = true;
-            self.cycle_shell();
-        }
+        // REMOVED: the bottom-left shell-switcher hotspot (ADR-0035's "current
+        // dev trigger"). Its premise was "always wallpaper" — that stopped
+        // being true when the desktop taskbar (56px) put a 36px launcher glyph
+        // in exactly that corner. The hotspot ran FIRST and set
+        // `window_consumed_press`, so ~20x18px of the launcher button silently
+        // cycled the shell profile instead of opening the launcher.
+        //
+        // Nothing is lost: `CONTROL_SHELL_PROFILE` is the wired production path
+        // (DSL `settings.set` → app-host → `set_shell_profile_wire`), and an
+        // invisible UI affordance living in the compositor's input router is
+        // the boundary violation this codebase explicitly forbids — windowd is
+        // a compositor SERVICE; shell UI belongs to the shell.
         // Dock (bottom-center bar of minimized windows): composited above the
         // windows, so its presses resolve BEFORE the window loop. A press on an
         // icon restores that window; anywhere else on the bar just consumes.

@@ -35,9 +35,16 @@ use nexus_display_proto::client_surface::{
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Delivery {
     /// The client is (or may be) BLOCKED on this frame: present, create and
-    /// destroy acks, and input taps. Retried until the budget is spent;
-    /// failure is real and must be reported as failure.
+    /// destroy acks. Failure is real and must be reported as failure — but a
+    /// RECOVERY PATH exists (`compositor/mod.rs` falls back to
+    /// `reply_and_close_wait` / `server.send`, both `Wait::Blocking`), so the
+    /// budget only has to cover the common case.
     Blocking,
+    /// USER INTENT with no recovery path: a tap. Nothing downstream can
+    /// reconstruct it and no fallback catches it — if this send expires, the
+    /// click is simply gone from the user's point of view. It therefore gets a
+    /// LIVENESS budget instead of a frame budget.
+    Critical,
     /// The NEXT frame supersedes this one: hover motion, region/theme pushes.
     /// One attempt — a full queue means the client is behind, and the newer
     /// frame carries the newer truth anyway. Retrying would only add latency
@@ -45,24 +52,39 @@ pub(crate) enum Delivery {
     Coalescing,
 }
 
-/// How long the compositor will wait for a blocked client to drain before
-/// giving up on one frame, in nanoseconds (16 ms — one frame at 60 Hz).
+/// How long the compositor will wait for a blocked client to drain one ACK,
+/// in nanoseconds (16 ms — one frame at 60 Hz).
 ///
 /// This is a DEADLINE handed to the kernel, not a retry budget: `ipc_send_v1`
 /// without `IPC_SYS_NONBLOCK` parks the sender on the endpoint
 /// (`register_send_waiter`) and the receive path wakes it the moment the queue
 /// drains (`pop_send_waiter`). One syscall, no polling.
 ///
-/// The bound exists so a wedged client cannot stall the compositor loop; when
-/// it expires the caller falls back to the blocking reply path, which cannot
-/// be lost.
+/// One frame is enough HERE because expiry is not the end of the story: the
+/// caller falls back to the blocking reply path, which cannot be lost.
 pub(crate) const BLOCKING_SEND_DEADLINE_NS: u64 = 16_000_000;
+
+/// How long the compositor will wait to hand a client a TAP (250 ms).
+///
+/// Sized from measurement, not from the refresh rate. The frame budget was the
+/// wrong unit: under load the compositor loop was observed at **13 Hz** (77 ms
+/// per iteration), so a 16 ms deadline expired on a merely-slow client and the
+/// user's click vanished with a `FAIL desktop input send` — the exact symptom
+/// this constant exists to prevent. 250 ms covers three of those worst-observed
+/// iterations.
+///
+/// The cost of the larger bound is paid only when a client really is wedged,
+/// and it is the right trade: one visible 250 ms hitch is recoverable, a
+/// silently dropped click is not. The bound still exists — an unbounded send
+/// would let one dead client wedge the compositor forever.
+pub(crate) const CRITICAL_SEND_DEADLINE_NS: u64 = 250_000_000;
 
 impl Delivery {
     /// Deadline in ns for a blocking send; `None` = do not block at all.
     pub(crate) const fn deadline_ns(self) -> Option<u64> {
         match self {
             Delivery::Blocking => Some(BLOCKING_SEND_DEADLINE_NS),
+            Delivery::Critical => Some(CRITICAL_SEND_DEADLINE_NS),
             Delivery::Coalescing => None,
         }
     }
@@ -72,7 +94,7 @@ impl Delivery {
     /// move, so retrying it only delivers stale coordinates late.
     pub(crate) const fn for_input(is_tap: bool) -> Self {
         if is_tap {
-            Delivery::Blocking
+            Delivery::Critical
         } else {
             Delivery::Coalescing
         }
@@ -340,7 +362,7 @@ mod tests {
 
 #[cfg(test)]
 mod delivery_tests {
-    use super::{Delivery, BLOCKING_SEND_DEADLINE_NS};
+    use super::{Delivery, BLOCKING_SEND_DEADLINE_NS, CRITICAL_SEND_DEADLINE_NS};
 
     /// TASK-0306: the bug was a POLICY bug, so the policy is what gets pinned.
     /// A frame the client is blocked on must be retried; a frame the next one
@@ -357,13 +379,38 @@ mod delivery_tests {
         );
         assert!(
             BLOCKING_SEND_DEADLINE_NS <= 16_000_000,
-            "the compositor must not stall longer than a frame for one client"
+            "an ACK has a fallback path, so one frame is the right bound"
+        );
+    }
+
+    /// The follow-up bug: sizing the TAP budget to a frame was wrong, because
+    /// nothing catches an expired tap. The compositor loop was measured at
+    /// 13 Hz under load (77 ms), so a 16 ms budget dropped real clicks with
+    /// `FAIL desktop input send`. User intent outlives one frame.
+    #[test]
+    fn a_tap_outlives_a_slow_frame() {
+        const WORST_OBSERVED_LOOP_NS: u64 = 77_000_000; // 13 Hz, from the boot log
+        assert!(
+            CRITICAL_SEND_DEADLINE_NS > WORST_OBSERVED_LOOP_NS,
+            "a tap must survive the slowest loop iteration we have actually measured"
+        );
+        assert!(
+            CRITICAL_SEND_DEADLINE_NS > BLOCKING_SEND_DEADLINE_NS,
+            "user intent has no recovery path; an ack does"
+        );
+        assert!(
+            CRITICAL_SEND_DEADLINE_NS <= 500_000_000,
+            "still bounded — one dead client must not wedge the compositor forever"
         );
     }
 
     #[test]
     fn taps_block_hover_coalesces() {
-        assert_eq!(Delivery::for_input(true), Delivery::Blocking, "a tap is discrete");
+        assert_eq!(
+            Delivery::for_input(true),
+            Delivery::Critical,
+            "a tap is discrete AND unrecoverable"
+        );
         assert_eq!(
             Delivery::for_input(false),
             Delivery::Coalescing,

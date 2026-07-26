@@ -65,9 +65,20 @@ gated on `self.shell_config.desktop_chrome`. A boot marker records the resolved 
 
 `windowd.apply_shell_config(cfg)` swaps the active config at runtime: closes the dropdown, re-renders
 the chrome surfaces, and damages the topbar + side-panel regions so both the virgl (rebuild-every-
-present) and mmio (damage-driven) paths update. `cycle_shell()` advances to the next product via
-`systemui::shell_config_next(current)`. A fixed **bottom-left corner hotspot** (always wallpaper,
-reachable even in a chrome-less kiosk) is the current dev trigger.
+present) and mmio (damage-driven) paths update. The runtime trigger is
+`CONTROL_SHELL_PROFILE` on the surface-control wire (DSL `settings.set` → app-host →
+`set_shell_profile_wire`) — the shell asks, the compositor decides and applies.
+
+> **Superseded 2026-07-26 (TASK-0306).** This ADR originally specified a fixed **bottom-left
+> corner hotspot** in `windowd`'s input router as the dev trigger, justified by that corner being
+> "always wallpaper". That premise died when the desktop taskbar (56 px) placed a 36 px launcher
+> glyph there: the hotspot ran before window routing and set `window_consumed_press`, so roughly
+> 20×18 px of the launcher button cycled the shell profile instead of opening the launcher — and
+> the resulting tablet re-mount removed the very controls the user was aiming at next. The hotspot
+> and its `cycle_shell()` helper are **deleted**. Nothing is lost: `CONTROL_SHELL_PROFILE` was
+> already the wired production path, and an invisible UI affordance inside the compositor's input
+> router violates this codebase's own boundary — `windowd` is a compositor SERVICE; shell UI
+> belongs to the shell.
 
 A `locked` shell (kiosk kind / `locked-down` policy) enforces **kiosk lockdown**: `apply_shell_config`
 closes any open chat/search, and `toggle_chat`/`open_search` refuse to open while locked — so a kiosk

@@ -231,13 +231,6 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Cycle to the next registered product's shell (desktop → tablet → kiosk → …)
-    /// via SystemUI's resolver, and apply it. The shell switcher's one action.
-    pub(super) fn cycle_shell(&mut self) {
-        let next = systemui::shell_config_next(&self.shell_config.product_id);
-        self.apply_shell_config(next);
-    }
-
     /// The active theme's baked color snapshot (TASK-0072 Phase 9).
     pub(super) fn theme(&self) -> &'static crate::theme::ThemeTokens {
         match self.theme_mode {

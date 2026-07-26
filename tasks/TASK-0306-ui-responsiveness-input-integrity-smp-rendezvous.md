@@ -315,6 +315,48 @@ compile the REAL shell app and lay it out at 1280x800) plus four unit tests on
 the precedence rules in `interact.rs`. `just check`, `just diag`
 (host+os+kernel), `just test-host` green.
 
+### Phase 6 — two regressions from this task's own fixes (found by the user, fixed)
+
+The boot after Phase 5 was faster (`present us avg=1621 max=8683`, down from
+`avg 5100 max 313800`; `entmax_us` 69416 -> 3015) but two controls misbehaved.
+Neither was the hit-slop work.
+
+**1. The launcher button cycled the shell profile.** `runtime/input.rs` carried
+a fixed 28x28 bottom-left hotspot that called `cycle_shell()` and set
+`window_consumed_press` BEFORE any window or desktop routing. ADR-0035
+introduced it as "the current dev trigger", justified by that corner being
+"always wallpaper". That premise died when the desktop taskbar (56 px) put a
+36 px launcher glyph there — about 20x18 px of the button switched the shell
+instead of opening the launcher. Worse, the resulting tablet re-mount
+(`apphost: profile old app dropped` / `APPHOST: profile remounted`, five times
+in the log) replaced the whole top bar, so every control the user aimed at next
+was genuinely no longer there. That is the reported "and then nothing works".
+
+Deleted, along with the now-unreferenced `cycle_shell()`. Nothing is lost:
+`CONTROL_SHELL_PROFILE` (DSL `settings.set` -> app-host ->
+`set_shell_profile_wire`) is the wired production path. An invisible UI
+affordance inside the compositor's input router is the boundary violation this
+codebase explicitly forbids. ADR-0035 marked superseded.
+
+**2. `WINDOWD: FAIL desktop input send` came back — caused by Phase 1.** Phase 1
+replaced a 400x yield-retry loop with one blocking send on a 16 ms deadline,
+and the doc justified the bound with "the caller falls back to the blocking
+reply path". That fallback is real for ACKs and does NOT exist for input:
+`send_desktop_input_kind` logs and returns, and the tap is gone. The bound was
+also sized to a 60 Hz frame while the log shows the loop dropping to **13 Hz**
+(77 ms) — every failure line sits next to one.
+
+Split the policy by whether a recovery path exists rather than by who is
+waiting: `Delivery::Blocking` (acks, fallback exists) keeps 16 ms;
+`Delivery::Critical` (taps, no fallback, user intent that nothing can
+reconstruct) gets 250 ms — three of the worst iteration we have actually
+measured. Still bounded, so a dead client cannot wedge the compositor forever.
+Pinned by `a_tap_outlives_a_slow_frame`, which asserts against the measured
+77 ms rather than a made-up number.
+
+Lesson recorded: a deadline is only as good as its escape hatch. Reusing one
+budget for two call sites was wrong the moment one of them had no fallback.
+
 ### Phase 3 — BKL holds: NOT STARTED
 
 Measurement stands (`long ecall nr=14 25ms` / `nr=0 21ms` / `nr=26 13ms`,
