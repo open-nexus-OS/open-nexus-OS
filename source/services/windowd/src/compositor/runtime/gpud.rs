@@ -13,7 +13,7 @@
 //! `pub(super)` so the parent and sibling submodules can still call them.
 
 use super::*;
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 /// windowd's OWN server recv slot, published by `compositor::run` right after
 /// the server binds (`KernelServer::slots().0`). `u32::MAX` = not yet known.
@@ -29,7 +29,27 @@ use core::sync::atomic::{AtomicU32, Ordering};
 /// (hence the `push backpressure` flood and a session that never routed input).
 static SERVER_RECV_SLOT: AtomicU32 = AtomicU32::new(u32::MAX);
 /// One-shot latch for the alias FAIL line (the drain runs per present).
-static ALIAS_REPORTED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+static ALIAS_REPORTED: AtomicBool = AtomicBool::new(false);
+
+/// Wall-clock of the last credited present ack, and a one-shot latch for the
+/// lease-expiry line. See [`PRESENT_ACK_LEASE_NS`].
+static LAST_ACK_NS: AtomicU64 = AtomicU64::new(0);
+static LEASE_REPORTED: AtomicBool = AtomicBool::new(false);
+
+/// The in-flight present bound is a LEASE, not an unbounded promise.
+///
+/// `MAX_IN_FLIGHT` throttles presents until gpud credits them back. If credits
+/// stop arriving the display freezes permanently — and on 2026-07-26 that
+/// froze a BOOT: an aliased gpud reply endpoint meant no ack was ever credited,
+/// windowd stopped presenting after 2 frames, and gpud never re-evaluated its
+/// reveal gate (which is computed inside the present path, so even its 1.2 s
+/// hard cap never ran) — the splash held forever
+/// (`build/logs/manual--2026-07-26T10-31-30`).
+///
+/// So: after this long without a credited ack, presenting resumes anyway. A
+/// stale credit costs at most a redundant frame; withholding presents costs the
+/// whole session. Every precondition must terminate in a decision.
+const PRESENT_ACK_LEASE_NS: u64 = 500_000_000;
 
 /// Publishes windowd's server recv slot for the alias check above.
 pub(crate) fn note_server_recv_slot(slot: u32) {
@@ -37,14 +57,41 @@ pub(crate) fn note_server_recv_slot(slot: u32) {
 }
 
 impl DisplayServerRuntime {
+    /// Binds the gpud route, REJECTING a provably wrong answer.
+    ///
+    /// Routing v1 carries no reply nonce (`nexus-ipc::query_route` even drains
+    /// stale `ROUTE_RSP`s to compensate), so a route query can hand back slots
+    /// that are not ours. One wrong answer is detectable and catastrophic: a
+    /// recv slot equal to windowd's OWN server inbox. Every gpud round-trip
+    /// then reads client requests instead of gpud replies — the reply drain
+    /// refuses to run, the cursor-upload ack never matches
+    /// (`windowd: cursor upload failed`) and the framebuffer handoff never
+    /// acks, so gpud waits for "plane0 + cursor ready" forever and the boot
+    /// stays on the splash (`build/logs/manual--2026-07-26T10-31-30`; the
+    /// alias appeared in ~1 of 2 interactive boots).
+    ///
+    /// The query is still ISSUED — `query_route` drains stale `ROUTE_RSP`s as a
+    /// side effect, and dropping the call entirely is a change with no evidence
+    /// behind it — but an aliased answer is discarded in favour of the pair init
+    /// declared. (An earlier note here claimed an unconditional wired bind had
+    /// regressed the headless framebuffer handoff; that was a mis-attribution.
+    /// Every headless run binds the wired pair anyway — the G4 failures in that
+    /// lane are an intermittent `gpud: resource vmo_map_page fail` on the fb
+    /// attach, unrelated to route selection.)
     pub(super) fn ensure_gpud_client(&mut self) -> bool {
         if self.gpud_client.is_some() {
             return true;
         }
         if let Ok(client) = KernelClient::new_for("gpud") {
-            let _ = debug_println("windowd: gpud route connected");
-            self.gpud_client = Some(client);
-            return true;
+            let own_inbox = SERVER_RECV_SLOT.load(Ordering::Relaxed);
+            if client.slots().1 != own_inbox {
+                let _ = debug_println("windowd: gpud route connected");
+                self.gpud_client = Some(client);
+                return true;
+            }
+            let _ = debug_println(&alloc::format!(
+                "windowd: FAIL gpud route answered our own inbox slot={own_inbox} — using the wired pair"
+            ));
         }
         if let Ok(client) = KernelClient::new_with_slots(GPUD_WIRED_SEND_SLOT, GPUD_WIRED_RECV_SLOT)
         {
@@ -68,7 +115,7 @@ impl DisplayServerRuntime {
         // Phase 6d: in-flight bound — if 2+ frames outstanding, skip this present.
         // Damage accumulates; the next successful present covers the merged region.
         const MAX_IN_FLIGHT: u32 = 2;
-        if self.frames_in_flight >= MAX_IN_FLIGHT {
+        if self.frames_in_flight >= MAX_IN_FLIGHT && !self.present_lease_expired() {
             return false;
         }
         let send_result = {
@@ -94,6 +141,43 @@ impl DisplayServerRuntime {
                 false
             }
         }
+    }
+
+    /// True when no present ack has been credited for [`PRESENT_ACK_LEASE_NS`],
+    /// i.e. the in-flight credits can no longer be trusted. Clears the counter
+    /// so presenting resumes (loudly, once) instead of freezing the display.
+    #[cfg(nexus_env = "os")]
+    fn present_lease_expired(&mut self) -> bool {
+        let now = nexus_abi::nsec().unwrap_or(0);
+        let last = LAST_ACK_NS.load(Ordering::Relaxed);
+        if last == 0 {
+            // No ack yet in this session: start the lease at the first stall so
+            // a never-acking reply path is bounded from the first frame on.
+            LAST_ACK_NS.store(now, Ordering::Relaxed);
+            return false;
+        }
+        if now.saturating_sub(last) < PRESENT_ACK_LEASE_NS {
+            return false;
+        }
+        if !LEASE_REPORTED.swap(true, Ordering::Relaxed) {
+            let _ = debug_println(
+                "windowd: FAIL present-ack lease expired — presenting without credits",
+            );
+        }
+        self.frames_in_flight = 0;
+        LAST_ACK_NS.store(now, Ordering::Relaxed);
+        true
+    }
+
+    #[cfg(not(nexus_env = "os"))]
+    fn present_lease_expired(&mut self) -> bool {
+        false
+    }
+
+    /// Records a credited present ack — the lease renews on every one of them.
+    pub(super) fn note_present_ack_time(&self) {
+        #[cfg(nexus_env = "os")]
+        LAST_ACK_NS.store(nexus_abi::nsec().unwrap_or(0), Ordering::Relaxed);
     }
 
     /// Drop the gpud client and reset in-flight accounting together. A stale

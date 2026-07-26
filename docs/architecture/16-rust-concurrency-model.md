@@ -460,6 +460,46 @@ pub fn timer_irq_handler() {
 
 ---
 
+### ❌ 5. A Deadline That Lives On The Path It Is Bounding
+
+The single most expensive bug class in this repo's boot path — it has now cost a
+dead session and a hung boot splash — is not a missing timeout. It is a timeout
+that **cannot run in the case it exists for**:
+
+```rust
+// BAD: the reveal is bounded... inside the present handler.
+fn on_present(&mut self) {
+    let elapsed = now() - self.first_content_ns;
+    if self.plane0 && (self.cursor_ready || elapsed > FALLBACK) { self.reveal(); }
+}
+// If the peer stops presenting (it lost the ack that returns its send credits),
+// this never runs again. The 1.2s "hard cap" is unreachable: no present, no cap.
+```
+
+```rust
+// BAD: a credit that is promised but never expires.
+if self.frames_in_flight >= MAX_IN_FLIGHT { return false; } // forever, if an ack is lost
+```
+
+**Two rules, both NORMATIVE:**
+
+1. **Every wait terminates in a decision** — ready or explicitly degraded, never
+   "still waiting". A credit is a *lease* (`gpud::PRESENT_ACK_LEASE_NS`): when
+   it expires, proceed loudly rather than freeze. A one-shot precondition
+   (attach, cursor upload, content rect) is *state to re-drive*, not an event to
+   hope for.
+2. **The deadline must be evaluated on a path that cannot be starved by the
+   thing it bounds.** Timer tick, pacer, or supervisor — never the very handler
+   that the missing signal suppresses.
+
+Observed instances (all 2026-07-25/26, all the same shape): windowd's desktop
+bind deferral waiting for an attach that had already been consumed; app-host
+waiting 8 s for a content rect and then inventing a 320x240 desktop; gpud
+holding the splash because its bounded reveal gate sat inside the present path
+while windowd had stopped presenting on lost credits.
+
+---
+
 ## Testing Strategy (Fearless Concurrency)
 
 ### 1. **Compile-Time Verification**

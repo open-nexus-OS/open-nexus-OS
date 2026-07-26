@@ -87,6 +87,9 @@ impl DisplayServerRuntime {
     pub(super) fn note_present_completed(&mut self) {
         self.last_completed_seq = self.present_seq;
         self.frames_in_flight = self.frames_in_flight.saturating_sub(1);
+        // Renew the in-flight lease: credits are only trustworthy while acks
+        // keep arriving (`gpud::PRESENT_ACK_LEASE_NS`).
+        self.note_present_ack_time();
         // Display stays SINGLE-buffered (slot A, rows 1600..2399). The old
         // per-ack slot toggle was a half-wired experiment: gpud NEVER switched
         // its scanout/upload row off slot A, so every second frame was blitted

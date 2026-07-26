@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-26 (boot stuck on the splash — an aliased gpud route, and two waits that never decided)
+
+- **The gpud route answer is now validated, not believed.** Routing v1 carries
+  no reply nonce, and ~1 in 2 interactive boots came back from
+  `new_for("gpud")` with a recv slot equal to **windowd's own server inbox**.
+  Every gpud round-trip then read client requests instead of gpud replies: the
+  reply drain refused to run (correctly, since 2026-07-25), the cursor-upload
+  ack never matched (`windowd: cursor upload failed`), and the framebuffer
+  handoff never acked. `ensure_gpud_client` now rejects that provably-wrong
+  answer (`windowd: FAIL gpud route answered our own inbox slot=… — using the
+  wired pair`) and binds the pair init declared. The query is still issued —
+  its stale-`ROUTE_RSP` drain is load-bearing; an unconditional wired bind
+  regressed the headless framebuffer handoff 4/4.
+- **In-flight present credits are a lease, not a promise.** With no acks
+  credited, `frames_in_flight` pinned at `MAX_IN_FLIGHT` and windowd stopped
+  presenting after two frames. gpud's reveal gate is bounded — but it is
+  evaluated *inside the present path*, so with no presents even its 1.2 s hard
+  cap never ran: the splash held forever
+  (`build/logs/manual--2026-07-26T10-31-30`). After
+  `PRESENT_ACK_LEASE_NS` (0.5 s) without a credited ack, presenting resumes
+  anyway with `windowd: FAIL present-ack lease expired — presenting without
+  credits`. A stale credit costs a redundant frame; withholding presents costs
+  the session.
+- **The rule behind all three instances** (this, the desktop-bind deferral, the
+  320x240 content-rect fallback) is now normative in
+  `docs/architecture/16-rust-concurrency-model.md` §"Anti-Patterns ❌ 5": every
+  wait terminates in a decision (ready or explicitly degraded), and its
+  deadline must be evaluated on a path that cannot be starved by the very thing
+  it bounds.
+- Proof: 8/8 interactive 4-hart virgl boots reached `gpud: desktop reveal`
+  (the route rejection fired in 3 of them, the lease in 1), against **3 of 6
+  stuck on the splash** on the same tree without the fix. `cursor upload
+  failed` and `drain skipped` are gone from all 8.
+
 ### Changed - 2026-07-25 (soft-RT: the deadline sweep no longer holds the BKL ~2 s per boot)
 
 - **Attribution first.** All three syscalls observed holding the BKL >10 ms in a
