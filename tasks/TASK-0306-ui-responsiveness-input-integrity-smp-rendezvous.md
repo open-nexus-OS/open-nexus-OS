@@ -180,6 +180,10 @@ A UI that always responds to input, on a machine that uses all its cores.
 3. **Phase 3 — BKL holds (kernel).** Instrument first: find *where* inside
    send/recv/yield the milliseconds go, then move that work out of the lock.
 4. **Phase 4 — measure the same boot again** and compare the same numbers.
+5. **Phase 5 — hit targets (added 2026-07-26).** Two of the three reported
+   symptoms ("control centre broken", "launcher did not react") are not a
+   delivery bug at all: the controls are physically too small to hit. Found
+   while reading the boot's input trace, so it belongs in this task.
 
 ## Evidence
 
@@ -266,8 +270,73 @@ Why it matters beyond elegance: the interactive run at 20:45 recorded
 `FAIL desktop input send = 1`. A tap survived 400 retries' worth of yielding
 and was still lost. A parked sender does not have that failure mode.
 
+### Phase 5 — hit targets: the pills were unhittable, not unresponsive (done)
+
+The boot trace shows a press at (1262, 52) reaching **no handler at all**. That
+looked like another lost event; it is not. The control-centre pill is painted
+`height(28)` in a `SHELL_TOPBAR_H = 36` bar, so the press was 20 px below a
+29x28 target. Every touch-target guideline puts the minimum at 44 px. Two of
+the three symptoms the user reported are this, not delivery.
+
+`.hitSlop(n)` existed in the DSL catalog (`nexus-dsl-core::registry`, id 39),
+type-checked, and did **nothing** — there was no `apply_modifier` arm, no field
+on `Mods`, no field on `FlexItem` or `LayoutBox`, and no reader in the hit
+test. It was documented under "Still declared but NOT implemented". Wired end
+to end now:
+
+- `FlexItem::hit_slop` / `LayoutBox::hit_slop` carry it; the layout engine
+  copies it at all four construction sites. **`rect` is untouched** — slop
+  grows the input rect only, never a pixel of paint. A test asserts both
+  halves (painted <= 36, target >= 44).
+- `interact::hit_scrolled` runs two passes. An **exact hit always beats a slop
+  hit**, whatever the tree order — otherwise a generous slop steals the tap
+  that landed squarely on its neighbour. Among slop candidates the **nearest**
+  wins (squared edge distance), which is what a user means when they aim
+  between two enlarged targets.
+- The six top-bar pills in both shell pages carry `.hitSlop(2)` (2 spacing
+  steps = 8 px per side → 28 + 16 = 44). The full-bleed panel scrims
+  deliberately do not: slop on a screen-sized rect is meaningless.
+
+The test found a real inconsistency on the way: the clock pill was painted
+**24 px**, not 28, because it wrapped `TopBarPill` without a height — a 40 px
+target even with slop. Normalized to 28 like every other pill in the bar.
+
+Not claimed: the launcher and dock tiles were not audited for the same defect.
+The mechanism is now there for them.
+
+Structure gate: `LayoutBox` / `LayoutResult` / `ScrollDamage` moved out of
+`engine.rs` (1406 -> 1254 LOC) into `layout/src/boxes.rs`. The ratchet asked
+for a split rather than growth and it was right — those are the data contract
+the renderer and hit-tester read, not engine algorithms. Baseline ratcheted
+DOWN for both touched files.
+
+Proof: `tests/dsl_apps_conformance/tests/shell_hit_targets.rs` (2 tests, they
+compile the REAL shell app and lay it out at 1280x800) plus four unit tests on
+the precedence rules in `interact.rs`. `just check`, `just diag`
+(host+os+kernel), `just test-host` green.
+
 ### Phase 3 — BKL holds: NOT STARTED
 
 Measurement stands (`long ecall nr=14 25ms` / `nr=0 21ms` / `nr=26 13ms`,
 `max_hold=13ms gt10ms=13`), the work does not. This is the open remainder of
 RFC-0033 and wants its own session.
+
+### Open finding — present cost is the largest remaining lever (measured, unfixed)
+
+Measured on the same boot, ranked above Phase 3 by impact and recorded here so
+the next session starts from numbers rather than a guess:
+
+    avg 5.1 ms   max 313.8 ms   89 % of it CPU-side enqueue
+    irqw=1                      → the GPU is NOT the bottleneck
+    entmax_us=69416             → ONE ring entry took 69 ms
+
+69 ms for a single entry is not command building, it is waiting. Traced to
+`virtqueue::alloc_free_slot` (`source/drivers/gpud/src/backend/virtqueue.rs`):
+when the 32-slot control ring has no free slot it parks on the GPU completion
+IRQ — correctly reactive, not a spin. The ring is not filled by one present
+(~3.3 entries each) but **across** presents, as completions fall behind.
+
+This paces the compositor loop (observed 16-60 Hz), which paces the coalesced
+pointer stream, which is what "the mouse is not smooth" actually is. Next step
+is a measurement, not a patch: instrument where completions go, before
+touching `RING_SLOTS` or the batching.

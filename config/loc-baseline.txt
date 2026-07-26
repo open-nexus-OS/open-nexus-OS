@@ -95,8 +95,8 @@
 641	userspace/nxfs/src/fs.rs
 811	userspace/policy/src/lib.rs
 1630	userspace/statefs/src/lib.rs
-1406	userspace/ui/layout/src/engine.rs
-868	userspace/ui/scene_raster/src/lib.rs
+1254	userspace/ui/layout/src/engine.rs
+864	userspace/ui/scene_raster/src/lib.rs
 1292	userspace/ui/svg/src/parse.rs
 626	userspace/ui/svg/src/raster.rs
 1268	userspace/ui/svg/src/tessellate.rs

@@ -124,6 +124,7 @@ pub(super) fn apply_modifier(
                 }
             }
         } // disabled
+        39 => mods.hit_slop = registry::spacing(int_arg()), // hitSlop
         22 => {
             // overflow(visible|hidden) — hidden = clipped container.
             if token_name(ctx).as_str() == "hidden" {

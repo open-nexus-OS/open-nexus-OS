@@ -15,10 +15,12 @@
 
 extern crate alloc;
 
+pub mod boxes;
 pub mod engine;
 #[cfg(test)]
 mod engine_tests;
 pub mod error;
 
-pub use engine::{compute_scroll_damage, LayoutBox, LayoutEngine, LayoutResult, ScrollDamage};
+pub use boxes::{compute_scroll_damage, LayoutBox, LayoutResult, ScrollDamage};
+pub use engine::LayoutEngine;
 pub use error::LayoutError;

@@ -774,22 +774,18 @@ fn paint_one_scrolled(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexus_layout_types::{CornerRadius, FxPx, Overflow, Rect, VisualStyle};
+    use nexus_layout_types::{CornerRadius, FxPx, Rect, VisualStyle};
 
     fn boxed(x: i32, y: i32, w: i32, h: i32, radius: i32, color: Rgba8) -> LayoutBox {
         LayoutBox {
             node_id: 1,
-            id: None,
             rect: Rect::new(FxPx::new(x), FxPx::new(y), FxPx::new(w), FxPx::new(h)),
-            z_index: 0,
             visual: VisualStyle {
                 background: Some(color),
                 corner_radius: CornerRadius::uniform(FxPx::new(radius)),
                 ..VisualStyle::default()
             },
-            clip_rect: None,
-            scroll_offset: (FxPx::ZERO, FxPx::ZERO),
-            overflow: Overflow::Visible,
+            ..LayoutBox::default()
         }
     }
 

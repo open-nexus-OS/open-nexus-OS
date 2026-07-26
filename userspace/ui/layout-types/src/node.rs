@@ -91,6 +91,12 @@ pub struct FlexItem {
     pub z_index: ZIndex,
     pub min_width: Option<FxPx>,
     pub max_width: Option<FxPx>,
+    /// `.hitSlop(n)` — how far OUTSIDE the painted rect this node still
+    /// accepts a tap. Layout is unaffected: the box keeps its size, only the
+    /// input rect grows. This is the standard fix for controls that must look
+    /// small (a 28px status pill) but be hittable by a finger (44px), and it
+    /// is why slop is layout data and not paint data.
+    pub hit_slop: FxPx,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,6 +179,7 @@ impl Default for FlexItem {
             z_index: 0,
             min_width: None,
             max_width: None,
+            hit_slop: FxPx::ZERO,
         }
     }
 }

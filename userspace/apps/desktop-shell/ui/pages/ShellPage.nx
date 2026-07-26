@@ -41,12 +41,16 @@ Page ShellPage {
                 .paddingX(2)
                 .height(28)
                 .rounded(full)
+                .hitSlop(2)
                 on Tap -> dispatch(SetPanel("notifications"))
             } else {
                 Stack {
                     Stack {
                         TopBarPill { label: $state.clock }
                     }
+                    .height(28)
+                    .align(center)
+                    .hitSlop(2)
                     on Tap -> dispatch(SetPanel("calendar"))
                     Stack {
                         Icon { symbol: "bell", size: 13 }
@@ -57,6 +61,7 @@ Page ShellPage {
                     .align(center)
                     .justify(center)
                     .rounded(full)
+                    .hitSlop(2)
                     on Tap -> dispatch(SetPanel("notifications"))
                 }
                 .direction(row)
@@ -69,6 +74,7 @@ Page ShellPage {
             Stack {
                 StatusPill { }
             }
+            .hitSlop(2)
             on Tap -> dispatch(SetPanel("control"))
         }
         .direction(row)

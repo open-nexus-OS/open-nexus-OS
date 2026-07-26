@@ -112,6 +112,8 @@ pub fn hit_scrolled<'h>(
     scroll: Option<ScrollView>,
 ) -> Option<(usize, &'h HandlerEntry)> {
     let mut best: Option<(usize, &HandlerEntry)> = None;
+    // (edge distance², box_id, handler) — the runner-up pass, see below.
+    let mut slop_best: Option<(i64, usize, &HandlerEntry)> = None;
     for (box_id, entry) in handlers {
         if entry.trigger != trigger_sym {
             continue;
@@ -129,11 +131,128 @@ pub fn hit_scrolled<'h>(
             py = FxPx::new(y.0 + dy);
         }
         let rect = layout_box.rect;
-        let inside =
-            px >= rect.x && py >= rect.y && px < rect.x + rect.width && py < rect.y + rect.height;
-        if inside && best.is_none_or(|(id, _)| *box_id > id) {
-            best = Some((*box_id, entry));
+        if contains(rect, FxPx::ZERO, px, py) {
+            if best.is_none_or(|(id, _)| *box_id > id) {
+                best = Some((*box_id, entry));
+            }
+            continue;
+        }
+        // Slop candidate: remember the CLOSEST one, don't let it win yet.
+        let slop = layout_box.hit_slop;
+        if slop > FxPx::ZERO && contains(rect, slop, px, py) {
+            let d = edge_distance_sq(rect, px, py);
+            if slop_best.is_none_or(|(bd, id, _)| d < bd || (d == bd && *box_id > id)) {
+                slop_best = Some((d, *box_id, entry));
+            }
         }
     }
-    best
+    // An exact hit ALWAYS wins over a slop hit, no matter the tree order:
+    // slop must never steal a tap that landed squarely on a neighbour.
+    best.or(slop_best.map(|(_, id, entry)| (id, entry)))
+}
+
+/// Point-in-rect, optionally grown outward by `slop` on all four sides.
+fn contains(rect: nexus_layout_types::Rect, slop: FxPx, px: FxPx, py: FxPx) -> bool {
+    px >= rect.x - slop
+        && py >= rect.y - slop
+        && px < rect.x + rect.width + slop
+        && py < rect.y + rect.height + slop
+}
+
+/// Squared distance from the point to the rect's edge (0 when inside). Used to
+/// break ties between overlapping slop regions — the nearest control wins,
+/// which is what a user means when two enlarged targets both cover the pixel.
+fn edge_distance_sq(rect: nexus_layout_types::Rect, px: FxPx, py: FxPx) -> i64 {
+    let dx = (rect.x.0 - px.0).max(px.0 - (rect.x.0 + rect.width.0 - 1)).max(0) as i64;
+    let dy = (rect.y.0 - py.0).max(py.0 - (rect.y.0 + rect.height.0 - 1)).max(0) as i64;
+    dx * dx + dy * dy
+}
+
+#[cfg(test)]
+mod hit_slop_tests {
+    use super::*;
+    use nexus_layout::LayoutBox;
+    use nexus_layout_types::{Overflow, Rect, VisualStyle};
+
+    const TAP: u32 = 7;
+
+    fn boxed(node_id: usize, x: i32, y: i32, w: i32, h: i32, slop: i32) -> LayoutBox {
+        LayoutBox {
+            node_id,
+            id: None,
+            rect: Rect::new(FxPx::new(x), FxPx::new(y), FxPx::new(w), FxPx::new(h)),
+            z_index: 0,
+            visual: VisualStyle::default(),
+            clip_rect: None,
+            scroll_offset: (FxPx::ZERO, FxPx::ZERO),
+            overflow: Overflow::Visible,
+            hit_slop: FxPx::new(slop),
+        }
+    }
+
+    fn handler(node_id: usize) -> (usize, HandlerEntry) {
+        (
+            node_id,
+            HandlerEntry {
+                path: alloc::vec![],
+                trigger: TAP,
+                action: HandlerAction::Dispatch { event: 0, case: 0, payload: alloc::vec![] },
+                press_offset: 0,
+            },
+        )
+    }
+
+    fn hit(
+        handlers: &[(usize, HandlerEntry)],
+        boxes: &[LayoutBox],
+        x: i32,
+        y: i32,
+    ) -> Option<usize> {
+        hit_scrolled(handlers, boxes, TAP, FxPx::new(x), FxPx::new(y), None).map(|(id, _)| id)
+    }
+
+    /// The bug this exists for: a 29x28 status pill in a 36px-tall top bar is
+    /// physically unhittable — the observed miss was 20px BELOW the pill, on a
+    /// pixel that belongs to no control at all. Slop must catch it.
+    #[test]
+    fn slop_catches_a_tap_just_outside_a_small_pill() {
+        let handlers = [handler(1)];
+        let boxes = [boxed(1, 1240, 4, 29, 28, 16)];
+        assert_eq!(hit(&handlers, &boxes, 1254, 18), Some(1), "dead centre must hit");
+        assert_eq!(hit(&handlers, &boxes, 1254, 45), Some(1), "17px below → inside slop");
+        assert_eq!(hit(&handlers, &boxes, 1254, 60), None, "32px below → outside slop");
+    }
+
+    /// Slop must never steal a tap that landed squarely on a neighbour, no
+    /// matter the tree order. Node 1 is declared LAST (it would win the
+    /// `box_id >` tie-break) and its slop covers all of node 2.
+    #[test]
+    fn an_exact_hit_beats_a_slop_hit_regardless_of_tree_order() {
+        let handlers = [handler(2), handler(9)];
+        let boxes = [
+            boxed(2, 100, 0, 20, 20, 0),  // exact target, low id
+            boxed(9, 140, 0, 20, 20, 40), // high id, slop swallows the neighbour
+        ];
+        assert_eq!(hit(&handlers, &boxes, 110, 10), Some(2), "exact hit wins over slop");
+        assert_eq!(hit(&handlers, &boxes, 150, 10), Some(9), "its own rect still wins");
+    }
+
+    /// Two enlarged targets overlapping the same pixel: the NEARER one wins,
+    /// which is what a user means when they aim between two buttons.
+    #[test]
+    fn overlapping_slop_regions_resolve_to_the_nearest_control() {
+        let handlers = [handler(1), handler(2)];
+        let boxes = [boxed(1, 0, 0, 20, 20, 40), boxed(2, 100, 0, 20, 20, 40)];
+        assert_eq!(hit(&handlers, &boxes, 35, 10), Some(1), "15px from #1, 65px from #2");
+        assert_eq!(hit(&handlers, &boxes, 85, 10), Some(2), "65px from #1, 15px from #2");
+    }
+
+    /// Zero slop is the default and must behave exactly as before.
+    #[test]
+    fn zero_slop_is_the_old_behaviour() {
+        let handlers = [handler(1)];
+        let boxes = [boxed(1, 10, 10, 20, 20, 0)];
+        assert_eq!(hit(&handlers, &boxes, 29, 29), Some(1));
+        assert_eq!(hit(&handlers, &boxes, 30, 30), None, "half-open rect, unchanged");
+    }
 }

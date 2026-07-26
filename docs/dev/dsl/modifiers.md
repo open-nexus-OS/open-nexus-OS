@@ -126,7 +126,7 @@ above 16px is forbidden (the hangul block alone would be hundreds of MB).
 |---|---|---|
 | `.disabled(b)` | `Bool` | disables input + applies disabled styling |
 | `.focusable(b)` | `Bool` | keyboard focus participation (class: semantics) |
-| `.hitSlop(n)` | spacing step | extends the touch target (class: layout) |
+| `.hitSlop(n)` | spacing step | grows the INPUT rect outward by n steps; layout and pixels unchanged (class: layout) |
 
 ## Accessibility (class: semantics)
 
@@ -167,13 +167,17 @@ These parse and type-check and then do nothing at paint time. Listed so nobody
 spends an afternoon on a modifier that was never wired:
 
 `paddingTop`/`paddingBottom`/`paddingLeading`/`paddingTrailing` are wired
-(RFC-0082); `.margin`, `.aspect`, `.zIndex`, `.truncate`, `.focusable`,
-`.hitSlop`, `.role`, `.hint` are not. `.label` satisfies the a11y lint and
+(RFC-0082); `.hitSlop` is wired (TASK-0306). `.margin`, `.aspect`, `.zIndex`,
+`.truncate`, `.focusable`, `.role`, `.hint` are not. `.label` satisfies the a11y lint and
 carries the accessible name, but nothing renders it yet. `.justify(around)`
 silently degrades to `start`.
 
 ## Changelog
 
+- **v3 (2026-07-26, TASK-0306)** — `.hitSlop(n)` wired end to end. It grows
+  only the hit rect, never the painted one, so a 28px status pill can be a
+  44px target. Overlapping slop regions resolve to the NEAREST control, and an
+  exact hit always beats a slop hit — slop can never steal a neighbour's tap.
 - **v2 (2026-07-26, RFC-0082)** — `.textShadow` and `.bgFade` added
   (append-only ids 50/51); `.fontWeight`, `.leading`, `.textAlign`, `.border`,
   `.borderColor` and the four per-edge paddings stop being no-ops; token

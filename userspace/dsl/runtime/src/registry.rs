@@ -65,6 +65,10 @@ pub struct Mods {
     pub border_width: Option<FxPx>,
     /// `.borderColor(<color token>)`.
     pub border_color: Option<ColorToken>,
+    /// `.hitSlop(n)` — outward growth of the input rect only (spacing scale,
+    /// 1 step = 4px). Layout and pixels are untouched; see
+    /// [`nexus_layout_types::FlexItem::hit_slop`].
+    pub hit_slop: nexus_layout_types::FxPx,
     pub opacity: Option<u8>,
     pub disabled: bool,
     /// Compositing material (`.material(panel|card|subtle|window|opaque)`) — a
@@ -94,6 +98,7 @@ impl Default for Mods {
             shadow: None,
             padding: EdgeInsets::zero(),
             gap: FxPx::ZERO,
+            hit_slop: FxPx::ZERO,
             width: None,
             height: None,
             min_width: None,
@@ -228,7 +233,8 @@ fn plain_stack(
     let max_w = mods.max_width.or(mods.width);
     let min_h = mods.min_height.or(mods.height);
     let max_h = mods.max_height.or(mods.height);
-    let mut item = FlexItem { flex_grow: mods.grow, ..FlexItem::default() };
+    let mut item =
+        FlexItem { flex_grow: mods.grow, hit_slop: mods.hit_slop, ..FlexItem::default() };
     if let Some(shrink) = mods.shrink {
         item.flex_shrink = shrink;
     }
