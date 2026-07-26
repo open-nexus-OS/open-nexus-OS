@@ -69,12 +69,39 @@ chart2 = "#009689"
 chart3 = "#104e64"
 chart4 = "#ffb900"
 chart5 = "#fe9a00"
-# text-on-glass + interaction washes (RGBA hex; light theme = dark ink)
-glassTextPrimary = "#000000cc"
-glassTextSecondary = "#00000066"
-glassTextStrong = "#000000eb"
+# text-on-glass + interaction washes (RGBA hex; light theme = dark ink).
+# RFC-0082: the three `glassText*` roles are now REACHABLE (ColorToken::
+# OnGlass/OnGlassMuted/OnGlassStrong) and carry the login handoff's ink —
+# a hair blue-black (20,20,26) rather than pure black, which is what reads
+# correctly on a photographic wallpaper.
+glassTextPrimary = "#14141af2"
+glassTextSecondary = "#14141aad"
+glassTextStrong = "#14141aff"
 glassHover = "#00000014"
 glassActive = "#0000001f"
+# On-glass control ink (RFC-0082 — the login handoff's --nx-* contract).
+# `glassIcon` = icon stroke, `glassPlaceholder` = empty-field text,
+# `glassFocus` = the border a focused glass control takes, `glassFill` = the
+# FLAT translucent fill of a control sitting INSIDE glass (a submit button in
+# a pill): never its own glass layer, because nested backdrop blur is not a
+# thing the compositor does.
+glassIcon = "#14141acc"
+glassPlaceholder = "#14141a80"
+glassFocus = "#14141a80"
+glassFill = "#ffffff99"
+# Wallpaper legibility (RFC-0082): a full-bleed wash that keeps content
+# readable without killing the image, plus the bottom stop of the fade that
+# carries the footer.
+wallpaperTint = "#ffffff3d"
+wallpaperVignette = "#ffffff73"
+# Text shadow tints. On a LIGHT wallpaper the shadow is a light halo (dark
+# ink needs a bright bloom to separate), which is why these are white here
+# and black in dark mode — they are legibility, not depth.
+textShadow = "#ffffffb3"
+textShadowStrong = "#fffffff2"
+# The identity color: fully transparent. Needed as the top stop of a fade
+# (`.bgFade(transparent, wallpaperVignette)`) — theme-invariant.
+transparent = "#00000000"
 toggleOnBg = "#3b82f6d9"
 toggleOffBg = "#ffffffd9"
 glassTint = "#ffffff"
@@ -110,6 +137,8 @@ base = 400
 slow = 500
 
 # Font sizes in px (handoff type scale). base = body text.
+# `hero` (RFC-0082) is the lock-screen/clock numeral step — the only rung the
+# baked ladder serves from a Digits-only face, so it is for numerals, not prose.
 [typography]
 xs = 11
 sm = 12
@@ -120,9 +149,13 @@ xl = 20
 xxl = 24
 xxxl = 30
 display = 36
+hero = 120
 
 # Line-height ×100 (150 = 1.50), consumed as LineHeight::Relative.
+# `flat` is the display-type step (handoff clock `line-height:1.05`): big
+# numerals need a band barely taller than the glyphs, or the block floats.
 [leading]
+flat = 105
 tight = 125
 snug = 138
 normal = 150
@@ -144,6 +177,11 @@ type = "opaque"
 # Materials resolve through the qualifier chain (resolve_material): base carries
 # the light values; dark/highcontrast override. tint/edge/border alphas are
 # floats (0..1); blur in dp with a downsample perf factor.
+# RFC-0082: `panel` and `card` carry the LOGIN handoff's glass recipe — they
+# are the two levels that sit directly on the wallpaper (dock, control center,
+# launcher, and now the lock surface). `edgeHighlightAlpha` is the `inset 0 1px
+# 0` TOP-SHINE line, not a full-height wash: the painter draws it as one pixel
+# row and caps the soft gradient it also feeds (see `Mods::visual`).
 [material.glassPanel]
 type = "glass"
 blurRadiusDp = 40
@@ -151,20 +189,20 @@ downsampleFactor = 4
 tintColor = "#ffffff"
 tintAlpha = 0.50
 edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.15
+edgeHighlightAlpha = 0.60
 borderColor = "#ffffff"
-borderAlpha = 0.75
+borderAlpha = 0.70
 
 [material.glassCard]
 type = "glass"
 blurRadiusDp = 20
 downsampleFactor = 2
 tintColor = "#ffffff"
-tintAlpha = 0.60
+tintAlpha = 0.50
 edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.12
+edgeHighlightAlpha = 0.60
 borderColor = "#ffffff"
-borderAlpha = 0.80
+borderAlpha = 0.70
 
 [material.glassSubtle]
 # Handoff --glass-subtle-bg: plain rgba(255,255,255,.70) — NO border; blur

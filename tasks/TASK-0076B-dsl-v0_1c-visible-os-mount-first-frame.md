@@ -205,3 +205,46 @@ Visual proof:
 
 ## Closure (2026-07-19) — Superseded by TASK-0080C
 This task’’’s own visible-DSL-mount demo (`dsl_mount.rs`, `WindowId::DslDemo`, markers `DSL: program loaded`/`DSL: first frame presented`/`EXECD: isolation probe ok`) was **retired** (git `e8b292fe` "windowd cleanup dsl mount"); those markers no longer exist in the tree and its DoD was never boot-verified. The **capability it targeted — a DSL-authored frame mounted+rendered on real OS boot — is delivered by TASK-0080C** (Done): live emitter `APPHOST: mounted hash=<hex>` (`source/services/app-host/src/probe/boot.rs`) + `DSL: program loaded hash=…` on real boot, host plumbing in `tests/systemui_bootstrap_shell_host/`. Status → Superseded (not Done: this task’’’s own path is dead; its capability lives in the successor).
+
+## Ledger note 2026-07-26 — image budgets became a contract (TASK-0305)
+
+`contract-windowd-size` failed on the headless lane. Measured before deciding
+anything (`size target/riscv64imac-unknown-none-elf/release/windowd`):
+
+| bytes | what |
+|---|---|
+| 8 388 608 | the budget, set 2026-07-06 — **before** RFC-0080 |
+| 8 926 036 | HEAD (ELF built 11:49, before TASK-0305 touched anything) |
+| 9 090 362 | with TASK-0305's type ladder (+164 326 B) |
+
+**537 KB of the overshoot predates this task.** windowd links the shared glyph
+atlas (`nexus-text-baked`'s `embedded-atlas`) — ~4.4 MB, now *half* its image.
+The gate ran only in `ci-os-headless`, never in `test-all`, so it went red
+without anyone seeing it. That is the actual defect: not the number, but a
+contract nobody was reading.
+
+### What changed
+
+- `scripts/check-windowd-size.sh` → **`scripts/check-image-budgets.sh`**: a
+  declared budget per service instead of a tripwire on one of them. The arena
+  is shared, so the budget belongs to every image that draws from it.
+  `OTHER_BUDGET` (2 MB) catches any service nobody thought to list — every
+  non-big service sits at 0.4–0.9 MB today, so it is a real bound.
+- Budgets set from measured size + headroom against the **224 MB**
+  `USER_VMO_ARENA_LEN`: init-lite 24 MB (16.5), app-host 14 MB (10.0),
+  windowd 14 MB (9.1), execd 10 MB (6.4), gpud 2 MB (0.9). init-lite embeds
+  execd embeds app-host, so those three overlap and are not additive.
+- Non-service images are excluded **with a stated reason** (`neuron-boot` is
+  the kernel, loaded by the bootloader; `recv-wake-probe` is a probe) — never
+  silently skipped.
+- The gate now prints a usage table on every run, so the trend is readable
+  before a number has to move.
+- **`just test-all` now runs it.** A contract only one lane enforces is how
+  537 KB accumulates unnoticed.
+
+### Still open (the real fix)
+
+windowd should MAP the shared atlas VMO the way an app-host does — RFC-0080
+already built that mechanism, windowd just never became a consumer of it. That
+takes ~4.4 MB straight back out and would put windowd near 5 MB. The raised
+budget is headroom, not a licence.

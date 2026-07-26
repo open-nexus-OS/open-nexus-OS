@@ -113,15 +113,11 @@ impl Banner {
     }
 
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
-        let g = tokens.glass(MaterialToken::Card);
         let accent = tokens.color(self.variant.accent());
-        let mut style = Style::new()
-            .background(g.tint)
-            .rounded(tokens.length(LengthToken::RadiusMedium))
-            .blur(g.blur_radius, g.saturation);
-        if let Some(border) = g.border {
-            style = style.border(tokens.length(LengthToken::BorderThin), border);
-        }
+        // RFC-0082: one shared glass recipe (`Style::glass`) — see card.rs.
+        let style = Style::new()
+            .glass(MaterialToken::Card, tokens)
+            .rounded(tokens.length(LengthToken::RadiusMedium));
         let mut panel = Panel::row()
             .style(style)
             .padding(tokens.length(LengthToken::SpacingMedium))

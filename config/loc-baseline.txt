@@ -77,14 +77,14 @@
 956	tools/qemu-src/rust/qom/src/qom.rs
 710	userspace/config/nexus-config/src/lib.rs
 646	userspace/dsl/cli/src/main.rs
-676	userspace/dsl/core/src/check/names.rs
+620	userspace/dsl/core/src/check/names.rs
 760	userspace/dsl/core/src/fmt.rs
 751	userspace/dsl/core/src/lower/mod.rs
 809	userspace/dsl/core/src/lower/views.rs
 651	userspace/dsl/core/src/project.rs
-618	userspace/dsl/runtime/src/emit.rs
-800	userspace/dsl/runtime/src/registry.rs
-1135	userspace/dsl/runtime/tests/layout_viewport.rs
+458	userspace/dsl/runtime/src/emit.rs
+390	userspace/dsl/runtime/src/registry.rs
+1005	userspace/dsl/runtime/tests/layout_viewport.rs
 735	userspace/dsoftbus/src/host.rs
 764	userspace/dsoftbus/src/mux_v2.rs
 631	userspace/input-live-protocol/src/lib.rs
@@ -96,7 +96,7 @@
 811	userspace/policy/src/lib.rs
 1630	userspace/statefs/src/lib.rs
 1406	userspace/ui/layout/src/engine.rs
-902	userspace/ui/scene_raster/src/lib.rs
+868	userspace/ui/scene_raster/src/lib.rs
 1292	userspace/ui/svg/src/parse.rs
 626	userspace/ui/svg/src/raster.rs
 1268	userspace/ui/svg/src/tessellate.rs

@@ -244,11 +244,7 @@ fn chrome_texts(
         *index += 1;
         match node {
             N::Text(text, _) => {
-                let font = if text.style.font_size.0 >= 15 {
-                    nexus_text_baked::FontSize::Body
-                } else {
-                    nexus_text_baked::FontSize::Small
-                };
+                let font = nexus_text_baked::measure_text::BakedTextMeasure::font(&text.style);
                 let c = text.style.color;
                 out.push((
                     *index,

@@ -175,7 +175,9 @@ Button { label: @t("cta") }
 - duplicate modifiers on one node = error;
 - modifiers are pure;
 - arguments are semantic tokens — raw hex/px values are not expressible in app code
-  (they belong to theme authoring, see `docs/dev/ui/foundations/visual/colors.md`).
+  (they belong to theme authoring, see `docs/dev/ui/foundations/visual/colors.md`);
+- token arguments of closed vocabularies are **checked at compile time**:
+  `.fg(oNSurface)` is an error with a "did you mean" hint, not a silent no-op.
 
 ### Motion
 
@@ -191,6 +193,23 @@ Button { label: @t("cta") }
 - `.animate(token, value:)` — animate state-driven property changes;
 - `.transition(token)` — insert/remove/open/close lifecycle motion;
 - `.effect(token, trigger:)` — bounded attention effect when the trigger changes.
+
+### Layering: `.overlay()` goes ON TOP
+
+`.overlay()` lifts a container OUT of flow and paints it **last**, over its
+parent's content — drop-downs, dialogs, sheets. It is not a way to put
+something *behind* the UI: a full-bleed `.overlay()` declared first still ends
+up in front, and (because later ids win hit-testing) it swallows every tap.
+A backdrop is a **background** on a container that wraps the content:
+
+```nx
+Stack {                       // content, tinted
+    /* zones */
+}
+.grow(1)
+.bg(wallpaperTint)
+```
+
 
 Reduced-motion behavior is part of each token's contract. There are no CSS-style
 keyframes, no free-form animation variables, no magic one-off utilities.

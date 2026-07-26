@@ -540,7 +540,14 @@ impl AppEffectHost {
     }
 
     /// `svc.session.users()` → `List<Str>` of greeter user display names.
+    /// `svc.session.users()` → `List<SessionUser{ id, label }>`. Records, not
+    /// bare strings: `login` needs the user ID while the UI shows the display
+    /// name, and collapsing the two made the greeter render the id.
     fn session_users(&self) -> Result<Value, u32> {
+        let (Some(id_sym), Some(label_sym)) = (self.id_sym, self.label_sym) else {
+            raw_marker("apphost: dsl svc session.users FAIL (no id/label symbol)");
+            return Err(ERR_SVC_SHAPE);
+        };
         let send_slot = Self::svc_send_slot("session").ok_or(ERR_SVC_UNKNOWN)?;
         let mut req = [0u8; 4];
         nexus_abi::sessiond::encode_get_state(&mut req);
@@ -549,10 +556,42 @@ impl AppEffectHost {
             raw_marker("apphost: dsl svc session.users FAIL (sessiond unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
-        let names = parse_session_user_names(&resp[..len]);
-        let rows: Vec<Value> = names.into_iter().map(Value::Str).collect();
+        let rows: Vec<Value> = parse_session_users(&resp[..len])
+            .into_iter()
+            .map(|(id, label)| {
+                // Records are FIELD-SORTED by symbol id (the `Value::Record`
+                // contract).
+                let mut fields =
+                    alloc::vec![(id_sym, Value::Str(id)), (label_sym, Value::Str(label))];
+                fields.sort_by_key(|(sym, _)| *sym);
+                Value::Record(fields)
+            })
+            .collect();
         raw_marker("apphost: dsl svc session.users ok");
         Ok(Value::List(rows))
+    }
+
+    /// `svc.session.active()` → `Str`: the user id sessiond would log in by
+    /// default. The AUTHORITY answers — the DSL cannot index a list, and a
+    /// client-side "just take the first one" would be exactly the kind of
+    /// local guess `docs/dev/ui/shell/session.md` forbids.
+    fn session_active(&self) -> Result<Value, u32> {
+        let send_slot = Self::svc_send_slot("session").ok_or(ERR_SVC_UNKNOWN)?;
+        let mut req = [0u8; 4];
+        nexus_abi::sessiond::encode_get_state(&mut req);
+        let mut resp = [0u8; REPLY_BUF];
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+            raw_marker("apphost: dsl svc session.active FAIL (sessiond unreachable)");
+            return Err(ERR_SVC_UNAVAILABLE);
+        };
+        let Some(active) = parse_session_active(&resp[..len]) else {
+            // No users registered, or a malformed frame: an empty id is the
+            // honest answer ("nobody is the default"), never a fabricated one.
+            raw_marker("apphost: dsl svc session.active none");
+            return Ok(Value::Str(alloc::string::String::new()));
+        };
+        raw_marker("apphost: dsl svc session.active ok");
+        Ok(Value::Str(active))
     }
 
     /// `svc.session.login(user_id)` → `Bool` (whether sessiond accepted it).
@@ -855,6 +894,7 @@ impl EffectHost for AppEffectHost {
                 self.settings_set(key, value)
             }
             ("session", "users") => self.session_users(),
+            ("session", "active") => self.session_active(),
             ("ime", "key") => self.ime_key(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?),
             ("ime", "action") => {
                 self.ime_action(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?)
@@ -1126,7 +1166,9 @@ fn parse_app_entries(frame: &[u8]) -> Vec<(String, String, String)> {
 /// Parses the sessiond `OP_GET_STATE` response into user DISPLAY NAMES. Each
 /// entry is `[id_len, id, name_len, name, product_len, product]`; we keep the
 /// name (the greeter renders it). Fail-soft like [`parse_app_entries`].
-fn parse_session_user_names(frame: &[u8]) -> Vec<String> {
+/// The registered users as `(id, display_name)`. `login` takes the id; the
+/// UI shows the name.
+fn parse_session_users(frame: &[u8]) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let Some((status, _state, _active, count)) =
         nexus_abi::sessiond::decode_get_state_header(frame)
@@ -1140,18 +1182,25 @@ fn parse_session_user_names(frame: &[u8]) -> Vec<String> {
     for _ in 0..count {
         let id = take_lp_str(frame, &mut pos);
         let name = take_lp_str(frame, &mut pos);
-        let _product = take_lp_str(frame, &mut pos);
-        // The rows feed `Pick(user)` → `svc.session.login(user)` — login
-        // needs the USER ID, not the display name (returning the name made
-        // every DSL login `UNKNOWN_USER`-denied). The id doubles as the
-        // display string until `session.users` grows a record row
-        // ({id, label}, like bundlemgr's AppEntry) in the service surface.
-        match id {
-            Some(id) if name.is_some() && _product.is_some() => out.push(id),
+        let product = take_lp_str(frame, &mut pos);
+        match (id, name, product) {
+            (Some(id), Some(name), Some(_)) => out.push((id, name)),
             _ => break,
         }
     }
     out
+}
+
+/// The id of the user at sessiond's `active_idx` — its answer to "who logs in
+/// if nobody picks". `None` when there are no users or the frame is short.
+fn parse_session_active(frame: &[u8]) -> Option<String> {
+    let (status, _state, active, count) = nexus_abi::sessiond::decode_get_state_header(frame)?;
+    if status != nexus_abi::sessiond::STATUS_OK || count == 0 {
+        return None;
+    }
+    let users = parse_session_users(frame);
+    let idx = (active as usize).min(users.len().saturating_sub(1));
+    users.into_iter().nth(idx).map(|(id, _)| id)
 }
 
 /// Reads a `[len:u8, bytes…]` UTF-8 string, advancing `pos`. `None` on a short

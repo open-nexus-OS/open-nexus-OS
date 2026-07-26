@@ -38,6 +38,29 @@ Notes:
 - `accent` is the primary “personality” color. Apps should use it for primary actions unless they opt out.
 - `*Fg` tokens must meet contrast requirements against their paired background token.
 
+### On glass and on the wallpaper (RFC-0082)
+
+A second family exists because some surfaces sit on a **photograph**, not on
+`surface`. `onSurface` is tuned for a solid panel and disappears against a
+bright sky, so the lock screen, the dock, the launcher and the control center
+read through these instead:
+
+| Token | Use |
+|---|---|
+| `onGlass` / `onGlassMuted` / `onGlassStrong` | text on glass or wallpaper (primary / secondary / high-emphasis) |
+| `glassIcon` | icon stroke on glass |
+| `glassPlaceholder` | placeholder text in a glass field |
+| `glassFocus` | border of a FOCUSED glass control (a tint of the ink, not the solid `focusRing` blue) |
+| `glassFill` | flat translucent fill of a control sitting INSIDE glass — never its own glass layer, the compositor does not nest backdrop blur |
+| `wallpaperTint` | full-bleed wash that keeps content legible without killing the image |
+| `wallpaperVignette` | bottom stop of the legibility fade (pair with `transparent` via `.bgFade`) |
+| `textShadow` / `textShadowStrong` | the two `.textShadow()` tints — a light halo in light mode, a drop shadow in dark |
+| `transparent` | the identity color; a gradient stop |
+
+These flip direction between themes in a way the surface tokens do not: in
+light mode the text shadow is **white** (dark ink needs a bright bloom to
+separate), in dark mode black.
+
 ## Curated accent palette
 
 User-facing accent selection should be from a small set of “always looks OK” options.
@@ -91,5 +114,9 @@ Apps may:
 
 In DSL/UI code:
 
-- **Use tokens**: `bg(accent)`, `fg(fg)`, `border(divider)`, ...
+- **Use tokens**: `bg(accent)`, `fg(onSurface)`, `borderColor(divider)`, ...
 - Avoid raw colors in v0.x UI code unless explicitly whitelisted (theme authoring is where raw values belong).
+- An unknown token is a **compile error** — `.fg(oNSurface)` used to type-check
+  and then silently paint the default (RFC-0082).
+- On a surface that sits on the wallpaper, reach for the on-glass family above
+  rather than `onSurface`/`onSurfaceVariant`.

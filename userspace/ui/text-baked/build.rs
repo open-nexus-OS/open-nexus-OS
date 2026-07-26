@@ -1,19 +1,29 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Bakes the shared A8 glyph atlases (13px/16px) from the vendored
-//! faces at build time — Inter for Latin, the PINNED Noto Sans CJK faces
-//! for kana / hangul / han per the font-library.md fallback contract
-//! (RFC-0075 Phase 8d). Charset = dense ASCII + Latin EXTRAS + a bounded
-//! WIDE tail: full kana + CJK punctuation (Noto JP), compat jamo + the FULL
-//! hangul syllable block (Noto KR — typing composes arbitrary syllables),
-//! and the EXTRACTED han set actually used by the repo (i18n catalogs +
-//! the IME engines' output tables + OSK labels; Noto SC). No runtime font
+//! CONTEXT: Bakes the shared A8 glyph atlases from the vendored faces at build
+//! time — Inter for Latin, the PINNED Noto Sans CJK faces for kana / hangul /
+//! han per the font-library.md fallback contract (RFC-0075 Phase 8d). Since
+//! RFC-0082 the bake is a (size, weight) LADDER, and every face declares a
+//! CHARSET budget: `Full` (ASCII + Latin EXTRAS + the CJK wide tail) is allowed
+//! at 13/16 px only — the full hangul block at display sizes would be hundreds
+//! of megabytes — while larger faces are `Latin` or `Digits`. No runtime font
 //! parsing anywhere; missing CJK faces fail the build with the fetch hint.
+//!
+//! Two rasterizers, deliberately: Regular 400 keeps going through `fontdue`
+//! (the variable font's default instance) so the pre-RFC-0082 13/16 px
+//! coverage stays BYTE-IDENTICAL and no existing layout shifts. Light 300 and
+//! SemiBold 600 do not exist as instances `fontdue` can reach (it has no
+//! variation-axis API), so they are instanced with `ttf-parser`'s `wght` axis
+//! and filled by the scanline rasterizer in `raster` below.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: consumed by `src/lib.rs` unit tests
+
+#[path = "build/raster.rs"]
+mod raster;
+use raster::{rasterize_instanced, GlyphRaster};
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -42,6 +52,53 @@ const EXTRAS: [u32; 11] = [
     0x2212, // −
 ];
 
+/// The codepoints a `Digits` face actually rasterizes (RFC-0082): hero
+/// numerals are for clocks, not for prose. Everything else in the ASCII index
+/// space is emitted as an EMPTY glyph so the dense index scheme still holds
+/// and the reader can fall back to the 16 px `Full` face.
+const DIGITS: [u32; 14] = [
+    0x20, // space
+    0x2D, // -  (the clock's "--:--" placeholder before walltime anchors —
+    //           without it the placeholder silently drops to the 16px face)
+    0x2E, // .
+    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, // 0-9
+    0x3A, // :
+];
+
+/// Which codepoints a face carries real coverage for. The budget rule from
+/// RFC-0082: `Full` is forbidden above 16 px.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Charset {
+    Full,
+    Latin,
+    Digits,
+}
+
+/// One baked face. `weight` is the `wght` axis coordinate; 400 goes through
+/// `fontdue`, everything else through the instanced path.
+struct FaceSpec {
+    name: &'static str,
+    px: f32,
+    weight: u16,
+    charset: Charset,
+}
+
+/// The ladder (RFC-0082 Phase 0). Order is the atlas concatenation order;
+/// `FONT13`/`FONT16` MUST stay first and unchanged so their coverage bytes
+/// keep their historical offsets.
+const FACES: &[FaceSpec] = &[
+    FaceSpec { name: "FONT13", px: 13.0, weight: 400, charset: Charset::Full },
+    FaceSpec { name: "FONT16", px: 16.0, weight: 400, charset: Charset::Full },
+    FaceSpec { name: "FONT13_SEMI", px: 13.0, weight: 600, charset: Charset::Latin },
+    FaceSpec { name: "FONT16_SEMI", px: 16.0, weight: 600, charset: Charset::Latin },
+    FaceSpec { name: "FONT21", px: 21.0, weight: 400, charset: Charset::Latin },
+    FaceSpec { name: "FONT21_SEMI", px: 21.0, weight: 600, charset: Charset::Latin },
+    FaceSpec { name: "FONT36_SEMI", px: 36.0, weight: 600, charset: Charset::Latin },
+    FaceSpec { name: "FONT120_LIGHT", px: 120.0, weight: 300, charset: Charset::Digits },
+];
+
+// -------------------------------------------------------------------- fonts
+
 fn load(path: &str, hint: &str) -> fontdue::Font {
     let bytes = fs::read(path).unwrap_or_else(|err| {
         panic!("missing font {path}: {err}\n  hint: {hint}");
@@ -56,6 +113,9 @@ struct Faces {
     jp: fontdue::Font,
     kr: fontdue::Font,
     sc: fontdue::Font,
+    /// Raw bytes of the variable UI face — re-parsed per weight because
+    /// `set_variation` mutates the face.
+    inter_bytes: Vec<u8>,
 }
 
 impl Faces {
@@ -71,6 +131,17 @@ impl Faces {
             _ => &self.inter,
         }
     }
+
+    /// The UI face instanced at `weight` on the `wght` axis.
+    fn instanced(&self, weight: u16) -> ttf_parser::Face<'_> {
+        let mut face = ttf_parser::Face::parse(&self.inter_bytes, 0)
+            .unwrap_or_else(|err| panic!("ttf-parser cannot parse {UI_FONT}: {err:?}"));
+        assert!(
+            face.set_variation(ttf_parser::Tag::from_bytes(b"wght"), f32::from(weight)).is_some(),
+            "{UI_FONT} has no `wght` axis — the ladder needs a variable UI face"
+        );
+        face
+    }
 }
 
 /// The WIDE tail: every non-Latin codepoint the platform actually renders,
@@ -80,6 +151,12 @@ fn wide_charset() -> Vec<u32> {
     // Secure-field bullet (Inter) + CJK punctuation subset + kana.
     for c in [0x2022u32, 0x3001, 0x3002, 0x300C, 0x300D, 0x30FB] {
         set.insert(c);
+    }
+    // Calendar names the app-host's clock can emit (TASK-0305). These live in
+    // HOST Rust, not in any app's i18n catalog, so the catalog sweep below
+    // would never see them and every CJK date would render as `?`.
+    for ch in "月火水木金土日曜星期".chars() {
+        set.insert(ch as u32);
     }
     set.extend(0x3041..=0x3096); // hiragana
     set.extend(0x30A0..=0x30FF); // katakana + ー
@@ -148,22 +225,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         jp: load(NOTO_JP, hint),
         kr: load(NOTO_KR, hint),
         sc: load(NOTO_SC, hint),
+        inter_bytes: fs::read(UI_FONT)?,
     };
     let wide = wide_charset();
     let mut generated = File::create(out_dir.join("baked_fonts.rs"))?;
-    // Bake each face's coverage; concatenate into ONE atlas blob (font13 first,
-    // font16 after) so the runtime can back it with a single shared RO VMO
+    // Bake each face's coverage and concatenate into ONE atlas blob (ladder
+    // order) so the runtime can back it with a single shared RO VMO
     // (RFC-0080). Each face resolves `cov` as `atlas[offset .. offset+len]`.
-    let cov13 = emit_glyph_atlas(&mut generated, &faces, &wide, 13.0, "FONT13", 0)?;
-    let cov16 = emit_glyph_atlas(&mut generated, &faces, &wide, 16.0, "FONT16", cov13.len())?;
-    let mut atlas = cov13;
-    atlas.extend_from_slice(&cov16);
+    let mut atlas: Vec<u8> = Vec::new();
+    for spec in FACES {
+        assert!(
+            !(spec.charset == Charset::Full && spec.px > 16.0),
+            "{}: a Full charset above 16px blows the shared atlas (RFC-0082 budget)",
+            spec.name
+        );
+        let cov = emit_glyph_atlas(&mut generated, &faces, &wide, spec, atlas.len())?;
+        atlas.extend_from_slice(&cov);
+    }
     let atlas_path = out_dir.join("atlas.a8");
     fs::write(&atlas_path, &atlas)?;
     writeln!(generated, "pub const ATLAS_LEN: usize = {};", atlas.len())?;
     // The embedded blob is the DEFAULT backing (feature `embedded-atlas`, on
     // for windowd/host/tests + the VMO owner). Consumers that map a shared
-    // atlas VMO build with it OFF, so the 4.25 MB never enters their image.
+    // atlas VMO build with it OFF, so the blob never enters their image.
     if std::env::var_os("CARGO_FEATURE_EMBEDDED_ATLAS").is_some() {
         writeln!(
             generated,
@@ -174,21 +258,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// One face set at one size: coverage blob (`<name>.a8`) + per-glyph
-/// placement + metrics + sparse Latin kerning + the sorted WIDE tail.
+/// One face at one size/weight: coverage blob + per-glyph placement + metrics,
+/// sparse Latin kerning, and the sorted WIDE tail.
+///
 /// Layout per glyph: `(cov_offset, w, h, left_bearing, top_from_band_top,
-/// advance_px)`. All glyphs share Inter's baseline (top is computed against
-/// Inter's ascent so mixed-script runs align).
+/// advance_px)`. All glyphs share Inter's Regular baseline (top is computed
+/// against it) so mixed-script AND mixed-face runs align.
 fn emit_glyph_atlas(
     generated: &mut File,
     faces: &Faces,
     wide: &[u32],
-    px: f32,
-    name: &str,
+    spec: &FaceSpec,
     cov_offset: usize,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let (name, px) = (spec.name, spec.px);
     let latin: Vec<u32> = (32u32..=126).chain(EXTRAS.iter().copied()).collect();
-    let charset: Vec<u32> = latin.iter().copied().chain(wide.iter().copied()).collect();
+    // A `Latin`/`Digits` face carries no wide tail; the reader falls back to
+    // the 16 px `Full` face for those codepoints (RFC-0082).
+    let face_wide: &[u32] = if spec.charset == Charset::Full { wide } else { &[] };
+    let charset: Vec<u32> = latin.iter().copied().chain(face_wide.iter().copied()).collect();
+    // Line metrics always come from Inter Regular at this size: `wght` does
+    // not move Inter's vertical metrics, and one source keeps every face's
+    // baseline on the same rule.
     let lm = faces
         .inter
         .horizontal_line_metrics(px)
@@ -196,31 +287,65 @@ fn emit_glyph_atlas(
     let ascent = lm.ascent.round() as i32;
     let line_h = (lm.ascent - lm.descent).ceil() as u32;
 
+    let instanced = (spec.weight != 400).then(|| faces.instanced(spec.weight));
+
+    // Rasterize first, so the Digits face can equalize its numeral advances
+    // (tabular figures — a ticking clock must not shuffle sideways).
+    let mut rasters: Vec<GlyphRaster> = Vec::with_capacity(charset.len());
+    for &code in &charset {
+        let ch = char::from_u32(code).ok_or("charset codepoint")?;
+        let real = match spec.charset {
+            Charset::Full | Charset::Latin => true,
+            Charset::Digits => DIGITS.contains(&code),
+        };
+        if !real {
+            rasters.push(GlyphRaster::absent());
+            continue;
+        }
+        rasters.push(match &instanced {
+            Some(face) => rasterize_instanced(face, ch, px),
+            None => {
+                let (m, bitmap) = faces.for_code(code).rasterize(ch, px);
+                GlyphRaster {
+                    width: m.width,
+                    height: m.height,
+                    xmin: m.xmin,
+                    ymin: m.ymin,
+                    advance: m.advance_width,
+                    bitmap,
+                }
+            }
+        });
+    }
+    if spec.charset == Charset::Digits {
+        equalize_digit_advances(&charset, &mut rasters);
+    }
+
     let mut cov: Vec<u8> = Vec::new();
     let mut glyphs = String::new();
     let mut advance_sum = 0u32;
+    let mut advance_n = 0u32;
     let mut advance_max = 0u32;
-    for &code in &charset {
-        let ch = char::from_u32(code).ok_or("charset codepoint")?;
-        let font = faces.for_code(code);
-        let (m, bitmap) = font.rasterize(ch, px);
+    for (&code, r) in charset.iter().zip(&rasters) {
         let off = cov.len() as u32;
-        cov.extend_from_slice(&bitmap);
-        let top = ascent - (m.ymin + m.height as i32);
-        let adv = m.advance_width.round().max(1.0) as u32;
+        cov.extend_from_slice(&r.bitmap);
+        let top = ascent - (r.ymin + r.height as i32);
+        // An absent glyph keeps advance 0 — that is exactly how the reader
+        // recognizes "not in this face's charset" and falls back.
+        let adv =
+            if r.width == 0 && r.advance <= 0.0 { 0 } else { r.advance.round().max(1.0) as u32 };
         // Latin-only average keeps the wrap heuristic stable (CJK advances
         // would skew it and reflow every existing golden).
-        if (32..=126).contains(&code) || EXTRAS.contains(&code) {
+        if ((32..=126).contains(&code) || EXTRAS.contains(&code)) && adv > 0 {
             advance_sum += adv;
+            advance_n += 1;
             advance_max = advance_max.max(adv);
         }
-        glyphs
-            .push_str(&format!("({off}, {}, {}, {}, {}, {adv}), ", m.width, m.height, m.xmin, top));
+        let _ = write!(glyphs, "({off}, {}, {}, {}, {top}, {adv}), ", r.width, r.height, r.xmin);
     }
-    let n_latin = latin.len() as u32;
     writeln!(generated, "pub const {name}_ASCENT: i32 = {ascent};")?;
     writeln!(generated, "pub const {name}_LINE_H: u32 = {line_h};")?;
-    writeln!(generated, "pub const {name}_AVG_ADVANCE: u32 = {};", advance_sum / n_latin)?;
+    writeln!(generated, "pub const {name}_AVG_ADVANCE: u32 = {};", advance_sum / advance_n.max(1))?;
     // Part of the baked font metrics API surface; not every consumer reads it.
     writeln!(generated, "#[allow(dead_code)]")?;
     writeln!(generated, "pub const {name}_MAX_ADVANCE: u32 = {advance_max};")?;
@@ -240,25 +365,53 @@ fn emit_glyph_atlas(
     });
     writeln!(generated, "pub const {name}_EXTRAS: &[u32; {}] = &[{extras_list}];", EXTRAS.len())?;
     // The sorted WIDE tail (glyph indices 106.. — kana/jamo/hangul/han).
-    let wide_list: String = wide.iter().fold(String::new(), |mut acc, c| {
+    let wide_list: String = face_wide.iter().fold(String::new(), |mut acc, c| {
         let _ = write!(acc, "{c}, ");
         acc
     });
     writeln!(generated, "pub const {name}_WIDE: &[u32] = &[{wide_list}];")?;
     // Sparse kerning over the LATIN span only (Inter pairs; CJK is unkerned
-    // by design and its indices exceed the u8 table anyway).
+    // by design and its indices exceed the u8 table anyway). Kerning comes
+    // from the Regular instance for every weight — `wght` shifts pair values
+    // by well under a pixel at these sizes, and one table keeps wrap and
+    // paint on the same numbers. A Digits face stays UNKERNED (tabular).
     let mut kern = String::new();
-    for (li, &l) in latin.iter().enumerate() {
-        for (ri, &r) in latin.iter().enumerate() {
-            let (lc, rc) = (char::from_u32(l).unwrap_or(' '), char::from_u32(r).unwrap_or(' '));
-            if let Some(k) = faces.inter.horizontal_kern(lc, rc, px) {
-                let kpx = k.round() as i32;
-                if kpx != 0 {
-                    kern.push_str(&format!("({li}, {ri}, {kpx}), "));
+    if spec.charset != Charset::Digits {
+        for (li, &l) in latin.iter().enumerate() {
+            for (ri, &r) in latin.iter().enumerate() {
+                let (lc, rc) = (char::from_u32(l).unwrap_or(' '), char::from_u32(r).unwrap_or(' '));
+                if let Some(k) = faces.inter.horizontal_kern(lc, rc, px) {
+                    let kpx = k.round() as i32;
+                    if kpx != 0 {
+                        let _ = write!(kern, "({li}, {ri}, {kpx}), ");
+                    }
                 }
             }
         }
     }
     writeln!(generated, "pub const {name}_KERN: &[(u8, u8, i8)] = &[{kern}];")?;
     Ok(cov)
+}
+
+/// Tabular figures: give every numeral the widest numeral's advance and
+/// center its bitmap in that cell. `:` and `.` keep their natural width —
+/// that is what `font-variant-numeric: tabular-nums` does, and it is all a
+/// ticking clock needs to stop shuffling.
+fn equalize_digit_advances(charset: &[u32], rasters: &mut [GlyphRaster]) {
+    let widest = charset
+        .iter()
+        .zip(rasters.iter())
+        .filter(|(&c, _)| (0x30..=0x39).contains(&c))
+        .map(|(_, r)| r.advance)
+        .fold(0f32, f32::max);
+    for (&code, r) in charset.iter().zip(rasters.iter_mut()) {
+        if !(0x30..=0x39).contains(&code) {
+            continue;
+        }
+        let slack = widest - r.advance;
+        if slack > 0.0 {
+            r.xmin += (slack / 2.0).round() as i32;
+            r.advance = widest;
+        }
+    }
 }

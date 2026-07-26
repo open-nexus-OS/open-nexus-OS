@@ -93,11 +93,10 @@ impl Toast {
 
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
         let dot = self.dot_color(tokens);
-        let g = tokens.glass(MaterialToken::Overlay);
-        let mut style = Style::new()
-            .background(g.tint)
+        // RFC-0082: one shared glass recipe (`Style::glass`) — see card.rs.
+        let style = Style::new()
+            .glass(MaterialToken::Overlay, tokens)
             .rounded(FxPx::new(PILL_RADIUS))
-            .blur(g.blur_radius, g.saturation)
             .shadow(BoxShadow {
                 offset_x: FxPx::ZERO,
                 offset_y: FxPx::new(6),
@@ -105,9 +104,6 @@ impl Toast {
                 spread: FxPx::ZERO,
                 color: tokens.color(ColorToken::Shadow),
             });
-        if let Some(border) = g.border {
-            style = style.border(tokens.length(LengthToken::BorderThin), border);
-        }
         let mut panel = Panel::row()
             .style(style)
             .padding(tokens.length(LengthToken::SpacingMedium))

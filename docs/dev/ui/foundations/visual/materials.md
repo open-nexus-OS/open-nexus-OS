@@ -47,8 +47,24 @@ Avoid:
 Treat materials as theme tokens (authoring in `*.nxtheme.toml`):
 
 - `material.surface` (opaque)
-- `material.glassLow` (subtle translucency)
-- `material.glassHigh` (more pronounced translucency)
+- `material.glassPanel` — dock, control center, launcher, the lock surface
+- `material.glassCard` — cards nested in panels, avatars on a wallpaper
+- `material.glassSubtle` — settings rows / list items
+- `material.glassWindow` — app-window chrome (two-stop tint gradient)
+- `material.glassOverlay` — modals, sheets, popovers
+
+Each authors `blurRadiusDp`, `downsampleFactor`, `tintColor`/`tintAlpha`
+(+ optional `tintBottom*`), `edgeHighlightColor`/`edgeHighlightAlpha` and
+`borderColor`/`borderAlpha`.
+
+**One recipe, one place.** `nexus_style::Style::glass(level, tokens)` composes
+all of it — tint fill, the soft `--glass-shine` wash, the `inset 0 1px 0`
+top-shine as a real one-pixel line, the 1px hairline, and the backdrop blur.
+The DSL's `.material(...)` and every kit widget (`Card`, `Banner`, `Toast`,
+`Avatar`, the `TextField` pill) call it, so a page and a hand-written widget
+cannot render the same level differently. `edgeHighlightAlpha` feeds BOTH the
+crisp inset line (full alpha) and the soft wash (capped at 15%) — see
+RFC-0082.
 
 Each glass material defines:
 

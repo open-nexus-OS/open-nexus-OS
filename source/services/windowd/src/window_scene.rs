@@ -152,6 +152,9 @@ impl WindowStack {
 
     /// Re-bands a registered window (create-time: the surface's DECLARED
     /// intent resolves its role — e.g. the OSK's `level: overlay`).
+    // Called only from the OS-gated compositor runtime (`app_surface`,
+    // `text_input`); cfg-gate instead of a blanket allow.
+    #[cfg(nexus_env = "os")]
     pub fn set_role(&mut self, id: WindowId, role: WindowRole) {
         if let Some(i) = self.index_of(id) {
             self.entries[i].role = role;
@@ -160,6 +163,7 @@ impl WindowStack {
 
     /// Show `id` WITHOUT moving focus (RFC-0075 OSK contract: the on-screen
     /// keyboard must never steal the focused text field's window focus).
+    #[cfg(nexus_env = "os")]
     pub fn show_unfocused(&mut self, id: WindowId) {
         if let Some(i) = self.index_of(id) {
             self.entries[i].visible = true;

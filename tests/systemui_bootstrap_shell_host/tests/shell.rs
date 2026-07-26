@@ -128,22 +128,47 @@ fn greeter_login_success_and_failure_drive_the_contract_states() {
     let nxir = compile_project("greeter");
     let mut mounted = Mounted::new(&nxir, FixtureEnv::default());
     let t = texts(mounted.view.scene());
-    // Handoff look: date + big clock top-center, pick-user prompt, the
-    // password pill and the idle hint.
+    // Handoff look (TASK-0305): date + hero clock top-center, the active
+    // user's avatar + name, the password pill and the idle hint. There is no
+    // "pick a user" prompt any more — `session.active()` pre-selects, and the
+    // centre block belongs to whoever `selected` points at.
     // RFC-0076: live clock state — placeholder until the first tick.
     assert!(t.contains(&"--:--".to_string()), "greeter clock placeholder renders: {t:?}");
-    assert!(t.contains(&"greeter.pickUser".to_string()), "user prompt shown: {t:?}");
     assert!(t.contains(&"greeter.hint".to_string()), "idle hint shown: {t:?}");
 
-    let transcript = "# nx-transcript v1\n\
-        call session.users() -> Ok(List[Str(\"admin\"),Str(\"guest\")])\n\
-        call session.login(Str(\"admin\"),Str(\"secret\")) -> Ok(Bool(true))\n\
-        call session.login(Str(\"admin\"),Str(\"wrong\")) -> Err(7)\n";
-    let mut host = TranscriptHost::parse(transcript).expect("transcript parses");
+    // `session.users()` returns RECORDS {id, label}: `login` takes the id, the
+    // UI shows the label. Field symbols are IR-table indices, so they come
+    // from the COMPILED app — and a record's fields are stored sorted by id.
+    let (id_sym, label_sym) = (mounted.sym("id"), mounted.sym("label"));
+    let (lo, hi) = if id_sym < label_sym { ("id", "label") } else { ("label", "id") };
+    let row = |uid: &str, label: &str| {
+        let field = |which: &str| match which {
+            "id" => format!("{id_sym}:Str(\"{uid}\")"),
+            _ => format!("{label_sym}:Str(\"{label}\")"),
+        };
+        format!("Record{{{},{}}}", field(lo), field(hi))
+    };
+    let transcript = format!(
+        "# nx-transcript v1\n\
+         call session.users() -> Ok(List[{},{}])\n\
+         call session.active() -> Ok(Str(\"admin\"))\n\
+         call session.login(Str(\"admin\"),Str(\"secret\")) -> Ok(Bool(true))\n\
+         call session.login(Str(\"admin\"),Str(\"wrong\")) -> Err(7)\n",
+        row("admin", "Admin"),
+        row("guest", "Gast"),
+    );
+    let mut host = TranscriptHost::parse(&transcript).expect("transcript parses");
 
-    // Users load from sessiond's list.
+    // Users load from sessiond's list, and the AUTHORITY pre-selects one.
     mounted.dispatch(&mut host, "SessionEvent", "Load", vec![]);
-    assert!(texts(mounted.view.scene()).contains(&"admin".to_string()));
+    let t = texts(mounted.view.scene());
+    assert!(t.contains(&"Admin".to_string()), "the DISPLAY NAME renders: {t:?}");
+    assert!(!t.contains(&"admin".to_string()), "the raw user id must never render: {t:?}");
+    assert_eq!(
+        mounted.view.runtime.field("SessionStore", "selected"),
+        Some(&Value::Str("admin".into())),
+        "session.active() pre-selects; the DSL cannot index a list and must not guess"
+    );
 
     // Pick + type + submit: success returns to idle with the secret CLEARED.
     mounted.dispatch(&mut host, "SessionEvent", "Pick", vec![Value::Str("admin".into())]);

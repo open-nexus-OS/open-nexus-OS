@@ -9,7 +9,7 @@ designed-in seam, not yet implemented.
 | Concern | Authority | Where |
 |---|---|---|
 | WHO exists, WHICH session is active | `sessiond` | `source/services/sessiond/` (state machine `state.rs`, user registry `users.rs`) |
-| What the login window LOOKS like | SystemUI (library) | `source/services/systemui/src/greeter.rs` + `manifests/greeter/default/greeter.toml` |
+| What the login window LOOKS like | the greeter APP | `userspace/apps/greeter/` (a DSL app; SystemUI only NAMES it via `product.toml`'s `greeter = "…"`) |
 | What a user's session means as a SHELL | SystemUI (library) | `resolve_product(product_id)` — the user's `product` string names a product manifest |
 | Rendering, hit-testing, input relay | `windowd` | `compositor/runtime/greeter.rs`, `session_client.rs`, `interaction.rs` |
 | Pre-session launch enforcement | `abilitymgr` | `handoff.rs` `SessionGate` + os-lite live gate |
@@ -21,6 +21,12 @@ knows what "desktop chrome" is — it stores an opaque SystemUI product id.
 
 - `OP_GET_STATE (1)` → `[status, state(0=greeter,1=active,2=locked), active_idx, count, entries…]`,
   entry = `[id_len,id, name_len,name, product_len,product]` (UTF-8).
+  The DSL surface exposes this as `svc.session.users()` →
+  `List<SessionUser{id, label}>` (records, so `login` gets the ID while the UI
+  shows the display name) plus `svc.session.active()` → the id at `active_idx`.
+  Pre-selection is the AUTHORITY's answer: the DSL cannot index a list, and
+  "just take the first one" client-side would be exactly the break this
+  document forbids.
 - `OP_LOGIN (2)`: `[id_len, id…]` → `[status, product_len, product…]`.
   Auth docks HERE later (credential payload + keystored verification); the
   `Locked` state and `OP_LOCK (3)` (reserved, `STATUS_UNSUPPORTED`) pin the
@@ -46,18 +52,21 @@ knows what "desktop chrome" is — it stores an opaque SystemUI product id.
 1. Boot: windowd brings up the desktop base (wallpaper, present) exactly as
    before; after the framebuffer handoff its session probe asks sessiond
    (250 ms cadence, ~6 s bound).
-2. `sessiond: greeter (n=…)` → windowd bakes the greeter INTO Plane 1: one-time
-   separable box blur of the wallpaper + dim, centered avatar (SDF circle +
-   ring + Lucide `circle-user` + name) → `windowd: greeter visible`. No atlas
-   use; hover redraws only the card from a saved backdrop.
+2. `sessiond: greeter (n=…)` → windowd launches the greeter APP
+   (`compositor/runtime/session.rs`, `STATE_GREETER ⇒ launch_app("greeter")`).
+   The old windowd-internal renderer — a blurred+dimmed wallpaper with an SDF
+   avatar card baked into Plane 1 — has been DELETED; `systemui/src/greeter.rs`
+   and `manifests/greeter/default/greeter.toml` survive only as a dead
+   appearance config with no call sites.
 3. While the greeter owns the display, ALL shell affordances are dead
    (host-tested `interaction::resolve_click_session`): no topbar, no corner
    hotspot, no windows. Additionally `abilitymgr` refuses `OP_LAUNCH` with
    `STATUS_DENIED` unless sessiond reports an active session (fail-closed;
    marker `abilitymgr: launch denied (session)`).
-4. Avatar click → `OP_LOGIN` → `sessiond: session start (user=… product=…)` →
-   windowd restores the pristine base, resolves the product through SystemUI
-   and applies it → `windowd: session shell visible (product=…)`.
+4. Submit → `svc.session.login(id, secret)` → `OP_LOGIN` →
+   `sessiond: session start (user=… product=…)` → windowd restores the
+   pristine base, resolves the product through SystemUI and applies it →
+   `windowd: session shell visible (product=…)`.
 5. sessiond unreachable (e.g. removed from the image): bounded probe, then
    `windowd: session unavailable (auto shell)` — today's default shell; the
    boot NEVER bricks on the session authority.

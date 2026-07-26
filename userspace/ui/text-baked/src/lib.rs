@@ -34,6 +34,12 @@ extern crate alloc;
 #[cfg(feature = "layout")]
 pub mod measure_text;
 
+mod ladder;
+use ladder::{face, Face};
+pub use ladder::{FontSize, Weight};
+#[cfg(test)]
+use ladder::{BODY, HERO};
+
 #[allow(clippy::all)]
 mod baked {
     include!(concat!(env!("OUT_DIR"), "/baked_fonts.rs"));
@@ -106,79 +112,6 @@ fn atlas() -> &'static [u8] {
     }
 }
 
-/// Shell text sizes, mapping to the two baked atlases.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FontSize {
-    /// 13 px — chrome labels, dropdown entries, window titles.
-    Small,
-    /// 16 px — window body text (chat messages, search rows, app bodies).
-    Body,
-}
-
-/// One baked face: coverage blob + per-glyph placement + line metrics.
-struct Face {
-    /// This face's coverage span within the shared atlas
-    /// (`atlas()[cov_off .. cov_off + cov_len]`, RFC-0080). Per-glyph `off` is
-    /// 0-based within this slice.
-    cov_off: usize,
-    cov_len: usize,
-    /// `(cov_offset, w, h, left_bearing, top_from_band_top, advance_px)` per
-    /// charset glyph: dense ASCII 32..=126 first (index = code − 32), then
-    /// the sparse EXTRAS tail (umlauts/ß + math symbols), then the sorted
-    /// WIDE tail (kana/jamo/hangul/han — RFC-0075 Phase 8d, see build.rs).
-    glyphs: &'static [(u32, u16, u16, i16, i16, u16)],
-    /// The sparse tail's codepoints, sorted ascending; glyph index = 95 + i.
-    extras: &'static [u32; 11],
-    /// The WIDE tail's codepoints, sorted ascending; glyph index =
-    /// 95 + extras.len() + i. Unkerned by design.
-    wide: &'static [u32],
-    /// Sparse kerning: `(left_glyph_idx, right_glyph_idx, px)` — Latin span
-    /// only (indices < 107 fit the u8 table).
-    kern: &'static [(u8, u8, i8)],
-    line_h: u32,
-    avg_advance: u32,
-    ascent: i32,
-}
-
-impl Face {
-    /// This face's coverage slice out of the installed atlas backing.
-    #[inline]
-    fn cov(&self) -> &'static [u8] {
-        atlas().get(self.cov_off..self.cov_off + self.cov_len).unwrap_or(&[])
-    }
-}
-
-const SMALL: Face = Face {
-    cov_off: baked::FONT13_COV_OFFSET,
-    cov_len: baked::FONT13_COV_LEN,
-    glyphs: baked::FONT13_GLYPHS,
-    extras: baked::FONT13_EXTRAS,
-    wide: baked::FONT13_WIDE,
-    kern: baked::FONT13_KERN,
-    line_h: baked::FONT13_LINE_H,
-    avg_advance: baked::FONT13_AVG_ADVANCE,
-    ascent: baked::FONT13_ASCENT,
-};
-
-const BODY: Face = Face {
-    cov_off: baked::FONT16_COV_OFFSET,
-    cov_len: baked::FONT16_COV_LEN,
-    glyphs: baked::FONT16_GLYPHS,
-    extras: baked::FONT16_EXTRAS,
-    wide: baked::FONT16_WIDE,
-    kern: baked::FONT16_KERN,
-    line_h: baked::FONT16_LINE_H,
-    avg_advance: baked::FONT16_AVG_ADVANCE,
-    ascent: baked::FONT16_ASCENT,
-};
-
-const fn face(size: FontSize) -> &'static Face {
-    match size {
-        FontSize::Small => &SMALL,
-        FontSize::Body => &BODY,
-    }
-}
-
 /// Height of a text band (ascent + descent, no extra leading — callers add
 /// their own line spacing).
 #[must_use]
@@ -199,23 +132,44 @@ pub const fn avg_advance(size: FontSize) -> u32 {
     face(size).avg_advance
 }
 
-/// Glyph index for a char: dense ASCII by offset, the sparse EXTRAS tail
-/// (umlauts/ß, ± ÷ × −) then the WIDE tail (kana/jamo/hangul/han, RFC-0075
-/// Phase 8d) by binary search; anything else falls back to `?` (same
-/// policy as the old bitmap font's replacement glyph).
+/// Glyph index for a char WITHIN one face: dense ASCII by offset, the sparse
+/// EXTRAS tail (umlauts/ß, ± ÷ × −), then the WIDE tail (kana/jamo/hangul/han,
+/// RFC-0075 Phase 8d) by binary search. `None` when the codepoint is outside
+/// this face's charset OR the slot is an absent glyph (a `Latin` face carries
+/// ASCII-shaped slots for indices it does not rasterize, so the dense scheme
+/// survives — an absent slot is `w == 0 && advance == 0`).
 #[inline]
-fn glyph_index_in(f: &Face, ch: char) -> usize {
+fn glyph_index_in(f: &Face, ch: char) -> Option<usize> {
     let c = ch as u32;
-    if (32..=126).contains(&c) {
-        return (c - 32) as usize;
+    let gi = if (32..=126).contains(&c) {
+        (c - 32) as usize
+    } else if let Ok(i) = f.extras.binary_search(&c) {
+        95 + i
+    } else {
+        95 + f.extras.len() + f.wide.binary_search(&c).ok()?
+    };
+    let &(_, w, _, _, _, adv) = f.glyphs.get(gi)?;
+    (w > 0 || adv > 0).then_some(gi)
+}
+
+/// Resolve a char to the face that actually carries it and its glyph index
+/// (RFC-0082): this face first, then its `fallback`, then the replacement
+/// glyph `?`. A codepoint nobody has renders blank — fail-visible, never a
+/// substituted shape.
+#[inline]
+fn resolve(f: &'static Face, ch: char) -> (&'static Face, usize) {
+    if let Some(gi) = glyph_index_in(f, ch) {
+        return (f, gi);
     }
-    if let Ok(i) = f.extras.binary_search(&c) {
-        return 95 + i;
+    if let Some(fb) = f.fallback {
+        if let Some(gi) = glyph_index_in(fb, ch) {
+            return (fb, gi);
+        }
+        if let Some(gi) = glyph_index_in(fb, '?') {
+            return (fb, gi);
+        }
     }
-    match f.wide.binary_search(&c) {
-        Ok(i) => 95 + f.extras.len() + i,
-        Err(_) => ('?' as u32 - 32) as usize,
-    }
+    (f, ('?' as u32 - 32) as usize)
 }
 
 #[inline]
@@ -233,22 +187,26 @@ fn kern(f: &Face, left: usize, right: usize) -> i32 {
 /// the renderer clips, so wrap and paint cannot visibly drift).
 #[must_use]
 pub fn advance(ch: char, size: FontSize) -> u32 {
-    let f = face(size);
-    f.glyphs[glyph_index_in(f, ch)].5 as u32
+    let (f, gi) = resolve(face(size), ch);
+    f.glyphs.get(gi).map_or(0, |g| g.5 as u32)
 }
 
-/// Advance width of a run in pixels (kerning included).
+/// Advance width of a run in pixels (kerning included). Kerning only applies
+/// between two glyphs from the SAME face — a pair straddling the fallback
+/// seam has no meaningful pair value.
 pub fn measure(text: impl Iterator<Item = char>, size: FontSize) -> u32 {
-    let f = face(size);
+    let primary = face(size);
     let mut w = 0i32;
-    let mut prev: Option<usize> = None;
+    let mut prev: Option<(&'static Face, usize)> = None;
     for ch in text {
-        let gi = glyph_index_in(f, ch);
-        if let Some(p) = prev {
-            w += kern(f, p, gi);
+        let (f, gi) = resolve(primary, ch);
+        if let Some((pf, p)) = prev {
+            if pf.id == f.id {
+                w += kern(f, p, gi);
+            }
         }
-        w += f.glyphs[gi].5 as i32;
-        prev = Some(gi);
+        w += f.glyphs.get(gi).map_or(0, |g| g.5 as i32);
+        prev = Some((f, gi));
     }
     w.max(0) as u32
 }
@@ -270,22 +228,26 @@ pub fn draw_text_row(
     size: FontSize,
     color: [u8; 4],
 ) {
-    let f = face(size);
+    let primary = face(size);
     let band_y = local_y as i32 - top;
-    if band_y < 0 || band_y >= f.line_h as i32 {
+    if band_y < 0 || band_y >= primary.line_h as i32 {
         return;
     }
     let row_px = (row.len() / 4) as u32;
     let clip = clip_end_x.min(row_px);
     let mut pen = x0 as i32;
-    let mut prev: Option<usize> = None;
+    let mut prev: Option<(&'static Face, usize)> = None;
     for ch in text {
-        let gi = glyph_index_in(f, ch);
-        if let Some(p) = prev {
-            pen += kern(f, p, gi);
+        let (f, gi) = resolve(primary, ch);
+        if let Some((pf, p)) = prev {
+            if pf.id == f.id {
+                pen += kern(f, p, gi);
+            }
         }
-        let (off, w, h, left, gtop, adv) = f.glyphs[gi];
-        let gy = band_y - gtop as i32;
+        let Some(&(off, w, h, left, gtop, adv)) = f.glyphs.get(gi) else { continue };
+        // A fallback glyph was baked against ITS face's ascent; shifting by
+        // the ascent delta puts both faces' baselines on the same row.
+        let gy = band_y - (gtop as i32 + primary.ascent - f.ascent);
         if w > 0 && gy >= 0 && (gy as u16) < h {
             let start = off as usize + gy as usize * w as usize;
             if let Some(src) = f.cov().get(start..start + w as usize) {
@@ -306,7 +268,7 @@ pub fn draw_text_row(
             }
         }
         pen += adv as i32;
-        prev = Some(gi);
+        prev = Some((f, gi));
         if pen >= clip as i32 {
             break;
         }
@@ -409,6 +371,170 @@ mod tests {
         assert_ne!(glyph_index_in(f, '•'), glyph_index_in(f, '?'));
         // A codepoint OUTSIDE the baked set still falls back to `?`.
         assert_eq!(measure("\u{1F600}".chars(), FontSize::Body), q);
+    }
+
+    // ------------------------------------------------ RFC-0082 type ladder
+
+    /// Total coverage of a run — the crude "how much ink" probe the weight
+    /// and size assertions below compare against.
+    fn ink(text: &str, size: FontSize) -> u32 {
+        let w = measure(text.chars(), size) + 8;
+        let mut sum = 0u32;
+        for y in 0..line_height(size) {
+            let mut row = alloc::vec![0u8; (w * 4) as usize];
+            draw_text_row(&mut row, y, 0, 0, w, text.chars(), size, WHITE);
+            sum += row.chunks_exact(4).map(|p| u32::from(p[3])).sum::<u32>();
+        }
+        sum
+    }
+
+    #[test]
+    fn atlas_stays_within_the_rfc0082_budget() {
+        // The atlas is ONE shared RO VMO mapped into every app-host
+        // (RFC-0080) — growth here is arena pressure everywhere. The ladder
+        // adds ~150 KB on top of the two Full faces; 5 MB is the ceiling a
+        // new face has to argue against.
+        assert!(
+            atlas_len() < 5 * 1024 * 1024,
+            "baked atlas is {} bytes — over the 5 MB budget (RFC-0082)",
+            atlas_len()
+        );
+        assert_eq!(baked::FONT13_COV_OFFSET, 0, "13px Full must stay first in the atlas");
+    }
+
+    #[test]
+    fn existing_latin_metrics_are_frozen() {
+        // The real "no existing layout shifts" invariant. Face LENGTHS move
+        // legitimately whenever the CJK charset grows (an i18n string, a
+        // calendar name), so pinning those would be a tripwire that fires on
+        // the wrong thing. What must never move is what layouts are built
+        // from: the measured width of Latin text at the two original faces.
+        assert_eq!(measure("Handgloves 0123".chars(), FontSize::Small), 107);
+        assert_eq!(measure("Handgloves 0123".chars(), FontSize::Body), 132);
+        assert_eq!(measure("Sonntag, 26. Juli".chars(), FontSize::Small), 104);
+        assert_eq!(measure("Sonntag, 26. Juli".chars(), FontSize::Body), 128);
+        // …and their line boxes, which every row height derives from.
+        assert_eq!(line_height(FontSize::Small), 16);
+        assert_eq!(line_height(FontSize::Body), 20);
+        assert_eq!(ascent(FontSize::Small), 13);
+        assert_eq!(ascent(FontSize::Body), 16);
+    }
+
+    #[test]
+    fn nearest_picks_size_first_then_weight() {
+        // Exact rungs.
+        assert_eq!(FontSize::nearest(13, Weight::Regular), FontSize::Small);
+        assert_eq!(FontSize::nearest(16, Weight::Regular), FontSize::Body);
+        assert_eq!(FontSize::nearest(21, Weight::SemiBold), FontSize::TitleSemi);
+        assert_eq!(FontSize::nearest(120, Weight::Light), FontSize::Hero);
+        // Between rungs: nearest px wins, ties round DOWN.
+        assert_eq!(FontSize::nearest(14, Weight::Regular), FontSize::Small, "14 → 13, not 16");
+        assert_eq!(FontSize::nearest(15, Weight::Regular), FontSize::Body);
+        assert_eq!(FontSize::nearest(18, Weight::Regular), FontSize::Body, "18 → 16 (tie down)");
+        assert_eq!(FontSize::nearest(30, Weight::SemiBold), FontSize::DisplaySemi);
+        // Size beats weight: Light exists ONLY at 120, and a 14px request must
+        // NOT jump to the hero face.
+        assert_eq!(FontSize::nearest(14, Weight::Light), FontSize::Small);
+        // Weight missing at the chosen px degrades to Regular…
+        assert_eq!(FontSize::nearest(21, Weight::Light), FontSize::Title);
+        // …and to the only face there when Regular is missing too.
+        assert_eq!(FontSize::nearest(36, Weight::Regular), FontSize::DisplaySemi);
+        assert_eq!(FontSize::nearest(120, Weight::Regular), FontSize::Hero);
+    }
+
+    #[test]
+    fn semibold_carries_more_ink_than_regular() {
+        // The whole point of instancing the `wght` axis: a SemiBold face must
+        // actually be heavier, not just a differently-named copy.
+        for (reg, semi) in
+            [(FontSize::Small, FontSize::SmallSemi), (FontSize::Body, FontSize::BodySemi)]
+        {
+            let (r, s) = (ink("Handgloves", reg), ink("Handgloves", semi));
+            assert!(s > r, "{semi:?} ({s}) must be heavier than {reg:?} ({r})");
+        }
+        // …and Light must be lighter than SemiBold at a comparable size.
+        assert!(ink("0123456789", FontSize::Hero) > 0, "the hero face renders numerals");
+    }
+
+    #[test]
+    fn counters_are_not_filled_nonzero_winding() {
+        // The instanced rasterizer fills with the NONZERO winding rule. If it
+        // used even-odd — or ignored contour direction — the bowl of `o`
+        // would be solid. Probe the middle row for lit · dark · lit.
+        let size = FontSize::DisplaySemi;
+        let w = measure("o".chars(), size) + 4;
+        let mid = line_height(size) / 2;
+        let mut row = alloc::vec![0u8; (w * 4) as usize];
+        draw_text_row(&mut row, mid, 0, 0, w, "o".chars(), size, WHITE);
+        let lit: alloc::vec::Vec<bool> = row.chunks_exact(4).map(|p| p[3] > 0).collect();
+        let first = lit.iter().position(|&b| b).expect("left stem of `o`");
+        let last = lit.iter().rposition(|&b| b).expect("right stem of `o`");
+        let hole = lit[first..=last].iter().filter(|&&b| !b).count();
+        assert!(
+            hole > 2,
+            "`o` at {size:?} has no counter — winding rule is wrong (span {first}..={last})"
+        );
+    }
+
+    #[test]
+    fn hero_digits_are_tabular() {
+        // A ticking clock must not shuffle sideways: every numeral shares the
+        // widest numeral's advance, and the face is unkerned.
+        let one = advance('1', FontSize::Hero);
+        assert!(one > 0, "the hero face rasterizes digits");
+        for d in "023456789".chars() {
+            assert_eq!(advance(d, FontSize::Hero), one, "digit {d} is not tabular");
+        }
+        assert_eq!(
+            measure("13:16".chars(), FontSize::Hero),
+            measure("08:59".chars(), FontSize::Hero),
+            "same-shape times must measure identically"
+        );
+        assert!(face(FontSize::Hero).kern.is_empty(), "tabular figures must stay unkerned");
+    }
+
+    #[test]
+    fn latin_faces_fall_back_to_the_body_face_for_cjk() {
+        // RFC-0082: a codepoint outside a Latin/Digits face's charset resolves
+        // against the 16px Full face — smaller than its neighbours, but
+        // rendered. Blank or `?` would both be wrong.
+        for size in [FontSize::TitleSemi, FontSize::DisplaySemi, FontSize::Hero] {
+            let (f, gi) = resolve(face(size), 'ん');
+            assert_eq!(f.id, BODY.id, "{size:?} must fall back to the 16px Full face");
+            assert_eq!(Some(gi), glyph_index_in(&BODY, 'ん'));
+            assert_eq!(advance('ん', size), advance('ん', FontSize::Body));
+        }
+        // The hero face carries no letters at all — those fall back too.
+        let (f, _) = resolve(face(FontSize::Hero), 'A');
+        assert_eq!(f.id, BODY.id, "hero letters come from the Full face");
+        // …but its own digits do NOT fall back.
+        let (f, _) = resolve(face(FontSize::Hero), '7');
+        assert_eq!(f.id, HERO.id, "hero digits stay on the hero face");
+    }
+
+    #[test]
+    fn fallback_glyphs_share_the_primary_baseline() {
+        // A fallback glyph was baked against ITS face's ascent; drawing it in
+        // a taller band must shift it so the baselines coincide. Proof: the
+        // kana ink sits around the primary face's baseline, not at the top.
+        let size = FontSize::DisplaySemi;
+        let (w, lh) = (measure("ん".chars(), size) + 8, line_height(size));
+        let baseline = ascent(size);
+        let mut lowest = 0i32;
+        let mut highest = i32::MAX;
+        for y in 0..lh {
+            let mut row = alloc::vec![0u8; (w * 4) as usize];
+            draw_text_row(&mut row, y, 0, 0, w, "ん".chars(), size, WHITE);
+            if row.chunks_exact(4).any(|p| p[3] > 0) {
+                lowest = lowest.max(y as i32);
+                highest = highest.min(y as i32);
+            }
+        }
+        assert!(highest < lowest, "the fallback glyph rendered at all");
+        assert!(
+            lowest <= baseline + 2 && lowest > baseline - ascent(FontSize::Body),
+            "kana ink ({highest}..={lowest}) must sit on the {size:?} baseline ({baseline})"
+        );
     }
 
     #[test]

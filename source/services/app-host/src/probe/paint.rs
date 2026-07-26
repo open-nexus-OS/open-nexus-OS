@@ -197,6 +197,23 @@ impl super::DslApp {
                             }
                             None => (*color, bx_eff),
                         };
+                    // RFC-0082: `.textShadow(soft|strong)` — one extra glyph
+                    // pass at the offset, BEFORE the run itself. Not a blur
+                    // (the row painter has no offscreen buffer); it is the
+                    // separation large type needs to survive a wallpaper.
+                    if let Some(sh) = b.visual.text_shadow.filter(|s| s.color.a > 0) {
+                        let sc = sh.color;
+                        nexus_text_baked::draw_text_row(
+                            &mut row,
+                            y_eff as u32,
+                            by + sh.offset_y.0,
+                            (bx_glyph + sh.offset_x.0).max(0) as u32,
+                            right,
+                            content.chars(),
+                            *font,
+                            [sc.b, sc.g, sc.r, (u32::from(sc.a) * u32::from(color[3]) / 255) as u8],
+                        );
+                    }
                     nexus_text_baked::draw_text_row(
                         &mut row,
                         y_eff as u32,
@@ -399,11 +416,7 @@ pub(super) fn collect_texts(
     *index += 1;
     match node {
         N::Text(text, _) => {
-            let font = if text.style.font_size.0 >= 15 {
-                nexus_text_baked::FontSize::Body
-            } else {
-                nexus_text_baked::FontSize::Small
-            };
+            let font = nexus_text_baked::measure_text::BakedTextMeasure::font(&text.style);
             let c = text.style.color;
             out.push((
                 *index,
@@ -417,11 +430,7 @@ pub(super) fn collect_texts(
             // bullet-masked for `secure`) — or its dimmed placeholder
             // while empty. This arm was MISSING: no TextField ever
             // painted its text (the store/insert side was always fine).
-            let font = if input.style.font_size.0 >= 15 {
-                nexus_text_baked::FontSize::Body
-            } else {
-                nexus_text_baked::FontSize::Small
-            };
+            let font = nexus_text_baked::measure_text::BakedTextMeasure::font(&input.style);
             let c = input.style.color;
             if !input.content.as_str().is_empty() {
                 out.push((
@@ -468,11 +477,7 @@ fn caret_input<'a>(
     let inside = inside || here == target;
     match node {
         N::TextInput(input, _) if inside => {
-            let font = if input.style.font_size.0 >= 15 {
-                nexus_text_baked::FontSize::Body
-            } else {
-                nexus_text_baked::FontSize::Small
-            };
+            let font = nexus_text_baked::measure_text::BakedTextMeasure::font(&input.style);
             let c = input.style.color;
             Some((here, input.content.as_str(), font, [c.b, c.g, c.r, c.a]))
         }

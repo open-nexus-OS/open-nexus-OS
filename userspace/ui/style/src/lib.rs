@@ -25,8 +25,17 @@
 //! This is the modifier vocabulary a future DSL emits — so `Style` is pure and
 //! data-only (no rendering, no app state).
 
-use nexus_layout_types::{BoxShadow, CornerRadius, EdgeBorder, Fraction, FxPx, Rgba8, VisualStyle};
-use nexus_theme_tokens::{ColorToken, LengthToken, Tokens};
+use nexus_layout_types::{
+    BoxShadow, CornerRadius, EdgeBorder, Fraction, FxPx, GlassLevel, Rgba8, SurfaceMaterial,
+    VisualStyle,
+};
+use nexus_theme_tokens::{ColorToken, LengthToken, MaterialToken, Tokens};
+
+/// How much of a material's `edgeHighlight` may bleed into the soft top-to-
+/// bottom shine (RFC-0082). The rest of its alpha belongs to the crisp
+/// one-pixel `inset 0 1px 0` line; 15% is the wash the handoff's
+/// `--glass-shine` actually shows.
+const SHINE_WASH_CAP: u32 = 38; // 0.15 x 255
 
 pub mod state;
 pub use state::{blend, InteractionState};
@@ -89,6 +98,50 @@ impl Style {
     /// Backdrop blur (glass) over the region behind the element.
     pub fn blur(mut self, radius: u32, saturation_percent: u32) -> Self {
         self.backdrop_blur = Some(BackdropBlur { radius, saturation_percent });
+        self
+    }
+
+    /// The full liquid-glass recipe for a material level (RFC-0082): tint
+    /// fill, the `--glass-shine` wash, the `inset 0 1px 0` top-shine, the 1px
+    /// hairline, and the compositing material itself.
+    ///
+    /// THE single definition — the DSL's `.material(...)` and every kit widget
+    /// route through here, so a page and a hand-written widget cannot render
+    /// the same level differently.
+    pub fn glass(mut self, level: MaterialToken, tokens: &dyn Tokens) -> Self {
+        let g = tokens.glass(level);
+        self.visual.material = SurfaceMaterial::Glass(match level {
+            MaterialToken::Panel => GlassLevel::Panel,
+            MaterialToken::Card => GlassLevel::Card,
+            MaterialToken::Subtle => GlassLevel::Subtle,
+            MaterialToken::Window => GlassLevel::Window,
+            MaterialToken::Overlay => GlassLevel::Overlay,
+        });
+        self.visual.background = Some(g.tint);
+        // The authored `edgeHighlight` has TWO jobs at two strengths: a crisp
+        // one-pixel lit edge, and a soft wash down the surface. Used at full
+        // alpha for the wash, the login recipe's 0.60 would bleach the pane.
+        if g.edge.a > 0 {
+            self.visual.inset_highlight = Some(g.edge);
+        }
+        let wash = u32::from(g.edge.a).min(SHINE_WASH_CAP);
+        if wash > 0 || g.tint_bottom.is_some() {
+            let blend = |t: u8, e: u8| -> u8 {
+                (u32::from(t) + u32::from(e).saturating_sub(u32::from(t)) * wash / 255) as u8
+            };
+            let top = Rgba8 {
+                r: blend(g.tint.r, g.edge.r),
+                g: blend(g.tint.g, g.edge.g),
+                b: blend(g.tint.b, g.edge.b),
+                a: g.tint.a.saturating_add((wash / 4) as u8),
+            };
+            self.visual.background_gradient = Some((top, g.tint_bottom.unwrap_or(g.tint)));
+        }
+        if let Some(border) = g.border.filter(|b| b.a > 0) {
+            self.visual.border = EdgeBorder::all(tokens.length(LengthToken::BorderThin), border);
+        }
+        self.backdrop_blur =
+            Some(BackdropBlur { radius: g.blur_radius, saturation_percent: g.saturation });
         self
     }
 

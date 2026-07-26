@@ -4,8 +4,9 @@
 //! Model building + name resolution (duplicates, unknown references,
 //! route/page wiring, widget-vs-component resolution, modifier catalog).
 
+use super::modifiers::check_modifiers;
 use super::Model;
-use crate::ast::{Decl, Expr, File, HandlerAction, ModifierCall, Pattern, Stmt, ViewNode};
+use crate::ast::{Decl, Expr, File, HandlerAction, Pattern, Stmt, ViewNode};
 use crate::diag::{DiagCode, Diagnostic, Span};
 use crate::registry;
 use alloc::{collections::BTreeMap, format, string::String, vec::Vec};
@@ -597,63 +598,6 @@ pub(super) fn check_view(node: &ViewNode, model: &Model<'_>, diags: &mut Vec<Dia
                 }
             }
         }
-    }
-}
-
-fn check_modifiers(modifiers: &[ModifierCall], diags: &mut Vec<Diagnostic>) {
-    for modifier in modifiers {
-        match registry::modifier_spec(&modifier.name.text) {
-            None => diags.push(Diagnostic::new(
-                DiagCode::UnknownModifier,
-                modifier.name.span,
-                format!("unknown modifier `.{}`", modifier.name.text),
-            )),
-            Some((_, spec)) => {
-                if modifier.args.len() != spec.args.len() {
-                    diags.push(Diagnostic::new(
-                        DiagCode::WrongArity,
-                        modifier.span,
-                        format!(
-                            "`.{}` takes {} argument(s), got {}",
-                            spec.name,
-                            spec.args.len(),
-                            modifier.args.len()
-                        ),
-                    ));
-                }
-                // Motion modifiers (`.animate`/`.transition`/`.effect`) take a
-                // CURATED motion token as the first argument — validate it
-                // against the closed set (no free-form animation names).
-                if matches!(spec.name, "animate" | "transition" | "effect") {
-                    check_motion_token(modifier, diags);
-                }
-            }
-        }
-    }
-}
-
-/// The first argument of a motion modifier must be one of the curated
-/// [`registry::MOTION_TOKENS`]. A bare token lowers to a single-segment
-/// `Path`/`DeviceRef`-style identifier — read that name and reject anything
-/// outside the set (an unknown token is a compile error, not a silent no-op).
-fn check_motion_token(modifier: &ModifierCall, diags: &mut Vec<Diagnostic>) {
-    let Some(first) = modifier.args.first() else { return };
-    let name = match &first.value {
-        Expr::Path { segments, .. } if segments.len() == 1 => Some(segments[0].text.as_str()),
-        _ => None,
-    };
-    match name {
-        Some(name) if registry::is_motion_token(name) => {}
-        _ => diags.push(Diagnostic::new(
-            DiagCode::UnknownName,
-            first.value.span(),
-            format!(
-                "`.{}` expects a motion token ({}), not `{}`",
-                modifier.name.text,
-                registry::MOTION_TOKENS.join(", "),
-                name.unwrap_or("a value")
-            ),
-        )),
     }
 }
 

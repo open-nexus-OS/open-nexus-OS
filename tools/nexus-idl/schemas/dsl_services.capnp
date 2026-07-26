@@ -51,8 +51,12 @@ const dslSurface :List(DslMethod) = [
   (service = "settings", method = "set", args = ["Str", "Str"], result = "Bool"),
   # -- session authority (sessiond, TASK-0065B contract; the DSL greeter
   #    renders and dispatches — sessiond DECIDES (authority stays there))
+  (service = "session", method = "active", args = [], result = "Str"),
   (service = "session", method = "login", args = ["Str", "Str"], result = "Bool"),
-  (service = "session", method = "users", args = [], result = "List<Str>"),
+  # RECORD rows {id, label}: `login` needs the user ID, the UI shows the
+  # display name. Returning bare ids made every greeter render the id; the
+  # record row is what bundlemgr's AppEntry already does.
+  (service = "session", method = "users", args = [], result = "List<SessionUser>"),
   # -- OSK key injection (imed's dedicated osk endpoint, RFC-0075 Phase 2;
   #    ime-type bundles only). `key` commits ONE character; `action` sends a
   #    control action ("backspace" | "enter").

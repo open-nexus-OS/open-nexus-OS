@@ -9,6 +9,7 @@
 //! `has_errors(&diags)` (warnings pass unless `--deny-warn`).
 
 mod lints;
+mod modifiers;
 mod names;
 
 use crate::ast::{

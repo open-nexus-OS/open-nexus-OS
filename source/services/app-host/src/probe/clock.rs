@@ -9,24 +9,102 @@
 
 use super::*;
 
-/// English display names (v1 — localized names ride the locale packs,
-/// RFC-0077 follow-up). ISO weekday order (0 = Monday).
-const WEEKDAYS: [&str; 7] =
-    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const MONTHS: [&str; 12] = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-];
+/// Calendar display names per shipped language (TASK-0305). This is HOST-side
+/// display data on purpose: weekday and month names are the same 19 strings
+/// for every app, so putting them in each app's i18n catalog would duplicate
+/// them N times and let them drift. They move into the locale packs when
+/// RFC-0077 grows a shared platform catalog.
+///
+/// ISO weekday order (0 = Monday). Every glyph these can emit is pinned into
+/// the baked atlas by `CALENDAR_WIDE` in `nexus-text-baked`'s build script —
+/// an unlisted CJK codepoint would render as `?`.
+struct Calendar {
+    weekdays: [&'static str; 7],
+    months: [&'static str; 12],
+    /// How the pieces assemble. The order really is language-specific:
+    /// German puts the day first ("26. Juli"), English the month.
+    format: DateFormat,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DateFormat {
+    /// `Sunday, July 26`
+    WeekdayMonthDay,
+    /// `Sonntag, 26. Juli`
+    WeekdayDayMonth,
+    /// `7月26日 日曜日`
+    MonthDayWeekday,
+}
+
+const EN: Calendar = Calendar {
+    weekdays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+    months: [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ],
+    format: DateFormat::WeekdayMonthDay,
+};
+
+const DE: Calendar = Calendar {
+    weekdays: ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"],
+    months: [
+        "Januar",
+        "Februar",
+        "März",
+        "April",
+        "Mai",
+        "Juni",
+        "Juli",
+        "August",
+        "September",
+        "Oktober",
+        "November",
+        "Dezember",
+    ],
+    format: DateFormat::WeekdayDayMonth,
+};
+
+const JA: Calendar = Calendar {
+    weekdays: ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"],
+    months: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+    format: DateFormat::MonthDayWeekday,
+};
+
+const KO: Calendar = Calendar {
+    weekdays: ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"],
+    months: ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"],
+    format: DateFormat::MonthDayWeekday,
+};
+
+const ZH: Calendar = Calendar {
+    weekdays: ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"],
+    months: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+    format: DateFormat::MonthDayWeekday,
+};
+
+/// The calendar for a BCP-47-ish tag, matched on the language subtag only
+/// ("de-DE" and "de-AT" share one calendar). Unknown tags fall back to
+/// English — a wrong-language date beats no date.
+fn calendar_for(locale: &str) -> &'static Calendar {
+    let lang = locale.split(['-', '_']).next().unwrap_or("");
+    match lang {
+        "de" => &DE,
+        "ja" => &JA,
+        "ko" => &KO,
+        "zh" => &ZH,
+        _ => &EN,
+    }
+}
 
 impl super::DslApp {
     /// Whether the mounted program declares the clock event.
@@ -184,12 +262,20 @@ impl super::DslApp {
         let mut hm = [0u8; 8];
         let n = tz_lite::format_hm(&civil, self.clock_hour24, &mut hm);
         let time = alloc::string::String::from(core::str::from_utf8(&hm[..n]).unwrap_or("--:--"));
-        let date = alloc::format!(
-            "{}, {} {}",
-            WEEKDAYS[usize::from(civil.weekday.min(6))],
-            MONTHS[usize::from(civil.month.saturating_sub(1).min(11))],
-            civil.day
-        );
+        let cal = calendar_for(&self.locale_tag);
+        let weekday = cal.weekdays[usize::from(civil.weekday.min(6))];
+        let month = cal.months[usize::from(civil.month.saturating_sub(1).min(11))];
+        let date = match cal.format {
+            DateFormat::WeekdayMonthDay => {
+                alloc::format!("{weekday}, {month} {}", civil.day)
+            }
+            DateFormat::WeekdayDayMonth => {
+                alloc::format!("{weekday}, {}. {month}", civil.day)
+            }
+            DateFormat::MonthDayWeekday => {
+                alloc::format!("{month}{}日 {weekday}", civil.day)
+            }
+        };
         // Schedule the next wakeup just past the minute boundary.
         let sec_in_min = (epoch_ns / 1_000_000_000) % 60;
         self.clock_next_wait_ms = (60 - sec_in_min) * 1000 + 200;

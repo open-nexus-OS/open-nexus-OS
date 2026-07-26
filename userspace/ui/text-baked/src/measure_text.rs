@@ -10,22 +10,49 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: parity-covered via windowd/app-host scene renders
 
-use crate::FontSize;
+use crate::{FontSize, Weight};
 use nexus_layout_types::{
-    FxPx, LineLayout, LineMetrics, MeasureText, PreparedTextHandle, TextContent, TextStyle,
+    FontWeight, FxPx, LineLayout, LineMetrics, MeasureText, PreparedTextHandle, TextContent,
+    TextStyle,
 };
 
 /// Pixel-accurate measurement over the baked glyph tables.
 pub struct BakedTextMeasure;
 
 impl BakedTextMeasure {
-    /// Style→face mapping (the shell convention: ≥15px = body face).
+    /// The authoring weight collapsed onto the three instances the ladder
+    /// actually bakes (RFC-0082): Medium reads as Regular, Bold as SemiBold.
+    #[must_use]
+    pub fn weight(weight: FontWeight) -> Weight {
+        match weight {
+            FontWeight::Light => Weight::Light,
+            FontWeight::Regular | FontWeight::Medium => Weight::Regular,
+            FontWeight::Semibold | FontWeight::Bold => Weight::SemiBold,
+        }
+    }
+
+    /// Style→face mapping. THE single place a `TextStyle` becomes a baked
+    /// face — measurement and paint must agree or text clips mid-run, so
+    /// every painter routes through here (RFC-0082).
     #[must_use]
     pub fn font(style: &TextStyle) -> FontSize {
-        if style.font_size.0 >= 15 {
-            FontSize::Body
-        } else {
-            FontSize::Small
+        FontSize::nearest(style.font_size.0, Self::weight(style.font_weight))
+    }
+
+    /// The line box for a run.
+    ///
+    /// `LineHeight::Relative` is an EXPLICIT authoring choice (the DSL's
+    /// `.leading(...)`, the design system's `--leading-*`) and wins.
+    /// `LineHeight::Absolute` is `TextStyle`'s struct default that nobody
+    /// sets deliberately, so it defers to the baked face's own line height —
+    /// which is the only value that actually matches the glyphs and scales
+    /// with the ladder (RFC-0082).
+    fn line_height(style: &TextStyle, font: FontSize) -> usize {
+        match style.line_height {
+            nexus_layout_types::LineHeight::Relative(pct) => {
+                ((style.font_size.0 as i64 * pct.0 as i64) / 100).max(1) as usize
+            }
+            nexus_layout_types::LineHeight::Absolute(_) => crate::line_height(font) as usize,
         }
     }
 }
@@ -34,8 +61,7 @@ impl MeasureText for BakedTextMeasure {
     fn prepare(&self, content: &TextContent, style: &TextStyle) -> PreparedTextHandle {
         let font = Self::font(style);
         let width = crate::measure(content.as_str().chars(), font) as usize;
-        let line_height = crate::line_height(font) as usize;
-        PreparedTextHandle((line_height << 20) | (width & 0xF_FFFF))
+        PreparedTextHandle((Self::line_height(style, font) << 20) | (width & 0xF_FFFF))
     }
 
     fn measure_width(&self, handle: &PreparedTextHandle) -> FxPx {

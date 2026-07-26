@@ -20,6 +20,9 @@
 //! features — `nexus-gfx` `LayerBackdrop`/shadow on the live path); text
 //! glyphs blend in the separate baked-text pass.
 
+mod borders;
+use borders::{paint_borders_row, paint_inset_highlight_row};
+
 pub mod anim;
 pub use anim::NodeAnim;
 
@@ -491,6 +494,11 @@ pub(crate) fn paint_box_row_at(
     }
     let radius =
         (b.visual.corner_radius.top_left.0.max(0) as i64 * radius_pct.max(1) as i64 / 100) as i32;
+    // The `inset 0 1px 0` top-shine goes UNDER the border ring: the hairline
+    // is the outermost pixel, the shine the one just inside it.
+    if let Some(shine) = b.visual.inset_highlight {
+        paint_inset_highlight_row(canvas, (x, y, w, h), radius, &b.visual.border, shine);
+    }
     paint_borders_row(canvas, x, y, w, h, radius, &b.visual.border);
 }
 
@@ -760,48 +768,6 @@ fn paint_one_scrolled(
             canvas.shift_x = 0;
             canvas.clip_x = None;
         }
-    }
-}
-
-pub(crate) fn paint_borders_row(
-    canvas: &mut RowCanvas<'_>,
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-    radius: i32,
-    border: &nexus_layout_types::EdgeBorder,
-) {
-    // Uniform border (the kit's `Style::border` sets all four edges the same):
-    // stroke a ring that FOLLOWS the corner radius — four straight strips on a
-    // rounded fill read as a square frame around a round element.
-    if let (Some(t), Some(bo), Some(l), Some(r)) =
-        (border.top, border.bottom, border.left, border.right)
-    {
-        let uniform = t.width == bo.width
-            && t.width == l.width
-            && t.width == r.width
-            && t.color == bo.color
-            && t.color == l.color
-            && t.color == r.color;
-        if uniform {
-            canvas.stroke_round_rect_row(x, y, w, h, radius, t.width.0.max(1), t.color);
-            return;
-        }
-    }
-    if let Some(t) = border.top {
-        canvas.fill_round_rect_row(x, y, w, t.width.0.max(0), 0, t.color);
-    }
-    if let Some(b) = border.bottom {
-        let bw = b.width.0.max(0);
-        canvas.fill_round_rect_row(x, y + h - bw, w, bw, 0, b.color);
-    }
-    if let Some(l) = border.left {
-        canvas.fill_round_rect_row(x, y, l.width.0.max(0), h, 0, l.color);
-    }
-    if let Some(r) = border.right {
-        let rw = r.width.0.max(0);
-        canvas.fill_round_rect_row(x + w - rw, y, rw, h, 0, r.color);
     }
 }
 

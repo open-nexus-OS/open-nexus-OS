@@ -33,8 +33,16 @@ impl LineHeight {
 }
 
 /// Font weight. Matches Inter's available weights.
+///
+/// The baked ladder (RFC-0082) serves three instances — Light 300,
+/// Regular 400 and SemiBold 600 — so `Medium` renders as Regular and `Bold`
+/// as SemiBold. That collapse lives in the text layer's weight mapping, not
+/// here: this enum stays the authoring vocabulary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontWeight {
+    /// Large headlines only — never a default UI weight
+    /// (`docs/dev/ui/foundations/visual/typography.md`).
+    Light = 300,
     Regular = 400,
     Medium = 500,
     Semibold = 600,

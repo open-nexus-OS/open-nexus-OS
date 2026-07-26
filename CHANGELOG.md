@@ -7,6 +7,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-26 (the type ramp the design system always assumed it had — RFC-0082 / TASK-0305)
+
+The login greeter was supposed to be a re-skin. It turned out the platform
+could not render the design at all: **every text run in every DSL app was
+being drawn at 13px or 16px, in Regular 400**, no matter what the page asked
+for. `.textSize(display)` (36px in the type scale) painted identically to
+`.textSize(md)`; `.fontWeight()` was declared, documented, type-checked — and
+had no runtime arm whatsoever. The type scale existed in the tokens and died
+in the painter. It read as a spacing bug for a long time because measurement
+used the *token* size, so boxes were laid out at 36px while glyphs came out
+at 16.
+
+- **A (size, weight) ladder in the baked atlas.** `nexus-text-baked` now bakes
+  13/16 Regular (full Latin+CJK), 13/16/21 SemiBold and 21 Regular (Latin),
+  36 SemiBold (Latin) and a 120px Light face carrying **digits only**. Every
+  face declares a charset budget: a full charset above 16px is forbidden — the
+  hangul syllable block alone would add hundreds of MB to an atlas that is
+  mapped into every app-host as one shared RO VMO (RFC-0080). Resolution is
+  `FontSize::nearest(px, weight)`, and **size wins over weight**: the other
+  order answers `nearest(14, Light)` with the 120px hero face.
+- **Light 300 and SemiBold 600 are instanced, not vendored.** `fontdue` has no
+  variation-axis API, so the weighted rungs come from `ttf-parser`'s `wght`
+  axis filled by a nonzero-winding scanline rasterizer in the build script.
+  Regular 400 keeps going through `fontdue`, which is why the 13/16px Latin
+  coverage is **byte-identical** and nothing reflowed.
+- **CJK above 16px falls back to the 16px full face** — smaller than its
+  neighbours, but rendered. Bounded and documented, never blank.
+- `.fontWeight` (+ `light`), `.leading` (+ a `flat` step), `.textAlign`,
+  `.border`, `.borderColor` and the four per-edge paddings stop being no-ops.
+- **`.textShadow(none|soft|strong)`** (modId 50): one extra glyph pass at a
+  1px offset. Deliberately not a blur — the row painter has no offscreen
+  buffer, so the tokens are emphasis steps and the docs say so.
+- **`.bgFade(top, bottom)`** (modId 51): a vertical fade between two color
+  TOKENS, so a vignette follows the theme (`.bgGradient` keeps taking raw hex
+  because app-icon artwork colors are data).
+- **Unknown token arguments are compile errors.** `.fg(oNSurface)` used to
+  type-check and then resolve to `None` at runtime — the node painted its
+  default and the author got no signal at all.
+
+### Fixed - 2026-07-26 (glass had no edges, and five widgets each drew it differently)
+
+- **`GlassSurface.border` was resolved from the theme and then dropped.** Every
+  glass surface in the OS — dock, control center, launcher, cards — has been
+  edgeless. It now paints the 1px hairline, plus the design system's
+  `inset 0 1px 0` top-shine as a real pixel line
+  (`VisualStyle.inset_highlight`). The same authored `edgeHighlight` alpha
+  feeds both jobs at different strengths: full for the crisp line, capped at
+  15% for the soft wash, because the login recipe's 0.60 bleaches a whole pane.
+- **One glass recipe.** `Style::glass(level, tokens)` is now the single
+  definition; `Card`, `Banner`, `Toast`, `Avatar`, the `TextField` pill and the
+  DSL's `.material()` all route through it. Each had hand-rolled its own
+  subset before — which is exactly how `Card` ended up without a shine while
+  `Stack.material(card)` had one.
+- **`.grow()`/`.shrink()` never reached kit widgets.** Every kit arm built its
+  own node and dropped the flex item, so a `.grow(1)` `TextField` laid out
+  0px wide inside a row.
+- **Localized dates.** `probe/clock.rs` hard-coded English weekday and month
+  names; de/en/ja/ko/zh now each get their own names *and* their own field
+  order ("Sonntag, 26. Juli" vs "Sunday, July 26"). The CJK glyphs those can
+  emit are pinned into the baked charset — they live in host Rust, so the
+  i18n-catalog sweep would never have seen them.
+
+### Fixed - 2026-07-26 (two gates that were already red on main)
+
+Found while proving the greeter, both predating it, both reported with numbers
+rather than quietly patched:
+
+- **`contract-windowd-size` had been failing on `main`.** windowd was 537 KB
+  over its 8 MB budget before this branch touched anything — it links the
+  ~4.4 MB shared glyph atlas, now half its image — and the gate ran only in
+  `ci-os-headless`, never in `test-all`. Replaced the windowd-only tripwire
+  with `contract-image-budgets`: a declared budget per service against the
+  224 MB kernel VMO arena, a catch-all bound for anything unlisted,
+  non-service images excluded *with a stated reason*, a usage table printed on
+  every run — and wired into `just test-all`. The real fix (windowd mapping
+  the shared atlas VMO the way an app-host does, RFC-0080) is recorded in
+  `tasks/TASK-0076B`, not pretended away by a bigger number.
+- **`just diag` had been failing on `main`**: four dead-code denials in
+  windowd (`atlas.rs`, `window_scene.rs`) whose only callers live in OS-gated
+  compositor code. cfg-gated per the repo rule, not blanket-allowed.
+
+Also worth writing down: `just check` and `just test-host` do **not** compile
+the OS cfg. Two breaks in this branch (`self.locale` vs `locale_tag`, an
+unqualified `BakedTextMeasure`) were invisible to both and only fell out of
+`just diag`.
+
+### Changed - 2026-07-26 (the greeter, and an OS-wide glass re-tune)
+
+- **The greeter is rebuilt to `design_handoff_os_login`**: wallpaper tint and
+  vignette, date + hero clock, the active user's glass avatar with derived
+  initials, a 44px glass password pill with the submit arrow inside it, the
+  switcher and session actions along the bottom. It reads through a new
+  on-glass token family (`onGlass*`, `glassIcon`, `glassPlaceholder`,
+  `glassFocus`, `glassFill`, `wallpaperTint`, `wallpaperVignette`,
+  `textShadow*`, `transparent`) because it paints on a photograph, where
+  `onSurface` — tuned for a solid panel — disappears against a bright sky.
+- **`svc.session.users()` returns records `{id, label}`** instead of bare
+  strings, and `svc.session.active()` names the user sessiond would log in by
+  default. The greeter was rendering raw user *ids* because `login` needs the
+  id and the row could only carry one string. Pre-selection asks the
+  authority: the DSL cannot index a list, and guessing "element zero"
+  client-side is the break `docs/dev/ui/shell/session.md` forbids.
+- **`glassPanel` and `glassCard` carry the handoff's login values** in both
+  themes — notably a dark *tint* (`#121214@.40`) in dark mode instead of the
+  white wash, which greys a photograph out rather than sinking into it. This
+  changes the dock, control center, launcher and every card OS-wide; that was
+  the intent.
+- **`Avatar` derives initials from a display name** and honours its modifiers
+  (it ignored all of them and was hard-coded to a flat `SurfaceVariant` disc).
+  `GlassTextField` gains `FieldVariant::{Boxed,Glass,Bare}` + `pill()`, and
+  the DSL forwards `variant`/`error`/`helper`/`size`/`disabled`.
+
 ### Fixed - 2026-07-26 (boot stuck on the splash — an aliased gpud route, and two waits that never decided)
 
 - **The gpud route answer is now validated, not believed.** Routing v1 carries

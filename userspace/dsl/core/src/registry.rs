@@ -123,6 +123,20 @@ pub const MODIFIERS: &[ModifierSpec] = &[
         args: &[ModArg::Expr, ModArg::Expr],
         class: FieldClass::Paint,
     },
+    // -- text shadow (paint, APPEND-ONLY id): `.textShadow(none|soft|strong)`
+    // — legibility for text sitting on a wallpaper (RFC-0082). An EMPHASIS
+    // step, not a blur radius: the row-based painter draws one extra glyph
+    // pass at a 1px offset, because there is no offscreen buffer to blur in.
+    ModifierSpec { name: "textShadow", args: &[ModArg::Token], class: FieldClass::Paint },
+    // -- token gradient (paint, APPEND-ONLY id): `.bgFade(top, bottom)` — the
+    // same vertical fill as `.bgGradient`, but from two COLOR TOKENS so it
+    // re-themes. `.bgGradient` keeps taking raw hex because app-icon artwork
+    // colors ride the manifest; both forms are legitimate.
+    ModifierSpec {
+        name: "bgFade",
+        args: &[ModArg::Token, ModArg::Token],
+        class: FieldClass::Paint,
+    },
 ];
 
 #[must_use]
@@ -362,6 +376,85 @@ pub const MOTION_TOKENS: &[&str] =
 #[must_use]
 pub fn is_motion_token(name: &str) -> bool {
     MOTION_TOKENS.contains(&name)
+}
+
+/// Semantic **color roles** a `.fg`/`.bg`/`.borderColor`/`.bgFade` may name.
+/// Mirrors `nexus-dsl-runtime`'s `registry::color_token`, which mirrors
+/// `ColorToken` — the three are kept in lock-step (see RFC-0082).
+pub const COLOR_TOKENS: &[&str] = &[
+    "surface",
+    "surfaceVariant",
+    "onSurface",
+    "onSurfaceVariant",
+    "accent",
+    "onAccent",
+    "border",
+    "background",
+    "islandBg",
+    "primary",
+    "onPrimary",
+    "danger",
+    "onDanger",
+    "success",
+    "onSuccess",
+    "warning",
+    "onWarning",
+    "info",
+    "onInfo",
+    "focusRing",
+    "shadow",
+    "scrim",
+    "destructive",
+    "onDestructive",
+    "onGlass",
+    "onGlassMuted",
+    "onGlassStrong",
+    "glassIcon",
+    "glassPlaceholder",
+    "glassFocus",
+    "glassFill",
+    "wallpaperTint",
+    "wallpaperVignette",
+    "textShadow",
+    "textShadowStrong",
+    "transparent",
+];
+
+/// Closed token vocabularies per modifier: `(modifier name, allowed tokens)`.
+///
+/// A modifier listed here rejects any other token AT COMPILE TIME. Before
+/// RFC-0082 an unknown token argument (`.fg(oNSurface)`) type-checked fine and
+/// then silently resolved to `None` at runtime — the node just painted the
+/// default and the author had no signal at all.
+///
+/// Only vocabularies that are genuinely closed belong here. Modifiers whose
+/// argument is a number in practice (`.padding(4)`, `.width(320)`) are absent
+/// on purpose: their `ModArg::Token` spec is historical.
+pub const TOKEN_VOCABULARIES: &[(&str, &[&str])] = &[
+    ("fg", COLOR_TOKENS),
+    ("bg", COLOR_TOKENS),
+    ("borderColor", COLOR_TOKENS),
+    ("bgFade", COLOR_TOKENS),
+    ("textSize", &["xs", "sm", "base", "md", "lg", "xl", "xxl", "xxxl", "display", "hero"]),
+    ("fontWeight", &["light", "regular", "medium", "semibold", "bold"]),
+    ("textAlign", &["left", "center", "right"]),
+    ("leading", &["flat", "tight", "snug", "normal", "relaxed"]),
+    ("textShadow", &["none", "soft", "strong"]),
+    ("material", &["opaque", "panel", "card", "subtle", "window", "overlay"]),
+    ("rounded", &["sm", "md", "lg", "xl", "xxl", "full"]),
+    ("shadow", &["sm", "md", "lg", "xl", "xxl"]),
+    ("border", &["thin", "hairline", "medium", "thick"]),
+    ("align", &["start", "center", "end", "stretch"]),
+    ("justify", &["start", "center", "end", "between", "around"]),
+    ("direction", &["row", "column"]),
+    ("overflow", &["visible", "hidden"]),
+    ("scroll", &["vertical", "horizontal"]),
+];
+
+/// The closed token vocabulary of `name`, if it has one.
+#[must_use]
+pub fn token_vocabulary(name: &str) -> Option<&'static [&'static str]> {
+    TOKEN_VOCABULARIES.iter().find(|(m, _)| *m == name).map(|(_, tokens)| *tokens)
 }
 
 /// Read-only device environment fields (docs/dev/dsl/profiles.md) + their

@@ -65,7 +65,11 @@ impl Select {
                 style: TextStyle {
                     font_size: tokens.type_size(TypographyToken::Base),
                     font_weight: FontWeight::Regular,
-                    line_height: LineHeight::Relative(FxPx::new(150)),
+                    // RFC-0082: the baked face's own line height. This was
+                    // `Relative(150)`, which the measurer never honored — now that
+                    // `Relative` IS honored it would silently grow every field, so
+                    // the intent is stated as "let the face decide" instead.
+                    line_height: LineHeight::Absolute(FxPx::new(20)),
                     text_align: TextAlign::Left,
                     color: tokens.color(color),
                     white_space: WhiteSpace::NoWrap,

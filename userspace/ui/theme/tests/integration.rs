@@ -304,7 +304,12 @@ fn test_reconciled_new_tokens_resolve_from_base() {
         ("secondary", "#eceef2"),
         ("sidebar", "#fafafa"),
         ("chart1", "#f54900"),
-        ("glassTextPrimary", "#000000cc"),
+        // RFC-0082: on-glass ink is the login handoff's blue-black, not pure black.
+        ("glassTextPrimary", "#14141af2"),
+        ("glassIcon", "#14141acc"),
+        ("wallpaperTint", "#ffffff3d"),
+        ("textShadowStrong", "#fffffff2"),
+        ("transparent", "#00000000"),
         ("toggleOnBg", "#3b82f6d9"),
     ] {
         assert_eq!(
@@ -324,7 +329,9 @@ fn test_reconciled_dark_token_overrides() {
         ("secondary", "#262626"),
         ("destructive", "#fa5a55"),
         ("chart1", "#1447e6"),
-        ("glassTextPrimary", "#ffffffe6"),
+        ("glassTextPrimary", "#fffffff2"),
+        ("wallpaperTint", "#0000008c"),
+        ("textShadow", "#00000066"),
     ] {
         assert_eq!(
             runtime.resolve(name).unwrap(),
@@ -365,11 +372,13 @@ fn test_glass_material_resolves_through_qualifier_chain() {
         other => panic!("light glassPanel should inherit base glass, got {other:?}"),
     }
 
-    // Dark overrides glassPanel (same blur, dark tint alpha .10).
+    // Dark overrides glassPanel with a DARK tint (RFC-0082: the login
+    // handoff's rgba(18,18,20,.4) — a white wash greys out a photograph).
     runtime.set_qualifier(Qualifier::Dark);
     match runtime.resolve_material("glassPanel") {
         Some(nexus_theme::Material::Glass(g)) => {
-            assert!((g.tint_alpha - 0.10).abs() < 1e-6);
+            assert!((g.tint_alpha - 0.40).abs() < 1e-6);
+            assert_eq!(g.tint_color, ColorValue::from_hex("#121214").unwrap());
         }
         other => panic!("dark glassPanel should override, got {other:?}"),
     }

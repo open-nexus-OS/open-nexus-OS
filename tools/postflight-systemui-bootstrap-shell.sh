@@ -123,8 +123,13 @@ interactive "app input" \
   "WINDOWD: surface input routed" \
   "APPHOST: interactive frame presented"
 
-echo "== DSL shell/greeter (0080C wiring pending) =="
-skip "DSL greeter visible" "mount swap lands with TASK-0080C step 2"
+echo "== DSL shell/greeter =="
+# The greeter IS the DSL app (windowd `session.rs`: STATE_GREETER =>
+# launch_app("greeter")); the built-in avatar renderer is deleted. Its surface
+# proof is the app-host's own frame marker, not a windowd-internal one.
+check_any "DSL greeter mounted" \
+  "apphost: dsl svc session.users ok" \
+  "apphost: dsl svc session.active ok"
 check "DSL shell mounted (0080C step 1)" \
   "systemui: dsl shell on"
 skip "queryd: ready" "os-lite queryd + idl-runtime no_std land with TASK-0080C step 4"

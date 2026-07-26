@@ -3,13 +3,17 @@
 //
 // The greeter session store (TASK-0080B): renders the TASK-0065B login
 // contract (docs/dev/ui/shell/session.md). AUTHORITY STAYS IN SESSIOND —
-// this store only asks (`svc.session.login`) and mirrors the answer into
+// this store only asks (`svc.session.*`) and mirrors the answer into
 // view state; it never decides. Phases: 0 = idle, 1 = authenticating,
 // 2 = failure (deterministic Int phases — the state machine the host
 // fixtures pin).
 
 Store SessionStore {
-    users: List<Str> = [],
+    // Records {id, label}: `login` takes the id, the UI shows the label
+    // (TASK-0305 — the greeter used to render raw user ids).
+    users: List<User> = [],
+    // The id of the user the password field will authenticate. Seeded from
+    // sessiond's own answer, then re-pointed by tapping the switcher.
     selected: Str = "",
     secret: Str = "",
     phase: Int = 0,
@@ -19,7 +23,7 @@ Store SessionStore {
 }
 
 // RFC-0076: the app-host drives this once per minute with the tz-converted
-// wall time ("14:32", "Tuesday, July 21"). Placeholder until anchored.
+// wall time ("14:32", "Sonntag, 26. Juli"). Placeholder until anchored.
 Event ClockEvent {
     Tick(Str, Str),
 }
@@ -33,8 +37,9 @@ reduce ClockEvent {
 
 Event SessionEvent {
     Load,
-    UsersLoaded(List<Str>),
+    UsersLoaded(List<User>),
     UsersFailed(Int),
+    ActiveLoaded(Str),
     Pick(Str),
     Submit,
     LoginOk(Bool),
@@ -45,7 +50,16 @@ reduce SessionEvent {
     Load => state.phase = 0,
     UsersLoaded(users) => state.users = users,
     UsersFailed(code) => state.lastError = code,
-    Pick(name) => state.selected = name,
+    // Pre-selection is the AUTHORITY's answer, not "take element zero" — the
+    // DSL cannot index a list, and guessing locally would be the exact
+    // authority break docs/dev/ui/shell/session.md forbids.
+    ActiveLoaded(id) => state.selected = id,
+    Pick(id) => {
+        state.selected = id;
+        state.secret = "";
+        state.phase = 0;
+        state.lastError = 0;
+    },
     Submit => state.phase = 1,
     LoginOk(ok) => {
         state.phase = 0;
@@ -62,6 +76,10 @@ reduce SessionEvent {
 @effect on Load {
     match svc.session.users(timeoutMs: 250) {
         Ok(users) => dispatch(UsersLoaded(users)),
+        Err(e) => dispatch(UsersFailed(e)),
+    }
+    match svc.session.active(timeoutMs: 250) {
+        Ok(id) => dispatch(ActiveLoaded(id)),
         Err(e) => dispatch(UsersFailed(e)),
     }
 }

@@ -32,3 +32,9 @@ nexus-layout-types = { path = "../layout-types", optional = true }
 ime-core = { path = "../../ime-core" }
 keymaps = { path = "../../keymaps" }
 fontdue = "0.9"
+# RFC-0082: `fontdue` has no variation-axis API, so the Light/SemiBold rungs
+# of the ladder are instanced on the `wght` axis here and filled by build.rs's
+# own nonzero-winding scanline rasterizer. Regular 400 keeps going through
+# `fontdue` so the 13/16 px coverage stays byte-identical. `gvar-alloc` lifts
+# the stack-only point cap for the larger display outlines.
+ttf-parser = { version = "0.24", features = ["gvar-alloc"] }

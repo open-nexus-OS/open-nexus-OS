@@ -53,6 +53,22 @@ fn checker_rejects_carry_stable_codes() {
     assert!(check_codes("Page P { Text(\"x\").sparkle(2) }").contains(&DiagCode::UnknownModifier));
     // Wrong modifier arity.
     assert!(check_codes("Page P { Text(\"x\").padding(1, 2) }").contains(&DiagCode::WrongArity));
+    // RFC-0082: closed token vocabularies. An unknown token used to type-check
+    // and then silently resolve to nothing at runtime — the node painted its
+    // default and the author got no signal at all.
+    for src in [
+        "Page P { Text(\"x\").fg(oNSurface) }",     // casing slip
+        "Page P { Text(\"x\").textSize(huge) }",    // not on the type scale
+        "Page P { Text(\"x\").fontWeight(black) }", // not a baked weight
+        "Page P { Stack { }.material(frosted) }",   // not a glass level
+        "Page P { Text(\"x\").textShadow(blurry) }",
+        "Page P { Stack { }.bgFade(transparent, chartreuse) }",
+    ] {
+        assert!(
+            check_codes(src).contains(&DiagCode::UnknownName),
+            "unknown token must be a compile error: {src}"
+        );
+    }
     // Duplicate routes.
     assert!(check_codes("Page H { Stack { } } Routes { \"/\" -> H; \"/\" -> H; }")
         .contains(&DiagCode::DuplicateRoute));

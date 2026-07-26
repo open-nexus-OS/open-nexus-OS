@@ -1,11 +1,11 @@
 {
   "greeter.title": "Anmelden",
-  "greeter.secret": "Passwort",
+  "greeter.secret": "Passwort eingeben",
   "greeter.login": "Anmelden",
   "greeter.authenticating": "Prüfe…",
-  "greeter.failed": "Anmeldung fehlgeschlagen",
-  "greeter.date": "Sunday, 5 July",
-  "greeter.clock": "09:41",
-  "greeter.pickUser": "Benutzer wählen",
-  "greeter.hint": "Zum Anmelden auf den Pfeil tippen"
+  "greeter.failed": "Passwort falsch — bitte erneut versuchen",
+  "greeter.hint": "Mit Enter anmelden",
+  "greeter.sleep": "Ruhezustand",
+  "greeter.restart": "Neustart",
+  "greeter.shutdown": "Ausschalten"
 }

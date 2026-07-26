@@ -295,6 +295,13 @@ pub struct VisualStyle {
     pub shadow: Option<BoxShadow>,
     /// Text shadow (shadow cast by text glyphs on this node).
     pub text_shadow: Option<TextShadow>,
+    /// The design system's `inset 0 1px 0 <color>` top-shine: a one-pixel
+    /// highlight drawn just INSIDE the top edge (RFC-0082). This is what makes
+    /// a glass surface read as a lit pane rather than a flat tint, and it is
+    /// deliberately separate from `background_gradient` — the same authored
+    /// `edgeHighlight` alpha is a crisp line here and, at a fraction of its
+    /// strength, a soft wash there.
+    pub inset_highlight: Option<Rgba8>,
     /// Compositing material — `Opaque` (default) or frosted `Glass(level)`. The
     /// compositor turns a glass node into a real backdrop-blurred layer.
     pub material: SurfaceMaterial,

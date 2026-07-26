@@ -24,6 +24,15 @@ Rules:
 
 - Duplicate modifiers on one node = error.
 - Modifiers are pure (no IO, no `svc.*`).
+- **Token arguments are validated at compile time** for every closed
+  vocabulary (`registry::TOKEN_VOCABULARIES`): `.fg(oNSurface)` is an error,
+  not a silent no-op. Modifiers whose argument is a number in practice
+  (`.padding(4)`, `.width(320)`) are exempt.
+- Not every modifier reaches every widget. `Mods` is honoured in full by
+  `Stack`/`List`/`Panel`/`Circle`; `Text` takes the paint set plus
+  `fg`/`textSize`/`fontWeight`/`leading`/`textAlign`/`textShadow`; kit widgets
+  (`Button`, `TextField`, `Icon`, `Avatar`, …) consume a documented subset and
+  drop the rest.
 - Every modifier has a **field class** driving invalidation: `layout` (re-layout),
   `paint` (repaint only), `semantics` (a11y tree only). The class column below is
   normative and mirrors the compiler's SSOT (`userspace/dsl/core/modifiers.toml`);
@@ -68,9 +77,12 @@ Rules:
 | `.bg(t)` | color token | background |
 | `.fg(t)` | color token | foreground/tint (text, icons) |
 | `.borderColor(t)` | color token | border color |
+| `.border(t)` | `thin\|hairline\|medium\|thick` | border width (listed again under Shape below) |
 | `.opacity(n)` | `0..100` | node opacity |
-| `.material(m)` | material token | glass surface (panel/card/subtle/window/overlay) |
+| `.material(m)` | material token | glass surface (panel/card/subtle/window/overlay) — tint + `--glass-shine` wash + `inset 0 1px 0` top-shine + 1px hairline, all from the theme (`Style::glass` is the single definition) |
 | `.bgGradient(top, bottom)` | two exprs → `"#rrggbb[aa]"` | vertical linear background gradient (`linear-gradient(to bottom, …)`); wins over `.bg`. Args are EXPRESSIONS so both literals and props work — app-icon artwork colors ride the manifest → enumerate → props. Row-based painter: one lerped flat color per row, exact and alloc-free. |
+| `.bgFade(top, bottom)` | two color tokens | the same vertical fill from TOKENS, so it re-themes (`.bgGradient` keeps taking raw hex because artwork colors are data). Use `transparent` as a stop for a legibility fade. |
+| `.textShadow(t)` | `none\|soft\|strong` | legibility for text sitting on a wallpaper. An EMPHASIS step, **not** a blur radius: the row painter draws one extra glyph pass at a 1px offset in `textShadow`/`textShadowStrong` — there is no offscreen buffer to blur in (RFC-0082). |
 
 ## Shape & elevation (class: paint)
 
@@ -84,11 +96,29 @@ Rules:
 
 | Modifier | Args | Meaning |
 |---|---|---|
-| `.textSize(t)` | type-scale token (`xs\|sm\|base\|lg\|xl\|…`) | font size from the type scale |
-| `.fontWeight(w)` | `regular\|medium\|semibold\|bold` | weight |
+| `.textSize(t)` | `xs\|sm\|base\|md\|lg\|xl\|xxl\|xxxl\|display\|hero` | font size from the type scale |
+| `.fontWeight(w)` | `light\|regular\|medium\|semibold\|bold` | weight |
 | `.textAlign(a)` | `left\|center\|right` | alignment |
-| `.leading(t)` | leading token | line height |
+| `.leading(t)` | `flat\|tight\|snug\|normal\|relaxed` | line height as a percentage of the font size; omit it and the baked face's own line height is used |
 | `.truncate(n)` | `Int` lines | line clamp with ellipsis |
+
+**What the type ramp can actually render** (RFC-0082). The platform bakes a
+sparse ladder of `(size, weight)` faces and resolves a request to the nearest
+one — **size wins over weight**:
+
+| px | weights baked | charset |
+|---|---|---|
+| 13 | Regular, SemiBold | full (Latin + CJK) at Regular; Latin at SemiBold |
+| 16 | Regular, SemiBold | full at Regular; Latin at SemiBold |
+| 21 | Regular, SemiBold | Latin |
+| 36 | SemiBold | Latin |
+| 120 | Light | **digits only** (`0-9 : .`) |
+
+So `.textSize(hero)` is for numerals — letters at that size fall back to the
+16px face. `.fontWeight(light)` at a small size gives Regular, because a size
+miss is far more visible than a weight miss. Adding a rung is a four-line
+change in `userspace/ui/text-baked/build.rs`; adding a **full-charset** face
+above 16px is forbidden (the hangul block alone would be hundreds of MB).
 
 ## Interaction (class: paint unless noted)
 
@@ -131,8 +161,24 @@ Whole-window/layer compositor transforms are the open Track C (Tier 1).
 |---|---|---|
 | `.key(expr)` | scalar/id expr | stable identity for items in collections (required) |
 
+## Still declared but NOT implemented
+
+These parse and type-check and then do nothing at paint time. Listed so nobody
+spends an afternoon on a modifier that was never wired:
+
+`paddingTop`/`paddingBottom`/`paddingLeading`/`paddingTrailing` are wired
+(RFC-0082); `.margin`, `.aspect`, `.zIndex`, `.truncate`, `.focusable`,
+`.hitSlop`, `.role`, `.hint` are not. `.label` satisfies the a11y lint and
+carries the accessible name, but nothing renders it yet. `.justify(around)`
+silently degrades to `start`.
+
 ## Changelog
 
+- **v2 (2026-07-26, RFC-0082)** — `.textShadow` and `.bgFade` added
+  (append-only ids 50/51); `.fontWeight`, `.leading`, `.textAlign`, `.border`,
+  `.borderColor` and the four per-edge paddings stop being no-ops; token
+  arguments of closed vocabularies are compile-checked; the type ramp table
+  above documents what the baked faces can actually render.
 - **v1 (2026-07-06)** — initial hybrid catalog (utility vocabulary + spelled-out forms),
   field classes assigned; supersedes the earlier `padding/bg/radius` sketch
   (`radius` → `rounded`).

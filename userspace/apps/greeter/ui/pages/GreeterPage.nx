@@ -1,18 +1,6 @@
-// Copyright 2026 Open Nexus OS Contributors
-// SPDX-License-Identifier: Apache-2.0
-//
-// The login greeter in the design-handoff look (07-os-login): date + big
-// clock top-center, the selected user's avatar + name + password pill with
-// a submit arrow mid-center, the user switcher bottom-left (avatar circles
-// from sessiond's REAL user list) and session action buttons bottom-right
-// (demo). Failure/authenticating states still render sessiond's phases —
-// never local guesses. Clock/date are LIVE (RFC-0076): the app-host ticks
-// ClockEvent with tz-converted wall time; "--:--" until walltime anchors.
-
-// The greeter is the pre-session desktop surface: chromeless, full-screen,
-// desktop z-band (same declared intent as the shell).
 Window {
     style: plain,
+    mode: auto,
     level: desktop,
     resizable: false,
 }
@@ -20,94 +8,163 @@ Window {
 Page GreeterPage {
     Stack {
         Stack {
-            Text($state.date).textSize(sm).fg(onSurface)
-            Text($state.clock).textSize(xl).fg(onSurface)
-        }
-        .align(center)
-        .gap(1)
-        .paddingY(6)
-        Spacer
-        Stack {
-            Circle { size: 88
-                Icon { symbol: "person", size: 40 }
-                    .fg(onSurface)
-            }
-            .material(subtle)
-            if $state.selected == "" {
-                Text(@t("greeter.pickUser")).textSize(base).fg(onSurface)
-            } else {
-                Text($state.selected).textSize(base).fg(onSurface)
-            }
             Stack {
-                TextField { label: @t("greeter.secret"), value: $state.secret, secure: true }
-                Circle { size: 32
-                    Icon { symbol: "arrow.right", size: 14 }
-                        .fg(onSurface)
-                }
-                .material(subtle)
-                on Tap -> dispatch(Submit)
-            }
-            .direction(row)
-            .align(center)
-            .gap(2)
-            if $state.phase == 1 {
-                Text(@t("greeter.authenticating")).textSize(xs).fg(onSurfaceVariant)
-            } else {
-                if $state.phase == 2 {
-                    Text(@t("greeter.failed")).textSize(xs).fg(danger)
+                Text($state.date).textSize(lg).fontWeight(semibold).fg(onGlassMuted).textShadow(strong)
+                if device.sizeClass == "compact" {
+                    Text($state.clock).textSize(display).fontWeight(light).leading(flat).fg(onGlass).textShadow(soft)
                 } else {
-                    Text(@t("greeter.hint")).textSize(xs).fg(onSurfaceVariant)
+                    Text($state.clock).textSize(hero).fontWeight(light).leading(flat).fg(onGlass).textShadow(soft)
                 }
             }
-        }
-        .align(center)
-        .gap(2)
-        Spacer
-        Stack {
+            .align(center)
+            .gap(1)
+            .paddingY(4)
+            .transition(fade)
+            Spacer
             Stack {
                 List($state.users) { user in
                     Stack {
-                        Circle { size: 44
-                            Icon { symbol: "person", size: 18 }
-                                .fg(onSurface)
+                        if user.id == $state.selected {
+                            Stack {
+                                Avatar {
+                                    name: user.label,
+                                    size: 88,
+                                }
+                                .material(card)
+                                .textSize(display)
+                                .fg(onGlass)
+                                .shadow(xl)
+                                Text(user.label).textSize(xl).fontWeight(semibold).fg(onGlass).textShadow(soft)
+                            }
+                            .align(center)
+                            .gap(3)
+                        } else {
+                            Stack
                         }
-                        .material(subtle)
-                        Text(user).textSize(xs).fg(onSurfaceVariant)
                     }
-                    .align(center)
-                    .gap(1)
-                    .key(user)
-                    on Tap -> dispatch(Pick(user))
+                    .key(user.id)
+                }
+                .align(center)
+                Stack {
+                    TextField {
+                        placeholder: @t("greeter.secret"),
+                        value: $state.secret,
+                        secure: true,
+                        variant: "bare",
+                    }
+                    .grow(1)
+                    .label(@t("greeter.secret"))
+                    Circle {
+                        size: 30,
+                        Icon {
+                            symbol: "arrow.right",
+                            size: 17,
+                        }
+                        .fg(glassIcon)
+                    }
+                    .bg(glassFill)
+                    .label(@t("greeter.login"))
+                    on Tap -> dispatch(Submit)
                 }
                 .direction(row)
-                .gap(3)
+                .align(center)
+                .gap(2)
+                .height(44)
+                .paddingLeading(5)
+                .paddingTrailing(2)
+                .material(panel)
+                .rounded(full)
+                .shadow(xl)
+                .effect(wiggle, trigger: $state.lastError)
+                if $state.phase == 1 {
+                    Text(@t("greeter.authenticating")).textSize(sm).fg(onGlassMuted).textShadow(strong)
+                } else {
+                    if $state.phase == 2 {
+                        Text(@t("greeter.failed")).textSize(sm).fg(danger).textShadow(strong)
+                    } else {
+                        Text(@t("greeter.hint")).textSize(sm).fg(onGlassMuted).textShadow(strong)
+                    }
+                }
             }
+            .align(center)
+            .gap(4)
+            .width(340)
+            .transition(slideUp)
             Spacer
             Stack {
-                Circle { size: 40
-                    Icon { symbol: "moon", size: 16 }
-                        .fg(onSurface)
+                Stack {
+                    List($state.users) { user in
+                        Stack {
+                            if user.id == $state.selected {
+                                Stack
+                            } else {
+                                Stack {
+                                    Avatar {
+                                        name: user.label,
+                                        size: 44,
+                                    }
+                                    .material(card)
+                                    .fg(onGlass)
+                                    .shadow(lg)
+                                    Text(user.label).textSize(xs).fontWeight(semibold).fg(onGlassMuted).textShadow(strong)
+                                }
+                                .align(center)
+                                .gap(1)
+                            }
+                        }
+                        .key(user.id)
+                        on Tap -> dispatch(Pick(user.id))
+                    }
+                    .direction(row)
+                    .gap(4)
                 }
-                .material(subtle)
-                Circle { size: 40
-                    Icon { symbol: "arrow.counterclockwise", size: 16 }
-                        .fg(onSurface)
+                Spacer
+                Stack {
+                    Circle {
+                        size: 44,
+                        Icon {
+                            symbol: "moon",
+                            size: 17,
+                        }
+                        .fg(glassIcon)
+                    }
+                    .material(panel)
+                    .shadow(lg)
+                    .label(@t("greeter.sleep"))
+                    Circle {
+                        size: 44,
+                        Icon {
+                            symbol: "arrow.counterclockwise",
+                            size: 17,
+                        }
+                        .fg(glassIcon)
+                    }
+                    .material(panel)
+                    .shadow(lg)
+                    .label(@t("greeter.restart"))
+                    Circle {
+                        size: 44,
+                        Icon {
+                            symbol: "power",
+                            size: 17,
+                        }
+                        .fg(glassIcon)
+                    }
+                    .material(panel)
+                    .shadow(lg)
+                    .label(@t("greeter.shutdown"))
                 }
-                .material(subtle)
-                Circle { size: 40
-                    Icon { symbol: "power", size: 16 }
-                        .fg(onSurface)
-                }
-                .material(subtle)
+                .direction(row)
+                .align(center)
+                .gap(3)
             }
             .direction(row)
-            .align(center)
-            .gap(2)
+            .align(end)
+            .paddingX(6)
+            .paddingY(4)
         }
-        .direction(row)
-        .align(end)
-        .paddingX(5)
-        .paddingY(4)
+        .grow(1)
+        .bg(wallpaperTint)
     }
-    .padding(4)
+    .bgFade(transparent, wallpaperVignette)
 }

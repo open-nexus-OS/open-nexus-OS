@@ -7,8 +7,9 @@
 # svc.session.*, never decides — docs/dev/ui/shell/session.md). Any app
 # implementing the greeter contract can be the greeter (single-purpose OS).
 #
-# Bootstrap note: not yet mounted by windowd (the built-in avatar greeter still
-# renders); this relocation makes it a proper app ready for the greeter-swap.
+# This app IS the login UI: windowd's `compositor/runtime/session.rs` launches
+# it on `STATE_GREETER`, and the built-in avatar greeter it replaced has been
+# deleted. (The old "not yet mounted" note was stale.)
 # Schema: tools/nexus-idl/schemas/manifest.capnp  ·  Docs: docs/packaging/nxb.md
 
 name = "greeter"

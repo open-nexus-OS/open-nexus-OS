@@ -19,7 +19,7 @@ use nexus_layout_types::{FlexItem, LayoutNode, TextContent, TextInputNode, TextS
 use nexus_style::Style;
 
 mod glass_text_field;
-pub use glass_text_field::{FieldSize, GlassTextField};
+pub use glass_text_field::{FieldSize, FieldVariant, GlassTextField, PILL_HEIGHT};
 
 /// A styled single-line text input.
 #[derive(Debug, Clone, Default)]

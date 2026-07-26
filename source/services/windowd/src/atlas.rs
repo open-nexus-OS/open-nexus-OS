@@ -351,14 +351,21 @@ mod tests {
 /// Deliberately GLOBAL (any content write re-uploads all layers, same as the
 /// old `rt_layers_dirty`): fail-safe over fine-grained — a missed per-surface
 /// bump would show stale pixels, a global bump only costs one extra upload.
+// Every consumer lives in the OS-gated compositor runtime
+// (`compositor/runtime/*`, `compositor/shell_window.rs`), so under the host
+// cfg these are genuinely unused. cfg-gate rather than blanket-allow — the
+// host build then never compiles them (CLAUDE.md <forbidden>).
+#[cfg(nexus_env = "os")]
 static ATLAS_CONTENT_EPOCH: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
 
 /// Record that atlas content was written (any surface band).
+#[cfg(nexus_env = "os")]
 pub(crate) fn note_atlas_content_write() {
     ATLAS_CONTENT_EPOCH.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 }
 
 /// Current atlas content epoch (stamped into `Layer::content_epoch`).
+#[cfg(nexus_env = "os")]
 pub(crate) fn atlas_content_epoch() -> u32 {
     let e = ATLAS_CONTENT_EPOCH.load(core::sync::atomic::Ordering::Relaxed);
     // Never hand out 0 (the wire's "unknown" sentinel) even after a wrap.

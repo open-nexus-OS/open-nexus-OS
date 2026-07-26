@@ -186,13 +186,13 @@ ci-os-full:
     just test-os full
 
 ci-os-headless:
-    just contract-windowd-size
+    just contract-image-budgets
     just test-os headless
 
-# CI contract: windowd image-size budget (spawn-time VMO-pool allocation).
-# Silent-death prevention — see scripts/check-windowd-size.sh.
-contract-windowd-size:
-    @scripts/check-windowd-size.sh
+# CI contract: per-service IMAGE BUDGETS (spawn-time VMO-arena allocation).
+# Silent-death prevention — see scripts/check-image-budgets.sh.
+contract-image-budgets:
+    @scripts/check-image-budgets.sh
 
 # CI contract (P0.1 layout fragility): boot survives image-size perturbation
 # (baseline + 3 rodata pads, marker ladder must stay green). Boot-based —
@@ -460,6 +460,7 @@ test-all:
     just deadcode
     just dep-gate
     just build-os-workspace
+    just contract-image-budgets
     just test-host
     just test-e2e
     just miri-strict

@@ -2257,6 +2257,7 @@ dependencies = [
  "ime-core",
  "keymaps",
  "nexus-layout-types",
+ "ttf-parser 0.24.1",
 ]
 
 [[package]]

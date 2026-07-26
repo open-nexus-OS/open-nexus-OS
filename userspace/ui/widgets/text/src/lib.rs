@@ -84,7 +84,11 @@ impl Text {
         TextStyle {
             font_size: tokens.type_size(self.size),
             font_weight: self.weight,
-            line_height: LineHeight::Relative(FxPx::new(150)),
+            // RFC-0082: the baked face's own line height. This was
+            // `Relative(150)`, which the measurer never honored — now that
+            // `Relative` IS honored it would silently grow every field, so
+            // the intent is stated as "let the face decide" instead.
+            line_height: LineHeight::Absolute(FxPx::new(20)),
             text_align: self.align,
             color: tokens.color(self.color),
             white_space: if self.wrap { WhiteSpace::Normal } else { WhiteSpace::NoWrap },

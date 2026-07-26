@@ -38,6 +38,40 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
 - **warningFg**: bleibt bewusst near-black (Amber + Weiß ≈ 2.1 Kontrast) — dieselbe
   dokumentierte a11y-Verschärfung wie `success`; im TOML kommentiert.
 
+## Behoben (2026-07-26, RFC-0082 / TASK-0305)
+
+- **Type-Ramp**: der gebackene Atlas trägt jetzt eine (Größe, Gewicht)-Leiter
+  (13/16 Regular *Full*, 13/16/21 SemiBold + 21 Regular *Latin*, 36 SemiBold,
+  120 Light *Digits*). `probe/paint.rs`'s `>= 15`-Schwelle ist weg;
+  `FontSize::nearest(px, weight)` ist die eine, dokumentierte Auflösung
+  (Größe schlägt Gewicht). CJK oberhalb 16 px fällt bewusst auf das 16-px-
+  *Full*-Face zurück. 13/16 px sind **byte-identisch** geblieben.
+- **`.fontWeight` / `.leading` / `.textAlign` / `.paddingTop|Bottom|Leading|
+  Trailing` / `.border` / `.borderColor`** sind keine No-ops mehr.
+- **Text-Shadow**: `.textShadow(none|soft|strong)` (modId 50) + zweiter
+  `draw_text_row`-Pass. Bewusst OHNE Blur — der Zeilen-Painter hat keinen
+  Offscreen-Puffer; die Token sind Emphase-Stufen, keine Radien.
+- **Glas-Rand + Inset-Top-Shine**: `GlassSurface.border` wurde aus dem Theme
+  aufgelöst und dann verworfen — jede Glasfläche im OS war randlos. Jetzt
+  1-px-Hairline + `inset 0 1px 0` als echte Pixelzeile
+  (`VisualStyle.inset_highlight`); der weiche Shine-Verlauf ist auf 15 % der
+  `edgeHighlight`-Alpha gedeckelt, sonst bleicht der 0.60-Wert die Fläche.
+- **EIN Glas-Rezept**: `Style::glass(level, tokens)` ist die einzige
+  Definition. `Card`, `Banner`, `Toast`, `Avatar`, `TextField` (Pill) und der
+  DSL-`.material()`-Pfad rufen sie — vorher hatte jedes Widget seine eigene
+  Teilmenge (deshalb fehlte dem Card der Shine).
+- **On-Glass-Rollen**: `onGlass`/`onGlassMuted`/`onGlassStrong` (die schon
+  authorten `glassText*` sind jetzt echte `ColorToken`), `glassIcon`,
+  `glassPlaceholder`, `glassFocus`, `glassFill`, `wallpaperTint`,
+  `wallpaperVignette`, `textShadow`, `textShadowStrong`, `transparent`.
+- **`.bgFade(top, bottom)`** (modId 51): Verlauf aus zwei Farb-Tokens, damit
+  eine Vignette dem Theme folgt (`.bgGradient` bleibt hex-basiert, weil
+  App-Icon-Artwork Daten sind).
+- **Token-Argumente werden geprüft**: `.fg(oNSurface)` ist ein Compile-Fehler
+  statt eines stummen No-ops (`registry::TOKEN_VOCABULARIES`).
+- **Glas-Level nachgezogen**: `glassPanel`/`glassCard` tragen die Werte des
+  Login-Handoffs (dark = dunkler Tint `#121214@.40` statt weißem Wash).
+
 ## Offen — Token-Abweichungen
 
 | Rolle | Handoff | Implementierung | Status |
@@ -51,9 +85,16 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
 - **Per-Seite-Borders im DSL** (Sidebar right-border, pane-border; `EdgeBorder` kann es,
   es fehlen die Modifier) + die Material-Border-Farben (window-pane `.07`, chip `.09`,
   bar `.95`, icon `.20`) als Tokens.
-- **Mehrlagige Material-Schatten mit inset** (window: `0 30px 60px .30, inset 0 1px 0 .85`)
-  — die einfache Elevation-Skala ist da; inset-Layers fehlen.
-- **Icon/Dock/Label-Sonderschatten** (`--shadow-icon`, `--shadow-dock-*`, `--glass-label-shadow`).
+- **Mehrlagige Material-Schatten** (window: `0 30px 60px .30` PLUS einer
+  inset-Lage): die Elevation-Skala und die inset-Top-Linie existieren jetzt
+  einzeln, aber nicht als frei stapelbare Schatten-Liste.
+- **Icon/Dock-Sonderschatten** (`--shadow-icon`, `--shadow-dock-*`).
+  `--glass-label-shadow` ist als `.textShadow(strong)` abgedeckt.
+- **Echter Gauß-Textschatten** (`0 2px 24px`): braucht einen Offscreen-Pass;
+  der Zeilen-Painter kann heute nur den 1-px-Versatz.
+- **Buchstabenabstand / tabellarische Ziffern als Modifier**: das Hero-Face
+  ist ungekernt mit einheitlicher Ziffernbreite gebacken (eine tickende Uhr
+  wackelt nicht), aber `letter-spacing` hat weiterhin keinen Code-Pfad.
 
 ## Offen — Component-API (Handoff prop-basiert vs. DSL modifier-basiert)
 
@@ -63,6 +104,7 @@ TabBar, TreeView, ActionSheet, Alert, FAB, Menu, ContextMenu, Modal, Popover, To
 Refresher, SkeletonText — plus die Window-Familie als DSL-Komponenten (Widget-Crates existieren).
 
 Vorhandene mit Prop-Lücken: Button (variant glass/ghost/active), Card (variant-Auswahl),
-Toggle (`label` ignoriert), TextField (error/helper/icon/trailing/type/size), ListItem
+Toggle (`label` ignoriert), TextField (icon/trailing/type — `error`/`helper`/`size`/
+`variant` sind mit RFC-0082 verdrahtet), ListItem
 (subtitle/trailing/chevron/destructive), List (Hairline-Divider, `inset`), Toolbar
 (subtitle/leading/trailing/centerTitle), Badge (variant-Set).

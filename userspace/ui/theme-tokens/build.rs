@@ -58,6 +58,19 @@ const ROLES: &[(&str, &str)] = &[
     ("Scrim", "scrim"),
     ("Destructive", "destructive"),
     ("OnDestructive", "destructiveFg"),
+    // RFC-0082 — content that sits on glass or directly on the wallpaper.
+    ("OnGlass", "glassTextPrimary"),
+    ("OnGlassMuted", "glassTextSecondary"),
+    ("OnGlassStrong", "glassTextStrong"),
+    ("GlassIcon", "glassIcon"),
+    ("GlassPlaceholder", "glassPlaceholder"),
+    ("GlassFocus", "glassFocus"),
+    ("GlassFill", "glassFill"),
+    ("WallpaperTint", "wallpaperTint"),
+    ("WallpaperVignette", "wallpaperVignette"),
+    ("TextShadow", "textShadow"),
+    ("TextShadowStrong", "textShadowStrong"),
+    ("Transparent", "transparent"),
 ];
 
 fn main() {
@@ -181,6 +194,7 @@ fn main() {
         ("Xxl", "xxl"),
         ("Xxxl", "xxxl"),
         ("Display", "display"),
+        ("Hero", "hero"),
     ];
     generated
         .push_str("pub(crate) fn type_size(token: TypographyToken) -> FxPx {\n    match token {\n");
@@ -192,6 +206,24 @@ fn main() {
             "        TypographyToken::{variant} => FxPx::new({}),\n",
             px as i32
         ));
+    }
+    generated.push_str("    }\n}\n\n");
+
+    // Leading scale as a PERCENTAGE of the font size (theme-invariant).
+    let leading_scale: &[(&str, &str)] = &[
+        ("Flat", "flat"),
+        ("Tight", "tight"),
+        ("Snug", "snug"),
+        ("Normal", "normal"),
+        ("Relaxed", "relaxed"),
+    ];
+    generated
+        .push_str("pub(crate) fn leading_pct(token: LeadingToken) -> u32 {\n    match token {\n");
+    for (variant, name) in leading_scale {
+        let pct = runtime
+            .resolve_scale("leading", name)
+            .unwrap_or_else(|| panic!("nexus-theme-tokens: [leading] '{name}' missing"));
+        generated.push_str(&format!("        LeadingToken::{variant} => {pct},\n"));
     }
     generated.push_str("    }\n}\n\n");
 

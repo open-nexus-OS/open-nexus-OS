@@ -72,6 +72,38 @@ pub enum ColorToken {
     Destructive,
     /// Content on `Destructive`.
     OnDestructive,
+
+    // ---- RFC-0082: content on glass / directly on the wallpaper ----
+    // These exist because the lock surface, the dock and the launcher paint
+    // over a PHOTOGRAPH, not over `Surface`. `OnSurface` is tuned for a solid
+    // panel and disappears on a bright sky.
+    /// Primary text on glass or wallpaper.
+    OnGlass,
+    /// Secondary/dimmed text on glass or wallpaper.
+    OnGlassMuted,
+    /// High-emphasis text on glass or wallpaper.
+    OnGlassStrong,
+    /// Icon stroke on glass.
+    GlassIcon,
+    /// Placeholder text inside a glass field.
+    GlassPlaceholder,
+    /// Border color a FOCUSED glass control takes (distinct from the solid
+    /// `FocusRing` blue — on glass the ring is a tint of the ink).
+    GlassFocus,
+    /// Flat translucent fill of a control sitting INSIDE glass (a submit
+    /// button in a pill). Never its own glass layer — the compositor does not
+    /// nest backdrop blur.
+    GlassFill,
+    /// Full-bleed wash over the wallpaper that keeps content legible.
+    WallpaperTint,
+    /// Bottom stop of the wallpaper legibility fade.
+    WallpaperVignette,
+    /// Soft text-shadow tint (light halo in light mode, drop shadow in dark).
+    TextShadow,
+    /// Strong text-shadow tint for small labels over busy imagery.
+    TextShadowStrong,
+    /// Fully transparent — the identity color, used as a gradient stop.
+    Transparent,
 }
 
 /// Semantic length roles (radii, spacing, hairline widths).
@@ -107,6 +139,26 @@ pub enum TypographyToken {
     Xxxl,
     /// 36px — display.
     Display,
+    /// 120px — hero numerals (lock-screen clock, RFC-0082). The baked ladder
+    /// serves this rung from a DIGITS-only face: letters at this size fall
+    /// back to the 16px body face, so it is for numerals, not prose.
+    Hero,
+}
+
+/// Line-height step, authored in `[leading]` as a percentage of the font size
+/// (150 = 1.50) and consumed as `LineHeight::Relative`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LeadingToken {
+    /// 1.05 — display type: a band barely taller than the glyphs.
+    Flat,
+    /// 1.25 — headings.
+    Tight,
+    /// 1.38 — dense UI text.
+    Snug,
+    /// 1.50 — body copy.
+    Normal,
+    /// 1.63 — long-form reading.
+    Relaxed,
 }
 
 /// Motion duration step (handoff motion scale, ms). Themable so a
@@ -199,6 +251,12 @@ pub trait Tokens {
     /// impl (generated from `[typography]`) is authoritative for every theme.
     fn type_size(&self, token: TypographyToken) -> FxPx {
         type_size(token)
+    }
+
+    /// Line height as a PERCENTAGE of the font size for a leading step
+    /// (generated from `[leading]`). Theme-invariant like the type scale.
+    fn leading_pct(&self, token: LeadingToken) -> u32 {
+        leading_pct(token)
     }
 
     /// Motion duration in ms for a motion step (generated from `[motion]`).
@@ -406,15 +464,18 @@ mod tests {
 
     #[test]
     fn generated_glass_materials_from_toml() {
-        // base glassPanel: tint #ffffff@.50, blur 40, border #ffffff@.75, sat 140.
+        // base glassPanel: tint #ffffff@.50, blur 40, border #ffffff@.70, sat 140.
         let p = BaseTokens.glass(MaterialToken::Panel);
         assert_eq!(p.tint, Rgba8::new(255, 255, 255, 128));
         assert_eq!(p.blur_radius, 40);
-        assert_eq!(p.border, Some(Rgba8::new(255, 255, 255, 191)));
+        assert_eq!(p.border, Some(Rgba8::new(255, 255, 255, 179)));
         assert_eq!(p.saturation, 140);
-        // dark panel is more translucent (#ffffff@.10).
-        assert_eq!(DarkTokens.glass(MaterialToken::Panel).tint, Rgba8::new(255, 255, 255, 26));
-        // light inherits base materials via the qualifier chain.
+        // RFC-0082: dark glass is a DARK tint (#121214@.40), not a white wash —
+        // over a photograph a white wash greys the image out.
+        assert_eq!(DarkTokens.glass(MaterialToken::Panel).tint, Rgba8::new(18, 18, 20, 102));
+        // The edge highlight is the `inset 0 1px 0` line, authored strong.
+        assert_eq!(p.edge, Rgba8::new(255, 255, 255, 153)); // #ffffff@.60
+                                                            // light inherits base materials via the qualifier chain.
         assert_eq!(LightTokens.glass(MaterialToken::Panel).blur_radius, 40);
         // high contrast zeroes blur (a11y).
         assert_eq!(HighContrastTokens.glass(MaterialToken::Overlay).blur_radius, 0);

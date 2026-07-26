@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="de" class="nx-theme-light">
+<head>
+<meta charset="utf-8">
+<title>open nexus OS — Login (Handoff Reference)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%}
+body{font-family:'Inter',-apple-system,'Noto Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow:hidden;background:#0a0a0c;display:flex;align-items:center;justify-content:center}
+/* ---- THEME TOKENS: the complete variable contract for this screen ---- */
+.nx-theme-light{--nx-tint:rgba(255,255,255,0.24);--nx-vignette:rgba(255,255,255,0.45);--nx-glass-bg:rgba(255,255,255,0.5);--nx-glass-border:rgba(255,255,255,0.7);--nx-accent-bg:rgba(255,255,255,0.6);--nx-glass-highlight:rgba(255,255,255,0.6);--nx-text-1:rgba(20,20,26,0.95);--nx-text-2:rgba(20,20,26,0.68);--nx-icon:rgba(20,20,26,0.8);--nx-shadow:rgba(255,255,255,0.7);--nx-shadow-strong:rgba(255,255,255,0.95);--nx-placeholder:rgba(20,20,26,0.5);--nx-focus:rgba(20,20,26,0.5)}
+.nx-theme-dark{--nx-tint:rgba(0,0,0,0.55);--nx-vignette:rgba(0,0,0,0.5);--nx-glass-bg:rgba(18,18,20,0.4);--nx-glass-border:rgba(255,255,255,0.10);--nx-accent-bg:rgba(255,255,255,0.20);--nx-glass-highlight:rgba(255,255,255,0.08);--nx-text-1:rgba(255,255,255,0.95);--nx-text-2:rgba(255,255,255,0.6);--nx-icon:rgba(255,255,255,0.85);--nx-shadow:rgba(0,0,0,0.4);--nx-shadow-strong:rgba(0,0,0,0.7);--nx-placeholder:rgba(255,255,255,0.45);--nx-focus:rgba(255,255,255,0.55)}
+/* ---- stage: the OS surface. container-type lets the fluid clamps react to the device preset, not the browser window ---- */
+.stage{position:relative;width:100%;height:100%;overflow:hidden;background:#0d1117;container-type:size}
+.stage.framed{flex:none;border-radius:20px;box-shadow:0 40px 120px rgba(0,0,0,0.7),0 0 0 1px rgba(255,255,255,0.08)}
+.wall{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.tint{position:absolute;inset:0;background:var(--nx-tint)}
+.vignette{position:absolute;inset:0;background:linear-gradient(to top,var(--nx-vignette),transparent 30%)}
+/* ---- lock layer ---- */
+.lock{position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:clamp(28px,6cqh,64px) clamp(16px,4cqw,48px)}
+.clock{text-align:center;color:var(--nx-text-1);animation:nx-clock-in 0.7s cubic-bezier(0.22,1,0.36,1) both}
+.clock-date{font-size:clamp(15px,1.6cqw,18px);font-weight:600;letter-spacing:0.02em;color:var(--nx-text-2);text-shadow:0 1px 3px var(--nx-shadow-strong),0 1px 14px var(--nx-shadow-strong)}
+.clock-time{font-size:clamp(64px,12cqw,132px);font-weight:300;line-height:1.05;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;text-shadow:0 2px 24px var(--nx-shadow)}
+.login{display:flex;flex-direction:column;align-items:center;gap:16px;width:min(92cqw,340px);animation:nx-login-in 0.65s cubic-bezier(0.34,1.4,0.5,1) 0.12s both}
+.avatar{width:clamp(72px,9cqw,96px);height:clamp(72px,9cqw,96px);border-radius:50%;background:var(--nx-glass-bg);border:1px solid var(--nx-glass-border);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 12px 32px rgba(0,0,0,0.35),inset 0 1px 0 var(--nx-glass-highlight);display:flex;align-items:center;justify-content:center;font-size:clamp(26px,3.2cqw,34px);font-weight:600;color:var(--nx-text-1);text-shadow:0 1px 6px var(--nx-shadow);transition:transform 0.45s cubic-bezier(0.34,1.4,0.5,1)}
+.uname{font-size:clamp(17px,1.9cqw,21px);font-weight:600;color:var(--nx-text-1);text-shadow:0 1px 10px var(--nx-shadow)}
+form{width:100%;display:flex;flex-direction:column;align-items:center;gap:10px}
+.field{width:100%;display:flex;align-items:center;gap:8px;background:var(--nx-glass-bg);border:1px solid var(--nx-glass-border);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border-radius:9999px;padding:0 8px 0 20px;height:44px;box-shadow:0 12px 32px rgba(0,0,0,0.30),inset 0 1px 0 var(--nx-glass-highlight);transition:border-color 0.25s ease,box-shadow 0.35s ease}
+.field.is-focus{border-color:var(--nx-focus);box-shadow:0 12px 32px rgba(0,0,0,0.35),0 0 0 4px var(--nx-glass-highlight),inset 0 1px 0 rgba(255,255,255,0.2)}
+.field.is-error{border-color:rgba(255,110,120,0.65);animation:nx-shake 0.5s cubic-bezier(0.36,0.07,0.19,0.97) both}
+.field input{flex:1;min-width:0;background:transparent;border:none;font-family:inherit;font-size:15px;color:var(--nx-text-1);height:100%}
+.field input::placeholder{color:var(--nx-placeholder)}
+.field input:focus{outline:none}
+.go{flex:none;width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;background:var(--nx-accent-bg);color:var(--nx-icon);transition:transform 0.3s cubic-bezier(0.34,1.4,0.5,1),background 0.2s ease}
+.go:hover{background:rgba(255,255,255,0.28);transform:scale(1.08)}
+.go:active{transform:scale(0.9)}
+.msg-err{font-size:12.5px;font-weight:500;color:rgba(255,120,130,0.95);text-shadow:0 1px 6px rgba(0,0,0,0.4)}
+.msg-hint{font-size:12.5px;font-weight:500;color:var(--nx-text-2);text-shadow:0 1px 2px var(--nx-shadow-strong),0 1px 8px var(--nx-shadow-strong)}
+.foot{width:100%;display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.switcher{display:flex;align-items:center;gap:14px}
+.user-btn{border:none;cursor:pointer;background:transparent;font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:6px;padding:0;transition:transform 0.35s cubic-bezier(0.34,1.4,0.5,1)}
+.user-btn:hover{transform:scale(1.07) translateY(-2px)}
+.user-btn:active{transform:scale(0.94)}
+.user-av{width:44px;height:44px;border-radius:50%;background:var(--nx-glass-bg);border:1px solid var(--nx-glass-border);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;color:var(--nx-text-1);box-shadow:0 6px 16px rgba(0,0,0,0.3)}
+.user-name{font-size:11px;font-weight:600;color:var(--nx-text-2);text-shadow:0 1px 2px var(--nx-shadow-strong),0 1px 8px var(--nx-shadow-strong)}
+.power{display:flex;align-items:center;gap:12px;margin-left:auto}
+.pbtn{border:none;cursor:pointer;font-family:inherit;width:44px;height:44px;border-radius:50%;background:var(--nx-glass-bg);border:1px solid var(--nx-glass-border);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);color:var(--nx-icon);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 20px rgba(0,0,0,0.3);transition:transform 0.35s cubic-bezier(0.34,1.4,0.5,1),background 0.2s ease}
+.pbtn:hover{background:rgba(255,255,255,0.20);transform:scale(1.08)}
+.pbtn:active{transform:scale(0.9)}
+/* ---- unlocked state ---- */
+.unlocked{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;padding-bottom:48px;z-index:5}
+.relock{cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;color:var(--nx-text-1);background:var(--nx-glass-bg);border:1px solid var(--nx-glass-border);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);padding:10px 22px;border-radius:9999px;box-shadow:0 12px 30px rgba(0,0,0,0.35);transition:transform 0.35s cubic-bezier(0.34,1.4,0.5,1),background 0.2s ease}
+.relock:hover{background:rgba(255,255,255,0.18);transform:scale(1.05)}
+.relock:active{transform:scale(0.95)}
+.is-unlocking{animation:nx-unlock 0.6s cubic-bezier(0.4,0,0.2,1) forwards}
+[hidden]{display:none!important}
+@keyframes nx-login-in{from{opacity:0;transform:translateY(14px) scale(0.985);filter:blur(6px)}to{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}
+@keyframes nx-clock-in{from{opacity:0;transform:translateY(-10px);filter:blur(8px)}to{opacity:1;transform:translateY(0);filter:blur(0)}}
+@keyframes nx-shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(3px)}30%,50%,70%{transform:translateX(-6px)}40%,60%{transform:translateX(6px)}}
+@keyframes nx-unlock{to{opacity:0;transform:scale(1.06);filter:blur(18px)}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:0.01ms!important;transition-duration:0.01ms!important}}
+/* ---- dev-only harness (NOT part of the product — drop it in your build) ---- */
+.dev{position:fixed;top:12px;right:12px;z-index:100;display:flex;align-items:center;gap:6px;padding:6px;border-radius:9999px;background:rgba(20,20,24,0.72);border:1px solid rgba(255,255,255,0.14);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);font-size:11px;font-weight:600;color:rgba(255,255,255,0.7)}
+.dev button{cursor:pointer;font-family:inherit;font-size:11px;font-weight:600;padding:5px 10px;border-radius:9999px;border:none;background:transparent;color:rgba(255,255,255,0.62)}
+.dev button:hover{background:rgba(255,255,255,0.10);color:#fff}
+.dev button[aria-pressed="true"]{background:rgba(255,255,255,0.9);color:#111}
+.dev span{padding:0 6px;opacity:0.5}
+</style>
+</head>
+<body>
+<div class="stage" id="stage" data-screen-label="Login">
+  <img class="wall" id="wall" src="" alt="" draggable="false">
+  <div class="tint"></div>
+  <div class="vignette"></div>
+  <div class="lock" id="lock">
+    <div class="clock">
+      <div class="clock-date" id="date">Freitag, 26. Juli</div>
+      <div class="clock-time" id="time">09:41</div>
+    </div>
+    <div class="login">
+      <div class="avatar" id="avatar">JS</div>
+      <div class="uname" id="uname">Jenning Schäfer</div>
+      <form id="form" autocomplete="off">
+        <div class="field" id="field">
+          <input id="pw" type="password" placeholder="Passwort eingeben" autocomplete="off">
+          <button class="go" type="submit" title="Anmelden" aria-label="Anmelden"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></button>
+        </div>
+        <div class="msg-err" id="err" hidden>Passwort falsch — bitte erneut versuchen</div>
+        <div class="msg-hint" id="hint">Mit Enter anmelden</div>
+      </form>
+    </div>
+    <div class="foot">
+      <div class="switcher" id="switcher"></div>
+      <div class="power" id="power"></div>
+    </div>
+  </div>
+  <div class="unlocked" id="unlockedLayer" hidden>
+    <button class="relock" id="relock">Wieder sperren</button>
+  </div>
+</div>
+<div class="dev">
+  <button id="tLight" aria-pressed="true">Light</button><button id="tDark" aria-pressed="false">Dark</button>
+  <span>|</span>
+  <button data-preset="fill" aria-pressed="true">Fill</button><button data-preset="desktop" aria-pressed="false">Desktop</button><button data-preset="tablet" aria-pressed="false">Tablet</button><button data-preset="phone" aria-pressed="false">Phone</button>
+</div>
+<script>
+/* =========================================================================
+   CONFIG — the full variable contract of the login screen.
+   Every value below is a design variable; see README.md for the table.
+   ========================================================================= */
+const CONFIG = {
+  userNames: 'Jenning Schäfer, Suna Leem, Gast',   // comma-separated; first = active user
+  correctPassword: 'nexus',                        // '' = accept any input
+  showUserSwitcher: true,
+  showHint: true,
+  theme: 'light',                                  // 'light' | 'dark'
+  wallpaperUrl: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1920',
+  darkWallpaperUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1920',
+  locale: 'de-DE',
+  unlockDurationMs: 620,                           // must match @keyframes nx-unlock (0.6s)
+};
+const POWER = [
+  { label: 'Ruhezustand', d: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>' },
+  { label: 'Neustart', d: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>' },
+  { label: 'Ausschalten', d: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>' },
+];
+const PRESETS = { fill:null, desktop:[1440,900], tablet:[834,1112], phone:[390,844] };
+
+const $ = s => document.querySelector(s);
+const users = CONFIG.userNames.split(',').map(s => s.trim()).filter(Boolean)
+  .map(n => ({ name:n, initials:n.split(/\s+/).map(w => w[0]).slice(0,2).join('').toUpperCase() }));
+let activeIdx = 0, phase = 'locked';
+
+function icon(d, size){ return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+d+'</svg>'; }
+
+function tick(){
+  const now = new Date();
+  $('#time').textContent = now.toLocaleTimeString(CONFIG.locale, { hour:'2-digit', minute:'2-digit' });
+  $('#date').textContent = now.toLocaleDateString(CONFIG.locale, { weekday:'long', day:'numeric', month:'long' });
+}
+
+function renderUser(){
+  const u = users[activeIdx] || { name:'Benutzer', initials:'B' };
+  $('#avatar').textContent = u.initials;
+  $('#uname').textContent = u.name;
+  const sw = $('#switcher'); sw.innerHTML = '';
+  if (!CONFIG.showUserSwitcher || users.length < 2) return;
+  users.forEach((o, i) => {
+    if (i === activeIdx) return;
+    const b = document.createElement('button');
+    b.className = 'user-btn'; b.title = o.name;
+    b.innerHTML = '<div class="user-av">'+o.initials+'</div><div class="user-name">'+o.name+'</div>';
+    b.onclick = () => { activeIdx = i; reset(); renderUser(); };
+    sw.appendChild(b);
+  });
+}
+
+function renderPower(){
+  $('#power').innerHTML = POWER.map(p => '<button class="pbtn" title="'+p.label+'" aria-label="'+p.label+'">'+icon(p.d,17)+'</button>').join('');
+}
+
+function reset(){ $('#pw').value = ''; $('#err').hidden = true; $('#hint').hidden = !CONFIG.showHint; $('#field').classList.remove('is-error','is-focus'); }
+
+function setTheme(t){
+  CONFIG.theme = t;
+  document.documentElement.className = t === 'dark' ? 'nx-theme-dark' : 'nx-theme-light';
+  $('#wall').src = t === 'dark' ? CONFIG.darkWallpaperUrl : CONFIG.wallpaperUrl;
+  $('#tLight').setAttribute('aria-pressed', String(t === 'light'));
+  $('#tDark').setAttribute('aria-pressed', String(t === 'dark'));
+}
+
+function setPreset(key){
+  const st = $('#stage'), p = PRESETS[key];
+  st.classList.toggle('framed', !!p);
+  st.style.width = p ? p[0]+'px' : ''; st.style.height = p ? p[1]+'px' : '';
+  document.querySelectorAll('[data-preset]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.preset === key)));
+}
+
+function submit(e){
+  e.preventDefault();
+  const ok = $('#pw').value === CONFIG.correctPassword || CONFIG.correctPassword === '';
+  if (ok){
+    phase = 'unlocking';
+    $('#lock').classList.add('is-unlocking');
+    setTimeout(() => { phase = 'unlocked'; $('#lock').hidden = true; $('#unlockedLayer').hidden = false; reset(); }, CONFIG.unlockDurationMs);
+  } else {
+    $('#err').hidden = false; $('#hint').hidden = true; $('#pw').value = '';
+    const f = $('#field'); f.classList.remove('is-error'); void f.offsetWidth; f.classList.add('is-error');
+  }
+}
+
+$('#form').addEventListener('submit', submit);
+$('#pw').addEventListener('input', () => { $('#err').hidden = true; $('#hint').hidden = !CONFIG.showHint; $('#field').classList.remove('is-error'); });
+$('#pw').addEventListener('focus', () => $('#field').classList.add('is-focus'));
+$('#pw').addEventListener('blur', () => $('#field').classList.remove('is-focus'));
+$('#relock').addEventListener('click', () => { phase = 'locked'; $('#lock').classList.remove('is-unlocking'); $('#lock').hidden = false; $('#unlockedLayer').hidden = true; reset(); });
+$('#tLight').addEventListener('click', () => setTheme('light'));
+$('#tDark').addEventListener('click', () => setTheme('dark'));
+document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => setPreset(b.dataset.preset)));
+
+setTheme(CONFIG.theme); renderUser(); renderPower(); reset(); tick(); setInterval(tick, 1000);
+</script>
+</body>
+</html>

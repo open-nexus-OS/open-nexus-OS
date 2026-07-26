@@ -103,15 +103,13 @@ impl GlassCard {
 
     /// The resolved glass [`Style`] (fill tint + shine border + backdrop blur).
     pub fn style(&self, tokens: &dyn Tokens) -> Style {
-        let g = tokens.glass(self.level.material());
-        let mut s = Style::new()
-            .background(g.tint)
+        // RFC-0082: `Style::glass` is the ONE definition of the recipe
+        // (tint, shine wash, `inset 0 1px 0` top-shine, hairline, blur).
+        // Hand-rolling it here is how the card lost its shine while the DSL's
+        // `.material(card)` had one.
+        Style::new()
+            .glass(self.level.material(), tokens)
             .rounded(tokens.length(self.level.radius()))
-            .blur(g.blur_radius, g.saturation);
-        if let Some(border) = g.border {
-            s = s.border(tokens.length(LengthToken::BorderThin), border);
-        }
-        s
     }
 
     /// Build the glass container node (delegates the box to [`Panel`]).
