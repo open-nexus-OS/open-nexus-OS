@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="OS App Window" description="A file-manager app window composed from the AppWindow component — sidebar, breadcrumb header, file list, properties pane and a floating action bar. Side panes collapse to glass overlays as the window narrows." -->
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="./ds-base.js"></script>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; }
+    html,body { width:100%; height:100%; }
+    body { font-family:'Inter',-apple-system,system-ui,sans-serif; -webkit-font-smoothing:antialiased; background:linear-gradient(135deg,#0d1117 0%,#1a2744 45%,#0f172a 100%); display:flex; align-items:center; justify-content:center; min-height:100vh; }
+  </style>
+</helmet>
+
+<x-import component-from-global-scope="AIVAOSDesignSystem_afec52.AppWindow"
+  theme="{{ theme }}" width="{{ winWidth }}" height="{{ winHeight }}"
+  leading="{{ leading }}" toolbar="{{ toolbar }}" trailing="{{ trailing }}"
+  sidebar="{{ sidebar }}" sidebar-width="{{ navWidth }}"
+  content-header="{{ contentHeader }}" content-actions="{{ contentActions }}" content-padded="{{ false }}"
+  properties="{{ properties }}" properties-title="Eigenschaften" show-properties="{{ showProps }}"
+  action-bar="{{ actionBar }}"
+  on-minimize="{{ noop }}" on-maximize="{{ noop }}" on-close="{{ noop }}"
+  style="position:relative;z-index:10;" hint-size="920px,600px">
+
+  <!-- Search -->
+  <sc-if value="{{ searchOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--glass-divider);">
+    <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;padding:6px 10px;border-radius:8px;border:1px solid var(--glass-divider);background:rgba(255,255,255,0.04);">
+      {{ searchIcon }}
+      <input type="text" placeholder="In diesem Ordner suchen" value="{{ query }}" onChange="{{ onSearch }}" style="flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:inherit;font-size:12px;color:var(--glass-text-primary);">
+      <sc-if value="{{ hasQuery }}" hint-placeholder-val="{{ false }}">
+        <button type="button" onClick="{{ onClearSearch }}" title="Suche löschen" style="border:none;background:transparent;cursor:pointer;padding:0;display:flex;align-items:center;color:var(--glass-text-secondary);">{{ clearIcon }}</button>
+      </sc-if>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isList }}" hint-placeholder-val="{{ true }}">
+  <!-- Column headers -->
+  <div style="display:flex;align-items:center;padding:5px 16px;font-size:11px;font-weight:500;color:var(--glass-text-secondary);border-bottom:1px solid var(--glass-divider);">
+    <span style="flex:1;">Name</span>
+    <span style="width:80px;text-align:right;">Datum</span>
+    <span style="width:68px;text-align:right;">Größe</span>
+    <span style="width:28px;"></span>
+  </div>
+
+  <!-- File rows -->
+  <sc-for list="{{ files }}" as="file" hint-placeholder-count="8">
+    <div style="display:flex;align-items:center;padding:9px 16px;border-bottom:1px solid var(--glass-divider);">
+      <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
+        <div style="width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">{{ file.icon }}</div>
+        <span style="font-size:13px;color:var(--glass-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ file.name }}</span>
+      </div>
+      <span style="font-size:11px;width:80px;text-align:right;color:var(--glass-text-secondary);">{{ file.date }}</span>
+      <span style="font-size:11px;width:68px;text-align:right;color:var(--glass-text-secondary);font-family:var(--font-mono);">{{ file.size }}</span>
+      <span style="width:28px;"></span>
+    </div>
+  </sc-for>
+  </sc-if>
+
+  <!-- Settings -->
+  <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+  <div style="padding:20px 22px;display:flex;flex-direction:column;gap:18px;">
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      <span style="font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--glass-text-secondary);">Ansicht</span>
+      <span style="font-size:12px;color:var(--glass-text-secondary);">Legt fest, welche Objekte im Dateibereich erscheinen.</span>
+    </div>
+    <div style="border-radius:14px;border:1px solid var(--glass-divider);background:rgba(255,255,255,0.04);overflow:hidden;">
+      <div style="display:flex;align-items:center;gap:14px;padding:14px 16px;">
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;">
+          <span style="font-size:13px;font-weight:500;color:var(--glass-text-primary);">Versteckte Dateien anzeigen</span>
+          <span style="font-size:11.5px;color:var(--glass-text-secondary);">Zeigt Systemdateien und Objekte, deren Name mit einem Punkt beginnt.</span>
+        </div>
+        <x-import component-from-global-scope="AIVAOSDesignSystem_afec52.GlassToggle" checked="{{ showHidden }}" on-change="{{ onToggleHidden }}" hint-size="52px,30px"></x-import>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- Grid tiles -->
+  <sc-if value="{{ isGrid }}" hint-placeholder-val="{{ false }}">
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(124px,1fr));gap:10px;padding:14px 16px;">
+    <sc-for list="{{ files }}" as="file" hint-placeholder-count="8">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 8px;border-radius:12px;border:1px solid var(--glass-divider);background:rgba(255,255,255,0.03);" style-hover="background:rgba(255,255,255,0.07)">
+        <div style="font-size:30px;line-height:1;">{{ file.icon }}</div>
+        <span style="font-size:12px;color:var(--glass-text-primary);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;">{{ file.name }}</span>
+        <span style="font-size:10px;color:var(--glass-text-secondary);font-family:var(--font-mono);">{{ file.size }}</span>
+      </div>
+    </sc-for>
+  </div>
+  </sc-if>
+  <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+    <div style="padding:28px 16px;text-align:center;font-size:12px;color:var(--glass-text-secondary);">Keine Objekte gefunden</div>
+  </sc-if>
+</x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 980, &quot;height&quot;: 640 },
+  &quot;theme&quot;:             { &quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;dark&quot;, &quot;options&quot;: [&quot;dark&quot;, &quot;light&quot;], &quot;tsType&quot;: &quot;'dark' | 'light'&quot; },
+  &quot;appName&quot;:           { &quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;Dateien&quot;,      &quot;tsType&quot;: &quot;string&quot; },
+  &quot;appIconSrc&quot;:        { &quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;../../assets/icons/files.svg&quot;, &quot;tsType&quot;: &quot;string&quot; },
+  &quot;sidebarLabel&quot;:      { &quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;Navigation&quot;,   &quot;tsType&quot;: &quot;string&quot; },
+  &quot;breadcrumbRoot&quot;:    { &quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;Dieser PC&quot;,    &quot;tsType&quot;: &quot;string&quot; },
+  &quot;breadcrumbMid&quot;:     { &quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;Bilder&quot;,       &quot;tsType&quot;: &quot;string&quot; },
+  &quot;breadcrumbCurrent&quot;: { &quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;Urlaub 2026&quot;,  &quot;tsType&quot;: &quot;string&quot; },
+  &quot;fileCount&quot;:         { &quot;editor&quot;: &quot;int&quot;,  &quot;default&quot;: 10,             &quot;tsType&quot;: &quot;number&quot;, &quot;min&quot;: 0 }
+}">
+class Component extends DCLogic {
+  state = { nav: 'pictures', query: '' };
+
+  componentDidMount() { this._waitDS(); }
+  componentWillUnmount() { if (this._dsT) clearInterval(this._dsT); }
+  _ns() { return window.AIVAOSDesignSystem_afec52; }
+  _waitDS() {
+    if (this._ns()) return;
+    this._dsT = setInterval(() => { if (this._ns()) { clearInterval(this._dsT); this.forceUpdate(); } }, 60);
+  }
+
+  _ic(paths, size, sw, color) {
+    const DS = this._ns() || {};
+    if (DS.Icon) return React.createElement(DS.Icon, { paths, size: size || 16, strokeWidth: sw || 2, color });
+    return React.createElement('svg', {
+      width: size || 16, height: size || 16, viewBox: '0 0 24 24',
+      fill: 'none', stroke: color || 'currentColor', strokeWidth: sw || 2,
+      strokeLinecap: 'round', strokeLinejoin: 'round',
+      dangerouslySetInnerHTML: { __html: paths },
+    });
+  }
+
+  renderVals() {
+    const ic = (p, s, sw, c) => this._ic(p, s, sw, c);
+    const DS = this._ns() || {};
+    const { Sidebar, Breadcrumbs, ListItem, WindowButton, WindowActionBar, Avatar } = DS;
+    const theme = this.props.theme ?? 'dark';
+
+    const appName = this.props.appName ?? 'Dateien';
+    const appIconSrc = this.props.appIconSrc ?? '../../assets/icons/files.svg';
+    const wbtn = (title, node, onClick, active) => WindowButton ? React.createElement(WindowButton, { title, onClick, active }, node) : null;
+
+    // ── leading: app-icon chip (no menu) ─────────────────────────────
+    const leading = React.createElement('div',
+      { style: { display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' } },
+      React.createElement('div',
+        { style: { width: 32, height: 32, borderRadius: 9, background: 'var(--glass-window-chip-bg)', border: '1px solid var(--glass-window-chip-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' } },
+        React.createElement('img', { src: appIconSrc, alt: appName, style: { width: 22, height: 22, objectFit: 'contain' } }),
+      ),
+      ic('<path d="m6 9 6 6 6-6"/>', 11, 2.5, 'var(--glass-text-secondary)'),
+    );
+
+    // ── toolbar ──────────────────────────────────────────────────────
+    const tbDivider = React.createElement('div', { style: { width: 1, height: 16, background: 'var(--glass-divider)', margin: '0 4px' } });
+    const toolbar = React.createElement(React.Fragment, null,
+      wbtn('Zurück', ic('<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>', 14)),
+      wbtn('Vorwärts', ic('<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>', 14)),
+      tbDivider,
+      wbtn('Aktualisieren', ic('<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>', 14)),
+      wbtn('Suche', ic('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>', 14), () => this.setState((s) => ({ searchOpen: !s.searchOpen, query: s.searchOpen ? '' : s.query })), !!this.state.searchOpen),
+      tbDivider,
+      wbtn('Kacheln', ic('<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>', 14), () => this.setState({ view: 'grid' }), (this.state.view ?? 'list') === 'grid'),
+      wbtn('Liste', ic('<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>', 14), () => this.setState({ view: 'list' }), (this.state.view ?? 'list') === 'list'),
+    );
+
+    // ── trailing: more menu button (properties toggle is auto-added) ──
+    const menuOpen = !!this.state.menuOpen;
+    const settingsOpen = !!this.state.settingsOpen;
+    const menuItem = (label, icon, onClick) => React.createElement('button', {
+      type: 'button', onClick,
+      style: { display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 12px', border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontSize: 12.5, color: 'var(--glass-text-primary)', textAlign: 'left', borderRadius: 8 },
+      onMouseEnter: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; },
+      onMouseLeave: (e) => { e.currentTarget.style.background = 'transparent'; },
+    }, icon, React.createElement('span', null, label));
+    const menu = menuOpen ? React.createElement('div', {
+      style: { position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 186, padding: 5, borderRadius: 12, border: '1px solid var(--glass-divider)', background: 'var(--glass-surface-strong, rgba(24,28,38,0.94))', backdropFilter: 'blur(24px)', boxShadow: '0 18px 40px rgba(0,0,0,0.42)', zIndex: 60 },
+    },
+      menuItem('Einstellungen', ic('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6 1.65 1.65 0 0 0 10 3.09V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V10a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>', 14, 1.8, 'var(--glass-text-secondary)'),
+        () => this.setState({ menuOpen: false, settingsOpen: true })),
+    ) : null;
+    const trailing = React.createElement('div', { style: { position: 'relative', display: 'flex' } },
+      wbtn('Mehr', ic('<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>', 14),
+        () => this.setState((s) => ({ menuOpen: !s.menuOpen })), menuOpen),
+      menu,
+    );
+
+    // ── sidebar ──────────────────────────────────────────────────────
+    const navData = [
+      { value: 'recent',    label: 'Aktuelle Dateien',  icon: ic('<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>') },
+      { value: 'pictures',  label: 'Bilder',            icon: ic('<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><polyline points="21 15 16 10 5 21"/>') },
+      { value: 'videos',    label: 'Videos',            icon: ic('<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>') },
+      { value: 'audio',     label: 'Audio',             icon: ic('<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>') },
+      { value: 'docs',      label: 'Dokumente',         icon: ic('<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/>') },
+      { value: 'downloads', label: 'Downloads',         icon: ic('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>') },
+      { value: 'storage',   label: 'Interner Speicher', icon: ic('<line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/>') },
+      { value: 'trash',     label: 'Papierkorb',        icon: ic('<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>') },
+    ];
+    const sidebarHeader = React.createElement('div',
+      { style: { margin: '-14px -14px 0', padding: '13px 16px 11px', borderBottom: '1px solid var(--glass-divider)' } },
+      React.createElement('span', { style: { fontSize: 12, fontWeight: 600, color: 'var(--glass-text-secondary)' } }, this.props.sidebarLabel ?? 'Navigation'));
+    const accountFooter = React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 10 } },
+      Avatar ? React.createElement(Avatar, { initials: 'J', size: 34, status: 'online' }) : null,
+      React.createElement('div', { style: { minWidth: 0 } },
+        React.createElement('div', { style: { fontSize: 12, fontWeight: 500, color: 'var(--glass-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, 'Jenning Schäfer'),
+        React.createElement('div', { style: { fontSize: 10, color: 'var(--glass-text-secondary)' } }, 'AIVA Account'),
+      ),
+    );
+    const sidebar = Sidebar ? React.createElement(Sidebar, {
+      items: navData, value: this.state.nav, onChange: (v) => this.setState({ nav: v }),
+      header: sidebarHeader, footer: accountFooter, width: '100%', variant: 'plain',
+      style: { width: '100%', height: '100%' },
+    }) : null;
+
+    // ── content header (breadcrumb) + actions (count + sort) ─────────
+    const crumbs = [
+      this.props.breadcrumbRoot ?? 'Dieser PC',
+      this.props.breadcrumbMid ?? 'Bilder',
+      this.props.breadcrumbCurrent ?? 'Urlaub 2026',
+    ];
+    const allFiles = [
+      { icon: '🖼️', name: 'IMG_4521.jpg',       date: '12.05.2026', size: '4,2 MB' },
+      { icon: '🖼️', name: 'IMG_4522.jpg',       date: '12.05.2026', size: '3,8 MB' },
+      { icon: '🖼️', name: 'IMG_4523.jpg',       date: '12.05.2026', size: '5,1 MB' },
+      { icon: '🖼️', name: 'DSC_0042.jpg',       date: '13.05.2026', size: '6,3 MB' },
+      { icon: '🖼️', name: 'Panorama_Beach.jpg', date: '14.05.2026', size: '12,4 MB' },
+      { icon: '🎬', name: 'VID_20260514.mp4',   date: '14.05.2026', size: '48,2 MB' },
+      { icon: '📊', name: 'Reisekosten.xlsx',   date: '15.05.2026', size: '284 KB' },
+      { icon: '📄', name: 'Hotel_Buchung.pdf',  date: '10.05.2026', size: '1,1 MB' },
+      { icon: '📝', name: 'Notizen.txt',        date: '16.05.2026', size: '12 KB' },
+      { icon: '🖼️', name: 'Gruppenfoto.jpg',    date: '14.05.2026', size: '8,7 MB' },
+    ];
+    if (this.state.showHidden) allFiles.push(
+      { icon: '⚙️', name: '.metadata_cache', date: '09.05.2026', size: '48 KB' },
+      { icon: '⚙️', name: '.thumbnails',     date: '09.05.2026', size: '2,4 MB' },
+    );
+    const q = (this.state.query || '').trim().toLowerCase();
+    const visibleFiles = q ? allFiles.filter((f) => f.name.toLowerCase().includes(q)) : allFiles;
+    const fileCount = (q || this.state.showHidden) ? visibleFiles.length : (this.props.fileCount ?? allFiles.length);
+    const filesHeader = Breadcrumbs ? React.createElement(Breadcrumbs, { items: crumbs }) : null;
+    const settingsHeader = React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 9 } },
+      ic('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6 1.65 1.65 0 0 0 10 3.09V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V10a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>', 14, 1.8, 'var(--glass-text-secondary)'),
+      React.createElement('span', { style: { fontSize: 12.5, fontWeight: 600, color: 'var(--glass-text-strong)' } }, 'Einstellungen'),
+    );
+    const contentHeader = settingsOpen ? settingsHeader : filesHeader;
+    const filesActions = React.createElement(React.Fragment, null,
+      React.createElement('span', { style: { fontSize: 11, color: 'var(--glass-text-secondary)', marginRight: 6, whiteSpace: 'nowrap' } }, fileCount + ' Objekte'),
+      wbtn('Aufsteigend / absteigend', ic('<path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>', 13)),
+      wbtn('Nach Größe sortieren', ic('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" x2="12" y1="22" y2="12"/>', 13)),
+      wbtn('Nach Typ sortieren', ic('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>', 13)),
+    );
+    const contentActions = settingsOpen
+      ? wbtn('Zurück zu den Dateien', ic('<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>', 13), () => this.setState({ settingsOpen: false }))
+      : filesActions;
+
+    // ── properties ───────────────────────────────────────────────────
+    const val = (t) => React.createElement('span', { style: { fontSize: 12, fontWeight: 500, color: 'var(--glass-text-strong)', whiteSpace: 'nowrap' } }, t);
+    const propData = [
+      { label: 'Typ',        value: 'Ordner',     icon: ic('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>') },
+      { label: 'Größe',      value: '1,2 GB',     icon: ic('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>') },
+      { label: 'Erstellt',   value: '12.05.2026', icon: ic('<rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>') },
+      { label: 'Geändert',   value: '17.05.2026', icon: ic('<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>') },
+      { label: 'ID',         value: '#0452-A3F1', icon: ic('<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>') },
+    ];
+    const properties = ListItem ? React.createElement(React.Fragment, null,
+      propData.map((p, i) => React.createElement(ListItem, { key: i, leading: p.icon, title: p.label, trailing: val(p.value) }))) : null;
+
+    // ── action bar ───────────────────────────────────────────────────
+    const bar = WindowActionBar ? React.createElement(WindowActionBar, { items: [
+      { label: 'Verschieben', variant: 'primary', icon: ic('<polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><line x1="2" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="22"/><polyline points="19 9 22 12 19 15"/><polyline points="15 19 12 22 9 19"/>', 15), onClick: () => {} },
+      { label: 'Kopieren',    icon: ic('<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>', 15), onClick: () => {} },
+      { label: 'Teilen',      icon: ic('<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/>', 15), onClick: () => {} },
+      { label: 'Löschen',     variant: 'danger', icon: ic('<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>', 15), onClick: () => {} },
+      { divider: true },
+      { label: 'Mehr',        variant: 'muted', icon: ic('<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>', 15), onClick: () => {} },
+    ] }) : null;
+    const actionBar = bar ? React.createElement('div', {
+      style: {
+        transform: settingsOpen ? 'translateY(18px) scale(0.96)' : 'translateY(0) scale(1)',
+        opacity: settingsOpen ? 0 : 1,
+        pointerEvents: settingsOpen ? 'none' : 'auto',
+        transition: 'transform var(--motion-quick, 0.28s) var(--motion-spring-soft, cubic-bezier(0.34,1.2,0.5,1)), opacity var(--motion-swift, 0.16s) ease',
+      },
+    }, bar) : null;
+
+    return {
+      theme,
+      showProps: !settingsOpen,
+      winWidth: 920, winHeight: 600, navWidth: 240,
+      leading, toolbar, trailing,
+      sidebar, contentHeader, contentActions, properties, actionBar,
+      files: visibleFiles,
+      query: this.state.query || '',
+      searchOpen: !!this.state.searchOpen && !settingsOpen,
+      isSettings: settingsOpen,
+      isList: !settingsOpen && (this.state.view ?? 'list') === 'list',
+      isGrid: !settingsOpen && (this.state.view ?? 'list') === 'grid',
+      showHidden: !!this.state.showHidden,
+      onToggleHidden: (v) => this.setState({ showHidden: v }),
+      hasQuery: !!q,
+      noResults: !settingsOpen && !!q && visibleFiles.length === 0,
+      searchIcon: ic('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>', 13, 2, 'var(--glass-text-secondary)'),
+      clearIcon: ic('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', 12, 2.2, 'currentColor'),
+      onSearch: (e) => this.setState({ query: e.target.value }),
+      onClearSearch: () => this.setState({ query: '' }),
+      noop: () => {},
+    };
+  }
+}
+</script>
+</body>
+</html>

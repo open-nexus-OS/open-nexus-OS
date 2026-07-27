@@ -1,0 +1,90 @@
+import React from 'react';
+
+/** One column button (icon over label) in the action bar. */
+function ActionButton({ label, icon, variant = 'default', onClick }) {
+  const [hover, setHover] = React.useState(false);
+  const primary = variant === 'primary';
+  const danger = variant === 'danger';
+  const muted = variant === 'muted';
+
+  const color = danger
+    ? 'rgba(239,68,68,0.92)'
+    : primary
+      ? 'var(--glass-text-strong)'
+      : muted
+        ? 'var(--glass-text-secondary)'
+        : 'var(--glass-text-primary)';
+
+  let background = 'transparent';
+  let border = '1px solid transparent';
+  let boxShadow = 'none';
+  if (primary) {
+    background = hover ? 'var(--glass-active-bg)' : 'var(--glass-hover-bg)';
+    border = '1px solid var(--glass-window-bar-border)';
+    boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.18)';
+  } else if (hover) {
+    background = danger ? 'rgba(239,68,68,0.16)' : 'var(--glass-hover-bg)';
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 3,
+        padding: '7px 12px',
+        borderRadius: 9999,
+        border,
+        background,
+        boxShadow,
+        color,
+        cursor: 'pointer',
+        fontFamily: 'var(--font-sans)',
+        transition: 'background 0.12s, color 0.12s',
+      }}
+    >
+      {icon}
+      <span style={{ fontSize: 9, fontWeight: 500, whiteSpace: 'nowrap', letterSpacing: '0.1px' }}>{label}</span>
+    </button>
+  );
+}
+
+/**
+ * WindowActionBar — the floating glass pill of column buttons that sits
+ * at the bottom-centre of an AIVA OS window's content area. Pass `items`:
+ * each is { label, icon, variant?, onClick } or { divider: true }.
+ * Variants: 'primary' (filled), 'default', 'danger' (red), 'muted'.
+ */
+export function WindowActionBar({ items = [], style = {} }) {
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 2,
+        padding: 5,
+        borderRadius: 9999,
+        background: 'var(--glass-window-bar-bg)',
+        border: '1px solid var(--glass-window-bar-border)',
+        backdropFilter: 'blur(72px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(72px) saturate(180%)',
+        boxShadow: 'var(--glass-window-bar-shadow)',
+        fontFamily: 'var(--font-sans)',
+        ...style,
+      }}
+    >
+      {items.map((it, i) =>
+        it.divider ? (
+          <div key={i} style={{ width: 1, height: 34, background: 'var(--glass-divider)', margin: '0 3px' }} />
+        ) : (
+          <ActionButton key={i} label={it.label} icon={it.icon} variant={it.variant} onClick={it.onClick} />
+        ),
+      )}
+    </div>
+  );
+}

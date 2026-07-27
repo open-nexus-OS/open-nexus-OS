@@ -1,0 +1,55 @@
+/**
+ * AppWindow — the full AIVA OS window scaffold; the single base every
+ * app and settings window is built from. Wraps Window with a three-zone
+ * body (sidebar · content pane · properties pane), an optional floating
+ * action bar, and a responsive layout that lifts the side panes into
+ * glass overlays as the window narrows (desktop ≥820 · compact ≥560 ·
+ * mobile <560). The sidebar- and properties-toggle chrome buttons are
+ * added for you; pass identity chrome via leading/toolbar/trailing.
+ *
+ * @example
+ * <AppWindow theme="dark" leading={appChip} toolbar={navBtns}
+ *   sidebar={<Sidebar … />} contentHeader={<Breadcrumbs … />}
+ *   properties={propRows} actionBar={<WindowActionBar items={…} />}>
+ *   {contentRows}
+ * </AppWindow>
+ */
+export interface AppWindowProps {
+  theme?: 'dark' | 'light';
+  width?: number;
+  height?: number;
+  /** Left identity chrome (app-icon chip, app-mode menu) */
+  leading?: React.ReactNode;
+  /** Centered toolbar cluster (back/forward/search…) */
+  toolbar?: React.ReactNode;
+  /** Right identity chrome placed before the window controls (app menu) */
+  trailing?: React.ReactNode;
+  windowControls?: boolean;
+  onMinimize?: () => void;
+  onMaximize?: () => void;
+  onClose?: () => void;
+  /** Sidebar element (e.g. a <Sidebar variant="plain" />). Omit for none */
+  sidebar?: React.ReactNode;
+  sidebarWidth?: number;
+  /** Content pane header title (ignored if contentHeader is set) */
+  contentTitle?: string;
+  /** Custom content pane header node (breadcrumb, sort row…) */
+  contentHeader?: React.ReactNode;
+  /** Right-aligned actions in the content pane header */
+  contentActions?: React.ReactNode;
+  contentPadded?: boolean;
+  /** Content pane body */
+  children?: React.ReactNode;
+  /** Properties pane body. Omit for no properties pane */
+  properties?: React.ReactNode;
+  propertiesTitle?: string;
+  propertiesWidth?: number;
+  /** Show the properties pane. Default: true */
+  showProperties?: boolean;
+  /** Floating action bar element (e.g. <WindowActionBar />) */
+  actionBar?: React.ReactNode;
+  /** Enable the responsive overlay behavior. Default: true */
+  responsive?: boolean;
+  style?: React.CSSProperties;
+  bodyStyle?: React.CSSProperties;
+}

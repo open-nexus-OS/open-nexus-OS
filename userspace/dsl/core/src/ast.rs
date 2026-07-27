@@ -366,6 +366,9 @@ pub struct ComponentDecl {
     /// Local `$state` fields (`state: { open: Bool = false, }`) — lowered to
     /// an implicit store owned by this component.
     pub state: Vec<StoreField>,
+    /// Declared content regions (`slot content`, RFC-0084), in DECLARATION
+    /// order — that order is the wire order: slots are addressed by index.
+    pub slots: Vec<Ident>,
     pub view: ViewNode,
     pub span: Span,
 }
@@ -390,6 +393,9 @@ pub enum ViewNode {
     Collection(CollectionNode),
     /// `match expr { Case => { .. }, }`
     Match { scrutinee: Expr, arms: Vec<ViewMatchArm>, span: Span },
+    /// `Slot <name>` — the placeholder a component puts where a caller's
+    /// slot body lands (RFC-0084). Valid only inside a `Component`.
+    Slot { name: Ident, span: Span },
 }
 
 impl ViewNode {
@@ -399,7 +405,8 @@ impl ViewNode {
             ViewNode::Widget(w) => w.span,
             ViewNode::If { span, .. }
             | ViewNode::For { span, .. }
-            | ViewNode::Match { span, .. } => *span,
+            | ViewNode::Match { span, .. }
+            | ViewNode::Slot { span, .. } => *span,
             ViewNode::Collection(c) => c.span,
         }
     }
@@ -412,8 +419,22 @@ pub struct WidgetNode {
     pub positional: Option<Expr>,
     pub props: Vec<(Ident, Expr)>,
     pub children: Vec<ViewNode>,
+    /// Callsite slot bodies (`Comp { props } { slot { .. } }`, RFC-0084).
+    /// Legal only on a component reference; the checker rejects them on a
+    /// widget. Empty for every widget and for slot-less component uses.
+    pub slot_bodies: Vec<SlotBinding>,
     pub modifiers: Vec<ModifierCall>,
     pub handlers: Vec<HandlerDecl>,
+    pub span: Span,
+}
+
+/// One `name { view* }` entry of a callsite slot block. The body is
+/// lexically part of the CALLER — `$props`/`$state`/locals resolve in the
+/// caller's frame (RFC-0084 §4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotBinding {
+    pub name: Ident,
+    pub body: Vec<ViewNode>,
     pub span: Span,
 }
 

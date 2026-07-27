@@ -6,8 +6,8 @@
 
 use super::Parser;
 use crate::ast::{
-    CollectionNode, Expr, HandlerAction, HandlerDecl, ModifierCall, ViewMatchArm, ViewNode,
-    WidgetNode,
+    CollectionNode, Expr, HandlerAction, HandlerDecl, ModifierCall, SlotBinding, ViewMatchArm,
+    ViewNode, WidgetNode,
 };
 use crate::diag::{DiagCode, Diagnostic};
 use crate::lexer::TokenKind;
@@ -26,6 +26,15 @@ impl Parser<'_> {
             TokenKind::KwIf => self.if_view(),
             TokenKind::KwFor => self.for_view(),
             TokenKind::KwMatch => self.match_view(),
+            // `Slot <name>` — the component content-region placeholder
+            // (RFC-0084). `Slot` is a contextual identifier, not a keyword,
+            // so `slot`/`Slot` stay usable as prop and field names; the
+            // lookahead on a following identifier is what disambiguates it
+            // from a component actually named `Slot` (which the checker
+            // forbids anyway).
+            TokenKind::Ident(name) if name == "Slot" && self.slot_placeholder_ahead() => {
+                self.slot_view()
+            }
             TokenKind::Ident(_) => self.widget_like(),
             _ => Err(self.unexpected("a view node (widget, `if`, `for`, `match`)")),
         }
@@ -94,6 +103,39 @@ impl Parser<'_> {
             nodes.push(self.view_node()?);
         }
         Ok(nodes)
+    }
+
+    /// `Slot <name>` reads as a placeholder only when a bare identifier
+    /// follows that does NOT open a node of its own — `Slot Text("hi")` and
+    /// `Slot Row { }` stay two sibling widgets, and a placeholder never takes
+    /// modifiers, so a following `.` also rules it out.
+    fn slot_placeholder_ahead(&self) -> bool {
+        matches!(self.peek_at(1), TokenKind::Ident(_))
+            && !matches!(self.peek_at(2), TokenKind::LParen | TokenKind::LBrace | TokenKind::Dot)
+    }
+
+    /// `Slot <name>` (RFC-0084) — where a caller's slot body lands.
+    fn slot_view(&mut self) -> Result<ViewNode, Diagnostic> {
+        let start = self.bump().span; // `Slot`
+        let name = self.ident("a slot name")?;
+        Ok(ViewNode::Slot { name, span: start.to(self.prev_span()) })
+    }
+
+    /// The callsite slot block: a SECOND brace block after the prop block,
+    /// `{ <slot> { view* } … }`. Unambiguous because after a node's prop
+    /// block the grammar admits only `.modifier`, `on …`, or the next
+    /// sibling — and a sibling never starts with `{`.
+    fn slot_block(&mut self) -> Result<Vec<SlotBinding>, Diagnostic> {
+        self.expect(&TokenKind::LBrace, "`{` opening the slot block")?;
+        let mut bindings = Vec::new();
+        while !self.eat(&TokenKind::RBrace) {
+            let name = self.ident("a slot name")?;
+            let body = self.view_block()?;
+            let span = name.span.to(self.prev_span());
+            bindings.push(SlotBinding { name, body, span });
+            let _ = self.eat(&TokenKind::Semi) || self.eat(&TokenKind::Comma);
+        }
+        Ok(bindings)
     }
 
     /// `Name`, `Name(positional)`, `Name { ... }`, `Name(expr) { item in ... }`
@@ -167,6 +209,12 @@ impl Parser<'_> {
             }
         }
 
+        // Callsite slot bodies come between the prop block and the modifiers
+        // (RFC-0084 §3). Whether the node is a component that declares these
+        // slots is the checker's business — the parser only shapes them.
+        let slot_bodies =
+            if self.peek() == &TokenKind::LBrace { self.slot_block()? } else { Vec::new() };
+
         let modifiers = self.modifiers()?;
         while self.peek() == &TokenKind::KwOn {
             handlers.push(self.handler()?);
@@ -177,6 +225,7 @@ impl Parser<'_> {
             positional,
             props,
             children,
+            slot_bodies,
             modifiers,
             handlers,
             span: start.to(self.prev_span()),

@@ -62,6 +62,7 @@ pub enum DiagCode {
     UnknownEvent,         // NX0206
     UnknownService,       // NX0207 (svc.<service> not in the platform surface)
     UnknownServiceMethod, // NX0208
+    UnknownSlot,          // NX0209 (a slot the component does not declare)
     // --- types (NX03xx)
     TypeMismatch,    // NX0301
     WrongArity,      // NX0302
@@ -81,6 +82,7 @@ pub enum DiagCode {
     DuplicateRoute,     // NX0408
     MissingTimeout,     // NX0409
     QueryShape,         // NX0410 (query outside the v1 shape contract)
+    SlotShape,          // NX0411 (slot declaration/placeholder/binding misuse)
     // --- lowering (NX05xx)
     LoweringUnsupported, // NX0501 (a construct outside the v0.1 lowering subset)
 }
@@ -109,6 +111,7 @@ impl DiagCode {
             DiagCode::UnknownEvent => "NX0206",
             DiagCode::UnknownService => "NX0207",
             DiagCode::UnknownServiceMethod => "NX0208",
+            DiagCode::UnknownSlot => "NX0209",
             DiagCode::TypeMismatch => "NX0301",
             DiagCode::WrongArity => "NX0302",
             DiagCode::UnknownField => "NX0303",
@@ -126,6 +129,7 @@ impl DiagCode {
             DiagCode::DuplicateRoute => "NX0408",
             DiagCode::MissingTimeout => "NX0409",
             DiagCode::QueryShape => "NX0410",
+            DiagCode::SlotShape => "NX0411",
             DiagCode::LoweringUnsupported => "NX0501",
         }
     }

@@ -163,10 +163,23 @@ impl Parser<'_> {
                 });
             }
         }
+        // Declared content regions (RFC-0084): `slot <name>` lines after the
+        // optional `props:`/`state:` blocks. `slot` is a CONTEXTUAL keyword —
+        // the precedent set by `params`/`where`/`orderBy` below — so no
+        // existing `.nx` using `slot` as a prop or field name breaks. The
+        // loop cannot swallow the root view node: a component's view is a
+        // single node, and `Ident Ident` never opens one.
+        let mut slots = Vec::new();
+        while matches!(self.peek(), TokenKind::Ident(kw) if kw == "slot")
+            && matches!(self.peek_at(1), TokenKind::Ident(_))
+        {
+            self.bump(); // `slot`
+            slots.push(self.ident("a slot name")?);
+        }
         let view = self.view_node()?;
         self.expect(&TokenKind::RBrace, "`}` closing the component")?;
         let span = start.to(self.prev_span());
-        Ok(ComponentDecl { name, props, state, view, span })
+        Ok(ComponentDecl { name, props, state, slots, view, span })
     }
 
     /// `Query Name on source { params: { name: Type, }, where col op value,

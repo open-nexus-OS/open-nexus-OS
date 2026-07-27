@@ -11,6 +11,8 @@
 mod lints;
 mod modifiers;
 mod names;
+mod queries;
+mod slots;
 
 use crate::ast::{
     ComponentDecl, EventDecl, File, PageDecl, QueryDecl, ReduceDecl, Route, StoreDecl, WindowDecl,
@@ -50,6 +52,7 @@ pub fn check_file(file: &File) -> (Model<'_>, Vec<Diagnostic>) {
     let mut diags = Vec::new();
     let model = names::build_model(file, &mut diags);
     names::check_references(file, &model, &mut diags);
+    slots::check(file, &model, &mut diags);
     lints::run(file, &model, &mut diags);
     (model, diags)
 }

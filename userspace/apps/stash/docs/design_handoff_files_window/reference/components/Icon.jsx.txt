@@ -1,0 +1,29 @@
+import React from 'react';
+
+/**
+ * Icon — minimal Lucide-style SVG renderer for AIVA OS.
+ * Pass the raw inner SVG markup (Lucide path data) as `paths`.
+ * Replaces the per-template `_ic()` helper so every window draws
+ * its chrome icons from one place.
+ */
+export function Icon({
+  paths,
+  size = 16,
+  strokeWidth = 2,
+  fill = 'none',
+  color = 'currentColor',
+  style = {},
+}) {
+  return React.createElement('svg', {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill,
+    stroke: color,
+    strokeWidth,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    style,
+    dangerouslySetInnerHTML: { __html: paths },
+  });
+}

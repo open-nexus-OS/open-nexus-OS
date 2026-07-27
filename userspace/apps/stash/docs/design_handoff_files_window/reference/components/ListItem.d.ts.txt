@@ -1,0 +1,39 @@
+import React from 'react';
+
+/**
+ * ListItem — settings/list row (maps to ion-item). Leading icon/avatar,
+ * title + optional subtitle, trailing control or chevron. Interactive
+ * when onClick is set.
+ *
+ * @example
+ * <List>
+ *   <ListItem leading={<Wifi/>} title="WLAN" subtitle="Verbunden" trailing={<GlassToggle defaultChecked/>} />
+ *   <ListItem leading={<Bell/>} title="Mitteilungen" showChevron onClick={open} />
+ *   <ListItem title="Abmelden" destructive onClick={signOut} />
+ * </List>
+ */
+export interface ListItemProps {
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  /** Leading icon or avatar */
+  leading?: React.ReactNode;
+  /** Trailing control (toggle, value text, badge) */
+  trailing?: React.ReactNode;
+  /** Show a navigation chevron on the right */
+  showChevron?: boolean;
+  onClick?: () => void;
+  /** Render title (and leading) in red */
+  destructive?: boolean;
+  style?: React.CSSProperties;
+}
+
+/**
+ * List — grouped glass container that draws hairline dividers between
+ * its ListItem children.
+ */
+export interface ListProps {
+  children?: React.ReactNode;
+  /** Rounded inset card (true) vs edge-to-edge (false) */
+  inset?: boolean;
+  style?: React.CSSProperties;
+}

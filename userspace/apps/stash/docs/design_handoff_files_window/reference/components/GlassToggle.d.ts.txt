@@ -1,0 +1,29 @@
+/**
+ * GlassToggle — iOS/macOS-style on/off switch for AIVA OS.
+ * Used in Control Center (WiFi, Bluetooth, Airplane, Dark Mode) and Settings.
+ * Supports controlled and uncontrolled usage.
+ *
+ * @example
+ * // Uncontrolled
+ * <GlassToggle defaultChecked label="WLAN" />
+ *
+ * // Controlled
+ * <GlassToggle checked={wifi} onChange={setWifi} label="Bluetooth" />
+ *
+ * // Toggle only (no label)
+ * <GlassToggle checked={darkMode} onChange={setDarkMode} />
+ */
+export interface GlassToggleProps {
+  /** Controlled checked state. If omitted, component manages its own state */
+  checked?: boolean;
+  /** Initial checked state for uncontrolled usage */
+  defaultChecked?: boolean;
+  /** Called with the new boolean value when the toggle changes */
+  onChange?: (checked: boolean) => void;
+  /** Optional text label rendered to the left of the toggle */
+  label?: string;
+  /** Prevents interaction */
+  disabled?: boolean;
+  /** Additional inline styles on the outer container */
+  style?: React.CSSProperties;
+}

@@ -1,0 +1,38 @@
+import React from 'react';
+
+/**
+ * Breadcrumbs — path navigation trail for AIVA OS.
+ * A row of links separated by chevrons; the last crumb is the current page.
+ */
+export function Breadcrumbs({ items = [], onNavigate, style = {} }) {
+  return (
+    <nav style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4, ...style }}>
+      {items.map((it, i) => {
+        const last = i === items.length - 1;
+        const label = typeof it === 'string' ? it : it.label;
+        const val = typeof it === 'string' ? it : it.value;
+        return (
+          <React.Fragment key={i}>
+            <button
+              onClick={() => !last && onNavigate && onNavigate(val, i)}
+              disabled={last}
+              style={{
+                border: 'none', background: 'transparent', padding: '2px 4px',
+                cursor: last ? 'default' : 'pointer',
+                fontFamily: 'var(--font-sans)', fontSize: 13,
+                fontWeight: last ? 600 : 500,
+                color: last ? 'var(--glass-text-strong)' : 'var(--glass-text-secondary)',
+                whiteSpace: 'nowrap', WebkitTapHighlightColor: 'transparent',
+              }}
+            >{label}</button>
+            {!last && (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--glass-text-secondary)', opacity: 0.5, flexShrink: 0 }}>
+                <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </React.Fragment>
+        );
+      })}
+    </nav>
+  );
+}

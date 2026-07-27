@@ -191,6 +191,11 @@ fn view_lints(node: &ViewNode, diags: &mut Vec<Diagnostic>) {
             for child in &widget.children {
                 view_lints(child, diags);
             }
+            for binding in &widget.slot_bodies {
+                for child in &binding.body {
+                    view_lints(child, diags);
+                }
+            }
         }
         ViewNode::If { arms, els, span } => {
             // Profile-driven branching wants a fallback.
@@ -253,6 +258,8 @@ fn view_lints(node: &ViewNode, diags: &mut Vec<Diagnostic>) {
                 }
             }
         }
+        // A leaf: the caller's body nodes are linted at the callsite.
+        ViewNode::Slot { .. } => {}
     }
 }
 
@@ -317,6 +324,8 @@ fn template_root_has_key(node: &ViewNode) -> bool {
         ViewNode::Match { arms, .. } => {
             arms.iter().all(|arm| arm.body.iter().all(template_root_has_key))
         }
-        ViewNode::For { .. } | ViewNode::Collection(_) => false,
+        // A slot placeholder cannot carry a key — the caller's body nodes do,
+        // and they are checked at the callsite, in the caller's template.
+        ViewNode::For { .. } | ViewNode::Collection(_) | ViewNode::Slot { .. } => false,
     }
 }

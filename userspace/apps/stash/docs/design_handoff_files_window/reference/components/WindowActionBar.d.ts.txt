@@ -1,0 +1,25 @@
+/**
+ * WindowActionBar — floating glass pill of column buttons (icon over
+ * label) for the bottom-centre of an AIVA OS window content area.
+ *
+ * @example
+ * <WindowActionBar items={[
+ *   { label: 'Neu', icon: newIcon, variant: 'primary', onClick: create },
+ *   { divider: true },
+ *   { label: 'Löschen', icon: trashIcon, variant: 'danger', onClick: del },
+ * ]} />
+ */
+export interface WindowActionItem {
+  label?: string;
+  icon?: React.ReactNode;
+  /** 'primary' (filled), 'default', 'danger' (red), 'muted' */
+  variant?: 'primary' | 'default' | 'danger' | 'muted';
+  onClick?: () => void;
+  /** Render a vertical divider instead of a button */
+  divider?: boolean;
+}
+
+export interface WindowActionBarProps {
+  items?: WindowActionItem[];
+  style?: React.CSSProperties;
+}

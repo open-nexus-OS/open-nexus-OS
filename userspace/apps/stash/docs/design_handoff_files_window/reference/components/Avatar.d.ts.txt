@@ -1,0 +1,24 @@
+import React from 'react';
+
+/**
+ * Avatar — circular (or rounded-square) user image with initials fallback
+ * on a glass backing, plus an optional presence status dot.
+ *
+ * @example
+ * <Avatar src="/me.jpg" size={48} status="online" />
+ * <Avatar initials="LK" size={36} />
+ */
+export interface AvatarProps {
+  /** Image URL; falls back to initials when absent */
+  src?: string;
+  alt?: string;
+  /** Initials shown when there is no image */
+  initials?: string;
+  /** Diameter in px */
+  size?: number;
+  /** Presence dot */
+  status?: 'online' | 'busy' | 'away' | 'offline';
+  /** Rounded-square instead of circle */
+  square?: boolean;
+  style?: React.CSSProperties;
+}

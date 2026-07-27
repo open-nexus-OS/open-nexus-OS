@@ -293,6 +293,9 @@ struct Component {
   isPage @1 :Bool;
   props @2 :List(FieldDef);
   view  @3 :ViewNode;
+  # v1.5 (RFC-0084): declared content regions, in DECLARATION order — that
+  # order IS the index space `SlotRef.slot` / `SlotArg.slot` address.
+  slots @4 :List(UInt32);       # slot name symbol ids
 }
 
 struct ViewNode {
@@ -302,7 +305,16 @@ struct ViewNode {
     forEach      @2 :ForEach;
     branch       @3 :Branch;
     componentRef @4 :ComponentRef;
+    slot         @5 :SlotRef;   # v1.5: where a caller's slot body lands
   }
+}
+
+# `Slot <name>` inside a component's view. Unbound at emit time = ZERO nodes
+# (never an empty box), and the body SPLICES at this node's real position —
+# the runtime never wraps it, which is what keeps `.grow`/`.width` on the
+# receiving region working (RFC-0084 §5).
+struct SlotRef {
+  slot @0 :UInt16;              # index into the ENCLOSING component's `slots`
 }
 
 struct Widget {
@@ -363,6 +375,17 @@ struct BranchArm { cond @0 :Expr; body @1 :List(ViewNode); }
 struct ComponentRef {
   component @0 :UInt32;         # index into components
   args      @1 :List(PropInit);
+  # v1.5 (RFC-0084): bound slots only, ASCENDING by `slot` (canonical form —
+  # the validator rejects any other order, so byte determinism holds).
+  slots     @2 :List(SlotArg);
+}
+
+# One bound slot. The body is lowered ONCE, here at the callsite, in the
+# CALLER's scope: `$props`/`$state`/locals/`.key()` inside it resolve against
+# the enclosing component, never the callee (RFC-0084 §4).
+struct SlotArg {
+  slot @0 :UInt16;              # index into the CALLEE component's `slots`
+  body @1 :List(ViewNode);
 }
 
 # ------------------------------------------------------------- navigation
