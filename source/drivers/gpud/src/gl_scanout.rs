@@ -89,6 +89,16 @@ pub(crate) struct GlSwapState {
 pub(crate) const H_FS_BLIT: u32 = 14;
 /// Passthrough vertex shader created by `virgl_shader_test` at bringup.
 pub(crate) const H_VS: u32 = 10;
+/// Rounded-rect-masked gaussian pass (`FS_BLUR_ROUND`, created next to the plain
+/// `FS_BLUR` handle 13 in `virgl_blur_init`): the FINAL pass of a glass backdrop
+/// blur clips itself to the layer's corner radius instead of writing a hard
+/// rectangle under a rounded fill. Handle namespace: 10/11 boot VS/FS, 13 blur
+/// FS, 14/15 blit FS, 16/17 gradient VS/FS, 20 layer FS — 18 is free.
+pub(crate) const H_FS_BLUR_ROUND: u32 = 18;
+/// Alpha-"over" blend state owned by the blur path (`H_BLEND_ALPHA` 0x61 /
+/// `H_BLEND_PREMUL` 0x62 belong to the compositor's lazy `composite_init`,
+/// which has not necessarily run when the frame's first glass blur draws).
+pub(crate) const H_BLEND_BLUR: u32 = 0x63;
 /// NON-ALIASED display texture: a 1280×800 GL texture with its OWN backing (not
 /// a VMO alias). The present copies windowd's composed frame into its backing,
 /// uploads it, and blits it to the scanout RT. Unlike the 0xF8 VMO-alias, QEMU
@@ -700,6 +710,12 @@ impl VirtioGpuBackend {
     /// copy and the draws never touch guest memory, no per-frame
     /// TRANSFER_TO_HOST_3D — so it avoids the stall that gated the standalone
     /// VMO `BlurBackdrop`.
+    ///
+    /// `corner_radius` is the LAYER's corner radius (0 = square): the final
+    /// pass masks itself to that rounded rect, so a pill/circle of glass does
+    /// not leave blurred backdrop standing in its corners. It is the same
+    /// analytic SDF `FS_LAYER` uses for the content, so blur and fill share one
+    /// edge.
     pub(crate) fn blur_rt_backdrop(
         &mut self,
         x: u32,
@@ -707,6 +723,7 @@ impl VirtioGpuBackend {
         w: u32,
         h: u32,
         radius: u32,
+        corner_radius: u32,
     ) -> Result<(), GfxError> {
         if radius == 0 || w == 0 || h == 0 {
             return Ok(());
@@ -728,6 +745,41 @@ impl VirtioGpuBackend {
         // the destination-so-far snapshot and the blur draws must target it.
         let back_res = self.rt_back_res();
         let back_surf = self.rt_back_surface();
+        // Rounded-rect SDF frame for the FINAL pass — byte-for-byte the layer
+        // pass's construction (`submit_layer_pass_scaled`), so the blur stops
+        // exactly where the glass fill starts. `corner_radius == 0` keeps the
+        // plain rectangular shader (square panels, full windows).
+        let rr = corner_radius.min(w / 2).min(h / 2) as f32;
+        let cx = x as f32 + w as f32 / 2.0;
+        let cy = y as f32 + h as f32 / 2.0;
+        let bx = w as f32 / 2.0 - rr;
+        let by = h as f32 / 2.0 - rr;
+        let rounded = corner_radius > 0;
+        // The final pass writes `blurred.rgb` with the SDF coverage as alpha,
+        // so it must blend OVER the destination-so-far instead of replacing it.
+        let (final_fs, final_blend) =
+            if rounded { (H_FS_BLUR_ROUND, H_BLEND_BLUR) } else { (13, 0x20) };
+        // Vertical-pass constants: CONST[0..1] for the gaussian, CONST[2..3]
+        // for the mask (ignored by the plain shader, which declares CONST[0..1]).
+        let vert_consts = [
+            1.0 / self.display_w as f32,
+            1.0 / self.display_h as f32,
+            radius as f32,
+            k,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            -cx,
+            -cy,
+            bx,
+            by,
+            rr,
+            0.0,
+            0.0,
+            0.0,
+        ];
+        let vert_consts = if rounded { &vert_consts[..] } else { &vert_consts[..8] };
         let mut sb = Submit3d::new();
         if dst_so_far {
             // Snapshot the RT beneath the layer (+radius halo, clamped).
@@ -774,43 +826,24 @@ impl VirtioGpuBackend {
                 ],
             );
             sb.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
-            // PASS 2 — VERTICAL: scratch → glass RT, exact layer rect.
+            // PASS 2 — VERTICAL: scratch → glass RT, exact layer rect, clipped
+            // to the layer's rounded corners.
+            sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, final_blend);
+            sb.emit_bind_shader(final_fs, PIPE_SHADER_FRAGMENT);
             sb.emit_set_framebuffer_state(0, &[back_surf]);
             sb.emit_set_viewport_box(x as f32, y as f32, w as f32, h as f32);
             sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_BLUR_TMP]);
-            sb.emit_set_constant_buffer(
-                PIPE_SHADER_FRAGMENT,
-                &[
-                    1.0 / self.display_w as f32,
-                    1.0 / self.display_h as f32,
-                    radius as f32,
-                    k,
-                    0.0,
-                    1.0,
-                    0.0,
-                    0.0,
-                ],
-            );
+            sb.emit_set_constant_buffer(PIPE_SHADER_FRAGMENT, vert_consts);
             sb.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
         } else {
             // Bring-up fallback (scratch textures not created yet): single
             // vertical pass over the static wallpaper, now with the real k.
+            sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, final_blend);
+            sb.emit_bind_shader(final_fs, PIPE_SHADER_FRAGMENT);
             sb.emit_set_framebuffer_state(0, &[back_surf]);
             sb.emit_set_viewport_box(x as f32, y as f32, w as f32, h as f32);
             sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
-            sb.emit_set_constant_buffer(
-                PIPE_SHADER_FRAGMENT,
-                &[
-                    1.0 / self.display_w as f32,
-                    1.0 / self.display_h as f32,
-                    radius as f32,
-                    k,
-                    0.0,
-                    1.0,
-                    0.0,
-                    0.0,
-                ],
-            );
+            sb.emit_set_constant_buffer(PIPE_SHADER_FRAGMENT, vert_consts);
             sb.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
         }
         let bb = sb.as_bytes();

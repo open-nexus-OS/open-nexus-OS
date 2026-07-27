@@ -43,6 +43,11 @@ pub mod virgl_vector;
 #[cfg(feature = "virgl")]
 pub mod virgl_composite;
 
+/// TGSI source for the separable gaussian backdrop blur (plain + rounded-rect
+/// masked). Data, not logic — split out of `backend/virgl3d.rs` (structure-gate).
+#[cfg(feature = "virgl")]
+pub mod virgl_blur_shaders;
+
 /// CPU fallback for the vector pipeline (non-virgl 2D path).
 pub mod cpu_vector;
 

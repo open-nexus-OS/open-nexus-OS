@@ -676,8 +676,17 @@ impl VirtioGpuBackend {
             // tint + content composite over the blurred backdrop = real frosted
             // glass on the virgl scanout.
             if l.backdrop_blur > 0 {
-                // Blur covers the whole LAYER rect (the frame).
-                let _ = self.blur_rt_backdrop(l.dst_x, l.dst_y, l.width, l.height, l.backdrop_blur);
+                // Blur covers the whole LAYER rect (the frame) — masked to the
+                // layer's corner radius, so a pill or circle of glass does not
+                // leave a blurred SQUARE standing behind its rounded edge.
+                let _ = self.blur_rt_backdrop(
+                    l.dst_x,
+                    l.dst_y,
+                    l.width,
+                    l.height,
+                    l.backdrop_blur,
+                    l.corner_radius,
+                );
             }
             // `content_w`/`content_h` (`0` = content fills the layer, the
             // byte-identical steady-state default): the SOURCE sub-size (the

@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-27 (three visual defects the greeter showed first: hover plate, square blur, stretched wallpaper)
+
+All three were platform faults surfaced by the login screen, not greeter code —
+the greeter's `.nx` page is unchanged.
+
+- **Hover drew a white box where only the icon should grow.** The DSL paint path
+  stacked a wash plate plus a bright 2 px ring on top of the hover-grow spring.
+  The wash follows the box's `corner_radius`, and an icon button's handler box
+  carries none — so a hovered *circle* wore a white *square*. Motion is now the
+  whole affordance: the control springs to 1.06 and nothing else paints. Window
+  chrome keeps its title-bar wash (its own path, and those buttons don't grow).
+- **Rounded glass had blurred backdrop standing outside its corners.** The
+  frosted-glass backdrop pass blurred the layer's bounding RECTANGLE while the
+  fill on top was rounded, so every pill, avatar and circular power button sat
+  in a visible blurred square. The final blur pass now carries the layer's
+  corner radius and writes the rounded-rect SDF coverage as its alpha
+  (`FS_BLUR_ROUND`, alpha-over blend) — the same analytic curve the content pass
+  uses, so blur edge and fill edge are one line. Square layers keep the old
+  shader and blend byte-identically.
+- **The wallpaper was stretched, not covered.** The bake mapped the full source
+  onto the full panel: a 3:2 image squashed ~7% into an 8:5 screen. It now takes
+  the largest centred window of the source with the target's aspect — one axis
+  whole, the other cropped evenly — matching the design contract's
+  `object-fit: cover`. Never a letterbox: the window is inscribed in the source,
+  so every destination pixel has source behind it. windowd's runtime cover LUT
+  already did this for non-native display modes; the bake was the odd one out.
+
+Proven on a visible boot (greeter + desktop, 1280×800 virgl): button bbox
+corners now read plain wallpaper where they read blurred backdrop before, the
+hover ring is gone from both the greeter submit button and the dock, and the
+wallpaper is aspect-correct with no bars. `gpud: rt backdrop dst ok` still
+fires. Blur shader source moved to `gpud/src/virgl_blur_shaders.rs`
+(structure-gate ratchet on `backend/virgl3d.rs`).
+
 ### Changed - 2026-07-27 (settings distribution v2 — one authority, snapshots, reemit; RFC-0083 / TASK-0307)
 
 One accent tap used to tear down and remount every DSL app (initial effects

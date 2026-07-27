@@ -88,6 +88,12 @@ For a glass surface:
 
 Important:
 
+- The blur is **clipped to the surface's own shape**, not to its bounding box.
+  The final (vertical) blur pass carries the layer's corner radius and writes
+  the rounded-rect SDF coverage as its alpha — the same analytic curve the
+  content pass uses — so blur edge and fill edge are one line. A rectangular
+  blur under a rounded fill leaves blurred backdrop standing in the corners,
+  which is what a pill or a circular icon button shows first and worst.
 - Prefer **clip + caching** per surface (sidebar/control center), not per widget.
 - Avoid filters that are renderer/hardware dependent in ways that break goldens.
 

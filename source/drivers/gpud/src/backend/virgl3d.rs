@@ -681,42 +681,6 @@ END\n";
             qbytes[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
         }
 
-        // Separable gaussian fragment shader. CONST[0] = (inv_w, inv_h, radius,
-        // k = -1/(2σ²·ln2)); CONST[1] = (dir_x, dir_y, origin_x, origin_y).
-        // Per tap: weight = 2^(k·i²) (≡ exp(-i²/2σ²)); the weight sum
-        // normalizes, matching the CPU reference in blur_backdrop_separable_vmo.
-        const FS_BLUR: &str = "FRAG\n\
-            DCL IN[0], POSITION, LINEAR\n\
-            DCL OUT[0], COLOR\n\
-            DCL SAMP[0]\n\
-            DCL SVIEW[0], 2D, FLOAT\n\
-            DCL CONST[0..1]\n\
-            DCL TEMP[0..5]\n\
-            DCL ADDR[0]\n\
-            IMM[0] FLT32 { 0.0000, 1.0000, -1.0000, 0.5000}\n\
-            MOV TEMP[0], IMM[0].xxxx\n\
-            MOV TEMP[1].x, IMM[0].xxxx\n\
-            MUL TEMP[2].x, CONST[0].zzzz, IMM[0].zzzz\n\
-            BGNLOOP\n\
-            SGT TEMP[3].x, TEMP[2].xxxx, CONST[0].zzzz\n\
-            IF TEMP[3].xxxx\n\
-            BRK\n\
-            ENDIF\n\
-            MUL TEMP[3].x, TEMP[2].xxxx, TEMP[2].xxxx\n\
-            MUL TEMP[3].x, TEMP[3].xxxx, CONST[0].wwww\n\
-            EX2 TEMP[3].x, TEMP[3].xxxx\n\
-            MAD TEMP[4].xy, CONST[1].xyyy, TEMP[2].xxxx, IN[0].xyyy\n\
-            ADD TEMP[4].xy, TEMP[4].xyyy, CONST[1].zwww\n\
-            MUL TEMP[4].xy, TEMP[4].xyyy, CONST[0].xyyy\n\
-            TEX TEMP[5], TEMP[4], SAMP[0], 2D\n\
-            MAD TEMP[0], TEMP[5], TEMP[3].xxxx, TEMP[0]\n\
-            ADD TEMP[1].x, TEMP[1].xxxx, TEMP[3].xxxx\n\
-            ADD TEMP[2].x, TEMP[2].xxxx, IMM[0].yyyy\n\
-            ENDLOOP\n\
-            RCP TEMP[1].x, TEMP[1].xxxx\n\
-            MUL OUT[0], TEMP[0], TEMP[1].xxxx\n\
-            END\n";
-
         let mut s = Submit3d::new();
         s.emit_resource_inline_write(0xFA, &qbytes);
         s.emit_create_surface(0x30, 0xF8, PIPE_FORMAT_B8G8R8A8_UNORM);
@@ -724,7 +688,16 @@ END\n";
         s.emit_create_sampler_view(0x32, 0xF8, PIPE_FORMAT_B8G8R8A8_UNORM);
         s.emit_create_sampler_view(0x33, 0xF9, PIPE_FORMAT_B8G8R8A8_UNORM);
         s.emit_create_sampler_state_default(0x34);
-        s.emit_create_shader(13, PIPE_SHADER_FRAGMENT, FS_BLUR);
+        s.emit_create_shader(13, PIPE_SHADER_FRAGMENT, crate::virgl_blur_shaders::FS_BLUR);
+        s.emit_create_shader(
+            crate::gl_scanout::H_FS_BLUR_ROUND,
+            PIPE_SHADER_FRAGMENT,
+            crate::virgl_blur_shaders::FS_BLUR_ROUND,
+        );
+        // Alpha-"over" blend for the masked blur pass. Its own handle (not the
+        // compositor's `H_BLEND_ALPHA`): the blur runs BEFORE the first layer
+        // composite of a frame, so it cannot depend on `composite_init`.
+        s.emit_create_blend_alpha(crate::gl_scanout::H_BLEND_BLUR);
         let bytes = s.as_bytes();
         let hdr = VirtioGpuSubmit3d {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),

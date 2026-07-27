@@ -112,10 +112,17 @@ Track C (Tier 1). Concurrent animations are capped at `MAX_NODE_ANIMS` /
 ### Interaction motion (design-handoff feel)
 
 Pointer interactions ride the SAME driver + per-node transform (no extra loop):
-**hover** springs the hovered handler box to 1.06 with a bright 2 px ring
-(`HoverWash.ring_alpha`), cascading to the contained subtree anchored at the
-control's center; **press** dips to 0.92 and pops elastically past identity
-(280 ms keyframe). Kinds that animate a PART instead of the whole control carry
+**hover** springs the hovered handler box to 1.06, cascading to the contained
+subtree anchored at the control's center; **press** dips to 0.92 and pops
+elastically past identity (280 ms keyframe).
+
+Motion is the WHOLE hover affordance — there is no plate under it. The painter
+still accepts a `HoverWash` (window chrome uses it for the title-bar buttons),
+but the DSL paint path passes `None`: a wash follows the box's `corner_radius`,
+and an icon button's handler box carries none, so every hovered circle wore a
+white SQUARE. One affordance per state.
+
+Kinds that animate a PART instead of the whole control carry
 a structural `press_offset` on their handler (`registry::press_offset`, like
 `child_path`): the **toggle** stretches its THUMB along the travel axis
 (`NodeAnim.scale_y_pct` — a non-uniform-scale superset where `None` mirrors the

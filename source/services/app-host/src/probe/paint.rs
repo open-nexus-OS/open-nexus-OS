@@ -42,23 +42,14 @@ impl super::DslApp {
         // fullscreen surface (the base layer), frosted-translucent for
         // floating windows (`base_alpha`).
         let base = [s.b, s.g, s.r, self.base_alpha];
-        // Paint-time hover wash (nexus-style convention): the foreground
-        // at Hover wash alpha — darkens on light themes, lightens on dark.
-        let hover = self.hovered.map(|node_id| {
-            let fg = tokens_for(self.theme_mode).color(ColorToken::OnSurface);
-            nexus_scene_raster::HoverWash {
-                node_id,
-                color: nexus_layout_types::Rgba8::new(
-                    fg.r,
-                    fg.g,
-                    fg.b,
-                    nexus_style::InteractionState::Hover.wash_alpha(),
-                ),
-                // The handoff's bright hover ring ("Slider größer mit einem
-                // hellen Ring") — tracks the hover-grow scale in the painter.
-                ring_alpha: 70,
-            }
-        });
+        // HOVER AFFORDANCE = MOTION, NOT A PLATE. `self.hovered` is already
+        // filtered to CONTROL-sized nodes (`interaction_sized`), and every one
+        // of those grows on the hover spring (`interaction_hover`, 1.06). The
+        // old paint-time wash + bright ring stacked a second, box-shaped
+        // affordance on top of that motion: a hovered CIRCLE got a white
+        // SQUARE, because the wash follows `corner_radius` and an icon button's
+        // hit box carries none. One affordance per state — the icon just grows.
+        let hover: Option<nexus_scene_raster::HoverWash> = None;
         let surf_w = self.w as usize;
         let row_bytes = surf_w * 4;
         // Reused scratch — NEVER allocate per render (non-freeing heap).

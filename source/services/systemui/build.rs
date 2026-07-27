@@ -184,15 +184,35 @@ fn decode_wallpaper(path: &Path, target_width: u32, target_height: u32) -> Resul
     let target_height = target_height as usize;
     let mut out = vec![0u8; target_width * target_height * 4];
 
+    // COVER, not stretch (the design contract: `object-fit: cover`). The source
+    // is 3:2 and the panel 8:5, so mapping the full source onto the full target
+    // squashed the image ~7% — mountains got wider, faces would get fatter.
+    // Take the largest CENTRED window of the source that has the target's
+    // aspect and scale that: one axis is used whole, the other is cropped
+    // evenly on both sides. Never a letterbox — the window is inscribed in the
+    // source, so every destination pixel has source behind it.
+    // (windowd's `build_cover_luts` applies the same rule again at runtime for
+    // a non-native display mode; at the native mode it is the identity, so the
+    // image is cropped once, here.)
+    let (win_w, win_h) = if src_width * target_height >= src_height * target_width {
+        // Source is WIDER than the target: full height, crop the width.
+        ((src_height * target_width / target_height).max(1).min(src_width), src_height)
+    } else {
+        // Source is TALLER than the target: full width, crop the height.
+        (src_width, (src_width * target_height / target_width).max(1).min(src_height))
+    };
+    let win_x = (src_width - win_w) / 2;
+    let win_y = (src_height - win_h) / 2;
+
     // Box (area-average) downscale: each destination pixel averages every source
     // pixel its footprint covers. Nearest-neighbour (sampling one source pixel)
     // aliased/softened the result; averaging keeps the wallpaper crisp.
     for y in 0..target_height {
-        let sy0 = y * src_height / target_height;
-        let sy1 = (((y + 1) * src_height / target_height).max(sy0 + 1)).min(src_height);
+        let sy0 = win_y + y * win_h / target_height;
+        let sy1 = ((win_y + (y + 1) * win_h / target_height).max(sy0 + 1)).min(src_height);
         for x in 0..target_width {
-            let sx0 = x * src_width / target_width;
-            let sx1 = (((x + 1) * src_width / target_width).max(sx0 + 1)).min(src_width);
+            let sx0 = win_x + x * win_w / target_width;
+            let sx1 = ((win_x + (x + 1) * win_w / target_width).max(sx0 + 1)).min(src_width);
             let (mut rs, mut gs, mut bs, mut n) = (0u32, 0u32, 0u32, 0u32);
             for sy in sy0..sy1 {
                 for sx in sx0..sx1 {
