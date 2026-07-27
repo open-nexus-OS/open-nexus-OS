@@ -170,9 +170,21 @@ pub(super) fn drain_region(events: &KernelClient, slot: &mut Option<RegionPush>)
     if slot.is_some() {
         return;
     }
-    let mut frame = [0u8; 64];
+    let mut frame = [0u8; 96];
     while let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
         if stash_region(&frame[..len], slot) {
+            break;
+        }
+        // RFC-0083: a queued presentation snapshot carries the region too.
+        if let Some(snap) =
+            nexus_display_proto::surface_settings::decode_surface_settings(&frame[..len])
+        {
+            *slot = Some(RegionPush {
+                hour_fmt: snap.hour_fmt,
+                locale: alloc::string::String::from(snap.locale),
+                tz: alloc::string::String::from(snap.tz),
+                keymap: alloc::string::String::from(snap.keymap),
+            });
             break;
         }
     }
@@ -188,19 +200,23 @@ pub(super) fn send_cursor_hint(client: &KernelClient, surface_id: u32, over_text
 }
 
 /// Bounded wait for windowd's boot pushes (`OP_SURFACE_THEME` +
-/// `OP_SURFACE_PROFILE`, sent when the event channel attaches — before we
-/// mount). Returns `(theme, profile)`; either defaults (dark / tablet, the
-/// compositor defaults) if it does not arrive in time — the app still
-/// renders, just possibly not matched until the next push. A region push
-/// interleaving here is STASHED for the post-mount apply, never dropped.
+/// `OP_SURFACE_PROFILE`, or the RFC-0083 `OP_SURFACE_SETTINGS` snapshot that
+/// carries both — sent when the event channel attaches, before we mount).
+/// Returns `(theme, profile, settings_gen)`; defaults (dark / tablet, the
+/// compositor defaults) if nothing arrives in time — the app still renders,
+/// just possibly not matched until the next push. A region push interleaving
+/// here is STASHED for the post-mount apply, never dropped; a snapshot's
+/// `gen` is returned so the main loop's dedupe starts in sync (a dropped
+/// gen would mark the boot snapshot as never-delivered and it IS delivered).
 pub(super) fn wait_for_boot_pushes(
     events: &KernelClient,
     region: &mut Option<RegionPush>,
-) -> (u8, u8) {
+) -> (u8, u8, Option<u32>) {
     let start = nsec().unwrap_or(0);
-    let mut frame = [0u8; 64];
+    let mut frame = [0u8; 96];
     let mut theme: Option<u8> = None;
     let mut profile: Option<u8> = None;
+    let mut gen: Option<u32> = None;
     loop {
         if let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
             if let Some(mode) = wire::decode_surface_theme(&frame[..len]) {
@@ -209,15 +225,32 @@ pub(super) fn wait_for_boot_pushes(
             } else if let Some(p) = wire::decode_surface_profile(&frame[..len]) {
                 raw_marker("APPHOST: profile received");
                 profile = Some(p);
+            } else if let Some(snap) =
+                nexus_display_proto::surface_settings::decode_surface_settings(&frame[..len])
+            {
+                raw_marker("APPHOST: settings received");
+                theme = Some(snap.theme);
+                profile = Some(snap.profile);
+                gen = Some(snap.gen);
+                *region = Some(RegionPush {
+                    hour_fmt: snap.hour_fmt,
+                    locale: alloc::string::String::from(snap.locale),
+                    tz: alloc::string::String::from(snap.tz),
+                    keymap: alloc::string::String::from(snap.keymap),
+                });
             } else {
                 let _ = stash_region(&frame[..len], region);
             }
             if let (Some(t), Some(p)) = (theme, profile) {
-                return (t, p);
+                return (t, p, gen);
             }
         }
         if nsec().unwrap_or(u64::MAX).saturating_sub(start) > 500_000_000 {
-            return (theme.unwrap_or(wire::THEME_DARK), profile.unwrap_or(wire::PROFILE_TABLET));
+            return (
+                theme.unwrap_or(wire::THEME_DARK),
+                profile.unwrap_or(wire::PROFILE_TABLET),
+                gen,
+            );
         }
         let _ = yield_();
     }

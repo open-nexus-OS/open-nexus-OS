@@ -1,6 +1,6 @@
 ---
 title: TASK-0307 Settings distribution v2 — single authority, versioned snapshots, repaint not remount
-status: In Progress (2026-07-27) — P0-P2 done (receive path proves reemit-not-remount)
+status: In Progress (2026-07-27) — P0-P3 done (snapshot pipeline live end to end)
 owner: @runtime @ui
 created: 2026-07-27
 links:
@@ -99,6 +99,48 @@ statefsd internals; per-key write ACLs; `_timeout_ms` wiring of DSL svc calls
    script recorded here.
 
 ## Evidence
+
+### P3 — windowd: subscribe, fold, deliver (2026-07-27)
+
+Landed: `presentation_state.rs` (pure per-channel due/retry/reclaim core,
+host-tested — the `Delivery` precedent) + `runtime/presentation.rs`
+(snapshot fold + `pump_presentation`: one NONBLOCK attempt per due channel
+per frame, desktop-alias dedupe, rebind hooks in the channel attach + both
+desktop binds); windowd subscribes `time.`/`ui.`/`input.keymap` (staged, one
+per frame — `ui.` covers theme/accent/shell-mode, so the registration burst
+IS the boot restore); drained events go through ONE apply path
+(`handle_settings_event`: theme → `set_theme_mode` incl. wallpaper swap,
+accent, shell profile, region); dual-emit OP 26 + legacy; **ThemeProbe
+deleted** (3 blocking GETs + 24×250 ms cadence + the handoff GET — the
+pacer disarms earlier); `settings_client` GET helpers + `toggle_theme` +
+`mark_theme_user_set` deleted; pinned delivery test rewritten (settings =
+retained latest-wins, never lost, never blocking; `Critical` stays for taps
+and the transitional legacy pushes).
+
+**Two boot-gate catches en route, both fixed before landing:**
+
+1. The attach-time OP 26 snapshot was consumed pre-mount by
+   `wait_for_boot_pushes` and DROPPED while windowd recorded it delivered —
+   zero `presentation gen=` markers. The boot wait now decodes OP 26 (it
+   carries theme+profile+region in one) and seeds `last_settings_gen`.
+2. **Watch-as-wake-source is NOT shippable with today's kernel caps — the
+   plan's finding-3 fix is deferred with evidence.** Cloning windowd's own
+   server slots for the watch push caps: settingsd's sends fail
+   `PermissionDenied` (init-granted service-pair caps are process-pinned).
+   Re-provisioning slot 0x41 as a SEND half of windowd's request endpoint:
+   registration + burst delivery WORK (`sync 5/5`), but the system then
+   wedges deterministically — the Idle-class selftest ladder starves and
+   never runs (boots 11-31-56, 13-32-13; bisected green by reverting only
+   the provisioning hunk, 13-38-26). Mechanism unexplained = KERNEL
+   FOLLOW-UP recorded here and in route_provision.rs. Shipped instead: the
+   dedicated side channel, drained per frame through the same apply path,
+   plus a bounded 500 ms idle tick (2 wakes/s) so an idle compositor applies
+   a settings change within half a second.
+
+Final boot (13-42-57): ladder runs, only the chronic `qos FAIL`; all bursts
+delivered (`sync 5/5|2/2|1/1`); **6 × `apphost: presentation gen=N applied`**
+(gen 5→8 tracking the selftest keymap flips) — the versioned snapshot
+pipeline is live end to end. Gates green.
 
 ### P2 — wire + app-host receive (2026-07-27)
 

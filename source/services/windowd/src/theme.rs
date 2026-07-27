@@ -45,14 +45,6 @@ impl ThemeMode {
             _ => None,
         }
     }
-
-    /// The opposite mode — the Settings "Theme" row toggles between the two.
-    pub(crate) fn toggled(self) -> Self {
-        match self {
-            ThemeMode::Dark => ThemeMode::Light,
-            ThemeMode::Light => ThemeMode::Dark,
-        }
-    }
 }
 
 /// Replace the alpha of a BGRA color, keeping its RGB. The theme tokens carry a

@@ -258,11 +258,11 @@ mod probe {
         // 1b. Theme: the compositor pushes the active mode (`OP_SURFACE_THEME`)
         //     when the event channel attaches — capture it BEFORE mount so the
         //     app renders with the same tokens as the desktop.
-        // Attach-time region push (locale/tz/hour): stashed by the pre-mount
-        // drains, applied right after mount — the FIRST frame renders in the
-        // configured language (windowd re-pushes only on change).
+        // Attach-time region push: stashed by the pre-mount drains, applied
+        // right after mount (windowd re-pushes only on change).
         let mut boot_region: Option<boot::RegionPush> = None;
-        let (mut theme_mode, mut shell_profile) = wait_for_boot_pushes(&events, &mut boot_region);
+        let (mut theme_mode, mut shell_profile, boot_settings_gen) =
+            wait_for_boot_pushes(&events, &mut boot_region);
 
         // 2. The DSL payload + its window intent → the geometry handshake. The
         //    WM owns geometry: a desktop/full-screen surface asks windowd for
@@ -299,9 +299,9 @@ mod probe {
         // back to the baked English catalog (windowd re-pushes only on
         // CHANGE, never on remount).
         let mut last_region: Option<boot::RegionPush> = None;
-        // RFC-0083 presentation snapshot: last applied generation (dedupe
-        // short-circuit; correctness is per-field compare in apply_settings).
-        let mut last_settings_gen: Option<u32> = None;
+        // RFC-0083: last applied snapshot gen (dedupe only; apply is
+        // per-field idempotent), seeded from the consumed boot snapshot.
+        let mut last_settings_gen: Option<u32> = boot_settings_gen;
 
         // 4. Mount the DSL program FIRST (before the VMO) so its scroll-region
         //    geometry decides the VMO size. The DSL lays out at the VISIBLE

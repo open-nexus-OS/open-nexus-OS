@@ -67,8 +67,10 @@ impl DisplayServerRuntime {
                 self.set_theme_mode(mode);
                 #[cfg(all(nexus_env = "os", target_os = "none"))]
                 {
+                    // Dual-authority window (P3): the CONTROL path persists;
+                    // the settingsd echo re-applies idempotently. Flips to
+                    // settingsd-only in P4.
                     let _ = crate::settings_client::set_theme_mode(mode);
-                    self.mark_theme_user_set();
                 }
             }
             wire::CONTROL_SHELL_PROFILE => {
@@ -82,6 +84,7 @@ impl DisplayServerRuntime {
                 if self.theme_accent != value {
                     self.theme_accent = value;
                     self.push_app_theme();
+                    self.presentation_changed();
                     let _ = debug_println(&alloc::format!("uitheme: accent switched (to={value})"));
                     #[cfg(all(nexus_env = "os", target_os = "none"))]
                     {
@@ -153,6 +156,8 @@ impl DisplayServerRuntime {
         }
         let cfg = systemui::shell_config_for(product);
         self.apply_shell_config(cfg);
+        // RFC-0083: profile is part of the presentation snapshot.
+        self.presentation_changed();
         #[cfg(all(nexus_env = "os", target_os = "none"))]
         if persist {
             if crate::settings_client::set_shell_mode(mode_str) {
@@ -297,129 +302,9 @@ impl DisplayServerRuntime {
         }
         self.dock_dirty = true;
         self.queue_full_frame_damage();
+        // RFC-0083: the packed theme byte is part of the presentation
+        // snapshot — every bound channel owes the new state.
+        self.presentation_changed();
         let _ = debug_println(&alloc::format!("uitheme: switched (to={})", mode.as_str()));
-    }
-
-    /// Toggle light↔dark from the settings panel (TASK-0072 Phase 10): switch the
-    /// live UI immediately, then persist the new mode via settingsd so it survives
-    /// a reboot. The live switch already happened, so a transport failure only
-    /// misses persistence — never blocks the UI.
-    /// (Settings-panel toggle path — the live switch now arrives via settingsd
-    /// push; kept: documents the switch-then-persist ordering contract.)
-    #[allow(dead_code)]
-    pub(super) fn toggle_theme(&mut self) {
-        let next = self.theme_mode.toggled();
-        self.set_theme_mode(next);
-        #[cfg(all(nexus_env = "os", target_os = "none"))]
-        {
-            if crate::settings_client::set_theme_mode(next) {
-                let _ = debug_println("windowd: theme persist ok");
-            } else {
-                let _ = debug_println("windowd: theme persist unroutable");
-            }
-            // The user made a definite choice — a late boot probe must not revert it.
-            self.mark_theme_user_set();
-        }
-    }
-}
-
-/// Persisted-theme probe state (TASK-0072 Phase 10). Mirrors `SessionProbe`:
-/// a one-shot-until-success GET of `ui.theme.mode` from settingsd, bounded so a
-/// missing/slow settingsd degrades to the build-time default (Dark) instead of
-/// retrying forever.
-#[derive(Default)]
-pub(super) struct ThemeProbe {
-    /// The theme has been resolved (applied from settingsd, or the bound hit).
-    done: bool,
-    /// Attempts so far.
-    attempts: u32,
-    /// Monotonic deadline before the next attempt.
-    next_try_ns: u64,
-}
-
-/// Probe cadence: settingsd is a background service, so on a display-first boot
-/// the first attempts may race its bind. 250ms × 24 = ~6s before the default.
-#[cfg(all(nexus_env = "os", target_os = "none"))]
-const THEME_PROBE_INTERVAL_NS: u64 = 250_000_000;
-#[cfg(all(nexus_env = "os", target_os = "none"))]
-const THEME_PROBE_MAX_ATTEMPTS: u32 = 24;
-
-#[cfg(all(nexus_env = "os", target_os = "none"))]
-impl DisplayServerRuntime {
-    /// One synchronous GET at the first-frame handoff: restores the persisted
-    /// theme before the first present when settingsd is already up. A miss falls
-    /// back to the cadenced probe below.
-    pub(crate) fn theme_probe_at_handoff(&mut self) {
-        if self.theme_probe.done {
-            return;
-        }
-        self.theme_probe.attempts = self.theme_probe.attempts.saturating_add(1);
-        self.try_restore_persisted_theme();
-    }
-
-    /// One probe step from the main loop. Returns `true` while the probe still
-    /// needs pacing wakes (else the loop stays fully blocking).
-    pub(crate) fn theme_probe_tick(&mut self, now_ns: u64) -> bool {
-        if self.theme_probe.done {
-            return false;
-        }
-        if self.is_handoff_pending() {
-            return true;
-        }
-        if now_ns < self.theme_probe.next_try_ns {
-            return true;
-        }
-        self.theme_probe.next_try_ns = now_ns.saturating_add(THEME_PROBE_INTERVAL_NS);
-        self.theme_probe.attempts = self.theme_probe.attempts.saturating_add(1);
-        self.try_restore_persisted_theme();
-        if !self.theme_probe.done && self.theme_probe.attempts >= THEME_PROBE_MAX_ATTEMPTS {
-            self.theme_probe.done = true; // settingsd unreachable → keep the default
-            let _ = debug_println("windowd: theme default (settingsd unavailable)");
-        }
-        !self.theme_probe.done
-    }
-
-    /// GET `ui.theme.mode`; on success apply it (a no-op when it already matches)
-    /// and mark the probe resolved. Emits an honest marker so the reboot-survival
-    /// chain is observable end-to-end.
-    fn try_restore_persisted_theme(&mut self) {
-        if let Some(mode) = crate::settings_client::get_theme_mode() {
-            self.theme_probe.done = true;
-            self.set_theme_mode(mode);
-            let _ =
-                debug_println(&alloc::format!("windowd: theme restored (mode={})", mode.as_str()));
-            // settingsd is reachable — restore the persisted accent in the
-            // same breath (apply-only): pushes the packed theme byte if it
-            // differs from the boot default.
-            if let Some(accent) = crate::settings_client::get_theme_accent() {
-                if accent != self.theme_accent {
-                    self.theme_accent = accent;
-                    self.push_app_theme();
-                    let _ = debug_println(&alloc::format!(
-                        "windowd: theme accent restored (idx={accent})"
-                    ));
-                }
-            }
-            // …and the persisted shell mode (no second probe): apply-only,
-            // never re-persist.
-            if let Some(shell_mode) = crate::settings_client::get_shell_mode() {
-                use nexus_display_proto::client_surface as wire;
-                let profile = if shell_mode == "desktop" {
-                    wire::PROFILE_DESKTOP
-                } else {
-                    wire::PROFILE_TABLET
-                };
-                self.set_shell_profile_wire(profile, false);
-                let _ = debug_println(&alloc::format!(
-                    "windowd: shell mode restored (mode={shell_mode})"
-                ));
-            }
-        }
-    }
-
-    /// The user set the theme via the settings panel: the probe must not later
-    /// revert it with a stale GET (the persist + live switch already happened).
-    pub(super) fn mark_theme_user_set(&mut self) {
-        self.theme_probe.done = true;
     }
 }

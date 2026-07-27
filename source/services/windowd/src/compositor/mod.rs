@@ -233,6 +233,13 @@ fn dispatch_client_frame(
         runtime.handle_imed_push(frame, sender_sid);
         return;
     }
+    // RFC-0083: settingsd watch events (`'S','T'` OP_EVENT) — the watch caps
+    // are clones of OUR OWN server send half, so a settings change wakes an
+    // idle compositor as ordinary inbound IPC. Fire-and-forget: no reply.
+    if frame.len() >= 4 && frame[0] == b'S' && frame[1] == b'T' {
+        runtime.handle_settings_event(frame);
+        return;
+    }
     if frame_has_op(frame, OP_GET_VISIBLE_STATE) {
         let response = encode_visible_state_frame(runtime.visible_state());
         if let Some(reply) = moved_cap.take() {
@@ -578,9 +585,6 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             // and the login, poll sessiond on its own slow cadence — same
             // pacing contract as the session probe.
             let greeter_watch_pending = runtime.greeter_watch_tick(nexus_abi::nsec().unwrap_or(0));
-            // Persisted-theme probe (TASK-0072 Phase 10): same cadence — restore
-            // `ui.theme.mode` from settingsd once it binds; bounded, then default.
-            let theme_pending = runtime.theme_probe_tick(nexus_abi::nsec().unwrap_or(0));
             // Animated wait cursor: while a launch is pending the ring frame
             // advances on the pacer (2-byte SELECT per ~90ms step; bounded by
             // the launch failsafe deadline).
@@ -597,7 +601,6 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 || runtime.has_scroll_momentum()
                 || session_pending
                 || greeter_watch_pending
-                || theme_pending
                 || cursor_wait_pending;
             if handoff_done && !pacer_timer_armed && needs_pacing {
                 if pacer_timer_cap.is_none() {
@@ -692,9 +695,13 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         // independent of how many raw events arrived (the Android Choreographer
         // model).
         let applied = runtime.apply_staged_input();
-        // RFC-0076/0077: settings-watch pump (subscribe once; drain pushed
-        // time./locale changes; re-push region to surfaces on change).
+        // RFC-0076/0077/0083: stage the settings-watch subscriptions (events
+        // then arrive in-band on the server endpoint), and deliver any due
+        // presentation snapshots (NONBLOCK, retained latest-wins, per-frame
+        // retry — the compositor never blocks for a settings push).
         runtime.pump_region_watch();
+        runtime.drain_settings_events();
+        runtime.pump_presentation();
         #[cfg(nexus_env = "os")]
         loop_stats.note_apply(applied);
         #[cfg(not(nexus_env = "os"))]
@@ -736,8 +743,10 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         {
             animation_wait
         } else {
-            // Fully idle: block until the next input message. Zero CPU.
-            Wait::Blocking
+            // Near-idle: a bounded 500ms tick (2 wakes/s) so a settings event
+            // on the side watch channel applies without another wake source
+            // (RFC-0083; in-band delivery = recorded kernel follow-up).
+            Wait::Timeout(core::time::Duration::from_millis(500))
         };
         match server.recv_request_with_meta_into(wait, &mut recv_frame) {
             Ok((frame_len, sender_sid, mut moved_cap)) => {

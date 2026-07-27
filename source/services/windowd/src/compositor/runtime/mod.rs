@@ -90,6 +90,7 @@ mod input_scroll;
 pub(crate) mod intent;
 mod marker_emit;
 mod present;
+mod presentation;
 mod region;
 mod scene;
 mod session;
@@ -632,11 +633,8 @@ pub(crate) struct DisplayServerRuntime {
     /// whether a session is active (apply its shell product) or the greeter
     /// owns the display. Bounded; unreachable = auto shell, never a brick.
     session_probe: session::SessionProbe,
-    /// Persisted-theme probe (TASK-0072 Phase 10): after the handoff, GET
-    /// `ui.theme.mode` from settingsd and apply it, so a saved light/dark
-    /// choice is restored across reboots. Bounded, one-shot-until-success;
-    /// settingsd unreachable/slow = the build-time default (Dark), never a brick.
-    theme_probe: shell::ThemeProbe,
+    /// RFC-0083 snapshot delivery (core: `crate::presentation_state`).
+    presentation: crate::presentation_state::PresentationState,
     /// DSL-greeter login watch (Umbau #17): armed when sessiond reports
     /// STATE_GREETER (the DSL greeter app-host owns the display; the built-in
     /// avatar greeter is DELETED). The login happens OUT of process (greeter
@@ -895,7 +893,7 @@ impl DisplayServerRuntime {
             theme_mode: crate::theme::ThemeMode::Dark,
             theme_accent: 0,
             session_probe: session::SessionProbe::default(),
-            theme_probe: shell::ThemeProbe::default(),
+            presentation: crate::presentation_state::PresentationState::new(),
             greeter_login_watch: false,
             greeter_watch_next_ns: 0,
             apps: core::array::from_fn(AppWindowSlot::new),

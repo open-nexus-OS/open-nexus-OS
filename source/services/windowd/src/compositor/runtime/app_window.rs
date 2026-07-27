@@ -629,20 +629,29 @@ impl DisplayServerRuntime {
                 return;
             };
             // Bind nonce → channel (replace same nonce; LRU-replace when full).
-            if let Some(e) =
-                self.event_channels[..self.event_channels_len].iter_mut().find(|e| e.0 == nonce)
+            // Every (re)bind tells the snapshot tracker (RFC-0083): a fresh
+            // channel owes the current presentation and forgives failures.
+            if let Some(i) =
+                self.event_channels[..self.event_channels_len].iter().position(|e| e.0 == nonce)
             {
-                let _ = nexus_abi_cap_close(e.1);
-                e.1 = slot;
+                let _ = nexus_abi_cap_close(self.event_channels[i].1);
+                self.event_channels[i].1 = slot;
+                self.presentation.note_bound(i);
             } else if self.event_channels_len < self.event_channels.len() {
                 self.event_channels[self.event_channels_len] = (nonce, slot);
+                self.presentation.note_bound(self.event_channels_len);
                 self.event_channels_len += 1;
             } else {
                 // Bounded: replace the OLDEST entry (index 0), shift left.
+                // The shift renumbers every channel — rebind them ALL (an
+                // extra idempotent snapshot per channel, at window-churn rate).
                 let _ = nexus_abi_cap_close(self.event_channels[0].1);
                 self.event_channels.rotate_left(1);
                 let last = self.event_channels.len() - 1;
                 self.event_channels[last] = (nonce, slot);
+                for i in 0..self.event_channels.len() {
+                    self.presentation.note_bound(i);
+                }
             }
             // Nonce logged: desktop-bind-race triage matches attach vs deferred bind.
             let _ = debug_println(&alloc::format!(

@@ -389,6 +389,24 @@ mod delivery_tests {
         );
     }
 
+    /// RFC-0083 superseded `Critical` FOR SETTINGS: a snapshot is retained
+    /// latest-wins state — delivery is a NONBLOCK attempt per frame with
+    /// per-channel retry (`crate::presentation_state`), so it is never LOST
+    /// and never BLOCKS the compositor. `Critical` remains the class for
+    /// TAPS (user intent, no recovery path) and, during the dual-emit
+    /// migration window, for the legacy region/attach pushes (retired in P5).
+    #[test]
+    fn a_settings_push_is_not_coalescable() {
+        // The transitional legacy pushes still ride Critical: bounded block,
+        // never silently dropped. The endgame lives in presentation_state.
+        assert_eq!(Delivery::Critical.deadline_ns(), Some(CRITICAL_SEND_DEADLINE_NS));
+        assert_ne!(
+            Delivery::Critical.deadline_ns(),
+            Delivery::Coalescing.deadline_ns(),
+            "a settings frame is never fire-and-forget"
+        );
+    }
+
     /// The follow-up bug: sizing the TAP budget to a frame was wrong, because
     /// nothing catches an expired tap. The compositor loop was measured at
     /// 13 Hz under load (77 ms), so a 16 ms budget dropped real clicks with
@@ -407,25 +425,6 @@ mod delivery_tests {
         assert!(
             CRITICAL_SEND_DEADLINE_NS <= 500_000_000,
             "still bounded — one dead client must not wedge the compositor forever"
-        );
-    }
-
-    /// A settings push (locale/theme/profile) is NOT hover motion. Hover
-    /// regenerates dozens of times a second; a locale push happens once, when
-    /// the user picks a language, and nothing repeats it. Filing them in the
-    /// same class is what left a window stuck in the old language after a
-    /// momentarily full queue — silently, since the result was discarded.
-    #[test]
-    fn a_settings_push_is_not_coalescable() {
-        assert_eq!(
-            Delivery::Critical.deadline_ns(),
-            Some(CRITICAL_SEND_DEADLINE_NS),
-            "settings pushes share the tap's class: user intent, no recovery path"
-        );
-        assert_ne!(
-            Delivery::Critical.deadline_ns(),
-            Delivery::Coalescing.deadline_ns(),
-            "a dropped settings push is never superseded by a later frame"
         );
     }
 

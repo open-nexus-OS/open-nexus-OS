@@ -176,11 +176,31 @@ const WINDOWD_WATCH_SEND_SLOT: u32 = 0x41;
 /// `provision_windowd_settings_route`). Best-effort.
 pub(crate) fn provision_windowd_settings_watch(pid: u32, eps: &Endpoints, chan: &mut CtrlChannel) {
     let _ = chan;
-    let ep = eps.windowd_watch_ep;
-    let recv_ok =
-        nexus_abi::cap_transfer_to_slot(pid, ep, Rights::RECV, WINDOWD_WATCH_RECV_SLOT).is_ok();
-    let send_ok =
-        nexus_abi::cap_transfer_to_slot(pid, ep, Rights::SEND, WINDOWD_WATCH_SEND_SLOT).is_ok();
+    // RFC-0083 NOTE (measured, kernel follow-up recorded in TASK-0307): the
+    // watch channel stays a DEDICATED side endpoint. Pointing slot 0x41 at
+    // windowd's own service endpoint (so settings events would arrive
+    // in-band and wake an idle compositor) wedges the whole system
+    // deterministically once settingsd starts sending on the moved clones —
+    // the Idle-class selftest ladder starves and never runs (boots
+    // 2026-07-27T11-31-56 / 13-32-13; bisected against 13-38-26). Cloning
+    // windowd's own server slots instead is PermissionDenied (also
+    // measured). Until the kernel semantics of foreign-held send caps on
+    // service-pair endpoints are understood, windowd drains this side
+    // channel per frame + a bounded idle tick.
+    let recv_ok = nexus_abi::cap_transfer_to_slot(
+        pid,
+        eps.windowd_watch_ep,
+        Rights::RECV,
+        WINDOWD_WATCH_RECV_SLOT,
+    )
+    .is_ok();
+    let send_ok = nexus_abi::cap_transfer_to_slot(
+        pid,
+        eps.windowd_watch_ep,
+        Rights::SEND,
+        WINDOWD_WATCH_SEND_SLOT,
+    )
+    .is_ok();
     if recv_ok && send_ok {
         debug_write_bytes(b"init: windowd settings-watch ok\n");
     } else {

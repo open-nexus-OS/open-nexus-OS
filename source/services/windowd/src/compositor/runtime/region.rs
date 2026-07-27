@@ -1,12 +1,16 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: windowd compositor runtime — RFC-0076/0077 region relay: windowd
-//! watches settingsd (`time.` + `ui.locale` + `input.keymap`, three
-//! subscriptions on ONE channel via cloned push caps) on its channel
-//! and pushes `OP_SURFACE_REGION` (locale, tz, hour format) to every app
-//! surface — at event-channel attach and on every applied change. PURE
-//! RELAY: no clock, no conversion, no locale logic here.
+//! CONTEXT: windowd compositor runtime — RFC-0076/0077/0083 settings watch:
+//! windowd subscribes to settingsd (`time.` + `ui.` + `input.keymap`, three
+//! subscriptions whose push caps are clones of the init-provisioned side
+//! channel 0x41/0x40). Events are drained per frame + a bounded idle tick
+//! (in-band delivery to the service endpoint is a recorded kernel follow-up:
+//! both cap constructions for it failed measurably — see route_provision.rs).
+//! Drained events are
+//! applied in `runtime/presentation.rs::handle_settings_event`; this module
+//! keeps the region cache + the legacy dual-emit pushes (retired in P5).
+//! PURE RELAY: no clock, no conversion, no locale logic here.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -16,8 +20,8 @@
 use super::*;
 use nexus_display_proto::surface_text;
 
-/// Fixed init-provisioned slots (see `route_provision.rs`): the watch
-/// channel's RECV (event inbox) + SEND (cap-moved to settingsd) halves.
+/// Init-provisioned (route_provision.rs): the dedicated watch channel —
+/// RECV (event inbox, drained per frame) + SEND (cloned per OP_WATCH).
 #[cfg(nexus_env = "os")]
 const WATCH_RECV_SLOT: u32 = 0x40;
 #[cfg(nexus_env = "os")]
@@ -34,7 +38,8 @@ pub(crate) struct RegionState {
     pub(crate) keymap_len: u8,
     pub(crate) hour_fmt: u8,
     pub(crate) subscribed_time: bool,
-    pub(crate) subscribed_locale: bool,
+    /// `ui.` (RFC-0083: covers locale AND theme/accent/shell-mode).
+    pub(crate) subscribed_ui: bool,
     pub(crate) subscribed_keymap: bool,
 }
 
@@ -49,7 +54,7 @@ impl RegionState {
             keymap_len: 0,
             hour_fmt: surface_text::REGION_HOUR_24,
             subscribed_time: false,
-            subscribed_locale: false,
+            subscribed_ui: false,
             subscribed_keymap: false,
         };
         s.set_locale("de-DE");
@@ -135,78 +140,79 @@ impl DisplayServerRuntime {
         )
     }
 
-    /// Watch pump (frame loop, cheap): subscribe once, then drain pushed
-    /// settings events; region changes re-push to every surface.
+    /// Watch subscription staging (frame loop, cheap; one OP_WATCH per frame
+    /// so the registration BURSTS — settingsd sends every matching current
+    /// value on register, RFC-0083 — stay under the endpoint queue depth).
+    /// Each watch cap-moves a CLONE of `self_send_slot`, windowd's own server
+    /// send half: settings events arrive ON the main endpoint (`'S','T'`
+    /// frames → `handle_settings_event`) and wake an idle compositor. The
+    /// registration burst doubles as the boot restore (theme, accent, shell
+    /// mode, locale — persisted values arrive as events; no polling probe).
     #[allow(unused_variables)]
     pub(crate) fn pump_region_watch(&mut self) {
         #[cfg(nexus_env = "os")]
         {
             use nexus_wire::settingsd as swire;
-            if !(self.region.subscribed_time
-                && self.region.subscribed_locale
-                && self.region.subscribed_keymap)
+            if self.region.subscribed_time
+                && self.region.subscribed_ui
+                && self.region.subscribed_keymap
             {
-                // Two OP_WATCH subscriptions ride ONE push channel: each
-                // watch cap-moves a SEND half, so the second one moves a
-                // local CLONE of the half (cloned BEFORE the first move;
-                // cached so retries never re-clone). The settingsd request
-                // route is windowd's recorded named route.
-                let Some((send_slot, _)) = crate::settings_client::settingsd_slots() else {
-                    return; // early boot — retried next frame
-                };
-                static LOCALE_SEND_SLOT: core::sync::atomic::AtomicU32 =
-                    core::sync::atomic::AtomicU32::new(0);
-                static KEYMAP_SEND_SLOT: core::sync::atomic::AtomicU32 =
-                    core::sync::atomic::AtomicU32::new(0);
-                if LOCALE_SEND_SLOT.load(core::sync::atomic::Ordering::Relaxed) == 0 {
-                    let Ok(clone) = nexus_abi::cap_clone(WATCH_SEND_SLOT) else {
-                        return;
-                    };
-                    LOCALE_SEND_SLOT.store(clone, core::sync::atomic::Ordering::Relaxed);
-                }
-                if KEYMAP_SEND_SLOT.load(core::sync::atomic::Ordering::Relaxed) == 0 {
-                    let Ok(clone) = nexus_abi::cap_clone(WATCH_SEND_SLOT) else {
-                        return;
-                    };
-                    KEYMAP_SEND_SLOT.store(clone, core::sync::atomic::Ordering::Relaxed);
-                }
-                let watch = |prefix: &str, cap_slot: u32| -> bool {
-                    let mut req = [0u8; 72];
-                    let Some(n) = swire::encode_watch_req(prefix, &mut req) else {
-                        return false;
-                    };
-                    let hdr = nexus_abi::MsgHeader::new(
-                        cap_slot,
-                        0,
-                        0,
-                        nexus_abi::ipc_hdr::CAP_MOVE,
-                        n as u32,
-                    );
-                    nexus_abi::ipc_send_v1(
-                        send_slot,
-                        &hdr,
-                        &req[..n],
-                        nexus_abi::IPC_SYS_NONBLOCK,
-                        0,
-                    )
-                    .is_ok()
-                };
-                if !self.region.subscribed_time {
-                    self.region.subscribed_time = watch("time.", WATCH_SEND_SLOT);
-                }
-                if self.region.subscribed_time && !self.region.subscribed_locale {
-                    let clone = LOCALE_SEND_SLOT.load(core::sync::atomic::Ordering::Relaxed);
-                    self.region.subscribed_locale = watch("ui.locale", clone);
-                }
-                if self.region.subscribed_locale && !self.region.subscribed_keymap {
-                    let clone = KEYMAP_SEND_SLOT.load(core::sync::atomic::Ordering::Relaxed);
-                    self.region.subscribed_keymap = watch("input.keymap", clone);
-                }
                 return;
             }
+            let Some((send_slot, _)) = crate::settings_client::settingsd_slots() else {
+                return; // early boot — retried next frame
+            };
+            let watch = |prefix: &str| -> bool {
+                let Ok(cap_slot) = nexus_abi::cap_clone(WATCH_SEND_SLOT) else {
+                    return false;
+                };
+                let mut req = [0u8; 72];
+                let Some(n) = swire::encode_watch_req(prefix, &mut req) else {
+                    let _ = nexus_abi::cap_close(cap_slot);
+                    return false;
+                };
+                let hdr = nexus_abi::MsgHeader::new(
+                    cap_slot,
+                    0,
+                    0,
+                    nexus_abi::ipc_hdr::CAP_MOVE,
+                    n as u32,
+                );
+                match nexus_abi::ipc_send_v1(
+                    send_slot,
+                    &hdr,
+                    &req[..n],
+                    nexus_abi::IPC_SYS_NONBLOCK,
+                    0,
+                ) {
+                    Ok(_) => true,
+                    Err(_) => {
+                        let _ = nexus_abi::cap_close(cap_slot);
+                        false
+                    }
+                }
+            };
+            // Staged: ONE registration per frame (burst ≤ queue depth).
+            if !self.region.subscribed_time {
+                self.region.subscribed_time = watch("time.");
+            } else if !self.region.subscribed_ui {
+                self.region.subscribed_ui = watch("ui.");
+            } else if !self.region.subscribed_keymap {
+                self.region.subscribed_keymap = watch("input.keymap");
+            }
+        }
+    }
+
+    /// Drains queued settings events from the watch channel (bounded per
+    /// call, ≥ the registration-burst size) into the SAME apply path the
+    /// in-band `'S','T'` arm uses — theme, accent, shell mode and region all
+    /// take effect here.
+    #[allow(unused_variables)]
+    pub(crate) fn drain_settings_events(&mut self) {
+        #[cfg(nexus_env = "os")]
+        {
             let mut buf = [0u8; 600];
-            let mut changed = false;
-            for _ in 0..4 {
+            for _ in 0..8 {
                 let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
                 let mut sid: u64 = 0;
                 let Ok(len) = nexus_abi::ipc_recv_v2(
@@ -220,12 +226,7 @@ impl DisplayServerRuntime {
                     break;
                 };
                 let len = (len as usize).min(buf.len());
-                if let Some((_flags, key, value)) = swire::decode_event(&buf[..len]) {
-                    changed |= self.region.apply(key, value);
-                }
-            }
-            if changed {
-                self.push_region_to_surfaces();
+                self.handle_settings_event(&buf[..len]);
             }
         }
     }

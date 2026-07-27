@@ -30,20 +30,6 @@ use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 const CTRL_SEND_SLOT: u32 = 1;
 const CTRL_RECV_SLOT: u32 = 2;
 
-/// Best-effort GET of `ui.theme.mode`. Returns the parsed [`crate::theme::ThemeMode`]
-/// on an OK reply, `None` on any routing/IPC failure, a non-OK status, or an
-/// unrecognized value (caller keeps its default and may retry on its cadence).
-pub(crate) fn get_theme_mode() -> Option<crate::theme::ThemeMode> {
-    let mut req = [0u8; 32];
-    let len = wire::encode_get_req(wire::KEY_UI_THEME_MODE, &mut req)?;
-    let rsp = request_reply(&req[..len])?;
-    let (status, value) = wire::decode_response(wire::OP_GET, &rsp)?;
-    if status != wire::STATUS_OK {
-        return None;
-    }
-    crate::theme::ThemeMode::from_str(value)
-}
-
 /// Best-effort SET of `ui.theme.mode` (the settings-panel toggle). settingsd
 /// validates → persists (statefsd) → applies; returns `true` only on an OK
 /// reply. A transport failure returns `false` — the live in-window switch has
@@ -79,37 +65,6 @@ pub(crate) fn set_theme_accent(index: u8) -> bool {
         return false;
     };
     matches!(wire::decode_response(wire::OP_SET, &rsp), Some((wire::STATUS_OK, _)))
-}
-
-/// Best-effort GET of `ui.theme.accent` → the palette index; `None` on any
-/// failure (caller keeps 0 = built-in accent). The boot restore twin of
-/// `set_theme_accent`.
-pub(crate) fn get_theme_accent() -> Option<u8> {
-    let mut req = [0u8; 32];
-    let len = wire::encode_get_req(nexus_abi::settingsd::KEY_UI_THEME_ACCENT, &mut req)?;
-    let rsp = request_reply(&req[..len])?;
-    let (status, value) = wire::decode_response(wire::OP_GET, &rsp)?;
-    if status != wire::STATUS_OK {
-        return None;
-    }
-    nexus_theme_tokens::accent_index(value)
-}
-
-/// Best-effort GET of `ui.shell.mode` (`"tablet"`/`"desktop"`); `None` on any
-/// failure or unknown value (caller keeps the SystemUI boot default).
-pub(crate) fn get_shell_mode() -> Option<&'static str> {
-    let mut req = [0u8; 32];
-    let len = wire::encode_get_req(wire::KEY_UI_SHELL_MODE, &mut req)?;
-    let rsp = request_reply(&req[..len])?;
-    let (status, value) = wire::decode_response(wire::OP_GET, &rsp)?;
-    if status != wire::STATUS_OK {
-        return None;
-    }
-    match value {
-        "tablet" => Some("tablet"),
-        "desktop" => Some("desktop"),
-        _ => None,
-    }
 }
 
 /// Best-effort SET of `ui.shell.mode` (the Control-Center Desktop/Tablet

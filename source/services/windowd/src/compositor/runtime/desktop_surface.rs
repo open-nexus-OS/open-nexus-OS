@@ -69,6 +69,7 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         if let Some(ch) = self.event_channel_for(nonce) {
             self.desktop_channel = Some(ch);
+            self.presentation.note_bound(crate::presentation_state::DESKTOP);
             self.desktop_pending_nonce = None;
         } else {
             // The event-channel attach for this nonce has not arrived yet — the
@@ -129,6 +130,7 @@ impl DisplayServerRuntime {
             return;
         }
         self.desktop_channel = Some(slot);
+        self.presentation.note_bound(crate::presentation_state::DESKTOP);
         self.desktop_pending_nonce = None;
         let rect = wire::encode_surface_rect(
             0,
