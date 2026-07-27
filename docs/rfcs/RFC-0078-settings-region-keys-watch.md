@@ -1,6 +1,6 @@
 # RFC-0078: Settings spine — region/keymap/time keys + OP_WATCH push propagation
 
-- Status: In Progress (Phases 0–2 proven 2026-07-21)
+- Status: In Progress (Phases 0–2 proven 2026-07-21) · Amended by RFC-0083 (registration burst, server-side resync heal, region push folded into the presentation snapshot)
 - Owners: @runtime
 - Created: 2026-07-21
 - Last Updated: 2026-07-21

@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-07-27 (settings distribution v2 — one authority, snapshots, reemit; RFC-0083 / TASK-0307)
+
+One accent tap used to tear down and remount every DSL app (initial effects
+re-run, services re-fetched), back up input by 36 events and time out the
+persist. The concept was wrong, not a bug: split authority (theme keys wrote
+to windowd, everything else to settingsd, GET always read settingsd), 2 s
+yield-spins in the app-host per settings call, replies gated behind statefsd
+round-trips, fire-and-forget pushes with no loss detection, and a full app
+remount as the reaction to a COLOR change.
+
+Now: **settingsd is the one authority** (ADR-0053) — every settings key
+routes there; it validates, applies live, replies in microseconds
+(persistence is async, coalesced, retried with backoff, and honestly
+reported), and notifies watchers with self-healing delivery (registration
+burst = boot restore; a dropped event is re-sent as full state on the next
+change). windowd folds theme+accent+profile+region into ONE versioned
+presentation snapshot (`OP_SURFACE_SETTINGS`, retained latest-wins,
+per-frame retry, never blocking the compositor) and applies its own chrome
+from the same events — its 3-GET boot probe (24×250 ms) is deleted. Apps
+apply the snapshot as a **reemit, never a remount**: store state survives,
+`@effect on Load` does not re-run, `if device.profile` arms re-select live
+(profile switches included; `ProfileEvent::Changed` is the data-reload
+hook). Legacy wire ops 16/17/23 and the CONTROL theme/accent/profile writes
+are deleted, their numbers reserved. Every yield-spin on these paths became
+a kernel-parked deadline wait.
+
+Security: theme/shell writes now require a granted settingsd route (pack
+ceiling `settings|shell`) instead of the windowd request slot every windowed
+app holds. Recorded follow-ups: statefsd hardening, per-key write ACLs, and
+a measured kernel finding — a foreign-held send cap on a service-pair
+endpoint starves the system when used (watch-as-wake-source deferred; side
+channel + bounded 500 ms idle tick shipped instead).
+
 ### Fixed - 2026-07-26 (the UI "barely reacted" — a dropped ack, not a dropped click; TASK-0306)
 
 Diagnosed from a real interactive boot, and the first hypothesis was wrong in

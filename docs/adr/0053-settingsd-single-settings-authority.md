@@ -1,6 +1,6 @@
 # ADR-0053: settingsd is the single authority for all settings; windowd never writes them
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-27
 - Links:
   - Tasks: `tasks/TASK-0307-settings-distribution-v2.md` (execution + proof)

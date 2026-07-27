@@ -1,6 +1,6 @@
 ---
 title: TASK-0307 Settings distribution v2 — single authority, versioned snapshots, repaint not remount
-status: In Progress (2026-07-27) — P0-P5 done (legacy paths deleted; P6 proof next)
+status: Done (2026-07-27) — all phases boot-proven; follow-ups recorded below
 owner: @runtime @ui
 created: 2026-07-27
 links:
@@ -99,6 +99,61 @@ statefsd internals; per-key write ACLs; `_timeout_ms` wiring of DSL svc calls
    script recorded here.
 
 ## Evidence
+
+### P6 — driven interactive proof + docs sweep (2026-07-27, boot 16-55-28)
+
+The full switching script was DRIVEN (QMP taps at host-derived coordinates —
+the layout engine is identical on host and device, minus a measured 63 px
+greeter offset): login as jenning (sessiond has no password check), open the
+Control Center, flip the theme light→dark→light, attempt the profile tile.
+
+**The flagship chain, live and end to end, three times:**
+
+    CC tap → settingsd: set key=ui.theme.mode value=light   (the authority)
+           → windowd: wallpaper swapped light               (watch event applied)
+           → uitheme: switched (to=light)                   (chrome + gen bump)
+           → apphost: presentation gen=N applied            (snapshot → reemit)
+           → settingsd: persist ok                          (async, honest)
+
+Reaction time set→switched: 350 / 314 / 243 ms including the wallpaper swap
+and full-frame damage. **The before/after that matters** (09-02 baseline vs
+now): remounts 3 → **0**, input backpressure n=36 → **0**, `persist=fail` →
+`persist ok`, lost ack → zero push/input FAILs, UI freeze → sub-400 ms
+recolor. 10 snapshot generations applied; only the chronic `qos FAIL` in the
+ladder.
+
+Honest findings from the drive:
+- Rapid 60 ms synthetic tap pairs get coalesced by the frame-aligned input
+  staging (edges lost) — an INJECTION artifact, not an OS defect (real mice
+  at 111 Hz are proven); 150 ms presses land every time. Recorded for future
+  scripts.
+- The earlier tablet-coordinate taps missed on the desktop layout and were
+  reported honestly (4 × `input tap miss` with correct coordinates).
+- **Pre-existing seam, now visible and recorded as a follow-up:** the login
+  applies the session product's shell config directly
+  (`shell switch product=default` → desktop) WITHOUT writing `ui.shell.mode`
+  — settingsd still holds the default `tablet`, so the CC's "Tablet" tile is
+  a no-op from this state (only the inactive tile carries a handler). The
+  live profile-switch proof is therefore blocked by that seam; the profile
+  REEMIT itself is pinned byte-exact on host (P2) and the delivery chain is
+  proven live by theme + region. Fix belongs in the session flow (write the
+  key through settingsd — never windowd, per ADR-0053).
+
+Docs sweep: RFC-0083 status + phase board, ADR-0053 Accepted, RFC-0078
+amendment note, `docs/dev/dsl/runtime.md` reemit/ProfileEvent semantics +
+changelog, CHANGELOG entry.
+
+## Follow-ups (recorded)
+
+- Session-product shell config must write `ui.shell.mode` through settingsd
+  (the seam above) — until then the CC profile tiles can desync from the
+  session product.
+- statefsd hardening (policyd RTT per write, virtio probe burst).
+- Per-key settings write ACLs (`sender_service_id`).
+- Kernel: foreign-held send cap on a service-pair endpoint starves the
+  system when used (TASK-0307 P3 evidence) — understand before retrying
+  watch-as-wake-source.
+- `_timeout_ms` of DSL svc calls is dead (`effect_host.rs`).
 
 ### P5 correction — the cleanup deleted the app-host's INPUT arms (user-found, fixed)
 

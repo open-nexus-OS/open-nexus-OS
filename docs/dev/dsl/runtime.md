@@ -82,6 +82,23 @@ The scene-golden suite (`tests/dsl_goldens`) renders retained scenes through
 the shared BGRA painter; the conformance corpus (`tests/dsl_conformance`)
 pins `(state, event) → state'` semantics for the later AOT parity gate.
 
+## Presentation changes are reemits, never remounts (RFC-0083)
+
+Theme, accent, shell profile, locale, timezone and keymap arrive as ONE
+versioned presentation snapshot (`OP_SURFACE_SETTINGS`). The host applies each
+changed field by **re-emitting** the mounted view under the new tokens/device
+env — store state survives by construction, and `@effect on Load` does NOT
+re-run. Consequences for app authors:
+
+- **`if device.profile` arms re-select on a live profile switch** (the same
+  mechanism as `device.sizeClass` on resize). Structure follows automatically.
+- **`@effect on Load` fires once per mount, not per profile/theme switch.**
+  A program that loads profile-dependent data declares the runtime event
+  `ProfileEvent::Changed(tag)` and reloads there — the `KeymapEvent::Changed`
+  precedent (ime-ui reloads its OSK rows the same way).
+- Duplicate or reordered snapshots are free: every apply compares before
+  acting; the snapshot generation is a dedupe token, not a protocol you see.
+
 ## Persistence tiers
 
 1. Session state (default) — in-memory per app instance.
@@ -90,4 +107,7 @@ pins `(state, event) → state'` semantics for the later AOT parity gate.
 
 ## Changelog
 
+- **v2 (2026-07-27, RFC-0083)** — presentation snapshot semantics: settings
+  changes are reemits (store survives, no `@effect on Load` re-run);
+  `ProfileEvent::Changed` is the profile-data reload hook.
 - **v1 (2026-07-06)** — lifecycle contract, two-host model, cold-start posture defined.

@@ -1,6 +1,6 @@
 # RFC-0083: Settings distribution v2 — single authority, versioned snapshots, repaint not remount
 
-- Status: Draft
+- Status: Complete (2026-07-27 — all phases boot-proven, driven-tap interactive proof in TASK-0307 §P6; follow-ups recorded there)
 - Owners: @runtime
 - Created: 2026-07-27
 - Last Updated: 2026-07-27
@@ -13,12 +13,15 @@
 
 ## Status at a Glance
 
-- **Phase 1 (settingsd reactive: reply-before-persist, burst, heal)**: ⬜
-- **Phase 2 (OP_SURFACE_SETTINGS wire + app-host reemit receive)**: ⬜
-- **Phase 3 (windowd: watch as wake source, push_presentation)**: ⬜
-- **Phase 4 (authority flip: all settings writes → settingsd)**: ⬜
-- **Phase 5 (retirement of legacy ops + CONTROL writes)**: ⬜
-- **Phase 6 (boot proof + docs sweep)**: ⬜
+- **Phase 1 (settingsd reactive: reply-before-persist, burst, heal)**: ✅
+- **Phase 2 (OP_SURFACE_SETTINGS wire + app-host reemit receive)**: ✅
+- **Phase 3 (windowd: snapshot fold + push_presentation; watch-as-WAKE-source
+  DEFERRED with measured kernel evidence — side channel + bounded idle tick
+  shipped instead, see TASK-0307 P3)**: ✅
+- **Phase 4 (authority flip: all settings writes → settingsd)**: ✅
+- **Phase 5 (retirement + deletion of legacy ops + CONTROL writes)**: ✅
+- **Phase 6 (boot proof + docs sweep)**: ✅ (driven-tap interactive proof,
+  TASK-0307 P6)
 
 Definition:
 
