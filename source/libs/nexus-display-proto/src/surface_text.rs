@@ -25,86 +25,20 @@ pub const OP_SURFACE_TEXT: u8 = 21;
 /// focused:u8, field_kind:u8, caret x/y/w/h:u16×4` (surface coordinates —
 /// the caret rect anchors the OSK / candidate strip).
 pub const OP_SURFACE_TEXT_FOCUS: u8 = 22;
-/// windowd → app: region push (RFC-0076/0077) — locale tag, timezone and
-/// hour format, sent at event-channel attach and on every settings change
-/// (windowd watches settingsd). Apps must accept it only on windowd's
-/// established push channel. Payload: `hour_fmt:u8 (0=24h, 1=12h),
-/// locale_len:u8, locale[..16], tz_len:u8, tz[..32]`.
+/// RETIRED (RFC-0083 P5, number reserved forever — never reuse): the
+/// standalone region push (locale/tz/hour/keymap), folded into the
+/// presentation snapshot (`surface_settings::OP_SURFACE_SETTINGS = 26`).
 pub const OP_SURFACE_REGION: u8 = 23;
 
-/// `OP_SURFACE_REGION` hour-format values.
+/// Hour-format values (the snapshot's `hour_fmt` field).
 pub const REGION_HOUR_24: u8 = 0;
 pub const REGION_HOUR_12: u8 = 1;
 
-/// Bounds (RFC-0077/0076): BCP-47-ish tag / IANA zone name / keymap tag.
+/// Bounds (RFC-0077/0076): BCP-47-ish tag / IANA zone name / keymap tag —
+/// shared with the presentation snapshot's string fields.
 pub const REGION_LOCALE_MAX: usize = 16;
 pub const REGION_TZ_MAX: usize = 32;
 pub const REGION_KEYMAP_MAX: usize = 8;
-pub const SURFACE_REGION_FRAME_MAX: usize =
-    HEADER_LEN + 4 + REGION_LOCALE_MAX + REGION_TZ_MAX + REGION_KEYMAP_MAX;
-
-/// Encodes a region push; `None` when a field exceeds its bound.
-#[must_use]
-pub fn encode_surface_region(
-    hour_fmt: u8,
-    locale: &str,
-    tz: &str,
-    keymap: &str,
-) -> Option<([u8; SURFACE_REGION_FRAME_MAX], usize)> {
-    let (l, t, k) = (locale.as_bytes(), tz.as_bytes(), keymap.as_bytes());
-    if l.len() > REGION_LOCALE_MAX || t.len() > REGION_TZ_MAX || k.len() > REGION_KEYMAP_MAX {
-        return None;
-    }
-    let mut f = [0u8; SURFACE_REGION_FRAME_MAX];
-    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_REGION));
-    f[4] = hour_fmt;
-    f[5] = l.len() as u8;
-    let mut n = 6;
-    f[n..n + l.len()].copy_from_slice(l);
-    n += l.len();
-    f[n] = t.len() as u8;
-    n += 1;
-    f[n..n + t.len()].copy_from_slice(t);
-    n += t.len();
-    // Keymap tag (RFC-0075 Phase 8b) — a TRAILING field: decoders accept
-    // its absence (older encoders) as an empty tag.
-    f[n] = k.len() as u8;
-    n += 1;
-    f[n..n + k.len()].copy_from_slice(k);
-    n += k.len();
-    Some((f, n))
-}
-
-/// `(hour_fmt, locale, tz, keymap)` — fail-closed on truncation/oversize/
-/// UTF-8. The keymap tail is OPTIONAL (absent = empty, pre-8b frames).
-#[must_use]
-pub fn decode_surface_region(frame: &[u8]) -> Option<(u8, &str, &str, &str)> {
-    if !has_op(frame, OP_SURFACE_REGION) || frame.len() < HEADER_LEN + 3 {
-        return None;
-    }
-    let l_len = usize::from(frame[5]);
-    if l_len > REGION_LOCALE_MAX || frame.len() < 6 + l_len + 1 {
-        return None;
-    }
-    let locale = core::str::from_utf8(&frame[6..6 + l_len]).ok()?;
-    let t_off = 6 + l_len;
-    let t_len = usize::from(frame[t_off]);
-    if t_len > REGION_TZ_MAX || frame.len() < t_off + 1 + t_len {
-        return None;
-    }
-    let tz = core::str::from_utf8(&frame[t_off + 1..t_off + 1 + t_len]).ok()?;
-    let k_off = t_off + 1 + t_len;
-    let keymap = if frame.len() == k_off {
-        "" // pre-8b frame — no keymap tail
-    } else {
-        let k_len = usize::from(*frame.get(k_off)?);
-        if k_len > REGION_KEYMAP_MAX || frame.len() != k_off + 1 + k_len {
-            return None;
-        }
-        core::str::from_utf8(&frame[k_off + 1..k_off + 1 + k_len]).ok()?
-    };
-    Some((frame[4], locale, tz, keymap))
-}
 
 /// `OP_SURFACE_TEXT` kind: committed text in the payload.
 pub const SURFACE_TEXT_COMMIT: u8 = 0;
@@ -353,28 +287,6 @@ pub fn decode_surface_cursor_hint(frame: &[u8]) -> Option<(u32, u8)> {
 mod tests {
     use super::*;
     use crate::client_surface::OP_SURFACE_INPUT;
-
-    #[test]
-    fn surface_region_round_trip_and_bounds() {
-        let (f, n) = encode_surface_region(REGION_HOUR_24, "de-DE", "Europe/Berlin", "de").unwrap();
-        assert_eq!(
-            decode_surface_region(&f[..n]),
-            Some((REGION_HOUR_24, "de-DE", "Europe/Berlin", "de"))
-        );
-        // Empty locale/keymap are valid (unset); oversize rejects on encode.
-        let (f, n) = encode_surface_region(REGION_HOUR_12, "", "UTC", "").unwrap();
-        assert_eq!(decode_surface_region(&f[..n]), Some((REGION_HOUR_12, "", "UTC", "")));
-        assert!(encode_surface_region(0, "x-way-too-long-locale", "UTC", "").is_none());
-        assert!(encode_surface_region(0, "de", "UTC", "way-too-long").is_none());
-        // A pre-8b frame WITHOUT the keymap tail decodes with an empty tag.
-        let (f, n) = encode_surface_region(0, "de", "UTC", "").unwrap();
-        assert_eq!(decode_surface_region(&f[..n - 1]), Some((0, "de", "UTC", "")));
-        // Reject paths: truncation into the tz field + lying length fields.
-        assert_eq!(decode_surface_region(&f[..n - 2]), None);
-        let mut lying = f;
-        lying[5] = 12;
-        assert_eq!(decode_surface_region(&lying[..n]), None);
-    }
 
     #[test]
     fn surface_cursor_hint_round_trip() {

@@ -36,9 +36,9 @@ impl DisplayServerRuntime {
         self.shell_config = cfg;
         // The chrome IS the DSL shell app-host's surface now — a shell switch
         // just changes policy (chrome flag, lockdown) and repaints everything.
-        // Push the new profile so every app-host re-mounts with the matching
-        // `ui/platform/<profile>/` override arms (tablet ⇄ desktop).
-        self.push_app_profile();
+        // Apps re-select their `ui/platform/<profile>/` arms via the RFC-0083
+        // snapshot (reemit, no remount).
+        self.presentation_changed();
         self.queue_full_frame_damage();
     }
 
@@ -58,40 +58,11 @@ impl DisplayServerRuntime {
             return;
         };
         match control {
-            wire::CONTROL_THEME => {
-                let mode = if value == wire::THEME_LIGHT {
-                    crate::theme::ThemeMode::Light
-                } else {
-                    crate::theme::ThemeMode::Dark
-                };
-                self.set_theme_mode(mode);
-                #[cfg(all(nexus_env = "os", target_os = "none"))]
-                {
-                    // Dual-authority window (P3): the CONTROL path persists;
-                    // the settingsd echo re-applies idempotently. Flips to
-                    // settingsd-only in P4.
-                    let _ = crate::settings_client::set_theme_mode(mode);
-                }
-            }
-            wire::CONTROL_SHELL_PROFILE => {
-                self.set_shell_profile_wire(value, true);
-            }
-            wire::CONTROL_THEME_ACCENT => {
-                // Accent-palette pick: store + re-push the packed theme byte
-                // to every app-host (they re-mount with the accent override),
-                // then persist. windowd's own chrome has no accent-role
-                // pixels today, so no local repaint beyond the push.
-                if self.theme_accent != value {
-                    self.theme_accent = value;
-                    self.push_app_theme();
-                    self.presentation_changed();
-                    let _ = debug_println(&alloc::format!("uitheme: accent switched (to={value})"));
-                    #[cfg(all(nexus_env = "os", target_os = "none"))]
-                    {
-                        let _ = crate::settings_client::set_theme_accent(value);
-                    }
-                }
-            }
+            // RFC-0083 P5: CONTROL_THEME / CONTROL_THEME_ACCENT /
+            // CONTROL_SHELL_PROFILE are RETIRED — settings writes go to
+            // settingsd (the one authority) and arrive back as watch events.
+            // Their numbers stay reserved in the wire crate; an old sender is
+            // answered like any unknown control (reported, not silent).
             wire::CONTROL_LAUNCH_PENDING => {
                 // Shell-initiated app launch (svc.ability.launch): show the
                 // wait ring until the fresh window's surface arrives.
@@ -141,33 +112,23 @@ impl DisplayServerRuntime {
     }
 
     /// Switch the shell to the product matching a `PROFILE_*` wire tag
-    /// (tablet ⇄ desktop), optionally persisting `ui.shell.mode`. No-op when
-    /// the profile already matches (idempotent — the boot restore path).
-    pub(crate) fn set_shell_profile_wire(&mut self, profile: u8, persist: bool) {
+    /// (tablet ⇄ desktop). APPLY-ONLY (RFC-0083): settingsd owns
+    /// `ui.shell.mode` — this runs on its watch events and never persists.
+    /// No-op when the profile already matches (idempotent — the registration
+    /// burst is the boot restore path).
+    pub(crate) fn set_shell_profile_wire(&mut self, profile: u8) {
         use nexus_display_proto::client_surface as wire;
-        let (product, mode_str) = if profile == wire::PROFILE_TABLET {
-            ("tablet", "tablet")
+        let product = if profile == wire::PROFILE_TABLET {
+            "tablet"
         } else {
             // The `default` product carries the desktop profile/shell.
-            ("default", "desktop")
+            "default"
         };
         if self.shell_profile_wire() == profile {
             return;
         }
         let cfg = systemui::shell_config_for(product);
         self.apply_shell_config(cfg);
-        // RFC-0083: profile is part of the presentation snapshot.
-        self.presentation_changed();
-        #[cfg(all(nexus_env = "os", target_os = "none"))]
-        if persist {
-            if crate::settings_client::set_shell_mode(mode_str) {
-                let _ = debug_println("windowd: shell mode persist ok");
-            } else {
-                let _ = debug_println("windowd: shell mode persist unroutable");
-            }
-        }
-        #[cfg(not(all(nexus_env = "os", target_os = "none")))]
-        let _ = (persist, mode_str);
     }
 
     /// Launch an installed app that windowd does not host directly (e.g. a real
@@ -290,11 +251,10 @@ impl DisplayServerRuntime {
                 crate::theme::ThemeMode::Light => b"windowd: wallpaper swapped light\n".as_slice(),
             });
         }
-        // Live re-theme: tell the app-client so it re-renders in the new mode.
-        self.push_app_theme();
         // The app-client window chrome follows the theme (re-rendered from
-        // `self.theme()`); app/shell CONTENT re-themes via the pushed
-        // OP_SURFACE_THEME (the DSL apps remount in the new mode).
+        // `self.theme()`); app/shell CONTENT re-themes via the RFC-0083
+        // presentation snapshot (reemit, no remount) — pumped after the
+        // generation bump below.
         for slot in self.apps.iter_mut() {
             slot.win.surface_dirty = true;
             slot.surface_dirty_rows = None; // re-theme: full re-blit (chrome too)

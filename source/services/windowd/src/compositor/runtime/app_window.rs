@@ -657,11 +657,10 @@ impl DisplayServerRuntime {
             let _ = debug_println(&alloc::format!(
                 "WINDOWD: app event channel attached nonce={nonce:#x}"
             ));
-            // Push theme + shell profile + region NOW (before the app
-            // mounts) so it renders with the compositor's tokens, the right
-            // `ui/platform/<profile>/` arms and correct clock/locale data
-            // from the first frame (see `region.rs::send_attach_pushes`).
-            self.send_attach_pushes(slot);
+            // The presentation snapshot (theme+profile+region, RFC-0083)
+            // reaches this channel via `pump_presentation` — `note_bound`
+            // above marked it due, the next loop iteration delivers it, and
+            // the app's boot wait consumes it before mounting.
             // Complete a desktop bind that raced ahead of this attach (if any).
             self.complete_deferred_desktop_bind(nonce, slot);
             // Flush a PARKED intent reply for this nonce (boot-park track):
@@ -699,21 +698,6 @@ impl DisplayServerRuntime {
     /// Sends the active shell profile to EVERY connected app-host (floating
     /// window, desktop shell, pending channels) — the live Desktop/Tablet
     /// switch; apps re-mount so their platform override arms re-select.
-    pub(crate) fn push_app_profile(&mut self) {
-        use nexus_display_proto::client_surface as wire;
-        let frame = wire::encode_surface_profile(self.shell_profile_wire());
-        #[cfg(nexus_env = "os")]
-        {
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-            if let Some(slot) = self.desktop_channel {
-                let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
-            }
-            for e in &self.event_channels[..self.event_channels_len] {
-                let _ = nexus_abi::ipc_send_v1(e.1, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
-            }
-        }
-    }
-
     /// Sends the active theme mode to the app on its event channel (`chrome =
     /// intent ⟂ policy` for colours too: the WM owns the theme, apps follow).
     /// The packed theme byte for `OP_SURFACE_THEME` pushes: low nibble =
@@ -725,23 +709,6 @@ impl DisplayServerRuntime {
             crate::theme::ThemeMode::Light => wire::THEME_LIGHT,
         };
         wire::pack_theme(mode, self.theme_accent)
-    }
-
-    pub(crate) fn push_app_theme(&mut self) {
-        use nexus_display_proto::client_surface as wire;
-        let frame = wire::encode_surface_theme(self.theme_wire_byte());
-        // Live re-theme reaches EVERY connected app-host: every window's channel
-        // is in `event_channels` (nonce-bound), the desktop's is separate.
-        #[cfg(nexus_env = "os")]
-        {
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-            if let Some(slot) = self.desktop_channel {
-                let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
-            }
-            for e in &self.event_channels[..self.event_channels_len] {
-                let _ = nexus_abi::ipc_send_v1(e.1, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
-            }
-        }
     }
 
     /// Sends one app-bound frame (input event or surface ack) on the

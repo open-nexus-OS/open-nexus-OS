@@ -158,18 +158,17 @@ pub fn decode_surface_layers(
     Some((surface_id, count))
 }
 
-/// windowd → app: the active theme mode, so an app renders with the SAME
-/// tokens as the compositor (dark desktop ⇒ dark app) and re-themes on a live
-/// light/dark toggle. Sent when the app event channel attaches (before the app
-/// mounts) and again on every theme change. Payload: `mode:u8` (`THEME_*`).
+/// RETIRED (RFC-0083 P5, number reserved forever — never reuse): the
+/// standalone theme push. Theme mode + accent now travel in the versioned
+/// presentation snapshot (`surface_settings::OP_SURFACE_SETTINGS = 26`).
 pub const OP_SURFACE_THEME: u8 = 16;
 /// Theme modes (align with windowd `ThemeMode` + the DSL `LightTokens`/`DarkTokens`).
 pub const THEME_LIGHT: u8 = 0;
 pub const THEME_DARK: u8 = 1;
 /// The theme byte packs `mode | accent << 4`: the LOW nibble is the mode
 /// (`THEME_*`), the HIGH nibble the accent-palette index (0 = the theme's
-/// built-in accent — the historical byte layout, so old encoders stay
-/// valid). Split with these on decode.
+/// built-in accent). Lives on inside the presentation snapshot's `theme`
+/// field; split with these on decode.
 pub const THEME_MODE_MASK: u8 = 0x0F;
 pub const THEME_ACCENT_SHIFT: u8 = 4;
 
@@ -185,65 +184,20 @@ pub fn unpack_theme(byte: u8) -> (u8, u8) {
     (byte & THEME_MODE_MASK, byte >> THEME_ACCENT_SHIFT)
 }
 
-pub const SURFACE_THEME_FRAME_LEN: usize = HEADER_LEN + 1;
-
-/// Encodes the theme mode.
-#[must_use]
-pub fn encode_surface_theme(mode: u8) -> [u8; SURFACE_THEME_FRAME_LEN] {
-    let mut f = [0u8; SURFACE_THEME_FRAME_LEN];
-    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_THEME));
-    f[4] = mode;
-    f
-}
-
-/// `mode`.
-#[must_use]
-pub fn decode_surface_theme(frame: &[u8]) -> Option<u8> {
-    if !has_op(frame, OP_SURFACE_THEME) || frame.len() != SURFACE_THEME_FRAME_LEN {
-        return None;
-    }
-    Some(frame[4])
-}
-
-/// windowd → app: the active SHELL PROFILE, so an app's `device.profile`
-/// matches the environment's windowing policy and the compiler's
-/// `ui/platform/<profile>/` override arms select at runtime (tablet default,
-/// desktop override). Sent when the app event channel attaches (before mount)
-/// and again on every mode switch (Control Center Desktop/Tablet toggle →
-/// `ui.shell.mode`). Payload: `profile:u8` (`PROFILE_*`).
+/// RETIRED (RFC-0083 P5, number reserved forever — never reuse): the
+/// standalone shell-profile push, folded into the presentation snapshot.
 pub const OP_SURFACE_PROFILE: u8 = 17;
-/// Shell profiles (align with the DSL `device.profile` vocabulary).
+/// Shell profiles (align with the DSL `device.profile` vocabulary; the
+/// snapshot's `profile` field).
 pub const PROFILE_TABLET: u8 = 0;
 pub const PROFILE_DESKTOP: u8 = 1;
 pub const PROFILE_PHONE: u8 = 2;
 pub const PROFILE_TV: u8 = 3;
 
-pub const SURFACE_PROFILE_FRAME_LEN: usize = HEADER_LEN + 1;
-
-/// Encodes the shell profile.
-#[must_use]
-pub fn encode_surface_profile(profile: u8) -> [u8; SURFACE_PROFILE_FRAME_LEN] {
-    let mut f = [0u8; SURFACE_PROFILE_FRAME_LEN];
-    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_PROFILE));
-    f[4] = profile;
-    f
-}
-
-/// `profile`.
-#[must_use]
-pub fn decode_surface_profile(frame: &[u8]) -> Option<u8> {
-    if !has_op(frame, OP_SURFACE_PROFILE) || frame.len() != SURFACE_PROFILE_FRAME_LEN {
-        return None;
-    }
-    Some(frame[4])
-}
-
-/// app → windowd: a PRESENTATION CONTROL request from a shell surface (the
-/// Control Center / settings toggles). windowd is the single authority for
-/// presentation modes: it applies the change LIVE (theme swap / shell-config
-/// switch + profile push) and persists it via settingsd — the same path as
-/// the native toggle, so a DSL shell can never desynchronize the compositor.
-/// Payload: `control:u8, value:u8`.
+/// app → windowd: a WINDOW control request (`CONTROL_WIN_*` + the launch
+/// wait-ring hint). Settings are NOT controls any more (RFC-0083): theme,
+/// accent and shell mode route to settingsd like every other key and come
+/// back as watch events. Payload: `control:u8, value:u8`.
 pub const OP_SURFACE_CONTROL: u8 = 18;
 
 /// Frame pulse (the Choreographer contract): a client that is ANIMATING
@@ -291,16 +245,15 @@ pub fn decode_surface_frame(frame: &[u8]) -> Option<u32> {
     }
     Some(u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]))
 }
-/// Control kinds.
-pub const CONTROL_THEME: u8 = 0; // value = THEME_*
-pub const CONTROL_SHELL_PROFILE: u8 = 1; // value = PROFILE_*
+/// Control kinds. 0/1/3 are RETIRED (RFC-0083 P5, values reserved forever):
+/// theme, shell profile and accent are settingsd keys now, not compositor
+/// controls — windowd answers an old sender like any unknown control.
+pub const CONTROL_THEME: u8 = 0;
+pub const CONTROL_SHELL_PROFILE: u8 = 1;
 /// A shell-initiated app launch is pending: the compositor shows the wait
 /// cursor (loading ring) until the fresh window's surface arrives (value
 /// unused). Fire-and-forget hint — losing it only skips the ring.
 pub const CONTROL_LAUNCH_PENDING: u8 = 2;
-/// The user picked an accent-palette color (settings → Erscheinungsbild).
-/// value = palette index (0 = the theme's built-in accent). windowd stores
-/// it and re-pushes `OP_SURFACE_THEME` with the packed byte to every app.
 pub const CONTROL_THEME_ACCENT: u8 = 3;
 /// App-chrome window controls (the app-icon dropdown of a client-chrome
 /// window): windowd applies the action to the SENDING client's window.
@@ -817,28 +770,15 @@ mod tests {
 
     #[test]
     fn control_round_trip_and_guards() {
-        let f = encode_surface_control(CONTROL_SHELL_PROFILE, PROFILE_DESKTOP);
-        assert_eq!(decode_surface_control(&f), Some((CONTROL_SHELL_PROFILE, PROFILE_DESKTOP)));
+        let f = encode_surface_control(CONTROL_WIN_MODE, 0x24);
+        assert_eq!(decode_surface_control(&f), Some((CONTROL_WIN_MODE, 0x24)));
         assert_eq!(decode_surface_control(&f[..f.len() - 1]), None);
-    }
-
-    #[test]
-    fn profile_round_trip_and_guards() {
-        let f = encode_surface_profile(PROFILE_TABLET);
-        assert_eq!(decode_surface_profile(&f), Some(PROFILE_TABLET));
-        assert_eq!(decode_surface_profile(&f[..f.len() - 1]), None);
-        let d = encode_surface_profile(PROFILE_DESKTOP);
-        assert_eq!(decode_surface_profile(&d), Some(PROFILE_DESKTOP));
-    }
-
-    #[test]
-    fn theme_round_trip_and_guards() {
-        let f = encode_surface_theme(THEME_DARK);
-        assert_eq!(decode_surface_theme(&f), Some(THEME_DARK));
-        assert_eq!(decode_surface_theme(&f[..f.len() - 1]), None);
-        let mut wrong = f;
-        wrong[3] = OP_SURFACE_RECT;
-        assert_eq!(decode_surface_theme(&wrong), None);
+        // Retired control VALUES stay reserved (never reused) — pin them.
+        assert_eq!(
+            (CONTROL_THEME, CONTROL_SHELL_PROFILE, CONTROL_THEME_ACCENT),
+            (0, 1, 3),
+            "retired control ids are reserved forever"
+        );
     }
 
     #[test]

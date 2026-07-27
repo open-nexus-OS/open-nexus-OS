@@ -128,18 +128,6 @@ impl RegionState {
 }
 
 impl DisplayServerRuntime {
-    /// The current region push frame (for attach-time and change pushes).
-    pub(crate) fn region_frame(
-        &self,
-    ) -> Option<([u8; surface_text::SURFACE_REGION_FRAME_MAX], usize)> {
-        surface_text::encode_surface_region(
-            self.region.hour_fmt,
-            self.region.locale_str(),
-            self.region.tz_str(),
-            self.region.keymap_str(),
-        )
-    }
-
     /// Watch subscription staging (frame loop, cheap; one OP_WATCH per frame
     /// so the registration BURSTS — settingsd sends every matching current
     /// value on register, RFC-0083 — stay under the endpoint queue depth).
@@ -227,59 +215,6 @@ impl DisplayServerRuntime {
                 };
                 let len = (len as usize).min(buf.len());
                 self.handle_settings_event(&buf[..len]);
-            }
-        }
-    }
-
-    /// Attach-time pushes (theme + shell profile + region) to a freshly
-    /// attached event channel (moved out of `app_window.rs`, structure gate).
-    #[allow(unused_variables)]
-    pub(crate) fn send_attach_pushes(&self, slot: u32) {
-        #[cfg(nexus_env = "os")]
-        {
-            use nexus_display_proto::client_surface as wire;
-            let frame = wire::encode_surface_theme(self.theme_wire_byte());
-            Self::push_settings_frame(slot, &frame, "attach theme");
-            let pframe = wire::encode_surface_profile(self.shell_profile_wire());
-            Self::push_settings_frame(slot, &pframe, "attach profile");
-            if let Some((rframe, rn)) = self.region_frame() {
-                Self::push_settings_frame(slot, &rframe[..rn], "attach region");
-            }
-        }
-    }
-
-    /// Pushes the current region to every attached surface (apps + desktop).
-    ///
-    /// `Critical`, not fire-and-forget: this carries the locale the user just
-    /// picked, and NOTHING repeats it. The previous one-shot `IPC_SYS_NONBLOCK`
-    /// with a discarded result meant a momentarily full client queue left that
-    /// window in the old language until the next settings change — silently,
-    /// because there was no way to even tell it had happened.
-    #[allow(unused_variables)]
-    pub(crate) fn push_region_to_surfaces(&mut self) {
-        #[cfg(nexus_env = "os")]
-        if let Some((frame, n)) = self.region_frame() {
-            for idx in 0..self.apps.len() {
-                if let Some(slot) = self.apps[idx].event_channel {
-                    Self::push_settings_frame(slot, &frame[..n], "region app");
-                }
-            }
-            if let Some(slot) = self.desktop_channel {
-                Self::push_settings_frame(slot, &frame[..n], "region desktop");
-            }
-        }
-    }
-
-    /// One settings push, delivered rather than attempted. Reports a failure
-    /// instead of swallowing it — an undelivered settings frame is invisible
-    /// in the UI and used to be invisible in the log too.
-    #[allow(unused_variables)]
-    pub(crate) fn push_settings_frame(slot: u32, frame: &[u8], what: &str) {
-        #[cfg(nexus_env = "os")]
-        {
-            use crate::client_surface::Delivery;
-            if !super::app_window::send_client_frame(slot, frame, Delivery::Critical) {
-                let _ = debug_println(&alloc::format!("WINDOWD: FAIL {what} push"));
             }
         }
     }

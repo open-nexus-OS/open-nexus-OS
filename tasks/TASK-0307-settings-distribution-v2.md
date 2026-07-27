@@ -1,6 +1,6 @@
 ---
 title: TASK-0307 Settings distribution v2 — single authority, versioned snapshots, repaint not remount
-status: In Progress (2026-07-27) — P0-P4 done (authority flipped; P5 retirement next)
+status: In Progress (2026-07-27) — P0-P5 done (legacy paths deleted; P6 proof next)
 owner: @runtime @ui
 created: 2026-07-27
 links:
@@ -99,6 +99,31 @@ statefsd internals; per-key write ACLs; `_timeout_ms` wiring of DSL svc calls
    script recorded here.
 
 ## Evidence
+
+### P5 — retirement + cleanup (2026-07-27)
+
+Deleted, not just dormant (net -725 lines (120+ / 845-)): windowd's CONTROL_THEME/ACCENT/
+SHELL_PROFILE arms (old senders get the unknown-control report),
+`push_app_theme`/`push_app_profile`/`send_attach_pushes`/
+`push_region_to_surfaces`/`push_settings_frame`/`region_frame`;
+`settings_client` reduced to the cached route lookup the watch subscription
+needs (its header rewritten to match); `set_shell_profile_wire` lost its
+`persist` flag (apply-only forever). app-host: BOTH remount arms deleted —
+`mount_restoring` survives only for the initial mount; the boot wait and
+every race-stash decode OP 26 only (buffers 64→96, a 70-byte snapshot no
+longer truncates into an undecodable frame); `presentation_control` is
+window-controls-only. Wire: codecs for 16/17/23 deleted, the op numbers and
+control values 0/1/3 documented reserved-forever and PINNED in a test;
+`pack_theme`/`THEME_*`/`PROFILE_*`/`REGION_*` live on as snapshot vocabulary.
+
+Deliberately NOT retired: the 0x40/0x41 watch side channel — P3's measured
+kernel finding made it the shipping mechanism (the plan's retirement bullet
+assumed in-band delivery worked).
+
+Boot (14-25-37): snapshot-only end to end — `APPHOST: settings received`
+(boot wait consumed OP 26), ZERO legacy `theme/profile received`, 5 gen
+markers, locale applied, all bursts `sync 5/5|2/2|1/1`, ladder green
+(chronic `qos FAIL` only). Tree grep-clean of every deleted symbol.
 
 ### P4 — authority flip (2026-07-27)
 

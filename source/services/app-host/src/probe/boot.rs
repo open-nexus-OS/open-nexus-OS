@@ -144,17 +144,18 @@ pub(super) struct RegionPush {
     pub keymap: alloc::string::String,
 }
 
-/// Stashes `frame` when it is a region push (LATEST wins). False otherwise.
+/// Stashes the region half of an RFC-0083 presentation snapshot (LATEST
+/// wins). False for any other frame. (The legacy `OP_SURFACE_REGION` push is
+/// retired — the snapshot is the only region carrier.)
 pub(super) fn stash_region(frame: &[u8], slot: &mut Option<RegionPush>) -> bool {
-    let Some((hf, loc, tzv, km)) = nexus_display_proto::surface_text::decode_surface_region(frame)
-    else {
+    let Some(snap) = nexus_display_proto::surface_settings::decode_surface_settings(frame) else {
         return false;
     };
     *slot = Some(RegionPush {
-        hour_fmt: hf,
-        locale: alloc::string::String::from(loc),
-        tz: alloc::string::String::from(tzv),
-        keymap: alloc::string::String::from(km),
+        hour_fmt: snap.hour_fmt,
+        locale: alloc::string::String::from(snap.locale),
+        tz: alloc::string::String::from(snap.tz),
+        keymap: alloc::string::String::from(snap.keymap),
     });
     true
 }
@@ -175,18 +176,6 @@ pub(super) fn drain_region(events: &KernelClient, slot: &mut Option<RegionPush>)
         if stash_region(&frame[..len], slot) {
             break;
         }
-        // RFC-0083: a queued presentation snapshot carries the region too.
-        if let Some(snap) =
-            nexus_display_proto::surface_settings::decode_surface_settings(&frame[..len])
-        {
-            *slot = Some(RegionPush {
-                hour_fmt: snap.hour_fmt,
-                locale: alloc::string::String::from(snap.locale),
-                tz: alloc::string::String::from(snap.tz),
-                keymap: alloc::string::String::from(snap.keymap),
-            });
-            break;
-        }
     }
 }
 
@@ -199,58 +188,39 @@ pub(super) fn send_cursor_hint(client: &KernelClient, surface_id: u32, over_text
     let _ = client.send(&hint, Wait::NonBlocking);
 }
 
-/// Bounded wait for windowd's boot pushes (`OP_SURFACE_THEME` +
-/// `OP_SURFACE_PROFILE`, or the RFC-0083 `OP_SURFACE_SETTINGS` snapshot that
-/// carries both — sent when the event channel attaches, before we mount).
-/// Returns `(theme, profile, settings_gen)`; defaults (dark / tablet, the
-/// compositor defaults) if nothing arrives in time — the app still renders,
-/// just possibly not matched until the next push. A region push interleaving
-/// here is STASHED for the post-mount apply, never dropped; a snapshot's
-/// `gen` is returned so the main loop's dedupe starts in sync (a dropped
-/// gen would mark the boot snapshot as never-delivered and it IS delivered).
+/// Bounded wait for windowd's boot push: the RFC-0083 `OP_SURFACE_SETTINGS`
+/// snapshot (theme + accent + profile + region in ONE frame, marked due at
+/// event-channel attach and delivered by the next compositor pump — before we
+/// mount). Returns `(theme, profile, settings_gen)`; compositor defaults
+/// (dark / tablet) if nothing arrives in time — the app still renders, just
+/// possibly not matched until the next push. The snapshot's `gen` seeds the
+/// main loop's dedupe (the boot snapshot IS delivered — a dropped gen would
+/// mark it as never-sent).
 pub(super) fn wait_for_boot_pushes(
     events: &KernelClient,
     region: &mut Option<RegionPush>,
 ) -> (u8, u8, Option<u32>) {
     let start = nsec().unwrap_or(0);
     let mut frame = [0u8; 96];
-    let mut theme: Option<u8> = None;
-    let mut profile: Option<u8> = None;
-    let mut gen: Option<u32> = None;
     loop {
         if let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
-            if let Some(mode) = wire::decode_surface_theme(&frame[..len]) {
-                raw_marker("APPHOST: theme received");
-                theme = Some(mode);
-            } else if let Some(p) = wire::decode_surface_profile(&frame[..len]) {
-                raw_marker("APPHOST: profile received");
-                profile = Some(p);
-            } else if let Some(snap) =
+            if let Some(snap) =
                 nexus_display_proto::surface_settings::decode_surface_settings(&frame[..len])
             {
                 raw_marker("APPHOST: settings received");
-                theme = Some(snap.theme);
-                profile = Some(snap.profile);
-                gen = Some(snap.gen);
                 *region = Some(RegionPush {
                     hour_fmt: snap.hour_fmt,
                     locale: alloc::string::String::from(snap.locale),
                     tz: alloc::string::String::from(snap.tz),
                     keymap: alloc::string::String::from(snap.keymap),
                 });
-            } else {
-                let _ = stash_region(&frame[..len], region);
+                return (snap.theme, snap.profile, Some(snap.gen));
             }
-            if let (Some(t), Some(p)) = (theme, profile) {
-                return (t, p, gen);
-            }
+            // Anything else queued pre-mount (acks from a prior life, input)
+            // is not ours to interpret yet — drop and keep waiting.
         }
         if nsec().unwrap_or(u64::MAX).saturating_sub(start) > 500_000_000 {
-            return (
-                theme.unwrap_or(wire::THEME_DARK),
-                profile.unwrap_or(wire::PROFILE_TABLET),
-                gen,
-            );
+            return (wire::THEME_DARK, wire::PROFILE_TABLET, None);
         }
         let _ = yield_();
     }
@@ -317,7 +287,7 @@ pub(super) fn request_content_rect(
     // Attempt 1 pays the full early-boot budget; attempt 2 re-drives the ask
     // with a short budget, so a LOST intent costs ~1s instead of a session.
     const BUDGETS_NS: [u64; 2] = [8_000_000_000, 1_000_000_000];
-    let mut frame = [0u8; 64];
+    let mut frame = [0u8; 96];
     for (attempt, budget_ns) in BUDGETS_NS.iter().enumerate() {
         let mut sent = false;
         for _ in 0..SEND_RETRIES {
@@ -427,7 +397,9 @@ pub(super) fn recv_ack(
     pending_rect: &mut Option<(u16, u16)>,
     region: &mut Option<RegionPush>,
 ) -> Result<u32, &'static str> {
-    let mut frame = [0u8; 64];
+    // 96: an RFC-0083 snapshot (max 70 bytes) may race the ack on this
+    // channel — a 64-byte buffer would truncate it into an undecodable frame.
+    let mut frame = [0u8; 96];
     let start = nsec().unwrap_or(0);
     loop {
         match client.recv_into(Wait::NonBlocking, &mut frame) {

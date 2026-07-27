@@ -117,52 +117,41 @@ impl AppEffectHost {
         Ok(Value::Bool(ok))
     }
 
-    /// Sends a presentation control to windowd on the surface request channel
-    /// (fire-and-forget NONBLOCK; windowd pushes the resulting theme/profile
-    /// back over the event channel, which re-mounts the view).
+    /// Sends a WINDOW control to windowd on the surface request channel
+    /// (fire-and-forget NONBLOCK). RFC-0083 P5: only `window.control`
+    /// (minimize / close / zoom / mode.*) remains — theme, accent and shell
+    /// mode are settings and route to settingsd like every other key; the
+    /// legacy CONTROL_THEME/ACCENT/SHELL_PROFILE mapping is deleted.
     pub(crate) fn presentation_control(&self, key: &str, value: &str) -> Result<Value, u32> {
-        use nexus_abi::settingsd as sw;
         use nexus_display_proto::client_surface as wire;
-        let (control, v) = if key == sw::KEY_UI_THEME_MODE {
-            let v = if value == "light" { wire::THEME_LIGHT } else { wire::THEME_DARK };
-            (wire::CONTROL_THEME, v)
-        } else if key == sw::KEY_UI_THEME_ACCENT {
-            // Accent-palette pick: name → index (unknown names fail closed —
-            // settingsd would refuse them too; the palette is the SSOT).
-            let Some(idx) = nexus_dsl_runtime::theme_tokens::accent_index(value) else {
-                raw_marker("apphost: dsl svc settings.set FAIL (accent name)");
-                return Err(ERR_SVC_UNAVAILABLE);
-            };
-            (wire::CONTROL_THEME_ACCENT, idx)
-        } else if key == "window.control" {
-            // App-chrome window controls (the window-kit app menu). The recv
-            // path carries no sender identity, so the value byte names the
-            // caller's own surface: minimize/close = the surface id; mode =
-            // `id << 4 | WIN_MODE_*` (ids and modes are both < 16).
-            // RECORDED FOLLOW-UP (same class as the CONTROL sender-role
-            // check): a client could name a foreign id — presentation-only
-            // blast radius until per-sender identity lands.
-            let sid = (self.surface_id & 0x0F) as u8;
-            if sid == 0 {
-                raw_marker("apphost: dsl svc settings.set FAIL (no surface id)");
+        if key != "window.control" {
+            raw_marker("apphost: dsl svc settings.set FAIL (not a window control)");
+            return Err(ERR_SVC_UNAVAILABLE);
+        }
+        // App-chrome window controls (the window-kit app menu). The recv
+        // path carries no sender identity, so the value byte names the
+        // caller's own surface: minimize/close = the surface id; mode =
+        // `id << 4 | WIN_MODE_*` (ids and modes are both < 16).
+        // RECORDED FOLLOW-UP (same class as the CONTROL sender-role
+        // check): a client could name a foreign id — presentation-only
+        // blast radius until per-sender identity lands.
+        let sid = (self.surface_id & 0x0F) as u8;
+        if sid == 0 {
+            raw_marker("apphost: dsl svc settings.set FAIL (no surface id)");
+            return Err(ERR_SVC_UNAVAILABLE);
+        }
+        let (control, v) = match value {
+            "minimize" => (wire::CONTROL_WIN_MINIMIZE, sid),
+            "close" => (wire::CONTROL_WIN_CLOSE, sid),
+            // zoom / mode.*: one MODE control; AUTO = toggle fullscreen.
+            "zoom" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_AUTO),
+            "mode.fullscreen" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FULLSCREEN),
+            "mode.freeform" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FREEFORM),
+            "mode.split" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_SPLIT),
+            _ => {
+                raw_marker("apphost: dsl svc settings.set FAIL (window control)");
                 return Err(ERR_SVC_UNAVAILABLE);
             }
-            match value {
-                "minimize" => (wire::CONTROL_WIN_MINIMIZE, sid),
-                "close" => (wire::CONTROL_WIN_CLOSE, sid),
-                // zoom / mode.*: one MODE control; AUTO = toggle fullscreen.
-                "zoom" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_AUTO),
-                "mode.fullscreen" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FULLSCREEN),
-                "mode.freeform" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FREEFORM),
-                "mode.split" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_SPLIT),
-                _ => {
-                    raw_marker("apphost: dsl svc settings.set FAIL (window control)");
-                    return Err(ERR_SVC_UNAVAILABLE);
-                }
-            }
-        } else {
-            let v = if value == "desktop" { wire::PROFILE_DESKTOP } else { wire::PROFILE_TABLET };
-            (wire::CONTROL_SHELL_PROFILE, v)
         };
         let frame = wire::encode_surface_control(control, v);
         // The windowd surface request slot (main.rs WINDOWD_SEND_SLOT).

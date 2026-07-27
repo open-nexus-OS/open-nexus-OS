@@ -108,8 +108,6 @@ impl DisplayServerRuntime {
                     let idx = accent_index(value);
                     if idx != self.theme_accent {
                         self.theme_accent = idx;
-                        // Dual-emit window: legacy packed-byte push + gen bump.
-                        self.push_app_theme();
                         self.presentation_changed();
                         let _ =
                             debug_println(&alloc::format!("uitheme: accent switched (to={idx})"));
@@ -124,14 +122,12 @@ impl DisplayServerRuntime {
                     };
                     // Apply-only (settingsd is the authority; never re-persist
                     // what it just told us). No-op when already current.
-                    self.set_shell_profile_wire(profile, false);
+                    self.set_shell_profile_wire(profile);
                 }
                 _ => {
                     // Region keys (time./ui.locale/input.keymap) + anything
                     // future under the subscribed prefixes RegionState ignores.
                     if self.region.apply(key, value) {
-                        // Dual-emit window: legacy region push + gen bump.
-                        self.push_region_to_surfaces();
                         self.presentation_changed();
                     }
                 }
