@@ -405,21 +405,177 @@ Page P {
     assert_eq!(once, twice, "{once}");
 }
 
-// ------------------------------------------------------------ lowering (P1)
+// --------------------------------------------------------------- lowering
+
+fn lower(src: &str) -> Vec<u8> {
+    let file = parse_file(src).unwrap_or_else(|e| panic!("parses: {e:?}\n{src}"));
+    let (model, diags) = check_file(&file);
+    assert!(!nexus_dsl_core::has_errors(&diags), "{diags:?}\n{src}");
+    let canonical = format_file(&file);
+    nexus_dsl_core::lower_file(&file, &model, &canonical)
+        .unwrap_or_else(|e| panic!("lowers: {e:?}\n{src}"))
+        .nxir
+}
+
+/// The IR v1.5 shape: declaration-order `Component.slots`, and a callsite
+/// carrying only its BOUND slots, ascending by index.
+#[test]
+fn lowering_emits_declaration_order_slots_and_ascending_args() {
+    use nexus_dsl_ir::ui_ir_capnp::view_node;
+
+    // Binds `content` (index 1) before `sidebar` (index 0) on purpose — the
+    // wire form must come out ascending regardless of source order.
+    let nxir = lower(&page(
+        r#"    Frame { contentPanel: true } {
+        content { Text("body") }
+        sidebar { Text("nav") }
+    }"#,
+    ));
+    let reader =
+        nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&nxir).expect("reads back");
+    let root = reader.root().expect("root");
+    let symbols: Vec<String> = root
+        .get_symbols()
+        .expect("symbols")
+        .iter()
+        .map(|s| s.expect("symbol").to_str().expect("utf8").to_owned())
+        .collect();
+    let components = root.get_components().expect("components");
+
+    let frame = (0..components.len())
+        .map(|i| components.get(i))
+        .find(|c| symbols[c.get_name() as usize] == "Frame")
+        .expect("Frame is lowered");
+    let slots: Vec<&str> =
+        frame.get_slots().expect("slots").iter().map(|s| symbols[s as usize].as_str()).collect();
+    assert_eq!(slots, ["sidebar", "content"], "declaration order, not sorted");
+
+    // The page's view holds the single component reference.
+    let page_component = (0..components.len())
+        .map(|i| components.get(i))
+        .find(|c| c.get_is_page())
+        .expect("page is lowered");
+    let view_node::ComponentRef(component_ref) =
+        page_component.get_view().expect("view").which().expect("which")
+    else {
+        panic!("the page's root is the component reference");
+    };
+    let bound: Vec<u16> = component_ref
+        .expect("ref")
+        .get_slots()
+        .expect("slot args")
+        .iter()
+        .map(|a| a.get_slot())
+        .collect();
+    assert_eq!(bound, [0, 1], "canonical form is ascending by slot index");
+}
 
 #[test]
-fn lowering_rejects_slots_until_ir_v1_5() {
-    // Phase 1 contract: slots parse and check, but lowering refuses loudly
-    // rather than silently dropping the content regions.
-    let src = page(r#"    Frame { contentPanel: true } { content { Text("x") } }"#);
-    let file = parse_file(&src).expect("parses");
-    let (model, diags) = check_file(&file);
-    assert!(!nexus_dsl_core::has_errors(&diags), "{diags:?}");
-    let canonical = format_file(&file);
-    match nexus_dsl_core::lower_file(&file, &model, &canonical) {
-        Ok(_) => panic!("slots must not lower before IR v1.5"),
-        Err(err) => assert_eq!(err.code, DiagCode::LoweringUnsupported),
+fn unbound_slots_are_absent_from_the_wire() {
+    use nexus_dsl_ir::ui_ir_capnp::view_node;
+
+    let nxir = lower(&page(r#"    Frame { contentPanel: true } { content { Text("only") } }"#));
+    let reader =
+        nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&nxir).expect("reads back");
+    let root = reader.root().expect("root");
+    let components = root.get_components().expect("components");
+    let page_component =
+        (0..components.len()).map(|i| components.get(i)).find(|c| c.get_is_page()).expect("page");
+    let view_node::ComponentRef(component_ref) =
+        page_component.get_view().expect("view").which().expect("which")
+    else {
+        panic!("component reference");
+    };
+    let bound: Vec<u16> = component_ref
+        .expect("ref")
+        .get_slots()
+        .expect("slot args")
+        .iter()
+        .map(|a| a.get_slot())
+        .collect();
+    // `sidebar` (index 0) is unbound: it contributes NOTHING, not an empty arg.
+    assert_eq!(bound, [1]);
+}
+
+#[test]
+fn slot_programs_lower_deterministically() {
+    let src = page(
+        r#"    Frame { contentPanel: true } {
+        sidebar { Text("nav") }
+        content { Panel { Text("a") } Panel { Text("b") } }
+    }"#,
+    );
+    assert_eq!(lower(&src), lower(&src), "same source, byte-identical .nxir");
+}
+
+#[test]
+fn slot_body_node_ids_are_disjoint() {
+    use nexus_dsl_ir::ui_ir_capnp::view_node;
+
+    let nxir = lower(&page(
+        r#"    Frame { contentPanel: true } {
+        sidebar { Text("nav") }
+        content { Text("body") }
+    }"#,
+    ));
+    let reader =
+        nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&nxir).expect("reads back");
+    let root = reader.root().expect("root");
+    let components = root.get_components().expect("components");
+
+    fn collect(node: view_node::Reader<'_>, out: &mut Vec<u64>) {
+        out.push(node.get_node_id());
+        match node.which().expect("which") {
+            view_node::Widget(w) => {
+                for child in w.expect("widget").get_children().expect("children").iter() {
+                    collect(child, out);
+                }
+            }
+            view_node::Branch(b) => {
+                let b = b.expect("branch");
+                for arm in b.get_arms().expect("arms").iter() {
+                    for child in arm.get_body().expect("body").iter() {
+                        collect(child, out);
+                    }
+                }
+                for child in b.get_else_body().expect("else").iter() {
+                    collect(child, out);
+                }
+            }
+            view_node::ForEach(f) => collect(f.expect("for").get_template().expect("t"), out),
+            view_node::ComponentRef(c) => {
+                for arg in c.expect("ref").get_slots().expect("slots").iter() {
+                    for child in arg.get_body().expect("body").iter() {
+                        collect(child, out);
+                    }
+                }
+            }
+            view_node::Slot(_) => {}
+        }
     }
+
+    let mut ids = Vec::new();
+    for i in 0..components.len() {
+        collect(components.get(i).get_view().expect("view"), &mut ids);
+    }
+    let mut sorted = ids.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), ids.len(), "slot bodies must not collide with any other node id");
+}
+
+#[test]
+fn validator_accepts_a_slot_program() {
+    let nxir = lower(&page(
+        r#"    Frame { contentPanel: true } {
+        sidebar { Text("nav") }
+        content { Text("body") }
+    }"#,
+    ));
+    let reader =
+        nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&nxir).expect("reads back");
+    nexus_dsl_ir::validate::validate_program(reader.root().expect("root"))
+        .expect("a well-formed slot program validates");
 }
 
 /// Tiny `.pipe` so the reject cases read as `source.pipe(check_codes)`.

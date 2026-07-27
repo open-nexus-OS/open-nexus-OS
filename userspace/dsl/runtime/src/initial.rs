@@ -115,8 +115,21 @@ fn collect_handler_dispatches(
                 collect_handler_dispatches(n, out)?;
             }
         }
-        // A component ref's own view is walked when we iterate all components.
-        Which::ComponentRef(_) => {}
+        // A component ref's own view is walked when we iterate all components,
+        // but its SLOT BODIES live only here — they are the caller's code, so
+        // nothing else visits them. A handler in a slot body dispatching an
+        // event has to count, or that event would look like a root effect and
+        // fire at mount.
+        Which::ComponentRef(c) => {
+            let c = c.map_err(|_| RtError::Malformed)?;
+            for arg in c.get_slots().map_err(|_| RtError::Malformed)?.iter() {
+                for n in arg.get_body().map_err(|_| RtError::Malformed)?.iter() {
+                    collect_handler_dispatches(n, out)?;
+                }
+            }
+        }
+        // The placeholder itself carries no handlers.
+        Which::Slot(_) => {}
     }
     Ok(())
 }

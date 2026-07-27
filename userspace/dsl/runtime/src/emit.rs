@@ -5,7 +5,9 @@
 //! recording state→node dependencies with their invalidation class.
 
 mod modifiers;
+mod slots;
 use modifiers::apply_modifier;
+use slots::{emit_slot_items, SlotFrame};
 
 use crate::anim::{AnimIntent, AnimKind};
 use crate::interact::{HandlerAction, HandlerEntry};
@@ -34,7 +36,11 @@ pub struct Dep {
     pub damage: Damage,
 }
 
-pub(crate) struct EmitCtx<'a> {
+/// `'a` = the current emit frame (borrowed state + the slot-frame chain);
+/// `'p` = the program message the capnp readers point into. Two lifetimes so
+/// a `SlotFrame` can hold readers from the message while borrowing the frame
+/// that created it — without depending on capnp reader variance.
+pub(crate) struct EmitCtx<'a, 'p> {
     pub stores: &'a [StoreState],
     pub locals: &'a mut [Option<Value>],
     pub params: &'a [Value],
@@ -50,10 +56,13 @@ pub(crate) struct EmitCtx<'a> {
     pub anim_intents: &'a mut Vec<(Vec<u32>, AnimIntent)>,
     /// Absolute child-index path of the node currently being emitted.
     pub path: Vec<u32>,
-    pub components: capnp::struct_list::Reader<'a, ir::component::Owned>,
+    pub components: capnp::struct_list::Reader<'p, ir::component::Owned>,
+    /// The slot bodies THIS component instance received (RFC-0084), or `None`
+    /// for a page / a component emitted outside any reference.
+    pub slots: Option<&'a SlotFrame<'a, 'p>>,
 }
 
-impl EmitCtx<'_> {
+impl EmitCtx<'_, '_> {
     fn eval(&mut self, expr: ir::expr::Reader<'_>) -> Result<Value, RtError> {
         let mut ctx = EvalCtx {
             stores: self.stores,
@@ -126,9 +135,9 @@ impl EmitCtx<'_> {
 }
 
 /// Emits one view node into a `LayoutNode`.
-pub(crate) fn emit_view(
-    ctx: &mut EmitCtx<'_>,
-    node: ir::view_node::Reader<'_>,
+pub(crate) fn emit_view<'p>(
+    ctx: &mut EmitCtx<'_, 'p>,
+    node: ir::view_node::Reader<'p>,
 ) -> Result<LayoutNode, RtError> {
     use ir::view_node::Which;
     match node.which().map_err(|_| RtError::Malformed)? {
@@ -200,6 +209,17 @@ pub(crate) fn emit_view(
                 }
                 params.push(value);
             }
+            // The frame the callee's `Slot` placeholders will read. It carries
+            // the CALLER's params and a snapshot of the CALLER's locals, so a
+            // slot body evaluates in the scope it was WRITTEN in — not the one
+            // it is rendered in (RFC-0084 §4). The snapshot is not paranoia:
+            // `locals` are shared across this boundary, so a `for` inside the
+            // callee can overwrite a caller loop binding before the body runs.
+            let frame = SlotFrame {
+                args: component_ref.get_slots().map_err(|_| RtError::Malformed)?,
+                params: ctx.params,
+                locals: ctx.locals.to_vec(),
+            };
             // Emit the component body with its own params (locals shared —
             // slots are per-body and component bodies allocate fresh ones).
             let view = component.get_view().map_err(|_| RtError::Malformed)?;
@@ -217,8 +237,23 @@ pub(crate) fn emit_view(
                 anim_intents: ctx.anim_intents,
                 path,
                 components: ctx.components,
+                slots: Some(&frame),
             };
             emit_view(&mut inner, view)
+        }
+        Which::Slot(slot_ref) => {
+            // A placeholder that is NOT a direct widget child (a lone branch-arm
+            // body, say). The branch precedent applies: one node returns
+            // transparently, zero or many wrap — a wrapper here cannot reset a
+            // parent's flex context because there is no widget parent to reset.
+            // Authors should prefer the widget-child form, which splices.
+            let slot_ref = slot_ref.map_err(|_| RtError::Malformed)?;
+            let mut nodes = Vec::new();
+            emit_slot_items(ctx, slot_ref.get_slot(), &[], 0, &mut nodes)?;
+            if nodes.len() == 1 {
+                return Ok(nodes.remove(0));
+            }
+            Ok(registry::build_widget("Stack", &[], &Mods::default(), ctx.tokens, nodes))
         }
     }
 }
@@ -226,9 +261,9 @@ pub(crate) fn emit_view(
 /// Emits every item of a `ForEach` (List body) directly into `out`, path-
 /// tagged at its REAL tree position (`prefix` + `base + out.len()`), so the
 /// items are honest direct children of whatever node receives `out`.
-fn emit_for_each_items(
-    ctx: &mut EmitCtx<'_>,
-    for_each: ir::for_each::Reader<'_>,
+fn emit_for_each_items<'p>(
+    ctx: &mut EmitCtx<'_, 'p>,
+    for_each: ir::for_each::Reader<'p>,
     prefix: &[u32],
     base: u32,
     out: &mut Vec<LayoutNode>,
@@ -272,9 +307,9 @@ fn emit_for_each_items(
     Ok(())
 }
 
-fn emit_widget(
-    ctx: &mut EmitCtx<'_>,
-    widget: ir::widget::Reader<'_>,
+fn emit_widget<'p>(
+    ctx: &mut EmitCtx<'_, 'p>,
+    widget: ir::widget::Reader<'p>,
 ) -> Result<LayoutNode, RtError> {
     let kind = String::from(ctx.symbol(widget.get_kind()));
 
@@ -359,6 +394,14 @@ fn emit_widget(
             emit_for_each_items(ctx, fe, prefix, base, &mut children)?;
             continue;
         }
+        // A Slot child SPLICES the caller's body into THIS widget for the same
+        // reason (RFC-0084 §5): a wrapper would reset the flex context, so
+        // `Stack { Slot content }.grow(1)` would stop growing the moment the
+        // caller passed more than one node. An unbound slot adds nothing.
+        if let Ok(ir::view_node::Which::Slot(Ok(slot_ref))) = child.which() {
+            emit_slot_items(ctx, slot_ref.get_slot(), prefix, base, &mut children)?;
+            continue;
+        }
         for &seg in prefix {
             ctx.path.push(seg);
         }
@@ -408,7 +451,7 @@ fn loop_subkind(kind: &str, props: &[(String, Value)]) -> Option<i32> {
 /// the committed value so the host can detect a change on the next emit. An
 /// unknown token (the checker rejects it) or a missing value is a no-op.
 pub(super) fn stamp_anim(
-    ctx: &mut EmitCtx<'_>,
+    ctx: &mut EmitCtx<'_, '_>,
     args: capnp::struct_list::Reader<'_, ir::token_arg::Owned>,
     kind: AnimKind,
 ) {

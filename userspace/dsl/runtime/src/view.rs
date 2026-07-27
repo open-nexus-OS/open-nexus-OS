@@ -415,6 +415,8 @@ impl<'p> View<'p> {
             anim_intents: &mut anim_intents,
             path: Vec::new(),
             components,
+            // The entry page has no caller, so no slot frame.
+            slots: None,
         };
         self.scene = emit::emit_view(&mut ctx, view_root)?;
         // Resolve handler paths to pre-order box ids against the new scene.

@@ -19,13 +19,13 @@ use nexus_layout_types::{Align, Direction, EdgeInsets, Justify};
 /// Applies one modifier; mod ids index the compiler catalog
 /// (`nexus-dsl-core::registry::MODIFIERS`) — matched here by stable id order.
 pub(super) fn apply_modifier(
-    ctx: &mut EmitCtx<'_>,
+    ctx: &mut EmitCtx<'_, '_>,
     modifier: ir::modifier::Reader<'_>,
     mods: &mut Mods,
 ) -> Result<(), RtError> {
     let args = modifier.get_args().map_err(|_| RtError::Malformed)?;
     let first = args.iter().next();
-    let token_name = |ctx: &EmitCtx<'_>| -> String {
+    let token_name = |ctx: &EmitCtx<'_, '_>| -> String {
         match first.map(|a| a.which()) {
             Some(Ok(ir::token_arg::Which::Token(sym))) => String::from(ctx.symbol(sym)),
             _ => String::new(),

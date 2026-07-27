@@ -19,7 +19,8 @@
 #   - field numbers are append-only; minor bump = additive with defaults;
 #     major bump = readers reject (docs/dev/dsl/ir.md#schema-evolution-rules)
 #
-# VERSION: 1.2 (TASK-0077B: Handler.bind)
+# VERSION: 1.5 (RFC-0084: component slots — Component.slots, ViewNode.slot,
+#                ComponentRef.slots/SlotArg)
 
 struct UiProgram {
   schemaVersionMajor @0 :UInt16;   # readers reject unknown majors

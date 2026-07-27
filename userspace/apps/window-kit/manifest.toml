@@ -7,6 +7,14 @@
 # contributes `Component` declarations ONLY (TASK-0081 C3); consuming apps
 # name it in `dependencies` and the components compile INTO their .nxir.
 #
+# `WinAppWindow` (RFC-0084) is the three-zone body — sidebar · content ·
+# properties — as content SLOTS. Every region is transparent; the panel-glass
+# background behind one is a per-region prop
+# (`sidebarPanel`/`contentPanel`/`propsPanel`), so an app decides zero, one or
+# several panels per region instead of inheriting a hard-coded pane.
+#   slots  sidebar · content · properties
+#   props  sidebarPanel/contentPanel/propsPanel · showSidebar/showProps (Bool)
+#
 # STORE CONTRACT (the consuming app declares these — the kit dispatches):
 #   fields  menu: Str · leftOpen: Int · rightOpen: Int · tool: Str ·
 #           selection: Str

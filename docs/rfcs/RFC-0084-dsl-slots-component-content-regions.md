@@ -465,10 +465,29 @@ None new. Slots are a compile/emit concern; they change no boot marker.
   eventually be *wired* onto the component's root node. Erroring is the
   smaller and more honest change; wiring means deciding which node they land
   on. Owner: @ui, revisit when a second scaffold component asks for it.
-- Whether `.width($props.n)` with an `Int` prop resolves through
-  `apply_modifier` (lowering produces `TokenArg.expr`; the runtime path is
-  unverified). If not, `WinAppWindow` pins region widths as constants in v1.
-  Owner: @runtime, decided in Phase 4.
+
+### Resolved during implementation
+
+- **`.width($props.n)` does not work — and fails silently.**
+  `runtime/src/emit/modifiers.rs::px_arg` reads only `TokenArg::Int`, so an
+  expression argument yields `None` and the modifier is a no-op. The checker
+  does not object either: `width` has no closed token vocabulary, so
+  `check_token_vocabulary` skips it. `WinAppWindow` therefore pins its region
+  widths as constants (sidebar 240, properties 260).
+
+  This is a defect that predates slots — `Text("x").width($state.w)` has
+  always compiled and always done nothing — and it is the same class as rules
+  9 and 10. Fixing it means deciding the semantics of dynamic sizing (which
+  damage class a size dep carries, whether `.width` may depend on state at
+  all), which is a separate contract. Recorded as a follow-up, not smuggled in
+  here.
+
+- **The `actionBar` slot was dropped.** The plan sketched a fourth slot so the
+  bar's bottom-centre position would belong to the scaffold. It is not needed:
+  an app puts its action bar at the end of its `content` body after a
+  `Spacer`, which is what `StashPage.nx` already does and what boots today.
+  A fourth slot would have added an overlay layer and its hit-testing for no
+  behavior an app cannot express itself. Three slots, one job each.
 
 ---
 

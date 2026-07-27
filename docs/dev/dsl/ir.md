@@ -115,6 +115,41 @@ never a partial mount.
 
 ## Changelog
 
+- **v1.5 (2026-07-27, RFC-0084)** — additive: component **slots**.
+  `Component.slots` (declared slot name symbol ids, in DECLARATION order —
+  that order IS the index space), `ViewNode.slot :SlotRef` (a placeholder
+  addressing the ENCLOSING component's list), `ComponentRef.slots
+  :List(SlotArg)` (bound slots only, **ascending by `slot`** — the canonical
+  form; the validator rejects any other order) and `SlotArg { slot, body }`.
+
+  Two laws are wire-visible. A `SlotArg.body` is lowered ONCE, at the
+  callsite, in the **caller's** scope: `$props`/`$state`/locals/`.key()`
+  inside it resolve against the enclosing component, never the callee. And a
+  bound slot **splices** its N nodes at the placeholder's real tree position —
+  the runtime never inserts a container, because that would reset the flex
+  context and break `.grow`/`.width` on the receiving region. An unbound slot
+  contributes ZERO nodes, never an empty box.
+
+  Node identity for a slot body derives from the caller:
+  `static_node_id(caller, caller_path ++ [0x00F5_0000, slot_idx, j])`. The tag
+  is disjoint from plain child indices and from the branch tags
+  (`(i << 8) | j`, `0xff00 | j`), so ids never collide.
+
+  Validation tightened in the same pass: `ComponentRef.component` is now
+  bounds-checked (it never was — `validate.rs` had a documented no-op arm and
+  the runtime called `components.get(idx)` unguarded), and `count_view_nodes`
+  recurses into `ComponentRef.slots[*].body` so slot bodies count against
+  `maxViewNodes`/`maxChildren` instead of escaping them.
+
+  Compatibility is one-way and stated rather than enforced: `SCHEMA_MAJOR`
+  gates only the major, so an old reader meeting a program that USES `slot`
+  gets `NotInSchema` → `IrError::Malformed`. Everything in-tree builds
+  together; a program using `Slot` requires a runtime at minor ≥ 5.
+
+  Golden refreshed: `proof_surface.nxir` (a slot-free program) changed by
+  exactly 33 bytes — offset 10 (`schemaVersionMinor` 4 → 5) and the 32-byte
+  `programHash`. Same length, no structural drift, which is the additive
+  guarantee holding.
 - **golden refresh (2026-07-17, repo hygiene)** — no schema change: the
   `proof_surface.nxir` golden had drifted behind the boot-proven compiler
   output (post-TASK-0078B emitter state); regenerated via `UPDATE_GOLDENS=1

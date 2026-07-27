@@ -1,0 +1,95 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The window's three-zone body: sidebar · content · properties (RFC-0084).
+//
+// THE POINT OF THIS COMPONENT is what it does NOT paint. Every region is a
+// transparent container; the panel-glass background behind it is a per-region
+// decision the app makes through `sidebarPanel`/`contentPanel`/`propsPanel`.
+// The design handoff hard-codes a pane behind content and properties and
+// denies one to the sidebar — here a settings pane can stack SEVERAL panels
+// inside `content`, a file listing can take exactly one, and a nav sidebar
+// can have one or none. The region's geometry (width, padding, growth) is
+// identical either way: only the background moves.
+//
+// The outer geometry is deliberately the same in both arms of every `if`, so
+// flipping a panel on or off never shifts anything.
+
+Component WinAppWindow {
+    props: {
+        sidebarPanel: Bool,
+        contentPanel: Bool,
+        propsPanel: Bool,
+        showSidebar: Bool,
+        showProps: Bool,
+    }
+    slot sidebar
+    slot content
+    slot properties
+    Stack {
+        // ── sidebar region (240px, collapsible) ──────────────────────
+        if $props.showSidebar {
+            if $props.sidebarPanel {
+                Stack {
+                    Panel {
+                        Slot sidebar
+                    }
+                    .grow(1)
+                }
+                .width(240)
+                .padding(3)
+            } else {
+                Stack {
+                    Slot sidebar
+                }
+                .width(240)
+                .gap(1)
+                .padding(3)
+            }
+        } else {
+            Stack { }
+        }
+        // ── content region (fills the remaining width) ───────────────
+        if $props.contentPanel {
+            Stack {
+                Panel {
+                    Slot content
+                }
+                .grow(1)
+            }
+            .grow(1)
+            .padding(3)
+        } else {
+            Stack {
+                Slot content
+            }
+            .grow(1)
+            .gap(1)
+            .padding(3)
+        }
+        // ── properties region (260px, collapsible) ───────────────────
+        if $props.showProps {
+            if $props.propsPanel {
+                Stack {
+                    Panel {
+                        Slot properties
+                    }
+                    .grow(1)
+                }
+                .width(260)
+                .padding(3)
+            } else {
+                Stack {
+                    Slot properties
+                }
+                .width(260)
+                .gap(1)
+                .padding(3)
+            }
+        } else {
+            Stack { }
+        }
+    }
+    .direction(row)
+    .grow(1)
+}

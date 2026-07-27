@@ -195,10 +195,23 @@ bodies (else a stateful component in a slot body bypasses the
 one-instance guard) · `validate.rs` bounds + budget recursion + the
 `ComponentRef.component` fix.
 
-**Stop condition**: golden `slots.nxir` + byte determinism; five fail-closed
-validator tests (OOB `SlotRef.slot`, OOB `SlotArg.slot`, OOB
-`ComponentRef.component`, non-ascending `slots`, body blowing `maxViewNodes`);
-node-id disjointness.
+**Stop condition**: golden + byte determinism; fail-closed validator tests
+(OOB `SlotRef.slot`, OOB `SlotArg.slot`, OOB `ComponentRef.component`,
+non-ascending `slots`, body over budget); node-id disjointness.
+
+**Result (2026-07-27): green.** 25 tests in
+`tests/dsl_v0_1a_host/tests/slots.rs` (the six new ones cover declaration-order
+`Component.slots`, ascending `ComponentRef.slots`, unbound slots absent from
+the wire, byte determinism, node-id disjointness, validator acceptance) plus
+6 fail-closed tests in `userspace/dsl/ir/tests/validate_slots.rs`, which build
+tampered `.nxir` messages by hand — the compiler cannot produce them, which is
+the point.
+
+The `proof_surface.nxir` golden was regenerated. It moved by **exactly 33
+bytes**: offset 10 (`schemaVersionMinor` 4 → 5) and the 32-byte `programHash`.
+Same length, no structural drift — an empty `Component.slots` costs nothing in
+canonical form, which is the additive guarantee actually holding rather than
+being assumed. Recorded in `docs/dev/dsl/ir.md#changelog` under v1.5.
 
 ### Phase 3 — runtime emit
 
@@ -212,6 +225,26 @@ snapshot · splice in the `emit_widget` child loop **before** the generic path
 `userspace/dsl/runtime/tests/slots.rs` (new file — `layout_viewport.rs` is at
 its baseline).
 
+**Result (2026-07-27): green.** 7/7.
+
+The capnp-lifetime risk did not materialise: `EmitCtx<'a, 'p>` compiled
+without a fight, so the owned-index-handle fallback was never needed.
+
+The two proofs that would have caught a wrong design both do their job:
+
+- *caller props* — two components each declaring a prop `tag`; the body renders
+  the CALLER's, never the callee's;
+- *caller locals* — a slot body inside a `for`, with the callee running its own
+  `for` over a different list before reaching the placeholder. This is the one
+  that fails without the locals snapshot, because `locals` are shared across
+  the component boundary and the callee's loop clobbers the caller's binding
+  before the body is emitted.
+
+One walker needed slot bodies that the plan did not name:
+`runtime/src/initial.rs::collect_handler_dispatches`. Slot bodies live only
+inside the `ComponentRef`, so nothing else visits them — a handler in a body
+dispatching an event would otherwise look like a ROOT effect and fire at mount.
+
 ### Phase 4 — `WinAppWindow` + window-kit chrome
 
 New `userspace/apps/window-kit/ui/components/WinAppWindow.nx` (slots
@@ -222,9 +255,44 @@ New `userspace/apps/window-kit/ui/components/WinAppWindow.nx` (slots
 `WinTopBar` `tool*Active` + dividers + app-chip chevron · `WinPropRow` on the
 design metrics.
 
-**Stop condition**: new `tests/dsl_apps_conformance/tests/stash.rs` with
-`stash_compiles_and_mounts` (missing today) + a region-configuration test
-asserting zero/one/many panels per region.
+**Stop condition**: a region-configuration test asserting zero/one/many panels
+per region.
+
+**Result (2026-07-27): the scaffold is green** —
+`userspace/apps/window-kit/ui/components/WinAppWindow.nx` + 6 tests in
+`tests/dsl_apps_conformance/tests/window_kit.rs`. The remaining Phase-4 items
+(`WinActionItem.act`, `WinTopBar` chrome, `WinPropRow` metrics) ride with the
+Stash rebuild in Phase 5, where their effect is visible.
+
+Three regions, not four: the `actionBar` slot was dropped (see the RFC's
+resolved-questions section — an app puts its bar at the end of its `content`
+body after a `Spacer`, which is what boots today).
+
+What the tests actually pin:
+
+- **every region is transparent by default** — glass count 0 with all flags
+  off. This is the ask, stated as an assertion.
+- **panels are opt-in per region** — each flag alone paints exactly one panel;
+  all three paint three.
+- **a region takes several stacked panels** — `contentPanel: false` plus three
+  `Panel`s in the body = three, the settings case.
+- **flipping a panel on keeps the region rects** — `(0,0,240,800)`,
+  `(240,0,780,800)`, `(1020,0,260,800)` in both configurations.
+
+That last test was initially written to assert that NOTHING moves, and it
+failed — correctly. A `Panel` brings its own padding, so content inside a
+panelled region is inset by 12px more, and the panel adds its own box. The
+honest contract is the one now asserted: the region rects are identical, the
+content inside a panel is inset by the panel. The over-strong version would
+have been a false claim.
+
+**Region widths are constants (240 / 260), not props.**
+`.width($props.n)` is a SILENT no-op: `runtime/src/emit/modifiers.rs::px_arg`
+reads only `TokenArg::Int`, so an expression argument resolves to `None`, and
+the checker does not object because `width` has no closed token vocabulary.
+That defect predates slots (`Text("x").width($state.w)` has always compiled and
+always done nothing) and fixing it means deciding the semantics of dynamic
+sizing. Recorded as a follow-up rather than smuggled into this task.
 
 ### Phase 5 — Stash rebuild, structural parity
 

@@ -43,6 +43,12 @@ pub(super) fn build_components(
                     lower_type(&prop.ty, pb.init_type());
                     env.params.insert(prop.name.text.clone(), j as u32);
                 }
+                // DECLARATION order, not sorted: this list defines the index
+                // space every `SlotRef`/`SlotArg` addresses (RFC-0084 §6).
+                let mut slots = b.reborrow().init_slots(component.slots.len() as u32);
+                for (j, slot) in component.slots.iter().enumerate() {
+                    slots.set(j as u32, ctx.sym(&slot.text));
+                }
                 &component.view
             }
         };
@@ -66,7 +72,7 @@ fn lower_view(
         ViewNode::Widget(widget) => {
             let is_component = ctx.component_index.contains_key(widget.name.text.as_str());
             if is_component {
-                lower_component_ref(ctx, env, widget, b)
+                lower_component_ref(ctx, env, component, path, widget, b)
             } else {
                 lower_widget(ctx, env, component, path, widget, b)
             }
@@ -152,11 +158,18 @@ fn lower_view(
             path.pop();
             Ok(())
         }
-        // RFC-0084 Phase 2 wires slots into IR v1.5; until then the frontend
-        // parses and checks them but lowering refuses — explicitly, so no
-        // program silently loses its content regions.
-        ViewNode::Slot { span, .. } => {
-            Err(unsupported(*span, "`Slot` placeholders (RFC-0084 lands them in IR v1.5)"))
+        ViewNode::Slot { name, span } => {
+            // The placeholder addresses the ENCLOSING component's slot list
+            // by index. A miss means the checker let something through (it
+            // rejects undeclared placeholders and `Slot` in a page), so this
+            // is a lowering bug, not a user error — but stay fail-closed.
+            let index = ctx
+                .component_slots
+                .get(component)
+                .and_then(|slots| slots.iter().position(|s| *s == name.text))
+                .ok_or_else(|| unsupported(*span, "a `Slot` with no declaration in scope"))?;
+            b.init_slot().set_slot(index as u16);
+            Ok(())
         }
     }
 }
@@ -347,29 +360,68 @@ fn lower_modifiers(
     Ok(())
 }
 
+/// Path segment that prefixes a slot body, keeping its node ids disjoint from
+/// the caller's own children (plain child indices) and from the branch tags
+/// (`(i << 8) | j` and `0xff00 | j`).
+const SLOT_TAG: u32 = 0x00F5_0000;
+
 fn lower_component_ref(
     ctx: &Ctx<'_>,
     env: &mut Env<'_>,
+    component: &str,
+    path: &mut Vec<u32>,
     widget: &WidgetNode,
     builder: ir::view_node::Builder<'_>,
 ) -> Result<(), Diagnostic> {
     if widget.positional.is_some() {
         return Err(unsupported(widget.span, "positional argument on a component"));
     }
-    if !widget.slot_bodies.is_empty() {
-        return Err(unsupported(widget.span, "slot bodies (RFC-0084 lands them in IR v1.5)"));
-    }
     let mut cr = builder.init_component_ref();
-    cr.set_component(ctx.component_index.get(widget.name.text.as_str()).copied().unwrap_or(0));
+    let callee = widget.name.text.as_str();
+    cr.set_component(ctx.component_index.get(callee).copied().unwrap_or(0));
     // Args name-sorted (canonical).
     let mut args: Vec<(&str, &Expr)> =
         widget.props.iter().map(|(name, value)| (name.text.as_str(), value)).collect();
     args.sort_by_key(|(name, _)| *name);
-    let mut list = cr.init_args(args.len() as u32);
-    for (i, (name, value)) in args.iter().enumerate() {
-        let mut ab = list.reborrow().get(i as u32);
-        ab.set_name(ctx.sym(name));
-        lower_expr(env, value, ab.init_value())?;
+    {
+        let mut list = cr.reborrow().init_args(args.len() as u32);
+        for (i, (name, value)) in args.iter().enumerate() {
+            let mut ab = list.reborrow().get(i as u32);
+            ab.set_name(ctx.sym(name));
+            lower_expr(env, value, ab.init_value())?;
+        }
+    }
+
+    // Slot bodies (RFC-0084). Canonical form is ascending by slot INDEX, and
+    // each body lowers HERE, in the caller's `env` — that is the whole scoping
+    // mechanism: `$props` resolves against `env.params` (the caller's props),
+    // `$state` against the global field map, locals against the caller's loop
+    // bindings. Nothing about the callee is in scope.
+    let declared = ctx.component_slots.get(callee);
+    let mut bound: Vec<(u16, &crate::ast::SlotBinding)> = Vec::new();
+    for binding in &widget.slot_bodies {
+        let index = declared
+            .and_then(|slots| slots.iter().position(|s| *s == binding.name.text))
+            .ok_or_else(|| {
+            unsupported(binding.name.span, "a slot the component does not declare")
+        })?;
+        bound.push((index as u16, binding));
+    }
+    bound.sort_by_key(|(index, _)| *index);
+    let mut slots = cr.init_slots(bound.len() as u32);
+    for (i, (index, binding)) in bound.iter().enumerate() {
+        let mut sb = slots.reborrow().get(i as u32);
+        sb.set_slot(*index);
+        let mut body = sb.init_body(binding.body.len() as u32);
+        path.push(SLOT_TAG);
+        path.push(u32::from(*index));
+        for (j, node) in binding.body.iter().enumerate() {
+            path.push(j as u32);
+            lower_view(ctx, env, component, path, node, body.reborrow().get(j as u32))?;
+            path.pop();
+        }
+        path.pop();
+        path.pop();
     }
     Ok(())
 }

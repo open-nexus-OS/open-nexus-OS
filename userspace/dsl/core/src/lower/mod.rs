@@ -131,6 +131,10 @@ pub(super) struct Ctx<'a> {
     pub query_index: BTreeMap<&'a str, u32>,
     /// The declarations themselves, canonical order (index = spec id).
     pub queries: Vec<&'a crate::ast::QueryDecl>,
+    /// Component name → its declared slot names in DECLARATION order
+    /// (RFC-0084). That order is the index space `SlotRef`/`SlotArg` address,
+    /// so it is deliberately NOT sorted. Pages have no entry.
+    pub component_slots: BTreeMap<&'a str, Vec<&'a str>>,
 }
 
 #[derive(Clone, Copy)]
@@ -285,6 +289,16 @@ impl<'a> Ctx<'a> {
             queries: query_order.iter().map(|&i| model.queries[i]).collect(),
             query_order,
             query_index,
+            component_slots: model
+                .components
+                .iter()
+                .map(|c| {
+                    (
+                        c.name.text.as_str(),
+                        c.slots.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
+                    )
+                })
+                .collect(),
         })
     }
 
