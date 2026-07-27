@@ -1773,11 +1773,19 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
         log_error!(target: "selftest", "KSELFTEST: test_reject_invalid_ipi_target_cpu FAIL");
     }
 
-    let mut offline_target = CpuId::from_raw(2);
-    if crate::smp::cpu_is_online(offline_target) {
-        offline_target = CpuId::from_raw(3);
-    }
-    if !crate::smp::cpu_is_online(offline_target) && !crate::smp::request_resched(offline_target) {
+    // `request_resched` must refuse any CPU that cannot run the request —
+    // one guard, two reasons: `idx >= MAX_CPUS || !cpu_is_online(target)`.
+    //
+    // This used to hunt for a genuinely offline hart (CPU 2, else CPU 3) and
+    // FAIL when it could not find one, which inverted the gate: it passed only
+    // on DEGRADED boots and failed on every healthy 4-hart boot. Now it picks
+    // a real offline hart when one exists and otherwise proves the same guard
+    // against an out-of-range id, so a healthy machine can pass.
+    let offline_target = (0..crate::smp::MAX_CPUS)
+        .map(|i| CpuId::from_raw(i as u16))
+        .find(|c| !crate::smp::cpu_is_online(*c))
+        .unwrap_or_else(|| CpuId::from_raw(crate::smp::MAX_CPUS as u16));
+    if !crate::smp::request_resched(offline_target) {
         log_info!(target: "selftest", "KSELFTEST: test_reject_offline_cpu_resched ok");
     } else {
         log_error!(target: "selftest", "KSELFTEST: test_reject_offline_cpu_resched FAIL");

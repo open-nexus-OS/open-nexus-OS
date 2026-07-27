@@ -15,7 +15,7 @@
 1004	source/init/nexus-init/src/bootstrap/orchestrator.rs
 1784	source/init/nexus-init/src/bootstrap/wiring.rs
 689	source/init/nexus-init/src/std_server.rs
-627	source/kernel/neuron/src/core/smp/mod.rs
+600	source/kernel/neuron/src/core/smp/mod.rs
 1516	source/kernel/neuron/src/core/trap/handler.rs
 803	source/kernel/neuron/src/ipc/mod.rs
 903	source/kernel/neuron/src/mm/address_space.rs

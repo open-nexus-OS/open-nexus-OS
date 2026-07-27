@@ -443,7 +443,25 @@ the peak too: `max=5986us wakes=1 wakeus=5947` — 99 % of the worst sweep was
 one wake. `Scheduler::purge` was cleared by inspection: `sched::Task` is
 `{id, qos}`, so 4 CPUs x 4 short queues cannot cost a millisecond.
 
-**Target: get `sbi::send_ipi` out of the BKL.** `request_resched` already sets
+**FIXED 2026-07-27 — redundancy, not deferral.** Moving the IPI outside the
+lock needs a flush on every kernel exit path (see the hazard below), so the
+safe half went first: `request_resched` now CLAIMS the flag
+(`RESCHED_PENDING.swap(1, AcqRel)`) instead of storing it, and skips the IPI
+when a resched was already outstanding. Correct because the enqueue
+happens-before that Release swap and any consumer's Acquire `swap(0)`
+synchronizes with the latest Release — a consumer that sees any pending flag
+sees this enqueue. If we set it (prev == 0) we send.
+
+99.7 % of the IPIs were redundant:
+
+    before   wake ipi max=6263us mean=52us n=1448
+    after    wake ipi max=260us  mean=3us  n=3089  sent=8  elided=3122
+
+Knock-on: the deadline sweep's worst call fell from 5986 us (99 % of it one
+wake) to **347 us** with `wakes=0`, and its mean from 40 us to 18 us. The BKL
+peak is unchanged at 13-16 ms, as predicted — that part is the TCG artifact.
+
+**Still open: get `sbi::send_ipi` out of the BKL entirely.** `request_resched` already sets
 `RESCHED_PENDING` + the wake hint synchronously (plain atomics); the IPI only
 kicks a hart out of WFI. Record the target CPU in a pending mask and flush the
 actual IPIs once, after `KernelGuard` drops. That coalesces duplicates and
@@ -452,8 +470,20 @@ removes the firmware round-trip from the lock.
 **Not applied, deliberately.** A correct flush has to run on EVERY kernel exit
 path, not just the syscall one. Miss one and a hart sits in WFI with
 `RESCHED_PENDING` set until its next timer tick — the exact failure class that
-produced the documented early-boot fleet collapse. That deserves its own pass
-with the bring-up boot gate watched, not the tail of this session.
+produced the documented early-boot fleet collapse. Worth much less now that
+the remaining traffic is 8 IPIs per boot instead of thousands.
+
+**Found by the boot gate on the way: an inverted kernel selftest.**
+`test_reject_offline_cpu_resched` picked CPU 2 (else CPU 3) and FAILED when it
+could not find one offline — so it passed only on DEGRADED boots and failed on
+every healthy 4-hart boot. Correlated exactly: `got=0xd`/`0xb` boots pass, full
+`0xf` boots fail. It now picks a genuinely offline hart when one exists and
+otherwise proves the same guard (`idx >= MAX_CPUS || !cpu_is_online`) against
+an out-of-range id. `kself 72/73` -> `73/73`. A gate that rewards degradation
+is the `no-fake-green` rule read backwards.
+
+`smp/mod.rs` hit the size ratchet, so the A2 lock-ping selftest moved to
+`core/smp/lock_ping.rs`.
 
 **Kept in tree:** the wake/wake-IPI attribution (proportionate: two CSR reads
 per cross-core wake, and it is the metric the fix must drive down).

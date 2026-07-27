@@ -62,12 +62,15 @@ pub(super) fn sched_telemetry_op(args: &Args) -> Option<SysResult<usize>> {
                 sweep_wake_us
             );
             let (ipi_max_us, ipi_mean_us, ipi_n) = crate::trap::budgets::wake_ipi_report();
+            let (ipi_sent, ipi_skipped) = crate::smp::resched_ipi_counts();
             log_info!(
                 target: "smp",
-                "KINIT: wake ipi max={}us mean={}us n={}",
+                "KINIT: wake ipi max={}us mean={}us n={} sent={} elided={}",
                 ipi_max_us,
                 ipi_mean_us,
-                ipi_n
+                ipi_n,
+                ipi_sent,
+                ipi_skipped
             );
             crate::trap::budgets::reset();
         }

@@ -23,6 +23,7 @@ use sbi_rt as sbi;
 pub const MAX_CPUS: usize = 4;
 
 mod bringup;
+mod lock_ping;
 mod runtime;
 pub mod tlb;
 
@@ -30,6 +31,7 @@ pub use bringup::{
     emit_bringup_gate, retry_missing_harts, start_secondary_harts, wait_for_online_mask,
     BRINGUP_STAGE,
 };
+pub use lock_ping::{lock_ping_participate, selftest_lock_ping};
 pub use runtime::{
     assign_spawn_cpu, mark_runtime_ready, record_timer_tick, record_user_dispatch, runtime_ready,
     steal_rate_gate, take_wake_hint,
@@ -97,6 +99,21 @@ static CPUID_FALLBACK_EVENTS: AtomicUsize = AtomicUsize::new(0);
 
 static CPU_ONLINE_MASK: AtomicUsize = AtomicUsize::new(0);
 static RESCHED_PENDING: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
+/// Redundant wake IPIs elided because a resched was already outstanding on the
+/// target. Reported so the saving is visible instead of assumed.
+static RESCHED_IPI_SKIPPED: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
+
+/// `(sent, skipped)` across all CPUs.
+#[must_use]
+pub fn resched_ipi_counts() -> (usize, usize) {
+    let mut sent = 0;
+    let mut skipped = 0;
+    for i in 0..MAX_CPUS {
+        sent += RESCHED_IPI_SENT_OK[i].load(Ordering::Relaxed);
+        skipped += RESCHED_IPI_SKIPPED[i].load(Ordering::Relaxed);
+    }
+    (sent, skipped)
+}
 static RESCHED_REQ_ACCEPTED: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
 static RESCHED_IPI_SENT_OK: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
 static RESCHED_SSOFT_TRAPS: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];
@@ -360,18 +377,36 @@ pub fn request_resched(target: CpuId) -> bool {
         return false;
     }
     RESCHED_REQ_ACCEPTED[idx].fetch_add(1, Ordering::AcqRel);
-    RESCHED_PENDING[idx].store(1, Ordering::Release);
+    // CLAIM, not a store: `take_resched` consumes the flag with `swap(0)`, so
+    // a non-zero previous value means a resched is ALREADY outstanding on that
+    // CPU and a second IPI buys nothing — whoever consumes the flag rescans
+    // the whole run queue and will find this task too.
+    //
+    // Safe because the enqueue happens-before this Release swap, and the
+    // consumer's Acquire swap synchronizes with the latest Release in the
+    // modification order. A consumer that observes ANY pending flag therefore
+    // observes this enqueue. If we are the one who set it (prev == 0), we send.
+    //
+    // Worth doing because the IPI is not cheap: measured at ~50-60 us mean and
+    // up to 6.3 ms, and it runs inside the held BKL (TASK-0306 Phase 3).
+    let already_pending = RESCHED_PENDING[idx].swap(1, Ordering::AcqRel) != 0;
     runtime::set_wake_hint(idx);
 
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        if idx < usize::BITS as usize && SELFTEST_FORCE_IPI_SEND_FAIL.load(Ordering::Acquire) == 0 {
+        if already_pending {
+            RESCHED_IPI_SKIPPED[idx].fetch_add(1, Ordering::Relaxed);
+        } else if idx < usize::BITS as usize
+            && SELFTEST_FORCE_IPI_SEND_FAIL.load(Ordering::Acquire) == 0
+        {
             let ret = sbi::send_ipi(1usize << idx, 0);
             if ret.error == 0 {
                 RESCHED_IPI_SENT_OK[idx].fetch_add(1, Ordering::AcqRel);
             }
         }
     }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    let _ = already_pending;
 
     true
 }
@@ -440,68 +475,6 @@ pub fn resched_evidence(cpu: CpuId) -> ReschedEvidence {
         ssoft_trap_count: RESCHED_SSOFT_TRAPS[idx].load(Ordering::Acquire),
         ack_count: RESCHED_ACK[idx].load(Ordering::Acquire),
     }
-}
-
-// ——— A2 lock-ping selftest: proves SpinIrqLock excludes across real harts ———
-
-static LOCK_PING_COUNTER: crate::sync::spin_irq::SpinIrqLock<usize> =
-    crate::sync::spin_irq::SpinIrqLock::new(0);
-static LOCK_PING_ROUNDS: AtomicUsize = AtomicUsize::new(0);
-static LOCK_PING_ACKS: AtomicUsize = AtomicUsize::new(0);
-
-/// Secondary-hart side: performs the requested lock-ping rounds exactly once.
-/// Called from the secondary park loop.
-pub fn lock_ping_participate(participated: &mut bool) {
-    if *participated {
-        return;
-    }
-    let rounds = LOCK_PING_ROUNDS.load(Ordering::Acquire);
-    if rounds == 0 {
-        return;
-    }
-    for _ in 0..rounds {
-        let mut counter = LOCK_PING_COUNTER.lock();
-        *counter += 1;
-    }
-    LOCK_PING_ACKS.fetch_add(1, Ordering::AcqRel);
-    *participated = true;
-}
-
-/// Boot-hart side: runs a bounded two-(or more-)hart lock ping and returns
-/// `(final_counter, acked_secondaries)`. Deterministic result proof: with
-/// `n` acked participants the counter must be exactly `rounds * (1 + n)` —
-/// a broken lock loses increments, a fake ack inflates none.
-pub fn selftest_lock_ping(rounds: usize, spin_budget: usize) -> (usize, usize) {
-    {
-        let mut counter = LOCK_PING_COUNTER.lock();
-        *counter = 0;
-    }
-    LOCK_PING_ACKS.store(0, Ordering::Release);
-    LOCK_PING_ROUNDS.store(rounds, Ordering::Release);
-    // Parked secondaries WFI; punch them out so they observe the request.
-    for idx in 1..MAX_CPUS {
-        let target = CpuId::from_raw(idx as u16);
-        if cpu_is_online(target) {
-            let _ = request_resched(target);
-        }
-    }
-
-    for _ in 0..rounds {
-        let mut counter = LOCK_PING_COUNTER.lock();
-        *counter += 1;
-    }
-
-    let expected_acks = cpu_online_mask().count_ones().saturating_sub(1) as usize;
-    for _ in 0..spin_budget {
-        if LOCK_PING_ACKS.load(Ordering::Acquire) >= expected_acks {
-            break;
-        }
-        core::hint::spin_loop();
-    }
-    LOCK_PING_ROUNDS.store(0, Ordering::Release);
-
-    let total = *LOCK_PING_COUNTER.lock();
-    (total, LOCK_PING_ACKS.load(Ordering::Acquire))
 }
 
 pub fn selftest_force_ipi_send_failure(enable: bool) {
