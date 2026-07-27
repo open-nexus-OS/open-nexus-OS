@@ -357,6 +357,49 @@ Pinned by `a_tap_outlives_a_slow_frame`, which asserts against the measured
 Lesson recorded: a deadline is only as good as its escape hatch. Reusing one
 budget for two call sites was wrong the moment one of them had no fallback.
 
+### Phase 7 — "settings don't work": the marker was lying (investigated, marker fixed)
+
+Reported after the Phase 6 boot. The log does NOT show settings broken:
+`settingsd: set` succeeds for `ui.locale` (5x), `time.zone`, `ui.shell.mode`;
+the theme applies end to end (`uitheme: switched (to=light)`,
+`windowd: wallpaper swapped light`, `apphost: re-themed`). Every one of these
+was checked and cleared before touching anything:
+
+| suspicion | verdict |
+|---|---|
+| dropped taps from Phase 1's deadline | FIXED — `FAIL desktop input send` 4 -> 0 |
+| the 250 ms budget freezing the loop | NO — min loop rose 13 Hz -> 16 Hz |
+| hotspot removal orphaned shell switching | NO — 3 switches, `shell mode persist ok` |
+| `statefs reply timeout` / `persist=fail` | PRE-EXISTING, also in the 21:41 and 22:15 runs |
+| `apphost: input tap miss` | PRE-EXISTING at the SAME coordinates in every run |
+
+That last row is the finding. The misses cluster at the same three points run
+after run, including the 20:45 boot that predates all of this work. Reproduced
+on host against the real compiled shell:
+
+    (1237,237) -> box 31, rect 900,72 340x356   = the panel wrapper (`PanelNoop`)
+    (1152,180) -> box 64, rect 1072,172 156x48  = a real control
+
+Neither is a miss. `apphost: input tap miss` is emitted when `dsl.tap()`
+returns false, and that bool meant "no repaint", NOT "no handler" — while the
+hit test right above it already knew the difference and threw it away. So the
+panel's deliberate `PanelNoop` absorber logged itself as a hit-test failure,
+every boot, for as long as the marker has existed.
+
+Fixed: `tap()` returns `TapOutcome::{Repainted, HandledQuietly, NoHandler}`
+and only `NoHandler` marks a miss and dumps the handler boxes. In a repo whose
+first hard rule is that a marker is proof of behavior, a marker that reports a
+working absorber as a failure is the same defect class as a false green.
+
+**What the user actually hit.** Box 64 (156x48) is the Control Center's
+desktop/tablet tile (`ControlCenterPanel.nx:129/148`). The device log shows it:
+`settings.set control ok` -> `windowd: shell switch product=tablet`. Tapping in
+the Control Center flips the entire shell to tablet and re-mounts every
+app-host — the same experience as the launcher hotspot in Phase 6, but through
+a legitimate control this time. Not a regression, and NOT fixed here: whether a
+whole-shell mode switch belongs on an unconfirmed tile in the quick-settings
+panel is a design decision, not a bug fix.
+
 ### Phase 3 — BKL holds: instrumented, target identified, fix NOT applied
 
 The plan said "instrument first: find *where* inside send/recv/yield the

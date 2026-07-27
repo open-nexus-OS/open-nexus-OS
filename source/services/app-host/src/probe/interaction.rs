@@ -7,11 +7,26 @@
 
 use super::*;
 
+/// What a tap actually did — the three cases the single `bool` used to
+/// flatten into one, which made an absorbed tap indistinguishable from a
+/// coordinate-mapping bug in the boot log.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum TapOutcome {
+    /// A handler ran and the scene needs repainting.
+    Repainted,
+    /// A handler ran; nothing on THIS surface changed (a `PanelNoop`-style
+    /// absorber, or a control whose effect lands in another service).
+    HandledQuietly,
+    /// The point resolved to no handler at all — the only case worth a
+    /// `tap miss` marker and a handler-box dump.
+    NoHandler,
+}
+
 impl super::DslApp {
     /// Runs the interpreter's hit-testing for a body tap; on visible
     /// damage re-lays-out + refreshes the text runs. Returns whether a
     /// re-render is needed.
-    pub(super) fn tap(&mut self, x: i32, y: i32) -> bool {
+    pub(super) fn tap(&mut self, x: i32, y: i32) -> TapOutcome {
         use nexus_dsl_runtime::Damage;
         let tokens = tokens_for(self.theme_mode);
         let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
@@ -70,7 +85,12 @@ impl super::DslApp {
             }
         };
         if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
-            return false;
+            // A handler DID run (an absorber like the panel's `PanelNoop`, or
+            // one whose effect is off-surface such as a shell-profile switch) —
+            // it just produced no repaint. That is not a miss, and reporting it
+            // as one sends the next reader hunting a hit-test bug that is not
+            // there.
+            return if hit.is_some() { TapOutcome::HandledQuietly } else { TapOutcome::NoHandler };
         }
         // Pretext discipline: ONLY layout-class damage re-runs the engine
         // (widget props — including text content — record Layout deps).
@@ -93,7 +113,7 @@ impl super::DslApp {
         // with the new intents (a changed `.animate`/`.effect` value starts
         // its motion). The caller arms the frame pulse when `anim_active`.
         self.anim_sync();
-        true
+        TapOutcome::Repainted
     }
 
     /// Pointer motion (`INPUT_KIND_MOVE`): re-resolve the hovered

@@ -82,6 +82,7 @@ mod probe {
     mod scroll;
     use boot::*;
     pub(crate) use env::{device_for, size_class_for, tokens_for};
+    pub(crate) use interaction::TapOutcome;
     pub(crate) use locale::app_locale;
     use paint::collect_texts;
 
@@ -823,24 +824,23 @@ mod probe {
                     }
                 } else if kind == wire::INPUT_KIND_TAP {
                     if let Some(dsl) = app.as_mut() {
-                        let tap_dirty = dsl.tap(i32::from(x), i32::from(y));
+                        let outcome = dsl.tap(i32::from(x), i32::from(y));
                         dsl.announce_text_focus(&client, surface_id, i32::from(x), i32::from(y));
-                        if tap_dirty {
+                        // ONLY a repaint is dirty. A tap a handler absorbed
+                        // without one (`PanelNoop`, or a control whose effect
+                        // lands in another service) is NOT a miss; calling it
+                        // one sent readers hunting a hit-test bug for days.
+                        if outcome == TapOutcome::Repainted {
                             dirty = true;
-                            dirty_rows = None; // model change: full repaint
-                                               // A tap may have started an animation (`.animate`/
-                                               // `.effect` on the changed state): arm the frame
-                                               // pulse so the physics ticks on the real cadence.
+                            // Model change: full repaint. The tap may also have
+                            // started an animation — arm the frame pulse so the
+                            // physics ticks on the real cadence.
+                            dirty_rows = None;
                             if dsl.anim_active() {
                                 let req = wire::encode_surface_frame_req(surface_id);
                                 let _ = client.send(&req, Wait::NonBlocking);
                             }
-                        } else if tap_miss_markers < 8 {
-                            // No handler hit / no visible change: report the
-                            // first few WITH VALUES (coordinate-mapping bugs
-                            // look like this) + a one-time handler-box dump so
-                            // one boot log shows where taps land vs. where the
-                            // interactive boxes are.
+                        } else if outcome == TapOutcome::NoHandler && tap_miss_markers < 8 {
                             tap_miss_markers += 1;
                             raw_marker(&alloc::format!("apphost: input tap miss at ({x},{y})"));
                             if tap_miss_markers == 1 {
