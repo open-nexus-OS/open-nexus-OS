@@ -400,6 +400,54 @@ a legitimate control this time. Not a regression, and NOT fixed here: whether a
 whole-shell mode switch belongs on an unconfirmed tile in the quick-settings
 panel is a design decision, not a bug fix.
 
+### Phase 8 — settings pushes were fire-and-forget (fixed); region watch is a poll (reported)
+
+Reported as "language switching is broken again". In the boot log a late
+switch to ko-KR produced exactly ONE `apphost: locale ko-KR applied` and only
+the settings window re-emitted (`texts=55` twice, no `texts=6/8/20`) — the
+shell stayed in the old language. Both app bundles ship the same catalogs
+(de/en/ja/ko/zh), so the shell had the strings and simply never applied them.
+
+Root cause could not be established from the log, and that IS the defect:
+
+    for idx in 0..self.apps.len() { ...
+        let _ = ipc_send_v1(slot, &hdr, &frame[..n], IPC_SYS_NONBLOCK, 0);
+
+One shot, non-blocking, result discarded — for `push_region_to_surfaces` and
+for all three attach-time pushes (theme, profile, region). A momentarily full
+client queue leaves that window in the old language until the next settings
+change, silently, with no way to tell it happened.
+
+Worse, the Phase 1 taxonomy had this wrong ON PURPOSE: `Delivery::Coalescing`
+was documented as covering "hover motion, region/theme pushes". Those are
+opposites. Hover motion regenerates dozens of times a second, so dropping one
+costs nothing. A locale push happens ONCE, when the user picks a language, and
+nothing ever repeats it. Filing them together is what made a lossy send look
+reasonable.
+
+Settings pushes are now `Delivery::Critical` — the same class as a tap, for the
+same reason: user intent, no recovery path. Failures emit
+`WINDOWD: FAIL <what> push` instead of vanishing. Pinned by
+`a_settings_push_is_not_coalescable`.
+
+**Honest limit:** this removes the lossy path and makes the alternative
+visible; it does NOT prove the drop was the cause, because the old code could
+not report one. The next interactive run decides it — either the shell follows
+the language, or a FAIL marker names the real culprit.
+
+**"Is it all reactive?" — the region watch is not.** windowd subscribes to
+settingsd (`ui.locale`, `time.`, `input.keymap`) but drains with a
+non-blocking `ipc_recv_v2` capped at 4 events, called once per compositor
+iteration from `pump_region_watch`. The watch endpoint is NOT a wake source: it
+piggybacks on the frame loop. That is a poll, though a cheap one — one extra
+non-blocking syscall per frame, latency bounded by one frame, and nothing is
+lost (undrained events stay queued). Not the cause here, and left alone.
+
+It also explains a red herring at boot: settingsd sets `en-US` then `de-DE`
+18 ms apart, both land in ONE drain round, and windowd pushes only the final
+value — the app-hosts were already `de-DE`, so no re-emit and no marker. The
+boot-time silence is correct behaviour, not a symptom.
+
 ### Phase 3 — BKL holds: instrumented, target identified, fix NOT applied
 
 The plan said "instrument first: find *where* inside send/recv/yield the

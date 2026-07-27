@@ -40,15 +40,21 @@ pub(crate) enum Delivery {
     /// `reply_and_close_wait` / `server.send`, both `Wait::Blocking`), so the
     /// budget only has to cover the common case.
     Blocking,
-    /// USER INTENT with no recovery path: a tap. Nothing downstream can
-    /// reconstruct it and no fallback catches it — if this send expires, the
-    /// click is simply gone from the user's point of view. It therefore gets a
-    /// LIVENESS budget instead of a frame budget.
+    /// USER INTENT with no recovery path: a tap, or a settings push (region /
+    /// locale / theme / shell profile). Nothing downstream reconstructs it and
+    /// no fallback catches it — if this send expires the click is gone, or the
+    /// window keeps the old language forever. It therefore gets a LIVENESS
+    /// budget instead of a frame budget.
     Critical,
-    /// The NEXT frame supersedes this one: hover motion, region/theme pushes.
-    /// One attempt — a full queue means the client is behind, and the newer
-    /// frame carries the newer truth anyway. Retrying would only add latency
-    /// to data that is already stale.
+    /// The NEXT frame supersedes this one: hover motion. One attempt — a full
+    /// queue means the client is behind, and the newer frame carries the newer
+    /// truth anyway. Retrying would only add latency to data already stale.
+    ///
+    /// NOT for settings pushes. This doc used to list "region/theme pushes"
+    /// here, which was wrong in the way that matters: hover motion regenerates
+    /// dozens of times a second, a region push happens ONCE when the user picks
+    /// a language and nothing ever repeats it. They are opposites, not
+    /// neighbours. See [`Delivery::Critical`].
     Coalescing,
 }
 
@@ -401,6 +407,25 @@ mod delivery_tests {
         assert!(
             CRITICAL_SEND_DEADLINE_NS <= 500_000_000,
             "still bounded — one dead client must not wedge the compositor forever"
+        );
+    }
+
+    /// A settings push (locale/theme/profile) is NOT hover motion. Hover
+    /// regenerates dozens of times a second; a locale push happens once, when
+    /// the user picks a language, and nothing repeats it. Filing them in the
+    /// same class is what left a window stuck in the old language after a
+    /// momentarily full queue — silently, since the result was discarded.
+    #[test]
+    fn a_settings_push_is_not_coalescable() {
+        assert_eq!(
+            Delivery::Critical.deadline_ns(),
+            Some(CRITICAL_SEND_DEADLINE_NS),
+            "settings pushes share the tap's class: user intent, no recovery path"
+        );
+        assert_ne!(
+            Delivery::Critical.deadline_ns(),
+            Delivery::Coalescing.deadline_ns(),
+            "a dropped settings push is never superseded by a later frame"
         );
     }
 

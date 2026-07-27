@@ -238,44 +238,47 @@ impl DisplayServerRuntime {
         {
             use nexus_display_proto::client_surface as wire;
             let frame = wire::encode_surface_theme(self.theme_wire_byte());
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-            let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            Self::push_settings_frame(slot, &frame, "attach theme");
             let pframe = wire::encode_surface_profile(self.shell_profile_wire());
-            let phdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, pframe.len() as u32);
-            let _ = nexus_abi::ipc_send_v1(slot, &phdr, &pframe, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            Self::push_settings_frame(slot, &pframe, "attach profile");
             if let Some((rframe, rn)) = self.region_frame() {
-                let rhdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rn as u32);
-                let _ = nexus_abi::ipc_send_v1(
-                    slot,
-                    &rhdr,
-                    &rframe[..rn],
-                    nexus_abi::IPC_SYS_NONBLOCK,
-                    0,
-                );
+                Self::push_settings_frame(slot, &rframe[..rn], "attach region");
             }
         }
     }
 
     /// Pushes the current region to every attached surface (apps + desktop).
+    ///
+    /// `Critical`, not fire-and-forget: this carries the locale the user just
+    /// picked, and NOTHING repeats it. The previous one-shot `IPC_SYS_NONBLOCK`
+    /// with a discarded result meant a momentarily full client queue left that
+    /// window in the old language until the next settings change — silently,
+    /// because there was no way to even tell it had happened.
     #[allow(unused_variables)]
     pub(crate) fn push_region_to_surfaces(&mut self) {
         #[cfg(nexus_env = "os")]
         if let Some((frame, n)) = self.region_frame() {
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, n as u32);
             for idx in 0..self.apps.len() {
                 if let Some(slot) = self.apps[idx].event_channel {
-                    let _ = nexus_abi::ipc_send_v1(
-                        slot,
-                        &hdr,
-                        &frame[..n],
-                        nexus_abi::IPC_SYS_NONBLOCK,
-                        0,
-                    );
+                    Self::push_settings_frame(slot, &frame[..n], "region app");
                 }
             }
             if let Some(slot) = self.desktop_channel {
-                let _ =
-                    nexus_abi::ipc_send_v1(slot, &hdr, &frame[..n], nexus_abi::IPC_SYS_NONBLOCK, 0);
+                Self::push_settings_frame(slot, &frame[..n], "region desktop");
+            }
+        }
+    }
+
+    /// One settings push, delivered rather than attempted. Reports a failure
+    /// instead of swallowing it — an undelivered settings frame is invisible
+    /// in the UI and used to be invisible in the log too.
+    #[allow(unused_variables)]
+    pub(crate) fn push_settings_frame(slot: u32, frame: &[u8], what: &str) {
+        #[cfg(nexus_env = "os")]
+        {
+            use crate::client_surface::Delivery;
+            if !super::app_window::send_client_frame(slot, frame, Delivery::Critical) {
+                let _ = debug_println(&alloc::format!("WINDOWD: FAIL {what} push"));
             }
         }
     }
