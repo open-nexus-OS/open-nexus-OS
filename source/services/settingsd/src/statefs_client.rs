@@ -1,19 +1,19 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! statefsd persistence client (TASK-0072 Phase 8): loads/stores settingsd's
-//! prefs blob in statefsd's journaled KV store so values survive a reboot.
-//! Mirrors the windowd→sessiond registry-client recipe: route to statefsd via
-//! the responder, one bounded CAP_MOVE request/reply on the shared `@reply`
-//! inbox, best-effort (a routing/policy/IPC failure degrades to defaults —
-//! never a boot failure).
+//! statefsd persistence client (TASK-0072 Phase 8, RFC-0083 async): loads
+//! settingsd's prefs blob at boot (one bounded kernel-parked round-trip) and
+//! carries the ASYNC persist path — a NONBLOCK PUT send plus a NONBLOCK reply
+//! drain, both driven by `persist::Persister` from the service loop. Routes
+//! are resolved once and cached (named routes are persistent slots). Best-
+//! effort throughout: a routing/policy/IPC failure degrades to defaults /
+//! retry-with-backoff — never a boot failure, never a blocked client.
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use nexus_abi::yield_;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
 /// init-lite control-channel slots (route requests go through the responder).
@@ -48,10 +48,13 @@ pub(crate) fn load_prefs() -> Option<String> {
     decode_get_value(&rsp).and_then(|v| String::from_utf8(v).ok())
 }
 
-/// Persist the prefs blob (atomic single PUT — statefsd journals it). Returns
-/// true when statefsd acked OK. The caller keeps the in-memory value regardless
-/// (set already validated); a persist failure only means "won't survive reboot".
-pub(crate) fn store_prefs(blob: &str) -> bool {
+/// NONBLOCK send of one prefs PUT (RFC-0083 async persist). Returns whether
+/// the frame LEFT — the reply arrives later via [`poll_put_reply`]. A refused
+/// send (full queue / no route) is the caller's backoff signal, never a spin.
+pub(crate) fn try_send_put(blob: &str) -> bool {
+    let Some((send_slot, reply_send_slot, _)) = cached_slots() else {
+        return false;
+    };
     let val = blob.as_bytes();
     let mut req = Vec::with_capacity(10 + PREFS_KEY.len() + val.len());
     req.extend_from_slice(&[SF_MAGIC0, SF_MAGIC1, SF_VERSION, SF_OP_PUT]);
@@ -59,28 +62,77 @@ pub(crate) fn store_prefs(blob: &str) -> bool {
     req.extend_from_slice(&(val.len() as u32).to_le_bytes());
     req.extend_from_slice(PREFS_KEY.as_bytes());
     req.extend_from_slice(val);
-    match request_reply(&req) {
-        Some(rsp) => {
-            let ok = decode_put_ok(&rsp);
-            if !ok {
-                // The reply ARRIVED but was not PUT/OK — print the raw
-                // op/status bytes so the failing layer is named exactly.
-                let mut line = [0u8; 48];
-                let base = b"settingsd: statefs put rsp op=.. st=..\n";
-                line[..base.len()].copy_from_slice(base);
-                const HEX: &[u8; 16] = b"0123456789abcdef";
-                let op = rsp.get(3).copied().unwrap_or(0xff);
-                let st = rsp.get(4).copied().unwrap_or(0xff);
-                line[30] = HEX[(op >> 4) as usize];
-                line[31] = HEX[(op & 15) as usize];
-                line[36] = HEX[(st >> 4) as usize];
-                line[37] = HEX[(st & 15) as usize];
-                let _ = nexus_abi::debug_write(&line[..base.len()]);
-            }
-            ok
+    let Ok(reply_send_clone) = nexus_abi::cap_clone(reply_send_slot) else {
+        return false;
+    };
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        req.len() as u32,
+    );
+    match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+        Ok(_) => true,
+        Err(_) => {
+            let _ = nexus_abi::cap_close(reply_send_clone);
+            false
         }
-        None => false,
     }
+}
+
+/// NONBLOCK drain of the shared `@reply` inbox for a statefsd PUT reply.
+/// `Some(ok)` = a PUT reply arrived; `None` = nothing (or only foreign
+/// frames) waiting. Foreign frames are skipped, bounded per call.
+pub(crate) fn poll_put_reply() -> Option<bool> {
+    let (_, _, reply_recv_slot) = cached_slots()?;
+    for _ in 0..4 {
+        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 64]; // a PUT status reply is a handful of bytes
+        match nexus_abi::ipc_recv_v1(
+            reply_recv_slot,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                let frame = &buf[..n];
+                if n >= 5
+                    && frame[0] == SF_MAGIC0
+                    && frame[1] == SF_MAGIC1
+                    && frame[3] == (SF_OP_PUT | 0x80)
+                {
+                    return Some(frame[4] == SF_STATUS_OK);
+                }
+                // Foreign inbox traffic: skip and keep draining (bounded).
+            }
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
+/// Route slots resolved ONCE (named routes are persistent slots — never
+/// closed, safe to cache): `(statefsd send, @reply send, @reply recv)`.
+fn cached_slots() -> Option<(u32, u32, u32)> {
+    use core::sync::atomic::{AtomicU32, Ordering};
+    static STATEFS_SEND: AtomicU32 = AtomicU32::new(0);
+    static REPLY_SEND: AtomicU32 = AtomicU32::new(0);
+    static REPLY_RECV: AtomicU32 = AtomicU32::new(0);
+    if STATEFS_SEND.load(Ordering::Relaxed) == 0 {
+        let (send, _) = route_blocking(b"statefsd")?;
+        let (rs, rr) = route_blocking(b"@reply")?;
+        STATEFS_SEND.store(send, Ordering::Relaxed);
+        REPLY_SEND.store(rs, Ordering::Relaxed);
+        REPLY_RECV.store(rr, Ordering::Relaxed);
+    }
+    Some((
+        STATEFS_SEND.load(Ordering::Relaxed),
+        REPLY_SEND.load(Ordering::Relaxed),
+        REPLY_RECV.load(Ordering::Relaxed),
+    ))
 }
 
 /// Parse a statefsd GET response value (v1 9-byte or v2 17-byte header),
@@ -109,15 +161,6 @@ fn decode_get_value(frame: &[u8]) -> Option<Vec<u8>> {
     (frame.len() == hdr + vlen).then(|| frame[hdr..hdr + vlen].to_vec())
 }
 
-/// True when a statefsd PUT response reports OK (v1 or v2 status frame).
-fn decode_put_ok(frame: &[u8]) -> bool {
-    frame.len() >= 5
-        && frame[0] == SF_MAGIC0
-        && frame[1] == SF_MAGIC1
-        && frame[3] == (SF_OP_PUT | 0x80)
-        && frame[4] == SF_STATUS_OK
-}
-
 /// Resolve a service (or `@reply`) to its `(send, recv)` slots via the responder.
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(
@@ -132,22 +175,18 @@ fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     }
 }
 
-/// One bounded CAP_MOVE request/reply exchange with statefsd (the registry-
-/// client recipe: clone the reply-send cap, NONBLOCK send with a yield budget,
-/// bounded receive on the shared `@reply` inbox, filter on statefs magic).
+/// One bounded CAP_MOVE request/reply exchange with statefsd — BOOT ONLY
+/// (the prefs GET before the serve loop starts). Kernel-parked with a
+/// deadline on both halves (RFC-0083: no yield-spins); the shared `@reply`
+/// inbox is filtered on the statefs magic.
 fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
-    // Persist-diagnosis markers (raw, fold-immune): `persist=fail` alone
-    // cannot distinguish "route lookup failed" from "PUT sent, reply lost".
-    let Some((send_slot, _recv)) = route_blocking(b"statefsd") else {
+    let Some((send_slot, reply_send_slot, reply_recv_slot)) = cached_slots() else {
         let _ = nexus_abi::debug_write(b"settingsd: statefs route FAIL\n");
         return None;
     };
-    let Some((reply_send_slot, reply_recv_slot)) = route_blocking(b"@reply") else {
-        let _ = nexus_abi::debug_write(b"settingsd: statefs @reply route FAIL\n");
+    let Ok(reply_send_clone) = nexus_abi::cap_clone(reply_send_slot) else {
         return None;
     };
-
-    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).ok()?;
     let hdr = nexus_abi::MsgHeader::new(
         reply_send_clone,
         0,
@@ -156,29 +195,9 @@ fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
         req.len() as u32,
     );
 
-    let start = nexus_abi::nsec().unwrap_or(0);
-    let deadline = start.saturating_add(500_000_000); // 500ms bound
-
-    let mut sent = false;
-    let mut spins: u32 = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => {
-                sent = true;
-                break;
-            }
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline || spins >= 200_000 {
-                    break;
-                }
-                spins = spins.saturating_add(1);
-                let _ = yield_();
-            }
-            Err(_) => break,
-        }
-    }
-    let _ = nexus_abi::cap_close(reply_send_clone);
-    if !sent {
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(500_000_000);
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, req, 0, deadline).is_err() {
+        let _ = nexus_abi::cap_close(reply_send_clone);
         let _ = nexus_abi::debug_write(b"settingsd: statefs send FAIL\n");
         return None;
     }
@@ -190,8 +209,8 @@ fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
             reply_recv_slot,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
+            nexus_abi::IPC_SYS_TRUNCATE,
+            deadline,
         ) {
             Ok(n) => {
                 let n = core::cmp::min(n as usize, buf.len());
@@ -205,16 +224,11 @@ fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
                 if nexus_abi::nsec().unwrap_or(0) >= deadline {
                     return None;
                 }
-                let _ = yield_();
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    let _ = nexus_abi::debug_write(b"settingsd: statefs reply timeout\n");
-                    return None;
-                }
-                let _ = yield_();
+            Err(_) => {
+                let _ = nexus_abi::debug_write(b"settingsd: statefs reply timeout\n");
+                return None;
             }
-            Err(_) => return None,
         }
     }
 }

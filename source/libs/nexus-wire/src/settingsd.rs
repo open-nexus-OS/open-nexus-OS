@@ -41,8 +41,14 @@ pub const STATUS_MALFORMED: u8 = 1;
 pub const STATUS_UNKNOWN_KEY: u8 = 2;
 /// The value's type/content failed the key's validation.
 pub const STATUS_INVALID_VALUE: u8 = 3;
-/// Persisting to statefsd failed (the in-memory value did NOT change —
-/// set is atomic: validate → persist → apply).
+/// A WATCH registration was refused (no cap moved / subscriber table full).
+///
+/// Historical name: SET has never returned this — a validated SET commits in
+/// memory and replies `STATUS_OK` regardless of persistence, which is
+/// asynchronous, coalesced and retried (RFC-0083; the honest outcome marker
+/// is `settingsd: persist ok|fail`). The old doc claimed "validate → persist
+/// → apply, in-memory value did NOT change on persist failure" — that never
+/// matched the implementation.
 pub const STATUS_PERSIST_FAIL: u8 = 4;
 
 /// Value type tags. v1 carries every value as UTF-8 TEXT with a tag that

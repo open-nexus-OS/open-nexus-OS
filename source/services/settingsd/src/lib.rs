@@ -3,8 +3,9 @@
 //
 //! CONTEXT: `settingsd` — the typed settings registry service (TASK-0072
 //! Phase 8). Every setting is a registered key with a default + validator;
-//! `set` is validate → persist (statefsd `state:/prefs/device.nxs`) → apply,
-//! and the store is loaded back at boot so values survive a reboot. The legacy
+//! `set` is validate → commit → reply, with ASYNC coalesced persistence to
+//! statefsd (`state:/prefs/device.nxs`, RFC-0083) and the store loaded back
+//! at boot so values survive a reboot. The legacy
 //! `InputSettingsSnapshot` (TASK-0253 input seam, host-only) rides along.
 //! OWNERS: @runtime
 //! STATUS: Experimental
@@ -18,6 +19,8 @@ extern crate alloc;
 /// Typed settings registry (TASK-0072 Phase 8): registered keys + defaults +
 /// validation + prefs-blob (de)serialization — the core the service loop and
 /// the statefsd persistence wrap.
+/// RFC-0083 async persistence decision core (pure, host-tested).
+pub mod persist;
 pub mod registry;
 pub mod watch;
 

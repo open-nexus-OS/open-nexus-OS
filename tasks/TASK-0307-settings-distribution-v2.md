@@ -1,0 +1,141 @@
+---
+title: TASK-0307 Settings distribution v2 — single authority, versioned snapshots, repaint not remount
+status: In Progress (2026-07-27) — P0+P1 done (settingsd reactive, boot-proven)
+owner: @runtime @ui
+created: 2026-07-27
+links:
+  - RFC: docs/rfcs/RFC-0083-settings-distribution-v2-single-authority-versioned-snapshots.md
+  - ADR: docs/adr/0053-settingsd-single-settings-authority.md
+  - Amends: docs/rfcs/RFC-0078-settings-region-keys-watch.md
+  - Evidence: build/logs/manual--2026-07-27T09-02-33/uart.log
+  - Predecessor: tasks/TASK-0306-ui-responsiveness-input-integrity-smp-rendezvous.md
+---
+
+## Context
+
+One accent tap in the settings app produced (all counted in the evidence log):
+3 full app remounts (`re-theme old app dropped` ×3, initial effects re-run,
+`session.users`/`bundlemgr.enumerate` re-fetched), `inputd: push backpressure`
+n=1..36, `settingsd: statefs reply timeout` → `persist=fail`, one
+`WINDOWD: FAIL app event send`. User-visible: "changed the color and nothing
+works any more". Locale, theme-mode and shell-mode switching hit the same
+class before. The causes are architectural; the full defect table with
+file:line lives in RFC-0083 §Context.
+
+## Goal
+
+A settings change is a bounded repaint delivered exactly-once-or-healed:
+no remount, no effect re-run, no input backpressure, no compositor blocking,
+no yield-spins, persistence async + coalesced + honestly reported.
+
+## Non-Goals
+
+statefsd internals; per-key write ACLs; `_timeout_ms` wiring of DSL svc calls
+(all recorded follow-ups).
+
+## Constraints / invariants
+
+- Every phase lands alone green: `just check` + `just diag` + `just test-host`,
+  and the boot lanes for P3+ (`just ci-os-headless`).
+- Receiver before sender; dual-emit + dual-authority during migration; retire last.
+- Marker truth (no-fake-green): `settingsd: persist ok` only on a real statefsd ACK.
+- Gate-pinned markers that must stay green: `SELFTEST: settings watch ok`,
+  `SELFTEST: i18n switch ok`.
+- Structure ratchet: new code goes into new modules (`settingsd/src/persist.rs`,
+  `app-host/src/presentation.rs`, `windowd/runtime/presentation.rs`) — the three
+  at-cap files (`app-host/main.rs`, `effect_host.rs`, `windowd/runtime/mod.rs`)
+  must not grow.
+
+## Touched paths (per phase)
+
+- P1: `source/services/settingsd/src/{os_lite,watch,statefs_client,lib}.rs` + NEW `persist.rs`
+- P2: `source/libs/nexus-display-proto/src/surface_text.rs` (approval zone),
+  `source/services/app-host/src/main.rs` + NEW `src/presentation.rs`, `src/probe/{clock,interaction}.rs`,
+  `userspace/dsl/**` only if ProfileEvent needs registry plumbing (KeymapEvent precedent says no)
+- P3: `source/services/windowd/src/compositor/runtime/{region,shell,app_window}.rs`
+  + NEW `runtime/presentation.rs`, `compositor/mod.rs`, `src/{client_surface,settings_client}.rs`
+- P4: `source/services/app-host/src/{effect_host,effect_ime}.rs`,
+  `tools/nxb-pack/src/main.rs` + `tests/payload_kind.rs`,
+  `userspace/apps/desktop-shell/manifest.toml`
+- P5: deletions across windowd/app-host + `source/init/nexus-init/src/bootstrap/route_provision.rs`
+- P6: `scripts/qemu-test.sh` (only if new assertions), docs sweep
+
+## Plan / stop conditions
+
+1. **P0 — contracts.** RFC-0083 + ADR-0053 + this ledger + indexes. DONE when
+   indexed and consistent.
+2. **P1 — settingsd reactive.** Reply-before-persist; persist state machine
+   (NONBLOCK PUT, in-flight flag, SF-magic drain at loop top, `Wait::Timeout`
+   only while pending, coalescing, bounded backoff); registration burst
+   (resync-flagged current values); server-side resync heal. STOP: host tests
+   prove (a) SET during persist-in-flight is answered immediately, (b) N rapid
+   SETs coalesce to ≤2 PUTs, (c) burst delivers current values on register,
+   (d) a dropped watcher send heals on the next change. Markers split.
+3. **P2 — wire + receive.** OP_SURFACE_SETTINGS=26 codec + reject matrix;
+   app-host `presentation.rs` applies gen-idempotently: theme/accent/profile →
+   reemit (NOT remount; profile also re-announces window intent + dispatches
+   `ProfileEvent::Changed`), locale → apply_region, hour/tz → re-tick. STOP:
+   dsl_apps_conformance proves accent snapshot changes scene colors with store
+   state + View identity preserved; profile snapshot changes structure WITHOUT
+   re-running initial effects.
+4. **P3 — windowd.** Watch events on own server endpoint ('S','T' arm =
+   wake source); subscribe `time.`/`ui.`/`input.keymap` staggered; drain ≥8;
+   PresentationState + `push_presentation()` (NONBLOCK + per-channel needs_push
+   + frame retry + desktop dedupe + failure reclaim); dual-emit; ThemeProbe
+   deleted; pinned delivery test rewritten to "never lost, never blocking".
+   STOP: ci-os-headless green; interactive boot shows theme+locale switch with
+   zero `FAIL … push` and no probe markers.
+5. **P4 — authority flip.** nxb-pack ceiling `settings|shell` + shell manifest
+   cap FIRST; app-host routes all settings keys to settingsd; call_reply spin →
+   kernel-parked deadline send/recv (250 ms). STOP: control-center toggles work
+   in the interactive boot; no windowd CONTROL writes remain in app-host.
+6. **P5 — retirement.** Legacy ops/arms/probes/slots deleted; ops 16/17/23
+   documented reserved. STOP: grep-clean tree, all gates green.
+7. **P6 — boot proof.** Interactive script: rapid accent/theme/locale/profile
+   switching. STOP: `apphost: presentation gen=N applied` present; negative
+   grep `re-theme old app dropped` + `profile old app dropped` after switches;
+   no `inputd: push backpressure` burst; gated SELFTEST markers green;
+   `settingsd: persist ok` arrives async. Before/after measurement on the same
+   script recorded here.
+
+## Evidence
+
+### P1 — settingsd reactive (2026-07-27)
+
+Landed: reply-before-persist; `persist.rs` state machine (one PUT in flight,
+coalescing, bounded backoff, **500 ms spacing floor between PUTs**);
+registration burst; server-side resync heal; statefs client rebuilt (cached
+routes, NONBLOCK PUT + reply drain, boot GET kernel-parked instead of
+yield-spinning); marker split (`set key=…` immediate, `persist ok|fail` on
+real outcome); bounded delivery diagnostics (`watch registered (sync D/M)`,
+`event send FAIL chan= err=`).
+
+**The spacing floor was found by the boot gate, not designed in.** First P1
+boot: `SELFTEST: i18n switch FAIL` plus a policyd-flake denial of settingsd's
+own prefs PUT. Three boots without the floor: i18n FAIL once, `device key
+persist FAIL` + `keystored capmove FAIL` twice — none of these appear in any
+pre-P1 boot. Mechanism: the OLD code's 500 ms in-handler stall was an
+accidental THROTTLE; removing it let the boot keymap selftest turn five SETs
+in 160 ms into five back-to-back full-blob PUTs against a statefsd that pays
+a policyd round-trip + journal write per request — starving the keystored
+probes' bounded waits. The floor restores the spacing WITHOUT the stall
+(clients still get µs replies) and collapses the burst to 3 PUTs. Two boots
+with the floor: only the chronic `qos FAIL` (present in every boot for days),
+every burst `sync 1/1|2/2`, `persist ok` throughout, i18n/watch/device-key/
+keystored green.
+
+Host proof: 22 settingsd tests (coalescing incl. the floor, timeout/backoff/
+recovery, burst, heal, reclaim). Gates: `just check` + `just diag` +
+`just test-host` green. Also fixed en route: the nexus-wire
+`STATUS_PERSIST_FAIL` doc claimed rollback semantics SET never had.
+
+### P0 — contracts (2026-07-27)
+
+RFC-0083 seeded + indexed; ADR-0053 seeded + indexed; this ledger. The defect
+table (7 entries, file:line) lives in the RFC; the validation pass that shaped
+the phasing found five design holes that are now contract constraints:
+receiver-before-sender, dual-authority window, watch-as-wake-source (idle
+windowd never drained the side channel), pack-ceiling widen for the shell
+(it has NO settings route today — theme writes only worked through the
+windowd slot every app holds), and heal-server-side-only (re-WATCH leaks
+watcher slots).
