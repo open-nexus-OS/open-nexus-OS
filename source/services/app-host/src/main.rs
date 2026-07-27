@@ -608,6 +608,162 @@ mod probe {
             // Classify the frame: present-ack (flow control) vs input vs theme vs other.
             if wire::decode_surface_ack(&event_frame[..len], wire::OP_SURFACE_PRESENT).is_some() {
                 present_in_flight = false;
+            } else if let Some((_, _, rw, rh)) = wire::decode_surface_rect(&event_frame[..len]) {
+                // WM resize (the compositor owns geometry): re-layout at the
+                // new size, then run the SHARED surface re-create below.
+                let (nw, nh) = (u32::from(rw), u32::from(rh));
+                if nw > 0 && nh > 0 && (nw, nh) != (surf_w, surf_h) {
+                    surf_w = nw;
+                    surf_h = nh;
+                    if let Some(dsl) = app.as_mut() {
+                        // Mobile-first breakpoints: a resize that crosses a
+                        // width class (compact/regular/wide) changes the
+                        // PAGE STRUCTURE (`if device.sizeClass` arms) — a
+                        // plain relayout keeps the old arm, so re-emit the
+                        // scene at the new class first. State survives (same
+                        // View, no remount); the relayout below reflows it.
+                        if size_class_for(dsl.w) != size_class_for(nw) {
+                            dsl.reemit_for_size_class(nw);
+                        }
+                        dsl.resize(surf_w, surf_h);
+                    }
+                    recreate_surface = true;
+                }
+            } else if wire::decode_surface_frame(&event_frame[..len]).is_some() {
+                // Compositor frame pulse (Choreographer): advance the scroll
+                // physics AND the DSL animation physics one REAL frame, and
+                // re-arm while either is still in motion.
+                if let Some(dsl) = app.as_mut() {
+                    let (span, end) = dsl.momentum_tick();
+                    if let Some(span) = span {
+                        dirty_rows = match (dirty, dirty_rows) {
+                            (true, None) => None,
+                            (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                            (false, None) => Some(span),
+                        };
+                        dirty = true;
+                    }
+                    if end && dsl.fire_end_reached() {
+                        dirty = true;
+                        dirty_rows = None;
+                    }
+                    // Animation tick: damage EXACTLY the animated nodes' union
+                    // row span (old ∪ new transformed AABB) — the 120Hz damage
+                    // contract; a full repaint per breathe tick starved the
+                    // input path. Unions with any scroll span; a pending full
+                    // request still wins.
+                    if let Some(span) = dsl.anim_tick() {
+                        dirty_rows = match (dirty, dirty_rows) {
+                            (true, None) => None,
+                            (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                            (false, None) => Some(span),
+                        };
+                        dirty = true;
+                    }
+                    if dsl.momentum_active() || dsl.anim_active() {
+                        let req = wire::encode_surface_frame_req(surface_id);
+                        let _ = client.send(&req, Wait::NonBlocking);
+                    }
+                }
+            } else if let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len]) {
+                if kind == wire::INPUT_KIND_MOVE {
+                    // Frame-aligned hover: paint-only, and only the union row
+                    // span of the old+new hovered boxes (never a re-layout,
+                    // never a full-frame repaint — the damage contract).
+                    if let Some(dsl) = app.as_mut() {
+                        // Editable-field hover → windowd cursor hint (I-beam),
+                        // sent only on CHANGE (enter/leave), never per move.
+                        if let Some(over) = dsl.text_hover(i32::from(x), i32::from(y)) {
+                            boot::send_cursor_hint(&client, surface_id, over);
+                        }
+                        if let Some(span) = dsl.hover(i32::from(x), i32::from(y)) {
+                            dirty_rows = match (dirty, dirty_rows) {
+                                (true, None) => None, // full repaint already pending
+                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                                (false, None) => Some(span),
+                            };
+                            dirty = true;
+                            // Hover started interaction springs (grow/shrink):
+                            // arm the frame pulse so they tick.
+                            if dsl.anim_active() {
+                                let req = wire::encode_surface_frame_req(surface_id);
+                                let _ = client.send(&req, Wait::NonBlocking);
+                            }
+                        }
+                    }
+                } else if kind == wire::INPUT_KIND_LEAVE {
+                    if let Some(dsl) = app.as_mut() {
+                        if dsl.text_hover_clear() {
+                            boot::send_cursor_hint(&client, surface_id, false);
+                        }
+                        if let Some(span) = dsl.hover_clear() {
+                            dirty_rows = match (dirty, dirty_rows) {
+                                (true, None) => None,
+                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                                (false, None) => Some(span),
+                            };
+                            dirty = true;
+                            // The un-hover spring needs pulses too.
+                            if dsl.anim_active() {
+                                let req = wire::encode_surface_frame_req(surface_id);
+                                let _ = client.send(&req, Wait::NonBlocking);
+                            }
+                        }
+                    }
+                } else if kind == wire::INPUT_KIND_WHEEL {
+                    // Wheel impulse into the scroll physics (see `wheel_event`).
+                    if let Some(dsl) = app.as_mut() {
+                        let (d, rows) =
+                            dsl.wheel_event(&client, surface_id, y, &mut wheel_rx_markers);
+                        if d {
+                            dirty_rows = match (dirty, dirty_rows, rows) {
+                                (_, _, None) | (true, None, _) => None,
+                                (_, Some((a0, a1)), Some(sp)) => Some((a0.min(sp.0), a1.max(sp.1))),
+                                (false, None, Some(sp)) => Some(sp),
+                            };
+                            dirty = true;
+                        }
+                    }
+                } else if kind == wire::INPUT_KIND_SCROLL_POS {
+                    // Compositor owns the scroll (WebRender path): mirror the
+                    // pushed ABSOLUTE offset for hit-test/EndReached WITHOUT a
+                    // re-render. Only a LoadMore (content change) re-renders the
+                    // tall band — the content change is the sole repaint.
+                    if let Some(dsl) = app.as_mut() {
+                        if dsl.scroll_pos(i32::from(y)) {
+                            dirty = true;
+                            dirty_rows = None; // model changed: full band repaint
+                        }
+                    }
+                } else if kind == wire::INPUT_KIND_TAP {
+                    if let Some(dsl) = app.as_mut() {
+                        let outcome = dsl.tap(i32::from(x), i32::from(y));
+                        dsl.announce_text_focus(&client, surface_id, i32::from(x), i32::from(y));
+                        // ONLY a repaint is dirty. A tap a handler absorbed
+                        // without one (`PanelNoop`, or a control whose effect
+                        // lands in another service) is NOT a miss; calling it
+                        // one sent readers hunting a hit-test bug for days.
+                        if outcome == TapOutcome::Repainted {
+                            dirty = true;
+                            // Model change: full repaint. The tap may also have
+                            // started an animation — arm the frame pulse so the
+                            // physics ticks on the real cadence.
+                            dirty_rows = None;
+                            if dsl.anim_active() {
+                                let req = wire::encode_surface_frame_req(surface_id);
+                                let _ = client.send(&req, Wait::NonBlocking);
+                            }
+                        } else if outcome == TapOutcome::NoHandler && tap_miss_markers < 8 {
+                            tap_miss_markers += 1;
+                            raw_marker(&alloc::format!("apphost: input tap miss at ({x},{y})"));
+                            if tap_miss_markers == 1 {
+                                if let Some(dsl) = app.as_ref() {
+                                    dsl.dump_handler_boxes();
+                                }
+                            }
+                        }
+                    }
+                }
             } else if let Some(snap) =
                 nexus_display_proto::surface_settings::decode_surface_settings(&event_frame[..len])
             {
@@ -641,9 +797,17 @@ mod probe {
                     dirty_rows = None;
                 }
             } else if odd_frame_markers < 8 {
-                // Unrelated frame — bounded marker, never silent.
+                // Unrelated frame — bounded marker WITH IDENTITY (magic/op/
+                // len): seven anonymous skips cost a debugging session.
                 odd_frame_markers += 1;
-                raw_marker("apphost: event frame skipped (not input)");
+                let (m0, m1, op) = (
+                    event_frame.first().copied().unwrap_or(0),
+                    event_frame.get(1).copied().unwrap_or(0),
+                    event_frame.get(3).copied().unwrap_or(0),
+                );
+                raw_marker(&alloc::format!(
+                    "apphost: event frame skipped m={m0:02x}{m1:02x} op={op} len={len}"
+                ));
             }
             // Band re-negotiation: a dispatch/theme-driven re-emit can change
             // the page STRUCTURE (chat overview ⇄ thread) and with it the

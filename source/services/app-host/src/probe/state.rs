@@ -25,7 +25,7 @@ pub(super) struct DslApp {
         alloc::vec::Vec<(usize, alloc::string::String, nexus_text_baked::FontSize, [u8; 4])>,
     /// The service seam: `svc.*` effects (tap handlers AND the root
     /// initial-load effects) call through this over the provisioned slots.
-    pub(super) host: crate::effect_host::AppEffectHost,
+    pub(super) host: effect_host::AppEffectHost,
     /// Base (page background) alpha: OPAQUE for a desktop/fullscreen
     /// surface (it IS the base layer — the shell/greeter owns every
     /// pixel; a translucent base let the wallpaper — or its solid-blue

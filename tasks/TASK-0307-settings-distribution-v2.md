@@ -100,6 +100,37 @@ statefsd internals; per-key write ACLs; `_timeout_ms` wiring of DSL svc calls
 
 ## Evidence
 
+### P5 correction — the cleanup deleted the app-host's INPUT arms (user-found, fixed)
+
+"The mouse no longer interacts with the UI" — correct, and it was the P5
+commit. The remount-arm deletion was done as an index-slice from the
+profile-arm start to the snapshot arm, and that span ALSO contained the
+RECT, FRAME-pulse, INPUT, wheel and scroll-pos arms: the app-host kept
+receiving taps (`WINDOWD: desktop input routed`) and silently skipped every
+one of them. Restored verbatim from the P4 tree.
+
+Why the gates missed it: `just diag` stayed green (the orphaned handlers
+remained referenced through other paths), and the P5 boot "proof" checked
+markers, not interaction — the headless script never drives a post-mount
+pointer. Closed both holes as far as this session can: the anonymous
+`event frame skipped (not input)` marker now prints magic/op/len (seven
+anonymous skips cost exactly this debugging session — it was op=20 frame
+pulses hitting the deleted arm), and the fix was proven by DRIVEN taps
+(QMP `input-send-event`, needs `QEMU_INPUT_AUTOINJECT=1` for the socket):
+tap on empty greeter space → routed + honest hit-test miss with handler-box
+dump; tap into the password field → `cursor: shape=text`,
+`apphost: text focus set`, `windowd: launch request app=ime-ui` — the full
+DSL input chain including the OSK launch.
+
+Process lesson, recorded: python index-slice edits without reading the full
+span bit twice this session (this, and the effect_host header splice in P4).
+Slice deletions get verified by reading BOTH boundaries first, and any
+boot-proof of an interactive surface needs at least one driven tap.
+
+Intermittent, pre-existing alongside: `SELFTEST: samgrd v1 unknown/malformed
+FAIL` in 2 of 3 recent boots (also in the broken-input run) — not correlated
+with these changes; noted for observation.
+
 ### P5 — retirement + cleanup (2026-07-27)
 
 Deleted, not just dormant (net -725 lines (120+ / 845-)): windowd's CONTROL_THEME/ACCENT/
