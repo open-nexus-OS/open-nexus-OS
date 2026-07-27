@@ -34,7 +34,7 @@
 897	source/libs/nexus-proof-manifest/src/lib.rs
 778	source/libs/nexus-service-entry/src/lib.rs
 1215	source/services/app-host/src/effect_host.rs
-1290	source/services/app-host/src/main.rs
+1207	source/services/app-host/src/main.rs
 885	source/services/app-host/src/probe/anim.rs
 840	source/services/bundlemgrd/src/os_lite.rs
 1878	source/services/bundlemgrd/src/std_server.rs

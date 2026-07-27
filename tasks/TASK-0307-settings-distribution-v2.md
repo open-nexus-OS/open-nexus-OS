@@ -1,6 +1,6 @@
 ---
 title: TASK-0307 Settings distribution v2 — single authority, versioned snapshots, repaint not remount
-status: In Progress (2026-07-27) — P0+P1 done (settingsd reactive, boot-proven)
+status: In Progress (2026-07-27) — P0-P2 done (receive path proves reemit-not-remount)
 owner: @runtime @ui
 created: 2026-07-27
 links:
@@ -99,6 +99,40 @@ statefsd internals; per-key write ACLs; `_timeout_ms` wiring of DSL svc calls
    script recorded here.
 
 ## Evidence
+
+### P2 — wire + app-host receive (2026-07-27)
+
+`OP_SURFACE_SETTINGS = 26` landed in its own module
+(`nexus-display-proto/src/surface_settings.rs`, the structure gate refused to
+let `surface_text.rs` grow past 600) with roundtrip + reject matrix
+(truncation anywhere, lying length, trailing garbage, wrong op — all fail
+closed). app-host receive: `probe/presentation.rs` applies gen-idempotently —
+region via the existing RFC-0076/0077 recipe, **theme/accent and profile via
+reemit**; `ProfileEvent::Changed` is the data-reload hook (KeymapEvent
+precedent, no runtime plumbing needed). Legacy arms 16/17/23 untouched
+(windowd still emits them until P3); `absorb_snapshot` keeps the remount
+re-apply state coherent during the migration window.
+
+Plan correction, verified at the source: window intent needs NO re-announce
+on a profile flip — it is a program constant (`root.get_window()`), not a
+profile-dependent value.
+
+Host proofs (`tests/dsl_apps_conformance/tests/shell_presentation.rs`,
+against the REAL compiled shell):
+- token swap recolors the scene, the OPEN Control Center survives, and the
+  effect host records ZERO service calls;
+- profile reemit reproduces a fresh desktop mount's structure **byte-exact**
+  (box-rect fingerprint) with the open panel carried across, zero effects,
+  and the round trip restores the tablet structure. The compiler's
+  platform-override merge (`project.rs`: `ui/platform/<p>` pages become
+  `device.profile == <p>` arms) is what makes this work — the first test
+  draft compared i18n-empty TEXTS and false-negatived; box fingerprints are
+  the honest discriminator.
+
+Structure ratchet forced two real splits: the codec file, and `DslApp` out of
+`main.rs` into `probe/state.rs` (state vs loop logic; main.rs 1290 → 1207,
+baseline ratcheted DOWN). Gates green; regression boot equivalent to the P1
+reference boot (1 mount, shell on, only the chronic `qos FAIL`).
 
 ### P1 — settingsd reactive (2026-07-27)
 

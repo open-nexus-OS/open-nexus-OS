@@ -79,12 +79,15 @@ mod probe {
     mod interaction;
     mod locale;
     mod paint;
+    mod presentation;
     mod scroll;
+    mod state;
     use boot::*;
     pub(crate) use env::{device_for, size_class_for, tokens_for};
     pub(crate) use interaction::TapOutcome;
     pub(crate) use locale::app_locale;
     use paint::collect_texts;
+    use state::DslApp;
 
     /// Fixed child capability slots — execd transfers these AFTER spawn
     /// (`cap_transfer_to_slot`): SEND on windowd's server endpoint into 5,
@@ -296,6 +299,9 @@ mod probe {
         // back to the baked English catalog (windowd re-pushes only on
         // CHANGE, never on remount).
         let mut last_region: Option<boot::RegionPush> = None;
+        // RFC-0083 presentation snapshot: last applied generation (dedupe
+        // short-circuit; correctness is per-field compare in apply_settings).
+        let mut last_settings_gen: Option<u32> = None;
 
         // 4. Mount the DSL program FIRST (before the VMO) so its scroll-region
         //    geometry decides the VMO size. The DSL lays out at the VISIBLE
@@ -851,6 +857,22 @@ mod probe {
                         }
                     }
                 }
+            } else if let Some(snap) =
+                nexus_display_proto::surface_settings::decode_surface_settings(&event_frame[..len])
+            {
+                // RFC-0083: the versioned presentation snapshot. Every change
+                // is a REEMIT (probe/presentation.rs), never a remount.
+                if presentation::absorb_snapshot(
+                    app.as_mut(),
+                    &snap,
+                    &mut last_settings_gen,
+                    &mut theme_mode,
+                    &mut shell_profile,
+                    &mut last_region,
+                ) {
+                    dirty = true;
+                    dirty_rows = None; // presentation change: full repaint
+                }
             } else if let Some((hf, loc, tzv, km)) =
                 nexus_display_proto::surface_text::decode_surface_region(&event_frame[..len])
             {
@@ -1048,111 +1070,6 @@ mod probe {
                 }
             }
         }
-    }
-
-    /// The mounted DSL app: interpreter view + current layout + text runs.
-    /// Owned state so the event loop can re-layout/re-render after taps.
-    struct DslApp {
-        view: nexus_dsl_runtime::View<'static>,
-        symbols: alloc::vec::Vec<alloc::string::String>,
-        keys: alloc::vec::Vec<u32>,
-        layout: nexus_layout::LayoutResult,
-        texts: alloc::vec::Vec<(usize, alloc::string::String, nexus_text_baked::FontSize, [u8; 4])>,
-        /// The service seam: `svc.*` effects (tap handlers AND the root
-        /// initial-load effects) call through this over the provisioned slots.
-        host: crate::effect_host::AppEffectHost,
-        /// Base (page background) alpha: OPAQUE for a desktop/fullscreen
-        /// surface (it IS the base layer — the shell/greeter owns every
-        /// pixel; a translucent base let the wallpaper — or its solid-blue
-        /// fallback — bleed through), frosted-translucent for floating
-        /// windows (the glass material over the blurred backdrop).
-        base_alpha: u8,
-        /// Surface dimensions (the WM-composed content rect, or the probe
-        /// default). Layout width + render bounds derive from these — a
-        /// full-screen shell lays out at the display size, a windowed app at its
-        /// own size.
-        w: u32,
-        h: u32,
-        /// Active theme mode (`THEME_*`, pushed by windowd). Selects the token
-        /// set for every render so the app matches the compositor.
-        theme_mode: u8,
-        /// Active shell profile (`PROFILE_*`, pushed by windowd). The device
-        /// env every mount/interaction passes to the runtime.
-        shell_profile: u8,
-        /// The `node_id` of the interactive box under the pointer (windowd
-        /// MOVE events → `hover()`), washed at PAINT time. Presentation-only
-        /// state: hover never re-runs layout (pretext), only a repaint.
-        hovered: Option<usize>,
-        /// Whether the pointer sits over an editable (Change-bound) field —
-        /// the windowd cursor-hint latch (I-beam), sent only on change.
-        hover_text: bool,
-        /// Reused render row buffer (width×4). The bump allocator NEVER
-        /// frees: a per-render `vec!` leaked ~5KB per hover repaint until the
-        /// heap page-faulted (the "nothing clickable after mousing around"
-        /// crash). One allocation at mount, resized on WM resize.
-        row_scratch: alloc::vec::Vec<u8>,
-        /// Scroll offsets of the page's `.scroll(...)` viewport (paint-time
-        /// state like `hovered`: scrolling NEVER re-runs layout and NEVER
-        /// allocates — the retained boxes are repainted shifted).
-        scroll_x: i32,
-        scroll_y: i32,
-        /// The vertical scroll PHYSICS (SSOT `animation::ScrollMomentum`):
-        /// wheel notches extend a target the position eases toward; the loop
-        /// ticks it while `is_animating` — apple-smooth, never a hard jump.
-        momentum: animation::ScrollMomentum,
-        /// Last physics tick (ns) for dt integration.
-        momentum_last_ns: u64,
-        /// The DSL animation subsystem (`.animate`/`.transition`/`.effect`):
-        /// the `AnimationDriver` physics + per-node paint transforms, ticked on
-        /// the compositor frame pulse. Host owns the clock (the DSL stays pure);
-        /// see `probe/anim.rs`.
-        anim: anim::AnimState,
-        /// RFC-0077 locale packs from the payload container: (tag, catalog).
-        catalogs: alloc::vec::Vec<(alloc::string::String, nexus_dsl_runtime::Catalog)>,
-        /// Index into `catalogs` of the ACTIVE locale (None = baked default).
-        active_catalog: Option<usize>,
-        /// The last region-pushed locale tag (e.g. `de-DE`).
-        locale_tag: alloc::string::String,
-        /// The active keymap layout tag (`us`/`de`/… — `device.keymap`).
-        keymap: alloc::string::String,
-        /// Clock state (RFC-0076, `probe/clock.rs`): tz, format, next wait.
-        clock_tz: alloc::string::String,
-        clock_hour24: bool,
-        clock_next_wait_ms: u64,
-        /// EndReached latch: fired once per approach to the content end;
-        /// re-armed whenever layout re-runs (content grew/shrank).
-        end_fired: bool,
-        /// Reused per-picked-box animation index (parallel to `vis_pick`;
-        /// -1 = none) — resolved ONCE per repaint so the painter never scans
-        /// the anims slice per box per row (the hover slowdown).
-        vis_anim: alloc::vec::Vec<i16>,
-        /// Reused visibility index (box indices intersecting the repaint
-        /// span) — per-row paint cost follows what is ON SCREEN, not the
-        /// page's total box count (the 1000-message transcript contract).
-        vis_pick: alloc::vec::Vec<u32>,
-        /// Reused (box index, texts index) pairs for the span's text runs.
-        vis_text: alloc::vec::Vec<(u32, u32)>,
-        /// WebRender compositor-scroll: this surface renders a TALL packed band
-        /// (fixed header + fixed footer + the whole resident scroll content) ONCE
-        /// and windowd/gpud shift the source row per scroll. When set, wheel is
-        /// owned by the compositor: the app never self-scrolls/re-renders on a
-        /// notch — it only mirrors the pushed `INPUT_KIND_SCROLL_POS` and
-        /// re-renders the band on a content change (LoadMore). `false` = the
-        /// legacy paint-time-`dy` scroll (unchanged).
-        banded: bool,
-        /// The band geometry (`header_h, footer_h, content_h`) the CURRENT
-        /// windowd surface was created with — the re-negotiation detector
-        /// compares `band_geometry()` after every model change (a structural
-        /// view swap moves the packed-band slices; mount-fixed slices painted
-        /// chat's composer over the bubbles).
-        last_band: Option<(u32, u32, u32)>,
-        /// The tall VMO/band height (rows) allocated at create — render_band
-        /// clamps to it so a LoadMore that grows content never overflows the VMO
-        /// (the compositor band is the same fixed size; `tail(…)` keeps it finite).
-        alloc_band_h: u32,
-        /// Reused pick buffer for render_band's unclipped (fixed header/footer)
-        /// region — recycled like `vis_pick`, never allocated per render.
-        band_pick: alloc::vec::Vec<u32>,
     }
 
     /// Monotonic now (ns) for physics dt; 0 on ABI failure (tick clamps dt).
