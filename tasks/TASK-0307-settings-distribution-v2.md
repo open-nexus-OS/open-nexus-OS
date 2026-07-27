@@ -1,6 +1,6 @@
 ---
 title: TASK-0307 Settings distribution v2 — single authority, versioned snapshots, repaint not remount
-status: In Progress (2026-07-27) — P0-P3 done (snapshot pipeline live end to end)
+status: In Progress (2026-07-27) — P0-P4 done (authority flipped; P5 retirement next)
 owner: @runtime @ui
 created: 2026-07-27
 links:
@@ -99,6 +99,29 @@ statefsd internals; per-key write ACLs; `_timeout_ms` wiring of DSL svc calls
    script recorded here.
 
 ## Evidence
+
+### P4 — authority flip (2026-07-27)
+
+Landed in order: nxb-pack SETTINGS ceiling widened to `settings | shell`
+(+ pinned in `payload_kind.rs`: a shell MAY hold SETTINGS, a plain app still
+may NOT); `nexus.permission.SETTINGS` added to the desktop-shell manifest
+(measured in boot: `abilitymgr: caps ok app=desktop-shell (n=5)`); app-host
+routes EVERY settings key to settingsd — only `window.control` still goes to
+the compositor; `call_reply`'s 2 s NONBLOCK+yield spin became a KERNEL-PARKED
+send+recv on one 250 ms absolute deadline (settingsd replies in µs since P1),
+and `send_fire_and_forget`'s spin got the same treatment. windowd's CONTROL
+arms stay as dual authority until P5 (idempotent-guarded, loop-safe).
+
+Boot (14-01-10): green — ladder runs, only the chronic `qos FAIL`, snapshot
+pipeline alive (6 gen markers), ZERO remount markers. Honest limit: the
+headless script parks at the greeter (no login), so the live control-center
+toggle-through-settingsd proof is P6's interactive script; the mechanism is
+the settings app's already-proven settingsd route, now granted to the shell
+by the same table.
+
+En route: a botched python edit spliced a function into the file header of
+`effect_host.rs`; caught by inspection before any gate ran, repaired, and
+the edit re-done against unique anchors.
 
 ### P3 — windowd: subscribe, fold, deliver (2026-07-27)
 

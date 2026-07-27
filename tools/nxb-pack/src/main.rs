@@ -359,7 +359,19 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
             "nexus.permission.LAUNCH" | "nexus.permission.ENUMERATE" => {
                 Some(("shell", mf::BundleType::Shell))
             }
-            "nexus.permission.SETTINGS" => Some(("settings", mf::BundleType::Settings)),
+            // SETTINGS: the settings app AND the shell (RFC-0083: the control
+            // center writes ui.theme.*/ui.shell.mode through settingsd — the
+            // single authority — instead of a windowd side door every
+            // windowed app used to hold).
+            "nexus.permission.SETTINGS" => {
+                if bundle_type != mf::BundleType::Settings && bundle_type != mf::BundleType::Shell {
+                    return Err(format!(
+                        "manifest.toml capability `{cap}` requires bundle_type = \"settings\"                          or \"shell\" (a normal app may not hold a system-role permission)"
+                    )
+                    .into());
+                }
+                None
+            }
             "nexus.permission.FILES" => Some(("filemanager", mf::BundleType::Filemanager)),
             "nexus.permission.IME" => Some(("ime", mf::BundleType::Ime)),
             _ => None,

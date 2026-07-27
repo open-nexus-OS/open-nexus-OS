@@ -176,4 +176,16 @@ fn bundle_type_gates_system_role_permissions() {
     let dir = temp_dir("ceiling-settings");
     run_pack(&dir, &settings, b"\x7fELF fake");
     let _ = std::fs::remove_dir_all(&dir);
+
+    // RFC-0083: the SHELL may hold SETTINGS too — the control center writes
+    // ui.theme.*/ui.shell.mode through settingsd (the single authority)
+    // instead of the windowd side door every windowed app used to hold.
+    let mut shell_settings = manifest_toml(None);
+    shell_settings = shell_settings.replace(
+        "caps = [\"nexus.permission.WINDOW\"]",
+        "caps = [\"nexus.permission.WINDOW\", \"nexus.permission.SETTINGS\"]\nbundle_type = \"shell\"",
+    );
+    let dir = temp_dir("ceiling-shell-settings");
+    run_pack(&dir, &shell_settings, b"\x7fELF fake");
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -41,7 +41,12 @@ pub(crate) const ERR_SVC_SHAPE: u32 = 3;
 /// Per-call budget: the fixed slots are populated before resume, but the
 /// backing service may still be finishing bring-up. Time-bounded (not
 /// iteration-bounded) — the service decides when the reply lands.
-const SVC_DEADLINE_NS: u64 = 2_000_000_000;
+/// One service round-trip budget. 250 ms is a LIVENESS bound, not a latency
+/// expectation: settingsd replies in µs since RFC-0083 P1 (reply before
+/// persist), and both halves of the exchange are KERNEL-PARKED on this
+/// deadline — the old 2 s yield-spin burned scheduler quanta exactly when a
+/// slow service needed them most.
+const SVC_DEADLINE_NS: u64 = 250_000_000;
 /// Reply-inbox scratch bound (list responses carry every entry).
 const REPLY_BUF: usize = 512;
 /// Reply scratch for `svc.files` directory pages — sized to the shared codec's
@@ -686,18 +691,15 @@ impl AppEffectHost {
 
     /// `svc.settings.set(key, value)` → `Bool` (validated + persisted).
     ///
-    /// PRESENTATION keys (`ui.theme.mode`, `ui.shell.mode`) route to windowd
-    /// (`OP_SURFACE_CONTROL`) instead of settingsd: the compositor is the
-    /// single presentation authority — it applies the change LIVE and
-    /// persists via settingsd itself, so a toggle can never desynchronize
-    /// the desktop from the stored value.
+    /// RFC-0083: settingsd is the ONE settings authority — EVERY settings
+    /// key routes there (theme/accent/shell-mode included); it validates,
+    /// applies live, replies in µs (async persist) and notifies its
+    /// watchers, and windowd applies presentation from those watch events.
+    /// Only `window.control` (minimize/close/mode — genuine windowing, not
+    /// a setting) still goes to the compositor.
     fn settings_set(&self, key: &str, value: &str) -> Result<Value, u32> {
         use nexus_abi::settingsd as sw;
-        if key == sw::KEY_UI_THEME_MODE
-            || key == sw::KEY_UI_SHELL_MODE
-            || key == sw::KEY_UI_THEME_ACCENT
-            || key == "window.control"
-        {
+        if key == "window.control" {
             return self.presentation_control(key, value);
         }
         let send_slot = Self::svc_send_slot("settings").ok_or(ERR_SVC_UNKNOWN)?;
@@ -1075,70 +1077,39 @@ pub(crate) fn call_reply(service_send_slot: u32, req: &[u8], resp: &mut [u8]) ->
     let reply_send = nexus_abi::cap_clone(CHILD_REPLY_SEND_SLOT).ok()?;
     let hdr =
         nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    let start = nexus_abi::nsec().unwrap_or(0);
-    let deadline = start.saturating_add(SVC_DEADLINE_NS);
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(SVC_DEADLINE_NS);
 
-    let mut sent = false;
-    loop {
-        match nexus_abi::ipc_send_v1(service_send_slot, &hdr, req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => {
-                sent = true;
-                break;
-            }
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                    break;
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => break,
-        }
-    }
-    // Reclaims the clone on a failed send; a successful CAP_MOVE already
-    // consumed it, so this is a harmless no-op there (registry_client pattern).
-    let _ = nexus_abi::cap_close(reply_send);
-    if !sent {
+    // KERNEL-PARKED send: a full queue registers us as a send-waiter and the
+    // receive path wakes us the moment capacity appears (RFC-0083 — the old
+    // NONBLOCK + yield_() spin here burned up to 2 s of scheduler quanta).
+    if nexus_abi::ipc_send_v1(service_send_slot, &hdr, req, 0, deadline).is_err() {
+        // Reclaim the clone (a successful CAP_MOVE would have consumed it).
+        let _ = nexus_abi::cap_close(reply_send);
         return None;
     }
 
-    loop {
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        match nexus_abi::ipc_recv_v1(
-            CHILD_REPLY_RECV_SLOT,
-            &mut rh,
-            resp,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => return Some((n as usize).min(resp.len())),
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                    return None;
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => return None,
-        }
+    // KERNEL-PARKED receive on the same absolute deadline.
+    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    match nexus_abi::ipc_recv_v1(
+        CHILD_REPLY_RECV_SLOT,
+        &mut rh,
+        resp,
+        nexus_abi::IPC_SYS_TRUNCATE,
+        deadline,
+    ) {
+        Ok(n) => Some((n as usize).min(resp.len())),
+        Err(_) => None,
     }
 }
 
 /// Bounded fire-and-forget send on a provisioned SEND slot (no reply awaited).
 fn send_fire_and_forget(send_slot: u32, req: &[u8]) -> bool {
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req.len() as u32);
-    let start = nexus_abi::nsec().unwrap_or(0);
-    let deadline = start.saturating_add(SVC_DEADLINE_NS);
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => return true,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                    return false;
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => return false,
-        }
-    }
+    // KERNEL-PARKED on a full queue (same contract as `call_reply`) — the
+    // old NONBLOCK + yield_() spin is the syscall-storm pattern RFC-0083
+    // removes everywhere.
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(SVC_DEADLINE_NS);
+    nexus_abi::ipc_send_v1(send_slot, &hdr, req, 0, deadline).is_ok()
 }
 
 /// Parses the `OP_LIST_APPS` response body into `(id, label, icon)` triples.
