@@ -45,6 +45,8 @@ Page StashPage {
             propsPanel: true,
             showSidebar: $state.leftOpen == 1,
             showProps: $state.rightOpen == 1 && $state.settingsOpen == 0,
+            sidebarOverlay: $state.paneL == 1,
+            propsOverlay: $state.paneR == 1 && $state.settingsOpen == 0,
         } {
             sidebar {
                 Text(@t("stash.nav")).textSize(xs).fg(onSurfaceVariant)

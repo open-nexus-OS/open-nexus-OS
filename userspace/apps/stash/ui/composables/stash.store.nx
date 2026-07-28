@@ -13,6 +13,12 @@ Store StashStore {
     menu: Str = "",
     leftOpen: Int = 1,
     rightOpen: Int = 1,
+    // Overlay-pane flags (RFC-0084 P7): the compact/regular twins of
+    // leftOpen/rightOpen. Default CLOSED — a phone-profile mount must not
+    // boot with a pane over the content. The same top-bar buttons toggle
+    // both senses; only the visible one matters per size class.
+    paneL: Int = 0,
+    paneR: Int = 0,
     tool: Str = "",
     selection: Str = "",
     selName: Str = "",
@@ -57,6 +63,7 @@ Event StashEvent {
     WinMenu(Str),
     WinMenuPick(Str),
     WinNoop,
+    WinPaneClose,
     WinLeft,
     WinRight,
     WinTool(Str),
@@ -205,11 +212,20 @@ reduce StashEvent {
         }
     },
     WinNoop => state.menu = state.menu,
+    WinPaneClose => {
+        state.paneL = 0;
+        state.paneR = 0;
+    },
     WinLeft => {
         if state.leftOpen == 1 {
             state.leftOpen = 0;
         } else {
             state.leftOpen = 1;
+        }
+        if state.paneL == 1 {
+            state.paneL = 0;
+        } else {
+            state.paneL = 1;
         }
     },
     WinRight => {
@@ -217,6 +233,11 @@ reduce StashEvent {
             state.rightOpen = 0;
         } else {
             state.rightOpen = 1;
+        }
+        if state.paneR == 1 {
+            state.paneR = 0;
+        } else {
+            state.paneR = 1;
         }
     },
     WinTool(t) => {

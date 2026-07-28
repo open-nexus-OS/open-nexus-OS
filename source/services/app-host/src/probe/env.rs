@@ -84,9 +84,11 @@ pub(crate) fn size_class_for(w: u32) -> &'static str {
 
 /// The device environment for a pushed shell profile — what the DSL's
 /// `device.profile` reads, so `ui/platform/<profile>/` override arms
-/// select to the environment's windowing policy. Touch profiles derive
+/// select to the environment's windowing policy. EVERY profile derives
 /// `device.sizeClass` from the REAL surface width (the handoff's `vw`
-/// axis); desktop mode ignores width (one taskbar layout).
+/// axis) — RFC-0084 P7: the desktop arm used to pin `"wide"`, which made
+/// every responsive arm dead code for desktop-profile apps; a narrow
+/// desktop window now takes the same regular/compact tiers as a tablet.
 pub(crate) fn device_for(
     profile: u8,
     w: u32,
@@ -96,17 +98,11 @@ pub(crate) fn device_for(
     use nexus_dsl_runtime::FixtureEnv;
     let mut env = match profile {
         wire::PROFILE_DESKTOP => FixtureEnv::desktop(),
-        profile => {
-            let mut env = if profile == wire::PROFILE_PHONE {
-                FixtureEnv::phone("portrait")
-            } else {
-                // Our display is landscape 1280×800 (touch-landscape).
-                FixtureEnv::tablet("landscape")
-            };
-            env.size_class = size_class_for(w);
-            env
-        }
+        wire::PROFILE_PHONE => FixtureEnv::phone("portrait"),
+        // Our display is landscape 1280×800 (touch-landscape).
+        _ => FixtureEnv::tablet("landscape"),
     };
+    env.size_class = size_class_for(w);
     // Region axes (RFC-0075 Phase 8b): runtime-varying, from the windowd
     // region push — `if device.locale/keymap` arms re-select on reemit.
     env.locale = alloc::string::String::from(locale);

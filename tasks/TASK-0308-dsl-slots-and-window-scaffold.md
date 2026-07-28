@@ -372,17 +372,36 @@ filter the same way it already applies `sortBy`; store effect fires on
 **Stop condition**: host test over the filter, then counter +
 "Keine Objekte gefunden" proven in `stash.rs`.
 
-### Phase 7 — responsive + `probe/env.rs`
+### Phase 7 — responsive + `probe/env.rs` ✅ (2026-07-28)
 
-Tier mapping (desktop→`wide`, compact→`regular`, mobile→`compact`, platform
-breakpoints 640/1024) in `WinAppWindow` + `StashPage.nx`; overlay panes via
-`.overlay()` + scrim with a backdrop `on Tap` — the pattern the menu overlay
-already uses (`StashPage.nx:301-383`). **Then** the `env.rs` desktop-arm
-change as its own commit.
+`WinAppWindow` is tier-aware via `device.sizeClass` (breakpoints 640/1024):
+wide keeps all three zones inline; regular moves properties into an OVERLAY
+pane; compact moves the sidebar too — content alone owns the width. Overlay
+panes ride the proven menu-overlay pattern (`.overlay()`, backdrop tap →
+`WinPaneClose`, pane eats taps via `WinNoop`) and always float on a Panel
+(the per-region panel choice governs the inline arms only). A slot may
+legally appear in BOTH the inline and the overlay arm — rule 12 only
+refuses two placeholders under the same parent, and the arms are exclusive.
 
-**Stop condition**: host tests at three `FixtureEnv` size classes;
-`tests/systemui_bootstrap_shell_host` + `shell_*.rs` green; `just test-all`;
-QEMU resize confirmation.
+Caller side: two new props (`sidebarOverlay`/`propsOverlay`) driven by new
+`paneL`/`paneR` state in stash.store (default CLOSED — a phone mount must
+not boot with a pane over the content); `WinLeft`/`WinRight` toggle both
+the inline and the overlay sense, only the visible one matters per class;
+`WinPaneClose` is the new kit-convention event (settings.store carries the
+no-op arm since it mounts kit chrome).
+
+`env.rs` (own commit): the desktop arm no longer pins `"wide"` — EVERY
+profile derives `device.sizeClass` from the real surface width, so
+responsive arms stop being dead code for desktop-profile apps (a narrow
+desktop window takes the regular/compact tiers).
+
+**Proof**: window_kit conformance grew two tier tests
+(`responsive_tiers_move_panes_out_of_flow`,
+`overlay_flags_bring_the_panes_back_as_panels`) exercising all THREE
+`FixtureEnv` size classes; full conformance 8+5+2+1 green;
+`systemui_bootstrap_shell_host` 7/7; `just check` green; test-host
+615/615; headless ladder exit 0 incl. the gated `SELFTEST: ui resize ok`.
+Kernel lanes unchanged this phase (proven green earlier the same day).
 
 ### Phase 8 — docs + tooling parity
 

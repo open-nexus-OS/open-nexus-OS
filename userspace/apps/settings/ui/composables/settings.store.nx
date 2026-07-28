@@ -28,6 +28,7 @@ Event SettingsEvent {
     WinMenu(Str),
     WinMenuPick(Str),
     WinNoop,
+    WinPaneClose,
     WinLeft,
     WinRight,
     WinTool(Str),
@@ -127,6 +128,8 @@ reduce SettingsEvent {
         }
     },
     WinNoop => state.menu = state.menu,
+    // Kit scrim close (RFC-0084 P7) — settings has no overlay panes yet.
+    WinPaneClose => state.menu = state.menu,
     WinAct(a) => state.menu = "",
     WinNav(dir) => state.menu = state.menu,
     SetTheme(mode) => state.applyError = 0,

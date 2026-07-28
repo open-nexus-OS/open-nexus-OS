@@ -17,7 +17,22 @@ use nexus_layout_types::{FxPx, LayoutNode, SurfaceMaterial};
 const KIT: &str = include_str!("../../../userspace/apps/window-kit/ui/components/WinAppWindow.nx");
 
 fn program(page: &str) -> String {
-    format!("{KIT}\n{page}\n")
+    // Minimal store: the kit's overlay scrim/pane dispatch `WinPaneClose`/
+    // `WinNoop`, which must be declared event cases in the mounting app.
+    const STORE: &str = r#"Store S {
+    x: Int = 0,
+}
+
+Event E {
+    WinNoop,
+    WinPaneClose,
+}
+
+reduce E {
+    WinNoop => state.x = state.x,
+    WinPaneClose => state.x = state.x,
+}"#;
+    format!("{KIT}\n{STORE}\n{page}\n")
 }
 
 fn compile(src: &str) -> Vec<u8> {
@@ -77,14 +92,24 @@ impl Mounted {
     }
 
     fn with<R>(&self, f: impl FnOnce(&View<'_>) -> R) -> R {
+        self.with_env(FixtureEnv::default(), f)
+    }
+
+    fn with_env<R>(&self, device: FixtureEnv, f: impl FnOnce(&View<'_>) -> R) -> R {
         let tokens = nexus_theme_tokens::BaseTokens;
-        let device = FixtureEnv::default();
         let symbols: Vec<String> = Vec::new();
         let keys: Vec<u32> = Vec::new();
         let locale = IdentityLocale { symbols: &symbols, keys: &keys };
         let view = View::mount(&self.nxir, &tokens, &device, &locale).expect("mounts");
         f(&view)
     }
+}
+
+/// A desktop env pinned to one size class (RFC-0084 P7 tier tests).
+fn env(size_class: &'static str) -> FixtureEnv {
+    let mut env = FixtureEnv::default();
+    env.size_class = size_class;
+    env
 }
 
 /// A page using the scaffold with the given panel flags and content body.
@@ -214,7 +239,9 @@ fn flipping_a_panel_on_keeps_the_region_rects() {
         let mut rects: Vec<_> = geometry(flags)
             .into_iter()
             .skip(1)
-            .filter(|(_, y, _, h)| *y == 0 && *h == 800)
+            // Full-height boxes below the root, minus the row WRAPPER the
+            // responsive split added (P7): the wrapper spans the full width.
+            .filter(|(_, y, w, h)| *y == 0 && *h == 800 && *w < 1280)
             .collect();
         rects.sort_unstable();
         rects
@@ -229,4 +256,43 @@ fn flipping_a_panel_on_keeps_the_region_rects() {
         "sidebar 240 · content fills the rest · properties 260"
     );
     assert_eq!(off, on, "panel opt-in must not move or resize a region");
+}
+
+#[test]
+fn responsive_tiers_move_panes_out_of_flow() {
+    // RFC-0084 P7 (tiers 640/1024): wide keeps all three zones inline,
+    // regular drops the inline properties pane, compact drops the inline
+    // sidebar too — content alone owns the width.
+    let mounted = Mounted::new(&page(ALL_OFF, r#"            Text("body")"#));
+    mounted.with_env(env("wide"), |view| {
+        assert_eq!(texts(view.scene()), ["nav", "body", "props"]);
+    });
+    mounted.with_env(env("regular"), |view| {
+        assert_eq!(texts(view.scene()), ["nav", "body"], "regular: properties leave the flow");
+    });
+    mounted.with_env(env("compact"), |view| {
+        assert_eq!(texts(view.scene()), ["body"], "compact: content alone");
+    });
+}
+
+#[test]
+fn overlay_flags_bring_the_panes_back_as_panels() {
+    // The out-of-flow panes come back as OVERLAY panes (caller-controlled
+    // flags), and an overlay pane always floats on a Panel — the per-region
+    // panel choice governs the inline arms only.
+    let flags = "sidebarPanel: false, contentPanel: false, propsPanel: false, \
+                 showSidebar: true, showProps: true, sidebarOverlay: true, propsOverlay: true";
+    let mounted = Mounted::new(&page(flags, r#"            Text("body")"#));
+    mounted.with_env(env("compact"), |view| {
+        assert_eq!(texts(view.scene()), ["body", "nav", "props"], "both panes overlay");
+        assert_eq!(glass_count(view.scene()), 2, "overlay panes each bring a Panel");
+    });
+    mounted.with_env(env("regular"), |view| {
+        assert_eq!(texts(view.scene()), ["nav", "body", "props"], "sidebar inline, props overlay");
+        assert_eq!(glass_count(view.scene()), 1, "only the props overlay adds a Panel");
+    });
+    mounted.with_env(env("wide"), |view| {
+        assert_eq!(texts(view.scene()), ["nav", "body", "props"], "wide ignores overlay flags");
+        assert_eq!(glass_count(view.scene()), 0, "inline arms stay panel-free as configured");
+    });
 }
