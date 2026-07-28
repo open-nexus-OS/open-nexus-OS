@@ -1,8 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One grid (Kacheln) tile: a large type icon over the name. Same interaction
-// as FileRow — tap selects; an active folder opens (select→open double-click).
+// One grid (Kacheln) tile: type icon over name over size. Same interaction as
+// FileRow — tap selects; an active folder opens (select→open double-click).
+//
+// The design's `minmax(124px, 1fr)` grid track maps onto the DSL's flex wrap:
+// a 124px floor plus `.grow(1)`, inside the page's `.direction(row).wrap(true)`
+// container. An unselected tile is a raised bordered surface, not bare.
 
 Component FileTile {
     props: {
@@ -15,28 +19,33 @@ Component FileTile {
     }
     if $props.active {
         Stack {
-            Image { source: $props.icon, size: 44 }
-            Text($props.name).textSize(xs).fg(onAccent)
+            Image { source: $props.icon, size: 30 }
+            Text($props.name).textSize(xs).fg(onAccent).truncate(1)
+            Text($props.size).textSize(xs).fg(onAccent)
         }
         .align(center)
         .justify(center)
         .gap(1)
-        .width(100)
-        .height(92)
-        .rounded(lg)
+        .minWidth(124)
+        .grow(1)
+        .height(96)
+        .rounded(md)
         .bg(accent)
         on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, ""))
     } else {
         Stack {
-            Image { source: $props.icon, size: 44 }
-            Text($props.name).textSize(xs).fg(onSurface)
+            Image { source: $props.icon, size: 30 }
+            Text($props.name).textSize(xs).fg(onSurface).truncate(1)
+            Text($props.size).textSize(xs).fg(onSurfaceVariant)
         }
         .align(center)
         .justify(center)
         .gap(1)
-        .width(100)
-        .height(92)
-        .rounded(lg)
+        .minWidth(124)
+        .grow(1)
+        .height(96)
+        .rounded(md)
+        .material(subtle)
         on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, ""))
     }
 }

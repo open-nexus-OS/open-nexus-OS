@@ -41,9 +41,20 @@ pub(crate) const GPU_CURSOR_QUEUE_VA: usize = 0x2034_0000;
 pub(crate) const GPU_CURSOR_CMD_VA: usize = 0x2035_0000;
 pub(crate) const GPU_CURSOR_RESP_VA: usize = 0x2035_1000;
 pub(crate) const GPU_RESOURCE_BASE_VA: usize = 0x2040_0000;
-// 32 MB per resource VA slot. The external framebuffer is now 1280×6400×4 ≈ 31.3 MB
-// (4 display planes + surface atlas), so the 16 MB stride would overflow into the
-// next slot. 32 MB stride × ≤11 slots stays below GPU_VIRGL_BACKING_BASE_VA.
+// 32 MB per resource VA slot. NOT large enough for the external framebuffer,
+// and deliberately so: `alloc_resource_va_index` is size-aware and hands a
+// mapping as many CONSECUTIVE slots as it needs (TASK-0309).
+//
+// The stride was last sized against a 1280×6400×4 ≈ 31.3 MB framebuffer. It has
+// since grown to 1280×9600×4 ≈ 46.9 MB (measured at boot), so it spans two slots.
+// Sizing the stride to the framebuffer instead would just re-arm the same trap
+// the next time the plane layout or the atlas band grows: before TASK-0309 the
+// allocator handed out ONE slot regardless of size and the caller mapped
+// straight past the boundary, which only ever worked while the framebuffer
+// happened to get slot 0 with nothing above it.
+//
+// 8 slots × 32 MB from 0x2040_0000 ends at 0x3040_0000 — below
+// GPU_VIRGL_BACKING_BASE_VA (0x3800_0000).
 pub(crate) const GPU_RESOURCE_STRIDE: usize = 0x0200_0000;
 /// Fixed display-plane location within the framebuffer resource. The 4-plane
 /// layout is: wallpaper(0) / retained(800) / DISPLAY(1600) / blur-cache(2400),
@@ -227,9 +238,9 @@ impl VirtioGpuBackend {
         fmt: PixelFormat,
         byte_len: usize,
     ) -> Result<(usize, u64, usize, u32), GfxError> {
-        let resource_index = self.alloc_resource_va_index()?;
         let backing_len = align_page(byte_len);
-        let backing_va = GPU_RESOURCE_BASE_VA + resource_index * GPU_RESOURCE_STRIDE;
+        let window = self.alloc_resource_va_index(backing_len)?;
+        let backing_va = window.base_va;
         let backing_vmo = nexus_abi::vmo_create(backing_len).map_err(|_e| {
             let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_CREATE_FAIL);
             GfxError::ResourceExhausted
@@ -239,12 +250,25 @@ impl VirtioGpuBackend {
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
         for offset in (0..backing_len).step_by(4096) {
-            nexus_abi::vmo_map_page(backing_vmo, backing_va + offset, offset, flags).map_err(
-                |_e| {
-                    let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_MAP_FAIL);
-                    GfxError::MmioFault
-                },
-            )?;
+            let va = window.page_va(offset)?;
+            // See `attach.rs`: `_sys` keeps the kernel's error code, which the
+            // non-`_sys` wrapper discards (TASK-0309).
+            if let Err(err) = nexus_abi::vmo_map_page_sys(backing_vmo, va, offset, flags) {
+                let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_MAP_FAIL);
+                crate::diag::err_line(b"resource map", err);
+                crate::diag::kv_line(
+                    b"resource map",
+                    &[
+                        (b"idx", window.index as u64),
+                        (b"va", va as u64),
+                        (b"off", offset as u64),
+                        (b"len", backing_len as u64),
+                        (b"w", u64::from(w)),
+                        (b"h", u64::from(h)),
+                    ],
+                );
+                return Err(GfxError::MmioFault);
+            }
         }
         unsafe { core::ptr::write_bytes(backing_va as *mut u8, 0, backing_len) };
         let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };

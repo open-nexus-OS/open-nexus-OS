@@ -1,13 +1,19 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// stash — the platform file manager in the design-handoff window frame
-// (02-os-app-window): window-kit chrome (app menu with REAL window
-// controls, ⋯ menu with cascading flyouts, sidebar toggles, toolbar
-// slots), nav sidebar, breadcrumb + REAL file listing (svc.files.list →
-// vfsd ReadDir, TASK-0291) with honest loading/error states, and the
-// SELECTION REACTIVITY proof: the properties pane shows the selected file
-// and the floating action bar swaps its actions when something is selected.
+// stash — the platform file manager, built on `WinAppWindow` (RFC-0084).
+//
+// The three-zone body is the KIT's now; this page only fills the slots. The
+// panel backgrounds are this app's choice, stated once at the callsite:
+// content and properties take one each, the sidebar takes none. A different
+// app decides differently — that is the point of the scaffold.
+//
+// Everything else is the design handoff (`docs/design_handoff_files_window`):
+// window-kit chrome with active tool states, a search field that filters the
+// listing, a breadcrumb with the object count and sort controls, real file
+// rows (svc.files.list → vfsd ReadDir, TASK-0291) with honest loading/error
+// states, the SELECTION REACTIVITY proof (properties pane + action bar both
+// swap on selection), and the settings mode that replaces the content.
 
 Window {
     style: plain,
@@ -20,49 +26,119 @@ Page StashPage {
         // Fullscreen chrome inset: the window sits BEHIND the shell top bar.
         Stack { }
             .height(40)
-        WinTopBar { icon: "folder", tool1: "magnifyingglass", tool2: "square.grid.2x2", tool3: "list.bullet", navBack: "chevron.left", navFwd: "chevron.right", navRefresh: "arrow.clockwise", appId: "stash" }
-        Stack {
-            if $state.leftOpen == 1 {
+        WinTopBar {
+            icon: "folder",
+            tool1: "magnifyingglass",
+            tool2: "square.grid.2x2",
+            tool3: "list.bullet",
+            tool1Active: $state.searchOpen == 1,
+            tool2Active: $state.viewMode == "grid",
+            tool3Active: $state.viewMode == "list",
+            navBack: "chevron.left",
+            navFwd: "chevron.right",
+            navRefresh: "arrow.clockwise",
+            appId: "stash",
+        }
+        WinAppWindow {
+            sidebarPanel: false,
+            contentPanel: true,
+            propsPanel: true,
+            showSidebar: $state.leftOpen == 1,
+            showProps: $state.rightOpen == 1 && $state.settingsOpen == 0,
+        } {
+            sidebar {
+                Text(@t("stash.nav")).textSize(xs).fg(onSurfaceVariant)
+                Stack { }
+                    .height(1)
+                    .bg(border)
+                WinSideItem { id: "nav.recent", label: @t("stash.recent"), sub: "", icon: "star", active: $state.section == "recent" }
+                WinSideItem { id: "nav.pictures", label: @t("stash.pictures"), sub: "", icon: "photo", active: $state.section == "pictures" }
+                WinSideItem { id: "nav.videos", label: @t("stash.videos"), sub: "", icon: "film", active: $state.section == "videos" }
+                WinSideItem { id: "nav.audio", label: @t("stash.audio"), sub: "", icon: "music.note", active: $state.section == "audio" }
+                WinSideItem { id: "nav.docs", label: @t("stash.docs"), sub: "", icon: "doc", active: $state.section == "docs" }
+                WinSideItem { id: "nav.downloads", label: @t("stash.downloads"), sub: "", icon: "arrow.down.circle", active: $state.section == "downloads" }
+                WinSideItem { id: "nav.storage", label: @t("stash.storage"), sub: "", icon: "internaldrive", active: $state.section == "storage" }
+                WinSideItem { id: "nav.trash", label: @t("stash.trash"), sub: "", icon: "trash", active: $state.section == "trash" }
+                Spacer
+                Stack { }
+                    .height(1)
+                    .bg(border)
                 Stack {
-                    Text(@t("stash.nav")).textSize(xs).fg(onSurfaceVariant)
-                    WinSideItem { id: "nav.recent", label: @t("stash.recent"), sub: "", icon: "star", active: $state.section == "recent" }
-                    WinSideItem { id: "nav.pictures", label: @t("stash.pictures"), sub: "", icon: "photo", active: $state.section == "pictures" }
-                    WinSideItem { id: "nav.videos", label: @t("stash.videos"), sub: "", icon: "film", active: $state.section == "videos" }
-                    WinSideItem { id: "nav.audio", label: @t("stash.audio"), sub: "", icon: "music.note", active: $state.section == "audio" }
-                    WinSideItem { id: "nav.docs", label: @t("stash.docs"), sub: "", icon: "doc", active: $state.section == "docs" }
-                    WinSideItem { id: "nav.downloads", label: @t("stash.downloads"), sub: "", icon: "arrow.down.circle", active: $state.section == "downloads" }
-                    WinSideItem { id: "nav.storage", label: @t("stash.storage"), sub: "", icon: "internaldrive", active: $state.section == "storage" }
-                    WinSideItem { id: "nav.trash", label: @t("stash.trash"), sub: "", icon: "trash", active: $state.section == "trash" }
-                    Spacer
+                    Circle { size: 34
+                        Icon { symbol: "person", size: 16 }
+                            .fg(onSurface)
+                    }
+                    .material(subtle)
                     Stack {
-                        Circle { size: 26
-                            Icon { symbol: "person", size: 14 }
-                                .fg(onSurface)
-                        }
-                        .material(subtle)
+                        Text(@t("stash.userName")).textSize(sm).fg(onSurface)
+                        Text(@t("stash.userSub")).textSize(xs).fg(onSurfaceVariant)
+                    }
+                    .gap(0)
+                }
+                .direction(row)
+                .align(center)
+                .gap(2)
+                .paddingX(2)
+            }
+            content {
+                // ── SETTINGS MODE ────────────────────────────────────
+                // Replaces the file content wholesale; the properties pane
+                // and the action bar are gone (the pane via `showProps` on
+                // the scaffold, the bar because this arm never draws it).
+                if $state.settingsOpen == 1 {
+                    Stack {
                         Stack {
-                            Text(@t("stash.userName")).textSize(sm).fg(onSurface)
-                            Text(@t("stash.userSub")).textSize(xs).fg(onSurfaceVariant)
+                            Icon { symbol: "chevron.left", size: 15 }
+                                .fg(onSurfaceVariant)
                         }
-                        .gap(0)
+                        .width(28)
+                        .height(28)
+                        .rounded(md)
+                        .align(center)
+                        .justify(center)
+                        on Tap -> dispatch(SettingsClose)
+                        Icon { symbol: "gearshape", size: 15 }
+                            .fg(onSurfaceVariant)
+                        Text(@t("stash.settings")).textSize(sm).fg(onGlassStrong)
+                        Spacer
                     }
                     .direction(row)
                     .align(center)
                     .gap(2)
-                    .paddingX(2)
-                }
-                .width(240)
-                .gap(1)
-                .padding(3)
-            } else {
-                Stack { }
-            }
-            Stack {
-                Panel {
                     Stack {
-                        // Breadcrumb: Dieser PC [› <folder>]. The home root shows
-                        // just "Dieser PC"; a folder appends its localized name.
-                        // Tapping "Dieser PC" navigates home.
+                        Text(@t("stash.setViewSection")).textSize(xs).fg(onSurfaceVariant)
+                        Text(@t("stash.setViewHint")).textSize(xs).fg(onSurfaceVariant)
+                    }
+                    .gap(0)
+                    .paddingX(2)
+                    // The design's settings CARD: a bordered raised surface
+                    // inside the content panel — a second panel in the same
+                    // region, which the scaffold permits precisely because it
+                    // paints none of its own.
+                    Panel {
+                        Stack {
+                            Stack {
+                                Text(@t("stash.setHidden")).textSize(sm).fg(onSurface)
+                                Text(@t("stash.setHiddenHint")).textSize(xs).fg(onSurfaceVariant)
+                            }
+                            .gap(0)
+                            .grow(1)
+                            Toggle { checked: $state.showHidden, label: @t("stash.setHidden") }
+                            on Tap -> dispatch(ToggleHidden)
+                        }
+                        .direction(row)
+                        .align(center)
+                        .gap(2)
+                        .height(56)
+                    }
+                    .material(card)
+                    Spacer
+                } else {
+                    // ── FILE CONTENT ─────────────────────────────────
+                    // Breadcrumb: Dieser PC [› <folder>]. The home root shows
+                    // just "Dieser PC"; a folder appends its localized name.
+                    // Tapping "Dieser PC" navigates home.
+                    Stack {
                         Stack {
                             Text(@t("stash.thisPc")).textSize(sm).fg(onSurfaceVariant)
                         }
@@ -71,7 +147,7 @@ Page StashPage {
                             Stack {
                                 Icon { symbol: "chevron.right", size: 12 }
                                     .fg(onSurfaceVariant)
-                                Text($state.folderLabel).textSize(sm).fg(onSurface)
+                                Text($state.folderLabel).textSize(sm).fg(onGlassStrong).fontWeight(semibold)
                             }
                             .direction(row)
                             .align(center)
@@ -81,20 +157,101 @@ Page StashPage {
                         }
                         Spacer
                         Text(@t("stash.objects")).textSize(xs).fg(onSurfaceVariant)
+                        // Sort controls (design: direction · by size · by type)
+                        Stack {
+                            Icon { symbol: "arrow.up.arrow.down", size: 13 }
+                                .fg(onSurfaceVariant)
+                        }
+                        .width(26)
+                        .height(26)
+                        .rounded(md)
+                        .align(center)
+                        .justify(center)
+                        on Tap -> dispatch(SortDir)
+                        Stack {
+                            Icon { symbol: "internaldrive", size: 13 }
+                                .fg(onSurfaceVariant)
+                        }
+                        .width(26)
+                        .height(26)
+                        .rounded(md)
+                        .align(center)
+                        .justify(center)
+                        on Tap -> dispatch(SortBy("size"))
+                        Stack {
+                            Icon { symbol: "folder", size: 13 }
+                                .fg(onSurfaceVariant)
+                        }
+                        .width(26)
+                        .height(26)
+                        .rounded(md)
+                        .align(center)
+                        .justify(center)
+                        on Tap -> dispatch(SortBy("kind"))
                     }
                     .direction(row)
                     .align(center)
                     .gap(1)
-                    Stack {
-                        Text(@t("stash.colName")).textSize(xs).fg(onSurfaceVariant)
-                        Spacer
-                        Text(@t("stash.colDate")).textSize(xs).fg(onSurfaceVariant)
-                        Text(@t("stash.colSize")).textSize(xs).fg(onSurfaceVariant)
+                    // ── SEARCH FIELD ─────────────────────────────────
+                    // Between the header and the list, exactly where the
+                    // design puts it. `TextField` auto-binds its Change to
+                    // `searchQuery`, so typing needs no handler.
+                    if $state.searchOpen == 1 {
+                        Stack {
+                            Icon { symbol: "magnifyingglass", size: 13 }
+                                .fg(onSurfaceVariant)
+                            // The auto-bind writes `searchQuery`; the `on
+                            // Change` on the wrapper reports that it moved so
+                            // the effect can re-issue the listing. Same shape
+                            // as the launcher's `QueryChanged` — a dispatch
+                            // cannot carry the typed text, and does not need to.
+                            Stack {
+                                TextField { value: $state.searchQuery, placeholder: @t("stash.searchHint"), label: @t("stash.searchHint") }
+                            }
+                            .grow(1)
+                            on Change -> dispatch(SearchChanged)
+                            Stack {
+                                Icon { symbol: "xmark", size: 12 }
+                                    .fg(onSurfaceVariant)
+                            }
+                            .width(24)
+                            .height(24)
+                            .rounded(md)
+                            .align(center)
+                            .justify(center)
+                            on Tap -> dispatch(SearchClear)
+                        }
+                        .direction(row)
+                        .align(center)
+                        .gap(2)
+                        .paddingX(2)
+                        .height(38)
+                        .rounded(md)
+                        .material(subtle)
+                    } else {
+                        Stack { }
                     }
-                    .direction(row)
-                    .align(center)
-                    .gap(2)
-                    .paddingX(2)
+                    // Column headers, pinned to the row metrics.
+                    if $state.viewMode == "list" {
+                        Stack {
+                            Stack {
+                                Text(@t("stash.colName")).textSize(xs).fg(onSurfaceVariant)
+                                Spacer
+                                Text(@t("stash.colDate")).textSize(xs).fg(onSurfaceVariant).width(80).textAlign(right)
+                                Text(@t("stash.colSize")).textSize(xs).fg(onSurfaceVariant).width(68).textAlign(right)
+                            }
+                            .direction(row)
+                            .align(center)
+                            .gap(2)
+                            .paddingX(2)
+                            Stack { }
+                                .height(1)
+                                .bg(border)
+                        }
+                        .gap(1)
+                    } else {
+                        Stack { }
+                    }
                     // REAL listing (svc.files.list → vfsd ReadDir, TASK-0291);
                     // honest loading/error states, never fake rows.
                     if $state.filesError != 0 {
@@ -106,407 +263,341 @@ Page StashPage {
                             if $state.fileCount == 0 {
                                 Text(@t("stash.empty")).textSize(sm).fg(onSurfaceVariant)
                             } else {
-                            if $state.viewMode == "grid" {
-                                List($state.files) { f in
-                                    Stack {
-                                        FileTile { id: f.name, name: f.name, kind: f.kind, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                                if $state.viewMode == "grid" {
+                                    List($state.files) { f in
+                                        Stack {
+                                            FileTile { id: f.name, name: f.name, kind: f.kind, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                                        }
+                                        .key(f.name)
                                     }
-                                    .key(f.name)
-                                }
-                                .direction(row)
-                                .wrap(true)
-                                .gap(3)
-                                .paddingX(2)
-                            } else {
-                                List($state.files) { f in
-                                    Stack {
-                                        FileRow { id: f.name, name: f.name, kind: f.kind, date: f.date, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                                    .direction(row)
+                                    .wrap(true)
+                                    .gap(3)
+                                    .paddingX(2)
+                                } else {
+                                    List($state.files) { f in
+                                        Stack {
+                                            FileRow { id: f.name, name: f.name, kind: f.kind, date: f.date, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                                        }
+                                        .key(f.name)
                                     }
-                                    .key(f.name)
                                 }
-                            }
                             }
                         }
                     }
                     Spacer
-                    // Floating action bar (design handoff `WindowActionBar`):
-                    // the item set IS the selection reactivity — no selection
-                    // = create/sort actions, a selected file = file actions.
-                    // Hidden in the Recent aggregation (its entries live in
-                    // other folders; ops would target the wrong paths).
+                    // ── FLOATING ACTION BAR ──────────────────────────
+                    // A glass pill at the bottom of the content region. The
+                    // item set IS the selection reactivity — no selection =
+                    // create/sort, a selected file = file operations. Hidden
+                    // in the Recent aggregation (its entries live in other
+                    // folders; ops would target the wrong paths).
                     if $state.path == "recent:" {
                         Stack { }
                     } else {
-                    Stack {
-                        Spacer
-                        Panel {
-                            if $state.selection == "" {
-                                Stack {
-                                    // Real write: NewFolder → svc.files.mkdir (nxfs /data).
+                        Stack {
+                            Spacer
+                            Panel {
+                                if $state.selection == "" {
                                     Stack {
-                                        Circle { size: 26
-                                            Icon { symbol: "plus", size: 14 }
-                                                .fg(onAccent)
-                                        }
-                                        .bg(accent)
-                                        Text(@t("stash.actNew")).textSize(xs).fg(onSurfaceVariant)
-                                    }
-                                    .align(center)
-                                    .justify(center)
-                                    .gap(1)
-                                    .width(66)
-                                    .height(52)
-                                    .rounded(lg)
-                                    on Tap -> dispatch(NewFolder)
-                                    // Sort cycles name → kind → date (app-host reorders).
-                                    Stack {
-                                        Icon { symbol: "arrow.up.arrow.down", size: 16 }
-                                            .fg(onSurface)
-                                        Text(@t("stash.actSort")).textSize(xs).fg(onSurfaceVariant)
-                                    }
-                                    .align(center)
-                                    .justify(center)
-                                    .gap(1)
-                                    .width(66)
-                                    .height(52)
-                                    .rounded(lg)
-                                    on Tap -> dispatch(CycleSort)
-                                    WinActionItem { id: "more", label: @t("stash.actMore"), icon: "ellipsis", kind: "" }
-                                }
-                                .direction(row)
-                                .align(center)
-                                .gap(1)
-                            } else {
-                                Stack {
-                                    // Real move: opens the destination picker.
-                                    Stack {
-                                        Circle { size: 26
-                                            Icon { symbol: "move", size: 14 }
-                                                .fg(onAccent)
-                                        }
-                                        .bg(accent)
-                                        Text(@t("stash.actMove")).textSize(xs).fg(onSurfaceVariant)
-                                    }
-                                    .align(center)
-                                    .justify(center)
-                                    .gap(1)
-                                    .width(66)
-                                    .height(52)
-                                    .rounded(lg)
-                                    on Tap -> dispatch(MoveStart)
-                                    // Real copy: duplicates in place as "Kopie von <name>".
-                                    Stack {
-                                        Icon { symbol: "doc.on.doc", size: 16 }
-                                            .fg(onSurface)
-                                        Text(@t("stash.actCopy")).textSize(xs).fg(onSurfaceVariant)
-                                    }
-                                    .align(center)
-                                    .justify(center)
-                                    .gap(1)
-                                    .width(66)
-                                    .height(52)
-                                    .rounded(lg)
-                                    on Tap -> dispatch(CopySel)
-                                    WinActionItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "" }
-                                    // Delete: outside /Papierkorb it SOFT-deletes
-                                    // (moves to the trash); inside /Papierkorb it
-                                    // hard-removes and offers Wiederherstellen.
-                                    if $state.path == "/Papierkorb" {
+                                        // Real write: NewFolder → svc.files.mkdir (nxfs /data).
                                         Stack {
-                                            Icon { symbol: "arrow.uturn.backward", size: 16 }
-                                                .fg(onSurface)
-                                            Text(@t("stash.actRestore")).textSize(xs).fg(onSurfaceVariant)
+                                            WinActionFace { label: @t("stash.actNew"), icon: "plus", kind: "primary" }
                                         }
-                                        .align(center)
-                                        .justify(center)
-                                        .gap(1)
-                                        .width(66)
-                                        .height(52)
-                                        .rounded(lg)
-                                        on Tap -> dispatch(RestoreSel)
-                                    } else {
+                                        on Tap -> dispatch(NewFolder)
+                                        // Sort cycles name → kind → date (app-host reorders).
+                                        Stack {
+                                            WinActionFace { label: @t("stash.actSort"), icon: "arrow.up.arrow.down", kind: "" }
+                                        }
+                                        on Tap -> dispatch(CycleSort)
+                                        WinActionItem { id: "more", label: @t("stash.actMore"), icon: "ellipsis", kind: "" }
+                                    }
+                                    .direction(row)
+                                    .align(center)
+                                    .gap(1)
+                                } else {
+                                    Stack {
+                                        // Real move: opens the destination picker.
+                                        Stack {
+                                            WinActionFace { label: @t("stash.actMove"), icon: "move", kind: "primary" }
+                                        }
+                                        on Tap -> dispatch(MoveStart)
+                                        // Real copy: duplicates in place as "Kopie von <name>".
+                                        Stack {
+                                            WinActionFace { label: @t("stash.actCopy"), icon: "doc.on.doc", kind: "" }
+                                        }
+                                        on Tap -> dispatch(CopySel)
+                                        WinActionItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "" }
+                                        // Delete: outside /Papierkorb it SOFT-deletes
+                                        // (moves to the trash); inside /Papierkorb it
+                                        // hard-removes and offers Wiederherstellen.
+                                        if $state.path == "/Papierkorb" {
+                                            Stack {
+                                                WinActionFace { label: @t("stash.actRestore"), icon: "arrow.uturn.backward", kind: "" }
+                                            }
+                                            on Tap -> dispatch(RestoreSel)
+                                        } else {
+                                            Stack { }
+                                        }
+                                        if $state.path == "/Papierkorb" {
+                                            Stack {
+                                                WinActionFace { label: @t("stash.actDelete"), icon: "trash", kind: "danger" }
+                                            }
+                                            on Tap -> dispatch(DeleteSel)
+                                        } else {
+                                            Stack {
+                                                WinActionFace { label: @t("stash.actDelete"), icon: "trash", kind: "danger" }
+                                            }
+                                            on Tap -> dispatch(TrashSel)
+                                        }
+                                        // Divider before "Mehr" (design handoff).
                                         Stack { }
+                                            .width(1)
+                                            .height(34)
+                                            .bg(border)
+                                        WinActionItem { id: "more", label: @t("stash.actMore"), icon: "ellipsis", kind: "" }
                                     }
-                                    if $state.path == "/Papierkorb" {
-                                        Stack {
-                                            Icon { symbol: "trash", size: 16 }
-                                                .fg(danger)
-                                            Text(@t("stash.actDelete")).textSize(xs).fg(danger)
-                                        }
-                                        .align(center)
-                                        .justify(center)
-                                        .gap(1)
-                                        .width(66)
-                                        .height(52)
-                                        .rounded(lg)
-                                        on Tap -> dispatch(DeleteSel)
-                                    } else {
-                                        Stack {
-                                            Icon { symbol: "trash", size: 16 }
-                                                .fg(danger)
-                                            Text(@t("stash.actDelete")).textSize(xs).fg(danger)
-                                        }
-                                        .align(center)
-                                        .justify(center)
-                                        .gap(1)
-                                        .width(66)
-                                        .height(52)
-                                        .rounded(lg)
-                                        on Tap -> dispatch(TrashSel)
-                                    }
-                                    WinActionItem { id: "more", label: @t("stash.actMore"), icon: "ellipsis", kind: "" }
+                                    .direction(row)
+                                    .align(center)
+                                    .gap(1)
                                 }
-                                .direction(row)
-                                .align(center)
-                                .gap(1)
                             }
+                            .padding(1)
+                            .rounded(full)
+                            .shadow(lg)
+                            Spacer
                         }
-                        .padding(1)
-                        .shadow(lg)
-                        Spacer
-                    }
-                    .direction(row)
-                    .align(center)
+                        .direction(row)
+                        .align(center)
                     }
                 }
-                .gap(1)
             }
-            .grow(1)
-            .padding(3)
-            if $state.rightOpen == 1 {
+            properties {
+                Text(@t("stash.props")).textSize(sm).fg(onGlassStrong).fontWeight(semibold)
+                if $state.selection == "" {
+                    Text(@t("stash.propsEmpty")).textSize(xs).fg(onSurfaceVariant)
+                } else {
+                    Stack {
+                        WinPropRow { label: @t("stash.propKind"), value: $state.selKind, icon: "folder" }
+                        WinPropRow { label: @t("stash.propSize"), value: $state.selSize, icon: "internaldrive" }
+                        WinPropRow { label: @t("stash.propCreated"), value: $state.selDate, icon: "calendar" }
+                        WinPropRow { label: @t("stash.propDate"), value: $state.selDate, icon: "pencil" }
+                        WinPropRow { label: @t("stash.propId"), value: $state.selName, icon: "lock" }
+                    }
+                    .gap(0)
+                }
+            }
+        }
+        // ── OVERLAYS ─────────────────────────────────────────────────
+        // `.overlay()` lifts these out of flow, so they float over the whole
+        // window regardless of which region is open.
+        if $state.menu == "" {
+            Stack { }
+        } else {
+            Stack {
+                Stack {
+                    if $state.menu == "app" {
+                        Stack {
+                            Panel {
+                                Text(@t("win.mode")).textSize(xs).fg(onSurfaceVariant)
+                                WinMenuItem { id: "mode.split", label: @t("win.split"), icon: "columns.2", kind: "", act: true }
+                                WinMenuItem { id: "mode.fullscreen", label: @t("win.fullscreen"), icon: "maximize", kind: "check", act: true }
+                                WinMenuItem { id: "mode.freeform", label: @t("win.freeform"), icon: "square", kind: "", act: true }
+                                Stack { }
+                                    .height(1)
+                                    .bg(border)
+                                WinMenuItem { id: "minimize", label: @t("win.minimize"), icon: "minimize", kind: "", act: true }
+                                WinMenuItem { id: "close", label: @t("win.close"), icon: "xmark", kind: "danger", act: true }
+                            }
+                            .width(230)
+                            .gap(0)
+                            .padding(1)
+                        }
+                        on Tap -> dispatch(WinNoop)
+                    } else {
+                        Stack { }
+                    }
+                    Spacer
+                    if $state.menu == "more.datei" {
+                        Stack {
+                            Panel {
+                                WinMenuItem { id: "new", label: @t("win.new"), icon: "plus", kind: "", act: true }
+                                WinMenuItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "", act: true }
+                                WinMenuItem { id: "delete", label: @t("stash.actDelete"), icon: "trash", kind: "danger", act: true }
+                            }
+                            .width(200)
+                            .gap(0)
+                            .padding(1)
+                        }
+                        on Tap -> dispatch(WinNoop)
+                    } else {
+                        if $state.menu == "more.ansicht" {
+                            Stack {
+                                Panel {
+                                    WinMenuItem { id: "ansicht.liste", label: @t("win.viewList"), icon: "list.bullet", kind: "check", act: false }
+                                    WinMenuItem { id: "ansicht.raster", label: @t("win.viewGrid"), icon: "square.grid.3x3", kind: "", act: false }
+                                    WinMenuItem { id: "ansicht.props", label: @t("win.viewProps"), icon: "sidebar.right", kind: "", act: false }
+                                }
+                                .width(220)
+                                .gap(0)
+                                .padding(1)
+                            }
+                            on Tap -> dispatch(WinNoop)
+                        } else {
+                            Stack { }
+                        }
+                    }
+                    if $state.menu == "more" {
+                        Stack {
+                            Panel {
+                                WinMenuItem { id: "more.datei", label: @t("win.file"), icon: "doc", kind: "sub", act: false }
+                                WinMenuItem { id: "more.ansicht", label: @t("win.view"), icon: "eye", kind: "sub", act: false }
+                                Stack { }
+                                    .height(1)
+                                    .bg(border)
+                                WinMenuItem { id: "more.einstellungen", label: @t("stash.settings"), icon: "gearshape", kind: "", act: false }
+                                WinMenuItem { id: "help", label: @t("win.help"), icon: "info.circle", kind: "", act: false }
+                            }
+                            .width(210)
+                            .gap(0)
+                            .padding(1)
+                        }
+                        on Tap -> dispatch(WinNoop)
+                    } else {
+                        Stack { }
+                    }
+                }
+                .direction(row)
+                .align(start)
+                .paddingX(2)
+                .grow(1)
+            }
+            .overlay()
+            on Tap -> dispatch(WinMenu(""))
+        }
+        // Move-destination picker: tap a folder to move the selection there
+        // (svc.files.rename across directories); tap the backdrop to cancel.
+        if $state.moveOpen == 1 {
+            Stack {
                 Stack {
                     Panel {
-                        Text(@t("stash.props")).textSize(sm).fg(onSurface)
+                        Text(@t("stash.moveTitle")).textSize(sm).fg(onSurfaceVariant)
+                        MoveDest { path: "/Bilder", label: @t("stash.pictures") }
+                        MoveDest { path: "/Videos", label: @t("stash.videos") }
+                        MoveDest { path: "/Audio", label: @t("stash.audio") }
+                        MoveDest { path: "/Dokumente", label: @t("stash.docs") }
+                        MoveDest { path: "/Downloads", label: @t("stash.downloads") }
+                        MoveDest { path: "/Papierkorb", label: @t("stash.trash") }
+                    }
+                    .width(300)
+                    .gap(1)
+                    .padding(2)
+                }
+                .grow(1)
+                .align(center)
+                .justify(center)
+            }
+            .overlay()
+            on Tap -> dispatch(MoveCancel)
+        } else {
+            Stack { }
+        }
+        // Selection context menu (the action bar's "Mehr"): the file ops
+        // as menu rows, trash-aware like the bar. Centered overlay (the
+        // proven hit-testable pattern); backdrop tap closes.
+        if $state.menu == "ctx" {
+            Stack {
+                Stack {
+                    Panel {
                         if $state.selection == "" {
                             Text(@t("stash.propsEmpty")).textSize(xs).fg(onSurfaceVariant)
                         } else {
+                            Text($state.selName).textSize(xs).fg(onSurfaceVariant)
+                        }
+                        Stack {
+                            Icon { symbol: "move", size: 14 }
+                                .fg(onSurface)
+                            Text(@t("stash.actMove")).textSize(sm).fg(onSurface)
+                        }
+                        .direction(row)
+                        .align(center)
+                        .gap(2)
+                        .paddingX(2)
+                        .height(40)
+                        .rounded(md)
+                        on Tap -> dispatch(MoveStart)
+                        Stack {
+                            Icon { symbol: "doc.on.doc", size: 14 }
+                                .fg(onSurface)
+                            Text(@t("stash.actCopy")).textSize(sm).fg(onSurface)
+                        }
+                        .direction(row)
+                        .align(center)
+                        .gap(2)
+                        .paddingX(2)
+                        .height(40)
+                        .rounded(md)
+                        on Tap -> dispatch(CopySel)
+                        if $state.path == "/Papierkorb" {
                             Stack {
-                                WinPropRow { label: @t("stash.propName"), value: $state.selName, icon: "doc" }
-                                WinPropRow { label: @t("stash.propKind"), value: $state.selKind, icon: "info.circle" }
-                                WinPropRow { label: @t("stash.propSize"), value: $state.selSize, icon: "internaldrive" }
-                                WinPropRow { label: @t("stash.propCreated"), value: $state.selDate, icon: "calendar" }
-                                WinPropRow { label: @t("stash.propDate"), value: $state.selDate, icon: "pencil" }
-                                WinPropRow { label: @t("stash.propState"), value: @t("stash.propSync"), icon: "checkmark" }
+                                Icon { symbol: "arrow.uturn.backward", size: 14 }
+                                    .fg(onSurface)
+                                Text(@t("stash.actRestore")).textSize(sm).fg(onSurface)
                             }
-                            .gap(0)
+                            .direction(row)
+                            .align(center)
+                            .gap(2)
+                            .paddingX(2)
+                            .height(40)
+                            .rounded(md)
+                            on Tap -> dispatch(RestoreSel)
+                        } else {
+                            Stack { }
+                        }
+                        Stack { }
+                            .height(1)
+                            .bg(border)
+                        if $state.path == "/Papierkorb" {
+                            Stack {
+                                Icon { symbol: "trash", size: 14 }
+                                    .fg(danger)
+                                Text(@t("stash.actDelete")).textSize(sm).fg(danger)
+                            }
+                            .direction(row)
+                            .align(center)
+                            .gap(2)
+                            .paddingX(2)
+                            .height(40)
+                            .rounded(md)
+                            on Tap -> dispatch(DeleteSel)
+                        } else {
+                            Stack {
+                                Icon { symbol: "trash", size: 14 }
+                                    .fg(danger)
+                                Text(@t("stash.actDelete")).textSize(sm).fg(danger)
+                            }
+                            .direction(row)
+                            .align(center)
+                            .gap(2)
+                            .paddingX(2)
+                            .height(40)
+                            .rounded(md)
+                            on Tap -> dispatch(TrashSel)
                         }
                     }
+                    .width(280)
                     .gap(1)
+                    .padding(2)
                 }
-                .width(260)
-                .padding(3)
-            } else {
-                Stack { }
+                .grow(1)
+                .align(center)
+                .justify(center)
             }
-            if $state.menu == "" {
-                Stack { }
-            } else {
-                Stack {
-                    Stack {
-                        if $state.menu == "app" {
-                            Stack {
-                                Panel {
-                                    Text(@t("win.mode")).textSize(xs).fg(onSurfaceVariant)
-                                    WinMenuItem { id: "mode.split", label: @t("win.split"), icon: "columns.2", kind: "", act: true }
-                                    WinMenuItem { id: "mode.fullscreen", label: @t("win.fullscreen"), icon: "maximize", kind: "check", act: true }
-                                    WinMenuItem { id: "mode.freeform", label: @t("win.freeform"), icon: "square", kind: "", act: true }
-                                    Stack { }
-                                        .height(1)
-                                        .bg(border)
-                                    WinMenuItem { id: "minimize", label: @t("win.minimize"), icon: "minimize", kind: "", act: true }
-                                    WinMenuItem { id: "close", label: @t("win.close"), icon: "xmark", kind: "danger", act: true }
-                                }
-                                .width(230)
-                                .gap(0)
-                                .padding(1)
-                            }
-                            on Tap -> dispatch(WinNoop)
-                        } else {
-                            Stack { }
-                        }
-                        Spacer
-                        if $state.menu == "more.datei" {
-                            Stack {
-                                Panel {
-                                    WinMenuItem { id: "new", label: @t("win.new"), icon: "plus", kind: "", act: true }
-                                    WinMenuItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "", act: true }
-                                    WinMenuItem { id: "delete", label: @t("stash.actDelete"), icon: "trash", kind: "danger", act: true }
-                                }
-                                .width(200)
-                                .gap(0)
-                                .padding(1)
-                            }
-                            on Tap -> dispatch(WinNoop)
-                        } else {
-                            if $state.menu == "more.ansicht" {
-                                Stack {
-                                    Panel {
-                                        WinMenuItem { id: "ansicht.liste", label: @t("win.viewList"), icon: "list.bullet", kind: "check", act: false }
-                                        WinMenuItem { id: "ansicht.raster", label: @t("win.viewGrid"), icon: "square.grid.3x3", kind: "", act: false }
-                                        WinMenuItem { id: "ansicht.props", label: @t("win.viewProps"), icon: "sidebar.right", kind: "", act: false }
-                                    }
-                                    .width(220)
-                                    .gap(0)
-                                    .padding(1)
-                                }
-                                on Tap -> dispatch(WinNoop)
-                            } else {
-                                Stack { }
-                            }
-                        }
-                        if $state.menu == "more" {
-                            Stack {
-                                Panel {
-                                    WinMenuItem { id: "more.datei", label: @t("win.file"), icon: "doc", kind: "sub", act: false }
-                                    WinMenuItem { id: "more.ansicht", label: @t("win.view"), icon: "eye", kind: "sub", act: false }
-                                    Stack { }
-                                        .height(1)
-                                        .bg(border)
-                                    WinMenuItem { id: "help", label: @t("win.help"), icon: "info.circle", kind: "", act: false }
-                                }
-                                .width(210)
-                                .gap(0)
-                                .padding(1)
-                            }
-                            on Tap -> dispatch(WinNoop)
-                        } else {
-                            Stack { }
-                        }
-                    }
-                    .direction(row)
-                    .align(start)
-                    .paddingX(2)
-                    .grow(1)
-                }
-                .overlay()
-                on Tap -> dispatch(WinMenu(""))
-            }
-            // Move-destination picker: tap a folder to move the selection there
-            // (svc.files.rename across directories); tap the backdrop to cancel.
-            if $state.moveOpen == 1 {
-                Stack {
-                    Stack {
-                        Panel {
-                            Text(@t("stash.moveTitle")).textSize(sm).fg(onSurfaceVariant)
-                            MoveDest { path: "/Bilder", label: @t("stash.pictures") }
-                            MoveDest { path: "/Videos", label: @t("stash.videos") }
-                            MoveDest { path: "/Audio", label: @t("stash.audio") }
-                            MoveDest { path: "/Dokumente", label: @t("stash.docs") }
-                            MoveDest { path: "/Downloads", label: @t("stash.downloads") }
-                            MoveDest { path: "/Papierkorb", label: @t("stash.trash") }
-                        }
-                        .width(300)
-                        .gap(1)
-                        .padding(2)
-                    }
-                    .grow(1)
-                    .align(center)
-                    .justify(center)
-                }
-                .overlay()
-                on Tap -> dispatch(MoveCancel)
-            } else {
-                Stack { }
-            }
-            // Selection context menu (the action bar's "Mehr"): the file ops
-            // as menu rows, trash-aware like the bar. Centered overlay (the
-            // proven hit-testable pattern); backdrop tap closes.
-            if $state.menu == "ctx" {
-                Stack {
-                    Stack {
-                        Panel {
-                            if $state.selection == "" {
-                                Text(@t("stash.propsEmpty")).textSize(xs).fg(onSurfaceVariant)
-                            } else {
-                                Text($state.selName).textSize(xs).fg(onSurfaceVariant)
-                            }
-                            Stack {
-                                Icon { symbol: "move", size: 14 }
-                                    .fg(onSurface)
-                                Text(@t("stash.actMove")).textSize(sm).fg(onSurface)
-                            }
-                            .direction(row)
-                            .align(center)
-                            .gap(2)
-                            .paddingX(2)
-                            .height(40)
-                            .rounded(md)
-                            on Tap -> dispatch(MoveStart)
-                            Stack {
-                                Icon { symbol: "doc.on.doc", size: 14 }
-                                    .fg(onSurface)
-                                Text(@t("stash.actCopy")).textSize(sm).fg(onSurface)
-                            }
-                            .direction(row)
-                            .align(center)
-                            .gap(2)
-                            .paddingX(2)
-                            .height(40)
-                            .rounded(md)
-                            on Tap -> dispatch(CopySel)
-                            if $state.path == "/Papierkorb" {
-                                Stack {
-                                    Icon { symbol: "arrow.uturn.backward", size: 14 }
-                                        .fg(onSurface)
-                                    Text(@t("stash.actRestore")).textSize(sm).fg(onSurface)
-                                }
-                                .direction(row)
-                                .align(center)
-                                .gap(2)
-                                .paddingX(2)
-                                .height(40)
-                                .rounded(md)
-                                on Tap -> dispatch(RestoreSel)
-                            } else {
-                                Stack { }
-                            }
-                            Stack { }
-                                .height(1)
-                                .bg(border)
-                            if $state.path == "/Papierkorb" {
-                                Stack {
-                                    Icon { symbol: "trash", size: 14 }
-                                        .fg(danger)
-                                    Text(@t("stash.actDelete")).textSize(sm).fg(danger)
-                                }
-                                .direction(row)
-                                .align(center)
-                                .gap(2)
-                                .paddingX(2)
-                                .height(40)
-                                .rounded(md)
-                                on Tap -> dispatch(DeleteSel)
-                            } else {
-                                Stack {
-                                    Icon { symbol: "trash", size: 14 }
-                                        .fg(danger)
-                                    Text(@t("stash.actDelete")).textSize(sm).fg(danger)
-                                }
-                                .direction(row)
-                                .align(center)
-                                .gap(2)
-                                .paddingX(2)
-                                .height(40)
-                                .rounded(md)
-                                on Tap -> dispatch(TrashSel)
-                            }
-                        }
-                        .width(280)
-                        .gap(1)
-                        .padding(2)
-                    }
-                    .grow(1)
-                    .align(center)
-                    .justify(center)
-                }
-                .overlay()
-                on Tap -> dispatch(WinMenu(""))
-            } else {
-                Stack { }
-            }
+            .overlay()
+            on Tap -> dispatch(WinMenu(""))
+        } else {
+            Stack { }
         }
-        .direction(row)
-        .grow(1)
     }
     .grow(1)
 }

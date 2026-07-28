@@ -39,6 +39,18 @@ Store StashStore {
     // Entry count of the current folder (svc.files.count). 1 = unknown/nonzero
     // sentinel; 0 = the folder is genuinely empty (shows the empty state).
     fileCount: Int = 1,
+    // Search field open (1) + its live query. The magnifier tool toggles the
+    // field; closing it clears the query.
+    searchOpen: Int = 0,
+    searchQuery: Str = "",
+    // Settings mode: replaces the file content, hides the properties pane and
+    // the action bar, and swaps the header for a back arrow (design handoff
+    // "Mehr ⋯ → Einstellungen").
+    settingsOpen: Int = 0,
+    // Show dot-files and system entries in the listing.
+    showHidden: Bool = false,
+    // Sort direction for the listing: "asc" | "desc".
+    sortDir: Str = "asc",
 }
 
 Event StashEvent {
@@ -70,6 +82,14 @@ Event StashEvent {
     CopySel,
     Copied(Bool),
     CountLoaded(Int),
+    SearchToggle,
+    SearchChanged,
+    SearchClear,
+    SettingsOpen,
+    SettingsClose,
+    ToggleHidden,
+    SortDir,
+    SortBy(Str),
 }
 
 reduce StashEvent {
@@ -81,6 +101,10 @@ reduce StashEvent {
         }
     },
     WinMenuPick(id) => {
+        if id == "more.einstellungen" {
+            state.settingsOpen = 1;
+            state.menu = "";
+        } else {
         if id == "more.datei" {
             state.menu = "more.datei";
         } else {
@@ -178,6 +202,7 @@ reduce StashEvent {
                 }
             }
         }
+        }
     },
     WinNoop => state.menu = state.menu,
     WinLeft => {
@@ -195,18 +220,27 @@ reduce StashEvent {
         }
     },
     WinTool(t) => {
-        // Toolbar Kacheln/Liste toggle the view mode; other tools (search stub)
-        // just track the pressed tool.
+        // Toolbar Kacheln/Liste switch the view mode, the magnifier opens the
+        // search field; anything else only records the pressed tool.
         if t == "square.grid.2x2" {
             state.viewMode = "grid";
         } else {
             if t == "list.bullet" {
                 state.viewMode = "list";
             } else {
-                if state.tool == t {
-                    state.tool = "";
+                if t == "magnifyingglass" {
+                    if state.searchOpen == 1 {
+                        state.searchOpen = 0;
+                        state.searchQuery = "";
+                    } else {
+                        state.searchOpen = 1;
+                    }
                 } else {
-                    state.tool = t;
+                    if state.tool == t {
+                        state.tool = "";
+                    } else {
+                        state.tool = t;
+                    }
                 }
             }
         }
@@ -349,6 +383,42 @@ reduce StashEvent {
         state.filesLoading = 0;
         state.filesError = code;
     },
+    SearchToggle => {
+        if state.searchOpen == 1 {
+            state.searchOpen = 0;
+            state.searchQuery = "";
+        } else {
+            state.searchOpen = 1;
+        }
+    },
+    SearchChanged => state.filesLoading = 1,
+    SearchClear => state.searchQuery = "",
+    SettingsOpen => {
+        state.settingsOpen = 1;
+        state.menu = "";
+    },
+    SettingsClose => state.settingsOpen = 0,
+    ToggleHidden => {
+        if state.showHidden {
+            state.showHidden = false;
+        } else {
+            state.showHidden = true;
+        }
+        state.filesLoading = 1;
+    },
+    SortDir => {
+        if state.sortDir == "asc" {
+            state.sortDir = "desc";
+        } else {
+            state.sortDir = "asc";
+        }
+        state.filesLoading = 1;
+    },
+    SortBy(mode) => {
+        state.sortBy = mode;
+        state.menu = "";
+        state.filesLoading = 1;
+    },
     NewFolder => state.menu = "",
     FolderCreated(ok) => state.filesLoading = 1,
 }
@@ -372,7 +442,7 @@ reduce StashEvent {
 // Root effect: LoadFiles is dispatched nowhere, so this fires once at mount
 // (the DSL initial-load contract) and fills the list from the real home.
 @effect on LoadFiles {
-    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -381,7 +451,7 @@ reduce StashEvent {
 // Sidebar navigation reloads the listing for the new location. state.path is
 // already updated by the reducer when this effect runs.
 @effect on WinMenuPick(id) {
-    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -389,7 +459,7 @@ reduce StashEvent {
 
 // Toolbar back / refresh reloads the (possibly changed) location.
 @effect on WinNav(dir) {
-    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -397,7 +467,7 @@ reduce StashEvent {
 
 // A newly created folder reloads the listing so it appears immediately.
 @effect on FolderCreated(ok) {
-    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -406,7 +476,7 @@ reduce StashEvent {
 // Tapping a row may have opened a folder (state.path changed) — reload for the
 // current location. A pure selection re-lists the same folder (idempotent).
 @effect on Pick(id, name, kind, size, date) {
-    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -440,7 +510,60 @@ reduce StashEvent {
 
 // After a successful delete, reload the folder (the entry is gone).
 @effect on Deleted(ok) {
-    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
+        Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// Typing in the search field re-issues the listing with the query. The event
+// carries NO payload: `TextField`'s auto-bind has already written
+// `searchQuery`, and the handler only reports that it moved — the launcher's
+// `QueryChanged` does the same. The counter rides `svc.files.count` with the
+// SAME filter pair, so the "N Objekte" line can never disagree with the rows.
+@effect on SearchChanged {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
+        Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// ✕ clears the query — same reload, unfiltered.
+@effect on SearchClear {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
+        Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// Closing the field clears the query too (the WinTool reducer arm), so the
+// listing must come back unfiltered.
+@effect on SearchToggle {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
+        Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// Sort column, direction and hidden-file visibility all change WHAT the
+// listing shows, so each re-issues it. `sortDir` is still view-only — the
+// service sorts by column, not direction (recorded gap).
+@effect on SortBy(mode) {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
+        Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+@effect on SortDir {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
+        Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+@effect on ToggleHidden {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -448,7 +571,7 @@ reduce StashEvent {
 
 // Sort mode changed → reload the listing in the new order.
 @effect on CycleSort {
-    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -465,7 +588,7 @@ reduce StashEvent {
 
 // After a move, reload the (now-shorter) source folder.
 @effect on Moved(ok) {
-    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -474,7 +597,7 @@ reduce StashEvent {
 // Every completed listing resolves the folder's entry count — 0 drives the
 // honest empty-folder state. A count failure stays at the nonzero sentinel.
 @effect on FilesLoaded(files) {
-    match svc.files.count(state.path, timeoutMs: 250) {
+    match svc.files.count(state.path, state.searchQuery, state.showHidden, timeoutMs: 250) {
         Ok(n) => dispatch(CountLoaded(n)),
         Err(e) => dispatch(CountLoaded(1)),
     }
@@ -489,7 +612,7 @@ reduce StashEvent {
 }
 
 @effect on Copied(ok) {
-    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, state.searchQuery, state.showHidden, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }

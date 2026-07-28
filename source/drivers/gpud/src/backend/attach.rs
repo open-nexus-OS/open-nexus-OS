@@ -12,10 +12,7 @@ use nexus_gfx::backend::types::{Rect, ResourceId};
 use nexus_gfx::core::types::PixelFormat;
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-use super::transport::{
-    align_page, ctrl_hdr, DISPLAY_PLANE_HEIGHT, DISPLAY_PLANE_ROW, GPU_RESOURCE_BASE_VA,
-    GPU_RESOURCE_STRIDE,
-};
+use super::transport::{align_page, ctrl_hdr, DISPLAY_PLANE_HEIGHT, DISPLAY_PLANE_ROW};
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use crate::markers::GPUD_RESOURCE_VMO_MAP_FAIL;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -60,20 +57,38 @@ impl VirtioGpuBackend {
         // Map the external VMO into gpud's VA space for direct framebuffer write access.
         // Phase 6c: this enables gpud to execute rendering commands directly into the
         // scanout framebuffer without vmo_write syscalls from windowd.
-        let resource_index = self.alloc_resource_va_index()?;
-        let backing_va = GPU_RESOURCE_BASE_VA + resource_index * GPU_RESOURCE_STRIDE;
         let backing_len_aligned = align_page((width * height * 4) as usize);
+        let window = self.alloc_resource_va_index(backing_len_aligned)?;
+        let backing_va = window.base_va;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
         for offset in (0..backing_len_aligned).step_by(4096) {
-            nexus_abi::vmo_map_page(vmo_slot, backing_va + offset, offset, flags).map_err(
-                |_e| {
-                    let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_MAP_FAIL);
-                    GfxError::MmioFault
-                },
-            )?;
+            // `page_va` refuses an offset outside the reservation, so this
+            // loop cannot walk into a neighbouring slot the way it used to.
+            let va = window.page_va(offset)?;
+            // `vmo_map_page_sys` instead of `vmo_map_page` (TASK-0309): the
+            // latter collapses every kernel rejection into `Unsupported`
+            // INSIDE nexus-abi, so the cause is gone before gpud can see it.
+            // A bare "fail" marker on the boot's most load-bearing mapping is
+            // what made this hazard undiagnosable from a uart log.
+            if let Err(err) = nexus_abi::vmo_map_page_sys(vmo_slot, va, offset, flags) {
+                let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_MAP_FAIL);
+                crate::diag::err_line(b"attach map", err);
+                crate::diag::kv_line(
+                    b"attach map",
+                    &[
+                        (b"slot", u64::from(vmo_slot)),
+                        (b"idx", window.index as u64),
+                        (b"va", va as u64),
+                        (b"off", offset as u64),
+                        (b"len", backing_len_aligned as u64),
+                        (b"vmolen", info.len),
+                    ],
+                );
+                return Err(GfxError::MmioFault);
+            }
         }
 
         // The VMO needs a virtio 2D resource ONLY for the non-virgl 2D scanout

@@ -784,6 +784,7 @@ name = "dsl_apps_conformance"
 version = "0.1.0"
 dependencies = [
  "nexus-dsl-core",
+ "nexus-dsl-ir",
  "nexus-dsl-runtime",
  "nexus-layout",
  "nexus-layout-types",

@@ -34,12 +34,17 @@ const dslSurface :List(DslMethod) = [
   (service = "catalog", method = "list", args = [], result = "List<Str>"),
   (service = "db", method = "put", args = ["Str", "Str"], result = "Bool"),
   # -- file surface (vfsd via RFC-0073; FILES permission, filemanager role)
-  (service = "files", method = "list", args = ["Str", "Int", "Str"], result = "List<FileEntry>"),
+  # `list`/`count` take the SAME filter pair so the object counter can never
+  # disagree with the rows on screen: `query` = case-insensitive substring on
+  # the name ("" = no filter), `showHidden` = include dot-files and system
+  # entries. Both are trailing and optional — an app that passes neither gets
+  # the unfiltered listing it got before (RFC-0084 Phase 6).
+  (service = "files", method = "count", args = ["Str", "Str", "Bool"], result = "Int"),
+  (service = "files", method = "list", args = ["Str", "Int", "Str", "Str", "Bool"], result = "List<FileEntry>"),
   (service = "files", method = "mkdir", args = ["Str"], result = "Bool"),
   (service = "files", method = "remove", args = ["Str"], result = "Bool"),
   (service = "files", method = "rename", args = ["Str", "Str"], result = "Bool"),
   (service = "files", method = "copy", args = ["Str", "Str"], result = "Bool"),
-  (service = "files", method = "count", args = ["Str"], result = "Int"),
   (service = "files", method = "stat", args = ["Str"], result = "FileEntry"),
   (service = "library", method = "get", args = ["Str"], result = "Str"),
   (service = "library", method = "list", args = [], result = "List<Str>"),

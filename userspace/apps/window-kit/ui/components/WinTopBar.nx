@@ -7,6 +7,10 @@
 // TRAILING ⋯ app menu + properties-sidebar toggle + window controls.
 // Dispatches into the consuming app's WindowStore (see window-kit manifest
 // for the store contract).
+//
+// A tool slot can be ACTIVE (`tool1Active` …): the design pins the hover
+// surface on the pressed tool, so Suche / Kacheln / Liste show which mode the
+// window is in instead of looking identical to the tools that do nothing.
 
 Component WinTopBar {
     props: {
@@ -14,6 +18,9 @@ Component WinTopBar {
         tool1: Str,
         tool2: Str,
         tool3: Str,
+        tool1Active: Bool,
+        tool2Active: Bool,
+        tool3Active: Bool,
         navBack: Str,
         navFwd: Str,
         navRefresh: Str,
@@ -22,14 +29,17 @@ Component WinTopBar {
     Stack {
         // App chip: the app's REAL baked icon (the small colored svg) when an
         // `appId` is given, else the theme glyph. Tap opens the window menu.
+        // The chevron marks it as a menu affordance, not decoration.
         if $props.appId != "" {
             Stack {
                 Image { source: $props.appId, size: 24 }
+                Icon { symbol: "chevron.down", size: 10 }
+                    .fg(onSurfaceVariant)
             }
-            .width(28)
-            .height(28)
+            .direction(row)
             .align(center)
-            .justify(center)
+            .gap(0)
+            .height(28)
             on Tap -> dispatch(WinMenu("app"))
         } else {
             Circle { size: 26
@@ -79,60 +89,121 @@ Component WinTopBar {
         } else {
             Stack { }
         }
+        // Divider between the navigation group and the tool cluster.
         if $props.navRefresh != "" {
             Stack {
-                Icon { symbol: $props.navRefresh, size: 15 }
-                    .fg(onSurfaceVariant)
+                Stack {
+                    Icon { symbol: $props.navRefresh, size: 15 }
+                        .fg(onSurfaceVariant)
+                }
+                .width(28)
+                .height(28)
+                .rounded(md)
+                .align(center)
+                .justify(center)
+                on Tap -> dispatch(WinNav("refresh"))
+                Stack { }
+                    .width(1)
+                    .height(16)
+                    .bg(border)
             }
-            .width(28)
-            .height(28)
-            .rounded(md)
+            .direction(row)
             .align(center)
-            .justify(center)
-            on Tap -> dispatch(WinNav("refresh"))
+            .gap(1)
         } else {
             Stack { }
         }
         Spacer
         if $props.tool1 != "" {
-            Stack {
-                Icon { symbol: $props.tool1, size: 15 }
-                    .fg(onSurfaceVariant)
+            if $props.tool1Active {
+                Stack {
+                    Icon { symbol: $props.tool1, size: 15 }
+                        .fg(onAccent)
+                }
+                .width(28)
+                .height(28)
+                .rounded(md)
+                .align(center)
+                .justify(center)
+                .bg(accent)
+                on Tap -> dispatch(WinTool($props.tool1))
+            } else {
+                Stack {
+                    Icon { symbol: $props.tool1, size: 15 }
+                        .fg(onSurfaceVariant)
+                }
+                .width(28)
+                .height(28)
+                .rounded(md)
+                .align(center)
+                .justify(center)
+                on Tap -> dispatch(WinTool($props.tool1))
             }
-            .width(28)
-            .height(28)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            on Tap -> dispatch(WinTool($props.tool1))
+        } else {
+            Stack { }
+        }
+        // Divider between the search tool and the view-mode pair.
+        if $props.tool2 != "" {
+            Stack { }
+                .width(1)
+                .height(16)
+                .bg(border)
         } else {
             Stack { }
         }
         if $props.tool2 != "" {
-            Stack {
-                Icon { symbol: $props.tool2, size: 15 }
-                    .fg(onSurfaceVariant)
+            if $props.tool2Active {
+                Stack {
+                    Icon { symbol: $props.tool2, size: 15 }
+                        .fg(onAccent)
+                }
+                .width(28)
+                .height(28)
+                .rounded(md)
+                .align(center)
+                .justify(center)
+                .bg(accent)
+                on Tap -> dispatch(WinTool($props.tool2))
+            } else {
+                Stack {
+                    Icon { symbol: $props.tool2, size: 15 }
+                        .fg(onSurfaceVariant)
+                }
+                .width(28)
+                .height(28)
+                .rounded(md)
+                .align(center)
+                .justify(center)
+                on Tap -> dispatch(WinTool($props.tool2))
             }
-            .width(28)
-            .height(28)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            on Tap -> dispatch(WinTool($props.tool2))
         } else {
             Stack { }
         }
         if $props.tool3 != "" {
-            Stack {
-                Icon { symbol: $props.tool3, size: 15 }
-                    .fg(onSurfaceVariant)
+            if $props.tool3Active {
+                Stack {
+                    Icon { symbol: $props.tool3, size: 15 }
+                        .fg(onAccent)
+                }
+                .width(28)
+                .height(28)
+                .rounded(md)
+                .align(center)
+                .justify(center)
+                .bg(accent)
+                on Tap -> dispatch(WinTool($props.tool3))
+            } else {
+                Stack {
+                    Icon { symbol: $props.tool3, size: 15 }
+                        .fg(onSurfaceVariant)
+                }
+                .width(28)
+                .height(28)
+                .rounded(md)
+                .align(center)
+                .justify(center)
+                on Tap -> dispatch(WinTool($props.tool3))
             }
-            .width(28)
-            .height(28)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            on Tap -> dispatch(WinTool($props.tool3))
         } else {
             Stack { }
         }

@@ -4,6 +4,10 @@
 // One file-list row (design handoff 02: Name · Datum · Größe columns):
 // tapping SELECTS the file (toggle) — the properties pane and the floating
 // action bar react to that selection. Accent fill marks the selected row.
+//
+// The design pins the meta columns instead of letting a Spacer float them:
+// 80px date, 68px size, so the columns line up under their headers no matter
+// how long a file name is. A hairline closes every row.
 
 Component FileRow {
     props: {
@@ -17,34 +21,46 @@ Component FileRow {
     }
     if $props.active {
         Stack {
-            Image { source: $props.icon, size: 24 }
-            Text($props.name).textSize(sm).fg(onAccent)
-            Spacer
-            Text($props.date).textSize(xs).fg(onAccent)
-            Text($props.size).textSize(xs).fg(onAccent)
+            Stack {
+                Image { source: $props.icon, size: 30 }
+                Text($props.name).textSize(sm).fg(onAccent).truncate(1)
+                Spacer
+                Text($props.date).textSize(xs).fg(onAccent).width(80).textAlign(right)
+                Text($props.size).textSize(xs).fg(onAccent).width(68).textAlign(right)
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
+            .paddingX(2)
+            .height(40)
+            .rounded(md)
+            .bg(accent)
+            Stack { }
+                .height(1)
+                .bg(border)
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .paddingX(2)
-        .height(40)
-        .rounded(md)
-        .bg(accent)
+        .gap(0)
         on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, $props.date))
     } else {
         Stack {
-            Image { source: $props.icon, size: 24 }
-            Text($props.name).textSize(sm).fg(onSurface)
-            Spacer
-            Text($props.date).textSize(xs).fg(onSurfaceVariant)
-            Text($props.size).textSize(xs).fg(onSurfaceVariant)
+            Stack {
+                Image { source: $props.icon, size: 30 }
+                Text($props.name).textSize(sm).fg(onSurface).truncate(1)
+                Spacer
+                Text($props.date).textSize(xs).fg(onSurfaceVariant).width(80).textAlign(right)
+                Text($props.size).textSize(xs).fg(onSurfaceVariant).width(68).textAlign(right)
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
+            .paddingX(2)
+            .height(40)
+            .rounded(md)
+            Stack { }
+                .height(1)
+                .bg(border)
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .paddingX(2)
-        .height(40)
-        .rounded(md)
+        .gap(0)
         on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, $props.date))
     }
 }

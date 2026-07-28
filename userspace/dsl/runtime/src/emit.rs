@@ -215,10 +215,18 @@ pub(crate) fn emit_view<'p>(
             // it is rendered in (RFC-0084 §4). The snapshot is not paranoia:
             // `locals` are shared across this boundary, so a `for` inside the
             // callee can overwrite a caller loop binding before the body runs.
-            let frame = SlotFrame {
-                args: component_ref.get_slots().map_err(|_| RtError::Malformed)?,
-                params: ctx.params,
-                locals: ctx.locals.to_vec(),
+            //
+            // Built ONLY when this reference actually binds a slot. The
+            // snapshot deep-clones `locals` (Values carry Str/List), and this
+            // arm runs for every component reference in every emit — paying
+            // that on a hot path in a service whose allocator never frees,
+            // for the overwhelming majority of references that bind nothing,
+            // would be a per-frame allocation regression.
+            let args = component_ref.get_slots().map_err(|_| RtError::Malformed)?;
+            let frame = if args.is_empty() {
+                None
+            } else {
+                Some(SlotFrame { args, params: ctx.params, locals: ctx.locals.to_vec() })
             };
             // Emit the component body with its own params (locals shared —
             // slots are per-body and component bodies allocate fresh ones).
@@ -237,7 +245,7 @@ pub(crate) fn emit_view<'p>(
                 anim_intents: ctx.anim_intents,
                 path,
                 components: ctx.components,
-                slots: Some(&frame),
+                slots: frame.as_ref(),
             };
             emit_view(&mut inner, view)
         }

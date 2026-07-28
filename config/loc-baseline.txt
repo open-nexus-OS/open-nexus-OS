@@ -31,9 +31,9 @@
 1414	source/libs/nexus-log/src/lib.rs
 897	source/libs/nexus-proof-manifest/src/lib.rs
 778	source/libs/nexus-service-entry/src/lib.rs
-1186	source/services/app-host/src/effect_host.rs
-1113	source/services/app-host/src/main.rs
+823	source/services/app-host/src/effect_host.rs
 885	source/services/app-host/src/probe/anim.rs
+1067	source/services/app-host/src/probe/mod.rs
 840	source/services/bundlemgrd/src/os_lite.rs
 1878	source/services/bundlemgrd/src/std_server.rs
 607	source/services/dsoftbusd/src/os/entry.rs
@@ -74,7 +74,6 @@
 680	tools/qemu-src/rust/migration/src/vmstate.rs
 956	tools/qemu-src/rust/qom/src/qom.rs
 710	userspace/config/nexus-config/src/lib.rs
-644	userspace/dsl/cli/src/main.rs
 1005	userspace/dsl/runtime/tests/layout_viewport.rs
 735	userspace/dsoftbus/src/host.rs
 764	userspace/dsoftbus/src/mux_v2.rs

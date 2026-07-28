@@ -303,7 +303,65 @@ metrics; store fields/events for search/settings/hidden/sortDir.
 
 **Stop condition**: interaction tests (selection → properties populate · tool
 tap → view mode · ⋯ → Einstellungen → content swaps, pane + bar hidden, back
-arrow returns · hidden toggle → count changes). Visual: `just start`.
+arrow returns). Visual: `just start`.
+
+**Result (2026-07-27): host-green.** `just check` passes, `just test-host`
+615 suites / 0 failures (up from 613: `stash.rs` + `window_kit.rs`). 7 tests in
+`tests/dsl_apps_conformance/tests/stash.rs` — the app had NO conformance test
+before this, it only compiled as a side effect of the boot lane.
+
+`StashPage.nx` now states its panel choice once, at the callsite:
+
+```
+WinAppWindow {
+    sidebarPanel: false, contentPanel: true, propsPanel: true,
+    showSidebar: $state.leftOpen == 1,
+    showProps: $state.rightOpen == 1 && $state.settingsOpen == 0,
+} { sidebar { … } content { … } properties { … } }
+```
+
+Settings mode drops the properties pane through `showProps` on the scaffold —
+the pane is *gone*, not covered, which the test asserts by absence of the
+"Properties" title rather than by z-order.
+
+**The ~120 inlined action-bar lines are gone**, but not via the `act: Bool`
+prop the plan sketched. `WinMenuItem` gets its two dispatch targets by
+duplicating its entire body across the `act` arms; copying that would have
+duplicated the action button's look too. Instead the look moved into a new
+`WinActionFace` (pure visual, no handler) and `WinActionItem` became a thin
+`WinAct(id)` wrapper around it. An app button dispatching its own event wraps
+the face directly:
+
+```
+Stack { WinActionFace { label: …, icon: "plus", kind: "primary" } }
+on Tap -> dispatch(NewFolder)
+```
+
+One body, no new prop, no contract change — and it works because a dispatch
+target is a static case name that cannot be passed as a prop, so the honest
+split is "kit owns the look, app owns the tap".
+
+Other deltas closed: `WinTopBar` `tool*Active` + toolbar dividers + app-chip
+chevron · search field with `TextField` auto-bind + ✕ · 3-level breadcrumb
+with the leaf in `onGlassStrong`/semibold · object count + three sort controls
+in the content header (sort left the action bar, per the design) · `FileRow`
+fixed 80/68px columns + per-row hairline + 30px icon · `FileTile` on
+`minWidth(124).grow(1)` with a raised bordered surface · `WinPropRow` at 50px
+with the value in `onGlassStrong` · action bar as a `rounded(full)` pill with
+a divider before "Mehr" · settings mode with the uppercase section header and
+a `Toggle` card. New i18n keys in all four locales.
+
+Two traps worth recording:
+
+- `.textAlign(trailing)` does not exist — the vocabulary is `left|center|right`
+  (`registry.rs:440`). The checker catches it, but only because `textAlign`
+  HAS a closed vocabulary; `width` does not, which is why `.width($props.n)`
+  fails silently (Phase 4).
+- The conformance harness resolved every `@t(…)` to `""` until the program's
+  own i18n KEY table was fed to `IdentityLocale` alongside the symbol table.
+  `common::program_i18n_keys` now does that; without it a scene full of real
+  labels reads back as a list of blanks and every text assertion is vacuous.
+  The baked default locale is **English**, so the tests assert English.
 
 ### Phase 6 — search filter (platform)
 
@@ -332,6 +390,68 @@ QEMU resize confirmation.
 `tools/tree-sitter-nx/grammar.js` (+ `verify.sh`) ·
 `/home/jenning/nx-dsl-vscode` (`syntaxes/nx.tmLanguage.json`,
 `src/keywords.ts`, snippets) · `CHANGELOG.md` · RFC status → Complete.
+
+## BLOCKER: the boot lane is red — gpud framebuffer VMO map fails
+
+`just test-os` (headless, proof) fails on this tree and does NOT on
+`2469cdd6` (Phase 1). Phase 5 is host-proven, **not boot-proven**. Do not
+claim otherwise until this is resolved.
+
+### What actually happens
+
+```
+baseline (2469cdd6)          this tree
+─────────────────────────    ───────────────────────────────────────
+gpud: recv OP_SET_FRAMEBUFFER_VMO   gpud: recv OP_SET_FRAMEBUFFER_VMO
+execd: atlas vmo ready              gpud: resource vmo_map_page fail
+gpud: gpu irq wake                  gpud: ERROR attach framebuffer failed
+gpud: set_scanout ok                windowd: handoff attach ack bad status
+…                                   → 13× `gpud: chain G4 scanout FAIL`
+gpud: chain G4 scanout ok           → chain-marker contract 1/9 missing
+```
+
+In the baseline `execd: atlas vmo ready` lands BETWEEN gpud receiving the op
+and gpud mapping the page. Here gpud maps immediately and the map fails. It is
+an ORDERING hazard between gpud's framebuffer VMO and execd's shared atlas VMO
+(RFC-0080), not exhaustion: the kernel pool and arena bounds are identical in
+both runs (`pool=0x82000000 arena_end=0x91800000`); only `image_end` moved by
+24 KB (`0x81adfb40` → `0x81ae5b40`, headroom 5249K → 5225K, i.e. still 5 MB
+free).
+
+Deterministic: 3 of 3 consecutive runs, all `G4=0`.
+
+### What is mine and already fixed
+
+`emit.rs` built the slot `SlotFrame` — including `ctx.locals.to_vec()`, a deep
+clone of 64 `Option<Value>` — at **every** component reference in **every**
+emit, whether or not the reference bound a slot. On a hot path in a service
+whose bump allocator never frees. Now built only when `ComponentRef.slots` is
+non-empty, so every slot-free reference (all of desktop-shell) pays nothing.
+
+### What is NOT mine
+
+The ordering hazard itself. gpud, execd and the kernel VMO arena carry no
+dependency on any DSL crate; this task changed no file under `source/`. The
+24 KB of image growth (window-kit compiles into every consumer, so `settings`
+grew 84536 → 91968 and `stash` 102960 → 121992 bytes) only shifts the
+interleaving that decides who reaches the arena first.
+
+Seeded as `tasks/TASK-0309-gpud-framebuffer-vmo-map-ordering-hazard.md`: it is
+a bringup contract across `source/drivers/gpud` + `source/services/execd` + the
+kernel arena, outside RFC-0084's scope, and the fix is an allocation-order
+decision — not something to patch blind from here. The VA allocator documents
+the hazard itself (`gpud/src/backend/resources.rs:37`: monotonic slots, no
+unmap primitive, "remap refused"), and the failing call
+(`attach.rs:73`) currently discards the kernel's error code, so the first move
+is to make it say what it hit.
+
+### Also observed, pre-existing, NOT caused here
+
+- `SELFTEST: metrics {security rejects, counters, gauges, histograms} FAIL` and
+  `SELFTEST: tracing spans FAIL` appear IDENTICALLY in the baseline run and are
+  tolerated by the lane.
+- `SELFTEST: ime v2 candidates` is genuinely flaky: it flipped FAIL → ok
+  between two runs of the same tree.
 
 ## Known non-parity (documented, not approximated)
 

@@ -12,6 +12,9 @@
 extern crate alloc;
 
 pub mod backend;
+/// Numeric UART diagnostics for one-shot failure paths (TASK-0309). Empty on
+/// every build except the real OS one — its own `#![cfg]` gates the contents.
+pub mod diag;
 pub mod error;
 pub mod markers;
 pub mod protocol;

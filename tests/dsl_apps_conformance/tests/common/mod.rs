@@ -74,3 +74,18 @@ pub fn scene_texts(view: &View) -> Vec<String> {
 pub fn program_symbols(nxir: &[u8]) -> Vec<String> {
     nexus_dsl_runtime::Runtime::mount(nxir).expect("mounts runtime").symbols().to_vec()
 }
+
+/// The program's i18n key table (key index -> symbol id). Without it an
+/// `IdentityLocale` resolves every `@t(...)` to the empty string, so a scene
+/// full of real labels reads back as a list of blanks.
+pub fn program_i18n_keys(nxir: &[u8]) -> Vec<u32> {
+    nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir)
+        .expect("reads")
+        .root()
+        .expect("root")
+        .get_i18n_keys()
+        .expect("keys")
+        .iter()
+        .map(|k| k.get_key())
+        .collect()
+}

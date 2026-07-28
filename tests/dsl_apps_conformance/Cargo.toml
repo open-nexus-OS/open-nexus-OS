@@ -14,6 +14,7 @@ publish = false
 
 [dependencies]
 nexus-dsl-core = { path = "../../userspace/dsl/core", features = ["std"] }
+nexus-dsl-ir = { path = "../../userspace/dsl/ir" }
 nexus-dsl-runtime = { path = "../../userspace/dsl/runtime" }
 nexus-layout = { path = "../../userspace/ui/layout" }
 nexus-layout-types = { path = "../../userspace/ui/layout-types" }
