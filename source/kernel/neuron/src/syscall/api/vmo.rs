@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Memory syscalls split out of the former single-file api.rs:
-//! sys_map/sys_mmio_map/sys_device_cap_create, sys_vmo_* (create/destroy/
-//! read/write), sys_as_create/sys_as_map, the kernel-managed user VMO arena
+//! sys_device_cap_create, sys_vmo_* (create/destroy/read/write),
+//! sys_as_create/sys_as_map, the kernel-managed user VMO arena
 //! (VMO_POOL/VmoPool, task #124 free list) and user-slice validation helpers.
+//! (The fixed-VA sys_map/sys_mmio_map were retired by RFC-0085 P6.)
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -221,7 +222,7 @@ pub(super) fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<us
 /// references the range (clone/transfer alias) — the sole-owner safety net.
 /// Mappings are the caller's contract: it must not touch the range afterwards
 /// (a stale writable mapping in the destroying task could scribble over a reused
-/// range — the same trust already granted by `vmo_map_page` on its own VMOs; the
+/// range — the same trust already granted by `vm_map` on its own VMOs; the
 /// arena zeroes on reuse, so no stale data ever leaks to the next owner).
 pub(super) fn sys_vmo_destroy(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let slot = args.get(0);

@@ -1,6 +1,6 @@
 # RFC-0085: Kernel-owned VA allocation — the kernel picks addresses, userspace receives them
 
-- Status: Draft
+- Status: Implemented
 - Owners: @kernel-mm-team @ui
 - Created: 2026-07-28
 - Last Updated: 2026-07-28
@@ -15,11 +15,16 @@
 
 - **Phase 0 (idempotency regression + doc fix)**: ✅ (2026-07-28, ladder 9/9)
 - **Phase 1 (va_space pure module + host proofs)**: ✅ (13 host tests)
-- **Phase 2 (unmap_leaf + embedding + window refusal)**: ⬜
-- **Phase 3 (syscalls 53/54/55 + ABI + gated mm markers)**: ⬜
-- **Phase 4 (gpud migration)**: ⬜
-- **Phase 5 (remaining processes)**: ⬜
-- **Phase 6 (legacy deletion)**: ⬜
+- **Phase 2 (unmap_leaf + embedding + window refusal)**: ✅ (2026-07-28)
+- **Phase 3 (syscalls 53/54/55 + ABI + gated mm markers)**: ✅ (first gated mm markers; userspace roundtrip probe)
+- **Phase 4 (gpud migration)**: ✅ (FB attach = ONE vm_map; handoff_to_ready_ms 63–69 → 0)
+- **Phase 5 (remaining processes)**: ✅ (hidrawd/rng/rtc/blk/net/atlas/init/selftest; the `0x2000_e000` literal is extinct)
+- **Phase 6 (legacy deletion)**: ✅ (wrappers + `sys_map` 4 + `sys_mmio_map` 27 deleted, numbers retired; grep proves zero callers)
+
+Proof state: headless + dhcp + ci-os-smp lanes green; `bkl budget ok` at
+SMP=2 with the phased vm_unmap shootdown; see the task ledger for the
+per-phase evidence, including the three SMP findings the first real
+shootdowns exposed (doorbell race, deaf boot hart, BKL-held ack wait).
 
 ## Scope boundaries (anti-drift)
 

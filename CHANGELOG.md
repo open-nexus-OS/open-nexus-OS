@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-07-28 (RFC-0085: the kernel owns every virtual address)
+
+Userspace no longer invents virtual addresses anywhere in the tree. New
+syscalls `vm_map` (53), `vm_unmap` (54) and `mmio_map_auto` (55) map whole
+ranges at KERNEL-CHOSEN addresses inside a managed per-process window
+(`[0x5000_0000, 0x8000_0000)`, first-fit, superpage-phase-aware — ≥2 MiB
+ranges promote to 2 MiB leaves). The fixed-VA ancestors `map` (4) and
+`mmio_map` (27) and their nexus-abi wrappers (`vmo_map`, `vmo_map_page`,
+`vmo_map_page_sys`, `mmio_map`) are DELETED; both numbers are retired and
+never reused.
+
+- gpud's ~12 000-syscall framebuffer map loop became ONE call
+  (`handoff_to_ready_ms` 63–69 → 0); its two fixed VA arenas, hidrawd's
+  nine windows, the six copies of `0x2000_e000` and virtio-blk's
+  module-global windows are gone. `release_resource` really unmaps, and
+  `vmo_destroy` refuses EBUSY while any address space still maps the range.
+- Map errors keep their identity across the ABI (ADR-0054):
+  `AbiError` gained `OutOfMemory`/`NoSpace`/`NotFound`/`Busy`, and the
+  historic ENOMEM/ENOSPC→`SpawnFailed` collapse is gone (spawn wrappers
+  translate locally).
+- First gated mm markers ever: `KSELFTEST: vm map ok / vm unmap ok /
+  vm map reject ok` plus the userspace `SELFTEST: vm map roundtrip ok`.
+- SMP fixes shaken out by the first real shootdowns: the S_SOFT doorbell
+  is consumed BEFORE the mailbox checks (a check-then-clear race lost
+  shootdown requests), the boot hart now enables `sie.SSOFT` (it was deaf
+  to secondary-initiated shootdowns), every trap entry acks pending
+  shootdowns, and the vm_unmap shootdown wait runs with the BKL dropped
+  (phased like `vmo_create`) so `bkl budget ok` holds at SMP≥2.
+- Torn-marker fix: 13 services' per-byte `emit_line` fallbacks now emit
+  one atomic `debug_write` line (a preemption mid-`rngd: ready` dropped
+  the tail and failed the ladder).
+
+
 ### Fixed - 2026-07-27 (three visual defects the greeter showed first: hover plate, square blur, stretched wallpaper)
 
 All three were platform faults surfaced by the login screen, not greeter code —

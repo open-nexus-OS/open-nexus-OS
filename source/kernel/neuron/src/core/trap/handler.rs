@@ -18,151 +18,6 @@ use super::errno::*;
 
 // ——— syscall path (unchanged API) ———
 
-#[allow(dead_code)]
-/// P2: declaratively phased syscalls (LockClass = "expensive middle runs
-/// unlocked"): vmo_create zeroes and exec copies ELF bytes with the BKL
-/// DROPPED. Mirrors handle_ecall's frame bookkeeping (save frame, then write
-/// ret + sepc into the CURRENT task's frame) so the common epilogue behaves
-/// identically. Safety: reserved ranges are unreachable until the result is
-/// visible (vmo cap installs in phase C; exec'd tasks spawn suspended and
-/// resume only after this syscall returns), and this hart cannot be
-/// preempted (SIE off in trap context), so `current` is stable.
-fn phased_syscall(
-    frame: &mut TrapFrame,
-    mut kernel: super::runtime::KernelGuard,
-) -> super::runtime::KernelGuard {
-    use crate::syscall::Args;
-    let nr = frame.x[17];
-    let args =
-        Args::new([frame.x[10], frame.x[11], frame.x[12], frame.x[13], frame.x[14], frame.x[15]]);
-    if nr == crate::syscall::SYSCALL_EXEC || nr == crate::syscall::SYSCALL_EXEC_V2 {
-        // Phase A (BKL): full exec minus the byte moves (staged into `plan`).
-        let mut plan = api::CopyPlan::new();
-        let (pid, result) = {
-            let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
-                kernel.parts();
-            let mut ctx = api::Context::new(
-                scheduler,
-                tasks,
-                router,
-                spaces,
-                timer,
-                hart_timers,
-                waitsets,
-                fences,
-            );
-            let pid = ctx.tasks.current_pid();
-            if let Some(task) = ctx.tasks.task_mut(pid) {
-                *task.frame_mut() = *frame;
-            }
-            record(frame);
-            let result = if nr == crate::syscall::SYSCALL_EXEC {
-                api::exec_phase_a(&mut ctx, &args, &mut plan)
-            } else {
-                api::exec_v2_phase_a(&mut ctx, &args, &mut plan)
-            };
-            (pid, result)
-        };
-        let value = match result {
-            Ok(ret) => {
-                // Phase B: move the bytes with the BKL dropped.
-                drop(kernel);
-                api::run_copy_plan(&plan);
-                kernel = loop {
-                    if let Ok(k) = super::runtime::KernelGuard::acquire() {
-                        break k;
-                    }
-                    core::hint::spin_loop();
-                };
-                ret
-            }
-            Err(err) => encode_error(err),
-        };
-        {
-            let (_, tasks, ..) = kernel.parts();
-            if let Some(task) = tasks.task_mut(pid) {
-                let f = task.frame_mut();
-                f.sepc = f.sepc.wrapping_add(4);
-                f.x[10] = value;
-            }
-        }
-        return kernel;
-    }
-    // Phase A (BKL): save the caller frame + reserve the range.
-    let (pid, reserved) = {
-        let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
-            kernel.parts();
-        let ctx = api::Context::new(
-            scheduler,
-            tasks,
-            router,
-            spaces,
-            timer,
-            hart_timers,
-            waitsets,
-            fences,
-        );
-        let pid = ctx.tasks.current_pid();
-        if let Some(task) = ctx.tasks.task_mut(pid) {
-            *task.frame_mut() = *frame;
-        }
-        record(frame);
-        (pid, api::vmo_create_reserve(&args))
-    };
-    let write_result = |kernel: &mut super::runtime::KernelGuard, value: usize| {
-        let (_, tasks, ..) = kernel.parts();
-        if let Some(task) = tasks.task_mut(pid) {
-            let f = task.frame_mut();
-            f.sepc = f.sepc.wrapping_add(4);
-            f.x[10] = value;
-        }
-    };
-    match reserved {
-        Err(err) => {
-            let errno = encode_error(err);
-            write_result(&mut kernel, errno);
-            kernel
-        }
-        Ok((base, len, needs_zero, slot_raw)) => {
-            // Phase B: zero with the BKL dropped — other harts' syscalls
-            // (the UI hotpath) proceed while we memset.
-            drop(kernel);
-            if needs_zero {
-                unsafe {
-                    core::ptr::write_bytes(base as *mut u8, 0, len);
-                }
-            }
-            // Phase C: re-acquire, install the cap, write the result.
-            let mut kernel = loop {
-                if let Ok(k) = super::runtime::KernelGuard::acquire() {
-                    break k;
-                }
-                core::hint::spin_loop();
-            };
-            let ret = {
-                let (scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences) =
-                    kernel.parts();
-                let mut ctx = api::Context::new(
-                    scheduler,
-                    tasks,
-                    router,
-                    spaces,
-                    timer,
-                    hart_timers,
-                    waitsets,
-                    fences,
-                );
-                match api::vmo_create_finish(&mut ctx, base, len, slot_raw) {
-                    Ok(slot) => slot,
-                    Err(err) => encode_error(err),
-                }
-            };
-            write_result(&mut kernel, ret);
-            kernel
-        }
-    }
-}
-
 pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::Context<'_>) {
     // Save current frame into the current task before handling the syscall.
     let old_pid = ctx.tasks.current_pid();
@@ -412,6 +267,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
 
     // Liveness heartbeat on every trap entry
     crate::liveness::bump();
+    // Shootdown responder on EVERY S-mode entry (2 loads when idle): a hart
+    // with a lost S-soft enable still acks on its next syscall/timer trap.
+    let _ = crate::smp::tlb::poll_mailbox(crate::smp::cpu_current_id());
     if is_interrupt(frame.scause) {
         const S_SOFT_INT: usize = 1;
         // Supervisor timer: rearm via SBI and return.
@@ -419,14 +277,13 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         let code = frame.scause & (usize::MAX >> 1);
         if code == S_SOFT_INT {
             let cpu = crate::smp::cpu_current_id();
-            // A5: TLB shootdown responder FIRST (lock-free — the initiator
-            // may hold the BKL while waiting for this ack), then resched.
-            let _ = crate::smp::tlb::poll_mailbox(cpu);
-            let outcome = crate::smp::handle_ssoft_resched(cpu);
+            // Doorbell first: cleared later it eats an in-between IPI.
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             unsafe {
                 riscv::register::sip::clear_ssoft();
             }
+            // Shootdown ack already ran at trap entry (above); just resched.
+            let outcome = crate::smp::handle_ssoft_resched(cpu);
             // A4: an acked resched request PREEMPTS the interrupted user task
             // so a cross-core-woken task runs within IPI latency, not a full
             // timer period. Interrupted S-mode (WFI idle / cpu_main) needs
@@ -682,8 +539,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             crate::syscall::SYSCALL_VMO_CREATE
                 | crate::syscall::SYSCALL_EXEC
                 | crate::syscall::SYSCALL_EXEC_V2
+                | crate::syscall::SYSCALL_VM_UNMAP
         ) {
-            kernel = phased_syscall(frame, kernel);
+            kernel = super::phased::phased_syscall(frame, kernel);
         }
 
         static LOGGED_ENV_PTRS: core::sync::atomic::AtomicBool =
@@ -779,6 +637,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             crate::syscall::SYSCALL_VMO_CREATE
                 | crate::syscall::SYSCALL_EXEC
                 | crate::syscall::SYSCALL_EXEC_V2
+                | crate::syscall::SYSCALL_VM_UNMAP
         ) {
             handle_ecall(frame, table, &mut ctx);
         }

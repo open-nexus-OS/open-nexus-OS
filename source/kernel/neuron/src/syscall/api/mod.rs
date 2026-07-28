@@ -61,6 +61,7 @@ use sched_task::*;
 use sync_objects::*;
 pub(crate) use task_image::exit_current_and_release;
 use vm_map::*;
+pub(crate) use vm_map::{vm_unmap_clear, vm_unmap_finish};
 pub use vmo::vmo_idle_zero_step;
 use vmo::*;
 pub(crate) use vmo::{vmo_create_finish, vmo_create_reserve};
@@ -73,11 +74,10 @@ use super::{
     SYSCALL_BOOT_DISPLAY_MODE, SYSCALL_BOOT_MODE, SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER,
     SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC, SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE,
     SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
-    SYSCALL_IPC_SEND_V1, SYSCALL_MAP, SYSCALL_MMIO_MAP, SYSCALL_MMIO_MAP_AUTO, SYSCALL_NSEC,
-    SYSCALL_RECV, SYSCALL_SCHED, SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR,
-    SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME, SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE,
-    SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_VM_MAP, SYSCALL_VM_UNMAP,
-    SYSCALL_WAIT, SYSCALL_YIELD,
+    SYSCALL_IPC_SEND_V1, SYSCALL_MMIO_MAP_AUTO, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SCHED,
+    SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME,
+    SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE,
+    SYSCALL_VMO_WRITE, SYSCALL_VM_MAP, SYSCALL_VM_UNMAP, SYSCALL_WAIT, SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -289,8 +289,6 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_NSEC, sys_nsec);
     table.register(SYSCALL_SEND, sys_send);
     table.register(SYSCALL_RECV, sys_recv);
-    table.register(SYSCALL_MAP, sys_map);
-    table.register(SYSCALL_MMIO_MAP, sys_mmio_map);
     table.register(SYSCALL_VM_MAP, sys_vm_map);
     table.register(SYSCALL_VM_UNMAP, sys_vm_unmap);
     table.register(SYSCALL_MMIO_MAP_AUTO, sys_mmio_map_auto);

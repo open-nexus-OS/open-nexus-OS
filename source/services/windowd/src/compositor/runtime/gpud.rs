@@ -76,7 +76,7 @@ impl DisplayServerRuntime {
     /// declared. (An earlier note here claimed an unconditional wired bind had
     /// regressed the headless framebuffer handoff; that was a mis-attribution.
     /// Every headless run binds the wired pair anyway — the G4 failures in that
-    /// lane are an intermittent `gpud: resource vmo_map_page fail` on the fb
+    /// lane are an intermittent `gpud: resource map fail` on the fb
     /// attach, unrelated to route selection.)
     pub(super) fn ensure_gpud_client(&mut self) -> bool {
         if self.gpud_client.is_some() {

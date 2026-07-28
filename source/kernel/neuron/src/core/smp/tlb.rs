@@ -10,10 +10,12 @@
 //! INVARIANTS:
 //!   - Correctness-class IPIs: never throttled, never dropped (docs/
 //!     architecture/smp-ipi-rate-limiting.md §0).
-//!   - The initiator may hold the BKL while waiting for acks — sanctioned
-//!     ONLY because responders ack lock-free from the S_SOFT trap (mailbox
-//!     atomics + sfence, no BKL). Shootdowns are BKL-serialized, so there is
-//!     never more than one initiator.
+//!   - Responders ack lock-free from the S_SOFT trap (mailbox atomics +
+//!     sfence, no BKL). The vm_unmap SYSCALL initiates with the BKL DROPPED
+//!     (phased; a BKL-held ack wait tripped the 10ms budget gate at SMP≥2);
+//!     concurrent initiators are safe by construction — the epoch fetch_add
+//!     plus per-mailbox `fetch_max` coalesce, and an ack for a later epoch
+//!     satisfies every earlier one.
 //!   - A responder spinning to ACQUIRE the BKL keeps interrupt windows open
 //!     (sync::spin_irq acquisition contract), so it always acks.
 //!   - Fail-closed: a hart not acking within the time budget is a lost-IPI
@@ -111,29 +113,52 @@ pub fn shootdown_all() {
 
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        // Correctness-class IPI: direct send, no rate limiting.
-        let _ = sbi::send_ipi(targets, 0);
-
-        let deadline = (riscv::register::time::read() as u64).saturating_add(ACK_BUDGET_TICKS);
-        loop {
-            let mut all_acked = true;
+        // Bounded rounds, doorbell RE-SENT each round: an IPI is a level on
+        // `sip` that any trap-side `clear_ssoft` can consume — the responder
+        // handler now clears before reading the mailbox, but re-sending
+        // keeps a consumed-doorbell class recoverable instead of fatal,
+        // and gives TCG vCPU-scheduling jitter more than one 100ms window.
+        const RESEND_ROUNDS: u32 = 4;
+        for _ in 0..RESEND_ROUNDS {
+            // Correctness-class IPI: direct send, no rate limiting. Only
+            // still-missing harts get the re-send.
+            let mut missing = 0usize;
             for (idx, mail) in TLB_MAIL.iter().enumerate() {
-                if targets & (1 << idx) == 0 {
-                    continue;
-                }
-                if mail.acked.load(Ordering::Acquire) < epoch {
-                    all_acked = false;
-                    break;
+                if targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch {
+                    missing |= 1 << idx;
                 }
             }
-            if all_acked {
+            if missing == 0 {
                 return;
             }
-            if (riscv::register::time::read() as u64) >= deadline {
-                // Fail closed: silent TLB staleness is never acceptable.
-                panic!("tlb shootdown ack timeout");
+            let _ = sbi::send_ipi(missing, 0);
+            let deadline = (riscv::register::time::read() as u64).saturating_add(ACK_BUDGET_TICKS);
+            while (riscv::register::time::read() as u64) < deadline {
+                let mut all_acked = true;
+                for (idx, mail) in TLB_MAIL.iter().enumerate() {
+                    if targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch {
+                        all_acked = false;
+                        break;
+                    }
+                }
+                if all_acked {
+                    return;
+                }
+                core::hint::spin_loop();
             }
-            core::hint::spin_loop();
+        }
+        // Fail closed: silent TLB staleness is never acceptable. Name the
+        // evidence — WHICH hart, and how far its mailbox got.
+        for (idx, mail) in TLB_MAIL.iter().enumerate() {
+            if targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch {
+                panic!(
+                    "tlb shootdown ack timeout hart={} epoch={} requested={} acked={}",
+                    idx,
+                    epoch,
+                    mail.requested.load(Ordering::Acquire),
+                    mail.acked.load(Ordering::Acquire)
+                );
+            }
         }
     }
 }

@@ -74,7 +74,7 @@ pub(crate) fn grant(child_pid: u32, atlas_vmo: Option<u32>) {
         let _ = nexus_abi::debug_println("execd: FAIL atlas vmo grant (clone)");
         return;
     };
-    // Rights::MAP lets the child `vmo_map_page` it; the child maps it READ-only
+    // Rights::MAP lets the child `vm_map` it; the child maps it READ-only
     // (the map FLAGS, not the cap, choose RO — a RO-only VMO right is a
     // hardening follow-up, RFC-0080).
     let ok = nexus_abi::cap_transfer_to_slot(

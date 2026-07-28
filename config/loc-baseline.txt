@@ -1,21 +1,21 @@
 # Grandfathered .rs files over 600 LOC (ratchet: may shrink, never grow).
 # Regenerate ONLY after real splits: scripts/check-structure.sh --update-loc-baseline
-817	source/drivers/gpud/src/backend/mod.rs
-744	source/drivers/gpud/src/backend/present.rs
-924	source/drivers/gpud/src/backend/virgl3d.rs
-711	source/drivers/gpud/src/backend/virtqueue.rs
+811	source/drivers/gpud/src/backend/mod.rs
+741	source/drivers/gpud/src/backend/present.rs
+905	source/drivers/gpud/src/backend/virgl3d.rs
+706	source/drivers/gpud/src/backend/virtqueue.rs
 1264	source/drivers/gpud/src/gl_scanout.rs
 1057	source/drivers/gpud/src/service.rs
 820	source/drivers/gpud/src/virgl_composite.rs
 705	source/drivers/gpud/src/virgl.rs
-874	source/drivers/input/virtio-input/src/lib.rs
+873	source/drivers/input/virtio-input/src/lib.rs
 656	source/drivers/rng/virtio-rng/src/lib.rs
-869	source/drivers/storage/virtio-blk/src/lib.rs
-937	source/init/nexus-init/src/bootstrap/helpers.rs
+853	source/drivers/storage/virtio-blk/src/lib.rs
+932	source/init/nexus-init/src/bootstrap/helpers.rs
 1004	source/init/nexus-init/src/bootstrap/orchestrator.rs
 1784	source/init/nexus-init/src/bootstrap/wiring.rs
 689	source/init/nexus-init/src/std_server.rs
-1434	source/kernel/neuron/src/core/trap/handler.rs
+1293	source/kernel/neuron/src/core/trap/handler.rs
 718	source/kernel/neuron/src/ipc/mod.rs
 674	source/kernel/neuron/src/mm/address_space.rs
 643	source/kernel/neuron/src/mm/page_table.rs
@@ -41,7 +41,7 @@
 1166	source/services/dsoftbusd/src/os/session/cross_vm.rs
 1545	source/services/execd/src/os_lite.rs
 716	source/services/execd/src/std_server.rs
-626	source/services/hidrawd/src/os_lite.rs
+617	source/services/hidrawd/src/os_lite.rs
 981	source/services/inputd/src/os_lite.rs
 1049	source/services/inputd/tests/contract.rs
 649	source/services/keystored/src/full_impl.rs
@@ -79,7 +79,7 @@
 626	userspace/input-live-protocol/src/lib.rs
 1007	userspace/nexus-gfx/src/command/buffer.rs
 1041	userspace/nexus-metrics/src/lib.rs
-1232	userspace/nexus-net-os/src/smoltcp_virtio.rs
+1220	userspace/nexus-net-os/src/smoltcp_virtio.rs
 665	userspace/nexus-vfs/src/lib.rs
 641	userspace/nxfs/src/fs.rs
 811	userspace/policy/src/lib.rs

@@ -47,7 +47,8 @@ pub const SYSCALL_YIELD: usize = 0;
 pub const SYSCALL_NSEC: usize = 1;
 pub const SYSCALL_SEND: usize = 2;
 pub const SYSCALL_RECV: usize = 3;
-pub const SYSCALL_MAP: usize = 4;
+// RETIRED (RFC-0085 P6): 4 was the fixed-VA `sys_map`; the number is never
+// reused (the 44-collision scar). Kernel-chosen maps are 53/54/55.
 pub const SYSCALL_VMO_CREATE: usize = 5;
 pub const SYSCALL_VMO_WRITE: usize = 6;
 pub const SYSCALL_SPAWN: usize = 7;
@@ -102,8 +103,8 @@ pub const SYSCALL_VM_MAP: usize = 53;
 /// One TLB shootdown per call.
 pub const SYSCALL_VM_UNMAP: usize = 54;
 /// RFC-0085: maps a device-MMIO window at a kernel-chosen va (USER|RW floor,
-/// never EXEC). Args: (mmio_slot, offset, len). Replaces the fixed-VA
-/// `SYSCALL_MMIO_MAP` (27), which Phase 6 retires.
+/// never EXEC). Args: (mmio_slot, offset, len). Replaces the retired
+/// fixed-VA `SYSCALL_MMIO_MAP` (27).
 pub const SYSCALL_MMIO_MAP_AUTO: usize = 55;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
@@ -123,10 +124,8 @@ pub const SYSCALL_CAP_CLONE: usize = 24;
 pub const SYSCALL_GETPID: usize = 25;
 /// Receives an IPC message and additionally returns sender service identity metadata (v2).
 pub const SYSCALL_IPC_RECV_V2: usize = 26;
-/// Maps a device MMIO capability window into the caller's address space (USER|RW, never EXEC).
-///
-/// This is the kernel primitive required for userspace virtio drivers on QEMU `virt`.
-pub const SYSCALL_MMIO_MAP: usize = 27;
+// RETIRED (RFC-0085 P6): 27 was the fixed-VA `sys_mmio_map`; the number is
+// never reused. Kernel-chosen MMIO maps are `SYSCALL_MMIO_MAP_AUTO` (55).
 /// Queries a capability slot and writes (kind_tag, base, len) to a user buffer.
 ///
 /// This is a small introspection primitive needed by userspace drivers to obtain physical

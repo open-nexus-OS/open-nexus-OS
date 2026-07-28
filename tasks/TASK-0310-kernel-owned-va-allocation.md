@@ -1,6 +1,6 @@
 ---
 title: TASK-0310 Kernel-owned VA allocation — vm_map/vm_unmap/mmio_map_auto end to end
-status: In progress (2026-07-28) — Phases 0–5 done
+status: Done (2026-07-28) — all phases 0–6 proven; RFC-0085 Implemented
 owner: @kernel-mm-team @ui
 created: 2026-07-28
 links:
@@ -198,16 +198,51 @@ marker/comment — Phase 6 deletes the wrappers.
 new open path is device-exercised only in the interactive lane (headless
 has no virtio-input) — `just start` sanity remains on the user.**
 
-### Phase 6 — deletion ⬜
+### Phase 6 — deletion ✅ (2026-07-28)
 
-`vmo_map_page`/`vmo_map_page_sys`/`mmio_map` wrappers + `sys_mmio_map`
-handler deleted (27 retired, never reused); docs/CHANGELOG; grep proves zero
-legacy callers. `SYSCALL_MAP` retirement audit.
+DELETED: nexus-abi `vmo_map`/`vmo_map_page`/`vmo_map_page_sys`/`mmio_map`;
+kernel `sys_map` + `sys_mmio_map` handlers with their typed decoders and
+the TASK-0309 `MAP-FAIL stage=` tracer (its habitat is gone with the
+per-page loop). Numbers 4 AND 27 retired with tombstone comments — the
+audit found `SYSCALL_MAP` (4) caller-less too (the ELF loader maps
+in-kernel via `map_page_tracked`, not through the syscall). The
+documentation-grade MMIO security tests ported to `mmio_map_auto`
+(no-cap / wrong-kind / out-of-window / no-MAP-rights / never-EXEC /
+unaligned; the same-VA-overlap test became "two auto maps get DISTINCT
+vas" — collision impossible by construction). Docs: syscall list marks
+4/27 RETIRED; CHANGELOG entry; RFC-0085 → Implemented. grep proves the
+only surviving `vmo_map_page`/`mmio_map(` strings sit in vendored
+`tools/qemu-src`.
+
+**Interim SMP findings (this phase's boot proofs forced them)** — the
+first REAL shootdowns (secondary-initiated vm_unmap at SMP≥2) exposed
+three latent kernel bugs, each fixed + re-proven:
+
+1. **S_SOFT doorbell race**: the trap handler cleared `sip.SSIP` AFTER
+   the mailbox checks — an IPI landing in between was consumed unseen and
+   its shootdown request never acked (the `just start` panic at
+   `tlb.rs:86`). Doorbell is now consumed FIRST; initiator re-sends per
+   round and panics with named per-hart evidence.
+2. **Deaf boot hart**: only secondaries ever enabled `sie.SSOFT`; cpu0
+   running userspace never took shootdown IPIs — deterministic ack
+   timeout the first time gpud (on a secondary) unmapped. Every hart
+   enables it at scheduler entry, and EVERY trap entry polls the mailbox
+   (2 loads when idle) so even a lost-enable hart acks within a tick.
+3. **BKL-held ack wait**: vm_unmap's shootdown under the BKL pushed
+   `bkl wait` to 12.5ms and killed the 10ms `bkl budget ok` gate — the
+   plan's named fallback applied: vm_unmap is PHASED like vmo_create
+   (clear PTEs under BKL → shootdown with BKL dropped → forget region);
+   concurrent initiators are epoch-safe (`fetch_max` coalescing).
+
+**Proof: `just ci-os-smp` exit 0 (SMP=2 strict + smp1 parity;
+`bkl budget ok (max_wait=4913us)`) · headless exit 0 · `just check` green
+· neuron host 42/42.**
 
 ## Honest notes
 
 - The TASK-0309 intermittent is NOT proven dead by this work — its habitat
-  (the per-page loop) is removed, and the MAP-FAIL stage trace stays armed
-  until Phase 6 deletes the legacy path.
+  (the per-page loop) is removed WITH the legacy path itself (Phase 6); the
+  MAP-FAIL stage tracer died with the syscall it instrumented. Recurrence
+  would now surface as a named `VM-MAP-FAIL reason=…` line.
 - `mm`-gated kernel tests still do not compile on host (Context::new arity
   drift) — out of scope here; the live host oracle is `va_space`.

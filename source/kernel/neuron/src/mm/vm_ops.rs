@@ -87,10 +87,13 @@ pub fn map_range(
     Ok(va)
 }
 
-/// Unmaps the exact region `(va, len)` previously returned by [`map_range`].
-/// One TLB shootdown per call (not per page); the region record survives
-/// until the shootdown completes.
-pub fn unmap_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<(), VmOpError> {
+/// Phase A of an unmap: validate `(va, len)` and clear its PTEs. The region
+/// STAYS recorded — its va must not become reusable before the TLB
+/// shootdown lands (CLEAR-SHOOTDOWN-FORGET). The syscall shell runs the
+/// shootdown with the BKL DROPPED (phased like VMO_CREATE; a BKL-held
+/// shootdown wait tripped the 10ms `bkl budget ok` gate at SMP≥2), then
+/// calls [`forget_range`].
+pub fn clear_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<(), VmOpError> {
     let region = space.va_space().peek_exact(va, len).map_err(VmOpError::Va)?;
     let end = region.va + region.len;
     let mut cursor = region.va;
@@ -103,9 +106,22 @@ pub fn unmap_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<()
             Err(_) => cursor += PAGE_SIZE,
         }
     }
-    crate::smp::tlb::shootdown_all();
-    // Peeked above with the same arguments — cannot fail here.
+    Ok(())
+}
+
+/// Phase C: forget the region after the shootdown completed. Idempotent-ish
+/// by construction: phase A peeked the same arguments.
+pub fn forget_range(space: &mut AddressSpace, va: usize, len: usize) {
     let _ = space.va_space_mut().remove_exact(va, len);
+}
+
+/// Unmaps the exact region `(va, len)` previously returned by [`map_range`]:
+/// clear, ONE shootdown, forget. In-kernel callers only (selftest) — the
+/// vm_unmap SYSCALL phases the shootdown outside the BKL instead.
+pub fn unmap_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<(), VmOpError> {
+    clear_range(space, va, len)?;
+    crate::smp::tlb::shootdown_all();
+    forget_range(space, va, len);
     Ok(())
 }
 

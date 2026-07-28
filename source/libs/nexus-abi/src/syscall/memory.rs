@@ -148,26 +148,6 @@ pub fn vmo_read(_handle: Handle, _offset: usize, _buf: &mut [u8]) -> Result<()> 
     }
 }
 
-/// Maps the VMO into the caller's address space at virtual address `va` with
-/// the requested flags. The mapping is read-only in the initial path.
-#[cfg(nexus_env = "os")]
-pub fn vmo_map(_handle: Handle, _va: usize, _flags: u32) -> Result<()> {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    unsafe {
-        const SYSCALL_MAP: usize = 4;
-        // Offset=0 for the minimal path; flags passed as fourth arg.
-        let raw = ecall4(SYSCALL_MAP, _handle as usize, _va, 0, _flags as usize);
-        match decode_syscall(raw) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(IpcError::Unsupported),
-        }
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    {
-        Err(IpcError::Unsupported)
-    }
-}
-
 /// Page-table leaf flags for user mappings (Sv39).
 ///
 /// These constants match `source/kernel/neuron/src/mm/page_table.rs` `PageFlags` bits.
@@ -183,66 +163,6 @@ pub mod page_flags {
     pub const EXECUTE: u32 = 1 << 3;
     /// User accessible.
     pub const USER: u32 = 1 << 4;
-}
-
-/// Maps one page of a VMO into the caller's address space at virtual address `va`.
-///
-/// - `va` must be 4096-byte aligned.
-/// - `offset` is a byte offset into the VMO (page-aligned by the kernel).
-/// - `flags` uses `page_flags::*` bits.
-#[cfg(nexus_env = "os")]
-pub fn vmo_map_page(_handle: Handle, _va: usize, _offset: usize, _flags: u32) -> Result<()> {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    unsafe {
-        const SYSCALL_MAP: usize = 4;
-        let raw = ecall4(SYSCALL_MAP, _handle as usize, _va, _offset, _flags as usize);
-        match decode_syscall(raw) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(IpcError::Unsupported),
-        }
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    {
-        let _ = (_handle, _va, _offset, _flags);
-        Err(IpcError::Unsupported)
-    }
-}
-
-/// Like [`vmo_map_page`] but returns the raw syscall error (`AbiError`) for diagnostics.
-#[cfg(nexus_env = "os")]
-pub fn vmo_map_page_sys(_handle: Handle, _va: usize, _offset: usize, _flags: u32) -> SysResult<()> {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        const SYSCALL_MAP: usize = 4;
-        let raw = unsafe { ecall4(SYSCALL_MAP, _handle as usize, _va, _offset, _flags as usize) };
-        decode_syscall(raw).map(|_| ())
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    {
-        let _ = (_handle, _va, _offset, _flags);
-        Err(AbiError::Unsupported)
-    }
-}
-
-/// Maps a device MMIO window capability into the caller's address space at virtual address `va`.
-///
-/// Security invariants (enforced by kernel):
-/// - mapping is USER + RW
-/// - mapping is never executable
-/// - mapping is bounded to the capability window
-#[cfg(nexus_env = "os")]
-pub fn mmio_map(_handle: Handle, _va: usize, _offset: usize) -> SysResult<()> {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        const SYSCALL_MMIO_MAP: usize = 27;
-        let raw = unsafe { ecall3(SYSCALL_MMIO_MAP, _handle as usize, _va, _offset) };
-        decode_syscall(raw).map(|_| ())
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    {
-        let _ = (_handle, _va, _offset);
-        Err(AbiError::Unsupported)
-    }
 }
 
 /// RFC-0085: maps a whole VMO range at a KERNEL-CHOSEN virtual address and
@@ -286,9 +206,8 @@ pub fn vm_unmap(_va: usize, _len: usize) -> SysResult<()> {
 }
 
 /// RFC-0085: maps a device-MMIO window at a KERNEL-CHOSEN virtual address
-/// and returns it. Same security floor as [`mmio_map`] (USER|RW, never
-/// EXEC), but idempotency-by-abolition: a caller that never chooses an
-/// address cannot collide with anyone.
+/// and returns it. Security floor: USER|RW, never EXEC. Idempotency by
+/// abolition: a caller that never chooses an address cannot collide.
 #[cfg(nexus_env = "os")]
 pub fn mmio_map_auto(_handle: Handle, _offset: usize, _len: usize) -> SysResult<usize> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -360,7 +279,7 @@ pub fn device_mmio_cap_create(_base: usize, _len: usize, _slot_raw: usize) -> Sy
 /// For self-created, never-shared one-shot VMOs (staging buffers, the boot-splash
 /// backing). The kernel refuses while any other capability in the system still
 /// references the range. The caller must not touch the memory afterwards —
-/// including through mappings it made with `vmo_map_page`.
+/// including through mappings it made with `vm_map`.
 #[cfg(nexus_env = "os")]
 pub fn vmo_destroy(handle: Handle) -> SysResult<()> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]

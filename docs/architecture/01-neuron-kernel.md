@@ -71,7 +71,7 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **1 `nsec`**: Return the monotonic time in nanoseconds derived from the `time` CSR.
 - **2 `send`**: Send an IPC message via an endpoint capability.
 - **3 `recv`**: Receive the next pending IPC message.
-- **4 `map`**: Map a page from a VMO capability into the caller's active address space.
+- **4** — RETIRED (RFC‑0085 P6): was the fixed‑VA `map`; number never reused. Use 53 `vm_map`.
 - **5 `vmo_create`**: Create a VMO capability.
 - **6 `vmo_write`**: Write bytes into a VMO capability.
 - **7 `spawn`**: Create a child task (fresh Sv39 AS by default) with a guarded stack.
@@ -91,7 +91,7 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **20 `cap_close`** / **24 `cap_clone`**: Capability slot lifecycle.
 - **25 `getpid`**: Caller's task id.
 - **26 `ipc_recv_v2`**: IPC recv with sender identity + cap-move (ADR‑0042 transport).
-- **27 `mmio_map`**: Map a device MMIO capability window into the caller AS (USER+RW, never EXEC).
+- **27** — RETIRED (RFC‑0085 P6): was the fixed‑VA `mmio_map`; number never reused. Use 55 `mmio_map_auto`.
 - **28 `cap_query`**: Query a capability slot (kind/base/len) into a user buffer (driver bring-up primitive).
 - **29 `spawn_last_error`**: Last spawn-failure reason for the caller (RFC‑0013).
 - **30 `device_cap_create`**: Mint a DeviceMmio capability (privileged bring-up).
@@ -115,8 +115,8 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **54 `vm_unmap`**: Unmap one exact `vm_map`/`mmio_map_auto` region; one
   TLB shootdown per call (RFC‑0085).
 - **55 `mmio_map_auto`**: Device-MMIO window at a kernel-chosen va —
-  same USER|RW/never-EXEC floor as 27, but the caller cannot collide
-  because it never picks an address (RFC‑0085; 27 is slated for retirement).
+  same USER|RW/never-EXEC floor as the retired 27, but the caller cannot
+  collide because it never picks an address (RFC‑0085).
 
 Errors follow the conventional POSIX encoding: handlers return
 `-errno` (two's complement) in `a0`. Key codes used by the current

@@ -1337,7 +1337,7 @@ fn qos_self_escalation_via_policyd_path_ok() {
 /// Security invariant: MMIO access must be capability-gated.
 #[test]
 fn test_reject_mmio_no_cap() {
-    use super::SYSCALL_MMIO_MAP;
+    use super::SYSCALL_MMIO_MAP_AUTO;
 
     let mut scheduler = Scheduler::new();
     let mut tasks = TaskTable::new();
@@ -1355,16 +1355,9 @@ fn test_reject_mmio_no_cap() {
     let mut table = SyscallTable::new();
     install_handlers(&mut table);
 
-    // Attempt to map via empty slot 48.
-    let args = Args::new([
-        48,          // slot (empty)
-        0x2000_0000, // va (page-aligned)
-        0,           // offset
-        0,
-        0,
-        0,
-    ]);
-    let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+    // Attempt to map via empty slot 48 (RFC-0085: kernel picks the va).
+    let args = Args::new([48, 0, 0x1000, 0, 0, 0]);
+    let err = table.dispatch(SYSCALL_MMIO_MAP_AUTO, &mut ctx, &args).unwrap_err();
     assert_eq!(err, Error::Capability(CapError::InvalidSlot));
 }
 
@@ -1372,7 +1365,7 @@ fn test_reject_mmio_no_cap() {
 /// Security invariant: Only DeviceMmio capabilities can be used for MMIO mapping.
 #[test]
 fn test_reject_mmio_wrong_cap_kind() {
-    use super::SYSCALL_MMIO_MAP;
+    use super::SYSCALL_MMIO_MAP_AUTO;
 
     let mut scheduler = Scheduler::new();
     let mut tasks = TaskTable::new();
@@ -1402,15 +1395,8 @@ fn test_reject_mmio_wrong_cap_kind() {
     install_handlers(&mut table);
 
     // Attempt to map via slot 48 (Endpoint, not DeviceMmio).
-    let args = Args::new([
-        48,          // slot (has Endpoint, not DeviceMmio)
-        0x2000_0000, // va (page-aligned)
-        0,           // offset
-        0,
-        0,
-        0,
-    ]);
-    let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+    let args = Args::new([48, 0, 0x1000, 0, 0, 0]);
+    let err = table.dispatch(SYSCALL_MMIO_MAP_AUTO, &mut ctx, &args).unwrap_err();
     assert_eq!(err, Error::Capability(CapError::PermissionDenied));
 }
 
@@ -1418,7 +1404,7 @@ fn test_reject_mmio_wrong_cap_kind() {
 /// Security invariant: MMIO mappings must be bounded to the device window.
 #[test]
 fn test_reject_mmio_outside_window() {
-    use super::SYSCALL_MMIO_MAP;
+    use super::SYSCALL_MMIO_MAP_AUTO;
 
     let mut scheduler = Scheduler::new();
     let mut tasks = TaskTable::new();
@@ -1450,27 +1436,13 @@ fn test_reject_mmio_outside_window() {
     install_handlers(&mut table);
 
     // Attempt to map at offset 0x2000 (equals len, therefore out of bounds).
-    let args = Args::new([
-        48,          // slot (DeviceMmio)
-        0x2000_0000, // va (page-aligned)
-        MMIO_LEN,    // offset = len (out of bounds)
-        0,
-        0,
-        0,
-    ]);
-    let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+    let args = Args::new([48, MMIO_LEN, 0x1000, 0, 0, 0]);
+    let err = table.dispatch(SYSCALL_MMIO_MAP_AUTO, &mut ctx, &args).unwrap_err();
     assert_eq!(err, Error::Capability(CapError::PermissionDenied));
 
     // Also test offset way beyond the window.
-    let args_far = Args::new([
-        48,          // slot
-        0x2000_0000, // va
-        0x1_0000,    // offset = 64KiB (way beyond 8KiB window)
-        0,
-        0,
-        0,
-    ]);
-    let err_far = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args_far).unwrap_err();
+    let args_far = Args::new([48, 0x1_0000, 0x1000, 0, 0, 0]);
+    let err_far = table.dispatch(SYSCALL_MMIO_MAP_AUTO, &mut ctx, &args_far).unwrap_err();
     assert_eq!(err_far, Error::Capability(CapError::PermissionDenied));
 }
 
@@ -1478,7 +1450,7 @@ fn test_reject_mmio_outside_window() {
 /// Security invariant: MMIO mapping requires Rights::MAP.
 #[test]
 fn test_reject_mmio_insufficient_rights() {
-    use super::SYSCALL_MMIO_MAP;
+    use super::SYSCALL_MMIO_MAP_AUTO;
 
     let mut scheduler = Scheduler::new();
     let mut tasks = TaskTable::new();
@@ -1510,15 +1482,8 @@ fn test_reject_mmio_insufficient_rights() {
     install_handlers(&mut table);
 
     // Attempt to map with insufficient rights.
-    let args = Args::new([
-        48,          // slot
-        0x2000_0000, // va
-        0,           // offset (valid)
-        0,
-        0,
-        0,
-    ]);
-    let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+    let args = Args::new([48, 0, 0x1000, 0, 0, 0]);
+    let err = table.dispatch(SYSCALL_MMIO_MAP_AUTO, &mut ctx, &args).unwrap_err();
     assert_eq!(err, Error::Capability(CapError::PermissionDenied));
 }
 
@@ -1526,7 +1491,7 @@ fn test_reject_mmio_insufficient_rights() {
 /// Security invariant: device MMIO is USER|RW only (never executable).
 #[test]
 fn test_reject_mmio_exec() {
-    use super::SYSCALL_MMIO_MAP;
+    use super::SYSCALL_MMIO_MAP_AUTO;
     use crate::mm::page_table::PageFlags;
 
     let mut scheduler = Scheduler::new();
@@ -1537,7 +1502,6 @@ fn test_reject_mmio_exec() {
 
     const MMIO_BASE: usize = 0x1000_0000;
     const MMIO_LEN: usize = 0x1000;
-    const MMIO_VA: usize = 0x2000_0000;
     {
         let caps = tasks.bootstrap_mut().caps_mut();
         caps.set(
@@ -1558,21 +1522,22 @@ fn test_reject_mmio_exec() {
     let mut table = SyscallTable::new();
     install_handlers(&mut table);
 
-    let args = Args::new([48, MMIO_VA, 0, 0, 0, 0]);
-    table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap();
+    let args = Args::new([48, 0, MMIO_LEN, 0, 0, 0]);
+    let mmio_va = table.dispatch(SYSCALL_MMIO_MAP_AUTO, &mut ctx, &args).unwrap();
 
     let handle = ctx.tasks.current_task().address_space().unwrap();
-    let flags = ctx.address_spaces.get(handle).unwrap().page_table().leaf_flags(MMIO_VA).unwrap();
+    let flags = ctx.address_spaces.get(handle).unwrap().page_table().leaf_flags(mmio_va).unwrap();
     assert!(flags.contains(PageFlags::USER));
     assert!(flags.contains(PageFlags::READ));
     assert!(flags.contains(PageFlags::WRITE));
     assert!(!flags.contains(PageFlags::EXECUTE));
 }
 
-/// Test that non-page-aligned virtual addresses are rejected.
+/// Test that a non-page-multiple length is rejected (the caller no longer
+/// supplies a va at all — RFC-0085).
 #[test]
-fn test_reject_mmio_unaligned_va() {
-    use super::SYSCALL_MMIO_MAP;
+fn test_reject_mmio_unaligned_len() {
+    use super::SYSCALL_MMIO_MAP_AUTO;
     use crate::mm::address_space::AddressSpaceError;
 
     let mut scheduler = Scheduler::new();
@@ -1603,15 +1568,15 @@ fn test_reject_mmio_unaligned_va() {
     let mut table = SyscallTable::new();
     install_handlers(&mut table);
 
-    let args = Args::new([48, 0x2000_0001, 0, 0, 0, 0]); // va not page-aligned
-    let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+    let args = Args::new([48, 0, 0xfff, 0, 0, 0]); // len not a page multiple
+    let err = table.dispatch(SYSCALL_MMIO_MAP_AUTO, &mut ctx, &args).unwrap_err();
     assert_eq!(err, Error::AddressSpace(AddressSpaceError::InvalidArgs));
 }
 
 /// Test that non-page-aligned offsets are rejected.
 #[test]
 fn test_reject_mmio_unaligned_offset() {
-    use super::SYSCALL_MMIO_MAP;
+    use super::SYSCALL_MMIO_MAP_AUTO;
 
     let mut scheduler = Scheduler::new();
     let mut tasks = TaskTable::new();
@@ -1641,16 +1606,17 @@ fn test_reject_mmio_unaligned_offset() {
     let mut table = SyscallTable::new();
     install_handlers(&mut table);
 
-    let args = Args::new([48, 0x2000_0000, 1, 0, 0, 0]); // offset not page-aligned
-    let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
-    assert_eq!(err, Error::Capability(CapError::PermissionDenied));
+    let args = Args::new([48, 1, 0x1000, 0, 0, 0]); // offset not page-aligned
+    let err = table.dispatch(SYSCALL_MMIO_MAP_AUTO, &mut ctx, &args).unwrap_err();
+    assert_eq!(err, Error::AddressSpace(AddressSpaceError::InvalidArgs));
 }
 
-/// Test that remapping the same VA deterministically fails (no silent overwrite).
+/// RFC-0085: two auto-maps of the same window get DISTINCT kernel-chosen
+/// vas — collision by construction impossible (the old same-VA overlap
+/// refusal test died with the fixed-VA syscall).
 #[test]
-fn test_reject_mmio_overlap_same_va() {
-    use super::SYSCALL_MMIO_MAP;
-    use crate::mm::{address_space::AddressSpaceError, page_table::MapError};
+fn test_mmio_auto_maps_are_distinct() {
+    use super::SYSCALL_MMIO_MAP_AUTO;
 
     let mut scheduler = Scheduler::new();
     let mut tasks = TaskTable::new();
@@ -1660,7 +1626,6 @@ fn test_reject_mmio_overlap_same_va() {
 
     const MMIO_BASE: usize = 0x1000_0000;
     const MMIO_LEN: usize = 0x2000;
-    const MMIO_VA: usize = 0x2000_0000;
     {
         let caps = tasks.bootstrap_mut().caps_mut();
         caps.set(
@@ -1681,10 +1646,8 @@ fn test_reject_mmio_overlap_same_va() {
     let mut table = SyscallTable::new();
     install_handlers(&mut table);
 
-    let args = Args::new([48, MMIO_VA, 0, 0, 0, 0]);
-    table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap();
-
-    // Second map to the same VA must fail (overlap).
-    let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
-    assert_eq!(err, Error::AddressSpace(AddressSpaceError::Mapping(MapError::Overlap)));
+    let args = Args::new([48, 0, 0x1000, 0, 0, 0]);
+    let first = table.dispatch(SYSCALL_MMIO_MAP_AUTO, &mut ctx, &args).unwrap();
+    let second = table.dispatch(SYSCALL_MMIO_MAP_AUTO, &mut ctx, &args).unwrap();
+    assert_ne!(first, second, "kernel-chosen vas never collide");
 }

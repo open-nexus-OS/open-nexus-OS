@@ -88,6 +88,14 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
         log_info!(target: "smp", "KINIT: cpu{} sched loop", cpu.as_index());
     }
     log_debug!(target: "kmain", "KMAIN: cpu{} entering scheduler loop", cpu.as_index());
+    // EVERY hart must accept S-soft IPIs from here on — only secondaries used
+    // to enable it, so the boot hart was DEAF to shootdown doorbells while
+    // running userspace: the first secondary-initiated vm_unmap shootdown
+    // (RFC-0085) timed out against cpu0, deterministically, in the SMP lane.
+    // SAFETY: enabling an interrupt class this hart's trap handler serves.
+    unsafe {
+        riscv::register::sie::set_ssoft();
+    }
 
     /// Outcome of one guarded scheduling attempt.
     enum Attempt {
