@@ -1,6 +1,6 @@
 ---
 title: TASK-0310 Kernel-owned VA allocation — vm_map/vm_unmap/mmio_map_auto end to end
-status: In progress (2026-07-28) — Phases 0–2 done
+status: In progress (2026-07-28) — Phases 0–3 done
 owner: @kernel-mm-team @ui
 created: 2026-07-28
 links:
@@ -92,14 +92,39 @@ P2 only shifted boot timing onto the landmine; any change could re-arm it.
 intermediate run failed on the known pre-existing `ime v2 candidates`
 flake (unrelated, tracked separately).
 
-### Phase 3 — syscalls + ABI + first gated mm markers ⬜
+### Phase 3 — syscalls + ABI + first gated mm markers ✅ (2026-07-28)
 
-53/54/55 in `api/vm_map.rs`; nexus-abi wrappers; `AbiError` +
-`OutOfMemory/NoSpace/NotFound/Busy`; `vmo_destroy` EBUSY guard;
-`KSELFTEST: vm map ok / vm unmap ok / vm map reject ok` + promotion of
-`as map ok`/`vmo zero ok`/`w^x enforced` — markers_generated + both
-`expected_sequence` blocks + proof manifest in ONE commit; selftest-client
-probe. Gate: new markers green AND `bkl budget ok` stays green.
+Syscalls 53/54/55 live: handlers in `api/vm_map.rs`, executor in NEW
+`mm/vm_ops.rs` (RECORD-THEN-MAP with mid-plan rollback — never a
+half-mapped zombie; CLEAR-SHOOTDOWN-FORGET — one `shootdown_all` per
+unmap, region forgotten only after; `superpage_plan` drives `map_2m` for
+interiors). `Error::Va(VaError)` + `Error::ResourceBusy` with an
+exhaustive `va_errno` table (ADR-0054). `vmo_destroy` refuses EBUSY while
+ANY address space maps the range (`vm_ops::any_space_maps`); legacy Fixed
+records keep the old caller contract. `va_space` gained `peek_exact`
+(remove_exact now peeks first).
+
+nexus-abi: `vm_map`/`vm_unmap`/`mmio_map_auto` wrappers; `AbiError` +
+`OutOfMemory(12)/NoSpace(28)/NotFound(2)/Busy(16)` — the historic
+12/28→`SpawnFailed` collapse is gone; the `spawn` wrapper translates
+locally so init's `spawn_last_error` diagnosis keeps firing. All three
+exhaustive label tables extended (gpud diag, selftest-client, init).
+
+**First gated mm markers ever**: `KSELFTEST: vm map ok` (va in window,
+translate matches, interior 2 MiB leaf PROVEN via `leaf_span_at`),
+`vm unmap ok` (translate gone + same-va re-map = first-fit reuse),
+`vm map reject ok` (fixed-into-window EEXIST + unknown-unmap ENOENT +
+destroy-while-mapped EBUSY) — emitted by `selftest/vm_alloc.rs` (split;
+also deduped the two verbatim W^X blocks, selftest/mod.rs 2487→2422).
+Promoted `vmo zero ok`/`as map ok`/`w^x enforced` into the gates.
+Userspace e2e: `SELFTEST: vm map roundtrip ok` (map→read seed→write→
+vmo_read verify→EBUSY→unmap→SAME-va re-map→destroy) in the mmio phase.
+Manifest + both `expected_sequence` blocks + probe in this one package.
+
+**Proof: ladder green with the new gates on the FIRST run
+(headless--2026-07-28T13-39-02), `bkl budget ok (max_wait=0us)` — the
+per-unmap shootdown is invisible at selftest load. `cargo test -p neuron`
+42/42 · `just check` green.**
 
 ### Phase 4 — gpud ⬜
 

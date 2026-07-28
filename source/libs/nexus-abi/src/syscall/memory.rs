@@ -245,6 +245,65 @@ pub fn mmio_map(_handle: Handle, _va: usize, _offset: usize) -> SysResult<()> {
     }
 }
 
+/// RFC-0085: maps a whole VMO range at a KERNEL-CHOSEN virtual address and
+/// returns that address. The kernel allocates inside its managed user window
+/// (first-fit, superpage-phase-aware for ≥2 MiB ranges); userspace never
+/// invents the address. `offset`/`len` are byte values, page-aligned;
+/// `flags` uses `page_flags::*` bits (EXECUTE is refused).
+#[cfg(nexus_env = "os")]
+pub fn vm_map(_handle: Handle, _offset: usize, _len: usize, _flags: u32) -> SysResult<usize> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_VM_MAP: usize = 53;
+        let raw =
+            unsafe { ecall4(SYSCALL_VM_MAP, _handle as usize, _offset, _len, _flags as usize) };
+        decode_syscall(raw)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (_handle, _offset, _len, _flags);
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// RFC-0085: unmaps ONE exact region previously returned by [`vm_map`] /
+/// [`mmio_map_auto`] — whole region only (no splitting in v1). Errors keep
+/// their identity: `NotFound` (nothing there), `InvalidArgument` (length
+/// mismatch), `CapabilityDenied` (kernel-placed Fixed region).
+#[cfg(nexus_env = "os")]
+pub fn vm_unmap(_va: usize, _len: usize) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_VM_UNMAP: usize = 54;
+        let raw = unsafe { ecall2(SYSCALL_VM_UNMAP, _va, _len) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (_va, _len);
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// RFC-0085: maps a device-MMIO window at a KERNEL-CHOSEN virtual address
+/// and returns it. Same security floor as [`mmio_map`] (USER|RW, never
+/// EXEC), but idempotency-by-abolition: a caller that never chooses an
+/// address cannot collide with anyone.
+#[cfg(nexus_env = "os")]
+pub fn mmio_map_auto(_handle: Handle, _offset: usize, _len: usize) -> SysResult<usize> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_MMIO_MAP_AUTO: usize = 55;
+        let raw = unsafe { ecall3(SYSCALL_MMIO_MAP_AUTO, _handle as usize, _offset, _len) };
+        decode_syscall(raw)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (_handle, _offset, _len);
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Information about an address-bearing capability (VMO or device MMIO window).
 #[cfg(nexus_env = "os")]
 #[repr(C)]

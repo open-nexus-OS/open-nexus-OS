@@ -12,6 +12,13 @@
 # API_STABILITY: Stable; literals are the contract surface (referenced as
 #                `M_<KEY>` constants from `markers_generated.rs`)
 
+[marker."SELFTEST: vm map roundtrip ok"]
+phase = "mmio"
+proves = "RFC-0085 userspace roundtrip: one-call vm_map at a kernel-chosen va, write/read through it, EBUSY on destroy-while-mapped, vm_unmap, exact-va reuse"
+
+[marker."SELFTEST: vm map roundtrip FAIL"]
+phase = "mmio"
+
 [marker."SELFTEST: cap query vmo ok"]
 phase = "mmio"
 

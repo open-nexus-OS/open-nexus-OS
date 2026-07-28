@@ -27,6 +27,12 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // syscall itself is still exercised). See task #103. The cap_query on the NET MMIO cap (slot 48)
     // is also retired — it hits the same dead virtio-net cap and blocks. The VMO cap_query below is
     // independent (allocates its own VMO) and stays.
+    // RFC-0085: the userspace vm_map/vm_unmap roundtrip (kernel-chosen VA).
+    if mmio::vm_map_roundtrip_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_VM_MAP_ROUNDTRIP_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_VM_MAP_ROUNDTRIP_FAIL);
+    }
     if mmio::cap_query_vmo_probe().is_ok() {
         emit_line(crate::markers::M_SELFTEST_CAP_QUERY_VMO_OK);
     } else {

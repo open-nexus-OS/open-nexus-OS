@@ -91,6 +91,20 @@ pub const SYSCALL_VMO_SHARE_RO: usize = 51;
 /// (execd) reap fire-and-forget children in its serve loop so their address
 /// space is reclaimed without a client waiting.
 pub const SYSCALL_WAIT_NOHANG: usize = 52;
+/// RFC-0085: maps a whole VMO range at a KERNEL-CHOSEN va inside the managed
+/// user window and returns that va. Args: (vmo_slot, offset, len, flags).
+/// Always the caller's own address space — no handle argument, no confused
+/// deputy. ≥2 MiB ranges get a pa-congruent va so interiors promote to
+/// 2 MiB superpage leaves.
+pub const SYSCALL_VM_MAP: usize = 53;
+/// RFC-0085: unmaps ONE exact region previously returned by `vm_map`/
+/// `mmio_map_auto` (whole region, v1 has no splitting). Args: (va, len).
+/// One TLB shootdown per call.
+pub const SYSCALL_VM_UNMAP: usize = 54;
+/// RFC-0085: maps a device-MMIO window at a kernel-chosen va (USER|RW floor,
+/// never EXEC). Args: (mmio_slot, offset, len). Replaces the fixed-VA
+/// `SYSCALL_MMIO_MAP` (27), which Phase 6 retires.
+pub const SYSCALL_MMIO_MAP_AUTO: usize = 55;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).
@@ -198,6 +212,24 @@ pub enum Error {
     InvalidTarget,
     /// Task resume: scheduler run queue is full.
     RunQueueFull,
+    /// RFC-0085: the VA allocation policy refused (window exhausted, table
+    /// full, unknown/fixed region…). Each variant keeps its errno identity
+    /// (ADR-0054).
+    Va(crate::va_space::VaError),
+    /// RFC-0085: the resource still has live `vm_map` regions (EBUSY) —
+    /// e.g. `vmo_destroy` while an address space maps the range.
+    ResourceBusy,
+}
+
+impl From<mm::vm_ops::VmOpError> for Error {
+    fn from(value: mm::vm_ops::VmOpError) -> Self {
+        match value {
+            mm::vm_ops::VmOpError::Va(err) => Self::Va(err),
+            mm::vm_ops::VmOpError::Map(err) => {
+                Self::AddressSpace(mm::AddressSpaceError::Mapping(err))
+            }
+        }
+    }
 }
 
 impl From<cap::CapError> for Error {

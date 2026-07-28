@@ -238,6 +238,14 @@ pub(super) fn sys_vmo_destroy(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     if refs != 1 {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
+    // RFC-0085: refuse while ANY address space still maps the range through a
+    // vm_map/mmio_map_auto region (EBUSY) — freeing under a live mapping
+    // would hand recycled arena pages to the old mapper. Legacy fixed-VA
+    // maps keep the pre-RFC caller contract (recorded as Fixed, not counted
+    // here).
+    if crate::mm::vm_ops::any_space_maps(ctx.address_spaces, base, len) {
+        return Err(Error::ResourceBusy);
+    }
     let _ = ctx.tasks.current_caps_mut().take(slot)?;
     VMO_POOL.lock().free(base, len)?;
     Ok(0)

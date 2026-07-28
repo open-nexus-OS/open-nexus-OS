@@ -167,7 +167,7 @@ impl AddressSpace {
         self.page_table.allocated_pages()
     }
 
-    fn page_table_mut(&mut self) -> &mut PageTable {
+    pub(super) fn page_table_mut(&mut self) -> &mut PageTable {
         &mut self.page_table
     }
 
@@ -186,7 +186,7 @@ impl AddressSpace {
 
 /// Manages the collection of user address spaces and allocates ASIDs.
 pub struct AddressSpaceManager {
-    spaces: Vec<Option<AddressSpace>>,
+    pub(super) spaces: Vec<Option<AddressSpace>>,
     asids: AsidAllocator,
     // Pre-SMP contract: AS manager is owned by single kernel execution context.
     _not_send_sync: PhantomData<*mut ()>,

@@ -57,6 +57,10 @@ pub(crate) fn mmio_map_probe() -> core::result::Result<(), ()> {
             nexus_abi::AbiError::WouldBlock => "WouldBlock",
             nexus_abi::AbiError::AlreadyExists => "AlreadyExists",
             nexus_abi::AbiError::BadAddress => "BadAddress",
+            nexus_abi::AbiError::OutOfMemory => "OutOfMemory",
+            nexus_abi::AbiError::NoSpace => "NoSpace",
+            nexus_abi::AbiError::NotFound => "NotFound",
+            nexus_abi::AbiError::Busy => "Busy",
             nexus_abi::AbiError::Unknown => "Unknown",
             nexus_abi::AbiError::Unsupported => "Unsupported",
         };
@@ -105,6 +109,34 @@ pub(crate) fn mmio_map_probe() -> core::result::Result<(), ()> {
 
     // TASK-0010 proof remains: mapping + reading known register succeeded.
     Ok(())
+}
+
+/// RFC-0085 vm_map roundtrip — the userspace end-to-end proof of the
+/// kernel-chosen-VA path: map a whole VMO in ONE syscall, write/read through
+/// the mapping, destroy-while-mapped must refuse (EBUSY), unmap, and an
+/// equal re-map must return the SAME va (first-fit reuse).
+pub(crate) fn vm_map_roundtrip_probe() -> core::result::Result<(), ()> {
+    use nexus_abi::{page_flags, AbiError};
+    const LEN: usize = 4 * 4096;
+    let vmo = nexus_abi::vmo_create(LEN).map_err(|_| ())?;
+    nexus_abi::vmo_write(vmo, 0, &[0xA5]).map_err(|_| ())?;
+    let flags = page_flags::VALID | page_flags::READ | page_flags::WRITE | page_flags::USER;
+    let va = nexus_abi::vm_map(vmo, 0, LEN, flags).map_err(|_| ())?;
+    let seeded = unsafe { core::ptr::read_volatile(va as *const u8) } == 0xA5;
+    unsafe { core::ptr::write_volatile((va + LEN - 1) as *mut u8, 0x5A) };
+    let mut back = [0u8; 1];
+    nexus_abi::vmo_read(vmo, LEN - 1, &mut back).map_err(|_| ())?;
+    let busy = matches!(nexus_abi::vmo_destroy(vmo), Err(AbiError::Busy));
+    nexus_abi::vm_unmap(va, LEN).map_err(|_| ())?;
+    let va2 = nexus_abi::vm_map(vmo, 0, LEN, flags).map_err(|_| ())?;
+    let reused = va2 == va;
+    nexus_abi::vm_unmap(va2, LEN).map_err(|_| ())?;
+    nexus_abi::vmo_destroy(vmo).map_err(|_| ())?;
+    if seeded && back[0] == 0x5A && busy && reused {
+        Ok(())
+    } else {
+        Err(())
+    }
 }
 
 // RFC-0068 mmio migration (task #103): RETIRED — queries the dead virtio-net MMIO cap (slot 48),

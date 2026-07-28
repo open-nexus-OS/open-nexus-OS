@@ -58,6 +58,8 @@ use riscv::register::sstatus;
 
 pub mod assert;
 mod smp_sched;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod vm_alloc;
 use smp_sched::run_steal_selftests;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -295,6 +297,8 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         table.dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &map_args).expect("as_map syscall");
         log_info!(target: "selftest", "KSELFTEST: as map ok");
 
+        vm_alloc::run_vm_alloc_selftests(&table, &mut sys_ctx, handle_raw);
+
         let entry = child_new_as_entry as usize;
         verbose!("KSELFTEST: before spawn\n");
         // Provide a non-zero stack and bind to the created AS to satisfy strict arg checks
@@ -417,43 +421,7 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
                 // Mark spawn success and run W^X negative test early, then return
                 CHILD_HEARTBEAT.store(2, Ordering::SeqCst);
                 log_info!(target: "selftest", "KSELFTEST: spawn ok");
-                {
-                    let mut table = SyscallTable::new();
-                    api::install_handlers(&mut table);
-                    let timer = ctx.hal.timer();
-                    let mut sys_ctx = api::Context::new(
-                        ctx.scheduler,
-                        ctx.tasks,
-                        ctx.router,
-                        ctx.address_spaces,
-                        timer,
-                        ctx.hart_timers,
-                        ctx.waitsets,
-                        ctx.fences,
-                    );
-                    const PROT_READ: usize = 1 << 0;
-                    const PROT_WRITE: usize = 1 << 1;
-                    const PROT_EXEC: usize = 1 << 2;
-                    const MAP_FLAG_USER: usize = 1 << 0;
-                    let wx_args = Args::new([
-                        handle_raw,
-                        2,
-                        CHILD_TEST_VA + PAGE_SIZE,
-                        PAGE_SIZE,
-                        PROT_READ | PROT_WRITE | PROT_EXEC,
-                        MAP_FLAG_USER,
-                    ]);
-                    match table.dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &wx_args) {
-                        Err(SysError::AddressSpace(AddressSpaceError::Mapping(
-                            MapError::PermissionDenied,
-                        ))) => {
-                            log_info!(target: "selftest", "KSELFTEST: w^x enforced");
-                        }
-                        Err(_) | Ok(_) => {
-                            log_error!(target: "selftest", "KSELFTEST: w^x NOT enforced");
-                        }
-                    }
-                }
+                vm_alloc::run_wx_selftest(ctx, handle_raw);
                 return;
             }
         }
@@ -493,40 +461,7 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
     }
     log_info!(target: "selftest", "KSELFTEST: spawn newas ok");
 
-    // Recreate syscall context to test W^X enforcement.
-    let mut table = SyscallTable::new();
-    api::install_handlers(&mut table);
-    let timer = ctx.hal.timer();
-    let mut sys_ctx = api::Context::new(
-        ctx.scheduler,
-        ctx.tasks,
-        ctx.router,
-        ctx.address_spaces,
-        timer,
-        ctx.hart_timers,
-        ctx.waitsets,
-        ctx.fences,
-    );
-    const PROT_READ: usize = 1 << 0;
-    const PROT_WRITE: usize = 1 << 1;
-    const PROT_EXEC: usize = 1 << 2;
-    const MAP_FLAG_USER: usize = 1 << 0;
-    let wx_args = Args::new([
-        handle_raw,
-        2,
-        CHILD_TEST_VA + PAGE_SIZE,
-        PAGE_SIZE,
-        PROT_READ | PROT_WRITE | PROT_EXEC,
-        MAP_FLAG_USER,
-    ]);
-    match table.dispatch(SYSCALL_AS_MAP, &mut sys_ctx, &wx_args) {
-        Err(SysError::AddressSpace(AddressSpaceError::Mapping(MapError::PermissionDenied))) => {
-            log_info!(target: "selftest", "KSELFTEST: w^x enforced");
-        }
-        Err(_) | Ok(_) => {
-            log_error!(target: "selftest", "KSELFTEST: w^x NOT enforced");
-        }
-    }
+    vm_alloc::run_wx_selftest(ctx, handle_raw);
 
     // Silence unused result in release builds.
     let _ = child_pid;

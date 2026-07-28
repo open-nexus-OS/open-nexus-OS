@@ -75,6 +75,18 @@ pub enum AbiError {
     AlreadyExists,
     /// The address itself is bad (EFAULT) — outside the canonical range.
     BadAddress,
+    /// Memory/window exhausted (ENOMEM) — RFC-0085: `vm_map` found no hole
+    /// of the requested size. Formerly collapsed into `SpawnFailed`; the
+    /// spawn wrappers now translate locally instead.
+    OutOfMemory,
+    /// A bounded table/quota is full (ENOSPC) — RFC-0085: the region table.
+    /// Formerly collapsed into `SpawnFailed` (spawn wrappers translate).
+    NoSpace,
+    /// Nothing there (ENOENT) — RFC-0085: `vm_unmap` of an unmapped va.
+    NotFound,
+    /// The resource still has live users (EBUSY) — RFC-0085: `vmo_destroy`
+    /// while an address space still maps the range.
+    Busy,
     /// Kernel returned an error code this ABI build does not know. NEVER
     /// treated as success (fail closed) — a Phase C workpool hang traced back
     /// to -ETIMEDOUT being decoded as Ok.
@@ -162,12 +174,16 @@ impl AbiError {
             22 => Some(Self::InvalidArgument),  // EINVAL
             10 => Some(Self::ChildUnavailable), // ECHILD
             3 => Some(Self::NoSuchPid),         // ESRCH
-            12 => Some(Self::SpawnFailed),      // ENOMEM (best-effort mapping)
-            28 => Some(Self::SpawnFailed),      // ENOSPC (best-effort mapping)
-            110 => Some(Self::TimedOut),        // ETIMEDOUT
-            11 => Some(Self::WouldBlock),       // EAGAIN
-            17 => Some(Self::AlreadyExists),    // EEXIST (ADR-0054: map overlap)
-            14 => Some(Self::BadAddress),       // EFAULT (ADR-0054: VA out of range)
+            // RFC-0085: 12/28 stop collapsing into SpawnFailed — the spawn
+            // wrappers translate locally, everyone else gets the identity.
+            12 => Some(Self::OutOfMemory),   // ENOMEM
+            28 => Some(Self::NoSpace),       // ENOSPC
+            110 => Some(Self::TimedOut),     // ETIMEDOUT
+            11 => Some(Self::WouldBlock),    // EAGAIN
+            17 => Some(Self::AlreadyExists), // EEXIST (ADR-0054: map overlap)
+            14 => Some(Self::BadAddress),    // EFAULT (ADR-0054: VA out of range)
+            2 => Some(Self::NotFound),       // ENOENT (RFC-0085: unmap miss)
+            16 => Some(Self::Busy),          // EBUSY (RFC-0085: destroy w/ live maps)
             // Fail closed: an unknown NEGATIVE code is an error, never a
             // success value (Phase C: -ETIMEDOUT used to decode as Ok and
             // turned every fence/waitset timeout into a silent pseudo-Ok).

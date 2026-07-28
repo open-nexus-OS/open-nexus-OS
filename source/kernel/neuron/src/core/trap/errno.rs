@@ -28,7 +28,8 @@ pub(super) const EPIPE: usize = 32; // RFC-0079: EOF-opted recv, last sender gon
 pub(super) const EEXIST: usize = 17; // MapError::Overlap — something is already mapped there.
 pub(super) const EFAULT: usize = 14; // MapError::OutOfRange — VA outside the canonical range.
                                      // RFC-0085: vm_unmap of an address nothing is mapped at.
-pub(super) const ENOENT: usize = 2; // MapError::OutOfRange — VA outside the canonical range.
+pub(super) const ENOENT: usize = 2; // MapError::NotMapped / VaError::NotFound — no mapping there.
+pub(super) const EBUSY: usize = 16; // RFC-0085: vmo_destroy with live vm_map regions.
 
 #[allow(dead_code)]
 pub(super) fn encode_error(err: SysError) -> usize {
@@ -47,6 +48,23 @@ pub(super) fn encode_error(err: SysError) -> usize {
         SysError::Reschedule => errno(EAGAIN),
         SysError::InvalidTarget => errno(ESRCH),
         SysError::RunQueueFull => errno(ENOSPC),
+        SysError::Va(va) => va_errno(&va),
+        SysError::ResourceBusy => errno(EBUSY),
+    }
+}
+
+/// RFC-0085 policy refusals — exhaustive (ADR-0054: a new `VaError` variant
+/// must fail compilation until someone names its errno).
+#[allow(dead_code)]
+pub(super) fn va_errno(err: &crate::va_space::VaError) -> usize {
+    use crate::va_space::VaError::*;
+    match err {
+        WindowExhausted => errno(ENOMEM),
+        TableFull => errno(ENOSPC),
+        NotFound => errno(ENOENT),
+        LenMismatch | BadInput => errno(EINVAL),
+        FixedRegion => errno(EPERM),
+        Occupied => errno(EEXIST),
     }
 }
 

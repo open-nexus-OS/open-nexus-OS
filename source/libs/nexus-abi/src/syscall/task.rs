@@ -225,7 +225,14 @@ pub fn spawn(
                 global_pointer as usize,
             )
         };
-        decode_syscall(raw).map(|pid| pid as Pid)
+        // RFC-0085: ENOMEM/ENOSPC decode as OutOfMemory/NoSpace globally now;
+        // for spawn they still MEAN "spawn failed" (stack pool, run queue,
+        // cap table) — translate locally so `spawn_last_error` diagnosis
+        // keeps firing on the same signal it always did.
+        decode_syscall(raw).map(|pid| pid as Pid).map_err(|err| match err {
+            AbiError::OutOfMemory | AbiError::NoSpace => AbiError::SpawnFailed,
+            other => other,
+        })
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {

@@ -16,6 +16,30 @@
 phase = "bringup"
 proves = "kernel banner reached"
 
+[marker."KSELFTEST: vmo zero ok"]
+phase = "bringup"
+proves = "kernel selftest: fresh VMO backing reads all-zero before any write (RFC-0004; promoted to a gate by RFC-0085 P3)"
+
+[marker."KSELFTEST: as map ok"]
+phase = "bringup"
+proves = "kernel selftest: fixed-VA as_map into a fresh address space (promoted to a gate by RFC-0085 P3)"
+
+[marker."KSELFTEST: vm map ok"]
+phase = "bringup"
+proves = "RFC-0085: kernel-chosen va inside the managed window translates to the backing pa and the eligible interior is a REAL 2 MiB superpage leaf"
+
+[marker."KSELFTEST: vm unmap ok"]
+phase = "bringup"
+proves = "RFC-0085: unmap clears translation and an equal re-map returns the SAME va (first-fit reuse)"
+
+[marker."KSELFTEST: vm map reject ok"]
+phase = "bringup"
+proves = "RFC-0085/ADR-0054: fixed-VA into the window, unmap of nothing, and vmo_destroy under live mappings each refused with their own identity"
+
+[marker."KSELFTEST: w^x enforced"]
+phase = "bringup"
+proves = "kernel selftest: WRITE+EXECUTE leaf refused (promoted to a gate by RFC-0085 P3)"
+
 [marker."KSELFTEST: spawn reasons ok"]
 phase = "bringup"
 proves = "kernel selftest: spawn-reason classification"

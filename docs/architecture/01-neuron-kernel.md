@@ -108,6 +108,15 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **49 `as_self`**: The caller's own address-space handle.
 - **51 `vmo_share_readonly`**: Mint a read-only VMO alias — WRITE|EXEC kernel-stripped (RFC‑0080).
 - **52 `wait_nohang`**: Non-blocking child reap (RFC‑0081).
+- **53 `vm_map`**: Whole-range VMO map at a KERNEL-CHOSEN va inside the
+  managed user window `[0x5000_0000, 0x8000_0000)`; returns the va. ≥2 MiB
+  ranges get a pa-congruent va so interiors promote to 2 MiB superpage
+  leaves (RFC‑0085).
+- **54 `vm_unmap`**: Unmap one exact `vm_map`/`mmio_map_auto` region; one
+  TLB shootdown per call (RFC‑0085).
+- **55 `mmio_map_auto`**: Device-MMIO window at a kernel-chosen va —
+  same USER|RW/never-EXEC floor as 27, but the caller cannot collide
+  because it never picks an address (RFC‑0085; 27 is slated for retirement).
 
 Errors follow the conventional POSIX encoding: handlers return
 `-errno` (two's complement) in `a0`. Key codes used by the current
@@ -118,9 +127,14 @@ increment:
 - `EEXIST` when a mapping is refused because the target VA is already
   occupied, and `EFAULT` for a non-canonical VA — map failures keep their
   identity across the ABI (ADR‑0054; no wildcard errno arms).
-- `ENOSPC` when the ASID allocator is exhausted.
+- `ENOSPC` when the ASID allocator is exhausted — and, since RFC‑0085,
+  when the per-address-space region table is full.
 - `ENOSYS` for disabled/unsupported functionality.
-- `ENOMEM` when the guarded stack pool runs out of pages.
+- `ENOMEM` when the guarded stack pool runs out of pages, or `vm_map`
+  finds no hole of the requested size (`VM-MAP-FAIL reason=…` names the
+  refusal in the log).
+- `ENOENT` for `vm_unmap` of an address nothing is mapped at; `EBUSY` for
+  `vmo_destroy` while any address space still maps the range (RFC‑0085).
 
 > Current state note (2025-12-18): syscall handlers return `-errno` in `a0` for
 > expected errors. The kernel may still terminate tasks in true “no forward

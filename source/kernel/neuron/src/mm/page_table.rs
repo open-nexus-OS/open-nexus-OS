@@ -624,7 +624,7 @@ fn record_heap_page_free() {
 pub(super) const LEAF_PERMS: PageFlags =
     PageFlags::READ.union(PageFlags::WRITE).union(PageFlags::EXECUTE);
 
-fn vpn_indices(va: usize) -> [usize; 3] {
+pub(super) fn vpn_indices(va: usize) -> [usize; 3] {
     let vpn0 = (va >> 12) & 0x1ff;
     let vpn1 = (va >> 21) & 0x1ff;
     let vpn2 = (va >> 30) & 0x1ff;

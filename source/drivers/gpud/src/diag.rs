@@ -81,6 +81,10 @@ pub(crate) fn abi_error_name(err: nexus_abi::AbiError) -> &'static [u8] {
         E::WouldBlock => b"would-block",
         E::AlreadyExists => b"already-mapped",
         E::BadAddress => b"bad-address",
+        E::OutOfMemory => b"out-of-memory",
+        E::NoSpace => b"no-space",
+        E::NotFound => b"not-found",
+        E::Busy => b"busy",
         E::Unknown => b"unknown-kernel-code",
         E::Unsupported => b"unsupported",
     }

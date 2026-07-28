@@ -254,9 +254,12 @@ impl VaSpace {
         }
     }
 
-    /// Unmap bookkeeping: removes the region at exactly `(va, len)`.
-    /// Returns the removed region so the shell can clear its PTEs.
-    pub fn remove_exact(&mut self, va: usize, len: usize) -> Result<VaRegion, VaError> {
+    /// Read-only twin of [`Self::remove_exact`]: validates that exactly
+    /// `(va, len)` names an unmappable region and returns it, leaving the
+    /// table untouched. The unmap shell peeks, clears PTEs and shoots down
+    /// the TLB, and only THEN forgets the region — a region must never
+    /// disappear from the record while its PTEs are still live.
+    pub fn peek_exact(&self, va: usize, len: usize) -> Result<VaRegion, VaError> {
         if len == 0 || va % PAGE != 0 || len % PAGE != 0 {
             return Err(VaError::BadInput);
         }
@@ -270,6 +273,14 @@ impl VaSpace {
         if region.len != len {
             return Err(VaError::LenMismatch);
         }
+        Ok(region)
+    }
+
+    /// Unmap bookkeeping: removes the region at exactly `(va, len)`.
+    /// Returns the removed region so the shell can clear its PTEs.
+    pub fn remove_exact(&mut self, va: usize, len: usize) -> Result<VaRegion, VaError> {
+        let region = self.peek_exact(va, len)?;
+        let at = self.regions[..self.len].partition_point(|r| r.va < va);
         self.regions.copy_within(at + 1..self.len, at);
         self.len -= 1;
         Ok(region)

@@ -418,6 +418,12 @@ print_uart_excerpt() {
 # (windowd: systemui loaded, launcher:, SELFTEST: ui*) which require GTK.
 expected_sequence=(
   "neuron vers."
+  "KSELFTEST: vmo zero ok"
+  "KSELFTEST: as map ok"
+  "KSELFTEST: vm map ok"
+  "KSELFTEST: vm unmap ok"
+  "KSELFTEST: vm map reject ok"
+  "KSELFTEST: w^x enforced"
   "KSELFTEST: spawn reasons ok"
   "KSELFTEST: resource sentinel ok"
   "KSELFTEST: cpuid tp ok"
@@ -567,6 +573,7 @@ expected_sequence=(
   "SELFTEST: nexus-ipc kernel loopback ok"
   "SELFTEST: ipc sender pid ok"
   "SELFTEST: ipc sender service_id ok"
+  "SELFTEST: vm map roundtrip ok"
   "SELFTEST: cap query vmo ok"
   "SELFTEST: ipc routing ok"
   "SELFTEST: ipc routing packagefsd ok"
@@ -613,6 +620,12 @@ case "${PROFILE:-full}" in
     # (smp=1)` line below is its explicit "no secondary hart" proof.
     expected_sequence=(
       "neuron vers."
+      "KSELFTEST: vmo zero ok"
+      "KSELFTEST: as map ok"
+      "KSELFTEST: vm map ok"
+      "KSELFTEST: vm unmap ok"
+      "KSELFTEST: vm map reject ok"
+      "KSELFTEST: w^x enforced"
       "KSELFTEST: spawn reasons ok"
       "KSELFTEST: resource sentinel ok"
       "KSELFTEST: cpuid tp ok"
