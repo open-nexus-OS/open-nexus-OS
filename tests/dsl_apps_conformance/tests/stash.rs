@@ -51,22 +51,6 @@ fn texts(node: &LayoutNode) -> Vec<String> {
     out
 }
 
-fn glass_count(node: &LayoutNode) -> usize {
-    fn walk(node: &LayoutNode, out: &mut usize) {
-        if let LayoutNode::Stack(_, visual, _) = node {
-            if matches!(visual.material, SurfaceMaterial::Glass(_)) {
-                *out += 1;
-            }
-        }
-        for child in children(node) {
-            walk(child, out);
-        }
-    }
-    let mut out = 0;
-    walk(node, &mut out);
-    out
-}
-
 /// Runs `f` against a freshly mounted stash. Effects go to [`NoIo`], so the
 /// listing stays in its honest loading state and the test exercises chrome +
 /// state machine, not the filesystem.
@@ -115,17 +99,35 @@ fn stash_compiles_and_mounts() {
     });
 }
 
+/// All three regions carry a `windowPane` surface, written by THIS APP in the
+/// slot bodies — the scaffold paints nothing (see `window_kit.rs`). The levels
+/// are the assertion, not the count: `panel` here would be the near-black dock
+/// tile that made the file listing read as a black slab inside a grey window.
 #[test]
-fn content_and_properties_take_a_panel_the_sidebar_does_not() {
-    // The app's OWN choice, stated once at the `WinAppWindow` callsite. If
-    // the scaffold ever started painting regions itself, this count moves.
+fn every_region_carries_a_window_pane_the_app_wrote_itself() {
+    use nexus_layout_types::GlassLevel;
     with_stash(|view, _, _, _| {
-        // Content panel + properties panel + the action-bar pill, and the
-        // sidebar contributes none.
-        let panels = glass_count(view.scene());
+        let mut levels = Vec::new();
+        fn walk(node: &LayoutNode, out: &mut Vec<GlassLevel>) {
+            if let LayoutNode::Stack(_, visual, _) = node {
+                if let SurfaceMaterial::Glass(level) = visual.material {
+                    out.push(level);
+                }
+            }
+            for child in children(node) {
+                walk(child, out);
+            }
+        }
+        walk(view.scene(), &mut levels);
+        let panes = levels.iter().filter(|l| **l == GlassLevel::WindowPane).count();
+        assert_eq!(panes, 3, "sidebar, content and properties each write one pane: {levels:?}");
         assert!(
-            panels >= 3,
-            "content, properties and the action-bar pill paint glass, got {panels}"
+            levels.contains(&GlassLevel::WindowBar),
+            "the floating action bar is the denser `windowBar` level: {levels:?}"
+        );
+        assert!(
+            !levels.contains(&GlassLevel::Panel),
+            "no region may fall back to the wallpaper-tile `panel` level: {levels:?}"
         );
     });
 }
@@ -216,25 +218,65 @@ fn the_action_bar_swaps_its_items_on_selection() {
 
 #[test]
 fn the_search_field_opens_and_clears() {
+    // Dispatch what the BUTTON dispatches. This used to fire a `SearchToggle`
+    // event that no widget in the app sends, which is how a real defect hid
+    // behind a green test: because nothing dispatched it, `SearchToggle` was a
+    // ROOT effect, `run_initial_effects` dispatched it at mount, and the field
+    // opened by itself on every launch. Testing the event the toolbar actually
+    // emits is what makes this test able to fail.
     with_stash(|view, tokens, device, locale| {
+        let magnifier = |view: &mut nexus_dsl_runtime::View<'_>| {
+            let (event, case) =
+                view.runtime().event_case("StashEvent", "WinTool").expect("stash declares WinTool");
+            let mut host = NoIo;
+            view.dispatch(
+                tokens,
+                device,
+                locale,
+                &mut host,
+                event,
+                case,
+                vec![nexus_dsl_runtime::Value::Str(String::from("magnifyingglass"))],
+            )
+            .expect("toggles the search field");
+        };
+
         let closed = texts(view.scene());
         assert!(
             !closed.iter().any(|t| t == "Search this folder"),
             "no field before the magnifier: {closed:?}"
         );
 
-        fire(view, tokens, device, locale, "SearchToggle");
+        magnifier(view);
         let open = texts(view.scene());
         assert!(
             open.iter().any(|t| t == "Search this folder"),
             "the magnifier opens the field: {open:?}"
         );
 
-        fire(view, tokens, device, locale, "SearchToggle");
+        magnifier(view);
         let closed_again = texts(view.scene());
         assert!(
             !closed_again.iter().any(|t| t == "Search this folder"),
             "toggling closes it again: {closed_again:?}"
+        );
+    });
+}
+
+/// The mount-time defect the test above now covers, stated directly: running
+/// the program's ROOT effects must not change what the user sees. An `@effect`
+/// on an event nothing dispatches is a root, and `run_initial_effects`
+/// dispatches roots THROUGH THE REDUCER — so an orphaned event with a reducer
+/// arm silently rewrites the initial state.
+#[test]
+fn running_the_initial_effects_does_not_open_the_search_field() {
+    with_stash(|view, tokens, device, locale| {
+        let mut host = NoIo;
+        view.run_initial_effects(tokens, device, locale, &mut host).expect("initial effects run");
+        let shown = texts(view.scene());
+        assert!(
+            !shown.iter().any(|t| t == "Search this folder"),
+            "the app must boot with the search CLOSED: {shown:?}"
         );
     });
 }

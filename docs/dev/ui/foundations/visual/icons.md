@@ -78,38 +78,75 @@ The registry as authored in `[icons.symbols]` (SSOT:
 | Symbol name | Lucide file | Typical use |
 |---|---|---|
 | `airplane` | `plane` | flight mode toggle |
+| `arrow.clockwise` | `refresh-cw` | refresh / reload |
+| `arrow.counterclockwise` | `rotate-ccw` | undo / revert |
 | `arrow.down` | `arrow-down` | sort / move down |
+| `arrow.down.circle` | `download` | downloads |
 | `arrow.left` | `arrow-left` | back navigation |
 | `arrow.right` | `arrow-right` | forward navigation |
+| `arrow.up.arrow.down` | `arrow-up-down` | sort direction |
 | `arrow.up` | `arrow-up` | sort / move up |
+| `arrow.uturn.backward` | `undo-2` | restore from trash |
 | `battery.75` | `battery-full` | status battery |
 | `bell` | `bell` | notifications |
 | `bluetooth` | `bluetooth` | BT toggle |
+| `calculator` | `calculator` | calculator app |
+| `calendar` | `calendar` | dates (created / modified) |
 | `checkmark` | `check` | confirmation, checkbox |
 | `chevron.down` | `chevron-down` | expanders, dropdowns |
 | `chevron.left` | `chevron-left` | back / previous |
 | `chevron.right` | `chevron-right` | disclosure, next |
 | `chevron.up` | `chevron-up` | collapse |
+| `columns.2` | `columns-2` | split window mode |
 | `desktopcomputer` | `monitor` | desktop shell mode |
+| `doc` | `file` | generic file |
+| `doc.on.doc` | `copy` | copy |
+| `doc.text` | `file-text` | documents folder |
+| `ellipsis` | `ellipsis` | overflow menu (action bar) |
+| `ellipsis.vertical` | `ellipsis-vertical` | overflow menu (window toolbar) |
+| `eye` | `eye` | view / visibility menu |
+| `film` | `video` | videos folder |
+| `folder` | `folder` | folders, file type |
 | `gearshape` | `settings` | settings |
 | `house` | `house` | home (nav pill) |
+| `info.circle` | `info` | help / about |
+| `internaldrive` | `hard-drive` | storage device |
 | `ipad` | `tablet` | tablet shell mode |
-| `lock` | `lock` | lock / privacy |
+| `list.bullet` | `list` | list view mode |
+| `lock` | `lock` | lock / privacy / id |
 | `magnifyingglass` | `search` | search |
+| `maximize` | `maximize` | fullscreen window mode |
 | `menu` | `menu` | overflow / hamburger |
 | `message` | `message-circle` | chat |
-| `minus` | `minus` | decrement |
+| `minimize` | `minimize` | minimise window |
+| `minus` | `minus` | decrement / minimise |
 | `moon` | `moon` | dark mode |
+| `move` | `move` | move file |
+| `music.note` | `music` | audio folder |
+| `paintpalette` | `palette` | theme / accent |
 | `paperplane` | `send` | send message |
+| `pencil` | `pencil` | edit |
 | `person` | `user` | account / avatar fallback |
-| `plus` | `plus` | increment / add |
+| `photo` | `image` | pictures folder |
+| `play` | `play` | play media |
+| `plus` | `plus` | increment / add / new |
+| `power` | `power` | power / shutdown |
+| `shippingbox` | `box` | size (bytes) |
+| `sidebar.left` | `panel-left` | toggle left sidebar |
+| `sidebar.right` | `panel-right` | toggle right sidebar |
 | `speaker.wave` | `volume-2` | sound |
+| `square.and.arrow.up` | `share-2` | share |
+| `square.grid.2x2` | `grid-2x2` | tile view mode |
+| `square.grid.3x3` | `grid-3x3` | grid view mode |
 | `square.grid` | `layout-grid` | launcher / app grid |
-| `star` | `star` | favourite |
+| `square.pencil` | `square-pen` | modified / rename |
+| `square` | `square` | freeform window mode / zoom |
+| `star` | `star` | favourite / recent |
 | `sun.max` | `sun` | light mode / brightness |
 | `trash` | `trash` | delete (destructive) |
 | `wifi` | `wifi` | Wi-Fi toggle |
 | `xmark` | `x` | close / clear |
+
 
 ## Adding a new symbol
 
@@ -120,3 +157,11 @@ The registry as authored in `[icons.symbols]` (SSOT:
 3. Rebuild — the icon build regenerates the enum/constants; the name is
    immediately usable from `Icon { symbol: … }` and `lucide_symbol_named`.
 4. Add the row to the table above.
+
+**Why a missing entry is not obvious.** A symbol name travels as a `Str` prop,
+so nothing in the compiler ever sees it: an unmapped name type-checks, lowers,
+mounts, lays out, and then paints the honest grey placeholder box
+(`dsl/runtime/src/registry/widgets.rs`). Four symbols shipped that way before
+`tests/dsl_apps_conformance/tests/icon_symbols.rs` closed the hole — that test
+scans every shipped `.nx` file and names the file, line and symbol. If you add a
+component prop that forwards a symbol, add it to that test's `SYMBOL_PROPS`.

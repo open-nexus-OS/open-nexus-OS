@@ -57,7 +57,7 @@ mod filter;
 mod loop_telemetry;
 mod runtime;
 mod scene;
-mod shell_window;
+pub(crate) mod shell_window;
 pub(crate) mod source;
 #[cfg(test)]
 mod tests;

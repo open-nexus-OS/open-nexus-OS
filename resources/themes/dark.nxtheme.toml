@@ -47,10 +47,15 @@ chart2 = "#00bc7d"
 chart3 = "#fe9a00"
 chart4 = "#ad46ff"
 chart5 = "#ff2056"
-# text-on-glass + interaction washes (dark theme = light ink)
-glassTextPrimary = "#fffffff2"
-glassTextSecondary = "#ffffff99"
-glassTextStrong = "#ffffffff"
+# text-on-glass + interaction washes (dark theme = light ink).
+# Alphas are the handoff's (--glass-text-primary .90 / -secondary .45 /
+# -strong .95), not the rounder .95/.60/1.0 that had drifted in. The DS answer
+# to "light ink over a bright photo" is `.textShadow(strong)`, not a hotter
+# alpha — pushing secondary to .60 flattened the primary/secondary step that
+# the whole on-glass hierarchy rests on.
+glassTextPrimary = "#ffffffe6"
+glassTextSecondary = "#ffffff73"
+glassTextStrong = "#fffffff2"
 glassHover = "#ffffff26"
 glassActive = "#ffffff33"
 # On-glass control ink (RFC-0082 — the login handoff's dark column).
@@ -121,6 +126,37 @@ edgeHighlightColor = "#ffffff"
 edgeHighlightAlpha = 0.14
 borderColor = "#ffffff"
 borderAlpha = 0.12
+
+[material.glassWindowPane]
+# --glass-window-pane-bg dark: linear-gradient(160deg, #484a54@.48, #34363e@.32).
+# This is the level the file listing and the properties list sit on. It is much
+# lighter AND much more transmissive than glassPanel (#121214@.40) — a pane over
+# window glass, not a tile over a photograph.
+type = "glass"
+blurRadiusDp = 20
+downsampleFactor = 2
+tintColor = "#484a54"
+tintAlpha = 0.48
+tintBottomColor = "#34363e"
+tintBottomAlpha = 0.32
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.10
+borderColor = "#ffffff"
+borderAlpha = 0.08
+
+[material.glassWindowBar]
+# --glass-window-bar-bg dark: linear-gradient(165deg, #40424a@.95, #2e3038@.92).
+type = "glass"
+blurRadiusDp = 40
+downsampleFactor = 2
+tintColor = "#40424a"
+tintAlpha = 0.95
+tintBottomColor = "#2e3038"
+tintBottomAlpha = 0.92
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.16
+borderColor = "#ffffff"
+borderAlpha = 0.16
 
 [material.glassOverlay]
 type = "glass"

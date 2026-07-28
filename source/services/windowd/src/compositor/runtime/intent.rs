@@ -51,11 +51,21 @@ impl DisplayServerRuntime {
             };
             (self.mode.width as u16, h as u16)
         } else {
-            // Default body size for a NEW window: the next free slot's default
-            // frame (a re-creating client will re-negotiate through create).
+            // Default body size for a NEW floating window: the SAME centred
+            // three-quarter frame `set_window_mode(freeform)` applies, so a
+            // window that asks before it exists and one the user later flips to
+            // freeform land on identical geometry.
+            //
+            // This used to read the next free SLOT's frame, which for a slot
+            // nothing has framed yet is the allocator CEILING (1280x3072) — a
+            // "default size" three times taller than the display. Nothing
+            // caught it because app-host never asked on this path until a
+            // window declared `mode: freeform`.
             let idx = self.free_app_index().unwrap_or(0);
-            let win = &self.apps[idx].win;
-            (win.w as u16, win.h.saturating_sub(win.title_h) as u16)
+            let title = self.app_title_h(idx);
+            let w = (self.mode.width * 3 / 4).max(super::wm::MIN_WIN_W);
+            let h = (self.work_area_h() * 3 / 4).max(super::wm::MIN_WIN_H);
+            (w as u16, h.saturating_sub(title) as u16)
         };
         let rect = wire::encode_surface_rect(0, 0, rw, rh);
         // Reply on the ASKING client's own event channel (nonce correlation —

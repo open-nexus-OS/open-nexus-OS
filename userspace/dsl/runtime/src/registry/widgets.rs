@@ -137,6 +137,8 @@ pub(super) fn build_widget_inner(
                     GlassLevel::Card => MaterialToken::Card,
                     GlassLevel::Subtle => MaterialToken::Subtle,
                     GlassLevel::Window => MaterialToken::Window,
+                    GlassLevel::WindowPane => MaterialToken::WindowPane,
+                    GlassLevel::WindowBar => MaterialToken::WindowBar,
                     GlassLevel::Overlay => MaterialToken::Overlay,
                 });
             }

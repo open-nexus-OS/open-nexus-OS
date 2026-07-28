@@ -14,7 +14,10 @@ fg = "#0a0a0a"
 surface = "#ffffff"
 surfaceAlt = "#e9ebef"
 border = "#0000001a"
-divider = "#d4d4d4"
+# Handoff `--glass-divider` is rgba(0,0,0,.10) — TRANSLUCENT, so a hairline
+# reads the same over a pane, a card and the wallpaper. The opaque `#d4d4d4`
+# it used to carry only ever looked right on a solid white surface.
+divider = "#0000001a"
 muted = "#ececf0"
 mutedFg = "#717182"
 focusRing = "#2563eb"

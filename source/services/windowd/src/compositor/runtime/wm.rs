@@ -21,8 +21,8 @@ use crate::window_scene::WindowId;
 
 /// Minimum resizable window size: the three title buttons + a label sliver
 /// wide, the title bar + a few content rows tall.
-const MIN_WIN_W: u32 = 3 * 48 + 60;
-const MIN_WIN_H: u32 = 120;
+pub(super) const MIN_WIN_W: u32 = 3 * 48 + 60;
+pub(super) const MIN_WIN_H: u32 = 120;
 
 impl DisplayServerRuntime {
     /// The window's current display-space frame. The desktop base is always

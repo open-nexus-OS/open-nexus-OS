@@ -791,6 +791,7 @@ dependencies = [
  "nexus-query",
  "nexus-text-baked",
  "nexus-theme-tokens",
+ "nexus-widget-icon",
 ]
 
 [[package]]

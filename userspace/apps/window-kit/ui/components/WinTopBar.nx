@@ -34,27 +34,27 @@ Component WinTopBar {
             Stack {
                 Image { source: $props.appId, size: 24 }
                 Icon { symbol: "chevron.down", size: 10 }
-                    .fg(onSurfaceVariant)
+                    .fg(onGlassMuted)
             }
             .direction(row)
             .align(center)
             .gap(0)
-            .height(28)
+            .height(30)
             on Tap -> dispatch(WinMenu("app"))
         } else {
             Circle { size: 26
                 Icon { symbol: $props.icon, size: 14 }
-                    .fg(onSurface)
+                    .fg(onGlass)
             }
             .material(subtle)
             on Tap -> dispatch(WinMenu("app"))
         }
         Stack {
             Icon { symbol: "sidebar.left", size: 15 }
-                .fg(onSurfaceVariant)
+                .fg(onGlassMuted)
         }
-        .width(28)
-        .height(28)
+        .width(30)
+        .height(30)
         .rounded(md)
         .align(center)
         .justify(center)
@@ -64,10 +64,10 @@ Component WinTopBar {
         if $props.navBack != "" {
             Stack {
                 Icon { symbol: $props.navBack, size: 15 }
-                    .fg(onSurfaceVariant)
+                    .fg(onGlassMuted)
             }
-            .width(28)
-            .height(28)
+            .width(30)
+            .height(30)
             .rounded(md)
             .align(center)
             .justify(center)
@@ -78,10 +78,10 @@ Component WinTopBar {
         if $props.navFwd != "" {
             Stack {
                 Icon { symbol: $props.navFwd, size: 15 }
-                    .fg(onSurfaceVariant)
+                    .fg(onGlassMuted)
             }
-            .width(28)
-            .height(28)
+            .width(30)
+            .height(30)
             .rounded(md)
             .align(center)
             .justify(center)
@@ -94,10 +94,10 @@ Component WinTopBar {
             Stack {
                 Stack {
                     Icon { symbol: $props.navRefresh, size: 15 }
-                        .fg(onSurfaceVariant)
+                        .fg(onGlassMuted)
                 }
-                .width(28)
-                .height(28)
+                .width(30)
+                .height(30)
                 .rounded(md)
                 .align(center)
                 .justify(center)
@@ -105,7 +105,7 @@ Component WinTopBar {
                 Stack { }
                     .width(1)
                     .height(16)
-                    .bg(border)
+                    .bg(divider)
             }
             .direction(row)
             .align(center)
@@ -120,8 +120,8 @@ Component WinTopBar {
                     Icon { symbol: $props.tool1, size: 15 }
                         .fg(onAccent)
                 }
-                .width(28)
-                .height(28)
+                .width(30)
+                .height(30)
                 .rounded(md)
                 .align(center)
                 .justify(center)
@@ -130,10 +130,10 @@ Component WinTopBar {
             } else {
                 Stack {
                     Icon { symbol: $props.tool1, size: 15 }
-                        .fg(onSurfaceVariant)
+                        .fg(onGlassMuted)
                 }
-                .width(28)
-                .height(28)
+                .width(30)
+                .height(30)
                 .rounded(md)
                 .align(center)
                 .justify(center)
@@ -147,7 +147,7 @@ Component WinTopBar {
             Stack { }
                 .width(1)
                 .height(16)
-                .bg(border)
+                .bg(divider)
         } else {
             Stack { }
         }
@@ -157,8 +157,8 @@ Component WinTopBar {
                     Icon { symbol: $props.tool2, size: 15 }
                         .fg(onAccent)
                 }
-                .width(28)
-                .height(28)
+                .width(30)
+                .height(30)
                 .rounded(md)
                 .align(center)
                 .justify(center)
@@ -167,10 +167,10 @@ Component WinTopBar {
             } else {
                 Stack {
                     Icon { symbol: $props.tool2, size: 15 }
-                        .fg(onSurfaceVariant)
+                        .fg(onGlassMuted)
                 }
-                .width(28)
-                .height(28)
+                .width(30)
+                .height(30)
                 .rounded(md)
                 .align(center)
                 .justify(center)
@@ -185,8 +185,8 @@ Component WinTopBar {
                     Icon { symbol: $props.tool3, size: 15 }
                         .fg(onAccent)
                 }
-                .width(28)
-                .height(28)
+                .width(30)
+                .height(30)
                 .rounded(md)
                 .align(center)
                 .justify(center)
@@ -195,10 +195,10 @@ Component WinTopBar {
             } else {
                 Stack {
                     Icon { symbol: $props.tool3, size: 15 }
-                        .fg(onSurfaceVariant)
+                        .fg(onGlassMuted)
                 }
-                .width(28)
-                .height(28)
+                .width(30)
+                .height(30)
                 .rounded(md)
                 .align(center)
                 .justify(center)
@@ -208,42 +208,45 @@ Component WinTopBar {
             Stack { }
         }
         Spacer
+        // VERTICAL ellipsis: the handoff draws the toolbar's "Mehr" as
+        // `circle cx=12 cy=5|12|19` and the action bar's as `cx=5|12|19 cy=12`.
+        // Two different glyphs, not one rotated — so two symbols.
         Stack {
-            Icon { symbol: "ellipsis", size: 15 }
-                .fg(onSurfaceVariant)
+            Icon { symbol: "ellipsis.vertical", size: 15 }
+                .fg(onGlassMuted)
         }
-        .width(28)
-        .height(28)
+        .width(30)
+        .height(30)
         .rounded(md)
         .align(center)
         .justify(center)
         on Tap -> dispatch(WinMenu("more"))
         Stack {
             Icon { symbol: "sidebar.right", size: 15 }
-                .fg(onSurfaceVariant)
+                .fg(onGlassMuted)
         }
-        .width(28)
-        .height(28)
+        .width(30)
+        .height(30)
         .rounded(md)
         .align(center)
         .justify(center)
         on Tap -> dispatch(WinRight)
         Stack {
             Icon { symbol: "minus", size: 14 }
-                .fg(onSurfaceVariant)
+                .fg(onGlassMuted)
         }
-        .width(28)
-        .height(28)
+        .width(30)
+        .height(30)
         .rounded(md)
         .align(center)
         .justify(center)
         on Tap -> dispatch(WinAct("minimize"))
         Stack {
             Icon { symbol: "square", size: 12 }
-                .fg(onSurfaceVariant)
+                .fg(onGlassMuted)
         }
-        .width(28)
-        .height(28)
+        .width(30)
+        .height(30)
         .rounded(md)
         .align(center)
         .justify(center)
@@ -252,8 +255,8 @@ Component WinTopBar {
             Icon { symbol: "xmark", size: 14 }
                 .fg(danger)
         }
-        .width(28)
-        .height(28)
+        .width(30)
+        .height(30)
         .rounded(md)
         .align(center)
         .justify(center)

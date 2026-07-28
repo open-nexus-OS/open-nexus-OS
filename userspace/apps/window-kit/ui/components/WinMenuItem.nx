@@ -22,14 +22,14 @@ Component WinMenuItem {
         Stack {
             if $props.icon != "" {
                 Icon { symbol: $props.icon, size: 13 }
-                    .fg(onSurfaceVariant)
+                    .fg(onGlassMuted)
             } else {
                 Stack { }
             }
             if $props.kind == "danger" {
                 Text($props.label).textSize(sm).fg(danger)
             } else {
-                Text($props.label).textSize(sm).fg(onSurface)
+                Text($props.label).textSize(sm).fg(onGlass)
             }
             Spacer
             if $props.kind == "check" {
@@ -50,19 +50,19 @@ Component WinMenuItem {
         Stack {
             if $props.icon != "" {
                 Icon { symbol: $props.icon, size: 13 }
-                    .fg(onSurfaceVariant)
+                    .fg(onGlassMuted)
             } else {
                 Stack { }
             }
             if $props.kind == "danger" {
                 Text($props.label).textSize(sm).fg(danger)
             } else {
-                Text($props.label).textSize(sm).fg(onSurface)
+                Text($props.label).textSize(sm).fg(onGlass)
             }
             Spacer
             if $props.kind == "sub" {
                 Icon { symbol: "chevron.right", size: 12 }
-                    .fg(onSurfaceVariant)
+                    .fg(onGlassMuted)
             } else {
                 Stack { }
             }

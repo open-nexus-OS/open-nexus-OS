@@ -35,8 +35,8 @@ Component FileTile {
     } else {
         Stack {
             Image { source: $props.icon, size: 30 }
-            Text($props.name).textSize(xs).fg(onSurface).truncate(1)
-            Text($props.size).textSize(xs).fg(onSurfaceVariant)
+            Text($props.name).textSize(xs).fg(onGlass).truncate(1)
+            Text($props.size).textSize(xs).fg(onGlassMuted)
         }
         .align(center)
         .justify(center)

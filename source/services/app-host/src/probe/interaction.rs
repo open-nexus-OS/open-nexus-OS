@@ -133,8 +133,12 @@ impl super::DslApp {
                 scroll,
             )
             // Container catch-alls (overlay backdrop, panel body) are TAP
-            // consumers, never hover targets — no wash, no grow.
-            .filter(|&id| self.interaction_sized(id));
+            // consumers, never hover targets. The gate here is the WASH's
+            // (short = a control), not the GROW's — `interaction_hover` applies
+            // the stricter `interaction_sized` itself, so a full-width list row
+            // washes without growing. Filtering here with the grow's rule is
+            // what left rows and sidebar entries with no hover at all.
+            .filter(|&id| crate::hover_wash::hover_washable(&self.layout.boxes, id));
         if target == self.hovered {
             return None;
         }
@@ -503,11 +507,21 @@ impl super::DslApp {
             if n >= wire::MAX_SURFACE_LAYERS {
                 break;
             }
+            // The wire `glass_level` is a BLUR BUCKET, not the material: the
+            // tint, shine, hairline and gradient are already painted into this
+            // surface's own pixels by `Style::glass`, and windowd reads the
+            // level only to pick a backdrop radius (`scene.rs`: panel/overlay
+            // 40, card 20, subtle 8). So the two window levels ride the bucket
+            // whose radius the theme authors for them — `windowPane` 20 = card,
+            // `windowBar` 40 = panel — instead of costing two new wire values
+            // that would carry no extra information.
             let glass_level = match b.visual.material {
                 SurfaceMaterial::Glass(GlassLevel::Panel) => wire::GLASS_PANEL,
                 SurfaceMaterial::Glass(GlassLevel::Card) => wire::GLASS_CARD,
                 SurfaceMaterial::Glass(GlassLevel::Subtle) => wire::GLASS_SUBTLE,
                 SurfaceMaterial::Glass(GlassLevel::Window) => wire::GLASS_WINDOW,
+                SurfaceMaterial::Glass(GlassLevel::WindowPane) => wire::GLASS_CARD,
+                SurfaceMaterial::Glass(GlassLevel::WindowBar) => wire::GLASS_PANEL,
                 SurfaceMaterial::Glass(GlassLevel::Overlay) => wire::GLASS_OVERLAY,
                 SurfaceMaterial::Opaque => continue,
             };

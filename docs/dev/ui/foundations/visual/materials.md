@@ -51,7 +51,24 @@ Treat materials as theme tokens (authoring in `*.nxtheme.toml`):
 - `material.glassCard` — cards nested in panels, avatars on a wallpaper
 - `material.glassSubtle` — settings rows / list items
 - `material.glassWindow` — app-window chrome (two-stop tint gradient)
+- `material.glassWindowPane` — the content / properties PANE inside a window
+- `material.glassWindowBar` — the floating action-bar pill inside a window
 - `material.glassOverlay` — modals, sheets, popovers
+
+**`Panel` ≠ pane.** The two are easy to confuse and were confused: `glassPanel`
+is tuned for a surface sitting straight on the WALLPAPER (a dock tile, a control
+centre card), so its dark tint is near-black `#121214@.40`. A window PANE sits on
+the window's own glass, one layer further in, so the handoff gives it a lighter
+two-stop gradient (`#484a54@.48 → #34363e@.32`). Painting a file listing with
+`panel` reads as a black slab inside a grey window. Pick by WHAT IS BEHIND the
+surface, not by how big it is.
+
+**How a level reaches the compositor.** app-host paints the tint, shine, gradient
+and hairline into its own surface pixels and sends windowd only a rect + a
+`glass_level`, which windowd reads *solely* to pick a backdrop blur radius. The
+level on the wire is therefore a **blur bucket**, not the material:
+`glassWindowPane` rides the card bucket (20) and `glassWindowBar` the panel
+bucket (40), and adding a level with an existing radius costs no wire change.
 
 Each authors `blurRadiusDp`, `downsampleFactor`, `tintColor`/`tintAlpha`
 (+ optional `tintBottom*`), `edgeHighlightColor`/`edgeHighlightAlpha` and

@@ -72,19 +72,56 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
 - **Glas-Level nachgezogen**: `glassPanel`/`glassCard` tragen die Werte des
   Login-Handoffs (dark = dunkler Tint `#121214@.40` statt weißem Wash).
 
+## Behoben (2026-07-28, TASK-0308 Phase 9 / Stash-Design-Parität)
+
+- **Sechs Rollen waren authored-but-unreachable.** `divider`, `glassHover`,
+  `glassActive`, `toggleOnBg`, `toggleOffBg` und `notifDot` standen seit dem
+  ersten Token-Pass in JEDER `.nxtheme.toml`, hatten aber keinen Eintrag in
+  `theme-tokens/build.rs::ROLES` — und dieses Table ist das Gate, nicht die
+  TOML. Aus einer `.nx`-Seite waren sie damit unsagbar. Folge im Bild: jede
+  Haarlinie in einem Glasfenster wurde mit `border` gemalt (dark `#262626`,
+  OPAK) statt mit `divider` (`rgba(255,255,255,.10)`). Jetzt `ColorToken`,
+  `COLOR_TOKENS`, `color_token` und `ROLES` — vier Listen, die
+  `userspace/dsl/runtime/tests/token_vocabulary_lockstep.rs` gegeneinander
+  hält (Bijektion, nicht nur Coverage).
+- **`--glass-window-pane-*` und `--glass-window-bar-*` existieren.** Neue
+  Material-Ebenen `glassWindowPane` (dark `#484a54@.48 → #34363e@.32`) und
+  `glassWindowBar` in allen vier Themes. Vorher erbten Fenster-Panes
+  `glassPanel` (dark `#121214@.40`, nahezu schwarz) — die richtige Ebene für
+  eine Dock-Kachel auf dem Wallpaper, die falsche für eine Pane auf
+  Fensterglas. Das Wire-Feld `glass_level` ist ein BLUR-BUCKET (windowd liest
+  daraus nur den Radius; Tint/Shine/Rand malt app-host selbst), deshalb kosten
+  die zwei Ebenen kein neues Wire-Symbol: `windowPane` fährt den 20er-Bucket,
+  `windowBar` den 40er.
+- **On-Glass-Alphas auf den Handoff gezogen.** `glassText{Primary,Secondary,
+  Strong}` trugen `.95/.68/1.0` (dark `.95/.60/1.0`) — undokumentierte Drift,
+  die die Primary/Secondary-Stufe einebnete. Jetzt die Handoff-Werte
+  `.80/.40/.92` bzw. dark `.90/.45/.95`. Der HUE (blau-schwarz `#14141a` statt
+  reinem Schwarz) bleibt die bewusste RFC-0082-Entscheidung.
+- **`divider` in `light.nxtheme.toml` war opak** (`#d4d4d4`) und damit nur auf
+  einer weißen Vollfläche richtig → `rgba(0,0,0,.10)` wie der Handoff.
+- **Hover ist wieder eine Fläche**, nicht nur Bewegung: `probe/paint.rs` gab
+  hart `None` für den `HoverWash`, weil der Wash dem `corner_radius` der
+  HANDLER-Box folgt und die bei `Stack { Pill } on Tap` keinen hat („jeder
+  gehoverte Kreis trug ein weißes Quadrat"). Gelöst über den Anker statt über
+  das Abschalten: `app-host/src/hover_wash.rs` (host-getestet, weil `probe/`
+  nur für RISC-V baut) wählt das Kind, das die Wrapper-Box wirklich ausfüllt.
+  Farbe jetzt `glassHover` statt eines Accent-Tints.
+
 ## Offen — Token-Abweichungen
 
 | Rolle | Handoff | Implementierung | Status |
 |---|---|---|---|
 | `success` | `#22c55e` | `#16a34a` | GEWOLLT (a11y, dokumentiert) |
 | `warning-fg` | `#ffffff` | `#0a0a0a` | GEWOLLT (a11y, jetzt dokumentiert) |
-| Blur-Skala | benannte Tokens sm 8/md 20/lg 40/xl 64 | per-Material `blurRadiusDp` (Werte jetzt auf Skalenstufen) | benannte Tokens optional |
+| Blur-Skala | benannte Tokens sm 8/md 20/lg 40/xl 64 | per-Material `blurRadiusDp` (Werte auf Skalenstufen) + eine ZWEITE, hartkodierte Skala im Compositor (`scene.rs` Level→Radius) + eine DRITTE für Ganzfenster-Glas (`DARK_GLASS_BLUR_RADIUS`) | drei parallele Skalen; die Theme-Werte gewinnen nur mittelbar über die Bucket-Wahl |
 
 ## Offen — fehlende Primitives
 
 - **Per-Seite-Borders im DSL** (Sidebar right-border, pane-border; `EdgeBorder` kann es,
-  es fehlen die Modifier) + die Material-Border-Farben (window-pane `.07`, chip `.09`,
-  bar `.95`, icon `.20`) als Tokens.
+  es fehlen die Modifier). Die Material-Border-Farben für window-pane (`.07`) und
+  bar (`.95`) tragen jetzt die Ebenen selbst; chip (`.09`) und icon (`.20`) fehlen
+  weiterhin — der App-Chip im Fenster-Chrome fährt ersatzweise `glassSubtle`.
 - **Mehrlagige Material-Schatten** (window: `0 30px 60px .30` PLUS einer
   inset-Lage): die Elevation-Skala und die inset-Top-Linie existieren jetzt
   einzeln, aber nicht als frei stapelbare Schatten-Liste.

@@ -12,10 +12,10 @@ Component MoveDest {
     }
     Stack {
         Image { source: "mime:inode-directory", size: 22 }
-        Text($props.label).textSize(sm).fg(onSurface)
+        Text($props.label).textSize(sm).fg(onGlass)
         Spacer
         Icon { symbol: "chevron.right", size: 12 }
-            .fg(onSurfaceVariant)
+            .fg(onGlassMuted)
     }
     .direction(row)
     .align(center)

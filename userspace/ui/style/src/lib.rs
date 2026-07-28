@@ -115,6 +115,8 @@ impl Style {
             MaterialToken::Card => GlassLevel::Card,
             MaterialToken::Subtle => GlassLevel::Subtle,
             MaterialToken::Window => GlassLevel::Window,
+            MaterialToken::WindowPane => GlassLevel::WindowPane,
+            MaterialToken::WindowBar => GlassLevel::WindowBar,
             MaterialToken::Overlay => GlassLevel::Overlay,
         });
         self.visual.background = Some(g.tint);

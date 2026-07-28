@@ -1,6 +1,6 @@
 ---
 title: TASK-0308 DSL slots + WinAppWindow scaffold + Stash design parity
-status: In progress (2026-07-27) — Phase 0 running
+status: In progress (2026-07-28) — Phases 0-7 + 9 done; Phase 8 (docs/tooling parity) open
 owner: @ui @runtime
 created: 2026-07-27
 links:
@@ -402,6 +402,123 @@ desktop window takes the regular/compact tiers).
 `systemui_bootstrap_shell_host` 7/7; `just check` green; test-host
 615/615; headless ladder exit 0 incl. the gated `SELFTEST: ui resize ok`.
 Kernel lanes unchanged this phase (proven green earlier the same day).
+
+### Phase 9 — design parity: colours, materials, icons, hover ✅ (2026-07-28)
+
+Phase 5 reached STRUCTURAL parity; this phase closes the visual gap. Almost
+none of it was in Stash — five defects that share one shape: a thing was
+authored, and nothing above it could tell that it never arrived.
+
+**Theme (`resources/themes/*`, `ui/theme-tokens`, `dsl/{core,runtime}`)**
+
+- Six roles (`divider`, `glassHover`, `glassActive`, `toggleOnBg`,
+  `toggleOffBg`, `notifDot`) were authored in every theme with no `ColorToken`
+  and therefore unsayable from `.nx`. Hairlines used `border` — dark `#262626`,
+  OPAQUE — where the handoff wants `rgba(255,255,255,.10)`. The gate was
+  `theme-tokens/build.rs::ROLES`, not the TOML.
+- New levels `glassWindowPane` (dark `#484a54@.48 → #34363e@.32`) and
+  `glassWindowBar`. Panes had been inheriting `glassPanel` (`#121214@.40`) —
+  the level tuned for a tile on the WALLPAPER, not a pane on window glass.
+  **No wire change**: `glass_level` only selects a blur radius (windowd), while
+  tint/shine/hairline are painted app-side, so the two levels ride the existing
+  card/panel buckets.
+- On-glass alphas pulled to the handoff (`.80/.40/.92`, dark `.90/.45/.95`);
+  the previous `.95/.68/1.0` was undocumented drift that flattened the
+  primary/secondary step. Light `divider` was opaque `#d4d4d4` → `rgba(0,0,0,.10)`.
+- **Proof**: `dsl/runtime/tests/token_vocabulary_lockstep.rs` asserts the
+  checker's `COLOR_TOKENS` and the runtime's `color_token` are a BIJECTION —
+  both drift directions fail, and `canonical_name` refuses to compile when a
+  role is added without a name.
+
+**Icons (`resources/themes/base.nxtheme.toml`)**
+
+`square.grid.2x2`, `arrow.clockwise`, `arrow.uturn.backward` and `calendar`
+were used without an `[icons.symbols]` entry and painted the honest grey
+placeholder box. A symbol name travels as a prop STRING, so the checker never
+sees it. Added those four plus `ellipsis.vertical` (the toolbar ⋯ is a
+different glyph from the action bar's), `doc.text`, `shippingbox`,
+`square.pencil`. **Proof**: `tests/dsl_apps_conformance/tests/icon_symbols.rs`
+scans every shipped `.nx` and reports file, line and symbol; verified to FAIL
+with a mapping removed.
+
+**Hover (`app-host`)**
+
+`probe/paint.rs` passed a hard `None` for the `HoverWash`. The stated reason
+was real — the wash follows the HANDLER box's radius, and the kit's documented
+`Stack { WinActionFace { … } } on Tap` shape has none, so "every hovered circle
+wore a white square". Fixed by aiming it, not deleting it:
+
+- `app-host/src/hover_wash.rs` (new, host-testable because `probe/` is
+  RISC-V-only) picks the child that actually fills the wrapper.
+- The WASH's size rule split from the GROW's. Sharing `interaction_sized`
+  (≤160px both axes) meant a 680-px file row was excluded from BOTH — list rows
+  and sidebar entries had no hover at all. Growing a full-width row would
+  displace its content; washing one is what the design asks for.
+- Colour from `glassHover` (was an Accent tint, which read as selection).
+
+**Window geometry (`app-host`, `windowd`, `abilitymgr`)**
+
+Stash declares `mode: freeform` — the ONLY way to a translucent, blurred window
+(`fullscreen` forces `base_alpha = 255` and skips the blur band). Three latent
+defects surfaced on that path:
+
+- app-host mounted freeform windows at the 320x240 probe fallback; it now asks
+  the compositor, like desktop/overlay/fullscreen already did.
+- windowd's intent reply for a non-fullscreen window returned the next free
+  SLOT's frame, which for an unframed slot is the allocator CEILING
+  (1280x3072). It now returns the same centred ¾ frame `set_window_mode`
+  applies. Nothing caught it because nobody asked on that path before.
+- A cascaded origin is clamped onto the work area
+  (`surface_presentation::clamp_frame_origin`, host-tested): the second
+  window's 960-wide frame at cascade x=364 hung 44px off a 1280 display and
+  took the properties pane with it.
+- **App stacks 8 → 16 pages.** `app-host` recurses over its own scene (lower →
+  layout → paint), so depth scales with the page a designer wrote. Stash
+  overflowed 8 pages by FORTY-EIGHT bytes on a six-row listing — a
+  `[USER-PF] STORE` register dump with no hint that it was the stack. A
+  guard-page marker that says "stack" is a recorded follow-up.
+
+**Stash + window-kit**
+
+- `WinAppWindow` lost `sidebarPanel`/`contentPanel`/`propsPanel` (7 → 4 props,
+  169 → 128 LOC). Regions are transparent, FULL STOP; a region that wants a
+  surface gets one because the app wrote `Panel { … }` in the slot body. That
+  deletes six duplicated `if` arms, makes "several panels in one region" the
+  ordinary case instead of a flag trick, and lets a panel pick its own LEVEL —
+  which is what `windowPane` needed. Slots renamed `sidebarLeft` /
+  `contentArea` / `sidebarRight` (structural, not semantic).
+  **Consequence, asserted not hidden**: the kit no longer wraps overlay panes
+  either, so a region without a panel floats unframed.
+- An `@effect on SearchToggle` for an event NOTHING dispatches made it a ROOT
+  effect — and `run_initial_effects` dispatches roots through the REDUCER, so
+  Stash opened its search field on every launch. The effect moved to `WinTool`,
+  which is what the toolbar actually emits (and which had no effect at all, so
+  closing the search never restored the unfiltered listing). The old test fired
+  the orphan directly and therefore could never fail; it now fires
+  `WinTool("magnifyingglass")`, plus a new test asserts the initial effects do
+  not change what the user sees.
+- Design details: 3-level breadcrumb (from the existing `backLabel`, no new
+  state), the object COUNT before the noun, `stash.noResults` finally rendered
+  (the key shipped in five locales referenced by nothing), `Avatar` in the
+  sidebar footer, the ⋯ dropdown anchored UNDER its button instead of at y=0,
+  the search field as a raised strip, dropdowns on the `overlay` level, chrome
+  buttons at the handoff's 30px.
+- `SearchBar` → `TextField { variant: "bare" }`: `SearchBar` is absent from the
+  auto-bind list, so `focus_text_at` cleared focus and the field could not be
+  typed into at all.
+
+**Proofs**: `just check` · `just diag` (host + os + kernel) · `just test-host`
+· `dsl_apps_conformance` 8 stash / 9 window_kit / 2 icon_symbols ·
+`nexus-dsl-runtime` 3 lock-step · `app-host` 15 · `windowd` frame policy 3 ·
+visible boot (login → Stash: floating glass over the wallpaper, row hover,
+"6 Objekte", ⋯ dropdown under its button, zero `[USER-PF]`).
+
+**Known non-parity, unchanged**: exit animations (`.transition` is enter-only),
+`.truncate()` is a no-op, `.scroll()` ⊥ `.overlay()` so the listing does not
+scroll, per-keystroke filtering is not expressible, monospace size column,
+9px action label, breakpoints 640/1024 vs the design's 560/820 — at a 960-wide
+default window that puts the properties pane in the `regular` tier, i.e. as an
+overlay rather than inline.
 
 ### Phase 8 — docs + tooling parity
 

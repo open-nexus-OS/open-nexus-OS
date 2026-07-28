@@ -1,10 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// `WinAppWindow` (RFC-0084): the window scaffold whose regions are transparent
-// by default. The contract worth testing is the CONFIGURABILITY — a region
-// takes zero, one or several panels, the developer decides per region, and
-// flipping a panel on does not move anything.
+// `WinAppWindow` (RFC-0084): the window scaffold whose regions are transparent,
+// FULL STOP — there is no panel flag any more. A region that wants a surface
+// gets one because the app wrote `Panel { … }` in the slot body.
+//
+// So the contract worth testing moved: it is no longer "the flag paints one
+// panel" but "the scaffold paints NONE, and whatever the body writes survives
+// the splice with the region's geometry intact".
 
 // reason: test harness — a failed compile/mount step must panic loudly.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -112,18 +115,18 @@ fn env(size_class: &'static str) -> FixtureEnv {
     env
 }
 
-/// A page using the scaffold with the given panel flags and content body.
+/// A page using the scaffold with the given props and content body.
 fn page(flags: &str, content: &str) -> String {
     format!(
         r#"Page P {{
     WinAppWindow {{ {flags} }} {{
-        sidebar {{
+        sidebarLeft {{
             Text("nav")
         }}
-        content {{
+        contentArea {{
 {content}
         }}
-        properties {{
+        sidebarRight {{
             Text("props")
         }}
     }}
@@ -131,50 +134,41 @@ fn page(flags: &str, content: &str) -> String {
     )
 }
 
-const ALL_OFF: &str =
-    "sidebarPanel: false, contentPanel: false, propsPanel: false, showSidebar: true, showProps: true";
+const SHOWN: &str = "showSidebar: true, showProps: true";
 
 #[test]
 fn the_scaffold_compiles_and_mounts() {
-    Mounted::new(&page(ALL_OFF, r#"            Text("body")"#)).with(|view| {
+    Mounted::new(&page(SHOWN, r#"            Text("body")"#)).with(|view| {
         assert_eq!(texts(view.scene()), ["nav", "body", "props"]);
     });
 }
 
 #[test]
-fn every_region_is_transparent_by_default() {
-    // The whole point: nothing paints a background unless the app asked.
-    Mounted::new(&page(ALL_OFF, r#"            Text("body")"#)).with(|view| {
-        assert_eq!(glass_count(view.scene()), 0, "no region paints glass on its own");
-    });
-}
-
-#[test]
-fn panels_are_opt_in_per_region() {
-    let cases = [
-        ("sidebarPanel: true,  contentPanel: false, propsPanel: false", 1),
-        ("sidebarPanel: false, contentPanel: true,  propsPanel: false", 1),
-        ("sidebarPanel: false, contentPanel: false, propsPanel: true", 1),
-        ("sidebarPanel: true,  contentPanel: true,  propsPanel: true", 3),
-    ];
-    for (panels, expected) in cases {
-        let flags = format!("{panels}, showSidebar: true, showProps: true");
-        Mounted::new(&page(&flags, r#"            Text("body")"#)).with(|view| {
-            assert_eq!(
-                glass_count(view.scene()),
-                expected,
-                "flags `{panels}` should paint {expected} panel(s)"
-            );
+fn the_scaffold_paints_no_surface_of_its_own() {
+    // The whole point, and the reason the three `*Panel` flags are gone: the
+    // kit contributes geometry, never paint. Bodies of bare `Text` ⇒ zero glass
+    // anywhere in the scene, at every tier.
+    let mounted = Mounted::new(&page(SHOWN, r#"            Text("body")"#));
+    for tier in ["wide", "regular", "compact"] {
+        mounted.with_env(env(tier), |view| {
+            assert_eq!(glass_count(view.scene()), 0, "{tier}: the kit painted a surface");
         });
     }
 }
 
 #[test]
-fn a_region_takes_several_stacked_panels() {
-    // The settings case: the app puts its OWN panels in, the scaffold adds
-    // none. `contentPanel: false` plus three panels in the body = three.
-    let flags = "sidebarPanel: false, contentPanel: false, propsPanel: false, showSidebar: true, showProps: true";
-    let body = r#"            Panel {
+fn a_body_may_write_any_number_of_panels() {
+    // Zero, one, three — the app decides by writing markup, not by flipping a
+    // flag. Three in one region is the settings case, which under the old
+    // flag design needed `contentPanel: false` plus hand-rolled panels.
+    let one = r#"            Panel {
+                Text("body")
+            }"#;
+    Mounted::new(&page(SHOWN, one)).with(|view| {
+        assert_eq!(glass_count(view.scene()), 1);
+    });
+
+    let three = r#"            Panel {
                 Text("one")
             }
             Panel {
@@ -183,15 +177,43 @@ fn a_region_takes_several_stacked_panels() {
             Panel {
                 Text("three")
             }"#;
-    Mounted::new(&page(flags, body)).with(|view| {
+    Mounted::new(&page(SHOWN, three)).with(|view| {
         assert_eq!(glass_count(view.scene()), 3);
         assert_eq!(texts(view.scene()), ["nav", "one", "two", "three", "props"]);
     });
 }
 
+/// A panel in a body can pick its own glass LEVEL. This is what the flag design
+/// could not express without one prop per level, and it is what the file-manager
+/// handoff needs: content and properties are `windowPane` (a pane on window
+/// glass), not `panel` (a tile on the wallpaper).
+#[test]
+fn a_body_panel_chooses_its_own_glass_level() {
+    use nexus_layout_types::GlassLevel;
+    let body = r#"            Panel {
+                Text("body")
+            }
+            .material(windowPane)"#;
+    Mounted::new(&page(SHOWN, body)).with(|view| {
+        let mut levels = Vec::new();
+        fn walk(node: &LayoutNode, out: &mut Vec<GlassLevel>) {
+            if let LayoutNode::Stack(_, visual, _) = node {
+                if let SurfaceMaterial::Glass(level) = visual.material {
+                    out.push(level);
+                }
+            }
+            for child in children(node) {
+                walk(child, out);
+            }
+        }
+        walk(view.scene(), &mut levels);
+        assert_eq!(levels, [GlassLevel::WindowPane]);
+    });
+}
+
 #[test]
 fn a_hidden_region_contributes_nothing() {
-    let flags = "sidebarPanel: false, contentPanel: false, propsPanel: false, showSidebar: false, showProps: false";
+    let flags = "showSidebar: false, showProps: false";
     Mounted::new(&page(flags, r#"            Text("body")"#)).with(|view| {
         // The sidebar and properties BODIES are still bound by the caller;
         // the scaffold simply never places their placeholders.
@@ -200,16 +222,15 @@ fn a_hidden_region_contributes_nothing() {
 }
 
 #[test]
-fn flipping_a_panel_on_keeps_the_region_rects() {
-    // Both arms of every `if` share their OUTER geometry: the three zones sit
-    // at the same place and keep the same width whether or not they paint a
-    // background, so an app can change its mind about a panel without
-    // re-tuning the window's proportions.
+fn writing_a_panel_into_a_body_keeps_the_region_rects() {
+    // The regions are fixed geometry: sidebar 240 · content fills · properties
+    // 260, whatever the bodies contain. An app can add or drop a surface
+    // without re-tuning the window's proportions.
     //
     // What legitimately moves is the content INSIDE a panelled region — a
     // `Panel` brings its own padding, which is the whole point of it.
-    let geometry = |flags: &str| -> Vec<(i32, i32, i32, i32)> {
-        let mounted = Mounted::new(&page(flags, r#"            Text("body")"#));
+    let geometry = |body: &str| -> Vec<(i32, i32, i32, i32)> {
+        let mounted = Mounted::new(&page(SHOWN, body));
         mounted.with(|view| {
             let engine = nexus_layout::LayoutEngine::new();
             let layout = engine
@@ -235,8 +256,8 @@ fn flipping_a_panel_on_keeps_the_region_rects() {
         })
     };
     // The three regions are the full-height boxes below the root.
-    let regions = |flags: &str| -> Vec<(i32, i32, i32, i32)> {
-        let mut rects: Vec<_> = geometry(flags)
+    let regions = |body: &str| -> Vec<(i32, i32, i32, i32)> {
+        let mut rects: Vec<_> = geometry(body)
             .into_iter()
             .skip(1)
             // Full-height boxes below the root, minus the row WRAPPER the
@@ -246,16 +267,19 @@ fn flipping_a_panel_on_keeps_the_region_rects() {
         rects.sort_unstable();
         rects
     };
-    let off = regions(ALL_OFF);
-    let on = regions(
-        "sidebarPanel: true, contentPanel: true, propsPanel: true, showSidebar: true, showProps: true",
+    let bare = regions(r#"            Text("body")"#);
+    let panelled = regions(
+        r#"            Panel {
+                Text("body")
+            }
+            .grow(1)"#,
     );
     assert_eq!(
-        off,
+        bare,
         [(0, 0, 240, 800), (240, 0, 780, 800), (1020, 0, 260, 800)],
         "sidebar 240 · content fills the rest · properties 260"
     );
-    assert_eq!(off, on, "panel opt-in must not move or resize a region");
+    assert_eq!(bare, panelled, "a body's panel must not move or resize a region");
 }
 
 #[test]
@@ -263,7 +287,7 @@ fn responsive_tiers_move_panes_out_of_flow() {
     // RFC-0084 P7 (tiers 640/1024): wide keeps all three zones inline,
     // regular drops the inline properties pane, compact drops the inline
     // sidebar too — content alone owns the width.
-    let mounted = Mounted::new(&page(ALL_OFF, r#"            Text("body")"#));
+    let mounted = Mounted::new(&page(SHOWN, r#"            Text("body")"#));
     mounted.with_env(env("wide"), |view| {
         assert_eq!(texts(view.scene()), ["nav", "body", "props"]);
     });
@@ -276,23 +300,38 @@ fn responsive_tiers_move_panes_out_of_flow() {
 }
 
 #[test]
-fn overlay_flags_bring_the_panes_back_as_panels() {
+fn overlay_flags_bring_the_panes_back() {
     // The out-of-flow panes come back as OVERLAY panes (caller-controlled
-    // flags), and an overlay pane always floats on a Panel — the per-region
-    // panel choice governs the inline arms only.
-    let flags = "sidebarPanel: false, contentPanel: false, propsPanel: false, \
-                 showSidebar: true, showProps: true, sidebarOverlay: true, propsOverlay: true";
+    // flags). The kit no longer wraps them: the pane IS the app's own body, so
+    // a body of bare `Text` floats WITHOUT a surface. That is the documented
+    // consequence of the app owning its panels — asserted here rather than
+    // hidden, because it is the one thing a caller has to remember.
+    let flags = "showSidebar: true, showProps: true, sidebarOverlay: true, propsOverlay: true";
     let mounted = Mounted::new(&page(flags, r#"            Text("body")"#));
     mounted.with_env(env("compact"), |view| {
         assert_eq!(texts(view.scene()), ["body", "nav", "props"], "both panes overlay");
-        assert_eq!(glass_count(view.scene()), 2, "overlay panes each bring a Panel");
+        assert_eq!(glass_count(view.scene()), 0, "bare bodies ⇒ unframed panes");
     });
     mounted.with_env(env("regular"), |view| {
         assert_eq!(texts(view.scene()), ["nav", "body", "props"], "sidebar inline, props overlay");
-        assert_eq!(glass_count(view.scene()), 1, "only the props overlay adds a Panel");
     });
     mounted.with_env(env("wide"), |view| {
         assert_eq!(texts(view.scene()), ["nav", "body", "props"], "wide ignores overlay flags");
-        assert_eq!(glass_count(view.scene()), 0, "inline arms stay panel-free as configured");
+    });
+}
+
+/// …and the fix for that consequence, which is what a real app does: put a
+/// `Panel` in the body and the overlay pane is framed at every tier.
+#[test]
+fn a_panelled_body_frames_its_overlay_pane() {
+    let flags = "showSidebar: true, showProps: true, sidebarOverlay: true, propsOverlay: true";
+    let body = r#"            Panel {
+                Text("body")
+            }"#;
+    // `page` panels only the CONTENT body, so the sidebar/properties bodies
+    // stay bare — the count therefore isolates the content panel itself.
+    let mounted = Mounted::new(&page(flags, body));
+    mounted.with_env(env("compact"), |view| {
+        assert_eq!(glass_count(view.scene()), 1, "the content panel, once");
     });
 }

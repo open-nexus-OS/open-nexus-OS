@@ -17,8 +17,8 @@ Component WinPropRow {
     Stack {
         Stack {
             Icon { symbol: $props.icon, size: 15 }
-                .fg(onSurfaceVariant)
-            Text($props.label).textSize(sm).fg(onSurface)
+                .fg(onGlassMuted)
+            Text($props.label).textSize(sm).fg(onGlass)
             Spacer
             Text($props.value).textSize(sm).fg(onGlassStrong)
         }
@@ -29,7 +29,7 @@ Component WinPropRow {
         .height(50)
         Stack { }
             .height(1)
-            .bg(border)
+            .bg(divider)
     }
     .gap(0)
 }

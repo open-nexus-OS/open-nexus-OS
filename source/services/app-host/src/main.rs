@@ -54,6 +54,11 @@ mod effect_ime;
 // `allow(dead_code)`.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod file_filter;
+// Where the paint-time hover wash goes. Same one-cfg shape as `file_filter`:
+// `probe/` is RISC-V-only, so a pure decision that belongs to it lives here
+// instead, where host tests can actually reach it.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod hover_wash;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod time_client;
 

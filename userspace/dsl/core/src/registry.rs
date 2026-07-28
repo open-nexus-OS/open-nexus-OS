@@ -418,6 +418,15 @@ pub const COLOR_TOKENS: &[&str] = &[
     "textShadow",
     "textShadowStrong",
     "transparent",
+    // Roles the themes have always authored but nothing could name.
+    // `divider` is the translucent hairline; `border` is the opaque control
+    // outline — they are NOT interchangeable on a glass surface.
+    "divider",
+    "glassHover",
+    "glassActive",
+    "toggleOnBg",
+    "toggleOffBg",
+    "notifDot",
 ];
 
 /// Closed token vocabularies per modifier: `(modifier name, allowed tokens)`.
@@ -440,7 +449,10 @@ pub const TOKEN_VOCABULARIES: &[(&str, &[&str])] = &[
     ("textAlign", &["left", "center", "right"]),
     ("leading", &["flat", "tight", "snug", "normal", "relaxed"]),
     ("textShadow", &["none", "soft", "strong"]),
-    ("material", &["opaque", "panel", "card", "subtle", "window", "overlay"]),
+    (
+        "material",
+        &["opaque", "panel", "card", "subtle", "window", "windowPane", "windowBar", "overlay"],
+    ),
     ("rounded", &["sm", "md", "lg", "xl", "xxl", "full"]),
     ("shadow", &["sm", "md", "lg", "xl", "xxl"]),
     ("border", &["thin", "hairline", "medium", "thick"]),

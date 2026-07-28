@@ -424,7 +424,14 @@ fn spawn_app(app_id: &str) {
     req[2] = 1;
     req[3] = 1; // OP_EXEC_IMAGE
     req[4] = image_id;
-    req[5] = 8; // stack pages (service default)
+    // Stack pages: an APP is not a service. `app-host` walks its own scene
+    // recursively (lower → layout → paint), so its depth scales with the page
+    // the designer wrote. At 8 pages stash overflowed by 48 BYTES on a six-row
+    // listing — a store into its own frame, holes below, no diagnostic beyond a
+    // `[USER-PF]` register dump. 16 costs 32 KB per instance (128 KB at the
+    // 4-window quota). Still a fixed budget with no probe: a guard-page marker
+    // that says "stack" is the follow-up.
+    req[5] = 16;
     req[6] = REQUESTER.len() as u8;
     req[7..7 + REQUESTER.len()].copy_from_slice(REQUESTER);
     let mut len = 7 + REQUESTER.len();

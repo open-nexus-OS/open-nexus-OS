@@ -1,109 +1,80 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The window's three-zone body: sidebar · content · properties (RFC-0084).
+// The window's three-zone body: sidebarLeft · contentArea · sidebarRight
+// (RFC-0084).
 //
 // THE POINT OF THIS COMPONENT is what it does NOT paint. Every region is a
-// transparent container; the panel-glass background behind it is a per-region
-// decision the app makes through `sidebarPanel`/`contentPanel`/`propsPanel`.
-// The design handoff hard-codes a pane behind content and properties and
-// denies one to the sidebar — here a settings pane can stack SEVERAL panels
-// inside `content`, a file listing can take exactly one, and a nav sidebar
-// can have one or none. The region's geometry (width, padding, growth) is
-// identical either way: only the background moves.
+// transparent container. If a region wants a surface, the APP writes one in the
+// slot body:
 //
-// The outer geometry is deliberately the same in both arms of every `if`, so
-// flipping a panel on or off never shifts anything.
+//     contentArea { Panel { … }.material(windowPane).grow(1) }
+//
+// This used to be three `Bool` props (`sidebarPanel`/`contentPanel`/
+// `propsPanel`) with the kit doing the painting, which cost a fully duplicated
+// `if` arm per region — `.material($props.x)` does not exist, modifiers take
+// tokens and not expressions, so the choice had to be branched. Moving the
+// surface into the body deletes those six arms AND buys two things the flags
+// could not express: a region can stack SEVERAL panels (the settings pane), and
+// a panel can pick its own level (`windowPane` for a content pane, `panel` for
+// a nav rail) without the kit growing a prop axis per level.
 //
 // RESPONSIVE (RFC-0084 Phase 7), tiers 640/1024 via `device.sizeClass`:
-// wide keeps all three zones inline; regular keeps the sidebar inline but
-// moves properties into an overlay pane; compact moves BOTH into overlay
-// panes and gives content the full width. The overlay flags
-// (`sidebarOverlay`/`propsOverlay`) are the CALLER's state — the kit only
-// places the pane and closes it via the scrim (`WinPaneClose`, same
-// backdrop-tap pattern as the menu overlays). Overlay panes always float on
-// a Panel: a pane over content needs a surface, so the per-region panel
-// choice applies to the INLINE arms only.
+// wide keeps all three zones inline; regular keeps the sidebar inline but moves
+// the right pane into an OVERLAY; compact moves both. Overlay panes ride the
+// proven menu-overlay pattern (`.overlay()`, backdrop tap → `WinPaneClose`,
+// pane eats taps via `WinNoop`) over a `scrim` backdrop.
+//
+// A slot legally appears in BOTH the inline and the overlay arm — rule 12 only
+// refuses two placeholders under the same parent, and the arms are exclusive.
+//
+// CONSEQUENCE OF THE APP OWNING THE SURFACE: an overlay pane is the app's own
+// `Panel`, floating. A region whose body has no panel therefore floats
+// unframed. If a region can become an overlay pane, give it a panel.
 
 Component WinAppWindow {
     props: {
-        sidebarPanel: Bool,
-        contentPanel: Bool,
-        propsPanel: Bool,
         showSidebar: Bool,
         showProps: Bool,
         sidebarOverlay: Bool,
         propsOverlay: Bool,
     }
-    slot sidebar
-    slot content
-    slot properties
+    slot sidebarLeft
+    slot contentArea
+    slot sidebarRight
     Stack {
         Stack {
-            // ── sidebar region (240px, inline on wide + regular) ─────
+            // ── left region (240px, inline on wide + regular) ────────
             if device.sizeClass == "compact" {
                 Stack { }
             } else {
                 if $props.showSidebar {
-                    if $props.sidebarPanel {
-                        Stack {
-                            Panel {
-                                Slot sidebar
-                            }
-                            .grow(1)
-                        }
-                        .width(240)
-                        .padding(3)
-                    } else {
-                        Stack {
-                            Slot sidebar
-                        }
-                        .width(240)
-                        .gap(1)
-                        .padding(3)
+                    Stack {
+                        Slot sidebarLeft
                     }
+                    .width(240)
+                    .gap(1)
+                    .padding(3)
                 } else {
                     Stack { }
                 }
             }
             // ── content region (fills the remaining width) ───────────
-            if $props.contentPanel {
-                Stack {
-                    Panel {
-                        Slot content
-                    }
-                    .grow(1)
-                }
-                .grow(1)
-                .padding(3)
-            } else {
-                Stack {
-                    Slot content
-                }
-                .grow(1)
-                .gap(1)
-                .padding(3)
+            Stack {
+                Slot contentArea
             }
-            // ── properties region (260px, inline on wide only) ───────
+            .grow(1)
+            .gap(1)
+            .padding(3)
+            // ── right region (260px, inline on wide only) ────────────
             if device.sizeClass == "wide" {
                 if $props.showProps {
-                    if $props.propsPanel {
-                        Stack {
-                            Panel {
-                                Slot properties
-                            }
-                            .grow(1)
-                        }
-                        .width(260)
-                        .padding(3)
-                    } else {
-                        Stack {
-                            Slot properties
-                        }
-                        .width(260)
-                        .gap(1)
-                        .padding(3)
+                    Stack {
+                        Slot sidebarRight
                     }
+                    .width(260)
+                    .gap(1)
+                    .padding(3)
                 } else {
                     Stack { }
                 }
@@ -114,25 +85,25 @@ Component WinAppWindow {
         .direction(row)
         .grow(1)
         // ── overlay panes ────────────────────────────────────────────
-        // Backdrop tap closes (`WinPaneClose`); the pane itself eats its
-        // taps (`WinNoop`) — the proven menu-overlay pattern.
+        // Backdrop dims with `scrim` and closes on tap (`WinPaneClose`); the
+        // pane itself eats its taps (`WinNoop`) — the proven menu pattern.
         if device.sizeClass == "compact" {
             if $props.sidebarOverlay {
                 Stack {
                     Stack {
-                        Panel {
-                            Slot sidebar
-                        }
-                        .grow(1)
+                        Slot sidebarLeft
                     }
                     .width(240)
+                    .gap(1)
                     .padding(3)
                     on Tap -> dispatch(WinNoop)
                     Spacer
                 }
                 .direction(row)
                 .grow(1)
+                .bg(scrim)
                 .overlay()
+                .transition(fade)
                 on Tap -> dispatch(WinPaneClose)
             } else {
                 Stack { }
@@ -147,18 +118,18 @@ Component WinAppWindow {
                 Stack {
                     Spacer
                     Stack {
-                        Panel {
-                            Slot properties
-                        }
-                        .grow(1)
+                        Slot sidebarRight
                     }
                     .width(260)
+                    .gap(1)
                     .padding(3)
                     on Tap -> dispatch(WinNoop)
                 }
                 .direction(row)
                 .grow(1)
+                .bg(scrim)
                 .overlay()
+                .transition(fade)
                 on Tap -> dispatch(WinPaneClose)
             } else {
                 Stack { }

@@ -104,6 +104,25 @@ pub enum ColorToken {
     TextShadowStrong,
     /// Fully transparent — the identity color, used as a gradient stop.
     Transparent,
+
+    // ---- Roles that were AUTHORED in every `.nxtheme.toml` but had no
+    // ---- variant here, so nothing above the theme file could reach them.
+    /// Hairline separator (handoff `--glass-divider`). Distinct from `Border`:
+    /// a divider is a translucent wash that reads on glass, `Border` is the
+    /// opaque control outline. Painting hairlines with `Border` is why every
+    /// separator in a glass window was a solid `#262626` bar.
+    Divider,
+    /// Hover wash over an interactive surface (handoff `--glass-hover-bg`).
+    GlassHover,
+    /// Pressed/active wash over an interactive surface
+    /// (handoff `--glass-active-bg`).
+    GlassActive,
+    /// Track fill of a switch in the ON state (handoff `--glass-toggle-on-bg`).
+    ToggleOnBg,
+    /// Track fill of a switch in the OFF state.
+    ToggleOffBg,
+    /// The notification dot (handoff `--glass-notif-dot`, always red).
+    NotifDot,
 }
 
 /// Semantic length roles (radii, spacing, hairline widths).
@@ -219,6 +238,16 @@ pub enum MaterialToken {
     Subtle,
     /// Dense app-window chrome.
     Window,
+    /// The content / properties PANE inside an app window
+    /// (handoff `--glass-window-pane-bg`). Distinct from `Panel`: a pane sits
+    /// on the window's own glass, so it is far more transmissive than a dock
+    /// tile sitting straight on the wallpaper — 0.48/0.32 against 0.40 flat,
+    /// and a two-stop gradient rather than one tint.
+    WindowPane,
+    /// The floating action-bar pill at the bottom of a window
+    /// (handoff `--glass-window-bar-bg`). Nearly opaque on purpose: it is a
+    /// control strip that must stay readable over arbitrary content.
+    WindowBar,
     /// Modal/alert/sheet/popover reading surface.
     Overlay,
 }

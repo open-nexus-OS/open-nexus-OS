@@ -9,6 +9,28 @@
 use super::*;
 
 impl super::DslApp {
+    /// The paint-time hover wash for the currently hovered control, or `None`
+    /// when nothing is hovered.
+    ///
+    /// Colour comes from the theme's `GlassHover` role — the handoff's
+    /// `--glass-hover-bg`, which flips with the theme (a light wash on dark, an
+    /// ink wash on light). It was previously an Accent tint, which read as a
+    /// selection rather than a hover.
+    pub(super) fn hover_wash(&self) -> Option<nexus_scene_raster::HoverWash> {
+        use nexus_dsl_runtime::theme_tokens::ColorToken;
+        let node_id = crate::hover_wash::hover_wash_anchor(&self.layout.boxes, self.hovered?)?;
+        let c = tokens_for(self.theme_mode).color(ColorToken::GlassHover);
+        Some(nexus_scene_raster::HoverWash {
+            node_id,
+            color: nexus_layout_types::Rgba8::new(c.r, c.g, c.b, c.a),
+            // No ring: the handoff washes chrome buttons and list rows flat.
+            // The ring is a slider affordance and does not belong on every
+            // hovered control (windowd's own chrome passes 0 for the same
+            // reason).
+            ring_alpha: 0,
+        })
+    }
+
     /// Writes the current scene (fills + glyph runs) into the VMO. The
     /// page base is the theme's Surface token — the scene's own boxes
     /// (surfaceVariant buttons, onSurface text) are specified against it.
@@ -42,14 +64,18 @@ impl super::DslApp {
         // fullscreen surface (the base layer), frosted-translucent for
         // floating windows (`base_alpha`).
         let base = [s.b, s.g, s.r, self.base_alpha];
-        // HOVER AFFORDANCE = MOTION, NOT A PLATE. `self.hovered` is already
-        // filtered to CONTROL-sized nodes (`interaction_sized`), and every one
-        // of those grows on the hover spring (`interaction_hover`, 1.06). The
-        // old paint-time wash + bright ring stacked a second, box-shaped
-        // affordance on top of that motion: a hovered CIRCLE got a white
-        // SQUARE, because the wash follows `corner_radius` and an icon button's
-        // hit box carries none. One affordance per state — the icon just grows.
-        let hover: Option<nexus_scene_raster::HoverWash> = None;
+        // HOVER = WASH + MOTION, which is what the handoff specifies
+        // ("hover:rgba(255,255,255,0.15)" AND "Icons: scale(1.08) hover").
+        //
+        // The wash used to be hard-`None` here for a real reason: it follows
+        // the hovered box's `corner_radius`, and a HANDLER box often carries
+        // none — `Stack { Circle { … } } on Tap` puts the handler on a
+        // square-cornered wrapper, so a hovered circle wore a white SQUARE.
+        // The answer is to fix the anchor, not to delete the affordance:
+        // `hover_wash_anchor` walks from the handler box to the child that
+        // actually draws the control, so the wash inherits the radius the user
+        // can see. Motion is unchanged — the spring still runs.
+        let hover = self.hover_wash();
         let surf_w = self.w as usize;
         let row_bytes = surf_w * 4;
         // Reused scratch — NEVER allocate per render (non-freeing heap).
@@ -280,8 +306,10 @@ impl super::DslApp {
             row.resize(row_bytes, 0);
         }
         // The caret paints on the banded path too (a composer in a fixed
-        // footer is exactly this path).
+        // footer is exactly this path), and so does the hover wash — a
+        // scrollable app's rows and buttons hover like any other.
         let caret = self.caret_probe();
+        let hover = self.hover_wash();
         // Per-node animation transforms apply on the banded path too (an
         // animated fixed header / a breathing Skeleton in the content) —
         // same snapshot contract as `render_rows`.
@@ -329,7 +357,7 @@ impl super::DslApp {
                     &mut canvas,
                     &self.layout.boxes,
                     pick,
-                    None,
+                    hover,
                     None,
                     anims,
                 );

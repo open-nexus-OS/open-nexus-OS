@@ -3,10 +3,13 @@
 //
 // stash — the platform file manager, built on `WinAppWindow` (RFC-0084).
 //
-// The three-zone body is the KIT's now; this page only fills the slots. The
-// panel backgrounds are this app's choice, stated once at the callsite:
-// content and properties take one each, the sidebar takes none. A different
-// app decides differently — that is the point of the scaffold.
+// The three-zone body is the KIT's; this page fills the slots AND writes its
+// own surfaces. Every region opens with a `Panel` on the `windowPane` level
+// (the handoff's `--glass-window-pane-bg`) — the kit paints nothing, so
+// "how many panels, at which level, where" is a line of app markup rather than
+// a prop axis. The settings mode uses that directly: a second `Panel` stacked
+// inside the content pane, which the old Bool flag could only express by
+// turning the region's panel off and hand-rolling both.
 //
 // Everything else is the design handoff (`docs/design_handoff_files_window`):
 // window-kit chrome with active tool states, a search field that filters the
@@ -15,17 +18,25 @@
 // states, the SELECTION REACTIVITY proof (properties pane + action bar both
 // swap on selection), and the settings mode that replaces the content.
 
+// FREEFORM, not fullscreen — and that is a VISUAL contract, not a preference.
+// `mode: fullscreen` makes app-host paint an OPAQUE page base
+// (`probe/mod.rs`: base_alpha 255, the kiosk rule) and makes windowd skip the
+// per-window backdrop-blur band (`app_surface.rs`, an atlas-budget decision).
+// Together those two mean a fullscreen window can never show the wallpaper —
+// the panes then frost an opaque slab instead of the desktop behind it. A
+// freeform window takes base_alpha 168 and a real `LayerBackdrop`, which is
+// what the handoff draws: a floating glass window over the wallpaper.
+//
+// `style: plain` still suppresses windowd's own title bar — this page owns its
+// chrome through `WinTopBar`.
 Window {
     style: plain,
-    mode: fullscreen,
-    resizable: false,
+    mode: freeform,
+    resizable: true,
 }
 
 Page StashPage {
     Stack {
-        // Fullscreen chrome inset: the window sits BEHIND the shell top bar.
-        Stack { }
-            .height(40)
         WinTopBar {
             icon: "folder",
             tool1: "magnifyingglass",
@@ -40,40 +51,37 @@ Page StashPage {
             appId: "stash",
         }
         WinAppWindow {
-            sidebarPanel: false,
-            contentPanel: true,
-            propsPanel: true,
             showSidebar: $state.leftOpen == 1,
             showProps: $state.rightOpen == 1 && $state.settingsOpen == 0,
             sidebarOverlay: $state.paneL == 1,
             propsOverlay: $state.paneR == 1 && $state.settingsOpen == 0,
         } {
-            sidebar {
-                Text(@t("stash.nav")).textSize(xs).fg(onSurfaceVariant)
+            sidebarLeft {
+              Panel {
+                Text(@t("stash.nav")).textSize(xs).fg(onGlassMuted)
                 Stack { }
                     .height(1)
-                    .bg(border)
+                    .bg(divider)
                 WinSideItem { id: "nav.recent", label: @t("stash.recent"), sub: "", icon: "star", active: $state.section == "recent" }
                 WinSideItem { id: "nav.pictures", label: @t("stash.pictures"), sub: "", icon: "photo", active: $state.section == "pictures" }
                 WinSideItem { id: "nav.videos", label: @t("stash.videos"), sub: "", icon: "film", active: $state.section == "videos" }
                 WinSideItem { id: "nav.audio", label: @t("stash.audio"), sub: "", icon: "music.note", active: $state.section == "audio" }
-                WinSideItem { id: "nav.docs", label: @t("stash.docs"), sub: "", icon: "doc", active: $state.section == "docs" }
+                WinSideItem { id: "nav.docs", label: @t("stash.docs"), sub: "", icon: "doc.text", active: $state.section == "docs" }
                 WinSideItem { id: "nav.downloads", label: @t("stash.downloads"), sub: "", icon: "arrow.down.circle", active: $state.section == "downloads" }
                 WinSideItem { id: "nav.storage", label: @t("stash.storage"), sub: "", icon: "internaldrive", active: $state.section == "storage" }
                 WinSideItem { id: "nav.trash", label: @t("stash.trash"), sub: "", icon: "trash", active: $state.section == "trash" }
                 Spacer
                 Stack { }
                     .height(1)
-                    .bg(border)
+                    .bg(divider)
+                // Account footer (handoff: `Avatar` + name + sub above a
+                // `borderTop`). `Avatar` derives its initials from `name`, so
+                // the page binds the display name it already has.
                 Stack {
-                    Circle { size: 34
-                        Icon { symbol: "person", size: 16 }
-                            .fg(onSurface)
-                    }
-                    .material(subtle)
+                    Avatar { name: @t("stash.userName"), size: 34 }
                     Stack {
-                        Text(@t("stash.userName")).textSize(sm).fg(onSurface)
-                        Text(@t("stash.userSub")).textSize(xs).fg(onSurfaceVariant)
+                        Text(@t("stash.userName")).textSize(sm).fg(onGlass)
+                        Text(@t("stash.userSub")).textSize(xs).fg(onGlassMuted)
                     }
                     .gap(0)
                 }
@@ -81,8 +89,12 @@ Page StashPage {
                 .align(center)
                 .gap(2)
                 .paddingX(2)
+              }
+              .material(windowPane)
+              .grow(1)
             }
-            content {
+            contentArea {
+              Panel {
                 // ── SETTINGS MODE ────────────────────────────────────
                 // Replaces the file content wholesale; the properties pane
                 // and the action bar are gone (the pane via `showProps` on
@@ -91,7 +103,7 @@ Page StashPage {
                     Stack {
                         Stack {
                             Icon { symbol: "chevron.left", size: 15 }
-                                .fg(onSurfaceVariant)
+                                .fg(onGlassMuted)
                         }
                         .width(28)
                         .height(28)
@@ -100,7 +112,7 @@ Page StashPage {
                         .justify(center)
                         on Tap -> dispatch(SettingsClose)
                         Icon { symbol: "gearshape", size: 15 }
-                            .fg(onSurfaceVariant)
+                            .fg(onGlassMuted)
                         Text(@t("stash.settings")).textSize(sm).fg(onGlassStrong)
                         Spacer
                     }
@@ -108,8 +120,8 @@ Page StashPage {
                     .align(center)
                     .gap(2)
                     Stack {
-                        Text(@t("stash.setViewSection")).textSize(xs).fg(onSurfaceVariant)
-                        Text(@t("stash.setViewHint")).textSize(xs).fg(onSurfaceVariant)
+                        Text(@t("stash.setViewSection")).textSize(xs).fg(onGlassMuted)
+                        Text(@t("stash.setViewHint")).textSize(xs).fg(onGlassMuted)
                     }
                     .gap(0)
                     .paddingX(2)
@@ -120,8 +132,8 @@ Page StashPage {
                     Panel {
                         Stack {
                             Stack {
-                                Text(@t("stash.setHidden")).textSize(sm).fg(onSurface)
-                                Text(@t("stash.setHiddenHint")).textSize(xs).fg(onSurfaceVariant)
+                                Text(@t("stash.setHidden")).textSize(sm).fg(onGlass)
+                                Text(@t("stash.setHiddenHint")).textSize(xs).fg(onGlassMuted)
                             }
                             .gap(0)
                             .grow(1)
@@ -137,18 +149,36 @@ Page StashPage {
                     Spacer
                 } else {
                     // ── FILE CONTENT ─────────────────────────────────
-                    // Breadcrumb: Dieser PC [› <folder>]. The home root shows
-                    // just "Dieser PC"; a folder appends its localized name.
-                    // Tapping "Dieser PC" navigates home.
+                    // Breadcrumb, three levels like the handoff
+                    // (Dieser PC › Bilder › Urlaub 2026). No new state: the
+                    // middle crumb is `backLabel`, which every nav arm and the
+                    // folder-open in `Pick` already write as "the label we came
+                    // from". The leaf is the only STRONG/semibold crumb; the
+                    // ancestors are muted and tappable.
                     Stack {
                         Stack {
-                            Text(@t("stash.thisPc")).textSize(sm).fg(onSurfaceVariant)
+                            Text(@t("stash.thisPc")).textSize(sm).fg(onGlassMuted)
                         }
                         on Tap -> dispatch(WinMenuPick("nav.storage"))
+                        if $state.backLabel != "" {
+                            Stack {
+                                Icon { symbol: "chevron.right", size: 12 }
+                                    .fg(onGlassMuted)
+                                Stack {
+                                    Text($state.backLabel).textSize(sm).fg(onGlassMuted)
+                                }
+                                on Tap -> dispatch(WinNav("back"))
+                            }
+                            .direction(row)
+                            .align(center)
+                            .gap(1)
+                        } else {
+                            Stack { }
+                        }
                         if $state.folderLabel != "" {
                             Stack {
                                 Icon { symbol: "chevron.right", size: 12 }
-                                    .fg(onSurfaceVariant)
+                                    .fg(onGlassMuted)
                                 Text($state.folderLabel).textSize(sm).fg(onGlassStrong).fontWeight(semibold)
                             }
                             .direction(row)
@@ -158,11 +188,17 @@ Page StashPage {
                             Stack { }
                         }
                         Spacer
-                        Text(@t("stash.objects")).textSize(xs).fg(onSurfaceVariant)
+                        // "10 Objekte" — the design puts the COUNT in front of
+                        // the noun. `fileCount` starts at its 1 = "unknown,
+                        // non-empty" sentinel and is replaced by the real
+                        // `svc.files.count` a round-trip later, so this reads
+                        // "1" for one frame after a navigation.
+                        Text($state.fileCount).textSize(xs).fg(onGlassMuted)
+                        Text(@t("stash.objects")).textSize(xs).fg(onGlassMuted)
                         // Sort controls (design: direction · by size · by type)
                         Stack {
                             Icon { symbol: "arrow.up.arrow.down", size: 13 }
-                                .fg(onSurfaceVariant)
+                                .fg(onGlassMuted)
                         }
                         .width(26)
                         .height(26)
@@ -171,8 +207,8 @@ Page StashPage {
                         .justify(center)
                         on Tap -> dispatch(SortDir)
                         Stack {
-                            Icon { symbol: "internaldrive", size: 13 }
-                                .fg(onSurfaceVariant)
+                            Icon { symbol: "shippingbox", size: 13 }
+                                .fg(onGlassMuted)
                         }
                         .width(26)
                         .height(26)
@@ -182,7 +218,7 @@ Page StashPage {
                         on Tap -> dispatch(SortBy("size"))
                         Stack {
                             Icon { symbol: "folder", size: 13 }
-                                .fg(onSurfaceVariant)
+                                .fg(onGlassMuted)
                         }
                         .width(26)
                         .height(26)
@@ -196,41 +232,66 @@ Page StashPage {
                     .gap(1)
                     // ── SEARCH FIELD ─────────────────────────────────
                     // Between the header and the list, exactly where the
-                    // design puts it.
+                    // design puts it: a RAISED strip (`glassFill` over the
+                    // pane + a `divider` hairline, radius sm) rather than a
+                    // bare field, and a row-closing hairline underneath —
+                    // `OsAppWindow.dc.html:33-41`.
                     //
-                    // `SearchBar`, not `TextField`: the latter defaults to
-                    // `FieldVariant::Boxed` and draws its OWN bordered field,
-                    // which inside this styled row rendered as a field inside
-                    // a field. `SearchBar` is the purpose-built widget — it
-                    // takes its accessible name from `placeholder`, so there
-                    // is no visible label line either.
+                    // `TextField { variant: "bare" }`, NOT `SearchBar`.
+                    // `SearchBar` renders a `TextInput` but is absent from the
+                    // auto-bind list (`lower/views.rs`), so its hit does not
+                    // resolve to a `Bind` and `focus_text_at` CLEARS focus —
+                    // the field could not be typed into at all. `bare` keeps
+                    // the widget from drawing its own box inside this one.
                     //
-                    // The auto-bind writes `searchQuery`; the `on Change` on
-                    // the wrapper reports that it moved so the effect can
-                    // re-issue the listing. Same shape as the launcher's
-                    // `QueryChanged` — a dispatch cannot carry the typed text,
-                    // and does not need to.
+                    // `.transition(fade)` is enter-only by design
+                    // (`probe/anim.rs`): the field fades IN and closes hard.
+                    // Stated rather than faked.
                     if $state.searchOpen == 1 {
                         Stack {
                             Stack {
-                                SearchBar { value: $state.searchQuery, placeholder: @t("stash.searchHint") }
+                                Icon { symbol: "magnifyingglass", size: 13 }
+                                    .fg(onGlassMuted)
+                                Stack {
+                                    // `.label(…)` (a11y name, renders nothing),
+                                    // NOT the `label:` prop — that one draws a
+                                    // visible caption line the design has no
+                                    // room for. Same shape as the greeter's
+                                    // passphrase field.
+                                    TextField {
+                                        value: $state.searchQuery,
+                                        placeholder: @t("stash.searchHint"),
+                                        variant: "bare",
+                                    }
+                                    .label(@t("stash.searchHint"))
+                                }
+                                .grow(1)
+                                Stack {
+                                    Icon { symbol: "xmark", size: 12 }
+                                        .fg(onGlassMuted)
+                                }
+                                .width(24)
+                                .height(24)
+                                .rounded(md)
+                                .align(center)
+                                .justify(center)
+                                on Tap -> dispatch(SearchClear)
                             }
-                            .grow(1)
-                            on Change -> dispatch(SearchChanged)
-                            Stack {
-                                Icon { symbol: "xmark", size: 12 }
-                                    .fg(onSurfaceVariant)
-                            }
-                            .width(24)
-                            .height(24)
-                            .rounded(md)
+                            .direction(row)
                             .align(center)
-                            .justify(center)
-                            on Tap -> dispatch(SearchClear)
+                            .gap(2)
+                            .paddingX(2)
+                            .height(32)
+                            .rounded(sm)
+                            .bg(glassFill)
+                            .border(hairline)
+                            .borderColor(divider)
+                            Stack { }
+                                .height(1)
+                                .bg(divider)
                         }
-                        .direction(row)
-                        .align(center)
-                        .gap(2)
+                        .gap(1)
+                        .transition(fade)
                     } else {
                         Stack { }
                     }
@@ -238,10 +299,10 @@ Page StashPage {
                     if $state.viewMode == "list" {
                         Stack {
                             Stack {
-                                Text(@t("stash.colName")).textSize(xs).fg(onSurfaceVariant)
+                                Text(@t("stash.colName")).textSize(xs).fg(onGlassMuted)
                                 Spacer
-                                Text(@t("stash.colDate")).textSize(xs).fg(onSurfaceVariant).width(80).textAlign(right)
-                                Text(@t("stash.colSize")).textSize(xs).fg(onSurfaceVariant).width(68).textAlign(right)
+                                Text(@t("stash.colDate")).textSize(xs).fg(onGlassMuted).width(80).textAlign(right)
+                                Text(@t("stash.colSize")).textSize(xs).fg(onGlassMuted).width(68).textAlign(right)
                             }
                             .direction(row)
                             .align(center)
@@ -249,7 +310,7 @@ Page StashPage {
                             .paddingX(2)
                             Stack { }
                                 .height(1)
-                                .bg(border)
+                                .bg(divider)
                         }
                         .gap(1)
                     } else {
@@ -258,13 +319,22 @@ Page StashPage {
                     // REAL listing (svc.files.list → vfsd ReadDir, TASK-0291);
                     // honest loading/error states, never fake rows.
                     if $state.filesError != 0 {
-                        Text(@t("stash.loadError")).textSize(sm).fg(onSurfaceVariant)
+                        Text(@t("stash.loadError")).textSize(sm).fg(onGlassMuted)
                     } else {
                         if $state.filesLoading == 1 {
-                            Text(@t("stash.loading")).textSize(sm).fg(onSurfaceVariant)
+                            Text(@t("stash.loading")).textSize(sm).fg(onGlassMuted)
                         } else {
                             if $state.fileCount == 0 {
-                                Text(@t("stash.empty")).textSize(sm).fg(onSurfaceVariant)
+                                // "Keine Objekte gefunden" vs "der Ordner ist
+                                // leer" are DIFFERENT statements, and the
+                                // handoff makes both. `stash.noResults` shipped
+                                // in all five locales and was referenced by no
+                                // line of markup; an active query now picks it.
+                                if $state.searchQuery != "" {
+                                    Text(@t("stash.noResults")).textSize(sm).fg(onGlassMuted)
+                                } else {
+                                    Text(@t("stash.empty")).textSize(sm).fg(onGlassMuted)
+                                }
                             } else {
                                 if $state.viewMode == "grid" {
                                     List($state.files) { f in
@@ -357,7 +427,7 @@ Page StashPage {
                                         Stack { }
                                             .width(1)
                                             .height(34)
-                                            .bg(border)
+                                            .bg(divider)
                                         WinActionItem { id: "more", label: @t("stash.actMore"), icon: "ellipsis", kind: "" }
                                     }
                                     .direction(row)
@@ -365,6 +435,7 @@ Page StashPage {
                                     .gap(1)
                                 }
                             }
+                            .material(windowBar)
                             .padding(1)
                             .rounded(full)
                             .shadow(lg)
@@ -374,44 +445,64 @@ Page StashPage {
                         .align(center)
                     }
                 }
+              }
+              .material(windowPane)
+              .grow(1)
             }
-            properties {
+            sidebarRight {
+              Panel {
                 Text(@t("stash.props")).textSize(sm).fg(onGlassStrong).fontWeight(semibold)
                 if $state.selection == "" {
-                    Text(@t("stash.propsEmpty")).textSize(xs).fg(onSurfaceVariant)
+                    Text(@t("stash.propsEmpty")).textSize(xs).fg(onGlassMuted)
                 } else {
                     Stack {
+                        // Handoff property icons: folder · box (size) ·
+                        // calendar (created) · square-pen (modified) · lock (id).
                         WinPropRow { label: @t("stash.propKind"), value: $state.selKind, icon: "folder" }
-                        WinPropRow { label: @t("stash.propSize"), value: $state.selSize, icon: "internaldrive" }
+                        WinPropRow { label: @t("stash.propSize"), value: $state.selSize, icon: "shippingbox" }
                         WinPropRow { label: @t("stash.propCreated"), value: $state.selDate, icon: "calendar" }
-                        WinPropRow { label: @t("stash.propDate"), value: $state.selDate, icon: "pencil" }
+                        WinPropRow { label: @t("stash.propDate"), value: $state.selDate, icon: "square.pencil" }
                         WinPropRow { label: @t("stash.propId"), value: $state.selName, icon: "lock" }
                     }
                     .gap(0)
                 }
+              }
+              .material(windowPane)
+              .grow(1)
             }
         }
         // ── OVERLAYS ─────────────────────────────────────────────────
         // `.overlay()` lifts these out of flow, so they float over the whole
         // window regardless of which region is open.
+        //
+        // ANCHORING. `.overlay()` has no anchor API — the layer fills the
+        // parent's content box and you position INSIDE it with ordinary flex.
+        // The menus used to sit at y=0, i.e. ON TOP of the chrome they belong
+        // to. A leading spacer of chrome-height + 6 puts them where the handoff
+        // draws a dropdown (`top: calc(100% + 6px)`), and the row's `Spacer`
+        // keeps the app menu under the app chip (left) while "Mehr" and its
+        // submenus stay under the ⋯ (right).
         if $state.menu == "" {
             Stack { }
         } else {
             Stack {
+                Stack { }
+                    .height(46)
                 Stack {
                     if $state.menu == "app" {
                         Stack {
                             Panel {
-                                Text(@t("win.mode")).textSize(xs).fg(onSurfaceVariant)
+                                Text(@t("win.mode")).textSize(xs).fg(onGlassMuted)
                                 WinMenuItem { id: "mode.split", label: @t("win.split"), icon: "columns.2", kind: "", act: true }
                                 WinMenuItem { id: "mode.fullscreen", label: @t("win.fullscreen"), icon: "maximize", kind: "check", act: true }
                                 WinMenuItem { id: "mode.freeform", label: @t("win.freeform"), icon: "square", kind: "", act: true }
                                 Stack { }
                                     .height(1)
-                                    .bg(border)
+                                    .bg(divider)
                                 WinMenuItem { id: "minimize", label: @t("win.minimize"), icon: "minimize", kind: "", act: true }
                                 WinMenuItem { id: "close", label: @t("win.close"), icon: "xmark", kind: "danger", act: true }
                             }
+                            .material(overlay)
                             .width(230)
                             .gap(0)
                             .padding(1)
@@ -428,6 +519,7 @@ Page StashPage {
                                 WinMenuItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "", act: true }
                                 WinMenuItem { id: "delete", label: @t("stash.actDelete"), icon: "trash", kind: "danger", act: true }
                             }
+                            .material(overlay)
                             .width(200)
                             .gap(0)
                             .padding(1)
@@ -441,6 +533,7 @@ Page StashPage {
                                     WinMenuItem { id: "ansicht.raster", label: @t("win.viewGrid"), icon: "square.grid.3x3", kind: "", act: false }
                                     WinMenuItem { id: "ansicht.props", label: @t("win.viewProps"), icon: "sidebar.right", kind: "", act: false }
                                 }
+                                .material(overlay)
                                 .width(220)
                                 .gap(0)
                                 .padding(1)
@@ -457,10 +550,11 @@ Page StashPage {
                                 WinMenuItem { id: "more.ansicht", label: @t("win.view"), icon: "eye", kind: "sub", act: false }
                                 Stack { }
                                     .height(1)
-                                    .bg(border)
+                                    .bg(divider)
                                 WinMenuItem { id: "more.einstellungen", label: @t("stash.settings"), icon: "gearshape", kind: "", act: false }
                                 WinMenuItem { id: "help", label: @t("win.help"), icon: "info.circle", kind: "", act: false }
                             }
+                            .material(overlay)
                             .width(210)
                             .gap(0)
                             .padding(1)
@@ -474,6 +568,7 @@ Page StashPage {
                 .align(start)
                 .paddingX(2)
                 .grow(1)
+                .transition(fade)
             }
             .overlay()
             on Tap -> dispatch(WinMenu(""))
@@ -484,7 +579,7 @@ Page StashPage {
             Stack {
                 Stack {
                     Panel {
-                        Text(@t("stash.moveTitle")).textSize(sm).fg(onSurfaceVariant)
+                        Text(@t("stash.moveTitle")).textSize(sm).fg(onGlassMuted)
                         MoveDest { path: "/Bilder", label: @t("stash.pictures") }
                         MoveDest { path: "/Videos", label: @t("stash.videos") }
                         MoveDest { path: "/Audio", label: @t("stash.audio") }
@@ -492,6 +587,7 @@ Page StashPage {
                         MoveDest { path: "/Downloads", label: @t("stash.downloads") }
                         MoveDest { path: "/Papierkorb", label: @t("stash.trash") }
                     }
+                    .material(overlay)
                     .width(300)
                     .gap(1)
                     .padding(2)
@@ -513,14 +609,14 @@ Page StashPage {
                 Stack {
                     Panel {
                         if $state.selection == "" {
-                            Text(@t("stash.propsEmpty")).textSize(xs).fg(onSurfaceVariant)
+                            Text(@t("stash.propsEmpty")).textSize(xs).fg(onGlassMuted)
                         } else {
-                            Text($state.selName).textSize(xs).fg(onSurfaceVariant)
+                            Text($state.selName).textSize(xs).fg(onGlassMuted)
                         }
                         Stack {
                             Icon { symbol: "move", size: 14 }
-                                .fg(onSurface)
-                            Text(@t("stash.actMove")).textSize(sm).fg(onSurface)
+                                .fg(onGlass)
+                            Text(@t("stash.actMove")).textSize(sm).fg(onGlass)
                         }
                         .direction(row)
                         .align(center)
@@ -531,8 +627,8 @@ Page StashPage {
                         on Tap -> dispatch(MoveStart)
                         Stack {
                             Icon { symbol: "doc.on.doc", size: 14 }
-                                .fg(onSurface)
-                            Text(@t("stash.actCopy")).textSize(sm).fg(onSurface)
+                                .fg(onGlass)
+                            Text(@t("stash.actCopy")).textSize(sm).fg(onGlass)
                         }
                         .direction(row)
                         .align(center)
@@ -544,8 +640,8 @@ Page StashPage {
                         if $state.path == "/Papierkorb" {
                             Stack {
                                 Icon { symbol: "arrow.uturn.backward", size: 14 }
-                                    .fg(onSurface)
-                                Text(@t("stash.actRestore")).textSize(sm).fg(onSurface)
+                                    .fg(onGlass)
+                                Text(@t("stash.actRestore")).textSize(sm).fg(onGlass)
                             }
                             .direction(row)
                             .align(center)
@@ -559,7 +655,7 @@ Page StashPage {
                         }
                         Stack { }
                             .height(1)
-                            .bg(border)
+                            .bg(divider)
                         if $state.path == "/Papierkorb" {
                             Stack {
                                 Icon { symbol: "trash", size: 14 }
@@ -588,6 +684,7 @@ Page StashPage {
                             on Tap -> dispatch(TrashSel)
                         }
                     }
+                    .material(overlay)
                     .width(280)
                     .gap(1)
                     .padding(2)

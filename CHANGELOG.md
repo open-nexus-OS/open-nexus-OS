@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-07-28 (TASK-0308 Phase 9: Stash design parity)
+
+The file manager now matches its design handoff. Most of the work was below
+the app — five defects that all shared one shape: something was authored, and
+nothing above it could see that it never arrived.
+
+- **Six theme roles were unreachable.** `divider`, `glassHover`, `glassActive`,
+  `toggleOnBg`, `toggleOffBg` and `notifDot` were in every `.nxtheme.toml` but
+  had no `ColorToken`, so no `.nx` page could name them — hairlines were drawn
+  with the OPAQUE `border` role instead. `token_vocabulary_lockstep.rs` now
+  asserts the checker's list and the runtime's map are a bijection.
+- **New glass levels `windowPane` + `windowBar`** carry the handoff's
+  `--glass-window-pane-*` / `--glass-window-bar-*`. Window panes previously
+  inherited `glassPanel` — the near-black dock-tile level, which is correct on
+  a wallpaper and wrong on window glass. No wire change: `glass_level` is a
+  blur bucket, and the tint is painted app-side.
+- **Four icon symbols rendered as grey placeholder boxes** (`square.grid.2x2`,
+  `arrow.clockwise`, `arrow.uturn.backward`, `calendar`): a symbol name travels
+  as a prop string, so the compiler never sees it.
+  `tests/dsl_apps_conformance/tests/icon_symbols.rs` scans every shipped `.nx`
+  file and names the file, line and symbol.
+- **The hover wash was switched off platform-wide** because it followed the
+  handler box's corner radius and a handler is often a square wrapper around a
+  pill. Fixed by aiming it (`app-host/src/hover_wash.rs`, host-tested) instead
+  of deleting it, and by separating the WASH's size rule from the GROW's — the
+  shared ≤160px rule had excluded every full-width list row.
+- **An orphaned event opened Stash's search field on every launch.** An
+  `@effect` on an event nothing dispatches is a ROOT effect, and
+  `run_initial_effects` dispatches roots through the REDUCER. The test that
+  covered it fired the orphan directly, so it could never fail.
+- **Window geometry**: `mode: freeform` now asks the compositor for its frame
+  (it used to mount at the 320x240 probe fallback), windowd answers with the
+  same centred three-quarter frame the WM applies on a mode switch (it used to
+  answer with an unframed slot's 1280x3072 ceiling), and a cascaded origin is
+  clamped onto the work area. App stacks went 8 → 16 pages: `app-host` recurses
+  over its own scene, and Stash overflowed 8 pages by 48 bytes.
+
 ### Changed - 2026-07-28 (RFC-0085: the kernel owns every virtual address)
 
 Userspace no longer invents virtual addresses anywhere in the tree. New

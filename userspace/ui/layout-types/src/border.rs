@@ -259,6 +259,12 @@ pub enum GlassLevel {
     Subtle,
     /// Denser window material — solider so document content stays legible.
     Window,
+    /// The content / properties PANE inside a window (`--glass-window-pane-bg`).
+    /// Sits on the window's own glass, so it is far more transmissive than
+    /// `Panel`, which sits straight on the wallpaper.
+    WindowPane,
+    /// The floating action-bar pill inside a window (`--glass-window-bar-bg`).
+    WindowBar,
     /// Strongest overlay material (modals/sheets — handoff `--glass-overlay`).
     Overlay,
 }

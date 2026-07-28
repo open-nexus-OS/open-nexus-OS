@@ -113,6 +113,55 @@ impl WindowPresentation {
     }
 }
 
+/// Where a floating window's frame may sit, given the work area.
+///
+/// A new window inherits its slot's CASCADE origin — picked so several windows
+/// never stack pixel-exactly, and picked before anyone knows how big the window
+/// will be. Once a window can ask the compositor for a real default frame
+/// (three quarters of the display), that origin puts a large frame partly off
+/// screen: the file manager's 960-wide window at cascade x=300 lost its whole
+/// properties pane past the right edge. Clamping keeps the cascade useful
+/// without letting it push content out of view.
+///
+/// A frame larger than the work area pins to the origin (`saturating_sub` ⇒ 0),
+/// which is the only sensible answer when nothing fits.
+#[must_use]
+pub fn clamp_frame_origin(
+    (x, y): (i32, i32),
+    (w, h): (u32, u32),
+    (area_w, area_h): (u32, u32),
+) -> (i32, i32) {
+    let max_x = i64::from(area_w.saturating_sub(w)).min(i64::from(i32::MAX)) as i32;
+    let max_y = i64::from(area_h.saturating_sub(h)).min(i64::from(i32::MAX)) as i32;
+    (x.clamp(0, max_x), y.clamp(0, max_y))
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::clamp_frame_origin;
+
+    #[test]
+    fn a_frame_that_fits_keeps_its_cascade_origin() {
+        assert_eq!(clamp_frame_origin((300, 140), (400, 300), (1280, 760)), (300, 140));
+    }
+
+    /// The defect. The cascade steps 64px per slot (300, 364, 428, …), so the
+    /// FIRST window's 960-wide default frame just fits a 1280 display (300+960
+    /// = 1260) and the SECOND one hangs 44px off the right edge — which is how
+    /// the file manager lost the right side of its window on the second launch.
+    /// The clamp slides it back to 320 instead of letting it run off.
+    #[test]
+    fn a_cascaded_wide_frame_slides_back_onto_the_display() {
+        assert_eq!(clamp_frame_origin((300, 140), (960, 570), (1280, 760)), (300, 140));
+        assert_eq!(clamp_frame_origin((364, 196), (960, 570), (1280, 760)), (320, 190));
+    }
+
+    #[test]
+    fn a_frame_larger_than_the_work_area_pins_to_the_origin() {
+        assert_eq!(clamp_frame_origin((300, 140), (1600, 900), (1280, 760)), (0, 0));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +254,18 @@ mod tests {
         assert!(!p.has_chrome, "kiosk = no close/minimize (user's single-app-OS requirement)");
         assert!(!p.resizable, "kiosk = no resize");
         assert_eq!(p.role, WindowRole::Window);
+    }
+}
+
+// `ShellWindow` only exists in the OS build; the POLICY above is host-tested
+// either way (`frame_tests`), which is the half worth proving.
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+impl crate::compositor::shell_window::ShellWindow {
+    /// `set_frame` at the window's CURRENT origin, slid back onto `area` by
+    /// [`clamp_frame_origin`]. Lives here, with the placement policy, rather
+    /// than in the legacy `shell_window` module that is being retired.
+    pub(crate) fn set_frame_clamped(&mut self, w: u32, h: u32, area: (u32, u32)) {
+        let (x, y) = clamp_frame_origin((self.x, self.y), (w, h), area);
+        self.set_frame(x, y, w, h);
     }
 }

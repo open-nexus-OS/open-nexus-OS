@@ -39,11 +39,11 @@ Component WinSideItem {
     } else {
         Stack {
             Icon { symbol: $props.icon, size: 15 }
-                .fg(onSurfaceVariant)
+                .fg(onGlassMuted)
             Stack {
-                Text($props.label).textSize(sm).fg(onSurface)
+                Text($props.label).textSize(sm).fg(onGlass)
                 if $props.sub != "" {
-                    Text($props.sub).textSize(xs).fg(onSurfaceVariant)
+                    Text($props.sub).textSize(xs).fg(onGlassMuted)
                 } else {
                     Stack { }
                 }

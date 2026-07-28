@@ -198,9 +198,9 @@ impl DisplayServerRuntime {
                     };
                     self.apps[idx].win.set_frame(0, 0, self.mode.width, h);
                 } else {
-                    let content_h = u32::from(height).saturating_add(self.apps[idx].win.title_h);
-                    let (wx, wy) = (self.apps[idx].win.x, self.apps[idx].win.y);
-                    self.apps[idx].win.set_frame(wx, wy, u32::from(width), content_h);
+                    let area = (self.mode.width, self.work_area_h());
+                    let fh = u32::from(height).saturating_add(self.apps[idx].win.title_h);
+                    self.apps[idx].win.set_frame_clamped(u32::from(width), fh, area);
                 }
                 if !self.open_app_window(idx) {
                     // Atlas exhausted: roll the registration back fail-closed

@@ -81,6 +81,31 @@ edgeHighlightAlpha = 0.2
 borderColor = "#ffffff"
 borderAlpha = 1.0
 
+[material.glassWindowPane]
+# a11y: the handoff pane is a 0.32–0.48 wash — unreadable here. High contrast
+# takes the same near-solid ink + full-alpha outline as every other level; the
+# pane keeps only its ROLE (a distinct region), not its transmission.
+type = "glass"
+blurRadiusDp = 0
+downsampleFactor = 8
+tintColor = "#000000"
+tintAlpha = 0.95
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.2
+borderColor = "#ffffff"
+borderAlpha = 1.0
+
+[material.glassWindowBar]
+type = "glass"
+blurRadiusDp = 0
+downsampleFactor = 8
+tintColor = "#000000"
+tintAlpha = 1.0
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.2
+borderColor = "#ffffff"
+borderAlpha = 1.0
+
 [material.glassOverlay]
 type = "glass"
 blurRadiusDp = 0

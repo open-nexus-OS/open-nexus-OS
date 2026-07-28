@@ -32,13 +32,13 @@ Component WinActionFace {
                     .fg(danger)
             } else {
                 Icon { symbol: $props.icon, size: 16 }
-                    .fg(onSurface)
+                    .fg(onGlass)
             }
         }
         if $props.kind == "danger" {
             Text($props.label).textSize(xs).fg(danger)
         } else {
-            Text($props.label).textSize(xs).fg(onSurfaceVariant)
+            Text($props.label).textSize(xs).fg(onGlassMuted)
         }
     }
     .align(center)

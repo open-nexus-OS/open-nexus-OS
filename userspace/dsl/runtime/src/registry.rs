@@ -139,6 +139,8 @@ pub fn material_token(name: &str) -> Option<SurfaceMaterial> {
         "card" => SurfaceMaterial::Glass(GlassLevel::Card),
         "subtle" => SurfaceMaterial::Glass(GlassLevel::Subtle),
         "window" => SurfaceMaterial::Glass(GlassLevel::Window),
+        "windowPane" => SurfaceMaterial::Glass(GlassLevel::WindowPane),
+        "windowBar" => SurfaceMaterial::Glass(GlassLevel::WindowBar),
         "overlay" => SurfaceMaterial::Glass(GlassLevel::Overlay),
         _ => return None,
     })
@@ -190,6 +192,8 @@ impl Mods {
                         GlassLevel::Card => MaterialToken::Card,
                         GlassLevel::Subtle => MaterialToken::Subtle,
                         GlassLevel::Window => MaterialToken::Window,
+                        GlassLevel::WindowPane => MaterialToken::WindowPane,
+                        GlassLevel::WindowBar => MaterialToken::WindowBar,
                         GlassLevel::Overlay => MaterialToken::Overlay,
                     };
                     let glass = nexus_style::Style::new().glass(token, tokens).visual();

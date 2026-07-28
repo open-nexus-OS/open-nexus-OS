@@ -70,13 +70,16 @@ chart3 = "#104e64"
 chart4 = "#ffb900"
 chart5 = "#fe9a00"
 # text-on-glass + interaction washes (RGBA hex; light theme = dark ink).
-# RFC-0082: the three `glassText*` roles are now REACHABLE (ColorToken::
+# RFC-0082: the three `glassText*` roles are REACHABLE (ColorToken::
 # OnGlass/OnGlassMuted/OnGlassStrong) and carry the login handoff's ink —
 # a hair blue-black (20,20,26) rather than pure black, which is what reads
-# correctly on a photographic wallpaper.
-glassTextPrimary = "#14141af2"
-glassTextSecondary = "#14141aad"
-glassTextStrong = "#14141aff"
+# correctly on a photographic wallpaper. The HUE is ours on purpose; the
+# ALPHAS are the handoff's (--glass-text-primary .80 / -secondary .40 /
+# -strong .92) after the rounder .95/.68/1.0 was found to be undocumented
+# drift that flattened the primary/secondary step.
+glassTextPrimary = "#14141acc"
+glassTextSecondary = "#14141a66"
+glassTextStrong = "#14141aeb"
 glassHover = "#00000014"
 glassActive = "#0000001f"
 # On-glass control ink (RFC-0082 — the login handoff's --nx-* contract).
@@ -231,6 +234,41 @@ edgeHighlightAlpha = 0.85
 borderColor = "#ffffff"
 borderAlpha = 0.90
 
+[material.glassWindowPane]
+# --glass-window-pane-bg: linear-gradient(160deg, #ffffff@.96, #fafbfd@.88).
+# The CONTENT / PROPERTIES pane inside a window — NOT `glassPanel`. A pane sits
+# on the window's own glass, a panel sits straight on the wallpaper, so the two
+# cannot share a recipe: the pane is a two-stop gradient at much higher
+# transmission, and its border is an INK hairline in light mode (the handoff's
+# --glass-window-pane-border rgba(0,0,0,.07)) rather than a white edge.
+type = "glass"
+blurRadiusDp = 20
+downsampleFactor = 2
+tintColor = "#ffffff"
+tintAlpha = 0.96
+tintBottomColor = "#fafbfd"
+tintBottomAlpha = 0.88
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.70
+borderColor = "#000000"
+borderAlpha = 0.07
+
+[material.glassWindowBar]
+# --glass-window-bar-bg: linear-gradient(165deg, #ffffff@.90, #f6f7fa@.84).
+# The floating action-bar pill — nearly opaque on purpose: a control strip has
+# to stay readable over whatever content scrolls under it.
+type = "glass"
+blurRadiusDp = 40
+downsampleFactor = 2
+tintColor = "#ffffff"
+tintAlpha = 0.90
+tintBottomColor = "#f6f7fa"
+tintBottomAlpha = 0.84
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.85
+borderColor = "#ffffff"
+borderAlpha = 0.95
+
 [material.glassOverlay]
 type = "glass"
 blurRadiusDp = 40
@@ -311,3 +349,18 @@ path = "resources/icons/lucide/icons"
 "minimize" = "minimize"
 "columns.2" = "columns-2"
 "arrow.counterclockwise" = "rotate-ccw"
+# File-manager window (design_handoff_files_window). The first four were USED by
+# stash/settings without an entry here — a symbol name travels as a prop STRING,
+# so the checker never sees it and `registry/widgets.rs` painted its honest grey
+# placeholder box instead. Kept as their own block so the omission stays visible.
+"square.grid.2x2" = "grid-2x2"
+"arrow.clockwise" = "refresh-cw"
+"arrow.uturn.backward" = "undo-2"
+"calendar" = "calendar"
+# The handoff uses BOTH ellipses: vertical in the window toolbar ("Mehr"),
+# horizontal in the floating action bar. They are different glyphs, not a
+# rotation, so both are imported.
+"ellipsis.vertical" = "ellipsis-vertical"
+"doc.text" = "file-text"
+"shippingbox" = "box"
+"square.pencil" = "square-pen"

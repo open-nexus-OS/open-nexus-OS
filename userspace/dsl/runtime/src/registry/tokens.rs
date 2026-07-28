@@ -58,6 +58,16 @@ pub fn color_token(name: &str) -> Option<ColorToken> {
         "textShadow" => ColorToken::TextShadow,
         "textShadowStrong" => ColorToken::TextShadowStrong,
         "transparent" => ColorToken::Transparent,
+        // Roles authored in every theme but unreachable until they had a
+        // `ColorToken`. `divider` is the one that matters most: hairlines were
+        // painted with `border` (an OPAQUE control outline) because that was
+        // the only separator-ish name a page could say.
+        "divider" => ColorToken::Divider,
+        "glassHover" => ColorToken::GlassHover,
+        "glassActive" => ColorToken::GlassActive,
+        "toggleOnBg" => ColorToken::ToggleOnBg,
+        "toggleOffBg" => ColorToken::ToggleOffBg,
+        "notifDot" => ColorToken::NotifDot,
         _ => return None,
     })
 }

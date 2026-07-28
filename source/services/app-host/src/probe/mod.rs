@@ -243,7 +243,7 @@ pub(super) fn run() -> Result<(), &'static str> {
     let win = WindowIntent { style, level, mode, nonce };
     let (mut surf_w, mut surf_h) = if level == wire::WIN_LEVEL_DESKTOP
         || level == wire::WIN_LEVEL_OVERLAY
-        || mode == wire::WIN_MODE_FULLSCREEN
+        || matches!(mode, wire::WIN_MODE_FULLSCREEN | wire::WIN_MODE_FREEFORM)
     {
         compositor_owned_geometry(&client, &events, &win, &mut boot_region)?
     } else {

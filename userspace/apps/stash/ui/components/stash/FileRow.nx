@@ -37,7 +37,7 @@ Component FileRow {
             .bg(accent)
             Stack { }
                 .height(1)
-                .bg(border)
+                .bg(divider)
         }
         .gap(0)
         on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, $props.date))
@@ -45,10 +45,10 @@ Component FileRow {
         Stack {
             Stack {
                 Image { source: $props.icon, size: 30 }
-                Text($props.name).textSize(sm).fg(onSurface).truncate(1)
+                Text($props.name).textSize(sm).fg(onGlass).truncate(1)
                 Spacer
-                Text($props.date).textSize(xs).fg(onSurfaceVariant).width(80).textAlign(right)
-                Text($props.size).textSize(xs).fg(onSurfaceVariant).width(68).textAlign(right)
+                Text($props.date).textSize(xs).fg(onGlassMuted).width(80).textAlign(right)
+                Text($props.size).textSize(xs).fg(onGlassMuted).width(68).textAlign(right)
             }
             .direction(row)
             .align(center)
@@ -58,7 +58,7 @@ Component FileRow {
             .rounded(md)
             Stack { }
                 .height(1)
-                .bg(border)
+                .bg(divider)
         }
         .gap(0)
         on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, $props.date))

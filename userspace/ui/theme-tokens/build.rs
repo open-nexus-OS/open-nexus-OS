@@ -27,6 +27,8 @@ const MATERIALS: &[(&str, &str)] = &[
     ("Card", "glassCard"),
     ("Subtle", "glassSubtle"),
     ("Window", "glassWindow"),
+    ("WindowPane", "glassWindowPane"),
+    ("WindowBar", "glassWindowBar"),
     ("Overlay", "glassOverlay"),
 ];
 const GLASS_SATURATION: u32 = 140;
@@ -71,6 +73,14 @@ const ROLES: &[(&str, &str)] = &[
     ("TextShadow", "textShadow"),
     ("TextShadowStrong", "textShadowStrong"),
     ("Transparent", "transparent"),
+    // Authored in every theme since the first token pass, but unreachable
+    // until they had a role here — the gate is this table, not the TOML.
+    ("Divider", "divider"),
+    ("GlassHover", "glassHover"),
+    ("GlassActive", "glassActive"),
+    ("ToggleOnBg", "toggleOnBg"),
+    ("ToggleOffBg", "toggleOffBg"),
+    ("NotifDot", "notifDot"),
 ];
 
 fn main() {
