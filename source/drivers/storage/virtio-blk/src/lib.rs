@@ -268,9 +268,7 @@ mod mmio_backend {
         REG_STATUS, VIRTIO_DEVICE_ID_BLK, VIRTIO_MMIO_MAGIC, VIRTIO_MMIO_VERSION_LEGACY,
         VIRTIO_MMIO_VERSION_MODERN,
     };
-    use nexus_abi::{
-        cap_query, debug_putc, mmio_map, nsec, vmo_create, vmo_map_page_sys, AbiError, CapQuery,
-    };
+    use nexus_abi::{cap_query, debug_putc, nsec, vmo_create, CapQuery};
     use nexus_hal::Bus;
 
     const VIRTQ_DESC_F_NEXT: u16 = 1;
@@ -340,14 +338,6 @@ mod mmio_backend {
         (x + 3) & !3usize
     }
 
-    fn mmio_map_ok(mmio_cap_slot: u32, va: usize, off: usize) -> Result<(), VirtioError> {
-        match mmio_map(mmio_cap_slot, va, off) {
-            Ok(()) => Ok(()),
-            Err(AbiError::AlreadyExists) => Ok(()),
-            Err(_) => Err(VirtioError::Unsupported),
-        }
-    }
-
     fn emit_line(msg: &str) {
         // One atomic `debug_write` (via `debug_println`, which also owns the verdict
         // folding): the per-byte `debug_putc` fallback tears mid-line against the
@@ -399,25 +389,25 @@ mod mmio_backend {
     }
 
     const QUEUE_LEN: usize = 8;
-    // Use different VA from virtio-net (0x2000_e000) to avoid any potential conflicts
-    const MMIO_VA: usize = 0x2001_0000;
-    const Q_MEM_VA: usize = 0x2008_0000;
+    // RFC-0085: every va below is KERNEL-CHOSEN per device (`mmio_map_auto`/
+    // `vm_map`) — the module-global fixed windows (and their cross-driver
+    // collision avoidance comments) are gone.
     const Q_PAGES: usize = 1;
-    const BUF_VA: usize = 0x2009_0000;
     const BUF_PAGES: usize = 1;
 
     impl VirtioBlkMmio {
         pub fn new(mmio_cap_slot: u32) -> Result<Self, VirtioError> {
-            mmio_map_ok(mmio_cap_slot, MMIO_VA, 0)?;
-            let magic = unsafe { core::ptr::read_volatile((MMIO_VA + 0x000) as *const u32) };
+            let mmio_va = nexus_abi::mmio_map_auto(mmio_cap_slot, 0, 0x1000)
+                .map_err(|_| VirtioError::Unsupported)?;
+            let magic = unsafe { core::ptr::read_volatile((mmio_va + 0x000) as *const u32) };
             if magic != VIRTIO_MMIO_MAGIC {
                 return Err(VirtioError::BadMagic);
             }
-            let device_id = unsafe { core::ptr::read_volatile((MMIO_VA + 0x008) as *const u32) };
+            let device_id = unsafe { core::ptr::read_volatile((mmio_va + 0x008) as *const u32) };
             if device_id != VIRTIO_DEVICE_ID_BLK {
                 return Err(VirtioError::NotBlockDevice);
             }
-            let version = unsafe { core::ptr::read_volatile((MMIO_VA + 0x004) as *const u32) };
+            let version = unsafe { core::ptr::read_volatile((mmio_va + 0x004) as *const u32) };
             if version != VIRTIO_MMIO_VERSION_LEGACY && version != VIRTIO_MMIO_VERSION_MODERN {
                 return Err(VirtioError::UnsupportedVersion);
             }
@@ -427,7 +417,7 @@ mod mmio_backend {
                 emit_line("virtio-blk: mmio legacy");
             }
 
-            let dev = VirtioBlk::new(MmioBus { base: MMIO_VA });
+            let dev = VirtioBlk::new(MmioBus { base: mmio_va });
             dev.probe()?;
             dev.reset();
 
@@ -450,11 +440,8 @@ mod mmio_backend {
                 | nexus_abi::page_flags::USER
                 | nexus_abi::page_flags::READ
                 | nexus_abi::page_flags::WRITE;
-            for page in 0..Q_PAGES {
-                let va = Q_MEM_VA + page * 4096;
-                let off = page * 4096;
-                vmo_map_page_sys(q_vmo, va, off, flags).map_err(|_| VirtioError::Unsupported)?;
-            }
+            let q_mem_va = nexus_abi::vm_map(q_vmo, 0, Q_PAGES * 4096, flags)
+                .map_err(|_| VirtioError::Unsupported)?;
             let (q_base_pa, _q_len) = cap_query_base_len(q_vmo as u32)?;
 
             // Debug: show queue physical address
@@ -469,13 +456,13 @@ mod mmio_backend {
             let avail_bytes = size_of::<VqAvail<QUEUE_LEN>>();
             let used_off = align4(desc_bytes + avail_bytes);
 
-            let desc_va = Q_MEM_VA;
-            let avail_va = Q_MEM_VA + desc_bytes;
-            let used_va = Q_MEM_VA + used_off;
+            let desc_va = q_mem_va;
+            let avail_va = q_mem_va + desc_bytes;
+            let used_va = q_mem_va + used_off;
 
             // Zero the queue memory BEFORE setting up the queue and calling driver_ok.
             // The device starts using the queue as soon as driver_ok is called.
-            unsafe { core::ptr::write_bytes(Q_MEM_VA as *mut u8, 0, Q_PAGES * 4096) };
+            unsafe { core::ptr::write_bytes(q_mem_va as *mut u8, 0, Q_PAGES * 4096) };
 
             // Debug: check QUEUE_NUM_MAX before setup
             dev.bus.write(REG_QUEUE_SEL, 0);
@@ -529,11 +516,8 @@ mod mmio_backend {
 
             // Buffer memory (single page).
             let buf_vmo = vmo_create(BUF_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
-            for page in 0..BUF_PAGES {
-                let va = BUF_VA + page * 4096;
-                let off = page * 4096;
-                vmo_map_page_sys(buf_vmo, va, off, flags).map_err(|_| VirtioError::Unsupported)?;
-            }
+            let buf_va = nexus_abi::vm_map(buf_vmo, 0, BUF_PAGES * 4096, flags)
+                .map_err(|_| VirtioError::Unsupported)?;
             let (buf_base_pa, _buf_len) = cap_query_base_len(buf_vmo as u32)?;
 
             // Debug: show buffer physical address
@@ -542,9 +526,9 @@ mod mmio_backend {
             emit_hex_u32(buf_base_pa as u32);
             emit_byte(b'\n');
 
-            let req_va = BUF_VA;
-            let data_va = BUF_VA + 512;
-            let status_va = BUF_VA + 1024;
+            let req_va = buf_va;
+            let data_va = buf_va + 512;
+            let status_va = buf_va + 1024;
             let req_pa = buf_base_pa + 0;
             let data_pa = buf_base_pa + 512;
             let status_pa = buf_base_pa + 1024;

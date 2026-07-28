@@ -120,7 +120,6 @@ pub(crate) fn probe_virtio_mmio_slots(
     // Map the supported virtio-mmio window to discover device slots, then mint
     // per-device caps. Scanning past the platform window faults in guest bring-up.
     const MAX_SLOTS: usize = 8;
-    const MMIO_VA: usize = 0x2000_e000;
     const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976; // "virt"
     const VIRTIO_DEVICE_ID_NET: u32 = 1;
     const VIRTIO_DEVICE_ID_RNG: u32 = 4;
@@ -131,6 +130,10 @@ pub(crate) fn probe_virtio_mmio_slots(
     let full_len = VIRTIO_MMIO_STRIDE * MAX_SLOTS;
     let cap = nexus_abi::device_mmio_cap_create(VIRTIO_MMIO_BASE, full_len, usize::MAX)
         .map_err(InitError::Abi)?;
+    // RFC-0085: ONE kernel-chosen map of the whole probe window — the eight
+    // per-slot maps at the shared fixed 0x2000_e000 va (and the
+    // AlreadyExists dance around them) are gone.
+    let probe_va = nexus_abi::mmio_map_auto(cap, 0, full_len).map_err(InitError::Abi)?;
 
     let mut net_slot: Option<usize> = None;
     let mut rng_slot: Option<usize> = None;
@@ -141,15 +144,7 @@ pub(crate) fn probe_virtio_mmio_slots(
     let mut input_slots: [Option<usize>; 3] = [None, None, None];
     for slot in 0..MAX_SLOTS {
         let off = slot * VIRTIO_MMIO_STRIDE;
-        let va = MMIO_VA + off;
-        match nexus_abi::mmio_map(cap, va, off) {
-            Ok(()) => {}
-            // ADR-0054: an overlap now arrives as AlreadyExists, not as an
-            // anonymous InvalidArgument — already-mapped is fine, keep probing
-            // this slot. Any OTHER error means the slot is unusable.
-            Err(nexus_abi::AbiError::AlreadyExists) => {}
-            Err(_) => continue,
-        }
+        let va = probe_va + off;
         let magic = unsafe { core::ptr::read_volatile((va + 0x000) as *const u32) };
         if magic != VIRTIO_MMIO_MAGIC {
             continue;

@@ -38,14 +38,22 @@ pub fn combine_epoch(low: u32, high: u32) -> u64 {
     (u64::from(high) << 32) | u64::from(low)
 }
 
-/// Maps the RTC window (idempotent) and reads the current UTC epoch in
-/// nanoseconds. Fail-closed: a zero epoch (absent device reads as zeros)
-/// is `Implausible`, never returned as time. OS-only (MMIO syscalls).
+/// Maps the RTC window (kernel-chosen va, cached across calls — RFC-0085)
+/// and reads the current UTC epoch in nanoseconds. Fail-closed: a zero
+/// epoch (absent device reads as zeros) is `Implausible`, never returned
+/// as time. OS-only (MMIO syscalls).
 #[cfg(nexus_env = "os")]
-pub fn read_epoch_ns(mmio_cap_slot: u32, mmio_base_va: usize) -> Result<u64, RtcError> {
-    nexus_abi::mmio_map(mmio_cap_slot, mmio_base_va, 0)
-        .or_else(|e| if e == nexus_abi::AbiError::AlreadyExists { Ok(()) } else { Err(e) })
-        .map_err(|_| RtcError::MapFailed)?;
+pub fn read_epoch_ns(mmio_cap_slot: u32) -> Result<u64, RtcError> {
+    // Once-latch: retried reads (Implausible until the device answers) must
+    // not map a fresh region per attempt.
+    static mut MMIO_VA: usize = 0;
+    let mmio_base_va = unsafe {
+        if MMIO_VA == 0 {
+            MMIO_VA = nexus_abi::mmio_map_auto(mmio_cap_slot, 0, 0x1000)
+                .map_err(|_| RtcError::MapFailed)?;
+        }
+        MMIO_VA
+    };
     // Order matters: TIME_LOW latches TIME_HIGH (goldfish contract).
     let low = unsafe { core::ptr::read_volatile((mmio_base_va + REG_TIME_LOW) as *const u32) };
     let high = unsafe { core::ptr::read_volatile((mmio_base_va + REG_TIME_HIGH) as *const u32) };
@@ -59,7 +67,7 @@ pub fn read_epoch_ns(mmio_cap_slot: u32, mmio_base_va: usize) -> Result<u64, Rtc
 // Host builds never touch hardware; the register-combine math above is the
 // host-testable slice.
 #[cfg(not(nexus_env = "os"))]
-pub fn read_epoch_ns(_mmio_cap_slot: u32, _mmio_base_va: usize) -> Result<u64, RtcError> {
+pub fn read_epoch_ns(_mmio_cap_slot: u32) -> Result<u64, RtcError> {
     Err(RtcError::MapFailed)
 }
 

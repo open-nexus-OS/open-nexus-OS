@@ -34,7 +34,7 @@ use std::vec::Vec;
 use nexus_hal::Bus;
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
-use nexus_abi::{cap_query, mmio_map, vmo_create, vmo_map_page, AbiError, CapQuery};
+use nexus_abi::{cap_query, mmio_map_auto, vm_map, vmo_create, CapQuery};
 
 /// Maximum entropy bytes that can be requested in a single call.
 /// Bounded to prevent DoS and ensure deterministic behavior.
@@ -341,7 +341,6 @@ fn align4(x: usize) -> usize {
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
 pub fn read_entropy_via_virtio_mmio(
     mmio_cap_slot: u32,
-    mmio_base_va: usize,
     max_slots: usize,
     n: usize,
 ) -> Result<Vec<u8>, RngError> {
@@ -354,21 +353,21 @@ pub fn read_entropy_via_virtio_mmio(
 
     const SLOT_STRIDE: usize = 0x1000;
 
-    // Map slot 0 first.
-    mmio_map(mmio_cap_slot, mmio_base_va, 0)
-        .or_else(|e| if e == AbiError::AlreadyExists { Ok(()) } else { Err(e) })
-        .map_err(|_| RngError::MapFailed)?;
+    // RFC-0085: kernel-chosen va; mapped once, cached (called per request).
+    static mut MMIO_WINDOW_VA: usize = 0;
+    let mmio_base_va = unsafe {
+        if MMIO_WINDOW_VA == 0 {
+            MMIO_WINDOW_VA = mmio_map_auto(mmio_cap_slot, 0, max_slots * SLOT_STRIDE)
+                .map_err(|_| RngError::MapFailed)?;
+        }
+        MMIO_WINDOW_VA
+    };
 
     // Find virtio-rng slot.
     let mut found: Option<usize> = None;
     for slot in 0..max_slots {
         let off = slot * SLOT_STRIDE;
         let va = mmio_base_va + off;
-        if slot != 0 {
-            mmio_map(mmio_cap_slot, va, off)
-                .or_else(|e| if e == AbiError::AlreadyExists { Ok(()) } else { Err(e) })
-                .map_err(|_| RngError::MapFailed)?;
-        }
         let magic = unsafe { core::ptr::read_volatile((va + mmio::REG_MAGIC) as *const u32) };
         if magic != VIRTIO_MAGIC {
             continue;
@@ -418,16 +417,17 @@ pub fn read_entropy_via_virtio_mmio(
         }
     }
 
-    // Allocate queue memory (1 page) + buffer memory (1 page) once and reuse.
-    const Q_VA: usize = 0x2004_0000;
-    const BUF_VA: usize = 0x2006_0000;
+    // Queue + buffer pages once, kernel-chosen vas latched (RFC-0085).
     const N: usize = 1;
     static mut QUEUE_INIT: bool = false;
     static mut Q_VMO: u32 = 0;
     static mut BUF_VMO: u32 = 0;
+    static mut Q_VA_S: usize = 0;
+    static mut BUF_VA_S: usize = 0;
     static mut DESC_PA: u64 = 0;
     static mut BUF_PA: u64 = 0;
-    let (_q_vmo, _buf_vmo, desc_pa, buf_pa) = unsafe {
+    #[allow(non_snake_case)]
+    let (_q_vmo, _buf_vmo, Q_VA, BUF_VA, desc_pa, buf_pa): (u32, u32, usize, usize, u64, u64) = unsafe {
         if !QUEUE_INIT {
             let q_vmo = vmo_create(4096).map_err(|_| RngError::MapFailed)?;
             let buf_vmo = vmo_create(4096).map_err(|_| RngError::MapFailed)?;
@@ -435,8 +435,8 @@ pub fn read_entropy_via_virtio_mmio(
                 | nexus_abi::page_flags::USER
                 | nexus_abi::page_flags::READ
                 | nexus_abi::page_flags::WRITE;
-            vmo_map_page(q_vmo, Q_VA, 0, flags).map_err(|_| RngError::MapFailed)?;
-            vmo_map_page(buf_vmo, BUF_VA, 0, flags).map_err(|_| RngError::MapFailed)?;
+            Q_VA_S = vm_map(q_vmo, 0, 4096, flags).map_err(|_| RngError::MapFailed)?;
+            BUF_VA_S = vm_map(buf_vmo, 0, 4096, flags).map_err(|_| RngError::MapFailed)?;
             let mut q_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
             cap_query(q_vmo, &mut q_info).map_err(|_| RngError::MapFailed)?;
             let mut b_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
@@ -447,7 +447,7 @@ pub fn read_entropy_via_virtio_mmio(
             BUF_PA = b_info.base;
             QUEUE_INIT = true;
         }
-        (Q_VMO, BUF_VMO, DESC_PA, BUF_PA)
+        (Q_VMO, BUF_VMO, Q_VA_S, BUF_VA_S, DESC_PA, BUF_PA)
     };
 
     // Zero queue page.

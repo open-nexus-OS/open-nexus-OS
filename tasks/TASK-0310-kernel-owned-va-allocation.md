@@ -1,6 +1,6 @@
 ---
 title: TASK-0310 Kernel-owned VA allocation — vm_map/vm_unmap/mmio_map_auto end to end
-status: In progress (2026-07-28) — Phases 0–4 done
+status: In progress (2026-07-28) — Phases 0–5 done
 owner: @kernel-mm-team @ui
 created: 2026-07-28
 links:
@@ -158,10 +158,45 @@ ignore budget (4) so an external settings change can never be starved.
 cost measurably collapsed · `bkl budget ok (max_wait=0us)` · `just check`
 green.**
 
-### Phase 5 — the rest ⬜
+### Phase 5 — the rest ✅ (2026-07-28)
 
-hidrawd (9 windows), app-host atlas, the 0x2000_e000 six, virtio-blk
-per-device. Gate: headless + dhcp profiles.
+Userspace no longer invents ANY virtual address:
+
+- **hidrawd / virtio-input**: `MappedVirtioInputDevice::open(cap, slot)` —
+  the nine fixed windows (3× MMIO/queue/buffer arrays) are gone; a failed
+  probe UNMAPS before returning so the service-loop retry cannot leak a
+  region per round.
+- **virtio-rng / rngd**: whole-window `mmio_map_auto` + queue/buffer
+  `vm_map`, once-latched (runs per entropy request).
+- **goldfish-rtc / timed**: kernel-chosen window, cached across the
+  Implausible-retry loop.
+- **virtio-blk / statefsd + virtioblkd**: per-device kernel-chosen vas —
+  the module-global consts (and their cross-driver "avoid 0x2000_e000"
+  comment) deleted; the retry loop maps once.
+- **nexus-net-os / netstackd**: mmio + queue + buffer one-call maps.
+  FOUND EN ROUTE: `poll_inner_once` hardcoded `mmio_va: 0x2000_e000` in its
+  `SmolDevice` — the first boot page-faulted at 0x2000_e060 (USER-PF, the
+  guard working as designed: a stale fixed VA is now a loud fault, not a
+  silent alias). `Inner` carries the mapped va.
+- **app-host atlas**: the ~1100-call per-page RO map at fixed 0x3000_0000
+  is one `vm_map` on the `VmoRo` alias (kernel force-maps RO).
+- **nexus-init probe**: ONE whole-window map of all 8 virtio-mmio slots —
+  the per-slot maps at the shared 0x2000_e000 va and the AlreadyExists
+  dance are gone.
+- **selftest-client**: fw_cfg window kernel-chosen (`AtomicUsize` base);
+  smoltcp opt-in probe migrated; the RETIRED `mmio_map_probe` deleted.
+- **userspace/memory**: dead `map_ro_pages` (caller-chosen va, zero
+  callers) deleted.
+
+The `0x2000_e000` literal survives nowhere. Every remaining
+`vmo_map_page*`/`mmio_map` reference in the tree is nexus-abi itself or a
+marker/comment — Phase 6 deletes the wrappers.
+
+**Proof: headless ladder exit 0 (…T15-35-26, incl. `ime v2 candidates ok`,
+`APPHOST: atlas mapped`, rngd/rtc/blk/net proofs) · dhcp profile exit 0
+(dhcp bound + dns ok) · `just check` green · test-host 615/615. hidrawd's
+new open path is device-exercised only in the interactive lane (headless
+has no virtio-input) — `just start` sanity remains on the user.**
 
 ### Phase 6 — deletion ⬜
 

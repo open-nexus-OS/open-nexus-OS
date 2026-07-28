@@ -293,24 +293,15 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     //
     // NOTE: This is best-effort and bounded; the marker is emitted only on success.
     const MMIO_CAP_SLOT: u32 = 48;
-    const MMIO_VA: usize = 0x2000_e000;
-    // NOTE: `mmio_map_probe()` may have already mapped this window earlier in the selftest.
-    // Treat InvalidArgument as "already mapped" rather than a hard failure.
-    let mmio_map_ok = |va: usize, off: usize| -> core::result::Result<(), ()> {
-        match nexus_abi::mmio_map(MMIO_CAP_SLOT, va, off) {
-            Ok(()) => Ok(()),
-            Err(nexus_abi::AbiError::AlreadyExists) => Ok(()),
-            Err(_) => Err(()),
-        }
-    };
-    mmio_map_ok(MMIO_VA, 0)?;
-    let magic = unsafe { core::ptr::read_volatile((MMIO_VA + 0x000) as *const u32) };
-    let device_id = unsafe { core::ptr::read_volatile((MMIO_VA + 0x008) as *const u32) };
+    // RFC-0085: kernel-chosen va — the shared fixed 0x2000_e000 window is gone.
+    let mmio_va = nexus_abi::mmio_map_auto(MMIO_CAP_SLOT, 0, 0x1000).map_err(|_| ())?;
+    let magic = unsafe { core::ptr::read_volatile((mmio_va + 0x000) as *const u32) };
+    let device_id = unsafe { core::ptr::read_volatile((mmio_va + 0x008) as *const u32) };
     if magic != VIRTIO_MMIO_MAGIC || device_id != VIRTIO_DEVICE_ID_NET {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_NO_VIRTIO_NET);
         return Err(());
     }
-    let dev = VirtioNetMmio::new(MmioBus { base: MMIO_VA });
+    let dev = VirtioNetMmio::new(MmioBus { base: mmio_va });
     if dev.probe().is_err() {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_PROBE_FAIL);
         return Err(());
@@ -320,10 +311,10 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
 
     // Read MAC from virtio-net config space (offset 0x100).
     // NOTE(task-0023b cut 6): pre-existing typo in dead code (`dev_va`) replaced with the
-    // already-mapped `MMIO_VA` so the `smoltcp-probe` cfg-gate compiles per RFC-0038.
+    // already-mapped `mmio_va` so the `smoltcp-probe` cfg-gate compiles per RFC-0038.
     let mac = {
-        let w0 = unsafe { core::ptr::read_volatile((MMIO_VA + 0x100) as *const u32) };
-        let w1 = unsafe { core::ptr::read_volatile((MMIO_VA + 0x104) as *const u32) };
+        let w0 = unsafe { core::ptr::read_volatile((mmio_va + 0x100) as *const u32) };
+        let w1 = unsafe { core::ptr::read_volatile((mmio_va + 0x104) as *const u32) };
         [
             (w0 & 0xff) as u8,
             ((w0 >> 8) & 0xff) as u8,
@@ -336,8 +327,6 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
 
     // Allocate queue memory and buffers close to existing mappings to avoid kernel PT heap blowups.
     const N: usize = 8;
-    const QUEUE_VA: usize = 0x2004_0000;
-    const BUF_VA: usize = 0x2006_0000;
     const Q_PAGES_PER_QUEUE: usize = 1;
     const TOTAL_Q_PAGES: usize = Q_PAGES_PER_QUEUE * 2; // rx+tx
 
@@ -352,14 +341,13 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
         | nexus_abi::page_flags::USER
         | nexus_abi::page_flags::READ
         | nexus_abi::page_flags::WRITE;
-    for page in 0..TOTAL_Q_PAGES {
-        let va = QUEUE_VA + page * 4096;
-        let off = page * 4096;
-        if nexus_abi::vmo_map_page(q_vmo, va, off, flags).is_err() {
+    let queue_va = match nexus_abi::vm_map(q_vmo, 0, TOTAL_Q_PAGES * 4096, flags) {
+        Ok(va) => va,
+        Err(_) => {
             emit_line(crate::markers::M_SELFTEST_SMOLTCP_QMAP_FAIL);
             return Err(());
         }
-    }
+    };
     let mut q_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     if nexus_abi::cap_query(q_vmo, &mut q_info).is_err() {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_QQUERY_FAIL);
@@ -369,11 +357,11 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
 
     // Layout for legacy (queue_align=4): desc at base, then avail, then used (same page).
     let align4 = |x: usize| (x + 3) & !3usize;
-    let rx_desc_va = QUEUE_VA + 0;
+    let rx_desc_va = queue_va + 0;
     let rx_avail_va = rx_desc_va + core::mem::size_of::<VqDesc>() * N;
     let rx_used_va = rx_desc_va
         + align4(core::mem::size_of::<VqDesc>() * N + core::mem::size_of::<VqAvail<N>>());
-    let tx_desc_va = QUEUE_VA + Q_PAGES_PER_QUEUE * 4096;
+    let tx_desc_va = queue_va + Q_PAGES_PER_QUEUE * 4096;
     let tx_avail_va = tx_desc_va + core::mem::size_of::<VqDesc>() * N;
     let tx_used_va = tx_desc_va
         + align4(core::mem::size_of::<VqDesc>() * N + core::mem::size_of::<VqAvail<N>>());
@@ -421,14 +409,13 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
             return Err(());
         }
     };
-    for page in 0..(N * 2) {
-        let va = BUF_VA + page * 4096;
-        let off = page * 4096;
-        if nexus_abi::vmo_map_page(buf_vmo, va, off, flags).is_err() {
+    let buf_va = match nexus_abi::vm_map(buf_vmo, 0, (N * 2) * 4096, flags) {
+        Ok(va) => va,
+        Err(_) => {
             emit_line(crate::markers::M_SELFTEST_SMOLTCP_BMAP_FAIL);
             return Err(());
         }
-    }
+    };
     let mut bq = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     if nexus_abi::cap_query(buf_vmo, &mut bq).is_err() {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_BQUERY_FAIL);
@@ -454,14 +441,14 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
         tx_drops: 0,
     };
     for i in 0..N {
-        q.rx_buf_va[i] = BUF_VA + i * 4096;
+        q.rx_buf_va[i] = buf_va + i * 4096;
         q.rx_buf_pa[i] = bq.base + (i as u64) * 4096;
-        q.tx_buf_va[i] = BUF_VA + (N + i) * 4096;
+        q.tx_buf_va[i] = buf_va + (N + i) * 4096;
         q.tx_buf_pa[i] = bq.base + ((N + i) as u64) * 4096;
     }
     // Zero rings
     unsafe {
-        core::ptr::write_bytes(QUEUE_VA as *mut u8, 0, TOTAL_Q_PAGES * 4096);
+        core::ptr::write_bytes(queue_va as *mut u8, 0, TOTAL_Q_PAGES * 4096);
     }
     q.rx_replenish(&dev, N);
     dev.set_driver_ok();

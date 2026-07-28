@@ -11,14 +11,21 @@
 use core::cmp::min;
 use core::sync::atomic::{AtomicU8, Ordering};
 
-use nexus_abi::{mmio_map, yield_, Handle};
+use nexus_abi::{yield_, Handle};
 
 use crate::runtime_mode::{parse_runtime_mode, parse_runtime_profile, RuntimeMode, RuntimeProfile};
 
 pub(crate) const FW_CFG_SLOT: Handle = 0x31;
-pub(crate) const FW_CFG_MMIO_VA: usize = 0x2001_0000;
-pub(crate) const FW_CFG_DATA: usize = FW_CFG_MMIO_VA;
-pub(crate) const FW_CFG_SELECTOR: usize = FW_CFG_MMIO_VA + 8;
+/// Kernel-chosen fw_cfg window base (RFC-0085), set once by `ensure_mapped`.
+static FW_CFG_BASE: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+fn fw_cfg_data() -> usize {
+    FW_CFG_BASE.load(Ordering::Acquire)
+}
+
+fn fw_cfg_selector() -> usize {
+    FW_CFG_BASE.load(Ordering::Acquire) + 8
+}
 pub(crate) const FW_CFG_FILE_DIR: u16 = 0x19;
 
 const SELFTEST_MODE_FILE_NAME: &[u8] = b"opt/org.open-nexus/selftest-mode";
@@ -75,8 +82,9 @@ pub(crate) fn ensure_mapped() -> Result<(), ()> {
         MAP_STATE_MAPPED => return Ok(()),
         _ => {}
     }
-    match mmio_map(FW_CFG_SLOT, FW_CFG_MMIO_VA, 0) {
-        Ok(()) => {
+    match nexus_abi::mmio_map_auto(FW_CFG_SLOT, 0, 0x1000) {
+        Ok(va) => {
+            FW_CFG_BASE.store(va, Ordering::Release);
             FW_CFG_MAP_STATE.store(MAP_STATE_MAPPED, Ordering::Release);
             Ok(())
         }
@@ -124,13 +132,13 @@ pub(crate) fn find_file_select(target_name: &[u8]) -> Option<(u16, u32)> {
 
 pub(crate) fn select_fw_cfg(select: u16) {
     unsafe {
-        core::ptr::write_volatile(FW_CFG_SELECTOR as *mut u16, select.to_be());
+        core::ptr::write_volatile(fw_cfg_selector() as *mut u16, select.to_be());
     }
 }
 
 #[must_use]
 pub(crate) fn read_fw_cfg_u8() -> u8 {
-    unsafe { core::ptr::read_volatile(FW_CFG_DATA as *const u8) }
+    unsafe { core::ptr::read_volatile(fw_cfg_data() as *const u8) }
 }
 
 #[must_use]

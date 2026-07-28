@@ -22,7 +22,7 @@ use nexus_hal::Bus;
 use std::vec::Vec;
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
-use nexus_abi::{cap_query, mmio_map, vmo_create, vmo_map_page, AbiError, CapQuery};
+use nexus_abi::{cap_query, mmio_map_auto, vm_map, vm_unmap, vmo_create, CapQuery};
 
 pub const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976;
 pub const VIRTIO_MMIO_VERSION_MODERN: u32 = 2;
@@ -448,34 +448,36 @@ pub struct MappedVirtioInputDevice {
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
 impl MappedVirtioInputDevice {
-    pub fn open(
-        mmio_cap_slot: u32,
-        mmio_base_va: usize,
-        queue_va: usize,
-        buffer_va: usize,
-        slot: DeviceSlot,
-    ) -> Result<Self, VirtioInputError> {
-        mmio_map(mmio_cap_slot, mmio_base_va, 0)
-            .or_else(|err| if err == AbiError::AlreadyExists { Ok(()) } else { Err(err) })
+    pub fn open(mmio_cap_slot: u32, slot: DeviceSlot) -> Result<Self, VirtioInputError> {
+        // RFC-0085: the kernel picks every VA (`mmio_map_auto`/`vm_map`) —
+        // the nine per-device fixed windows hidrawd used to carve are gone.
+        // A failed probe UNMAPS before returning: `open` retries on the
+        // service loop, and a leaked region per retry would exhaust the
+        // per-space region table.
+        const MMIO_WINDOW_LEN: usize = 0x1000;
+        let mmio_base_va = mmio_map_auto(mmio_cap_slot, 0, MMIO_WINDOW_LEN)
             .map_err(|_| VirtioInputError::MapFailed)?;
         let bus = MmioBus::new(mmio_base_va);
-        let mmio = VirtioInputMmio::new(bus);
-        mmio.probe()?;
-        mmio.negotiate_features_none()?;
-        let role = mmio.detect_role()?;
-        // Keep absolute axis calibration available even when role detection
-        // falls back conservatively because optional config-bit probes are absent.
-        let absolute_x = mmio.read_absolute_axis_info(0).ok();
-        let absolute_y = mmio.read_absolute_axis_info(1).ok();
-        let queue = QueueState::<{ DEFAULT_QUEUE_ENTRIES as usize }>::new(
-            &bus,
-            queue_va,
-            buffer_va,
-            INPUT_EVENT_QUEUE_INDEX,
-        )?;
-        bus.write(REG_STATUS, bus.read(REG_STATUS) | STATUS_DRIVER_OK);
-        bus.write(REG_QUEUE_NOTIFY, INPUT_EVENT_QUEUE_INDEX);
-        Ok(Self { slot, role, bus, queue, absolute_x, absolute_y })
+        let inner = || -> Result<Self, VirtioInputError> {
+            let mmio = VirtioInputMmio::new(bus);
+            mmio.probe()?;
+            mmio.negotiate_features_none()?;
+            let role = mmio.detect_role()?;
+            // Keep absolute axis calibration available even when role detection
+            // falls back conservatively because optional config-bit probes are absent.
+            let absolute_x = mmio.read_absolute_axis_info(0).ok();
+            let absolute_y = mmio.read_absolute_axis_info(1).ok();
+            let queue = QueueState::<{ DEFAULT_QUEUE_ENTRIES as usize }>::new(
+                &bus,
+                INPUT_EVENT_QUEUE_INDEX,
+            )?;
+            bus.write(REG_STATUS, bus.read(REG_STATUS) | STATUS_DRIVER_OK);
+            bus.write(REG_QUEUE_NOTIFY, INPUT_EVENT_QUEUE_INDEX);
+            Ok(Self { slot, role, bus, queue, absolute_x, absolute_y })
+        };
+        inner().inspect_err(|_| {
+            let _ = vm_unmap(mmio_base_va, MMIO_WINDOW_LEN);
+        })
     }
 
     #[must_use]
@@ -556,20 +558,17 @@ struct QueueState<const N: usize> {
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
 impl<const N: usize> QueueState<N> {
-    fn new(
-        bus: &MmioBus,
-        queue_va: usize,
-        buffer_va: usize,
-        queue_index: u32,
-    ) -> Result<Self, VirtioInputError> {
+    fn new(bus: &MmioBus, queue_index: u32) -> Result<Self, VirtioInputError> {
         let queue_vmo = vmo_create(4096).map_err(|_| VirtioInputError::MapFailed)?;
         let buffer_vmo = vmo_create(4096).map_err(|_| VirtioInputError::MapFailed)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
-        vmo_map_page(queue_vmo, queue_va, 0, flags).map_err(|_| VirtioInputError::MapFailed)?;
-        vmo_map_page(buffer_vmo, buffer_va, 0, flags).map_err(|_| VirtioInputError::MapFailed)?;
+        let queue_va =
+            vm_map(queue_vmo, 0, 4096, flags).map_err(|_| VirtioInputError::MapFailed)?;
+        let buffer_va =
+            vm_map(buffer_vmo, 0, 4096, flags).map_err(|_| VirtioInputError::MapFailed)?;
         let mut queue_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         cap_query(queue_vmo, &mut queue_info).map_err(|_| VirtioInputError::MapFailed)?;
         let mut buffer_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };

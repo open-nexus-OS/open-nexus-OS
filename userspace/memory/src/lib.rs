@@ -455,32 +455,6 @@ impl Vmo {
         }
     }
 
-    /// Maps page-aligned, read-only pages into the current address space on OS builds.
-    #[cfg(all(nexus_env = "os", feature = "os-lite"))]
-    pub fn map_ro_pages(&mut self, va: usize, offset: usize, len: usize) -> Result<()> {
-        if len == 0 || (va % PAGE_SIZE_BYTES) != 0 || (offset % PAGE_SIZE_BYTES) != 0 {
-            return Err(Error::InvalidLength);
-        }
-        if (len % PAGE_SIZE_BYTES) != 0 {
-            return Err(Error::InvalidLength);
-        }
-        let end = offset.checked_add(len).ok_or(Error::OutOfBounds)?;
-        if end > self.len {
-            return Err(Error::OutOfBounds);
-        }
-        self.record_map_reuse();
-        let flags = nexus_abi::page_flags::VALID
-            | nexus_abi::page_flags::READ
-            | nexus_abi::page_flags::USER;
-        let mut mapped = 0usize;
-        while mapped < len {
-            nexus_abi::vmo_map_page_sys(self.handle, va + mapped, offset + mapped, flags)
-                .map_err(map_abi_error)?;
-            mapped += PAGE_SIZE_BYTES;
-        }
-        Ok(())
-    }
-
     /// Returns the raw OS handle when available.
     #[cfg(all(nexus_env = "os", feature = "os-lite"))]
     pub const fn raw_handle(&self) -> nexus_abi::Handle {

@@ -35,9 +35,6 @@ use crate::{
 };
 
 const INPUT_CAP_SLOTS: [u32; 3] = [50, 51, 52];
-const INPUT_MMIO_VAS: [usize; 3] = [0x2003_0000, 0x2003_1000, 0x2003_2000];
-const INPUT_QUEUE_VAS: [usize; 3] = [0x2004_0000, 0x2005_0000, 0x2006_0000];
-const INPUT_BUFFER_VAS: [usize; 3] = [0x2007_0000, 0x2008_0000, 0x2009_0000];
 
 use crate::telemetry::HidrawChainTelemetry;
 
@@ -353,13 +350,7 @@ fn open_live_devices(missing_slots_logged: &mut [bool; INPUT_CAP_SLOTS.len()]) -
             let _ = debug_println(&format!("hidrawd: input slot ready {}", slot));
             missing_slots_logged[idx] = false;
         }
-        let driver = match MappedVirtioInputDevice::open(
-            slot,
-            INPUT_MMIO_VAS[idx],
-            INPUT_QUEUE_VAS[idx],
-            INPUT_BUFFER_VAS[idx],
-            DeviceSlot::new(idx as u8),
-        ) {
+        let driver = match MappedVirtioInputDevice::open(slot, DeviceSlot::new(idx as u8)) {
             Ok(driver) => driver,
             Err(err) => {
                 let _ = debug_println(&format!("hidrawd: input open fail slot={} err={err}", slot));

@@ -111,9 +111,6 @@ fn payload_addr() -> usize {
 
 /// RFC-0080: slot execd grants the shared atlas VMO into (=execd `CHILD_ATLAS_VMO_SLOT`; clear of sdk-routes child_slots 11..=18).
 const ATLAS_VMO_SLOT: u32 = 19;
-/// VA where the atlas maps (read-only) — clear of the ELF image and the
-/// stack/meta window at 0x2000_0000.
-const ATLAS_VA: usize = 0x3000_0000;
 
 /// Maps the shared atlas VMO READ-only and installs it as the text atlas
 /// base, so this app-host renders from ONE shared copy instead of its own
@@ -123,20 +120,23 @@ const ATLAS_VA: usize = 0x3000_0000;
 fn map_atlas_base() {
     use nexus_abi::page_flags;
     let len = nexus_text_baked::atlas_len();
-    let pages = len.div_ceil(4096);
+    // RFC-0085: one whole-range map at a KERNEL-CHOSEN va (was a ~1100-call
+    // per-page loop at fixed 0x3000_0000 — the slot-15 scar class). The RO
+    // alias force-maps read-only kernel-side regardless of flags.
+    let mapped_len = len.div_ceil(4096) * 4096;
     let flags = page_flags::VALID | page_flags::USER | page_flags::READ;
-    for page in 0..pages {
-        let va = ATLAS_VA + page * 4096;
-        if nexus_abi::vmo_map_page(ATLAS_VMO_SLOT, va, page * 4096, flags).is_err() {
+    let atlas_va = match nexus_abi::vm_map(ATLAS_VMO_SLOT, 0, mapped_len, flags) {
+        Ok(va) => va,
+        Err(_) => {
             raw_marker("APPHOST: FAIL atlas map");
             return;
         }
-    }
-    // SAFETY: the range [ATLAS_VA, ATLAS_VA + len) is now mapped read-only
+    };
+    // SAFETY: the range [atlas_va, atlas_va + len) is now mapped read-only
     // from the shared VMO and stays valid for the process lifetime; `len`
     // is the baked atlas size.
     unsafe {
-        nexus_text_baked::set_atlas_base(ATLAS_VA as *const u8, len);
+        nexus_text_baked::set_atlas_base(atlas_va as *const u8, len);
     }
     raw_marker("APPHOST: atlas mapped");
 }

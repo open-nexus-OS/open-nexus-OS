@@ -231,10 +231,10 @@ fn handle_get_entropy(
 fn read_entropy_from_device(n: usize) -> Result<Vec<u8>, rng_virtio::RngError> {
     // DeviceMmio cap is distributed by init (policy-gated) into a deterministic slot.
     const MMIO_CAP_SLOT: u32 = 48;
-    const MMIO_VA: usize = 0x2000_e000;
     const MAX_SLOTS: usize = 1;
 
-    let result = rng_virtio::read_entropy_via_virtio_mmio(MMIO_CAP_SLOT, MMIO_VA, MAX_SLOTS, n);
+    // RFC-0085: the kernel picks the window va (`mmio_map_auto` inside).
+    let result = rng_virtio::read_entropy_via_virtio_mmio(MMIO_CAP_SLOT, MAX_SLOTS, n);
 
     // Emit proof marker on first successful read (proves owner service mapped its MMIO window).
     if result.is_ok() && !MMIO_PROOF_EMITTED.swap(true, Ordering::Relaxed) {

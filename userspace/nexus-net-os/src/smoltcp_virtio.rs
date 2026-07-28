@@ -25,7 +25,7 @@ use nexus_net::{
 };
 
 use net_virtio::{QueueSetup, VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
-use nexus_abi::{cap_query, mmio_map, vmo_create, vmo_map_page_sys, AbiError, CapQuery};
+use nexus_abi::{cap_query, mmio_map_auto, vm_map, vmo_create, CapQuery};
 use nexus_hal::Bus;
 use smoltcp::iface::{Config as IfaceConfig, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
@@ -98,14 +98,6 @@ fn align4(x: usize) -> usize {
     (x + 3) & !3usize
 }
 
-fn mmio_map_ok(mmio_cap_slot: u32, va: usize, off: usize) -> Result<(), NetError> {
-    match mmio_map(mmio_cap_slot, va, off) {
-        Ok(()) => Ok(()),
-        Err(AbiError::AlreadyExists) => Ok(()), // already mapped
-        Err(_) => Err(NetError::Internal("mmio_map failed")),
-    }
-}
-
 fn cap_query_base_len(slot: u32) -> Result<(u64, u64), NetError> {
     let mut info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     cap_query(slot, &mut info).map_err(|_| NetError::Internal("cap_query failed"))?;
@@ -124,6 +116,9 @@ const ACTIVE_BUFS: usize = 4;
 struct Inner {
     // Virtio device (MMIO)
     dev: VirtioNetMmio<MmioBus>,
+    // Kernel-chosen MMIO window base (RFC-0085) — the poll path's queue
+    // notify writes go here; a stale fixed constant here page-faults.
+    mmio_va: usize,
     // Negotiated virtio-net RX/TX header length (10 vs 12).
     vnet_hdr_len: usize,
 
@@ -170,7 +165,7 @@ fn poll_inner_once(inner: &mut Inner, now: NetInstant) {
     // Keep polling on the negotiated modern virtio-mmio datapath.
     let mut devwrap = SmolDevice::<ACTIVE_BUFS> {
         dev: &inner.dev as *const _,
-        mmio_va: 0x2000_e000,
+        mmio_va: inner.mmio_va,
         vnet_hdr_len: inner.vnet_hdr_len,
         rx_desc: inner.rx_desc,
         rx_avail: inner.rx_avail,
@@ -199,21 +194,22 @@ impl SmoltcpVirtioNetStack {
     pub fn new_default() -> Result<Self, NetError> {
         // MMIO capability is distributed by init into a deterministic slot.
         let mmio_cap_slot: u32 = 48;
-        const MMIO_VA: usize = 0x2000_e000;
-
-        mmio_map_ok(mmio_cap_slot, MMIO_VA, 0)?;
+        // RFC-0085: kernel-chosen va (the shared fixed 0x2000_e000 window —
+        // one of six copies across the tree — is gone).
+        let mmio_va = mmio_map_auto(mmio_cap_slot, 0, 0x1000)
+            .map_err(|_| NetError::Internal("mmio_map_auto failed"))?;
 
         // VirtIO MMIO registers: magic @ 0x000, device_id @ 0x008
-        // SAFETY: MMIO is mapped by mmio_map_ok.
-        let magic = unsafe { core::ptr::read_volatile((MMIO_VA + 0x000) as *const u32) };
+        // SAFETY: MMIO is mapped above.
+        let magic = unsafe { core::ptr::read_volatile((mmio_va + 0x000) as *const u32) };
         if magic != VIRTIO_MMIO_MAGIC {
             return Err(NetError::Unsupported);
         }
-        let device_id = unsafe { core::ptr::read_volatile((MMIO_VA + 0x008) as *const u32) };
+        let device_id = unsafe { core::ptr::read_volatile((mmio_va + 0x008) as *const u32) };
         if device_id != VIRTIO_DEVICE_ID_NET {
             return Err(NetError::Unsupported);
         }
-        let dev_va = MMIO_VA;
+        let dev_va = mmio_va;
         let dev = VirtioNetMmio::new(MmioBus { base: dev_va });
         dev.probe().map_err(|_| NetError::Internal("virtio probe failed"))?;
 
@@ -230,18 +226,13 @@ impl SmoltcpVirtioNetStack {
         let vnet_hdr_len = if (accepted & VIRTIO_NET_F_MRG_RXBUF) != 0 { 12 } else { 10 };
 
         // Queue memory (2 pages): 1 page per queue, small bring-up queues.
-        const Q_MEM_VA: usize = 0x2002_0000;
         const Q_PAGES: usize = 2;
         let q_vmo = vmo_create(Q_PAGES * 4096).map_err(|_| NetError::NoBufs)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
-        for page in 0..Q_PAGES {
-            let va = Q_MEM_VA + page * 4096;
-            let off = page * 4096;
-            vmo_map_page_sys(q_vmo, va, off, flags).map_err(|_| NetError::NoBufs)?;
-        }
+        let q_mem_va = vm_map(q_vmo, 0, Q_PAGES * 4096, flags).map_err(|_| NetError::NoBufs)?;
         let (q_base_pa, _q_len) = cap_query_base_len(q_vmo as u32)?;
 
         // Legacy combined layout within each queue:
@@ -251,8 +242,8 @@ impl SmoltcpVirtioNetStack {
         let avail_bytes = core::mem::size_of::<VqAvail<Q_LEN>>();
         let used_off = align4(desc_bytes + avail_bytes);
 
-        let q0_va = Q_MEM_VA + 0;
-        let q1_va = Q_MEM_VA + 4096;
+        let q0_va = q_mem_va + 0;
+        let q1_va = q_mem_va + 4096;
 
         let rx_desc_va = q0_va;
         let rx_avail_va = q0_va + desc_bytes;
@@ -269,13 +260,13 @@ impl SmoltcpVirtioNetStack {
         //
         // For legacy virtio-mmio (REG_VERSION==1), `setup_queue` uses `desc_paddr` as the base of
         // the combined queue layout (converted to PFN). The other fields are ignored.
-        let rx_desc_pa = q_base_pa + (rx_desc_va - Q_MEM_VA) as u64;
-        let rx_avail_pa = q_base_pa + (rx_avail_va - Q_MEM_VA) as u64;
-        let rx_used_pa = q_base_pa + (rx_used_va - Q_MEM_VA) as u64;
+        let rx_desc_pa = q_base_pa + (rx_desc_va - q_mem_va) as u64;
+        let rx_avail_pa = q_base_pa + (rx_avail_va - q_mem_va) as u64;
+        let rx_used_pa = q_base_pa + (rx_used_va - q_mem_va) as u64;
 
-        let tx_desc_pa = q_base_pa + (tx_desc_va - Q_MEM_VA) as u64;
-        let tx_avail_pa = q_base_pa + (tx_avail_va - Q_MEM_VA) as u64;
-        let tx_used_pa = q_base_pa + (tx_used_va - Q_MEM_VA) as u64;
+        let tx_desc_pa = q_base_pa + (tx_desc_va - q_mem_va) as u64;
+        let tx_avail_pa = q_base_pa + (tx_avail_va - q_mem_va) as u64;
+        let tx_used_pa = q_base_pa + (tx_used_va - q_mem_va) as u64;
 
         dev.setup_queue(
             0,
@@ -299,18 +290,14 @@ impl SmoltcpVirtioNetStack {
         .map_err(|_| NetError::Internal("setup q1"))?;
 
         // Buffers: ACTIVE_BUFS RX pages + ACTIVE_BUFS TX pages.
-        const BUF_VA: usize = 0x2004_0000;
         let buf_vmo = vmo_create(ACTIVE_BUFS * 2 * 4096).map_err(|_| NetError::NoBufs)?;
-        for page in 0..(ACTIVE_BUFS * 2) {
-            let va = BUF_VA + page * 4096;
-            let off = page * 4096;
-            vmo_map_page_sys(buf_vmo, va, off, flags).map_err(|_| NetError::NoBufs)?;
-        }
+        let buf_va =
+            vm_map(buf_vmo, 0, ACTIVE_BUFS * 2 * 4096, flags).map_err(|_| NetError::NoBufs)?;
         let (buf_base_pa, _buf_len) = cap_query_base_len(buf_vmo as u32)?;
 
         // Zero queue pages.
-        // SAFETY: mapped Q_MEM_VA points to the VMO mapping for queue memory.
-        unsafe { core::ptr::write_bytes(Q_MEM_VA as *mut u8, 0, Q_PAGES * 4096) };
+        // SAFETY: mapped q_mem_va points to the VMO mapping for queue memory.
+        unsafe { core::ptr::write_bytes(q_mem_va as *mut u8, 0, Q_PAGES * 4096) };
 
         let mut rx_buf_va = [0usize; ACTIVE_BUFS];
         let mut rx_buf_pa = [0u64; ACTIVE_BUFS];
@@ -318,9 +305,9 @@ impl SmoltcpVirtioNetStack {
         let mut tx_buf_pa = [0u64; ACTIVE_BUFS];
         let tx_free = [true; ACTIVE_BUFS];
         for i in 0..ACTIVE_BUFS {
-            rx_buf_va[i] = BUF_VA + i * 4096;
+            rx_buf_va[i] = buf_va + i * 4096;
             rx_buf_pa[i] = buf_base_pa + (i as u64) * 4096;
-            tx_buf_va[i] = BUF_VA + (ACTIVE_BUFS + i) * 4096;
+            tx_buf_va[i] = buf_va + (ACTIVE_BUFS + i) * 4096;
             tx_buf_pa[i] = buf_base_pa + ((ACTIVE_BUFS + i) as u64) * 4096;
         }
 
@@ -386,6 +373,7 @@ impl SmoltcpVirtioNetStack {
         Ok(Self {
             inner: Rc::new(RefCell::new(Inner {
                 dev,
+                mmio_va,
                 mac,
                 vnet_hdr_len,
                 rx_desc: devwrap.rx_desc,

@@ -18,11 +18,10 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 fn os_entry() -> core::result::Result<(), ()> {
-    use nexus_abi::{debug_println, mmio_map, yield_};
+    use nexus_abi::{debug_println, mmio_map_auto, yield_};
 
     // Deterministic MMIO cap slot owned by init distribution.
     const MMIO_CAP_SLOT: u32 = 48;
-    const MMIO_VA: usize = 0x2000_e000;
     // virtio-mmio IDs
     const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976; // "virt"
     const VIRTIO_DEVICE_ID_BLK: u32 = 2;
@@ -32,9 +31,11 @@ fn os_entry() -> core::result::Result<(), ()> {
     // Retry briefly in case init distributes after service starts.
     let start = nexus_abi::nsec().unwrap_or(0);
     let deadline = start.saturating_add(1_000_000_000);
-    loop {
-        match mmio_map(MMIO_CAP_SLOT, MMIO_VA, 0) {
-            Ok(()) => break,
+    // RFC-0085: kernel-chosen va; map ONCE (a map per retry would leak a
+    // region each round on the bounded retry loop below).
+    let mmio_va = loop {
+        match mmio_map_auto(MMIO_CAP_SLOT, 0, 0x1000) {
+            Ok(va) => break va,
             Err(_) => {
                 if nexus_abi::nsec().unwrap_or(0) >= deadline {
                     let _ = debug_println("virtioblkd: mmio map FAIL");
@@ -45,10 +46,10 @@ fn os_entry() -> core::result::Result<(), ()> {
                 let _ = yield_();
             }
         }
-    }
+    };
 
-    let magic = unsafe { core::ptr::read_volatile((MMIO_VA + 0x000) as *const u32) };
-    let device_id = unsafe { core::ptr::read_volatile((MMIO_VA + 0x008) as *const u32) };
+    let magic = unsafe { core::ptr::read_volatile((mmio_va + 0x000) as *const u32) };
+    let device_id = unsafe { core::ptr::read_volatile((mmio_va + 0x008) as *const u32) };
     if magic == VIRTIO_MMIO_MAGIC && device_id == VIRTIO_DEVICE_ID_BLK {
         let _ = debug_println("virtioblkd: mmio window mapped ok");
     } else {

@@ -34,13 +34,12 @@ struct WallclockAnchor {
 /// same deterministic slot every MMIO owner uses).
 const RTC_MMIO_CAP_SLOT: u32 = 48;
 /// Per-process VA for the RTC window (4 KiB, USER|RW, never exec).
-const RTC_MMIO_VA: usize = 0x2000_e000;
 
 fn try_anchor(anchor: &mut Option<WallclockAnchor>) {
     if anchor.is_some() {
         return;
     }
-    let Ok(epoch_ns) = rtc_goldfish::read_epoch_ns(RTC_MMIO_CAP_SLOT, RTC_MMIO_VA) else {
+    let Ok(epoch_ns) = rtc_goldfish::read_epoch_ns(RTC_MMIO_CAP_SLOT) else {
         return;
     };
     let Ok(mono_ns) = nsec() else {
