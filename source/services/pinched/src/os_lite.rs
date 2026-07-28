@@ -21,7 +21,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::time::Duration;
 
-use nexus_abi::{debug_putc, yield_};
+use nexus_abi::yield_;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
@@ -449,10 +449,9 @@ const PINCHED_RECV_SLOT: u32 = 0x03;
 const PINCHED_SEND_SLOT: u32 = 0x04;
 
 pub(crate) fn emit_line(message: &str) {
-    if nexus_abi::service_line(message.as_bytes()) {
-        return;
-    }
-    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
-        let _ = debug_putc(byte);
-    }
+    // One atomic `debug_write` (via `debug_println`, which also owns the verdict
+    // folding): the per-byte `debug_putc` fallback tears mid-line against the
+    // kernel's locked log records and DROPS the tail — a torn ready marker is a
+    // red ladder gate.
+    let _ = nexus_abi::debug_println(message);
 }

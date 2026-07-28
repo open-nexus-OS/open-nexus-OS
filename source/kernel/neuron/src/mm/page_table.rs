@@ -23,7 +23,7 @@ use bitflags::bitflags;
 /// Size of a single page in bytes.
 pub const PAGE_SIZE: usize = 4096;
 /// Number of entries per Sv39 page-table page.
-const PT_ENTRIES: usize = 512;
+pub(super) const PT_ENTRIES: usize = 512;
 /// Size of an Sv39 level-1 leaf mapping.
 pub const HUGE_PAGE_SIZE_2M: usize = 2 * 1024 * 1024;
 
@@ -70,11 +70,15 @@ pub enum MapError {
     Overlap,
     /// Flags do not describe a valid leaf entry.
     InvalidFlags,
+    /// Unmap: no leaf is mapped at this address (RFC-0085). Reaching this
+    /// from `vm_unmap` means the region table and the page table diverged —
+    /// a kernel invariant violation, logged loudly at the call site.
+    NotMapped,
 }
 
 #[repr(align(4096))]
-struct PageTablePage {
-    entries: [usize; PT_ENTRIES],
+pub(super) struct PageTablePage {
+    pub(super) entries: [usize; PT_ENTRIES],
 }
 
 impl PageTablePage {
@@ -100,7 +104,7 @@ const PT_STATIC_POOL_CAP: usize = 64;
 
 /// Three-level Sv39 page table allocating intermediate levels on demand.
 pub struct PageTable {
-    root: NonNull<PageTablePage>,
+    pub(super) root: NonNull<PageTablePage>,
     owned: Vec<NonNull<PageTablePage>>,
     // Pre-SMP contract: page-table mutation remains single-context until SMP VM ownership split.
     _not_send_sync: PhantomData<*mut ()>,
@@ -224,6 +228,27 @@ impl PageTable {
         Err(MapError::OutOfRange)
     }
 
+    /// Names the occupant when a map is refused as [`MapError::Overlap`]
+    /// (TASK-0309). Error path only — never on the map hot path.
+    ///
+    /// `Overlap` has two distinct causes (an existing 4 KiB leaf, or a
+    /// superpage covering the VA from an intermediate level) and by the time
+    /// the refusal reaches a service it has collapsed into a bare EINVAL. A
+    /// service can say *my* address and *my* offset; only the kernel can say
+    /// what is ALREADY THERE — so it must be the one to say it.
+    fn trace_overlap(kind: &str, level: usize, va: usize, pa: usize, entry: usize) {
+        log_error!(
+            target: "pt",
+            "PT-OVERLAP kind={} level={} va=0x{:x} want_pa=0x{:x} occupant_pa=0x{:x} occupant_flags=0x{:x}",
+            kind,
+            level,
+            va,
+            pa,
+            (entry >> 10) << 12,
+            entry & 0x3ff
+        );
+    }
+
     /// Installs a 4 KiB mapping from `va` to `pa` using `flags`.
     pub fn map(&mut self, va: usize, pa: usize, flags: PageFlags) -> Result<(), MapError> {
         if va % PAGE_SIZE != 0 || pa % PAGE_SIZE != 0 {
@@ -249,6 +274,11 @@ impl PageTable {
             let entry = unsafe { &mut (*table.as_ptr()).entries[*index] };
             if level == indices.len() - 1 {
                 if *entry & PageFlags::VALID.bits() != 0 {
+                    // TASK-0309: `Overlap` has two causes and userspace cannot
+                    // tell them apart — every kernel map failure reaches an app
+                    // as EINVAL. Name the occupant here so a boot log can, at
+                    // least, say WHO is already at this address.
+                    Self::trace_overlap("leaf", level, va, pa, *entry);
                     return Err(MapError::Overlap);
                 }
                 let ppn = pa / PAGE_SIZE;
@@ -258,6 +288,9 @@ impl PageTable {
 
             if *entry & PageFlags::VALID.bits() != 0 {
                 if *entry & LEAF_PERMS.bits() != 0 {
+                    // A SUPERPAGE covers this VA: the walk hit leaf permissions
+                    // on an intermediate level.
+                    Self::trace_overlap("superpage", level, va, pa, *entry);
                     return Err(MapError::Overlap);
                 }
                 let next = ((*(entry) >> 10) << 12) as *mut PageTablePage;
@@ -272,6 +305,53 @@ impl PageTable {
             table = next;
         }
         Ok(())
+    }
+
+    /// Clears the leaf covering `va` and returns the size it mapped
+    /// (4 KiB or 2 MiB). The FIRST unmap primitive this kernel has had —
+    /// the module header advertised one for months while the code could
+    /// only destroy whole address spaces (RFC-0085).
+    ///
+    /// Alignment: `va` must be page-aligned; a 2 MiB leaf additionally
+    /// requires `va` to be superpage-aligned (v1 unmaps exactly what was
+    /// mapped — no splitting). Intermediate table pages are NOT reclaimed
+    /// (bounded: reused by remaps, freed at address-space destroy).
+    ///
+    /// The caller owns TLB maintenance: this only edits the table.
+    pub(crate) fn unmap_leaf(&mut self, va: usize) -> Result<usize, MapError> {
+        if va % PAGE_SIZE != 0 {
+            return Err(MapError::Unaligned);
+        }
+        if !is_canonical_sv39(va) {
+            return Err(MapError::OutOfRange);
+        }
+        let indices = vpn_indices(va);
+        let mut table = self.root;
+        for (level, index) in indices.iter().enumerate() {
+            let entry = unsafe { &mut (*table.as_ptr()).entries[*index] };
+            if *entry & PageFlags::VALID.bits() == 0 {
+                return Err(MapError::NotMapped);
+            }
+            let is_leaf = *entry & LEAF_PERMS.bits() != 0;
+            if is_leaf {
+                // Level 1 = 2 MiB superpage, level 2 = 4 KiB page. A 1 GiB
+                // leaf (level 0) is never installed for user mappings.
+                let size = match level {
+                    1 => HUGE_PAGE_SIZE_2M,
+                    2 => PAGE_SIZE,
+                    _ => return Err(MapError::NotMapped),
+                };
+                if size == HUGE_PAGE_SIZE_2M && va % HUGE_PAGE_SIZE_2M != 0 {
+                    // Asked to unmap mid-superpage: v1 has no splitting.
+                    return Err(MapError::Unaligned);
+                }
+                *entry = 0;
+                return Ok(size);
+            }
+            let next = ((*entry >> 10) << 12) as *mut PageTablePage;
+            table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
+        }
+        Err(MapError::NotMapped)
     }
 
     /// Installs a 2 MiB Sv39 leaf mapping.
@@ -489,53 +569,6 @@ impl PageTable {
         record_heap_page_alloc();
         unsafe { NonNull::new_unchecked(Box::into_raw(boxed)) }
     }
-
-    /// Debug-only invariant checker for the Sv39 page table.
-    /// Verifies that:
-    /// - Non-leaf entries do not carry leaf permission bits
-    /// - Leaf entries are VALID and carry at least one of R/W/X
-    /// - W^X is enforced (never both WRITE and EXECUTE)
-    ///   This is a best-effort walk that assumes the internal pointers
-    ///   are well-formed; only compiled when debug assertions or the
-    ///   `debug_pt_verify` feature is enabled.
-    #[cfg(debug_assertions)]
-    pub fn verify(&self) -> Result<(), &'static str> {
-        unsafe fn walk(page: *const PageTablePage) -> Result<(), &'static str> {
-            for i in 0..PT_ENTRIES {
-                let entry = unsafe { (*page).entries[i] };
-                if entry == 0 {
-                    continue;
-                }
-                let valid = entry & PageFlags::VALID.bits() != 0;
-                if !valid {
-                    return Err("pt: nonzero but !VALID");
-                }
-                let is_leaf = entry & LEAF_PERMS.bits() != 0;
-                if is_leaf {
-                    let has_perm = entry & LEAF_PERMS.bits() != 0;
-                    if !has_perm {
-                        return Err("pt: leaf without perms");
-                    }
-                    let w = entry & PageFlags::WRITE.bits() != 0;
-                    let x = entry & PageFlags::EXECUTE.bits() != 0;
-                    if w && x {
-                        return Err("pt: W^X violated");
-                    }
-                } else {
-                    // Non-leaf must not carry any leaf perms
-                    if entry & LEAF_PERMS.bits() != 0 {
-                        return Err("pt: non-leaf has leaf perms");
-                    }
-                    let next = ((entry >> 10) << 12) as *const PageTablePage;
-                    // Recurse into the next level
-                    unsafe { walk(next)? };
-                }
-            }
-            Ok(())
-        }
-
-        unsafe { walk(self.root.as_ptr()) }
-    }
 }
 
 impl Drop for PageTable {
@@ -588,60 +621,8 @@ fn record_heap_page_free() {
     HEAP_PT_PAGES_LIVE.fetch_sub(1, Ordering::Relaxed);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn map_2m_translates_entire_huge_page() {
-        let mut table = PageTable::new();
-        table
-            .map_2m(HUGE_PAGE_SIZE_2M, HUGE_PAGE_SIZE_2M * 2, PageFlags::VALID | PageFlags::READ)
-            .expect("2m mapping");
-
-        assert_eq!(table.translate(HUGE_PAGE_SIZE_2M), Some(HUGE_PAGE_SIZE_2M * 2));
-        assert_eq!(
-            table.translate(HUGE_PAGE_SIZE_2M + PAGE_SIZE),
-            Some(HUGE_PAGE_SIZE_2M * 2 + PAGE_SIZE)
-        );
-        assert_eq!(
-            table.leaf_flags(HUGE_PAGE_SIZE_2M).expect("leaf flags"),
-            PageFlags::VALID | PageFlags::READ | PageFlags::ACCESSED
-        );
-    }
-
-    #[test]
-    fn map_2m_rejects_unaligned_or_wx_mappings() {
-        let mut table = PageTable::new();
-        assert_eq!(
-            table.map_2m(PAGE_SIZE, 0, PageFlags::VALID | PageFlags::READ),
-            Err(MapError::Unaligned)
-        );
-        assert_eq!(
-            table.map_2m(0, 0, PageFlags::VALID | PageFlags::WRITE | PageFlags::EXECUTE),
-            Err(MapError::PermissionDenied)
-        );
-    }
-
-    #[test]
-    fn allocation_stats_track_owned_page_lifetime() {
-        let before = PageTable::allocation_stats();
-        {
-            let mut table = PageTable::new();
-            table.map(0, 0, PageFlags::VALID | PageFlags::READ).expect("map");
-            let during = PageTable::allocation_stats();
-            assert!(during.heap_live >= before.heap_live + 1);
-            assert!(during.heap_total >= before.heap_total + 1);
-            assert!(during.heap_peak >= during.heap_live);
-            assert!(table.allocated_pages() >= 1);
-        }
-        let after = PageTable::allocation_stats();
-        assert_eq!(after.heap_live, before.heap_live);
-        assert!(after.heap_total >= before.heap_total + 1);
-    }
-}
-
-const LEAF_PERMS: PageFlags = PageFlags::READ.union(PageFlags::WRITE).union(PageFlags::EXECUTE);
+pub(super) const LEAF_PERMS: PageFlags =
+    PageFlags::READ.union(PageFlags::WRITE).union(PageFlags::EXECUTE);
 
 fn vpn_indices(va: usize) -> [usize; 3] {
     let vpn0 = (va >> 12) & 0x1ff;

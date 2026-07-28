@@ -130,11 +130,26 @@ impl VirtioGpuBackend {
             return Err(GfxError::ResourceExhausted);
         }
         self.next_resource_va_index = end;
-        Ok(VaWindow {
+        let window = VaWindow {
             index,
             base_va: GPU_RESOURCE_BASE_VA + index * GPU_RESOURCE_STRIDE,
             len: slots * GPU_RESOURCE_STRIDE,
-        })
+        };
+        // Every reservation, not just the failures (TASK-0309): a map that is
+        // refused as an overlap can only be understood against the map of what
+        // was reserved before it, and a log that shows only the victim tells
+        // you nothing about the occupant.
+        crate::diag::kv_line(
+            b"va reserve",
+            &[
+                (b"idx", index as u64),
+                (b"slots", slots as u64),
+                (b"base", window.base_va as u64),
+                (b"win", window.len as u64),
+                (b"need", byte_len as u64),
+            ],
+        );
+        Ok(window)
     }
 
     /// Free a dead one-shot resource end-to-end (task #124): detach + unref the

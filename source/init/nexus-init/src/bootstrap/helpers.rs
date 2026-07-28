@@ -21,6 +21,10 @@ use crate::os_payload::{
     MAX_LOG_STR_LEN, PROBE_ENABLED,
 };
 use nexus_abi::{self, AbiError, IpcError, Rights};
+
+// Split out by the structure-gate; re-exported so existing import paths
+// (`helpers::abi_error_label` in os_payload) stay valid.
+pub(crate) use super::labels::{abi_error_label, spawn_fail_reason_label};
 use nexus_log::{LineBuilder, StrRef};
 
 pub(crate) fn watchdog_limit_ticks() -> Option<usize> {
@@ -140,7 +144,10 @@ pub(crate) fn probe_virtio_mmio_slots(
         let va = MMIO_VA + off;
         match nexus_abi::mmio_map(cap, va, off) {
             Ok(()) => {}
-            Err(nexus_abi::AbiError::InvalidArgument) => {}
+            // ADR-0054: an overlap now arrives as AlreadyExists, not as an
+            // anonymous InvalidArgument — already-mapped is fine, keep probing
+            // this slot. Any OTHER error means the slot is unusable.
+            Err(nexus_abi::AbiError::AlreadyExists) => {}
             Err(_) => continue,
         }
         let magic = unsafe { core::ptr::read_volatile((va + 0x000) as *const u32) };
@@ -913,35 +920,6 @@ pub fn describe_init_error(line: &mut LineBuilder<'_, '_>, err: &InitError) {
         InitError::MissingElf => {
             line.text("missing-elf");
         }
-    }
-}
-
-pub(crate) fn abi_error_label(err: AbiError) -> &'static str {
-    match err {
-        AbiError::InvalidSyscall => "invalid-syscall",
-        AbiError::CapabilityDenied => "capability-denied",
-        AbiError::IpcFailure => "ipc-failure",
-        AbiError::SpawnFailed => "spawn-failed",
-        AbiError::TransferFailed => "transfer-failed",
-        AbiError::ChildUnavailable => "child-unavailable",
-        AbiError::NoSuchPid => "no-such-pid",
-        AbiError::InvalidArgument => "invalid-argument",
-        AbiError::TimedOut => "timed-out",
-        AbiError::WouldBlock => "would-block",
-        AbiError::Unknown => "unknown-errno",
-        AbiError::Unsupported => "unsupported",
-    }
-}
-
-fn spawn_fail_reason_label(reason: nexus_abi::SpawnFailReason) -> &'static str {
-    match reason {
-        nexus_abi::SpawnFailReason::Unknown => "unknown",
-        nexus_abi::SpawnFailReason::OutOfMemory => "oom",
-        nexus_abi::SpawnFailReason::CapTableFull => "cap-table-full",
-        nexus_abi::SpawnFailReason::EndpointQuota => "endpoint-quota",
-        nexus_abi::SpawnFailReason::MapFailed => "map-failed",
-        nexus_abi::SpawnFailReason::InvalidPayload => "invalid-payload",
-        nexus_abi::SpawnFailReason::DeniedByPolicy => "denied-by-policy",
     }
 }
 

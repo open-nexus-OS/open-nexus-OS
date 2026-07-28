@@ -356,7 +356,7 @@ pub fn read_entropy_via_virtio_mmio(
 
     // Map slot 0 first.
     mmio_map(mmio_cap_slot, mmio_base_va, 0)
-        .or_else(|e| if e == AbiError::InvalidArgument { Ok(()) } else { Err(e) })
+        .or_else(|e| if e == AbiError::AlreadyExists { Ok(()) } else { Err(e) })
         .map_err(|_| RngError::MapFailed)?;
 
     // Find virtio-rng slot.
@@ -366,7 +366,7 @@ pub fn read_entropy_via_virtio_mmio(
         let va = mmio_base_va + off;
         if slot != 0 {
             mmio_map(mmio_cap_slot, va, off)
-                .or_else(|e| if e == AbiError::InvalidArgument { Ok(()) } else { Err(e) })
+                .or_else(|e| if e == AbiError::AlreadyExists { Ok(()) } else { Err(e) })
                 .map_err(|_| RngError::MapFailed)?;
         }
         let magic = unsafe { core::ptr::read_volatile((va + mmio::REG_MAGIC) as *const u32) };

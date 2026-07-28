@@ -932,12 +932,11 @@ pub fn run_with_transport_ready<T>(_: &mut T, notifier: ReadyNotifier) -> LiteRe
 fn emit_line(message: &str) {
     // Verdict folding: pre-`ready` markers tally into `policyd N/N`; post-`ready` runtime lines fold
     // into recall-only detail (`NEXUS_LOG_EXPAND=policyd`). Failures & proof boots print live & raw.
-    if nexus_abi::service_line(message.as_bytes()) {
-        return;
-    }
-    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
-        let _ = debug_putc(byte);
-    }
+    // One atomic `debug_write` (via `debug_println`, which also owns the verdict
+    // folding): the per-byte `debug_putc` fallback tears mid-line against the
+    // kernel's locked log records and DROPS the tail — a torn ready marker is a
+    // red ladder gate.
+    let _ = nexus_abi::debug_println(message);
 }
 
 /// RFC-0068 P4: boot-time MMIO policy DECISIONS (allow/deny per device cap). These fire post-`ready`

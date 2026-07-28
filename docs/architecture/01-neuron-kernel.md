@@ -82,10 +82,32 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **12 `wait`**: Wait for a child task exit.
 - **13 `exec`**: Execute an ELF payload (loader path).
 - **14 `ipc_send_v1`**: Kernel IPC v1 send (payload copy-in) (see RFC‑0005).
+- **15 `task_qos`**: Scheduler QoS hint for the calling task.
+- **16 `debug_putc`** / **44 `debug_write`**: Byte / bounded-buffer UART output.
+- **17 `exec_v2`**: ELF exec with the v2 bootstrap-info page contract.
 - **18 `ipc_recv_v1`**: Kernel IPC v1 recv (payload copy-out) (see RFC‑0005).
-- **19 `ipc_endpoint_create`**: Create a kernel IPC endpoint (privileged) (see RFC‑0005).
+- **19 `ipc_endpoint_create`** / **21 `…_close`** / **22 `…_create_v2`** /
+  **23 `…_create_for`**: Kernel IPC endpoint lifecycle (see RFC‑0005).
+- **20 `cap_close`** / **24 `cap_clone`**: Capability slot lifecycle.
+- **25 `getpid`**: Caller's task id.
+- **26 `ipc_recv_v2`**: IPC recv with sender identity + cap-move (ADR‑0042 transport).
 - **27 `mmio_map`**: Map a device MMIO capability window into the caller AS (USER+RW, never EXEC).
 - **28 `cap_query`**: Query a capability slot (kind/base/len) into a user buffer (driver bring-up primitive).
+- **29 `spawn_last_error`**: Last spawn-failure reason for the caller (RFC‑0013).
+- **30 `device_cap_create`**: Mint a DeviceMmio capability (privileged bring-up).
+- **31 `cap_transfer_to`**: Transfer a capability into a specific child slot.
+- **32 `task_resume`**: Resume a suspended task.
+- **33–35 `timer_create/set/cancel`**: Per-task timer capabilities.
+- **36 `irq_bind`** / **37 `irq_complete`**: PLIC IRQ → endpoint delivery (reactive input).
+- **38–40 `waitset_create/add/wait`**: Bounded waitsets.
+- **41–43 `fence_create/signal/wait`**: Fences.
+- **45 `boot_mode`** / **50 `boot_display_mode`**: Boot/display mode from fw_cfg (RFC‑0074/ADR‑0050).
+- **46 `vmo_destroy`**: Release a VMO back to the arena (sole-owner gated; RFC‑0075).
+- **47 `vmo_read`**: Bounded copy-out of a VMO range (ADR‑0042 damage blits).
+- **48 `sched`**: Declarative scheduling recipe (affinity/shares; ADR‑0049).
+- **49 `as_self`**: The caller's own address-space handle.
+- **51 `vmo_share_readonly`**: Mint a read-only VMO alias — WRITE|EXEC kernel-stripped (RFC‑0080).
+- **52 `wait_nohang`**: Non-blocking child reap (RFC‑0081).
 
 Errors follow the conventional POSIX encoding: handlers return
 `-errno` (two's complement) in `a0`. Key codes used by the current
@@ -93,6 +115,9 @@ increment:
 
 - `EPERM` for capability or W^X violations.
 - `EINVAL` for malformed arguments and IPC routing failures.
+- `EEXIST` when a mapping is refused because the target VA is already
+  occupied, and `EFAULT` for a non-canonical VA — map failures keep their
+  identity across the ABI (ADR‑0054; no wildcard errno arms).
 - `ENOSPC` when the ASID allocator is exhausted.
 - `ENOSYS` for disabled/unsupported functionality.
 - `ENOMEM` when the guarded stack pool runs out of pages.

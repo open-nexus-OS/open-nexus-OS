@@ -25,7 +25,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, Ordering};
 use core::time::Duration;
 
-use nexus_abi::{debug_putc, yield_};
+use nexus_abi::yield_;
 use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
 use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
@@ -1078,12 +1078,11 @@ fn emit_line(message: &str) {
     // Verdict folding: tally this marker into keystored's `keystored N/N` verdict. In an interactive
     // boot a routine marker is suppressed (folded); a failure — or any marker in a proof boot —
     // prints live & raw (so `verify-uart` is unaffected). Alloc-free counters in nexus-abi.
-    if nexus_abi::service_line(message.as_bytes()) {
-        return;
-    }
-    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
-        let _ = debug_putc(byte);
-    }
+    // One atomic `debug_write` (via `debug_println`, which also owns the verdict
+    // folding): the per-byte `debug_putc` fallback tears mid-line against the
+    // kernel's locked log records and DROPS the tail — a torn ready marker is a
+    // red ladder gate.
+    let _ = nexus_abi::debug_println(message);
 }
 
 #[cfg(all(test, nexus_env = "os", feature = "os-lite"))]

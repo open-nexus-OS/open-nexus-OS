@@ -23,10 +23,24 @@ fn children(node: &LayoutNode) -> &[LayoutNode] {
     }
 }
 
+/// Every string a user can READ in the scene: static text plus a text input's
+/// value and its placeholder. Collecting only `Text` nodes made the search
+/// assertions vacuous the moment the field became a real input widget — the
+/// placeholder lives on `TextInput`, which is exactly what the user sees.
 fn texts(node: &LayoutNode) -> Vec<String> {
     fn walk(node: &LayoutNode, out: &mut Vec<String>) {
-        if let LayoutNode::Text(text, _) = node {
-            out.push(String::from(text.content.as_str()));
+        match node {
+            LayoutNode::Text(text, _) => out.push(String::from(text.content.as_str())),
+            LayoutNode::TextInput(input, _) => {
+                let value = input.content.as_str();
+                if !value.is_empty() {
+                    out.push(String::from(value));
+                }
+                if let Some(placeholder) = &input.placeholder {
+                    out.push(String::from(placeholder.as_str()));
+                }
+            }
+            _ => {}
         }
         for child in children(node) {
             walk(child, out);

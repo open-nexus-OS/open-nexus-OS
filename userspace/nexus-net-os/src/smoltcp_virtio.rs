@@ -101,7 +101,7 @@ fn align4(x: usize) -> usize {
 fn mmio_map_ok(mmio_cap_slot: u32, va: usize, off: usize) -> Result<(), NetError> {
     match mmio_map(mmio_cap_slot, va, off) {
         Ok(()) => Ok(()),
-        Err(AbiError::InvalidArgument) => Ok(()), // already mapped
+        Err(AbiError::AlreadyExists) => Ok(()), // already mapped
         Err(_) => Err(NetError::Internal("mmio_map failed")),
     }
 }

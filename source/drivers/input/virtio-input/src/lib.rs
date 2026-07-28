@@ -456,7 +456,7 @@ impl MappedVirtioInputDevice {
         slot: DeviceSlot,
     ) -> Result<Self, VirtioInputError> {
         mmio_map(mmio_cap_slot, mmio_base_va, 0)
-            .or_else(|err| if err == AbiError::InvalidArgument { Ok(()) } else { Err(err) })
+            .or_else(|err| if err == AbiError::AlreadyExists { Ok(()) } else { Err(err) })
             .map_err(|_| VirtioInputError::MapFailed)?;
         let bus = MmioBus::new(mmio_base_va);
         let mmio = VirtioInputMmio::new(bus);

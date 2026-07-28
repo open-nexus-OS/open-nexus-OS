@@ -194,19 +194,24 @@ Page StashPage {
                     .gap(1)
                     // ── SEARCH FIELD ─────────────────────────────────
                     // Between the header and the list, exactly where the
-                    // design puts it. `TextField` auto-binds its Change to
-                    // `searchQuery`, so typing needs no handler.
+                    // design puts it.
+                    //
+                    // `SearchBar`, not `TextField`: the latter defaults to
+                    // `FieldVariant::Boxed` and draws its OWN bordered field,
+                    // which inside this styled row rendered as a field inside
+                    // a field. `SearchBar` is the purpose-built widget — it
+                    // takes its accessible name from `placeholder`, so there
+                    // is no visible label line either.
+                    //
+                    // The auto-bind writes `searchQuery`; the `on Change` on
+                    // the wrapper reports that it moved so the effect can
+                    // re-issue the listing. Same shape as the launcher's
+                    // `QueryChanged` — a dispatch cannot carry the typed text,
+                    // and does not need to.
                     if $state.searchOpen == 1 {
                         Stack {
-                            Icon { symbol: "magnifyingglass", size: 13 }
-                                .fg(onSurfaceVariant)
-                            // The auto-bind writes `searchQuery`; the `on
-                            // Change` on the wrapper reports that it moved so
-                            // the effect can re-issue the listing. Same shape
-                            // as the launcher's `QueryChanged` — a dispatch
-                            // cannot carry the typed text, and does not need to.
                             Stack {
-                                TextField { value: $state.searchQuery, placeholder: @t("stash.searchHint"), label: @t("stash.searchHint") }
+                                SearchBar { value: $state.searchQuery, placeholder: @t("stash.searchHint") }
                             }
                             .grow(1)
                             on Change -> dispatch(SearchChanged)
@@ -224,10 +229,6 @@ Page StashPage {
                         .direction(row)
                         .align(center)
                         .gap(2)
-                        .paddingX(2)
-                        .height(38)
-                        .rounded(md)
-                        .material(subtle)
                     } else {
                         Stack { }
                     }

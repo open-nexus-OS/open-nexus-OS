@@ -299,7 +299,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     let mmio_map_ok = |va: usize, off: usize| -> core::result::Result<(), ()> {
         match nexus_abi::mmio_map(MMIO_CAP_SLOT, va, off) {
             Ok(()) => Ok(()),
-            Err(nexus_abi::AbiError::InvalidArgument) => Ok(()),
+            Err(nexus_abi::AbiError::AlreadyExists) => Ok(()),
             Err(_) => Err(()),
         }
     };

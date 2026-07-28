@@ -21,7 +21,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use nexus_abi::{debug_putc, nsec, yield_};
+use nexus_abi::{nsec, yield_};
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 use nexus_metrics::{
@@ -586,12 +586,11 @@ fn escaped_attrs_or_placeholder(bytes: &[u8]) -> String {
 }
 
 fn emit_line(message: &str) {
-    if nexus_abi::service_line(message.as_bytes()) {
-        return;
-    }
-    for b in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
-        let _ = debug_putc(b);
-    }
+    // One atomic `debug_write` (via `debug_println`, which also owns the verdict
+    // folding): the per-byte `debug_putc` fallback tears mid-line against the
+    // kernel's locked log records and DROPS the tail — a torn ready marker is a
+    // red ladder gate.
+    let _ = nexus_abi::debug_println(message);
 }
 
 fn load_runtime_limits() -> RuntimeLimits {

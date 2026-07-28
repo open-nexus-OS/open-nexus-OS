@@ -14,6 +14,8 @@
 
 use super::*;
 
+use super::errno::*;
+
 // ——— syscall path (unchanged API) ———
 
 #[allow(dead_code)]
@@ -341,90 +343,6 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
             });
         });
     }
-}
-
-const EPERM: usize = 1;
-const ENOMEM: usize = 12;
-const EAGAIN: usize = 11;
-const EINVAL: usize = 22;
-const ENOSPC: usize = 28;
-const ENOSYS: usize = 38;
-const ESRCH: usize = 3;
-const ECHILD: usize = 10;
-const ETIMEDOUT: usize = 110;
-const EPIPE: usize = 32; // RFC-0079: EOF-opted recv, last sender gone.
-
-#[allow(dead_code)]
-fn encode_error(err: SysError) -> usize {
-    match err {
-        SysError::InvalidSyscall => errno(ENOSYS),
-        SysError::Capability(cap) => match cap {
-            crate::cap::CapError::NoSpace => errno(ENOSPC),
-            _ => errno(EPERM),
-        },
-        SysError::Ipc(ipc_err) => ipc_errno(&ipc_err),
-        SysError::Spawn(spawn) => spawn_errno(&spawn),
-        SysError::Transfer(_) => errno(EPERM),
-        SysError::AddressSpace(as_err) => address_space_errno(&as_err),
-        SysError::Wait(wait) => wait_errno(&wait),
-        SysError::TaskExit => errno(EINVAL),
-        SysError::Reschedule => errno(EAGAIN),
-        SysError::InvalidTarget => errno(ESRCH),
-        SysError::RunQueueFull => errno(ENOSPC),
-    }
-}
-
-#[allow(dead_code)]
-fn ipc_errno(err: &crate::ipc::IpcError) -> usize {
-    match err {
-        crate::ipc::IpcError::NoSuchEndpoint => errno(ESRCH),
-        crate::ipc::IpcError::QueueFull | crate::ipc::IpcError::QueueEmpty => errno(EAGAIN),
-        crate::ipc::IpcError::PermissionDenied => errno(EPERM),
-        crate::ipc::IpcError::TimedOut => errno(ETIMEDOUT),
-        crate::ipc::IpcError::NoSpace => errno(ENOSPC),
-        crate::ipc::IpcError::PeerClosed => errno(EPIPE),
-    }
-}
-
-#[allow(dead_code)]
-fn spawn_errno(err: &task::SpawnError) -> usize {
-    use task::SpawnError::*;
-    match err {
-        InvalidParent | InvalidEntryPoint | InvalidStackPointer => errno(EINVAL),
-        BootstrapNotEndpoint => errno(EPERM),
-        Capability(_) => errno(EPERM),
-        Ipc(_) => errno(EINVAL),
-        AddressSpace(as_err) => address_space_errno(as_err),
-        StackExhausted => errno(ENOMEM),
-        RunQueueFull => errno(EAGAIN),
-    }
-}
-
-#[allow(dead_code)]
-fn address_space_errno(err: &AddressSpaceError) -> usize {
-    match err {
-        AddressSpaceError::InvalidHandle | AddressSpaceError::InvalidArgs => errno(EINVAL),
-        AddressSpaceError::AsidExhausted => errno(ENOSPC),
-        AddressSpaceError::InUse => errno(EPERM),
-        AddressSpaceError::Unsupported => errno(ENOSYS),
-        AddressSpaceError::Mapping(MapError::PermissionDenied) => errno(EPERM),
-        AddressSpaceError::Mapping(_) => errno(EINVAL),
-    }
-}
-
-#[allow(dead_code)]
-fn wait_errno(err: &task::WaitError) -> usize {
-    use task::WaitError::*;
-    match err {
-        NoChildren => errno(ECHILD),
-        NoSuchPid => errno(ESRCH),
-        InvalidTarget => errno(EINVAL),
-        WouldBlock => errno(EINVAL),
-    }
-}
-
-const fn errno(code: usize) -> usize {
-    (-(code as isize)) as usize
 }
 
 /// Preempts the running user task on a timer tick: re-enqueue it, pick the next

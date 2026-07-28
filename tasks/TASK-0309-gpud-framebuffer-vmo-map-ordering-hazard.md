@@ -129,22 +129,58 @@ gpud: attach map err=invalid-argument
 gpud: attach map … va=0x24fd2000 off=0x02bd2000 len=0x02ee0000 vmolen=0x02ee0000
 ```
 
-## The second cause (open)
+## The second cause (open — narrowed by kernel instrumentation, 2026-07-28)
 
 The offset is INSIDE the reservation now — `page_va` let it through, so the VA
-overrun is genuinely closed. The kernel is refusing the page itself, with
-`InvalidArgument`, ~45.9 MiB into a 46.9 MiB VMO that windowd created and
-handed over. `vmolen` says the VMO is that big; the map says its later pages
-are not usable.
+overrun is genuinely closed. Kernel-side instrumentation then ruled out, with
+evidence rather than inference:
 
-That points at the FRAMEBUFFER VMO's backing, not at gpud's address space —
-a different owner (windowd), a different allocator (the kernel VMO arena), and
-an intermittency that tracks how much arena was consumed before windowd
-created it. Same symptom, second cause.
+- **Not an Overlap.** `PT-OVERLAP` (new trace in `page_table.rs::map`, names
+  the occupant on every refusal) stays SILENT at the framebuffer VA while the
+  attach fails with EINVAL. The page table never refused. (The trace did catch
+  a different latent bug on its first boot — see below.)
+- **Not OutOfRange / PermissionDenied / arena exhaustion.** With ADR-0054
+  those now arrive as EFAULT/EPERM, and gpud still reports
+  `invalid-argument` = EINVAL. `alloc_page` falls back to the heap and cannot
+  fail into EINVAL.
+- **The failing page MOVES** across runs with identical inputs: offsets
+  0x2bd2000 / 0x2b5b000 / 0x2b4a000 (~page 11 000 of 12 000). A
+  value-dependent guard would fail at the same page every time. The failure is
+  TIMING-dependent.
 
-Next: log the VMO's committed extent at creation time in windowd and compare
-against what gpud can map. If the arena is handing out a VMO whose later pages
-are not backed, `vmo_create` succeeding is itself the lie.
+Remaining EINVAL sources, all pre-`map()`: `MapArgsTyped::decode` (unaligned
+va / bad flags — constant in the loop, so only reachable if the ARGS arrive
+corrupted), and the address-space handle resolution. `sys_map` now logs the
+failing STAGE with raw values (`MAP-FAIL stage=… va=… off=…`).
+
+**Working hypothesis (untested)**: an interrupt-window register clobber in the
+trap path corrupting syscall args mid-loop — the same class as the previously
+fixed t0–t2 trap-prologue clobber, which also moved with timing. If the stage
+trace shows `stage=decode` with a garbled va, that is confirmed and the fix is
+in the trap prologue, not in any mapping code.
+
+## Also found by the new instrumentation (separate bugs)
+
+- **A latent MMIO double-map, every boot**: `PT-OVERLAP … va=0x2000e000
+  want_pa=0x10006000 occupant_pa=0x10006000` — same PA to same VA, mapped
+  twice, previously an invisible anonymous EINVAL someone tolerates.
+- **Six components hard-code the same MMIO window VA** `0x2000_e000`:
+  `selftest-client` (mmio.rs AND smoltcp_probe.rs), `timed`, `virtioblkd`,
+  `rngd`, `nexus-init` helpers. Cross-process reuse is legal (separate address
+  spaces) but the copies are hand-maintained magic numbers — the same
+  fragility class as gpud's hand-computed `base + index * stride`, which this
+  task already closed. Wants an SSOT constant at minimum, a real VA policy at
+  best.
+
+## Fixed on the way (ADR-0054)
+
+`handler.rs::address_space_errno` collapsed four `MapError` variants into one
+EINVAL wildcard arm. Now: `Overlap`→EEXIST→`AbiError::AlreadyExists`,
+`OutOfRange`→EFAULT→`AbiError::BadAddress`, `Unaligned`/`InvalidFlags`→EINVAL
+named individually, NO wildcard — a new variant must fail compilation until
+someone assigns its errno. The compile-time pressure immediately found three
+userspace error-name tables (gpud diag, init helpers, selftest mmio) that had
+to name the new variants.
 
 ## Honest limits on the attribution
 

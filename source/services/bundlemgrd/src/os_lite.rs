@@ -16,7 +16,7 @@ use alloc::boxed::Box;
 use core::fmt;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use nexus_abi::{debug_putc, yield_, MsgHeader};
+use nexus_abi::{yield_, MsgHeader};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 /// Result type surfaced by the lite bundle manager shim.
@@ -688,12 +688,11 @@ fn append_probe_to_logd() -> bool {
 
 fn emit_line(message: &str) {
     // RFC-0068: fold routine markers into recall (interactive); failures & proof print raw.
-    if nexus_abi::service_line(message.as_bytes()) {
-        return;
-    }
-    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
-        let _ = debug_putc(byte);
-    }
+    // One atomic `debug_write` (via `debug_println`, which also owns the verdict
+    // folding): the per-byte `debug_putc` fallback tears mid-line against the
+    // kernel's locked log records and DROPS the tail — a torn ready marker is a
+    // red ladder gate.
+    let _ = nexus_abi::debug_println(message);
 }
 
 /// Denial marker WITH the denied sender id (DoD: loud with values — a bare

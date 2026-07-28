@@ -46,6 +46,16 @@ pub const USER_VMO_ARENA_BASE: usize = 0x8380_0000;
 /// Base address of the temporary kernel page-pool window used by early
 /// loaders/selftests. Moved 0x80c0_0000 → 0x8200_0000 (behind the grown
 /// kernel+init image; see the arena note above).
+/// RFC-0085: the kernel-managed user mapping window. `vm_map`/`mmio_map_auto`
+/// allocate ONLY here; fixed-VA maps into it are refused (EPERM) — that
+/// invariant is what keeps the `va_space` hole-finder sound without ever
+/// consulting the page table. Bounds: above every inventoried fixed-VA use
+/// (gpud's legacy carve-outs end at 0x4400_0000; 0x4400_0000..0x5000_0000
+/// stays a reserved guard band) and below `USER_VADDR_LIMIT` (0x8000_0000),
+/// so every returned VA is sign-positive and can never read as a -errno.
+pub const USER_VM_WINDOW_BASE: usize = 0x5000_0000;
+pub const USER_VM_WINDOW_LEN: usize = 0x3000_0000; // 768 MiB
+
 pub const KERNEL_PAGE_POOL_BASE: usize = 0x8200_0000;
 /// Size of the temporary kernel page-pool window. 8 MB → 24 MB: the init
 /// loader allocates the WHOLE embedded init image (now ~16.4 MB with the
@@ -72,5 +82,8 @@ impl AddressWindow {
 pub const KERNEL_PAGE_POOL_WINDOW: AddressWindow =
     AddressWindow { base: KERNEL_PAGE_POOL_BASE, len: KERNEL_PAGE_POOL_LEN };
 
+mod kernel_layout;
 #[cfg(test)]
+mod page_table_tests;
+mod page_table_verify;
 mod tests;

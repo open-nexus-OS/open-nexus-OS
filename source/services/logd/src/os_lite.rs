@@ -777,12 +777,11 @@ fn emit_line(message: &str) {
     // RFC-0068: fold logd's own status chatter (`logd: ready/rx/reject/journal subjects`) into a
     // `logd N/N` verdict (interactive); the cross-cutting subject verdicts it renders use
     // `render_verdict_line`/`debug_write` and are unaffected. Failures & proof boots print raw.
-    if nexus_abi::service_line(message.as_bytes()) {
-        return;
-    }
-    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
-        let _ = debug_putc(byte);
-    }
+    // One atomic `debug_write` (via `debug_println`, which also owns the verdict
+    // folding): the per-byte `debug_putc` fallback tears mid-line against the
+    // kernel's locked log records and DROPS the tail — a torn ready marker is a
+    // red ladder gate.
+    let _ = nexus_abi::debug_println(message);
 }
 
 fn emit_line_no_nl(message: &str) {

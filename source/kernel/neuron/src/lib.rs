@@ -386,6 +386,12 @@ mod types;
 #[cfg(target_os = "none")]
 #[path = "diag/uart.rs"]
 mod uart;
+// RFC-0085: `pub` until Phase 2/3 wire the in-kernel consumers — a private
+// unused module would trip the target build's deny(warnings), and a blanket
+// allow(dead_code) is forbidden (CLAUDE.md).
+pub mod va_space;
+#[cfg(test)]
+mod va_space_tests;
 mod vmo_ro;
 
 #[cfg(target_os = "none")]

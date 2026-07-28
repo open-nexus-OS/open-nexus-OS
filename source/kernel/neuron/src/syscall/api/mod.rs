@@ -45,6 +45,7 @@ mod sched_task;
 mod sched_telemetry;
 mod sync_objects;
 mod task_image;
+mod vm_map;
 mod vmo;
 mod vmo_pool;
 
@@ -59,6 +60,7 @@ use ipc_recv_v2::*;
 use sched_task::*;
 use sync_objects::*;
 pub(crate) use task_image::exit_current_and_release;
+use vm_map::*;
 pub use vmo::vmo_idle_zero_step;
 use vmo::*;
 pub(crate) use vmo::{vmo_create_finish, vmo_create_reserve};

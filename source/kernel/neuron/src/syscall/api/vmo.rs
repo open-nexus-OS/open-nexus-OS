@@ -55,56 +55,6 @@ impl AsMapArgsTyped {
 }
 
 #[derive(Copy, Clone)]
-pub(super) struct MapArgsTyped {
-    slot: SlotIndex,
-    va: VirtAddr,
-    offset: usize,
-    flags: PageFlags,
-}
-
-impl MapArgsTyped {
-    #[inline]
-    pub(super) fn decode(args: &Args) -> Result<Self, Error> {
-        Ok(Self {
-            slot: SlotIndex::decode(args.get(0)),
-            va: VirtAddr::page_aligned(args.get(1)).ok_or(AddressSpaceError::InvalidArgs)?,
-            offset: args.get(2),
-            flags: PageFlags::from_bits(args.get(3)).ok_or(AddressSpaceError::InvalidArgs)?,
-        })
-    }
-    #[inline]
-    pub(super) fn check(&self) -> Result<(), Error> {
-        if self.flags.contains(PageFlags::WRITE) && self.flags.contains(PageFlags::EXECUTE) {
-            return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
-        }
-        Ok(())
-    }
-}
-
-#[derive(Copy, Clone)]
-pub(super) struct MmioMapArgsTyped {
-    slot: SlotIndex,
-    va: VirtAddr,
-    offset: usize,
-}
-
-impl MmioMapArgsTyped {
-    #[inline]
-    pub(super) fn decode(args: &Args) -> Result<Self, Error> {
-        Ok(Self {
-            slot: SlotIndex::decode(args.get(0)),
-            va: VirtAddr::page_aligned(args.get(1)).ok_or(AddressSpaceError::InvalidArgs)?,
-            offset: args.get(2),
-        })
-    }
-    #[inline]
-    pub(super) fn check(&self) -> Result<(), Error> {
-        // Additional bounds checks are performed against the capability window in the handler.
-        Ok(())
-    }
-}
-
-#[derive(Copy, Clone)]
 pub(super) struct DeviceCapCreateArgsTyped {
     base: usize,
     len: usize,
@@ -174,83 +124,6 @@ impl VmoWriteArgsTyped {
     pub(super) fn check(&self) -> Result<(), Error> {
         Ok(())
     }
-}
-
-pub(super) fn sys_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let typed = MapArgsTyped::decode(args)?;
-    typed.check()?;
-    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
-    match cap.kind {
-        // RFC-0080: a read-only VMO alias force-maps read-only — WRITE|EXECUTE
-        // are stripped so the holder can never mutate the shared pages. Same
-        // physical resolution as `Vmo` otherwise.
-        CapabilityKind::Vmo { base, len } | CapabilityKind::VmoRo { base, len } => {
-            let read_only = matches!(cap.kind, CapabilityKind::VmoRo { .. });
-            if typed.offset >= len {
-                return Err(Error::Capability(CapError::PermissionDenied));
-            }
-            let flags = if read_only {
-                // Pure, host-tested RO policy: WRITE|EXECUTE can never survive.
-                PageFlags::from_bits_truncate(crate::vmo_ro::force_readonly(typed.flags.bits()))
-            } else {
-                typed.flags
-            };
-            let va = typed.va;
-            let pa = base + (typed.offset & !0xfff);
-            let handle =
-                ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
-            #[cfg(feature = "debug_uart")]
-            {
-                use core::fmt::Write as _;
-                let mut u = crate::uart::raw_writer();
-                let _ = writeln!(
-                    u,
-                    "AS-MAP handle=0x{:x} va=0x{:x} pa=0x{:x} flags=0x{:x}",
-                    handle.to_raw(),
-                    va.raw(),
-                    pa,
-                    flags.bits()
-                );
-            }
-            ctx.address_spaces.map_page(handle, va.raw(), pa, flags)?;
-            Ok(0)
-        }
-        _ => Err(Error::Capability(CapError::PermissionDenied)),
-    }
-}
-
-pub(super) fn sys_mmio_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let typed = MmioMapArgsTyped::decode(args)?;
-    typed.check()?;
-
-    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
-
-    let (base, len) = match cap.kind {
-        CapabilityKind::DeviceMmio { base, len } => (base, len),
-        _ => return Err(Error::Capability(CapError::PermissionDenied)),
-    };
-
-    if typed.offset >= len {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
-    // Enforce page-granularity offsets (per normative v1 contract).
-    if (typed.offset & (PAGE_SIZE - 1)) != 0 {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
-
-    let handle =
-        ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
-
-    // Enforce the security floor at the boundary:
-    // - USER + RW only
-    // - never EXEC
-    let flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
-
-    let pa =
-        base.checked_add(typed.offset & !(PAGE_SIZE - 1)).ok_or(AddressSpaceError::InvalidArgs)?;
-
-    ctx.address_spaces.map_page(handle, typed.va.raw(), pa, flags)?;
-    Ok(0)
 }
 
 pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
@@ -602,7 +475,7 @@ pub(super) fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
         let page_va =
             typed.va.raw().checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
         let page_pa = base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        ctx.address_spaces.map_page(typed.handle, page_va, page_pa, flags)?;
+        ctx.address_spaces.map_page_tracked(typed.handle, page_va, page_pa, flags)?;
         #[cfg(feature = "debug_uart")]
         if !logged_preview {
             logged_preview = true;

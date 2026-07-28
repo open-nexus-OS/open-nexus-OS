@@ -67,6 +67,14 @@ pub enum AbiError {
     TimedOut,
     /// The operation would block / resource temporarily unavailable (EAGAIN).
     WouldBlock,
+    /// The target is already occupied (EEXIST) — for a map syscall: a page is
+    /// already mapped at that virtual address (ADR-0054). Before this variant
+    /// every map refusal arrived as `InvalidArgument`, which cost a full
+    /// instrumented-boot investigation to tell "you passed nonsense" apart
+    /// from "someone was here first" (TASK-0309).
+    AlreadyExists,
+    /// The address itself is bad (EFAULT) — outside the canonical range.
+    BadAddress,
     /// Kernel returned an error code this ABI build does not know. NEVER
     /// treated as success (fail closed) — a Phase C workpool hang traced back
     /// to -ETIMEDOUT being decoded as Ok.
@@ -158,6 +166,8 @@ impl AbiError {
             28 => Some(Self::SpawnFailed),      // ENOSPC (best-effort mapping)
             110 => Some(Self::TimedOut),        // ETIMEDOUT
             11 => Some(Self::WouldBlock),       // EAGAIN
+            17 => Some(Self::AlreadyExists),    // EEXIST (ADR-0054: map overlap)
+            14 => Some(Self::BadAddress),       // EFAULT (ADR-0054: VA out of range)
             // Fail closed: an unknown NEGATIVE code is an error, never a
             // success value (Phase C: -ETIMEDOUT used to decode as Ok and
             // turned every fence/waitset timeout into a silent pseudo-Ok).

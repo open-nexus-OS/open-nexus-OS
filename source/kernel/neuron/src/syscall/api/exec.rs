@@ -304,7 +304,7 @@ pub(crate) fn exec_phase_a(
                 .checked_add(page * PAGE_SIZE)
                 .ok_or(AddressSpaceError::InvalidArgs)?;
             let pa = base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-            ctx.address_spaces.map_page(as_handle, va, pa, flags)?;
+            ctx.address_spaces.map_page_tracked(as_handle, va, pa, flags)?;
         }
     }
 
@@ -396,7 +396,7 @@ fn map_process_stack(
         let va =
             stack_bottom.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
         let pa = stack_base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        address_spaces.map_page(as_handle, va, pa, stack_flags)?;
+        address_spaces.map_page_tracked(as_handle, va, pa, stack_flags)?;
     }
     log_debug!(
         target: "exec",
@@ -552,7 +552,7 @@ pub(crate) fn exec_v2_phase_a(
                     .ok_or(AddressSpaceError::InvalidArgs)?;
                 let pa =
                     base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-                ctx.address_spaces.map_page(as_handle, va, pa, flags)?;
+                ctx.address_spaces.map_page_tracked(as_handle, va, pa, flags)?;
             }
 
             let seg_end =
@@ -638,7 +638,7 @@ pub(crate) fn exec_v2_phase_a(
             }
         }
         let meta_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ;
-        ctx.address_spaces.map_page(as_handle, meta_va, meta_pa, meta_flags)?;
+        ctx.address_spaces.map_page_tracked(as_handle, meta_va, meta_pa, meta_flags)?;
 
         // Bootstrap info page describing the metadata mapping (RO).
         let (info_pa, info_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
@@ -661,7 +661,7 @@ pub(crate) fn exec_v2_phase_a(
             }
         }
         let info_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ;
-        ctx.address_spaces.map_page(as_handle, info_va, info_pa, info_flags)?;
+        ctx.address_spaces.map_page_tracked(as_handle, info_va, info_pa, info_flags)?;
 
         // Guard page above the bootstrap info page must remain unmapped.
         if let Ok(space) = ctx.address_spaces.get(as_handle) {

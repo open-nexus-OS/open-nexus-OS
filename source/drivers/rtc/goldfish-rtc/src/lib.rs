@@ -44,7 +44,7 @@ pub fn combine_epoch(low: u32, high: u32) -> u64 {
 #[cfg(nexus_env = "os")]
 pub fn read_epoch_ns(mmio_cap_slot: u32, mmio_base_va: usize) -> Result<u64, RtcError> {
     nexus_abi::mmio_map(mmio_cap_slot, mmio_base_va, 0)
-        .or_else(|e| if e == nexus_abi::AbiError::InvalidArgument { Ok(()) } else { Err(e) })
+        .or_else(|e| if e == nexus_abi::AbiError::AlreadyExists { Ok(()) } else { Err(e) })
         .map_err(|_| RtcError::MapFailed)?;
     // Order matters: TIME_LOW latches TIME_HIGH (goldfish contract).
     let low = unsafe { core::ptr::read_volatile((mmio_base_va + REG_TIME_LOW) as *const u32) };

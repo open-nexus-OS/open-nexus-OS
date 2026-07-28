@@ -63,3 +63,4 @@ Note: **ADR-0019 was never filed; the number is retired to keep history stable.*
 - [ADR-0051: Service wire frames are declared, not hand-coded — one codec SSOT crate `nexus-wire`](0051-declarative-wire-codec-nexus-wire.md) — Accepted
 - [ADR-0052: Per-hart earliest-deadline timer arming + affinity-respecting steal park](0052-per-hart-earliest-deadline-timer-and-affinity-respecting-steal.md) — Accepted
 - [ADR-0053: settingsd is the single authority for all settings; windowd never writes them](0053-settingsd-single-settings-authority.md) — Accepted
+- [ADR-0054: Map failures keep their identity across the syscall ABI — no wildcard errno arms](0054-map-errors-keep-their-identity-across-the-abi.md) — Accepted

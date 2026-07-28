@@ -417,12 +417,11 @@ fn rsp(op: u8, status: u8, send_slot: u32, recv_slot: u32) -> [u8; 13] {
 fn emit_line(message: &str) {
     // Verdict folding → `samgrd N/N` (interactive); post-`ready` runtime markers fold into recall;
     // failures & proof boots print live & raw.
-    if nexus_abi::service_line(message.as_bytes()) {
-        return;
-    }
-    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
-        let _ = debug_putc(byte);
-    }
+    // One atomic `debug_write` (via `debug_println`, which also owns the verdict
+    // folding): the per-byte `debug_putc` fallback tears mid-line against the
+    // kernel's locked log records and DROPS the tail — a torn ready marker is a
+    // red ladder gate.
+    let _ = nexus_abi::debug_println(message);
 }
 
 fn emit_bytes(bytes: &[u8]) {

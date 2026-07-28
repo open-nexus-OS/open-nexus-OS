@@ -343,18 +343,17 @@ mod mmio_backend {
     fn mmio_map_ok(mmio_cap_slot: u32, va: usize, off: usize) -> Result<(), VirtioError> {
         match mmio_map(mmio_cap_slot, va, off) {
             Ok(()) => Ok(()),
-            Err(AbiError::InvalidArgument) => Ok(()),
+            Err(AbiError::AlreadyExists) => Ok(()),
             Err(_) => Err(VirtioError::Unsupported),
         }
     }
 
     fn emit_line(msg: &str) {
-        if nexus_abi::service_line(msg.as_bytes()) {
-            return;
-        }
-        for byte in msg.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
-            let _ = debug_putc(byte);
-        }
+        // One atomic `debug_write` (via `debug_println`, which also owns the verdict
+        // folding): the per-byte `debug_putc` fallback tears mid-line against the
+        // kernel's locked log records and DROPS the tail — a torn ready marker is a
+        // red ladder gate.
+        let _ = nexus_abi::debug_println(msg);
     }
 
     fn emit_byte(b: u8) {
