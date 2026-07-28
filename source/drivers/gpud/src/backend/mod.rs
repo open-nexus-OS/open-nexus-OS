@@ -117,11 +117,6 @@ pub struct VirtioGpuBackend {
     #[allow(dead_code)]
     pub(crate) virgl_ctx_id: u32,
     resources: alloc::vec::Vec<ResourceRecord>,
-    /// Monotonic GPU-resource VA-window slot (task #124): VA slots are never
-    /// reused — a released resource's pages stay mapped (no unmap primitive),
-    /// so its window must not be handed to a new resource.
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    next_resource_va_index: usize,
     pub(crate) scanout_resource: Option<ResourceId>,
     /// Fragment uniform storage for SetFragmentBytes commands.
     /// Phase 6c: stores shader parameters (animation state) pushed by windowd.
@@ -201,9 +196,6 @@ pub struct VirtioGpuBackend {
     /// so the host composites the pointer as a hardware overlay (the GPU hot path).
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     cursorq: Option<CtrlQueue>,
-    /// Number of virgl backing VMOs allocated (VA slot allocator).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    virgl_backing_count: usize,
     /// True after the boot draw self-test verified a full GPU draw by readback.
     /// Gates the blur pipeline (which reuses the self-test's state objects).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -441,6 +433,10 @@ pub(crate) struct ResourceRecord {
     pub(crate) backing_len: usize,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub(crate) backing_vmo: u32,
+    /// Exact `vm_map` region length (RFC-0085) — what `vm_unmap` must be
+    /// handed on release; 0 = nothing mapped.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) backing_map_len: usize,
 }
 
 impl VirtioGpuBackend {
@@ -483,8 +479,6 @@ impl VirtioGpuBackend {
             virgl_capable: false,
             virgl_ctx_id: 0,
             resources: alloc::vec::Vec::new(),
-            #[cfg(all(feature = "os-lite", target_os = "none"))]
-            next_resource_va_index: 0,
             scanout_resource: None,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             fragment_data: [0u8; 64],
@@ -520,8 +514,6 @@ impl VirtioGpuBackend {
             ctrlq: None,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             cursorq: None,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            virgl_backing_count: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_draw_ok: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -776,6 +768,8 @@ impl GfxBackend for VirtioGpuBackend {
             backing_len,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             backing_vmo,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            backing_map_len: crate::backend::transport::align_page(_byte_len),
         });
         Ok(id)
     }

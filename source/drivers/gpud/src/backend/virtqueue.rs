@@ -176,9 +176,6 @@ impl CtrlQueue {
     pub(crate) fn new(
         mmio_base: usize,
         queue_index: u32,
-        queue_va: usize,
-        cmd_va_base: usize,
-        resp_va_base: usize,
         slots: usize,
     ) -> Result<Self, GpuDriverError> {
         debug_assert!(slots >= 1 && slots <= RING_SLOTS);
@@ -194,17 +191,15 @@ impl CtrlQueue {
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
-        nexus_abi::vmo_map_page(q_vmo, queue_va, 0, flags)
+        // RFC-0085: the kernel picks every queue VA — the six fixed
+        // 0x2030_0000-region constants this replaced are gone, and with them
+        // the possibility of any of these windows colliding with anything.
+        let queue_va =
+            nexus_abi::vm_map(q_vmo, 0, 4096, flags).map_err(|_| GpuDriverError::MmioFault)?;
+        let cmd_va_base = nexus_abi::vm_map(cmd_vmo, 0, cmd_pool_len, flags)
             .map_err(|_| GpuDriverError::MmioFault)?;
-        // Map the whole command pool (one page per in-flight slot, contiguous).
-        for i in 0..slots {
-            nexus_abi::vmo_map_page(cmd_vmo, cmd_va_base + i * 4096, i * 4096, flags)
-                .map_err(|_| GpuDriverError::MmioFault)?;
-        }
-        for i in 0..resp_pool_len / 4096 {
-            nexus_abi::vmo_map_page(resp_vmo, resp_va_base + i * 4096, i * 4096, flags)
-                .map_err(|_| GpuDriverError::MmioFault)?;
-        }
+        let resp_va_base = nexus_abi::vm_map(resp_vmo, 0, resp_pool_len, flags)
+            .map_err(|_| GpuDriverError::MmioFault)?;
         let mut q_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         let mut cmd_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         let mut resp_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };

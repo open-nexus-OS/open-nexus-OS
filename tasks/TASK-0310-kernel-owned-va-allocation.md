@@ -1,6 +1,6 @@
 ---
 title: TASK-0310 Kernel-owned VA allocation — vm_map/vm_unmap/mmio_map_auto end to end
-status: In progress (2026-07-28) — Phases 0–3 done
+status: In progress (2026-07-28) — Phases 0–4 done
 owner: @kernel-mm-team @ui
 created: 2026-07-28
 links:
@@ -126,11 +126,37 @@ Manifest + both `expected_sequence` blocks + probe in this one package.
 per-unmap shootdown is invisible at selftest load. `cargo test -p neuron`
 42/42 · `just check` green.**
 
-### Phase 4 — gpud ⬜
+### Phase 4 — gpud ✅ (2026-07-28)
 
-FB loop → one `vm_map`; delete `VaWindow` + 0x2040_0000 slots; virgl arena →
-vm_map/vm_unmap (exhaustion cliff gone); `release_resource` really unmaps;
-queues/MMIO. Gate: gpud phases green, FB map time collapses, budget green.
+Every VA in gpud is kernel-chosen now. Framebuffer attach: the ~12 000-call
+per-page loop is ONE `vm_map` (TASK-0309's Heisenbug habitat deleted).
+DELETED: `VaWindow` + `alloc_resource_va_index` + `MAX_RESOURCE_VA_SLOTS` +
+the whole fixed constant map (`GPU_QUEUE/CMD/RESP/CURSOR_*` 0x2030-region,
+`GPU_RESOURCE_BASE_VA/STRIDE` 0x2040-region, `GPU_VIRGL_BACKING_*`
+0x3800-region — the 12-slot arena whose exhaustion was a silent GL→2D
+fallback), plus `next_resource_va_index`/`virgl_backing_count`.
+`CtrlQueue::new` maps its three pools whole-range; `mmio_map_auto` replaces
+the fixed 0x2020_0000 MMIO window; `create_resource_os` and both virgl
+backing/scratch paths are one-call maps. `release_resource` REALLY unmaps
+(`ResourceRecord.backing_map_len` carries the exact region; unmap ordered
+before `vmo_destroy` — the new EBUSY guard enforces it).
+
+**Found & fixed en route — the `ime v2 candidates` "flake" was a real
+last-writer-loses bug**: imed's OSK path switches the engine and persists
+`input.keymap`; the settings spine (settingsd → inputd → imed main endpoint)
+relays asynchronously, and a STALE in-flight relay of the previous tag could
+clobber a fresh switch mid-typing (uart: `inputd: keymap set zh` landing
+AFTER the FAIL). Kernel-timing shifts turned it from rare into 3-of-4 red.
+Fix in the host-testable core: `note_persisted`/`relay_layout` — stale
+relays are ignored until the own write's echo returns, with a bounded
+ignore budget (4) so an external settings change can never be starved.
+2 new host proofs (imed 18/18).
+
+**Proof: ladder exit 0 TWICE in a row (headless--2026-07-28T15-11-35,
+…T15-13-13) incl. `ime v2 candidates ok` and all RFC-0085 gates ·
+`gpud: timing handoff_to_ready_ms=0` vs 63–69 ms before P4 — the FB map
+cost measurably collapsed · `bkl budget ok (max_wait=0us)` · `just check`
+green.**
 
 ### Phase 5 — the rest ⬜
 

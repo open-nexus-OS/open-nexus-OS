@@ -24,10 +24,7 @@ use super::raster::{
     fill_sdf_rounded_vmo,
 };
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-use super::transport::{
-    align_page, ctrl_hdr, DISPLAY_PLANE_HEIGHT, DISPLAY_PLANE_ROW, GPU_RESOURCE_BASE_VA,
-    GPU_RESOURCE_STRIDE,
-};
+use super::transport::{align_page, ctrl_hdr, DISPLAY_PLANE_HEIGHT, DISPLAY_PLANE_ROW};
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 #[allow(unused_imports)]
 use crate::markers::{

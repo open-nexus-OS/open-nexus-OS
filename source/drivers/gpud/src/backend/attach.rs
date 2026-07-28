@@ -54,42 +54,30 @@ impl VirtioGpuBackend {
         let id = ResourceId(self.next_resource_id);
         self.next_resource_id += 1;
 
-        // Map the external VMO into gpud's VA space for direct framebuffer write access.
-        // Phase 6c: this enables gpud to execute rendering commands directly into the
-        // scanout framebuffer without vmo_write syscalls from windowd.
+        // Map the external VMO into gpud's VA space for direct framebuffer
+        // write access. RFC-0085: ONE `vm_map` for the whole range at a
+        // KERNEL-CHOSEN va — this replaces the ~12 000-syscall per-page loop
+        // whose moving mid-loop EINVAL was TASK-0309's Heisenbug habitat.
+        // Interior 2 MiB spans promote to superpage leaves kernel-side.
         let backing_len_aligned = align_page((width * height * 4) as usize);
-        let window = self.alloc_resource_va_index(backing_len_aligned)?;
-        let backing_va = window.base_va;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
-        for offset in (0..backing_len_aligned).step_by(4096) {
-            // `page_va` refuses an offset outside the reservation, so this
-            // loop cannot walk into a neighbouring slot the way it used to.
-            let va = window.page_va(offset)?;
-            // `vmo_map_page_sys` instead of `vmo_map_page` (TASK-0309): the
-            // latter collapses every kernel rejection into `Unsupported`
-            // INSIDE nexus-abi, so the cause is gone before gpud can see it.
-            // A bare "fail" marker on the boot's most load-bearing mapping is
-            // what made this hazard undiagnosable from a uart log.
-            if let Err(err) = nexus_abi::vmo_map_page_sys(vmo_slot, va, offset, flags) {
+        let backing_va =
+            nexus_abi::vm_map(vmo_slot, 0, backing_len_aligned, flags).map_err(|err| {
                 let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_MAP_FAIL);
                 crate::diag::err_line(b"attach map", err);
                 crate::diag::kv_line(
                     b"attach map",
                     &[
                         (b"slot", u64::from(vmo_slot)),
-                        (b"idx", window.index as u64),
-                        (b"va", va as u64),
-                        (b"off", offset as u64),
                         (b"len", backing_len_aligned as u64),
                         (b"vmolen", info.len),
                     ],
                 );
-                return Err(GfxError::MmioFault);
-            }
-        }
+                GfxError::MmioFault
+            })?;
 
         // The VMO needs a virtio 2D resource ONLY for the non-virgl 2D scanout
         // path. On the virgl path the VMO is read solely as the 3D texture 0xF8
@@ -141,6 +129,7 @@ impl VirtioGpuBackend {
                 backing_pa: info.base,
                 backing_len: (width * height * 4) as usize,
                 backing_vmo: 0,
+                backing_map_len: backing_len_aligned,
             };
             if self.virgl_capable && self.virgl_draw_ok {
                 self.resources.push(record);
@@ -238,7 +227,8 @@ impl VirtioGpuBackend {
             backing_va,
             backing_pa: info.base,
             backing_len: (width * height * 4) as usize,
-            backing_vmo: 0, // external VMO from windowd; page mapping persists independent of cap lifetime
+            backing_vmo: 0, // external VMO from windowd (cap lifetime independent)
+            backing_map_len: backing_len_aligned,
         };
 
         // Transfer the display plane (rows 1600..2399) to host for the first frame.

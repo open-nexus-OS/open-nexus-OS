@@ -6,10 +6,7 @@
 
 #![cfg(all(feature = "os-lite", target_os = "none"))]
 
-use super::transport::{
-    read_reg, write_reg, GPU_CMD_VA, GPU_CURSOR_CMD_VA, GPU_CURSOR_QUEUE_VA, GPU_CURSOR_RESP_VA,
-    GPU_QUEUE_VA, GPU_RESP_VA,
-};
+use super::transport::{read_reg, write_reg};
 use super::virtqueue::{CtrlQueue, CTRL_QUEUE_INDEX, CURSOR_QUEUE_INDEX, RING_SLOTS};
 use super::VirtioGpuBackend;
 use crate::error::GpuDriverError;
@@ -57,26 +54,12 @@ impl VirtioGpuBackend {
             return Err(GpuDriverError::CommandRejected);
         }
         // Control queue: multi-slot ring (batches a whole present, completes once).
-        let ctrlq = CtrlQueue::new(
-            self.mmio_base,
-            CTRL_QUEUE_INDEX,
-            GPU_QUEUE_VA,
-            GPU_CMD_VA,
-            GPU_RESP_VA,
-            RING_SLOTS,
-        )?;
+        let ctrlq = CtrlQueue::new(self.mmio_base, CTRL_QUEUE_INDEX, RING_SLOTS)?;
         self.ctrlq = Some(ctrlq);
         // Cursor virtqueue (index 1) — hardware-cursor overlay path. Best-effort:
         // if it can't be set up, cursor falls back and 2D still works. Single-slot
         // (cursor commands are submitted one at a time, no batching).
-        if let Ok(cursorq) = CtrlQueue::new(
-            self.mmio_base,
-            CURSOR_QUEUE_INDEX,
-            GPU_CURSOR_QUEUE_VA,
-            GPU_CURSOR_CMD_VA,
-            GPU_CURSOR_RESP_VA,
-            1,
-        ) {
+        if let Ok(cursorq) = CtrlQueue::new(self.mmio_base, CURSOR_QUEUE_INDEX, 1) {
             self.cursorq = Some(cursorq);
         }
         let status = read_reg(self.mmio_base, protocol::VIRTIO_MMIO_STATUS);

@@ -211,3 +211,33 @@ fn forget_clears_learned_words() {
     assert_eq!(core.learned_count(), 0, "forget clears all learned words");
     assert!(core.personalization_enabled(), "forget keeps personalization on");
 }
+
+/// Relay-ordering guard (RFC-0075 Phase 8b): a stale in-flight relay of an
+/// OLDER tag must not clobber a fresher OSK-originated switch — the exact
+/// race that turned `set zh; type nihao` into a de-engine echo in QEMU.
+#[test]
+fn stale_relay_does_not_clobber_pending_switch() {
+    let mut core = ImedCore::new();
+    core.set_layout("zh");
+    core.note_persisted("zh");
+    assert!(!core.relay_layout("de"), "stale relay must be ignored");
+    assert_eq!(core.layout_tag(), "zh", "engine stays on the fresh switch");
+    assert!(!core.relay_layout("zh"), "own echo consumes the guard, no re-switch");
+    assert!(core.relay_layout("de"), "post-echo relays are external changes and apply");
+    assert_eq!(core.layout_tag(), "de");
+}
+
+/// The ignore budget self-terminates: even if our own echo never arrives
+/// (coalesced away), an external change lands within the bound.
+#[test]
+fn relay_ignore_budget_self_terminates() {
+    let mut core = ImedCore::new();
+    core.set_layout("zh");
+    core.note_persisted("zh");
+    for _ in 0..4 {
+        assert!(!core.relay_layout("jp"), "within budget: stale relays ignored");
+        assert_eq!(core.layout_tag(), "zh");
+    }
+    assert!(core.relay_layout("jp"), "budget exhausted: the relay applies");
+    assert_eq!(core.layout_tag(), "jp", "external change can never be starved");
+}

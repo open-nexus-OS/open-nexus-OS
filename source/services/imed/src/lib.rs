@@ -121,7 +121,22 @@ pub struct ImedCore {
     /// Coarse recency bucket: bumped once per focus-gain (a new editing
     /// session), never a raw timestamp.
     bucket: Bucket,
+    /// Relay-ordering guard (RFC-0075 Phase 8b): after an OSK-originated
+    /// switch persists tag T, the settings spine (settingsd → inputd → main
+    /// endpoint) may still deliver relays of OLDER tags — last-writer must
+    /// not lose. Holds T until its own relay echoes back; see
+    /// [`Self::relay_layout`].
+    pending_echo: [u8; 8],
+    pending_echo_len: u8,
+    /// Non-matching relays ignored while the echo is pending — BOUNDED so a
+    /// genuine external `input.keymap` change can never be starved.
+    relay_ignore_left: u8,
 }
+
+/// How many stale (non-matching) relays a pending echo may swallow before
+/// the guard self-terminates and applies whatever arrives. In-flight writes
+/// are bounded by the probe/user cadence; 4 covers every observed pile-up.
+const RELAY_IGNORE_BUDGET: u8 = 4;
 
 impl Default for ImedCore {
     fn default() -> Self {
@@ -151,7 +166,57 @@ impl ImedCore {
             last_commit: [0; CAND_MAX],
             last_commit_len: 0,
             bucket: 0,
+            pending_echo: [0; 8],
+            pending_echo_len: 0,
+            relay_ignore_left: 0,
         }
+    }
+
+    fn pending_echo_tag(&self) -> &str {
+        core::str::from_utf8(&self.pending_echo[..usize::from(self.pending_echo_len)]).unwrap_or("")
+    }
+
+    /// Records that the OSK path just persisted `layout` to settingsd: the
+    /// engine is ALREADY on `layout`, and its relay is still in flight.
+    /// Until that echo arrives, stale relays of older tags are ignored.
+    pub fn note_persisted(&mut self, layout: &str) {
+        let b = layout.as_bytes();
+        let n = b.len().min(self.pending_echo.len());
+        self.pending_echo[..n].copy_from_slice(&b[..n]);
+        self.pending_echo_len = n as u8;
+        self.relay_ignore_left = RELAY_IGNORE_BUDGET;
+    }
+
+    /// Applies an `input.keymap` relay from the settings spine. Returns
+    /// whether the ENGINE actually switched (the caller reloads the
+    /// personalization store only then).
+    ///
+    /// Ordering guard: while our own persisted tag's echo is pending, a
+    /// relay carrying a DIFFERENT tag is an in-flight stale value from
+    /// before our write — ignoring it is what keeps `set zh; type…` correct
+    /// when the previous probe's `de` restore is still in the pipe. The
+    /// ignore budget is bounded, so an external settings write always lands
+    /// within `RELAY_IGNORE_BUDGET` relays even if our echo got coalesced
+    /// away.
+    pub fn relay_layout(&mut self, layout: &str) -> bool {
+        if self.pending_echo_len != 0 {
+            if self.pending_echo_tag() == layout {
+                // Our own write completed the cycle — engine already there.
+                self.pending_echo_len = 0;
+                self.relay_ignore_left = 0;
+                return false;
+            }
+            if self.relay_ignore_left > 0 {
+                self.relay_ignore_left -= 1;
+                return false;
+            }
+            self.pending_echo_len = 0;
+        }
+        if self.layout_tag() != layout {
+            self.set_layout(layout);
+            return true;
+        }
+        false
     }
 
     /// The last applied layout tag (empty until the first switch).

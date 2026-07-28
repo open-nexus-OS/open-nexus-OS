@@ -1,10 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Low-level MMIO transport: the fixed device address-space map (queue / command
-//! / response / resource / virgl-backing VA regions), the volatile register
-//! accessors, the virtio-gpu control-header constructor, and small alignment
-//! helpers. Shared by the virtqueue ring and the GfxBackend command methods.
+//! Low-level MMIO transport: the volatile register accessors, the virtio-gpu
+//! control-header constructor, and small alignment helpers. Shared by the
+//! virtqueue ring and the GfxBackend command methods. Every VA in this driver
+//! is KERNEL-CHOSEN since RFC-0085 (`vm_map`/`mmio_map_auto`) — the fixed
+//! queue/resource/virgl-backing address map that used to live here is gone.
 
 #![cfg(all(feature = "os-lite", target_os = "none"))]
 
@@ -23,39 +24,6 @@ use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::types::{Rect, ResourceId};
 use nexus_gfx::core::types::PixelFormat;
 
-pub(crate) const GPU_QUEUE_VA: usize = 0x2030_0000;
-// Control queue command-buffer POOL: `RING_SLOTS` contiguous 4 KiB pages, one
-// per in-flight command slot, starting here. The multi-entry ring batches a
-// whole present's commands (one buffer each) then completes once — so a textured
-// draw whose completion QEMU defers no longer blocks the next command. Pool ends
-// at GPU_CMD_VA + RING_SLOTS*4096 = 0x2033_0000 (32 slots), just below the resp pages.
-pub(crate) const GPU_CMD_VA: usize = 0x2031_0000;
-// Response POOL: `RING_SLOTS` × 256 B response sub-slots (grows with the ring;
-// 32 slots = two 4 KiB pages). Slot i's resp is at GPU_RESP_VA + i*256.
-pub(crate) const GPU_RESP_VA: usize = 0x2033_0000;
-// Cursor virtqueue (queue index 1) — separate VA region so it does not collide
-// with the control queue's desc/cmd-pool/resp pages. The hardware cursor overlay is
-// the GPU "hot path" for the pointer: MOVE_CURSOR repositions it host-side
-// without re-rendering the scene. The cursor queue is single-slot (no batching).
-pub(crate) const GPU_CURSOR_QUEUE_VA: usize = 0x2034_0000;
-pub(crate) const GPU_CURSOR_CMD_VA: usize = 0x2035_0000;
-pub(crate) const GPU_CURSOR_RESP_VA: usize = 0x2035_1000;
-pub(crate) const GPU_RESOURCE_BASE_VA: usize = 0x2040_0000;
-// 32 MB per resource VA slot. NOT large enough for the external framebuffer,
-// and deliberately so: `alloc_resource_va_index` is size-aware and hands a
-// mapping as many CONSECUTIVE slots as it needs (TASK-0309).
-//
-// The stride was last sized against a 1280×6400×4 ≈ 31.3 MB framebuffer. It has
-// since grown to 1280×9600×4 ≈ 46.9 MB (measured at boot), so it spans two slots.
-// Sizing the stride to the framebuffer instead would just re-arm the same trap
-// the next time the plane layout or the atlas band grows: before TASK-0309 the
-// allocator handed out ONE slot regardless of size and the caller mapped
-// straight past the boundary, which only ever worked while the framebuffer
-// happened to get slot 0 with nothing above it.
-//
-// 8 slots × 32 MB from 0x2040_0000 ends at 0x3040_0000 — below
-// GPU_VIRGL_BACKING_BASE_VA (0x3800_0000).
-pub(crate) const GPU_RESOURCE_STRIDE: usize = 0x0200_0000;
 /// Fixed display-plane location within the framebuffer resource. The 4-plane
 /// layout is: wallpaper(0) / retained(800) / DISPLAY(1600) / blur-cache(2400),
 /// with the surface atlas at 3200+. This is a FIXED row — NOT `height/2` — since
@@ -63,18 +31,6 @@ pub(crate) const GPU_RESOURCE_STRIDE: usize = 0x0200_0000;
 /// at 1600. Must match windowd's `DISPLAY_ROW_OFFSET`.
 pub(crate) const DISPLAY_PLANE_ROW: u32 = 1600;
 pub(crate) const DISPLAY_PLANE_HEIGHT: u32 = 800;
-/// VA region for virgl 3D resource backings (readback targets) — separate from
-/// the 2D resource region so the two allocators never collide.
-#[cfg(feature = "virgl")]
-pub(crate) const GPU_VIRGL_BACKING_BASE_VA: usize = 0x3800_0000;
-#[cfg(feature = "virgl")]
-pub(crate) const GPU_VIRGL_BACKING_STRIDE: usize = 0x0100_0000;
-/// Backing/scratch slot budget. 12 × 16MB stride ends at 0x4400_0000 — nothing
-/// else in gpud's VA map lives above 0x4000_0000. Was 8; the second scanout RT
-/// (double-buffered swapchain) pushed the worst-case boot allocation to 9.
-#[cfg(feature = "virgl")]
-pub(crate) const GPU_VIRGL_BACKING_SLOTS: usize = 12;
-
 pub(crate) fn ctrl_hdr(type_: u32) -> protocol::VirtioGpuCtrlHdr {
     protocol::VirtioGpuCtrlHdr { type_, flags: 0, fence_id: 0, ctx_id: 0, _padding: 0 }
 }
@@ -239,8 +195,6 @@ impl VirtioGpuBackend {
         byte_len: usize,
     ) -> Result<(usize, u64, usize, u32), GfxError> {
         let backing_len = align_page(byte_len);
-        let window = self.alloc_resource_va_index(backing_len)?;
-        let backing_va = window.base_va;
         let backing_vmo = nexus_abi::vmo_create(backing_len).map_err(|_e| {
             let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_CREATE_FAIL);
             GfxError::ResourceExhausted
@@ -249,27 +203,17 @@ impl VirtioGpuBackend {
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
-        for offset in (0..backing_len).step_by(4096) {
-            let va = window.page_va(offset)?;
-            // See `attach.rs`: `_sys` keeps the kernel's error code, which the
-            // non-`_sys` wrapper discards (TASK-0309).
-            if let Err(err) = nexus_abi::vmo_map_page_sys(backing_vmo, va, offset, flags) {
-                let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_MAP_FAIL);
-                crate::diag::err_line(b"resource map", err);
-                crate::diag::kv_line(
-                    b"resource map",
-                    &[
-                        (b"idx", window.index as u64),
-                        (b"va", va as u64),
-                        (b"off", offset as u64),
-                        (b"len", backing_len as u64),
-                        (b"w", u64::from(w)),
-                        (b"h", u64::from(h)),
-                    ],
-                );
-                return Err(GfxError::MmioFault);
-            }
-        }
+        // RFC-0085: one whole-range `vm_map` at a kernel-chosen va — the
+        // 32 MiB-slot arena and its per-page map loop are gone.
+        let backing_va = nexus_abi::vm_map(backing_vmo, 0, backing_len, flags).map_err(|err| {
+            let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_MAP_FAIL);
+            crate::diag::err_line(b"resource map", err);
+            crate::diag::kv_line(
+                b"resource map",
+                &[(b"len", backing_len as u64), (b"w", u64::from(w)), (b"h", u64::from(h))],
+            );
+            GfxError::MmioFault
+        })?;
         unsafe { core::ptr::write_bytes(backing_va as *mut u8, 0, backing_len) };
         let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         nexus_abi::cap_query(backing_vmo, &mut info).map_err(|_e| {

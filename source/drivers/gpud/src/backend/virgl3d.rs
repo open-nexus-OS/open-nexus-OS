@@ -9,10 +9,7 @@
 #![cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
 
 use super::raster::blur_backdrop_separable_vmo;
-use super::transport::{
-    align_page, read_reg, write_reg, GPU_VIRGL_BACKING_BASE_VA, GPU_VIRGL_BACKING_SLOTS,
-    GPU_VIRGL_BACKING_STRIDE,
-};
+use super::transport::{align_page, read_reg, write_reg};
 use super::VirtioGpuBackend;
 use crate::error::GpuDriverError;
 use crate::markers::{
@@ -162,16 +159,6 @@ impl VirtioGpuBackend {
         self.ctrl_submit_header_tail(&hdr, bytes)
     }
 
-    /// Next free backing/scratch VA slot (bounded by `GPU_VIRGL_BACKING_SLOTS`).
-    /// Returns `(slot, va)`; the caller bumps `virgl_backing_count` on success.
-    fn virgl_backing_slot(&self) -> Result<(usize, usize), GfxError> {
-        let slot = self.virgl_backing_count;
-        if slot >= GPU_VIRGL_BACKING_SLOTS {
-            return Err(GfxError::ResourceExhausted);
-        }
-        Ok((slot, GPU_VIRGL_BACKING_BASE_VA + slot * GPU_VIRGL_BACKING_STRIDE))
-    }
-
     /// Allocate a guest VMO, map it into the virgl backing VA region, and
     /// attach it as the backing store of `res_id` (then attach the resource to
     /// the virgl context). Returns the backing VA for CPU access after
@@ -185,21 +172,20 @@ impl VirtioGpuBackend {
             VirtioGpuCtxAttachResource, VirtioGpuMemEntry, VirtioGpuResourceAttachBacking,
             VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
         };
-        let (slot, backing_va) = self.virgl_backing_slot()?;
+        // RFC-0085: one whole-range `vm_map` at a kernel-chosen va — the
+        // 12-slot backing arena (9/12 consumed at boot; exhaustion = silent
+        // GL→2D fallback) is gone.
         let backing_len = align_page(byte_len);
         let vmo = nexus_abi::vmo_create(backing_len).map_err(|_| GfxError::ResourceExhausted)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
-        for offset in (0..backing_len).step_by(4096) {
-            nexus_abi::vmo_map_page(vmo, backing_va + offset, offset, flags)
-                .map_err(|_| GfxError::MmioFault)?;
-        }
+        let backing_va =
+            nexus_abi::vm_map(vmo, 0, backing_len, flags).map_err(|_| GfxError::MmioFault)?;
         unsafe { core::ptr::write_bytes(backing_va as *mut u8, 0, backing_len) };
         let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         nexus_abi::cap_query(vmo, &mut info).map_err(|_| GfxError::MmioFault)?;
-        self.virgl_backing_count = slot + 1;
 
         let attach = VirtioGpuResourceAttachBacking {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
@@ -880,18 +866,13 @@ END\n";
     /// Allocate and map a page-aligned scratch VMO in the virgl backing VA
     /// region (no resource attach). Returns the VA.
     pub(crate) fn virgl_alloc_scratch(&mut self, byte_len: usize) -> Result<usize, GfxError> {
-        let (slot, va) = self.virgl_backing_slot()?;
         let len = align_page(byte_len);
         let vmo = nexus_abi::vmo_create(len).map_err(|_| GfxError::ResourceExhausted)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
-        for offset in (0..len).step_by(4096) {
-            nexus_abi::vmo_map_page(vmo, va + offset, offset, flags)
-                .map_err(|_| GfxError::MmioFault)?;
-        }
-        self.virgl_backing_count = slot + 1;
+        let va = nexus_abi::vm_map(vmo, 0, len, flags).map_err(|_| GfxError::MmioFault)?;
         Ok(va)
     }
 

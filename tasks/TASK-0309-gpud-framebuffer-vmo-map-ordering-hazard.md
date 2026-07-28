@@ -1,6 +1,6 @@
 ---
 title: TASK-0309 gpud framebuffer VMO map — a VA-layout defect the boot order exposed
-status: Partially fixed (2026-07-28) — VA overrun closed; a SECOND cause remains
+status: Habitat removed (2026-07-28) — RFC-0085 P4 replaced the per-page loop with ONE vm_map; MAP-FAIL stage trace stays armed until P6 deletes the legacy path
 owner: @ui
 created: 2026-07-27
 links:

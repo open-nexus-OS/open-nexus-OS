@@ -9,7 +9,7 @@
 
 #[cfg(all(nexus_env = "os", feature = "virgl"))]
 use core::time::Duration;
-use nexus_abi::{debug_println, mmio_map, nsec, yield_, AbiError};
+use nexus_abi::{debug_println, mmio_map_auto, nsec, yield_, AbiError};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use nexus_gfx::backend::error::GfxError;
@@ -71,7 +71,6 @@ pub const STATUS_MALFORMED: u8 = nexus_display_proto::STATUS_MALFORMED;
 pub const STATUS_DEVICE_ERROR: u8 = nexus_display_proto::STATUS_DEVICE_ERROR;
 
 const GPU_MMIO_CAP_SLOT: u32 = 48;
-const GPU_MMIO_VA: usize = 0x2020_0000;
 const GPU_MMIO_LEN: usize = 0x1000;
 const GPUD_RECV_SLOT: u32 = 3;
 const GPUD_SEND_SLOT: u32 = 4;
@@ -167,12 +166,13 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
 }
 
 fn open_backend_once() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {
-    match mmio_map(GPU_MMIO_CAP_SLOT, GPU_MMIO_VA, 0) {
-        Ok(()) => {}
+    // RFC-0085: the kernel picks the MMIO window va (fixed 0x2020_0000 gone).
+    let mmio_va = match mmio_map_auto(GPU_MMIO_CAP_SLOT, 0, GPU_MMIO_LEN) {
+        Ok(va) => va,
         Err(AbiError::InvalidArgument) => return Err(AbiError::InvalidArgument),
         Err(_) => return Err(nexus_abi::AbiError::InvalidArgument),
-    }
-    let mut backend = VirtioGpuBackend::new(GPU_MMIO_VA, GPU_MMIO_LEN);
+    };
+    let mut backend = VirtioGpuBackend::new(mmio_va, GPU_MMIO_LEN);
     match backend.probe() {
         Ok(()) => {
             debug_println(GPUD_VIRTIO_GPU_PROBED)?;

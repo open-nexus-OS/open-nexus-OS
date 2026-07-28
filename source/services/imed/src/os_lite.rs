@@ -198,6 +198,9 @@ fn handle_osk_frame(
                 // TASK-0204: load the new locale's personalization blob.
                 core.load_store(&crate::statefs::StatefsBlobIo);
                 persist_layout(layout);
+                // Arm the relay-ordering guard: stale in-flight relays of
+                // OLDER tags must not clobber this switch mid-typing.
+                core.note_persisted(layout);
             }
             Some((op, wire::STATUS_OK, empty))
         }
@@ -295,8 +298,7 @@ fn handle_frame(
             let Some(layout) = wire::decode_set_layout(frame) else {
                 return Some((op, wire::STATUS_MALFORMED));
             };
-            if core.layout_tag() != layout {
-                core.set_layout(layout);
+            if core.relay_layout(layout) {
                 // TASK-0204: load the new locale's personalization blob.
                 core.load_store(&crate::statefs::StatefsBlobIo);
             }
