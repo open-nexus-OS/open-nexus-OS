@@ -1,0 +1,44 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The content header: the handoff's `Breadcrumbs` trail —
+// `Einstellungen › Sektion › Unterseite`.
+//
+// KNOWN NON-PARITY, decided rather than faked: the kit's `Breadcrumbs` builds
+// the whole trail as ONE layout node with one id, so individual crumbs cannot
+// be tapped — a widget carries a single handler. The trail therefore SHOWS
+// the path and the wrapper walks ONE level up on tap (`Back`: sub-page →
+// section → overview), which reaches every crumb this app currently renders
+// in at most two taps. Recorded in docs/dev/ui/design-token-audit.md.
+//
+// `section` and `sub` arrive already localized — the caller resolves `@t(...)`
+// so this component needs no knowledge of the tree. Empty = that level is not
+// on screen.
+
+Component CrumbBar {
+    props: {
+        section: Str,
+        sub: Str,
+    }
+    Stack {
+        if $props.section == "" {
+            Stack {
+                Breadcrumbs { items: [@t("set.title")] }
+            }
+        } else if $props.sub == "" {
+            Stack {
+                Breadcrumbs { items: [@t("set.title"), $props.section] }
+            }
+            on Tap -> dispatch(Back)
+        } else {
+            Stack {
+                Breadcrumbs { items: [@t("set.title"), $props.section, $props.sub] }
+            }
+            on Tap -> dispatch(Back)
+        }
+        Spacer
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+}

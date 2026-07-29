@@ -1,0 +1,66 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// DEMO domain: every switch in the settings tree that has no system behind it
+// yet. They are the handoff's `tg{}` map, and their defaults are its defaults
+// — the tree is a design contract, so the boot picture matches the mockup.
+//
+// NO events and NO reducers on purpose. `Toggle { checked: $state.tgX }`
+// synthesizes a two-way binding that writes the field directly, so a purely
+// visual switch costs one line here and nothing anywhere else. The day one of
+// these gets a real consumer it moves OUT of this store into the domain store
+// that owns the key — that move is the signal that it stopped being a mockup.
+//
+// The `tg` prefix keeps these names clear of the domain stores: DSL state
+// fields are resolved by name across ALL stores, so the namespace is flat.
+//
+// Sub-page switches are declared here too even though Phase 1 only renders
+// the section roots — the drill-down then needs no store change.
+
+Store DemoStore {
+    // Verbindungen
+    tgWifi: Bool = true,
+    tgBt: Bool = false,
+    tgOffline: Bool = false,
+    tgDataSaver: Bool = false,
+    tgDataWarn: Bool = true,
+    tgHotspot: Bool = false,
+    tgVpnAuto: Bool = false,
+    tgWifiAsk: Bool = true,
+    // Verbundene Geräte
+    tgPairing: Bool = true,
+    tgPrinterShare: Bool = false,
+    // Sound & Töne
+    tgKeyClick: Bool = true,
+    tgSysSounds: Bool = true,
+    tgMonoAudio: Bool = false,
+    // Monitore
+    tgNight: Bool = true,
+    tgHdr: Bool = true,
+    // Benachrichtigungen
+    tgDnd: Bool = false,
+    tgLockPreview: Bool = true,
+    tgBadges: Bool = true,
+    // Personalisierung
+    tgReduceTransparency: Bool = false,
+    tgReduceMotion: Bool = false,
+    // Apps
+    tgAutoUpdate: Bool = true,
+    tgAppPrompt: Bool = true,
+    // Allgemeine Verwaltung
+    tgAutoTime: Bool = true,
+    tgAutocorrect: Bool = true,
+    tgDictation: Bool = false,
+    tgLangPerApp: Bool = false,
+    // Accounts
+    tgSyncFiles: Bool = true,
+    tgSyncPhotos: Bool = false,
+    // Datenschutz & Sicherheit
+    tgFingerprint: Bool = true,
+    tgFaceId: Bool = false,
+    tgLockNow: Bool = true,
+    tgDiagnostics: Bool = false,
+    // Energie Sparen
+    tgBatterySaver: Bool = false,
+    tgDimScreen: Bool = true,
+}

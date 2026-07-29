@@ -1,0 +1,145 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The window-chrome menus: the app-chip window-mode menu, the ⋯ menu and its
+// jump-to-section submenu (handoff §"Structure & interactions").
+//
+// The window controls stay on window-kit's `WinMenuItem` with `act: true`,
+// which dispatches `WinAct(id)` — a real control forwarded to windowd. Every
+// other entry uses this app's `MenuRow`, because `WinMenuItem` would bake
+// `WinMenuPick(id)` and these entries need to dispatch navigation events or
+// open a submenu instead.
+//
+// The handoff's view options (`Beschreibungen anzeigen`, `Sidebar kompakt`,
+// `Erweiterte Optionen`) are NOT here: they belong to Phase 2 together with
+// the sub-pages and the `advanced` groups they reveal, and a menu entry that
+// toggles nothing would be a control that lies about what it does.
+
+Component MoreMenu {
+    Stack {
+        Stack {
+            if $state.menu == "app" {
+                Stack {
+                    Panel {
+                        Text(@t("win.mode")).textSize(xs).fg(onGlassMuted)
+                        WinMenuItem { id: "mode.split", label: @t("win.split"), icon: "columns.2", kind: "", act: true }
+                        WinMenuItem { id: "mode.fullscreen", label: @t("win.fullscreen"), icon: "maximize", kind: "", act: true }
+                        WinMenuItem { id: "mode.freeform", label: @t("win.freeform"), icon: "square", kind: "check", act: true }
+                        Stack { }
+                            .height(1)
+                            .bg(divider)
+                        WinMenuItem { id: "minimize", label: @t("win.minimize"), icon: "minimize", kind: "", act: true }
+                        WinMenuItem { id: "close", label: @t("win.close"), icon: "xmark", kind: "danger", act: true }
+                    }
+                    .material(overlay)
+                    .rounded(xl)
+                    .width(230)
+                    .gap(0)
+                    .padding(1)
+                }
+                on Tap -> dispatch(WinNoop)
+            } else {
+                Stack { }
+            }
+            Spacer
+            if $state.menu == "more.jump" {
+                Stack {
+                    Panel {
+                        Text(@t("win.jump")).textSize(xs).fg(onGlassMuted)
+                        Stack {
+                            MenuRow { label: @t("sec.connections"), icon: "wifi", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("connections"))
+                        Stack {
+                            MenuRow { label: @t("sec.devices"), icon: "computermouse", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("devices"))
+                        Stack {
+                            MenuRow { label: @t("sec.sound"), icon: "speaker.wave", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("sound"))
+                        Stack {
+                            MenuRow { label: @t("sec.display"), icon: "desktopcomputer", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("display"))
+                        Stack {
+                            MenuRow { label: @t("sec.notif"), icon: "bell", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("notif"))
+                        Stack {
+                            MenuRow { label: @t("sec.personal"), icon: "paintpalette", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("personal"))
+                        Stack {
+                            MenuRow { label: @t("sec.apps"), icon: "square.grid", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("apps"))
+                        Stack {
+                            MenuRow { label: @t("sec.general"), icon: "globe", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("general"))
+                        Stack {
+                            MenuRow { label: @t("sec.accounts"), icon: "person", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("accounts"))
+                        Stack {
+                            MenuRow { label: @t("sec.privacy"), icon: "shield", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("privacy"))
+                        Stack {
+                            MenuRow { label: @t("sec.power"), icon: "battery.75", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("power"))
+                        Stack {
+                            MenuRow { label: @t("sec.info"), icon: "info.circle", sub: false }
+                        }
+                        on Tap -> dispatch(Goto("info"))
+                    }
+                    .material(overlay)
+                    .rounded(xl)
+                    .width(250)
+                    .gap(0)
+                    .padding(1)
+                }
+                on Tap -> dispatch(WinNoop)
+            } else {
+                Stack { }
+            }
+            if $state.menu == "more" {
+                Stack {
+                    Panel {
+                        Stack {
+                            MenuRow { label: @t("win.overview"), icon: "square.grid.2x2", sub: false }
+                        }
+                        on Tap -> dispatch(GoOverview)
+                        Stack {
+                            MenuRow { label: @t("win.jump"), icon: "list.bullet", sub: true }
+                        }
+                        on Tap -> dispatch(WinMenu("more.jump"))
+                        Stack { }
+                            .height(1)
+                            .bg(divider)
+                        Stack {
+                            MenuRow { label: @t("win.help"), icon: "info.circle", sub: false }
+                        }
+                        on Tap -> dispatch(WinMenu(""))
+                    }
+                    .material(overlay)
+                    .rounded(xl)
+                    .width(230)
+                    .gap(0)
+                    .padding(1)
+                }
+                on Tap -> dispatch(WinNoop)
+            } else {
+                Stack { }
+            }
+        }
+        .direction(row)
+        .align(start)
+        .paddingX(2)
+        .grow(1)
+    }
+    .overlay()
+    on Tap -> dispatch(WinMenu(""))
+}

@@ -1,0 +1,52 @@
+import React from 'react';
+
+export interface MenuItem {
+  label?: string;
+  icon?: React.ReactNode;
+  /** Right-aligned shortcut hint, e.g. "⌘C" */
+  shortcut?: string;
+  onSelect?: () => void;
+  destructive?: boolean;
+  disabled?: boolean;
+  /** Show a checkmark (toggled/selected state) */
+  checked?: boolean;
+  /** Render as a non-interactive section header */
+  header?: boolean;
+  /** Render a divider line (ignores other fields) */
+  divider?: boolean;
+  /** Nested items — renders a flyout submenu on hover, with a chevron hint */
+  submenu?: MenuItem[];
+}
+
+/**
+ * Menu — glass dropdown / context menu (maps to ArkUI Menu / formMenu).
+ * Frosted panel of items anchored to a trigger. Click-to-open, or set
+ * `contextMenu` for right-click. Dismisses on outside-click / Escape.
+ *
+ * @example
+ * <Menu trigger={<GlassButton variant="glass">Datei ▾</GlassButton>} items={[
+ *   { label: 'Öffnen', icon: <Folder/>, shortcut: '⌘O', onSelect: open },
+ *   { label: 'Teilen', icon: <Share/>, checked: true },
+ *   { divider: true },
+ *   { label: 'Löschen', icon: <Trash/>, destructive: true, onSelect: del },
+ * ]} />
+ */
+export interface MenuProps {
+  trigger: React.ReactNode;
+  items: MenuItem[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  placement?: 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end';
+  /** Open on right-click at the cursor instead of click */
+  contextMenu?: boolean;
+  width?: number;
+  style?: React.CSSProperties;
+}
+
+/** ContextMenu — right-click `children` to open `items`. */
+export interface ContextMenuProps {
+  children: React.ReactNode;
+  items: MenuItem[];
+  width?: number;
+  style?: React.CSSProperties;
+}

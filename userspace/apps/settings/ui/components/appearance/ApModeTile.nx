@@ -1,0 +1,77 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One "Modus" tile: a miniature desktop preview, the mode's name and a radio
+// dot (handoff LAYOUT.md §"Content — appearance page", block 1).
+//
+// The preview gradient arrives as two hex props and paints through
+// `.bgGradient`, which takes EXPRESSIONS rather than tokens. That is the one
+// sanctioned place for literal colour in this app: a mode preview is content
+// (it shows what light and dark look like), not chrome — chrome must re-theme,
+// and a preview that re-themed would show the same picture three times.
+//
+// The handoff insets the mock window by percentages and sizes its three bars
+// at 52/78/64 % of it. Percentages are not expressible in the DSL's box model,
+// so the mock is a padded block with fixed bar widths — the proportions hold
+// at the tile widths this grid produces.
+
+Component ApModeTile {
+    props: {
+        label: Str,
+        top: Str,
+        bottom: Str,
+        selected: Bool,
+    }
+    Stack {
+        Stack {
+            Stack {
+                Stack { }
+                    .height(4)
+                    .width(46)
+                    .rounded(sm)
+                    .bg(onGlassMuted)
+                Stack { }
+                    .height(4)
+                    .width(68)
+                    .rounded(sm)
+                    .bg(onGlassMuted)
+                Stack { }
+                    .height(4)
+                    .width(56)
+                    .rounded(sm)
+                    .bg(onGlassMuted)
+            }
+            .gap(2)
+            .padding(3)
+            .grow(1)
+            .rounded(md)
+            .material(card)
+        }
+        .height(82)
+        .padding(3)
+        .rounded(lg)
+        .bgGradient($props.top, $props.bottom)
+        Stack {
+            Text($props.label).textSize(xs).fontWeight(semibold).fg(onGlass)
+            Spacer
+            if $props.selected {
+                Circle { size: 17
+                    Icon { symbol: "checkmark", size: 11 }
+                        .fg(onAccent)
+                }
+                .bg(accent)
+            } else {
+                Circle { size: 17 }
+                    .border(thin)
+                    .borderColor(divider)
+            }
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+    }
+    .gap(2)
+    .padding(2)
+    .rounded(xl)
+    .material(subtle)
+}

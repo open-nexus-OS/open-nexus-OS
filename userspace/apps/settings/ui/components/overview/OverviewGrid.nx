@@ -1,0 +1,123 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The overview: all twelve sections as cards (handoff LAYOUT.md §"Content —
+// overview grid"). This is the app's landing mode — the sidebar header, the
+// breadcrumb root and the ⋯ menu all return here.
+//
+// FOUR EXPLICIT ROWS OF THREE, not one wrapping row.
+//
+// `.wrap(true)` is documented in `docs/dev/dsl/modifiers.md` and reaches
+// `Stack::flex_wrap`, but NOTHING in `userspace/ui/layout/src/engine.rs`
+// reads that field — it is a silent no-op. Nobody noticed because every other
+// wrapping row in the shell (chips, swatches) happens to fit on one line at
+// the widths it ships at. Twelve 208px cards do not: they laid out in a
+// single overflowing row with the labels printed over each other.
+//
+// So the rows are written out. The cards carry `grow(1)` and no minimum, so
+// each row divides its pane evenly at any window width instead of
+// overflowing. Restoring the handoff's `auto-fill minmax(208px, 1fr)` needs
+// real flex-wrap in the engine — recorded in
+// `docs/dev/ui/design-token-audit.md`.
+//
+// The wrapper `Stack` — not the card — is both the flex item and the hit
+// target, because handlers bind to nodes and not to component references. It
+// carries `.direction(row)` for a reason that cost a boot: a flex-GROWN row
+// child is allocated the shared width, but its SUBTREE keeps its own natural
+// width, so the tappable area was a sliver of the painted card and every card
+// tap logged `apphost: input tap miss`. A row-direction wrapper fills its
+// allocation.
+
+Component OverviewGrid {
+    Stack {
+        Stack {
+            Stack {
+                OverviewCard { title: @t("sec.connections"), desc: @t("sec.connections.d"), icon: "wifi" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("connections"))
+            Stack {
+                OverviewCard { title: @t("sec.devices"), desc: @t("sec.devices.d"), icon: "computermouse" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("devices"))
+            Stack {
+                OverviewCard { title: @t("sec.sound"), desc: @t("sec.sound.d"), icon: "speaker.wave" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("sound"))
+        }
+        .direction(row)
+        .gap(3)
+        Stack {
+            Stack {
+                OverviewCard { title: @t("sec.display"), desc: @t("sec.display.d"), icon: "desktopcomputer" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("display"))
+            Stack {
+                OverviewCard { title: @t("sec.notif"), desc: @t("sec.notif.d"), icon: "bell" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("notif"))
+            Stack {
+                OverviewCard { title: @t("sec.personal"), desc: @t("sec.personal.d"), icon: "paintpalette" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("personal"))
+        }
+        .direction(row)
+        .gap(3)
+        Stack {
+            Stack {
+                OverviewCard { title: @t("sec.apps"), desc: @t("sec.apps.d"), icon: "square.grid" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("apps"))
+            Stack {
+                OverviewCard { title: @t("sec.general"), desc: @t("sec.general.d"), icon: "globe" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("general"))
+            Stack {
+                OverviewCard { title: @t("sec.accounts"), desc: @t("sec.accounts.d"), icon: "person" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("accounts"))
+        }
+        .direction(row)
+        .gap(3)
+        Stack {
+            Stack {
+                OverviewCard { title: @t("sec.privacy"), desc: @t("sec.privacy.d"), icon: "shield" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("privacy"))
+            Stack {
+                OverviewCard { title: @t("sec.power"), desc: @t("sec.power.d"), icon: "battery.75" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("power"))
+            Stack {
+                OverviewCard { title: @t("sec.info"), desc: @t("sec.info.d"), icon: "info.circle" }
+            }
+            .direction(row)
+            .grow(1)
+            on Tap -> dispatch(Goto("info"))
+        }
+        .direction(row)
+        .gap(3)
+    }
+    .gap(3)
+}

@@ -364,3 +364,25 @@ path = "resources/icons/lucide/icons"
 "doc.text" = "file-text"
 "shippingbox" = "box"
 "square.pencil" = "square-pen"
+# Settings window (design_handoff_os_settings_window). Its row glyphs are the
+# one part of the handoff nothing else in the shell needed: connectivity,
+# peripherals, audio in/out, security and device info. Names follow the same
+# SwiftUI-style vocabulary as the block above ("*.slash" for a struck-through
+# variant, matching "wifi"/"bell").
+"wifi.slash" = "wifi-off"
+"bell.slash" = "bell-off"
+"cylinder" = "database"
+"iphone" = "smartphone"
+"slider.vertical.3" = "sliders-vertical"
+"keyboard" = "keyboard"
+"computermouse" = "mouse"
+"printer" = "printer"
+"mic" = "mic"
+"textformat" = "type"
+"clock" = "clock"
+"globe" = "globe"
+"person.2" = "users"
+"shield" = "shield"
+"key" = "key-round"
+"cpu" = "cpu"
+"plus.magnifyingglass" = "zoom-in"

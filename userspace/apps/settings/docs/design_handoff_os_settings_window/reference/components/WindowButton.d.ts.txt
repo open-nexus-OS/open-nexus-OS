@@ -1,0 +1,25 @@
+/**
+ * WindowButton — chrome icon button for AIVA OS window title bars and
+ * pane headers. Ghost by default, with `active` (pinned hover) and
+ * `danger` (red close-style) treatments. Reads --glass-window-icon /
+ * --glass-hover-bg / --glass-text-strong, so it adapts to dark/light.
+ *
+ * @example
+ * <WindowButton title="Suche" onClick={openSearch}>
+ *   <Icon paths='<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>' size={14} />
+ * </WindowButton>
+ */
+export interface WindowButtonProps {
+  children?: React.ReactNode;
+  onClick?: () => void;
+  title?: string;
+  /** Pin the hover surface (e.g. a toggled-on panel button). Default: false */
+  active?: boolean;
+  /** Red destructive treatment (close button). Default: false */
+  danger?: boolean;
+  /** Square size in px. Default: 30 */
+  size?: number;
+  /** Border radius in px. Default: 8 */
+  radius?: number;
+  style?: React.CSSProperties;
+}

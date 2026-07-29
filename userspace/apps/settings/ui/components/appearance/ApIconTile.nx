@@ -1,0 +1,73 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One "App-Icons & Widgets" tile: three sample icon chips in the variant's
+// treatment, its name and a one-line description (handoff block 3).
+//
+// KNOWN NON-PARITY, recorded in docs/dev/ui/design-token-audit.md: the
+// handoff derives Dunkel/Klar/Getönt from ONE source SVG through
+// `mix-blend-mode: screen | luminosity` plus grayscale/contrast filters. The
+// painter has no blend modes and no filter stage, so each variant is
+// approximated by its base fill plus the glyph ink the variant implies. The
+// tiles read correctly as four distinct treatments; they are not the same
+// pixels the web mock produces.
+//
+// PURELY VISUAL — no icon pipeline consumes the choice yet.
+
+Component ApIconTile {
+    props: {
+        name: Str,
+        desc: Str,
+        top: Str,
+        bottom: Str,
+        selected: Bool,
+    }
+    Stack {
+        Stack {
+            Stack {
+                Icon { symbol: "gearshape", size: 17 }
+                    .fg(onGlass)
+            }
+            .width(32)
+            .height(32)
+            .rounded(lg)
+            .align(center)
+            .justify(center)
+            .bgGradient($props.top, $props.bottom)
+            Stack {
+                Icon { symbol: "photo", size: 17 }
+                    .fg(onGlass)
+            }
+            .width(32)
+            .height(32)
+            .rounded(lg)
+            .align(center)
+            .justify(center)
+            .bgGradient($props.top, $props.bottom)
+            Stack {
+                Icon { symbol: "message", size: 17 }
+                    .fg(onGlass)
+            }
+            .width(32)
+            .height(32)
+            .rounded(lg)
+            .align(center)
+            .justify(center)
+            .bgGradient($props.top, $props.bottom)
+        }
+        .direction(row)
+        .gap(1)
+        .justify(center)
+        Stack {
+            Text($props.name).textSize(xs).fontWeight(semibold).fg(onGlass)
+            Text($props.desc).textSize(xs).leading(snug).fg(onGlassMuted)
+        }
+        .gap(0)
+        .align(center)
+    }
+    .gap(2)
+    .align(center)
+    .padding(2)
+    .rounded(xl)
+    .material(subtle)
+}

@@ -1,0 +1,80 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// NAVIGATION domain: which of the handoff's content modes is on screen.
+//
+//   mode      "overview" (the 12-card grid) | "browse" (one section)
+//   section   the selected section value, mirrored by the sidebar
+//   subPage   "" on a section root; a sub-page id once a chevron row is
+//             pushed (the drill-down lands in Phase 2 — the field and the
+//             back chain already carry it so nothing has to be rewired)
+//
+// `WinMenuPick(id)` is the window-kit's nav-pick contract: `WinSideItem`
+// sends it. Section ids ARE the section values, so routing is one branch
+// instead of a twelve-arm translation table.
+//
+// CROSS-DOMAIN BRIDGE: a navigation jump has to close whatever chrome menu is
+// open, and `menu` belongs to `WindowStore` — a reducer arm may write only
+// one store. So the closing travels as an `@effect` that dispatches
+// `WinMenu("")`. Effects have no `if`, so each of these fires
+// unconditionally; that is exactly right here, because every one of these
+// events should leave the menus closed. `WinMenu("")` on an already-closed
+// menu is a no-op in both branches of its toggle.
+
+Store NavStore {
+    mode: Str = "overview",
+    section: Str = "connections",
+    subPage: Str = "",
+}
+
+Event NavEvent {
+    WinMenuPick(Str),
+    Goto(Str),
+    OpenSub(Str),
+    Back,
+    GoOverview,
+}
+
+reduce NavEvent {
+    WinMenuPick(id) => {
+        state.section = id;
+        state.mode = "browse";
+        state.subPage = "";
+    },
+    Goto(value) => {
+        state.section = value;
+        state.mode = "browse";
+        state.subPage = "";
+    },
+    OpenSub(id) => state.subPage = id,
+    Back => {
+        if state.subPage != "" {
+            state.subPage = "";
+        } else {
+            state.mode = "overview";
+        }
+    },
+    GoOverview => {
+        state.mode = "overview";
+        state.subPage = "";
+    },
+}
+
+@effect on WinMenuPick(id) {
+    dispatch(WinMenu(""));
+}
+
+@effect on Goto(value) {
+    dispatch(WinMenu(""));
+}
+
+@effect on GoOverview {
+    dispatch(WinMenu(""));
+}
+
+// The chrome's back button means "one level up" here. Forward and refresh are
+// never rendered, so `dir` is always "back" and the effect needs no branch —
+// effects cannot branch at all (`this statement form in an effect plan`).
+@effect on WinNav(dir) {
+    dispatch(Back);
+}

@@ -1,0 +1,33 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One accent swatch: a 28px circle in the palette colour, with a white check
+// when it is the active accent (handoff block 2).
+//
+// The hex is the value `nexus-theme-tokens::ACCENT_PALETTE` actually applies
+// in light mode, NOT the handoff's swatch hex — the two disagree on red
+// (#ef4444 vs #d4183d), and a swatch that shows a colour the system will not
+// produce is worse than a swatch that is one shade off the mockup.
+//
+// `.bgGradient(hex, hex)` with the same colour twice is a flat fill: the DSL
+// has no literal-colour `.bg`, because colour tokens must re-theme — and a
+// palette swatch is exactly the case that must NOT.
+
+Component ApSwatch {
+    props: {
+        hex: Str,
+        selected: Bool,
+    }
+    if $props.selected {
+        Circle { size: 28
+            Icon { symbol: "checkmark", size: 13 }
+                .fg(onAccent)
+        }
+        .bgGradient($props.hex, $props.hex)
+        .border(medium)
+        .borderColor(onGlass)
+    } else {
+        Circle { size: 28 }
+            .bgGradient($props.hex, $props.hex)
+    }
+}

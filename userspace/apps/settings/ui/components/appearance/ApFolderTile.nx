@@ -1,0 +1,42 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One folder-colour swatch: the handoff's 44×34 folder glyph — a back flap in
+// the light tint with the body in the base colour — plus its caption
+// (block 4).
+//
+// PURELY VISUAL. Nothing below the UI consumes a folder colour yet, so the
+// choice lives in `AppearanceStore` and stops there. It is in the app because
+// the handoff's appearance page is one page, not because the feature exists.
+
+Component ApFolderTile {
+    props: {
+        light: Str,
+        base: Str,
+        label: Str,
+        selected: Bool,
+    }
+    Stack {
+        Stack {
+            Stack { }
+                .height(6)
+                .width(20)
+                .rounded(sm)
+                .bgGradient($props.light, $props.light)
+            Stack { }
+                .height(24)
+                .width(44)
+                .rounded(md)
+                .bgGradient($props.base, $props.base)
+        }
+        .gap(0)
+        .align(start)
+        Text($props.label).textSize(xs).fg(onGlassMuted)
+    }
+    .gap(1)
+    .align(center)
+    .padding(1)
+    .rounded(lg)
+    .border(thin)
+    .borderColor(transparent)
+}

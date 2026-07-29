@@ -1,0 +1,123 @@
+import React, { useState } from 'react';
+
+/**
+ * GlassButton — liquid-glass styled button for the AIVA OS UI.
+ * Reads from --glass-* and --color-* CSS custom properties.
+ * Automatically adapts to dark/light mode via the .dark class on an ancestor.
+ */
+export function GlassButton({
+  children,
+  variant = 'glass',
+  size = 'md',
+  disabled = false,
+  onClick,
+  icon,
+  style = {},
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  const [focused, setFocused] = useState(false);
+
+  const sizes = {
+    sm:   { height: 30, padding: '0 10px', fontSize: 12, gap: 5, borderRadius: 8 },
+    md:   { height: 36, padding: '0 16px', fontSize: 14, gap: 6, borderRadius: 10 },
+    lg:   { height: 42, padding: '0 22px', fontSize: 15, gap: 7, borderRadius: 12 },
+    icon: { width: 36, height: 36, padding: 0, fontSize: 14, gap: 0, borderRadius: '50%' },
+  };
+
+  const s = sizes[size] || sizes.md;
+
+  const variantStyle = {
+    default: {
+      background: 'var(--color-primary)',
+      borderColor: 'transparent',
+      color: 'var(--color-primary-fg)',
+      backdropFilter: 'none',
+    },
+    glass: {
+      background: hovered ? 'var(--glass-hover-bg)' : 'var(--glass-panel-bg)',
+      borderColor: 'var(--glass-panel-border)',
+      color: 'var(--glass-text-primary)',
+      backdropFilter: 'blur(20px) saturate(1.4)',
+      WebkitBackdropFilter: 'blur(20px) saturate(1.4)',
+      boxShadow: pressed
+        ? 'inset 0 2px 6px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.10)'
+        : hovered
+          ? '0 6px 18px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.30)'
+          : '0 2px 8px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.22)',
+    },
+    ghost: {
+      background: hovered ? 'var(--glass-hover-bg)' : 'transparent',
+      borderColor: 'transparent',
+      color: 'var(--glass-text-primary)',
+    },
+    destructive: {
+      background: 'var(--color-destructive)',
+      borderColor: 'transparent',
+      color: 'var(--color-destructive-fg)',
+    },
+    active: {
+      background: 'var(--glass-toggle-on-bg)',
+      borderColor: 'var(--glass-toggle-on-border)',
+      color: '#ffffff',
+      boxShadow: '0 4px 15px var(--glass-toggle-on-shadow)',
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+    },
+    secondary: {
+      background: 'var(--color-secondary)',
+      borderColor: 'var(--color-border)',
+      color: 'var(--color-secondary-fg)',
+    },
+  };
+
+  const v = variantStyle[variant] || variantStyle.glass;
+
+  return (
+    <button
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: s.gap,
+        height: s.height,
+        width: s.width,
+        padding: s.padding,
+        fontSize: s.fontSize,
+        fontFamily: 'var(--font-sans)',
+        fontWeight: 'var(--font-weight-medium)',
+        lineHeight: 1,
+        letterSpacing: '-0.01em',
+        border: '1px solid',
+        borderRadius: s.borderRadius,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+        transform: pressed ? 'scale(0.95)' : hovered ? 'scale(1.02)' : 'scale(1)',
+        // Press hits instantly; release springs back with slight overshoot.
+        transition: pressed
+          ? 'transform var(--motion-instant, 0.1s) ease-out, background var(--motion-swift, 0.16s) ease, box-shadow var(--motion-swift, 0.16s) ease'
+          : 'transform var(--motion-quick, 0.28s) var(--motion-spring-soft, cubic-bezier(0.34,1.2,0.5,1)), background var(--motion-swift, 0.16s) ease, box-shadow var(--motion-quick, 0.28s) ease',
+        outline: 'none',
+        ...(focused && !pressed ? { boxShadow: '0 0 0 3px rgba(59,130,246,0.35), 0 2px 8px rgba(0,0,0,0.10)' } : null),
+        whiteSpace: 'nowrap',
+        userSelect: 'none',
+        WebkitTapHighlightColor: 'transparent',
+        ...v,
+        ...style,
+      }}
+      disabled={disabled}
+      onClick={disabled ? undefined : onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); setPressed(false); }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      onTouchStart={() => setPressed(true)}
+      onTouchEnd={() => setPressed(false)}
+      onFocus={(e) => setFocused(e.target.matches(':focus-visible'))}
+      onBlur={() => setFocused(false)}
+    >
+      {icon && <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>{icon}</span>}
+      {children}
+    </button>
+  );
+}

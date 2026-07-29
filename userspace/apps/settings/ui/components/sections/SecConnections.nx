@@ -1,0 +1,59 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Verbindungen — the handoff tree's first section (`_tree()` in
+// source/OsSettingsWindow.dc.html). Values are the handoff's demo data; the
+// switches are `DemoStore` fields with the DSL's automatic two-way binding,
+// so they flip on screen and change nothing below the UI.
+//
+// The handoff's four `n` (chevron) rows are rendered here as VALUE rows: the
+// sub-pages land in Phase 2, and a chevron that pushes nothing would promise
+// a screen that does not exist. Flipping them back is `showChevron: true`
+// plus a wrapper dispatching `OpenSub(...)` — the field and the back chain
+// already carry it.
+
+Component SecConnections {
+    Stack {
+        SetGroup { label: "", note: "" } {
+            rows {
+                SetRow { title: @t("con.wifi"), subtitle: @t("con.wifiSub"), icon: "wifi", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgWifi, label: @t("con.wifi") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("con.bt"), subtitle: @t("con.btSub"), icon: "bluetooth", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgBt, label: @t("con.bt") } }
+                }
+            }
+        }
+        SetGroup { label: "", note: "" } {
+            rows {
+                SetRow { title: @t("con.offline"), subtitle: @t("con.offlineSub"), icon: "wifi.slash", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgOffline, label: @t("con.offline") } }
+                }
+            }
+        }
+        SetGroup { label: @t("con.gNetwork"), note: "" } {
+            rows {
+                SetRow { title: @t("con.data"), subtitle: @t("con.dataSub"), icon: "cylinder", showChevron: false } {
+                    trailing { SetValue { value: @t("con.dataV") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("con.tether"), subtitle: @t("con.tetherSub"), icon: "iphone", showChevron: false } {
+                    trailing { SetValue { value: @t("set.off") } }
+                }
+            }
+        }
+        SetGroup { label: @t("con.gMore"), note: "" } {
+            rows {
+                SetRow { title: @t("con.vpn"), subtitle: @t("con.vpnSub"), icon: "shield", showChevron: false } {
+                    trailing { SetValue { value: @t("con.vpnV") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("con.advanced"), subtitle: @t("con.advancedSub"), icon: "slider.vertical.3", showChevron: false } {
+                    trailing { }
+                }
+            }
+        }
+    }
+    .gap(3)
+}

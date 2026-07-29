@@ -105,7 +105,11 @@ pub(super) struct Face {
     /// WIDE tail (kana/jamo/hangul/han — RFC-0075 Phase 8d, see build.rs).
     pub(super) glyphs: &'static [(u32, u16, u16, i16, i16, u16)],
     /// The sparse tail's codepoints, sorted ascending; glyph index = 95 + i.
-    pub(super) extras: &'static [u32; 11],
+    /// A SLICE, not a fixed array: the tail grows whenever the UI needs a
+    /// non-ASCII glyph (the breadcrumb separator was the last one), and a
+    /// baked-in length turned that one-line charset edit into eight type
+    /// errors.
+    pub(super) extras: &'static [u32],
     /// The WIDE tail's codepoints, sorted ascending; glyph index =
     /// 95 + extras.len() + i. Unkerned by design.
     pub(super) wide: &'static [u32],

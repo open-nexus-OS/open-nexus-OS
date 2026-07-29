@@ -1,0 +1,153 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// REGION domain — the second really-functional area: Sprache, Land/Region,
+// Tastaturlayout, Zeitzone, Stundenformat and the IME personalization
+// toggle. Every key here is registered in settingsd
+// (`source/services/settingsd/src/registry.rs`, RFC-0078) and has a real
+// consumer, so a pick in "Allgemeine Verwaltung" changes the running system.
+//
+// The defaults mirror settingsd's boot defaults. This store does not READ
+// them back at mount: `svc.settings` is write-through here, and a root effect
+// that fetched five keys would fire on every launch for a value the service
+// already owns. If the two ever disagree the service wins on the next write.
+//
+// `Forget` is settingsd's one-shot command value (`ime.personalization` =
+// "forget"): imed clears its learned store and writes the key back to "on",
+// so the state never rests at "forget" — the reducer mirrors that.
+//
+// `picker` lives here rather than in `NavStore` because choosing a value and
+// closing the sheet is ONE reducer arm, and an arm may write only ONE store
+// ("one reducer touching two stores (split it)"). Only region values use a
+// picker, so it is also where it belongs by domain: `Select` is the closed
+// trigger, `picker` is which sheet is open.
+
+Store RegionStore {
+    // BCP-47 tag — `ui.locale` (app-host swaps the i18n catalog live).
+    locale: Str = "de-DE",
+    // ISO-3166 alpha-2 — `region.country`.
+    country: Str = "DE",
+    // `input.keymap`: us | de | jp | kr | zh.
+    keymap: Str = "de",
+    // `time.zone`, from settingsd's curated tz-lite list.
+    zone: Str = "Europe/Berlin",
+    // `time.format`: 24h | 12h.
+    hourFmt: Str = "24h",
+    // `ime.personalization`: on | off.
+    personalization: Str = "on",
+    // Which `PickerSheet` is open: "" | language | region | layout | zone |
+    // hourfmt.
+    picker: Str = "",
+    // Non-zero when settingsd refused or the call timed out.
+    regionError: Int = 0,
+}
+
+Event RegionEvent {
+    OpenPicker(Str),
+    ClosePicker,
+    SetLocale(Str),
+    SetCountry(Str),
+    SetKeymap(Str),
+    SetZone(Str),
+    SetHourFmt(Str),
+    SetPersonalization(Str),
+    Forget,
+    RegionApplied(Bool),
+    RegionFailed(Int),
+}
+
+reduce RegionEvent {
+    OpenPicker(key) => {
+        if state.picker == key {
+            state.picker = "";
+        } else {
+            state.picker = key;
+        }
+    },
+    ClosePicker => state.picker = "",
+    SetLocale(tag) => {
+        state.locale = tag;
+        state.regionError = 0;
+        state.picker = "";
+    },
+    SetCountry(code) => {
+        state.country = code;
+        state.regionError = 0;
+        state.picker = "";
+    },
+    SetKeymap(layout) => {
+        state.keymap = layout;
+        state.regionError = 0;
+        state.picker = "";
+    },
+    SetZone(z) => {
+        state.zone = z;
+        state.regionError = 0;
+        state.picker = "";
+    },
+    SetHourFmt(f) => {
+        state.hourFmt = f;
+        state.regionError = 0;
+        state.picker = "";
+    },
+    SetPersonalization(v) => {
+        state.personalization = v;
+        state.regionError = 0;
+    },
+    // One-shot: imed re-enables after clearing, so the visible state is "on".
+    Forget => {
+        state.personalization = "on";
+        state.regionError = 0;
+    },
+    RegionApplied(ok) => state.regionError = 0,
+    RegionFailed(code) => state.regionError = code,
+}
+
+@effect on SetLocale(tag) {
+    match svc.settings.set("ui.locale", tag, timeoutMs: 250) {
+        Ok(ok) => dispatch(RegionApplied(ok)),
+        Err(e) => dispatch(RegionFailed(e)),
+    }
+}
+
+@effect on SetCountry(code) {
+    match svc.settings.set("region.country", code, timeoutMs: 250) {
+        Ok(ok) => dispatch(RegionApplied(ok)),
+        Err(e) => dispatch(RegionFailed(e)),
+    }
+}
+
+@effect on SetKeymap(layout) {
+    match svc.settings.set("input.keymap", layout, timeoutMs: 250) {
+        Ok(ok) => dispatch(RegionApplied(ok)),
+        Err(e) => dispatch(RegionFailed(e)),
+    }
+}
+
+@effect on SetZone(z) {
+    match svc.settings.set("time.zone", z, timeoutMs: 250) {
+        Ok(ok) => dispatch(RegionApplied(ok)),
+        Err(e) => dispatch(RegionFailed(e)),
+    }
+}
+
+@effect on SetHourFmt(f) {
+    match svc.settings.set("time.format", f, timeoutMs: 250) {
+        Ok(ok) => dispatch(RegionApplied(ok)),
+        Err(e) => dispatch(RegionFailed(e)),
+    }
+}
+
+@effect on SetPersonalization(v) {
+    match svc.settings.set("ime.personalization", v, timeoutMs: 250) {
+        Ok(ok) => dispatch(RegionApplied(ok)),
+        Err(e) => dispatch(RegionFailed(e)),
+    }
+}
+
+@effect on Forget {
+    match svc.settings.set("ime.personalization", "forget", timeoutMs: 250) {
+        Ok(ok) => dispatch(RegionApplied(ok)),
+        Err(e) => dispatch(RegionFailed(e)),
+    }
+}

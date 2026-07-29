@@ -1,0 +1,190 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Erscheinungsbild — the handoff's custom appearance page and the one screen
+// in this app that changes the running system.
+//
+// Modus and Akzentfarbe write through `svc.settings` (settingsd validates and
+// persists, windowd applies live). "Automatisch" is drawn because the handoff
+// draws it, but it dispatches `SetModeAuto`, which has NO effect attached:
+// windowd's `ThemeMode` is `dark|light`, so there is nothing to write yet.
+// App-Icons and Ordnerfarbe are local selections for the same reason.
+//
+// The handoff stacks the four blocks with gap 18 under group labels; there is
+// no `Grid`, so its `3 × 1fr` and `4 × 1fr` rows are wrapping rows whose
+// items grow.
+
+Component AppearanceView {
+    Stack {
+        // ── 1 · Modus ────────────────────────────────────────────────────
+        Stack {
+            Text(@t("ap.mode")).textSize(xs).fontWeight(semibold).fg(onGlassMuted)
+            Stack {
+                Stack {
+                    ApModeTile { label: @t("ap.light"), top: "#eef3fb", bottom: "#cdd9ee", selected: $state.apMode == "light" }
+                }
+                .minWidth(150)
+                .grow(1)
+                on Tap -> dispatch(SetTheme("light"))
+                Stack {
+                    ApModeTile { label: @t("ap.dark"), top: "#0d1117", bottom: "#1a2744", selected: $state.apMode == "dark" }
+                }
+                .minWidth(150)
+                .grow(1)
+                on Tap -> dispatch(SetTheme("dark"))
+                Stack {
+                    ApModeTile { label: @t("ap.auto"), top: "#eef3fb", bottom: "#101a2e", selected: $state.apMode == "auto" }
+                }
+                .minWidth(150)
+                .grow(1)
+                on Tap -> dispatch(SetModeAuto)
+            }
+            .direction(row)
+            .wrap(true)
+            .gap(2)
+            if $state.apMode == "auto" {
+                Text(@t("ap.autoNote")).textSize(xs).leading(normal).fg(onGlassMuted)
+            } else {
+                Stack { }
+            }
+        }
+        .gap(2)
+        // ── 2 · Akzentfarbe ──────────────────────────────────────────────
+        Stack {
+            Text(@t("ap.accent")).textSize(xs).fontWeight(semibold).fg(onGlassMuted)
+            Stack {
+                Stack {
+                    ApSwatch { hex: "#3b82f6", selected: $state.apAccent == "default" }
+                }
+                on Tap -> dispatch(SetAccent("default"))
+                Stack {
+                    ApSwatch { hex: "#14b8a6", selected: $state.apAccent == "teal" }
+                }
+                on Tap -> dispatch(SetAccent("teal"))
+                Stack {
+                    ApSwatch { hex: "#22c55e", selected: $state.apAccent == "green" }
+                }
+                on Tap -> dispatch(SetAccent("green"))
+                Stack {
+                    ApSwatch { hex: "#f59e0b", selected: $state.apAccent == "amber" }
+                }
+                on Tap -> dispatch(SetAccent("amber"))
+                Stack {
+                    ApSwatch { hex: "#f97316", selected: $state.apAccent == "orange" }
+                }
+                on Tap -> dispatch(SetAccent("orange"))
+                Stack {
+                    ApSwatch { hex: "#ef4444", selected: $state.apAccent == "red" }
+                }
+                on Tap -> dispatch(SetAccent("red"))
+                Stack {
+                    ApSwatch { hex: "#ec4899", selected: $state.apAccent == "pink" }
+                }
+                on Tap -> dispatch(SetAccent("pink"))
+                Stack {
+                    ApSwatch { hex: "#8b5cf6", selected: $state.apAccent == "violet" }
+                }
+                on Tap -> dispatch(SetAccent("violet"))
+                Stack {
+                    ApSwatch { hex: "#64748b", selected: $state.apAccent == "graphite" }
+                }
+                on Tap -> dispatch(SetAccent("graphite"))
+            }
+            .direction(row)
+            .wrap(true)
+            .align(center)
+            .gap(3)
+            .padding(3)
+            .rounded(xl)
+            .material(subtle)
+            Stack {
+                Circle { size: 18 }
+                    .bg(accent)
+                Text(@t("ap.accentLive")).textSize(xs).fg(onGlassMuted)
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
+            if $state.apError != 0 {
+                Text(@t("set.applyFailed")).textSize(xs).fg(danger)
+            } else {
+                Stack { }
+            }
+        }
+        .gap(2)
+        // ── 3 · App-Icons & Widgets ──────────────────────────────────────
+        Stack {
+            Text(@t("ap.icons")).textSize(xs).fontWeight(semibold).fg(onGlassMuted)
+            Stack {
+                Stack {
+                    ApIconTile { name: @t("ap.iconDefault"), desc: @t("ap.iconDefaultD"), top: "#5b6472", bottom: "#39404c", selected: $state.apIconStyle == "default" }
+                }
+                .minWidth(120)
+                .grow(1)
+                on Tap -> dispatch(SetIconStyle("default"))
+                Stack {
+                    ApIconTile { name: @t("ap.iconDark"), desc: @t("ap.iconDarkD"), top: "#33373f", bottom: "#07080a", selected: $state.apIconStyle == "dark" }
+                }
+                .minWidth(120)
+                .grow(1)
+                on Tap -> dispatch(SetIconStyle("dark"))
+                Stack {
+                    ApIconTile { name: @t("ap.iconClear"), desc: @t("ap.iconClearD"), top: "#ffffff21", bottom: "#ffffff14", selected: $state.apIconStyle == "clear" }
+                }
+                .minWidth(120)
+                .grow(1)
+                on Tap -> dispatch(SetIconStyle("clear"))
+                Stack {
+                    ApIconTile { name: @t("ap.iconTinted"), desc: @t("ap.iconTintedD"), top: "#3b82f6", bottom: "#2563eb", selected: $state.apIconStyle == "tinted" }
+                }
+                .minWidth(120)
+                .grow(1)
+                on Tap -> dispatch(SetIconStyle("tinted"))
+            }
+            .direction(row)
+            .wrap(true)
+            .gap(2)
+        }
+        .gap(2)
+        // ── 4 · Ordnerfarbe ──────────────────────────────────────────────
+        Stack {
+            Text(@t("ap.folder")).textSize(xs).fontWeight(semibold).fg(onGlassMuted)
+            Stack {
+                Stack {
+                    ApFolderTile { light: "#7af8d8", base: "#14b8a6", label: @t("ap.folderTeal"), selected: $state.apFolder == "teal" }
+                }
+                on Tap -> dispatch(SetFolder("teal"))
+                Stack {
+                    ApFolderTile { light: "#93c5fd", base: "#3b82f6", label: @t("ap.folderAccent"), selected: $state.apFolder == "accent" }
+                }
+                on Tap -> dispatch(SetFolder("accent"))
+                Stack {
+                    ApFolderTile { light: "#c4b0fd", base: "#8b5cf6", label: @t("ap.folderViolet"), selected: $state.apFolder == "violet" }
+                }
+                on Tap -> dispatch(SetFolder("violet"))
+                Stack {
+                    ApFolderTile { light: "#fcd68a", base: "#f59e0b", label: @t("ap.folderAmber"), selected: $state.apFolder == "amber" }
+                }
+                on Tap -> dispatch(SetFolder("amber"))
+                Stack {
+                    ApFolderTile { light: "#f9a8d0", base: "#ec4899", label: @t("ap.folderRose"), selected: $state.apFolder == "rose" }
+                }
+                on Tap -> dispatch(SetFolder("rose"))
+                Stack {
+                    ApFolderTile { light: "#a8b3c4", base: "#64748b", label: @t("ap.folderGraphite"), selected: $state.apFolder == "graphite" }
+                }
+                on Tap -> dispatch(SetFolder("graphite"))
+            }
+            .direction(row)
+            .wrap(true)
+            .align(center)
+            .gap(3)
+            .padding(3)
+            .rounded(xl)
+            .material(subtle)
+            Text(@t("ap.folderNote")).textSize(xs).leading(normal).fg(onGlassMuted)
+        }
+        .gap(2)
+    }
+    .gap(4)
+}

@@ -1,0 +1,42 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The browse-mode router: one flat `else if` chain over `$state.section`.
+//
+// Flat, not nested. The DSL has supported `else if` all along — the parser
+// flattens the chain — and the previous version of this app nested `if/else`
+// four levels deep for THREE sections, which is why twelve looked impossible.
+//
+// The appearance arm comes first because it is a sub-page: `Personalisierung
+// › Erscheinungsbild` replaces the row list with a custom view instead of
+// pushing another one, exactly like the handoff's `view: 'appearance'` row.
+
+Component SectionView {
+    if $state.section == "personal" && $state.subPage == "appearance" {
+        AppearanceView { }
+    } else if $state.section == "connections" {
+        SecConnections { }
+    } else if $state.section == "devices" {
+        SecDevices { }
+    } else if $state.section == "sound" {
+        SecSound { }
+    } else if $state.section == "display" {
+        SecDisplay { }
+    } else if $state.section == "notif" {
+        SecNotifications { }
+    } else if $state.section == "personal" {
+        SecPersonalization { }
+    } else if $state.section == "apps" {
+        SecApps { }
+    } else if $state.section == "general" {
+        SecGeneral { }
+    } else if $state.section == "accounts" {
+        SecAccounts { }
+    } else if $state.section == "privacy" {
+        SecPrivacy { }
+    } else if $state.section == "power" {
+        SecPower { }
+    } else {
+        SecInfo { }
+    }
+}

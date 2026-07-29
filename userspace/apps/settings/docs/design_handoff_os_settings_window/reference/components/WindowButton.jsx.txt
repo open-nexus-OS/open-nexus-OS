@@ -1,0 +1,62 @@
+import React from 'react';
+
+/**
+ * WindowButton — the chrome icon button used across AIVA OS window
+ * title bars and pane headers (formerly the per-template `.ibtn`).
+ * Ghost by default; `active` keeps the hover surface pinned; `danger`
+ * is the red close-style treatment.
+ */
+export function WindowButton({
+  children,
+  onClick,
+  title,
+  active = false,
+  danger = false,
+  size = 30,
+  radius = 8,
+  style = {},
+}) {
+  const [hover, setHover] = React.useState(false);
+  const [pressed, setPressed] = React.useState(false);
+  const on = active || hover;
+
+  const color = danger
+    ? (hover ? 'rgba(239,68,68,1)' : 'rgba(239,68,68,0.85)')
+    : (on ? 'var(--glass-text-strong)' : 'var(--glass-window-icon)');
+  const background = danger
+    ? (hover ? 'rgba(239,68,68,0.18)' : 'transparent')
+    : (on ? 'var(--glass-hover-bg)' : 'transparent');
+
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => { setHover(false); setPressed(false); }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        background,
+        border: 'none',
+        color,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        flexShrink: 0,
+        padding: 0,
+        transform: pressed ? 'scale(0.88)' : 'scale(1)',
+        transition: pressed
+          ? 'transform var(--motion-instant, 0.1s) ease-out, background 0.12s, color 0.12s'
+          : 'transform var(--motion-quick, 0.28s) var(--motion-spring-soft, cubic-bezier(0.34,1.2,0.5,1)), background 0.12s, color 0.12s',
+        ...style,
+      }}
+    >
+      {children}
+    </button>
+  );
+}

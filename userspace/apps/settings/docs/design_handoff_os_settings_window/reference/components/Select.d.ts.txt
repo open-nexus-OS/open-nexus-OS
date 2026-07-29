@@ -1,0 +1,27 @@
+import React from 'react';
+
+export interface SelectOption {
+  label: string;
+  value: string;
+}
+
+/**
+ * Select — glass dropdown select. Styled trigger pill with chevron that opens a
+ * liquid-glass option panel (same surface as Popover) — never the native OS
+ * list. Selected option shows an accent checkmark. Controlled or uncontrolled.
+ *
+ * @example
+ * <Select options={['Deutsch', 'English', 'Français']} defaultValue="Deutsch" />
+ * <Select options={opts} value={lang} onChange={setLang} placeholder="Sprache" />
+ */
+export interface SelectProps {
+  options: (string | SelectOption)[];
+  value?: string;
+  defaultValue?: string;
+  onChange?: (value: string) => void;
+  /** Shown when no value is selected */
+  placeholder?: string;
+  disabled?: boolean;
+  size?: 'sm' | 'md' | 'lg';
+  style?: React.CSSProperties;
+}

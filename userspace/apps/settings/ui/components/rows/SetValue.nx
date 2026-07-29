@@ -1,0 +1,13 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The right-aligned static value of a `v` row (handoff: 12.5px/500 in
+// `text_secondary`, never wrapping). Its own component so the type ramp for a
+// value lives in ONE place instead of in every section file.
+
+Component SetValue {
+    props: {
+        value: Str,
+    }
+    Text($props.value).textSize(sm).fontWeight(medium).fg(onGlassMuted)
+}

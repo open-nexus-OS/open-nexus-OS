@@ -1,0 +1,39 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Benachrichtigungen. Demo data from the handoff's `_tree()`.
+
+Component SecNotifications {
+    Stack {
+        SetGroup { label: "", note: "" } {
+            rows {
+                SetRow { title: @t("ntf.dnd"), subtitle: @t("set.off"), icon: "bell.slash", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgDnd, label: @t("ntf.dnd") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("ntf.schedule"), subtitle: "", icon: "clock", showChevron: false } {
+                    trailing { SetValue { value: @t("ntf.scheduleV") } }
+                }
+            }
+        }
+        SetGroup { label: @t("ntf.gShow"), note: "" } {
+            rows {
+                SetRow { title: @t("ntf.lockPreview"), subtitle: "", icon: "lock", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgLockPreview, label: @t("ntf.lockPreview") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("ntf.badges"), subtitle: "", icon: "square.grid", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgBadges, label: @t("ntf.badges") } }
+                }
+            }
+        }
+        SetGroup { label: @t("ntf.gPerApp"), note: "" } {
+            rows {
+                SetRow { title: @t("ntf.appNotif"), subtitle: "", icon: "square.grid", showChevron: false } {
+                    trailing { SetValue { value: @t("ntf.appNotifV") } }
+                }
+            }
+        }
+    }
+    .gap(3)
+}

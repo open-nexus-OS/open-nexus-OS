@@ -292,6 +292,38 @@ pub(super) fn build_widget_inner(
             }
             sb.build(tokens)
         }
+        "Select" => {
+            // Kit promotion: the CLOSED dropdown trigger (glass pill + value +
+            // chevron). The open option panel is deliberately not here — the
+            // kit crate documents it as an app-owned overlay, so a page pairs
+            // this trigger with its own `.overlay()` list.
+            use nexus_widget_select::Select;
+            let mut sel = Select::new();
+            if let Some(value) = prop("value").map(value_text) {
+                sel = sel.value(value);
+            }
+            if let Some(ph) = prop("placeholder").map(value_text) {
+                sel = sel.placeholder(ph);
+            }
+            if mods.disabled {
+                sel = sel.state(nexus_style::InteractionState::Disabled);
+            }
+            sel.build(tokens)
+        }
+        "Breadcrumbs" => {
+            // Kit promotion: the path trail. `items` is a `List<Str>`; a
+            // non-list value degrades to the single crumb it stringifies to
+            // rather than vanishing. The whole trail is ONE node, so a caller
+            // that wants navigation wraps it and handles the tap itself —
+            // per-crumb hit targets would need a multi-handler widget.
+            use nexus_widget_breadcrumbs::Breadcrumbs;
+            let items = match prop("items") {
+                Some(Value::List(values)) => values.iter().map(value_text).collect(),
+                Some(other) => alloc::vec![value_text(other)],
+                None => alloc::vec::Vec::new(),
+            };
+            Breadcrumbs::new(items).build(tokens)
+        }
         "Text" => {
             let value = prop("value").map(value_text).unwrap_or_default();
             text_node(value, mods, tokens)

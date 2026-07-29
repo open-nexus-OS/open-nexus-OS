@@ -1,7 +1,7 @@
 # Grandfathered .rs files over 600 LOC (ratchet: may shrink, never grow).
 # Regenerate ONLY after real splits: scripts/check-structure.sh --update-loc-baseline
 811	source/drivers/gpud/src/backend/mod.rs
-741	source/drivers/gpud/src/backend/present.rs
+740	source/drivers/gpud/src/backend/present.rs
 905	source/drivers/gpud/src/backend/virgl3d.rs
 706	source/drivers/gpud/src/backend/virtqueue.rs
 1264	source/drivers/gpud/src/gl_scanout.rs
@@ -22,17 +22,17 @@
 759	source/kernel/neuron/src/sched/mod.rs
 2422	source/kernel/neuron/src/selftest/mod.rs
 745	source/kernel/neuron/src/syscall/api/exec.rs
-1690	source/kernel/neuron/src/syscall/api/tests.rs
+1653	source/kernel/neuron/src/syscall/api/tests.rs
 1316	source/kernel/neuron/src/task/mod.rs
-892	source/libs/nexus-display-proto/src/client_surface.rs
+880	source/libs/nexus-display-proto/src/client_surface.rs
 655	source/libs/nexus-event/src/lib.rs
 651	source/libs/nexus-evidence/src/lib.rs
 1414	source/libs/nexus-log/src/lib.rs
 897	source/libs/nexus-proof-manifest/src/lib.rs
 778	source/libs/nexus-service-entry/src/lib.rs
-823	source/services/app-host/src/effect_host.rs
+809	source/services/app-host/src/effect_host.rs
 885	source/services/app-host/src/probe/anim.rs
-1067	source/services/app-host/src/probe/mod.rs
+953	source/services/app-host/src/probe/mod.rs
 839	source/services/bundlemgrd/src/os_lite.rs
 1878	source/services/bundlemgrd/src/std_server.rs
 607	source/services/dsoftbusd/src/os/entry.rs
@@ -58,10 +58,10 @@
 971	source/services/updated/src/os_lite.rs
 980	source/services/vfsd/src/std_server.rs
 853	source/services/windowd/src/compositor/mod.rs
-938	source/services/windowd/src/compositor/runtime/app_window.rs
-631	source/services/windowd/src/compositor/runtime/input.rs
+919	source/services/windowd/src/compositor/runtime/app_window.rs
+628	source/services/windowd/src/compositor/runtime/input.rs
 1108	source/services/windowd/src/compositor/runtime/mod.rs
-672	source/services/windowd/src/compositor/shell_window.rs
+671	source/services/windowd/src/compositor/shell_window.rs
 1708	source/services/windowd/src/scene_graph.rs
 1328	source/services/windowd/src/server.rs
 810	source/services/windowd/src/smoke.rs
@@ -73,7 +73,7 @@
 680	tools/qemu-src/rust/migration/src/vmstate.rs
 956	tools/qemu-src/rust/qom/src/qom.rs
 710	userspace/config/nexus-config/src/lib.rs
-1005	userspace/dsl/runtime/tests/layout_viewport.rs
+955	userspace/dsl/runtime/tests/layout_viewport.rs
 735	userspace/dsoftbus/src/host.rs
 764	userspace/dsoftbus/src/mux_v2.rs
 626	userspace/input-live-protocol/src/lib.rs
@@ -84,7 +84,7 @@
 641	userspace/nxfs/src/fs.rs
 811	userspace/policy/src/lib.rs
 1630	userspace/statefs/src/lib.rs
-1253	userspace/ui/layout/src/engine.rs
+1240	userspace/ui/layout/src/engine.rs
 864	userspace/ui/scene_raster/src/lib.rs
 1292	userspace/ui/svg/src/parse.rs
 626	userspace/ui/svg/src/raster.rs

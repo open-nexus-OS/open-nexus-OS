@@ -1,0 +1,27 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The right properties pane. Not part of the settings handoff — it is the
+// window-frame handoff's third zone, and window-kit's `WinAppWindow` reserves
+// it — so it carries the device facts a settings window is asked for most
+// often instead of duplicating a section.
+//
+// Hidden by default (`rightOpen = 0`); the top bar's right toggle reveals it.
+
+Component PropsPane {
+    Panel {
+        Text(@t("set.props")).textSize(sm).fontWeight(semibold).fg(onGlass)
+        Stack { }
+            .height(1)
+            .bg(divider)
+        WinPropRow { label: @t("set.propDevice"), value: @t("set.propDeviceV"), icon: "cpu" }
+        WinPropRow { label: @t("set.propOs"), value: @t("set.propOsV"), icon: "info.circle" }
+        WinPropRow { label: @t("set.propDisplay"), value: @t("set.propDisplayV"), icon: "desktopcomputer" }
+        WinPropRow { label: @t("set.propStorage"), value: @t("set.propStorageV"), icon: "internaldrive" }
+        Spacer
+    }
+    .material(windowPane)
+    .rounded(xxl)
+    .gap(1)
+    .grow(1)
+}

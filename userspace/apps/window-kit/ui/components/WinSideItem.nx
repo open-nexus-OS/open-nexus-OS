@@ -5,6 +5,11 @@
 // (+ optional subtitle), accent-filled when active. Tap dispatches
 // `WinMenuPick(id)` — the app's reducer routes nav ids (by convention
 // prefixed "nav.") to its section state.
+//
+// The icon sits in a PINNED 16px box and the text column takes `.grow(1)`.
+// Without both, a long two-line label wins the flex negotiation and squeezes
+// the icon to a two-pixel sliver — which is what the settings sidebar looked
+// like the first time it shipped twelve German section names.
 
 Component WinSideItem {
     props: {
@@ -16,8 +21,13 @@ Component WinSideItem {
     }
     if $props.active {
         Stack {
-            Icon { symbol: $props.icon, size: 15 }
-                .fg(onAccent)
+            Stack {
+                Icon { symbol: $props.icon, size: 15 }
+                    .fg(onAccent)
+            }
+            .width(16)
+            .align(center)
+            .justify(center)
             Stack {
                 Text($props.label).textSize(sm).fg(onAccent)
                 if $props.sub != "" {
@@ -27,6 +37,7 @@ Component WinSideItem {
                 }
             }
             .gap(0)
+            .grow(1)
         }
         .direction(row)
         .align(center)
@@ -38,8 +49,13 @@ Component WinSideItem {
         on Tap -> dispatch(WinMenuPick($props.id))
     } else {
         Stack {
-            Icon { symbol: $props.icon, size: 15 }
-                .fg(onGlassMuted)
+            Stack {
+                Icon { symbol: $props.icon, size: 15 }
+                    .fg(onGlassMuted)
+            }
+            .width(16)
+            .align(center)
+            .justify(center)
             Stack {
                 Text($props.label).textSize(sm).fg(onGlass)
                 if $props.sub != "" {
@@ -49,6 +65,7 @@ Component WinSideItem {
                 }
             }
             .gap(0)
+            .grow(1)
         }
         .direction(row)
         .align(center)

@@ -1,0 +1,36 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Apps. Demo data from the handoff's `_tree()`.
+
+Component SecApps {
+    Stack {
+        SetGroup { label: "", note: "" } {
+            rows {
+                SetRow { title: @t("app.defaults"), subtitle: @t("app.defaultsSub"), icon: "square.grid", showChevron: false } {
+                    trailing { }
+                }
+                SetHairline { }
+                SetRow { title: @t("app.permissions"), subtitle: @t("app.permissionsSub"), icon: "lock", showChevron: false } {
+                    trailing { }
+                }
+            }
+        }
+        SetGroup { label: @t("app.gManage"), note: "" } {
+            rows {
+                SetRow { title: @t("app.autoUpdate"), subtitle: "", icon: "arrow.down.circle", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgAutoUpdate, label: @t("app.autoUpdate") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("app.prompt"), subtitle: "", icon: "shippingbox", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgAppPrompt, label: @t("app.prompt") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("app.installed"), subtitle: "", icon: "doc", showChevron: false } {
+                    trailing { SetValue { value: @t("app.installedV") } }
+                }
+            }
+        }
+    }
+    .gap(3)
+}

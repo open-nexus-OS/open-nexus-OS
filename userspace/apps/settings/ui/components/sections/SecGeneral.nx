@@ -1,0 +1,145 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Allgemeine Verwaltung — the second really-functional section. Every
+// `Select` row here writes a key settingsd owns and a service consumes:
+// `ui.locale` · `region.country` · `input.keymap` · `time.zone` ·
+// `time.format` · `ime.personalization`.
+//
+// The handoff buries these Selects one level deeper, inside the "Systemsprache"
+// and "Tastatur & Eingabe" sub-pages. They sit on the section root here
+// because the sub-pages are Phase 2 and these are the controls that actually
+// do something — hiding working settings behind an unbuilt screen would be
+// the wrong half to defer.
+//
+// TWO handlers per select row, both dispatching the same event: one on the
+// row wrapper so the whole 52px row is the target (the handoff's rule), one
+// on the trigger itself so the deepest node under the pill also answers.
+//
+// "Automatisch stellen", "Autokorrektur" and "Diktat" are `DemoStore`
+// switches — no NTP client and no dictation exist yet.
+
+Component SecGeneral {
+    Stack {
+        SetGroup { label: @t("gen.gDateTime"), note: "" } {
+            rows {
+                SetRow { title: @t("gen.autoTime"), subtitle: "", icon: "clock", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgAutoTime, label: @t("gen.autoTime") } }
+                }
+                SetHairline { }
+                Stack {
+                    SetRow { title: @t("gen.zone"), subtitle: "", icon: "globe", showChevron: false } {
+                        trailing {
+                            Stack {
+                                SelZone { }
+                            }
+                            on Tap -> dispatch(OpenPicker("zone"))
+                        }
+                    }
+                }
+                on Tap -> dispatch(OpenPicker("zone"))
+                SetHairline { }
+                Stack {
+                    SetRow { title: @t("gen.hourFormat"), subtitle: "", icon: "clock", showChevron: false } {
+                        trailing {
+                            Stack {
+                                SelHourFmt { }
+                            }
+                            on Tap -> dispatch(OpenPicker("hourfmt"))
+                        }
+                    }
+                }
+                on Tap -> dispatch(OpenPicker("hourfmt"))
+            }
+        }
+        SetGroup { label: @t("gen.gLanguage"), note: @t("gen.languageNote") } {
+            rows {
+                Stack {
+                    SetRow { title: @t("gen.region"), subtitle: @t("gen.regionSub"), icon: "globe", showChevron: false } {
+                        trailing {
+                            Stack {
+                                SelRegion { }
+                            }
+                            on Tap -> dispatch(OpenPicker("region"))
+                        }
+                    }
+                }
+                on Tap -> dispatch(OpenPicker("region"))
+                SetHairline { }
+                Stack {
+                    SetRow { title: @t("gen.language"), subtitle: @t("gen.languageSub"), icon: "textformat", showChevron: false } {
+                        trailing {
+                            Stack {
+                                SelLanguage { }
+                            }
+                            on Tap -> dispatch(OpenPicker("language"))
+                        }
+                    }
+                }
+                on Tap -> dispatch(OpenPicker("language"))
+            }
+        }
+        SetGroup { label: @t("gen.gInput"), note: "" } {
+            rows {
+                Stack {
+                    SetRow { title: @t("gen.layout"), subtitle: @t("gen.layoutSub"), icon: "keyboard", showChevron: false } {
+                        trailing {
+                            Stack {
+                                SelLayout { }
+                            }
+                            on Tap -> dispatch(OpenPicker("layout"))
+                        }
+                    }
+                }
+                on Tap -> dispatch(OpenPicker("layout"))
+                SetHairline { }
+                SetRow { title: @t("gen.autocorrect"), subtitle: "", icon: "textformat", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgAutocorrect, label: @t("gen.autocorrect") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("gen.dictation"), subtitle: @t("gen.dictationSub"), icon: "mic", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgDictation, label: @t("gen.dictation") } }
+                }
+            }
+        }
+        SetGroup { label: @t("gen.gSuggestions"), note: @t("gen.suggestionsNote") } {
+            rows {
+                if $state.personalization == "on" {
+                    Stack {
+                        SetRow { title: @t("gen.personalization"), subtitle: "", icon: "textformat", showChevron: false } {
+                            trailing { SetValue { value: @t("set.on") } }
+                        }
+                    }
+                    on Tap -> dispatch(SetPersonalization("off"))
+                } else {
+                    Stack {
+                        SetRow { title: @t("gen.personalization"), subtitle: "", icon: "textformat", showChevron: false } {
+                            trailing { SetValue { value: @t("set.off") } }
+                        }
+                    }
+                    on Tap -> dispatch(SetPersonalization("on"))
+                }
+                SetHairline { }
+                Stack {
+                    SetRow { title: @t("gen.forget"), subtitle: @t("gen.forgetSub"), icon: "trash", showChevron: false } {
+                        trailing { }
+                    }
+                }
+                on Tap -> dispatch(Forget)
+            }
+        }
+        SetGroup { label: @t("gen.gReset"), note: @t("gen.resetNote") } {
+            rows {
+                SetRow { title: @t("gen.reset"), subtitle: @t("gen.resetSub"), icon: "arrow.clockwise", showChevron: false } {
+                    trailing { }
+                }
+            }
+        }
+        if $state.regionError != 0 {
+            Text(@t("set.applyFailed")).textSize(xs).fg(danger)
+        } else {
+            Stack { }
+        }
+    }
+    .gap(3)
+}

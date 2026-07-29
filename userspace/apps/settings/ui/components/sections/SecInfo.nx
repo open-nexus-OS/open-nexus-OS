@@ -1,0 +1,38 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Geräte Info. The handoff's demo device with ONE correction: the OS version
+// row shows this repo's real version, not the mockup's "3.2". A version
+// string is the one value on this screen a reader would take literally.
+
+Component SecInfo {
+    Stack {
+        SetGroup { label: @t("inf.gDevice"), note: "" } {
+            rows {
+                SetRow { title: @t("inf.model"), subtitle: "", icon: "cpu", showChevron: false } {
+                    trailing { SetValue { value: @t("inf.modelV") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("inf.os"), subtitle: @t("inf.osSub"), icon: "info.circle", showChevron: false } {
+                    trailing { SetValue { value: @t("inf.osV") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("inf.storage"), subtitle: "", icon: "internaldrive", showChevron: false } {
+                    trailing { SetValue { value: @t("inf.storageV") } }
+                }
+            }
+        }
+        SetGroup { label: @t("inf.gSystem"), note: "" } {
+            rows {
+                SetRow { title: @t("inf.update"), subtitle: "", icon: "arrow.clockwise", showChevron: false } {
+                    trailing { SetValue { value: @t("inf.updateV") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("inf.legal"), subtitle: "", icon: "doc.text", showChevron: false } {
+                    trailing { SetValue { value: @t("inf.legalV") } }
+                }
+            }
+        }
+    }
+    .gap(3)
+}

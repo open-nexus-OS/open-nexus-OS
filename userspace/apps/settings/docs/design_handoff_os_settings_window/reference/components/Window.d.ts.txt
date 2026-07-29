@@ -1,0 +1,42 @@
+/**
+ * Window — the shared glass window shell for AIVA OS. Dense window
+ * surface + three-zone title chrome (leading / centered toolbar /
+ * trailing + minimise·maximise·close) + a flex body region. Every app
+ * and settings window composes this; pass the body (Sidebar, WindowPane)
+ * as children. Reads the --glass-window-* tokens.
+ *
+ * @example
+ * <Window theme="dark" width={900} leading={appChip} toolbar={navBtns} onClose={close}>
+ *   <Sidebar … />
+ *   <WindowPane title="Inhalt">{rows}</WindowPane>
+ * </Window>
+ */
+export interface WindowProps {
+  /** Scope the window's own theme. Omit to inherit the ambient .dark class */
+  theme?: 'dark' | 'light';
+  /** Window width in px. Default: 960 */
+  width?: number;
+  /** Window height in px. Default: 600 */
+  height?: number;
+  /** Left cluster: app-icon chip, sidebar toggle, etc */
+  leading?: React.ReactNode;
+  /** Absolutely-centered cluster: back/forward/search toolbar */
+  toolbar?: React.ReactNode;
+  /** Right cluster, placed before the window controls */
+  trailing?: React.ReactNode;
+  /** Render the minimise/maximise/close cluster. Default: true */
+  windowControls?: boolean;
+  onMinimize?: () => void;
+  onMaximize?: () => void;
+  onClose?: () => void;
+  /** Play the spring entrance animation. Default: true */
+  animate?: boolean;
+  /** Ref attached to the window root element (e.g. for ResizeObserver) */
+  rootRef?: React.Ref<HTMLDivElement>;
+  className?: string;
+  /** Styles for the window shell (override width/height/position) */
+  style?: React.CSSProperties;
+  /** Styles for the flex body region */
+  bodyStyle?: React.CSSProperties;
+  children?: React.ReactNode;
+}

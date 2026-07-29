@@ -1,0 +1,39 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One option inside a `PickerSheet` — label plus a checkmark on the active
+// value. The handler lives at the use site (a `Stack` wrapper), so the same
+// component serves every picker without knowing which event it feeds.
+
+Component PickerOption {
+    props: {
+        label: Str,
+        selected: Bool,
+    }
+    if $props.selected {
+        Stack {
+            Text($props.label).textSize(sm).fg(onGlass)
+            Spacer
+            Icon { symbol: "checkmark", size: 14 }
+                .fg(accent)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(3)
+        .height(38)
+        .rounded(md)
+        .bg(glassHover)
+    } else {
+        Stack {
+            Text($props.label).textSize(sm).fg(onGlass)
+            Spacer
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(3)
+        .height(38)
+        .rounded(md)
+    }
+}

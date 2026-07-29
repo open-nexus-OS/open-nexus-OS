@@ -1,0 +1,87 @@
+import React, { useState } from 'react';
+
+/**
+ * Sidebar — glass navigation rail / drawer for AIVA OS (maps to SplitLayout's
+ * side pane). A frosted vertical panel of nav items with optional header and
+ * footer slots; the active item gets an accent highlight.
+ */
+export function Sidebar({
+  items = [],
+  value,
+  defaultValue,
+  onChange,
+  header,
+  footer,
+  width = 248,
+  variant = 'panel',
+  style = {},
+}) {
+  const [internal, setInternal] = useState(defaultValue ?? items[0]?.value);
+  const active = value !== undefined ? value : internal;
+  const select = (v) => { if (value === undefined) setInternal(v); onChange && onChange(v); };
+
+  const Item = ({ it }) => {
+    const [hover, setHover] = useState(false);
+    if (it.header) return (
+      <div style={{ padding: '14px 12px 6px', fontFamily: 'var(--font-sans)', fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--glass-text-secondary)' }}>{it.label}</div>
+    );
+    const isActive = it.value === active;
+    return (
+      <button
+        onClick={() => { select(it.value); it.onSelect && it.onSelect(); }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 11, width: '100%',
+          padding: '9px 11px', border: 'none', cursor: 'pointer', textAlign: 'left',
+          borderRadius: 'var(--radius-lg)',
+          background: isActive ? 'var(--glass-toggle-on-bg)' : hover ? 'var(--glass-hover-bg)' : 'transparent',
+          color: isActive ? '#fff' : 'var(--glass-text-strong)',
+          fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: isActive ? 600 : 500,
+          boxShadow: isActive ? '0 2px 8px var(--glass-toggle-on-shadow)' : 'none',
+          transition: 'background 0.15s ease, color 0.15s ease', WebkitTapHighlightColor: 'transparent',
+        }}
+      >
+        {it.icon && <span style={{ display: 'flex', flexShrink: 0, opacity: isActive ? 1 : 0.85 }}>{it.icon}</span>}
+        <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.label}</span>
+        {it.badge != null && (
+          <span style={{
+            minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999,
+            background: isActive ? 'rgba(255,255,255,0.25)' : 'var(--glass-notif-dot)', color: '#fff',
+            fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>{it.badge}</span>
+        )}
+      </button>
+    );
+  };
+
+  return (
+    <div style={{
+      width, height: '100%', display: 'flex', flexDirection: 'column',
+      background: variant === 'plain' ? 'transparent' : 'var(--glass-panel-bg)',
+      borderRight: variant === 'plain' ? 'none' : '1px solid var(--glass-divider)',
+      backdropFilter: variant === 'plain' ? 'none' : 'blur(40px)',
+      WebkitBackdropFilter: variant === 'plain' ? 'none' : 'blur(40px)',
+      ...style,
+    }}>
+      {header && <div style={{ padding: '14px 14px 6px', flexShrink: 0 }}>{header}</div>}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {items.map((it, i) => <Item key={i} it={it} />)}
+      </div>
+      {footer && <div style={{ padding: 12, borderTop: '1px solid var(--glass-divider)', flexShrink: 0 }}>{footer}</div>}
+    </div>
+  );
+}
+
+/**
+ * SplitView — two-pane layout: a fixed Sidebar slot beside a flexible content
+ * area. Provide `sidebar` and `children`.
+ */
+export function SplitView({ sidebar, children, style = {} }) {
+  return (
+    <div style={{ display: 'flex', height: '100%', width: '100%', overflow: 'hidden', ...style }}>
+      <div style={{ flexShrink: 0, height: '100%' }}>{sidebar}</div>
+      <div style={{ flex: 1, minWidth: 0, height: '100%', overflow: 'auto' }}>{children}</div>
+    </div>
+  );
+}

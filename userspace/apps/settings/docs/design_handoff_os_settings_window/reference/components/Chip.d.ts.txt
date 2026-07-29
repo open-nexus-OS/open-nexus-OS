@@ -1,0 +1,24 @@
+import React from 'react';
+
+/**
+ * Chip — compact glass token for filters, tags, and recipients. Larger and
+ * more tactile than Badge; selectable (blue when selected) and removable.
+ *
+ * @example
+ * <Chip icon={<Tag/>}>Design</Chip>
+ * <Chip selected onClick={toggle}>Ungelesen</Chip>
+ * <Chip onRemove={() => remove(id)}>anna@firma.de</Chip>
+ */
+export interface ChipProps {
+  children?: React.ReactNode;
+  /** Leading icon node */
+  icon?: React.ReactNode;
+  /** Selected (blue) state */
+  selected?: boolean;
+  /** Makes the chip tappable */
+  onClick?: () => void;
+  /** Shows a trailing ✕ that fires this instead of onClick */
+  onRemove?: () => void;
+  disabled?: boolean;
+  style?: React.CSSProperties;
+}

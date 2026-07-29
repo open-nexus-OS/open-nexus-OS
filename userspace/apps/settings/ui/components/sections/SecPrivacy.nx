@@ -1,0 +1,48 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Datenschutz & Sicherheit. Demo data from the handoff's `_tree()`.
+//
+// EVERY control here is visual. Biometrics, lock policy and diagnostics are
+// exactly the settings that must route through policyd before they mean
+// anything, and none of them has a key in settingsd's registry yet — so this
+// section shows the shape of the screen and changes nothing.
+
+Component SecPrivacy {
+    Stack {
+        SetGroup { label: @t("prv.gUnlock"), note: "" } {
+            rows {
+                SetRow { title: @t("prv.fingerprint"), subtitle: @t("prv.fingerprintSub"), icon: "key", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgFingerprint, label: @t("prv.fingerprint") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("prv.face"), subtitle: @t("prv.faceSub"), icon: "eye", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgFaceId, label: @t("prv.face") } }
+                }
+            }
+        }
+        SetGroup { label: @t("prv.gLock"), note: "" } {
+            rows {
+                SetRow { title: @t("prv.lockNow"), subtitle: "", icon: "lock", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgLockNow, label: @t("prv.lockNow") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("prv.lockScreen"), subtitle: "", icon: "lock", showChevron: false } {
+                    trailing { SetValue { value: @t("prv.lockScreenV") } }
+                }
+            }
+        }
+        SetGroup { label: @t("prv.gData"), note: "" } {
+            rows {
+                SetRow { title: @t("prv.diagnostics"), subtitle: "", icon: "cylinder", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgDiagnostics, label: @t("prv.diagnostics") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("prv.log"), subtitle: "", icon: "doc.text", showChevron: false } {
+                    trailing { SetValue { value: @t("prv.logV") } }
+                }
+            }
+        }
+    }
+    .gap(3)
+}

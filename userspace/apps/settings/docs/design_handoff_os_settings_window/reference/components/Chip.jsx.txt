@@ -1,0 +1,62 @@
+import React, { useState } from 'react';
+
+/**
+ * Chip — compact glass token for AIVA OS: filters, tags, recipients.
+ * Larger and more tactile than a Badge; optionally selectable and removable.
+ */
+export function Chip({
+  children,
+  icon,
+  selected = false,
+  onClick,
+  onRemove,
+  disabled = false,
+  style = {},
+}) {
+  const [hover, setHover] = useState(false);
+  const interactive = !!onClick;
+
+  return (
+    <span
+      onClick={disabled ? undefined : onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        height: 30, padding: onRemove ? '0 6px 0 12px' : '0 12px',
+        borderRadius: 'var(--radius-full)',
+        fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 500,
+        cursor: disabled ? 'not-allowed' : interactive ? 'pointer' : 'default',
+        opacity: disabled ? 0.45 : 1,
+        color: selected ? '#fff' : 'var(--glass-text-strong)',
+        background: selected ? 'var(--glass-toggle-on-bg)'
+          : interactive && hover ? 'var(--glass-hover-bg)' : 'var(--glass-card-bg)',
+        border: `1px solid ${selected ? 'var(--glass-toggle-on-border)' : 'var(--glass-card-border)'}`,
+        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+        boxShadow: selected ? '0 2px 8px var(--glass-toggle-on-shadow)' : 'none',
+        transition: 'background 0.15s ease, color 0.15s ease, border-color 0.15s ease',
+        whiteSpace: 'nowrap', WebkitTapHighlightColor: 'transparent', userSelect: 'none',
+        ...style,
+      }}
+    >
+      {icon && <span style={{ display: 'flex', flexShrink: 0 }}>{icon}</span>}
+      {children}
+      {onRemove && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          aria-label="Entfernen"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            width: 18, height: 18, borderRadius: '50%', border: 'none', cursor: 'pointer', padding: 0,
+            background: selected ? 'rgba(255,255,255,0.25)' : 'var(--glass-divider)',
+            color: selected ? '#fff' : 'var(--glass-text-primary)',
+          }}
+        >
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
+    </span>
+  );
+}

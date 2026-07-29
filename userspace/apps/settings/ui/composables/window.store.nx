@@ -1,0 +1,119 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// WINDOW domain: the window-kit store contract (RFC-0084) — the chrome state
+// `WinTopBar` and `WinAppWindow` dispatch into and read back.
+//
+// THE RULE THAT SHAPES EVERY STORE IN THIS APP: one `Event` type binds to
+// exactly ONE `Store`. A `reduce` block must cover every case of its event
+// (`reduce X misses cases`), may be declared only once per event
+// (`reduce X is defined twice`), and all of its arms together may touch a
+// single store ("one reducer touching two stores (split it)"). So a field
+// lives in the store whose event writes it, and a change that has to cross
+// domains goes through an `@effect` that dispatches the other domain's event
+// — the sanctioned bridge, and the reason `NavStore` closes this store's
+// `menu` that way instead of assigning it.
+//
+// `WinMenuPick` therefore does NOT live here: it is a navigation pick
+// (sidebar rows, jump entries) and writes `NavStore`.
+//
+// `WinAct(a)` forwards window controls (minimize/zoom/close/move) to windowd
+// through `svc.settings.set("window.control", …)` — the channel every
+// window-kit app uses.
+
+Store WindowStore {
+    // Open chrome menu: "" = closed, else "app" | "more" | "more.jump".
+    menu: Str = "",
+    // Inline pane visibility (wide/regular tiers).
+    leftOpen: Int = 1,
+    rightOpen: Int = 0,
+    // Overlay-pane twins (compact/regular tiers, RFC-0084 P7). Default
+    // CLOSED — a phone-profile mount must not boot with a pane over the
+    // content. The same top-bar buttons toggle both senses; only the visible
+    // one matters per size class.
+    paneL: Int = 0,
+    paneR: Int = 0,
+    // Active toolbar tool (the pressed-tool highlight the handoff pins).
+    tool: Str = "",
+    selection: Str = "",
+    // Non-zero when a window-control forward was refused.
+    winError: Int = 0,
+}
+
+Event WindowEvent {
+    WinMenu(Str),
+    WinNoop,
+    WinPaneClose,
+    WinLeft,
+    WinRight,
+    WinTool(Str),
+    WinAct(Str),
+    WinNav(Str),
+    WinActApplied(Bool),
+    WinActFailed(Int),
+}
+
+reduce WindowEvent {
+    WinMenu(m) => {
+        if state.menu == m {
+            state.menu = "";
+        } else {
+            state.menu = m;
+        }
+    },
+    // Consume-tap for a panel body sitting inside an overlay layer: without
+    // it the backdrop's own handler would close the layer the user just
+    // reached into.
+    WinNoop => state.menu = state.menu,
+    WinPaneClose => {
+        state.paneL = 0;
+        state.paneR = 0;
+    },
+    WinLeft => {
+        if state.leftOpen == 1 {
+            state.leftOpen = 0;
+        } else {
+            state.leftOpen = 1;
+        }
+        if state.paneL == 1 {
+            state.paneL = 0;
+        } else {
+            state.paneL = 1;
+        }
+    },
+    WinRight => {
+        if state.rightOpen == 1 {
+            state.rightOpen = 0;
+        } else {
+            state.rightOpen = 1;
+        }
+        if state.paneR == 1 {
+            state.paneR = 0;
+        } else {
+            state.paneR = 1;
+        }
+    },
+    WinTool(t) => {
+        if state.tool == t {
+            state.tool = "";
+        } else {
+            state.tool = t;
+        }
+    },
+    WinAct(a) => state.menu = "",
+    // The toolbar's back button. What it MEANS is navigation, which is
+    // another store — so the arm only records that the chrome stays put and
+    // `NavStore` picks the event up in an effect. Forward and refresh are not
+    // rendered at all (`navFwd`/`navRefresh` are ""), so "back" is the only
+    // direction that ever arrives.
+    WinNav(dir) => state.menu = "",
+    WinActApplied(ok) => state.winError = 0,
+    WinActFailed(code) => state.winError = code,
+}
+
+@effect on WinAct(a) {
+    match svc.settings.set("window.control", a, timeoutMs: 250) {
+        Ok(ok) => dispatch(WinActApplied(ok)),
+        Err(e) => dispatch(WinActFailed(e)),
+    }
+}

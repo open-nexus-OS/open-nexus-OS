@@ -352,6 +352,26 @@ pub const WIDGETS: &[WidgetSpec] = &[
         label_prop: None,
         allows_children: true,
     },
+    // Navigation/selection leaves the kit always had but the DSL could not
+    // name (settings design handoff). `Select` is the CLOSED trigger only —
+    // a glass pill showing the current value plus a chevron; the open option
+    // panel is an app-owned `.overlay()`, exactly as the kit crate documents.
+    // `Breadcrumbs` renders the whole trail as ONE node, so it shows the path
+    // but cannot make individual crumbs tappable — wrap it to navigate.
+    WidgetSpec {
+        name: "Select",
+        primary_prop: Some("value"),
+        interactive: true,
+        label_prop: Some("placeholder"),
+        allows_children: false,
+    },
+    WidgetSpec {
+        name: "Breadcrumbs",
+        primary_prop: Some("items"),
+        interactive: false,
+        label_prop: None,
+        allows_children: false,
+    },
 ];
 
 #[must_use]

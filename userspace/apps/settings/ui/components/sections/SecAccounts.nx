@@ -1,0 +1,41 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Accounts. Demo data from the handoff's `_tree()` — there is no account
+// service behind this yet, so every row is a value row and the two switches
+// are `DemoStore` fields.
+
+Component SecAccounts {
+    Stack {
+        SetGroup { label: "", note: "" } {
+            rows {
+                SetRow { title: @t("acc.account"), subtitle: @t("set.userName"), icon: "person", showChevron: false } {
+                    trailing { SetValue { value: @t("acc.accountV") } }
+                }
+            }
+        }
+        SetGroup { label: @t("acc.gSync"), note: "" } {
+            rows {
+                SetRow { title: @t("acc.files"), subtitle: "", icon: "folder", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgSyncFiles, label: @t("acc.files") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("acc.photos"), subtitle: "", icon: "photo", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgSyncPhotos, label: @t("acc.photos") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("acc.more"), subtitle: "", icon: "person.2", showChevron: false } {
+                    trailing { SetValue { value: @t("acc.moreV") } }
+                }
+            }
+        }
+        SetGroup { label: @t("acc.gAdd"), note: "" } {
+            rows {
+                SetRow { title: @t("acc.add"), subtitle: "", icon: "plus", showChevron: false } {
+                    trailing { }
+                }
+            }
+        }
+    }
+    .gap(3)
+}

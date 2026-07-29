@@ -108,6 +108,37 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
   nur für RISC-V baut) wählt das Kind, das die Wrapper-Box wirklich ausfüllt.
   Farbe jetzt `glassHover` statt eines Accent-Tints.
 
+## Behoben (2026-07-29, Settings-Handoff Phase 0+1)
+
+- **`Select` und `Breadcrumbs` sind aus dem DSL erreichbar.** Beide
+  Kit-Crates (`userspace/ui/widgets/{select,breadcrumbs}`) waren als
+  „DSL-emittable" gebaut, hatten aber keinen Runtime-Arm — die Settings-
+  Enum-Zeilen mussten sie also nachbauen. Jetzt: Registry-Eintrag
+  (`dsl/core/src/registry.rs`) + `match kind`-Arm
+  (`dsl/runtime/src/registry/widgets.rs`). `Select` liefert wie dokumentiert
+  nur den GESCHLOSSENEN Trigger; das Optionspanel bleibt ein
+  App-`.overlay()`.
+- **Akzentpalette 6 → 9** (`nexus-theme-tokens::ACCENT_PALETTE` + settingsd-
+  Validator, beide append-only): teal/amber/graphite ergänzt, damit alle neun
+  Swatches der Erscheinungsbild-Seite echt schalten. „Nexus Blau" ist der
+  eingebaute Theme-Akzent und fährt weiter als `default` (Index 0).
+- **17 Icon-Symbole** ergänzt (`[icons.symbols]`): die Zeilen-Glyphen des
+  Settings-Handoffs (`wifi.slash`, `cylinder`, `iphone`, `keyboard`,
+  `computermouse`, `printer`, `mic`, `bell.slash`, `textformat`, `clock`,
+  `globe`, `person.2`, `shield`, `key`, `cpu`, `plus.magnifyingglass`,
+  `slider.vertical.3`).
+
+### Bewusste Nicht-Parität (Settings-Fenster)
+
+| Handoff | Umsetzung | Grund |
+|---|---|---|
+| Modus „Automatisch" schaltet | Kachel wird gezeichnet, schreibt NICHTS | `windowd::ThemeMode` ist `dark\|light` — es gibt keinen Auto-Modus zu setzen |
+| Krumen einzeln anklickbar (`onNavigate`) | Trail zeigt den Pfad, ein Tap geht EINE Ebene hoch | Ein Widget = eine Node = ein Handler; per-Krume bräuchte Multi-Handler-Widgets |
+| Icon-Stile über `mix-blend-mode: screen/luminosity` + Filter | Basisfüllung je Variante, Blend angenähert | Der Zeilen-Painter hat weder Blend-Modes noch eine Filterstufe |
+| Gruppenlabel 10,5 px | `xs` (11 px) | Kleinste gebackene Typstufe (wie TASK-0308) |
+| Breakpoints 560/820 | Plattform-Tiers 640/1024 | ADR-0035, bereits entschieden |
+| Akzent „Rot" `#d4183d` | `#ef4444` | Der Swatch zeigt, was `ACCENT_PALETTE` wirklich anwendet |
+
 ## Offen — Token-Abweichungen
 
 | Rolle | Handoff | Implementierung | Status |
@@ -135,10 +166,11 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
 
 ## Offen — Component-API (Handoff prop-basiert vs. DSL modifier-basiert)
 
-Fehlende Komponenten: Select, Segment, Stepper, Rating, RadioGroup, WheelPicker, DatePicker,
-AppIcon (adaptiv), TextArea, Accordion, Breadcrumbs, Pagination, Sidebar, SplitView, SubHeader,
+Fehlende Komponenten: Segment, Stepper, Rating, RadioGroup, WheelPicker, DatePicker,
+AppIcon (adaptiv), TextArea, Accordion, Pagination, Sidebar, SplitView, SubHeader,
 TabBar, TreeView, ActionSheet, Alert, FAB, Menu, ContextMenu, Modal, Popover, Tooltip,
 Refresher, SkeletonText — plus die Window-Familie als DSL-Komponenten (Widget-Crates existieren).
+(`Select` und `Breadcrumbs` sind seit 2026-07-29 verdrahtet, siehe oben.)
 
 Vorhandene mit Prop-Lücken: Button (variant glass/ghost/active), Card (variant-Auswahl),
 Toggle (`label` ignoriert), TextField (icon/trailing/type — `error`/`helper`/`size`/

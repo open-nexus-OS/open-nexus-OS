@@ -1,0 +1,48 @@
+import React from 'react';
+
+export interface SidebarItem {
+  value?: string;
+  label: React.ReactNode;
+  icon?: React.ReactNode;
+  badge?: number;
+  onSelect?: () => void;
+  /** Render as a non-interactive section label */
+  header?: boolean;
+}
+
+/**
+ * Sidebar — glass navigation rail / drawer (maps to SplitLayout side pane).
+ * Vertical list of nav items with active accent highlight, optional header
+ * and footer slots. Controlled or uncontrolled.
+ *
+ * @example
+ * <Sidebar value={page} onChange={setPage} header={<Logo/>} items={[
+ *   { header: true, label: 'Bibliothek' },
+ *   { value: 'all', label: 'Alle Dateien', icon: <Files/> },
+ *   { value: 'shared', label: 'Geteilt', icon: <Users/>, badge: 2 },
+ * ]} />
+ */
+export interface SidebarProps {
+  items: SidebarItem[];
+  value?: string;
+  defaultValue?: string;
+  onChange?: (value: string) => void;
+  header?: React.ReactNode;
+  footer?: React.ReactNode;
+  width?: number;
+  /** 'panel' = frosted glass surface with right border (default); 'plain' = transparent, no border — for embedding inside a window that already has its own surface */
+  variant?: 'panel' | 'plain';
+  style?: React.CSSProperties;
+}
+
+/**
+ * SplitView — Sidebar + flexible content two-pane layout.
+ *
+ * @example
+ * <SplitView sidebar={<Sidebar items={nav} />}><Content/></SplitView>
+ */
+export interface SplitViewProps {
+  sidebar: React.ReactNode;
+  children?: React.ReactNode;
+  style?: React.CSSProperties;
+}

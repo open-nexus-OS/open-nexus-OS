@@ -31,6 +31,11 @@ pub fn layout_boxes(view: &View) -> Vec<nexus_layout::LayoutBox> {
 }
 
 /// Dispatches `Event::Case(payload)` by NAME (symbol-table lookup).
+///
+/// Uses an EMPTY i18n key table, so every `@t(...)` in the re-emitted scene
+/// reads back as the empty string. That is fine for a test that only looks at
+/// geometry or at service traffic — and a trap for one that reads labels, so
+/// use `dispatch_with_keys` and `program_i18n_keys` there.
 pub fn dispatch(
     view: &mut View,
     device: &nexus_dsl_runtime::FixtureEnv,
@@ -40,12 +45,29 @@ pub fn dispatch(
     case: &str,
     payload: Vec<Value>,
 ) {
+    let keys: Vec<u32> = Vec::new();
+    dispatch_with_keys(view, device, host, symbols, &keys, event, case, payload);
+}
+
+/// `dispatch` with the program's real i18n key table, so the re-emitted scene
+/// still carries its labels (`program_i18n_keys`). Resolution is the BAKED
+/// default catalog — `i18n/en.json` — not the app's authoring language.
+#[allow(clippy::too_many_arguments)]
+pub fn dispatch_with_keys(
+    view: &mut View,
+    device: &nexus_dsl_runtime::FixtureEnv,
+    host: &mut dyn nexus_dsl_runtime::EffectHost,
+    symbols: &[String],
+    keys: &[u32],
+    event: &str,
+    case: &str,
+    payload: Vec<Value>,
+) {
     let (e, c) = view
         .runtime()
         .event_case(event, case)
         .unwrap_or_else(|| panic!("unknown case {event}::{case}"));
-    let keys: Vec<u32> = Vec::new();
-    let locale = IdentityLocale { symbols, keys: &keys };
+    let locale = IdentityLocale { symbols, keys };
     view.dispatch(&nexus_theme_tokens::BaseTokens, device, &locale, host, e, c, payload)
         .unwrap_or_else(|err| panic!("dispatch {event}::{case}: {err:?}"));
 }

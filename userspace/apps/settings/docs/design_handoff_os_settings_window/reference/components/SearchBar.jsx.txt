@@ -1,0 +1,72 @@
+import React, { useState } from 'react';
+
+/**
+ * SearchBar — iOS-style glass search field for AIVA OS (maps to ion-searchbar).
+ * Rounded glass pill with a leading magnifier and a clear (✕) button.
+ */
+export function SearchBar({
+  value,
+  defaultValue = '',
+  onChange,
+  onSubmit,
+  placeholder = 'Suchen',
+  disabled = false,
+  style = {},
+}) {
+  const [internal, setInternal] = useState(defaultValue);
+  const val = value !== undefined ? value : internal;
+  const [focused, setFocused] = useState(false);
+
+  const set = (v) => {
+    if (value === undefined) setInternal(v);
+    onChange && onChange(v);
+  };
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      height: 38, padding: '0 12px', width: '100%',
+      background: 'var(--glass-card-bg)',
+      border: `1px solid ${focused ? 'var(--glass-toggle-on-border)' : 'var(--glass-card-border)'}`,
+      borderRadius: 'var(--radius-full)',
+      backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+      boxShadow: focused ? '0 0 0 3px var(--glass-toggle-on-shadow)' : 'inset 0 1px 1px rgba(255,255,255,0.18)',
+      transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+      opacity: disabled ? 0.5 : 1, ...style,
+    }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--glass-text-secondary)', flexShrink: 0 }} aria-hidden>
+        <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+        <path d="M20 20l-3.2-3.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+      <input
+        value={val}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(e) => set(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && onSubmit) onSubmit(val); }}
+        style={{
+          flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent',
+          fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 500,
+          color: 'var(--glass-text-strong)', padding: 0,
+        }}
+      />
+      {val && (
+        <button
+          onClick={() => set('')}
+          aria-label="Löschen"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            width: 18, height: 18, borderRadius: '50%', border: 'none', cursor: 'pointer',
+            background: 'var(--glass-text-secondary)', color: 'var(--glass-card-bg)', padding: 0,
+          }}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}

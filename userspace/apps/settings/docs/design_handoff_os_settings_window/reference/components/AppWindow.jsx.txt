@@ -1,0 +1,235 @@
+import React from 'react';
+import { Window } from './Window.jsx';
+import { WindowPane } from './WindowPane.jsx';
+import { WindowButton } from './WindowButton.jsx';
+import { Icon } from './Icon.jsx';
+
+/**
+ * AppWindow — the full AIVA OS window scaffold and the single base every
+ * app/settings window is built from. Wraps the Window shell with a
+ * three-zone body (sidebar · content pane · properties pane), an
+ * optional floating action bar, and a responsive layout that lifts the
+ * side panes into glass overlays as the window narrows.
+ *
+ * Provide identity chrome via the leading/toolbar/trailing slots; the
+ * sidebar-toggle and properties-toggle buttons are added automatically.
+ * Content goes in `children`; `sidebar`, `properties` and `actionBar`
+ * are slots.
+ */
+export function AppWindow({
+  theme,
+  width = 960,
+  height = 600,
+  leading,
+  toolbar,
+  trailing,
+  windowControls = true,
+  onMinimize,
+  onMaximize,
+  onClose,
+  // body
+  sidebar,
+  sidebarWidth = 240,
+  contentTitle,
+  contentHeader,
+  contentActions,
+  contentPadded = true,
+  children,
+  properties,
+  propertiesTitle = 'Eigenschaften',
+  propertiesWidth = 240,
+  showProperties = true,
+  actionBar,
+  responsive = true,
+  style = {},
+  bodyStyle = {},
+}) {
+  const rootRef = React.useRef(null);
+  const modeRef = React.useRef('desktop');
+  const [mode, setMode] = React.useState('desktop');
+  const [leftOpen, setLeftOpen] = React.useState(false);
+  const [rightOpen, setRightOpen] = React.useState(false);
+  const [sidebarHidden, setSidebarHidden] = React.useState(false);
+  const [propsHidden, setPropsHidden] = React.useState(false);
+
+  React.useEffect(() => {
+    const el = rootRef.current;
+    if (!responsive || !el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0].contentRect.width;
+      const m = w >= 820 ? 'desktop' : w >= 560 ? 'compact' : 'mobile';
+      if (m !== modeRef.current) {
+        modeRef.current = m;
+        setMode(m);
+        setLeftOpen(false);
+        setRightOpen(false);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [responsive]);
+
+  const hasProps = !!properties && showProperties;
+  const overlayMode = mode === 'compact' || mode === 'mobile';
+
+  const toggleSidebar = () => {
+    if (mode === 'desktop') setSidebarHidden((h) => !h);
+    else { setRightOpen(false); setLeftOpen((o) => !o); }
+  };
+  const toggleProps = () => {
+    if (mode === 'mobile') { setLeftOpen(false); setRightOpen((o) => !o); }
+    else setPropsHidden((h) => !h);
+  };
+  const closeOverlays = () => { setLeftOpen(false); setRightOpen(false); };
+
+  // ── Composed chrome: identity slots + structural toggles ──────────
+  const composedLeading = (
+    <>
+      {leading}
+      {sidebar && (
+        <WindowButton title="Seitenleiste" active={mode === 'desktop' ? !sidebarHidden : leftOpen} onClick={toggleSidebar}>
+          <Icon paths='<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>' size={14} />
+        </WindowButton>
+      )}
+    </>
+  );
+  const composedTrailing = (
+    <>
+      {hasProps && (
+        <WindowButton title="Eigenschaften" active={mode === 'mobile' ? rightOpen : !propsHidden} onClick={toggleProps}>
+          <Icon paths='<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>' size={14} />
+        </WindowButton>
+      )}
+      {trailing}
+    </>
+  );
+
+  // ── Pane visibility ───────────────────────────────────────────────
+  const sidebarInline = sidebar && mode === 'desktop' && !sidebarHidden;
+  const sidebarOverlay = sidebar && overlayMode;
+  const propsInline = hasProps && (mode === 'desktop' || mode === 'compact') && !propsHidden;
+  const propsOverlay = hasProps && mode === 'mobile';
+
+  const overlaySurface = {
+    background: 'var(--glass-window-bg)',
+    border: '1px solid var(--glass-window-border)',
+    backdropFilter: 'blur(72px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(72px) saturate(180%)',
+    boxShadow: 'var(--glass-window-shadow)',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    transition: 'transform .34s cubic-bezier(.16,1,.3,1), opacity .26s ease',
+  };
+
+  return (
+    <Window
+      theme={theme}
+      width={width}
+      height={height}
+      rootRef={rootRef}
+      leading={composedLeading}
+      toolbar={toolbar}
+      trailing={composedTrailing}
+      windowControls={windowControls}
+      onMinimize={onMinimize}
+      onMaximize={onMaximize}
+      onClose={onClose}
+      style={style}
+      bodyStyle={{ gap: 8, padding: '0 8px 16px 8px', position: 'relative', minHeight: 0, ...bodyStyle }}
+    >
+      {/* Sidebar — inline */}
+      {sidebarInline && (
+        <div style={{ width: sidebarWidth, flexShrink: 0, height: '100%' }}>{sidebar}</div>
+      )}
+
+      {/* Sidebar — overlay (compact / mobile) */}
+      {sidebarOverlay && (
+        <div
+          style={{
+            ...overlaySurface,
+            position: 'absolute',
+            zIndex: 40,
+            ...(mode === 'mobile'
+              ? { top: 0, left: 0, bottom: 0, width: 'min(300px,82%)', borderRadius: '0 20px 20px 0' }
+              : { top: 16, left: 16, bottom: 16, width: 254, borderRadius: 28 }),
+            padding: '14px 14px 0',
+            transform: leftOpen ? 'translateX(0)' : 'translateX(-118%)',
+            opacity: leftOpen ? 1 : 0,
+            pointerEvents: leftOpen ? 'auto' : 'none',
+          }}
+        >
+          <div style={{ flex: 1, minHeight: 0 }}>{sidebar}</div>
+        </div>
+      )}
+
+      {/* Content column (+ floating action bar) */}
+      <div style={{ flex: 1, minWidth: 0, position: 'relative', display: 'flex' }}>
+        <WindowPane
+          title={contentTitle}
+          header={contentHeader}
+          headerActions={contentActions}
+          padded={contentPadded}
+        >
+          {children}
+        </WindowPane>
+        {actionBar && (
+          <div style={{ position: 'absolute', bottom: 14, left: 0, right: 0, display: 'flex', justifyContent: 'center', zIndex: 10, pointerEvents: 'none' }}>
+            <div style={{ pointerEvents: 'auto' }}>{actionBar}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Properties — inline */}
+      {propsInline && (
+        <WindowPane
+          title={propertiesTitle}
+          style={{ flex: 'none', width: propertiesWidth, minWidth: propertiesWidth }}
+          bodyStyle={{ padding: '4px 6px' }}
+        >
+          {properties}
+        </WindowPane>
+      )}
+
+      {/* Properties — overlay (mobile) */}
+      {propsOverlay && (
+        <div
+          style={{
+            ...overlaySurface,
+            position: 'absolute',
+            zIndex: 30,
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: 'min(320px,86%)',
+            borderRadius: '20px 0 0 20px',
+            transform: rightOpen ? 'translateX(0)' : 'translateX(112%)',
+            opacity: rightOpen ? 1 : 0,
+            pointerEvents: rightOpen ? 'auto' : 'none',
+          }}
+        >
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--glass-divider)', flexShrink: 0, fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600, color: 'var(--glass-text-strong)' }}>{propertiesTitle}</div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '4px 6px' }}>{properties}</div>
+        </div>
+      )}
+
+      {/* Scrim behind any open overlay */}
+      {overlayMode && (
+        <div
+          onClick={closeOverlays}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 25,
+            background: 'var(--glass-scrim)',
+            backdropFilter: 'blur(2px)',
+            WebkitBackdropFilter: 'blur(2px)',
+            opacity: leftOpen || rightOpen ? 1 : 0,
+            pointerEvents: leftOpen || rightOpen ? 'auto' : 'none',
+            transition: 'opacity .26s ease',
+          }}
+        />
+      )}
+    </Window>
+  );
+}

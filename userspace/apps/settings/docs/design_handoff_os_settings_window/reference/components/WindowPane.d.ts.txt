@@ -1,0 +1,25 @@
+/**
+ * WindowPane — inner content card inside an AIVA OS window (the content
+ * area, the properties panel, etc). Rounded glass card with an optional
+ * header (title or custom node + action buttons) and a scrolling body.
+ *
+ * @example
+ * <WindowPane title="Inhalt" headerActions={<WindowButton>…</WindowButton>}>
+ *   {rows}
+ * </WindowPane>
+ */
+export interface WindowPaneProps {
+  /** Header title text (ignored if `header` is provided) */
+  title?: string;
+  /** Custom header node, replaces the default title span */
+  header?: React.ReactNode;
+  /** Right-aligned action buttons in the header */
+  headerActions?: React.ReactNode;
+  /** Apply default body padding. Default: true */
+  padded?: boolean;
+  /** Styles for the outer card (set width, flex, etc) */
+  style?: React.CSSProperties;
+  /** Styles for the scrolling body */
+  bodyStyle?: React.CSSProperties;
+  children?: React.ReactNode;
+}

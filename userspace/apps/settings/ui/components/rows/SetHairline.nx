@@ -1,0 +1,19 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The 1px `divider` between two rows of a group, inset 16px on both sides so
+// it starts under the title and not under the icon (handoff LAYOUT.md).
+//
+// The inset is a padded ROW around the line rather than a margin: `.margin`
+// parses and type-checks but has no runtime arm (docs/dev/dsl/modifiers.md).
+
+Component SetHairline {
+    Stack {
+        Stack { }
+            .height(1)
+            .grow(1)
+            .bg(divider)
+    }
+    .direction(row)
+    .paddingX(4)
+}

@@ -20,6 +20,9 @@ stack_pages = 0
 
 [dev-dependencies]
 tz-lite = { path = "../../../userspace/tz-lite" }
+# Lockstep only: `is_theme_accent`'s literal list must not drift from the
+# curated palette. Dev-only, so the OS graph stays windowd-independent.
+nexus-theme-tokens = { path = "../../../userspace/ui/theme-tokens" }
 
 [dependencies]
 # Host-only legacy input-settings snapshot (TASK-0253).

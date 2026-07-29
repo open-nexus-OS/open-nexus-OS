@@ -1,0 +1,28 @@
+/**
+ * GlassButton — The primary interactive button for AIVA OS.
+ * Uses liquid glass styling with backdrop-filter blur.
+ * Automatically adapts to dark/light mode via the .dark class.
+ *
+ * @example
+ * <GlassButton variant="glass" size="md" onClick={() => {}}>Open</GlassButton>
+ * <GlassButton variant="active" icon={<WifiIcon />}>WLAN</GlassButton>
+ * <GlassButton variant="destructive" size="sm">Delete</GlassButton>
+ * <GlassButton variant="default" size="lg">Launch</GlassButton>
+ * <GlassButton variant="ghost" size="icon" icon={<SettingsIcon />} />
+ */
+export interface GlassButtonProps {
+  /** Visual style. Default: 'glass' */
+  variant?: 'default' | 'glass' | 'ghost' | 'destructive' | 'active' | 'secondary';
+  /** Size preset. Default: 'md' */
+  size?: 'sm' | 'md' | 'lg' | 'icon';
+  /** Disables interaction and reduces opacity */
+  disabled?: boolean;
+  /** Click handler */
+  onClick?: () => void;
+  /** Optional leading icon (any React node, typically an SVG) */
+  icon?: React.ReactNode;
+  /** Button label / content */
+  children?: React.ReactNode;
+  /** Additional inline styles */
+  style?: React.CSSProperties;
+}

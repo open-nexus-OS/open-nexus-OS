@@ -36,9 +36,10 @@ const NOTO_JP: &str = "../../../resources/fonts/noto/NotoSansCJKjp-Regular.otf";
 const NOTO_KR: &str = "../../../resources/fonts/noto/NotoSansCJKkr-Regular.otf";
 const NOTO_SC: &str = "../../../resources/fonts/noto/NotoSansCJKsc-Regular.otf";
 
-/// Latin EXTRAS (umlauts/ß + calculator math symbols). MUST stay sorted
-/// ascending and < 256 total glyph indices with ASCII (kern indices are u8).
-const EXTRAS: [u32; 11] = [
+/// Latin EXTRAS (umlauts/ß, calculator math symbols, the breadcrumb
+/// separator). MUST stay sorted ascending and < 256 total glyph indices with
+/// ASCII (kern indices are u8).
+const EXTRAS: [u32; 13] = [
     0x00B1, // ±
     0x00C4, // Ä
     0x00D6, // Ö
@@ -49,6 +50,10 @@ const EXTRAS: [u32; 11] = [
     0x00F6, // ö
     0x00F7, // ÷
     0x00FC, // ü
+    0x2039, // ‹
+    // The `Breadcrumbs` widget's separator. Without it the path trail printed
+    // a placeholder box between every crumb.
+    0x203A, // ›
     0x2212, // −
 ];
 

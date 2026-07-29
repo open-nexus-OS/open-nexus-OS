@@ -1,0 +1,63 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Personalisierung — the section that owns the appearance page.
+//
+// "Erscheinungsbild" is the ONE chevron row that is real in Phase 1: it
+// pushes `subPage = "appearance"`, and `SectionView` swaps the row list for
+// the custom appearance view, exactly as the handoff's `view: 'appearance'`
+// row does. That is also why the sub-page machinery (`subPage`, the back
+// chain, the third breadcrumb) is wired now rather than deferred — the
+// functional page needed it.
+//
+// Its subtitle is the live selection, so the row reads back what the page
+// below it set. The DSL has no string concatenation, so where the handoff
+// writes "Dunkel · Nexus Blau · Icons Standard" this shows the mode alone.
+
+Component SecPersonalization {
+    Stack {
+        SetGroup { label: @t("per.gLook"), note: "" } {
+            rows {
+                SetRow { title: @t("per.wallpaper"), subtitle: "", icon: "photo", showChevron: false } {
+                    trailing { SetValue { value: @t("per.wallpaperV") } }
+                }
+                SetHairline { }
+                Stack {
+                    if $state.apMode == "light" {
+                        SetRow { title: @t("per.appearance"), subtitle: @t("ap.light"), icon: "paintpalette", showChevron: true } {
+                            trailing { }
+                        }
+                    } else if $state.apMode == "auto" {
+                        SetRow { title: @t("per.appearance"), subtitle: @t("ap.auto"), icon: "paintpalette", showChevron: true } {
+                            trailing { }
+                        }
+                    } else {
+                        SetRow { title: @t("per.appearance"), subtitle: @t("ap.dark"), icon: "paintpalette", showChevron: true } {
+                            trailing { }
+                        }
+                    }
+                }
+                on Tap -> dispatch(OpenSub("appearance"))
+            }
+        }
+        SetGroup { label: @t("per.gType"), note: "" } {
+            rows {
+                SetRow { title: @t("per.font"), subtitle: "", icon: "textformat", showChevron: false } {
+                    trailing { SetValue { value: @t("per.fontV") } }
+                }
+            }
+        }
+        SetGroup { label: @t("per.gEffects"), note: "" } {
+            rows {
+                SetRow { title: @t("per.reduceTransparency"), subtitle: "", icon: "eye", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgReduceTransparency, label: @t("per.reduceTransparency") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("per.reduceMotion"), subtitle: "", icon: "eye", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgReduceMotion, label: @t("per.reduceMotion") } }
+                }
+            }
+        }
+    }
+    .gap(3)
+}

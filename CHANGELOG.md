@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-29 (Settings design handoff, Phase 0+1)
+
+The settings app was showing about a sixth of its handoff: 8 of 12 sidebar
+entries, 3 of 12 section bodies, no overview, no appearance page, no
+scrolling, chip rows where the design has grouped list rows — and it
+hand-wrote the window chrome that `WinAppWindow` exists to provide. This
+round rebuilds it against `docs/design_handoff_os_settings_window/`, in the
+enterprise layout (`docs/dev/dsl/project-layout.md`): one page, ~25
+components by domain, five domain stores.
+
+- **Platform, so the app could be written honestly:**
+  - `Select` and `Breadcrumbs` are reachable from the DSL. Both kit crates
+    were built "DSL-emittable" and had no runtime arm, so any page needing
+    them had to rebuild the look. `Select` is the closed trigger only, as its
+    module doc specifies; the option panel stays an app-owned `.overlay()`.
+  - The accent palette grows 6 → 9 (`nexus-theme-tokens::ACCENT_PALETTE` and
+    settingsd's validator, both append-only): `teal`, `amber`, `graphite`.
+    All nine handoff swatches now write for real. settingsd gained a lockstep
+    test so the validator's literal list cannot drift from the palette.
+  - 17 icon symbols for the settings rows (`[icons.symbols]`).
+- **The app:** all 12 sections with their handoff rows and values, the
+  12-card overview, the breadcrumb trail, the ⋯ menu with jump-to-section,
+  the responsive/overlay panes from `WinAppWindow`, a scrolling content pane,
+  and the full appearance page (mode tiles, 9 accents, icon styles, folder
+  colours). `Window { mode: freeform }` restores the handoff's floating glass
+  window — `fullscreen` forces an opaque page base and skips windowd's
+  backdrop-blur band.
+- **What is deliberately NOT functional** is recorded rather than faked: the
+  ~34 demo switches sit in their own store and reach no service; Modus
+  "Automatisch" is drawn but writes nothing (windowd's `ThemeMode` is
+  `dark|light`); the ~20 chevron sub-pages are Phase 2, so those rows render
+  as value rows instead of chevrons that push nothing. Non-parity table in
+  `docs/dev/ui/design-token-audit.md`.
+- **Test-helper fix:** `common::dispatch` in `dsl_apps_conformance` passed an
+  empty i18n key table, so any scene re-emitted after a dispatch read back as
+  a list of blank strings. Added `dispatch_with_keys` and documented the
+  trap on both.
+
 ### Fixed - 2026-07-29 (TASK-0308 W1-W5: the phone windowing model, built once, correctly)
 
 R1-R4 (below) fixed what a floating glass window RAN into; this round builds

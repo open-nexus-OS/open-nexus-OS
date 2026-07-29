@@ -1,0 +1,39 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A ⋯-menu row that carries NO handler.
+//
+// window-kit's `WinMenuItem` bakes its own `on Tap` (`WinAct(id)` or
+// `WinMenuPick(id)`), which is right for window controls but wrong for menu
+// entries that must dispatch a navigation event or open a submenu — a
+// wrapper's handler cannot win over the inner node's. This row leaves the
+// dispatch to the use site, which is the same rule the rest of this app's
+// components follow.
+//
+// `sub: true` draws the submenu chevron.
+
+Component MenuRow {
+    props: {
+        label: Str,
+        icon: Str,
+        sub: Bool,
+    }
+    Stack {
+        Icon { symbol: $props.icon, size: 14 }
+            .fg(onGlassMuted)
+        Text($props.label).textSize(sm).fg(onGlass)
+        Spacer
+        if $props.sub {
+            Icon { symbol: "chevron.right", size: 12 }
+                .fg(onGlassMuted)
+        } else {
+            Stack { }
+        }
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+    .paddingX(2)
+    .height(30)
+    .rounded(md)
+}

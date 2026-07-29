@@ -36,9 +36,13 @@ fn is_theme_mode(v: &str) -> bool {
 
 fn is_theme_accent(v: &str) -> bool {
     // The curated accent palette (`nexus-theme-tokens::ACCENT_PALETTE`) +
-    // "default" (the theme's built-in accent). Kept as a literal list — this
-    // crate is windowd-independent and the palette is append-only.
-    matches!(v, "default" | "violet" | "pink" | "red" | "orange" | "green")
+    // "default" (the theme's built-in accent, whose blue the settings handoff
+    // calls "Nexus Blau"). Kept as a literal list — this crate is
+    // windowd-independent and the palette is append-only.
+    matches!(
+        v,
+        "default" | "violet" | "pink" | "red" | "orange" | "green" | "teal" | "amber" | "graphite"
+    )
 }
 
 fn is_font_family(v: &str) -> bool {
@@ -276,6 +280,29 @@ mod tests {
         // break the clock fail-closed).
         let names: std::vec::Vec<&str> = tz_lite::ZONES.iter().map(|z| z.name).collect();
         assert_eq!(TIME_ZONES, names.as_slice());
+    }
+
+    #[test]
+    fn theme_accent_validator_pins_the_curated_palette() {
+        // `is_theme_accent` mirrors `nexus-theme-tokens::ACCENT_PALETTE` as a
+        // literal (this crate stays windowd-independent). A palette entry that
+        // this validator refuses would be a swatch the user can tap and
+        // nothing happens — so the mirror is asserted, not assumed.
+        let mut r = SettingsRegistry::new();
+        for (name, _, _) in nexus_theme_tokens::ACCENT_PALETTE {
+            assert_eq!(r.set("ui.theme.accent", name), Ok(true), "palette entry {name} refused");
+        }
+        // Index 0 (the theme's built-in accent) is not in the palette table.
+        assert_eq!(r.set("ui.theme.accent", "default"), Ok(true));
+    }
+
+    #[test]
+    fn test_reject_unknown_theme_accent() {
+        let mut r = SettingsRegistry::new();
+        assert_eq!(r.set("ui.theme.accent", "chartreuse"), Err(SetError::InvalidValue));
+        assert_eq!(r.set("ui.theme.accent", "#3b82f6"), Err(SetError::InvalidValue));
+        assert_eq!(r.set("ui.theme.accent", ""), Err(SetError::InvalidValue));
+        assert_eq!(r.get("ui.theme.accent"), Some("default"), "failed sets never mutate");
     }
 
     #[test]

@@ -368,16 +368,29 @@ impl Tokens for LightTokens {
 }
 
 /// The curated **accent palette** (settings → Erscheinungsbild → Farbpalette).
-/// Index 0 = the theme's built-in accent (no override); 1..=5 are the named
+/// Index 0 = the theme's built-in accent (no override); 1..=n are the named
 /// alternates as `(name, dark-mode value, light-mode value)` — the dark value
 /// is one step lighter for contrast on dark surfaces, mirroring how the
 /// built-in blue differs between the two themes.
+///
+/// **APPEND-ONLY.** A palette entry's position IS its wire index (one-based:
+/// `accent_index` returns the position plus one), and windowd packs that index
+/// into the theme push — so reordering would repaint every persisted
+/// `ui.theme.accent`. Appending is safe because the persisted value is the
+/// NAME; the index is recomputed on every apply.
+///
+/// The nine entries are the settings design handoff's palette; its "Nexus
+/// Blau" IS the theme's built-in accent, so it rides index 0 (`"default"`,
+/// also spelled `"blue"` — see `accent_index`).
 pub const ACCENT_PALETTE: &[(&str, Rgba8, Rgba8)] = &[
     ("violet", Rgba8::new(167, 139, 250, 255), Rgba8::new(139, 92, 246, 255)),
     ("pink", Rgba8::new(244, 114, 182, 255), Rgba8::new(236, 72, 153, 255)),
     ("red", Rgba8::new(248, 113, 113, 255), Rgba8::new(239, 68, 68, 255)),
     ("orange", Rgba8::new(251, 146, 60, 255), Rgba8::new(249, 115, 22, 255)),
     ("green", Rgba8::new(74, 222, 128, 255), Rgba8::new(34, 197, 94, 255)),
+    ("teal", Rgba8::new(45, 212, 191, 255), Rgba8::new(20, 184, 166, 255)),
+    ("amber", Rgba8::new(251, 191, 36, 255), Rgba8::new(245, 158, 11, 255)),
+    ("graphite", Rgba8::new(148, 163, 184, 255), Rgba8::new(100, 116, 139, 255)),
 ];
 
 /// The accent override for palette index `1..=ACCENT_PALETTE.len()` in the

@@ -1,0 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Sound & Töne. Demo data from the handoff's `_tree()`.
+//
+// The handoff's fourth group (Barrierefreiheit → Mono-Audio) is flagged
+// `advanced` and is HIDDEN unless "Erweiterte Optionen" is on — which is a
+// Phase 2 view option. Rendering it now would show a group the handoff hides
+// by default, so it waits for the switch that reveals it. Its `DemoStore`
+// field (`tgMonoAudio`) already exists.
+
+Component SecSound {
+    Stack {
+        SetGroup { label: @t("snd.gOut"), note: "" } {
+            rows {
+                SetRow { title: @t("snd.output"), subtitle: "", icon: "speaker.wave", showChevron: false } {
+                    trailing { SetValue { value: @t("snd.outputV") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("snd.volume"), subtitle: "", icon: "music.note", showChevron: false } {
+                    trailing { SetValue { value: @t("snd.volumeV") } }
+                }
+            }
+        }
+        SetGroup { label: @t("snd.gIn"), note: "" } {
+            rows {
+                SetRow { title: @t("snd.mic"), subtitle: "", icon: "mic", showChevron: false } {
+                    trailing { SetValue { value: @t("snd.micV") } }
+                }
+            }
+        }
+        SetGroup { label: @t("snd.gSystem"), note: "" } {
+            rows {
+                SetRow { title: @t("snd.keyClick"), subtitle: "", icon: "keyboard", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgKeyClick, label: @t("snd.keyClick") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("snd.sysSounds"), subtitle: "", icon: "speaker.wave", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgSysSounds, label: @t("snd.sysSounds") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("snd.schedule"), subtitle: "", icon: "clock", showChevron: false } {
+                    trailing { SetValue { value: @t("snd.scheduleV") } }
+                }
+            }
+        }
+    }
+    .gap(3)
+}

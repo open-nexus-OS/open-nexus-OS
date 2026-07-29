@@ -60,8 +60,8 @@ pub const TYPE_TEXT: u8 = 0;
 /// validation server-side; clients only name keys.
 pub const KEY_UI_THEME_MODE: &str = "ui.theme.mode";
 /// Accent-palette pick (`"default"` or a `nexus-theme-tokens`
-/// `ACCENT_PALETTE` name — violet/pink/red/orange/green); windowd
-/// applies (packed into the theme push) + persists it.
+/// `ACCENT_PALETTE` name — violet/pink/red/orange/green/teal/amber/
+/// graphite); windowd applies (packed into the theme push) + persists it.
 pub const KEY_UI_THEME_ACCENT: &str = "ui.theme.accent";
 /// Shell windowing mode (`tablet`/`desktop`) — the Control-Center
 /// Desktop/Tablet toggle; windowd applies + persists it.

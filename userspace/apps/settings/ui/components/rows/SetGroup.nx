@@ -1,0 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One row group (handoff LAYOUT.md §"Content — row groups"): an optional
+// uppercase caption, a rounded `subtle` body holding the rows, and an
+// optional footnote below it.
+//
+// The rows arrive through a SLOT rather than as props, because a group's rows
+// are heterogeneous (toggle / value / select / chevron) and a slot body is
+// lexically the CALLER's — that is what lets a section write
+// `Toggle { checked: $state.tgWifi }` inside a row and still get the DSL's
+// automatic two-way binding, which only fires on a `$state` ref at the widget
+// itself.
+//
+// Caption type is `xs` (11px) where the handoff says 10.5px: the baked type
+// ramp has no step below 11 (recorded non-parity, TASK-0308).
+//
+// NO `.overflow(hidden)` on the body, even though the handoff clips its rows
+// to the group's radius: a hidden-overflow container passes its own CLIPPED
+// constraints down (engine.rs), and with no explicit height that resolved to
+// zero — the boot showed three group captions and no rows at all. The corners
+// therefore do not clip the first and last row.
+
+Component SetGroup {
+    props: {
+        label: Str,
+        note: Str,
+    }
+    slot rows
+    Stack {
+        if $props.label != "" {
+            Text($props.label).textSize(xs).fontWeight(semibold).fg(onGlassMuted)
+        } else {
+            Stack { }
+        }
+        Stack {
+            Slot rows
+        }
+        .gap(0)
+        .rounded(xl)
+        .material(subtle)
+        if $props.note != "" {
+            Text($props.note).textSize(xs).leading(normal).fg(onGlassMuted)
+        } else {
+            Stack { }
+        }
+    }
+    .gap(2)
+}

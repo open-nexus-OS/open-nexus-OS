@@ -1,0 +1,91 @@
+import React, { useState } from 'react';
+
+/**
+ * GlassToggle — iOS/macOS-style on/off switch for AIVA OS.
+ * Used in Control Center, Settings, and anywhere a binary state toggle is needed.
+ */
+export function GlassToggle({
+  checked,
+  defaultChecked = false,
+  onChange,
+  label,
+  disabled = false,
+  style = {},
+}) {
+  const [internal, setInternal] = useState(defaultChecked);
+  const [pressed, setPressed] = useState(false);
+  const isOn = checked !== undefined ? checked : internal;
+  // Pressed thumb stretches along the travel axis (liquid feel), anchored to its side.
+  const thumbW = pressed ? 26 : 20;
+
+  const toggle = () => {
+    if (disabled) return;
+    const next = !isOn;
+    if (checked === undefined) setInternal(next);
+    onChange && onChange(next);
+  };
+
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: label ? 10 : 0,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.45 : 1,
+        userSelect: 'none',
+        WebkitTapHighlightColor: 'transparent',
+        ...style,
+      }}
+      onClick={toggle}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      onMouseLeave={() => setPressed(false)}
+      onTouchStart={() => setPressed(true)}
+      onTouchEnd={() => setPressed(false)}
+      role="switch"
+      aria-checked={isOn}
+    >
+      {label && (
+        <span style={{
+          fontSize: 14,
+          fontFamily: 'var(--font-sans)',
+          fontWeight: 'var(--font-weight-medium)',
+          color: 'var(--glass-text-primary)',
+          flex: 1,
+        }}>
+          {label}
+        </span>
+      )}
+      {/* Track */}
+      <div style={{
+        position: 'relative',
+        width: 44,
+        height: 26,
+        borderRadius: 13,
+        background: isOn ? 'var(--glass-toggle-on-bg)' : 'var(--glass-toggle-off-bg)',
+        border: `1px solid ${isOn ? 'var(--glass-toggle-on-border)' : 'var(--glass-toggle-off-border)'}`,
+        backdropFilter: 'blur(8px) saturate(1.4)',
+        WebkitBackdropFilter: 'blur(8px) saturate(1.4)',
+        boxShadow: isOn
+          ? '0 2px 8px var(--glass-toggle-on-shadow), inset 0 1px 2px rgba(0,0,0,0.10)'
+          : 'inset 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.06)',
+        transition: 'background var(--motion-quick, 0.28s) ease, border-color var(--motion-quick, 0.28s) ease, box-shadow var(--motion-quick, 0.28s) ease',
+        flexShrink: 0,
+      }}>
+        {/* Thumb */}
+        <div style={{
+          position: 'absolute',
+          top: 2,
+          left: isOn ? `calc(100% - ${thumbW + 4}px)` : 2,
+          width: thumbW,
+          height: 20,
+          borderRadius: 10,
+          background: 'linear-gradient(to bottom, #ffffff, #f2f3f6)',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.12), inset 0 -1px 1px rgba(0,0,0,0.05)',
+          transition: 'left var(--motion-quick, 0.28s) var(--motion-spring-soft, cubic-bezier(0.34,1.2,0.5,1)), width var(--motion-quick, 0.28s) var(--motion-spring-soft, cubic-bezier(0.34,1.2,0.5,1)), border-radius var(--motion-quick, 0.28s) ease',
+        }} />
+      </div>
+    </div>
+  );
+}

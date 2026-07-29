@@ -1,0 +1,65 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The left navigation pane (handoff `Sidebar`, `variant="plain"`): a clickable
+// header that returns to the overview, the twelve sections in the handoff's
+// order, and an account footer that jumps to the Accounts section.
+//
+// The item ids ARE the section values. window-kit's `WinSideItem` dispatches
+// `WinMenuPick(id)`, and `NavStore` routes anything that is not one of the
+// few menu-only ids straight into `section` — so adding a section is one line
+// here and one arm in `SectionView`, never a translation table.
+//
+// The pane paints its own `windowPane` surface: `WinAppWindow` deliberately
+// paints nothing, and a region that can become an overlay pane must bring a
+// panel or it floats unframed (RFC-0084 P7).
+
+Component NavSidebar {
+    Panel {
+        Stack {
+            Text(@t("set.title")).textSize(sm).fontWeight(semibold).fg(onGlassMuted)
+        }
+        on Tap -> dispatch(GoOverview)
+        Stack { }
+            .height(1)
+            .bg(divider)
+        Stack {
+            WinSideItem { id: "connections", label: @t("sec.connections"), sub: @t("sec.connections.n"), icon: "wifi", active: $state.mode == "browse" && $state.section == "connections" }
+            WinSideItem { id: "devices", label: @t("sec.devices"), sub: @t("sec.devices.n"), icon: "computermouse", active: $state.mode == "browse" && $state.section == "devices" }
+            WinSideItem { id: "sound", label: @t("sec.sound"), sub: @t("sec.sound.n"), icon: "speaker.wave", active: $state.mode == "browse" && $state.section == "sound" }
+            WinSideItem { id: "display", label: @t("sec.display"), sub: @t("sec.display.n"), icon: "desktopcomputer", active: $state.mode == "browse" && $state.section == "display" }
+            WinSideItem { id: "notif", label: @t("sec.notif"), sub: @t("sec.notif.n"), icon: "bell", active: $state.mode == "browse" && $state.section == "notif" }
+            WinSideItem { id: "personal", label: @t("sec.personal"), sub: @t("sec.personal.n"), icon: "paintpalette", active: $state.mode == "browse" && $state.section == "personal" }
+            WinSideItem { id: "apps", label: @t("sec.apps"), sub: @t("sec.apps.n"), icon: "square.grid", active: $state.mode == "browse" && $state.section == "apps" }
+            WinSideItem { id: "general", label: @t("sec.general"), sub: @t("sec.general.n"), icon: "globe", active: $state.mode == "browse" && $state.section == "general" }
+            WinSideItem { id: "accounts", label: @t("sec.accounts"), sub: @t("sec.accounts.n"), icon: "person", active: $state.mode == "browse" && $state.section == "accounts" }
+            WinSideItem { id: "privacy", label: @t("sec.privacy"), sub: @t("sec.privacy.n"), icon: "shield", active: $state.mode == "browse" && $state.section == "privacy" }
+            WinSideItem { id: "power", label: @t("sec.power"), sub: @t("sec.power.n"), icon: "battery.75", active: $state.mode == "browse" && $state.section == "power" }
+            WinSideItem { id: "info", label: @t("sec.info"), sub: @t("sec.info.n"), icon: "info.circle", active: $state.mode == "browse" && $state.section == "info" }
+        }
+        .gap(0)
+        .grow(1)
+        .scroll(vertical)
+        Stack { }
+            .height(1)
+            .bg(divider)
+        Stack {
+            Avatar { initials: "J", size: 34 }
+            Stack {
+                Text(@t("set.userName")).textSize(sm).fontWeight(medium).fg(onGlass)
+                Text(@t("set.userSub")).textSize(xs).fg(onGlassMuted)
+            }
+            .gap(0)
+            .grow(1)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(1)
+        on Tap -> dispatch(Goto("accounts"))
+    }
+    .material(windowPane)
+    .rounded(xxl)
+    .gap(2)
+    .grow(1)
+}

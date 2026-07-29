@@ -1,0 +1,37 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Verbundene Geräte. Demo data from the handoff's `_tree()`; the switch is a
+// `DemoStore` field with automatic two-way binding.
+//
+// The handoff's "Drucker & Scanner" chevron row is a VALUE row here — its
+// sub-page lands in Phase 2, and a chevron that pushes nothing would promise
+// a screen that does not exist.
+
+Component SecDevices {
+    Stack {
+        SetGroup { label: @t("dev.gConnected"), note: "" } {
+            rows {
+                SetRow { title: @t("dev.keyboard"), subtitle: @t("dev.bluetooth"), icon: "keyboard", showChevron: false } {
+                    trailing { SetValue { value: @t("dev.keyboardV") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("dev.trackpad"), subtitle: @t("dev.bluetooth"), icon: "computermouse", showChevron: false } {
+                    trailing { SetValue { value: @t("dev.trackpadV") } }
+                }
+            }
+        }
+        SetGroup { label: @t("dev.gManage"), note: "" } {
+            rows {
+                SetRow { title: @t("dev.pairing"), subtitle: @t("dev.pairingSub"), icon: "bluetooth", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgPairing, label: @t("dev.pairing") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("dev.printers"), subtitle: "", icon: "printer", showChevron: false } {
+                    trailing { SetValue { value: @t("dev.printersV") } }
+                }
+            }
+        }
+    }
+    .gap(3)
+}

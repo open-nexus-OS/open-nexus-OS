@@ -1,417 +1,257 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Settings in the design-handoff WINDOW frame (03-os-settings-window):
-// window-kit top chrome (app menu · sidebar toggles · toolbar slots · ⋯
-// menu with cascading flyouts) + nav sidebar + breadcrumb content pane +
-// optional properties pane. REAL function: Personalisierung →
-// Erscheinungsbild (light/dark + accent palette via `svc.settings`,
-// windowd applies live and persists). Every other section is demo look.
-
+// Settings — the design handoff's "OS Settings Window"
+// (docs/design_handoff_os_settings_window), built on `WinAppWindow`
+// (RFC-0084). This page owns the window; everything inside it is a component.
+//
+// FREEFORM, not fullscreen — a VISUAL contract, not a preference.
+// `mode: fullscreen` makes app-host paint an OPAQUE page base and makes
+// windowd skip the per-window backdrop-blur band, so a fullscreen window can
+// never show the wallpaper and its panes would frost an opaque slab. The
+// handoff draws a floating 900×600 glass window over the desktop, which is
+// what freeform gives. `style: plain` suppresses windowd's own title bar —
+// this page owns its chrome through `WinTopBar`.
 Window {
     style: plain,
-    mode: fullscreen,
-    resizable: false,
+    mode: freeform,
+    resizable: true,
 }
 
 Page SettingsPage {
     Stack {
-        // No status-bar spacer here on purpose. The compositor reserves those
-        // rows for every app (`OP_SURFACE_RECT`'s `y` → the page root's top
-        // padding), because it is the only party that knows the bar's height
-        // AND whether this window is maximized. This page used to hard-code
-        // `.height(40)` against a 36px bar — 4px wrong, and applied even when
-        // the window was not fullscreen.
-        WinTopBar { icon: "gearshape", tool1: "magnifyingglass", tool2: "list.bullet", tool3: "", navBack: "", navFwd: "", navRefresh: "", appId: "settings" }
-        Stack {
-            if $state.leftOpen == 1 {
-                Stack {
-                    Text(@t("settings.title")).textSize(xs).fg(onSurfaceVariant)
-                    WinSideItem { id: "nav.connect", label: @t("settings.connections"), sub: @t("settings.connectionsSub"), icon: "wifi", active: $state.section == "connect" }
-                    WinSideItem { id: "nav.devices", label: @t("settings.devices"), sub: @t("settings.devicesSub"), icon: "bluetooth", active: $state.section == "devices" }
-                    WinSideItem { id: "nav.sound", label: @t("settings.sound"), sub: @t("settings.soundSub"), icon: "speaker.wave", active: $state.section == "sound" }
-                    WinSideItem { id: "nav.display", label: @t("settings.display"), sub: @t("settings.displaySub"), icon: "desktopcomputer", active: $state.section == "display" }
-                    WinSideItem { id: "nav.notify", label: @t("settings.notify"), sub: @t("settings.notifySub"), icon: "bell", active: $state.section == "notify" }
-                    WinSideItem { id: "nav.personal", label: @t("settings.personalization"), sub: @t("settings.personalSub"), icon: "paintpalette", active: $state.section == "personal" }
-                    WinSideItem { id: "nav.apps", label: @t("settings.apps"), sub: @t("settings.appsSub"), icon: "square.grid", active: $state.section == "apps" }
-                    WinSideItem { id: "nav.general", label: @t("settings.general"), sub: @t("settings.generalSub"), icon: "internaldrive", active: $state.section == "general" }
-                    Spacer
-                    Stack {
-                        Circle { size: 26
-                            Icon { symbol: "person", size: 14 }
-                                .fg(onSurface)
-                        }
-                        .material(subtle)
-                        Stack {
-                            Text(@t("settings.userName")).textSize(sm).fg(onSurface)
-                            Text(@t("settings.userSub")).textSize(xs).fg(onSurfaceVariant)
-                        }
-                        .gap(0)
-                    }
-                    .direction(row)
-                    .align(center)
-                    .gap(2)
-                    .paddingX(2)
-                }
-                .width(250)
-                .gap(1)
-                .padding(3)
-            } else {
-                Stack { }
+        WinTopBar {
+            icon: "gearshape",
+            tool1: "",
+            tool2: "",
+            tool3: "",
+            tool1Active: false,
+            tool2Active: false,
+            tool3Active: false,
+            navBack: "arrow.left",
+            navFwd: "",
+            navRefresh: "",
+            appId: "settings",
+        }
+        WinAppWindow {
+            showSidebar: $state.leftOpen == 1,
+            showProps: $state.rightOpen == 1,
+            sidebarOverlay: $state.paneL == 1,
+            propsOverlay: $state.paneR == 1,
+        } {
+            sidebarLeft {
+                NavSidebar { }
             }
-            Stack {
+            contentArea {
                 Panel {
-                    Stack {
-                        Text(@t("settings.title")).textSize(sm).fg(onSurfaceVariant)
-                        Icon { symbol: "chevron.right", size: 12 }
-                            .fg(onSurfaceVariant)
-                        if $state.section == "connect" {
-                            Text(@t("settings.connections")).textSize(sm).fg(onSurface)
-                        } else {
-                            if $state.section == "personal" {
-                                Text(@t("settings.personalization")).textSize(sm).fg(onSurface)
-                            } else {
-                                Text(@t("settings.general")).textSize(sm).fg(onSurface)
-                            }
-                        }
-                    }
-                    .direction(row)
-                    .align(center)
-                    .gap(1)
-                    if $state.section == "personal" {
-                        Stack {
-                            Text(@t("settings.appearance")).textSize(sm).fg(onSurfaceVariant)
-                            Stack {
-                                Button { label: @t("settings.light") }
-                                on Tap -> dispatch(SetTheme("light"))
-                                Button { label: @t("settings.dark") }
-                                on Tap -> dispatch(SetTheme("dark"))
-                            }
-                            .direction(row)
-                            .gap(2)
-                            Text(@t("settings.accent")).textSize(sm).fg(onSurfaceVariant)
-                            Stack {
-                                Stack {
-                                    Chip { label: @t("settings.accentDefault"), selected: $state.accent == "default" }
-                                }
-                                on Tap -> dispatch(SetAccent("default"))
-                                Stack {
-                                    Chip { label: @t("settings.accentViolet"), selected: $state.accent == "violet" }
-                                }
-                                on Tap -> dispatch(SetAccent("violet"))
-                                Stack {
-                                    Chip { label: @t("settings.accentPink"), selected: $state.accent == "pink" }
-                                }
-                                on Tap -> dispatch(SetAccent("pink"))
-                                Stack {
-                                    Chip { label: @t("settings.accentRed"), selected: $state.accent == "red" }
-                                }
-                                on Tap -> dispatch(SetAccent("red"))
-                                Stack {
-                                    Chip { label: @t("settings.accentOrange"), selected: $state.accent == "orange" }
-                                }
-                                on Tap -> dispatch(SetAccent("orange"))
-                                Stack {
-                                    Chip { label: @t("settings.accentGreen"), selected: $state.accent == "green" }
-                                }
-                                on Tap -> dispatch(SetAccent("green"))
-                            }
-                            .direction(row)
-                            .wrap(true)
-                            .gap(1)
-                            Stack {
-                                Circle { size: 22 }
-                                    .bg(accent)
-                                Text(@t("settings.accentLive")).textSize(xs).fg(onSurfaceVariant)
-                            }
-                            .direction(row)
-                            .align(center)
-                            .gap(2)
-                            if $state.applyError != 0 {
-                                Text(@t("settings.applyFailed")).fg(danger)
-                            } else {
-                                Stack { }
-                            }
-                        }
-                        .gap(2)
+                    // Content header: breadcrumb trail, hairline, then the
+                    // mode. Only the BODY scrolls — the handoff's window never
+                    // scrolls as a whole, only pane bodies do.
+                    if $state.mode == "overview" {
+                        CrumbBar { section: "", sub: "" }
+                    } else if $state.section == "connections" {
+                        CrumbBar { section: @t("sec.connections"), sub: "" }
+                    } else if $state.section == "devices" {
+                        CrumbBar { section: @t("sec.devices"), sub: "" }
+                    } else if $state.section == "sound" {
+                        CrumbBar { section: @t("sec.sound"), sub: "" }
+                    } else if $state.section == "display" {
+                        CrumbBar { section: @t("sec.display"), sub: "" }
+                    } else if $state.section == "notif" {
+                        CrumbBar { section: @t("sec.notif"), sub: "" }
+                    } else if $state.section == "personal" && $state.subPage == "appearance" {
+                        CrumbBar { section: @t("sec.personal"), sub: @t("per.appearance") }
+                    } else if $state.section == "personal" {
+                        CrumbBar { section: @t("sec.personal"), sub: "" }
+                    } else if $state.section == "apps" {
+                        CrumbBar { section: @t("sec.apps"), sub: "" }
+                    } else if $state.section == "general" {
+                        CrumbBar { section: @t("sec.general"), sub: "" }
+                    } else if $state.section == "accounts" {
+                        CrumbBar { section: @t("sec.accounts"), sub: "" }
+                    } else if $state.section == "privacy" {
+                        CrumbBar { section: @t("sec.privacy"), sub: "" }
+                    } else if $state.section == "power" {
+                        CrumbBar { section: @t("sec.power"), sub: "" }
                     } else {
-                        if $state.section == "connect" {
-                            Stack {
-                                ListItem { title: @t("settings.wifi"), subtitle: @t("settings.wifiNet"), showChevron: true }
-                                ListItem { title: @t("settings.bluetooth"), subtitle: @t("settings.off"), showChevron: true }
-                                ListItem { title: @t("settings.dataUsage"), showChevron: true }
-                                ListItem { title: @t("settings.tethering"), showChevron: true }
-                            }
-                            .gap(1)
-                        } else {
-                            if $state.section == "general" {
-                                Stack {
-                                    Text(@t("settings.language")).textSize(sm).fg(onSurfaceVariant)
-                                    Stack {
-                                        Stack {
-                                            Chip { label: @t("settings.langDe"), selected: $state.locale == "de-DE" }
-                                        }
-                                        on Tap -> dispatch(SetLocale("de-DE"))
-                                        Stack {
-                                            Chip { label: @t("settings.langEn"), selected: $state.locale == "en-US" }
-                                        }
-                                        on Tap -> dispatch(SetLocale("en-US"))
-                                        Stack {
-                                            Chip { label: @t("settings.langJa"), selected: $state.locale == "ja-JP" }
-                                        }
-                                        on Tap -> dispatch(SetLocale("ja-JP"))
-                                        Stack {
-                                            Chip { label: @t("settings.langKo"), selected: $state.locale == "ko-KR" }
-                                        }
-                                        on Tap -> dispatch(SetLocale("ko-KR"))
-                                        Stack {
-                                            Chip { label: @t("settings.langZh"), selected: $state.locale == "zh-CN" }
-                                        }
-                                        on Tap -> dispatch(SetLocale("zh-CN"))
-                                    }
-                                    .direction(row)
-                                    .gap(1)
-                                    Text(@t("settings.country")).textSize(sm).fg(onSurfaceVariant)
-                                    Stack {
-                                        Stack {
-                                            Chip { label: "DE", selected: $state.country == "DE" }
-                                        }
-                                        on Tap -> dispatch(SetCountry("DE"))
-                                        Stack {
-                                            Chip { label: "US", selected: $state.country == "US" }
-                                        }
-                                        on Tap -> dispatch(SetCountry("US"))
-                                        Stack {
-                                            Chip { label: "GB", selected: $state.country == "GB" }
-                                        }
-                                        on Tap -> dispatch(SetCountry("GB"))
-                                        Stack {
-                                            Chip { label: "FR", selected: $state.country == "FR" }
-                                        }
-                                        on Tap -> dispatch(SetCountry("FR"))
-                                        Stack {
-                                            Chip { label: "JP", selected: $state.country == "JP" }
-                                        }
-                                        on Tap -> dispatch(SetCountry("JP"))
-                                    }
-                                    .direction(row)
-                                    .wrap(true)
-                                    .gap(1)
-                                    Text(@t("settings.keyboard")).textSize(sm).fg(onSurfaceVariant)
-                                    Stack {
-                                        Stack {
-                                            Chip { label: @t("settings.keymapDe"), selected: $state.keymap == "de" }
-                                        }
-                                        on Tap -> dispatch(SetKeymap("de"))
-                                        Stack {
-                                            Chip { label: @t("settings.keymapUs"), selected: $state.keymap == "us" }
-                                        }
-                                        on Tap -> dispatch(SetKeymap("us"))
-                                        Stack {
-                                            Chip { label: "JP", selected: $state.keymap == "jp" }
-                                        }
-                                        on Tap -> dispatch(SetKeymap("jp"))
-                                        Stack {
-                                            Chip { label: "KR", selected: $state.keymap == "kr" }
-                                        }
-                                        on Tap -> dispatch(SetKeymap("kr"))
-                                        Stack {
-                                            Chip { label: "ZH", selected: $state.keymap == "zh" }
-                                        }
-                                        on Tap -> dispatch(SetKeymap("zh"))
-                                    }
-                                    .direction(row)
-                                    .wrap(true)
-                                    .gap(1)
-                                    Text(@t("settings.timezone")).textSize(sm).fg(onSurfaceVariant)
-                                    Stack {
-                                        Stack {
-                                            Chip { label: "Berlin", selected: $state.zone == "Europe/Berlin" }
-                                        }
-                                        on Tap -> dispatch(SetZone("Europe/Berlin"))
-                                        Stack {
-                                            Chip { label: "London", selected: $state.zone == "Europe/London" }
-                                        }
-                                        on Tap -> dispatch(SetZone("Europe/London"))
-                                        Stack {
-                                            Chip { label: "New York", selected: $state.zone == "America/New_York" }
-                                        }
-                                        on Tap -> dispatch(SetZone("America/New_York"))
-                                        Stack {
-                                            Chip { label: "Los Angeles", selected: $state.zone == "America/Los_Angeles" }
-                                        }
-                                        on Tap -> dispatch(SetZone("America/Los_Angeles"))
-                                        Stack {
-                                            Chip { label: "Tokyo", selected: $state.zone == "Asia/Tokyo" }
-                                        }
-                                        on Tap -> dispatch(SetZone("Asia/Tokyo"))
-                                        Stack {
-                                            Chip { label: "Sydney", selected: $state.zone == "Australia/Sydney" }
-                                        }
-                                        on Tap -> dispatch(SetZone("Australia/Sydney"))
-                                        Stack {
-                                            Chip { label: "UTC", selected: $state.zone == "UTC" }
-                                        }
-                                        on Tap -> dispatch(SetZone("UTC"))
-                                    }
-                                    .direction(row)
-                                    .wrap(true)
-                                    .gap(1)
-                                    Text(@t("settings.hourFormat")).textSize(sm).fg(onSurfaceVariant)
-                                    Stack {
-                                        Stack {
-                                            Chip { label: @t("settings.hour24"), selected: $state.hourFmt == "24h" }
-                                        }
-                                        on Tap -> dispatch(SetHourFmt("24h"))
-                                        Stack {
-                                            Chip { label: @t("settings.hour12"), selected: $state.hourFmt == "12h" }
-                                        }
-                                        on Tap -> dispatch(SetHourFmt("12h"))
-                                    }
-                                    .direction(row)
-                                    .gap(1)
-                                    Text(@t("settings.suggestions")).textSize(sm).fg(onSurfaceVariant)
-                                    Stack {
-                                        Stack {
-                                            Chip { label: @t("settings.on"), selected: $state.personalization == "on" }
-                                        }
-                                        on Tap -> dispatch(SetPersonalization("on"))
-                                        Stack {
-                                            Chip { label: @t("settings.off"), selected: $state.personalization == "off" }
-                                        }
-                                        on Tap -> dispatch(SetPersonalization("off"))
-                                        Stack {
-                                            Chip { label: @t("settings.forgetWords"), selected: false }
-                                        }
-                                        on Tap -> dispatch(Forget)
-                                    }
-                                    .direction(row)
-                                    .wrap(true)
-                                    .gap(1)
-                                    if $state.applyError != 0 {
-                                        Text(@t("settings.applyFailed")).fg(danger)
-                                    } else {
-                                        Stack { }
-                                    }
-                                    ListItem { title: @t("settings.about"), showChevron: true }
-                                }
-                                .gap(2)
-                            } else {
-                                Stack {
-                                    ListItem { title: @t("settings.language"), subtitle: @t("settings.languageValue"), showChevron: true }
-                                    ListItem { title: @t("settings.time"), subtitle: @t("settings.timeValue"), showChevron: true }
-                                    ListItem { title: @t("settings.about"), showChevron: true }
-                                }
-                                .gap(1)
-                            }
-                        }
+                        CrumbBar { section: @t("sec.info"), sub: "" }
                     }
-                }
-                .gap(3)
-            }
-            .grow(1)
-            .padding(3)
-            if $state.rightOpen == 1 {
-                Stack {
-                    Panel {
-                        Text(@t("settings.props")).textSize(sm).fg(onSurface)
-                        WinPropRow { label: @t("settings.propDevice"), value: @t("settings.propDeviceV"), icon: "desktopcomputer" }
-                        WinPropRow { label: @t("settings.propOs"), value: @t("settings.propOsV"), icon: "info.circle" }
-                        WinPropRow { label: @t("settings.propDisplay"), value: @t("settings.propDisplayV"), icon: "photo" }
-                    }
-                    .gap(1)
-                }
-                .width(260)
-                .padding(3)
-            } else {
-                Stack { }
-            }
-            if $state.menu == "" {
-                Stack { }
-            } else {
-                Stack {
+                    Stack { }
+                        .height(1)
+                        .bg(divider)
                     Stack {
-                        if $state.menu == "app" {
-                            Stack {
-                                Panel {
-                                    Text(@t("win.mode")).textSize(xs).fg(onSurfaceVariant)
-                                    WinMenuItem { id: "mode.split", label: @t("win.split"), icon: "columns.2", kind: "", act: true }
-                                    WinMenuItem { id: "mode.fullscreen", label: @t("win.fullscreen"), icon: "maximize", kind: "check", act: true }
-                                    WinMenuItem { id: "mode.freeform", label: @t("win.freeform"), icon: "square", kind: "", act: true }
-                                    Stack { }
-                                        .height(1)
-                                        .bg(border)
-                                    WinMenuItem { id: "minimize", label: @t("win.minimize"), icon: "minimize", kind: "", act: true }
-                                    WinMenuItem { id: "close", label: @t("win.close"), icon: "xmark", kind: "danger", act: true }
-                                }
-                                .width(230)
-                                .gap(0)
-                                .padding(1)
-                            }
-                            on Tap -> dispatch(WinNoop)
+                        if $state.mode == "overview" {
+                            OverviewGrid { }
                         } else {
-                            Stack { }
-                        }
-                        Spacer
-                        if $state.menu == "more.datei" {
-                            Stack {
-                                Panel {
-                                    WinMenuItem { id: "datei.neu", label: @t("win.new"), icon: "plus", kind: "", act: false }
-                                    WinMenuItem { id: "datei.open", label: @t("win.open"), icon: "folder", kind: "", act: false }
-                                    WinMenuItem { id: "datei.save", label: @t("win.save"), icon: "arrow.down.circle", kind: "", act: false }
-                                }
-                                .width(200)
-                                .gap(0)
-                                .padding(1)
-                            }
-                            on Tap -> dispatch(WinNoop)
-                        } else {
-                            if $state.menu == "more.ansicht" {
-                                Stack {
-                                    Panel {
-                                        WinMenuItem { id: "ansicht.liste", label: @t("win.viewList"), icon: "list.bullet", kind: "check", act: false }
-                                        WinMenuItem { id: "ansicht.raster", label: @t("win.viewGrid"), icon: "square.grid.3x3", kind: "", act: false }
-                                        WinMenuItem { id: "ansicht.props", label: @t("win.viewProps"), icon: "sidebar.right", kind: "", act: false }
-                                    }
-                                    .width(220)
-                                    .gap(0)
-                                    .padding(1)
-                                }
-                                on Tap -> dispatch(WinNoop)
-                            } else {
-                                Stack { }
-                            }
-                        }
-                        if $state.menu == "more" {
-                            Stack {
-                                Panel {
-                                    WinMenuItem { id: "more.datei", label: @t("win.file"), icon: "doc", kind: "sub", act: false }
-                                    WinMenuItem { id: "more.ansicht", label: @t("win.view"), icon: "eye", kind: "sub", act: false }
-                                    Stack { }
-                                        .height(1)
-                                        .bg(border)
-                                    WinMenuItem { id: "help", label: @t("win.help"), icon: "info.circle", kind: "", act: false }
-                                }
-                                .width(210)
-                                .gap(0)
-                                .padding(1)
-                            }
-                            on Tap -> dispatch(WinNoop)
-                        } else {
-                            Stack { }
+                            SectionView { }
                         }
                     }
-                    .direction(row)
-                    .align(start)
-                    .paddingX(2)
                     .grow(1)
+                    .paddingY(2)
+                    .scroll(vertical)
                 }
-                .overlay()
-                on Tap -> dispatch(WinMenu(""))
+                .material(windowPane)
+                .rounded(xxl)
+                .gap(2)
+                .grow(1)
+            }
+            sidebarRight {
+                PropsPane { }
             }
         }
-        .direction(row)
-        .grow(1)
+        // ── overlay layers ───────────────────────────────────────────────
+        // Siblings of the window, on the PAGE ROOT: `.overlay()` does not
+        // composite inside a banded scroll surface, and the content pane
+        // scrolls. Each is gated so a closed layer never swallows a tap.
+        if $state.menu != "" {
+            MoreMenu { }
+        } else {
+            Stack { }
+        }
+        if $state.picker == "language" {
+            PickerSheet { title: @t("gen.language") } {
+                options {
+                    Stack {
+                        PickerOption { label: @t("lang.de"), selected: $state.locale == "de-DE" }
+                    }
+                    on Tap -> dispatch(SetLocale("de-DE"))
+                    Stack {
+                        PickerOption { label: @t("lang.en"), selected: $state.locale == "en-US" }
+                    }
+                    on Tap -> dispatch(SetLocale("en-US"))
+                    Stack {
+                        PickerOption { label: @t("lang.ja"), selected: $state.locale == "ja-JP" }
+                    }
+                    on Tap -> dispatch(SetLocale("ja-JP"))
+                    Stack {
+                        PickerOption { label: @t("lang.ko"), selected: $state.locale == "ko-KR" }
+                    }
+                    on Tap -> dispatch(SetLocale("ko-KR"))
+                    Stack {
+                        PickerOption { label: @t("lang.zh"), selected: $state.locale == "zh-CN" }
+                    }
+                    on Tap -> dispatch(SetLocale("zh-CN"))
+                }
+            }
+        } else {
+            Stack { }
+        }
+        if $state.picker == "region" {
+            PickerSheet { title: @t("gen.region") } {
+                options {
+                    Stack {
+                        PickerOption { label: @t("region.de"), selected: $state.country == "DE" }
+                    }
+                    on Tap -> dispatch(SetCountry("DE"))
+                    Stack {
+                        PickerOption { label: @t("region.us"), selected: $state.country == "US" }
+                    }
+                    on Tap -> dispatch(SetCountry("US"))
+                    Stack {
+                        PickerOption { label: @t("region.kr"), selected: $state.country == "KR" }
+                    }
+                    on Tap -> dispatch(SetCountry("KR"))
+                    Stack {
+                        PickerOption { label: @t("region.jp"), selected: $state.country == "JP" }
+                    }
+                    on Tap -> dispatch(SetCountry("JP"))
+                    Stack {
+                        PickerOption { label: @t("region.cn"), selected: $state.country == "CN" }
+                    }
+                    on Tap -> dispatch(SetCountry("CN"))
+                }
+            }
+        } else {
+            Stack { }
+        }
+        if $state.picker == "layout" {
+            PickerSheet { title: @t("gen.layout") } {
+                options {
+                    Stack {
+                        PickerOption { label: @t("keymap.de"), selected: $state.keymap == "de" }
+                    }
+                    on Tap -> dispatch(SetKeymap("de"))
+                    Stack {
+                        PickerOption { label: @t("keymap.us"), selected: $state.keymap == "us" }
+                    }
+                    on Tap -> dispatch(SetKeymap("us"))
+                    Stack {
+                        PickerOption { label: @t("keymap.kr"), selected: $state.keymap == "kr" }
+                    }
+                    on Tap -> dispatch(SetKeymap("kr"))
+                    Stack {
+                        PickerOption { label: @t("keymap.jp"), selected: $state.keymap == "jp" }
+                    }
+                    on Tap -> dispatch(SetKeymap("jp"))
+                    Stack {
+                        PickerOption { label: @t("keymap.zh"), selected: $state.keymap == "zh" }
+                    }
+                    on Tap -> dispatch(SetKeymap("zh"))
+                }
+            }
+        } else {
+            Stack { }
+        }
+        if $state.picker == "zone" {
+            PickerSheet { title: @t("gen.zone") } {
+                options {
+                    Stack {
+                        PickerOption { label: @t("zone.berlin"), selected: $state.zone == "Europe/Berlin" }
+                    }
+                    on Tap -> dispatch(SetZone("Europe/Berlin"))
+                    Stack {
+                        PickerOption { label: @t("zone.london"), selected: $state.zone == "Europe/London" }
+                    }
+                    on Tap -> dispatch(SetZone("Europe/London"))
+                    Stack {
+                        PickerOption { label: @t("zone.newyork"), selected: $state.zone == "America/New_York" }
+                    }
+                    on Tap -> dispatch(SetZone("America/New_York"))
+                    Stack {
+                        PickerOption { label: @t("zone.losangeles"), selected: $state.zone == "America/Los_Angeles" }
+                    }
+                    on Tap -> dispatch(SetZone("America/Los_Angeles"))
+                    Stack {
+                        PickerOption { label: @t("zone.tokyo"), selected: $state.zone == "Asia/Tokyo" }
+                    }
+                    on Tap -> dispatch(SetZone("Asia/Tokyo"))
+                    Stack {
+                        PickerOption { label: @t("zone.shanghai"), selected: $state.zone == "Asia/Shanghai" }
+                    }
+                    on Tap -> dispatch(SetZone("Asia/Shanghai"))
+                    Stack {
+                        PickerOption { label: @t("zone.seoul"), selected: $state.zone == "Asia/Seoul" }
+                    }
+                    on Tap -> dispatch(SetZone("Asia/Seoul"))
+                    Stack {
+                        PickerOption { label: @t("zone.sydney"), selected: $state.zone == "Australia/Sydney" }
+                    }
+                    on Tap -> dispatch(SetZone("Australia/Sydney"))
+                    Stack {
+                        PickerOption { label: @t("zone.utc"), selected: $state.zone == "UTC" }
+                    }
+                    on Tap -> dispatch(SetZone("UTC"))
+                }
+            }
+        } else {
+            Stack { }
+        }
+        if $state.picker == "hourfmt" {
+            PickerSheet { title: @t("gen.hourFormat") } {
+                options {
+                    Stack {
+                        PickerOption { label: @t("gen.hour24"), selected: $state.hourFmt == "24h" }
+                    }
+                    on Tap -> dispatch(SetHourFmt("24h"))
+                    Stack {
+                        PickerOption { label: @t("gen.hour12"), selected: $state.hourFmt == "12h" }
+                    }
+                    on Tap -> dispatch(SetHourFmt("12h"))
+                }
+            }
+        } else {
+            Stack { }
+        }
     }
     .grow(1)
 }

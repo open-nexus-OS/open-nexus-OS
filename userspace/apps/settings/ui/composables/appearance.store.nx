@@ -1,0 +1,83 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// APPEARANCE domain — the one page of this app that really changes the
+// system. `ui.theme.mode` and `ui.theme.accent` route through `svc.settings`
+// to settingsd (validate + persist) and on to windowd, which applies them
+// live: exactly the path the Control Center uses.
+//
+// HONEST SCOPE, stated where it is decided:
+//
+//   * Modus  — the handoff draws three tiles. windowd's `ThemeMode` is
+//     `dark|light` (`windowd/src/theme.rs`), so only those two write.
+//     "Automatisch" is a SEPARATE case with NO effect: it moves the local
+//     selection so the tile can show as picked, and writes nothing. It is not
+//     a broken setting, it is a setting that does not exist yet — recorded in
+//     `docs/dev/ui/design-token-audit.md`.
+//   * Akzent — all nine handoff swatches write for real. "Nexus Blau" IS the
+//     theme's built-in accent, so it travels as `"default"` (palette index 0);
+//     the other eight are `nexus-theme-tokens::ACCENT_PALETTE` names.
+//   * App-Icon-Stil and Ordnerfarbe are LOCAL selections only — nothing below
+//     the UI consumes them yet, so they never leave this store.
+
+Store AppearanceStore {
+    // "light" | "dark" | "auto" — "auto" is local-only (see above).
+    apMode: Str = "dark",
+    // "default" + the eight ACCENT_PALETTE names.
+    apAccent: Str = "default",
+    // "default" | "dark" | "clear" | "tinted" — local only.
+    apIconStyle: Str = "default",
+    // "teal" | "accent" | "violet" | "amber" | "rose" | "graphite" — local only.
+    apFolder: Str = "teal",
+    // Non-zero when settingsd refused or the call timed out.
+    apError: Int = 0,
+}
+
+Event AppearanceEvent {
+    SetTheme(Str),
+    SetModeAuto,
+    SetAccent(Str),
+    SetIconStyle(Str),
+    SetFolder(Str),
+    ApApplied(Bool),
+    ApFailed(Int),
+}
+
+reduce AppearanceEvent {
+    SetTheme(mode) => {
+        state.apMode = mode;
+        state.apError = 0;
+    },
+    SetModeAuto => {
+        state.apMode = "auto";
+        state.apError = 0;
+    },
+    SetAccent(name) => {
+        state.apAccent = name;
+        state.apError = 0;
+    },
+    SetIconStyle(style) => {
+        state.apIconStyle = style;
+        state.apError = 0;
+    },
+    SetFolder(color) => {
+        state.apFolder = color;
+        state.apError = 0;
+    },
+    ApApplied(ok) => state.apError = 0,
+    ApFailed(code) => state.apError = code,
+}
+
+@effect on SetTheme(mode) {
+    match svc.settings.set("ui.theme.mode", mode, timeoutMs: 250) {
+        Ok(ok) => dispatch(ApApplied(ok)),
+        Err(e) => dispatch(ApFailed(e)),
+    }
+}
+
+@effect on SetAccent(name) {
+    match svc.settings.set("ui.theme.accent", name, timeoutMs: 250) {
+        Ok(ok) => dispatch(ApApplied(ok)),
+        Err(e) => dispatch(ApFailed(e)),
+    }
+}

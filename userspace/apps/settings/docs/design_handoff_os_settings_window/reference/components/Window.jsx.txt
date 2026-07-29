@@ -1,0 +1,106 @@
+import React from 'react';
+import { WindowControls } from './WindowControls.jsx';
+
+/**
+ * Window — the shared glass window shell for AIVA OS. Provides the
+ * dense window surface, the three-zone title chrome (leading / centered
+ * toolbar / trailing + window controls) and a flex body region. Every
+ * app and settings window is composed from this — pass the body
+ * (Sidebar, WindowPane, etc) as children.
+ *
+ * Theming: pass theme="dark" | "light" to scope the window itself, or
+ * leave it unset to inherit the ambient .dark class. Reads the
+ * --glass-window-* tokens.
+ */
+export function Window({
+  theme,
+  width = 960,
+  height = 600,
+  leading,
+  toolbar,
+  trailing,
+  windowControls = true,
+  onMinimize,
+  onMaximize,
+  onClose,
+  animate = true,
+  rootRef,
+  className = '',
+  style = {},
+  bodyStyle = {},
+  children,
+}) {
+  const dark = theme === 'dark';
+  const cls = [dark ? 'dark' : '', className].filter(Boolean).join(' ');
+
+  const divider = (
+    <div style={{ width: 1, height: 16, background: 'var(--glass-divider)', margin: '0 6px' }} />
+  );
+
+  return (
+    <div
+      ref={rootRef}
+      className={cls || undefined}
+      style={{
+        position: 'relative',
+        width,
+        height,
+        maxWidth: '100%',
+        background: 'var(--glass-window-bg)',
+        border: '1px solid var(--glass-window-border)',
+        borderRadius: 'var(--radius-3xl)',
+        backdropFilter: 'blur(72px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(72px) saturate(180%)',
+        boxShadow: 'var(--glass-window-shadow)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        fontFamily: 'var(--font-sans)',
+        animation: animate ? 'aiva-window-in 0.35s cubic-bezier(0.16,1,0.3,1)' : 'none',
+        ...style,
+      }}
+    >
+      {/* ── Title chrome ── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '10px 12px',
+          flexShrink: 0,
+          position: 'relative',
+          gap: 8,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>{leading}</div>
+
+        {toolbar && (
+          <div
+            style={{
+              position: 'absolute',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+            }}
+          >
+            {toolbar}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 1, marginLeft: 'auto', flexShrink: 0 }}>
+          {trailing}
+          {windowControls && (
+            <>
+              {trailing && divider}
+              <WindowControls onMinimize={onMinimize} onMaximize={onMaximize} onClose={onClose} />
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Body ── */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', ...bodyStyle }}>{children}</div>
+    </div>
+  );
+}

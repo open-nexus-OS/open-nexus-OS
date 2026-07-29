@@ -1,0 +1,126 @@
+import React, { useState, useRef, useEffect } from 'react';
+
+/**
+ * Select — glass dropdown select for AIVA OS.
+ * A frosted trigger pill that opens a liquid-glass option panel (same
+ * surface language as Popover) — never the native OS list. The selected
+ * option is highlighted with an accent checkmark. Controlled or uncontrolled.
+ */
+export function Select({
+  options = [],
+  value,
+  defaultValue,
+  onChange,
+  placeholder = 'Auswählen',
+  disabled = false,
+  size = 'md',
+  style = {},
+}) {
+  const norm = options.map((o) => (typeof o === 'string' ? { label: o, value: o } : o));
+  const [internal, setInternal] = useState(defaultValue ?? '');
+  const val = value !== undefined ? value : internal;
+  const selected = norm.find((o) => o.value === val);
+
+  const [open, setOpen] = useState(false);
+  const [hover, setHover] = useState(false);
+  const wrapRef = useRef(null);
+
+  const s = size === 'sm' ? { h: 30, fs: 12, pad: '0 10px' }
+    : size === 'lg' ? { h: 42, fs: 15, pad: '0 16px' }
+    : { h: 36, fs: 14, pad: '0 13px' };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const pick = (v) => {
+    if (value === undefined) setInternal(v);
+    onChange && onChange(v);
+    setOpen(false);
+  };
+
+  const Item = ({ o }) => {
+    const [h, setH] = useState(false);
+    const isSel = o.value === val;
+    return (
+      <button
+        onClick={() => pick(o.value)}
+        onMouseEnter={() => setH(true)}
+        onMouseLeave={() => setH(false)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+          padding: '9px 11px', border: 'none', cursor: 'pointer', textAlign: 'left',
+          borderRadius: 'var(--radius-md)',
+          background: h ? 'var(--glass-hover-bg)' : 'transparent',
+          fontFamily: 'var(--font-sans)', fontSize: s.fs, fontWeight: isSel ? 600 : 500,
+          color: 'var(--glass-text-strong)', transition: 'background 0.12s ease',
+          WebkitTapHighlightColor: 'transparent',
+        }}
+      >
+        <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.label}</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden
+          style={{ flexShrink: 0, opacity: isSel ? 1 : 0, color: 'var(--color-info)' }}>
+          <path d="M4 12.5l5 5L20 6.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    );
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', display: 'inline-flex', opacity: disabled ? 0.45 : 1, ...style }}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          height: s.h, padding: s.pad, minWidth: 120, width: '100%',
+          fontFamily: 'var(--font-sans)', fontSize: s.fs, fontWeight: 500,
+          color: selected ? 'var(--glass-text-strong)' : 'var(--glass-text-secondary)',
+          background: (hover || open) && !disabled ? 'var(--glass-hover-bg)' : 'var(--glass-card-bg)',
+          border: `1px solid ${open ? 'var(--glass-toggle-on-border)' : 'var(--glass-card-border)'}`,
+          borderRadius: 'var(--radius-lg)',
+          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          cursor: disabled ? 'not-allowed' : 'pointer', outline: 'none',
+          boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.18)',
+          transition: 'background 0.15s ease, border-color 0.15s ease',
+          WebkitTapHighlightColor: 'transparent',
+        }}
+      >
+        <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden
+          style={{ flexShrink: 0, color: 'var(--glass-text-secondary)', transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}>
+          <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          style={{
+            position: 'absolute', top: `calc(100% + 6px)`, left: 0, zIndex: 'var(--z-overlay, 20)',
+            width: '100%', minWidth: 160, maxHeight: 264, overflowY: 'auto', padding: 6,
+            background: 'var(--glass-overlay-bg)',
+            border: '1px solid var(--glass-overlay-border)',
+            borderRadius: 'var(--radius-xl)',
+            boxShadow: 'var(--glass-overlay-shadow)',
+            backdropFilter: 'blur(40px) saturate(180%)', WebkitBackdropFilter: 'blur(40px) saturate(180%)',
+          }}
+        >
+          {norm.map((o) => <Item key={o.value} o={o} />)}
+        </div>
+      )}
+    </div>
+  );
+}

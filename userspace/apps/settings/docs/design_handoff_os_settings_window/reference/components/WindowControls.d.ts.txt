@@ -1,0 +1,14 @@
+/**
+ * WindowControls — the minimise / maximise / close cluster for the
+ * right edge of an AIVA OS window title bar. Built from WindowButton,
+ * so it inherits the dark/light chrome treatment automatically.
+ *
+ * @example
+ * <WindowControls onClose={closeWindow} onMinimize={minimise} />
+ */
+export interface WindowControlsProps {
+  onMinimize?: () => void;
+  onMaximize?: () => void;
+  onClose?: () => void;
+  style?: React.CSSProperties;
+}

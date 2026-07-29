@@ -1,0 +1,81 @@
+import React from 'react';
+
+/**
+ * WindowPane — the inner content card inside an AIVA OS window
+ * (content area, properties panel, etc). Rounded glass card with an
+ * optional title/actions header and a scrolling body. Reads the
+ * --glass-window-pane-* tokens, so it matches the window surface in
+ * both dark and light mode.
+ */
+export function WindowPane({
+  title,
+  header,
+  headerActions,
+  padded = true,
+  style = {},
+  bodyStyle = {},
+  children,
+}) {
+  const hasHeader = title || header || headerActions;
+  return (
+    <div
+      style={{
+        flex: 1,
+        minWidth: 0,
+        borderRadius: 'var(--radius-2xl)',
+        background: 'var(--glass-window-pane-bg)',
+        border: '1px solid var(--glass-window-pane-border)',
+        boxShadow: 'inset 0 1px 0 var(--glass-window-pane-inset)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        ...style,
+      }}
+    >
+      {hasHeader && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            padding: '12px 16px 10px',
+            flexShrink: 0,
+            borderBottom: '1px solid var(--glass-divider)',
+          }}
+        >
+          {header || (
+            <span
+              style={{
+                fontFamily: 'var(--font-sans)',
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--glass-text-strong)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {title}
+            </span>
+          )}
+          {headerActions && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+              {headerActions}
+            </div>
+          )}
+        </div>
+      )}
+      <div
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: padded ? '6px 8px' : 0,
+          ...bodyStyle,
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}

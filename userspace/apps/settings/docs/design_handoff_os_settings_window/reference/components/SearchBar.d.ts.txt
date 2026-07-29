@@ -1,0 +1,21 @@
+import React from 'react';
+
+/**
+ * SearchBar — iOS-style glass search pill (maps to ion-searchbar).
+ * Leading magnifier, clear button when non-empty, Enter submits.
+ * Controlled or uncontrolled.
+ *
+ * @example
+ * <SearchBar placeholder="Apps suchen" onSubmit={(q) => run(q)} />
+ * <SearchBar value={q} onChange={setQ} />
+ */
+export interface SearchBarProps {
+  value?: string;
+  defaultValue?: string;
+  onChange?: (value: string) => void;
+  /** Fired on Enter with the current value */
+  onSubmit?: (value: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  style?: React.CSSProperties;
+}

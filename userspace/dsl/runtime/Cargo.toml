@@ -44,6 +44,8 @@ nexus-widget-skeleton = { path = "../../ui/widgets/skeleton" }
 nexus-widget-list-item = { path = "../../ui/widgets/list_item" }
 nexus-widget-toolbar = { path = "../../ui/widgets/toolbar" }
 nexus-widget-search-bar = { path = "../../ui/widgets/search_bar" }
+nexus-widget-select = { path = "../../ui/widgets/select" }
+nexus-widget-breadcrumbs = { path = "../../ui/widgets/breadcrumbs" }
 nexus-theme-tokens = { path = "../../ui/theme-tokens" }
 animation = { path = "../../ui/animation" }
 

@@ -1,0 +1,42 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Monitore. Demo data from the handoff's `_tree()` — the real display mode
+// travels fw_cfg → windowd (RFC-0074) and is not settable from here yet, so
+// resolution and refresh rate are value rows, not controls.
+
+Component SecDisplay {
+    Stack {
+        SetGroup { label: @t("dis.gBuiltin"), note: "" } {
+            rows {
+                SetRow { title: @t("dis.resolution"), subtitle: @t("dis.resolutionSub"), icon: "desktopcomputer", showChevron: false } {
+                    trailing { SetValue { value: @t("dis.resolutionV") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("dis.refresh"), subtitle: "", icon: "arrow.clockwise", showChevron: false } {
+                    trailing { SetValue { value: @t("dis.refreshV") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("dis.brightness"), subtitle: "", icon: "sun.max", showChevron: false } {
+                    trailing { SetValue { value: @t("dis.brightnessV") } }
+                }
+            }
+        }
+        SetGroup { label: @t("dis.gLook"), note: "" } {
+            rows {
+                SetRow { title: @t("dis.night"), subtitle: @t("dis.nightSub"), icon: "moon", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgNight, label: @t("dis.night") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("dis.hdr"), subtitle: "", icon: "sun.max", showChevron: false } {
+                    trailing { Toggle { checked: $state.tgHdr, label: @t("dis.hdr") } }
+                }
+                SetHairline { }
+                SetRow { title: @t("dis.scale"), subtitle: "", icon: "plus.magnifyingglass", showChevron: false } {
+                    trailing { SetValue { value: @t("dis.scaleV") } }
+                }
+            }
+        }
+    }
+    .gap(3)
+}

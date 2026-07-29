@@ -1,0 +1,43 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One card of the overview grid (handoff LAYOUT.md §"Content — overview
+// grid"): a 30×30 icon chip plus title and description on a `subtle` card.
+//
+// The card carries NO width of its own: the tap wrapper in `OverviewGrid` is
+// the flex item, and modifiers on a component reference are rejected
+// (RFC-0084 rule 10), so the sizing that answers the handoff's
+// `repeat(auto-fill, minmax(208px, 1fr))` lives on that wrapper.
+
+Component OverviewCard {
+    props: {
+        title: Str,
+        desc: Str,
+        icon: Str,
+    }
+    Stack {
+        Stack {
+            Icon { symbol: $props.icon, size: 17 }
+                .fg(onGlassMuted)
+        }
+        .width(30)
+        .height(30)
+        .rounded(lg)
+        .align(center)
+        .justify(center)
+        .material(card)
+        Stack {
+            Text($props.title).textSize(sm).fontWeight(semibold).fg(onGlass)
+            Text($props.desc).textSize(xs).leading(snug).fg(onGlassMuted)
+        }
+        .gap(0)
+        .grow(1)
+    }
+    .direction(row)
+    .align(center)
+    .gap(3)
+    .padding(3)
+    .grow(1)
+    .rounded(xl)
+    .material(subtle)
+}

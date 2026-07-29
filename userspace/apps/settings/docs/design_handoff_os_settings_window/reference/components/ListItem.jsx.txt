@@ -1,0 +1,84 @@
+import React, { useState } from 'react';
+
+/**
+ * ListItem — a settings/list row for AIVA OS (maps to ion-item).
+ * Leading icon/avatar, title + subtitle, trailing control or chevron.
+ * Becomes interactive (hover + press) when onClick is provided.
+ */
+export function ListItem({
+  title,
+  subtitle,
+  leading,
+  trailing,
+  showChevron = false,
+  onClick,
+  destructive = false,
+  style = {},
+}) {
+  const [hover, setHover] = useState(false);
+  const interactive = !!onClick;
+
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '11px 14px', minHeight: 50,
+        cursor: interactive ? 'pointer' : 'default',
+        background: interactive && hover ? 'var(--glass-hover-bg)' : 'transparent',
+        transition: 'background 0.12s ease', WebkitTapHighlightColor: 'transparent',
+        ...style,
+      }}
+    >
+      {leading && (
+        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: destructive ? 'var(--color-destructive)' : 'var(--glass-text-primary)' }}>
+          {leading}
+        </span>
+      )}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <span style={{
+          fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 500,
+          color: destructive ? 'var(--color-destructive)' : 'var(--glass-text-strong)',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>{title}</span>
+        {subtitle && (
+          <span style={{
+            fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 400,
+            color: 'var(--glass-text-secondary)',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>{subtitle}</span>
+        )}
+      </div>
+      {trailing && <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0, color: 'var(--glass-text-secondary)' }}>{trailing}</span>}
+      {showChevron && (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--glass-text-secondary)', flexShrink: 0, opacity: 0.6 }}>
+          <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+/**
+ * List — a grouped glass container that hairlines its ListItem children.
+ */
+export function List({ children, inset = true, style = {} }) {
+  const items = React.Children.toArray(children);
+  return (
+    <div style={{
+      borderRadius: inset ? 'var(--radius-2xl)' : 0, overflow: 'hidden',
+      background: 'var(--glass-card-bg)',
+      border: inset ? '1px solid var(--glass-card-border)' : 'none',
+      backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+      ...style,
+    }}>
+      {items.map((child, i) => (
+        <div key={i} style={{ borderTop: i === 0 ? 'none' : '1px solid var(--glass-divider)' }}>
+          {child}
+        </div>
+      ))}
+    </div>
+  );
+}

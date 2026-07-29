@@ -1,0 +1,47 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The OPEN half of a `Select`. The kit's `Select` widget is the closed
+// trigger only — a glass pill with the current value and a chevron — and its
+// module doc names the option panel as the app's job, because an overlay
+// belongs to the page that owns the z-order, not to a leaf widget.
+//
+// So: the trigger sits in a row's `trailing` slot, this sheet is a sibling of
+// the window on the PAGE ROOT, and `$state.picker` decides which one is open.
+// Root level matters — `.overlay()` does not composite inside a banded scroll
+// surface (see chat's page header), and the content pane scrolls.
+//
+// Backdrop taps close (`ClosePicker`); the panel eats its own taps
+// (`WinNoop`) so reaching into the list does not dismiss it.
+
+Component PickerSheet {
+    props: {
+        title: Str,
+    }
+    slot options
+    Stack {
+        Stack {
+            Spacer
+            Stack {
+                Panel {
+                    Text($props.title).textSize(xs).fontWeight(semibold).fg(onGlassMuted)
+                    Slot options
+                }
+                .material(overlay)
+                .rounded(xl)
+                .gap(1)
+                .padding(2)
+                on Tap -> dispatch(WinNoop)
+            }
+            .width(320)
+            Spacer
+        }
+        .direction(row)
+        .align(center)
+        .grow(1)
+    }
+    .overlay()
+    .bg(scrim)
+    .transition(fade)
+    on Tap -> dispatch(ClosePicker)
+}

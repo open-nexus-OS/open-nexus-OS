@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="OS Settings Window" description="A full settings app composed from AppWindow — sidebar with 12 sections, functional breadcrumbs (root = overview grid, drill-down sub-pages), a search mode that replaces the content area, and a three-dot view menu. Same base as every AIVA OS window." -->
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="./ds-base.js"></script>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; }
+    html,body { width:100%; height:100%; }
+    body { font-family:'Inter',-apple-system,system-ui,sans-serif; -webkit-font-smoothing:antialiased; background:linear-gradient(135deg,#0d1117 0%,#1a2744 45%,#0f172a 100%); display:flex; align-items:center; justify-content:center; min-height:100vh; }
+  </style>
+</helmet>
+
+<x-import component-from-global-scope="AIVAOSDesignSystem_afec52.AppWindow"
+  theme="{{ theme }}" width="{{ winWidth }}" height="{{ winHeight }}"
+  leading="{{ leading }}" toolbar="{{ toolbar }}" trailing="{{ trailing }}"
+  sidebar="{{ sidebar }}" sidebar-width="{{ navWidth }}"
+  content-header="{{ contentHeader }}" content-actions="{{ contentActions }}" content-padded="{{ false }}"
+  on-minimize="{{ noop }}" on-maximize="{{ noop }}" on-close="{{ noop }}"
+  style="position:relative;z-index:10;" hint-size="900px,600px">
+
+  <div style="padding:12px 16px 18px;display:flex;flex-direction:column;gap:12px;">
+
+    <sc-if value="{{ isSearch }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <x-import component-from-global-scope="AIVAOSDesignSystem_afec52.SearchBar" value="{{ query }}" on-change="{{ setQuery }}" placeholder="Alle Einstellungen durchsuchen" hint-size="100%,40px"></x-import>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--glass-text-secondary);padding-left:2px;">Vorschläge</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <sc-for list="{{ suggestions }}" as="sug" hint-placeholder-count="4">
+              <x-import component-from-global-scope="AIVAOSDesignSystem_afec52.Chip" selected="{{ sug.selected }}" on-click="{{ sug.onClick }}" hint-size="96px,28px">{{ sug.label }}</x-import>
+            </sc-for>
+          </div>
+        </div>
+        <sc-if value="{{ hasResults }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--glass-text-secondary);padding-left:2px;">{{ resultLabel }}</div>
+            <div style="border-radius:14px;background:var(--glass-subtle-bg);overflow:hidden;">
+              <sc-for list="{{ results }}" as="r" hint-placeholder-count="5">
+                <sc-if value="{{ r.notFirst }}" hint-placeholder-val="{{ false }}"><div style="height:1px;background:var(--glass-divider);margin:0 16px;"></div></sc-if>
+                <x-import component-from-global-scope="AIVAOSDesignSystem_afec52.ListItem" leading="{{ r.icon }}" title="{{ r.title }}" subtitle="{{ r.path }}" trailing="{{ r.trailing }}" show-chevron="{{ r.chevron }}" on-click="{{ r.onClick }}" hint-size="100%,54px"></x-import>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:44px 20px;border-radius:14px;background:var(--glass-subtle-bg);text-align:center;">
+            <div style="font-size:14px;font-weight:600;color:var(--glass-text-primary);">Keine Treffer</div>
+            <div style="font-size:12px;color:var(--glass-text-secondary);max-width:280px;text-wrap:pretty;">Für „{{ query }}“ wurde keine Einstellung gefunden. Prüfe die Schreibweise oder nutze einen kürzeren Begriff.</div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(208px,1fr));gap:10px;">
+        <sc-for list="{{ overviewCards }}" as="c" hint-placeholder-count="9">
+          <div style="display:flex;align-items:flex-start;gap:11px;padding:14px;border-radius:14px;background:var(--glass-subtle-bg);border:1px solid transparent;cursor:pointer;transition:background .16s,border-color .16s;" style-hover="background:var(--glass-hover-bg);border-color:var(--glass-window-chip-border);" onClick="{{ c.onClick }}">
+            <div style="width:30px;height:30px;flex:none;border-radius:9px;background:var(--glass-window-chip-bg);border:1px solid var(--glass-window-chip-border);display:flex;align-items:center;justify-content:center;color:var(--glass-text-primary);">{{ c.icon }}</div>
+            <div style="min-width:0;display:flex;flex-direction:column;gap:2px;">
+              <div style="font-size:12.5px;font-weight:600;color:var(--glass-text-primary);">{{ c.title }}</div>
+              <div style="font-size:11px;line-height:1.35;color:var(--glass-text-secondary);text-wrap:pretty;">{{ c.desc }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isAppearance }}" hint-placeholder-val="{{ false }}">
+      <div ref="{{ apRef }}" style="display:flex;flex-direction:column;gap:18px;">
+
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--glass-text-secondary);padding-left:2px;">Modus</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+            <div onClick="{{ apMode.set.light }}" style="position:relative;padding:9px;border-radius:15px;background:var(--glass-subtle-bg);cursor:pointer;display:flex;flex-direction:column;gap:9px;">
+              <div style="height:82px;border-radius:10px;position:relative;overflow:hidden;background:linear-gradient(135deg,#eef3fb,#cdd9ee);">
+                <div style="position:absolute;left:13%;top:18%;right:13%;bottom:20%;border-radius:8px;background:rgba(255,255,255,.82);border:1px solid rgba(0,0,0,.10);padding:9px;display:flex;flex-direction:column;gap:5px;">
+                  <div style="height:4px;width:52%;border-radius:2px;background:rgba(15,23,42,.20);"></div>
+                  <div style="height:4px;width:78%;border-radius:2px;background:rgba(15,23,42,.13);"></div>
+                  <div style="height:4px;width:64%;border-radius:2px;background:rgba(15,23,42,.09);"></div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 2px 2px;">
+                <span style="font-size:11.5px;font-weight:600;color:var(--glass-text-primary);">Hell</span>
+                <div style="width:17px;height:17px;border-radius:50%;border:1px solid var(--glass-divider);display:flex;align-items:center;justify-content:center;"><sc-if value="{{ apMode.sel.light }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></sc-if></div>
+              </div>
+              <sc-if value="{{ apMode.sel.light }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;border-radius:15px;box-shadow:0 0 0 1.5px var(--glass-text-primary);pointer-events:none;"></div></sc-if>
+            </div>
+            <div onClick="{{ apMode.set.dark }}" style="position:relative;padding:9px;border-radius:15px;background:var(--glass-subtle-bg);cursor:pointer;display:flex;flex-direction:column;gap:9px;">
+              <div style="height:82px;border-radius:10px;position:relative;overflow:hidden;background:linear-gradient(135deg,#0d1117,#1a2744);">
+                <div style="position:absolute;left:13%;top:18%;right:13%;bottom:20%;border-radius:8px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);padding:9px;display:flex;flex-direction:column;gap:5px;">
+                  <div style="height:4px;width:52%;border-radius:2px;background:rgba(255,255,255,.30);"></div>
+                  <div style="height:4px;width:78%;border-radius:2px;background:rgba(255,255,255,.19);"></div>
+                  <div style="height:4px;width:64%;border-radius:2px;background:rgba(255,255,255,.13);"></div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 2px 2px;">
+                <span style="font-size:11.5px;font-weight:600;color:var(--glass-text-primary);">Dunkel</span>
+                <div style="width:17px;height:17px;border-radius:50%;border:1px solid var(--glass-divider);display:flex;align-items:center;justify-content:center;"><sc-if value="{{ apMode.sel.dark }}" hint-placeholder-val="{{ true }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></sc-if></div>
+              </div>
+              <sc-if value="{{ apMode.sel.dark }}" hint-placeholder-val="{{ true }}"><div style="position:absolute;inset:0;border-radius:15px;box-shadow:0 0 0 1.5px var(--glass-text-primary);pointer-events:none;"></div></sc-if>
+            </div>
+            <div onClick="{{ apMode.set.auto }}" style="position:relative;padding:9px;border-radius:15px;background:var(--glass-subtle-bg);cursor:pointer;display:flex;flex-direction:column;gap:9px;">
+              <div style="height:82px;border-radius:10px;position:relative;overflow:hidden;background:linear-gradient(105deg,#eef3fb 0 49%,#101a2e 51% 100%);">
+                <div style="position:absolute;left:13%;top:18%;right:13%;bottom:20%;border-radius:8px;background:rgba(255,255,255,.42);border:1px solid rgba(255,255,255,.30);padding:9px;display:flex;flex-direction:column;gap:5px;">
+                  <div style="height:4px;width:52%;border-radius:2px;background:rgba(90,105,130,.45);"></div>
+                  <div style="height:4px;width:78%;border-radius:2px;background:rgba(90,105,130,.30);"></div>
+                  <div style="height:4px;width:64%;border-radius:2px;background:rgba(90,105,130,.22);"></div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 2px 2px;">
+                <span style="font-size:11.5px;font-weight:600;color:var(--glass-text-primary);">Automatisch</span>
+                <div style="width:17px;height:17px;border-radius:50%;border:1px solid var(--glass-divider);display:flex;align-items:center;justify-content:center;"><sc-if value="{{ apMode.sel.auto }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></sc-if></div>
+              </div>
+              <sc-if value="{{ apMode.sel.auto }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;border-radius:15px;box-shadow:0 0 0 1.5px var(--glass-text-primary);pointer-events:none;"></div></sc-if>
+            </div>
+          </div>
+          <sc-if value="{{ apAutoNote }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ gotoDisplay }}" style="font-size:11px;line-height:1.4;color:var(--glass-text-secondary);padding:0 2px;cursor:pointer;text-wrap:pretty;" style-hover="color:var(--glass-text-primary);">Folgt dem Nachtmodus aus Monitore — aktuell 21:30 – 07:00.</div>
+          </sc-if>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding-left:2px;">
+            <span style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--glass-text-secondary);">Akzentfarbe</span>
+            <span style="font-size:11.5px;font-weight:500;color:var(--glass-text-secondary);">{{ accentName }}</span>
+          </div>
+          <div style="border-radius:15px;background:var(--glass-subtle-bg);padding:14px 16px;display:flex;flex-wrap:wrap;gap:12px;">
+            <div onClick="{{ accentPick.set.blue }}" title="Nexus Blau" style="position:relative;width:28px;height:28px;border-radius:50%;cursor:pointer;background:#3b82f6;"><sc-if value="{{ accentPick.sel.blue }}" hint-placeholder-val="{{ true }}"><div style="position:absolute;inset:-4px;border-radius:50%;box-shadow:0 0 0 1.5px var(--glass-text-primary);display:flex;align-items:center;justify-content:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></div></sc-if></div>
+            <div onClick="{{ accentPick.set.teal }}" title="Teal" style="position:relative;width:28px;height:28px;border-radius:50%;cursor:pointer;background:#14b8a6;"><sc-if value="{{ accentPick.sel.teal }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-4px;border-radius:50%;box-shadow:0 0 0 1.5px var(--glass-text-primary);display:flex;align-items:center;justify-content:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></div></sc-if></div>
+            <div onClick="{{ accentPick.set.green }}" title="Grün" style="position:relative;width:28px;height:28px;border-radius:50%;cursor:pointer;background:#22c55e;"><sc-if value="{{ accentPick.sel.green }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-4px;border-radius:50%;box-shadow:0 0 0 1.5px var(--glass-text-primary);display:flex;align-items:center;justify-content:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></div></sc-if></div>
+            <div onClick="{{ accentPick.set.amber }}" title="Amber" style="position:relative;width:28px;height:28px;border-radius:50%;cursor:pointer;background:#f59e0b;"><sc-if value="{{ accentPick.sel.amber }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-4px;border-radius:50%;box-shadow:0 0 0 1.5px var(--glass-text-primary);display:flex;align-items:center;justify-content:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></div></sc-if></div>
+            <div onClick="{{ accentPick.set.orange }}" title="Orange" style="position:relative;width:28px;height:28px;border-radius:50%;cursor:pointer;background:#f97316;"><sc-if value="{{ accentPick.sel.orange }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-4px;border-radius:50%;box-shadow:0 0 0 1.5px var(--glass-text-primary);display:flex;align-items:center;justify-content:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></div></sc-if></div>
+            <div onClick="{{ accentPick.set.red }}" title="Rot" style="position:relative;width:28px;height:28px;border-radius:50%;cursor:pointer;background:#d4183d;"><sc-if value="{{ accentPick.sel.red }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-4px;border-radius:50%;box-shadow:0 0 0 1.5px var(--glass-text-primary);display:flex;align-items:center;justify-content:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></div></sc-if></div>
+            <div onClick="{{ accentPick.set.pink }}" title="Rosé" style="position:relative;width:28px;height:28px;border-radius:50%;cursor:pointer;background:#ec4899;"><sc-if value="{{ accentPick.sel.pink }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-4px;border-radius:50%;box-shadow:0 0 0 1.5px var(--glass-text-primary);display:flex;align-items:center;justify-content:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></div></sc-if></div>
+            <div onClick="{{ accentPick.set.violet }}" title="Violett" style="position:relative;width:28px;height:28px;border-radius:50%;cursor:pointer;background:#8b5cf6;"><sc-if value="{{ accentPick.sel.violet }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-4px;border-radius:50%;box-shadow:0 0 0 1.5px var(--glass-text-primary);display:flex;align-items:center;justify-content:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></div></sc-if></div>
+            <div onClick="{{ accentPick.set.graphite }}" title="Graphit" style="position:relative;width:28px;height:28px;border-radius:50%;cursor:pointer;background:#64748b;"><sc-if value="{{ accentPick.sel.graphite }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-4px;border-radius:50%;box-shadow:0 0 0 1.5px var(--glass-text-primary);display:flex;align-items:center;justify-content:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"></path></svg></div></sc-if></div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding-left:2px;">
+            <span style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--glass-text-secondary);">App-Icons &amp; Widgets</span>
+            <span style="font-size:11.5px;font-weight:500;color:var(--glass-text-secondary);">{{ iconStyleLabel }}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+            <div onClick="{{ iconPick.set.default }}" style="position:relative;padding:12px 11px;border-radius:15px;background:var(--glass-subtle-bg);cursor:pointer;display:flex;flex-direction:column;gap:10px;align-items:center;">
+              <div style="display:flex;gap:6px;">
+                <img src="../../assets/icons/messages.svg" alt="" style="width:32px;height:32px;border-radius:9px;">
+                <img src="../../assets/icons/calendar.svg" alt="" style="width:32px;height:32px;border-radius:9px;">
+                <img src="../../assets/icons/music-app.svg" alt="" style="width:32px;height:32px;border-radius:9px;">
+              </div>
+              <div style="display:flex;flex-direction:column;gap:2px;align-items:center;text-align:center;">
+                <span style="font-size:11.5px;font-weight:600;color:var(--glass-text-primary);">Standard</span>
+                <span style="font-size:10px;line-height:1.3;color:var(--glass-text-secondary);text-wrap:pretty;">Original App-Icons</span>
+              </div>
+              <sc-if value="{{ iconPick.sel.default }}" hint-placeholder-val="{{ true }}"><div style="position:absolute;inset:0;border-radius:15px;box-shadow:0 0 0 1.5px var(--glass-text-primary);pointer-events:none;"></div></sc-if>
+            </div>
+            <div onClick="{{ iconPick.set.dark }}" style="position:relative;padding:12px 11px;border-radius:15px;background:var(--glass-subtle-bg);cursor:pointer;display:flex;flex-direction:column;gap:10px;align-items:center;">
+              <div style="display:flex;gap:6px;">
+                <div style="width:32px;height:32px;border-radius:9px;overflow:hidden;background:linear-gradient(165deg,#33373f 0%,#14161a 55%,#07080a 100%);isolation:isolate;"><img src="../../assets/icons/messages.svg" alt="" style="width:32px;height:32px;filter:grayscale(1) brightness(1.05) contrast(3.2);mix-blend-mode:screen;"></div>
+                <div style="width:32px;height:32px;border-radius:9px;overflow:hidden;background:linear-gradient(165deg,#33373f 0%,#14161a 55%,#07080a 100%);isolation:isolate;"><img src="../../assets/icons/calendar.svg" alt="" style="width:32px;height:32px;filter:grayscale(1) brightness(1.05) contrast(3.2);mix-blend-mode:screen;"></div>
+                <div style="width:32px;height:32px;border-radius:9px;overflow:hidden;background:linear-gradient(165deg,#33373f 0%,#14161a 55%,#07080a 100%);isolation:isolate;"><img src="../../assets/icons/music-app.svg" alt="" style="width:32px;height:32px;filter:grayscale(1) brightness(1.05) contrast(3.2);mix-blend-mode:screen;"></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:2px;align-items:center;text-align:center;">
+                <span style="font-size:11.5px;font-weight:600;color:var(--glass-text-primary);">Dunkel</span>
+                <span style="font-size:10px;line-height:1.3;color:var(--glass-text-secondary);text-wrap:pretty;">Glyph auf dunklem Verlauf</span>
+              </div>
+              <sc-if value="{{ iconPick.sel.dark }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;border-radius:15px;box-shadow:0 0 0 1.5px var(--glass-text-primary);pointer-events:none;"></div></sc-if>
+            </div>
+            <div onClick="{{ iconPick.set.clear }}" style="position:relative;padding:12px 11px;border-radius:15px;background:var(--glass-subtle-bg);cursor:pointer;display:flex;flex-direction:column;gap:10px;align-items:center;">
+              <div style="display:flex;gap:6px;">
+                <div style="width:32px;height:32px;border-radius:9px;overflow:hidden;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.18);"><img src="../../assets/icons/messages.svg" alt="" style="width:32px;height:32px;filter:grayscale(1) brightness(1.6) contrast(.45);mix-blend-mode:luminosity;"></div>
+                <div style="width:32px;height:32px;border-radius:9px;overflow:hidden;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.18);"><img src="../../assets/icons/calendar.svg" alt="" style="width:32px;height:32px;filter:grayscale(1) brightness(1.6) contrast(.45);mix-blend-mode:luminosity;"></div>
+                <div style="width:32px;height:32px;border-radius:9px;overflow:hidden;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.18);"><img src="../../assets/icons/music-app.svg" alt="" style="width:32px;height:32px;filter:grayscale(1) brightness(1.6) contrast(.45);mix-blend-mode:luminosity;"></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:2px;align-items:center;text-align:center;">
+                <span style="font-size:11.5px;font-weight:600;color:var(--glass-text-primary);">Klar</span>
+                <span style="font-size:10px;line-height:1.3;color:var(--glass-text-secondary);text-wrap:pretty;">Stilisiert, transparent</span>
+              </div>
+              <sc-if value="{{ iconPick.sel.clear }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;border-radius:15px;box-shadow:0 0 0 1.5px var(--glass-text-primary);pointer-events:none;"></div></sc-if>
+            </div>
+            <div onClick="{{ iconPick.set.tinted }}" style="position:relative;padding:12px 11px;border-radius:15px;background:var(--glass-subtle-bg);cursor:pointer;display:flex;flex-direction:column;gap:10px;align-items:center;">
+              <div style="display:flex;gap:6px;">
+                <div style="width:32px;height:32px;border-radius:9px;overflow:hidden;background:var(--ap-accent,#3b82f6);"><img src="../../assets/icons/messages.svg" alt="" style="width:32px;height:32px;filter:grayscale(1) brightness(1.35) contrast(.9);mix-blend-mode:luminosity;"></div>
+                <div style="width:32px;height:32px;border-radius:9px;overflow:hidden;background:var(--ap-accent,#3b82f6);"><img src="../../assets/icons/calendar.svg" alt="" style="width:32px;height:32px;filter:grayscale(1) brightness(1.35) contrast(.9);mix-blend-mode:luminosity;"></div>
+                <div style="width:32px;height:32px;border-radius:9px;overflow:hidden;background:var(--ap-accent,#3b82f6);"><img src="../../assets/icons/music-app.svg" alt="" style="width:32px;height:32px;filter:grayscale(1) brightness(1.35) contrast(.9);mix-blend-mode:luminosity;"></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:2px;align-items:center;text-align:center;">
+                <span style="font-size:11.5px;font-weight:600;color:var(--glass-text-primary);">Getönt</span>
+                <span style="font-size:10px;line-height:1.3;color:var(--glass-text-secondary);text-wrap:pretty;">Icon &amp; Grund in Akzentfarbe</span>
+              </div>
+              <sc-if value="{{ iconPick.sel.tinted }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;border-radius:15px;box-shadow:0 0 0 1.5px var(--glass-text-primary);pointer-events:none;"></div></sc-if>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--glass-text-secondary);padding-left:2px;">Ordnerfarbe</div>
+          <div style="border-radius:15px;background:var(--glass-subtle-bg);padding:14px 16px;display:flex;flex-wrap:wrap;gap:14px;">
+            <div onClick="{{ folderPick.set.teal }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;">
+              <div style="position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:34px;">
+                <svg width="44" height="34" viewBox="60 200 920 700" fill="none"><path d="M 80 280 Q 80 220 140 220 L 400 220 L 480 300 L 880 300 Q 940 300 940 360 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#7AF8D8"></path><path d="M 80 420 Q 80 380 140 380 L 880 380 Q 940 380 940 440 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#14b8a6"></path></svg>
+                <sc-if value="{{ folderPick.sel.teal }}" hint-placeholder-val="{{ true }}"><div style="position:absolute;inset:-3px;border-radius:10px;box-shadow:0 0 0 1.5px var(--glass-text-primary);"></div></sc-if>
+              </div>
+              <span style="font-size:10px;color:var(--glass-text-secondary);">Standard</span>
+            </div>
+            <div onClick="{{ folderPick.set.accent }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;">
+              <div style="position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:34px;">
+                <svg width="44" height="34" viewBox="60 200 920 700" fill="none"><path d="M 80 280 Q 80 220 140 220 L 400 220 L 480 300 L 880 300 Q 940 300 940 360 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="var(--ap-accent,#3b82f6)" opacity=".5"></path><path d="M 80 420 Q 80 380 140 380 L 880 380 Q 940 380 940 440 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="var(--ap-accent,#3b82f6)"></path></svg>
+                <sc-if value="{{ folderPick.sel.accent }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-3px;border-radius:10px;box-shadow:0 0 0 1.5px var(--glass-text-primary);"></div></sc-if>
+              </div>
+              <span style="font-size:10px;color:var(--glass-text-secondary);">Akzent</span>
+            </div>
+            <div onClick="{{ folderPick.set.violet }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;">
+              <div style="position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:34px;">
+                <svg width="44" height="34" viewBox="60 200 920 700" fill="none"><path d="M 80 280 Q 80 220 140 220 L 400 220 L 480 300 L 880 300 Q 940 300 940 360 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#C4B0FD"></path><path d="M 80 420 Q 80 380 140 380 L 880 380 Q 940 380 940 440 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#8b5cf6"></path></svg>
+                <sc-if value="{{ folderPick.sel.violet }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-3px;border-radius:10px;box-shadow:0 0 0 1.5px var(--glass-text-primary);"></div></sc-if>
+              </div>
+              <span style="font-size:10px;color:var(--glass-text-secondary);">Violett</span>
+            </div>
+            <div onClick="{{ folderPick.set.amber }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;">
+              <div style="position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:34px;">
+                <svg width="44" height="34" viewBox="60 200 920 700" fill="none"><path d="M 80 280 Q 80 220 140 220 L 400 220 L 480 300 L 880 300 Q 940 300 940 360 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#FCD68A"></path><path d="M 80 420 Q 80 380 140 380 L 880 380 Q 940 380 940 440 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#f59e0b"></path></svg>
+                <sc-if value="{{ folderPick.sel.amber }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-3px;border-radius:10px;box-shadow:0 0 0 1.5px var(--glass-text-primary);"></div></sc-if>
+              </div>
+              <span style="font-size:10px;color:var(--glass-text-secondary);">Amber</span>
+            </div>
+            <div onClick="{{ folderPick.set.rose }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;">
+              <div style="position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:34px;">
+                <svg width="44" height="34" viewBox="60 200 920 700" fill="none"><path d="M 80 280 Q 80 220 140 220 L 400 220 L 480 300 L 880 300 Q 940 300 940 360 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#F9A8D0"></path><path d="M 80 420 Q 80 380 140 380 L 880 380 Q 940 380 940 440 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#ec4899"></path></svg>
+                <sc-if value="{{ folderPick.sel.rose }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-3px;border-radius:10px;box-shadow:0 0 0 1.5px var(--glass-text-primary);"></div></sc-if>
+              </div>
+              <span style="font-size:10px;color:var(--glass-text-secondary);">Rosé</span>
+            </div>
+            <div onClick="{{ folderPick.set.graphite }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;">
+              <div style="position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:34px;">
+                <svg width="44" height="34" viewBox="60 200 920 700" fill="none"><path d="M 80 280 Q 80 220 140 220 L 400 220 L 480 300 L 880 300 Q 940 300 940 360 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#A8B3C4"></path><path d="M 80 420 Q 80 380 140 380 L 880 380 Q 940 380 940 440 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#64748b"></path></svg>
+                <sc-if value="{{ folderPick.sel.graphite }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:-3px;border-radius:10px;box-shadow:0 0 0 1.5px var(--glass-text-primary);"></div></sc-if>
+              </div>
+              <span style="font-size:10px;color:var(--glass-text-secondary);">Graphit</span>
+            </div>
+          </div>
+          <div style="font-size:11px;line-height:1.4;color:var(--glass-text-secondary);padding:0 2px;text-wrap:pretty;">Standard ist Teal. „Akzent“ übernimmt die gewählte Akzentfarbe, alle weiteren Farben lassen sich pro Ordner überschreiben.</div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isBrowse }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+          <div style="display:flex;flex-direction:column;gap:7px;">
+            <sc-if value="{{ g.label }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--glass-text-secondary);padding-left:2px;">{{ g.label }}</div>
+            </sc-if>
+            <div style="border-radius:14px;background:var(--glass-subtle-bg);overflow:hidden;">
+              <sc-for list="{{ g.rows }}" as="row" hint-placeholder-count="2">
+                <sc-if value="{{ row.notFirst }}" hint-placeholder-val="{{ false }}"><div style="height:1px;background:var(--glass-divider);margin:0 16px;"></div></sc-if>
+                <x-import component-from-global-scope="AIVAOSDesignSystem_afec52.ListItem" leading="{{ row.icon }}" title="{{ row.title }}" subtitle="{{ row.subtitle }}" trailing="{{ row.trailing }}" show-chevron="{{ row.chevron }}" on-click="{{ row.onClick }}" hint-size="100%,54px"></x-import>
+              </sc-for>
+            </div>
+            <sc-if value="{{ g.note }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:11px;line-height:1.4;color:var(--glass-text-secondary);padding:0 2px;text-wrap:pretty;">{{ g.note }}</div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+</x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 960, &quot;height&quot;: 640 },
+  &quot;theme&quot;:          { &quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;dark&quot;, &quot;options&quot;: [&quot;dark&quot;, &quot;light&quot;], &quot;tsType&quot;: &quot;'dark' | 'light'&quot; },
+  &quot;appName&quot;:        { &quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;Einstellungen&quot;, &quot;tsType&quot;: &quot;string&quot; },
+  &quot;appIconSrc&quot;:     { &quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;../../assets/icons/settings.svg&quot;, &quot;tsType&quot;: &quot;string&quot; },
+  &quot;breadcrumbRoot&quot;: { &quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;Einstellungen&quot;, &quot;tsType&quot;: &quot;string&quot; }
+}">
+class Component extends DCLogic {
+  state = {
+    nav: 'connections', sub: null, mode: 'browse', query: '',
+    showSubtitles: true, sidebarDesc: true, advanced: false,
+    tg: {
+      wifi: true, bt: false, offline: false, dataSaver: false, dataWarn: true, hotspot: false,
+      pairing: true, keyClick: true, sysSounds: true, night: true, trueTone: false,
+      dnd: false, lockPreview: true, badges: true, reduceTransparency: false, reduceMotion: false,
+      autoUpdate: true, autoTime: true, fingerprint: true, faceId: false, diagnostics: false,
+      batterySaver: false, dimScreen: true, syncFiles: true, syncPhotos: false, vpnAuto: false,
+      wifiAsk: true, printerShare: false, monoAudio: false, hdr: true, appPrompt: true, lockNow: true,
+      autocorrect: true, dictation: false, langPerApp: false,
+    },
+    sel: { region: 'Deutschland', language: 'Deutsch', layout: 'Deutsch — QWERTZ' },
+    ap: { mode: 'dark', accent: '#3b82f6', iconStyle: 'default', folder: 'teal' },
+  };
+
+  ACCENTS = [
+    { key: 'blue', hex: '#3b82f6', name: 'Nexus Blau' },
+    { key: 'teal', hex: '#14b8a6', name: 'Teal' },
+    { key: 'green', hex: '#22c55e', name: 'Grün' },
+    { key: 'amber', hex: '#f59e0b', name: 'Amber' },
+    { key: 'orange', hex: '#f97316', name: 'Orange' },
+    { key: 'red', hex: '#d4183d', name: 'Rot' },
+    { key: 'pink', hex: '#ec4899', name: 'Rosé' },
+    { key: 'violet', hex: '#8b5cf6', name: 'Violett' },
+    { key: 'graphite', hex: '#64748b', name: 'Graphit' },
+  ];
+
+  LANGS = ['Deutsch', 'English', '한국어 — Koreanisch', '日本語 — Japanisch', '中文 — Chinesisch'];
+  REGIONS = ['Deutschland', 'Vereinigte Staaten', 'Südkorea', 'Japan', 'China'];
+  LAYOUTS = ['Deutsch — QWERTZ', 'English — QWERTY', 'Koreanisch — Dubeolsik', 'Japanisch — JIS Kana', 'Chinesisch — Pinyin'];
+
+  P = {
+    wifi: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/>',
+    bt: '<polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/>',
+    offline: '<line x1="1" x2="23" y1="1" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/>',
+    data: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>',
+    phone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
+    sliders: '<line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="1" x2="7" y1="14" y2="14"/><line x1="9" x2="15" y1="8" y2="8"/><line x1="17" x2="23" y1="16" y2="16"/>',
+    keyboard: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8"/>',
+    mouse: '<rect width="12" height="18" x="6" y="3" rx="6"/><path d="M12 7v4"/>',
+    printer: '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/>',
+    speaker: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
+    mic: '<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="23"/>',
+    music: '<circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/><path d="M9 18V5l12-2v13"/>',
+    monitor: '<rect width="20" height="15" x="2" y="7" rx="2"/><polyline points="17 2 12 7 7 2"/>',
+    moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/>',
+    zoom: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6M8 11h6"/>',
+    bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+    bellOff: '<path d="M8.7 3A6 6 0 0 1 18 8c0 7 3 9 3 9H7"/><path d="M6 8a6 6 0 0 1 .3-1.9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><line x1="2" x2="22" y1="2" y2="22"/>',
+    image: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-4.35-4.35a2 2 0 0 0-2.83 0L3 21"/>',
+    palette: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="8" r="1.4" fill="currentColor"/><circle cx="8.5" cy="12" r="1.4" fill="currentColor"/><circle cx="15.5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="15.6" r="1.4" fill="currentColor"/>',
+    type: '<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/>',
+    grid: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    globe: '<circle cx="12" cy="12" r="10"/><line x1="2" x2="22" y1="12" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+    user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8.3-8.3"/><path d="m16 5 3 3"/>',
+    battery: '<line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+    cpu: '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/>',
+    info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+    refresh: '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>',
+    file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+  };
+
+  _apRef = React.createRef();
+  _syncAccent() {
+    const el = this._apRef.current;
+    if (el) el.style.setProperty('--ap-accent', this.state.ap.accent);
+  }
+  componentDidMount() { this._waitDS(); this._syncAccent(); }
+  componentDidUpdate() { this._syncAccent(); }
+  componentWillUnmount() { if (this._dsT) clearInterval(this._dsT); }
+  _ns() { return window.AIVAOSDesignSystem_afec52; }
+  _waitDS() {
+    if (this._ns()) return;
+    this._dsT = setInterval(() => { if (this._ns()) { clearInterval(this._dsT); this.forceUpdate(); } }, 60);
+  }
+
+  _ic(paths, size, sw, color) {
+    const DS = this._ns() || {};
+    if (DS.Icon) return React.createElement(DS.Icon, { paths, size: size || 16, strokeWidth: sw || 2, color });
+    return React.createElement('svg', {
+      width: size || 16, height: size || 16, viewBox: '0 0 24 24',
+      fill: 'none', stroke: color || 'currentColor', strokeWidth: sw || 2,
+      strokeLinecap: 'round', strokeLinejoin: 'round',
+      dangerouslySetInnerHTML: { __html: paths },
+    });
+  }
+
+  // ── settings tree ──────────────────────────────────────────────────
+  _tree() {
+    const P = this.P;
+    const T = (title, key, subtitle, icon) => ({ t: 't', title, key, subtitle, icon });
+    const V = (title, value, subtitle, icon) => ({ t: 'v', title, value, subtitle, icon });
+    const N = (title, subtitle, icon, sub) => ({ t: 'n', title, subtitle, icon, sub });
+    const S = (title, key, options, subtitle, icon) => ({ t: 's', title, key, options, subtitle, icon });
+    const sel = this.state.sel;
+    const G = (label, rows, extra) => Object.assign({ label, rows }, extra || {});
+
+    return [
+      { value: 'connections', title: 'Verbindungen', desc: 'WLAN, Internet, Bluetooth, VPN', icon: P.wifi, groups: [
+        G(null, [
+          T('WLAN', 'wifi', 'MyHomeIsWhereMyWifiIs', P.wifi),
+          T('Bluetooth', 'bt', 'AIVA Buds Pro verbunden', P.bt),
+        ]),
+        G(null, [T('Offline-Modus', 'offline', 'Alle Funkverbindungen aus', P.offline)]),
+        G('Netzwerk', [
+          N('Datennutzung', '24,8 GB diesen Monat', P.data, [
+            G('Diesen Zyklus', [V('Mobil', '24,8 GB'), V('WLAN', '112,4 GB'), V('Zyklus endet', '4. August')]),
+            G('Sparen', [T('Datensparmodus', 'dataSaver'), T('Warnung bei Limit', 'dataWarn'), V('Limit', '30 GB')], { note: 'Bei Erreichen des Limits werden Hintergrunddaten für Apps ohne Freigabe pausiert.' }),
+          ]),
+          N('Tethering & Hotspot', 'Aus', P.phone, [
+            G(null, [T('Mobiler Hotspot', 'hotspot'), V('Netzname', 'Nexus-Hotspot'), V('Sicherheit', 'WPA3')]),
+            G('Geräte', [V('Verbunden', 'Keine Geräte')]),
+          ]),
+        ]),
+        G('Weitere', [
+          N('VPN', 'Nexus Secure', P.shield, [
+            G(null, [T('Automatisch verbinden', 'vpnAuto'), V('Profil', 'Nexus Secure'), V('Status', 'Getrennt')]),
+          ]),
+          N('Erweiterte Einstellungen', 'DNS, Proxy, Privates WLAN', P.sliders, [
+            G(null, [V('DNS', 'Automatisch'), V('Proxy', 'Aus'), T('Nach Netzwerken fragen', 'wifiAsk')]),
+          ]),
+        ]),
+      ] },
+
+      { value: 'devices', title: 'Verbundene Geräte', desc: 'Eingabegeräte, Drucker', icon: P.mouse, groups: [
+        G('Aktuell verbunden', [
+          V('Nexus Keyboard', 'Akku 84 %', 'Bluetooth', P.keyboard),
+          V('Nexus Trackpad', 'Akku 61 %', 'Bluetooth', P.mouse),
+        ]),
+        G('Verwalten', [
+          T('Kopplungsmodus', 'pairing', 'Neue Geräte können dieses Gerät finden', P.bt),
+          N('Drucker & Scanner', '2 Geräte', P.printer, [
+            G(null, [V('Nexus LaserJet', 'Bereit'), V('Büro EG', 'Offline'), T('Drucker freigeben', 'printerShare')]),
+          ]),
+        ]),
+      ] },
+
+      { value: 'sound', title: 'Sound & Töne', desc: 'Ausgabe, Eingabe, Tonmodus', icon: P.speaker, groups: [
+        G('Ausgabe', [
+          V('Ausgabegerät', 'AIVA Buds Pro', null, P.speaker),
+          V('Lautstärke', '64 %', null, P.music),
+        ]),
+        G('Eingabe', [V('Mikrofon', 'Internes Mikrofon', null, P.mic)]),
+        G('Systemtöne', [
+          T('Tastenklick', 'keyClick'),
+          T('Systemtöne', 'sysSounds'),
+          N('Tonmodus & Zeitplan', 'Standard', P.clock, [
+            G(null, [V('Modus', 'Standard'), V('Nachtabsenkung', '22:00 – 07:00')]),
+          ]),
+        ]),
+        G('Barrierefreiheit', [T('Mono-Audio', 'monoAudio')], { advanced: true }),
+      ] },
+
+      { value: 'display', title: 'Monitore', desc: 'Auflösung, Nachtmodus', icon: P.monitor, groups: [
+        G('Integriertes Display', [
+          V('Auflösung', '2560 × 1600', 'Standard für Display', P.monitor),
+          V('Bildwiederholrate', '120 Hz', null, P.refresh),
+          V('Helligkeit', '78 %', null, P.sun),
+        ]),
+        G('Darstellung', [
+          T('Nachtmodus', 'night', '21:30 – 07:00', P.moon),
+          T('HDR', 'hdr'),
+          N('Skalierung & Textgröße', '100 %', P.zoom, [
+            G(null, [V('Skalierung', '100 %'), V('Textgröße', 'Standard'), V('Fettschrift', 'Aus')]),
+          ]),
+        ]),
+      ] },
+
+      { value: 'notif', title: 'Benachrichtigungen', desc: 'Statusleiste, Nicht Stören', icon: P.bell, groups: [
+        G(null, [
+          T('Nicht stören', 'dnd', 'Aus', P.bellOff),
+          N('Zeitplan', 'Werktags 23:00 – 06:30', P.clock, [
+            G(null, [V('Werktags', '23:00 – 06:30'), V('Wochenende', 'Aus'), V('Ausnahmen', 'Favoriten, Wiederholte Anrufe')]),
+          ]),
+        ]),
+        G('Anzeige', [
+          T('Vorschau auf Sperrbildschirm', 'lockPreview'),
+          T('Zähler auf App-Symbolen', 'badges'),
+        ]),
+        G('Pro App', [
+          N('App-Benachrichtigungen', '48 Apps', P.grid, [
+            G(null, [V('Mail', 'Alle erlauben'), V('Kalender', 'Nur Banner'), V('Nachrichten', 'Alle erlauben'), V('Spiele', 'Stumm')]),
+          ]),
+        ]),
+      ] },
+
+      { value: 'personal', title: 'Personalisierung', desc: 'Hintergrund, Erscheinungsbild', icon: P.palette, groups: [
+        G('Darstellung', [
+          N('Hintergrund', 'Nexus Aurora', P.image, [
+            G(null, [V('Aktuell', 'Nexus Aurora'), V('Quelle', 'Systemgalerie'), V('Wechsel', 'Täglich')]),
+          ]),
+          Object.assign(N('Erscheinungsbild', this._apSubtitle(), P.palette, []), { view: 'appearance' }),
+        ]),
+        G('Typografie', [V('Systemschrift', 'Inter', null, P.type)]),
+        G('Effekte', [
+          T('Transparenz reduzieren', 'reduceTransparency'),
+          T('Bewegung reduzieren', 'reduceMotion'),
+        ]),
+      ] },
+
+      { value: 'apps', title: 'Apps', desc: 'Standard Apps', icon: P.grid, groups: [
+        G(null, [
+          N('Standard-Apps', 'Browser, Mail, Musik', P.grid, [
+            G(null, [V('Browser', 'Nexus Web'), V('Mail', 'Nexus Mail'), V('Musik', 'Nexus Audio')]),
+          ]),
+          N('Berechtigungen', 'Kamera, Mikrofon, Standort', P.lock, [
+            G(null, [V('Kamera', '4 Apps'), V('Mikrofon', '2 Apps'), V('Standort', '6 Apps'), V('Dateien', '9 Apps')]),
+          ]),
+        ]),
+        G('Verwalten', [
+          T('Automatische Updates', 'autoUpdate'),
+          T('Vor Installation fragen', 'appPrompt'),
+          V('Installiert', '48 Apps', null, P.file),
+        ]),
+      ] },
+
+      { value: 'general', title: 'Allgemeine Verwaltung', desc: 'Zeit, Sprache, Region', icon: P.globe, groups: [
+        G('Datum & Zeit', [
+          T('Automatisch stellen', 'autoTime', null, P.clock),
+          V('Zeitzone', 'Berlin (GMT+2)'),
+        ]),
+        G('Sprache & Region', [
+          N('Systemsprache', sel.language, P.globe, [
+            G('Region', [
+              S('Land / Region', 'region', this.REGIONS, 'Bestimmt Zahlen-, Datums- und Währungsformat', P.globe),
+              S('Systemsprache', 'language', this.LANGS, 'Sprache der Oberfläche und Systemtexte', P.type),
+            ], { note: 'Die Systemsprache wird nach dem Abmelden vollständig übernommen. Apps ohne Übersetzung nutzen weiterhin Englisch.' }),
+            G('Eingabe', [
+              S('Tastaturlayout', 'layout', this.LAYOUTS, 'Physische und Bildschirmtastatur', P.keyboard),
+              T('Autokorrektur', 'autocorrect'),
+              T('Diktat', 'dictation', 'Erkennt die gewählte Systemsprache'),
+              T('Sprache pro App festlegen', 'langPerApp'),
+            ]),
+          ]),
+          N('Tastatur & Eingabe', sel.layout, P.keyboard, [
+            G('Layout', [S('Tastaturlayout', 'layout', this.LAYOUTS, null, P.keyboard)]),
+            G('Verhalten', [T('Autokorrektur', 'autocorrect'), T('Diktat', 'dictation')]),
+          ]),
+        ]),
+        G('Zurücksetzen', [
+          N('Zurücksetzen', 'Einstellungen, Netzwerk, Gerät', P.refresh, [
+            G(null, [V('Einstellungen zurücksetzen', 'Ohne Datenverlust'), V('Netzwerk zurücksetzen', 'WLAN, Bluetooth, VPN'), V('Gerät zurücksetzen', 'Alle Daten löschen')], { note: 'Ein Gerät-Reset entfernt alle Accounts, Apps und lokalen Dateien.' }),
+          ]),
+        ]),
+      ] },
+
+      { value: 'accounts', title: 'Accounts', desc: 'Verwalten', icon: P.user, groups: [
+        G(null, [V('AIVA Account', 'jenning@nexus.os', 'Jenning Schäfer', P.user)]),
+        G('Synchronisierung', [
+          T('Dateien', 'syncFiles'),
+          T('Fotos', 'syncPhotos'),
+          N('Weitere Accounts', '2 Accounts', P.users, [
+            G(null, [V('Arbeit', 'Exchange'), V('Familie', 'Nexus Family')]),
+          ]),
+        ]),
+        G('Hinzufügen', [V('Account hinzufügen', '', null, P.plus)]),
+      ] },
+
+      { value: 'privacy', title: 'Datenschutz & Sicherheit', desc: 'Biometrische Daten', icon: P.shield, groups: [
+        G('Entsperren', [
+          T('Fingerabdruck', 'fingerprint', '2 Finger registriert', P.key),
+          T('Gesichtserkennung', 'faceId', 'Nicht eingerichtet', P.eye),
+        ]),
+        G('Sperrbildschirm', [
+          T('Sofort sperren', 'lockNow'),
+          N('Sperrbildschirm', 'Widgets, Kurzbefehle', P.lock, [
+            G(null, [V('Widgets', 'Wetter, Kalender'), V('Kurzbefehle', 'Kamera, Taschenlampe')]),
+          ]),
+        ]),
+        G('Daten', [
+          T('Diagnosedaten senden', 'diagnostics'),
+          N('Berechtigungsprotokoll', 'Letzte 7 Tage', P.file, [
+            G(null, [V('Standortzugriffe', '14'), V('Mikrofonzugriffe', '3'), V('Kamerazugriffe', '1')]),
+          ]),
+        ]),
+      ] },
+
+      { value: 'power', title: 'Energie Sparen', desc: 'Akkuschutz, Verbrauch', icon: P.battery, groups: [
+        G(null, [
+          V('Akku', '82 %', 'Etwa 6 Std. 40 Min. verbleibend', P.battery),
+          T('Akkuschutz', 'batterySaver', 'Laden auf 80 % begrenzen'),
+        ]),
+        G('Sparen', [
+          T('Bildschirm dimmen', 'dimScreen'),
+          N('Verbrauch pro App', 'Letzte 24 Stunden', P.cpu, [
+            G(null, [V('Nexus Web', '28 %'), V('Nexus Mail', '12 %'), V('System', '9 %')]),
+          ]),
+        ]),
+      ] },
+
+      { value: 'info', title: 'Geräte Info', desc: 'Status, Hardware', icon: P.info, groups: [
+        G('Gerät', [
+          V('Modell', 'Nexus Studio 14', null, P.cpu),
+          V('OS-Version', 'open nexus OS 3.2', 'Build 2026.07.14', P.info),
+          V('Speicher', '312 GB von 1 TB frei', null, P.data),
+        ]),
+        G('System', [
+          N('Systemupdate', 'System ist aktuell', P.refresh, [
+            G(null, [V('Aktuelle Version', '3.2 (2026.07.14)'), V('Letzte Prüfung', 'Heute, 09:12'), V('Automatisch laden', 'Ein')]),
+          ]),
+          N('Rechtliche Hinweise', 'Lizenzen, Zertifikate', P.file, [
+            G(null, [V('Open-Source-Lizenzen', ''), V('Zertifikate', ''), V('Regulatorische Hinweise', '')]),
+          ]),
+        ]),
+      ] },
+    ];
+  }
+
+  // ── appearance ────────────────────────────────────────────────────
+  _accent() { return this.state.ap.accent; }
+  _accentName() { const a = this.ACCENTS.find((x) => x.hex === this.state.ap.accent); return a ? a.name : 'Eigene Farbe'; }
+  _modeLabel() { return { light: 'Hell', dark: 'Dunkel', auto: 'Automatisch' }[this.state.ap.mode]; }
+  _iconStyleLabel() { return { default: 'Standard', dark: 'Dunkel', clear: 'Klar', tinted: 'Getönt' }[this.state.ap.iconStyle]; }
+  _apSubtitle() { return this._modeLabel() + ' · ' + this._accentName() + ' · Icons ' + this._iconStyleLabel(); }
+
+  _apSet(field, value) { return () => this.setState((s) => ({ ap: Object.assign({}, s.ap, { [field]: value }) })); }
+  _apPick(field, keys) {
+    const sel = {}; const set = {};
+    keys.forEach((k) => { sel[k] = this.state.ap[field] === k; set[k] = this._apSet(field, k); });
+    return { sel, set };
+  }
+  _apAccentPick() {
+    const sel = {}; const set = {};
+    this.ACCENTS.forEach((a) => { sel[a.key] = this.state.ap.accent === a.hex; set[a.key] = this._apSet('accent', a.hex); });
+    return { sel, set };
+  }
+
+  // ── helpers ───────────────────────────────────────────────────────
+  _section(value) { return this._tree().find((s) => s.value === value) || this._tree()[0]; }
+
+  _goto(nav, sub) { this.setState({ nav, sub: sub || null, mode: 'browse', query: '' }); }
+  _openRow(sectionValue, r) { this._goto(sectionValue, { title: r.title, groups: r.sub || [], view: r.view || null }); }
+
+  _tgNode(key) {
+    const DS = this._ns() || {};
+    if (!DS.GlassToggle) return null;
+    return React.createElement(DS.GlassToggle, {
+      checked: !!this.state.tg[key],
+      onChange: (v) => this.setState((s) => ({ tg: Object.assign({}, s.tg, { [key]: v }) })),
+    });
+  }
+
+  _selNode(key, options) {
+    const DS = this._ns() || {};
+    if (!DS.Select) return null;
+    return React.createElement(DS.Select, {
+      options, size: 'sm', value: this.state.sel[key],
+      onChange: (v) => this.setState((s) => ({ sel: Object.assign({}, s.sel, { [key]: v }) })),
+      style: { minWidth: 196 },
+    });
+  }
+
+  _valNode(text) {
+    if (!text) return null;
+    return React.createElement('span', { style: { fontSize: 12.5, fontWeight: 500, color: 'var(--glass-text-secondary)', whiteSpace: 'nowrap' } }, text);
+  }
+
+  // map data rows → view rows (nodes + handlers)
+  _viewGroups(groups, sectionValue) {
+    const out = [];
+    (groups || []).forEach((g) => {
+      if (g.advanced && !this.state.advanced) return;
+      const rows = (g.rows || []).map((r, i) => ({
+        icon: r.icon ? this._ic(r.icon, 16) : null,
+        title: r.title,
+        subtitle: this.state.showSubtitles ? (r.subtitle || null) : null,
+        trailing: r.t === 't' ? this._tgNode(r.key) : (r.t === 'v' ? this._valNode(r.value) : (r.t === 's' ? this._selNode(r.key, r.options) : null)),
+        chevron: r.t === 'n',
+        onClick: r.t === 'n' ? () => this._openRow(sectionValue, r) : null,
+        notFirst: i > 0,
+      }));
+      out.push({ label: g.label || null, note: g.note || null, rows });
+    });
+    return out;
+  }
+
+  _index() {
+    const idx = [];
+    this._tree().forEach((sec) => {
+      (sec.groups || []).forEach((g) => (g.rows || []).forEach((r) => {
+        idx.push({ sec, row: r, path: sec.title, sub: null });
+        if (r.t === 'n') {
+          (r.sub || []).forEach((sg) => (sg.rows || []).forEach((sr) => {
+            idx.push({ sec, row: sr, path: sec.title + ' › ' + r.title, sub: { title: r.title, groups: r.sub || [] } });
+          }));
+        }
+      }));
+    });
+    return idx;
+  }
+
+  renderVals() {
+    const DS = this._ns() || {};
+    const { Sidebar, Breadcrumbs, WindowButton, Avatar, Menu, Chip } = DS;
+    const ic = (p, s, sw, c) => this._ic(p, s, sw, c);
+    const P = this.P;
+    const st = this.state;
+    const theme = this.props.theme ?? 'dark';
+    const appName = this.props.appName ?? 'Einstellungen';
+    const appIconSrc = this.props.appIconSrc ?? '../../assets/icons/settings.svg';
+    const rootLabel = this.props.breadcrumbRoot ?? 'Einstellungen';
+    const tree = this._tree();
+    const sec = this._section(st.nav);
+    const wbtn = (title, node, extra) => WindowButton ? React.createElement(WindowButton, Object.assign({ title }, extra || {}), node) : null;
+
+    // ── chrome ─────────────────────────────────────────────────────
+    const leading = React.createElement('div',
+      { style: { display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }, onClick: () => this.setState({ mode: 'overview', sub: null, query: '' }) },
+      React.createElement('div',
+        { style: { width: 32, height: 32, borderRadius: 9, background: 'var(--glass-window-chip-bg)', border: '1px solid var(--glass-window-chip-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' } },
+        React.createElement('img', { src: appIconSrc, alt: appName, style: { width: 22, height: 22, objectFit: 'contain' } }),
+      ),
+      ic('<path d="m6 9 6 6 6-6"/>', 11, 2.5, 'var(--glass-text-secondary)'),
+    );
+    const tbDivider = React.createElement('div', { style: { width: 1, height: 16, background: 'var(--glass-divider)', margin: '0 4px' } });
+    const back = () => {
+      if (st.mode === 'search') this.setState({ mode: 'browse', query: '' });
+      else if (st.sub) this.setState({ sub: null });
+      else this.setState({ mode: 'overview' });
+    };
+    const canBack = st.mode !== 'overview';
+    const toolbar = React.createElement(React.Fragment, null,
+      wbtn('Zurück', ic('<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>', 14), { onClick: back, style: { opacity: canBack ? 1 : 0.4, pointerEvents: canBack ? 'auto' : 'none' } }),
+      wbtn('Vorwärts', ic('<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>', 14), { style: { opacity: 0.4, pointerEvents: 'none' } }),
+      tbDivider,
+      wbtn('Suche', ic(P.search, 14), {
+        active: st.mode === 'search',
+        onClick: () => this.setState((s) => (s.mode === 'search' ? { mode: 'browse', query: '' } : { mode: 'search' })),
+      }),
+    );
+
+    // three-dot menu
+    const menuItems = [
+      { label: 'Ansicht', header: true },
+      { label: 'Beschreibungen anzeigen', checked: st.showSubtitles, icon: ic(P.file, 15), onSelect: () => this.setState((s) => ({ showSubtitles: !s.showSubtitles })) },
+      { label: 'Sidebar kompakt', checked: !st.sidebarDesc, icon: ic(P.sliders, 15), onSelect: () => this.setState((s) => ({ sidebarDesc: !s.sidebarDesc })) },
+      { label: 'Erweiterte Optionen', checked: st.advanced, icon: ic(P.cpu, 15), onSelect: () => this.setState((s) => ({ advanced: !s.advanced })) },
+      { divider: true },
+      { label: 'Alle Einstellungen durchsuchen', icon: ic(P.search, 15), shortcut: '⌘F', onSelect: () => this.setState({ mode: 'search' }) },
+      { label: 'Übersicht', icon: ic(P.grid, 15), shortcut: '⌘0', onSelect: () => this.setState({ mode: 'overview', sub: null, query: '' }) },
+      { label: 'Zu dieser Seite springen', icon: ic(P.plus, 15), submenu: tree.slice(0, 6).map((s) => ({ label: s.title, icon: ic(s.icon, 15), onSelect: () => this._goto(s.value) })) },
+      { divider: true },
+      { label: 'Hilfe', icon: ic(P.info, 15), submenu: [
+        { label: 'Tastaturkürzel', shortcut: '⌘/' },
+        { label: 'Support kontaktieren' },
+        { label: 'Über open nexus OS' },
+      ] },
+      { label: 'Einstellungen zurücksetzen', icon: ic(P.trash, 15), destructive: true, onSelect: () => this._goto('general', { title: 'Zurücksetzen', groups: this._section('general').groups[2].rows[0].sub }) },
+    ];
+    const trailing = Menu
+      ? React.createElement(Menu, { items: menuItems, placement: 'bottom-end', width: 268, trigger: wbtn('Mehr', ic('<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>', 14)) })
+      : null;
+
+    // ── sidebar ────────────────────────────────────────────────────
+    const navItems = tree.map((n) => ({
+      value: n.value, icon: ic(n.icon),
+      label: React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0, lineHeight: 1.25 } },
+        React.createElement('span', { style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, n.title),
+        st.sidebarDesc ? React.createElement('span', { style: { fontSize: 10, fontWeight: 400, opacity: 0.65, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, n.desc) : null,
+      ),
+    }));
+    const sidebarHeader = React.createElement('div',
+      { style: { margin: '-14px -14px 0', padding: '13px 16px 11px', borderBottom: '1px solid var(--glass-divider)' } },
+      React.createElement('span', { style: { fontSize: 12, fontWeight: 600, color: 'var(--glass-text-secondary)', cursor: 'pointer' }, onClick: () => this.setState({ mode: 'overview', sub: null, query: '' }) }, appName),
+    );
+    const accountFooter = React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }, onClick: () => this._goto('accounts') },
+      Avatar ? React.createElement(Avatar, { initials: 'J', size: 34, status: 'online' }) : null,
+      React.createElement('div', { style: { minWidth: 0 } },
+        React.createElement('div', { style: { fontSize: 12, fontWeight: 500, color: 'var(--glass-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, 'Jenning Schäfer'),
+        React.createElement('div', { style: { fontSize: 10, color: 'var(--glass-text-secondary)' } }, 'AIVA Account'),
+      ),
+    );
+    const sidebar = Sidebar ? React.createElement(Sidebar, {
+      items: navItems, value: st.mode === 'overview' ? null : st.nav,
+      onChange: (v) => this._goto(v),
+      header: sidebarHeader, footer: accountFooter, width: '100%', variant: 'plain',
+      style: { width: '100%', height: '100%' },
+    }) : null;
+
+    // ── breadcrumbs ────────────────────────────────────────────────
+    let crumbs = [{ label: rootLabel, value: 'root' }];
+    if (st.mode === 'search') crumbs.push({ label: 'Suche', value: 'search' });
+    else if (st.mode === 'browse') {
+      crumbs.push({ label: sec.title, value: 'section' });
+      if (st.sub) crumbs.push({ label: st.sub.title, value: 'sub' });
+    }
+    const contentHeader = Breadcrumbs ? React.createElement(Breadcrumbs, {
+      items: crumbs,
+      onNavigate: (value) => {
+        if (value === 'root') this.setState({ mode: 'overview', sub: null, query: '' });
+        else if (value === 'section') this.setState({ mode: 'browse', sub: null, query: '' });
+      },
+    }) : null;
+
+    const contentActions = st.mode === 'browse' && !st.sub && DS.GlassButton
+      ? React.createElement(DS.GlassButton, { variant: 'glass', size: 'sm', onClick: () => this.setState({ mode: 'search' }) }, 'In ' + sec.title + ' suchen')
+      : null;
+
+    // ── search ─────────────────────────────────────────────────────
+    const q = (st.query || '').trim().toLowerCase();
+    const idx = this._index();
+    const matched = q
+      ? idx.filter((e) => (e.row.title + ' ' + (e.row.subtitle || '') + ' ' + (e.row.value || '') + ' ' + (e.row.options ? e.row.options.join(' ') : '') + ' ' + e.path).toLowerCase().includes(q)).slice(0, 12)
+      : idx.filter((e) => e.sec.value === st.nav).slice(0, 6);
+    const results = matched.map((e, i) => ({
+      icon: e.row.icon ? ic(e.row.icon, 16) : ic(e.sec.icon, 16),
+      title: e.row.title,
+      path: e.path,
+      trailing: e.row.t === 't' ? this._tgNode(e.row.key) : (e.row.t === 'v' ? this._valNode(e.row.value) : (e.row.t === 's' ? this._valNode(this.state.sel[e.row.key]) : null)),
+      chevron: e.row.t === 'n' || !!e.sub,
+      onClick: () => this._goto(e.sec.value, e.sub || (e.row.t === 'n' ? { title: e.row.title, groups: e.row.sub || [], view: e.row.view || null } : null)),
+      notFirst: i > 0,
+    }));
+    const sugLabels = ['Bluetooth', 'Auflösung', 'Sprache', 'Akku', 'Berechtigungen'];
+    const suggestions = sugLabels.map((l) => ({
+      label: l, selected: q === l.toLowerCase(),
+      onClick: () => this.setState((s) => ({ query: s.query.trim().toLowerCase() === l.toLowerCase() ? '' : l })),
+    }));
+
+    const activeGroups = st.sub ? this._viewGroups(st.sub.groups, st.nav) : this._viewGroups(sec.groups, st.nav);
+
+    return {
+      theme, winWidth: 900, winHeight: 600, navWidth: 264,
+      leading, toolbar, trailing, sidebar, contentHeader, contentActions,
+      noop: () => {},
+
+      isSearch: st.mode === 'search',
+      isOverview: st.mode === 'overview',
+      isBrowse: st.mode === 'browse' && !(st.sub && st.sub.view === 'appearance'),
+      isAppearance: st.mode === 'browse' && !!(st.sub && st.sub.view === 'appearance'),
+
+      apMode: this._apPick('mode', ['light', 'dark', 'auto']),
+      apAutoNote: st.ap.mode === 'auto',
+      gotoDisplay: () => this._goto('display'),
+      apRef: this._apRef,
+      accentPick: this._apAccentPick(),
+      accentName: this._accentName(),
+      iconPick: this._apPick('iconStyle', ['default', 'dark', 'clear', 'tinted']),
+      iconStyleLabel: this._iconStyleLabel(),
+      folderPick: this._apPick('folder', ['teal', 'accent', 'violet', 'amber', 'rose', 'graphite']),
+
+      query: st.query,
+      setQuery: (v) => this.setState({ query: v }),
+      suggestions,
+      results,
+      hasResults: st.mode === 'search' && results.length > 0,
+      noResults: st.mode === 'search' && q.length > 0 && results.length === 0,
+      resultLabel: q ? results.length + (results.length === 1 ? ' Treffer' : ' Treffer') : 'Zuletzt in ' + sec.title,
+
+      groups: activeGroups,
+      overviewCards: tree.map((s) => ({ icon: ic(s.icon, 17), title: s.title, desc: s.desc, onClick: () => this._goto(s.value) })),
+    };
+  }
+}
+</script>
+</body>
+</html>

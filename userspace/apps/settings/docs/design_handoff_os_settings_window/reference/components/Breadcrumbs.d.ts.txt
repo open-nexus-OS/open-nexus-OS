@@ -1,0 +1,21 @@
+import React from 'react';
+
+export interface Crumb {
+  label: string;
+  value: string;
+}
+
+/**
+ * Breadcrumbs — path navigation trail; chevron-separated links with the
+ * current page bold and non-interactive.
+ *
+ * @example
+ * <Breadcrumbs items={['Home', 'Dokumente', 'Bericht.pdf']} onNavigate={(v, i) => go(i)} />
+ */
+export interface BreadcrumbsProps {
+  /** Crumbs as strings or {label, value} objects */
+  items: (string | Crumb)[];
+  /** Fired with (value, index) when a non-last crumb is clicked */
+  onNavigate?: (value: string, index: number) => void;
+  style?: React.CSSProperties;
+}

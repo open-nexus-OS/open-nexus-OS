@@ -1,0 +1,60 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One settings row (handoff `ListItem`): leading icon · title · subtitle ·
+// trailing control · optional chevron.
+//
+// NOT the `ListItem` widget: that kit builder takes title/subtitle/chevron but
+// its leading and trailing regions are not wired to the DSL, and every
+// interesting settings row IS its trailing control. So the row is composed
+// here and the control arrives through the `trailing` slot.
+//
+// `minHeight` rather than a fixed height: a row with a subtitle is two lines
+// and one without is one, exactly as the handoff's `Beschreibungen anzeigen`
+// switch implies. 52 keeps even the one-line form above the 44px touch floor.
+//
+// The row paints no hit surface of its own — the caller wraps the instance in
+// a `Stack` to carry `on Tap`, because handlers bind to nodes and not to
+// component references.
+
+Component SetRow {
+    props: {
+        title: Str,
+        subtitle: Str,
+        icon: Str,
+        showChevron: Bool,
+    }
+    slot trailing
+    Stack {
+        if $props.icon != "" {
+            Icon { symbol: $props.icon, size: 16 }
+                .fg(onGlassMuted)
+        } else {
+            Stack { }
+                .width(16)
+        }
+        Stack {
+            Text($props.title).textSize(sm).fontWeight(medium).fg(onGlass)
+            if $props.subtitle != "" {
+                Text($props.subtitle).textSize(xs).fg(onGlassMuted)
+            } else {
+                Stack { }
+            }
+        }
+        .gap(0)
+        .grow(1)
+        Slot trailing
+        if $props.showChevron {
+            Icon { symbol: "chevron.right", size: 14 }
+                .fg(onGlassMuted)
+        } else {
+            Stack { }
+        }
+    }
+    .direction(row)
+    .align(center)
+    .gap(3)
+    .paddingX(4)
+    .paddingY(2)
+    .minHeight(52)
+}

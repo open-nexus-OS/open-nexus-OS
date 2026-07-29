@@ -1,0 +1,20 @@
+/**
+ * Icon — minimal Lucide-style SVG renderer for AIVA OS window chrome.
+ * Pass the raw inner SVG markup (Lucide path data) as `paths`.
+ *
+ * @example
+ * <Icon paths='<path d="M5 12h14"/>' size={14} strokeWidth={2.5} />
+ */
+export interface IconProps {
+  /** Raw inner SVG markup (Lucide path/line/circle elements), viewBox 0 0 24 24 */
+  paths: string;
+  /** Pixel size (width = height). Default: 16 */
+  size?: number;
+  /** Stroke width. Default: 2 */
+  strokeWidth?: number;
+  /** SVG fill. Default: 'none' */
+  fill?: string;
+  /** Stroke color. Default: 'currentColor' */
+  color?: string;
+  style?: React.CSSProperties;
+}
