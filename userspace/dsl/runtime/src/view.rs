@@ -42,6 +42,10 @@ pub struct View<'p> {
     initial_effects: Vec<(u32, u32)>,
     /// Guards the initial-load effects to run exactly once.
     initial_effects_fired: bool,
+    /// Platform SAFE AREA: surface rows at the top that belong to the shell
+    /// status bar. Re-applied to the scene root on every emit, so a re-emit
+    /// (navigate, theme swap, size-class re-select) can never lose it.
+    safe_area_top: nexus_layout_types::FxPx,
 }
 
 impl<'p> View<'p> {
@@ -80,6 +84,7 @@ impl<'p> View<'p> {
             keys,
             initial_effects,
             initial_effects_fired: false,
+            safe_area_top: nexus_layout_types::FxPx::ZERO,
         };
         view.emit(tokens, device, locale).map_err(MountError::Rt)?;
         Ok(view)
@@ -118,6 +123,27 @@ impl<'p> View<'p> {
             }
         }
         Ok(damage)
+    }
+
+    /// Reserve `top` surface rows at the top of the page for shell chrome.
+    ///
+    /// The compositor owns this number — it alone knows the status-bar height
+    /// AND whether this particular window is maximized. Applying it here means
+    /// every app gets it for free and no page restates the bar's height; the
+    /// one app that used to hard-code a spacer (`settings`, at 40px against a
+    /// 36px bar) drops it.
+    ///
+    /// Returns whether it could be applied — a leaf page root cannot be
+    /// padded, and the caller should say so rather than render under the bar.
+    pub fn set_safe_area_top(&mut self, top: nexus_layout_types::FxPx) -> bool {
+        let delta = top - self.safe_area_top;
+        self.safe_area_top = top;
+        if delta == nexus_layout_types::FxPx::ZERO {
+            return true;
+        }
+        // Adjust the LIVE scene too: the caller relayouts right after, and a
+        // re-emit is not guaranteed to happen in between.
+        self.scene.inset_top(delta)
     }
 
     /// The retained scene (feed to `LayoutEngine`/painter).
@@ -419,6 +445,11 @@ impl<'p> View<'p> {
             slots: None,
         };
         self.scene = emit::emit_view(&mut ctx, view_root)?;
+        // The status-bar rows the compositor reserved. Applied HERE, after
+        // every emit, because the scene is rebuilt from scratch each time.
+        if self.safe_area_top > nexus_layout_types::FxPx::ZERO {
+            let _ = self.scene.inset_top(self.safe_area_top);
+        }
         // Resolve handler paths to pre-order box ids against the new scene.
         self.handlers.clear();
         for entry in handlers {

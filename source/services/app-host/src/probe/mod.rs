@@ -38,6 +38,7 @@ mod clock;
 mod env;
 mod interaction;
 mod locale;
+mod mount;
 mod paint;
 mod presentation;
 mod scroll;
@@ -241,18 +242,18 @@ pub(super) fn run() -> Result<(), &'static str> {
         && level != wire::WIN_LEVEL_OVERLAY
         && mode != wire::WIN_MODE_FULLSCREEN;
     let win = WindowIntent { style, level, mode, nonce };
-    let (mut surf_w, mut surf_h) = if level == wire::WIN_LEVEL_DESKTOP
+    let (mut safe_top, mut surf_w, mut surf_h) = if level == wire::WIN_LEVEL_DESKTOP
         || level == wire::WIN_LEVEL_OVERLAY
         || matches!(mode, wire::WIN_MODE_FULLSCREEN | wire::WIN_MODE_FREEFORM)
     {
         compositor_owned_geometry(&client, &events, &win, &mut boot_region)?
     } else {
-        (SURFACE_W as u32, SURFACE_H as u32)
+        (0, SURFACE_W as u32, SURFACE_H as u32)
     };
     // Content rect arriving DURING an ack wait (windowd's corrective push
     // after a small create) — stashed by `recv_ack` instead of dropped,
     // applied by the event loop as if it had just been received.
-    let mut pending_rect: Option<(u16, u16)> = None;
+    let mut pending_rect: Option<(u16, u16, u16)> = None;
     // The last-APPLIED region push (locale/tz/keymap/hour). REMOUNTS
     // (theme toggle, profile switch) rebuild the DslApp from the payload
     // and must re-apply it — or a tablet/theme switch silently falls
@@ -286,6 +287,9 @@ pub(super) fn run() -> Result<(), &'static str> {
         168
     };
     let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
+    if let Some(dsl) = app.as_mut() {
+        dsl.apply_safe_area_top(safe_top);
+    }
     // Drain the still-queued attach-burst REGION frame before the first
     // render (see `boot::drain_region` — the launched-chat "English
     // despite de-DE" gap).
@@ -447,8 +451,11 @@ pub(super) fn run() -> Result<(), &'static str> {
     loop {
         // A rect stashed during an ack wait (`recv_ack`) is replayed here
         // as if it had just been received — same resize path, no drop.
-        let len = if let Some((rw, rh)) = pending_rect.take() {
-            let f = wire::encode_surface_rect(0, 0, rw, rh);
+        let len = if let Some((inset, rw, rh)) = pending_rect.take() {
+            // Replay the stashed rect VERBATIM — dropping `inset` here would
+            // lose the safe area on exactly the create-time corrective push
+            // that this stash exists to rescue.
+            let f = wire::encode_surface_rect(0, inset, rw, rh);
             event_frame[..f.len()].copy_from_slice(&f);
             f.len()
         } else {
@@ -565,10 +572,19 @@ pub(super) fn run() -> Result<(), &'static str> {
         // Classify the frame: present-ack (flow control) vs input vs theme vs other.
         if wire::decode_surface_ack(&event_frame[..len], wire::OP_SURFACE_PRESENT).is_some() {
             present_in_flight = false;
-        } else if let Some((_, _, rw, rh)) = wire::decode_surface_rect(&event_frame[..len]) {
+        } else if let Some((_, inset, rw, rh)) = wire::decode_surface_rect(&event_frame[..len]) {
             // WM resize (the compositor owns geometry): re-layout at the
             // new size, then run the SHARED surface re-create below.
             let (nw, nh) = (u32::from(rw), u32::from(rh));
+            // The safe area rides the SAME frame as the size, so a maximize
+            // never shows one without the other.
+            if u32::from(inset) != safe_top {
+                safe_top = u32::from(inset);
+                if let Some(dsl) = app.as_mut() {
+                    dsl.apply_safe_area_top(safe_top);
+                }
+                recreate_surface = true;
+            }
             if nw > 0 && nh > 0 && (nw, nh) != (surf_w, surf_h) {
                 surf_w = nw;
                 surf_h = nh;
@@ -863,7 +879,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                             // rejected BAD_SEQ and the frame never shows.
                             seq = 0;
                             present_in_flight = false;
-                            dirty = true;
+                            (dirty, dirty_rows) = (true, None); // see `submit_layers`
                             raw_marker("apphost: resized");
                             // Fresh surface id: re-arm parked pulses.
                             if app.as_ref().map(|d| d.anim_active()).unwrap_or(false) {
@@ -942,126 +958,5 @@ fn nsec_now() -> u64 {
     #[cfg(not(nexus_env = "os"))]
     {
         0
-    }
-}
-
-impl DslApp {
-    /// Validates + mounts the program bytes and lays them out at
-    /// surface size. `None` on any failure (fail-closed; caller shows
-    /// the probe fill).
-    fn mount(
-        nxir: &'static [u8],
-        w: u32,
-        h: u32,
-        theme_mode: u8,
-        shell_profile: u8,
-        base_alpha: u8,
-    ) -> Option<Self> {
-        Self::mount_restoring(nxir, w, h, theme_mode, shell_profile, base_alpha, None)
-    }
-
-    /// [`Self::mount`] + an optional store snapshot from the PREVIOUS
-    /// mount of the same program. A live re-theme is a drop-first remount
-    /// — without this, every store reset to its defaults (open Control
-    /// Center snapped shut ~1.5s after a moon/sun tap, sliders jumped
-    /// back). Restored BEFORE the initial effects so service-loaded data
-    /// still refreshes over the stale copy.
-    #[allow(clippy::too_many_arguments)]
-    fn mount_restoring(
-        nxir: &'static [u8],
-        w: u32,
-        h: u32,
-        theme_mode: u8,
-        shell_profile: u8,
-        base_alpha: u8,
-        store_snapshot: Option<&[alloc::vec::Vec<(u32, nexus_dsl_runtime::Value)>]>,
-    ) -> Option<Self> {
-        use nexus_dsl_runtime::{IdentityLocale, View};
-
-        let (nxir, catalogs) = locale::split_payload(nxir);
-        let runtime = nexus_dsl_runtime::Runtime::mount(nxir).ok()?;
-        let symbols = runtime.symbols().to_vec();
-        emit_mounted_hash_marker(nxir);
-        emit_window_intent_marker(nxir);
-        let keys = locale::i18n_key_table(nxir);
-        let tokens = tokens_for(theme_mode);
-        // The pushed shell profile IS the device env: `device.profile`
-        // selects the platform override arms (tablet base / desktop).
-        let device = device_for(shell_profile, w, "", "");
-        let mut view = {
-            let locale = IdentityLocale { symbols: &symbols, keys: &keys };
-            View::mount(nxir, tokens, &device, &locale).ok()?
-        };
-        if let Some(snapshot) = store_snapshot {
-            view.runtime.store_restore(snapshot);
-        }
-        // Declarative initial load (principles.md §5): an `@effect` event
-        // dispatched by NOTHING is a ROOT — it runs once at mount. Fire the
-        // roots BEFORE the first layout so the frame reflects service-loaded
-        // data (e.g. the shell's `bundlemgr.enumerate` app grid). No
-        // lifecycle hook; the runtime derives roots from the dataflow.
-        let mut host = crate::effect_host::AppEffectHost::new(&symbols);
-        {
-            let locale = IdentityLocale { symbols: &symbols, keys: &keys };
-            match view.run_initial_effects(tokens, &device, &locale, &mut host) {
-                Ok(_) => raw_marker("APPHOST: initial effects ran"),
-                Err(_) => raw_marker("apphost: FAIL initial effects"),
-            }
-        }
-        let engine = nexus_layout::LayoutEngine::new();
-        let layout = engine
-            .layout_with_viewport(
-                view.scene(),
-                nexus_layout_types::FxPx::new(w as i32),
-                // Bounded viewport: the surface height — Spacer/flex_grow
-                // children distribute it, so DSL centering works (an
-                // unbounded root hugged everything to the top-left).
-                Some(nexus_layout_types::FxPx::new(h as i32)),
-                &nexus_text_baked::measure_text::BakedTextMeasure,
-            )
-            .ok()?;
-        let mut texts = alloc::vec::Vec::new();
-        collect_texts(view.scene(), &mut 0, &mut texts);
-        let mut app = Self {
-            view,
-            symbols,
-            keys,
-            layout,
-            texts,
-            host,
-            base_alpha,
-            w,
-            h,
-            theme_mode,
-            shell_profile,
-            hovered: None,
-            hover_text: false,
-            row_scratch: alloc::vec![0u8; w as usize * 4],
-            scroll_x: 0,
-            scroll_y: 0,
-            momentum: animation::ScrollMomentum::new(animation::ScrollConfig::default()),
-            momentum_last_ns: 0,
-            anim: anim::AnimState::new(),
-            catalogs,
-            active_catalog: None,
-            locale_tag: alloc::string::String::new(),
-            keymap: alloc::string::String::new(),
-            clock_tz: alloc::string::String::from("Europe/Berlin"),
-            clock_hour24: true,
-            clock_next_wait_ms: 1_000,
-            end_fired: false,
-            vis_pick: alloc::vec::Vec::new(),
-            vis_anim: alloc::vec::Vec::new(),
-            vis_text: alloc::vec::Vec::new(),
-            banded: false,
-            last_band: None,
-            alloc_band_h: 0,
-            band_pick: alloc::vec::Vec::new(),
-        };
-        // Seed the animation state from the mounted scene: resting
-        // transforms for value-tracked nodes, enter transitions for
-        // `.transition` nodes (the first present's frame pulse plays them).
-        app.anim_sync();
-        Some(app)
     }
 }

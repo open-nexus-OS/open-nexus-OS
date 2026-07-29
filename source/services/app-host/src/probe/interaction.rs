@@ -116,6 +116,25 @@ impl super::DslApp {
         TapOutcome::Repainted
     }
 
+    /// Reserve `top` surface rows for the shell status bar and re-lay-out.
+    ///
+    /// The compositor owns the number (`OP_SURFACE_RECT`'s long-reserved `y`):
+    /// it alone knows the bar height AND whether this window is maximized. A
+    /// chromeless fullscreen window keeps its full-height surface — the glass
+    /// still reaches y=0 and the translucent bar sits on it — while its
+    /// content starts below. Floating windows get 0 and are placed below the
+    /// bar instead.
+    pub(super) fn apply_safe_area_top(&mut self, top: u32) {
+        let px = nexus_layout_types::FxPx::new(top as i32);
+        if !self.view.set_safe_area_top(px) {
+            // A leaf page root has no content box to pad. Say so instead of
+            // silently rendering under the bar.
+            raw_marker("apphost: FAIL safe-area (page root is not a container)");
+            return;
+        }
+        self.relayout_retained();
+    }
+
     /// Pointer motion (`INPUT_KIND_MOVE`): re-resolve the hovered
     /// interactive box (same hit-test the Tap routing uses). Returns the
     /// union ROW SPAN of the old+new hovered boxes when the target
@@ -323,7 +342,7 @@ impl super::DslApp {
         let tokens = tokens_for(self.theme_mode);
         let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
         let locale = super::app_locale!(self);
-        let damage = match self.view.insert_text(tokens, &device, &locale, text) {
+        let damage = match self.view.insert_text(tokens, &device, &locale, &mut self.host, text) {
             Ok(d) => d,
             Err(e) => {
                 raw_marker(&alloc::format!("apphost: text commit ERR {e:?}"));
@@ -357,13 +376,14 @@ impl super::DslApp {
                 let tokens = tokens_for(self.theme_mode);
                 let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
                 let locale = super::app_locale!(self);
-                let damage = match self.view.backspace_text(tokens, &device, &locale) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        raw_marker(&alloc::format!("apphost: text action ERR {e:?}"));
-                        None
-                    }
-                };
+                let damage =
+                    match self.view.backspace_text(tokens, &device, &locale, &mut self.host) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            raw_marker(&alloc::format!("apphost: text action ERR {e:?}"));
+                            None
+                        }
+                    };
                 if matches!(damage, Some(Damage::Layout)) {
                     self.relayout_retained();
                 }
@@ -495,9 +515,19 @@ impl super::DslApp {
     /// layout to windowd (`OP_SURFACE_LAYERS`). Each `LayoutBox` whose
     /// `.material()` is glass becomes a `LayerDesc` (surface-local rect +
     /// level + radius + shadow); windowd composites each as a real frosted
-    /// `nexus-gfx` layer over the wallpaper. Re-sent whenever the layout
-    /// changes (mount + re-layout). No glass nodes ⇒ empty list ⇒ windowd
-    /// composites the surface with the default treatment (unchanged).
+    /// `nexus-gfx` layer over the wallpaper. No glass nodes ⇒ empty list ⇒
+    /// windowd composites the surface with the default treatment (unchanged).
+    ///
+    /// WHEN it is re-sent is the subtle part. The rects are SURFACE-LOCAL, so
+    /// they are stale the moment the surface is re-created at a new size — and
+    /// the only caller besides mount sits behind `span.is_none()`, i.e. it runs
+    /// on a FULL present only. A resize that left a partial damage span behind
+    /// therefore never re-declared anything, and windowd kept compositing the
+    /// pre-resize rects: a maximized file manager painted its 960-wide panes in
+    /// the corner of a 1280-wide window. The resize path now forces a full
+    /// present, and windowd clears the list on create as well
+    /// (`app_surface::clear_app_layers`) so neither side can carry a stale set
+    /// alone.
     pub(super) fn submit_layers(&self, client: &KernelClient, surface_id: u32) {
         use nexus_layout_types::{GlassLevel, SurfaceMaterial};
         let clamp = |v: i32| v.max(0).min(u16::MAX as i32) as u16;

@@ -113,6 +113,56 @@ impl WindowPresentation {
     }
 }
 
+/// The shell status bar the compositor reserves. The DSL shell DRAWS this
+/// height (`desktop-shell` `.height(36)`); windowd overlays it above every
+/// window and refuses presses in that strip for app windows. It lives HERE,
+/// with the decision that consumes it, so the rule is host-testable.
+pub const SHELL_TOPBAR_H: u32 = 36;
+
+/// Where a surface sits relative to the shell status bar.
+///
+/// This is a MOBILE status-bar model, not a desktop title bar: the bar is
+/// always on top and always usable, in every app, including fullscreen.
+/// Two different answers follow from that, and conflating them is the bug
+/// this type exists to prevent:
+///
+/// - a **floating** window must not go under the bar at all — it is clamped
+///   below it (`frame_min_y`);
+/// - a **fullscreen** window DOES stretch under it, so its glass reaches y=0
+///   and the translucent bar sits on the app's own surface — but its content
+///   is pushed down (`content_top_inset`) so the status icons never cover the
+///   app's controls.
+///
+/// A window with WM CHROME is the third case: windowd draws its title bar, and
+/// that bar must stay clickable, so a chromed window is placed below the bar
+/// rather than inset. `input.rs` refuses presses above `SHELL_TOPBAR_H` for
+/// app windows, so anything left up there is dead pixels.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BarGeometry {
+    /// Lowest y the window frame may occupy.
+    pub frame_min_y: i32,
+    /// Rows of the surface the app must keep clear at the top.
+    pub content_top_inset: u32,
+}
+
+/// Resolve [`BarGeometry`] for one surface.
+///
+/// `maximized` is the WM's own `is_fullscreen` flag and is NOT redundant with
+/// `p.full_screen`: the "□" button and the top-edge snap go through
+/// `toggle_fullscreen`, which never touches `wm_mode`, so a maximized window
+/// whose declared intent is `freeform` still reports `full_screen == false`.
+#[must_use]
+pub fn bar_geometry(p: &WindowPresentation, maximized: bool) -> BarGeometry {
+    // Only ordinary app windows yield to the bar. The shell IS the bar
+    // (`level: desktop`) and the OSK is docked to the bottom edge.
+    let bar = if matches!(p.role, WindowRole::Window) { SHELL_TOPBAR_H } else { 0 };
+    if (p.full_screen || maximized) && !p.has_chrome {
+        BarGeometry { frame_min_y: 0, content_top_inset: bar }
+    } else {
+        BarGeometry { frame_min_y: bar as i32, content_top_inset: 0 }
+    }
+}
+
 /// Where a floating window's frame may sit, given the work area.
 ///
 /// A new window inherits its slot's CASCADE origin — picked so several windows
@@ -125,24 +175,147 @@ impl WindowPresentation {
 ///
 /// A frame larger than the work area pins to the origin (`saturating_sub` ⇒ 0),
 /// which is the only sensible answer when nothing fits.
+/// `min_y` is the status-bar floor from [`bar_geometry`] — a floating window
+/// never starts under the bar.
 #[must_use]
 pub fn clamp_frame_origin(
     (x, y): (i32, i32),
     (w, h): (u32, u32),
     (area_w, area_h): (u32, u32),
+    min_y: i32,
 ) -> (i32, i32) {
     let max_x = i64::from(area_w.saturating_sub(w)).min(i64::from(i32::MAX)) as i32;
     let max_y = i64::from(area_h.saturating_sub(h)).min(i64::from(i32::MAX)) as i32;
-    (x.clamp(0, max_x), y.clamp(0, max_y))
+    // `.max(min_y)` is not defensive noise: `i32::clamp` PANICS when min > max,
+    // and a frame taller than `area_h - min_y` produces exactly that. A panic
+    // here kills the compositor — a black screen with no way back.
+    (x.clamp(0, max_x), y.clamp(min_y, max_y.max(min_y)))
+}
+
+#[cfg(test)]
+mod bar_tests {
+    use super::*;
+
+    fn resolve(style: u8, level: u8, mode: u8) -> WindowPresentation {
+        WindowPresentation::resolve(style, level, mode, true, WindowingPolicy::Desktop)
+    }
+
+    /// The whole contract as one table. Every row is a surface that ships.
+    #[test]
+    fn the_status_bar_contract() {
+        let bar = SHELL_TOPBAR_H;
+        let cases: &[(&str, WindowPresentation, bool, i32, u32)] = &[
+            // the shell and the greeter ARE the bar — never inset, never moved
+            (
+                "desktop-shell",
+                resolve(wire::WIN_STYLE_PLAIN, wire::WIN_LEVEL_DESKTOP, wire::WIN_MODE_AUTO),
+                false,
+                0,
+                0,
+            ),
+            // the OSK docks to the bottom edge
+            (
+                "ime-ui osk",
+                resolve(wire::WIN_STYLE_PLAIN, wire::WIN_LEVEL_OVERLAY, wire::WIN_MODE_AUTO),
+                false,
+                0,
+                0,
+            ),
+            // a chromeless fullscreen app: glass to y=0, content pushed down
+            (
+                "settings",
+                resolve(wire::WIN_STYLE_PLAIN, wire::WIN_LEVEL_NORMAL, wire::WIN_MODE_FULLSCREEN),
+                false,
+                0,
+                bar,
+            ),
+            // floating: below the bar, no inset
+            (
+                "stash floating",
+                resolve(wire::WIN_STYLE_PLAIN, wire::WIN_LEVEL_NORMAL, wire::WIN_MODE_FREEFORM),
+                false,
+                bar as i32,
+                0,
+            ),
+            // …and the same window after "□" — `maximized`, not `full_screen`
+            (
+                "stash maximized",
+                resolve(wire::WIN_STYLE_PLAIN, wire::WIN_LEVEL_NORMAL, wire::WIN_MODE_FREEFORM),
+                true,
+                0,
+                bar,
+            ),
+            // a CHROMED window keeps windowd's own title bar clickable, so it
+            // is placed below the bar instead of inset — both states
+            (
+                "chat floating",
+                resolve(wire::WIN_STYLE_TITLEBAR, wire::WIN_LEVEL_NORMAL, wire::WIN_MODE_AUTO),
+                false,
+                bar as i32,
+                0,
+            ),
+            (
+                "chat maximized",
+                resolve(wire::WIN_STYLE_TITLEBAR, wire::WIN_LEVEL_NORMAL, wire::WIN_MODE_AUTO),
+                true,
+                bar as i32,
+                0,
+            ),
+        ];
+        for (name, p, maximized, min_y, inset) in cases {
+            let g = bar_geometry(p, *maximized);
+            assert_eq!(g.frame_min_y, *min_y, "{name}: frame_min_y");
+            assert_eq!(g.content_top_inset, *inset, "{name}: content_top_inset");
+        }
+    }
+
+    /// A surface is EITHER moved below the bar OR inset under it — never both
+    /// (that would reserve the bar's height twice) and never neither for an
+    /// ordinary app window (that is the bug: 36 dead, unclickable pixels).
+    #[test]
+    fn an_app_window_reserves_the_bar_exactly_once() {
+        for mode in [wire::WIN_MODE_AUTO, wire::WIN_MODE_FREEFORM, wire::WIN_MODE_FULLSCREEN] {
+            for style in [wire::WIN_STYLE_PLAIN, wire::WIN_STYLE_TITLEBAR] {
+                for maximized in [false, true] {
+                    let p = resolve(style, wire::WIN_LEVEL_NORMAL, mode);
+                    let g = bar_geometry(&p, maximized);
+                    let reserved = g.frame_min_y as u32 + g.content_top_inset;
+                    assert_eq!(
+                        reserved, SHELL_TOPBAR_H,
+                        "style={style} mode={mode} maximized={maximized}"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod frame_tests {
     use super::clamp_frame_origin;
 
+    /// The status-bar floor every case below is measured against.
+    const BAR: i32 = super::SHELL_TOPBAR_H as i32;
+
     #[test]
     fn a_frame_that_fits_keeps_its_cascade_origin() {
-        assert_eq!(clamp_frame_origin((300, 140), (400, 300), (1280, 760)), (300, 140));
+        assert_eq!(clamp_frame_origin((300, 140), (400, 300), (1280, 760), BAR), (300, 140));
+    }
+
+    /// The status-bar contract for FLOATING windows: never under the bar.
+    #[test]
+    fn a_floating_frame_never_starts_under_the_status_bar() {
+        assert_eq!(clamp_frame_origin((300, 0), (400, 300), (1280, 760), BAR).1, BAR);
+        assert_eq!(clamp_frame_origin((300, 12), (400, 300), (1280, 760), BAR).1, BAR);
+        assert_eq!(clamp_frame_origin((300, 40), (400, 300), (1280, 760), BAR).1, 40);
+    }
+
+    /// `i32::clamp` panics when min > max, and a frame taller than the area
+    /// below the bar produces exactly that. A panic in windowd is a black
+    /// screen, so this case is asserted rather than assumed.
+    #[test]
+    fn an_oversized_frame_pins_to_the_bar_without_panicking() {
+        assert_eq!(clamp_frame_origin((300, 140), (1600, 900), (1280, 760), BAR), (0, BAR));
     }
 
     /// The defect. The cascade steps 64px per slot (300, 364, 428, …), so the
@@ -152,13 +325,8 @@ mod frame_tests {
     /// The clamp slides it back to 320 instead of letting it run off.
     #[test]
     fn a_cascaded_wide_frame_slides_back_onto_the_display() {
-        assert_eq!(clamp_frame_origin((300, 140), (960, 570), (1280, 760)), (300, 140));
-        assert_eq!(clamp_frame_origin((364, 196), (960, 570), (1280, 760)), (320, 190));
-    }
-
-    #[test]
-    fn a_frame_larger_than_the_work_area_pins_to_the_origin() {
-        assert_eq!(clamp_frame_origin((300, 140), (1600, 900), (1280, 760)), (0, 0));
+        assert_eq!(clamp_frame_origin((300, 140), (960, 570), (1280, 760), BAR), (300, 140));
+        assert_eq!(clamp_frame_origin((364, 196), (960, 570), (1280, 760), BAR), (320, 190));
     }
 }
 
@@ -264,8 +432,8 @@ impl crate::compositor::shell_window::ShellWindow {
     /// `set_frame` at the window's CURRENT origin, slid back onto `area` by
     /// [`clamp_frame_origin`]. Lives here, with the placement policy, rather
     /// than in the legacy `shell_window` module that is being retired.
-    pub(crate) fn set_frame_clamped(&mut self, w: u32, h: u32, area: (u32, u32)) {
-        let (x, y) = clamp_frame_origin((self.x, self.y), (w, h), area);
+    pub(crate) fn set_frame_clamped(&mut self, w: u32, h: u32, area: (u32, u32), min_y: i32) {
+        let (x, y) = clamp_frame_origin((self.x, self.y), (w, h), area, min_y);
         self.set_frame(x, y, w, h);
     }
 }

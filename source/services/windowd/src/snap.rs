@@ -47,17 +47,22 @@ pub fn snap_target_at(cx: i32, cy: i32, mode_w: u32) -> Option<SnapTarget> {
 /// The display-space frame `(x, y, w, h)` of a half-snap target. (Fullscreen
 /// has no frame here — the runtime routes it through the fullscreen toggle so
 /// the chrome-cover + restore semantics stay in ONE place.)
-pub fn snap_frame(target: SnapTarget, mode_w: u32, mode_h: u32) -> (i32, i32, u32, u32) {
+/// `top` is the status-bar floor: a half-tiled window is still a FLOATING
+/// window, so it starts below the bar like every other one.
+pub fn snap_frame(target: SnapTarget, mode_w: u32, mode_h: u32, top: i32) -> (i32, i32, u32, u32) {
     let half = mode_w / 2;
+    let h = mode_h.saturating_sub(top.max(0) as u32);
     match target {
-        SnapTarget::LeftHalf => (0, 0, half, mode_h),
-        SnapTarget::RightHalf => (half as i32, 0, mode_w - half, mode_h),
+        SnapTarget::LeftHalf => (0, top, half, h),
+        SnapTarget::RightHalf => (half as i32, top, mode_w - half, h),
         SnapTarget::Fullscreen => (0, 0, mode_w, mode_h),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    /// Half-tiled windows are FLOATING windows: they start below the bar.
+    const BAR: i32 = crate::surface_presentation::SHELL_TOPBAR_H as i32;
     use super::*;
 
     const W: u32 = 1280;
@@ -82,22 +87,23 @@ mod tests {
 
     #[test]
     fn half_frames_tile_the_display_exactly() {
-        let (lx, ly, lw, lh) = snap_frame(SnapTarget::LeftHalf, W, H);
-        let (rx, ry, rw, rh) = snap_frame(SnapTarget::RightHalf, W, H);
-        assert_eq!((lx, ly, lh), (0, 0, H));
-        assert_eq!((ry, rh), (0, H));
+        let (lx, ly, lw, lh) = snap_frame(SnapTarget::LeftHalf, W, H, BAR);
+        let (rx, ry, rw, rh) = snap_frame(SnapTarget::RightHalf, W, H, BAR);
+        // Both halves start BELOW the status bar and lose exactly its height.
+        assert_eq!((lx, ly, lh), (0, BAR, H - BAR as u32));
+        assert_eq!((ry, rh), (BAR, H - BAR as u32));
         // The halves cover the full width with no gap and no overlap —
         // including odd widths (the right half absorbs the odd pixel).
         assert_eq!(lx + lw as i32, rx);
         assert_eq!(lw + rw, W);
-        let (ox, _, ow, _) = snap_frame(SnapTarget::LeftHalf, 1281, H);
-        let (opx, _, opw, _) = snap_frame(SnapTarget::RightHalf, 1281, H);
+        let (ox, _, ow, _) = snap_frame(SnapTarget::LeftHalf, 1281, H, BAR);
+        let (opx, _, opw, _) = snap_frame(SnapTarget::RightHalf, 1281, H, BAR);
         assert_eq!(ox + ow as i32, opx);
         assert_eq!(ow + opw, 1281);
     }
 
     #[test]
     fn fullscreen_frame_is_the_display() {
-        assert_eq!(snap_frame(SnapTarget::Fullscreen, W, H), (0, 0, W, H));
+        assert_eq!(snap_frame(SnapTarget::Fullscreen, W, H, BAR), (0, 0, W, H));
     }
 }

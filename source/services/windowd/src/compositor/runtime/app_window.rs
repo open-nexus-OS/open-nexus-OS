@@ -141,15 +141,7 @@ impl DisplayServerRuntime {
         // the surface is NOT scrollable — byte-identical to the pre-scroll path.
         // A scrollable surface gets a per-slot scroll id (`slot_index + 1`,
         // bounded by `MAX_SCROLL_IDS`); windowd owns its scroll position.
-        self.apps[idx].content_h = u32::from(content_h);
-        self.apps[idx].header_h = u32::from(header_h);
-        self.apps[idx].footer_h = u32::from(footer_h);
-        self.apps[idx].scroll_rows = 0;
-        self.apps[idx].scroll_momentum =
-            animation::ScrollMomentum::new(animation::ScrollConfig::default());
-        self.apps[idx].scroll_last_ns = 0;
-        self.apps[idx].scroll_id =
-            if content_h > 0 && (idx + 1) <= MAX_SCROLL_IDS { (idx as u32) + 1 } else { 0 };
+        self.reset_surface_state(idx, content_h, header_h, footer_h);
         match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => {
                 self.apps[idx].surface_id = Some(id);
@@ -183,24 +175,13 @@ impl DisplayServerRuntime {
                     );
                 } else if self.app_presentation(idx).full_screen || self.windows.is_fullscreen(wid)
                 {
-                    // Full-screen presentation (declared desktop level /
-                    // fullscreen mode — the shell/greeter base or a kiosk app) or
-                    // the transient user-maximize: cover the WORK AREA. The
-                    // shell/greeter (desktop level) still spans the whole
-                    // display; a normal fullscreen APP window stops above the
-                    // desktop taskbar (tablet: bottom edge) and sits BEHIND the
-                    // shell top bar (full height at the top — the bar
-                    // composites above it and stays usable).
-                    let h = if self.apps[idx].intent_level == wire::WIN_LEVEL_DESKTOP {
-                        self.mode.height
-                    } else {
-                        self.work_area_h()
-                    };
-                    self.apps[idx].win.set_frame(0, 0, self.mode.width, h);
+                    let (y, h) = self.full_surface_frame(idx);
+                    self.apps[idx].win.set_frame(0, y, self.mode.width, h);
                 } else {
                     let area = (self.mode.width, self.work_area_h());
+                    let min_y = self.full_surface_frame(idx).0;
                     let fh = u32::from(height).saturating_add(self.apps[idx].win.title_h);
-                    self.apps[idx].win.set_frame_clamped(u32::from(width), fh, area);
+                    self.apps[idx].win.set_frame_clamped(u32::from(width), fh, area, min_y);
                 }
                 if !self.open_app_window(idx) {
                     // Atlas exhausted: roll the registration back fail-closed

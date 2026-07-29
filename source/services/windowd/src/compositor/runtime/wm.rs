@@ -130,7 +130,8 @@ impl DisplayServerRuntime {
             // reallocated on that re-create — no display-sized band held for a
             // floating window). The client re-render owns the pixels.
             let _ = mode_h;
-            self.apps[idx].win.enter_fullscreen(mode_w, self.work_area_h());
+            let (fy, fh) = self.full_surface_frame(idx);
+            self.apps[idx].win.enter_fullscreen(fy, mode_w, fh);
             self.windows.set_fullscreen(id, true);
             // Occlusion residency: fullscreen COVERS every other window —
             // release their atlas bands so the display-sized band can mount
@@ -299,6 +300,7 @@ impl DisplayServerRuntime {
                     snap::SnapTarget::LeftHalf,
                     self.mode.width,
                     self.work_area_h(),
+                    self.full_surface_frame(idx).0,
                 );
                 self.apps[idx].win.title_h = self.app_title_h(idx);
                 self.apply_window_frame(wid, x, y, w, h);
@@ -306,18 +308,20 @@ impl DisplayServerRuntime {
                 let _ = debug_println("windowd: win mode split");
             }
             _ => {
-                // Free form: a centered floating default in the work area
-                // ("bis nach oben" allowed — y may reach 0; the shell top
-                // bar composites above every window regardless).
+                // Free form: centred in the work area BELOW the status bar.
+                // A floating window never runs under the bar — only a
+                // chromeless FULLSCREEN one does, and it insets its content
+                // instead (`surface_presentation::bar_geometry`).
                 self.apps[idx].wm_mode = Some(wire::WIN_MODE_FREEFORM);
                 if self.windows.is_fullscreen(wid) {
                     self.toggle_fullscreen(wid);
                 }
-                let wa_h = self.work_area_h();
+                let top = self.full_surface_frame(idx).0;
+                let wa_h = self.work_area_h().saturating_sub(top as u32);
                 let w = (self.mode.width * 3 / 4).max(MIN_WIN_W);
                 let h = (wa_h * 3 / 4).max(MIN_WIN_H);
                 let x = ((self.mode.width.saturating_sub(w)) / 2) as i32;
-                let y = ((wa_h.saturating_sub(h)) / 2) as i32;
+                let y = top + ((wa_h.saturating_sub(h)) / 2) as i32;
                 self.apps[idx].win.title_h = self.app_title_h(idx);
                 self.apply_window_frame(wid, x, y, w, h);
                 self.push_app_content_rect(idx);
@@ -338,7 +342,10 @@ impl DisplayServerRuntime {
         let title = self.app_title_h(idx);
         let cw = self.apps[idx].win.w.min(u32::from(u16::MAX)) as u16;
         let ch = self.apps[idx].win.h.saturating_sub(title).min(u32::from(u16::MAX)) as u16;
-        let rect = nexus_display_proto::client_surface::encode_surface_rect(0, 0, cw, ch);
+        // The status-bar rows this surface keeps clear, in the `y` the wire has
+        // always reserved and always sent as 0 (see `content_top_inset`).
+        let inset = self.content_top_inset(idx).min(u32::from(u16::MAX)) as u16;
+        let rect = nexus_display_proto::client_surface::encode_surface_rect(0, inset, cw, ch);
         let _ = self.send_app_frame(idx, &rect);
     }
 
@@ -362,7 +369,13 @@ impl DisplayServerRuntime {
                 ));
             }
             half => {
-                let (x, y, w, h) = snap::snap_frame(half, self.mode.width, self.work_area_h());
+                // A half-snapped window is still FLOATING: it starts below the
+                // status bar like every other one.
+                let top = match id {
+                    WindowId::App(i) => self.full_surface_frame(i as usize).0,
+                    _ => 0,
+                };
+                let (x, y, w, h) = snap::snap_frame(half, self.mode.width, self.work_area_h(), top);
                 self.apply_window_frame(id, x, y, w, h);
                 let _ = debug_println(&alloc::format!(
                     "windowd: snap edge={} id={}",

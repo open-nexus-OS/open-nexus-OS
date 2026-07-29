@@ -16,11 +16,12 @@ Window {
 
 Page SettingsPage {
     Stack {
-        // Fullscreen chrome inset: the window sits BEHIND the shell top bar
-        // (windowd composites the bar above us) — the window's own chrome
-        // starts below it so both stay readable and usable.
-        Stack { }
-            .height(40)
+        // No status-bar spacer here on purpose. The compositor reserves those
+        // rows for every app (`OP_SURFACE_RECT`'s `y` → the page root's top
+        // padding), because it is the only party that knows the bar's height
+        // AND whether this window is maximized. This page used to hard-code
+        // `.height(40)` against a 36px bar — 4px wrong, and applied even when
+        // the window was not fullscreen.
         WinTopBar { icon: "gearshape", tool1: "magnifyingglass", tool2: "list.bullet", tool3: "", navBack: "", navFwd: "", navRefresh: "", appId: "settings" }
         Stack {
             if $state.leftOpen == 1 {

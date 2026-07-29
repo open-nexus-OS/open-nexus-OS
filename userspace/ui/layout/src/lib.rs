@@ -16,6 +16,7 @@
 extern crate alloc;
 
 pub mod boxes;
+mod constraints;
 pub mod engine;
 #[cfg(test)]
 mod engine_tests;

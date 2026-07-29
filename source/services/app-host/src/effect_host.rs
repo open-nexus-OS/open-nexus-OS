@@ -27,10 +27,11 @@
 
 #![cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 
+pub(crate) use crate::svc_call::{call_reply, call_reply_within};
 use alloc::string::String;
 use alloc::vec::Vec;
 use nexus_dsl_runtime::{EffectHost, QueryCall, QueryPage, Value};
-use nexus_sdk_routes::{route_for_svc, CHILD_REPLY_RECV_SLOT, CHILD_REPLY_SEND_SLOT};
+use nexus_sdk_routes::route_for_svc;
 
 /// Stable effect error codes (surfaced to the DSL `Err(e)` arm) — the same
 /// numbering windowd's host uses, so a program is host-agnostic.
@@ -46,7 +47,7 @@ pub(crate) const ERR_SVC_SHAPE: u32 = 3;
 /// persist), and both halves of the exchange are KERNEL-PARKED on this
 /// deadline — the old 2 s yield-spin burned scheduler quanta exactly when a
 /// slow service needed them most.
-const SVC_DEADLINE_NS: u64 = 250_000_000;
+pub(crate) const SVC_DEADLINE_NS: u64 = 250_000_000;
 /// Reply-inbox scratch bound (list responses carry every entry).
 pub(crate) const REPLY_BUF: usize = 512;
 /// Reply scratch for `svc.files` directory pages — sized to the shared codec's
@@ -87,6 +88,11 @@ pub(crate) struct AppEffectHost {
     /// for it (bundle `assets/icon.svg`); empty = gradient+glyph fallback.
     pub(crate) icon_art_sym: Option<u32>,
     seq_sym: Option<u32>,
+    /// The ReadDir page the last `svc.files.list` read, kept for the
+    /// `svc.files.count` that every `FilesLoaded` dispatches one step later.
+    /// Populated ONLY by `files_list`, dropped by every write — so it can
+    /// never serve a listing, only the count that belongs to one.
+    pub(crate) readdir_cache: Option<(alloc::string::String, nexus_vfs_types::ReadDirPage)>,
     text_sym: Option<u32>,
     /// `svc.files` FileEntry record fields (RFC-0073): `name`/`kind`/`size`
     /// (+ `sizeText`, the human-formatted size for direct UI binding). Only
@@ -103,6 +109,11 @@ pub(crate) struct AppEffectHost {
     /// none yet). Rides in `CONTROL_WIN_*` values so windowd resolves the
     /// caller's window — the recv path carries no sender identity (sid=0).
     pub(crate) surface_id: u32,
+    /// The budget the CURRENT `svc.*` call declared (`timeoutMs:`), in ns.
+    /// Set by `EffectHost::call` before it routes; every service round trip
+    /// this host makes reads it. Was `_timeout_ms` — accepted, type-checked,
+    /// documented and discarded, so a page could not actually bound a call.
+    pub(crate) budget_ns: u64,
 }
 
 /// The embedded `nexus-query` engine + its KV. v1 catalog: one demo
@@ -186,7 +197,9 @@ impl AppEffectHost {
             size_text_sym: symbols.iter().position(|s| s == "sizeText").map(|i| i as u32),
             date_sym: symbols.iter().position(|s| s == "date").map(|i| i as u32),
             query_store: None,
+            readdir_cache: None,
             surface_id: 0,
+            budget_ns: SVC_DEADLINE_NS,
         }
     }
 
@@ -208,7 +221,7 @@ impl AppEffectHost {
         let mut req = [0u8; 4];
         nexus_abi::bundlemgrd::encode_list_apps(&mut req);
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
             raw_marker("apphost: dsl svc bundlemgr.enumerate FAIL (registry unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -265,7 +278,7 @@ impl AppEffectHost {
         let mut req = [0u8; 4];
         nexus_abi::sessiond::encode_get_state(&mut req);
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
             raw_marker("apphost: dsl svc session.users FAIL (sessiond unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -293,7 +306,7 @@ impl AppEffectHost {
         let mut req = [0u8; 4];
         nexus_abi::sessiond::encode_get_state(&mut req);
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
             raw_marker("apphost: dsl svc session.active FAIL (sessiond unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -315,7 +328,7 @@ impl AppEffectHost {
             return Err(ERR_SVC_SHAPE);
         };
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply(send_slot, &req[..n], &mut resp) else {
+        let Some(len) = call_reply_within(send_slot, &req[..n], &mut resp, self.budget_ns) else {
             raw_marker("apphost: dsl svc session.login FAIL (sessiond unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -381,7 +394,7 @@ impl AppEffectHost {
         let mut req = [0u8; 300];
         let n = sw::encode_get_req(key, &mut req).ok_or(ERR_SVC_SHAPE)?;
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply(send_slot, &req[..n], &mut resp) else {
+        let Some(len) = call_reply_within(send_slot, &req[..n], &mut resp, self.budget_ns) else {
             raw_marker("apphost: dsl svc settings.get FAIL (settingsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -414,7 +427,7 @@ impl AppEffectHost {
         let mut req = [0u8; 300];
         let n = sw::encode_set_req(key, value, &mut req).ok_or(ERR_SVC_SHAPE)?;
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply(send_slot, &req[..n], &mut resp) else {
+        let Some(len) = call_reply_within(send_slot, &req[..n], &mut resp, self.budget_ns) else {
             raw_marker("apphost: dsl svc settings.set FAIL (settingsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -590,8 +603,15 @@ impl EffectHost for AppEffectHost {
         service: &str,
         method: &str,
         args: &[Value],
-        _timeout_ms: u32,
+        timeout_ms: u32,
     ) -> Result<Value, u32> {
+        // A page that asks for no budget keeps the platform default; one that
+        // asks is CLAMPED to it, never above — the deadline is a liveness
+        // bound the host owns, not something an app may extend.
+        self.budget_ns = match u64::from(timeout_ms).checked_mul(1_000_000) {
+            Some(ns) if ns > 0 => ns.min(SVC_DEADLINE_NS),
+            _ => SVC_DEADLINE_NS,
+        };
         match (service, method) {
             ("bundlemgr", "enumerate") => self.enumerate(),
             ("settings", "get") => {
@@ -702,40 +722,6 @@ fn bool_of(v: &Value) -> Option<bool> {
     match v {
         Value::Bool(b) => Some(*b),
         _ => None,
-    }
-}
-
-/// Fixed-slot request/reply over the child's provisioned `@reply` inbox: clone
-/// the reply SEND (child slot 10), MOVE it into the request so the service
-/// answers our inbox, send on `service_send_slot` (bounded), then receive on
-/// the reply RECV (child slot 9). Returns the reply frame length, or `None` on
-/// any send/recv failure or timeout (the caller renders the `Err` arm).
-pub(crate) fn call_reply(service_send_slot: u32, req: &[u8], resp: &mut [u8]) -> Option<usize> {
-    let reply_send = nexus_abi::cap_clone(CHILD_REPLY_SEND_SLOT).ok()?;
-    let hdr =
-        nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(SVC_DEADLINE_NS);
-
-    // KERNEL-PARKED send: a full queue registers us as a send-waiter and the
-    // receive path wakes us the moment capacity appears (RFC-0083 — the old
-    // NONBLOCK + yield_() spin here burned up to 2 s of scheduler quanta).
-    if nexus_abi::ipc_send_v1(service_send_slot, &hdr, req, 0, deadline).is_err() {
-        // Reclaim the clone (a successful CAP_MOVE would have consumed it).
-        let _ = nexus_abi::cap_close(reply_send);
-        return None;
-    }
-
-    // KERNEL-PARKED receive on the same absolute deadline.
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    match nexus_abi::ipc_recv_v1(
-        CHILD_REPLY_RECV_SLOT,
-        &mut rh,
-        resp,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        deadline,
-    ) {
-        Ok(n) => Some((n as usize).min(resp.len())),
-        Err(_) => None,
     }
 }
 

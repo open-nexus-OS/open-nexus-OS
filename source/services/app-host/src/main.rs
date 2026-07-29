@@ -60,6 +60,8 @@ mod file_filter;
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod hover_wash;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod svc_call;
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod time_client;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

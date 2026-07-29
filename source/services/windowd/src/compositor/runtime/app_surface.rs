@@ -68,6 +68,49 @@ impl DisplayServerRuntime {
         true
     }
 
+    /// Reset everything derived from THE SURFACE when a client (re)creates
+    /// one: the WebRender band geometry, the scroll position, and the declared
+    /// glass rects. All of it is surface-local, so none of it may survive the
+    /// surface it describes — a resize is a destroy + create, and the stale
+    /// half is exactly what painted the file manager's panes at their old size
+    /// in the corner of a maximized window (see `clear_app_layers`).
+    pub(super) fn reset_surface_state(
+        &mut self,
+        idx: usize,
+        content_h: u16,
+        header_h: u16,
+        footer_h: u16,
+    ) {
+        self.apps[idx].content_h = u32::from(content_h);
+        self.apps[idx].header_h = u32::from(header_h);
+        self.apps[idx].footer_h = u32::from(footer_h);
+        self.apps[idx].scroll_rows = 0;
+        self.apps[idx].scroll_momentum =
+            animation::ScrollMomentum::new(animation::ScrollConfig::default());
+        self.apps[idx].scroll_last_ns = 0;
+        self.apps[idx].scroll_id =
+            if content_h > 0 && (idx + 1) <= super::MAX_SCROLL_IDS { (idx as u32) + 1 } else { 0 };
+        self.clear_app_layers(idx);
+    }
+
+    /// Forget the app's declared material-glass regions.
+    ///
+    /// A surface's glass rects are SURFACE-LOCAL, so they are only meaningful
+    /// for the surface that declared them. A resize re-creates the surface
+    /// (destroy + create at the new size) and the rects must not survive that:
+    /// the file manager kept the 3 pane rects of its 960×526 layout after
+    /// maximizing to 1280×744 and composited them, unchanged, at the window
+    /// origin — a small rectangle in the top-left corner that never resized.
+    /// Nothing revealed it earlier because a SCROLLING surface takes the
+    /// 3-slice composite path, which ignores layers entirely; the maximize
+    /// made the listing fit, which turned scrolling off, which took the branch
+    /// that reads them.
+    ///
+    /// Fail-closed: a surface has no glass until it declares some.
+    pub(super) fn clear_app_layers(&mut self, idx: usize) {
+        self.apps[idx].layer_count = 0;
+    }
+
     pub(super) fn close_app_window(&mut self, idx: usize) {
         let vacated = self.app_window_rect(idx);
         self.apps[idx].win.visible = false;
@@ -114,7 +157,7 @@ impl DisplayServerRuntime {
         self.apps[idx].header_h = 0;
         self.apps[idx].footer_h = 0;
         self.apps[idx].scroll_rows = 0;
-        self.apps[idx].layer_count = 0;
+        self.clear_app_layers(idx);
         // Retire the transform override (it survives full presents now):
         // the slot's next tenant must not inherit a faded-out state.
         self.apps[idx].transform = WinTransform::IDENTITY;

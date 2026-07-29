@@ -95,11 +95,43 @@ impl DisplayServerRuntime {
         ));
     }
 
+    /// The frame a full-screen/maximized surface takes: `(y, height)`.
+    ///
+    /// ONE definition for the create path and the maximize path — they used to
+    /// hard-code `set_frame(0, 0, …)` separately, which is why adding a status
+    /// bar meant finding both.
+    pub(crate) fn full_surface_frame(&self, idx: usize) -> (i32, u32) {
+        use nexus_display_proto::client_surface as wire;
+        let bottom = if self.apps[idx].intent_level == wire::WIN_LEVEL_DESKTOP {
+            self.mode.height
+        } else {
+            self.work_area_h()
+        };
+        let g = crate::surface_presentation::bar_geometry(
+            &self.app_presentation(idx),
+            self.windows.is_fullscreen(crate::window_scene::WindowId::App(idx as u8)),
+        );
+        (g.frame_min_y, bottom.saturating_sub(g.frame_min_y as u32))
+    }
+
+    /// The status-bar rows THIS surface must keep clear at the top of its own
+    /// content, shipped to the app in the (already reserved, until now always
+    /// zero) `y` of `OP_SURFACE_RECT`.
+    pub(crate) fn content_top_inset(&self, idx: usize) -> u32 {
+        crate::surface_presentation::bar_geometry(
+            &self.app_presentation(idx),
+            self.windows.is_fullscreen(crate::window_scene::WindowId::App(idx as u8)),
+        )
+        .content_top_inset
+    }
+
     /// The work-area HEIGHT for fullscreen/maximized APP windows: the display
     /// minus the desktop taskbar (desktop profile only — "nicht über die
     /// Taskleiste"); the tablet dock is overlaid, so fullscreen reaches the
-    /// bottom edge there. The top is NOT inset — windows sit BEHIND the shell
-    /// top bar (it composites above them, `SHELL_TOPBAR_H`).
+    /// bottom edge there. The TOP is per-surface and lives in
+    /// `surface_presentation::bar_geometry`, not here: a chromeless fullscreen
+    /// window still spans to y=0 (its glass runs UNDER the status bar and its
+    /// content is inset instead), while a chromed or floating one starts below.
     pub(crate) fn work_area_h(&self) -> u32 {
         use nexus_display_proto::client_surface as wire;
         if self.shell_profile_wire() == wire::PROFILE_DESKTOP {

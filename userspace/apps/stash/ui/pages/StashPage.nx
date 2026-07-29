@@ -252,20 +252,39 @@ Page StashPage {
                             Stack {
                                 Icon { symbol: "magnifyingglass", size: 13 }
                                     .fg(onGlassMuted)
+                                // `on Change` on the WRAPPER is the live-filter
+                                // contract: the auto-bind writes `searchQuery`,
+                                // and the enclosing dispatch re-issues the
+                                // listing on every keystroke. Both launchers
+                                // use the same shape.
                                 Stack {
                                     // `.label(…)` (a11y name, renders nothing),
                                     // NOT the `label:` prop — that one draws a
                                     // visible caption line the design has no
                                     // room for. Same shape as the greeter's
                                     // passphrase field.
+                                    // `.grow(1)` has to be on the FIELD and the
+                                    // wrapper has to be a ROW, because the hit
+                                    // box is the `TextInput` itself and a
+                                    // default (column) Stack grows a child's
+                                    // HEIGHT while leaving its width intrinsic.
+                                    // With either half missing the strip paints
+                                    // full width over a ~180px input: a click
+                                    // right of the text claims no focus,
+                                    // windowd records no text route, and every
+                                    // imed commit for this surface is dropped.
                                     TextField {
                                         value: $state.searchQuery,
                                         placeholder: @t("stash.searchHint"),
                                         variant: "bare",
                                     }
+                                    .grow(1)
                                     .label(@t("stash.searchHint"))
                                 }
+                                .direction(row)
+                                .align(center)
                                 .grow(1)
+                                on Change -> dispatch(SearchChanged)
                                 Stack {
                                     Icon { symbol: "xmark", size: 12 }
                                         .fg(onGlassMuted)

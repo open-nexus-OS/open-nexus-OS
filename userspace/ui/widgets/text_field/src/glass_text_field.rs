@@ -226,6 +226,7 @@ impl GlassTextField {
                     white_space: WhiteSpace::NoWrap,
                 })
                 .value(self.value.clone())
+                .fill_row()
                 .secure(self.secure);
             if let Some(p) = &self.placeholder {
                 tf = tf.placeholder(p.clone());
@@ -267,6 +268,11 @@ impl GlassTextField {
         );
 
         // Column: label? / field box / helper-or-error?
+        // `Align::Stretch` (not `Start`) is what carries a `.grow(1)` from the
+        // page down to the field box: `.grow()` lands on this outer column
+        // only, and a `Start`-aligned column leaves its children at their
+        // intrinsic width — so a field told to fill a 663px row painted its
+        // chrome at `min_width` 180 and left the rest of the strip inert.
         let mut col: Vec<LayoutNode> = Vec::new();
         if let Some(label) = &self.label {
             col.push(Self::text(label, Self::caption_style(tokens, ColorToken::OnSurfaceVariant)));
@@ -284,7 +290,7 @@ impl GlassTextField {
                 direction: Direction::Column,
                 gap: FxPx::new(4),
                 padding: EdgeInsets::zero(),
-                align: Align::Start,
+                align: Align::Stretch,
                 justify: Justify::Start,
                 overflow: Overflow::Visible,
                 flex_wrap: false,

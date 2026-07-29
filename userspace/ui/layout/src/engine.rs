@@ -10,6 +10,7 @@
 //! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
 
 use crate::boxes::{LayoutBox, LayoutResult};
+use crate::constraints::{child_constraints, row_child_constraints};
 use crate::error::LayoutError;
 use alloc::vec::Vec;
 use nexus_layout_types::{
@@ -27,9 +28,9 @@ struct NodeSize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct LayoutConstraints {
-    max_width: FxPx,
-    max_height: Option<FxPx>,
+pub(crate) struct LayoutConstraints {
+    pub(crate) max_width: FxPx,
+    pub(crate) max_height: Option<FxPx>,
     /// DEFINITE constraints (the viewport root, `layout_with_viewport`): the
     /// node FILLS the constraint box instead of hugging its content — the
     /// page root spans the surface, so `.align(center)` + `Spacer` really
@@ -38,11 +39,11 @@ struct LayoutConstraints {
 }
 
 impl LayoutConstraints {
-    const fn new(max_width: FxPx, max_height: Option<FxPx>) -> Self {
+    pub(crate) const fn new(max_width: FxPx, max_height: Option<FxPx>) -> Self {
         Self { max_width, max_height, definite: false }
     }
 
-    const fn definite(max_width: FxPx, max_height: Option<FxPx>) -> Self {
+    pub(crate) const fn definite(max_width: FxPx, max_height: Option<FxPx>) -> Self {
         Self { max_width, max_height, definite: true }
     }
 }
@@ -503,16 +504,15 @@ impl LayoutEngine {
                 available_cross.saturating_sub(measured.height + item.margin.vertical());
             let child_y = content_y + item.margin.top + align_offset(align, cross_space);
             let child_node_id = *node_count + 1;
-            // Stretched row children fill their allocation (definite) — see
-            // the column loop above for the rationale.
-            let child_c = if matches!(align, Align::Stretch) && constraints.max_height.is_some() {
-                LayoutConstraints::definite(
-                    child_width,
-                    Some(available_cross.saturating_sub(item.margin.vertical())),
-                )
-            } else {
-                child_constraints(constraints, *item, child_width, Some(available_cross))
-            };
+            let child_c = row_child_constraints(
+                constraints,
+                *item,
+                align,
+                child_width,
+                measured.width,
+                measured.height,
+                available_cross,
+            );
             self.place_node(
                 child,
                 child_x,
@@ -1139,19 +1139,6 @@ fn effective_item(child: &LayoutNode) -> FlexItem {
         item.flex_grow = item.flex_grow.max(spacer.flex_grow);
     }
     item
-}
-
-fn child_constraints(
-    parent: LayoutConstraints,
-    item: FlexItem,
-    max_width: FxPx,
-    max_height: Option<FxPx>,
-) -> LayoutConstraints {
-    let height = max_height.or(parent.max_height);
-    LayoutConstraints::new(
-        max_width.max(FxPx::ZERO),
-        height.map(|value| value.saturating_sub(item.margin.vertical())),
-    )
 }
 
 fn update_box_geometry(

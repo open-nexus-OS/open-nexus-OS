@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-29 (TASK-0308 R1-R4: what Phase 9 uncovered — all below the app layer)
+
+Making Stash a floating glass window ran four paths that had never executed.
+None of the fixes is in an app: Stash only showed them first.
+
+- **A text field's hit box was not the strip it painted.** A row child grown by
+  `flex_grow` had its BOX written at the allocation while its SUBTREE was laid
+  out against the hugged measurement — so a 732px search strip sat over a 180px
+  `TextInput`. Since `View::focus_text_at` resolves a tap against that input's
+  rect, a click right of the placeholder claimed no focus, app-host sent no
+  `OP_SURFACE_TEXT_FOCUS`, windowd recorded no text route, and every imed
+  commit for the surface was dropped — typing did nothing, silently, with no
+  error anywhere in the chain. Fixed in the engine (`row_child_constraints`,
+  split out to `userspace/ui/layout/src/constraints.rs`), plus
+  `TextField::fill_row()` and a stretched `GlassTextField` column so the
+  painted strip and the hittable strip are one rectangle.
+- **`on Change -> dispatch(...)` was dead while typing, in every app.**
+  `insert_text`/`backspace_text` wrote the binding and never fired the
+  enclosing Change handler; `Change` was only ever consulted for focus
+  resolution and the I-beam cursor. `focus_text_at` now resolves the enclosing
+  dispatch ONCE per focus (by handler path prefix, so a re-emit can re-resolve
+  it) and the edit path runs it. Both launchers get live search from the same
+  change.
+- **A resized surface inherited the old surface's glass rectangles.**
+  `handle_surface_create` reset content/header/footer but not `layers`, and
+  app-host never re-announced after a re-create — visible as a rectangle stuck
+  in the top-left of a maximized window, because a window whose content fits
+  takes the compositor path that actually reads `layers`.
+- **App chrome sat behind the shell status bar.** There was no safe-area
+  mechanism at all: apps carried hard-coded spacers (Settings' was 40px against
+  a 36px bar) and windowd skips presses above the bar, so a maximized window's
+  chrome had four usable pixels. windowd now decides
+  (`bar_geometry`: freeform frames start below the bar, fullscreen frames start
+  at y=0 and carry a top INSET), ships it in the long-unused `y` of
+  `OP_SURFACE_RECT`, and the scene root absorbs it as padding — the app's
+  background still reaches y=0 so the translucent bar sits on it, only the
+  content moves down. Padding rather than a wrapper node because node ids are
+  pre-order: an extra node shifts every id and breaks handler box-ids, text
+  collection and animation keying alike.
+- **Two blocking vfsd round-trips per search**: `files.count` re-read the same
+  directory the listing had just read. app-host caches the last `readdir_page`
+  per path and every write path invalidates it; the DSL's `timeoutMs` is no
+  longer discarded.
+
 ### Changed - 2026-07-28 (TASK-0308 Phase 9: Stash design parity)
 
 The file manager now matches its design handoff. Most of the work was below

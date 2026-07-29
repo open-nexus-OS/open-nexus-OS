@@ -11,7 +11,7 @@ use crate::emit::Damage;
 use crate::interact::{self, HandlerAction, ScrollView};
 use crate::store::Value;
 use crate::view::View;
-use crate::{DeviceEnv, LocaleSource, RtError};
+use crate::{DeviceEnv, EffectHost, LocaleSource, RtError};
 use alloc::vec::Vec;
 use nexus_layout_types::LayoutNode;
 use nexus_theme_tokens::Tokens;
@@ -34,6 +34,20 @@ pub(crate) struct FocusedText {
     pub(crate) path: Vec<u32>,
     pub(crate) box_id: usize,
     pub(crate) secure: bool,
+    /// The enclosing `on Change -> dispatch(E)` handler, resolved ONCE per
+    /// focus. Typing writes the binding; without this it did nothing else, so
+    /// `on Change` was dead on every keystroke in every app — a store field
+    /// moved and no effect ever ran (see [`View::insert_text`]).
+    pub(crate) change_dispatch: Option<ChangeDispatch>,
+}
+
+/// The `(event, case, payload)` of a Change handler that DISPATCHES, as
+/// opposed to the field's own two-way `Bind`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ChangeDispatch {
+    pub(crate) event: u32,
+    pub(crate) case: u32,
+    pub(crate) payload: Vec<Value>,
 }
 
 /// Upper bound for text-field values written through the focus path
@@ -59,12 +73,16 @@ impl View<'_> {
             .and_then(|sym| interact::hit_scrolled(&self.handlers, boxes, sym, x, y, scroll));
         match hit {
             Some((box_id, entry)) => {
+                let node_path = entry.path.clone();
                 let HandlerAction::Bind { store, path } = entry.action.clone() else {
                     self.focused_text = None;
                     return None;
                 };
                 let secure = subtree_is_secure(&self.scene, box_id);
-                self.focused_text = Some(FocusedText { store, path, box_id, secure });
+                let change_dispatch =
+                    trigger_sym.and_then(|sym| self.enclosing_change_dispatch(sym, &node_path));
+                self.focused_text =
+                    Some(FocusedText { store, path, box_id, secure, change_dispatch });
                 Some(TextFocusSnapshot { box_id, secure })
             }
             None => {
@@ -72,6 +90,41 @@ impl View<'_> {
                 None
             }
         }
+    }
+
+    /// The innermost `Change` handler ABOVE `node_path` whose action is a
+    /// dispatch — i.e. the app's `Stack { TextField { … } } on Change -> …`
+    /// wrapper, which is how every page in the tree writes it.
+    ///
+    /// Resolved by handler PATH PREFIX, not by geometry: an ancestor's
+    /// child-index path is a proper prefix of its descendant's. That works
+    /// identically before layout exists, which is what lets
+    /// [`View::revalidate_text_focus`] re-resolve it during a re-emit.
+    fn enclosing_change_dispatch(
+        &self,
+        trigger_sym: u32,
+        node_path: &[u32],
+    ) -> Option<ChangeDispatch> {
+        let mut best: Option<(usize, ChangeDispatch)> = None;
+        for (_, entry) in &self.handlers {
+            if entry.trigger != trigger_sym || entry.path.len() >= node_path.len() {
+                continue;
+            }
+            if node_path[..entry.path.len()] != entry.path[..] {
+                continue;
+            }
+            let HandlerAction::Dispatch { event, case, payload } = &entry.action else {
+                continue;
+            };
+            // Longest prefix = innermost enclosing handler.
+            if best.as_ref().is_none_or(|(len, _)| entry.path.len() > *len) {
+                best = Some((
+                    entry.path.len(),
+                    ChangeDispatch { event: *event, case: *case, payload: payload.clone() },
+                ));
+            }
+        }
+        best.map(|(_, d)| d)
     }
 
     /// The current text focus, if any.
@@ -96,6 +149,7 @@ impl View<'_> {
         tokens: &dyn Tokens,
         device: &dyn DeviceEnv,
         locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
         text: &str,
     ) -> Result<Option<Damage>, RtError> {
         let Some(focused) = self.focused_text.clone() else {
@@ -111,9 +165,7 @@ impl View<'_> {
             }
             value.push(ch);
         }
-        let changes =
-            self.runtime.write_binding(focused.store, &focused.path, Value::Str(value))?;
-        self.apply_changes(tokens, device, locale, &changes).map(Some)
+        self.write_focused(tokens, device, locale, host, &focused, value).map(Some)
     }
 
     /// Deletes the last character of the FOCUSED field. No-op without focus
@@ -126,6 +178,7 @@ impl View<'_> {
         tokens: &dyn Tokens,
         device: &dyn DeviceEnv,
         locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
     ) -> Result<Option<Damage>, RtError> {
         let Some(focused) = self.focused_text.clone() else {
             return Ok(None);
@@ -135,9 +188,40 @@ impl View<'_> {
             _ => return Ok(None),
         };
         value.pop();
-        let changes =
+        self.write_focused(tokens, device, locale, host, &focused, value).map(Some)
+    }
+
+    /// Writes the focused field AND runs its enclosing `on Change ->
+    /// dispatch(E)`, if the page declared one.
+    ///
+    /// Without the dispatch a keystroke only moved a store field: no reducer
+    /// arm, no `@effect`. That is why live search never worked anywhere —
+    /// every page in the tree writes the pattern
+    /// `Stack { TextField { value: $state.q } } on Change -> dispatch(E)`, and
+    /// `Change` was consulted only to resolve focus and pick the I-beam
+    /// cursor. Worse, an event that nothing dispatches becomes a ROOT effect
+    /// (`initial::root_effect_events`), so the app's own filter ran once at
+    /// mount and never again.
+    ///
+    /// Both change sets are applied in ONE `apply_changes`, so a keystroke
+    /// still costs exactly one re-emit.
+    fn write_focused(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        focused: &FocusedText,
+        value: alloc::string::String,
+    ) -> Result<Damage, RtError> {
+        let mut changes =
             self.runtime.write_binding(focused.store, &focused.path, Value::Str(value))?;
-        self.apply_changes(tokens, device, locale, &changes).map(Some)
+        if let Some(d) = &focused.change_dispatch {
+            let more =
+                self.runtime.dispatch(device, locale, host, d.event, d.case, d.payload.clone())?;
+            changes.extend(more);
+        }
+        self.apply_changes(tokens, device, locale, &changes)
     }
 
     /// Re-anchors the text focus after a re-emit: focus survives by binding
@@ -150,20 +234,25 @@ impl View<'_> {
         };
         let change_sym =
             self.runtime.symbols().iter().position(|s| s == "Change").map(|i| i as u32);
-        self.focused_text = change_sym.and_then(|sym| {
-            self.handlers.iter().find_map(|(box_id, entry)| {
-                let HandlerAction::Bind { store, path } = &entry.action else {
-                    return None;
-                };
-                (entry.trigger == sym && *store == focused.store && *path == focused.path).then(
-                    || FocusedText {
-                        store: focused.store,
-                        path: focused.path.clone(),
-                        box_id: *box_id,
-                        secure: subtree_is_secure(&self.scene, *box_id),
-                    },
-                )
-            })
+        let Some(sym) = change_sym else {
+            return;
+        };
+        // Re-anchor by binding identity, then re-resolve the enclosing
+        // dispatch: handler paths are stable across a re-emit but box ids are
+        // not, and the wrapper may have moved into a different `if` arm.
+        let found = self.handlers.iter().find_map(|(box_id, entry)| {
+            let HandlerAction::Bind { store, path } = &entry.action else {
+                return None;
+            };
+            (entry.trigger == sym && *store == focused.store && *path == focused.path)
+                .then(|| (*box_id, entry.path.clone()))
+        });
+        self.focused_text = found.map(|(box_id, node_path)| FocusedText {
+            store: focused.store,
+            path: focused.path.clone(),
+            box_id,
+            secure: subtree_is_secure(&self.scene, box_id),
+            change_dispatch: self.enclosing_change_dispatch(sym, &node_path),
         });
     }
 }

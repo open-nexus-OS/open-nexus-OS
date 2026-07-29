@@ -515,10 +515,107 @@ visible boot (login → Stash: floating glass over the wallpaper, row hover,
 
 **Known non-parity, unchanged**: exit animations (`.transition` is enter-only),
 `.truncate()` is a no-op, `.scroll()` ⊥ `.overlay()` so the listing does not
-scroll, per-keystroke filtering is not expressible, monospace size column,
-9px action label, breakpoints 640/1024 vs the design's 560/820 — at a 960-wide
-default window that puts the properties pane in the `regular` tier, i.e. as an
-overlay rather than inline.
+scroll, monospace size column, 9px action label, breakpoints 640/1024 vs the
+design's 560/820 — at a 960-wide default window that puts the properties pane
+in the `regular` tier, i.e. as an overlay rather than inline.
+(Per-keystroke filtering WAS on this list; R1 below makes it expressible.)
+
+### Phase 10 (R1-R4) — what Phase 9 uncovered ✅ (2026-07-29)
+
+Freeform + resize + a real text field ran four paths that had never executed.
+Every fix is below the app layer; Stash only showed them first.
+
+**R4 — the hit box was not the strip (`ui/layout`, `ui/widgets/text_field`)**
+
+The one that cost the most to find, because the whole chain fails SILENTLY.
+`update_box_geometry` writes a flex-grown row child's box at its allocation,
+but `place_node` laid the SUBTREE out against the hugged measurement. Stash's
+search strip was therefore 732px painted over a 180px `TextInput` — and the
+input IS the hit box (`View::focus_text_at`). A click right of the placeholder
+resolved to nothing, so app-host never sent `OP_SURFACE_TEXT_FOCUS`, windowd
+recorded no `text_focus` route, and `handle_imed_push` dropped every commit for
+that surface.
+
+What made it expensive: `windowd: text input on` + `filter list ok` still fire
+(that is windowd's OWN shell text state, not the app), and so does
+`cursor: shape=text`. The only tell is the ABSENCE of `apphost: text focus set`,
+which reads like an ordinary missed tap.
+
+- `userspace/ui/layout/src/constraints.rs` (new): `row_child_constraints` —
+  a grown child gets `definite(child_width, Some(measured.height))`, i.e. the
+  main size the parent already recorded. Split out of `engine.rs`, which is at
+  its LOC baseline.
+- `TextField::fill_row()` + `GlassTextField`'s outer column `Align::Start` →
+  `Align::Stretch`, so `.grow(1)` reaches the input instead of stopping at the
+  widget's wrapper.
+- The page's wrapper must be `.direction(row)`: a DSL `Stack` defaults to a
+  COLUMN, where `.grow(1)` grows HEIGHT. This is a standing trap.
+- **Proof**: `stash.rs::tapping_the_open_search_field_claims_text_focus` taps
+  three quarters across the STRIP (not the box centre — a centre tap passed
+  the whole time). Verified to fail with the engine fix reverted:
+  `the input covers only x 293..473 of a 264..996 strip`.
+
+**R1 — `on Change -> dispatch(...)` was dead while typing (`dsl/runtime`)**
+
+`insert_text`/`backspace_text` wrote the binding and fired no Change handler;
+`Change` was only used for focus resolution and the I-beam. `focus_text_at` now
+also resolves the enclosing Change DISPATCH once per focus, by handler path
+prefix (so `revalidate_text_focus` can re-resolve it after a re-emit), and the
+edit path runs it. Platform-wide: both launchers get live search from this.
+Stash also regained the `on Change` line lost in the `SearchBar` → `TextField`
+conversion. Proof: `dsl/runtime/tests/text_change_dispatch.rs` (4 tests, 3 fail
+against the old code).
+
+**R2 — a resized surface inherited the old glass rectangles (windowd, app-host)**
+
+`handle_surface_create` reset content/header/footer but not `layers`, and
+app-host's re-create block never re-announced. Invisible while the list
+scrolled (`scroll_id != 0` takes the 3-slice path, which ignores layers);
+at 1280x744 the content fits, `scroll_id` becomes 0, and the stale rectangles
+finally got read — anchored at `win_x + l.x`, i.e. the top-left. Now
+`clear_app_layers` fires on create (fail-closed: a new surface declares no
+glass until it says so) and the re-create path re-submits with a full present.
+
+**R3 — app chrome behind the shell status bar (windowd, app-host, dsl/runtime)**
+
+There was no safe-area mechanism at all: `DEVICE_FIELDS` is purely enum-based
+and `Window { }` knows only style/mode/level/resizable, so apps carried
+hard-coded spacers (Settings' was 40 against a 36px bar). Meanwhile `input.rs`
+skips app windows above `SHELL_TOPBAR_H`, so a maximized window's 40px chrome
+had FOUR usable pixels.
+
+The contract, phone-style rather than desktop-style: freeform frames start
+BELOW the bar; fullscreen frames start at y=0 and carry a top INSET, so the
+window's own glass reaches under the bar while its controls sit below it. The
+bar stays readable and operable in both.
+
+- `surface_presentation.rs::bar_geometry` decides (host-tested, 7-row truth
+  table); `clamp_frame_origin` gained a minimum y — with `.max()`, because
+  `i32::clamp` PANICS when min > max on a short work area.
+- Transport needs no wire change: `OP_SURFACE_RECT` has always been
+  `(x, y, w, h)` with `y` encoded 0 and read as `_`.
+- `LayoutNode::inset_top` adds to the ROOT's `padding.top`. Not a wrapper node:
+  ids are pre-order, so one extra node shifts every id and breaks
+  `path_to_box_id`, `collect_texts` and anim keying, which each walk with their
+  own counter. Padding also costs zero allocations per emit, which matters on a
+  bump heap that never frees. Proof: `dsl/runtime/tests/safe_area.rs`, incl.
+  `the_inset_changes_no_node_ids`.
+- `SettingsPage.nx` loses its `Stack { }.height(40)`.
+
+**Also**: `files.count` re-read the directory `files.list` had just read (two
+blocking vfsd round-trips per search, both parked in the UI thread). app-host
+caches the last `readdir_page` per path; all three write paths invalidate it.
+The DSL's `timeoutMs` is no longer discarded (`svc_call.rs::call_reply_within`).
+
+**Boot-proven**: maximize → panes fill the window, no top-left rectangle (R2);
+chrome sits below the status bar and the ⋯ dropdown opens from there (R3).
+**Not boot-proven**: R1/R4 end-to-end typing — reproduced and fixed against the
+real `.nx` on host with negative controls, but the last boot ran under
+`-display gtk` (no VNC), so the live-filter click-and-type was not driven.
+
+**Recorded, not fixed**: `effect_ime.rs` truncates `surface_id & 0x0F` for
+window CONTROLS; every resize mints a new id, so after ~15 re-creates an app
+addresses a foreign window. Latent today.
 
 ### Phase 8 — docs + tooling parity
 

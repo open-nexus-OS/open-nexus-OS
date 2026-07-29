@@ -621,14 +621,20 @@ Page P {
 
     // Typing edits the focused field — across the re-emit each write causes.
     for ch in ["h", "é"] {
-        mounted.view.insert_text(&BaseTokens, &FixtureEnv::default(), &locale, ch).expect("insert");
+        mounted
+            .view
+            .insert_text(&BaseTokens, &FixtureEnv::default(), &locale, &mut NoIo, ch)
+            .expect("insert");
     }
     assert_eq!(
         mounted.view.runtime.field("S", "query"),
         Some(&nexus_dsl_runtime::Value::Str("hé".into()))
     );
     assert!(mounted.view.text_focus().is_some(), "focus survives re-emits");
-    mounted.view.backspace_text(&BaseTokens, &FixtureEnv::default(), &locale).expect("backspace");
+    mounted
+        .view
+        .backspace_text(&BaseTokens, &FixtureEnv::default(), &locale, &mut NoIo)
+        .expect("backspace");
     assert_eq!(
         mounted.view.runtime.field("S", "query"),
         Some(&nexus_dsl_runtime::Value::Str("h".into()))
@@ -647,7 +653,7 @@ Page P {
     assert!(snap.secure, "secure prop reaches the focus snapshot");
     mounted
         .view
-        .insert_text(&BaseTokens, &FixtureEnv::default(), &locale, "pw")
+        .insert_text(&BaseTokens, &FixtureEnv::default(), &locale, &mut NoIo, "pw")
         .expect("insert secret");
     assert_eq!(
         mounted.view.runtime.field("S", "secret"),
@@ -659,8 +665,10 @@ Page P {
     // Tap empty space clears focus; inserts become no-ops.
     assert!(mounted.view.focus_text_at(&result.boxes, FxPx::new(1), FxPx::new(1), None).is_none());
     assert_eq!(mounted.view.text_focus(), None);
-    let damage =
-        mounted.view.insert_text(&BaseTokens, &FixtureEnv::default(), &locale, "x").expect("noop");
+    let damage = mounted
+        .view
+        .insert_text(&BaseTokens, &FixtureEnv::default(), &locale, &mut NoIo, "x")
+        .expect("noop");
     assert_eq!(damage, None);
 }
 

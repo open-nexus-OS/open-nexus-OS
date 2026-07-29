@@ -64,7 +64,7 @@ fn with_stash<R>(
 ) -> R {
     let bytes = common::compile("stash");
     let tokens = nexus_theme_tokens::BaseTokens;
-    let device = FixtureEnv::tablet("landscape");
+    let device = FixtureEnv::desktop();
     // The program's own symbol + key tables, so `@t(...)` resolves to the
     // baked default-locale text instead of a row of empty strings.
     let symbols = common::program_symbols(&bytes);
@@ -303,4 +303,86 @@ fn the_view_mode_switches_between_list_and_grid() {
         let grid = texts(view.scene());
         assert!(!grid.iter().any(|t| t == "Date"), "grid mode drops them: {grid:?}");
     });
+}
+
+/// Tapping the open search field ANYWHERE ON THE VISIBLE STRIP must claim text
+/// focus. This is the step the whole live-filter chain hangs on: app-host only
+/// announces `OP_SURFACE_TEXT_FOCUS` when `focus_text_at` returns a snapshot,
+/// and windowd drops every imed commit whose surface id has no recorded focus
+/// route. A `None` here is invisible in the scene and fatal at runtime — no
+/// caret, keystrokes routed nowhere, the list never filters.
+///
+/// The tap deliberately lands near the RIGHT EDGE, not the centre: `TextField`
+/// builds a bare `TextInput` whose `FlexItem` defaults to `flex_grow: 0`, so a
+/// field that only had `.grow(1)` on its WRAPPER painted a full-width strip
+/// over a ~180px hit box. A centre tap passed while every realistic click on
+/// the strip did nothing.
+#[test]
+fn tapping_the_open_search_field_claims_text_focus() {
+    with_stash(|view, tokens, device, locale| {
+        let (event, case) =
+            view.runtime().event_case("StashEvent", "WinTool").expect("stash declares WinTool");
+        let mut host = NoIo;
+        view.dispatch(
+            tokens,
+            device,
+            locale,
+            &mut host,
+            event,
+            case,
+            vec![nexus_dsl_runtime::Value::Str(String::from("magnifyingglass"))],
+        )
+        .expect("opens the search field");
+
+        let boxes = common::layout_boxes(view);
+        let (strip_id, input_id) =
+            text_input_and_strip(view.scene()).expect("the open field has a TextInput");
+        let find = |id: usize| {
+            boxes.iter().find(|b| b.node_id == id).map(|b| b.rect).expect("node is laid out")
+        };
+        let (strip, field) = (find(strip_id), find(input_id));
+
+        // Three quarters across the strip: past the placeholder text, short of
+        // the clear button. This is the ordinary "click the search box" spot,
+        // and the one a hugging input leaves inert.
+        let (tx, ty) = (
+            nexus_layout_types::FxPx::new(strip.x.0 + strip.width.0 * 3 / 4),
+            nexus_layout_types::FxPx::new(strip.y.0 + strip.height.0 / 2),
+        );
+        assert!(
+            view.focus_text_at(&boxes, tx, ty, None).is_some(),
+            "a tap three quarters across the strip ({},{}) claims focus; \
+             the input covers only x {}..{} of a {}..{} strip",
+            tx.0,
+            ty.0,
+            field.x.0,
+            field.x.0 + field.width.0,
+            strip.x.0,
+            strip.x.0 + strip.width.0,
+        );
+    });
+}
+
+/// `(strip id, TextInput id)` for the first `TextInput` in the scene, in the
+/// same pre-order `LayoutEngine::place_node` uses — so both index straight into
+/// `boxes`. The "strip" is the nearest ancestor holding more than the field
+/// alone (here: magnifier · field · clear), i.e. the box the user reads as the
+/// search box. Single-child wrappers in between are invisible to them.
+fn text_input_and_strip(root: &LayoutNode) -> Option<(usize, usize)> {
+    fn walk(node: &LayoutNode, strip: usize, next: &mut usize) -> Option<(usize, usize)> {
+        let id = *next;
+        *next += 1;
+        if matches!(node, LayoutNode::TextInput(..)) {
+            return Some((strip, id));
+        }
+        let kids = children(node);
+        let strip_below = if kids.len() > 1 { id } else { strip };
+        for child in kids {
+            if let Some(found) = walk(child, strip_below, next) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    walk(root, 0, &mut 0)
 }

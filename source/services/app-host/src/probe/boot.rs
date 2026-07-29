@@ -280,7 +280,7 @@ pub(super) fn request_content_rect(
     events: &KernelClient,
     win: &WindowIntent,
     region: &mut Option<RegionPush>,
-) -> Option<(u32, u32)> {
+) -> Option<(u32, u32, u32)> {
     // Nonce-correlated: windowd answers on OUR event channel — without it,
     // concurrent mounts stole each other's rect and every app fell back.
     let intent = wire::encode_surface_intent(win.style, win.level, win.mode, false, win.nonce);
@@ -306,9 +306,9 @@ pub(super) fn request_content_rect(
         let start = nsec().unwrap_or(0);
         loop {
             if let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
-                if let Some((_, _, w, h)) = wire::decode_surface_rect(&frame[..len]) {
+                if let Some((_, inset, w, h)) = wire::decode_surface_rect(&frame[..len]) {
                     raw_marker("APPHOST: content rect received");
-                    return Some((u32::from(w), u32::from(h)));
+                    return Some((u32::from(inset), u32::from(w), u32::from(h)));
                 }
                 // The attach-time region push races the rect on this channel —
                 // stash it (dropping it un-localized every fresh mount).
@@ -344,7 +344,7 @@ pub(super) fn compositor_owned_geometry(
     events: &KernelClient,
     win: &WindowIntent,
     region: &mut Option<RegionPush>,
-) -> Result<(u32, u32), &'static str> {
+) -> Result<(u32, u32, u32), &'static str> {
     match request_content_rect(client, events, win, region) {
         Some(rect) => Ok(rect),
         None => {
@@ -394,7 +394,7 @@ pub(super) fn send_retry_cap(
 pub(super) fn recv_ack(
     client: &KernelClient,
     op: u8,
-    pending_rect: &mut Option<(u16, u16)>,
+    pending_rect: &mut Option<(u16, u16, u16)>,
     region: &mut Option<RegionPush>,
 ) -> Result<u32, &'static str> {
     // 96: an RFC-0083 snapshot (max 70 bytes) may race the ack on this
@@ -415,8 +415,8 @@ pub(super) fn recv_ack(
                 // it INSIDE create handling, so it precedes the create-ack
                 // on this channel): stash the LATEST for the event loop.
                 // Dropping it left the surface at the probe size forever.
-                if let Some((_, _, w, h)) = wire::decode_surface_rect(&frame[..len]) {
-                    *pending_rect = Some((w, h));
+                if let Some((_, inset, w, h)) = wire::decode_surface_rect(&frame[..len]) {
+                    *pending_rect = Some((inset, w, h));
                     continue;
                 }
                 // The attach-time region push races the create/present acks

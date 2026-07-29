@@ -31,6 +31,7 @@ pub struct TextField {
     placeholder: Option<String>,
     max_length: Option<u32>,
     secure: bool,
+    fill_row: bool,
 }
 
 impl TextField {
@@ -86,6 +87,20 @@ impl TextField {
         self.id
     }
 
+    /// Take the row's remaining main-axis width instead of hugging the text.
+    ///
+    /// The input node IS the hit box: `View::focus_text_at` resolves the tap
+    /// against the `TextInput`'s own rect, and app-host only announces
+    /// `OP_SURFACE_TEXT_FOCUS` when that resolves. A field painted as a wide
+    /// strip whose input hugged its placeholder was therefore dead to the right
+    /// of the text — no caret, no route recorded in windowd, and every imed
+    /// commit dropped. Growing it is what makes the painted strip and the
+    /// hittable strip the same rectangle.
+    pub fn fill_row(mut self) -> Self {
+        self.fill_row = true;
+        self
+    }
+
     /// Build the layout-node.
     pub fn build(self) -> LayoutNode {
         let cursor_pos = self.value.chars().count();
@@ -105,7 +120,7 @@ impl TextField {
                 placeholder: self.placeholder.map(TextContent::new),
                 max_length: self.max_length,
                 style: self.text_style,
-                item: FlexItem::default(),
+                item: FlexItem { flex_grow: u32::from(self.fill_row), ..FlexItem::default() },
                 min_width: None,
                 max_width: None,
                 secure: self.secure,

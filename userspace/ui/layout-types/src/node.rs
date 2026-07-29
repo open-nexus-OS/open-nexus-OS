@@ -255,6 +255,36 @@ impl Default for TextNode {
 }
 
 impl LayoutNode {
+    /// Adds `top` to this node's own top padding, in place.
+    ///
+    /// This is how a platform SAFE AREA reaches a page: the compositor tells
+    /// the surface how many rows at the top belong to the shell status bar,
+    /// and the scene ROOT absorbs them as padding. Two properties make padding
+    /// the right instrument, and a wrapper node the wrong one:
+    ///
+    /// - the container's own box still spans the full height, so the page's
+    ///   background/glass keeps reaching y=0 and the translucent bar sits on
+    ///   it — only the CONTENT moves down;
+    /// - node ids are assigned in pre-order, so an extra node would shift
+    ///   every id by one and break handler box-ids, text collection and
+    ///   animation keying, all of which walk the tree with their own counters.
+    ///
+    /// Returns `false` for a leaf root (nothing to pad) so the caller can
+    /// report it rather than silently laying out under the bar.
+    pub fn inset_top(&mut self, top: FxPx) -> bool {
+        match self {
+            LayoutNode::Stack(stack, _, _) => {
+                stack.padding.top += top;
+                true
+            }
+            LayoutNode::Grid(grid, _, _) => {
+                grid.padding.top += top;
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub fn id(&self) -> Option<&'static str> {
         match self {
             LayoutNode::Stack(stack, _, _) => stack.id,

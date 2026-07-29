@@ -242,12 +242,12 @@ impl ShellWindow {
     /// Enter fullscreen: remember the floating frame and take the whole
     /// display (TRUE fullscreen — the content re-renders at display size via
     /// the Phase-3 resize machinery; the composite covers the chrome).
-    pub(crate) fn enter_fullscreen(&mut self, mode_w: u32, mode_h: u32) {
+    pub(crate) fn enter_fullscreen(&mut self, y: i32, mode_w: u32, mode_h: u32) {
         if self.fullscreen_restore.is_none() {
             self.fullscreen_restore = Some((self.x, self.y, self.w, self.h));
         }
         self.end_drag();
-        self.set_frame(0, 0, mode_w, mode_h);
+        self.set_frame(0, y, mode_w, mode_h);
     }
 
     /// Leave fullscreen: return to the remembered floating frame.

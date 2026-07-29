@@ -20,8 +20,8 @@
 #![cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 
 use super::effect_host::{
-    call_reply, raw_marker, AppEffectHost, ERR_SVC_SHAPE, ERR_SVC_UNAVAILABLE, ERR_SVC_UNKNOWN,
-    FILES_REPLY_BUF, REPLY_BUF, VFS_OPCODE_READDIR, VFS_OPCODE_STAT,
+    call_reply_within, raw_marker, AppEffectHost, ERR_SVC_SHAPE, ERR_SVC_UNAVAILABLE,
+    ERR_SVC_UNKNOWN, FILES_REPLY_BUF, REPLY_BUF, VFS_OPCODE_READDIR, VFS_OPCODE_STAT,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -66,7 +66,7 @@ impl AppEffectHost {
         req.push(VFS_OPCODE_READDIR);
         req.extend_from_slice(&payload);
         let mut resp = alloc::vec![0u8; FILES_REPLY_BUF];
-        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
             raw_marker("apphost: dsl svc files readdir FAIL (vfsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -130,7 +130,7 @@ impl AppEffectHost {
     }
 
     pub(crate) fn files_list(
-        &self,
+        &mut self,
         path: &str,
         cursor: i64,
         sort: &str,
@@ -197,13 +197,18 @@ impl AppEffectHost {
         let mut icons = String::from("stash: mime icons resolved (n=");
         let _ = core::fmt::write(&mut icons, format_args!("{})", resolved));
         raw_marker(&icons);
+        // Hand the page to `files_count`, which every `FilesLoaded` triggers
+        // one dispatch later — see `readdir_cache`.
+        if cursor == 0 {
+            self.readdir_cache = Some((String::from(path), page));
+        }
         Ok(Value::List(rows))
     }
 
     /// `svc.files.count(path)` → `Int` — the entry count of a folder (or the
     /// recent aggregation). Drives the honest empty-folder state in the UI.
     pub(crate) fn files_count(
-        &self,
+        &mut self,
         path: &str,
         query: &str,
         show_hidden: bool,
@@ -211,6 +216,16 @@ impl AppEffectHost {
         // Same predicate as `files_list` — see `entry_visible`.
         let n = if path == "recent:" {
             self.collect_recent()?
+                .iter()
+                .filter(|entry| Self::entry_visible(entry, query, show_hidden))
+                .count()
+        } else if let Some(page) = self.cached_page(path) {
+            // The page `files_list` just read. Every `FilesLoaded` dispatches
+            // a count, so this used to be a SECOND blocking ReadDir of the same
+            // directory — a second kernel-parked round trip on the UI thread
+            // and a second 7 KB reply buffer, per keystroke once the filter
+            // runs live. The two answers also could not disagree any more.
+            page.entries
                 .iter()
                 .filter(|entry| Self::entry_visible(entry, query, show_hidden))
                 .count()
@@ -224,16 +239,39 @@ impl AppEffectHost {
         Ok(Value::Int(n as i64))
     }
 
+    /// The last `files_list` page IFF it is this exact directory.
+    ///
+    /// Deliberately NOT a general cache: it is only ever populated by
+    /// `files_list` and dropped by every write, so the window in which it can
+    /// be read is the one dispatch between `FilesLoaded` and its count. It
+    /// never serves a `files.list`, so a stale directory can never reach the
+    /// listing itself.
+    fn cached_page(&self, path: &str) -> Option<&nexus_vfs_types::ReadDirPage> {
+        self.readdir_cache.as_ref().filter(|(p, _)| p == path).map(|(_, page)| page)
+    }
+
+    /// Drops the cached page. Every WRITE calls this — a count taken after a
+    /// mkdir/remove/rename/copy must not answer from the pre-write listing.
+    pub(crate) fn invalidate_readdir_cache(&mut self) {
+        self.readdir_cache = None;
+    }
+
     /// `svc.files.mkdir(path)` → `Bool` (RFC-0073 Phase 2 write surface).
     /// Routed to vfsd, which forwards to the nxfs `/data` store.
-    pub(crate) fn files_write(&self, opcode: u8, path: &str, marker: &str) -> Result<Value, u32> {
+    pub(crate) fn files_write(
+        &mut self,
+        opcode: u8,
+        path: &str,
+        marker: &str,
+    ) -> Result<Value, u32> {
+        self.invalidate_readdir_cache();
         let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
         let payload = nexus_vfs_types::fileops::encode_path_request(path).ok_or(ERR_SVC_SHAPE)?;
         let mut req = Vec::with_capacity(1 + payload.len());
         req.push(opcode);
         req.extend_from_slice(&payload);
         let mut resp = [0u8; 16];
-        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
             raw_marker("apphost: dsl svc files write FAIL (vfsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -258,14 +296,15 @@ impl AppEffectHost {
     /// `svc.files.rename(from, to)` → `Bool` (RFC-0073). Powers both in-place
     /// rename and MOVE (a rename across directories); nxfs `Op::Rename` handles
     /// the cross-directory case.
-    pub(crate) fn files_rename(&self, from: &str, to: &str) -> Result<Value, u32> {
+    pub(crate) fn files_rename(&mut self, from: &str, to: &str) -> Result<Value, u32> {
+        self.invalidate_readdir_cache();
         let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
         let payload = nexus_vfs_types::fileops::encode_rename(from, to).ok_or(ERR_SVC_SHAPE)?;
         let mut req = Vec::with_capacity(1 + payload.len());
         req.push(nexus_vfs_types::fileops::OP_RENAME);
         req.extend_from_slice(&payload);
         let mut resp = [0u8; 16];
-        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
             raw_marker("apphost: dsl svc files.rename FAIL (vfsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -289,14 +328,15 @@ impl AppEffectHost {
 
     /// `svc.files.copy(from, to)` → `Bool` — copy a file (nxfs read + create +
     /// write behind OP_COPY; a directory source fails honestly).
-    pub(crate) fn files_copy(&self, from: &str, to: &str) -> Result<Value, u32> {
+    pub(crate) fn files_copy(&mut self, from: &str, to: &str) -> Result<Value, u32> {
+        self.invalidate_readdir_cache();
         let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
         let payload = nexus_vfs_types::fileops::encode_rename(from, to).ok_or(ERR_SVC_SHAPE)?;
         let mut req = Vec::with_capacity(1 + payload.len());
         req.push(nexus_vfs_types::fileops::OP_COPY);
         req.extend_from_slice(&payload);
         let mut resp = [0u8; 16];
-        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
             raw_marker("apphost: dsl svc files.copy FAIL (vfsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -329,7 +369,7 @@ impl AppEffectHost {
         req.push(VFS_OPCODE_STAT);
         req.extend_from_slice(path.as_bytes());
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
             raw_marker("apphost: dsl svc files.stat FAIL (vfsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };

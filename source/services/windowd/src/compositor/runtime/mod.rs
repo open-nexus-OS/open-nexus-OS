@@ -61,7 +61,7 @@ pub(crate) const GPUD_WIRED_RECV_SLOT: u32 = 6; // pair (see gpud.rs)
 /// (windows sit BEHIND it; its strip stays clickable), the desktop taskbar
 /// is reserved in the desktop profile (windows never cover it) while the
 /// tablet dock is overlaid (fullscreen reaches the bottom edge).
-pub(crate) const SHELL_TOPBAR_H: u32 = 36;
+pub(crate) use crate::surface_presentation::SHELL_TOPBAR_H;
 pub(crate) const SHELL_TASKBAR_H: u32 = 56;
 pub(crate) const OSK_BAND_H: u32 = 312;
 const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
