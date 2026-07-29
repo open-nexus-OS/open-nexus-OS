@@ -21,6 +21,7 @@ pub mod engine;
 #[cfg(test)]
 mod engine_tests;
 pub mod error;
+mod geometry;
 
 pub use boxes::{compute_scroll_damage, LayoutBox, LayoutResult, ScrollDamage};
 pub use engine::LayoutEngine;

@@ -197,3 +197,35 @@ impl Default for AnimationDriver {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The windowd transition-wedge trigger, pinned at its source: a spring
+    /// whose `from == target` (a horizontally-centred top snap animates
+    /// TranslateX 0 → 0) converges on its FIRST step and emits NO update.
+    /// Any consumer that runs its "all springs converged" bookkeeping only
+    /// on ticks with updates therefore never runs it when such a spring was
+    /// the last one — windowd's `finish_window_transitions` must execute on
+    /// empty ticks too, or `pending_wm` wedges forever (window invisible,
+    /// input running).
+    #[test]
+    fn a_from_equals_target_spring_dies_silently_on_its_first_tick() {
+        let mut driver = AnimationDriver::new();
+        driver.spring_to(
+            crate::property::LayerId(7),
+            AnimProp::TranslateX,
+            0.0,
+            0.0,
+            SpringConfig::default(),
+        );
+        assert_eq!(driver.active_count(), 1);
+        let mut out = [SceneUpdate::default(); 8];
+        // First call anchors the clock, second advances one 8ms frame.
+        let n0 = driver.tick_into(1_000, &mut out);
+        let n = driver.tick_into(8_001_000, &mut out);
+        assert_eq!(n0 + n, 0, "a 0→0 spring must not emit");
+        assert_eq!(driver.active_count(), 0, "…and is removed the same tick");
+    }
+}

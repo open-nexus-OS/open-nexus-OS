@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-29 (Settings repair round: five platform bugs behind "selecting anything freezes")
+
+The settings rebuild's real-session test failed four ways (freeze on select,
+a seam mid-window, glass stacks showing only the wallpaper, wrong landing
+page). All were platform bugs the host suite could not see, fixed at the
+owning layer — boot-proven end-to-end (landing on Verbindungen, toggles,
+visible working menus, live accent switch to violet, clean maximize,
+navigation after fullscreen).
+
+- **dsl-runtime**: `hit_scrolled` tested every clipped box against the ONE
+  active scroll viewport — a page with a sidebar and a scrolling content
+  pane had 100 % of its content handlers rejected. Now per-box clip testing
+  (active/nested/foreign viewports); the scrolled painter mirrors it.
+  `path_to_box_id` (and app-host's `collect_texts`/`caret_input`) now count
+  in the engine's visit order — `.overlay()` children are placed LAST, and
+  the declaration-order count misresolved every handler/text behind a
+  non-last open overlay.
+- **app-host**: the 3-slice compositor band only supports FULL-WIDTH scroll
+  viewports; pages whose statics share rows with the viewport (settings'
+  sidebar beside the pane) fall back to the plain path with a marker —
+  statics used to vanish below the header (the seam) and page-root overlays
+  were invisible-but-hittable (the "freeze"). The largest of several
+  `.scroll` containers wins the band, with a marker. Only glass ROOTS are
+  submitted as compositor regions (under the 16-layer cap; overflow logs).
+- **windowd**: `finish_window_transitions` now runs on empty animation ticks
+  — a `from == target` spring dies on its first step emitting nothing, and
+  the old early-return wedged `pending_wm`/the gpud exit transform forever
+  (window invisible, input eating: the hard freeze after fullscreen).
+  `CONTROL_WIN_MOVE` only starts a drag while the button is DOWN (the
+  sticky-drag → surprise top-snap-fullscreen trigger). Fixed band slices
+  composite with the same frosted backdrop as the body (blur seam);
+  straddling glass regions split across band slices; WM-maximized freeform
+  windows keep their blur band; freshly allocated band rows are zeroed.
+- **scene_raster + layout engine**: glass boxes REPLACED the pixels beneath
+  them — nested glass (a subtle row on a windowPane pane) erased its parent
+  and every stack showed only the wallpaper. The engine now stamps
+  `LayoutBox::glass_nested` (real tree ancestry); only glass roots reset,
+  nested glass blends src-over.
+- **gpud**: the GL atlas alias (4000 rows) had drifted from windowd's
+  allocator (6400) — bands past VMO row 7200 sampled foreign rows as
+  garbage after maximize. Aligned, plus a sample-side clamp.
+- **settings app**: lands on `browse`/Verbindungen (the handoff's initial
+  state; the overview is an entered mode), sidebar without `.scroll`
+  (single-band rule) with compact single-line items so all 12 sections fit.
+- Module-ratchet splits on the way: `layout/geometry.rs`,
+  `scene_raster/scrolled.rs`, `windowd/compositor/material_glass.rs`,
+  `gpud/virgl_composite_selftest.rs`.
+
 ### Added - 2026-07-29 (Settings design handoff, Phase 0+1)
 
 The settings app was showing about a sixth of its handoff: 8 of 12 sidebar

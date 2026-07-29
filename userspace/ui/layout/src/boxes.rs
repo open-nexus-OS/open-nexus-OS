@@ -35,6 +35,14 @@ pub struct LayoutBox {
     /// [`nexus_layout_types::FlexItem::hit_slop`]). `rect` stays the painted
     /// rect, so pixels and layout are untouched; only `hit_scrolled` reads it.
     pub hit_slop: FxPx,
+    /// Whether an ANCESTOR of this box carries a glass material. The glass
+    /// painter keys on it: a glass ROOT resets its rect to the pure tint
+    /// (the compositor supplies the blurred backdrop), while NESTED glass
+    /// blends src-over onto its parent's tint — without the distinction a
+    /// `subtle` row erased the pane beneath it and every glass stack showed
+    /// only the wallpaper. Stamped by the engine (it walks the real tree;
+    /// geometry alone cannot recover ancestry).
+    pub glass_nested: bool,
 }
 
 impl Default for LayoutBox {
@@ -52,6 +60,7 @@ impl Default for LayoutBox {
             scroll_offset: (FxPx::ZERO, FxPx::ZERO),
             overflow: Overflow::Visible,
             hit_slop: FxPx::ZERO,
+            glass_nested: false,
         }
     }
 }

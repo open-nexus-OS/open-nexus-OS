@@ -8,8 +8,10 @@
 //
 // So: the trigger sits in a row's `trailing` slot, this sheet is a sibling of
 // the window on the PAGE ROOT, and `$state.picker` decides which one is open.
-// Root level matters — `.overlay()` does not composite inside a banded scroll
-// surface (see chat's page header), and the content pane scrolls.
+// (This window renders on the PLAIN surface path — its statics share rows
+// with the scroll viewport, so app-host refuses the 3-slice band — which is
+// also what makes a full-window overlay renderable at all: in a banded
+// window an overlay would only paint into the fixed slices.)
 //
 // Backdrop taps close (`ClosePicker`); the panel eats its own taps
 // (`WinNoop`) so reaching into the list does not dismiss it.

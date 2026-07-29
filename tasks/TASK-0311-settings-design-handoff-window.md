@@ -1,6 +1,6 @@
 ---
 title: TASK-0311 Settings design handoff — full information architecture on WinAppWindow
-status: In Progress (2026-07-29) — Phase 0+1 host-proven + boot-proven for RENDERING and sidebar navigation; wrapper-Stack tap targets miss (see Open)
+status: In Progress (2026-07-29) — Phase 0+1 + repair round boot-proven end-to-end (landing, taps, menus, appearance live-accent, fullscreen); Phase 2 (sub-pages, view options, search) open
 owner: @ui
 created: 2026-07-29
 links:
@@ -97,40 +97,62 @@ domain stores, 251 i18n keys in `en`+`de` (navigation-level in ja/ko/zh).
 | Icon-style blend modes | approximated | the painter has no blend or filter stage |
 | App-Icon-Stil / Ordnerfarbe | local selection only | nothing consumes them yet |
 
-## Found by the visible boot (three fixed, one open)
+## Repair round (2026-07-29, user-reported: freeze, seam, glass, landing)
 
-The host tests were green while three of these were live — layout at
-1280×800 in a test harness is necessary and not sufficient.
+The user's real-session test found four failures the host suite could not see.
+Two deep code analyses located every cause; all were PLATFORM bugs plus two
+app-level deviations. Fixed at the owning layer:
 
-- **FIXED — `.wrap(true)` is a silent no-op.** It is documented in
-  `docs/dev/dsl/modifiers.md` and reaches `Stack::flex_wrap`, but nothing in
-  `userspace/ui/layout/src/engine.rs` reads that field. Twelve overview cards
-  laid out in one overflowing row with the labels printed over each other.
-  The grid is four explicit rows now; real flex-wrap is a platform follow-up.
-- **FIXED — `.overflow(hidden)` collapsed the row groups.** A hidden-overflow
-  container passes its own clipped constraints down, and with no explicit
-  height that resolved to zero: the first boot showed three group captions
-  and no rows.
-- **FIXED — the breadcrumb separator was not baked.** `Breadcrumbs` joins
-  crumbs with `›` (U+203A), which was not in `text-baked`'s Latin EXTRAS, so
-  every trail printed a placeholder box. Added (with `‹`), and the EXTRAS
-  field became a slice so the next charset addition is one line.
-- **FIXED — squeezed sidebar icons.** `WinSideItem` let a long two-line label
-  win the flex negotiation and crush the icon to a two-pixel sliver. The icon
-  now sits in a pinned 16px box and the text column grows.
-- **OPEN — a `Stack` wrapper around a component instance gets NO hit box.**
-  `docs/dev/dsl/project-layout.md` documents wrapping an instance to carry
-  `on Tap` as THE pattern; the handler registers and the row even highlights
-  on hover, but the box never reaches the layout and every tap logs
-  `apphost: input tap miss`. Every component that works today
-  (`WinSideItem`, `WinMenuItem`, stash's `FileRow`) carries its handler
-  INSIDE itself — which is why nobody hit this before. It costs this app the
-  overview cards, the appearance controls, the picker options and the ⋯ menu
-  rows; the sidebar, the section rows and the toggles are unaffected.
-  Fix: move each dispatch into its component (a `target: Str` prop and
-  `dispatch(Goto($props.target))`), splitting face-plus-wrapper the way
-  window-kit does where one visual needs two dispatches. The doc has been
-  corrected in the meantime.
+- **Tap misses (the "freeze" half 1)** — the platform assumed ONE
+  `.scroll(vertical)` container: `scroll_region_axis` took the FIRST (the
+  sidebar) and `interact::hit_scrolled` rejected every clipped box outside
+  that one viewport — 100 % of content-pane handlers dead. Fixed: per-box
+  clip testing (active / nested / foreign viewport), largest container wins
+  the band + `apphost: N scroll containers` marker. The round-1 "wrapper
+  Stacks get no hit box" diagnosis was WRONG (the 8-box dump was a
+  `.take(8)` artifact) — memory + project-layout.md corrected.
+- **Invisible overlays (the "freeze" half 2)** — `render_band` paints
+  unclipped boxes only into header/footer rows, while the hit-test uses
+  their full rect: an open menu was invisible everywhere and swallowed every
+  tap. Root fix: the 3-slice band model only supports FULL-WIDTH viewports —
+  `negotiated_band` now refuses pages whose statics share rows with the
+  viewport (`apphost: statics beside the viewport, plain-path fallback`);
+  settings renders on the plain path, where overlays work.
+- **The hard freeze** — windowd's `tick()` returned before
+  `finish_window_transitions()` when the last spring emitted 0 updates
+  (a `from == target` spring dies silently on its first step — pinned by a
+  new `animation` test): `pending_wm` stuck forever, exit transform stuck at
+  gpud, input still routing. Fixed (finish runs on empty ticks) + the
+  `CONTROL_WIN_MOVE` sticky-drag trigger gated on the button being down +
+  the same-size fullscreen early-return resets a stale transform.
+- **Glass showed only the wallpaper** — `scene_raster` REPLACED pixels for
+  every glass box. Now only glass ROOTS replace (the engine stamps
+  `LayoutBox::glass_nested` by real ancestry); nested glass blends src-over,
+  the glyph-drop rule keys on roots, and only roots become compositor
+  regions (settings: ~27 → 4 layers, under the 16 cap, with a marker on
+  overflow).
+- **The seam** — statics vanished below `header_h` in the band (see plain-
+  path gate above); the fixed band slices also composited UNBLURRED next to
+  the frosted body (now share the backdrop treatment), and `band_map`
+  truncated straddling regions (now splits into up to three slices).
+- **Post-fullscreen garbage** — gpud's GL atlas alias was 4000 rows while
+  windowd allocates 6400 (bands past row 7200 sampled foreign rows);
+  aligned + sample clamp + freshly allocated band rows are zeroed. A
+  WM-maximized freeform window also KEEPS its blur band now (it used to be
+  translucent-unblurred tracing paper).
+- **`.overlay()` id drift** — the engine visits absolute children LAST while
+  `path_to_box_id`/`collect_texts`/`caret_input` counted declaration order:
+  every handler/text behind a non-last open overlay resolved to the wrong
+  box. All three walkers now mirror the visit order.
+- **App:** landing = `browse`/`connections` (the handoff's initial state —
+  the overview is an entered mode, not the landing page); the sidebar
+  dropped its `.scroll` (single-band rule) and uses compact single-line
+  items so all 12 sections fit the 526px frame.
+
+Known cosmetic rest (polish backlog): overview grid's third column can kiss
+the pane edge at 960px; the sidebar header row clips under the pane top;
+`windowd: STALL present stuck ~530ms` once during the fullscreen re-create
+(self-healing).
 
 ## Proofs
 

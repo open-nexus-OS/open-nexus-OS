@@ -297,27 +297,14 @@ pub(super) fn run() -> Result<(), &'static str> {
     // WebRender scroll band geometry — ONLY for a floating windowed app that
     // actually scrolls (desktop/fullscreen surfaces keep the plain path; the
     // desktop uses a separate windowd path that ignores the scroll band).
-    let band: Option<(u32, u32, u32)> = if level != wire::WIN_LEVEL_DESKTOP
-        && mode != wire::WIN_MODE_FULLSCREEN
-    {
-        app.as_ref().and_then(|d| d.band_geometry()).filter(|&(h, f, c)| {
-            // Resident-band budget: the gpud GL atlas holds 4000 rows
-            // SHARED with every other resident surface (desktop base
-            // = 800). A taller band still ALLOCATES but gpud clamps
-            // its upload — the composite then samples transparent
-            // rows and the window "vanishes" (the chat-thread
-            // re-create bug). Too-tall content falls back to the
-            // plain path honestly: visible-sized VMO, wheel-driven
-            // re-emit scroll — slower, but complete and correct.
-            let fits = h + f + c <= MAX_BAND_ROWS;
-            if !fits {
-                let _ = nexus_abi::debug_write(b"apphost: band too tall, plain-path fallback\n");
-            }
-            fits
-        })
-    } else {
-        None
-    };
+    // `negotiated_band_at_mount` says WHY a scrolling page still lands on
+    // the plain path (budget / statics-beside-viewport markers).
+    let band: Option<(u32, u32, u32)> =
+        if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
+            app.as_ref().and_then(|d| d.negotiated_band_at_mount())
+        } else {
+            None
+        };
     let (create_content_h, create_header_h, create_footer_h) =
         band.map_or((0u16, 0u16, 0u16), |(h, f, c)| {
             (
@@ -780,10 +767,10 @@ pub(super) fn run() -> Result<(), &'static str> {
             if let Some(dsl) = app.as_ref() {
                 let now_band =
                     if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
-                        // Same MAX_BAND_ROWS budget as surface create — the
-                        // detector and the re-create MUST agree, or a too-tall
-                        // page would re-create into the clamped-band vanish.
-                        dsl.band_geometry().filter(|&(h, f, c)| h + f + c <= MAX_BAND_ROWS)
+                        // Same predicate as surface create — the detector and
+                        // the re-create MUST agree, or a page would re-create
+                        // onto the wrong path (the clamped-band vanish).
+                        dsl.negotiated_band()
                     } else {
                         None
                     };
@@ -797,7 +784,7 @@ pub(super) fn run() -> Result<(), &'static str> {
         if recreate_surface && app.is_some() {
             let band2: Option<(u32, u32, u32)> = if let Some(dsl) = app.as_ref() {
                 if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
-                    dsl.band_geometry().filter(|&(h, f, c)| h + f + c <= MAX_BAND_ROWS)
+                    dsl.negotiated_band()
                 } else {
                     None
                 }

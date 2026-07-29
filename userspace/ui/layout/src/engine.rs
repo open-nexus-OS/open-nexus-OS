@@ -12,10 +12,13 @@
 use crate::boxes::{LayoutBox, LayoutResult};
 use crate::constraints::{child_constraints, row_child_constraints};
 use crate::error::LayoutError;
+use crate::geometry::{
+    align_offset, clamp_height, clamp_to_max_height, clamp_width, effective_item, intersect_clip,
+    justify_offsets, update_box_geometry,
+};
 use alloc::vec::Vec;
 use nexus_layout_types::{
-    Align, FlexItem, FxPx, Justify, LayoutNode, MeasureText, Overflow, Rect, TextContent,
-    VisualStyle,
+    Align, FlexItem, FxPx, LayoutNode, MeasureText, Overflow, Rect, TextContent, VisualStyle,
 };
 
 const DEFAULT_MAX_NODES: usize = 4096;
@@ -94,6 +97,7 @@ impl LayoutEngine {
             constraints,
             0,
             None,
+            false,
             (FxPx::ZERO, FxPx::ZERO),
             measure,
             &mut node_count,
@@ -112,6 +116,7 @@ impl LayoutEngine {
         constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
+        in_glass: bool,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
@@ -136,6 +141,7 @@ impl LayoutEngine {
                 constraints,
                 depth,
                 parent_clip,
+                in_glass,
                 scroll_offset,
                 measure,
                 node_count,
@@ -151,6 +157,7 @@ impl LayoutEngine {
                 constraints,
                 depth,
                 parent_clip,
+                in_glass,
                 scroll_offset,
                 measure,
                 node_count,
@@ -168,6 +175,7 @@ impl LayoutEngine {
                     clip_rect: parent_clip,
                     scroll_offset,
                     overflow: Overflow::Visible,
+                    glass_nested: in_glass,
                 });
                 Ok(NodeSize { width: main, height: FxPx::ZERO })
             }
@@ -179,6 +187,7 @@ impl LayoutEngine {
                 y,
                 constraints,
                 parent_clip,
+                in_glass,
                 scroll_offset,
                 measure,
                 boxes,
@@ -191,6 +200,7 @@ impl LayoutEngine {
                 y,
                 constraints,
                 parent_clip,
+                in_glass,
                 scroll_offset,
                 measure,
                 boxes,
@@ -207,6 +217,7 @@ impl LayoutEngine {
         y: FxPx,
         constraints: LayoutConstraints,
         parent_clip: Option<Rect>,
+        in_glass: bool,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         boxes: &mut Vec<LayoutBox>,
@@ -246,6 +257,7 @@ impl LayoutEngine {
             clip_rect: parent_clip,
             scroll_offset,
             overflow: Overflow::Visible,
+            glass_nested: in_glass,
         });
         Ok(NodeSize { width, height })
     }
@@ -259,6 +271,7 @@ impl LayoutEngine {
         y: FxPx,
         constraints: LayoutConstraints,
         parent_clip: Option<Rect>,
+        in_glass: bool,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         boxes: &mut Vec<LayoutBox>,
@@ -288,6 +301,7 @@ impl LayoutEngine {
             y,
             constraints,
             parent_clip,
+            in_glass,
             scroll_offset,
             measure,
             boxes,
@@ -305,6 +319,7 @@ impl LayoutEngine {
         constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
+        in_glass: bool,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
@@ -346,7 +361,12 @@ impl LayoutEngine {
             clip_rect: parent_clip,
             scroll_offset: container_scroll,
             overflow: stack.overflow,
+            glass_nested: in_glass,
         });
+        // The container's DESCENDANTS are nested under this glass (the
+        // container itself is nested only under an ancestor's).
+        let in_glass =
+            in_glass || matches!(style.material, nexus_layout_types::SurfaceMaterial::Glass(_));
         let padding = stack.padding;
         let content_x = x + padding.left - container_scroll.0;
         let content_y = y + padding.top - container_scroll.1;
@@ -368,6 +388,7 @@ impl LayoutEngine {
                 child_constraints,
                 depth,
                 container_clip,
+                in_glass,
                 container_scroll,
                 measure,
                 node_count,
@@ -382,6 +403,7 @@ impl LayoutEngine {
                 child_constraints,
                 depth,
                 container_clip,
+                in_glass,
                 container_scroll,
                 measure,
                 node_count,
@@ -410,6 +432,7 @@ impl LayoutEngine {
         constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
+        in_glass: bool,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
@@ -520,6 +543,7 @@ impl LayoutEngine {
                 child_c,
                 depth + 1,
                 parent_clip,
+                in_glass,
                 scroll_offset,
                 measure,
                 node_count,
@@ -562,6 +586,7 @@ impl LayoutEngine {
                 child_c,
                 depth + 1,
                 parent_clip,
+                in_glass,
                 scroll_offset,
                 measure,
                 node_count,
@@ -580,6 +605,7 @@ impl LayoutEngine {
         constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
+        in_glass: bool,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
@@ -691,6 +717,7 @@ impl LayoutEngine {
                 child_c,
                 depth + 1,
                 parent_clip,
+                in_glass,
                 scroll_offset,
                 measure,
                 node_count,
@@ -729,6 +756,7 @@ impl LayoutEngine {
                 child_c,
                 depth + 1,
                 parent_clip,
+                in_glass,
                 scroll_offset,
                 measure,
                 node_count,
@@ -752,6 +780,7 @@ impl LayoutEngine {
         constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
+        in_glass: bool,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
@@ -787,7 +816,11 @@ impl LayoutEngine {
             clip_rect: parent_clip,
             scroll_offset: container_scroll,
             overflow: grid.overflow,
+            glass_nested: in_glass,
         });
+        // Descendants nest under this container's glass, if any.
+        let in_glass =
+            in_glass || matches!(style.material, nexus_layout_types::SurfaceMaterial::Glass(_));
         let padding = grid.padding;
         let n_cols = grid.columns.len().max(1);
         let total_fr: u32 = grid.columns.iter().map(|f| f.0).sum();
@@ -859,6 +892,7 @@ impl LayoutEngine {
                     ),
                     depth + 1,
                     container_clip,
+                    in_glass,
                     container_scroll,
                     measure,
                     node_count,
@@ -1097,144 +1131,5 @@ impl LayoutEngine {
 impl Default for LayoutEngine {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-fn clamp_width(value: FxPx, min: Option<FxPx>, max: Option<FxPx>) -> FxPx {
-    let mut out = value.max(FxPx::ZERO);
-    if let Some(max) = max {
-        out = out.min(max);
-    }
-    if let Some(min) = min {
-        out = out.max(min);
-    }
-    out
-}
-
-fn clamp_height(value: FxPx, min: Option<FxPx>, max: Option<FxPx>) -> FxPx {
-    let mut out = value.max(FxPx::ZERO);
-    if let Some(max) = max {
-        out = out.min(max);
-    }
-    if let Some(min) = min {
-        out = out.max(min);
-    }
-    out
-}
-
-fn clamp_to_max_height(value: FxPx, max_height: Option<FxPx>) -> FxPx {
-    match max_height {
-        Some(max_height) => value.min(max_height),
-        None => value,
-    }
-}
-
-/// The child's flex data with `Spacer::flex_grow` honored: a `Spacer` grows
-/// by its OWN declared factor (default 1) even when its generic `FlexItem`
-/// says 0 — the spacer's whole purpose is absorbing free space; reading only
-/// `FlexItem.flex_grow` made every default spacer inert (top-left greeter).
-fn effective_item(child: &LayoutNode) -> FlexItem {
-    let mut item = *child.item();
-    if let LayoutNode::Spacer(spacer) = child {
-        item.flex_grow = item.flex_grow.max(spacer.flex_grow);
-    }
-    item
-}
-
-fn update_box_geometry(
-    boxes: &mut [LayoutBox],
-    node_id: usize,
-    node: &LayoutNode,
-    x: FxPx,
-    y: FxPx,
-    width: FxPx,
-    height: FxPx,
-    parent_clip: Option<Rect>,
-) {
-    let Some(layout_box) = boxes.iter_mut().find(|layout_box| layout_box.node_id == node_id) else {
-        return;
-    };
-    layout_box.rect = Rect::new(x, y, width, height);
-    match node {
-        LayoutNode::Stack(stack, _, _)
-            if matches!(stack.overflow, Overflow::Hidden | Overflow::Scroll(_)) =>
-        {
-            let own = Rect::new(
-                x + stack.padding.left,
-                y + stack.padding.top,
-                width.saturating_sub(stack.padding.horizontal()),
-                height.saturating_sub(stack.padding.vertical()),
-            );
-            layout_box.clip_rect = intersect_clip(Some(own), parent_clip);
-        }
-        LayoutNode::Grid(grid, _, _)
-            if matches!(grid.overflow, Overflow::Hidden | Overflow::Scroll(_)) =>
-        {
-            let own = Rect::new(
-                x + grid.padding.left,
-                y + grid.padding.top,
-                width.saturating_sub(grid.padding.horizontal()),
-                height.saturating_sub(grid.padding.vertical()),
-            );
-            layout_box.clip_rect = intersect_clip(Some(own), parent_clip);
-        }
-        _ => {}
-    }
-}
-
-fn justify_offsets(
-    justify: Justify,
-    free_space: FxPx,
-    count: usize,
-    base_gap: FxPx,
-) -> (FxPx, FxPx) {
-    if count <= 1 {
-        return match justify {
-            Justify::Center => (free_space / 2, FxPx::ZERO),
-            Justify::End => (free_space, FxPx::ZERO),
-            _ => (FxPx::ZERO, base_gap),
-        };
-    }
-    match justify {
-        Justify::Start => (FxPx::ZERO, base_gap),
-        Justify::Center => (free_space / 2, base_gap),
-        Justify::End => (free_space, base_gap),
-        Justify::SpaceBetween => (FxPx::ZERO, base_gap + free_space / (count as i32 - 1)),
-        Justify::SpaceAround => {
-            let slot = free_space / count as i32;
-            (slot / 2, base_gap + slot)
-        }
-        Justify::SpaceEvenly => {
-            let slot = free_space / (count as i32 + 1);
-            (slot, base_gap + slot)
-        }
-    }
-}
-
-fn align_offset(align: Align, free_space: FxPx) -> FxPx {
-    match align {
-        Align::Start | Align::Stretch => FxPx::ZERO,
-        Align::Center => free_space / 2,
-        Align::End => free_space,
-    }
-}
-
-/// Intersect two optional clip rects. Returns the intersection, or None if disjoint.
-fn intersect_clip(a: Option<Rect>, b: Option<Rect>) -> Option<Rect> {
-    match (a, b) {
-        (Some(a), Some(b)) => {
-            let x = a.x.max(b.x);
-            let y = a.y.max(b.y);
-            let x2 = (a.x + a.width).min(b.x + b.width);
-            let y2 = (a.y + a.height).min(b.y + b.height);
-            if x2 > x && y2 > y {
-                Some(Rect::new(x, y, x2 - x, y2 - y))
-            } else {
-                None
-            }
-        }
-        (Some(a), None) => Some(a),
-        (None, Some(b)) => Some(b),
-        (None, None) => None,
     }
 }

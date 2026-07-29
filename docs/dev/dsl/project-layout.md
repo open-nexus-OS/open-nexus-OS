@@ -59,18 +59,16 @@ userspace/apps/<app>/
     platform/<profile>/pages/   # Page overrides only (desktop/, phone/)
 ```
 
-- **Components** carry `props:` and stay presentational; handlers bind to
-  nodes, not to component instances.
-  ⚠️ **A `Stack` wrapped around a component instance to carry `on Tap` does
-  NOT get a hit box.** The handler registers, the row highlights on hover —
-  and every tap logs `apphost: input tap miss`, because the wrapper's box
-  never reaches the layout (2026-07-29, settings; the same shape memory
-  records for flex-grown row children). Until that is fixed in the layout /
-  hit-test path, put the handler INSIDE the component on its own root, which
-  is what every shipped component already does: `WinSideItem`, `WinMenuItem`,
-  stash's `FileRow`. When one visual needs two different dispatches, split it
-  the way window-kit does — a handler-free face (`WinActionFace`) plus thin
-  wrappers that add the handler (`WinActionItem`).
+- **Components** carry `props:` and stay presentational; interaction handlers
+  (`on Tap -> …`) attach at the USE SITE — wrap the instance in a `Stack` to
+  carry the handler (handlers bind to nodes, not component instances).
+  (A 2026-07-29 debugging round briefly blamed this pattern for dead taps;
+  the real cause was the scroll-viewport singleton — `hit_scrolled` rejected
+  every clipped box outside the ONE active viewport, since fixed to per-box
+  clip testing. The wrapper pattern is sound. Two related rules DO hold:
+  give a flex-grown wrapper in a row `.direction(row)` so its subtree fills
+  the allocation, and remember `.overlay()` children are visited LAST by the
+  engine — `path_to_box_id`/`collect_texts` mirror that split.)
 - **Stores** own state + events + reducers + `@effect`s for one domain; pages
   bind via `$state.<field>` (field names are program-global — keep them
   unique across stores).

@@ -92,6 +92,10 @@ pub(crate) fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
 // sites keep working (RFC-0067 P3: window geometry is a widget concern).
 pub(crate) use nexus_widget_window::{Frame, ResizeEdge, TitleButton, WindowPress};
 
+// The per-region material-glass recipe lives in its own module (ratchet
+// split); re-exported here so `scene.rs` keeps one import path.
+pub(crate) use crate::compositor::material_glass::{composite_material_glass, MaterialLayerParams};
+
 /// A movable/closable glass window. The content list is supplied by the caller
 /// (rendered into `atlas`); this struct owns the frame, glass, drag and scroll.
 pub(crate) struct ShellWindow {
@@ -492,48 +496,52 @@ impl ShellWindow {
                 (mode_w, mode_h),
             );
         }
-        // 2. Fixed top slice (WM title + app header): atlas rows [0, header_h) →
-        //    window top. OPAQUE (see `draw_title_bar_row`) so it occludes the
-        //    scrolling body underneath. SQUARE (radius 0): the WM title bar's TOP
-        //    corners are rounded at the SURFACE level (transparent corner pixels),
-        //    revealing the rounded body/backdrop underneath, straight bottom edge.
-        if header_h > 0 {
-            let _ = encoder.try_composite_layer(
-                p.atlas_row,
-                p.atlas_x,
-                p.w,
-                header_h,
-                p.x,
-                p.y,
-                255,
-                0,
-                0,
-                0,
-                0,
-                0,
+        // 2.+3. Fixed slices — the top (WM title + app header, atlas rows
+        //    [0, header_h) → window top) and the bottom (app footer, atlas
+        //    rows right after the header block → window bottom). Both get the
+        //    SAME frosted backdrop treatment as the body (live blur; a slice
+        //    is small, no cache needed): they used to draw with no backdrop
+        //    at all, so a translucent header showed the raw, sharp desktop
+        //    while the body under it was frosted — a hard horizontal blur
+        //    seam exactly at the slice line. Still occluding (each slice
+        //    paints its full rect over the blur), still SQUARE (radius 0):
+        //    the WM title bar's TOP corners are rounded at the SURFACE level
+        //    (transparent corner pixels).
+        let mut fixed_slice = |src_row_off: u32, dst_y: u32, h: u32| {
+            if h == 0 {
+                return;
+            }
+            let _ = encoder.composite_layer_full(
+                &Layer {
+                    src_row_abs: p.atlas_row + src_row_off,
+                    src_x: p.atlas_x,
+                    width: p.w,
+                    height: h,
+                    content_w: 0,
+                    content_h: 0,
+                    dst_x: p.x,
+                    dst_y,
+                    opacity: 255,
+                    corner_radius: 0,
+                    scroll_id: 0,
+                    layer_id: 0,
+                    content_epoch: crate::atlas::atlas_content_epoch(),
+                    scroll_band_top_abs: 0,
+                    scroll_band_h: 0,
+                    shadow: None,
+                    backdrop: Some(LayerBackdrop {
+                        blur_radius: DARK_GLASS_BLUR_RADIUS,
+                        saturation_percent: DARK_GLASS_SATURATION_PERCENT,
+                        restore_halo_pad: 0,
+                        retained_src_y_offset: RETAINED_ROW_OFFSET,
+                        cache: BackdropCache::None,
+                    }),
+                },
+                (mode_w, mode_h),
             );
-        }
-        // 3. Fixed bottom slice (app footer / composer): atlas rows
-        //    [atlas_row + header_h, + footer_h) (where the app packed the footer,
-        //    right after the header in the band) → window bottom. OPAQUE, so
-        //    scrolled rows never bleed through it.
-        if footer_h > 0 {
-            let footer_dst_y = p.y + p.h.saturating_sub(footer_h);
-            let _ = encoder.try_composite_layer(
-                p.atlas_row + header_h,
-                p.atlas_x,
-                p.w,
-                footer_h,
-                p.x,
-                footer_dst_y,
-                255,
-                0,
-                0,
-                0,
-                0,
-                0,
-            );
-        }
+        };
+        fixed_slice(0, p.y, header_h);
+        fixed_slice(header_h, p.y + p.h.saturating_sub(footer_h), footer_h);
         // `built_blur`: the cache was (re)built this present iff a cache exists
         // and was invalid (no cache → nothing was built).
         p.blur.map(|b| !b.valid).unwrap_or(false)
@@ -542,75 +550,6 @@ impl ShellWindow {
 
 /// Map a window's blur-cache state to the layer SSOT's cache mode: build + write
 /// the blurred backdrop on the first settled present, reuse it thereafter.
-/// Parameters for one **material-tagged glass region** of a client surface (R1
-/// layer seam). Unlike [`GlassCompositeParams`] (a whole window), this composites
-/// an arbitrary sub-rect the app declared as glass, sampling its content from the
-/// app surface's atlas band and blurring the retained backdrop behind it.
-#[derive(Clone, Copy)]
-pub(crate) struct MaterialLayerParams {
-    pub src_row_abs: u32,
-    pub src_x: u32,
-    pub width: u32,
-    pub height: u32,
-    pub dst_x: u32,
-    pub dst_y: u32,
-    pub corner_radius: u32,
-    pub shadow_alpha: u32,
-    /// Backdrop blur radius (from the glass level: panel/card/subtle/window).
-    pub blur_radius: u32,
-}
-
-/// Composite one app-declared glass region through the `nexus-gfx` layer SSOT —
-/// the same recipe as [`ShellWindow::composite_glass`], per region, with the
-/// backdrop re-blurred live each present (`BackdropCache::None`; a per-region
-/// blur cache is a later optimization). This is how the shell's topbar/dock/cards
-/// become real frosted layers over the wallpaper (RFC-0067 Revival R1).
-pub(crate) fn composite_material_glass(
-    encoder: &mut RenderCommandEncoder<'_>,
-    p: MaterialLayerParams,
-    mode_w: u32,
-    mode_h: u32,
-) {
-    if p.width == 0 || p.height == 0 || p.dst_x >= mode_w || p.dst_y >= mode_h {
-        return;
-    }
-    let w = p.width.min(mode_w.saturating_sub(p.dst_x));
-    let h = p.height.min(mode_h.saturating_sub(p.dst_y));
-    let _ = encoder.composite_layer_full(
-        &Layer {
-            src_row_abs: p.src_row_abs,
-            src_x: p.src_x,
-            width: w,
-            height: h,
-            content_w: 0,
-            content_h: 0,
-            dst_x: p.dst_x,
-            dst_y: p.dst_y,
-            opacity: 255,
-            corner_radius: p.corner_radius,
-            scroll_id: 0,
-            // Untagged: material glass rides the app's DESKTOP surface.
-            layer_id: 0,
-            content_epoch: crate::atlas::atlas_content_epoch(),
-            scroll_band_top_abs: 0,
-            scroll_band_h: 0,
-            shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
-                blur: 24,
-                offset_y: 8,
-                alpha: p.shadow_alpha,
-            }),
-            backdrop: Some(LayerBackdrop {
-                blur_radius: p.blur_radius,
-                saturation_percent: DARK_GLASS_SATURATION_PERCENT,
-                restore_halo_pad: 0,
-                retained_src_y_offset: RETAINED_ROW_OFFSET,
-                cache: BackdropCache::None,
-            }),
-        },
-        (mode_w, mode_h),
-    );
-}
-
 fn glass_cache(blur: GlassBlur) -> BackdropCache {
     if blur.valid {
         BackdropCache::Read {

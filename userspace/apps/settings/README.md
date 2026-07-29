@@ -92,6 +92,9 @@ behind it is real.
 - **`Window { mode: freeform }` is a visual contract.** `fullscreen` makes
   app-host paint an opaque page base and makes windowd skip the backdrop-blur
   band, so the glass panes would frost a slab instead of the wallpaper.
-- **`.overlay()` does not composite inside a banded scroll surface**, which is
-  why the menu and picker layers are siblings of the window on the page root
-  rather than children of the scrolling content pane.
+- **This window renders on the PLAIN surface path**: its side panes share
+  rows with the scroll viewport, so app-host logs
+  `apphost: statics beside the viewport, plain-path fallback` and skips the
+  3-slice band. That is deliberate — the band tiles full-width rows and
+  cannot express a sidebar beside a scrolling pane, and only the plain path
+  can render full-window `.overlay()` layers (menu, pickers).

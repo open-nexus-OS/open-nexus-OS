@@ -200,7 +200,16 @@ impl DisplayServerRuntime {
         let (new_cx, new_cy, new_w) =
             (w1.x as f32 + w1.w as f32 / 2.0, w1.y as f32 + w1.h as f32 / 2.0, w1.w as f32);
         if new_w <= 0.0 || (new_w - old_w).abs() < 1.0 {
-            return; // geometry did not change — nothing to animate
+            // Geometry did not change — nothing to animate. But never leave a
+            // previous transition's non-identity transform standing on the
+            // flipped frame: the gpud override survives full presents, so a
+            // stale scale/offset here rendered the window displaced until the
+            // next transition (which `pending_wm` might never allow).
+            if self.apps[idx].transform.active {
+                self.apps[idx].transform = WinTransform::IDENTITY;
+                self.send_layer_transform(idx);
+            }
+            return;
         }
         let scale_from = (old_w / new_w).clamp(0.05, 4.0);
         let dx = old_cx - new_cx;

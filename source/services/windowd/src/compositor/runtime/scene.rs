@@ -346,13 +346,25 @@ impl DisplayServerRuntime {
                                         if l.material != wire::MATERIAL_GLASS {
                                             continue;
                                         }
-                                        let Some(slice) = crate::band_map::band_region_slice(
+                                        // A region may STRADDLE the packed
+                                        // band's slice boundaries (a side
+                                        // pane spanning header + content):
+                                        // split it instead of truncating at
+                                        // the first boundary — truncation is
+                                        // how a pane's glass used to just
+                                        // stop at the header line.
+                                        let mut slices = [crate::band_map::BandSlice {
+                                            src_row: 0,
+                                            dst_y: 0,
+                                            h: 0,
+                                        };
+                                            3];
+                                        let n = crate::band_map::band_region_slices(
                                             u32::from(l.y),
                                             u32::from(l.h),
                                             &g,
-                                        ) else {
-                                            continue;
-                                        };
+                                            &mut slices,
+                                        );
                                         let blur_radius = match l.glass_level {
                                             wire::GLASS_PANEL => 40,
                                             wire::GLASS_OVERLAY => 40,
@@ -360,22 +372,24 @@ impl DisplayServerRuntime {
                                             wire::GLASS_SUBTLE => 8,
                                             _ => 30,
                                         };
-                                        crate::compositor::shell_window::composite_material_glass(
-                                            &mut encoder,
-                                            crate::compositor::shell_window::MaterialLayerParams {
-                                                src_row_abs: atlas_row + slice.src_row,
-                                                src_x: atlas_x + u32::from(l.x),
-                                                width: u32::from(l.w),
-                                                height: slice.h,
-                                                dst_x: win_x + u32::from(l.x),
-                                                dst_y: win_y + slice.dst_y,
-                                                corner_radius: u32::from(l.radius),
-                                                shadow_alpha: u32::from(l.shadow_alpha),
-                                                blur_radius,
-                                            },
-                                            mode.width,
-                                            mode.height,
-                                        );
+                                        for slice in slices.iter().take(n) {
+                                            crate::compositor::shell_window::composite_material_glass(
+                                                &mut encoder,
+                                                crate::compositor::shell_window::MaterialLayerParams {
+                                                    src_row_abs: atlas_row + slice.src_row,
+                                                    src_x: atlas_x + u32::from(l.x),
+                                                    width: u32::from(l.w),
+                                                    height: slice.h,
+                                                    dst_x: win_x + u32::from(l.x),
+                                                    dst_y: win_y + slice.dst_y,
+                                                    corner_radius: u32::from(l.radius),
+                                                    shadow_alpha: u32::from(l.shadow_alpha),
+                                                    blur_radius,
+                                                },
+                                                mode.width,
+                                                mode.height,
+                                            );
+                                        }
                                     }
                                 }
                             }

@@ -52,6 +52,14 @@ pub struct HandlerEntry {
 }
 
 /// Pre-order box id (1-based, matches `LayoutBox::node_id`) for a path.
+///
+/// The count mirrors the ENGINE'S visit order, not declaration order: a
+/// Stack places its `Position::Absolute` (`.overlay()`) children AFTER every
+/// in-flow child, and node ids are assigned at visit time. Counting the
+/// declared order shifted every handler id behind a non-last open overlay —
+/// an open menu with closed picker placeholders after it resolved its own
+/// rows to the placeholders' boxes and went dead. Grids place in declaration
+/// order and count as before.
 #[must_use]
 pub fn path_to_box_id(scene: &LayoutNode, path: &[u32]) -> Option<usize> {
     fn count_nodes(node: &LayoutNode) -> usize {
@@ -62,19 +70,35 @@ pub fn path_to_box_id(scene: &LayoutNode, path: &[u32]) -> Option<usize> {
             LayoutNode::Spacer(_) | LayoutNode::Text(_, _) | LayoutNode::TextInput(_, _) => 1,
         }
     }
+    fn is_absolute(node: &LayoutNode) -> bool {
+        matches!(node.item().position, nexus_layout_types::Position::Absolute)
+    }
     let mut id = 1usize; // the root
     let mut node = scene;
     for &index in path {
-        let children = match node {
-            LayoutNode::Stack(_, _, children) | LayoutNode::Grid(_, _, children) => children,
+        let (children, absolutes_last) = match node {
+            LayoutNode::Stack(_, _, children) => (children, true),
+            LayoutNode::Grid(_, _, children) => (children, false),
             _ => return None,
         };
         let index = index as usize;
         if index >= children.len() {
             return None;
         }
-        // Skip the boxes of all earlier siblings + ourselves (the parent).
-        id += 1 + children[..index].iter().map(count_nodes).sum::<usize>();
+        // Skip ourselves (the parent) + every child the engine VISITS before
+        // the target: for a Stack, all in-flow children precede any absolute
+        // one; within each group, declaration order holds.
+        let target_abs = absolutes_last && is_absolute(&children[index]);
+        let mut skipped = 1usize;
+        for (ci, child) in children.iter().enumerate() {
+            let child_abs = absolutes_last && is_absolute(child);
+            let visited_before =
+                if target_abs { !child_abs || ci < index } else { !child_abs && ci < index };
+            if visited_before {
+                skipped += count_nodes(child);
+            }
+        }
+        id += skipped;
         node = &children[index];
     }
     Some(id)
@@ -97,11 +121,23 @@ pub fn hit<'h>(
     hit_scrolled(handlers, boxes, trigger_sym, x, y, None)
 }
 
-/// Paint-time scroll transform for hit-testing: boxes INSIDE the scroll
-/// viewport (they carry a `clip_rect`) are tested against the SHIFTED point
-/// `(x + dx, y + dy)` — the same transform the scrolled painter applies —
-/// and only when the raw point is inside the viewport. Input and pixels can
-/// never disagree. `scroll` = (viewport x0,y0,x1,y1, dx, dy).
+/// Paint-time scroll transform for hit-testing, mirroring exactly what the
+/// scrolled painter does — input and pixels can never disagree.
+///
+/// A clipped box is tested against its OWN viewport, and the scroll shift
+/// applies only to boxes whose clip lies inside the ACTIVE scroll container
+/// (`scroll` = that container's viewport + dx/dy). Three cases:
+///
+///   * clip == active viewport — direct scroll content: hittable on the
+///     viewport, tested at the shifted point `(x+dx, y+dy)`.
+///   * clip strictly INSIDE the active viewport — a nested clip that rides
+///     the scrolled content: its window itself is shifted on the surface.
+///   * clip elsewhere — a second, static viewport (another `.scroll`
+///     container, a widget-internal clip): hittable inside its own window at
+///     the identity point. This used to `continue` — a page with a scrolling
+///     content pane AND a sidebar rejected every sidebar-or-pane handler
+///     whose tap fell outside the ONE viewport the caller picked, which read
+///     as "the whole content area is dead".
 #[must_use]
 pub fn hit_scrolled<'h>(
     handlers: &'h [(usize, HandlerEntry)],
@@ -122,13 +158,35 @@ pub fn hit_scrolled<'h>(
             continue;
         };
         let (mut px, mut py) = (x, y);
-        if let (Some((clip, dx, dy)), Some(_)) = (scroll, layout_box.clip_rect) {
-            // Outside the viewport nothing scrolled is hittable.
-            if x.0 < clip.0 || x.0 >= clip.2 || y.0 < clip.1 || y.0 >= clip.3 {
+        if let Some(clip) = layout_box.clip_rect {
+            let (cx0, cy0) = (clip.x.0, clip.y.0);
+            let (cx1, cy1) = (cx0 + clip.width.0, cy0 + clip.height.0);
+            // The box's hittable WINDOW in surface space, and whether the
+            // point shifts (scrolls) inside it.
+            let (window, shifted) = match scroll {
+                Some((vc, _, _)) if (cx0, cy0, cx1, cy1) == vc => (vc, true),
+                Some((vc, dx, dy)) if cx0 >= vc.0 && cy0 >= vc.1 && cx1 <= vc.2 && cy1 <= vc.3 => {
+                    // Nested clip riding the scrolled content: its window is
+                    // shifted by the offset, bounded by the viewport.
+                    let w = (
+                        (cx0 - dx).max(vc.0),
+                        (cy0 - dy).max(vc.1),
+                        (cx1 - dx).min(vc.2),
+                        (cy1 - dy).min(vc.3),
+                    );
+                    (w, true)
+                }
+                _ => ((cx0, cy0, cx1, cy1), false),
+            };
+            if x.0 < window.0 || x.0 >= window.2 || y.0 < window.1 || y.0 >= window.3 {
                 continue;
             }
-            px = FxPx::new(x.0 + dx);
-            py = FxPx::new(y.0 + dy);
+            if shifted {
+                if let Some((_, dx, dy)) = scroll {
+                    px = FxPx::new(x.0 + dx);
+                    py = FxPx::new(y.0 + dy);
+                }
+            }
         }
         let rect = layout_box.rect;
         if contains(rect, FxPx::ZERO, px, py) {
@@ -187,6 +245,7 @@ mod hit_slop_tests {
             scroll_offset: (FxPx::ZERO, FxPx::ZERO),
             overflow: Overflow::Visible,
             hit_slop: FxPx::new(slop),
+            glass_nested: false,
         }
     }
 
@@ -254,5 +313,100 @@ mod hit_slop_tests {
         let boxes = [boxed(1, 10, 10, 20, 20, 0)];
         assert_eq!(hit(&handlers, &boxes, 29, 29), Some(1));
         assert_eq!(hit(&handlers, &boxes, 30, 30), None, "half-open rect, unchanged");
+    }
+}
+
+#[cfg(test)]
+mod multi_viewport_tests {
+    use super::*;
+    use nexus_layout::LayoutBox;
+    use nexus_layout_types::{Overflow, Rect, VisualStyle};
+
+    const TAP: u32 = 7;
+
+    fn clipped(
+        node_id: usize,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        clip: (i32, i32, i32, i32),
+    ) -> LayoutBox {
+        LayoutBox {
+            node_id,
+            id: None,
+            rect: Rect::new(FxPx::new(x), FxPx::new(y), FxPx::new(w), FxPx::new(h)),
+            z_index: 0,
+            visual: VisualStyle::default(),
+            clip_rect: Some(Rect::new(
+                FxPx::new(clip.0),
+                FxPx::new(clip.1),
+                FxPx::new(clip.2 - clip.0),
+                FxPx::new(clip.3 - clip.1),
+            )),
+            scroll_offset: (FxPx::ZERO, FxPx::ZERO),
+            overflow: Overflow::Visible,
+            hit_slop: FxPx::ZERO,
+            glass_nested: false,
+        }
+    }
+
+    fn handler(node_id: usize) -> (usize, HandlerEntry) {
+        (
+            node_id,
+            HandlerEntry {
+                path: alloc::vec![],
+                trigger: TAP,
+                action: HandlerAction::Dispatch { event: 0, case: 0, payload: alloc::vec![] },
+                press_offset: 0,
+            },
+        )
+    }
+
+    /// The settings-window regression: a static sidebar viewport NEXT TO the
+    /// active (scrolling) content viewport. The old code tested every clipped
+    /// box against the ONE active viewport, so the sidebar's own handlers —
+    /// and, when the sidebar happened to be picked as active, the whole
+    /// content pane — read as dead ("apphost: input tap miss" on every row).
+    #[test]
+    fn a_second_static_viewport_stays_hittable() {
+        // Sidebar viewport x 0..200, content viewport x 260..960 (active,
+        // scrolled down by 50).
+        let active = ((260, 40, 960, 500), 0, 50);
+        let handlers = [handler(3), handler(9)];
+        let boxes = [
+            clipped(3, 10, 100, 180, 40, (0, 40, 200, 500)), // sidebar row
+            clipped(9, 270, 130, 600, 40, (260, 40, 960, 500)), // scrolled row (model y)
+        ];
+        // Sidebar row: identity hit inside its own viewport.
+        let hit = |x: i32, y: i32| {
+            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), Some(active))
+                .map(|(id, _)| id)
+        };
+        assert_eq!(hit(50, 120), Some(3), "static sidebar viewport must hit");
+        // Scrolled row: model y 130..170, on the surface at 80..120.
+        assert_eq!(hit(300, 100), Some(9), "active viewport hits at the shifted point");
+        assert_eq!(hit(300, 140), None, "the row's model position is NOT on the surface");
+        // Outside both viewports: nothing.
+        assert_eq!(hit(220, 120), None);
+    }
+
+    /// A nested clip riding the scrolled content: its hit window shifts with
+    /// the scroll offset instead of staying at the model position.
+    #[test]
+    fn a_nested_clip_inside_the_active_viewport_scrolls_with_it() {
+        let active = ((260, 40, 960, 500), 0, 50);
+        let handlers = [handler(5)];
+        // The box's nearest clip is a nested hidden container at model y
+        // 200..280, inside the active viewport; on the surface it sits at
+        // 150..230.
+        let boxes = [clipped(5, 270, 210, 600, 40, (260, 200, 960, 280))];
+        let hit = |x: i32, y: i32| {
+            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), Some(active))
+                .map(|(id, _)| id)
+        };
+        // Box model y 210..250 → surface 160..200.
+        assert_eq!(hit(300, 170), Some(5), "shifted window hits");
+        assert_eq!(hit(300, 220), None, "the model position no longer hits");
     }
 }

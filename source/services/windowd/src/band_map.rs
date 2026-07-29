@@ -47,15 +47,10 @@ pub(crate) struct BandSlice {
     pub h: u32,
 }
 
-/// Maps a scene-space region `(y, h)` into the packed band.
-///
-/// A region living in a FIXED slice (header/footer) keeps its position; a
-/// region in the scrollable content is shifted up by `scroll_rows` and clipped
-/// to the viewport. A region that would end up empty (scrolled fully out, or
-/// degenerate geometry) returns `None`. Regions STRADDLING a slice boundary
-/// are mapped by where their TOP row lives — the design's panes are entirely
-/// inside one slice, and a straddler cannot be expressed as one contiguous
-/// band read (the band reorders the slices).
+/// Maps a scene-space region `(y, h)` into the packed band — one slice, for
+/// a region that does not cross a slice boundary. A straddling region is
+/// CLAMPED to the slice its top row lives in; callers that need the whole
+/// region use [`band_region_slices`], which splits at the boundaries first.
 pub(crate) fn band_region_slice(y: u32, h: u32, g: &BandGeometry) -> Option<BandSlice> {
     if h == 0 || g.frame_h == 0 {
         return None;
@@ -98,6 +93,44 @@ pub(crate) fn band_region_slice(y: u32, h: u32, g: &BandGeometry) -> Option<Band
         dst_y: viewport_top + (vis_start - g.scroll_rows),
         h: vis_end - vis_start,
     })
+}
+
+/// Maps a scene-space region `(y, h)` into the packed band, SPLITTING it at
+/// the slice boundaries — a straddler cannot be expressed as one contiguous
+/// band read (the band reorders the slices), but it CAN be expressed as up to
+/// three: its header part, its content part, its footer part. Writes into
+/// `out` and returns how many slices are valid. A region whose pane spans
+/// header AND content (a full-height side pane on a banded window) used to be
+/// truncated at the header boundary here — the pane's glass simply stopped.
+pub(crate) fn band_region_slices(
+    y: u32,
+    h: u32,
+    g: &BandGeometry,
+    out: &mut [BandSlice; 3],
+) -> usize {
+    if h == 0 {
+        return 0;
+    }
+    let scene_h = g.header_h + g.content_h + g.footer_h;
+    let footer_scene_y = scene_h.saturating_sub(g.footer_h);
+    let (y0, y1) = (y, y.saturating_add(h));
+    let mut n = 0;
+    // Per-slice segments in scene space; each maps without straddling.
+    let segments = [
+        (y0, y1.min(g.header_h)),                     // header part
+        (y0.max(g.header_h), y1.min(footer_scene_y)), // content part
+        (y0.max(footer_scene_y), y1),                 // footer part
+    ];
+    for (s0, s1) in segments {
+        if s1 <= s0 {
+            continue;
+        }
+        if let Some(slice) = band_region_slice(s0, s1 - s0, g) {
+            out[n] = slice;
+            n += 1;
+        }
+    }
+    n
 }
 
 #[cfg(test)]
@@ -166,5 +199,28 @@ mod tests {
         assert_eq!(band_region_slice(4, 30, &flat), None);
         let no_viewport = BandGeometry { frame_h: 60, ..G };
         assert_eq!(band_region_slice(50, 30, &no_viewport), None);
+    }
+
+    /// A full-height pane spanning header AND content AND footer: the split
+    /// mapper yields all three parts where the single mapper used to truncate
+    /// at the header boundary (the pane's glass just stopped there).
+    #[test]
+    fn a_straddling_region_splits_into_all_its_slices() {
+        let mut out = [BandSlice { src_row: 0, dst_y: 0, h: 0 }; 3];
+        // Scene y 4..870: 36 header rows + all 800 content rows + 30 footer.
+        let n = band_region_slices(4, 866, &G, &mut out);
+        assert_eq!(n, 3, "header, content and footer parts: {out:?}");
+        assert_eq!(out[0], BandSlice { src_row: 4, dst_y: 4, h: 36 });
+        assert_eq!(out[1], BandSlice { src_row: 70, dst_y: 40, h: 456 });
+        assert_eq!(out[2], BandSlice { src_row: 40, dst_y: 526 - 30, h: 30 });
+    }
+
+    /// A region inside ONE slice behaves exactly like the single mapper.
+    #[test]
+    fn a_non_straddling_region_is_one_slice() {
+        let mut out = [BandSlice { src_row: 0, dst_y: 0, h: 0 }; 3];
+        let n = band_region_slices(4, 30, &G, &mut out);
+        assert_eq!(n, 1);
+        assert_eq!(Some(out[0]), band_region_slice(4, 30, &G));
     }
 }

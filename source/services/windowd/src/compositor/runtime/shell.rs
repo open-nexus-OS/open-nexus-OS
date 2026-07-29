@@ -111,11 +111,21 @@ impl DisplayServerRuntime {
                 // (`drag_to` clamps to the status-bar envelope, release runs
                 // the edge snap and ends the drag). Fullscreen windows do not
                 // move; the app's zoom control is the way out of fullscreen.
+                //
+                // GATED on the primary button still being DOWN: this control
+                // arrives asynchronously (app dispatch → IPC), so a plain
+                // CLICK on the chrome row could start a drag AFTER its own
+                // release was already processed — the window then stuck to
+                // the cursor with the button up, and the NEXT click's release
+                // ran the edge snap wherever the pointer happened to be
+                // (top edge = surprise fullscreen).
                 if let Some(idx) = self.app_idx_by_surface(u32::from(value)) {
                     let wid = crate::window_scene::WindowId::App(idx as u8);
                     if !self.windows.is_fullscreen(wid) {
                         self.raise_window(wid);
-                        self.apps[idx].win.begin_drag(self.state.cursor_x, self.state.cursor_y);
+                        if self.state.launcher_click_visible {
+                            self.apps[idx].win.begin_drag(self.state.cursor_x, self.state.cursor_y);
+                        }
                     }
                 } else {
                     let _ = debug_println("WINDOWD: control win (no window for id)");

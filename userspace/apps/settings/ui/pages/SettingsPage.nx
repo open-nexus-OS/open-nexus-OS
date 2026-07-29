@@ -100,9 +100,12 @@ Page SettingsPage {
             }
         }
         // ── overlay layers ───────────────────────────────────────────────
-        // Siblings of the window, on the PAGE ROOT: `.overlay()` does not
-        // composite inside a banded scroll surface, and the content pane
-        // scrolls. Each is gated so a closed layer never swallows a tap.
+        // Siblings of the window, on the PAGE ROOT — full-window layers
+        // belong to the page that owns the z-order. Each is gated so a
+        // closed layer never swallows a tap. (This window renders on the
+        // PLAIN surface path: its side panes share rows with the scroll
+        // viewport, so app-host refuses the 3-slice band — and that is what
+        // makes a full-window overlay renderable here at all.)
         if $state.menu != "" {
             MoreMenu { }
         } else {

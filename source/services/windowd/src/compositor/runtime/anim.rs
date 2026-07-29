@@ -39,14 +39,28 @@ impl DisplayServerRuntime {
         //
         let mut anim_updates = [SceneUpdate::default(); ANIMATION_UPDATE_CAP];
         let update_count = self.animation_driver.tick_into(now_ns, &mut anim_updates);
+        if update_count > 0 {
+            self.apply_scene_updates(&anim_updates[..update_count]);
+        }
+        // Converged window transitions run their deferred WM action (close
+        // after fade, minimize after fly) or settle to identity — on EVERY
+        // tick, including one that emitted nothing.
+        //
+        // That inclusion is load-bearing: a spring whose `from == target`
+        // (a horizontally-centred top snap animates TranslateX 0 → 0) is
+        // done on its FIRST step and emits no update. When that was the
+        // last spring, the old `update_count == 0` early-return skipped
+        // `finish_window_transitions`, the driver was now empty so `tick`
+        // was never called again, and the window wedged permanently:
+        // `pending_wm` stuck (every later transition early-returns on it),
+        // the exit transform stuck at gpud (window invisible), input still
+        // routing — the "fullscreen, then selecting anything freezes
+        // everything" report.
+        self.finish_window_transitions();
         if update_count == 0 {
             return;
         }
         let updates = &anim_updates[..update_count];
-        self.apply_scene_updates(updates);
-        // Converged window transitions run their deferred WM action here
-        // (close after fade, minimize after fly) or settle to identity.
-        self.finish_window_transitions();
 
         // Per-layer damage: only mark regions that actually changed.
         // Sidebar animation → only sidebar rect; hover/click/key → only panel.

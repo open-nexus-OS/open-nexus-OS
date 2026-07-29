@@ -116,28 +116,46 @@ impl Harness {
     }
 }
 
-/// The app lands on the overview, not on a section — the handoff's entry mode.
-/// All twelve cards are on screen at once, which is also the only place the
-/// full section list is proven complete.
+/// The app lands on the FIRST SECTION in browse mode — the handoff's initial
+/// state (`nav: 'connections', mode: 'browse'`), not on the overview.
 #[test]
-fn settings_opens_on_the_overview_with_twelve_cards() {
+fn settings_opens_on_the_connections_section() {
     let h = Harness::new();
+    assert!(
+        h.shows("MyHomeIsWhereMyWifiIs"),
+        "landing must show the Connections rows: {:?}",
+        h.texts()
+    );
+    assert!(
+        !h.shows("Wi-Fi, internet, Bluetooth, VPN"),
+        "the overview card grid must NOT be the landing mode"
+    );
+}
+
+/// The overview is a MODE the user enters (app chip / sidebar header / ⋯
+/// menu → GoOverview): all twelve cards with their descriptions — the one
+/// place the full section list is proven complete. The card DESCRIPTIONS are
+/// asserted (not the titles, which the sidebar also shows).
+#[test]
+fn go_overview_shows_all_twelve_cards() {
+    let mut h = Harness::new();
+    h.send("NavEvent", "GoOverview", vec![]);
     let texts = h.texts();
-    for section in [
-        "Connections",
-        "Connected devices",
-        "Sound & tones",
-        "Displays",
-        "Notifications",
-        "Personalisation",
-        "Apps",
-        "General management",
-        "Accounts",
-        "Privacy & security",
-        "Battery",
-        "About device",
+    for desc in [
+        "Wi-Fi, internet, Bluetooth, VPN",
+        "Input devices, printers",
+        "Output, input, tone mode",
+        "Resolution, night mode",
+        "Status bar, do not disturb",
+        "Wallpaper, appearance",
+        "Default apps",
+        "Time, language, region",
+        "Manage",
+        "Biometric data",
+        "Battery protection, usage",
+        "Status, hardware",
     ] {
-        assert!(texts.iter().any(|t| t == section), "overview misses {section}: {texts:?}");
+        assert!(texts.iter().any(|t| t == desc), "overview misses {desc}: {texts:?}");
     }
 }
 
@@ -183,7 +201,7 @@ fn back_walks_subpage_then_section_then_overview() {
     assert!(!h.shows("Accent colour"), "the sub-page is still showing");
 
     h.send("NavEvent", "Back", vec![]);
-    assert!(h.shows("About device"), "back did not land on the overview: {:?}", h.texts());
+    assert!(h.shows("Biometric data"), "back did not land on the overview: {:?}", h.texts());
 }
 
 /// The appearance page's mode tiles reach the REAL theme chain — the handoff's

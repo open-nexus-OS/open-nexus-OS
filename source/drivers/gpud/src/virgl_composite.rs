@@ -55,15 +55,16 @@ const H_RAST: u32 = 0x22;
 const H_VE: u32 = 0x23; // vec4 position vertex elements
 const FULLSCREEN_TRI_VBO: u32 = 0xF5; // 3-vert clip-space triangle
 
-// Self-test resources/handles (bringup only).
-const ST_CONTENT_RES: u32 = 0xEA;
-const ST_DEST_RES: u32 = 0xEB;
-const ST_CONTENT_SURF: u32 = 0x44;
-const ST_DEST_SURF: u32 = 0x45;
-const ST_CONTENT_SVIEW: u32 = 0x46;
+// Self-test resources/handles (bringup only; consumed by
+// `virgl_composite_selftest.rs`).
+pub(crate) const ST_CONTENT_RES: u32 = 0xEA;
+pub(crate) const ST_DEST_RES: u32 = 0xEB;
+pub(crate) const ST_CONTENT_SURF: u32 = 0x44;
+pub(crate) const ST_DEST_SURF: u32 = 0x45;
+pub(crate) const ST_CONTENT_SVIEW: u32 = 0x46;
 
 // Live layer compositing: the chat/window content is rendered by windowd into
-// the shared framebuffer atlas (rows 3200..6399). We alias it as a GPU texture
+// the shared framebuffer atlas (rows 3200..9599). We alias it as a GPU texture
 // and sample it as the layer content. The destination is the display-plane
 // surface 0x30 (= texture 0xF8 aliasing rows 1600..3199), which the existing
 // GL present already blits to the scanout RT — so no present-path surgery.
@@ -72,7 +73,11 @@ const ATLAS_SVIEW: u32 = 0x48;
 const H_FBSRC_SURF: u32 = 0x30; // display-plane surface (created by virgl_blur_init)
 const FB_STRIDE: u32 = 1280 * 4;
 const ATLAS_ROW: u32 = 3200; // atlas start row in the VMO
-const ATLAS_ROWS: u32 = 4000; // atlas height (rows 3200..7199)
+                             // MUST equal windowd's `atlas::ATLAS_ROWS`: every row windowd can hand out has
+                             // to be inside this GL alias. The two drifted once (windowd 6400, this 4000) —
+                             // bands past VMO row 7200 sampled outside the texture = garbage rows after
+                             // maximizing. The 9600-row backing (`service.rs::RESOURCE_HEIGHT`) covers it.
+const ATLAS_ROWS: u32 = 6400; // atlas height (rows 3200..9599)
 const DISPLAY_PLANE_ROW: u32 = 1600;
 
 // Cursor sprite as a layer: its own self-backed sampler texture (BGRA), so the
@@ -121,7 +126,7 @@ const FS_LAYER: &str = "FRAG\n\
 impl VirtioGpuBackend {
     /// Lazily create the layer shader, alpha-blend state, and sampler state.
     /// No framebuffer dependency — usable at bringup and live.
-    fn composite_init(&mut self) -> Result<(), GfxError> {
+    pub(crate) fn composite_init(&mut self) -> Result<(), GfxError> {
         if self.virgl_composite_ready {
             return Ok(());
         }
@@ -243,72 +248,7 @@ impl VirtioGpuBackend {
         self.submit_composite_stream(&s)
     }
 
-    /// Bringup proof: composite a red content layer onto a blue dest RT and read
-    /// back — center must be red (layer), a corner must stay blue (outside the
-    /// layer). Returns true on success. Reuses the draw-selftest's state objects
-    /// (blend/DSA/rast/VE/VS/triangle VBO) created earlier in bringup.
-    pub(crate) fn virgl_composite_selftest(&mut self) -> Result<bool, GfxError> {
-        if !self.virgl_capable || !self.virgl_draw_ok {
-            return Err(GfxError::DeviceNotFound);
-        }
-        self.composite_init()?;
-
-        self.virgl_create_rt(ST_CONTENT_RES, 64, 64)?;
-        self.virgl_create_rt(ST_DEST_RES, 128, 128)?;
-        let dest_va = self.virgl_attach_backing(ST_DEST_RES, 128 * 128 * 4)?;
-
-        // Surfaces + content sampler view; clear content=red, dest=blue.
-        let mut s = Submit3d::new();
-        s.emit_create_surface(ST_CONTENT_SURF, ST_CONTENT_RES, PIPE_FORMAT_B8G8R8A8_UNORM);
-        s.emit_create_surface(ST_DEST_SURF, ST_DEST_RES, PIPE_FORMAT_B8G8R8A8_UNORM);
-        s.emit_create_sampler_view(ST_CONTENT_SVIEW, ST_CONTENT_RES, PIPE_FORMAT_B8G8R8A8_UNORM);
-        s.emit_set_framebuffer_state(0, &[ST_CONTENT_SURF]);
-        s.emit_set_viewport_box(0.0, 0.0, 64.0, 64.0);
-        s.emit_clear(PIPE_CLEAR_COLOR0, [1.0, 0.0, 0.0, 1.0], 1.0, 0); // red (RGBA clear)
-        s.emit_set_framebuffer_state(0, &[ST_DEST_SURF]);
-        s.emit_set_viewport_box(0.0, 0.0, 128.0, 128.0);
-        s.emit_clear(PIPE_CLEAR_COLOR0, [0.0, 0.0, 1.0, 1.0], 1.0, 0); // blue
-        self.submit_composite_stream(&s)?;
-
-        // Composite the red content as a 64×64 layer at (32,32), opaque, square.
-        self.submit_layer_pass(
-            ST_DEST_SURF,
-            ST_CONTENT_SVIEW,
-            64,
-            64,
-            0,
-            0,
-            64,
-            64,
-            32,
-            32,
-            255,
-            0,
-        )?;
-
-        // Read back the dest RT and inspect: center red, corner blue.
-        self.virgl_transfer_from_host(ST_DEST_RES, 0, 0, 128, 128, 128 * 4)?;
-        let px = |x: usize, y: usize| -> [u8; 4] {
-            let o = (y * 128 + x) * 4;
-            unsafe {
-                let p = (dest_va + o) as *const u8;
-                [
-                    p.read_volatile(),
-                    p.add(1).read_volatile(),
-                    p.add(2).read_volatile(),
-                    p.add(3).read_volatile(),
-                ]
-            }
-        };
-        // BGRA: red = [0,0,255,255], blue = [255,0,0,255].
-        let center = px(64, 64);
-        let corner = px(8, 8);
-        let center_red = center[2] > 200 && center[0] < 64;
-        let corner_blue = corner[0] > 200 && corner[2] < 64;
-        Ok(center_red && corner_blue)
-    }
-
-    /// Lazily alias the framebuffer atlas (rows 3200..6399) as a GPU texture +
+    /// Lazily alias the framebuffer atlas (rows 3200..9599) as a GPU texture +
     /// sampler view, so window/layer content windowd renders there can be
     /// sampled. Needs the framebuffer handoff (the scanout resource's phys base).
     fn composite_atlas_init(&mut self) -> Result<(), GfxError> {
@@ -501,6 +441,15 @@ impl VirtioGpuBackend {
         // Source region = the content band when a sub-size is given, else the
         // whole layer. Only the source region is transferred to the GL texture.
         let (src_w, src_h) = if content_w > 0 { (content_w, content_h) } else { (width, height) };
+        // Never SAMPLE past the GL atlas texture either (the band-upload
+        // clamp below only bounds TRANSFERS): an out-of-range sample reads
+        // another window's rows as garbage. Shrink the draw with the clamp.
+        let max_h = ATLAS_ROWS.saturating_sub(src_row_rel);
+        let height = height.min(max_h);
+        let src_h = src_h.min(max_h);
+        if height == 0 || src_h == 0 {
+            return Ok(());
+        }
         if upload {
             if scroll_band_h > 0 {
                 // WebRender scroll: upload the WHOLE resident band ONCE so the
@@ -808,7 +757,7 @@ impl VirtioGpuBackend {
         )
     }
 
-    fn submit_composite_stream(&mut self, s: &Submit3d) -> Result<(), GfxError> {
+    pub(crate) fn submit_composite_stream(&mut self, s: &Submit3d) -> Result<(), GfxError> {
         let bytes = s.as_bytes();
         let hdr = VirtioGpuSubmit3d {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),

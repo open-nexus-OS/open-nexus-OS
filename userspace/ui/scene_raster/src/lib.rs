@@ -26,6 +26,12 @@ use borders::{paint_borders_row, paint_inset_highlight_row};
 pub mod anim;
 pub use anim::NodeAnim;
 
+mod scrolled;
+pub use scrolled::{
+    paint_row_hover, paint_row_picked, paint_row_picked_animated, paint_row_picked_indexed,
+    paint_row_scrolled, ScrollView,
+};
+
 use nexus_layout::LayoutBox;
 use nexus_layout_types::{PathShape, Rgba8, ShapeKind};
 
@@ -423,12 +429,21 @@ pub(crate) fn paint_box_row_at(
                 let radius = (b.visual.corner_radius.top_left.0.max(0) as i64
                     * radius_pct.max(1) as i64
                     / 100) as i32;
-                // GLASS boxes RESET their rect to the pure tint (alpha
+                // A glass ROOT resets its rect to the pure tint (alpha
                 // included) instead of src-over: content the surface painted
-                // beneath a glass region must not bake through — the
-                // COMPOSITOR supplies the backdrop (destination-so-far blur
-                // of everything already composited under the region).
-                if matches!(b.visual.material, nexus_layout_types::SurfaceMaterial::Glass(_)) {
+                // beneath the region must not bake through — the COMPOSITOR
+                // supplies the backdrop (destination-so-far blur of
+                // everything already composited under the region). NESTED
+                // glass (a `subtle` row on a `windowPane` pane) blends
+                // src-over instead: it sits on its parent's tint, and only
+                // the root's single region asks the compositor for blur.
+                // Replacing unconditionally is how every glass stack showed
+                // nothing but the wallpaper — each inner rect erased its
+                // parent's pixels and the only backdrop left was the
+                // window's.
+                if matches!(b.visual.material, nexus_layout_types::SurfaceMaterial::Glass(_))
+                    && !b.glass_nested
+                {
                     let r = radius.max(0).min(w / 2).min(h / 2);
                     canvas.fill_round_rect_row_replace(x, y, w, h, r, bg);
                 } else {
@@ -599,178 +614,6 @@ pub struct HoverWash {
     pub ring_alpha: u8,
 }
 
-/// Paint-time scroll transform for the page's scroll viewport (pretext:
-/// scrolling is a REPAINT with an offset over the RETAINED boxes — never a
-/// re-layout, never a per-event allocation). Boxes carrying a `clip_rect`
-/// (the engine stamps it on every descendant of an `Overflow::Hidden`
-/// container) render shifted by `(dx, dy)` and scissored to the viewport.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ScrollView {
-    /// Viewport rect on the surface: x0, y0, x1, y1 (exclusive).
-    pub clip: (i32, i32, i32, i32),
-    /// Content shift right→left (horizontal scroll offset).
-    pub dx: i32,
-    /// Content shift down→up (vertical scroll offset).
-    pub dy: i32,
-}
-
-/// [`paint_row`] plus an optional hover wash over the hovered box. The wash
-/// paints directly after its box (before later siblings/children), so nested
-/// content still reads on top of the wash like a real material highlight.
-pub fn paint_row_hover(canvas: &mut RowCanvas<'_>, boxes: &[LayoutBox], hover: Option<HoverWash>) {
-    paint_row_scrolled(canvas, boxes, hover, None);
-}
-
-/// [`paint_row_hover`] with the scroll transform. `canvas.y` is the SURFACE
-/// row; clipped boxes are sampled at model row `canvas.y + dy` and shifted
-/// left by `dx`, unclipped boxes paint identity — one pass, alloc-free.
-pub fn paint_row_scrolled(
-    canvas: &mut RowCanvas<'_>,
-    boxes: &[LayoutBox],
-    hover: Option<HoverWash>,
-    scroll: Option<ScrollView>,
-) {
-    let surface_y = canvas.y;
-    for b in boxes {
-        paint_one_scrolled(canvas, b, hover, scroll, surface_y, None);
-    }
-}
-
-/// [`paint_row_scrolled`] over a PRE-FILTERED index list (`pick` = indices
-/// into `boxes` that intersect the repaint span). The caller computes the
-/// visibility set ONCE per repaint — the per-row cost is then proportional
-/// to what is on screen, not to the page's total box count (the 1000-message
-/// transcript contract). Alloc-free.
-pub fn paint_row_picked(
-    canvas: &mut RowCanvas<'_>,
-    boxes: &[LayoutBox],
-    pick: &[u32],
-    hover: Option<HoverWash>,
-    scroll: Option<ScrollView>,
-) {
-    paint_row_picked_animated(canvas, boxes, pick, hover, scroll, &[]);
-}
-
-/// [`paint_row_picked`] with per-node **animation** transforms (opacity fade +
-/// translate + uniform scale, keyed by `node_id`) applied to matching boxes —
-/// the paint tail of the DSL `.animate`/`.transition`/`.effect` binding
-/// (docs/dev/ui/foundations/animation.md). An identity/absent `NodeAnim`
-/// paints exactly as [`paint_row_picked`]. Alloc-free; `anims` is bounded by
-/// the host's active-animation cap.
-pub fn paint_row_picked_animated(
-    canvas: &mut RowCanvas<'_>,
-    boxes: &[LayoutBox],
-    pick: &[u32],
-    hover: Option<HoverWash>,
-    scroll: Option<ScrollView>,
-    anims: &[NodeAnim],
-) {
-    let surface_y = canvas.y;
-    for &i in pick {
-        let Some(b) = boxes.get(i as usize) else { continue };
-        let anim = anims.iter().find(|a| a.node_id == b.node_id && !a.is_identity());
-        paint_one_scrolled(canvas, b, hover, scroll, surface_y, anim);
-    }
-}
-
-/// [`paint_row_picked_animated`] with a PRECOMPUTED per-picked-box animation
-/// index (`anim_of[k]` = index into `anims` for `pick[k]`, `-1` = none) — the
-/// caller resolves the box→anim mapping ONCE per repaint instead of the
-/// painter scanning the anims slice per box per row. With the interaction
-/// subtree cascade (up to ~48 entries) the per-row scan multiplied into
-/// millions of comparisons per shell repaint ("hover makes everything slow").
-pub fn paint_row_picked_indexed(
-    canvas: &mut RowCanvas<'_>,
-    boxes: &[LayoutBox],
-    pick: &[u32],
-    anim_of: &[i16],
-    hover: Option<HoverWash>,
-    scroll: Option<ScrollView>,
-    anims: &[NodeAnim],
-) {
-    let surface_y = canvas.y;
-    for (k, &i) in pick.iter().enumerate() {
-        let Some(b) = boxes.get(i as usize) else { continue };
-        let anim = anim_of
-            .get(k)
-            .and_then(|&ai| if ai >= 0 { anims.get(ai as usize) } else { None })
-            .filter(|a| !a.is_identity());
-        paint_one_scrolled(canvas, b, hover, scroll, surface_y, anim);
-    }
-}
-
-#[inline]
-fn paint_one_scrolled(
-    canvas: &mut RowCanvas<'_>,
-    b: &LayoutBox,
-    hover: Option<HoverWash>,
-    scroll: Option<ScrollView>,
-    surface_y: i32,
-    anim: Option<&NodeAnim>,
-) {
-    {
-        let scrolled = match (scroll, b.clip_rect) {
-            (Some(sv), Some(_)) => {
-                // Inside the viewport: visible only on the viewport's rows.
-                if surface_y < sv.clip.1 || surface_y >= sv.clip.3 {
-                    return;
-                }
-                canvas.y = surface_y + sv.dy;
-                canvas.shift_x = sv.dx;
-                canvas.clip_x = Some((sv.clip.0, sv.clip.2));
-                true
-            }
-            _ => false,
-        };
-        // Per-node animation transform (opacity fade + translate + uniform
-        // scale). A matching non-identity `NodeAnim` replaces the box's fill
-        // with a transformed, alpha-scaled draw; otherwise the box paints as
-        // usual. Text is faded/translated by the caller's glyph pass.
-        match anim {
-            Some(a) => anim::paint_anim_box_row(canvas, b, a),
-            None => paint_box_row(canvas, b),
-        }
-        if let Some(hw) = hover {
-            if b.node_id == hw.node_id && (hw.color.a > 0 || hw.ring_alpha > 0) {
-                let (bx, by, bw, bh) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
-                // Track the hover-grow: wash + ring follow the ANIMATED rect.
-                let (x, y, w, h, rpct) = match anim {
-                    Some(a) => {
-                        let (nx, ny, nw, nh) = a.transform_rect(bx, by, bw, bh);
-                        (nx, ny, nw, nh, a.radius_pct())
-                    }
-                    None => (bx, by, bw, bh, 100),
-                };
-                if w > 0 && h > 0 && canvas.y >= y && canvas.y < y + h {
-                    let radius = (b.visual.corner_radius.top_left.0.max(0) as i64
-                        * rpct.max(1) as i64
-                        / 100) as i32;
-                    if hw.color.a > 0 {
-                        canvas.fill_round_rect_row(x, y, w, h, radius, hw.color);
-                    }
-                    if hw.ring_alpha > 0 {
-                        // Bright 2px outline (reads as the Tahoe hover ring on
-                        // both themes, over the wash).
-                        let ring = Rgba8::new(255, 255, 255, hw.ring_alpha);
-                        let inside = canvas.y >= y + 2 && canvas.y < y + h - 2;
-                        if !inside {
-                            canvas.fill_round_rect_row(x, y, w, h, radius, ring);
-                        } else {
-                            canvas.fill_round_rect_row(x, y, 2, h, 0, ring);
-                            canvas.fill_round_rect_row(x + w - 2, y, 2, h, 0, ring);
-                        }
-                    }
-                }
-            }
-        }
-        if scrolled {
-            canvas.y = surface_y;
-            canvas.shift_x = 0;
-            canvas.clip_x = None;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -787,6 +630,42 @@ mod tests {
             },
             ..LayoutBox::default()
         }
+    }
+
+    /// The glass-stacking contract: a glass ROOT resets its rect to the pure
+    /// tint, NESTED glass blends src-over onto the parent's pixels. The old
+    /// unconditional replace made every inner glass rect erase its parent —
+    /// a whole page of stacked panes showed nothing but the window backdrop.
+    #[test]
+    fn nested_glass_blends_while_root_glass_replaces() {
+        use nexus_layout_types::{GlassLevel, SurfaceMaterial};
+        // Root pane: opaque-ish grey tint. Nested row: half-transparent white.
+        let mut pane = boxed(0, 0, 20, 1, 0, Rgba8 { r: 80, g: 80, b: 80, a: 255 });
+        pane.visual.material = SurfaceMaterial::Glass(GlassLevel::WindowPane);
+        let mut row = boxed(0, 0, 10, 1, 0, Rgba8 { r: 255, g: 255, b: 255, a: 128 });
+        row.node_id = 2;
+        row.visual.material = SurfaceMaterial::Glass(GlassLevel::Subtle);
+        row.glass_nested = true;
+
+        let mut buf = [0u8; 20 * 4];
+        let mut canvas = RowCanvas::new(&mut buf, 0, 20);
+        paint_row(&mut canvas, &[pane.clone(), row.clone()]);
+        // Nested: the row's white BLENDS with the pane grey — the pixel keeps
+        // a parent contribution (grey shifted toward white, alpha stays up).
+        let blended = buf[2];
+        assert!(
+            blended > 80 && buf[3] == 255,
+            "nested glass must blend onto the pane: rgba={:?}",
+            &buf[..4]
+        );
+
+        // Same row as a ROOT (mis-stamped) would REPLACE: alpha drops to the
+        // tint's own 128 — proving the flag is what separates the two paths.
+        row.glass_nested = false;
+        let mut buf2 = [0u8; 20 * 4];
+        let mut canvas2 = RowCanvas::new(&mut buf2, 0, 20);
+        paint_row(&mut canvas2, &[pane, row]);
+        assert_eq!(buf2[3], 128, "root glass replaces (alpha = tint): rgba={:?}", &buf2[..4]);
     }
 
     #[test]

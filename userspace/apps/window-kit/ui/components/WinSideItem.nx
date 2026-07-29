@@ -10,6 +10,10 @@
 // Without both, a long two-line label wins the flex negotiation and squeezes
 // the icon to a two-pixel sliver — which is what the settings sidebar looked
 // like the first time it shipped twelve German section names.
+//
+// `sub: ""` = the COMPACT row (36px, one line) — the handoff's "Sidebar
+// kompakt" form. Twelve compact rows fit the default 526px frame; the
+// two-line 44px form returns wherever the caller has the height for it.
 
 Component WinSideItem {
     props: {
@@ -19,7 +23,7 @@ Component WinSideItem {
         icon: Str,
         active: Bool,
     }
-    if $props.active {
+    if $props.active && $props.sub != "" {
         Stack {
             Stack {
                 Icon { symbol: $props.icon, size: 15 }
@@ -30,11 +34,7 @@ Component WinSideItem {
             .justify(center)
             Stack {
                 Text($props.label).textSize(sm).fg(onAccent)
-                if $props.sub != "" {
-                    Text($props.sub).textSize(xs).fg(onAccent)
-                } else {
-                    Stack { }
-                }
+                Text($props.sub).textSize(xs).fg(onAccent)
             }
             .gap(0)
             .grow(1)
@@ -47,6 +47,52 @@ Component WinSideItem {
         .rounded(lg)
         .bg(accent)
         on Tap -> dispatch(WinMenuPick($props.id))
+    } else if $props.active {
+        Stack {
+            Stack {
+                Icon { symbol: $props.icon, size: 15 }
+                    .fg(onAccent)
+            }
+            .width(16)
+            .align(center)
+            .justify(center)
+            Stack {
+                Text($props.label).textSize(sm).fg(onAccent)
+            }
+            .gap(0)
+            .grow(1)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(2)
+        .height(36)
+        .rounded(lg)
+        .bg(accent)
+        on Tap -> dispatch(WinMenuPick($props.id))
+    } else if $props.sub != "" {
+        Stack {
+            Stack {
+                Icon { symbol: $props.icon, size: 15 }
+                    .fg(onGlassMuted)
+            }
+            .width(16)
+            .align(center)
+            .justify(center)
+            Stack {
+                Text($props.label).textSize(sm).fg(onGlass)
+                Text($props.sub).textSize(xs).fg(onGlassMuted)
+            }
+            .gap(0)
+            .grow(1)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(2)
+        .height(44)
+        .rounded(lg)
+        on Tap -> dispatch(WinMenuPick($props.id))
     } else {
         Stack {
             Stack {
@@ -58,11 +104,6 @@ Component WinSideItem {
             .justify(center)
             Stack {
                 Text($props.label).textSize(sm).fg(onGlass)
-                if $props.sub != "" {
-                    Text($props.sub).textSize(xs).fg(onGlassMuted)
-                } else {
-                    Stack { }
-                }
             }
             .gap(0)
             .grow(1)
@@ -71,7 +112,7 @@ Component WinSideItem {
         .align(center)
         .gap(2)
         .paddingX(2)
-        .height(44)
+        .height(36)
         .rounded(lg)
         on Tap -> dispatch(WinMenuPick($props.id))
     }

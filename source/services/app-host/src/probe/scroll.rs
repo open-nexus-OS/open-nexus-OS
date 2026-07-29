@@ -52,13 +52,25 @@ impl super::DslApp {
     pub(super) fn scroll_region_axis(
         &self,
     ) -> Option<((i32, i32, i32, i32), i32, i32, nexus_layout_types::ScrollAxis)> {
-        let (container, axis) = self.layout.boxes.iter().find_map(|b| {
-            if let nexus_layout_types::Overflow::Scroll(a) = b.overflow {
-                Some((b, a))
-            } else {
-                None
-            }
-        })?;
+        // A page may declare SEVERAL `.scroll(...)` containers (settings:
+        // sidebar + content pane), but the surface protocol carries ONE
+        // compositor scroll region. Pick the LARGEST by area — that is the
+        // content pane, deterministically — never "first in traversal order",
+        // which silently handed the whole band + hit transform to whichever
+        // container the markup declared first. The others stay static;
+        // `hit_scrolled` still hit-tests them inside their own clip.
+        let (container, axis) = self
+            .layout
+            .boxes
+            .iter()
+            .filter_map(|b| {
+                if let nexus_layout_types::Overflow::Scroll(a) = b.overflow {
+                    Some((b, a))
+                } else {
+                    None
+                }
+            })
+            .max_by_key(|(b, _)| b.rect.width.0 as i64 * b.rect.height.0 as i64)?;
         // The engine stamps the container's own clip (`Overflow::Scroll` is a
         // clipping overflow); the padded rect is the fallback contract.
         let clip = match container.clip_rect {
@@ -81,6 +93,101 @@ impl super::DslApp {
             content_b = content_b.max(b.rect.y.0 + b.rect.height.0);
         }
         Some((clip, content_r - clip.0, content_b - clip.1, axis))
+    }
+
+    /// How many `.scroll(...)` containers the retained layout carries — the
+    /// surface protocol supports ONE compositor scroll region, so the mount
+    /// path logs when a page declares more (the extras stay static).
+    pub(super) fn scroll_container_count(&self) -> usize {
+        self.layout
+            .boxes
+            .iter()
+            .filter(|b| matches!(b.overflow, nexus_layout_types::Overflow::Scroll(_)))
+            .count()
+    }
+
+    /// Whether STATIC (unclipped) painted content shares surface rows with
+    /// the scroll viewport — the condition under which the 3-slice band
+    /// model CANNOT render this page.
+    ///
+    /// The compositor's band slices are full-width row tiles: header rows,
+    /// footer rows, and a content block it shifts by the scroll offset.
+    /// Anything painted BESIDE the viewport in those rows (a sidebar, the
+    /// content pane's own glass, a page-root overlay) would either vanish
+    /// from the band (the old seam: panes ended at `header_h`, overlays were
+    /// invisible-but-hittable) or scroll along with the content. A page
+    /// shaped like that must take the plain path, which paints everything
+    /// and scrolls by re-render.
+    pub(super) fn band_statics_intersect_viewport(&self) -> bool {
+        let Some((clip, _, _)) = self.scroll_region() else {
+            return false;
+        };
+        let (_, vy0, _, vy1) = clip;
+        self.layout.boxes.iter().any(|b| {
+            if b.clip_rect.is_some() || b.rect.width.0 <= 0 || b.rect.height.0 <= 0 {
+                return false;
+            }
+            let (by0, by1) = (b.rect.y.0, b.rect.y.0 + b.rect.height.0);
+            if by1 <= vy0 || by0 >= vy1 {
+                return false; // entirely inside the fixed header/footer rows
+            }
+            // Only boxes that PAINT count — layout-only stacks (the page
+            // root, spacers-in-disguise) span everything and paint nothing.
+            b.visual.background.is_some()
+                || !matches!(b.visual.material, nexus_layout_types::SurfaceMaterial::Opaque)
+                || self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id).is_ok()
+        })
+    }
+
+    /// The band the surface protocol can actually carry: the raw geometry
+    /// gated by the resident-row budget AND the full-width-slice condition.
+    /// Every create / re-negotiation site MUST use this one predicate — a
+    /// detector that disagrees with the re-create re-creates onto the wrong
+    /// path (the too-tall chat thread vanished exactly that way).
+    pub(super) fn negotiated_band(&self) -> Option<(u32, u32, u32)> {
+        self.band_geometry()
+            .filter(|&(h, f, c)| h + f + c <= super::MAX_BAND_ROWS)
+            .filter(|_| !self.band_statics_intersect_viewport())
+    }
+
+    /// [`Self::negotiated_band`] plus the mount-time markers that say WHY a
+    /// scrolling page landed on the plain path. Both gates are honest
+    /// fallbacks (visible-sized VMO, wheel-driven re-emit scroll — slower,
+    /// but complete and correct):
+    ///
+    ///   * the resident-row budget — the gpud GL atlas is SHARED with every
+    ///     resident surface; a taller band still ALLOCATES but gpud clamps
+    ///     its upload and the window "vanishes" (the chat-thread re-create
+    ///     bug);
+    ///   * full-width slices — the band tiles full-width rows, so a page
+    ///     whose static content shares rows with the viewport (sidebar
+    ///     beside a scrolling pane, the pane's own glass, page-root
+    ///     overlays) either lost those statics below the header (the
+    ///     settings seam) or would scroll them along.
+    ///
+    /// Also states when SEVERAL `.scroll(...)` containers exist — the
+    /// surface protocol carries ONE compositor scroll region, the extras
+    /// stay static. That assumption used to be silent, and a page whose
+    /// FIRST container was a sidebar handed the band to the wrong region
+    /// with every content tap "missing".
+    pub(super) fn negotiated_band_at_mount(&self) -> Option<(u32, u32, u32)> {
+        let n = self.scroll_container_count();
+        if n > 1 {
+            super::raw_marker(&alloc::format!(
+                "apphost: {n} scroll containers, largest is the band"
+            ));
+        }
+        let band = self.negotiated_band();
+        if band.is_none() {
+            if let Some((h, f, c)) = self.band_geometry() {
+                if h + f + c > super::MAX_BAND_ROWS {
+                    super::raw_marker("apphost: band too tall, plain-path fallback");
+                } else {
+                    super::raw_marker("apphost: statics beside the viewport, plain-path fallback");
+                }
+            }
+        }
+        band
     }
 
     /// The active paint/hit scroll transform (`None` = nothing scrolls).

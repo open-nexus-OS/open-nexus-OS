@@ -533,9 +533,19 @@ impl super::DslApp {
         let clamp = |v: i32| v.max(0).min(u16::MAX as i32) as u16;
         let mut layers = [wire::LayerDesc::default(); wire::MAX_SURFACE_LAYERS];
         let mut n = 0;
+        let mut dropped = 0usize;
         for b in &self.layout.boxes {
+            // Only glass ROOTS become compositor regions: nested glass
+            // blends into its parent's pixels (`glass_nested`), so a region
+            // per inner card would both re-blur what the root already
+            // frosts AND overflow the 16-layer wire cap — a settings-like
+            // page carries ~27 glass nodes but only 3-4 roots.
+            if b.glass_nested {
+                continue;
+            }
             if n >= wire::MAX_SURFACE_LAYERS {
-                break;
+                dropped += 1;
+                continue;
             }
             // The wire `glass_level` is a BLUR BUCKET, not the material: the
             // tint, shine, hairline and gradient are already painted into this
@@ -571,5 +581,10 @@ impl super::DslApp {
         let len = wire::encode_surface_layers(surface_id, &layers[..n], &mut buf);
         let _ = client.send(&buf[..len], Wait::NonBlocking);
         raw_marker(&alloc::format!("apphost: submitted {n} layers"));
+        if dropped > 0 {
+            // A silent `break` here once cost half a page its glass — the
+            // cap is a wire constant, exceeding it must be visible.
+            raw_marker(&alloc::format!("apphost: {dropped} glass regions over the layer cap"));
+        }
     }
 }

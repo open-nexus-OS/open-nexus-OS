@@ -49,12 +49,12 @@
 //!
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
-// RFC-0067 P5-Final G3: `backdrop` (CPU glass blur/cache for the combined-panel
-// glass) deleted — dead on both backends; glass is GPU-rendered.
+// RFC-0067 P5-Final G3: CPU glass blur (`backdrop`) deleted — GPU-rendered.
 mod damage;
 mod filter;
 #[cfg(nexus_env = "os")]
 mod loop_telemetry;
+pub(crate) mod material_glass;
 mod runtime;
 mod scene;
 pub(crate) mod shell_window;

@@ -45,6 +45,7 @@ pub mod virgl_vector;
 /// transform + opacity + rounded mask + shadow), a retained-layer compositor model.
 #[cfg(feature = "virgl")]
 pub mod virgl_composite;
+mod virgl_composite_selftest;
 
 /// TGSI source for the separable gaussian backdrop blur (plain + rounded-rect
 /// masked). Data, not logic — split out of `backend/virgl3d.rs` (structure-gate).

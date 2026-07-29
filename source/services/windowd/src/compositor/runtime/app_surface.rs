@@ -39,11 +39,22 @@ impl DisplayServerRuntime {
                 ));
                 return false;
             };
+            // The allocator recycles freed regions, and `render_app_surface`
+            // only ever blits `title_h + band rows` — an allocation taller
+            // than what the client fills (frame taller than the negotiated
+            // band, mid-re-create) COMPOSITED the previous tenant's pixels
+            // as a garbage slab at the window bottom. Zero the whole region
+            // once at mount; transparent rows composite as nothing.
+            self.zero_atlas_region(&content);
             // The BLUR band stays VISIBLE-sized (the glass clamps to w×h anyway;
-            // a tall blur band would starve the atlas). A desktop/full-screen
-            // surface uses the R1 layer path (`BackdropCache::None`), so it needs
-            // NO per-window blur band at all.
-            let blur = if self.app_is_desktop_surface(idx) {
+            // a tall blur band would starve the atlas). Only a surface that
+            // DECLARED desktop/fullscreen presentation skips it (opaque page
+            // base, R1 layer path). A freeform window the WM maximized keeps
+            // its blur band: its page base stays translucent (the app keys
+            // `base_alpha` on the declared mode), so dropping the band here
+            // rendered a fullscreened window as unblurred tracing paper over
+            // the raw desktop.
+            let blur = if self.app_presentation(idx).full_screen {
                 None
             } else {
                 self.atlas_alloc.alloc(w, h) // best-effort
@@ -91,6 +102,24 @@ impl DisplayServerRuntime {
         self.apps[idx].scroll_id =
             if content_h > 0 && (idx + 1) <= super::MAX_SCROLL_IDS { (idx as u32) + 1 } else { 0 };
         self.clear_app_layers(idx);
+    }
+
+    /// Zero every pixel of a freshly allocated atlas region (best-effort:
+    /// without a framebuffer there is nothing to clear — or to garbage-read).
+    /// One-shot at mount; bounded by the region size.
+    fn zero_atlas_region(&mut self, surface: &crate::atlas::AtlasSurface) {
+        let Some(handle) = self.framebuffer else { return };
+        let stride = self.mode.stride as usize;
+        let row_bytes = surface.width as usize * 4;
+        if self.band_scratch.len() < row_bytes {
+            return;
+        }
+        self.band_scratch[..row_bytes].fill(0);
+        let col_off = surface.x as usize * 4;
+        for r in 0..surface.height {
+            let dst = (surface.abs_row + r) as usize * stride + col_off;
+            let _ = vmo_write(handle, dst, &self.band_scratch[..row_bytes]);
+        }
     }
 
     /// Forget the app's declared material-glass regions.

@@ -21,8 +21,12 @@
 // events should leave the menus closed. `WinMenu("")` on an already-closed
 // menu is a no-op in both branches of its toggle.
 
+// The LANDING state is the handoff's initial state, verbatim
+// (OsSettingsWindow.dc.html: `nav: 'connections', mode: 'browse'`): the app
+// opens on the FIRST SECTION, not on the overview — the overview is a mode
+// the user enters via the app chip, the sidebar header or the ⋯ menu.
 Store NavStore {
-    mode: Str = "overview",
+    mode: Str = "browse",
     section: Str = "connections",
     subPage: Str = "",
 }

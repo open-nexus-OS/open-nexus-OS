@@ -35,18 +35,30 @@ impl super::DslApp {
     /// page base is the theme's Surface token — the scene's own boxes
     /// (surfaceVariant buttons, onSurface text) are specified against it.
     /// One-time diagnostic: where the interactive (handler) boxes are.
+    ///
+    /// States the TOTAL first and prints up to 32 boxes — a former silent
+    /// `.take(8)` made a page with 40 handlers look like a page with 8 and
+    /// sent a whole debugging round after the wrong hypothesis.
     pub(super) fn dump_handler_boxes(&self) {
-        for (box_id, _) in self.view.handlers().iter().take(8) {
-            if let Some(b) = self.layout.boxes.iter().find(|b| b.node_id == *box_id) {
-                raw_marker(&alloc::format!(
+        let handlers = self.view.handlers();
+        raw_marker(&alloc::format!("apphost: {} handlers registered", handlers.len()));
+        for (box_id, _) in handlers.iter().take(32) {
+            match self.layout.boxes.iter().find(|b| b.node_id == *box_id) {
+                Some(b) => raw_marker(&alloc::format!(
                     "apphost: handler box id={} x={} y={} w={} h={}",
                     box_id,
                     b.rect.x.as_i32(),
                     b.rect.y.as_i32(),
                     b.rect.width.as_i32(),
                     b.rect.height.as_i32()
-                ));
+                )),
+                // A handler without a box is itself a finding (id drift,
+                // node-cap bail) — say it instead of skipping it.
+                None => raw_marker(&alloc::format!("apphost: handler box id={box_id} MISSING")),
             }
+        }
+        if handlers.len() > 32 {
+            raw_marker(&alloc::format!("apphost: … {} more handlers", handlers.len() - 32));
         }
     }
 
@@ -140,14 +152,18 @@ impl super::DslApp {
         // Glass occlusion for the GLYPH pass: text runs paint AFTER all box
         // fills, so a run belonging to a node UNDER a later glass box (an
         // overlay panel) would print over the panel's reset fill. Drop runs
-        // whose box overlaps a LATER glass box — the compositor's backdrop
-        // blur owns everything beneath glass. (Overlap, not full cover: a
-        // label half-under a panel belongs under it entirely.)
+        // whose box overlaps a later glass ROOT — only a root resets its
+        // fill; NESTED glass blends src-over now, so a pane's caption must
+        // keep painting when a `subtle` row follows it (dropping on any
+        // later glass erased half the labels of a glass-heavy page).
+        // (Overlap, not full cover: a label half-under a panel belongs
+        // under it entirely.)
         vis_text.retain(|&(bi, _)| {
             let t = &self.layout.boxes[bi as usize];
             !self.layout.boxes.iter().any(|g| {
                 g.node_id > t.node_id
                     && matches!(g.visual.material, nexus_layout_types::SurfaceMaterial::Glass(_))
+                    && !g.glass_nested
                     && t.rect.x.0 < g.rect.x.0 + g.rect.width.0
                     && t.rect.x.0 + t.rect.width.0 > g.rect.x.0
                     && t.rect.y.0 < g.rect.y.0 + g.rect.height.0
@@ -473,13 +489,32 @@ pub(super) fn collect_texts(
                 out.push((*index, alloc::string::String::new(), font, [c.b, c.g, c.r, c.a]));
             }
         }
-        N::Stack(_, _, children) | N::Grid(_, _, children) => {
+        N::Stack(_, _, children) => {
+            // Engine visit order: in-flow children first, `.overlay()`
+            // (Position::Absolute) children AFTER them — node ids are
+            // assigned at visit time, and a counter walking declaration
+            // order bound every text behind a non-last open overlay to the
+            // wrong box (menu labels painted into placeholder stacks).
+            for child in children.iter().filter(|c| !is_absolute(c)) {
+                collect_texts(child, index, out);
+            }
+            for child in children.iter().filter(|c| is_absolute(c)) {
+                collect_texts(child, index, out);
+            }
+        }
+        N::Grid(_, _, children) => {
             for child in children {
                 collect_texts(child, index, out);
             }
         }
         _ => {}
     }
+}
+
+/// Whether the engine defers this child to the absolute pass (a Stack's
+/// `.overlay()` children get their node ids AFTER every in-flow sibling).
+pub(super) fn is_absolute(node: &nexus_layout_types::LayoutNode) -> bool {
+    matches!(node.item().position, nexus_layout_types::Position::Absolute)
 }
 
 /// Pre-order walk to the focused TextInput: same traversal/count contract as
@@ -500,7 +535,22 @@ fn caret_input<'a>(
             let c = input.style.color;
             Some((here, input.content.as_str(), font, [c.b, c.g, c.r, c.a]))
         }
-        N::Stack(_, _, children) | N::Grid(_, _, children) => {
+        N::Stack(_, _, children) => {
+            // Same visit order as the engine and `collect_texts`: in-flow
+            // children first, absolute (`.overlay()`) children after.
+            for child in children.iter().filter(|c| !is_absolute(c)) {
+                if let Some(hit) = caret_input(child, index, target, inside) {
+                    return Some(hit);
+                }
+            }
+            for child in children.iter().filter(|c| is_absolute(c)) {
+                if let Some(hit) = caret_input(child, index, target, inside) {
+                    return Some(hit);
+                }
+            }
+            None
+        }
+        N::Grid(_, _, children) => {
             for child in children {
                 if let Some(hit) = caret_input(child, index, target, inside) {
                     return Some(hit);
