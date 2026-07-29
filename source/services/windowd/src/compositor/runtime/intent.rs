@@ -125,6 +125,35 @@ impl DisplayServerRuntime {
         .content_top_inset
     }
 
+    /// The status-bar drag envelope for one app window — ONE definition for
+    /// the title drag AND the top-edge resize, so the two clamps can never
+    /// disagree. The grab strip is the WM title bar when the window has
+    /// chrome; a chromeless window's strip is its own top chrome row, assumed
+    /// bar-height (the app draws it, windowd only needs a reachable band).
+    pub(super) fn drag_bounds(&self, idx: usize) -> nexus_widget_window::DragBounds {
+        let title_h = self.apps[idx].win.title_h;
+        nexus_widget_window::DragBounds {
+            min_y: crate::surface_presentation::SHELL_TOPBAR_H as i32,
+            max_grab_bottom: self.work_area_h() as i32,
+            grab_h: if title_h > 0 { title_h } else { crate::surface_presentation::SHELL_TOPBAR_H },
+            min_visible_w: 64,
+        }
+    }
+
+    /// One drag step of an app window: `drag_to` under this window's
+    /// [`drag_bounds`](Self::drag_bounds) envelope. Returns the vacated damage
+    /// rect when the window moved.
+    pub(super) fn drag_app_window(
+        &mut self,
+        idx: usize,
+        cx: i32,
+        cy: i32,
+    ) -> Option<crate::compositor::damage::DamageRect> {
+        let b = self.drag_bounds(idx);
+        let (w, h) = (self.mode.width, self.mode.height);
+        self.apps[idx].win.drag_to(cx, cy, w, h, b)
+    }
+
     /// The work-area HEIGHT for fullscreen/maximized APP windows: the display
     /// minus the desktop taskbar (desktop profile only — "nicht über die
     /// Taskleiste"); the tablet dock is overlaid, so fullscreen reaches the

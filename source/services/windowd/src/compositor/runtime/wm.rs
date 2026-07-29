@@ -203,10 +203,15 @@ impl DisplayServerRuntime {
     }
 
     /// Continue an active edge-resize drag: recompute the frame from the drag
-    /// START (no incremental drift), clamp to min size + display, apply.
+    /// START (no incremental drift), clamp to min size + display + the
+    /// status-bar floor, apply.
     pub(super) fn apply_window_resize(&mut self, cx: i32, cy: i32) {
         let Some((id, edge, start, (gx, gy))) = self.resize_drag else {
             return;
+        };
+        let min_y = match id {
+            WindowId::App(i) => self.drag_bounds(i as usize).min_y,
+            _ => 0,
         };
         let frame = Frame::resized(
             start,
@@ -217,6 +222,7 @@ impl DisplayServerRuntime {
             MIN_WIN_H,
             self.mode.width,
             self.mode.height,
+            min_y,
         );
         if frame != self.window_frame(id) {
             self.apply_window_frame(id, frame.x, frame.y, frame.w, frame.h);

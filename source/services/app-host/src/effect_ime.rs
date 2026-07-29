@@ -143,6 +143,9 @@ impl AppEffectHost {
         let (control, v) = match value {
             "minimize" => (wire::CONTROL_WIN_MINIMIZE, sid),
             "close" => (wire::CONTROL_WIN_CLOSE, sid),
+            // Chromeless-window drag handle (window-kit chrome row): windowd
+            // begins a pointer drag of this window at the current cursor.
+            "move" => (wire::CONTROL_WIN_MOVE, sid),
             // zoom / mode.*: one MODE control; AUTO = toggle fullscreen.
             "zoom" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_AUTO),
             "mode.fullscreen" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FULLSCREEN),

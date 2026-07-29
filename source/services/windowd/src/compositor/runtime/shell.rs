@@ -103,6 +103,24 @@ impl DisplayServerRuntime {
                     let _ = debug_println("WINDOWD: control win (no window for id)");
                 }
             }
+            wire::CONTROL_WIN_MOVE => {
+                // The chromeless-window drag handle: the app's own chrome row
+                // took the press and asks windowd to move the window. Anchor
+                // the drag at the CURRENT cursor — the press that triggered
+                // this — and let the ordinary pointer path do the rest
+                // (`drag_to` clamps to the status-bar envelope, release runs
+                // the edge snap and ends the drag). Fullscreen windows do not
+                // move; the app's zoom control is the way out of fullscreen.
+                if let Some(idx) = self.app_idx_by_surface(u32::from(value)) {
+                    let wid = crate::window_scene::WindowId::App(idx as u8);
+                    if !self.windows.is_fullscreen(wid) {
+                        self.raise_window(wid);
+                        self.apps[idx].win.begin_drag(self.state.cursor_x, self.state.cursor_y);
+                    }
+                } else {
+                    let _ = debug_println("WINDOWD: control win (no window for id)");
+                }
+            }
             other => {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: control unknown kind={other} value={value}"

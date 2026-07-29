@@ -28,7 +28,7 @@ extern crate alloc;
 /// Pure window-frame geometry (hit-testing / drag clamp / damage) — the
 /// host-tested SSOT shared by every window instance (RFC-0067 P3).
 pub mod frame;
-pub use frame::{Frame, ResizeEdge, TitleButton, WindowPress};
+pub use frame::{DragBounds, Frame, ResizeEdge, TitleButton, WindowPress};
 
 pub mod chrome;
 pub use chrome::{WindowButton, WindowButtonKind, WindowControls, WindowPane};

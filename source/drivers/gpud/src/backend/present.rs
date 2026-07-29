@@ -34,6 +34,8 @@ use crate::markers::{
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use crate::protocol;
 
+use super::blur_cache;
+
 impl VirtioGpuBackend {
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub fn present_scanout_damage(&mut self, rect: Rect) -> Result<(), GfxError> {
@@ -628,6 +630,11 @@ impl VirtioGpuBackend {
         } else {
             true
         };
+        // Glass-blur cache walk state: the destination-so-far fold + the
+        // cache-row packing cursor (`blur_cache`).
+        let mut below =
+            blur_cache::seed(self.display_w, self.display_h, self.blur_cache.wallpaper_epoch);
+        let mut cache_y: u32 = 0;
         for i in 0..n {
             let mut l = self.pending_rt_layers[i];
             // Transform fast path (Track C2): apply the id's recorded
@@ -667,24 +674,13 @@ impl VirtioGpuBackend {
                 .checked_sub(1)
                 .and_then(|i| self.scroll_src_rows.get(i as usize).copied().flatten())
                 .unwrap_or(l.src_row_abs);
-            // Frosted glass: blur what is beneath this layer's rect (destination-
-            // so-far — layers composite back-to-front, so lower windows/chrome are
-            // already on the RT) into the glass RT first; the layer's translucent
-            // tint + content composite over the blurred backdrop = real frosted
-            // glass on the virgl scanout.
-            if l.backdrop_blur > 0 {
-                // Blur covers the whole LAYER rect (the frame) — masked to the
-                // layer's corner radius, so a pill or circle of glass does not
-                // leave a blurred SQUARE standing behind its rounded edge.
-                let _ = self.blur_rt_backdrop(
-                    l.dst_x,
-                    l.dst_y,
-                    l.width,
-                    l.height,
-                    l.backdrop_blur,
-                    l.corner_radius,
-                );
-            }
+            // Frosted glass: blur what is beneath this layer's rect
+            // (destination-so-far — layers composite back-to-front, so lower
+            // windows/chrome are already on the RT); the layer's tint +
+            // content then composite over it. CACHED: an unchanged backdrop
+            // redraws from the cache texture; a changed one re-blurs live and
+            // re-fills its rows (`blur_cache`).
+            cache_y = self.glass_blur_step(i, below, cache_y, &l);
             // `content_w`/`content_h` (`0` = content fills the layer, the
             // byte-identical steady-state default): the SOURCE sub-size (the
             // client's content band). When set and different from the layer, the
@@ -715,6 +711,9 @@ impl VirtioGpuBackend {
                 self.virgl_layer_marker_done = true;
                 let _ = nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_LIVE);
             }
+            // This layer is now part of the destination every LATER glass
+            // layer blurs — fold its effective draw inputs.
+            below = blur_cache::fold_drawn_layer(below, &l, src_row_abs);
         }
         if buildup {
             self.rt_layers_dirty = false;

@@ -617,6 +617,63 @@ real `.nx` on host with negative controls, but the last boot ran under
 window CONTROLS; every resize mints a new id, so after ~15 re-creates an app
 addresses a foreign window. Latent today.
 
+### Phase 11 (W1-W5) — the phone windowing model, built once ✅ (2026-07-29)
+
+Phase 9/10 fixed defects one at a time; the user called the result out as a
+regression bundle ("Fenster nicht mehr draggable, Fenster hinter der Topbar
+nicht schließbar, ein 'App'-Fenster taucht auf") and asked for the model to be
+built properly — iOS/Android, not desktop. The archaeology first, because
+"wann wurde das gelöscht?" deserved a real answer:
+
+| Symptom | Wann/Wo |
+|---|---|
+| Stash nicht draggable | P9 (`c93dcb71`): `style: plain` = kein WM-Titel = keine Drag-Zone; kein Ersatzkanal gebaut. Chromed Fenster zogen weiter. |
+| Fenster hinter der Topbar gefangen | R3 (`cc126a29`) klemmte nur PLATZIERUNG; `drag_to`/Top-Resize klemmten weiter auf `0..display`. |
+| Panes "auf dem Wallpaper" | Nie gebaut: der 3-Slice-Scroll-Arm übersprang ALLE Material-Regionen; Freeform-Stash ist gebandet. dst-so-far selbst lebt (TASK-0070 P4). |
+| Blur teuer | Der GL-Pfad verwarf die `BackdropCache`-Felder seit je am `Command`-Encoding; unsichtbar bei 1-2 Glasschichten, ruinös ab P9s 5-10 (34ms-Presents). |
+| Teal "App"-Fenster | Alt (Probe-Fill-Fallback), durch intermittierenden Payload-Timeout sichtbar. |
+
+**W1 — Drag-Envelope** (`nexus-widget-window::DragBounds`): grab strip in
+`[SHELL_TOPBAR_H, work_area_h)`, Body frei (hinter die Taskleiste, rechts bis
+auf 64px raus; links bleibt 0 — negative dst-x kann der Compositor noch
+nicht, notiert). EIN Envelope für Titel-Drag UND Top-Edge-Resize
+(`drag_bounds` in intent.rs), Host-Tests in frame.rs.
+
+**W2 — `CONTROL_WIN_MOVE` (7)** (`nexus-display-proto/control.rs` — der
+CONTROL-Block ist dabei aus dem Baseline-file `client_surface.rs` in ein
+eigenes Modul gezogen, Re-Export erhält die Pfade): window-kit `WinTopBar`
+dispatcht `WinAct("move")` auf leeren Chrome-Strecken; app-host mappt
+`"move"`; windowd raised + `begin_drag` am aktuellen Cursor; Release nimmt
+den bestehenden Snap-Pfad. Fullscreen ignoriert. Alle Kit-Apps erben das.
+
+**W3 — Fail-closed Mount**: `probe/mod.rs` präsentiert bei `app == None`
+NICHTS mehr (`APPHOST: FAIL dsl mount (no window, fail-closed)`, Prozess-
+Exit). Der Teal-Fill (`FILL_BGRA`) ist gelöscht. Offene Wurzel: WARUM der
+Payload-Grant intermittierend >8s braucht (bundlemgrd unter Boot-Last) —
+eigener Track.
+
+**W4 — Regionen in Scroll-Fenstern** (`windowd/band_map.rs`, 6 Host-Tests):
+Szene-Rect → gepackte Band-Zeile pro Slice (Header 1:1 hinter WM-Titel,
+Footer hinter dem Header-Block, Content um `scroll_rows` verschoben +
+Viewport-geclippt; Slice-Straddler werden übersprungen). Der Scroll-Arm in
+`scene.rs` komponiert die Regionen NACH den drei Slices — Backdrop = das
+gezeichnete Fenster darunter (Schichtenmodell: Panel sieht Fenster, Fenster
+sieht Fenster darunter).
+
+**W5 — GL-Blur-Cache** (`gpud/backend/blur_cache.rs`, 5 Host-Tests): pro
+Glasschicht ein FNV-Key über alles darunter (effektive Draw-Inputs nach
+Transform/Scroll-Overrides + Wallpaper-Generation + Display-Maße) + eigene
+Rect/Radien. Hit = EIN maskierter Draw aus einer gepackten Cache-Textur
+(1280×4096; der Gauss-Shader mit radius=0 degeneriert zum Center-Tap =
+maskierte Kopie, gleiche SDF-Kante); Miss = Blur wie bisher + RT→Cache-Copy
+(vor dem Content-Draw). Slot-Identität = Walk-Index; Packing-Offset im Key
+verhindert Fremd-Zeilen-Reads; Überlauf fällt auf Live-Blur zurück (Kosten-,
+nie Korrektheitsgrenze). Drag invalidiert genau die Schicht selbst + alles
+darüber; alles darunter bleibt Cache-Hit.
+
+**Gates**: check/diag PASS, test-host 619 Suiten, windowd 160+6, gpud 5,
+frame.rs 7, Cross-Builds (os-lite und os-lite+virgl) grün.
+
 ### Phase 8 — docs + tooling parity
 
 `docs/dev/dsl/{grammar,ir}.md` (EBNF + changelog) ·

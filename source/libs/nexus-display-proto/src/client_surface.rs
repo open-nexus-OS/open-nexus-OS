@@ -245,22 +245,10 @@ pub fn decode_surface_frame(frame: &[u8]) -> Option<u32> {
     }
     Some(u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]))
 }
-/// Control kinds. 0/1/3 are RETIRED (RFC-0083 P5, values reserved forever):
-/// theme, shell profile and accent are settingsd keys now, not compositor
-/// controls — windowd answers an old sender like any unknown control.
-pub const CONTROL_THEME: u8 = 0;
-pub const CONTROL_SHELL_PROFILE: u8 = 1;
-/// A shell-initiated app launch is pending: the compositor shows the wait
-/// cursor (loading ring) until the fresh window's surface arrives (value
-/// unused). Fire-and-forget hint — losing it only skips the ring.
-pub const CONTROL_LAUNCH_PENDING: u8 = 2;
-pub const CONTROL_THEME_ACCENT: u8 = 3;
-/// App-chrome window controls (the app-icon dropdown of a client-chrome
-/// window): windowd applies the action to the SENDING client's window.
-/// value unused for minimize/close; for mode, value = `WIN_MODE_*`.
-pub const CONTROL_WIN_MINIMIZE: u8 = 4;
-pub const CONTROL_WIN_CLOSE: u8 = 5;
-pub const CONTROL_WIN_MODE: u8 = 6;
+// Control kinds (`CONTROL_*`) live in `crate::control` (split out when the
+// window-control vocabulary outgrew this file); re-exported below so
+// `client_surface::CONTROL_*` stays the path.
+pub use crate::control::*;
 
 pub const SURFACE_CONTROL_FRAME_LEN: usize = HEADER_LEN + 2;
 

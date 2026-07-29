@@ -267,4 +267,11 @@ Component WinTopBar {
     .gap(1)
     .paddingX(2)
     .height(40)
+    // The chrome row IS the window's grab strip (phone-style windowing: a
+    // chromeless window has no WM title bar, so its own top chrome moves it).
+    // A press on any EMPTY stretch of the row — the spacers around the
+    // toolbar — lands here and asks windowd to start a pointer drag
+    // (`window.control = "move"`); every control above wins its own tap
+    // first, exactly like the buttons in a WM title bar.
+    on Tap -> dispatch(WinAct("move"))
 }

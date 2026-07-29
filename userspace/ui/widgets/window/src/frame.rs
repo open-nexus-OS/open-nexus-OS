@@ -57,6 +57,26 @@ impl TitleButton {
 /// (TASK-0070 Phase 3). Corners are the intersection of two bands.
 pub const RESIZE_BORDER: u32 = 7;
 
+/// The drag envelope of the mobile status-bar model (phone/tablet windowing,
+/// not desktop title bars): the shell bar at the top and the taskbar at the
+/// bottom are ALWAYS usable, so the window's GRAB STRIP — the rows that move
+/// it (WM title bar, or the app's own chrome row on a chromeless window) —
+/// must never leave the band between them. The window BODY is free: it may
+/// hang off the bottom (behind the taskbar) or partially off the right edge.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DragBounds {
+    /// Top floor — the window's top may not go above this (status-bar height
+    /// for app windows, 0 for shell surfaces).
+    pub min_y: i32,
+    /// The grab strip's bottom may not sink past this display row (the
+    /// taskbar's top edge; display height when there is no taskbar).
+    pub max_grab_bottom: i32,
+    /// Height of the grab strip measured from the window top.
+    pub grab_h: u32,
+    /// How much of the window must stay on screen horizontally.
+    pub min_visible_w: u32,
+}
+
 /// Which window edge/corner a resize drag grabs. Determines both the resize
 /// math and the pointer shape (`ew`/`ns`/`nesw`/`nwse`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -189,6 +209,10 @@ impl Frame {
     /// `(dx, dy)` from `start`, clamped to `min_w`/`min_h` and the display.
     /// Deterministic in the drag START frame (not incremental), so a fast
     /// pointer never accumulates rounding drift.
+    ///
+    /// `min_y` is the status-bar floor: pulling the TOP edge up stops there,
+    /// for the same reason [`Frame::clamp_pos`] enforces it — rows above the
+    /// bar belong to the shell, so a title bar resized under it is dead.
     // reason: pure resize math — args are the start frame, drag edge and
     // delta, the min-size clamps and the display mode bounds.
     #[allow(clippy::too_many_arguments)]
@@ -201,6 +225,7 @@ impl Frame {
         min_h: u32,
         mode_w: u32,
         mode_h: u32,
+        min_y: i32,
     ) -> Frame {
         let mut x0 = start.x;
         let mut y0 = start.y;
@@ -213,7 +238,7 @@ impl Frame {
             x1 = (x1 + dx).clamp(x0 + min_w as i32, mode_w as i32);
         }
         if edge.affects_top() {
-            y0 = (start.y + dy).clamp(0, y1 - min_h as i32);
+            y0 = (start.y + dy).clamp(min_y, (y1 - min_h as i32).max(min_y));
         }
         if edge.affects_bottom() {
             y1 = (y1 + dy).clamp(y0 + min_h as i32, mode_h as i32);
@@ -228,12 +253,27 @@ impl Frame {
         }
     }
 
-    /// Clamp a dragged top-left (`nx, ny`) so the window stays fully on the
-    /// display. Returns the clamped origin.
-    pub fn clamp_pos(&self, nx: i32, ny: i32, mode_w: u32, mode_h: u32) -> (i32, i32) {
-        let max_x = mode_w.saturating_sub(self.w) as i32;
-        let max_y = mode_h.saturating_sub(self.h) as i32;
-        (nx.clamp(0, max_x.max(0)), ny.clamp(0, max_y.max(0)))
+    /// Clamp a dragged top-left (`nx, ny`) to the mobile status-bar model
+    /// ([`DragBounds`]): the GRAB STRIP always stays reachable, the body is
+    /// free. Returns the clamped origin.
+    pub fn clamp_pos(&self, nx: i32, ny: i32, mode_w: u32, b: DragBounds) -> (i32, i32) {
+        // Horizontally a window may hang off the RIGHT edge as long as
+        // `min_visible_w` of it stays on screen (the compositor draws layers
+        // from a u32 origin, so the LEFT edge stays at ≥ 0 until negative
+        // destinations are supported — recorded, not a policy choice).
+        let max_x = if self.w > b.min_visible_w {
+            (mode_w.saturating_sub(b.min_visible_w)) as i32
+        } else {
+            mode_w.saturating_sub(self.w) as i32
+        };
+        // Vertically the GRAB STRIP is the invariant, not the window: its top
+        // may never slip under the status bar (`min_y`) and its bottom edge
+        // may never sink past `max_grab_bottom` (the taskbar top) — otherwise
+        // the one handle that can move or close the window becomes
+        // unreachable and the window is stranded. The BODY below the strip is
+        // free to hang off the bottom of the display.
+        let max_y = b.max_grab_bottom.saturating_sub(b.grab_h.max(1) as i32);
+        (nx.clamp(0, max_x.max(0)), ny.clamp(b.min_y, max_y.max(b.min_y)))
     }
 
     /// Damage rect `(x, y, w, h)` of the window grown by `pad` on every side (the
@@ -321,17 +361,39 @@ mod tests {
         assert_eq!(f.title_button_at(max_cx, f.y + f.title_h as i32), None);
     }
 
+    /// The status-bar drag envelope: 36px bar on top, taskbar top at 744,
+    /// a 34px grab strip, and 64px minimum horizontal visibility.
+    const B: DragBounds =
+        DragBounds { min_y: 36, max_grab_bottom: 744, grab_h: 34, min_visible_w: 64 };
+
     #[test]
-    fn clamp_keeps_window_on_display() {
+    fn clamp_keeps_the_grab_strip_between_the_bars() {
         let f = frame();
-        assert_eq!(f.clamp_pos(-500, -500, MODE_W, MODE_H), (0, 0));
-        let (cx, cy) = f.clamp_pos(99999, 99999, MODE_W, MODE_H);
-        assert_eq!(cx, (MODE_W - f.w) as i32);
-        assert_eq!(cy, (MODE_H - f.h) as i32);
-        assert!(cx + f.w as i32 <= MODE_W as i32);
-        assert!(cy + f.h as i32 <= MODE_H as i32);
+        // Throwing the window at the top-left corner: it stops BELOW the
+        // status bar, never at 0 — rows above the bar are the shell's.
+        assert_eq!(f.clamp_pos(-500, -500, MODE_W, B), (0, B.min_y));
+        // Throwing it at the bottom-right: the GRAB STRIP stays above the
+        // taskbar (the body may hang off the display, so the y bound is the
+        // strip's, not the window's) and `min_visible_w` columns stay on.
+        let (cx, cy) = f.clamp_pos(99999, 99999, MODE_W, B);
+        assert_eq!(cx, (MODE_W - B.min_visible_w) as i32);
+        assert_eq!(cy + B.grab_h as i32, B.max_grab_bottom);
         // An in-bounds move is unchanged.
-        assert_eq!(f.clamp_pos(100, 100, MODE_W, MODE_H), (100, 100));
+        assert_eq!(f.clamp_pos(100, 100, MODE_W, B), (100, 100));
+        // A window narrower than the visibility margin stays fully on.
+        let mut small = frame();
+        small.w = 40;
+        assert_eq!(small.clamp_pos(99999, 200, MODE_W, B).0, (MODE_W - 40) as i32);
+    }
+
+    #[test]
+    fn resize_top_edge_stops_at_the_bar() {
+        let start = frame();
+        // Pulling the top edge far above the display: it stops at `min_y`,
+        // not at 0 — same floor as the drag clamp.
+        let r = Frame::resized(start, ResizeEdge::Top, -9000, -9000, 100, 100, MODE_W, MODE_H, 36);
+        assert_eq!(r.y, 36);
+        assert_eq!(r.y + r.h as i32, start.y + start.h as i32);
     }
 
     #[test]
@@ -367,23 +429,24 @@ mod tests {
     fn resized_moves_only_the_grabbed_border_and_clamps() {
         let start = frame(); // x=890 y=96 w=366 h=600 (right edge at 1256)
                              // Drag the right edge +20: width grows, origin unchanged (1276 ≤ 1280).
-        let r = Frame::resized(start, ResizeEdge::Right, 20, 0, 100, 100, MODE_W, MODE_H);
+        let r = Frame::resized(start, ResizeEdge::Right, 20, 0, 100, 100, MODE_W, MODE_H, 0);
         assert_eq!((r.x, r.y, r.w, r.h), (start.x, start.y, start.w + 20, start.h));
         // Drag the left edge +50: x moves right, width shrinks.
-        let l = Frame::resized(start, ResizeEdge::Left, 50, 0, 100, 100, MODE_W, MODE_H);
+        let l = Frame::resized(start, ResizeEdge::Left, 50, 0, 100, 100, MODE_W, MODE_H, 0);
         assert_eq!((l.x, l.w), (start.x + 50, start.w - 50));
         // Corner drag changes both axes.
-        let br = Frame::resized(start, ResizeEdge::BottomRight, 20, 30, 100, 100, MODE_W, MODE_H);
+        let br =
+            Frame::resized(start, ResizeEdge::BottomRight, 20, 30, 100, 100, MODE_W, MODE_H, 0);
         assert_eq!((br.w, br.h), (start.w + 20, start.h + 30));
         // Min size clamps: shrinking below min stops at min.
-        let tiny = Frame::resized(start, ResizeEdge::Right, -9000, 0, 120, 100, MODE_W, MODE_H);
+        let tiny = Frame::resized(start, ResizeEdge::Right, -9000, 0, 120, 100, MODE_W, MODE_H, 0);
         assert_eq!(tiny.w, 120);
         assert_eq!(tiny.x, start.x);
         // Display clamps: growing past the display stops at its border.
-        let huge = Frame::resized(start, ResizeEdge::Right, 9000, 0, 100, 100, MODE_W, MODE_H);
+        let huge = Frame::resized(start, ResizeEdge::Right, 9000, 0, 100, 100, MODE_W, MODE_H, 0);
         assert_eq!(huge.x + huge.w as i32, MODE_W as i32);
         // Deterministic in the start frame: same delta twice = same result.
-        let again = Frame::resized(start, ResizeEdge::Right, 20, 0, 100, 100, MODE_W, MODE_H);
+        let again = Frame::resized(start, ResizeEdge::Right, 20, 0, 100, 100, MODE_W, MODE_H, 0);
         assert_eq!(r, again);
     }
 

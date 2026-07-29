@@ -77,7 +77,6 @@ impl DisplayServerRuntime {
         // windowd resolves routing against its own rendered geometry.
         let cursor_x = upstream.cursor_x;
         let cursor_y = upstream.cursor_y;
-        let mode = self.mode;
         // C1: the proof/target-test hover card is gone — nothing to hover-test.
         self.state.hover_visible = false;
 
@@ -265,9 +264,7 @@ impl DisplayServerRuntime {
             if !self.apps[idx].win.is_dragging() {
                 continue;
             }
-            if let Some(old) =
-                self.apps[idx].win.drag_to(cursor_x, cursor_y, mode.width, mode.height)
-            {
+            if let Some(old) = self.drag_app_window(idx, cursor_x, cursor_y) {
                 let rect = self.app_window_rect(idx);
                 self.queue_gpu_blit_rect(old.merge(rect));
                 // Other glass windows overlapping the vacated/covered region

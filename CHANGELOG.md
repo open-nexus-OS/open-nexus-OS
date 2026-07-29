@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-29 (TASK-0308 W1-W5: the phone windowing model, built once, correctly)
+
+R1-R4 (below) fixed what a floating glass window RAN into; this round builds
+the model it was always supposed to live in — iOS/Android, not desktop: the
+shell status bar and taskbar are always usable, every window is draggable by
+its grab strip, the strip can never leave the band between the bars, and glass
+composites as layers over whatever is really beneath it.
+
+- **Drag clamps** (`nexus-widget-window::DragBounds`, one envelope for title
+  drags AND top-edge resizes): the grab strip — WM title bar, or the app's own
+  chrome row on a chromeless window — stays in `[status bar, taskbar)`. The
+  body is free: it may hang behind the taskbar or partly off the right edge
+  (64px stay visible). Previously `clamp_pos` allowed y=0..display and a
+  window dragged under the bar could never be closed again: `input.rs`
+  refuses presses above the bar by design.
+- **`CONTROL_WIN_MOVE` (7)**: chromeless (`style: plain`) windows are
+  draggable again. Stash lost its title bar in P9 (`plain` is the only route
+  to window glass) with no replacement channel. Now the window-kit chrome row
+  itself is the grab strip: a press on any empty stretch dispatches
+  `WinAct("move")` → the existing `window.control` path → windowd raises the
+  window and runs the SAME drag it runs for a WM title bar (clamp, release
+  snap, fullscreen excluded). Every app on the kit inherits this.
+- **A failed DSL mount shows NO window** (fail-closed). It used to present
+  the 320×240 teal probe fill — bring-up proof turned fail-open ghost: an
+  intermittent payload-grant timeout made a window titled "App" pop up that
+  the user never launched. The failure stays loud in the log; the process
+  exits for execd to reap.
+- **Scrollable windows keep their pane glass** (`windowd/band_map.rs`,
+  host-tested): the 3-slice scroll composite skipped ALL material regions
+  ("scroll takes priority"), so the moment a freeform window became banded its
+  panes sat flat on the window blur — read as "panel floats on the wallpaper".
+  Scene rects now translate into the packed band per slice (header/footer
+  fixed, content shifted by scroll and clipped to the viewport), and the
+  regions composite AFTER the slices — so a pane frosts the window content
+  beneath it, the window frosts the windows beneath it (the GL path has been
+  destination-so-far since TASK-0070 Phase 4; `gpud: rt backdrop dst ok`).
+- **Glass blur is cached again** (`gpud/backend/blur_cache.rs`): the GL RT
+  build-up re-renders every present, so every glass layer paid snapshot + two
+  gaussian passes on every cursor move — the windowd-side `BackdropCache`
+  never survived into this path (its fields are dropped at the `Command`
+  encoding), invisible at 1-2 glass layers, ruinous at the 5-10 the app panels
+  brought (34ms avg presents). Now a per-layer FNV key over everything
+  composited below (post transform/scroll, wallpaper generation included)
+  gates the blur: unchanged backdrop = one masked draw from a packed cache
+  texture (the gaussian shader at radius 0 doubles as the masked copy);
+  changed = blur live + refill. Pure key/packing state is host-tested.
+
 ### Fixed - 2026-07-29 (TASK-0308 R1-R4: what Phase 9 uncovered — all below the app layer)
 
 Making Stash a floating glass window ran four paths that had never executed.

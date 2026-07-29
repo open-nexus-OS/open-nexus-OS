@@ -322,6 +322,62 @@ impl DisplayServerRuntime {
                                         mode.width,
                                         mode.height,
                                     );
+                                // Material regions used to be SKIPPED here
+                                // ("scroll takes priority") — a banded window
+                                // lost all of its pane glass, so a freeform
+                                // file manager's panes sat flat on the window
+                                // blur instead of frosting the content under
+                                // them. `band_region_slice` translates each
+                                // scene rect into the packed band; the slices
+                                // above have already drawn, so the backdrop
+                                // these blur is the WINDOW content beneath —
+                                // the layered model (panel sees window,
+                                // window sees windows below).
+                                let g = crate::band_map::BandGeometry {
+                                    title_h: sn.title_h,
+                                    header_h: sn.header_h,
+                                    footer_h: sn.footer_h,
+                                    content_h: sn.content_h,
+                                    scroll_rows: sn.scroll_rows,
+                                    frame_h: p.h,
+                                };
+                                if let Some((atlas_row, atlas_x, win_x, win_y, _)) = sn.layer_geom {
+                                    for l in sn.layers.iter().take(sn.layer_count) {
+                                        if l.material != wire::MATERIAL_GLASS {
+                                            continue;
+                                        }
+                                        let Some(slice) = crate::band_map::band_region_slice(
+                                            u32::from(l.y),
+                                            u32::from(l.h),
+                                            &g,
+                                        ) else {
+                                            continue;
+                                        };
+                                        let blur_radius = match l.glass_level {
+                                            wire::GLASS_PANEL => 40,
+                                            wire::GLASS_OVERLAY => 40,
+                                            wire::GLASS_CARD => 20,
+                                            wire::GLASS_SUBTLE => 8,
+                                            _ => 30,
+                                        };
+                                        crate::compositor::shell_window::composite_material_glass(
+                                            &mut encoder,
+                                            crate::compositor::shell_window::MaterialLayerParams {
+                                                src_row_abs: atlas_row + slice.src_row,
+                                                src_x: atlas_x + u32::from(l.x),
+                                                width: u32::from(l.w),
+                                                height: slice.h,
+                                                dst_x: win_x + u32::from(l.x),
+                                                dst_y: win_y + slice.dst_y,
+                                                corner_radius: u32::from(l.radius),
+                                                shadow_alpha: u32::from(l.shadow_alpha),
+                                                blur_radius,
+                                            },
+                                            mode.width,
+                                            mode.height,
+                                        );
+                                    }
+                                }
                             }
                         } else if let Some(p) = sn.glass {
                             let _ = crate::compositor::shell_window::ShellWindow::composite_glass(

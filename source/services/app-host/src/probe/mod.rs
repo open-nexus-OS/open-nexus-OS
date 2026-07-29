@@ -66,9 +66,9 @@ const EVENTS_RECV_SLOT: u32 = 8;
 
 // The embedded fallback payload is DELETED (separation of concerns):
 // program bytes belong to bundlemgrd (the registry) ONLY. A missing/broken
-// payload VMO is a LOUD, VISIBLE failure (probe fill + FAIL marker below),
-// never a silently different program — an embedded fallback masked exactly
-// the payload-routing bugs it should have surfaced.
+// payload VMO is a LOUD failure in the log (FAIL markers below) and shows
+// NO window at all — never a silently different program, and no longer the
+// teal probe fill either (a fail-open ghost window titled "App").
 
 /// Fixed child slot holding the payload VMO (execd's
 /// `CHILD_PAYLOAD_SLOT`); bundlemgrd fills it and writes the 16-byte
@@ -92,10 +92,6 @@ const PAYLOAD_MAX_LEN: usize = 256 * 1024;
 /// Probe surface: well under the transport bounds.
 const SURFACE_W: u16 = 320;
 const SURFACE_H: u16 = 240;
-
-/// Solid probe color (BGRA): a saturated teal nothing else in the shell
-/// paints — unmistakable in a screenshot.
-const FILL_BGRA: [u8; 4] = [0x98, 0xA1, 0x2A, 0xFF];
 
 /// Bounded retry budget for the cap-transfer race + windowd bring-up.
 const SEND_RETRIES: usize = 4000;
@@ -349,22 +345,17 @@ pub(super) fn run() -> Result<(), &'static str> {
         .as_mut()
         .map(|dsl| if dsl.banded { dsl.render_band(vmo) } else { dsl.render(vmo) })
         .unwrap_or(false);
-    match &app {
-        Some(_) if first_render_ok => raw_marker("APPHOST: dsl frame rendered"),
-        _ => {
-            app = None;
-            raw_marker("APPHOST: FAIL dsl mount (probe fill fallback)");
-            let row_bytes = surf_w as usize * 4;
-            let mut row = alloc::vec![0u8; row_bytes];
-            for px in row.chunks_exact_mut(4) {
-                px.copy_from_slice(&FILL_BGRA);
-            }
-            // app == None ⇒ band == None ⇒ vmo_h == surf_h (visible fill).
-            for y in 0..vmo_h as usize {
-                vmo_write(vmo, y * row_bytes, &row).map_err(|_| "apphost: vmo fill failed")?;
-            }
-        }
+    if !(app.is_some() && first_render_ok) {
+        // FAIL-CLOSED: no program, no window. This used to present a solid
+        // teal 320×240 probe fill instead — the historical bring-up proof —
+        // which by now reads as a real app window titled "App" that the user
+        // never launched. The failure stays LOUD in the log (marker below +
+        // the payload-path FAIL markers above); the surface stays unclaimed
+        // so windowd shows nothing, and the process exits for execd to reap.
+        raw_marker("APPHOST: FAIL dsl mount (no window, fail-closed)");
+        return Err("apphost: dsl mount failed");
     }
+    raw_marker("APPHOST: dsl frame rendered");
     raw_marker("apphost: vmo filled");
 
     // 5. SURFACE_CREATE — a CLONE of the VMO cap moves with the message

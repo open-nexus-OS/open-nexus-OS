@@ -270,18 +270,17 @@ impl ShellWindow {
         self.drag = None;
     }
 
-    /// Continue an in-progress drag, clamping the window to the display. Returns
-    /// the previous damage rect (to repaint the vacated area) when it moved.
+    /// Continue an in-progress drag, clamped to the status-bar drag envelope
+    /// (`DragBounds`: the grab strip stays between the bars, the body is free).
+    /// Returns the previous damage rect when it moved.
+    #[rustfmt::skip]
     pub(crate) fn drag_to(
-        &mut self,
-        cx: i32,
-        cy: i32,
-        mode_w: u32,
-        mode_h: u32,
+        &mut self, cx: i32, cy: i32, mode_w: u32, mode_h: u32,
+        bounds: nexus_widget_window::DragBounds,
     ) -> Option<DamageRect> {
         let (gx, gy) = self.drag?;
         let old = self.damage_rect(mode_w, mode_h);
-        let (nx, ny) = self.frame().clamp_pos(cx - gx, cy - gy, mode_w, mode_h);
+        let (nx, ny) = self.frame().clamp_pos(cx - gx, cy - gy, mode_w, bounds);
         if nx == self.x && ny == self.y {
             return None;
         }

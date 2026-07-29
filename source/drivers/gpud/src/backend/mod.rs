@@ -34,6 +34,7 @@ use crate::markers::{
 use crate::protocol;
 
 mod attach;
+mod blur_cache;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod bootstrap;
 mod cursor;
@@ -100,11 +101,10 @@ pub struct VirtioGpuBackend {
     next_resource_id: u32,
     probed: bool,
     /// The scanout's VISIBLE mode, resolved once at probe from the device's
-    /// `GET_DISPLAY_INFO` (QEMU: `xres=`/`yres=`), falling back to 1280×800.
-    /// The RESOURCE layout (plane rows, strides, atlas budget) stays at the
-    /// fixed maximum — this is the visible sub-rect the compositor targets.
-    /// (Read by the os-lite service/present paths and the virgl scanout; the
-    /// host slice only constructs the backend, hence the scoped allow.)
+    /// `GET_DISPLAY_INFO` (QEMU `xres=`/`yres=`; fallback 1280×800). RESOURCE
+    /// layout (plane rows, strides, atlas budget) stays at the fixed maximum —
+    /// this is the visible sub-rect the compositor targets. (Read by os-lite
+    /// service/present + virgl scanout; host only constructs → scoped allow.)
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub(crate) display_w: u32,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -118,27 +118,23 @@ pub struct VirtioGpuBackend {
     pub(crate) virgl_ctx_id: u32,
     resources: alloc::vec::Vec<ResourceRecord>,
     pub(crate) scanout_resource: Option<ResourceId>,
-    /// Fragment uniform storage for SetFragmentBytes commands.
-    /// Phase 6c: stores shader parameters (animation state) pushed by windowd.
+    /// Fragment uniforms (SetFragmentBytes): windowd-pushed shader params.
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     fragment_data: [u8; 64],
-    /// Software cursor sprite: the real Mocu SVG cursor (premultiplied BGRA),
-    /// uploaded once by windowd. BlendCursor composites this onto the display
-    /// plane each frame. Empty until uploaded → procedural arrow fallback.
+    /// Software cursor sprite (premultiplied BGRA), uploaded once by windowd;
+    /// BlendCursor composites it per frame. Empty → procedural arrow fallback.
     pub(crate) cursor_sprite: alloc::vec::Vec<u8>,
     pub(crate) cursor_sprite_w: u32,
     pub(crate) cursor_sprite_h: u32,
-    /// Cursor shape cache (OP_UPLOAD_CURSOR_SHAPE): pre-uploaded sprites so a
-    /// pointer shape change is a 2-byte OP_SELECT_CURSOR_SHAPE instead of a
-    /// blocking 4KB re-upload per window-edge crossing. Slot = shape id;
-    /// entry = (premultiplied BGRA, w, h, hot_x, hot_y).
+    /// Cursor shape cache (OP_UPLOAD_CURSOR_SHAPE): pre-uploaded sprites, so a
+    /// shape change is a 2-byte OP_SELECT_CURSOR_SHAPE instead of a blocking
+    /// 4KB re-upload. Slot = shape id; entry = (BGRA, w, h, hot_x, hot_y).
     pub(crate) cursor_shape_cache:
         [Option<CursorShapeEntry>; nexus_display_proto::CURSOR_SHAPE_SLOTS],
-    /// Real icon sprite (premultiplied BGRA), rendered by windowd from an SVG via
-    /// the nexus-svg HiDPI pipeline and uploaded once. Composited as a GPU sprite
-    /// layer at (`icon_dst_x`,`icon_dst_y`) in the virgl buildup — the production
-    /// "real icon on the GPU compositor" path, reusing the cursor's layer plumbing.
-    /// Empty until uploaded.
+    /// Real icon sprite (premultiplied BGRA), windowd-rendered from SVG and
+    /// uploaded once; composited as a GPU sprite layer at
+    /// (`icon_dst_x`,`icon_dst_y`) in the virgl buildup (the cursor's layer
+    /// plumbing reused). Empty until uploaded.
     pub(crate) icon_sprite: alloc::vec::Vec<u8>,
     pub(crate) icon_sprite_w: u32,
     pub(crate) icon_sprite_h: u32,
@@ -148,10 +144,9 @@ pub struct VirtioGpuBackend {
     /// the sprite (rendered at 2× → supersampled, GPU-downscaled when composited).
     pub(crate) icon_dst_w: u32,
     pub(crate) icon_dst_h: u32,
-    /// Hardware cursor resource (64×64, cursor queue). `None` until a
-    /// successful `upload_cursor` arms the overlay. Unused on display backends
-    /// where the overlay is not composited into the captured/shown scanout —
-    /// there the save-under software cursor below is the live path.
+    /// Hardware cursor resource (64×64, cursor queue). `None` until
+    /// `upload_cursor` arms the overlay. Unused on backends whose overlay is
+    /// not in the captured scanout — there the software cursor is live.
     cursor_resource_id: Option<ResourceId>,
     pub(crate) cursor_hot: (u32, u32),
     /// Save-under software cursor (composited into the scanout, so it is visible
@@ -240,6 +235,9 @@ pub struct VirtioGpuBackend {
     /// `backdrop_tex_init`, read by `blur_rt_backdrop` to pick its blur source.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) backdrop_tex_ready: bool,
+    /// GL glass-blur cache (key/packing state + texture readiness).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) blur_cache: blur_cache::BlurCacheState,
     /// One-shot marker: first destination-so-far backdrop snapshot+blur submitted.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) rt_backdrop_marker_done: bool,
@@ -542,6 +540,8 @@ impl VirtioGpuBackend {
             virgl_atlas_ready: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             backdrop_tex_ready: false,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            blur_cache: blur_cache::BlurCacheState::new(),
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             rt_backdrop_marker_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

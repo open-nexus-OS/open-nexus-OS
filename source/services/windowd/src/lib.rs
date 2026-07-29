@@ -58,6 +58,10 @@ mod app_surface;
 mod assets;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod atlas;
+// Scene-rect → packed-band mapping for glass regions on scrollable windows:
+// pure geometry, host-TESTED, consumed by the OS-only scene encoder.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod band_map;
 mod bitmap_font;
 mod buffer;
 mod cli;

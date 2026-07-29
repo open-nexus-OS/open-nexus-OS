@@ -11,8 +11,8 @@ use super::*;
 
 impl DslApp {
     /// Validates + mounts the program bytes and lays them out at
-    /// surface size. `None` on any failure (fail-closed; caller shows
-    /// the probe fill).
+    /// surface size. `None` on any failure (fail-closed; the caller
+    /// aborts without creating a window).
     pub(super) fn mount(
         nxir: &'static [u8],
         w: u32,

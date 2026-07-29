@@ -99,10 +99,9 @@ pub(crate) const H_FS_BLUR_ROUND: u32 = 18;
 /// `H_BLEND_PREMUL` 0x62 belong to the compositor's lazy `composite_init`,
 /// which has not necessarily run when the frame's first glass blur draws).
 pub(crate) const H_BLEND_BLUR: u32 = 0x63;
-/// NON-ALIASED display texture: a 1280×800 GL texture with its OWN backing (not
-/// a VMO alias). The present copies windowd's composed frame into its backing,
-/// uploads it, and blits it to the scanout RT. Unlike the 0xF8 VMO-alias, QEMU
-/// presents a draw that samples this to the display (the black-screen fix).
+/// NON-ALIASED display texture (own backing, not a VMO alias): the present
+/// copies windowd's frame in, uploads, blits to the scanout RT. Unlike the
+/// 0xF8 VMO-alias, QEMU presents a draw sampling this (the black-screen fix).
 pub(crate) const H_DISPLAY_TEX: u32 = 0xE1;
 /// Sampler view of H_DISPLAY_TEX.
 pub(crate) const H_SV_DISPLAY_TEX: u32 = 0x44;
@@ -622,6 +621,8 @@ impl VirtioGpuBackend {
             .is_ok()
         {
             self.wallpaper_from_vmo_uploaded = true;
+            // New RT base: every cached glass backdrop is stale.
+            self.blur_cache.wallpaper_epoch = self.blur_cache.wallpaper_epoch.wrapping_add(1);
             let _ = nexus_abi::trace_line("gpud: wallpaper uploaded from vmo (jpeg)");
         }
     }
@@ -880,9 +881,8 @@ impl VirtioGpuBackend {
         // cursor upload triggers must be able to reveal in the SAME pass (sampling
         // first left the gate one tick behind, ~234 ms observed).
         let _ = self.cursor_tex_init();
-        // One-shot: create the backdrop scratch texture for the destination-so-far
-        // glass blur (also outside the batch — create/attach ctrl commands).
-        let _ = self.backdrop_tex_init();
+        // One-shot: dst-so-far blur scratch + glass blur-cache textures.
+        let _ = self.backdrop_tex_init().and_then(|()| self.blur_cache_tex_init());
 
         // Atomic boot reveal: keep presenting ONLY the logo splash (the clear + seeded
         // wallpaper-texture blit below) until the whole desktop can appear at once —
