@@ -123,6 +123,15 @@ pub enum ColorToken {
     ToggleOffBg,
     /// The notification dot (handoff `--glass-notif-dot`, always red).
     NotifDot,
+    /// Recessed track of a range slider (handoff `--track`) — dark in BOTH
+    /// themes, because the track reads as a groove cut into the surface.
+    SliderTrack,
+    /// Filled portion of a range slider (handoff `--fill`) — bright in both,
+    /// the inverse polarity of its own track.
+    SliderFill,
+    /// The glyph embedded IN a slider's fill (handoff `.slider .embed`). It
+    /// sits on `SliderFill`, so it is dark in both themes like the track.
+    SliderIcon,
 }
 
 /// Semantic length roles (radii, spacing, hairline widths).
@@ -506,10 +515,12 @@ mod tests {
 
     #[test]
     fn generated_glass_materials_from_toml() {
-        // base glassPanel: tint #ffffff@.50, blur 40, border #ffffff@.70, sat 140.
+        // base glassPanel: tint #ffffff@.50, blur 72, border #ffffff@.70, sat 140.
+        // The blur is design_handoff_panels' `blur(72px)` — panel is the
+        // deepest glass level, shared by the drop-downs, dock and taskbar.
         let p = BaseTokens.glass(MaterialToken::Panel);
         assert_eq!(p.tint, Rgba8::new(255, 255, 255, 128));
-        assert_eq!(p.blur_radius, 40);
+        assert_eq!(p.blur_radius, 72);
         assert_eq!(p.border, Some(Rgba8::new(255, 255, 255, 179)));
         assert_eq!(p.saturation, 140);
         // RFC-0082: dark glass is a DARK tint (#121214@.40), not a white wash —
@@ -518,7 +529,7 @@ mod tests {
         // The edge highlight is the `inset 0 1px 0` line, authored strong.
         assert_eq!(p.edge, Rgba8::new(255, 255, 255, 153)); // #ffffff@.60
                                                             // light inherits base materials via the qualifier chain.
-        assert_eq!(LightTokens.glass(MaterialToken::Panel).blur_radius, 40);
+        assert_eq!(LightTokens.glass(MaterialToken::Panel).blur_radius, 72);
         // high contrast zeroes blur (a11y).
         assert_eq!(HighContrastTokens.glass(MaterialToken::Overlay).blur_radius, 0);
     }

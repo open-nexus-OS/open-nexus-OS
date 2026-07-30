@@ -1,0 +1,18 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The label ABOVE a card (design_handoff_panels `.group-label`): "Verfügbare
+// Netzwerke", "Ausgabe", "Energieprofil", "Anstehend". Dimmed, inset 4px from
+// the card's edge so it reads as a caption for the group rather than a row
+// inside it.
+
+Component GroupLabel {
+    props: {
+        label: Str,
+    }
+    Stack {
+        Text($props.label).textSize(xs).leading(tight).fg(onGlassMuted)
+    }
+    .paddingX(1)
+    .paddingBottom(1)
+}

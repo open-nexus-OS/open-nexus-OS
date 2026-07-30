@@ -1,0 +1,50 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The glass switch (design_handoff_panels `.gtoggle`): a 44×26 capsule with a
+// 20px knob travelling 18px. Used for the WiFi panel's master switch — the one
+// place the handoff wants a SWITCH rather than a toggle tile, because it gates
+// the whole panel below it instead of naming a single setting.
+//
+// The knob is positioned by a `Spacer` on the side it travels from, not by a
+// transform: the DSL has no translate modifier, and a flex swap lands the knob
+// in exactly the two places the handoff draws it.
+
+Component GlassToggle {
+    props: {
+        checked: Bool,
+    }
+    if $props.checked {
+        Stack {
+            Spacer
+            Circle { size: 20 }
+                .bg(sliderFill)
+                .shadow(sm)
+        }
+        .direction(row)
+        .align(center)
+        .width(44)
+        .height(26)
+        .paddingX(1)
+        .rounded(13)
+        .bg(toggleOnBg)
+        .hitSlop(2)
+    } else {
+        Stack {
+            Circle { size: 20 }
+                .bg(sliderFill)
+                .shadow(sm)
+            Spacer
+        }
+        .direction(row)
+        .align(center)
+        .width(44)
+        .height(26)
+        .paddingX(1)
+        .rounded(13)
+        .bg(toggleOffBg)
+        .border(hairline)
+        .borderColor(divider)
+        .hitSlop(2)
+    }
+}

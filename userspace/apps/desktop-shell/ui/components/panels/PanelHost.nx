@@ -1,0 +1,81 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The drop-down layer (design_handoff_panels §2, "Öffnungsregeln"): an
+// invisible full-bleed backdrop that closes on an outside tap, with the open
+// panel anchored under the bar — left-anchored panels at the leading edge,
+// right-anchored ones at the trailing edge, both 12px in.
+//
+// ONE component for both `ShellPage`s. It used to be a four-level nested
+// `if/else` written out twice; two copies of a six-way selection is how a
+// panel ends up reachable in one mode and not the other.
+//
+// Anchoring is flex, not coordinates: `.overlay()` has no anchor API, so the
+// leading `Stack{}.height(8)` IS the handoff's `top:44` (36px bar + 8) and the
+// `Spacer` between the two groups IS `left:12` / `right:12`. Declared inside
+// the middle content region on purpose, so the bar keeps painting ABOVE the
+// panels and pill-to-pill switching works.
+//
+// Each panel body consumes its own taps with `PanelNoop` — without that, a tap
+// on a panel reaches the backdrop behind it and closes the thing you are
+// trying to use.
+//
+// WLAN, Ton and Batterie are guarded by `device.profile == desktop`: in touch
+// modes those panels do not exist, and a `panel` value that could still name
+// one would leave the shell in a state with no way back out.
+
+Component PanelHost {
+    if $state.panel == "" {
+        Stack { }
+    } else {
+        Stack {
+            Stack { }
+                .height(8)
+            Stack {
+                if $state.panel == "notifications" {
+                    Stack {
+                        NotificationsPanel { }
+                    }
+                    on Tap -> dispatch(PanelNoop)
+                } else if $state.panel == "calendar" {
+                    Stack {
+                        CalendarPanel { }
+                    }
+                    on Tap -> dispatch(PanelNoop)
+                } else {
+                    Stack { }
+                }
+                Spacer
+                if $state.panel == "control" {
+                    Stack {
+                        ControlCenterPanel { }
+                    }
+                    on Tap -> dispatch(PanelNoop)
+                } else if $state.panel == "wifi" && device.profile == desktop {
+                    Stack {
+                        WifiPanel { }
+                    }
+                    on Tap -> dispatch(PanelNoop)
+                } else if $state.panel == "sound" && device.profile == desktop {
+                    Stack {
+                        SoundPanel { }
+                    }
+                    on Tap -> dispatch(PanelNoop)
+                } else if $state.panel == "battery" && device.profile == desktop {
+                    Stack {
+                        BatteryPanel { }
+                    }
+                    on Tap -> dispatch(PanelNoop)
+                } else {
+                    Stack { }
+                }
+            }
+            .direction(row)
+            .align(start)
+            .paddingX(3)
+            .grow(1)
+        }
+        .overlay()
+        on Tap -> dispatch(SetPanel(""))
+    }
+}

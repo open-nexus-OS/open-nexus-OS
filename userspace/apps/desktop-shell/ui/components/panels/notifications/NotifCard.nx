@@ -1,0 +1,70 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One notification card (design_handoff_panels `.ncard`): a 38px app icon and
+// a text column of app name · relative time · title · body.
+//
+// `badge` non-empty pins a counter to the icon's top-right through a contained
+// `.overlay()` — the layer fills the 38px icon box and ordinary flex (a row
+// with a leading `Spacer`, then a trailing `Spacer` below it) puts the badge
+// in its corner. That is the only anchoring this DSL has; the handoff's 6px
+// overhang past the icon is not reachable, so the badge sits just inside.
+//
+// The body is one line with an ellipsis in the handoff. There is no ellipsis
+// in this platform (`.truncate` is a declared no-op), so a long body wraps.
+// Kept as a known deviation rather than hidden by shortening the demo text.
+//
+// Times are RELATIVE words, never clock times — the handoff is explicit, and a
+// wall-clock stamp on a card the shell cannot refresh would age visibly.
+
+Component NotifCard {
+    props: {
+        appId: Str,
+        app: Str,
+        time: Str,
+        title: Str,
+        body: Str,
+        badge: Str,
+    }
+    Stack {
+        if $props.badge != "" {
+            Stack {
+                Image { source: $props.appId, size: 38 }
+                Stack {
+                    Stack {
+                        Spacer
+                        CountBadge { count: $props.badge }
+                    }
+                    .direction(row)
+                    Spacer
+                }
+                .overlay()
+            }
+            .width(38)
+            .height(38)
+        } else {
+            Image { source: $props.appId, size: 38 }
+        }
+        Stack {
+            Stack {
+                Text($props.app).textSize(xs).fontWeight(semibold).leading(tight).fg(onGlass)
+                Spacer
+                Text($props.time).textSize(xs).leading(tight).fg(onGlassMuted)
+            }
+            .direction(row)
+            .align(center)
+            Text($props.title).textSize(sm).fontWeight(semibold).leading(tight).fg(onGlass)
+            Text($props.body).textSize(xs).leading(tight).fg(onGlassMuted)
+        }
+        .gap(0)
+        .grow(1)
+        .minWidth(0)
+        .direction(column)
+    }
+    .direction(row)
+    .align(start)
+    .gap(3)
+    .padding(3)
+    .rounded(18)
+    .material(card)
+}

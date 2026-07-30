@@ -1,0 +1,29 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Volume card (design_handoff_panels §3, row 4). Structurally the brightness
+// card with a different pair — and the Sound panel repeats it verbatim, which
+// is the point of it being a component: one volume control, one appearance in
+// three places.
+//
+// Unlike brightness, this slider DOES move: mute drives `volume` to 0 and
+// un-mute back to 50, so the fill answers the button beside it.
+
+Component CcSoundCard {
+    Stack {
+        SectionRow { icon: "speaker.wave", label: @t("control.volume") }
+        Stack {
+            Slider { value: $state.volume, icon: "speaker.wave.1" }
+                .label(@t("control.volume"))
+            MuteButton { }
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+    }
+    .gap(2)
+    .paddingX(4)
+    .paddingY(3)
+    .rounded(20)
+    .material(card)
+}

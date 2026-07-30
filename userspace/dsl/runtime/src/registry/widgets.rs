@@ -166,6 +166,20 @@ pub(super) fn build_widget_inner(
                 _ => 0,
             };
             let mut slider = Slider::new().value(value);
+            // The glyph embedded in the fill (`icon: "sun.max"`). Resolved
+            // HERE, not in the widget crate: symbol names are a DSL-layer
+            // vocabulary, and keeping it that way spares the slider a
+            // dependency on the whole icon set. `sliderIcon` is dark in every
+            // theme because the fill it sits on is bright in every theme.
+            let icon = prop("icon").map(value_text).unwrap_or_default();
+            if let Some(lucide) = nexus_widget_icon::lucide_symbol_named(&icon) {
+                slider = slider.leading(
+                    nexus_widget_icon::Icon::lucide(lucide)
+                        .size(13)
+                        .color(ColorToken::SliderIcon)
+                        .build(tokens),
+                );
+            }
             if mods.disabled {
                 slider = slider.state(nexus_style::InteractionState::Disabled);
             }
@@ -194,6 +208,13 @@ pub(super) fn build_widget_inner(
             }
             if let Some(Value::Int(h)) = prop("height") {
                 bar = bar.height(*h as i32);
+            }
+            // `.fg()` picks the fill role, the way it already does for
+            // `Spinner` above. Without it a battery meter is progress-blue:
+            // the widget's default is the handoff's `Info`, and a page had no
+            // way to say "this bar means charge, not progress".
+            if let Some(fg) = mods.fg {
+                bar = bar.color(fg);
             }
             bar.build(tokens)
         }

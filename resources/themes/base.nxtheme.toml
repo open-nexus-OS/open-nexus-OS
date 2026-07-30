@@ -113,6 +113,13 @@ glassEdge = "#ffffff54"
 shadow = "#00000060"
 # modal/sheet backdrop dim (handoff --glass-scrim rgba(0,0,0,.28))
 scrim = "#00000047"
+# Range slider (design_handoff_panels `--track` / `--fill`). The track is a
+# groove — dark in BOTH themes, only shallower here over a light surface — and
+# the fill is the bright cap riding in it, white in both. That inverted pair is
+# why these are their own roles instead of borrowed neutrals.
+sliderTrack = "#0000001f"
+sliderFill = "#ffffff"
+sliderIcon = "#00000073"
 
 # ── Length scales (theme-invariant; authored once here) ──────────────────────
 # Semantic small/medium/large map to LengthToken::{Radius,Spacing}{Small,Medium,
@@ -185,9 +192,13 @@ type = "opaque"
 # launcher, and now the lock surface). `edgeHighlightAlpha` is the `inset 0 1px
 # 0` TOP-SHINE line, not a full-height wash: the painter draws it as one pixel
 # row and caps the soft gradient it also feeds (see `Mods::visual`).
+# design_handoff_panels: panels are blur(72px) saturate(180%) — deeper than
+# the 40 this level carried, so a drop-down reads as frosted rather than
+# merely tinted. `.material(panel)` is shared with the dock and taskbar,
+# which is the point: one panel material, one depth.
 [material.glassPanel]
 type = "glass"
-blurRadiusDp = 40
+blurRadiusDp = 72
 downsampleFactor = 4
 tintColor = "#ffffff"
 tintAlpha = 0.50
@@ -386,3 +397,17 @@ path = "resources/icons/lucide/icons"
 "key" = "key-round"
 "cpu" = "cpu"
 "plus.magnifyingglass" = "zoom-in"
+# Status panels + topbar (design_handoff_panels). The Control Center, WiFi,
+# Sound and Battery drop-downs need the muted/level variants of glyphs already
+# here, the three energy-profile marks, and the topbar's mail/chat pair.
+# `.1` follows the same "weaker variant" suffix idea as the `.slash` block.
+"speaker.slash" = "volume-x"
+"speaker.wave.1" = "volume-1"
+"battery.25" = "battery-low"
+"leaf" = "leaf"
+"scale" = "scale"
+"bolt" = "zap"
+"cable" = "cable"
+"mail" = "mail"
+"message.square" = "message-square"
+"slider.horizontal.3" = "sliders-horizontal"

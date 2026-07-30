@@ -1,0 +1,19 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The battery meter (design_handoff_panels `.meter`): a 6px groove with a
+// green fill, in the Control Center's fixed 80px slot and again full-width in
+// the Battery panel. The caller sizes the groove; the meter fills its share.
+//
+// It is a thin dress over `ProgressBar` rather than two flex boxes, because a
+// modifier argument cannot be an expression — `.grow($props.percent)` reads as
+// grow 0, silently. A widget PROP is the only place a value flows into layout,
+// which is what makes `value:` the right seam for anything data-driven.
+
+Component Meter {
+    props: {
+        percent: Int,
+    }
+    ProgressBar { value: $props.percent, height: 6 }
+        .fg(success)
+}

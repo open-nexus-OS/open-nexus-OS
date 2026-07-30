@@ -1,0 +1,38 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Which month the calendar panel is showing.
+//
+// DEMO DATA, and the reason is a platform limit worth naming: the DSL has no
+// date arithmetic and a reducer cannot build a list, so a month grid cannot be
+// COMPUTED — it has to be written out. `CalMonthGrid` therefore carries three
+// authored months and this store selects between them (0 = previous, 1 = the
+// month the demo data sits in, 2 = next). "Heute" returns to 1.
+//
+// Clamping at the ends rather than wrapping is deliberate: three months is the
+// honest range, and a chevron that silently loops back to June would claim a
+// calendar that is not there.
+
+Store CalStore {
+    calMonth: Int = 1,
+}
+
+Event CalEvent {
+    CalPrev,
+    CalNext,
+    CalToday,
+}
+
+reduce CalEvent {
+    CalPrev => {
+        if state.calMonth > 0 {
+            state.calMonth = state.calMonth - 1;
+        }
+    },
+    CalNext => {
+        if state.calMonth < 2 {
+            state.calMonth = state.calMonth + 1;
+        }
+    },
+    CalToday => state.calMonth = 1,
+}

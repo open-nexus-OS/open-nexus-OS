@@ -125,7 +125,13 @@ fn more_controls() {
     let t = BaseTokens;
     check_golden("searchbar", &SearchBar::new().leading(swatch(16)).build(&t)).unwrap();
     check_golden("slider_60", &Slider::new().value(60).build(&t)).unwrap();
+    // Value 0 is the interesting one: the fill is the HANDLE, so it must still
+    // be a visible cap rather than nothing at all.
     check_golden("slider_0", &Slider::new().value(0).build(&t)).unwrap();
+    // The embedded glyph rides inside the fill at a fixed inset — the fill
+    // sweeps over it, so at a low value it is the fill that must still be
+    // wide enough to hold it.
+    check_golden("slider_icon", &Slider::new().value(35).leading(swatch(13)).build(&t)).unwrap();
     check_golden(
         "stepper",
         &Stepper::new().dec(swatch(12)).value(swatch(20)).inc(swatch(12)).build(&t),

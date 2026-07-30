@@ -1,0 +1,79 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The notifications pill (design_handoff_panels §2). Desktop carries the full
+// row — bell with its red dot, then a mail glyph with its count, a chat glyph
+// and a calendar glyph — because a desktop bar has the width to show WHAT is
+// waiting. Touch modes show the bell alone.
+//
+// The red dot sits on the bell through a contained `.overlay()`: the layer
+// fills the bell's box and flex pushes the dot to its top-right corner, which
+// is the only anchoring this DSL offers.
+
+Component NotifPill {
+    props: {
+        wide: Bool,
+    }
+    if $props.wide {
+        Stack {
+            Stack {
+                Icon { symbol: "bell", size: 13 }
+                    .fg(onGlass)
+                Stack {
+                    Stack {
+                        Spacer
+                        Circle { size: 5 }
+                            .bg(notifDot)
+                    }
+                    .direction(row)
+                    Spacer
+                }
+                .overlay()
+            }
+            .width(13)
+            .height(13)
+            Stack {
+                Icon { symbol: "mail", size: 12 }
+                    .fg(onGlass)
+                Text(@t("notif.mailCount")).textSize(xs).fontWeight(bold).fg(onGlass)
+            }
+            .direction(row)
+            .align(center)
+            Icon { symbol: "message.square", size: 12 }
+                .fg(onGlass)
+            Icon { symbol: "calendar", size: 12 }
+                .fg(onGlass)
+        }
+        .direction(row)
+        .align(center)
+        .gap(1)
+        .paddingX(2)
+        .height(28)
+        .rounded(full)
+    } else {
+        Stack {
+            Stack {
+                Icon { symbol: "bell", size: 13 }
+                    .fg(onGlass)
+                Stack {
+                    Stack {
+                        Spacer
+                        Circle { size: 5 }
+                            .bg(notifDot)
+                    }
+                    .direction(row)
+                    Spacer
+                }
+                .overlay()
+            }
+            .width(13)
+            .height(13)
+        }
+        .direction(row)
+        .align(center)
+        .justify(center)
+        .paddingX(2)
+        .height(28)
+        .rounded(full)
+    }
+}

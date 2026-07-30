@@ -1,0 +1,22 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The notification centre's only interaction: "Alle löschen".
+//
+// DEMO DATA — there is no notification service feeding the shell yet, so the
+// cards are authored markup and this is a single flag that swaps them for the
+// empty state. It is here rather than as a list because a reducer cannot build
+// or shrink a list; when `svc.notif` lands, the flag becomes a real collection
+// and the panel's `if` becomes a `List`.
+
+Store NotifStore {
+    notifCleared: Bool = false,
+}
+
+Event NotifEvent {
+    ClearAll,
+}
+
+reduce NotifEvent {
+    ClearAll => state.notifCleared = true,
+}

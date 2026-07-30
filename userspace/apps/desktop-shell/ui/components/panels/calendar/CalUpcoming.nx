@@ -1,0 +1,83 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// "Anstehend" (design_handoff_panels §5): at most THREE coming appointments,
+// each a coloured spine · title · relative label + time.
+//
+// Fixed at three items and independent of `calMonth` — the handoff's list is
+// "what is next", not "what is in the month you are looking at", so paging the
+// grid must not rewrite it.
+//
+// Relative labels ("Heute", "Morgen", a weekday) are authored strings. The DSL
+// cannot compute a day difference, and a label that says "Heute" next to a
+// date the shell cannot check is demo data either way — so it is stated as
+// such rather than computed from a constant and made to look derived.
+
+Component CalUpcoming {
+    Stack {
+        Stack {
+            Stack { }
+                .width(3)
+                .height(32)
+                .rounded(2)
+                .bgGradient("#f87171", "#f87171")
+            Stack {
+                Text(@t("cal.ev1")).textSize(sm).fontWeight(semibold).leading(tight).fg(onGlass)
+                Text(@t("cal.ev1When")).textSize(xs).leading(tight).fg(onGlassMuted)
+            }
+            .gap(0)
+            .grow(1)
+            .minWidth(0)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(2)
+        .paddingY(2)
+        .rounded(14)
+        .material(card)
+        Stack {
+            Stack { }
+                .width(3)
+                .height(32)
+                .rounded(2)
+                .bgGradient("#60a5fa", "#60a5fa")
+            Stack {
+                Text(@t("cal.ev2")).textSize(sm).fontWeight(semibold).leading(tight).fg(onGlass)
+                Text(@t("cal.ev2When")).textSize(xs).leading(tight).fg(onGlassMuted)
+            }
+            .gap(0)
+            .grow(1)
+            .minWidth(0)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(2)
+        .paddingY(2)
+        .rounded(14)
+        .material(card)
+        Stack {
+            Stack { }
+                .width(3)
+                .height(32)
+                .rounded(2)
+                .bgGradient("#a78bfa", "#a78bfa")
+            Stack {
+                Text(@t("cal.ev3")).textSize(sm).fontWeight(semibold).leading(tight).fg(onGlass)
+                Text(@t("cal.ev3When")).textSize(xs).leading(tight).fg(onGlassMuted)
+            }
+            .gap(0)
+            .grow(1)
+            .minWidth(0)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(2)
+        .paddingY(2)
+        .rounded(14)
+        .material(card)
+    }
+    .gap(1)
+}

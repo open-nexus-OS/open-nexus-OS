@@ -71,6 +71,9 @@ wallpaperVignette = "#00000080"
 textShadow = "#00000066"
 textShadowStrong = "#000000b3"
 toggleOffBg = "#ffffff24"
+# The groove cuts deeper over a dark surface (handoff dark --track
+# rgba(0,0,0,.30)); the fill stays white and inherits from base.
+sliderTrack = "#0000004d"
 glassTint = "#171717"
 glassEdge = "#ffffff54"
 
@@ -81,9 +84,13 @@ type = "opaque"
 # RFC-0082: the login handoff's dark glass is a DARK tint (rgba(18,18,20,.4)),
 # not the white wash these levels used to carry — over a photograph a white
 # wash greys the image out instead of sinking into it.
+# design_handoff_panels: panels are blur(72px) saturate(180%) — deeper than
+# the 40 this level carried, so a drop-down reads as frosted rather than
+# merely tinted. `.material(panel)` is shared with the dock and taskbar,
+# which is the point: one panel material, one depth.
 [material.glassPanel]
 type = "glass"
-blurRadiusDp = 40
+blurRadiusDp = 72
 downsampleFactor = 4
 tintColor = "#121214"
 tintAlpha = 0.40

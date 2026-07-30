@@ -1,0 +1,22 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The label row INSIDE a card (design_handoff_panels `.sec-row`): a 13px glyph
+// plus a semibold caption, sitting above the control it names — "Helligkeit"
+// over the brightness slider, "Ton" over the volume slider, "Lautstärke" in
+// the Sound panel.
+
+Component SectionRow {
+    props: {
+        icon: Str,
+        label: Str,
+    }
+    Stack {
+        Icon { symbol: $props.icon, size: 13 }
+            .fg(onGlassMuted)
+        Text($props.label).textSize(xs).fontWeight(semibold).leading(tight).fg(onGlassMuted)
+    }
+    .direction(row)
+    .align(center)
+    .gap(1)
+}

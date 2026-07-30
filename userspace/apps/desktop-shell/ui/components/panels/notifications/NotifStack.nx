@@ -1,0 +1,33 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The stacked mail card (design_handoff_panels §4): a badged front card with a
+// second card peeking out below it, inset on each side, to say "several"
+// without listing them.
+//
+// The handoff overlaps the two by translating the back card UP under the
+// front one. There is no transform here, so the peek is a real 7px sliver
+// below — the same reading, achieved by stacking. `.overlay()` would be the
+// wrong tool: it lifts a child out of flow and paints it LAST, i.e. in front
+// of the card it is supposed to sit behind.
+
+Component NotifStack {
+    Stack {
+        NotifCard {
+            appId: "chat",
+            app: @t("notif.mail"),
+            time: @t("notif.t5min"),
+            title: @t("notif.mailTitle"),
+            body: @t("notif.mailBody"),
+            badge: @t("notif.mailCount"),
+        }
+        Stack {
+            Stack { }
+                .height(7)
+                .rounded(18)
+                .material(card)
+        }
+        .paddingX(2)
+    }
+    .gap(0)
+}

@@ -33,6 +33,10 @@ pub enum FontSize {
     DisplaySemi,
     /// 120 px Light — hero numerals (lock-screen clock). Digits only.
     Hero,
+    /// 11 px Regular — the `xs` step: sub-labels, group labels, captions.
+    Caption,
+    /// 11 px SemiBold — emphasized captions (tile labels, pill counters).
+    CaptionSemi,
 }
 
 /// Weight class the ladder can serve. Deliberately coarser than CSS: these
@@ -46,7 +50,7 @@ pub enum Weight {
 
 /// Every baked face as `(size, px, weight)` — the ladder's SSOT on the read
 /// side, kept in lock-step with `FACES` in `build.rs`.
-const LADDER: [(FontSize, i32, Weight); 8] = [
+const LADDER: [(FontSize, i32, Weight); 10] = [
     (FontSize::Small, 13, Weight::Regular),
     (FontSize::Body, 16, Weight::Regular),
     (FontSize::SmallSemi, 13, Weight::SemiBold),
@@ -55,16 +59,24 @@ const LADDER: [(FontSize, i32, Weight); 8] = [
     (FontSize::TitleSemi, 21, Weight::SemiBold),
     (FontSize::DisplaySemi, 36, Weight::SemiBold),
     (FontSize::Hero, 120, Weight::Light),
+    (FontSize::Caption, 11, Weight::Regular),
+    (FontSize::CaptionSemi, 11, Weight::SemiBold),
 ];
 
 impl FontSize {
     /// The baked face for a requested size and weight (RFC-0082, normative).
     ///
     /// **Size wins over weight.** First the nearest baked px is chosen (ties
-    /// round down); only among the faces at that px does the requested weight
+    /// round UP); only among the faces at that px does the requested weight
     /// get a say, falling back to Regular and then to whatever is there. The
     /// other order would answer `nearest(14, Light)` with the 120 px hero face
     /// — a size miss is far more visible than a weight miss.
+    ///
+    /// Ties round up because a tie means the request sits exactly between two
+    /// rungs, and the larger one is the legible choice. It is also what keeps
+    /// the ladder extensible: the `sm` step (12) landed on the new 11/13 tie
+    /// the moment the caption rung was baked, and rounding down would have
+    /// silently shrunk every 12 px label in every shipped app.
     #[must_use]
     pub fn nearest(px: i32, weight: Weight) -> FontSize {
         let mut best_px = LADDER[0].1;
@@ -72,7 +84,7 @@ impl FontSize {
         while i < LADDER.len() {
             let cand = LADDER[i].1;
             let (d_new, d_old) = ((cand - px).abs(), (best_px - px).abs());
-            if d_new < d_old || (d_new == d_old && cand < best_px) {
+            if d_new < d_old || (d_new == d_old && cand > best_px) {
                 best_px = cand;
             }
             i += 1;
@@ -233,6 +245,34 @@ const DISPLAY_SEMI: Face = Face {
     fallback: Some(&BODY),
 };
 
+const CAPTION: Face = Face {
+    id: 8,
+    cov_off: baked::FONT11_COV_OFFSET,
+    cov_len: baked::FONT11_COV_LEN,
+    glyphs: baked::FONT11_GLYPHS,
+    extras: baked::FONT11_EXTRAS,
+    wide: baked::FONT11_WIDE,
+    kern: baked::FONT11_KERN,
+    line_h: baked::FONT11_LINE_H,
+    avg_advance: baked::FONT11_AVG_ADVANCE,
+    ascent: baked::FONT11_ASCENT,
+    fallback: Some(&BODY),
+};
+
+const CAPTION_SEMI: Face = Face {
+    id: 9,
+    cov_off: baked::FONT11_SEMI_COV_OFFSET,
+    cov_len: baked::FONT11_SEMI_COV_LEN,
+    glyphs: baked::FONT11_SEMI_GLYPHS,
+    extras: baked::FONT11_SEMI_EXTRAS,
+    wide: baked::FONT11_SEMI_WIDE,
+    kern: baked::FONT11_SEMI_KERN,
+    line_h: baked::FONT11_SEMI_LINE_H,
+    avg_advance: baked::FONT11_SEMI_AVG_ADVANCE,
+    ascent: baked::FONT11_SEMI_ASCENT,
+    fallback: Some(&BODY),
+};
+
 pub(super) const HERO: Face = Face {
     id: 7,
     cov_off: baked::FONT120_LIGHT_COV_OFFSET,
@@ -257,5 +297,7 @@ pub(super) const fn face(size: FontSize) -> &'static Face {
         FontSize::TitleSemi => &TITLE_SEMI,
         FontSize::DisplaySemi => &DISPLAY_SEMI,
         FontSize::Hero => &HERO,
+        FontSize::Caption => &CAPTION,
+        FontSize::CaptionSemi => &CAPTION_SEMI,
     }
 }

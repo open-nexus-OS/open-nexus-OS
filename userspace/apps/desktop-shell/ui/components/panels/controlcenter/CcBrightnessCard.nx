@@ -1,0 +1,30 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Brightness card (design_handoff_panels §3, row 3): the caption row over a
+// slider paired with the Erscheinungsbild button.
+//
+// The slider RENDERS `brightness` but cannot be dragged: the `Change` trigger
+// carries no payload in this DSL, so a drag has no value to deliver. It is a
+// readout until either a backlight service or a value-carrying trigger exists
+// — and drawing it at its real geometry now means neither of those has to
+// touch this file when it lands.
+
+Component CcBrightnessCard {
+    Stack {
+        SectionRow { icon: "desktopcomputer", label: @t("control.brightness") }
+        Stack {
+            Slider { value: $state.brightness, icon: "sun.max" }
+                .label(@t("control.brightness"))
+            AppearanceButton { }
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+    }
+    .gap(2)
+    .paddingX(4)
+    .paddingY(3)
+    .rounded(20)
+    .material(card)
+}

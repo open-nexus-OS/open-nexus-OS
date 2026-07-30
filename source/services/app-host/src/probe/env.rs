@@ -94,6 +94,7 @@ pub(crate) fn device_for(
     w: u32,
     locale: &str,
     keymap: &str,
+    theme: u8,
 ) -> nexus_dsl_runtime::FixtureEnv {
     use nexus_dsl_runtime::FixtureEnv;
     let mut env = match profile {
@@ -107,5 +108,12 @@ pub(crate) fn device_for(
     // region push — `if device.locale/keymap` arms re-select on reemit.
     env.locale = alloc::string::String::from(locale);
     env.keymap = alloc::string::String::from(keymap);
+    // The theme axis, from the SAME packed byte `tokens_for` resolves — a
+    // control that has to name the mode (the appearance toggle) reads the
+    // same truth the colors come from, never a mirrored copy in a store.
+    env.theme = match wire::unpack_theme(theme).0 {
+        wire::THEME_LIGHT => "light",
+        _ => "dark",
+    };
     env
 }

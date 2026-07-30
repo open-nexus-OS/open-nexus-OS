@@ -1,0 +1,24 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Phone mode merges time and bell into ONE pill (design_handoff_panels §2)
+// that opens Mitteilungen — under 640px there is no room for two triggers on
+// the left, and the calendar is reachable from the Control Center instead.
+//
+// The clock therefore stops being a calendar opener in this mode. That is the
+// handoff's call, and it is why this is its own component rather than
+// `ClockPill` with a flag: it opens a different panel.
+
+Component PhoneClockBellPill {
+    Stack {
+        Text($state.clock).textSize(sm).fontWeight(semibold).fg(onGlass)
+        Icon { symbol: "bell", size: 13 }
+            .fg(onGlass)
+    }
+    .direction(row)
+    .align(center)
+    .gap(1)
+    .paddingX(2)
+    .height(28)
+    .rounded(full)
+}

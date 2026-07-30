@@ -1,0 +1,125 @@
+/* open nexus OS — Status Panels (Control Center · Notifications · Calendar · WiFi · Sound · Battery)
+   Every value here is token-driven where a token exists; literal numbers are the
+   geometry contract (see README.md § Geometry). Theme switches on `.dark` on an ancestor. */
+
+/* ── Shared panel material ─────────────────────────────────────────── */
+.p{--text:var(--glass-text-strong);--sub:var(--glass-text-secondary);--label:var(--glass-text-secondary);position:relative;font-family:var(--font-sans,Inter,system-ui,sans-serif);color:var(--text);backdrop-filter:blur(72px) saturate(180%);-webkit-backdrop-filter:blur(72px) saturate(180%);background:var(--glass-panel-bg);border:1px solid var(--glass-panel-border);box-shadow:var(--glass-panel-shadow),inset 0 1px 0 rgba(255,255,255,0.22)}
+.p .card{border-radius:20px;min-width:0;background:var(--glass-card-bg);border:1px solid var(--glass-card-border);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22)}
+.p .sec-label{font-size:11px;font-weight:600;color:var(--label)}
+.p .sec-title{font-size:14px;font-weight:600;color:var(--text)}
+.p .group-label{font-size:11px;font-weight:500;color:var(--label);margin:0 4px 6px}
+.p .sec-icon{color:var(--label)}
+.p .row-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.p .sec-row{display:flex;align-items:center;gap:6px;margin-bottom:10px}
+
+/* theme-dependent locals (kept in one place so a Rust port has one table) */
+.p{--icon-stroke:rgba(0,0,0,0.55);--inactive-bg:rgba(255,255,255,0.92);--inactive-border:#fff;--inactive-icon-bg:rgba(0,0,0,0.07);--track:rgba(0,0,0,0.12);--avatar-bg:rgba(0,0,0,0.10);--fill:#fff;--hover:rgba(0,0,0,0.08)}
+.dark .p{--icon-stroke:rgba(255,255,255,0.60);--inactive-bg:rgba(255,255,255,0.14);--inactive-border:rgba(255,255,255,0.15);--inactive-icon-bg:rgba(255,255,255,0.10);--track:rgba(0,0,0,0.30);--avatar-bg:rgba(255,255,255,0.15);--fill:linear-gradient(180deg,#fff,#e8eaed);--hover:rgba(255,255,255,0.14)}
+
+/* ── Toggle tile (used by Control Center, WiFi, Battery) ───────────── */
+.tbtn{width:100%;display:flex;align-items:center;gap:9px;padding:9px 11px;cursor:pointer;transition:all .15s;text-align:left;border-radius:15px;background:var(--inactive-bg);border:1px solid var(--inactive-border);box-shadow:inset 0 1px 0 rgba(255,255,255,0.18);font-family:inherit}
+.tbtn .ic{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--inactive-icon-bg);color:var(--icon-stroke)}
+.tbtn .txt{min-width:0;flex:1}
+.tbtn .lbl{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.tbtn .sub{font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--sub)}
+.tbtn[data-active="true"]{background:rgba(var(--accent),0.88);border-color:rgba(var(--accent),0.45);box-shadow:0 4px 12px rgba(var(--accent),0.30),inset 0 1px 0 rgba(255,255,255,0.25)}
+.tbtn[data-active="true"] .ic{background:rgba(255,255,255,0.25);color:#fff}
+.tbtn[data-active="true"] .lbl{color:#fff}
+.tbtn[data-active="true"] .sub{color:rgba(255,255,255,0.65)}
+.tbtn[data-accent="wifi"],.tbtn[data-accent="bt"]{--accent:59,130,246}
+.tbtn[data-accent="air"]{--accent:249,115,22}
+.tbtn[data-view="desktop"]{--accent:20,184,166}
+.tbtn[data-view="tablet"]{--accent:139,92,246}
+
+/* ── Slider (brightness / volume) ──────────────────────────────────── */
+.slider{position:relative;flex:1;height:28px;border-radius:14px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,0.30);background:var(--track)}
+.slider .fill{position:absolute;top:0;bottom:0;left:0;width:0;min-width:28px;border-radius:14px;background:var(--fill);transition:width .1s}
+.slider .embed{position:absolute;left:8px;top:50%;transform:translateY(-50%);color:rgba(0,0,0,0.45);z-index:5;pointer-events:none}
+.slider .rng{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10;margin:0}
+
+/* ── Round action buttons (appearance / mute) ──────────────────────── */
+.rbtn{width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:transform .1s;border:none;cursor:pointer}
+.rbtn:active{transform:scale(0.9)}
+.appearance{border:1px solid rgba(253,230,138,0.7);background:linear-gradient(to bottom,#fcd34d,#f97316);box-shadow:0 4px 8px rgba(249,115,22,0.30)}
+.dark .appearance{border:1px solid rgba(129,140,248,0.5);background:linear-gradient(to bottom,#818cf8,#4f46e5);box-shadow:0 4px 8px rgba(79,70,229,0.30)}
+.mute{border:1px solid var(--inactive-border);background:var(--inactive-bg);color:var(--text)}
+.mute[data-muted="true"]{border:1px solid rgba(248,113,113,0.45);background:rgba(239,68,68,0.88);box-shadow:0 4px 8px rgba(239,68,68,0.30);color:#fff}
+
+/* ── Header icon buttons + avatar (Control Center) ─────────────────── */
+.hbtn{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background .12s;color:var(--text);border:none;background:none;cursor:pointer}
+.hbtn:hover{background:rgba(125,125,125,0.18)}
+
+/* ── Radio row (WiFi networks, sound devices, energy profiles) ─────── */
+.rrow{width:100%;display:flex;align-items:center;gap:10px;padding:9px;border-radius:11px;border:none;cursor:pointer;background:transparent;color:var(--text);text-align:left;transition:background .12s;font-family:inherit}
+.rrow:hover{background:var(--hover)}
+.rrow[data-active="true"]{background:rgba(59,130,246,0.18)}
+.rrow .lead{display:flex;align-items:center;color:var(--text);opacity:.85}
+.rrow .rlbl{font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rrow[data-active="true"] .rlbl{font-weight:600}
+.rrow .rsub{font-size:10.5px;color:var(--sub)}
+.rrow .check{display:none}
+.rrow[data-active="true"] .check{display:flex}
+.bars{display:flex;align-items:flex-end;gap:2px;height:13px}
+.bars span{width:3px;border-radius:1px;background:currentColor}
+.bars span:nth-child(1){height:7px}
+.bars span:nth-child(2){height:10px}
+.bars span:nth-child(3){height:13px}
+.bars[data-level="1"] span:nth-child(2),.bars[data-level="1"] span:nth-child(3),.bars[data-level="2"] span:nth-child(3){opacity:.25}
+
+/* ── Battery meter ─────────────────────────────────────────────────── */
+.meter{height:6px;border-radius:3px;overflow:hidden;background:var(--track)}
+.meter i{display:block;height:100%;border-radius:3px;background:rgba(34,197,94,0.85)}
+
+/* ── Panel sizes ───────────────────────────────────────────────────── */
+.p-cc{width:328px;border-radius:30px;padding:10px 16px 14px}
+.p-notif{width:330px;border-radius:26px;padding:14px}
+.p-cal{width:288px;border-radius:24px;padding:12px}
+.p-status{width:300px;border-radius:30px;padding:10px 16px 14px}
+
+/* ── Notification cards ────────────────────────────────────────────── */
+.ncard{border-radius:18px;padding:12px;background:var(--glass-card-bg);border:1px solid var(--glass-card-border);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 2px 10px rgba(0,0,0,0.18),inset 0 1px 0 rgba(255,255,255,0.18);transition:filter .12s}
+.ncard:hover{filter:brightness(1.07)}
+.ncard .inner{display:flex;align-items:flex-start;gap:11px}
+.appicon{width:38px;height:38px;display:block;flex-shrink:0;border-radius:9px;box-shadow:0 1px 3px rgba(0,0,0,0.30)}
+.n-app{font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--text);white-space:nowrap}
+.n-time{font-size:10.5px;color:var(--sub);white-space:nowrap;flex-shrink:0}
+.n-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:1px}
+.n-body{font-size:11.5px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.n-stack{position:relative;margin-bottom:12px}
+.n-stack .peek{position:absolute;left:8px;right:8px;top:0;bottom:0;border-radius:18px;background:var(--glass-card-bg);border:1px solid var(--glass-card-border);transform:translateY(7px);box-shadow:0 4px 12px rgba(0,0,0,0.20)}
+.n-badge{position:absolute;top:-6px;right:-6px;min-width:19px;height:19px;padding:0 5px;border-radius:9.5px;background:linear-gradient(180deg,#ff5b52 0%,#ff3b30 100%);box-shadow:0 1px 4px rgba(255,59,48,0.45),0 1px 2px rgba(0,0,0,0.30),inset 0 1px 0 rgba(255,255,255,0.50);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;line-height:1;color:#fff}
+.n-list{display:flex;flex-direction:column;gap:8px}
+.n-clear{font-size:11px;font-weight:500;color:var(--sub);background:transparent;border:none;padding:4px 8px;border-radius:8px;cursor:pointer;font-family:inherit}
+.n-clear:hover{background:var(--hover)}
+
+/* ── Calendar ──────────────────────────────────────────────────────── */
+.cal-head{display:flex;align-items:center;justify-content:space-between;padding:0 4px;margin-bottom:8px}
+.cal-month{font-size:13px;font-weight:600;color:var(--text)}
+.cal-nav{width:24px;height:24px;border-radius:50%;border:none;background:transparent;color:var(--sub);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.cal-nav:hover{background:var(--hover);color:var(--text)}
+.cal-nav .dot{width:6px;height:6px;border-radius:50%;background:currentColor;display:block}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-dow{text-align:center;font-size:10px;font-weight:500;color:var(--sub);padding-bottom:4px}
+.cal-cell{display:flex;flex-direction:column;align-items:center;gap:1px}
+.cal-num{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:12px;font-weight:400;color:var(--text)}
+.cal-cell[data-today="true"] .cal-num{background:#3b82f6;color:#fff;font-weight:700}
+.cal-ev{width:4px;height:4px;border-radius:50%;background:transparent;display:block}
+.cal-cell[data-event="true"] .cal-ev{background:#f87171}
+.cal-up{display:flex;flex-direction:column;gap:6px}
+.cal-up .item{display:flex;align-items:center;gap:10px;background:var(--glass-card-bg);border:1px solid var(--glass-card-border);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);border-radius:14px;padding:8px 10px}
+.cal-up .spine{width:3px;height:32px;border-radius:2px;flex-shrink:0;display:block}
+.cal-up .t{font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-up .m{font-size:11px;color:var(--sub);margin-top:1px}
+
+/* ── Entrance animations (see tokens/motion.css) ───────────────────── */
+@keyframes panelSlideUp{from{opacity:0;transform:translateY(16px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes panelSlideDown{from{opacity:0;transform:translateY(-10px) scale(0.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+.anim-up{animation:panelSlideUp .3s cubic-bezier(0.16,1,0.3,1)}
+.anim-down{animation:panelSlideDown .35s cubic-bezier(0.34,1.4,0.5,1)}
+@media (prefers-reduced-motion:reduce){.anim-up,.anim-down{animation-duration:.01s}}
+
+/* ── Glass toggle (WiFi on/off) ────────────────────────────────────── */
+.gtoggle{width:44px;height:26px;border-radius:13px;border:1px solid var(--glass-toggle-off-border);background:var(--glass-toggle-off-bg);position:relative;cursor:pointer;transition:background .18s,border-color .18s;flex-shrink:0;padding:0}
+.gtoggle[data-on="true"]{background:var(--glass-toggle-on-bg);border-color:var(--glass-toggle-on-border);box-shadow:0 2px 8px var(--glass-toggle-on-shadow)}
+.gtoggle i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.30);transition:transform .18s cubic-bezier(0.34,1.4,0.5,1)}
+.gtoggle[data-on="true"] i{transform:translateX(18px)}

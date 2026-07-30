@@ -100,21 +100,48 @@ windowd's SERVER, and gpud never saw the request — use the init-wired
 persistent slot pair for early queries; boot markers on this path must be
 fold-immune (`debug_write`) or the outcome is invisible in armed boots.
 
-## Drop-down panels (v2, shipped)
+## Drop-down panels (v3, design_handoff_panels)
 
-The handoff's drop-down panels are `.overlay()` layers INSIDE the shell's
-middle content region (so the top bar stays above them — pill-to-pill
-switching works; the handoff's z:50-bar-over-z:39-backdrop equivalent). One
-`PanelStore.panel: Str` selects the open panel; `SetPanel(p)` TOGGLES (same
-id closes, another id switches — only one open at a time); the layer's own
-tap handler is the outside-click closer, panel bodies consume with
-`PanelNoop`. Components in `ui/components/panels/`: ControlCenterPanel (328,
-top right — the touch hub: appearance/mode REAL, sliders local, chips
-disabled-honest), NotificationsPanel (330, top left, demo cards),
-CalendarPanel (288, top left, static July-2026 month grid — five
-deterministic week rows, today = accent circle), and the DESKTOP-ONLY
-WifiPanel/SoundPanel/BatteryPanel (300, top right). Entry =
-`.transition(slideUp)`.
+Six panels — **Control Center · Mitteilungen · Kalender · WLAN · Ton ·
+Batterie** — opened exclusively by the top bar's pills. Both sides live in one
+component each: `components/topbar/TopBar.nx` is the 36px bar (it used to be
+written out inline in BOTH `ShellPage`s, which is how a trigger matrix drifts),
+and `components/panels/PanelHost.nx` is the `.overlay()` layer plus the six-way
+selection (it used to be a four-level nested `if/else`, also twice).
+
+**Which panels exist is two independent axes**, exactly as the handoff states:
+`device.profile == desktop` is the explicit Ansichtsmodus flag, and
+`device.sizeClass` only matters when it is false. Desktop gets four separate
+right-hand pills (WLAN · Ton · Batterie · Control Center); touch modes get ONE
+combined status pill, because **there are no WLAN/Ton/Batterie panels there** —
+their contents fold into the Control Center. `PanelHost` guards those three ids
+on `device.profile`, so a panel id can never render something no pill can
+reach.
+
+Geometry (handoff §2): bar 36, pills 28 with `.hitSlop(2)` so the BAR is the
+touch target; panels anchored `top: 44` via a leading `Stack{}.height(8)` and
+`left/right: 12` via `.paddingX(3)` around a `Spacer` — `.overlay()` has no
+anchor API, so anchoring is flex. Widths 328 · 330 · 288 · 300/300/300, radii
+30 · 26 · 24 · 30. Entrance: Control Center `slideUp`, the other five
+`slideDown` (a drop-down falls out of the bar; it does not rise into it).
+
+One `PanelStore.panel: Str` selects the open panel and `SetPanel(p)` TOGGLES,
+so only one is ever open; the layer's own handler is the outside-click closer
+and every panel body consumes with `PanelNoop`.
+
+**What is real and what is drawn.** Two controls reach a service: the
+Ansichtsmodus tile writes `ui.shell.mode` and the Erscheinungsbild button
+writes `ui.theme.mode`, both through `ControlStore`. Both read their current
+value from `device.*` (`device.profile` / `device.theme`) and never mirror it
+in a store — a re-mount resets stores, so a mirror would be wrong exactly when
+it mattered. Everything else (radios, devices, energy profile, networks,
+notifications, the calendar's three authored months) is demo state in
+`composables/{connectivity,sound,power,calendar,notifications}.store.nx`: it
+changes visibly, calls no `svc.*`, and sets no marker.
+
+Shared parts live in `components/panels/parts/` — `ToggleTile`, `RadioRow`,
+`GlassToggle`, `Meter`, `SignalBars`, `CountBadge`, `AppearanceButton`,
+`MuteButton`, `SectionTitle`, `SectionRow`, `GroupLabel`, `HeaderIconButton`.
 
 **Glass over surface content (the glass-reset contract).** On the virgl
 buildup backend every glass region already gets destination-so-far GPU blur
@@ -129,7 +156,16 @@ runs whose box lies under a LATER glass box (text paints after all fills and
 would otherwise print over the reset). Panels ride the plain `panel`
 material.
 
-Known deltas vs the handoff (deliberate): island bars are static (media
-service pending), paged launcher grid + page dots land when one page
-overflows, desktop icon field wraps in rows (column-wrap pending engine
-support).
+Known deltas vs the handoff (deliberate): island bars are static and the
+island does not expand on hover (media service pending; a hover-driven size
+change is not an expressible motion token), paged launcher grid + page dots
+land when one page overflows, desktop icon field wraps in rows (column-wrap
+pending engine support).
+
+Panel-specific deltas, all platform limits rather than choices: **no ellipsis**
+on the one-line notification body (`.truncate` is a declared no-op), **no exit
+animation** (`.transition` is enter-only), **sliders render but do not drag**
+(the `Change` trigger carries no payload, so a drag has no value to deliver —
+mute still moves the volume fill, because that goes through a `Tap`), and
+padding/gap sit on the 4px spacing grid where the handoff uses 9/10/11/13/15
+(fixed sizes and radii ARE exact; `.rounded` takes raw px for that reason).

@@ -68,6 +68,9 @@ pub fn color_token(name: &str) -> Option<ColorToken> {
         "toggleOnBg" => ColorToken::ToggleOnBg,
         "toggleOffBg" => ColorToken::ToggleOffBg,
         "notifDot" => ColorToken::NotifDot,
+        "sliderTrack" => ColorToken::SliderTrack,
+        "sliderFill" => ColorToken::SliderFill,
+        "sliderIcon" => ColorToken::SliderIcon,
         _ => return None,
     })
 }

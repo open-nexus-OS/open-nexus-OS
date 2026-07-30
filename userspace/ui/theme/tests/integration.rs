@@ -433,11 +433,13 @@ fn test_window_pane_is_a_distinct_level_from_panel() {
 fn test_glass_material_resolves_through_qualifier_chain() {
     let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
 
-    // Light does not redefine glassPanel → inherits base (light blur 40, tint .50).
+    // Light does not redefine glassPanel → inherits base (blur 72, tint .50).
+    // 72 is design_handoff_panels' `blur(72px)`: the drop-down panels are the
+    // deepest glass in the system, and dock/taskbar share the level on purpose.
     runtime.set_qualifier(Qualifier::Light);
     match runtime.resolve_material("glassPanel") {
         Some(nexus_theme::Material::Glass(g)) => {
-            assert_eq!(g.blur_radius_dp, 40);
+            assert_eq!(g.blur_radius_dp, 72);
             assert!((g.tint_alpha - 0.50).abs() < 1e-6);
         }
         other => panic!("light glassPanel should inherit base glass, got {other:?}"),

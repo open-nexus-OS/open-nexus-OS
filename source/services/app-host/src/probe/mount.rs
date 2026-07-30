@@ -51,7 +51,7 @@ impl DslApp {
         let tokens = tokens_for(theme_mode);
         // The pushed shell profile IS the device env: `device.profile`
         // selects the platform override arms (tablet base / desktop).
-        let device = device_for(shell_profile, w, "", "");
+        let device = device_for(shell_profile, w, "", "", theme_mode);
         let mut view = {
             let locale = IdentityLocale { symbols: &symbols, keys: &keys };
             View::mount(nxir, tokens, &device, &locale).ok()?

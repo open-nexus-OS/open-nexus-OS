@@ -1,0 +1,21 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A Control-Center header button (design_handoff_panels `.hbtn`): a 30px
+// circle carrying only a glyph — no resting background, the hover wash the
+// interaction chain paints is the whole affordance.
+//
+// Presentational: the handler goes on a wrapping `Stack` at the use site,
+// because these three buttons (edit · power · settings) each mean something
+// different and a shared component must not decide that.
+
+Component HeaderIconButton {
+    props: {
+        icon: Str,
+    }
+    Circle { size: 30
+        Icon { symbol: $props.icon, size: 13 }
+            .fg(onGlass)
+    }
+    .hitSlop(2)
+}

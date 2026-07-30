@@ -1,0 +1,59 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Calendar header (design_handoff_panels §5): month + year on the left, three
+// 24px buttons on the right — previous · a dot that returns to today · next.
+//
+// The month name comes from an i18n key per authored month, not from a locale
+// date format: the DSL cannot format a date, and `de-DE` month names have to
+// come from somewhere. That makes the month label translatable like every
+// other string, which is the right outcome for the wrong reason.
+
+Component CalHeader {
+    Stack {
+        if $state.calMonth == 0 {
+            Text(@t("cal.monthPrev")).textSize(sm).fontWeight(semibold).fg(onGlass)
+        } else if $state.calMonth == 2 {
+            Text(@t("cal.monthNext")).textSize(sm).fontWeight(semibold).fg(onGlass)
+        } else {
+            Text(@t("cal.monthNow")).textSize(sm).fontWeight(semibold).fg(onGlass)
+        }
+        Spacer
+        Stack {
+            Icon { symbol: "chevron.left", size: 14 }
+                .fg(onGlassMuted)
+        }
+        .width(24)
+        .height(24)
+        .align(center)
+        .justify(center)
+        .rounded(full)
+        .hitSlop(2)
+        on Tap -> dispatch(CalPrev)
+        Stack {
+            Circle { size: 6 }
+                .bg(onGlassMuted)
+        }
+        .width(24)
+        .height(24)
+        .align(center)
+        .justify(center)
+        .rounded(full)
+        .hitSlop(2)
+        on Tap -> dispatch(CalToday)
+        Stack {
+            Icon { symbol: "chevron.right", size: 14 }
+                .fg(onGlassMuted)
+        }
+        .width(24)
+        .height(24)
+        .align(center)
+        .justify(center)
+        .rounded(full)
+        .hitSlop(2)
+        on Tap -> dispatch(CalNext)
+    }
+    .direction(row)
+    .align(center)
+    .paddingX(1)
+}

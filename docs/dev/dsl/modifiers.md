@@ -78,7 +78,7 @@ Rules:
 | `.fg(t)` | color token | foreground/tint (text, icons) |
 | `.borderColor(t)` | color token | border color |
 | `.border(t)` | `thin\|hairline\|medium\|thick` | border width (listed again under Shape below) |
-| `.opacity(n)` | `0..100` | node opacity |
+| `.opacity(n)` | `0..255` | node opacity (`Fraction`, `OPAQUE = 255` — **not** a percentage; `.opacity(102)` is the handoff's 0.4) |
 | `.material(m)` | material token | glass surface (panel/card/subtle/window/overlay) — tint + `--glass-shine` wash + `inset 0 1px 0` top-shine + 1px hairline, all from the theme (`Style::glass` is the single definition) |
 | `.bgGradient(top, bottom)` | two exprs → `"#rrggbb[aa]"` | vertical linear background gradient (`linear-gradient(to bottom, …)`); wins over `.bg`. Args are EXPRESSIONS so both literals and props work — app-icon artwork colors ride the manifest → enumerate → props. Row-based painter: one lerped flat color per row, exact and alloc-free. |
 | `.bgFade(top, bottom)` | two color tokens | the same vertical fill from TOKENS, so it re-themes (`.bgGradient` keeps taking raw hex because artwork colors are data). Use `transparent` as a stop for a legibility fade. |
@@ -88,7 +88,7 @@ Rules:
 
 | Modifier | Args | Meaning |
 |---|---|---|
-| `.rounded(t)` | radius token (`sm\|md\|lg\|xl\|full`) | corner radius |
+| `.rounded(v)` | radius token (`sm` 6 \| `md` 8 \| `lg` 10 \| `xl` 14 \| `xxl` 16 \| `full`) **or** `Int` px | corner radius, uniform on all four corners. Takes raw px for the same reason `.width` does: the design handoffs treat their literal radii (30 · 26 · 24 · 20 · 18 · 15 · 13 · 11) as geometry contract, and a five-rung scale cannot carry them. Prefer the token where one fits. |
 | `.border(t)` | length token | border width |
 | `.shadow(t)` | shadow token (`sm\|md\|lg\|xl\|xxl`) | elevation — the design-handoff scale (md `0 4 12 .15` … xxl `0 25 50 .25`), painted as an analytic soft rounded-rect shadow behind the box |
 
@@ -108,6 +108,7 @@ one — **size wins over weight**:
 
 | px | weights baked | charset |
 |---|---|---|
+| 11 | Regular, SemiBold | Latin (`xs` — sub-labels, group labels, captions) |
 | 13 | Regular, SemiBold | full (Latin + CJK) at Regular; Latin at SemiBold |
 | 16 | Regular, SemiBold | full at Regular; Latin at SemiBold |
 | 21 | Regular, SemiBold | Latin |
@@ -119,6 +120,16 @@ So `.textSize(hero)` is for numerals — letters at that size fall back to the
 miss is far more visible than a weight miss. Adding a rung is a four-line
 change in `userspace/ui/text-baked/build.rs`; adding a **full-charset** face
 above 16px is forbidden (the hangul block alone would be hundreds of MB).
+
+A tie rounds **up**: `sm` (12) sits exactly between the 11 and 13 rungs and
+resolves to 13. That is what makes the ladder extensible — baking a smaller
+rung stays an addition instead of silently shrinking every label already
+written against the rung above it.
+
+Practically, the small end resolves like this: `xs` (11) → 11 · `sm` (12) and
+`base` (14) → 13 · `md` (16) and `lg` (18) → 16. Two distinct sizes carry the
+whole panel/chrome density, so hierarchy below 16px comes from **11 vs 13
+plus weight and color**, not from the token number you wrote.
 
 ## Interaction (class: paint unless noted)
 

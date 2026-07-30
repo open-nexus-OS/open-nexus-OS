@@ -81,6 +81,14 @@ const ROLES: &[(&str, &str)] = &[
     ("ToggleOnBg", "toggleOnBg"),
     ("ToggleOffBg", "toggleOffBg"),
     ("NotifDot", "notifDot"),
+    // The range-slider pair. A slider is the one control whose track is a
+    // RECESS in both themes (dark-on-light and dark-on-dark) while its fill is
+    // bright in both — no existing role has that polarity, and borrowing
+    // `scrim` for it would mean a modal backdrop and a volume track drift
+    // together the next time either is tuned.
+    ("SliderTrack", "sliderTrack"),
+    ("SliderFill", "sliderFill"),
+    ("SliderIcon", "sliderIcon"),
 ];
 
 fn main() {

@@ -1,0 +1,92 @@
+/* AIVA OS — Color Tokens
+   Source: https://github.com/AIVA-Computers/Oslauncherdesign
+   Both light and dark mode values derived from src/styles/theme.css */
+
+:root {
+  /* ─── Brand ──────────────────────────────────────────────── */
+  --color-primary:              #030213;
+  --color-primary-fg:           #ffffff;
+  --color-destructive:          #d4183d;
+  --color-destructive-fg:       #ffffff;
+
+  /* ─── Surfaces (light mode) ──────────────────────────────── */
+  --color-background:           #ffffff;
+  --color-foreground:           oklch(0.145 0 0);
+  --color-card:                 #ffffff;
+  --color-card-fg:              oklch(0.145 0 0);
+  --color-popover:              oklch(1 0 0);
+  --color-popover-fg:           oklch(0.145 0 0);
+  --color-secondary:            oklch(0.95 0.0058 264.53);
+  --color-secondary-fg:         #030213;
+  --color-muted:                #ececf0;
+  --color-muted-fg:             #717182;
+  --color-accent:               #e9ebef;
+  --color-accent-fg:            #030213;
+
+  /* ─── Chrome (light mode) ────────────────────────────────── */
+  --color-border:               rgba(0, 0, 0, 0.10);
+  --color-input-bg:             #f3f3f5;
+  --color-switch-bg:            #cbced4;
+  --color-ring:                 oklch(0.708 0 0);
+
+  /* ─── Sidebar (light mode) ───────────────────────────────── */
+  --color-sidebar:              oklch(0.985 0 0);
+  --color-sidebar-fg:           oklch(0.145 0 0);
+  --color-sidebar-primary:      #030213;
+  --color-sidebar-primary-fg:   oklch(0.985 0 0);
+  --color-sidebar-accent:       oklch(0.97 0 0);
+  --color-sidebar-accent-fg:    oklch(0.205 0 0);
+  --color-sidebar-border:       oklch(0.922 0 0);
+
+  /* ─── Charts ─────────────────────────────────────────────── */
+  --color-chart-1:              oklch(0.646 0.222 41.116);
+  --color-chart-2:              oklch(0.6 0.118 184.704);
+  --color-chart-3:              oklch(0.398 0.07 227.392);
+  --color-chart-4:              oklch(0.828 0.189 84.429);
+  --color-chart-5:              oklch(0.769 0.188 70.08);
+
+  /* ─── Semantic status ────────────────────────────────────── */
+  --color-success:              #22c55e;
+  --color-success-fg:           #ffffff;
+  --color-warning:              #f59e0b;
+  --color-warning-fg:           #ffffff;
+  --color-info:                 #3b82f6;
+  --color-info-fg:              #ffffff;
+
+  /* ─── Dynamic Island ─────────────────────────────────────── */
+  --color-island-bg:            #000000;
+}
+
+/* ─── Dark Mode ──────────────────────────────────────────── */
+.dark {
+  --color-background:           oklch(0.145 0 0);
+  --color-foreground:           oklch(0.985 0 0);
+  --color-card:                 oklch(0.145 0 0);
+  --color-card-fg:              oklch(0.985 0 0);
+  --color-popover:              oklch(0.145 0 0);
+  --color-popover-fg:           oklch(0.985 0 0);
+  --color-primary:              oklch(0.985 0 0);
+  --color-primary-fg:           oklch(0.205 0 0);
+  --color-secondary:            oklch(0.269 0 0);
+  --color-secondary-fg:         oklch(0.985 0 0);
+  --color-muted:                oklch(0.269 0 0);
+  --color-muted-fg:             oklch(0.708 0 0);
+  --color-accent:               oklch(0.269 0 0);
+  --color-accent-fg:            oklch(0.985 0 0);
+  --color-destructive:          oklch(0.68 0.196 25.5);
+  --color-destructive-fg:       oklch(0.985 0 0);
+  --color-border:               oklch(0.269 0 0);
+  --color-ring:                 oklch(0.439 0 0);
+  --color-sidebar:              oklch(0.205 0 0);
+  --color-sidebar-fg:           oklch(0.985 0 0);
+  --color-sidebar-primary:      oklch(0.488 0.243 264.376);
+  --color-sidebar-primary-fg:   oklch(0.985 0 0);
+  --color-sidebar-accent:       oklch(0.269 0 0);
+  --color-sidebar-accent-fg:    oklch(0.985 0 0);
+  --color-sidebar-border:       oklch(0.269 0 0);
+  --color-chart-1:              oklch(0.488 0.243 264.376);
+  --color-chart-2:              oklch(0.696 0.17 162.48);
+  --color-chart-3:              oklch(0.769 0.188 70.08);
+  --color-chart-4:              oklch(0.627 0.265 303.9);
+  --color-chart-5:              oklch(0.645 0.246 16.439);
+}

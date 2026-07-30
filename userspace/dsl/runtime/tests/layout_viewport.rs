@@ -659,10 +659,10 @@ fn real_shell_control_panel_overlays_top_right() {
             .expect("lays out")
             .boxes
     };
-    let panel_box = |boxes: &[nexus_layout::LayoutBox]| {
-        boxes
-            .iter()
-            .find(|b| b.rect.width.as_i32() == 340 && b.rect.x.as_i32() > 850)
+    // 328 = Control Center width (design_handoff_panels §3; was 340), right-anchored.
+    let panel_box = |bs: &[nexus_layout::LayoutBox]| {
+        bs.iter()
+            .find(|b| b.rect.width.as_i32() == 328 && b.rect.x.as_i32() > 850)
             .map(|b| (b.rect.x.as_i32(), b.rect.y.as_i32()))
     };
     assert!(panel_box(&layout_boxes(&view)).is_none(), "panel closed at mount");

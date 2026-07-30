@@ -29,6 +29,11 @@ info = "#60a5fa"
 infoFg = "#000000"
 focusRing = "#ffffff"
 notifDot = "#ff4444"
+# a11y: the slider's groove/cap pair goes fully opaque — a 12%-black track is
+# invisible to the eyes this theme exists for.
+sliderTrack = "#000000"
+sliderFill = "#ffffff"
+sliderIcon = "#000000"
 glassTextPrimary = "#ffffff"
 glassTextSecondary = "#cccccc"
 glassTextStrong = "#ffffff"

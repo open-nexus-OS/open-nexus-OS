@@ -1,0 +1,69 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The demo month. `today` is the 30th and it carries the Zahnarzt
+// appointment from the handoff's demo set — the one day that is both.
+//
+// AUTHORED, not computed. The DSL has no date arithmetic and a reducer cannot
+// build a list, so a month grid cannot be derived from a clock — it has to be
+// written down. `CalStore.calMonth` selects between three such months; see
+// `calendar.store.nx` for why three is the honest number.
+//
+// Monday-first weeks with leading and trailing blanks, so every row is seven
+// cells and the columns hold against the weekday header.
+
+Component CalMonthNow {
+    Stack {
+        Stack {
+            CalCell { label: "", today: false, event: false }
+            CalCell { label: "", today: false, event: false }
+            CalCell { label: "1", today: false, event: false }
+            CalCell { label: "2", today: false, event: false }
+            CalCell { label: "3", today: false, event: false }
+            CalCell { label: "4", today: false, event: false }
+            CalCell { label: "5", today: false, event: false }
+        }
+        .direction(row)
+        Stack {
+            CalCell { label: "6", today: false, event: false }
+            CalCell { label: "7", today: false, event: false }
+            CalCell { label: "8", today: false, event: false }
+            CalCell { label: "9", today: false, event: false }
+            CalCell { label: "10", today: false, event: false }
+            CalCell { label: "11", today: false, event: false }
+            CalCell { label: "12", today: false, event: false }
+        }
+        .direction(row)
+        Stack {
+            CalCell { label: "13", today: false, event: false }
+            CalCell { label: "14", today: false, event: false }
+            CalCell { label: "15", today: false, event: false }
+            CalCell { label: "16", today: false, event: false }
+            CalCell { label: "17", today: false, event: false }
+            CalCell { label: "18", today: false, event: false }
+            CalCell { label: "19", today: false, event: false }
+        }
+        .direction(row)
+        Stack {
+            CalCell { label: "20", today: false, event: false }
+            CalCell { label: "21", today: false, event: false }
+            CalCell { label: "22", today: false, event: false }
+            CalCell { label: "23", today: false, event: false }
+            CalCell { label: "24", today: false, event: false }
+            CalCell { label: "25", today: false, event: false }
+            CalCell { label: "26", today: false, event: false }
+        }
+        .direction(row)
+        Stack {
+            CalCell { label: "27", today: false, event: false }
+            CalCell { label: "28", today: false, event: false }
+            CalCell { label: "29", today: false, event: false }
+            CalCell { label: "30", today: true, event: true }
+            CalCell { label: "31", today: false, event: false }
+            CalCell { label: "", today: false, event: false }
+            CalCell { label: "", today: false, event: false }
+        }
+        .direction(row)
+    }
+    .gap(0)
+}

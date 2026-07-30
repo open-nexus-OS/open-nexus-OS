@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>open nexus OS — Status Panels · Rust Handoff</title>
+<link rel="stylesheet" href="tokens/fonts.css">
+<link rel="stylesheet" href="tokens/colors.css">
+<link rel="stylesheet" href="tokens/typography.css">
+<link rel="stylesheet" href="tokens/spacing.css">
+<link rel="stylesheet" href="tokens/motion.css">
+<link rel="stylesheet" href="tokens/glass.css">
+<link rel="stylesheet" href="panels.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;font-family:var(--font-sans,Inter,system-ui,sans-serif);background:#0b1020}
+/* Wallpaper — pure CSS so the package works fully offline. Swap for a real
+   image in production; backdrop-filter needs busy content underneath to read. */
+.wall{position:fixed;inset:0;background:radial-gradient(120% 90% at 12% 8%,#3b1d6e 0%,transparent 55%),radial-gradient(100% 80% at 88% 12%,#0e4f6e 0%,transparent 60%),radial-gradient(120% 100% at 50% 110%,#7a2f4f 0%,transparent 60%),linear-gradient(160deg,#0d1330,#050813)}
+body:not(.dark) .wall{background:radial-gradient(120% 90% at 12% 8%,#ffd9a8 0%,transparent 55%),radial-gradient(100% 80% at 88% 12%,#bfe4ff 0%,transparent 60%),radial-gradient(120% 100% at 50% 110%,#ffc6d9 0%,transparent 60%),linear-gradient(160deg,#eef3ff,#dfe6f5)}
+.tint{position:fixed;inset:0;background:rgba(255,255,255,0.20)}
+body.dark .tint{background:rgba(0,0,0,0.35)}
+.sheet{position:relative;z-index:2;padding:26px 30px 60px;max-width:1420px;margin:0 auto}
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:26px}
+h1{font-size:19px;font-weight:600;letter-spacing:-0.01em;color:var(--glass-text-strong)}
+.lede{font-size:12.5px;line-height:1.6;color:var(--glass-text-secondary);max-width:640px;margin-top:6px}
+.ctl{display:flex;gap:8px}
+.ctl button{display:flex;align-items:center;gap:7px;height:34px;padding:0 14px;border-radius:9999px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;color:var(--glass-text-strong);background:var(--glass-panel-bg);border:1px solid var(--glass-panel-border);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);box-shadow:var(--glass-panel-shadow)}
+.board{display:flex;flex-wrap:wrap;gap:34px 30px;align-items:flex-start}
+.h2{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--glass-text-secondary);margin:0 0 12px}
+/* ── Shell demo (top bar + anchored panels) ───────────────────────── */
+.shell{position:relative;height:600px;border-radius:18px;overflow:hidden;border:1px solid var(--glass-panel-border);box-shadow:0 30px 60px rgba(0,0,0,0.35);margin-bottom:40px}
+.shell .shellwall{position:absolute;inset:0;background:radial-gradient(120% 90% at 20% 10%,#4c1d95 0%,transparent 55%),radial-gradient(100% 80% at 85% 20%,#0f766e 0%,transparent 60%),linear-gradient(160deg,#111a3a,#060a18)}
+body:not(.dark) .shell .shellwall{background:radial-gradient(120% 90% at 20% 10%,#ffe1b0 0%,transparent 55%),radial-gradient(100% 80% at 85% 20%,#c7ecff 0%,transparent 60%),linear-gradient(160deg,#f4f7ff,#e3e9f7)}
+.shell .shelltint{position:absolute;inset:0;background:rgba(255,255,255,0.20)}
+body.dark .shell .shelltint{background:rgba(0,0,0,0.35)}
+.shell[data-mode="phone"]{max-width:420px}
+.shell[data-mode="tablet"]{max-width:860px}
+.topbar{position:absolute;top:0;left:0;right:0;height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:50}
+.pill{display:flex;align-items:center;gap:5px;height:28px;padding:0 8px;border-radius:9999px;border:none;cursor:pointer;background:transparent;transition:background .15s;color:var(--glass-text-strong);font:inherit;font-size:12px}
+.pill:hover,.pill[data-open="true"]{background:rgba(0,0,0,0.10)}
+body.dark .pill:hover,body.dark .pill[data-open="true"]{background:rgba(255,255,255,0.18)}
+.pill .t{font-size:12px;font-weight:600}
+.pill .d{font-size:11px;color:var(--glass-text-secondary)}
+.pill .n{font-size:10px;font-weight:700}
+.pill .bell{position:relative;display:flex}
+.pill .bell i{position:absolute;top:-2px;right:-3px;width:5px;height:5px;background:var(--glass-notif-dot);border-radius:50%}
+.zone{display:flex;align-items:center;gap:2px}
+.island{position:absolute;left:50%;transform:translateX(-50%);top:4px;z-index:60;background:#000;overflow:hidden;width:118px;height:28px;border-radius:20px;display:flex;align-items:center;justify-content:center;gap:8px;transition:width .5s cubic-bezier(0.34,1.4,0.5,1),height .5s cubic-bezier(0.34,1.4,0.5,1),border-radius .45s cubic-bezier(0.34,1.4,0.5,1)}
+.island .art{width:14px;height:14px;border-radius:4px;background:linear-gradient(135deg,#a855f7,#ec4899,#f43f5e);flex-shrink:0}
+.island .eq{display:flex;align-items:flex-end;gap:2px}
+.island .eq i{width:3px;border-radius:2px;background:rgba(255,255,255,0.65)}
+.drop-layer{position:absolute;inset:0;z-index:40}
+.drop-backdrop{position:absolute;inset:0;z-index:39;display:none}
+.drop-backdrop[data-on="true"]{display:block}
+.modes{display:flex;gap:6px;margin-bottom:12px}
+.modes button{height:30px;padding:0 13px;border-radius:9999px;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;color:var(--glass-text-strong);background:var(--glass-card-bg);border:1px solid var(--glass-card-border)}
+.modes button[aria-pressed="true"]{background:rgba(59,130,246,0.85);border-color:rgba(96,165,250,0.4);color:#fff}
+.hint{font-size:11.5px;line-height:1.6;color:var(--glass-text-secondary);margin:0 0 18px;max-width:760px}
+.slot{display:flex;flex-direction:column;gap:10px}
+.cap{font-size:11px;font-weight:600;color:var(--glass-text-strong);letter-spacing:.02em}
+.cap span{display:block;font-weight:400;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;color:var(--glass-text-secondary);margin-top:3px}
+a{color:#60a5fa}a:hover{color:#93c5fd}
+</style>
+</head>
+<body class="dark">
+<div class="wall"></div><div class="tint"></div>
+<div class="sheet">
+  <div class="top">
+    <div>
+      <h1>open nexus OS — Status Panels</h1>
+      <p class="lede">Alle sechs Drop-down-Panels in Originalgröße: Control Center, Mitteilungen, Kalender, WLAN, Ton, Batterie. Interaktiv — Schalter, Slider, Radio-Listen und Monatsnavigation funktionieren. Geometrie, Anker und Zustandsmodell stehen in <strong>README.md</strong>; die Zahlenwerte in <strong>tokens/</strong> und <strong>panels.css</strong>.</p>
+    </div>
+    <div class="ctl">
+      <button id="theme" type="button">Dark / Light</button>
+      <button id="replay" type="button">Animation neu</button>
+    </div>
+  </div>
+
+  <p class="h2">1 · Topbar-Trigger &amp; Anker</p>
+  <div class="modes">
+    <button type="button" data-mode-btn="desktop" aria-pressed="true">Desktop</button>
+    <button type="button" data-mode-btn="tablet" aria-pressed="false">Tablet (640–1024)</button>
+    <button type="button" data-mode-btn="phone" aria-pressed="false">Phone (&lt;640)</button>
+  </div>
+  <p class="hint">Die Pills in der 36px-Topbar sind die einzigen Öffner der Panels. <strong>Desktop</strong>: vier getrennte Pills rechts (WLAN · Ton · Batterie · Control Center) und links Zeit+Datum (Kalender) sowie eine Mitteilungs-Pill. <strong>Tablet</strong>: eine kombinierte Status-Pill rechts, die das Control Center öffnet — WLAN/Ton/Batterie haben dort keine eigenen Panels. <strong>Phone</strong>: Zeit und Glocke sind zu einer Pill verschmolzen. Klick in die Fläche schließt (nur ein Panel gleichzeitig offen).</p>
+  <div class="shell" id="shell" data-mode="desktop">
+    <div class="shellwall"></div><div class="shelltint"></div>
+    <div class="drop-backdrop" id="dropBackdrop" data-on="false"></div>
+    <div class="drop-layer" id="dropLayer"></div>
+    <div class="topbar">
+      <div class="zone" id="tbLeft"></div>
+      <div class="island" id="island"><span class="art"></span><span class="eq"><i style="height:8px"></i><i style="height:12px"></i><i style="height:6px"></i><i style="height:10px"></i></span></div>
+      <div class="zone" id="tbRight"></div>
+    </div>
+  </div>
+
+  <p class="h2">2 · Panels in Originalgröße</p>
+  <div class="board">
+
+    <!-- ══ 1 · CONTROL CENTER ══════════════════════════════════════ -->
+    <div class="slot">
+      <div class="cap">Control Center<span>328 × auto · top:44 right:12 · slideUp 0.3s</span></div>
+      <div class="p p-cc anim-up" id="panel-cc" data-side="right" data-anim="anim-up">
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;margin-bottom:12px">
+          <button class="hbtn" type="button" title="Bearbeiten"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg></button>
+          <button class="hbtn" type="button" title="Ausschalten"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" x2="12" y1="2" y2="12"></line></svg></button>
+          <button class="hbtn" type="button" title="Einstellungen"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9.1A1.7 1.7 0 0 0 10.13 3V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9.1a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03z"></path></svg></button>
+          <div class="hbtn" style="background:var(--avatar-bg);cursor:pointer"><span style="font-size:12px;font-weight:700;color:var(--text)">J</span></div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div class="card" style="padding:11px;display:flex;flex-direction:column;gap:7px">
+            <button class="tbtn" type="button" data-accent="wifi" data-active="true" data-toggle data-on="Heimnetzwerk" data-off="Aus">
+              <div class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><circle cx="12" cy="20" r="1" fill="currentColor"></circle></svg></div>
+              <div class="txt"><div class="lbl">WLAN</div><div class="sub">Heimnetzwerk</div></div>
+            </button>
+            <button class="tbtn" type="button" data-accent="bt" data-active="false" data-toggle data-on="Ein" data-off="Aus">
+              <div class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"></polyline></svg></div>
+              <div class="txt"><div class="lbl">Bluetooth</div><div class="sub">Aus</div></div>
+            </button>
+          </div>
+          <div class="card" style="padding:11px;display:flex;flex-direction:column;gap:7px">
+            <button class="tbtn" type="button" data-accent="air" data-active="false" data-toggle data-on="Ein" data-off="Aus">
+              <div class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21 4 19 4s-2 1-3.5 2.5L11 10 2.8 8.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"></path></svg></div>
+              <div class="txt"><div class="lbl">Flugmodus</div><div class="sub">Aus</div></div>
+            </button>
+            <button class="tbtn" type="button" id="viewmode" data-view="desktop" data-active="true">
+              <div class="ic" id="viewicon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"></rect><line x1="2" x2="22" y1="20" y2="20"></line></svg></div>
+              <div class="txt"><div class="lbl" id="viewlbl">Desktop</div><div class="sub">Ansichtsmodus</div></div>
+            </button>
+          </div>
+        </div>
+
+        <div class="card" style="padding:13px 15px;margin-bottom:10px">
+          <div class="sec-row"><svg class="sec-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line><line x1="12" x2="12" y1="17" y2="21"></line></svg><span class="sec-label">Helligkeit</span></div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="slider">
+              <div class="fill" style="width:70%"></div>
+              <div class="embed"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line></svg></div>
+              <input class="rng" type="range" min="0" max="100" value="70" aria-label="Helligkeit">
+            </div>
+            <button class="rbtn appearance" id="appearance" type="button" title="Erscheinungsbild"></button>
+          </div>
+        </div>
+
+        <div class="card" style="padding:13px 15px;margin-bottom:10px">
+          <div class="sec-row"><svg class="sec-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg><span class="sec-label">Ton</span></div>
+          <div style="display:flex;align-items:center;gap:10px" data-volgroup>
+            <div class="slider">
+              <div class="fill" style="width:50%"></div>
+              <div class="embed"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon></svg></div>
+              <input class="rng" type="range" min="0" max="100" value="50" aria-label="Lautstärke">
+            </div>
+            <button class="rbtn mute" type="button" data-mute data-muted="false" title="Stummschalten"></button>
+          </div>
+        </div>
+
+        <div class="card" style="padding:11px 15px">
+          <div class="row-head">
+            <div style="display:flex;align-items:center;gap:8px">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(34,197,94,0.9)" stroke-width="2" stroke-linecap="round"><rect width="16" height="10" x="2" y="7" rx="2" ry="2"></rect><line x1="22" x2="22" y1="11" y2="13"></line></svg>
+              <span class="sec-label">Batterie</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="meter" style="width:80px"><i style="width:78%"></i></div>
+              <span style="font-size:11px;color:var(--label)">78%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 2 · NOTIFICATION CENTER ═════════════════════════════════ -->
+    <div class="slot">
+      <div class="cap">Mitteilungszentrale<span>330 × auto · top:44 left:12 · slideDown 0.35s</span></div>
+      <div class="p p-notif anim-down" id="panel-notif" data-side="left" data-anim="anim-down">
+        <div class="row-head" style="margin-bottom:12px;padding:0 2px">
+          <span class="sec-title">Mitteilungen</span>
+          <button class="n-clear" type="button">Alle löschen</button>
+        </div>
+        <div class="n-stack">
+          <div class="peek"></div>
+          <div class="ncard" style="position:relative">
+            <div class="inner">
+              <div style="position:relative;flex-shrink:0">
+                <img class="appicon" src="assets/icons/relay.svg" alt="Mail">
+                <div class="n-badge">4</div>
+              </div>
+              <div style="flex:1;min-width:0">
+                <div class="row-head" style="margin-bottom:2px"><span class="n-app">Mail</span><span class="n-time">vor 5 Min.</span></div>
+                <div class="n-title">4 neue Mails</div>
+                <div class="n-body">max.mustermann@beispiel.de</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="n-list">
+          <div class="ncard"><div class="inner">
+            <img class="appicon" src="assets/icons/messages.svg" alt="Nachrichten">
+            <div style="flex:1;min-width:0">
+              <div class="row-head" style="margin-bottom:2px"><span class="n-app">Nachrichten</span><span class="n-time">vor 12 Min.</span></div>
+              <div class="n-title">Anna Schmidt</div><div class="n-body">Hey, bist du heute Abend da?</div>
+            </div>
+          </div></div>
+          <div class="ncard"><div class="inner">
+            <img class="appicon" src="assets/icons/calendar.svg" alt="Kalender">
+            <div style="flex:1;min-width:0">
+              <div class="row-head" style="margin-bottom:2px"><span class="n-app">Kalender</span><span class="n-time">vor 1 Std.</span></div>
+              <div class="n-title">Zahnarzt</div><div class="n-body">Heute um 14:30 Uhr</div>
+            </div>
+          </div></div>
+          <div class="ncard"><div class="inner">
+            <img class="appicon" src="assets/icons/weather.svg" alt="Wetter">
+            <div style="flex:1;min-width:0">
+              <div class="row-head" style="margin-bottom:2px"><span class="n-app">Wetter</span><span class="n-time">vor 2 Std.</span></div>
+              <div class="n-title">Regen erwartet</div><div class="n-body">Ab 16 Uhr leichter Regen in Berlin</div>
+            </div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 3 · CALENDAR ════════════════════════════════════════════ -->
+    <div class="slot">
+      <div class="cap">Kalender<span>288 × auto · top:44 left:12 · slideDown 0.3s</span></div>
+      <div class="p p-cal anim-down" id="panel-cal" data-side="left" data-anim="anim-down">
+        <div class="cal-head">
+          <span class="cal-month" id="calMonth">—</span>
+          <div style="display:flex;align-items:center;gap:2px">
+            <button class="cal-nav" id="calPrev" type="button" title="Vorheriger Monat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"></path></svg></button>
+            <button class="cal-nav" id="calToday" type="button" title="Heute"><span class="dot"></span></button>
+            <button class="cal-nav" id="calNext" type="button" title="Nächster Monat"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"></path></svg></button>
+          </div>
+        </div>
+        <div class="cal-grid" style="margin-bottom:4px" id="calDow"></div>
+        <div class="cal-grid" style="margin-bottom:12px" id="calCells"></div>
+        <div class="group-label">Anstehend</div>
+        <div class="cal-up" id="calUp"></div>
+      </div>
+    </div>
+
+    <!-- ══ 4 · WIFI ════════════════════════════════════════════════ -->
+    <div class="slot">
+      <div class="cap">WLAN (nur Desktop-Modus)<span>300 × auto · top:44 right:12 · slideDown 0.28s</span></div>
+      <div class="p p-status anim-down" id="panel-wifi" data-side="right" data-anim="anim-down">
+        <div class="row-head" style="margin-bottom:12px;padding:2px 2px 0">
+          <span class="sec-title">WLAN</span>
+          <button class="gtoggle" id="wifiOn" type="button" data-on="true" aria-label="WLAN ein/aus"><i></i></button>
+        </div>
+        <div class="card" style="padding:11px;margin-bottom:10px">
+          <button class="tbtn" type="button" data-accent="wifi" data-active="false" data-toggle data-on="Ethernet aktiv" data-off="WLAN erlaubt" id="wiredOnly">
+            <div class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="9" rx="1.5"></rect><path d="M7 8V6M12 8V6M17 8V6"></path></svg></div>
+            <div class="txt"><div class="lbl">Nur Kabel</div><div class="sub">WLAN erlaubt</div></div>
+          </button>
+        </div>
+        <div class="group-label">Verfügbare Netzwerke</div>
+        <div class="card" style="padding:6px;transition:opacity .15s" data-radio id="netList">
+          <button class="rrow" type="button" data-active="true">
+            <span class="lead" style="width:30px;gap:5px"><span class="bars" data-level="3"><span></span><span></span><span></span></span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:.55"><rect width="18" height="11" x="3" y="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">Heimnetzwerk</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+          <button class="rrow" type="button" data-active="false">
+            <span class="lead" style="width:30px;gap:5px"><span class="bars" data-level="3"><span></span><span></span><span></span></span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:.55"><rect width="18" height="11" x="3" y="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">FRITZ!Box 7590</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+          <button class="rrow" type="button" data-active="false">
+            <span class="lead" style="width:30px;gap:5px"><span class="bars" data-level="2"><span></span><span></span><span></span></span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:.55"><rect width="18" height="11" x="3" y="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">Nachbar_5GHz</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+          <button class="rrow" type="button" data-active="false">
+            <span class="lead" style="width:30px;gap:5px"><span class="bars" data-level="1"><span></span><span></span><span></span></span></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">CoffeeHouse_Free</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 5 · SOUND ═══════════════════════════════════════════════ -->
+    <div class="slot">
+      <div class="cap">Ton (nur Desktop-Modus)<span>300 × auto · top:44 right:12 · slideDown 0.28s</span></div>
+      <div class="p p-status anim-down" id="panel-sound" data-side="right" data-anim="anim-down">
+        <div style="margin-bottom:10px;padding:2px 2px 0"><span class="sec-title">Ton</span></div>
+        <div class="group-label">Ausgabe</div>
+        <div class="card" style="padding:6px;margin-bottom:10px" data-radio>
+          <button class="rrow" type="button" data-active="true">
+            <span class="lead"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">Interne Lautsprecher</div><div class="rsub">Integriert</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+          <button class="rrow" type="button" data-active="false">
+            <span class="lead"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">Kopfhörer</div><div class="rsub">Bluetooth</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+          <button class="rrow" type="button" data-active="false">
+            <span class="lead"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">HDMI-Display</div><div class="rsub">Extern</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+        </div>
+        <div class="group-label">Eingabe</div>
+        <div class="card" style="padding:6px;margin-bottom:10px" data-radio>
+          <button class="rrow" type="button" data-active="true">
+            <span class="lead"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0M12 19v3"></path></svg></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">Internes Mikrofon</div><div class="rsub">Integriert</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+          <button class="rrow" type="button" data-active="false">
+            <span class="lead"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0M12 19v3"></path></svg></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">Externes Mikrofon</div><div class="rsub">USB</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+        </div>
+        <div class="card" style="padding:13px 15px">
+          <div class="sec-row"><svg class="sec-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg><span class="sec-label">Lautstärke</span></div>
+          <div style="display:flex;align-items:center;gap:10px" data-volgroup>
+            <div class="slider">
+              <div class="fill" style="width:50%"></div>
+              <div class="embed"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon></svg></div>
+              <input class="rng" type="range" min="0" max="100" value="50" aria-label="Lautstärke">
+            </div>
+            <button class="rbtn mute" type="button" data-mute data-muted="false" title="Stummschalten"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 6 · BATTERY ═════════════════════════════════════════════ -->
+    <div class="slot">
+      <div class="cap">Batterie / Energie (nur Desktop-Modus)<span>300 × auto · top:44 right:12 · slideDown 0.28s</span></div>
+      <div class="p p-status anim-down" id="panel-battery" data-side="right" data-anim="anim-down">
+        <div class="row-head" style="margin-bottom:10px;padding:2px 2px 0">
+          <span class="sec-title">Batterie</span>
+          <span style="font-size:13px;font-weight:700;color:var(--text)">78%</span>
+        </div>
+        <div class="card" style="padding:11px 14px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(34,197,94,0.9)" stroke-width="2" stroke-linecap="round"><rect width="16" height="10" x="2" y="7" rx="2" ry="2"></rect><line x1="22" x2="22" y1="11" y2="13"></line></svg>
+            <div class="meter" style="flex:1"><i style="width:78%"></i></div>
+            <span style="font-size:10px;color:var(--label)">Netzbetrieb</span>
+          </div>
+        </div>
+        <div class="group-label">Energieprofil</div>
+        <div class="card" style="padding:6px;margin-bottom:10px" data-radio>
+          <button class="rrow" type="button" data-active="false">
+            <span class="lead"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"></path><path d="M2 21c0-3 1.85-5.36 5.08-6"></path></svg></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">Energiesparmodus</div><div class="rsub">Längere Laufzeit</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+          <button class="rrow" type="button" data-active="true">
+            <span class="lead"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="M7 21h10M12 3v18M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"></path></svg></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">Ausbalanciert</div><div class="rsub">Empfohlen</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+          <button class="rrow" type="button" data-active="false">
+            <span class="lead"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></span>
+            <div style="flex:1;min-width:0"><div class="rlbl">Höchstleistung</div><div class="rsub">Maximale Leistung</div></div>
+            <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </button>
+        </div>
+        <div class="card" style="padding:11px">
+          <button class="tbtn" type="button" data-accent="air" data-active="false" data-toggle data-on="Bildschirm bleibt an" data-off="Automatischer Ruhezustand">
+            <div class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>
+            <div class="txt"><div class="lbl">Kein Standby</div><div class="sub">Automatischer Ruhezustand</div></div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const SUN='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>';
+const MOON='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+const VOL='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>';
+const MUTED='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>';
+const MON='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"></rect><line x1="2" x2="22" y1="20" y2="20"></line></svg>';
+const TAB='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2"></rect><line x1="12" x2="12.01" y1="18" y2="18"></line></svg>';
+
+/* Theme */
+const body=document.body, appearance=document.getElementById('appearance');
+function paintTheme(){appearance.innerHTML=body.classList.contains('dark')?MOON:SUN}
+function toggleTheme(){body.classList.toggle('dark');paintTheme()}
+document.getElementById('theme').onclick=toggleTheme;
+appearance.onclick=toggleTheme;
+paintTheme();
+
+/* Replay entrance animations */
+document.getElementById('replay').onclick=()=>{document.querySelectorAll('.anim-up,.anim-down').forEach(el=>{const c=el.className;el.className=c.replace(/ ?anim-(up|down)/,'');void el.offsetWidth;el.className=c})};
+
+/* Toggle tiles — flip data-active, swap the sub-label */
+document.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>{
+  const on=b.dataset.active!=='true';b.dataset.active=String(on);
+  b.querySelector('.sub').textContent=on?b.dataset.on:b.dataset.off;
+  if(b.id==='wiredOnly')paintNetList();
+});
+
+/* View-mode tile (desktop ⇄ tablet) — drives which panels the shell shows */
+const vm=document.getElementById('viewmode');
+vm.onclick=()=>{const d=vm.dataset.view!=='desktop';vm.dataset.view=d?'desktop':'tablet';
+  document.getElementById('viewlbl').textContent=d?'Desktop':'Tablet';
+  document.getElementById('viewicon').innerHTML=d?MON:TAB};
+
+/* Sliders */
+document.querySelectorAll('.slider .rng').forEach(r=>{
+  const fill=r.parentElement.querySelector('.fill');
+  r.oninput=()=>{fill.style.width=r.value+'%';
+    const g=r.closest('[data-volgroup]');if(g)setMute(g,+r.value===0)};
+});
+function setMute(group,m){const btn=group.querySelector('[data-mute]');btn.dataset.muted=String(m);btn.innerHTML=m?MUTED:VOL;
+  if(m){group.querySelector('.fill').style.width='0%';group.querySelector('.rng').value=0}}
+document.querySelectorAll('[data-volgroup]').forEach(g=>{
+  setMute(g,false);
+  g.querySelector('[data-mute]').onclick=()=>{const m=g.querySelector('[data-mute]').dataset.muted!=='true';
+    if(m){setMute(g,true)}else{const btn=g.querySelector('[data-mute]');btn.dataset.muted='false';btn.innerHTML=VOL;
+      g.querySelector('.rng').value=50;g.querySelector('.fill').style.width='50%'}};
+});
+
+/* Radio groups — single selection per card */
+document.querySelectorAll('[data-radio]').forEach(group=>{
+  group.querySelectorAll('.rrow').forEach(row=>row.onclick=()=>{
+    group.querySelectorAll('.rrow').forEach(r=>r.dataset.active='false');row.dataset.active='true'});
+});
+
+/* WiFi master switch + "Nur Kabel" both disable the network list */
+const wifiOn=document.getElementById('wifiOn'),netList=document.getElementById('netList');
+function paintNetList(){const off=wifiOn.dataset.on!=='true'||document.getElementById('wiredOnly').dataset.active==='true';
+  netList.style.opacity=off?0.4:1;netList.style.pointerEvents=off?'none':'auto'}
+wifiOn.onclick=()=>{wifiOn.dataset.on=String(wifiOn.dataset.on!=='true');paintNetList()};
+paintNetList();
+
+/* Calendar */
+const DOW=['Mo','Di','Mi','Do','Fr','Sa','So'];
+document.getElementById('calDow').innerHTML=DOW.map(d=>'<div class="cal-dow">'+d+'</div>').join('');
+const today=new Date();today.setHours(0,0,0,0);
+const mk=off=>{const d=new Date(today);d.setDate(d.getDate()+off);return d};
+const EVENTS=[
+  {date:mk(0), title:'Zahnarzt',         time:'14:30',     color:'#f87171'},
+  {date:mk(2), title:'Team-Meeting',     time:'10:00',     color:'#60a5fa'},
+  {date:mk(5), title:'Geburtstag Anna',  time:'ganztägig', color:'#a78bfa'},
+  {date:mk(9), title:'Projekt-Deadline', time:'18:00',     color:'#fb923c'},
+  {date:mk(16),title:'Konzert',          time:'20:00',     color:'#34d399'}
+];
+let shown=new Date(today.getFullYear(),today.getMonth(),1);
+function relLabel(d){const diff=Math.round((d-today)/86400000);
+  if(diff===0)return 'Heute';if(diff===1)return 'Morgen';
+  return d.toLocaleDateString('de-DE',{weekday:'short',day:'numeric',month:'short'})}
+function renderCal(){
+  const y=shown.getFullYear(),m=shown.getMonth();
+  document.getElementById('calMonth').textContent=shown.toLocaleDateString('de-DE',{month:'long',year:'numeric'});
+  const firstDow=(new Date(y,m,1).getDay()+6)%7, days=new Date(y,m+1,0).getDate();
+  const evDays=new Set(EVENTS.filter(e=>e.date.getFullYear()===y&&e.date.getMonth()===m).map(e=>e.date.getDate()));
+  let html='';
+  for(let i=0;i<firstDow;i++)html+='<div class="cal-cell"></div>';
+  for(let d=1;d<=days;d++){
+    const isToday=y===today.getFullYear()&&m===today.getMonth()&&d===today.getDate();
+    html+='<div class="cal-cell" data-today="'+isToday+'" data-event="'+evDays.has(d)+'"><div class="cal-num">'+d+'</div><span class="cal-ev"></span></div>';
+  }
+  document.getElementById('calCells').innerHTML=html;
+  document.getElementById('calUp').innerHTML=EVENTS.filter(e=>e.date>=today).slice(0,3).map(e=>
+    '<div class="item"><span class="spine" style="background:'+e.color+'"></span><div style="flex:1;min-width:0"><div class="t">'+e.title+'</div><div class="m">'+relLabel(e.date)+' · '+e.time+'</div></div></div>').join('');
+}
+document.getElementById('calPrev').onclick=()=>{shown=new Date(shown.getFullYear(),shown.getMonth()-1,1);renderCal()};
+document.getElementById('calNext').onclick=()=>{shown=new Date(shown.getFullYear(),shown.getMonth()+1,1);renderCal()};
+document.getElementById('calToday').onclick=()=>{shown=new Date(today.getFullYear(),today.getMonth(),1);renderCal()};
+renderCal();
+
+/* ───────────────────────────────────────────────────────────────
+   Topbar triggers · anchoring · one-panel-at-a-time
+   The panel nodes below the shell are the canonical markup; opening
+   a pill moves the real node into the shell's drop layer (top:44,
+   left/right:12) and closing puts it back. Ports should instead
+   mount/unmount the panel widget at that anchor.
+   ─────────────────────────────────────────────────────────────── */
+const IC={
+  wifi:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><circle cx="12" cy="20" r="1" fill="currentColor"></circle></svg>',
+  vol:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>',
+  bat:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="16" height="10" x="2" y="7" rx="2"></rect><line x1="22" x2="22" y1="11" y2="13"></line></svg>',
+  bell:'<span class="bell"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg><i></i></span>',
+  mail:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>',
+  chat:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>',
+  cal:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2"></rect><line x1="16" x2="16" y1="2" y2="6"></line><line x1="8" x2="8" y1="2" y2="6"></line><line x1="3" x2="21" y1="10" y2="10"></line></svg>',
+  slid:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" x2="4" y1="21" y2="14"></line><line x1="4" x2="4" y1="10" y2="3"></line><line x1="12" x2="12" y1="21" y2="12"></line><line x1="12" x2="12" y1="8" y2="3"></line><line x1="20" x2="20" y1="21" y2="16"></line><line x1="20" x2="20" y1="12" y2="3"></line><line x1="1" x2="7" y1="14" y2="14"></line><line x1="9" x2="15" y1="8" y2="8"></line><line x1="17" x2="23" y1="16" y2="16"></line></svg>'
+};
+const now=new Date();
+const T=now.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+const D=now.toLocaleDateString('de-DE',{weekday:'short',day:'numeric',month:'short'});
+const BARS={
+  desktop:{
+    left:[['cal','<span class="t">'+T+'</span><span class="d">·</span><span class="d">'+D+'</span>'],
+          ['notif',IC.bell+'<span style="display:flex;align-items:center;gap:2px">'+IC.mail+'<span class="n">4</span></span>'+IC.chat+IC.cal]],
+    right:[['wifi',IC.wifi],['sound',IC.vol],['battery',IC.bat+'<span style="font-size:11px;font-weight:500">78%</span>'],['cc',IC.slid]]
+  },
+  tablet:{
+    left:[['cal','<span class="t">'+T+'</span>'],['notif',IC.bell]],
+    right:[['cc',IC.wifi+IC.vol+IC.bat+'<span style="font-size:11px;font-weight:500">78%</span>']]
+  },
+  phone:{
+    left:[['notif','<span class="t">'+T+'</span>'+IC.bell]],
+    right:[['cc',IC.wifi+IC.vol+IC.bat+'<span style="font-size:11px;font-weight:500">78%</span>']]
+  }
+};
+const shell=document.getElementById('shell'),dropLayer=document.getElementById('dropLayer'),dropBackdrop=document.getElementById('dropBackdrop');
+const HOME={};['cc','notif','cal','wifi','sound','battery'].forEach(k=>{const el=document.getElementById('panel-'+k);HOME[k]=el.parentElement});
+let openId=null;
+function closePanel(){
+  if(!openId)return;
+  const el=document.getElementById('panel-'+openId);
+  el.style.position='';el.style.top='';el.style.left='';el.style.right='';el.style.zIndex='';
+  HOME[openId].appendChild(el);
+  dropBackdrop.dataset.on='false';
+  document.querySelectorAll('.pill').forEach(p=>p.dataset.open='false');
+  openId=null;
+}
+function openPanel(id){
+  const same=openId===id;closePanel();if(same)return;
+  const el=document.getElementById('panel-'+id);
+  el.style.position='absolute';el.style.top='44px';el.style.zIndex='40';
+  el.style[el.dataset.side]='12px';
+  el.classList.remove(el.dataset.anim);void el.offsetWidth;el.classList.add(el.dataset.anim);
+  dropLayer.appendChild(el);dropBackdrop.dataset.on='true';openId=id;
+  const pill=document.querySelector('.pill[data-target="'+id+'"]');if(pill)pill.dataset.open='true';
+}
+dropBackdrop.onclick=closePanel;
+function renderBar(mode){
+  closePanel();
+  shell.dataset.mode=mode;
+  const cfg=BARS[mode];
+  for(const [zoneId,items] of [['tbLeft',cfg.left],['tbRight',cfg.right]]){
+    document.getElementById(zoneId).innerHTML=items.map(([target,html])=>
+      '<button class="pill" type="button" data-target="'+target+'" data-open="false">'+html+'</button>').join('');
+  }
+  document.querySelectorAll('.pill').forEach(p=>p.onclick=()=>openPanel(p.dataset.target));
+}
+document.querySelectorAll('[data-mode-btn]').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('[data-mode-btn]').forEach(x=>x.setAttribute('aria-pressed','false'));
+  b.setAttribute('aria-pressed','true');renderBar(b.dataset.modeBtn)});
+renderBar('desktop');
+
+/* Dynamic Island — collapsed 118×28, hover 288×64 (now playing) */
+const island=document.getElementById('island');
+const ISL_SM=island.innerHTML;
+const ISL_LG='<div style="display:flex;align-items:center;gap:10px;width:100%;padding:0 10px"><div style="width:44px;height:44px;border-radius:11px;background:linear-gradient(135deg,#a855f7,#ec4899,#f43f5e);flex-shrink:0"></div><div style="flex:1;min-width:0;text-align:left"><div style="color:#fff;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Summer Vibes</div><div style="color:rgba(255,255,255,0.45);font-size:11px;margin-top:2px">The Artist</div></div><div style="display:flex;align-items:center;gap:4px;flex-shrink:0"><span style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:11px">◀◀</span><span style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.9);color:#000;display:flex;align-items:center;justify-content:center;font-size:11px">▶</span><span style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:11px">▶▶</span></div></div>';
+island.onmouseenter=()=>{island.style.width='288px';island.style.height='64px';island.style.borderRadius='22px';island.innerHTML=ISL_LG};
+island.onmouseleave=()=>{island.style.width='118px';island.style.height='28px';island.style.borderRadius='20px';island.innerHTML=ISL_SM};
+</script>
+</body>
+</html>

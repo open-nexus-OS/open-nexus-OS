@@ -4,20 +4,32 @@
 // Control-Center store: theme + shell-mode requests go through
 // `svc.settings.set` — the app-host routes these PRESENTATION keys to windowd
 // (single presentation authority: live apply + persist), which pushes the new
-// theme/profile back and the shell re-mounts. Idempotent SetTheme/SetMode
-// (two explicit tiles, no local toggle state — a re-mount resets stores, so
-// the ACTIVE state is read from `device.profile`, never mirrored here).
-// Brightness/volume are local UI state until their services land (honest).
+// theme/profile back and the shell re-mounts.
+//
+// `SetTheme`/`SetMode` are the app's ONLY real service writes. The ACTIVE
+// theme and profile are never mirrored here: a re-mount resets stores, so a
+// mirrored copy would be wrong exactly when it mattered. They are read from
+// `device.theme` / `device.profile`, which the host refills on every emit.
+//
+// Brightness, volume and mute are LOCAL UI state — honest placeholders until a
+// backlight/audio service exists. Nothing here calls `svc.*` for them and no
+// marker claims otherwise. Volume and mute deliberately live in ONE place
+// (design_handoff_panels §6: "ein gemeinsamer Lautstärke-Zustand" for Control
+// Center, the Sound panel and the top bar).
 
 Store ControlStore {
     brightness: Int = 70,
-    volume: Int = 40,
+    volume: Int = 50,
+    muted: Bool = false,
     applyError: Int = 0,
 }
 
 Event ControlEvent {
     SetTheme(Str),
     SetMode(Str),
+    SetBrightness(Int),
+    SetVolume(Int),
+    ToggleMute,
     Applied(Bool),
     ApplyFailed(Int),
 }
@@ -25,6 +37,29 @@ Event ControlEvent {
 reduce ControlEvent {
     SetTheme(mode) => state.applyError = 0,
     SetMode(mode) => state.applyError = 0,
+    SetBrightness(v) => state.brightness = v,
+    // Dragging the volume to 0 IS muting, and lifting it off 0 unmutes — the
+    // handoff's rule, so the slider and the button can never contradict.
+    SetVolume(v) => {
+        state.volume = v;
+        if v == 0 {
+            state.muted = true;
+        } else {
+            state.muted = false;
+        }
+    },
+    // Un-muting restores 50 rather than the pre-mute value: the reducer has
+    // nowhere to stash that value, and a slider that springs back to silence
+    // would read as a broken button.
+    ToggleMute => {
+        if state.muted {
+            state.muted = false;
+            state.volume = 50;
+        } else {
+            state.muted = true;
+            state.volume = 0;
+        }
+    },
     Applied(ok) => state.applyError = 0,
     ApplyFailed(code) => state.applyError = code,
 }

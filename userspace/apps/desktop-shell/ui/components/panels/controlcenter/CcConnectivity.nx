@@ -1,0 +1,94 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The 2×2 tile grid (design_handoff_panels §3, row 2): WLAN · Bluetooth on the
+// left, Flugmodus · Ansichtsmodus on the right. Two `.grow(1)` columns rather
+// than a grid — the DSL has no `Grid`, and two equal flex columns ARE
+// `grid-template-columns: 1fr 1fr`.
+//
+// The Ansichtsmodus tile is the shell's layout switch and the one tile here
+// that is REAL. It is also the only tile that is ALWAYS active: it never means
+// "off", it names which of two modes you are in, so it changes colour, glyph
+// and label instead of dimming. Its state comes from `device.profile`, never a
+// store — see `controlcenter.store.nx`.
+
+Component CcConnectivity {
+    Stack {
+        Stack {
+            Stack {
+                ToggleTile {
+                    icon: "wifi",
+                    label: @t("control.wifi"),
+                    subOn: @t("control.wifiNet"),
+                    subOff: @t("control.off"),
+                    accent: "#3b82f6",
+                    active: $state.wifiOn,
+                }
+            }
+            on Tap -> dispatch(ToggleWifi)
+            Stack {
+                ToggleTile {
+                    icon: "bluetooth",
+                    label: @t("control.bluetooth"),
+                    subOn: @t("control.on"),
+                    subOff: @t("control.off"),
+                    accent: "#3b82f6",
+                    active: $state.bluetoothOn,
+                }
+            }
+            on Tap -> dispatch(ToggleBluetooth)
+        }
+        .gap(2)
+        .grow(1)
+        .minWidth(0)
+        .padding(3)
+        .rounded(20)
+        .material(card)
+        Stack {
+            Stack {
+                ToggleTile {
+                    icon: "airplane",
+                    label: @t("control.airplane"),
+                    subOn: @t("control.on"),
+                    subOff: @t("control.off"),
+                    accent: "#f97316",
+                    active: $state.airplaneOn,
+                }
+            }
+            on Tap -> dispatch(ToggleAirplane)
+            if device.profile == desktop {
+                Stack {
+                    ToggleTile {
+                        icon: "desktopcomputer",
+                        label: @t("control.desktop"),
+                        subOn: @t("control.viewMode"),
+                        subOff: @t("control.viewMode"),
+                        accent: "#14b8a6",
+                        active: true,
+                    }
+                }
+                on Tap -> dispatch(SetMode("tablet"))
+            } else {
+                Stack {
+                    ToggleTile {
+                        icon: "ipad",
+                        label: @t("control.tablet"),
+                        subOn: @t("control.viewMode"),
+                        subOff: @t("control.viewMode"),
+                        accent: "#8b5cf6",
+                        active: true,
+                    }
+                }
+                on Tap -> dispatch(SetMode("desktop"))
+            }
+        }
+        .gap(2)
+        .grow(1)
+        .minWidth(0)
+        .padding(3)
+        .rounded(20)
+        .material(card)
+    }
+    .direction(row)
+    .gap(2)
+}

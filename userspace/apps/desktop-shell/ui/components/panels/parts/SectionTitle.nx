@@ -1,0 +1,13 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A panel's own heading (design_handoff_panels `.sec-title`): "Mitteilungen",
+// "WLAN", "Ton", "Batterie". The largest type in any panel — one step above
+// the row labels, which is the whole type hierarchy these surfaces have.
+
+Component SectionTitle {
+    props: {
+        label: Str,
+    }
+    Text($props.label).textSize(base).fontWeight(semibold).leading(tight).fg(onGlass)
+}

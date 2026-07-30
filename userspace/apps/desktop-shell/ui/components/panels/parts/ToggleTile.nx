@@ -1,0 +1,83 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The toggle tile (design_handoff_panels `.tbtn`) — the panels' central
+// building block: full width, a 26px icon circle, and a two-line text column
+// (label + a SUB-LABEL that states the tile's current state in words). The
+// tile owns that swap — `subOn`/`subOff`, mirroring the handoff's own
+// `data-on`/`data-off` — so no call site has to branch just to word a state.
+// Control Center uses four, WiFi one ("Nur Kabel"), Battery one ("Kein
+// Standby").
+//
+// Active is a filled accent tile, not a tinted one: `rgba(accent,.88)` with a
+// glow. The accent travels as a HEX PROP through `.bgGradient(c, c)` — the
+// sanctioned literal-colour path — because two of the five accents the handoff
+// names (teal `#14b8a6`, violet `#8b5cf6`) are not theme roles and inventing
+// roles for one tile's palette would put product colour in the design system.
+//
+// The active ink is `onInfo`, NOT `onAccent`. `onAccent` flips with the theme
+// (white on light, near-black on dark) because it is paired with the USER's
+// accent, which the light theme keeps dark enough to carry white text and the
+// dark theme does not. These tiles are saturated mid-tones in both themes, so
+// their ink is white in both — which is exactly what `onInfo` resolves to.
+// The 65%-white sub-label rides the same role at reduced opacity (the scale is
+// 0..255, so .65 is 166).
+
+Component ToggleTile {
+    props: {
+        icon: Str,
+        label: Str,
+        subOn: Str,
+        subOff: Str,
+        accent: Str,
+        active: Bool,
+    }
+    if $props.active {
+        Stack {
+            Circle { size: 26
+                Icon { symbol: $props.icon, size: 13 }
+                    .fg(onInfo)
+            }
+            .bgGradient("#ffffff40", "#ffffff40")
+            Stack {
+                Text($props.label).textSize(xs).fontWeight(semibold).leading(tight).fg(onInfo)
+                Text($props.subOn).textSize(xs).leading(tight).fg(onInfo).opacity(166)
+            }
+            .gap(0)
+            .grow(1)
+            .direction(column)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(3)
+        .paddingY(2)
+        .rounded(15)
+        .bgGradient($props.accent, $props.accent)
+        .shadow(md)
+    } else {
+        Stack {
+            Circle { size: 26
+                Icon { symbol: $props.icon, size: 13 }
+                    .fg(onGlassMuted)
+            }
+            .material(subtle)
+            Stack {
+                Text($props.label).textSize(xs).fontWeight(semibold).leading(tight).fg(onGlass)
+                Text($props.subOff).textSize(xs).leading(tight).fg(onGlassMuted)
+            }
+            .gap(0)
+            .grow(1)
+            .direction(column)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(3)
+        .paddingY(2)
+        .rounded(15)
+        .bg(toggleOffBg)
+        .border(hairline)
+        .borderColor(divider)
+    }
+}

@@ -69,7 +69,13 @@ impl super::DslApp {
         // Data-reload hook for programs that declare it.
         if let Some((event, case)) = self.view.runtime.event_case("ProfileEvent", "Changed") {
             let tokens = tokens_for(self.theme_mode);
-            let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
+            let device = device_for(
+                self.shell_profile,
+                self.w,
+                &self.locale_tag,
+                &self.keymap,
+                self.theme_mode,
+            );
             let tag = profile_tag(profile);
             let damage = {
                 let locale_src = super::app_locale!(self);
@@ -100,7 +106,8 @@ impl super::DslApp {
     /// anchor, reconcile animations. The shared tail of every settings arm.
     fn reemit_current(&mut self, what: &str) -> bool {
         let tokens = tokens_for(self.theme_mode);
-        let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
+        let device =
+            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
         let ok = {
             let locale_src = super::app_locale!(self);
             self.view.reemit(tokens, &device, &locale_src).is_ok()

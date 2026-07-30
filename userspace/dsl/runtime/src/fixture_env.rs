@@ -19,7 +19,7 @@ use crate::{DeviceEnv, Value};
 /// (docs/dev/dsl/profiles.md), host-injectable per golden variant. Field ids
 /// index `nexus-dsl-core::registry::DEVICE_FIELDS`:
 /// 0 profile, 1 posture, 2 orientation, 3 shellMode, 4 sizeClass,
-/// 5 dpiClass, 6 input, 7 locale, 8 keymap.
+/// 5 dpiClass, 6 input, 7 locale, 8 keymap, 9 theme.
 pub struct FixtureEnv {
     pub profile: &'static str,
     pub posture: &'static str,
@@ -34,6 +34,15 @@ pub struct FixtureEnv {
     pub locale: String,
     /// The active keymap layout tag (`us`/`de`/`jp`/…; RFC-0075 Phase 8b).
     pub keymap: String,
+    /// The active theme mode (`dark`|`light`) — runtime-varying, hosts fill it
+    /// from the presentation push alongside the token set they resolve.
+    ///
+    /// A page can already be re-themed WITHOUT reading this (the tokens do the
+    /// work). It exists for the controls that must show the mode they will
+    /// switch AWAY from — a single appearance toggle carrying a moon in dark
+    /// and a sun in light, instead of two buttons because the tree was blind.
+    /// Defaults to `dark`, matching settingsd's `ui.theme.mode` default.
+    pub theme: &'static str,
 }
 
 impl Default for FixtureEnv {
@@ -55,6 +64,7 @@ impl FixtureEnv {
             input: &["mouse", "kbd", "touch"],
             locale: String::new(),
             keymap: String::new(),
+            theme: "dark",
         }
     }
 
@@ -70,6 +80,7 @@ impl FixtureEnv {
             input: &["touch"],
             locale: String::new(),
             keymap: String::new(),
+            theme: "dark",
         }
     }
 
@@ -88,6 +99,7 @@ impl FixtureEnv {
             input: &["touch", "kbd"],
             locale: String::new(),
             keymap: String::new(),
+            theme: "dark",
         }
     }
 
@@ -104,6 +116,7 @@ impl FixtureEnv {
             input: &["touch", "mouse", "kbd"],
             locale: String::new(),
             keymap: String::new(),
+            theme: "dark",
         }
     }
 }
@@ -122,6 +135,7 @@ impl DeviceEnv for FixtureEnv {
             }
             7 => Value::Str(self.locale.clone()),
             8 => Value::Str(self.keymap.clone()),
+            9 => Value::Str(String::from(self.theme)),
             _ => Value::Str(String::new()),
         }
     }

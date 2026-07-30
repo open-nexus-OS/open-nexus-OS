@@ -1,0 +1,24 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Weekday header (design_handoff_panels §5): Monday first, as the handoff and
+// the locale require. Seven equal `.grow(1)` columns, the same recipe the day
+// cells use, so the two rows stay in column with each other.
+//
+// Written out rather than looped: `@t` takes a LITERAL key (the key table is
+// baked at compile time), so a list of key names cannot be translated. The
+// previous version looped over raw German strings and was therefore never
+// translatable at all — seven keys is the cost of fixing that.
+
+Component CalWeekHeader {
+    Stack {
+        CalDow { label: @t("cal.mo") }
+        CalDow { label: @t("cal.tu") }
+        CalDow { label: @t("cal.we") }
+        CalDow { label: @t("cal.th") }
+        CalDow { label: @t("cal.fr") }
+        CalDow { label: @t("cal.sa") }
+        CalDow { label: @t("cal.su") }
+    }
+    .direction(row)
+}

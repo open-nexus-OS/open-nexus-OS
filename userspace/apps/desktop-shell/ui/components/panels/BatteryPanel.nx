@@ -1,49 +1,84 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Battery drop-down (design_handoff_launcher: 300 wide, top right,
-// DESKTOP mode only). Static demo values until a power service lands.
+// Batterie/Energie panel (design_handoff_panels §6): 300 wide, radius 30, top
+// right, DESKTOP mode only. Charge readout, energy profile, standby inhibit.
+//
+// Charge and power source are literals, not store fields: nothing measures
+// them, and a field would dress a constant up as a reading. The profile and
+// "Kein Standby" ARE state — they are choices made here — and they live in
+// `PowerStore` as demo state until a power service exists.
+//
+// Exactly three profiles, per the handoff. A fourth would be an invention.
 
 Component BatteryPanel {
     Stack {
         Stack {
-            Icon { symbol: "battery.75", size: 14 }
-                .fg(onSurface)
-            Text(@t("panels.battery")).textSize(sm).fg(onSurface)
+            SectionTitle { label: @t("panels.battery") }
             Spacer
-            Text(@t("shell.battery")).textSize(sm).fg(onSurface)
+            Text(@t("control.batteryPct")).textSize(sm).fontWeight(bold).fg(onGlass)
         }
         .direction(row)
         .align(center)
-        .gap(2)
-        Text(@t("panels.powerSource")).textSize(xs).fg(onSurfaceVariant)
+        .paddingX(1)
         Stack {
-            Text(@t("panels.profileBalanced")).textSize(sm).fg(onSurface)
-            Spacer
-            Icon { symbol: "checkmark", size: 12 }
-                .fg(accent)
+            Icon { symbol: "battery.75", size: 15 }
+                .fg(success)
+            Stack {
+                Meter { percent: 78 }
+            }
+            .grow(1)
+            Text(@t("battery.source")).textSize(xs).fg(onGlassMuted)
         }
         .direction(row)
         .align(center)
         .gap(2)
-        .padding(2)
-        .material(subtle)
-        .rounded(md)
+        .paddingX(3)
+        .paddingY(3)
+        .rounded(20)
+        .material(card)
+        GroupLabel { label: @t("battery.profile") }
         Stack {
-            Text(@t("panels.profileSaver")).textSize(sm).fg(onSurfaceVariant)
-            Spacer
+            Stack {
+                RadioRow { label: @t("battery.saver"), sub: @t("battery.saverSub"), icon: "leaf", bars: 0, locked: false, active: $state.powerProfile == "saver" }
+            }
+            on Tap -> dispatch(PickProfile("saver"))
+            Stack {
+                RadioRow { label: @t("battery.balanced"), sub: @t("battery.balancedSub"), icon: "scale", bars: 0, locked: false, active: $state.powerProfile == "balanced" }
+            }
+            on Tap -> dispatch(PickProfile("balanced"))
+            Stack {
+                RadioRow { label: @t("battery.performance"), sub: @t("battery.performanceSub"), icon: "bolt", bars: 0, locked: false, active: $state.powerProfile == "performance" }
+            }
+            on Tap -> dispatch(PickProfile("performance"))
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .padding(2)
-        .material(subtle)
-        .rounded(md)
+        .padding(1)
+        .rounded(20)
+        .material(card)
+        Stack {
+            Stack {
+                ToggleTile {
+                    icon: "clock",
+                    label: @t("battery.noStandby"),
+                    subOn: @t("battery.noStandbyOn"),
+                    subOff: @t("battery.noStandbyOff"),
+                    accent: "#f97316",
+                    active: $state.noStandby,
+                }
+            }
+            on Tap -> dispatch(ToggleNoStandby)
+        }
+        .padding(3)
+        .rounded(20)
+        .material(card)
     }
     .width(300)
-    .padding(4)
     .gap(2)
+    .paddingX(4)
+    .paddingTop(3)
+    .paddingBottom(4)
+    .rounded(30)
     .material(panel)
-    .rounded(xl)
-    .transition(slideUp)
+    .shadow(xxl)
+    .transition(slideDown)
 }

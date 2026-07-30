@@ -1,0 +1,27 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Control-Center header (design_handoff_panels §3, row 1): three 30px glyph
+// buttons and the user avatar, pushed right.
+//
+// Edit · Ausschalten · Einstellungen are drawn but inert — there is no
+// edit mode, no shutdown path from the shell, and no settings deep link yet.
+// They stay in the layout because the header's balance is part of the design
+// and a button that visibly does nothing is more honest than a gap that
+// silently means "unfinished".
+
+Component CcHeader {
+    Stack {
+        Spacer
+        HeaderIconButton { icon: "pencil" }
+        HeaderIconButton { icon: "power" }
+        HeaderIconButton { icon: "gearshape" }
+        Circle { size: 30
+            Text(@t("control.userInitial")).textSize(xs).fontWeight(bold).fg(onGlass)
+        }
+        .material(subtle)
+    }
+    .direction(row)
+    .align(center)
+    .gap(1)
+}

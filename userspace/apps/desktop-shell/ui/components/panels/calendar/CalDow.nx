@@ -1,0 +1,17 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One weekday column head. Its own component only so `CalWeekHeader` can name
+// seven translatable keys without repeating the flex recipe seven times — the
+// cells below share it, and the two rows must agree or the grid shears.
+
+Component CalDow {
+    props: {
+        label: Str,
+    }
+    Stack {
+        Text($props.label).textSize(xs).leading(tight).fg(onGlassMuted)
+    }
+    .grow(1)
+    .align(center)
+}

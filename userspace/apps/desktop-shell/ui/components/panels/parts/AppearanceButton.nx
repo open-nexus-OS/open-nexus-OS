@@ -1,0 +1,38 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The Erscheinungsbild button (design_handoff_panels §3): ONE 34px circle that
+// shows the theme it is IN — a moon on indigo while dark, a sun on amber while
+// light — and switches to the other on tap.
+//
+// It was two buttons until `device.theme` existed, because the tree could not
+// read the mode it was rendering under and a single button had no way to know
+// which glyph to draw. Reading `device.*` (and never a mirrored store field) is
+// also what keeps it correct across a re-mount: the host re-emits with the new
+// env, this re-renders, and no local copy can go stale.
+//
+// The gradients are the handoff's literals. They are not roles: their whole
+// job is to be recognisably "night" and "day", which is the opposite of
+// something that should re-theme.
+
+Component AppearanceButton {
+    if device.theme == dark {
+        Circle { size: 34
+            Icon { symbol: "moon", size: 15 }
+                .fg(onInfo)
+        }
+        .bgGradient("#818cf8", "#4f46e5")
+        .shadow(md)
+        .hitSlop(2)
+        on Tap -> dispatch(SetTheme("light"))
+    } else {
+        Circle { size: 34
+            Icon { symbol: "sun.max", size: 15 }
+                .fg(onInfo)
+        }
+        .bgGradient("#fcd34d", "#f97316")
+        .shadow(md)
+        .hitSlop(2)
+        on Tap -> dispatch(SetTheme("dark"))
+    }
+}

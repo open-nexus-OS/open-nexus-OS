@@ -1,0 +1,20 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The battery pill (design_handoff_panels §2, desktop): glyph plus the
+// percentage — the one status the handoff spells out in the bar rather than
+// leaving to an icon, because "how much is left" is a number, not a shape.
+
+Component BatteryPill {
+    Stack {
+        Icon { symbol: "battery.75", size: 13 }
+            .fg(onGlass)
+        Text(@t("control.batteryPct")).textSize(xs).fg(onGlass)
+    }
+    .direction(row)
+    .align(center)
+    .gap(1)
+    .paddingX(2)
+    .height(28)
+    .rounded(full)
+}

@@ -1,56 +1,93 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The WiFi drop-down (design_handoff_launcher: 300 wide, top right, DESKTOP
-// mode only — touch folds it into the Control Center). Static demo network
-// list until a radio service lands (honest: rows are disabled placeholders).
+// WLAN panel (design_handoff_panels §6): 300 wide, radius 30, top right,
+// DESKTOP mode only — in touch modes its contents fold into the Control
+// Center, which is why nothing here duplicates a tile the CC already owns
+// except "Nur Kabel", a wired-networking choice the CC has no room for.
+//
+// The network list dims when the master switch is off OR "Nur Kabel" is on.
+// That is two branches rather than one computed opacity because `.opacity`
+// takes a static Int — a modifier argument is never an expression in this DSL.
+//
+// The networks are DEMO DATA (no radio service): tapping one moves the check
+// and nothing else. Names are deliberately generic — no real product names in
+// shipped strings.
 
 Component WifiPanel {
     Stack {
         Stack {
-            Icon { symbol: "wifi", size: 14 }
-                .fg(onSurface)
-            Text(@t("panels.wifi")).textSize(sm).fg(onSurface)
+            SectionTitle { label: @t("panels.wifi") }
             Spacer
-            Chip { label: @t("panels.wiredOnly") }
-                .disabled(true)
+            Stack {
+                GlassToggle { checked: $state.wifiOn }
+            }
+            on Tap -> dispatch(ToggleWifi)
         }
         .direction(row)
         .align(center)
-        .gap(2)
+        .paddingX(1)
         Stack {
-            Icon { symbol: "wifi", size: 13 }
-                .fg(onSurface)
-            Text(@t("panels.net1")).textSize(sm).fg(onSurface)
-            Spacer
-            Icon { symbol: "lock", size: 12 }
-                .fg(onSurfaceVariant)
+            Stack {
+                ToggleTile {
+                    icon: "cable",
+                    label: @t("wifi.wiredOnly"),
+                    subOn: @t("wifi.wiredOnlyOn"),
+                    subOff: @t("wifi.wiredOnlyOff"),
+                    accent: "#3b82f6",
+                    active: $state.wiredOnly,
+                }
+            }
+            on Tap -> dispatch(ToggleWiredOnly)
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .padding(2)
-        .material(subtle)
-        .rounded(md)
-        Stack {
-            Icon { symbol: "wifi", size: 13 }
-                .fg(onSurfaceVariant)
-            Text(@t("panels.net2")).textSize(sm).fg(onSurfaceVariant)
-            Spacer
-            Icon { symbol: "lock", size: 12 }
-                .fg(onSurfaceVariant)
+        .padding(3)
+        .rounded(20)
+        .material(card)
+        GroupLabel { label: @t("wifi.available") }
+        if $state.wifiOn && $state.wiredOnly == false {
+            Stack {
+                Stack {
+                    RadioRow { label: @t("wifi.net.home"), sub: "", icon: "", bars: 3, locked: true, active: $state.selectedNet == "home" }
+                }
+                on Tap -> dispatch(PickNet("home"))
+                Stack {
+                    RadioRow { label: @t("wifi.net.guest"), sub: "", icon: "", bars: 3, locked: true, active: $state.selectedNet == "guest" }
+                }
+                on Tap -> dispatch(PickNet("guest"))
+                Stack {
+                    RadioRow { label: @t("wifi.net.neighbour"), sub: "", icon: "", bars: 2, locked: true, active: $state.selectedNet == "neighbour" }
+                }
+                on Tap -> dispatch(PickNet("neighbour"))
+                Stack {
+                    RadioRow { label: @t("wifi.net.cafe"), sub: "", icon: "", bars: 1, locked: false, active: $state.selectedNet == "cafe" }
+                }
+                on Tap -> dispatch(PickNet("cafe"))
+            }
+            .padding(1)
+            .rounded(20)
+            .material(card)
+        } else {
+            // Dimmed AND inert: no tap handlers at all, so a disabled list
+            // cannot silently change the selection behind the dimming.
+            Stack {
+                RadioRow { label: @t("wifi.net.home"), sub: "", icon: "", bars: 3, locked: true, active: $state.selectedNet == "home" }
+                RadioRow { label: @t("wifi.net.guest"), sub: "", icon: "", bars: 3, locked: true, active: $state.selectedNet == "guest" }
+                RadioRow { label: @t("wifi.net.neighbour"), sub: "", icon: "", bars: 2, locked: true, active: $state.selectedNet == "neighbour" }
+                RadioRow { label: @t("wifi.net.cafe"), sub: "", icon: "", bars: 1, locked: false, active: $state.selectedNet == "cafe" }
+            }
+            .padding(1)
+            .rounded(20)
+            .material(card)
+            .opacity(102)
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .padding(2)
-        .material(subtle)
-        .rounded(md)
     }
     .width(300)
-    .padding(4)
     .gap(2)
+    .paddingX(4)
+    .paddingTop(3)
+    .paddingBottom(4)
+    .rounded(30)
     .material(panel)
-    .rounded(xl)
-    .transition(slideUp)
+    .shadow(xxl)
+    .transition(slideDown)
 }

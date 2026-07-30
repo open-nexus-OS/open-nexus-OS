@@ -427,11 +427,20 @@ mod tests {
         assert_eq!(FontSize::nearest(16, Weight::Regular), FontSize::Body);
         assert_eq!(FontSize::nearest(21, Weight::SemiBold), FontSize::TitleSemi);
         assert_eq!(FontSize::nearest(120, Weight::Light), FontSize::Hero);
-        // Between rungs: nearest px wins, ties round DOWN.
+        assert_eq!(FontSize::nearest(11, Weight::Regular), FontSize::Caption);
+        assert_eq!(FontSize::nearest(11, Weight::SemiBold), FontSize::CaptionSemi);
+        // Between rungs: nearest px wins, ties round UP.
         assert_eq!(FontSize::nearest(14, Weight::Regular), FontSize::Small, "14 → 13, not 16");
         assert_eq!(FontSize::nearest(15, Weight::Regular), FontSize::Body);
-        assert_eq!(FontSize::nearest(18, Weight::Regular), FontSize::Body, "18 → 16 (tie down)");
+        assert_eq!(FontSize::nearest(18, Weight::Regular), FontSize::Body, "18 → 16, not 21");
         assert_eq!(FontSize::nearest(30, Weight::SemiBold), FontSize::DisplaySemi);
+        // The tie the caption rung created. `sm` = 12 sits exactly between 11
+        // and 13; rounding up keeps every shipped 12px label at 13, so baking
+        // a smaller rung stays a pure ADDITION instead of a silent reflow.
+        assert_eq!(FontSize::nearest(12, Weight::Regular), FontSize::Small, "12 → 13, not 11");
+        assert_eq!(FontSize::nearest(12, Weight::SemiBold), FontSize::SmallSemi);
+        // …and 10 is unambiguously nearer the caption rung than the 13.
+        assert_eq!(FontSize::nearest(10, Weight::Regular), FontSize::Caption);
         // Size beats weight: Light exists ONLY at 120, and a 14px request must
         // NOT jump to the hero face.
         assert_eq!(FontSize::nearest(14, Weight::Light), FontSize::Small);

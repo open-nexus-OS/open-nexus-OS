@@ -1,0 +1,38 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The clock pill (design_handoff_panels §2) — the Kalender opener. Desktop
+// shows time · date, the touch modes only the time: the same trigger, trimmed
+// to the room the mode has.
+//
+// 28px tall inside a 36px bar with no resting background — hover and open
+// state are the only fills, painted by the interaction chain. The handler
+// lives at the use site (`TopBar`), so this stays a pure shape.
+
+Component ClockPill {
+    props: {
+        wide: Bool,
+    }
+    if $props.wide {
+        Stack {
+            Text($state.clock).textSize(sm).fontWeight(semibold).fg(onGlass)
+            Text(@t("shell.dot")).textSize(xs).fg(onGlassMuted)
+            Text($state.date).textSize(xs).fg(onGlassMuted)
+        }
+        .direction(row)
+        .align(center)
+        .gap(1)
+        .paddingX(2)
+        .height(28)
+        .rounded(full)
+    } else {
+        Stack {
+            Text($state.clock).textSize(sm).fontWeight(semibold).fg(onGlass)
+        }
+        .direction(row)
+        .align(center)
+        .paddingX(2)
+        .height(28)
+        .rounded(full)
+    }
+}

@@ -1,0 +1,32 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Battery row (design_handoff_panels §3, row 5): a green glyph and label on the
+// left, an 80px meter and the percentage on the right.
+//
+// The charge is a READING, and nothing reads it yet — so it is the handoff's
+// literal 78% in both the meter and the text rather than a store field that
+// would look like live data. The meter needs a fixed 80px groove, which it
+// gets from this wrapper: `Meter` itself never sizes, so the same component
+// also serves the Battery panel's full-width row.
+
+Component CcBatteryCard {
+    Stack {
+        Icon { symbol: "battery.75", size: 14 }
+            .fg(success)
+        Text(@t("control.battery")).textSize(xs).fontWeight(semibold).fg(onGlassMuted)
+        Spacer
+        Stack {
+            Meter { percent: 78 }
+        }
+        .width(80)
+        Text(@t("control.batteryPct")).textSize(xs).fg(onGlassMuted)
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+    .paddingX(4)
+    .paddingY(2)
+    .rounded(20)
+    .material(card)
+}

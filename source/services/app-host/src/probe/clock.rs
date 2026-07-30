@@ -147,7 +147,8 @@ impl super::DslApp {
         self.keymap.clear();
         self.keymap.push_str(keymap);
         let tokens = tokens_for(self.theme_mode);
-        let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
+        let device =
+            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
         let mut changed = false;
         let reemit_ok = {
             let locale_src = super::app_locale!(self);
@@ -205,7 +206,8 @@ impl super::DslApp {
         }
         self.active_catalog = idx;
         let tokens = tokens_for(self.theme_mode);
-        let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
+        let device =
+            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
         let locale_src = super::app_locale!(self);
         if self.view.reemit(tokens, &device, &locale_src).is_err() {
             raw_marker("apphost: FAIL locale reemit");
@@ -280,7 +282,8 @@ impl super::DslApp {
         let sec_in_min = (epoch_ns / 1_000_000_000) % 60;
         self.clock_next_wait_ms = (60 - sec_in_min) * 1000 + 200;
         let tokens = tokens_for(self.theme_mode);
-        let device = device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap);
+        let device =
+            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
         let locale = super::app_locale!(self);
         let damage = self.view.dispatch(
             tokens,

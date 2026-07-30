@@ -30,7 +30,10 @@ fn shell_page_renders_across_profiles_with_chrome_texts() {
         // RFC-0076: the clock is LIVE state now — the placeholder renders
         // until the host's first ClockEvent tick.
         assert!(t.contains(&"--:--".to_string()), "top-bar clock placeholder shown: {t:?}");
-        assert!(t.contains(&"shell.battery".to_string()), "battery status shown: {t:?}");
+        // The battery percentage is `control.batteryPct` since
+        // design_handoff_panels: the bar and the Control Center show ONE
+        // charge string, so the shell-only `shell.battery` key retired.
+        assert!(t.contains(&"control.batteryPct".to_string()), "battery status shown: {t:?}");
     }
 }
 

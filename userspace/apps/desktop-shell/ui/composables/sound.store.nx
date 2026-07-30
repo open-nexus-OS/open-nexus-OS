@@ -1,0 +1,24 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Audio ROUTING for the Sound panel's two device lists.
+//
+// DEMO STATE — no audio service exists; picking a device changes which row
+// carries the check and nothing else. Volume and mute are deliberately NOT
+// here: they live in `ControlStore` because the Control Center, this panel and
+// the top bar must show one number (design_handoff_panels §6).
+
+Store SoundStore {
+    outputDevice: Str = "speakers",
+    inputDevice: Str = "micInternal",
+}
+
+Event SoundEvent {
+    PickOutput(Str),
+    PickInput(Str),
+}
+
+reduce SoundEvent {
+    PickOutput(id) => state.outputDevice = id,
+    PickInput(id) => state.inputDevice = id,
+}

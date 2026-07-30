@@ -56,11 +56,15 @@ pub enum MotionToken {
     Wiggle = 6,
     /// Bounded scale pulse.
     Pulse = 7,
+    /// Enter/leave by sliding DOWN into place — the drop-down counterpart of
+    /// [`MotionToken::SlideUp`], for a surface anchored BELOW its trigger
+    /// (a top-bar panel falls out of the bar; it does not rise into it).
+    SlideDown = 8,
 }
 
 impl MotionToken {
     /// Every token, in id order (checker + docs iterate this).
-    pub const ALL: [MotionToken; 8] = [
+    pub const ALL: [MotionToken; 9] = [
         MotionToken::Snappy,
         MotionToken::Smooth,
         MotionToken::Emphasized,
@@ -69,6 +73,7 @@ impl MotionToken {
         MotionToken::FadeScale,
         MotionToken::Wiggle,
         MotionToken::Pulse,
+        MotionToken::SlideDown,
     ];
 
     /// Canonical `.nx` token name.
@@ -83,6 +88,7 @@ impl MotionToken {
             MotionToken::FadeScale => "fadeScale",
             MotionToken::Wiggle => "wiggle",
             MotionToken::Pulse => "pulse",
+            MotionToken::SlideDown => "slideDown",
         }
     }
 
@@ -111,9 +117,10 @@ impl MotionToken {
             MotionToken::Snappy | MotionToken::Smooth | MotionToken::Emphasized => {
                 MotionCategory::Value
             }
-            MotionToken::Fade | MotionToken::SlideUp | MotionToken::FadeScale => {
-                MotionCategory::Transition
-            }
+            MotionToken::Fade
+            | MotionToken::SlideUp
+            | MotionToken::SlideDown
+            | MotionToken::FadeScale => MotionCategory::Transition,
             MotionToken::Wiggle | MotionToken::Pulse => MotionCategory::Effect,
         }
     }
@@ -124,9 +131,10 @@ impl MotionToken {
     pub const fn duration(self) -> MotionDurationToken {
         match self {
             MotionToken::Snappy => MotionDurationToken::Swift,
-            MotionToken::Pulse | MotionToken::Fade | MotionToken::FadeScale => {
-                MotionDurationToken::Quick
-            }
+            MotionToken::Pulse
+            | MotionToken::Fade
+            | MotionToken::FadeScale
+            | MotionToken::SlideDown => MotionDurationToken::Quick,
             MotionToken::Smooth | MotionToken::SlideUp | MotionToken::Wiggle => {
                 MotionDurationToken::Base
             }
@@ -142,7 +150,7 @@ impl MotionToken {
         match self {
             MotionToken::Snappy => MotionCurveToken::SpringSoft,
             MotionToken::Emphasized | MotionToken::FadeScale => MotionCurveToken::Spring,
-            MotionToken::SlideUp => MotionCurveToken::Glide,
+            MotionToken::SlideUp | MotionToken::SlideDown => MotionCurveToken::Glide,
             MotionToken::Smooth | MotionToken::Fade | MotionToken::Wiggle | MotionToken::Pulse => {
                 MotionCurveToken::Smooth
             }
@@ -158,6 +166,7 @@ impl MotionToken {
             MotionToken::Snappy
             | MotionToken::Emphasized
             | MotionToken::SlideUp
+            | MotionToken::SlideDown
             | MotionToken::FadeScale => Easing::EaseOut,
             MotionToken::Smooth | MotionToken::Fade => Easing::EaseInOut,
             // Effects oscillate through explicit keyframes: linear between them.
@@ -169,7 +178,7 @@ impl MotionToken {
     #[must_use]
     pub const fn primary_prop(self) -> AnimProp {
         match self {
-            MotionToken::SlideUp => AnimProp::TranslateY,
+            MotionToken::SlideUp | MotionToken::SlideDown => AnimProp::TranslateY,
             MotionToken::Wiggle => AnimProp::TranslateX,
             MotionToken::Pulse => AnimProp::ScaleX,
             // snappy/smooth/emphasized/fade/fadeScale drive opacity first.

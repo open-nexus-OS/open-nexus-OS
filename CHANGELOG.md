@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-07-30 (Shell status panels: topbar + six drop-downs, design handoff 1:1)
+
+`design_handoff_panels` ported: the 36px top bar and all six drop-downs —
+Control Center · Mitteilungen · Kalender · WLAN · Ton · Batterie — rebuilt
+against the handoff's geometry, with the tablet/desktop switch and dark/light
+functional and everything else locally interactive demo state (no `svc.*`, no
+markers). See `tasks/TASK-0312-shell-panels-design-handoff.md`.
+
+- **desktop-shell**: ONE `TopBar` component replaces the bar that was written
+  out inline in both `ShellPage`s, and ONE `PanelHost` replaces the four-level
+  `if/else` panel cascade that was also duplicated. Twelve shared parts
+  (`ToggleTile`, `RadioRow`, `GlassToggle`, `Meter`, `SignalBars`,
+  `CountBadge`, `AppearanceButton`, `MuteButton`, …), five demo stores, 70 new
+  i18n keys across all five catalogs — the calendar's weekday names were raw
+  German strings before and never translatable.
+- **DSL**: `.rounded()` also takes raw Int px. The checker never rejected a
+  numeric arg; the runtime dropped it, so `.rounded(18)` compiled clean and
+  painted a square corner.
+- **DSL**: new read-only `device.theme` (`dark`|`light`). The app-host had the
+  packed theme byte one line above every `device_for` call and never passed it
+  on, which is why the Control Center carried two appearance buttons instead
+  of the handoff's one.
+- **Motion**: new `slideDown` token — a drop-down falls out of the bar rather
+  than rising into it. The host's travel sign keyed on the PROPERTY, so
+  without that fix it would have been an alias for `slideUp`.
+- **Type ladder**: baked the 11px Latin caption rung, so `.textSize(xs)`
+  finally renders at 11 instead of falling onto the 13px face. That put `sm`
+  (12) on an exact 11/13 tie for the first time; the tie-break now rounds UP,
+  which preserves every existing token's face. `type_ladder_resolution` pins
+  the whole mapping.
+- **Slider** rebuilt to the handoff's 28px pill track: the fill is a flex
+  weight (so the control has no fixed width), never narrower than its 28px
+  handle, with the glyph riding inside it. New `sliderTrack`/`sliderFill`/
+  `sliderIcon` roles — a slider's track is a recess in both themes while its
+  fill is bright in both, a polarity no existing role had. `ProgressBar` now
+  honours `.fg()` so a battery meter is not progress-blue.
+- **Theme**: `glassPanel` blur 40 → 72 (the handoff's panel depth, shared with
+  dock and taskbar); ten new icon symbols.
+- **app-host**: `anim.rs` split — interaction motion (hover/press/toggle
+  thumb) moved into the child module `anim/interaction.rs`, reaching the
+  parent's private helpers without widening anything. 892 → 776 LOC.
+- **Tests**: 11 new `shell_panels` proofs (per-mode panel existence, the two
+  real service writes in both directions, "no demo control reaches a service",
+  mute↔slider, calendar clamping, the dimmed network list carrying no
+  handlers), a shell budget probe (182 KB of 512; 264 nodes of 4096), and
+  motion added to the token-vocabulary lockstep — that seam had no test.
+
 ### Fixed - 2026-07-30 (Settings round 3: menus open, two-line sidebar, budget headroom)
 
 "Still no menu opens" was latency, not routing: a structural tap re-rastered

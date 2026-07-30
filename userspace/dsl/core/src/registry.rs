@@ -389,8 +389,17 @@ pub const TRIGGERS: &[&str] =
 /// keyframes, no `--animate-*` vars. This mirrors the runtime SSOT
 /// `animation::MotionToken` (same names, same order); the two are kept in
 /// lock-step (the runtime resolves the id, the frontend validates the name).
-pub const MOTION_TOKENS: &[&str] =
-    &["snappy", "smooth", "emphasized", "fade", "slideUp", "fadeScale", "wiggle", "pulse"];
+pub const MOTION_TOKENS: &[&str] = &[
+    "snappy",
+    "smooth",
+    "emphasized",
+    "fade",
+    "slideUp",
+    "fadeScale",
+    "wiggle",
+    "pulse",
+    "slideDown",
+];
 
 /// Whether `name` is a valid motion token.
 #[must_use]
@@ -447,6 +456,9 @@ pub const COLOR_TOKENS: &[&str] = &[
     "toggleOnBg",
     "toggleOffBg",
     "notifDot",
+    "sliderTrack",
+    "sliderFill",
+    "sliderIcon",
 ];
 
 /// Closed token vocabularies per modifier: `(modifier name, allowed tokens)`.
@@ -503,6 +515,10 @@ pub const DEVICE_FIELDS: &[(&str, &[&str])] = &[
     // locale tag / keymap layout tag) — no enum vocabulary, like shellMode.
     ("locale", &[]),
     ("keymap", &[]),
+    // The active theme mode. Tokens re-theme a tree on their own; this exists
+    // for controls that must NAME the mode — an appearance toggle showing the
+    // state it is in rather than two buttons for two states.
+    ("theme", &["dark", "light"]),
 ];
 
 #[must_use]

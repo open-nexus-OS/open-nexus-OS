@@ -72,6 +72,9 @@ fn canonical_name(token: ColorToken) -> &'static str {
         ColorToken::ToggleOnBg => "toggleOnBg",
         ColorToken::ToggleOffBg => "toggleOffBg",
         ColorToken::NotifDot => "notifDot",
+        ColorToken::SliderTrack => "sliderTrack",
+        ColorToken::SliderFill => "sliderFill",
+        ColorToken::SliderIcon => "sliderIcon",
     }
 }
 
@@ -101,7 +104,7 @@ fn color_vocabulary_is_a_bijection() {
 /// catches the next step — an arm that never reaches the checker's list.
 #[test]
 fn every_color_role_is_sayable() {
-    const ROLES: usize = 42;
+    const ROLES: usize = 45;
     assert_eq!(
         COLOR_TOKENS.len(),
         ROLES,
@@ -130,4 +133,57 @@ fn material_vocabulary_is_a_bijection() {
         "the two window levels the handoff needs must resolve"
     );
     assert!(material_token("notAMaterial").is_none());
+}
+
+/// And a THIRD statement of the same seam: motion. `dsl/core`'s
+/// `MOTION_TOKENS` is what `.transition(x)` validates against;
+/// `MotionToken::from_name` is what the runtime stamps an intent with. A name
+/// only the checker knows compiles clean and animates NOTHING — the quietest
+/// of the three failures, because a missing entrance reads as "the platform
+/// has no exit animations either", which is true and therefore unsuspicious.
+#[test]
+fn motion_vocabulary_is_a_bijection() {
+    use animation::MotionToken;
+
+    for name in nexus_dsl_core::registry::MOTION_TOKENS {
+        assert!(
+            MotionToken::from_name(name).is_some(),
+            "`{name}` is an allowed motion token but the runtime cannot resolve it — \
+             every `.transition({name})` in the tree would be a silent no-op"
+        );
+    }
+    for token in MotionToken::ALL {
+        assert!(
+            nexus_dsl_core::registry::is_motion_token(token.name()),
+            "`{}` exists in the physics table but no page may say it",
+            token.name()
+        );
+    }
+    assert_eq!(
+        nexus_dsl_core::registry::MOTION_TOKENS.len(),
+        MotionToken::ALL.len(),
+        "the two motion lists disagree in length"
+    );
+}
+
+/// The two slide tokens must not collapse into each other. They differ only in
+/// the side they travel FROM, and that difference lives in the HOST's
+/// `target_for` — so the only thing assertable here is that they are distinct
+/// tokens sharing one property. If this ever reads as one token, a drop-down
+/// is rising out of the bar it hangs from.
+#[test]
+fn the_two_slide_tokens_are_distinct() {
+    use animation::{AnimProp, MotionToken};
+
+    let up = MotionToken::from_name("slideUp").expect("slideUp resolves");
+    let down = MotionToken::from_name("slideDown").expect("slideDown resolves");
+    assert_ne!(up, down);
+    assert_ne!(up.id(), down.id());
+    assert_eq!(up.primary_prop(), AnimProp::TranslateY);
+    assert_eq!(
+        down.primary_prop(),
+        AnimProp::TranslateY,
+        "slideDown must drive translateY — the `_ => Opacity` wildcard in \
+         `primary_prop` swallows a forgotten arm without a compile error"
+    );
 }

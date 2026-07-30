@@ -1,50 +1,62 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Sound drop-down (design_handoff_launcher: 300 wide, top right, DESKTOP
-// mode only). Output device rows are static placeholders; the volume slider
-// is the Control-Center store's local value (one source for both surfaces).
+// Ton panel (design_handoff_panels §6): 300 wide, radius 30, top right,
+// DESKTOP mode only. Output devices, input devices, and the SAME volume card
+// the Control Center shows — `CcSoundCard` is reused verbatim rather than
+// re-drawn, which is what makes "ein gemeinsamer Lautstärke-Zustand" true by
+// construction instead of by discipline.
+//
+// The device lists are DEMO DATA: picking moves the check, no audio service is
+// touched.
 
 Component SoundPanel {
     Stack {
         Stack {
-            Icon { symbol: "speaker.wave", size: 14 }
-                .fg(onSurface)
-            Text(@t("panels.sound")).textSize(sm).fg(onSurface)
+            SectionTitle { label: @t("panels.sound") }
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
+        .paddingX(1)
+        GroupLabel { label: @t("sound.output") }
         Stack {
-            Text(@t("panels.output1")).textSize(sm).fg(onSurface)
-            Spacer
-            Icon { symbol: "checkmark", size: 12 }
-                .fg(accent)
+            Stack {
+                RadioRow { label: @t("sound.out.speakers"), sub: @t("sound.builtin"), icon: "speaker.wave", bars: 0, locked: false, active: $state.outputDevice == "speakers" }
+            }
+            on Tap -> dispatch(PickOutput("speakers"))
+            Stack {
+                RadioRow { label: @t("sound.out.headphones"), sub: @t("sound.bluetooth"), icon: "speaker.wave", bars: 0, locked: false, active: $state.outputDevice == "headphones" }
+            }
+            on Tap -> dispatch(PickOutput("headphones"))
+            Stack {
+                RadioRow { label: @t("sound.out.display"), sub: @t("sound.external"), icon: "speaker.wave", bars: 0, locked: false, active: $state.outputDevice == "display" }
+            }
+            on Tap -> dispatch(PickOutput("display"))
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .padding(2)
-        .material(subtle)
-        .rounded(md)
+        .padding(1)
+        .rounded(20)
+        .material(card)
+        GroupLabel { label: @t("sound.input") }
         Stack {
-            Text(@t("panels.output2")).textSize(sm).fg(onSurfaceVariant)
-            Spacer
+            Stack {
+                RadioRow { label: @t("sound.in.internal"), sub: @t("sound.builtin"), icon: "mic", bars: 0, locked: false, active: $state.inputDevice == "micInternal" }
+            }
+            on Tap -> dispatch(PickInput("micInternal"))
+            Stack {
+                RadioRow { label: @t("sound.in.external"), sub: @t("sound.usb"), icon: "mic", bars: 0, locked: false, active: $state.inputDevice == "micExternal" }
+            }
+            on Tap -> dispatch(PickInput("micExternal"))
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .padding(2)
-        .material(subtle)
-        .rounded(md)
-        Text(@t("control.volume")).textSize(xs).fg(onSurfaceVariant)
-        Slider { value: $state.volume }
-            .label(@t("control.volume"))
+        .padding(1)
+        .rounded(20)
+        .material(card)
+        CcSoundCard { }
     }
     .width(300)
-    .padding(4)
     .gap(2)
+    .paddingX(4)
+    .paddingTop(3)
+    .paddingBottom(4)
+    .rounded(30)
     .material(panel)
-    .rounded(xl)
-    .transition(slideUp)
+    .shadow(xxl)
+    .transition(slideDown)
 }

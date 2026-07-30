@@ -43,7 +43,7 @@ fn probe_settings_budgets() {
     let mut view =
         View::mount(nxir, &nexus_theme_tokens::BaseTokens, &device, &locale).expect("mounts");
     let mut host = NoIo;
-    let mut probe = |view: &mut View, label: &str| {
+    let probe = |view: &mut View, label: &str| {
         let boxes = common::layout_boxes(view);
         println!("settings[{label}]: boxes={} handlers={}", boxes.len(), view.handlers().len());
     };
@@ -276,5 +276,84 @@ fn probe_sidebar_width_mode_invariant() {
             let right = b.rect.x.as_i32() + b.rect.width.as_i32();
             assert!(right <= 960, "box id={} right edge {} > 960", b.node_id, right);
         }
+    }
+}
+
+/// The shell grew six full panels in one go (design_handoff_panels), which
+/// makes it the second-largest DSL app. Both ceilings apply to it exactly as
+/// they do to settings, and both fail SILENTLY: a node overrun is a stale
+/// layout via `relayout_retained`'s swallowed error, a payload overrun is a
+/// truncated VMO at mount. Neither prints "too big".
+///
+/// The panels are also mutually exclusive — only one is ever open — so the
+/// number that matters is the WORST single panel, not their sum. That is what
+/// this walks.
+#[test]
+fn probe_shell_budgets() {
+    const NODE_CAP: usize = 4096;
+    const PAYLOAD_MAX_LEN: usize = 512 * 1024;
+
+    let root = common::app_root("desktop-shell");
+    let payload = nexus_dsl_core::compile_project_bundle(&root).expect("bundle");
+    println!("desktop-shell: payload container={} bytes", payload.len());
+    assert!(
+        payload.len() <= PAYLOAD_MAX_LEN * 9 / 10,
+        "shell payload {} is within 90% of the {}B ceiling — raise the contract \
+         BEFORE the next panel lands, not after the boot fails",
+        payload.len(),
+        PAYLOAD_MAX_LEN
+    );
+
+    let nxir: &'static [u8] = Box::leak(common::compile("desktop-shell").into_boxed_slice());
+    let symbols = common::program_symbols(nxir);
+    let keys = common::program_i18n_keys(nxir);
+    let mut host = NoIo;
+
+    for profile in ["desktop", "tablet"] {
+        let device = if profile == "desktop" {
+            FixtureEnv::desktop()
+        } else {
+            FixtureEnv::tablet("landscape")
+        };
+        let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+        let mut view =
+            View::mount(nxir, &nexus_theme_tokens::BaseTokens, &device, &locale).expect("mounts");
+        let mut worst = 0usize;
+        for panel in ["", "control", "notifications", "calendar", "wifi", "sound", "battery"] {
+            common::dispatch_with_keys(
+                &mut view,
+                &device,
+                &mut host,
+                &symbols,
+                &keys,
+                "PanelEvent",
+                "SetPanel",
+                vec![Value::Str(panel.to_string())],
+            );
+            let boxes = common::layout_boxes(&view);
+            println!(
+                "shell[{profile}/{}]: boxes={} handlers={}",
+                if panel.is_empty() { "closed" } else { panel },
+                boxes.len(),
+                view.handlers().len()
+            );
+            worst = worst.max(boxes.len());
+            // Close again so each panel is measured on its own, not stacked.
+            common::dispatch_with_keys(
+                &mut view,
+                &device,
+                &mut host,
+                &symbols,
+                &keys,
+                "PanelEvent",
+                "SetPanel",
+                vec![Value::Str(panel.to_string())],
+            );
+        }
+        assert!(
+            worst <= NODE_CAP / 2,
+            "shell[{profile}] worst panel is {worst} nodes, past half the {NODE_CAP} cap — \
+             the overrun is a silent stale-layout freeze, so the alarm is set early"
+        );
     }
 }

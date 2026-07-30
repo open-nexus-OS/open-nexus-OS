@@ -100,7 +100,18 @@ pub(super) fn apply_modifier(
         25 => mods.fg = registry::color_token(&token_name(ctx)), // fg
         27 => mods.opacity = Some(int_arg().clamp(0, 255) as u8), // opacity
         28 => mods.material = registry::material_token(&token_name(ctx)), // material
-        29 => mods.rounded = Some(registry::radius(&token_name(ctx))), // rounded
+        29 => {
+            // Corner radius: a token from the scale, or RAW px — the same
+            // token-or-px shape `.width` has. The design handoffs treat the
+            // literal radii (30/26/24/20/18/15/13/11) as geometry contract,
+            // and a five-rung token scale cannot carry them.
+            mods.rounded = Some(match first.map(|a| a.which()) {
+                Some(Ok(ir::token_arg::Which::Int(i))) => {
+                    nexus_layout_types::FxPx::new(i.clamp(0, 9999) as i32)
+                }
+                _ => registry::radius(&token_name(ctx)),
+            });
+        } // rounded
         31 => mods.shadow = registry::shadow_level(&token_name(ctx)), // shadow
         32 => mods.text_size = registry::type_size(&token_name(ctx)), // textSize
         33 => mods.font_weight = registry::font_weight(&token_name(ctx)), // fontWeight

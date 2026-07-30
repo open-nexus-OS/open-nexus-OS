@@ -1,0 +1,34 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The mute button (design_handoff_panels `.rbtn.mute`): the 34px circle beside
+// every volume slider. Muted is a filled red state with a struck-through
+// speaker, not a dimmed one — the handoff treats silence as an ACTIVE
+// condition worth seeing across the room.
+//
+// One `muted` field in `ControlStore` backs Control Center, the Sound panel and
+// the top bar, so the three can never disagree (handoff §6: "ein gemeinsamer
+// Lautstärke-Zustand").
+
+Component MuteButton {
+    if $state.muted {
+        Circle { size: 34
+            Icon { symbol: "speaker.slash", size: 15 }
+                .fg(onInfo)
+        }
+        .bgGradient("#ef4444e0", "#ef4444e0")
+        .shadow(md)
+        .hitSlop(2)
+        on Tap -> dispatch(ToggleMute)
+    } else {
+        Circle { size: 34
+            Icon { symbol: "speaker.wave", size: 15 }
+                .fg(onGlass)
+        }
+        .bg(toggleOffBg)
+        .border(hairline)
+        .borderColor(divider)
+        .hitSlop(2)
+        on Tap -> dispatch(ToggleMute)
+    }
+}

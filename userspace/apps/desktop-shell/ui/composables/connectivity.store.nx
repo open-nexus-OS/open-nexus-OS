@@ -1,0 +1,69 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Connectivity state for the Control Center's tile grid and the WiFi panel.
+//
+// DEMO STATE — there are no radio services yet. Nothing here calls `svc.*` and
+// no marker claims a radio was touched; the tiles flip so the design can be
+// checked on a real device, and that is all they do. When a radio service
+// lands, these reducers keep their shape and gain `@effect`s, the way
+// `ControlStore`'s theme/mode arms already have them.
+//
+// `wiredOnly` gates the network list together with `wifiOn` (handoff §6: the
+// list dims when the master is off OR "Nur Kabel" is on), so both live here
+// rather than one in the panel and one in a tile store.
+
+Store ConnStore {
+    wifiOn: Bool = true,
+    bluetoothOn: Bool = false,
+    airplaneOn: Bool = false,
+    wiredOnly: Bool = false,
+    selectedNet: Str = "home",
+}
+
+Event ConnEvent {
+    ToggleWifi,
+    ToggleBluetooth,
+    ToggleAirplane,
+    ToggleWiredOnly,
+    PickNet(Str),
+}
+
+reduce ConnEvent {
+    // Airplane mode is not a peer of the radios, it is a master over them:
+    // turning it on takes WiFi and Bluetooth down with it, which is what the
+    // handoff's sub-labels claim ("Aus") and therefore what must be true.
+    ToggleWifi => {
+        if state.wifiOn {
+            state.wifiOn = false;
+        } else {
+            state.wifiOn = true;
+            state.airplaneOn = false;
+        }
+    },
+    ToggleBluetooth => {
+        if state.bluetoothOn {
+            state.bluetoothOn = false;
+        } else {
+            state.bluetoothOn = true;
+            state.airplaneOn = false;
+        }
+    },
+    ToggleAirplane => {
+        if state.airplaneOn {
+            state.airplaneOn = false;
+        } else {
+            state.airplaneOn = true;
+            state.wifiOn = false;
+            state.bluetoothOn = false;
+        }
+    },
+    ToggleWiredOnly => {
+        if state.wiredOnly {
+            state.wiredOnly = false;
+        } else {
+            state.wiredOnly = true;
+        }
+    },
+    PickNet(id) => state.selectedNet = id,
+}

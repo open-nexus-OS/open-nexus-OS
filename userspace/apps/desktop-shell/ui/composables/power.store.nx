@@ -1,0 +1,31 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Energy profile + standby inhibit for the Battery panel.
+//
+// DEMO STATE — no power service exists. The charge percentage and the power
+// source are not fields at all: they would be READINGS, and a reading nobody
+// takes is worse than an obvious constant, so the panel draws the handoff's
+// 78% / "Netzbetrieb" as literal text and this store holds only what the user
+// can actually change here.
+
+Store PowerStore {
+    powerProfile: Str = "balanced",
+    noStandby: Bool = false,
+}
+
+Event PowerEvent {
+    PickProfile(Str),
+    ToggleNoStandby,
+}
+
+reduce PowerEvent {
+    PickProfile(id) => state.powerProfile = id,
+    ToggleNoStandby => {
+        if state.noStandby {
+            state.noStandby = false;
+        } else {
+            state.noStandby = true;
+        }
+    },
+}

@@ -1,0 +1,47 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One day cell (design_handoff_panels §5): a 28px number circle with a 4px dot
+// beneath it. Today is a filled blue circle with a bold white numeral; a day
+// with an appointment carries a red dot.
+//
+// The dot's height is reserved even when there is no dot, so a month with
+// appointments is not taller than one without and the grid does not jump when
+// you page through it — the handoff calls this out explicitly.
+//
+// `label: ""` is an empty leading cell (the days before the 1st). It keeps its
+// full size so the columns stay aligned.
+
+Component CalCell {
+    props: {
+        label: Str,
+        today: Bool,
+        event: Bool,
+    }
+    Stack {
+        if $props.today {
+            Circle { size: 28
+                Text($props.label).textSize(sm).fontWeight(bold).fg(onInfo)
+            }
+            .bg(info)
+        } else {
+            Stack {
+                Text($props.label).textSize(sm).fg(onGlass)
+            }
+            .width(28)
+            .height(28)
+            .align(center)
+            .justify(center)
+        }
+        if $props.event {
+            Circle { size: 4 }
+                .bgGradient("#f87171", "#f87171")
+        } else {
+            Stack { }
+                .height(4)
+        }
+    }
+    .grow(1)
+    .align(center)
+    .gap(0)
+}

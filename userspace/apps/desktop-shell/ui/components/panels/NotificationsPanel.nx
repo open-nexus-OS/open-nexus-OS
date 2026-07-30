@@ -1,81 +1,76 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Notifications drop-down (design_handoff_launcher: 330 wide, top left):
-// title + "clear all", a stacked mail card (count badge), then individual
-// notification cards. Demo content (mirrors the handoff's static demo) until
-// a notification service lands.
+// Mitteilungszentrale (design_handoff_panels §4): 330 wide, radius 26,
+// anchored top left. Header with "Alle löschen", the stacked mail card, then
+// individual cards.
+//
+// DEMO CONTENT — no notification service feeds the shell yet. The cards are
+// authored markup and "Alle löschen" flips one flag to the empty state, which
+// is the whole interaction. When `svc.notif` lands, the `if` below becomes a
+// `List` over real notifications and this file barely changes: that is why the
+// card is already its own component taking props rather than inline markup.
 
 Component NotificationsPanel {
     Stack {
         Stack {
-            Text(@t("panels.notifications")).textSize(sm).fg(onSurface)
-            Spacer
-            Text(@t("panels.clearAll")).textSize(xs).fg(onSurfaceVariant)
-        }
-        .direction(row)
-        .align(center)
-        Stack {
-            Stack {
-                Icon { symbol: "message", size: 16 }
-                    .fg(onSurface)
-            }
-            .width(28)
-            .height(28)
-            .bg(accent)
-            .rounded(md)
-            .align(center)
-            .justify(center)
-            Stack {
-                Text(@t("panels.mailTitle")).textSize(sm).fg(onSurface)
-                Text(@t("panels.mailBody")).textSize(xs).fg(onSurfaceVariant)
-            }
-            .gap(0)
+            SectionTitle { label: @t("panels.notifications") }
             Spacer
             Stack {
-                Text(@t("panels.mailCount")).textSize(xs).fg(onAccent)
+                Text(@t("notif.clearAll")).textSize(xs).fg(onGlassMuted)
             }
             .paddingX(2)
             .paddingY(1)
-            .bg(accent)
-            .rounded(full)
+            .rounded(8)
+            .hitSlop(2)
+            on Tap -> dispatch(ClearAll)
         }
         .direction(row)
         .align(center)
-        .gap(2)
-        .padding(3)
-        .material(card)
-        .rounded(lg)
-        Stack {
+        .paddingX(1)
+        if $state.notifCleared {
             Stack {
-                Icon { symbol: "bell", size: 16 }
-                    .fg(onSurface)
+                Text(@t("notif.empty")).textSize(xs).fg(onGlassMuted)
             }
-            .width(28)
-            .height(28)
-            .material(subtle)
-            .rounded(md)
             .align(center)
             .justify(center)
+            .paddingY(6)
+        } else {
             Stack {
-                Text(@t("panels.noteTitle")).textSize(sm).fg(onSurface)
-                Text(@t("panels.noteBody")).textSize(xs).fg(onSurfaceVariant)
+                NotifStack { }
+                NotifCard {
+                    appId: "chat",
+                    app: @t("notif.messages"),
+                    time: @t("notif.t12min"),
+                    title: @t("notif.msgTitle"),
+                    body: @t("notif.msgBody"),
+                    badge: "",
+                }
+                NotifCard {
+                    appId: "settings",
+                    app: @t("notif.calendar"),
+                    time: @t("notif.t1h"),
+                    title: @t("notif.calTitle"),
+                    body: @t("notif.calBody"),
+                    badge: "",
+                }
+                NotifCard {
+                    appId: "settings",
+                    app: @t("notif.weather"),
+                    time: @t("notif.t2h"),
+                    title: @t("notif.wxTitle"),
+                    body: @t("notif.wxBody"),
+                    badge: "",
+                }
             }
-            .gap(0)
-            Spacer
-            Text(@t("panels.noteTime")).textSize(xs).fg(onSurfaceVariant)
+            .gap(2)
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .padding(3)
-        .material(card)
-        .rounded(lg)
     }
     .width(330)
-    .padding(4)
-    .gap(2)
+    .gap(3)
+    .padding(3)
+    .rounded(26)
     .material(panel)
-    .rounded(xl)
-    .transition(slideUp)
+    .shadow(xxl)
+    .transition(slideDown)
 }

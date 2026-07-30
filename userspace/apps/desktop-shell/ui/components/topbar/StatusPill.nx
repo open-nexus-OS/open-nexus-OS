@@ -1,20 +1,35 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The combined touch status pill (design_handoff_launcher: wifi + volume +
-// battery "78%" in ONE pill → opens the Control Center). Desktop mode
-// splits these into four separate pills instead. Hover fill comes from the
-// interaction chain; no persistent background.
+// The combined status pill (design_handoff_panels §2): WLAN + Lautsprecher +
+// Batterie + percentage in ONE pill that opens the Control Center. This is the
+// touch modes' entire right zone — there are no separate WLAN/Ton/Batterie
+// panels there, so there is nothing for separate pills to open.
+//
+// The glyphs mirror live state where the shell has it: WLAN struck through
+// when off, the speaker struck through when muted. A status bar that showed
+// "connected" while the tile below it said "Aus" would be worse than showing
+// nothing.
 
 Component StatusPill {
     Stack {
-        Icon { symbol: "wifi", size: 13 }
-            .fg(onSurface)
-        Icon { symbol: "speaker.wave", size: 13 }
-            .fg(onSurface)
+        if $state.wifiOn {
+            Icon { symbol: "wifi", size: 13 }
+                .fg(onGlass)
+        } else {
+            Icon { symbol: "wifi.slash", size: 13 }
+                .fg(onGlassMuted)
+        }
+        if $state.muted {
+            Icon { symbol: "speaker.slash", size: 13 }
+                .fg(onGlassMuted)
+        } else {
+            Icon { symbol: "speaker.wave", size: 13 }
+                .fg(onGlass)
+        }
         Icon { symbol: "battery.75", size: 13 }
-            .fg(onSurface)
-        Text(@t("shell.battery")).textSize(xs).fg(onSurface)
+            .fg(onGlass)
+        Text(@t("control.batteryPct")).textSize(xs).fg(onGlass)
     }
     .direction(row)
     .align(center)

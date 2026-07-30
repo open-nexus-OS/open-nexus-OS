@@ -89,6 +89,12 @@ Token → physics mapping (SSOT `userspace/ui/animation/src/motion.rs` +
 | `fadeScale` | transition | opacity | scale | Quick (280ms) | ease-out |
 | `wiggle` | effect | translateX | — | Base (400ms) | linear (osc.) |
 | `pulse` | effect | scale | — | Quick (280ms) | linear (osc.) |
+| `slideDown` | transition | translateY | (+opacity) | Quick (280ms) | ease-out |
+
+`slideUp` and `slideDown` differ only in the side they travel FROM: absent,
+`slideUp` sits 16px BELOW its resting place, `slideDown` 10px ABOVE it. Anchor
+decides — a sheet rises from the bottom edge, a top-bar drop-down falls out of
+the bar.
 
 A nonzero `value:` is "present/in place", zero is "absent/offset" — the
 value-tracking contract (a `Bool` is the canonical driver). Effects fire a bounded
@@ -349,6 +355,7 @@ with a curated token set such as:
 - `fadeScale`
 - `wiggle`
 - `pulse`
+- `slideDown`
 
 Anything beyond that should justify itself as a concrete product need rather than arriving as an abstract animation
 system.
