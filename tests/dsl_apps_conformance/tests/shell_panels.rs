@@ -33,7 +33,11 @@ impl nexus_dsl_runtime::EffectHost for SettingsSpy {
             return Ok(Value::Bool(true));
         }
         self.other += 1;
-        Ok(Value::Bool(true))
+        // Every other service answers with an empty list: the launcher's root
+        // effect binds `bundlemgr.enumerate` as a collection, and a `Bool`
+        // there fails the whole plan with `TypeMismatch` — which would make
+        // this harness, not the shell, the thing under test.
+        Ok(Value::List(Vec::new()))
     }
 }
 
@@ -411,6 +415,40 @@ fn the_view_mode_tile_is_tappable_across_its_whole_width() {
             host.sets,
             vec![("ui.shell.mode".to_string(), "tablet".to_string())],
             "a tap on the tile's {label} must switch the shell mode"
+        );
+    }
+}
+
+/// At mount the shell tells settingsd which profile it is ACTUALLY rendering.
+///
+/// This is what makes the Ansichtsmodus tile work at all. Login applies the
+/// session product's shell config to windowd directly and never writes
+/// `ui.shell.mode`, so settingsd can hold `tablet` while the screen shows
+/// desktop. The tile writes the opposite of what it SEES — `tablet` —
+/// settingsd finds no change, notifies nobody, and windowd never hears: the
+/// switch is silently dead in that direction, forever.
+///
+/// Asserting the live profile first means the tile's write is always a real
+/// change. Both profiles are checked, because a sync that only ever wrote one
+/// value would fix one direction and leave the other broken.
+#[test]
+fn the_shell_asserts_its_live_profile_at_mount() {
+    for (env, expected) in
+        [(FixtureEnv::desktop(), "desktop"), (FixtureEnv::tablet("landscape"), "tablet")]
+    {
+        let nxir: &'static [u8] = Box::leak(common::compile("desktop-shell").into_boxed_slice());
+        let symbols = common::program_symbols(nxir);
+        let keys = common::program_i18n_keys(nxir);
+        let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+        let mut view = View::mount(nxir, &nexus_theme_tokens::BaseTokens, &env, &locale)
+            .expect("the shell mounts");
+        let mut host = SettingsSpy { sets: Vec::new(), other: 0 };
+        view.run_initial_effects(&nexus_theme_tokens::BaseTokens, &env, &locale, &mut host)
+            .expect("root effects run");
+        assert!(
+            host.sets.contains(&("ui.shell.mode".to_string(), expected.to_string())),
+            "a {expected} shell must assert `ui.shell.mode = {expected}` at mount, got {:?}",
+            host.sets
         );
     }
 }

@@ -25,6 +25,7 @@ Store ControlStore {
 }
 
 Event ControlEvent {
+    SyncMode,
     SetTheme(Str),
     SetMode(Str),
     SetBrightness(Int),
@@ -35,6 +36,7 @@ Event ControlEvent {
 }
 
 reduce ControlEvent {
+    SyncMode => state.applyError = 0,
     SetTheme(mode) => state.applyError = 0,
     SetMode(mode) => state.applyError = 0,
     SetBrightness(v) => state.brightness = v,
@@ -62,6 +64,27 @@ reduce ControlEvent {
     },
     Applied(ok) => state.applyError = 0,
     ApplyFailed(code) => state.applyError = code,
+}
+
+// A ROOT effect (nothing dispatches `SyncMode`), so it runs once at mount:
+// the shell tells settingsd which profile it is ACTUALLY rendering.
+//
+// Without it the Ansichtsmodus tile is dead. Login applies the session
+// product's shell config to windowd directly and never writes the key, so
+// settingsd can hold `tablet` while the screen shows desktop. The tile then
+// writes the opposite of what it sees — `tablet` — settingsd finds no CHANGE,
+// notifies nobody, and windowd never hears. A recorded seam (TASK-0307
+// follow-up), and this is the client-side heal: the surface that renders a
+// profile asserts it through the authority, so the authority stays truthful.
+//
+// It cannot branch (no `if` in an effect plan) and does not need to: a profile
+// outside `tablet|desktop` is refused by settingsd's own validator, which is
+// what validators are for.
+@effect on SyncMode {
+    match svc.settings.set("ui.shell.mode", device.profile, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
 }
 
 @effect on SetTheme(mode) {

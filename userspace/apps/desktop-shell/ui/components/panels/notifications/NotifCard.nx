@@ -14,6 +14,11 @@
 // in this platform (`.truncate` is a declared no-op), so a long body wraps.
 // Kept as a known deviation rather than hidden by shortening the demo text.
 //
+// The card carries the handoff's own `0 2px 10px` shadow. That is what makes
+// the stacked mail card read as a STACK: the front card casts onto the one
+// behind it. It was not safe to add before — an outer shadow used to be
+// painted under its own element, so a translucent card darkened itself.
+//
 // Times are RELATIVE words, never clock times — the handoff is explicit, and a
 // wall-clock stamp on a card the shell cannot refresh would age visibly.
 
@@ -73,4 +78,5 @@ Component NotifCard {
     .padding(3)
     .rounded(18)
     .material(card)
+    .shadow(sm)
 }

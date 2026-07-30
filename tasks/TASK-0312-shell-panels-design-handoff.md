@@ -1,6 +1,6 @@
 ---
 title: TASK-0312 Shell panels design handoff — topbar + six drop-downs 1:1
-status: In Progress (2026-07-30) — Phase 0-5 + repair round 1 done (`just check`, `just test-host`, OS build green; 12 panel proofs); OPEN: re-boot to confirm round 1
+status: In Progress (2026-07-30) — Phase 0-5 + repair rounds 1-2 done (`just check`, `just test-host`, OS build green; 13 panel proofs); OPEN: re-boot to confirm
 owner: @ui
 created: 2026-07-30
 links:
@@ -187,6 +187,46 @@ walkers whose node numbering must agree with `path_to_box_id`).
 failed the OS cross-build on visibility: `pub(super)` narrows when an item
 moves a level deeper, and the app-host BIN is only built under the OS cfg. Run
 `scripts/build.sh` after any move, not just `just check`.
+
+## Repair round 2 (2026-07-30): the mode switch, properly
+
+Round 1 fixed a dead zone on the tile. It was not the whole cause — the rest is
+a **recorded pre-existing seam** (TASK-0307 follow-up), and it made the switch
+dead in one direction permanently:
+
+> the login applies the session product's shell config directly
+> (`shell switch product=default` → desktop) WITHOUT writing `ui.shell.mode`
+
+So settingsd holds its default `tablet` while the screen shows desktop. The
+tile writes the opposite of what it SEES — `tablet` — settingsd's `set` finds
+no CHANGE (`os_lite.rs`: `if changed { … notify … }`), notifies nobody, and
+windowd never hears. Every tap a silent no-op, forever.
+
+Fixed client-side: a ROOT `@effect` in `ControlStore` asserts
+`device.profile` into `ui.shell.mode` at mount, so the authority's value
+tracks what is actually on screen and the tile's write is always a real
+change. It goes THROUGH settingsd (ADR-0053) and is not in windowd, which
+must not write settings. `the_shell_asserts_its_live_profile_at_mount` pins
+both profiles — a sync that only ever wrote one value would fix one direction
+and leave the other broken.
+
+Two things learned on the way, both worth keeping:
+
+- `device.*` IS readable inside an `@effect`. A first probe suggested
+  otherwise; the `TypeMismatch` came from the TEST's spy answering
+  `bundlemgr.enumerate` with a `Bool` where the launcher's root effect binds a
+  collection. The harness was under test, not the shell.
+- Notification cards now carry the handoff's own `0 2px 10px` shadow, which is
+  what makes the stacked mail card read as a stack — the front card casts onto
+  the one behind. That was not safe before round 1: an outer shadow was
+  painted under its own element, so a translucent card darkened itself.
+
+**Still open (unchanged, and a real design question):** the session product and
+`ui.shell.mode` are two authorities for one thing. With this heal the session
+product wins on every boot, so a Control-Center switch is session-scoped and
+does not survive a reboot. Making it persist means deciding which wins — the
+recorded follow-up (session writes the key) is one answer, "the persisted
+setting overrides the user record's product" is the other.
 
 ## Follow-ups
 

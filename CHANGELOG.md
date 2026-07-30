@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-30 (Shell panels round 2: the desktop/tablet switch actually switches)
+
+The Control Center's Ansichtsmodus tile was a silent no-op, and the dead zone
+fixed in round 1 was only half of it. The other half is a recorded seam
+(TASK-0307): login applies the session product's shell config to windowd
+directly and never writes `ui.shell.mode`, so settingsd holds `tablet` while
+the screen shows desktop. The tile writes the opposite of what it sees —
+`tablet` — settingsd finds no change, notifies nobody, and windowd never hears.
+
+- **desktop-shell**: a root `@effect` asserts `device.profile` into
+  `ui.shell.mode` at mount, so the authority tracks what is on screen and the
+  tile's write is always a real change. Through settingsd (ADR-0053), not in
+  windowd, which must not write settings. Pinned for both profiles.
+- **desktop-shell**: notification cards carry the handoff's `0 2px 10px`
+  shadow, which is what makes the stacked mail card read as a stack. Only safe
+  now that an outer shadow is knocked out of its own element.
+
+Still open: the session product and `ui.shell.mode` are two authorities for one
+thing, so the switch is session-scoped and does not survive a reboot.
+
 ### Fixed - 2026-07-30 (Shell panels round 1: shadows stop darkening glass, text gets an ellipsis)
 
 A visible boot found five things. Four were platform bugs, not markup.
