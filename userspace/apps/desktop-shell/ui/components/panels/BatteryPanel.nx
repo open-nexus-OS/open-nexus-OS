@@ -42,14 +42,17 @@ Component BatteryPanel {
             Stack {
                 RadioRow { label: @t("battery.saver"), sub: @t("battery.saverSub"), icon: "leaf", bars: 0, locked: false, active: $state.powerProfile == "saver" }
             }
+            .direction(row)
             on Tap -> dispatch(PickProfile("saver"))
             Stack {
                 RadioRow { label: @t("battery.balanced"), sub: @t("battery.balancedSub"), icon: "scale", bars: 0, locked: false, active: $state.powerProfile == "balanced" }
             }
+            .direction(row)
             on Tap -> dispatch(PickProfile("balanced"))
             Stack {
                 RadioRow { label: @t("battery.performance"), sub: @t("battery.performanceSub"), icon: "bolt", bars: 0, locked: false, active: $state.powerProfile == "performance" }
             }
+            .direction(row)
             on Tap -> dispatch(PickProfile("performance"))
         }
         .padding(1)
@@ -66,6 +69,7 @@ Component BatteryPanel {
                     active: $state.noStandby,
                 }
             }
+            .direction(row)
             on Tap -> dispatch(ToggleNoStandby)
         }
         .padding(3)

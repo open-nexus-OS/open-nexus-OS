@@ -2,14 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The stacked mail card (design_handoff_panels §4): a badged front card with a
-// second card peeking out below it, inset on each side, to say "several"
-// without listing them.
+// second card showing behind it, so "several" reads without listing them.
 //
-// The handoff overlaps the two by translating the back card UP under the
-// front one. There is no transform here, so the peek is a real 7px sliver
-// below — the same reading, achieved by stacking. `.overlay()` would be the
-// wrong tool: it lifts a child out of flow and paints it LAST, i.e. in front
-// of the card it is supposed to sit behind.
+// The handoff overlaps the two — the back card is full size, inset 8px per
+// side and translated 7px DOWN, so only that sliver of it shows. There is no
+// transform here and no negative margin, so the sliver is a real box below the
+// front card. It has to be tall enough to carry a card's corner radius: at the
+// handoff's 7px the radius clamps to 3.5 and the thing reads as a pill bar
+// rather than the bottom edge of a card, which is exactly how it looked. 12px
+// with a 12px radius reads as an edge, and dimming it pushes it behind.
+//
+// `.overlay()` is deliberately not used to get a true overlap: it lifts a
+// child OUT of flow and paints it LAST, i.e. in FRONT of the card it is
+// supposed to sit behind.
 
 Component NotifStack {
     Stack {
@@ -23,9 +28,10 @@ Component NotifStack {
         }
         Stack {
             Stack { }
-                .height(7)
-                .rounded(18)
+                .height(12)
+                .rounded(12)
                 .material(card)
+                .opacity(190)
         }
         .paddingX(2)
     }

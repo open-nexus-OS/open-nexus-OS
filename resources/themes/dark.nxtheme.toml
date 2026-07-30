@@ -83,21 +83,28 @@ type = "opaque"
 # Dark liquid-glass materials (handoff .dark values).
 # RFC-0082: the login handoff's dark glass is a DARK tint (rgba(18,18,20,.4)),
 # not the white wash these levels used to carry — over a photograph a white
-# wash greys the image out instead of sinking into it.
-# design_handoff_panels: panels are blur(72px) saturate(180%) — deeper than
-# the 40 this level carried, so a drop-down reads as frosted rather than
-# merely tinted. `.material(panel)` is shared with the dock and taskbar,
-# which is the point: one panel material, one depth.
+# wash greys the image out instead of sinking into it. That still holds for
+# the CARD/WINDOW levels below.
+#
+# glassPanel goes back to the white wash, because design_handoff_panels
+# specifies it outright: `--glass-panel-bg: rgba(255,255,255,0.10)` dark,
+# `0.50` light. A #121214 tint at 40 % is the opposite polarity and four
+# times the coverage — panels read several shades too dark against the
+# handoff, which is exactly how they looked. Depth here comes from
+# blur(72) + saturate, not from covering the wallpaper up.
+#
+# `.material(panel)` is shared with the dock and taskbar. That is the point:
+# one panel material, one depth — but it does mean this line moves them too.
 [material.glassPanel]
 type = "glass"
 blurRadiusDp = 72
 downsampleFactor = 4
-tintColor = "#121214"
-tintAlpha = 0.40
+tintColor = "#ffffff"
+tintAlpha = 0.10
 edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.08
+edgeHighlightAlpha = 0.22
 borderColor = "#ffffff"
-borderAlpha = 0.10
+borderAlpha = 0.18
 
 [material.glassCard]
 type = "glass"

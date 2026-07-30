@@ -544,6 +544,15 @@ fn paint_shadow_row(
     let radius = b.visual.corner_radius.top_left.0.max(0).min(sw / 2).min(sh / 2) as f32;
     let (cx, cy) = (sx as f32 + sw as f32 / 2.0, sy as f32 + sh as f32 / 2.0);
     let (hw, hh) = (sw as f32 / 2.0 - radius, sh as f32 / 2.0 - radius);
+    // The KNOCKOUT shape: the element's own box, without the shadow's offset
+    // or spread. CSS paints an outer shadow "as if the border box were
+    // opaque" — never under the element. That is invisible under an opaque
+    // fill and very visible under a translucent one, which is why it is
+    // computed here rather than left to the fill to cover.
+    let (kcx, kcy) = (x as f32 + w as f32 / 2.0, y as f32 + h as f32 / 2.0);
+    let (khw, khh) = (w as f32 / 2.0 - radius, h as f32 / 2.0 - radius);
+    let kdy = (canvas.y as f32 + 0.5 - kcy).abs() - khh;
+    let kdyc = if kdy > 0.0 { kdy } else { 0.0 };
     let py = canvas.y as f32 + 0.5;
     let x0 = (sx - reach).max(0);
     let x1 = (sx + sw + reach).min(canvas.width);
@@ -562,7 +571,18 @@ fn paint_shadow_row(
         if t <= 0.0 {
             continue;
         }
-        let f = if t >= 1.0 { 1.0 } else { t };
+        let mut f = if t >= 1.0 { 1.0 } else { t };
+        // Knock out the element's own footprint (1px feather at the edge).
+        let kdx = (pxf - kcx).abs() - khw;
+        let kdxc = if kdx > 0.0 { kdx } else { 0.0 };
+        let kin = if kdx.max(kdy) < 0.0 { kdx.max(kdy) } else { 0.0 };
+        let kdist = sqrt_f32(kdxc * kdxc + kdyc * kdyc) + kin - radius;
+        if kdist <= 0.0 {
+            continue;
+        }
+        if kdist < 1.0 {
+            f *= kdist;
+        }
         let a = (shadow.color.a as f32 * f) as u8;
         if a == 0 {
             continue;

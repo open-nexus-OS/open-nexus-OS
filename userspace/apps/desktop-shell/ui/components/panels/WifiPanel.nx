@@ -22,6 +22,7 @@ Component WifiPanel {
             Stack {
                 GlassToggle { checked: $state.wifiOn }
             }
+            .direction(row)
             on Tap -> dispatch(ToggleWifi)
         }
         .direction(row)
@@ -38,6 +39,7 @@ Component WifiPanel {
                     active: $state.wiredOnly,
                 }
             }
+            .direction(row)
             on Tap -> dispatch(ToggleWiredOnly)
         }
         .padding(3)
@@ -49,18 +51,22 @@ Component WifiPanel {
                 Stack {
                     RadioRow { label: @t("wifi.net.home"), sub: "", icon: "", bars: 3, locked: true, active: $state.selectedNet == "home" }
                 }
+                .direction(row)
                 on Tap -> dispatch(PickNet("home"))
                 Stack {
                     RadioRow { label: @t("wifi.net.guest"), sub: "", icon: "", bars: 3, locked: true, active: $state.selectedNet == "guest" }
                 }
+                .direction(row)
                 on Tap -> dispatch(PickNet("guest"))
                 Stack {
                     RadioRow { label: @t("wifi.net.neighbour"), sub: "", icon: "", bars: 2, locked: true, active: $state.selectedNet == "neighbour" }
                 }
+                .direction(row)
                 on Tap -> dispatch(PickNet("neighbour"))
                 Stack {
                     RadioRow { label: @t("wifi.net.cafe"), sub: "", icon: "", bars: 1, locked: false, active: $state.selectedNet == "cafe" }
                 }
+                .direction(row)
                 on Tap -> dispatch(PickNet("cafe"))
             }
             .padding(1)

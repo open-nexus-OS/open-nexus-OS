@@ -21,14 +21,17 @@ Component SoundPanel {
             Stack {
                 RadioRow { label: @t("sound.out.speakers"), sub: @t("sound.builtin"), icon: "speaker.wave", bars: 0, locked: false, active: $state.outputDevice == "speakers" }
             }
+            .direction(row)
             on Tap -> dispatch(PickOutput("speakers"))
             Stack {
                 RadioRow { label: @t("sound.out.headphones"), sub: @t("sound.bluetooth"), icon: "speaker.wave", bars: 0, locked: false, active: $state.outputDevice == "headphones" }
             }
+            .direction(row)
             on Tap -> dispatch(PickOutput("headphones"))
             Stack {
                 RadioRow { label: @t("sound.out.display"), sub: @t("sound.external"), icon: "speaker.wave", bars: 0, locked: false, active: $state.outputDevice == "display" }
             }
+            .direction(row)
             on Tap -> dispatch(PickOutput("display"))
         }
         .padding(1)
@@ -39,10 +42,12 @@ Component SoundPanel {
             Stack {
                 RadioRow { label: @t("sound.in.internal"), sub: @t("sound.builtin"), icon: "mic", bars: 0, locked: false, active: $state.inputDevice == "micInternal" }
             }
+            .direction(row)
             on Tap -> dispatch(PickInput("micInternal"))
             Stack {
                 RadioRow { label: @t("sound.in.external"), sub: @t("sound.usb"), icon: "mic", bars: 0, locked: false, active: $state.inputDevice == "micExternal" }
             }
+            .direction(row)
             on Tap -> dispatch(PickInput("micExternal"))
         }
         .padding(1)

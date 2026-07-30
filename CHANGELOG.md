@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-30 (Shell panels round 1: shadows stop darkening glass, text gets an ellipsis)
+
+A visible boot found five things. Four were platform bugs, not markup.
+
+- **Drop shadows were painted UNDER their own element.** CSS paints an outer
+  `box-shadow` "as if the border box were opaque" — never beneath the element.
+  Ours filled the interior at full alpha: invisible under an opaque box, very
+  visible under a translucent one, so every glass surface composited over its
+  own shadow and read several shades too dark. The casting shape is now
+  knocked out in both painters — the `FS_SHADOW` shader takes the unshifted
+  shape as `CONST[3]`, `paint_shadow_row` does the same with a 1px feather.
+- **Cut text was invisible.** Nothing wraps (`layout_lines` yields one line),
+  so an overlong run was clipped mid-glyph and read as a shorter label. `…` is
+  baked into every face now and `nexus_text_baked::ellipsis_cut` places the cut
+  so the prefix plus the ellipsis fits; the painter marks any run wider than
+  its own box. No opt-in — `.truncate(n)` stays unimplemented, since it means a
+  MULTI-line clamp and there are no multiple lines.
+- **theme**: the dark `glassPanel` was `#121214@0.40` where
+  `design_handoff_panels` specifies `rgba(255,255,255,0.10)` — opposite
+  polarity, four times the coverage. The dark tint came from the login handoff
+  and still holds for card/window, which sit on a surface; a panel floats over
+  the wallpaper and takes its depth from blur. Light's border and top-shine
+  moved to the handoff's .75/.22. Dock and taskbar share the level and move
+  with it.
+- **desktop-shell**: the Control Center's two tile columns were `.grow(1)`,
+  which splits only the FREE space, so they came out 17px apart and the
+  narrower tile's right-hand slice fell outside its own hit box — taps there
+  reached the panel's no-op absorber and the mode switch appeared dead. Stated
+  at 144 each (the handoff's `1fr 1fr`), with a test that taps both edges.
+- **desktop-shell**: `.shrink(0)` on every fixed-size lead (tile icon circle,
+  radio lead, notification app icon) — a long label used to squeeze the 26px
+  circle into an ellipse — and a taller notification peek, since at the
+  handoff's 7px a card's corner radius clamps to 3.5 and reads as a pill bar.
+- **app-host / text-baked**: split by responsibility for the size gate —
+  `paint/collect.rs` (the three scene walkers that must agree on node
+  numbering) and `text-baked/metrics.rs` (run measurement + the ellipsis cut).
+
 ### Added - 2026-07-30 (Shell status panels: topbar + six drop-downs, design handoff 1:1)
 
 `design_handoff_panels` ported: the 36px top bar and all six drop-downs —

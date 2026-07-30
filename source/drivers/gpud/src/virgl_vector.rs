@@ -77,15 +77,24 @@ const FS_SDF_GRAD: &str = "FRAG\n\
     END\n";
 
 /// Soft drop shadow: alpha = color.a · (1 - clamp(d/blur, 0, 1))², a
-/// quadratic SDF falloff (visually close to a gaussian penumbra, exact at
-/// d≤0 → full shadow under the shape).
+/// quadratic SDF falloff (visually close to a gaussian penumbra), KNOCKED OUT
+/// inside the casting shape.
+///
+/// The knockout is what makes this a CSS `box-shadow` rather than a dark
+/// rectangle behind the element. CSS paints an outer shadow "as if the border
+/// box were opaque" — i.e. never under the element itself. Ours filled the
+/// interior at full alpha, which is invisible under an opaque box and very
+/// visible under a TRANSLUCENT one: every glass panel composited over its own
+/// shadow and read several shades too dark.
+///
 /// CONST[0] = (-cx, -cy, bx, by) with the shadow offset already applied.
 /// CONST[1] = (radius, 1/blur, 0, 0). CONST[2] = shadow RGBA.
+/// CONST[3] = (-cx, -cy, bx, by) of the UNSHIFTED shape — the knockout.
 const FS_SHADOW: &str = "FRAG\n\
     DCL IN[0], POSITION, LINEAR\n\
     DCL OUT[0], COLOR\n\
-    DCL CONST[0..2]\n\
-    DCL TEMP[0..3]\n\
+    DCL CONST[0..3]\n\
+    DCL TEMP[0..5]\n\
     IMM[0] FLT32 { 0.5000, 0.0000, 1.0000, 0.0000}\n\
     ADD TEMP[0].xy, IN[0].xyyy, CONST[0].xyyy\n\
     MAX TEMP[0].xy, TEMP[0].xyyy, -TEMP[0].xyyy\n\
@@ -99,6 +108,16 @@ const FS_SHADOW: &str = "FRAG\n\
     MAX TEMP[3].x, TEMP[3].xxxx, IMM[0].yyyy\n\
     MIN TEMP[3].x, TEMP[3].xxxx, IMM[0].zzzz\n\
     MUL TEMP[3].x, TEMP[3].xxxx, TEMP[3].xxxx\n\
+    ADD TEMP[4].xy, IN[0].xyyy, CONST[3].xyyy\n\
+    MAX TEMP[4].xy, TEMP[4].xyyy, -TEMP[4].xyyy\n\
+    ADD TEMP[5].xy, TEMP[4].xyyy, -CONST[3].zwww\n\
+    MAX TEMP[5].xy, TEMP[5].xyyy, IMM[0].yyyy\n\
+    DP2 TEMP[4].x, TEMP[5].xyyy, TEMP[5].xyyy\n\
+    SQRT TEMP[4].x, TEMP[4].xxxx\n\
+    ADD TEMP[4].x, TEMP[4].xxxx, -CONST[1].xxxx\n\
+    MAX TEMP[4].x, TEMP[4].xxxx, IMM[0].yyyy\n\
+    MIN TEMP[4].x, TEMP[4].xxxx, IMM[0].zzzz\n\
+    MUL TEMP[3].x, TEMP[3].xxxx, TEMP[4].xxxx\n\
     MOV TEMP[0], CONST[2]\n\
     MUL TEMP[0].w, CONST[2].wwww, TEMP[3].xxxx\n\
     MOV OUT[0], TEMP[0]\n\
@@ -277,6 +296,10 @@ impl VirtioGpuBackend {
         let r = (radius.min(w / 2).min(h / 2)) as f32;
         let cx = x as f32 + offset_x as f32 + w as f32 / 2.0;
         let cy = y as f32 + offset_y as f32 + h as f32 / 2.0;
+        // The casting shape WITHOUT the offset — the CSS knockout region, so
+        // the shadow never darkens the (possibly translucent) element itself.
+        let kx = x as f32 + w as f32 / 2.0;
+        let ky = y as f32 + h as f32 / 2.0;
         let bx = w as f32 / 2.0 - r;
         let by = h as f32 / 2.0 - r;
         let c = rgba_f32(color);
@@ -297,7 +320,11 @@ impl VirtioGpuBackend {
                 c[0],
                 c[1],
                 c[2],
-                c[3],
+                c[3], //
+                -kx,
+                -ky,
+                bx,
+                by,
             ],
         );
         s.emit_bind_shader(H_FS_SHADOW, PIPE_SHADER_FRAGMENT);
@@ -367,6 +394,10 @@ impl VirtioGpuBackend {
         let r = (radius.min(w / 2).min(h / 2)) as f32;
         let cx = x as f32 + offset_x as f32 + w as f32 / 2.0;
         let cy = y as f32 + offset_y as f32 + h as f32 / 2.0;
+        // The casting shape WITHOUT the offset — the CSS knockout region, so
+        // the shadow never darkens the (possibly translucent) element itself.
+        let kx = x as f32 + w as f32 / 2.0;
+        let ky = y as f32 + h as f32 / 2.0;
         let bx = w as f32 / 2.0 - r;
         let by = h as f32 / 2.0 - r;
         let c = rgba_f32(color);
@@ -387,7 +418,11 @@ impl VirtioGpuBackend {
                 c[0],
                 c[1],
                 c[2],
-                c[3],
+                c[3], //
+                -kx,
+                -ky,
+                bx,
+                by,
             ],
         );
         s.emit_bind_shader(H_FS_SHADOW, PIPE_SHADER_FRAGMENT);

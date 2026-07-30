@@ -413,12 +413,17 @@ fn test_window_pane_is_a_distinct_level_from_panel() {
     };
     let pane = glass("glassWindowPane");
     let panel = glass("glassPanel");
-    let luma = |c: ColorValue| u32::from(c.r) + u32::from(c.g) + u32::from(c.b);
+    // The two levels are distinct by COVERAGE, not by luma. Since
+    // design_handoff_panels the dark panel is a white 10 % wash — depth comes
+    // from blur(72) + saturate, not from covering the wallpaper — while the
+    // pane is a dense mid-grey window surface that content sits ON.
     assert!(
-        luma(pane.tint_color) > luma(panel.tint_color),
-        "the pane tint ({:?}) must be lighter than the panel's near-black ({:?})",
+        pane.tint_alpha > panel.tint_alpha * 2.0,
+        "the pane ({:?}@{}) must be far denser than the floating panel ({:?}@{})",
         pane.tint_color,
-        panel.tint_color
+        pane.tint_alpha,
+        panel.tint_color,
+        panel.tint_alpha
     );
     assert_eq!(pane.tint_color, ColorValue::from_hex("#484a54").unwrap());
     let bottom = pane.tint_bottom_color.expect("the pane is a TWO-STOP gradient (handoff 160deg)");
@@ -445,13 +450,15 @@ fn test_glass_material_resolves_through_qualifier_chain() {
         other => panic!("light glassPanel should inherit base glass, got {other:?}"),
     }
 
-    // Dark overrides glassPanel with a DARK tint (RFC-0082: the login
-    // handoff's rgba(18,18,20,.4) — a white wash greys out a photograph).
+    // Dark overrides glassPanel with a LIGHTER wash than light mode uses
+    // (design_handoff_panels: rgba(255,255,255,.10) dark vs .50 light). The
+    // RFC-0082 dark tint moved to the card/window levels, which sit on a
+    // surface rather than floating over the wallpaper.
     runtime.set_qualifier(Qualifier::Dark);
     match runtime.resolve_material("glassPanel") {
         Some(nexus_theme::Material::Glass(g)) => {
-            assert!((g.tint_alpha - 0.40).abs() < 1e-6);
-            assert_eq!(g.tint_color, ColorValue::from_hex("#121214").unwrap());
+            assert!((g.tint_alpha - 0.10).abs() < 1e-6, "dark panel wash is 10%");
+            assert_eq!(g.tint_color, ColorValue::from_hex("#ffffff").unwrap());
         }
         other => panic!("dark glassPanel should override, got {other:?}"),
     }

@@ -100,7 +100,7 @@ Rules:
 | `.fontWeight(w)` | `light\|regular\|medium\|semibold\|bold` | weight |
 | `.textAlign(a)` | `left\|center\|right` | alignment |
 | `.leading(t)` | `flat\|tight\|snug\|normal\|relaxed` | line height as a percentage of the font size; omit it and the baked face's own line height is used |
-| `.truncate(n)` | `Int` lines | line clamp with ellipsis |
+| `.truncate(n)` | `Int` lines | multi-line clamp — **not implemented** (nothing wraps, so there is only ever one line). Single-line clipping needs no opt-in: the painter marks ANY run wider than its own box with `…`. |
 
 **What the type ramp can actually render** (RFC-0082). The platform bakes a
 sparse ladder of `(size, weight)` faces and resolves a request to the nearest

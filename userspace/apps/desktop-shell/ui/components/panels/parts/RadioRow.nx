@@ -43,6 +43,7 @@ Component RadioRow {
         .direction(row)
         .align(center)
         .gap(1)
+        .shrink(0)
         Stack {
             if $props.active {
                 Text($props.label).textSize(sm).fontWeight(semibold).leading(tight).fg(onGlass)
@@ -57,6 +58,7 @@ Component RadioRow {
         }
         .gap(0)
         .grow(1)
+        .minWidth(0)
         .direction(column)
         if $props.active {
             Icon { symbol: "checkmark", size: 14 }

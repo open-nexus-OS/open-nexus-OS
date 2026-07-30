@@ -1,6 +1,6 @@
 ---
 title: TASK-0312 Shell panels design handoff — topbar + six drop-downs 1:1
-status: In Progress (2026-07-30) — Phase 0-5 host-proven (`just check`, `just test-host` green, 11 new panel proofs); OPEN: visible `just start` boot
+status: In Progress (2026-07-30) — Phase 0-5 + repair round 1 done (`just check`, `just test-host`, OS build green; 12 panel proofs); OPEN: re-boot to confirm round 1
 owner: @ui
 created: 2026-07-30
 links:
@@ -132,6 +132,61 @@ from `device.*`.
   one-panel-at-a-time, outside-click, the mode switch actually re-laying the
   bar, live dark/light — and whether `glassPanel` at 72 reads right on the
   dock and taskbar, which share the level.
+
+## Repair round 1 (2026-07-30, from a visible boot)
+
+Five findings, four of them platform bugs rather than markup mistakes.
+
+- **The mode switch felt dead.** The two connectivity columns were `.grow(1)`,
+  which is flex-grow over an AUTO basis: it splits only the FREE space, so the
+  column with the longer label came out 17px wider. The narrower tile's box
+  stopped short of the card it sat in and every tap in that gap fell through to
+  the panel's `PanelNoop` absorber — which by design changes nothing. Columns
+  are now stated at 144 = (328 − 2×16 − 8)/2, the handoff's `1fr 1fr`.
+  `the_view_mode_tile_is_tappable_across_its_whole_width` taps both edges,
+  because a centre-only assertion passes with the bug present.
+- **Panels read too dark, in both themes.** Two independent causes, and the
+  user named both:
+  1. **The shadow was painted UNDER the panel.** CSS paints an outer
+     `box-shadow` "as if the border box were opaque" — never beneath the
+     element. Ours filled the interior at full alpha, which is invisible under
+     an opaque box and very visible under a translucent one: every glass
+     surface composited over its own shadow. Fixed by knocking the casting
+     shape out of the shadow, in BOTH painters (the `FS_SHADOW` TGSI shader
+     gains the unshifted shape as `CONST[3]`; `paint_shadow_row` gains the
+     same test with a 1px feather). The `toast_*` and `glass_cards` goldens
+     moved because the toast and cards are glass — the fix landing.
+  2. **The dark tint was the wrong colour.** `design_handoff_panels` specifies
+     `rgba(255,255,255,0.10)` dark / `0.50` light; ours was `#121214@0.40` —
+     opposite polarity, four times the coverage. That value came from the
+     LOGIN handoff (RFC-0082) and still holds for card/window, which sit on a
+     surface; a panel floats over the wallpaper and takes its depth from
+     blur(72) + saturate. Light already matched; its border and top-shine
+     moved to the handoff's .75/.22. **This moves the dock and taskbar too** —
+     one panel material, one depth.
+- **Icon circles went oval** under a long label: the text column won the flex
+  negotiation. `.shrink(0)` on every fixed-size lead (tile circle, radio lead,
+  notification app icon) and `.minWidth(0)` on the text columns beside them.
+- **Cut text was invisible.** The platform does not wrap — `layout_lines`
+  always yields one line — so an overlong run was clipped mid-glyph and read
+  as a shorter label. `…` is now baked into every face's EXTRAS tail and
+  `ellipsis_cut` decides where to cut so the prefix PLUS the ellipsis fits;
+  the painter marks any run wider than its own box. This retires the
+  "no ellipsis" entry from the table above.
+- **The notification peek looked squeezed.** The handoff overlaps two cards by
+  translating the back one 7px down; without transforms the sliver is a real
+  box, and at 7px its corner radius clamps to 3.5 so it read as a pill bar.
+  12px with a 12px radius reads as a card edge; dimming pushes it back.
+
+Two files crossed the 600-LOC line and were split by responsibility:
+`text-baked` gained `metrics.rs` (run measurement + the ellipsis cut — nothing
+there touches a pixel), `paint.rs` gained `paint/collect.rs` (the three scene
+walkers whose node numbering must agree with `path_to_box_id`).
+
+**Process note.** Both module moves compiled clean under `cargo check` and
+failed the OS cross-build on visibility: `pub(super)` narrows when an item
+moves a level deeper, and the app-host BIN is only built under the OS cfg. Run
+`scripts/build.sh` after any move, not just `just check`.
 
 ## Follow-ups
 

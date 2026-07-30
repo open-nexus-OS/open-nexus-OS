@@ -22,6 +22,11 @@
 // their ink is white in both — which is exactly what `onInfo` resolves to.
 // The 65%-white sub-label rides the same role at reduced opacity (the scale is
 // 0..255, so .65 is 166).
+//
+// `.shrink(0)` on the icon circle and `.minWidth(0)` on the text column are
+// load-bearing: without them a long label ("Ansichtsmodus") wins the flex
+// negotiation and squeezes the 26px circle into an ellipse. The label then
+// overflows instead, which is what `.truncate(1)` is there to end.
 
 Component ToggleTile {
     props: {
@@ -39,12 +44,14 @@ Component ToggleTile {
                     .fg(onInfo)
             }
             .bgGradient("#ffffff40", "#ffffff40")
+            .shrink(0)
             Stack {
                 Text($props.label).textSize(xs).fontWeight(semibold).leading(tight).fg(onInfo)
                 Text($props.subOn).textSize(xs).leading(tight).fg(onInfo).opacity(166)
             }
             .gap(0)
             .grow(1)
+            .minWidth(0)
             .direction(column)
         }
         .direction(row)
@@ -62,12 +69,14 @@ Component ToggleTile {
                     .fg(onGlassMuted)
             }
             .material(subtle)
+            .shrink(0)
             Stack {
                 Text($props.label).textSize(xs).fontWeight(semibold).leading(tight).fg(onGlass)
                 Text($props.subOff).textSize(xs).leading(tight).fg(onGlassMuted)
             }
             .gap(0)
             .grow(1)
+            .minWidth(0)
             .direction(column)
         }
         .direction(row)

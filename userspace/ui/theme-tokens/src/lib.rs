@@ -515,20 +515,20 @@ mod tests {
 
     #[test]
     fn generated_glass_materials_from_toml() {
-        // base glassPanel: tint #ffffff@.50, blur 72, border #ffffff@.70, sat 140.
-        // The blur is design_handoff_panels' `blur(72px)` — panel is the
-        // deepest glass level, shared by the drop-downs, dock and taskbar.
+        // base glassPanel (design_handoff_panels §1): tint #ffffff@.50,
+        // blur 72, border #ffffff@.75, top-shine #ffffff@.22, sat 140.
         let p = BaseTokens.glass(MaterialToken::Panel);
         assert_eq!(p.tint, Rgba8::new(255, 255, 255, 128));
         assert_eq!(p.blur_radius, 72);
-        assert_eq!(p.border, Some(Rgba8::new(255, 255, 255, 179)));
+        assert_eq!(p.border, Some(Rgba8::new(255, 255, 255, 191)));
         assert_eq!(p.saturation, 140);
-        // RFC-0082: dark glass is a DARK tint (#121214@.40), not a white wash —
-        // over a photograph a white wash greys the image out.
-        assert_eq!(DarkTokens.glass(MaterialToken::Panel).tint, Rgba8::new(18, 18, 20, 102));
-        // The edge highlight is the `inset 0 1px 0` line, authored strong.
-        assert_eq!(p.edge, Rgba8::new(255, 255, 255, 153)); // #ffffff@.60
-                                                            // light inherits base materials via the qualifier chain.
+        // Dark is the SAME white wash at a fifth of the coverage (.10). It is
+        // not the RFC-0082 dark tint: that belongs to the levels that sit on a
+        // surface, while a panel floats over the wallpaper and takes its depth
+        // from the blur.
+        assert_eq!(DarkTokens.glass(MaterialToken::Panel).tint, Rgba8::new(255, 255, 255, 26));
+        assert_eq!(p.edge, Rgba8::new(255, 255, 255, 56)); // #ffffff@.22
+                                                           // light inherits base materials via the qualifier chain.
         assert_eq!(LightTokens.glass(MaterialToken::Panel).blur_radius, 72);
         // high contrast zeroes blur (a11y).
         assert_eq!(HighContrastTokens.glass(MaterialToken::Overlay).blur_radius, 0);

@@ -203,9 +203,9 @@ downsampleFactor = 4
 tintColor = "#ffffff"
 tintAlpha = 0.50
 edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.60
+edgeHighlightAlpha = 0.22
 borderColor = "#ffffff"
-borderAlpha = 0.70
+borderAlpha = 0.75
 
 [material.glassCard]
 type = "glass"

@@ -35,10 +35,12 @@ extern crate alloc;
 pub mod measure_text;
 
 mod ladder;
+mod metrics;
 use ladder::{face, Face};
 pub use ladder::{FontSize, Weight};
 #[cfg(test)]
 use ladder::{BODY, HERO};
+pub use metrics::{advance, ellipsis_cut, measure, ELLIPSIS};
 
 #[allow(clippy::all)]
 mod baked {
@@ -180,35 +182,6 @@ fn kern(f: &Face, left: usize, right: usize) -> i32 {
         }
     }
     0
-}
-
-/// Advance of a single glyph in pixels (no kerning) — the unit the wrap
-/// walker accumulates (kerning at these sizes rounds to ≤1px per pair and
-/// the renderer clips, so wrap and paint cannot visibly drift).
-#[must_use]
-pub fn advance(ch: char, size: FontSize) -> u32 {
-    let (f, gi) = resolve(face(size), ch);
-    f.glyphs.get(gi).map_or(0, |g| g.5 as u32)
-}
-
-/// Advance width of a run in pixels (kerning included). Kerning only applies
-/// between two glyphs from the SAME face — a pair straddling the fallback
-/// seam has no meaningful pair value.
-pub fn measure(text: impl Iterator<Item = char>, size: FontSize) -> u32 {
-    let primary = face(size);
-    let mut w = 0i32;
-    let mut prev: Option<(&'static Face, usize)> = None;
-    for ch in text {
-        let (f, gi) = resolve(primary, ch);
-        if let Some((pf, p)) = prev {
-            if pf.id == f.id {
-                w += kern(f, p, gi);
-            }
-        }
-        w += f.glyphs.get(gi).map_or(0, |g| g.5 as i32);
-        prev = Some((f, gi));
-    }
-    w.max(0) as u32
 }
 
 /// Blend the slice of the run `text` that intersects surface row `local_y`
@@ -420,6 +393,11 @@ mod tests {
         assert_eq!(ascent(FontSize::Body), 16);
     }
 
+    /// A run that fits is never touched; one that does not is cut short enough
+    /// that the ellipsis still fits the same width. The second half is the
+    /// property that matters: an ellipsis that overflows would be the very
+    /// clipping it exists to announce.
+    #[test]
     #[test]
     fn nearest_picks_size_first_then_weight() {
         // Exact rungs.

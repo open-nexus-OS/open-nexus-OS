@@ -334,3 +334,83 @@ fn the_dimmed_network_list_takes_no_taps() {
     shell.send("ConnEvent", "ToggleWifi", vec![]);
     assert_eq!(handlers(&shell.view), live, "and restore them when the master comes back");
 }
+
+/// The view-mode tile must be tappable across its WHOLE painted width, not
+/// just its middle.
+///
+/// This is the bug that made the mode switch feel dead. The two connectivity
+/// columns were `.grow(1)`, which is flex-grow over an AUTO basis: it hands
+/// out the FREE space on top of each column's content width, so the column
+/// holding the longer label came out 17px wider than its neighbour. The
+/// narrower tile's own box stopped short of the card it sat in, and a tap in
+/// that gap fell through to the panel's `PanelNoop` absorber — which by design
+/// changes nothing, so the tile simply did not respond.
+///
+/// Asserting the CENTRE only would still pass with the bug present, which is
+/// why this walks the edges.
+#[test]
+fn the_view_mode_tile_is_tappable_across_its_whole_width() {
+    let nxir: &'static [u8] = Box::leak(common::compile("desktop-shell").into_boxed_slice());
+    let device = FixtureEnv::desktop();
+    let symbols = common::program_symbols(nxir);
+    let keys = common::program_i18n_keys(nxir);
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let mut view = View::mount(nxir, &tokens, &device, &locale).expect("mounts");
+    let mut host = SettingsSpy { sets: Vec::new(), other: 0 };
+    common::dispatch_with_keys(
+        &mut view,
+        &device,
+        &mut host,
+        &symbols,
+        &keys,
+        "PanelEvent",
+        "SetPanel",
+        vec![Value::Str("control".to_string())],
+    );
+
+    let boxes = common::layout_boxes(&view);
+    let handlers: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
+    // The four connectivity tiles: handler boxes inside the panel, 42px tall.
+    let mut tiles: Vec<_> = boxes
+        .iter()
+        .filter(|b| handlers.contains(&b.node_id) && b.rect.height.0 == 42 && b.rect.y.0 > 36)
+        .collect();
+    tiles.sort_by_key(|b| (b.rect.y.0, b.rect.x.0));
+    assert_eq!(tiles.len(), 4, "the Control Center has four connectivity tiles");
+
+    // Equal columns (the handoff's `1fr 1fr`), or one tile is narrower than
+    // the card it fills and the difference is dead space.
+    let widths: Vec<i32> = tiles.iter().map(|b| b.rect.width.0).collect();
+    assert!(
+        widths.iter().all(|w| *w == widths[0]),
+        "the four tiles must be equally wide (grid 1fr 1fr), got {widths:?}"
+    );
+
+    // The view-mode tile is the bottom-right one. Tap its extremes.
+    let tile = tiles[3];
+    let cy = nexus_layout_types::FxPx::new(tile.rect.y.0 + tile.rect.height.0 / 2);
+    for (label, x) in [
+        ("left edge", tile.rect.x.0 + 1),
+        ("centre", tile.rect.x.0 + tile.rect.width.0 / 2),
+        ("right edge", tile.rect.x.0 + tile.rect.width.0 - 2),
+    ] {
+        host.sets.clear();
+        view.pointer(
+            &tokens,
+            &device,
+            &locale,
+            &mut host,
+            &boxes,
+            "Tap",
+            nexus_layout_types::FxPx::new(x),
+            cy,
+        )
+        .expect("pointer");
+        assert_eq!(
+            host.sets,
+            vec![("ui.shell.mode".to_string(), "tablet".to_string())],
+            "a tap on the tile's {label} must switch the shell mode"
+        );
+    }
+}

@@ -162,8 +162,7 @@ change is not an expressible motion token), paged launcher grid + page dots
 land when one page overflows, desktop icon field wraps in rows (column-wrap
 pending engine support).
 
-Panel-specific deltas, all platform limits rather than choices: **no ellipsis**
-on the one-line notification body (`.truncate` is a declared no-op), **no exit
+Panel-specific deltas, all platform limits rather than choices: **no exit
 animation** (`.transition` is enter-only), **sliders render but do not drag**
 (the `Change` trigger carries no payload, so a drag has no value to deliver —
 mute still moves the volume fill, because that goes through a `Tap`), and

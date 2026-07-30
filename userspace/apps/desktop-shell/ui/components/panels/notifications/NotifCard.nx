@@ -42,8 +42,14 @@ Component NotifCard {
             }
             .width(38)
             .height(38)
+            .shrink(0)
         } else {
-            Image { source: $props.appId, size: 38 }
+            Stack {
+                Image { source: $props.appId, size: 38 }
+            }
+            .width(38)
+            .height(38)
+            .shrink(0)
         }
         Stack {
             Stack {

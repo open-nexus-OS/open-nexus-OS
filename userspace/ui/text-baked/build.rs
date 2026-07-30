@@ -39,7 +39,7 @@ const NOTO_SC: &str = "../../../resources/fonts/noto/NotoSansCJKsc-Regular.otf";
 /// Latin EXTRAS (umlauts/ß, calculator math symbols, the breadcrumb
 /// separator). MUST stay sorted ascending and < 256 total glyph indices with
 /// ASCII (kern indices are u8).
-const EXTRAS: [u32; 13] = [
+const EXTRAS: [u32; 14] = [
     0x00B1, // ±
     0x00C4, // Ä
     0x00D6, // Ö
@@ -50,6 +50,9 @@ const EXTRAS: [u32; 13] = [
     0x00F6, // ö
     0x00F7, // ÷
     0x00FC, // ü
+    // Text that does not fit its box is CUT by the row painter. Without this
+    // glyph the cut was invisible and a label just stopped mid-word.
+    0x2026, // …
     0x2039, // ‹
     // The `Breadcrumbs` widget's separator. Without it the path trail printed
     // a placeholder box between every crumb.
