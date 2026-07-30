@@ -2,108 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Desktop override (design_handoff_launcher desktop MODE — the explicit
-// Control-Center toggle, not width): full-width TASKBAR 56 at the bottom
-// (bare launcher glyph left · app icons xs DIRECTLY on the bar + divider +
-// mini player centre · bare nav right), top bar with the time+date pill,
-// bell pill, and FOUR separate status pills (wifi · sound · battery ·
-// control centre), top-left icon field. Same store/events — ONE `.nxir`;
-// the compositor's profile push selects this override.
+// Control-Center toggle, not width): thin composition only — top bar with
+// the four separate status pills, the top-left icon COLUMN, the drop-down
+// panel layer, the launcher overlay (windowed 720×520 default, fullscreen
+// expand), and the 56px taskbar. Same store/events — ONE `.nxir`; the
+// compositor's profile push selects this override.
 
 Page ShellPage {
     Stack {
         TopBar { }
         Stack {
-            Stack {
-                if $state.loading {
-                    Text(@t("common.loading")).fg(onSurfaceVariant)
-                } else {
-                    List($state.apps) { app in
-                        Stack {
-                            AppTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
-                        }
-                        .key(app.id)
-                        on Tap -> dispatch(Launch(app.id))
-                    }
-                    .direction(row)
-                    .wrap(true)
-                    .gap(6)
-                }
-            }
-            .grow(1)
-            .scroll(vertical)
-            .padding(5)
+            WorkspaceColumn { }
             PanelHost { }
+            LauncherHost { }
         }
         .grow(1)
-        Stack {
-            Stack {
-                Icon { symbol: "square.grid", size: 20 }
-                    .fg(onSurface)
-            }
-            .width(36)
-            .height(36)
-            .align(center)
-            .justify(center)
-            .rounded(md)
-            on Tap -> navigate("/launcher")
-            Spacer
-            Stack {
-                List($state.apps) { app in
-                    Stack {
-                        TaskbarTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
-                    }
-                    .key(app.id)
-                    on Tap -> dispatch(Launch(app.id))
-                }
-                .direction(row)
-                .gap(1)
-                Stack { }
-                    .width(1)
-                    .height(28)
-                    .bg(surfaceVariant)
-                MiniPlayer { }
-            }
-            .direction(row)
-            .align(center)
-            .gap(2)
-            Spacer
-            Stack {
-                Icon { symbol: "chevron.left", size: 14 }
-                    .fg(onSurface)
-            }
-            .width(32)
-            .height(32)
-            .align(center)
-            .justify(center)
-            .rounded(md)
-            on Tap -> navigate("/")
-            Stack {
-                Icon { symbol: "house", size: 14 }
-                    .fg(onSurface)
-            }
-            .width(32)
-            .height(32)
-            .align(center)
-            .justify(center)
-            .rounded(md)
-            on Tap -> navigate("/")
-            Stack {
-                Icon { symbol: "square", size: 13 }
-                    .fg(onSurface)
-            }
-            .width(32)
-            .height(32)
-            .align(center)
-            .justify(center)
-            .rounded(md)
-            on Tap -> navigate("/")
-        }
-        .direction(row)
-        .height(56)
-        .align(center)
-        .paddingX(3)
-        .gap(2)
-        .material(panel)
+        Taskbar { }
     }
     .gap(0)
+    on WindowsChanged -> dispatch(WindowsMoved)
 }

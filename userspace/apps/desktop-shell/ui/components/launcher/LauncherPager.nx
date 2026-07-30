@@ -1,0 +1,252 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The paged app grid (design_handoff_launcher §11): a horizontal
+// `.scroll(paged)` strip of viewport-width page cells — the HOST snaps the
+// offset to whole pages (glide ease), the wheel turns ±1 page (360ms lock)
+// and fires `PageNext`/`PagePrev` so `$state.page` tracks the snap; a dot
+// tap glides via `svc.shell.scrollToPage`. Page cells are sliced out of the
+// ONE store list with `take(skip(...))`.
+//
+// Cell width/columns/per-page are PER-ARM CONSTANTS (the DSL has no
+// container measurement; the handoff's measured `cols = floor(w/144)`
+// degrades honestly to the fixed-mode numbers):
+//   desktop (overlay parent unpadded, 1280 wide) → cells 1280, 8 cols, 24/page
+//   touch wide (parent padded 28×2 → 1224)       → cells 1224, 8 cols, 24/page
+//   narrower touch (600×800 boot: 600−56 → 544)  → cells 544, 3 cols, 6/page
+// The cell width MUST equal the strip's clip width — the snap math is
+// page k = k × viewport width.
+
+Component LauncherPager {
+    Stack {
+        Stack {
+            if device.profile == desktop {
+                Stack {
+                    List(take($state.apps, 24)) { app in
+                        Stack {
+                            LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                        }
+                        .key(app.id)
+                        .align(center)
+                        on Tap -> dispatch(Launch(app.id))
+                    }
+                    .columns(8)
+                    .rowGap(5)
+                    .gap(3)
+                    .padding(6)
+                }
+                .width(1280)
+                if len($state.apps) > 24 {
+                    Stack {
+                        List(take(skip($state.apps, 24), 24)) { app in
+                            Stack {
+                                LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                            }
+                            .key(app.id)
+                            .align(center)
+                            on Tap -> dispatch(Launch(app.id))
+                        }
+                        .columns(8)
+                        .rowGap(5)
+                        .gap(3)
+                        .padding(6)
+                    }
+                    .width(1280)
+                } else {
+                    Stack { }
+                }
+                if len($state.apps) > 48 {
+                    Stack {
+                        List(take(skip($state.apps, 48), 24)) { app in
+                            Stack {
+                                LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                            }
+                            .key(app.id)
+                            .align(center)
+                            on Tap -> dispatch(Launch(app.id))
+                        }
+                        .columns(8)
+                        .rowGap(5)
+                        .gap(3)
+                        .padding(6)
+                    }
+                    .width(1280)
+                } else {
+                    Stack { }
+                }
+                if len($state.apps) > 72 {
+                    Stack {
+                        List(take(skip($state.apps, 72), 24)) { app in
+                            Stack {
+                                LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                            }
+                            .key(app.id)
+                            .align(center)
+                            on Tap -> dispatch(Launch(app.id))
+                        }
+                        .columns(8)
+                        .rowGap(5)
+                        .gap(3)
+                        .padding(6)
+                    }
+                    .width(1280)
+                } else {
+                    Stack { }
+                }
+            } else { if device.sizeClass == "wide" {
+                Stack {
+                    List(take($state.apps, 24)) { app in
+                        Stack {
+                            LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                        }
+                        .key(app.id)
+                        .align(center)
+                        on Tap -> dispatch(Launch(app.id))
+                    }
+                    .columns(8)
+                    .rowGap(5)
+                    .gap(3)
+                    .padding(6)
+                }
+                .width(1224)
+                if len($state.apps) > 24 {
+                    Stack {
+                        List(take(skip($state.apps, 24), 24)) { app in
+                            Stack {
+                                LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                            }
+                            .key(app.id)
+                            .align(center)
+                            on Tap -> dispatch(Launch(app.id))
+                        }
+                        .columns(8)
+                        .rowGap(5)
+                        .gap(3)
+                        .padding(6)
+                    }
+                    .width(1224)
+                } else {
+                    Stack { }
+                }
+                if len($state.apps) > 48 {
+                    Stack {
+                        List(take(skip($state.apps, 48), 24)) { app in
+                            Stack {
+                                LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                            }
+                            .key(app.id)
+                            .align(center)
+                            on Tap -> dispatch(Launch(app.id))
+                        }
+                        .columns(8)
+                        .rowGap(5)
+                        .gap(3)
+                        .padding(6)
+                    }
+                    .width(1224)
+                } else {
+                    Stack { }
+                }
+                if len($state.apps) > 72 {
+                    Stack {
+                        List(take(skip($state.apps, 72), 24)) { app in
+                            Stack {
+                                LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                            }
+                            .key(app.id)
+                            .align(center)
+                            on Tap -> dispatch(Launch(app.id))
+                        }
+                        .columns(8)
+                        .rowGap(5)
+                        .gap(3)
+                        .padding(6)
+                    }
+                    .width(1224)
+                } else {
+                    Stack { }
+                }
+            } else {
+                Stack {
+                    List(take($state.apps, 6)) { app in
+                        Stack {
+                            LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                        }
+                        .key(app.id)
+                        .align(center)
+                        on Tap -> dispatch(Launch(app.id))
+                    }
+                    .columns(3)
+                    .rowGap(5)
+                    .gap(3)
+                    .padding(6)
+                }
+                .width(544)
+                if len($state.apps) > 6 {
+                    Stack {
+                        List(take(skip($state.apps, 6), 6)) { app in
+                            Stack {
+                                LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                            }
+                            .key(app.id)
+                            .align(center)
+                            on Tap -> dispatch(Launch(app.id))
+                        }
+                        .columns(3)
+                        .rowGap(5)
+                        .gap(3)
+                        .padding(6)
+                    }
+                    .width(544)
+                } else {
+                    Stack { }
+                }
+                if len($state.apps) > 12 {
+                    Stack {
+                        List(take(skip($state.apps, 12), 6)) { app in
+                            Stack {
+                                LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                            }
+                            .key(app.id)
+                            .align(center)
+                            on Tap -> dispatch(Launch(app.id))
+                        }
+                        .columns(3)
+                        .rowGap(5)
+                        .gap(3)
+                        .padding(6)
+                    }
+                    .width(544)
+                } else {
+                    Stack { }
+                }
+                if len($state.apps) > 18 {
+                    Stack {
+                        List(take(skip($state.apps, 18), 6)) { app in
+                            Stack {
+                                LauncherTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                            }
+                            .key(app.id)
+                            .align(center)
+                            on Tap -> dispatch(Launch(app.id))
+                        }
+                        .columns(3)
+                        .rowGap(5)
+                        .gap(3)
+                        .padding(6)
+                    }
+                    .width(544)
+                } else {
+                    Stack { }
+                }
+            } }
+        }
+        .direction(row)
+        .scroll(paged)
+        .grow(1)
+        on PageNext -> dispatch(PageNext)
+        on PagePrev -> dispatch(PagePrev)
+        PagerDots { }
+    }
+    .grow(1)
+}

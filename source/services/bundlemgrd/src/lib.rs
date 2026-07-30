@@ -24,6 +24,10 @@
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern crate alloc;
 
+// RFC-0086: recognize app-host senders by their execd-stamped `app:<id>`
+// service name. Pure + host-tested; `os_lite` is RISC-V-only.
+#[cfg(any(all(nexus_env = "os", feature = "os-lite"), test))]
+mod app_sender;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]

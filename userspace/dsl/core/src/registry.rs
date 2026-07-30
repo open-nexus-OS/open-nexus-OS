@@ -137,6 +137,16 @@ pub const MODIFIERS: &[ModifierSpec] = &[
         args: &[ModArg::Token, ModArg::Token],
         class: FieldClass::Paint,
     },
+    // -- grid tracks (layout, APPEND-ONLY ids): `.columns(n)` turns THIS
+    // container into an n-column GRID (the engine's `LayoutNode::Grid`,
+    // row-major, n equal 1fr tracks). On a `List(...)` the items become the
+    // grid cells — the data-driven launcher/workspace grids
+    // (design_handoff_launcher §3.2/§9/§11); the `Grid` widget is the
+    // static-content sugar over the same lowering. `.gap()` stays the
+    // COLUMN gap; `.rowGap(n)` sets the row gap (same spacing scale, defaults
+    // to the column gap).
+    ModifierSpec { name: "columns", args: &[ModArg::Int], class: FieldClass::Layout },
+    ModifierSpec { name: "rowGap", args: &[ModArg::Int], class: FieldClass::Layout },
 ];
 
 #[must_use]
@@ -352,6 +362,20 @@ pub const WIDGETS: &[WidgetSpec] = &[
         label_prop: None,
         allows_children: true,
     },
+    // Container primitive: a REAL fixed-column grid (`columns: n` = n equal
+    // 1fr tracks, row-major fill, `.gap()` = column gap, `rowGap:` = row gap
+    // in the same spacing scale). This is the engine's `LayoutNode::Grid` —
+    // fully implemented in `nexus-layout` since the node types landed, but
+    // unreachable from `.nx` until now; every wrap-flow "grid" in the shell
+    // was a silent single overflowing row (`.wrap(true)` is a no-op the
+    // engine never reads).
+    WidgetSpec {
+        name: "Grid",
+        primary_prop: Some("columns"),
+        interactive: false,
+        label_prop: None,
+        allows_children: true,
+    },
     // Navigation/selection leaves the kit always had but the DSL could not
     // name (settings design handoff). `Select` is the CLOSED trigger only —
     // a glass pill showing the current value plus a chevron; the open option
@@ -379,9 +403,25 @@ pub fn widget_spec(name: &str) -> Option<&'static WidgetSpec> {
     WIDGETS.iter().find(|spec| spec.name == name)
 }
 
-/// Interaction triggers handlers may bind (`on Tap -> …`).
-pub const TRIGGERS: &[&str] =
-    &["Tap", "Change", "Submit", "Focus", "Blur", "LongPress", "EndReached"];
+/// Interaction triggers handlers may bind (`on Tap -> …`). `PageNext`/
+/// `PagePrev` are container-scoped like `EndReached`: the host's pager
+/// (`.scroll(paged)`) fires them BY NAME when a wheel notch turns the page,
+/// so the store's page index stays in sync with the snapped offset.
+pub const TRIGGERS: &[&str] = &[
+    "Tap",
+    "Change",
+    "Submit",
+    "Focus",
+    "Blur",
+    "LongPress",
+    "EndReached",
+    "PageNext",
+    "PagePrev",
+    // RFC-0086: the compositor's window set moved (an app opened, closed,
+    // minimized, restored or took focus) — the shell re-reads the registry
+    // so its taskbar/dock markers follow.
+    "WindowsChanged",
+];
 
 /// The curated **motion token** vocabulary (docs/dev/ui/foundations/animation.md
 /// "Recommended v1 scope"). The token argument of `.animate`/`.transition`/
@@ -492,7 +532,7 @@ pub const TOKEN_VOCABULARIES: &[(&str, &[&str])] = &[
     ("justify", &["start", "center", "end", "between", "around"]),
     ("direction", &["row", "column"]),
     ("overflow", &["visible", "hidden"]),
-    ("scroll", &["vertical", "horizontal"]),
+    ("scroll", &["vertical", "horizontal", "paged"]),
 ];
 
 /// The closed token vocabulary of `name`, if it has one.
@@ -526,73 +566,10 @@ pub fn device_field(name: &str) -> Option<&'static [&'static str]> {
     DEVICE_FIELDS.iter().find(|(field, _)| *field == name).map(|(_, values)| *values)
 }
 
-// ------------------------------------------------------------ svc surface
-// GENERATED from the IDL SSOT (tools/nexus-idl/schemas/dsl_services.capnp):
-// `SvcSig` + `SVC_SURFACE`. The checker's unknown-service/method/arity
-// diagnostics derive from the same file the app-host routes against.
-include!(concat!(env!("OUT_DIR"), "/svc_surface.rs"));
-
-/// Result of looking up `svc.<service>.<method>` against the surface.
-pub enum SvcLookup {
-    /// Known method; the checker validates the positional arity.
-    Found {
-        arity: usize,
-    },
-    UnknownService,
-    UnknownMethod,
-}
-
-/// App-local additions to the platform surface (TASK-0081 C1): the methods
-/// of THIS app's `native/` companion (and, later, consumed app exports),
-/// declared once in `native/surface.toml` and installed for the duration of
-/// one project check (`crate::compile_project_dir`). std-only: in-system
-/// no_std lint runs see the platform surface alone.
+// The `svc.*` service-surface lookup lives in its own module (structure
+// ratchet); same public API, re-exported here.
+mod svc_surface;
+pub use svc_surface::SvcLookup;
 #[cfg(feature = "std")]
-static APP_SURFACE: std::sync::Mutex<Vec<(String, String, usize)>> =
-    std::sync::Mutex::new(Vec::new());
-
-/// Installs the app-local surface (service, method, positional arity).
-/// Callers hold [`app_surface_guard`] around the whole check to keep
-/// parallel project builds from cross-contaminating.
-#[cfg(feature = "std")]
-pub(crate) fn set_app_surface(entries: Vec<(String, String, usize)>) {
-    if let Ok(mut surface) = APP_SURFACE.lock() {
-        *surface = entries;
-    }
-}
-
-/// Serializes project checks that install an app-local surface.
-#[cfg(feature = "std")]
-pub(crate) fn app_surface_guard() -> std::sync::MutexGuard<'static, ()> {
-    static GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    GUARD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-#[must_use]
-pub fn svc_method(service: &str, method: &str) -> SvcLookup {
-    let mut service_exists = false;
-    for sig in SVC_SURFACE {
-        if sig.service == service {
-            service_exists = true;
-            if sig.method == method {
-                return SvcLookup::Found { arity: sig.args.len() };
-            }
-        }
-    }
-    #[cfg(feature = "std")]
-    if let Ok(surface) = APP_SURFACE.lock() {
-        for (svc, m, arity) in surface.iter() {
-            if svc == service {
-                service_exists = true;
-                if m == method {
-                    return SvcLookup::Found { arity: *arity };
-                }
-            }
-        }
-    }
-    if service_exists {
-        SvcLookup::UnknownMethod
-    } else {
-        SvcLookup::UnknownService
-    }
-}
+pub(crate) use svc_surface::{app_surface_guard, set_app_surface};
+pub use svc_surface::{svc_method, SvcSig, SVC_SURFACE};

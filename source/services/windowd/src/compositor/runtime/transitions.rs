@@ -3,7 +3,7 @@
 //
 //! CONTEXT: windowd compositor runtime — WINDOW TRANSITIONS on the unified
 //! layer-transform primitive (Track C2+C3, the scroll generalization): open =
-//! fade+scale-in, close = fade-out then close, minimize = fly-to-dock then
+//! fade+scale-in, close = fade-out then close, minimize = fly-to-taskbar then
 //! minimize. windowd's own `AnimationDriver` interpolates the springs on the
 //! 120Hz pacer (all three tick paths — the fling lesson); every tick folds
 //! into the slot's `WinTransform` and emits ONE fire-and-forget
@@ -96,18 +96,7 @@ impl DisplayServerRuntime {
         let _ = debug_println("windowd: transition close");
     }
 
-    /// Center of the dock cell the window will occupy AFTER minimizing: it is
-    /// appended to the minimized list, so its slot index is the current count
-    /// and the bar is laid out for count+1 icons (exact dock geometry SSOT —
-    /// not the old fixed bottom-center approximation).
-    fn dock_cell_center_after_minimize(&self) -> (f32, f32) {
-        let (_, n) = self.windows.minimized_list();
-        let bar = crate::dock::dock_rect(self.mode.width, self.mode.height, n + 1);
-        let cell = crate::dock::dock_slot_rect(bar, n);
-        (cell.x as f32 + cell.width as f32 / 2.0, cell.y as f32 + cell.height as f32 / 2.0)
-    }
-
-    /// MINIMIZE transition: fly toward the window's own future dock cell
+    /// MINIMIZE transition: fly toward the shell taskbar band
     /// (translate + shrink + fade), then the deferred `minimize_window` runs
     /// on convergence.
     pub(super) fn start_minimize_transition(&mut self, idx: usize) {
@@ -117,9 +106,13 @@ impl DisplayServerRuntime {
         let cur = self.apps[idx].transform;
         self.apps[idx].transform.active = true;
         self.apps[idx].pending_wm = Some(PendingWm::Minimize);
-        // Fly target: the exact dock cell, as a delta from the window center
-        // (the layer scale is CENTER-anchored in gpud — center-to-center math).
-        let (cell_cx, cell_cy) = self.dock_cell_center_after_minimize();
+        // Fly target as a delta from the window center (the layer scale is
+        // CENTER-anchored in gpud — center-to-center math).
+        // RFC-0086: fly toward the SHELL taskbar band's centre — windowd
+        // owns the bar HEIGHT as work-area policy but never the shell's tile
+        // positions (a per-tile target would couple the compositor to shell
+        // layout; parked follow-up in the RFC).
+        let (cell_cx, cell_cy) = self.taskbar_anchor();
         let win = &self.apps[idx].win;
         let target_x = cell_cx - (win.x as f32 + win.w as f32 / 2.0);
         let target_y = cell_cy - (win.y as f32 + win.h as f32 / 2.0);
@@ -139,10 +132,10 @@ impl DisplayServerRuntime {
         let _ = debug_println("windowd: transition minimize");
     }
 
-    /// RESTORE transition: the window flies IN from its dock cell (the exact
+    /// RESTORE transition: the window flies IN from the taskbar anchor (the
     /// reverse of minimize). Unlike close/minimize the WM state change runs UP
     /// FRONT (`restore_window` re-mounts + raises + focuses), then the springs
-    /// carry the transform from the dock origin to identity — convergence
+    /// carry the transform from that origin to identity — convergence
     /// falls into `finish_window_transitions`' `None` arm (settle at
     /// identity), no `PendingWm` needed.
     pub(super) fn start_restore_transition(
@@ -171,7 +164,7 @@ impl DisplayServerRuntime {
         self.animation_driver.spring_to(layer, AnimProp::TranslateY, dy, 0.0, ENTER_SPRING);
         self.animation_driver.spring_to(layer, AnimProp::Opacity, 0.15, 1.0, ENTER_SPRING);
         self.animation_driver.spring_to(layer, AnimProp::ScaleX, MIN_SCALE_TO, 1.0, ENTER_SPRING);
-        // Pre-seed the dock-origin state at gpud before the restore's queued
+        // Pre-seed the taskbar-origin state at gpud before the restore's queued
         // present composites (the gpud queue is sequential) — no full-size
         // flash before the first spring tick.
         self.send_layer_transform(idx);

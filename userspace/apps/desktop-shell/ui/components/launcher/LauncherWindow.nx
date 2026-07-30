@@ -1,0 +1,63 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The WINDOWED start menu (design_handoff_launcher §9, desktop default):
+// 720×520 fixed, radius 24, padding 24, panel glass, real drop shadow — the
+// desktop behind it stays sharp (no scrim; LauncherHost owns the backdrop).
+// Head = search + expand button (→ fullscreen state), "Alle Apps" section
+// label, a 4-column md grid that SCROLLS vertically, and the identity
+// footer. Grows out of the taskbar (slideUp, origin bottom).
+
+Component LauncherWindow {
+    Stack {
+        Stack {
+            Stack {
+                SearchBar { value: $state.query, placeholder: @t("launcher.search") }
+                on Change -> dispatch(QueryChanged)
+            }
+            .grow(1)
+            Stack {
+                Icon { symbol: "maximize", size: 15 }
+                    .fg(onSurface)
+            }
+            .width(32)
+            .height(32)
+            .align(center)
+            .justify(center)
+            .rounded(md)
+            on Tap -> dispatch(SetPanel("launcher-big"))
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        Text(@t("launcher.allApps")).textSize(sm).fontWeight(semibold).fg(onSurfaceVariant)
+        Stack {
+            if $state.loading {
+                Text(@t("common.loading")).fg(onSurfaceVariant)
+            } else {
+                List($state.apps) { app in
+                    Stack {
+                        AppTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                    }
+                    .key(app.id)
+                    .align(center)
+                    on Tap -> dispatch(Launch(app.id))
+                }
+                .columns(4)
+                .rowGap(3)
+                .gap(2)
+            }
+        }
+        .grow(1)
+        .scroll(vertical)
+        LauncherFooter { }
+    }
+    .width(720)
+    .height(520)
+    .padding(6)
+    .gap(2)
+    .material(panel)
+    .rounded(24)
+    .shadow(xxl)
+    .transition(slideUp)
+}

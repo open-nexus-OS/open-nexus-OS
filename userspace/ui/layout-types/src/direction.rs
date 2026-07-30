@@ -76,6 +76,20 @@ pub enum Overflow {
 pub enum ScrollAxis {
     Vertical,
     Horizontal,
+    /// Horizontal with PAGE SNAP semantics (`.scroll(paged)`): the viewport
+    /// scrolls on X like `Horizontal`, but the host's scroll subsystem snaps
+    /// the offset to whole viewport-width pages (launcher pager). Layout,
+    /// clipping, painting and hit-testing treat it exactly like
+    /// `Horizontal` — only the input/physics layer branches.
+    Paged,
+}
+
+impl ScrollAxis {
+    /// Whether offsets move along X (`Horizontal` and `Paged`).
+    #[must_use]
+    pub fn is_horizontal(self) -> bool {
+        matches!(self, Self::Horizontal | Self::Paged)
+    }
 }
 
 // ─── Position ───

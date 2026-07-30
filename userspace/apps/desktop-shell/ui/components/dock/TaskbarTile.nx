@@ -1,10 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One desktop-taskbar app icon (design_handoff_launcher `AppIcon xs`):
-// 32×32, sits DIRECTLY on the taskbar (no pill wrapper), radius md —
-// per-app gradient artwork when the manifest carries colors. Tap handlers
-// attach at the use site.
+// One desktop-taskbar app icon (design_handoff_launcher `AppIcon xs`,
+// LAUNCHER-SPEC §2/§6): tile 40, radius 11, no label, sits DIRECTLY on the
+// bar (no pill wrapper). `running` renders the §7 UNDERLINE — 20×2, radius
+// 1, text-primary @ 0.7, centered under the tile ("the taskbar is a window
+// list") — and the marker slot keeps its height either way so a state flip
+// never shifts the row. Tap handlers attach at the use site.
 
 Component TaskbarTile {
     props: {
@@ -13,30 +15,47 @@ Component TaskbarTile {
         iconTop: Str,
         iconBottom: Str,
         iconArt: Str,
+        running: Bool,
     }
-    if $props.iconArt != "" {
-        Image { source: $props.iconArt, size: 32 }
-    } else { if $props.iconTop != "" {
-        Stack {
-            Icon { symbol: $props.icon, size: 18 }
-                .fg(onAccent)
+    Stack {
+        if $props.iconArt != "" {
+            Image { source: $props.iconArt, size: 40 }
+        } else { if $props.iconTop != "" {
+            Stack {
+                Icon { symbol: $props.icon, size: 20 }
+                    .fg(onAccent)
+            }
+            .width(40)
+            .height(40)
+            .bgGradient($props.iconTop, $props.iconBottom)
+            .rounded(11)
+            .align(center)
+            .justify(center)
+        } else {
+            Stack {
+                Icon { symbol: $props.icon, size: 20 }
+                    .fg(onSurface)
+            }
+            .width(40)
+            .height(40)
+            .material(card)
+            .rounded(11)
+            .align(center)
+            .justify(center)
+        } }
+        if $props.running {
+            Stack { }
+                .width(20)
+                .height(2)
+                .bg(onSurface)
+                .rounded(1)
+                .opacity(179)
+        } else {
+            Stack { }
+                .width(20)
+                .height(2)
         }
-        .width(32)
-        .height(32)
-        .bgGradient($props.iconTop, $props.iconBottom)
-        .rounded(md)
-        .align(center)
-        .justify(center)
-    } else {
-        Stack {
-            Icon { symbol: $props.icon, size: 18 }
-                .fg(onSurface)
-        }
-        .width(32)
-        .height(32)
-        .material(card)
-        .rounded(md)
-        .align(center)
-        .justify(center)
-    } }
+    }
+    .align(center)
+    .gap(0)
 }

@@ -1,0 +1,48 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One fullscreen-launcher app tile (design_handoff_launcher `AppIcon xl`,
+// LAUNCHER-SPEC §2/§10): tile 88, radius 24, label below (the paged grid's
+// cell content). Same three artwork branches as the md tile. No running
+// marker — the launcher grid is a start board, running state lives on the
+// dock/taskbar. Tap handlers attach at the use site.
+
+Component LauncherTile {
+    props: {
+        label: Str,
+        icon: Str,
+        iconTop: Str,
+        iconBottom: Str,
+        iconArt: Str,
+    }
+    Stack {
+        if $props.iconArt != "" {
+            Image { source: $props.iconArt, size: 88 }
+        } else { if $props.iconTop != "" {
+            Stack {
+                Icon { symbol: $props.icon, size: 44 }
+                    .fg(onAccent)
+            }
+            .width(88)
+            .height(88)
+            .bgGradient($props.iconTop, $props.iconBottom)
+            .rounded(24)
+            .align(center)
+            .justify(center)
+        } else {
+            Stack {
+                Icon { symbol: $props.icon, size: 44 }
+                    .fg(onSurface)
+            }
+            .width(88)
+            .height(88)
+            .material(card)
+            .rounded(24)
+            .align(center)
+            .justify(center)
+        } }
+        Text($props.label).textSize(base).fg(onSurface)
+    }
+    .align(center)
+    .gap(3)
+}

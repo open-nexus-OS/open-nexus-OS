@@ -27,15 +27,17 @@ pub struct AppIconSprite {
     pub rgba: &'static [u8],
 }
 
-/// The baked sprite for an app id at an exact tile size (64/44/32), or the
-/// LARGEST baked size as a fallback (the painter samples nearest, so any box
-/// size renders). `None` = the app ships no `icon_svg` artwork.
+/// The baked sprite for an app id at an exact tile size (88/64/56/48/40 — the
+/// design_handoff_launcher named sizes xl/·/md/sm/xs), or the LARGEST baked
+/// size as a fallback (the painter samples nearest, so any box size renders).
+/// Keep the ladder in lock-step with `SIZES` in `build.rs`.
+/// `None` = the app ships no `icon_svg` artwork.
 #[must_use]
 pub fn sprite(id: &str, size: u32) -> Option<AppIconSprite> {
     if let Some(rgba) = baked::sprite_bytes(id, size) {
         return Some(AppIconSprite { size, rgba });
     }
-    for &s in &[64u32, 44, 32] {
+    for &s in &[88u32, 64, 56, 48, 40] {
         if let Some(rgba) = baked::sprite_bytes(id, s) {
             return Some(AppIconSprite { size: s, rgba });
         }
@@ -55,12 +57,15 @@ mod tests {
 
     #[test]
     fn calculator_sprite_exists_at_all_tile_sizes() {
-        for size in [64, 44, 32] {
+        for size in [88, 64, 56, 48, 40] {
             let s = sprite("calculator", size).expect("baked");
             assert_eq!(s.size, size);
             assert_eq!(s.rgba.len() as u32, size * size * 4);
         }
         assert!(sprite("no-such-app", 64).is_none());
+        // A size that is NOT baked (the notification card's 38) falls back to
+        // the largest sprite instead of vanishing.
+        assert_eq!(sprite("calculator", 38).expect("fallback").size, 88);
     }
 
     #[test]

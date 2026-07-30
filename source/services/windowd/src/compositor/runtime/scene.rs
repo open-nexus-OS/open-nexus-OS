@@ -4,7 +4,7 @@
 //! CONTEXT: windowd compositor runtime — `build_scene_cb_into` — the per-frame
 //! GPU CommandBuffer builder (GPU-first layered scene). Post-cleanup
 //! (cleanup-map DELETE): the scene is damage blits + the z-ordered window
-//! layers (desktop base + floating app window) + dock + cursor. All shell
+//! layers (desktop base + floating app window) + cursor. All shell
 //! chrome (topbar/sidepanel/dropdown/buttons) and the legacy chat/search/
 //! settings/greeter surfaces are DELETED — that UI is DSL-app content
 //! composited through the desktop/app-window layers.
@@ -67,7 +67,6 @@ impl DisplayServerRuntime {
     /// content change. The GPU CB does all visual work per frame:
     ///   1. Blit each damage region: Plane 1 (retained, cursor-free) → Plane 2 (display).
     ///   2. Composite the z-ordered window layers (desktop base, app window).
-    ///   3. Composite the dock (minimized windows), above the windows.
     ///   4. BlendCursor overlaid last.
     ///
     /// Record the per-frame scene into the reusable `scene_cb` and serialize it
@@ -102,10 +101,6 @@ impl DisplayServerRuntime {
             self.desktop_dirty = false;
         }
         // Dock (TASK-0070 Phase 2): (re)render on membership change.
-        if self.dock_dirty && self.dock_surface.is_some() {
-            self.render_dock_surface()?;
-            self.dock_dirty = false;
-        }
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -192,7 +187,7 @@ impl DisplayServerRuntime {
             (b.abs_row, b.x, b.width.min(self.mode.width), b.height.min(self.mode.height))
         });
         // R1 seam for the DESKTOP surface: its material-tagged glass regions
-        // (topbar/dock/panels) re-composite as frosted layers over the
+        // (topbar/panels) re-composite as frosted layers over the
         // wallpaper AFTER the base blend below.
         let desktop_glass = self.desktop_layers;
         let desktop_glass_count = self.desktop_layer_count;
@@ -200,10 +195,6 @@ impl DisplayServerRuntime {
         // the composite loop below draws exactly these, in exactly this order.
         let (win_order, win_n) = self.windows.order(USE_DESKTOP_SHELL);
         // Dock layer params (bar rect is None while inactive/covered).
-        let dock_layer = match (self.dock_bar_rect(), self.dock_surface) {
-            (Some(bar), Some(surface)) => Some((surface.abs_row, surface.x, bar)),
-            _ => None,
-        };
         self.scene_cb.clear();
         {
             let mut encoder = self
@@ -535,18 +526,6 @@ impl DisplayServerRuntime {
             // 3. Dock of minimized windows (TASK-0070 Phase 2): a glass bar
             //    bottom-center, present ONLY while ≥1 window is minimized and
             //    no fullscreen window covers the chrome. Above the windows.
-            if let Some((dock_row, dock_x, bar)) = dock_layer {
-                let _ = encoder.composite_layer_full(
-                    &Layer {
-                        corner_radius: crate::dock::DOCK_RADIUS,
-                        shadow: Some(LayerShadow { blur: 14, offset_y: 4, alpha: 80 }),
-                        backdrop: Some(chrome_glass_backdrop()),
-                        content_epoch: crate::atlas::atlas_content_epoch(),
-                        ..Layer::opaque(dock_row, dock_x, bar.width, bar.height, bar.x, bar.y)
-                    },
-                    (mode.width, mode.height),
-                );
-            }
 
             // 4. Cursor — composited last, never baked into any plane. Skipped
             //    entirely when the hardware cursor overlay is active (the host
@@ -564,19 +543,5 @@ impl DisplayServerRuntime {
             encoder.end_encoding();
         }
         self.scene_cb.serialize_into(out).map_err(|_| WindowdError::InvalidDamage)
-    }
-}
-
-/// The frosted-glass backdrop shared by the compositor-drawn glass layers
-/// (today: the dock): re-blur the live backdrop every frame (no cache — it
-/// sits over changing content), no shadow halo. Restored from the retained
-/// plane. Routed through the layer SSOT.
-fn chrome_glass_backdrop() -> LayerBackdrop {
-    LayerBackdrop {
-        blur_radius: DARK_GLASS_BLUR_RADIUS,
-        saturation_percent: DARK_GLASS_SATURATION_PERCENT,
-        restore_halo_pad: 0,
-        retained_src_y_offset: RETAINED_ROW_OFFSET,
-        cache: BackdropCache::None,
     }
 }

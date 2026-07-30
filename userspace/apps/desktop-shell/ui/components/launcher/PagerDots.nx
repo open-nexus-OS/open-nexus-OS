@@ -1,0 +1,164 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The page indicator (design_handoff_launcher §11): centred dot row under
+// the paged grid — inactive 7×7, the ACTIVE page an 18×7 pill, radius 4,
+// clickable (dot tap → `SetPage(k)` → the store's scrollToPage effect
+// glides there). Dot k exists iff page k has content; the thresholds mirror
+// LauncherPager's per-arm page sizes (24 on desktop/wide, 6 narrower).
+
+Component PagerDots {
+    Stack {
+        if $state.page == 0 {
+            Stack { }
+                .width(18)
+                .height(7)
+                .rounded(4)
+                .bg(onSurface)
+                .opacity(230)
+        } else {
+            Stack { }
+                .width(7)
+                .height(7)
+                .rounded(4)
+                .bg(onSurface)
+                .opacity(71)
+                .hitSlop(2)
+            on Tap -> dispatch(SetPage(0))
+        }
+        if device.profile == desktop || device.sizeClass == "wide" {
+            if len($state.apps) > 24 {
+                if $state.page == 1 {
+                    Stack { }
+                        .width(18)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(230)
+                } else {
+                    Stack { }
+                        .width(7)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(71)
+                        .hitSlop(2)
+                    on Tap -> dispatch(SetPage(1))
+                }
+            } else {
+                Stack { }
+            }
+            if len($state.apps) > 48 {
+                if $state.page == 2 {
+                    Stack { }
+                        .width(18)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(230)
+                } else {
+                    Stack { }
+                        .width(7)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(71)
+                        .hitSlop(2)
+                    on Tap -> dispatch(SetPage(2))
+                }
+            } else {
+                Stack { }
+            }
+            if len($state.apps) > 72 {
+                if $state.page == 3 {
+                    Stack { }
+                        .width(18)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(230)
+                } else {
+                    Stack { }
+                        .width(7)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(71)
+                        .hitSlop(2)
+                    on Tap -> dispatch(SetPage(3))
+                }
+            } else {
+                Stack { }
+            }
+        } else {
+            if len($state.apps) > 6 {
+                if $state.page == 1 {
+                    Stack { }
+                        .width(18)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(230)
+                } else {
+                    Stack { }
+                        .width(7)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(71)
+                        .hitSlop(2)
+                    on Tap -> dispatch(SetPage(1))
+                }
+            } else {
+                Stack { }
+            }
+            if len($state.apps) > 12 {
+                if $state.page == 2 {
+                    Stack { }
+                        .width(18)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(230)
+                } else {
+                    Stack { }
+                        .width(7)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(71)
+                        .hitSlop(2)
+                    on Tap -> dispatch(SetPage(2))
+                }
+            } else {
+                Stack { }
+            }
+            if len($state.apps) > 18 {
+                if $state.page == 3 {
+                    Stack { }
+                        .width(18)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(230)
+                } else {
+                    Stack { }
+                        .width(7)
+                        .height(7)
+                        .rounded(4)
+                        .bg(onSurface)
+                        .opacity(71)
+                        .hitSlop(2)
+                    on Tap -> dispatch(SetPage(3))
+                }
+            } else {
+                Stack { }
+            }
+        }
+    }
+    .direction(row)
+    .justify(center)
+    .align(center)
+    .gap(2)
+    .paddingY(3)
+}

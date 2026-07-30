@@ -105,6 +105,13 @@ impl DslApp {
             scroll_y: 0,
             momentum: animation::ScrollMomentum::new(animation::ScrollConfig::default()),
             momentum_last_ns: 0,
+            // Pager glide: a slightly softer ease than the wheel default so a
+            // page turn reads as the handoff's ~0.42s glide, not a snap.
+            pager: animation::ScrollMomentum::new(animation::ScrollConfig {
+                rate_per_s: 10.0,
+                fling_friction_per_s: 4.0,
+            }),
+            pager_lock_until_ns: 0,
             anim: anim::AnimState::new(),
             catalogs,
             active_catalog: None,

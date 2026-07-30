@@ -31,7 +31,7 @@ Greeter-UI → die **DSL-Greeter-App**. Alles Deklarative (Fenster-Rolle/Chrome/
 |---|---|---|
 | `theme.rs` | (KORRIGIERT 2026-07-10) bleibt als dünner Konsument — die WERTE sind schon build-generiert aus `resources/themes/*.nxtheme.toml` (Value-SSOT). Die echte Dopplung: `ui/theme-tokens` hartcodiert seine Werte → dort aus denselben `.nxtheme.toml` generieren | eine Value-Quelle für Compositor UND Apps |
 | `app_menu.rs` | DSL-Shell-App | Apps-Menü = Shell-UI |
-| `dock.rs` (+ Dock-Teile in `wm.rs`) | DSL-Shell-App | Dock = Shell-UI |
+| ~~`dock.rs` (+ Dock-Teile in `wm.rs`)~~ | **ERLEDIGT 2026-07-30 (RFC-0086)** | Gelöscht: Minimieren zielt jetzt auf die SHELL-Taskbar/Dock. windowd pusht das Fenster-Set (`OP_SURFACE_WINDOWS 27`), die Shell aktiviert per `OP_SURFACE_TASKBAR 28`; Minimize-Animation fliegt auf die Taskbar-Bandmitte (`taskbar_anchor`), windowd kennt keine Tile-Positionen |
 | `assets.rs` (Icons) | Shell-/Widget-Assets | UI-Assets gehören der UI |
 | `systemui_shell.rs` | DSL-Shell-App | Shell-Szene = Shell |
 | `compositor/{primitives,cache}.rs` (CPU-Raster/Blur-Reste) | `nexus-gfx` / `gpud` | GPU-Arbeit auf die GPU (RFC-0067 P5-Fortsetzung) |
@@ -78,7 +78,7 @@ Offen notiert: Wheel-FORWARDING an Client-Surfaces (`OP_SURFACE_INPUT` kind=whee
 3. **2d:** DELETE-Spalte ausführen (dsl_mount, desktop_layer, greeter.rs, doppelter Kompilierpfad).
 4. **Fenster-DSL-Migration:** chat/search/settings als DSL-Apps → ihre Legacy-Dateien löschen;
    `WindowId`-Enum fällt (voll deklarativ, nur noch Surface-Ids + Rollen).
-5. **MOVE-Spalte:** theme/app_menu/dock/assets/anim in Shell-App bzw. theme-tokens; Raster-Reste
+5. **MOVE-Spalte:** theme/app_menu/assets/anim in Shell-App bzw. theme-tokens (dock ✅ 2026-07-30); Raster-Reste
    → nexus-gfx/gpud.
 
 Endzustand: windowd ≈ 8–9k LOC reiner Compositor-Service; alles UI deklarativ aus Apps.

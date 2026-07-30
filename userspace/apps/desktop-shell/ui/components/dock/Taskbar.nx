@@ -1,0 +1,82 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The DESKTOP taskbar (design_handoff_launcher §6): full-width, 56px,
+// panel glass, no radius — bare launcher glyph 36×36 left · app icons xs
+// (40) DIRECTLY on the bar (gap 4, no labels) + 1×28 divider + mini player
+// centre · three bare 32×32 nav buttons right. The taskbar is a WINDOW
+// LIST (§7): a running app carries the 20×2 underline (RFC-0086 window feed
+// → `app.running`) and a click ACTIVATES it — the app-host restores/raises a
+// running window via windowd, or launches when nothing runs.
+
+Component Taskbar {
+    Stack {
+        Stack {
+            Icon { symbol: "square.grid", size: 20 }
+                .fg(onSurface)
+        }
+        .width(36)
+        .height(36)
+        .align(center)
+        .justify(center)
+        .rounded(md)
+        on Tap -> dispatch(SetPanel("launcher"))
+        Spacer
+        Stack {
+            List($state.apps) { app in
+                Stack {
+                    TaskbarTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt, running: app.running }
+                }
+                .key(app.id)
+                on Tap -> dispatch(Activate(app.id))
+            }
+            .direction(row)
+            .gap(1)
+            Stack { }
+                .width(1)
+                .height(28)
+                .bg(surfaceVariant)
+            MiniPlayer { }
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        Spacer
+        Stack {
+            Icon { symbol: "chevron.left", size: 14 }
+                .fg(onSurface)
+        }
+        .width(32)
+        .height(32)
+        .align(center)
+        .justify(center)
+        .rounded(md)
+        on Tap -> navigate("/")
+        Stack {
+            Icon { symbol: "house", size: 14 }
+                .fg(onSurface)
+        }
+        .width(32)
+        .height(32)
+        .align(center)
+        .justify(center)
+        .rounded(md)
+        on Tap -> navigate("/")
+        Stack {
+            Icon { symbol: "square", size: 13 }
+                .fg(onSurface)
+        }
+        .width(32)
+        .height(32)
+        .align(center)
+        .justify(center)
+        .rounded(md)
+        on Tap -> navigate("/")
+    }
+    .direction(row)
+    .height(56)
+    .align(center)
+    .paddingX(3)
+    .gap(2)
+    .material(panel)
+}

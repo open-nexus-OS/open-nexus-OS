@@ -1,0 +1,76 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The LANDSCAPE touch dock (design_handoff_launcher §8.2, `vw ≥ 1024`):
+// three separate glass elements sitting free on the wallpaper — the round
+// 42×42 launcher button left · the dock pill (sm tiles + 1×32 divider +
+// mini player) centre · the ENCLOSED nav pill right. Bottom clearance 12,
+// `align-items: flex-end`.
+
+Component DockWide {
+    Stack {
+        Stack {
+            LauncherButton { }
+        }
+        on Tap -> dispatch(SetPanel("launcher"))
+        Spacer
+        Stack {
+            List($state.apps) { app in
+                Stack {
+                    DockTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt, running: app.running }
+                }
+                .key(app.id)
+                on Tap -> dispatch(Activate(app.id))
+            }
+            .direction(row)
+            .gap(1)
+            Stack { }
+                .width(1)
+                .height(32)
+                .bg(surfaceVariant)
+            MiniPlayer { }
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(3)
+        .paddingY(2)
+        .material(panel)
+        .rounded(full)
+        Spacer
+        Stack {
+            Stack {
+                Icon { symbol: "chevron.left", size: 14 }
+                    .fg(onSurface)
+            }
+            .padding(2)
+            .rounded(full)
+            on Tap -> navigate("/")
+            Stack {
+                Icon { symbol: "house", size: 14 }
+                    .fg(onSurface)
+            }
+            .padding(2)
+            .rounded(full)
+            on Tap -> navigate("/")
+            Stack {
+                Icon { symbol: "square", size: 13 }
+                    .fg(onSurface)
+            }
+            .padding(2)
+            .rounded(full)
+            on Tap -> navigate("/")
+        }
+        .direction(row)
+        .align(center)
+        .gap(1)
+        .paddingX(2)
+        .paddingY(1)
+        .material(panel)
+        .rounded(full)
+    }
+    .direction(row)
+    .align(end)
+    .paddingX(6)
+    .paddingY(3)
+}

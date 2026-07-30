@@ -166,6 +166,8 @@ impl DisplayServerRuntime {
                 let _ = nexus_abi_cap_close(vmo_slot);
             }
         }
+        // RFC-0086: the window left the set — the shell drops its tile marker.
+        self.push_window_set();
         #[cfg(nexus_env = "os")]
         if let Some(ch) = self.apps[idx].event_channel.take() {
             if let Some(pos) =

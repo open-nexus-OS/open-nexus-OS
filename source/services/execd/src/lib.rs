@@ -22,8 +22,16 @@ extern crate alloc;
 mod atlas_vmo;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod crash_fields;
+// RFC-0086 app-host service-name derivation (`app:<bundle_id>`) — pure and
+// host-tested; `os_lite` is RISC-V-only, so the decision lives here where
+// `cargo test -p execd` reaches it (the `hover_wash` one-cfg pattern).
+#[cfg(any(all(nexus_env = "os", feature = "os-lite"), test))]
+mod identity;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
+// Declarative per-image sched recipe (split out of os_lite — ratchet).
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod sched_recipe;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub use os_lite::*;
 

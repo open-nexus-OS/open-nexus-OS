@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"><title>open nexus OS — Launcher Layout- &amp; Verhaltens-Spec</title>
+<link rel="stylesheet" href="reference/tokens/fonts.css">
+<link rel="stylesheet" href="reference/tokens/colors.css">
+<link rel="stylesheet" href="reference/tokens/glass.css">
+<link rel="stylesheet" href="reference/tokens/typography.css">
+<link rel="stylesheet" href="reference/tokens/spacing.css">
+<link rel="stylesheet" href="reference/tokens/motion.css">
+<style>
+:root{--pg:#0e1116;--pg2:#151a21;--pgl:#1d242e;--ink:#e6ebf2;--ink2:#93a0b1;--rule:rgba(255,255,255,0.10);--mark:#5eead4}
+*{box-sizing:border-box}
+body{margin:0;background:var(--pg);color:var(--ink);font-family:var(--font-sans,'Helvetica Neue',Helvetica,Arial,sans-serif);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:56px 32px 120px}
+h1{font-size:34px;line-height:1.15;letter-spacing:-0.03em;margin:0 0 8px;font-weight:700}
+.sub{color:var(--ink2);max-width:70ch;margin:0 0 8px}
+h2{font-size:22px;letter-spacing:-0.02em;margin:64px 0 4px;font-weight:700;padding-top:20px;border-top:1px solid var(--rule)}
+h3{font-size:15px;margin:32px 0 8px;font-weight:700;letter-spacing:-0.01em}
+h4{font-size:12px;margin:20px 0 6px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink2)}
+p{margin:8px 0;max-width:80ch}
+code,kbd{font-family:var(--font-mono,ui-monospace,'SF Mono',Menlo,monospace);font-size:0.86em;background:rgba(94,234,212,0.10);color:var(--mark);padding:1px 5px;border-radius:5px}
+a{color:var(--mark)}a:hover{color:#99f6e4}
+ul{margin:8px 0;padding-left:20px;max-width:80ch}li{margin:4px 0}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-size:11px;letter-spacing:0.07em;text-transform:uppercase;color:var(--ink2);font-weight:700}
+td code{white-space:nowrap}
+.note{border-left:2px solid var(--mark);background:rgba(94,234,212,0.06);padding:10px 14px;margin:16px 0;font-size:13.5px;max-width:80ch}
+.toc{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px 20px;margin:28px 0 8px;padding:18px 20px;background:var(--pg2);border:1px solid var(--rule);border-radius:14px;font-size:13.5px}
+/* ── demo stage ─────────────────────────────────────────── */
+.stage{position:relative;margin:18px 0 6px;border-radius:16px;overflow:hidden;border:1px solid var(--rule);background:#22303f}
+.stage>.wall{position:absolute;inset:0;background-image:url('https://images.unsplash.com/photo-1518770660439-4636190af475?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1920');background-size:cover;background-position:center}
+.stage.lightwall>.wall{background-image:url('https://images.unsplash.com/photo-1506905925346-21bda4d32df4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1920')}
+.stage>.tint{position:absolute;inset:0;background:rgba(0,0,0,0.35)}
+.stage.lightwall>.tint{background:rgba(255,255,255,0.20)}
+.stage>.inner{position:relative}
+.cap{font-family:var(--font-mono,ui-monospace,monospace);font-size:11.5px;color:var(--ink2);margin:0 0 22px}
+.cap b{color:var(--ink);font-weight:600}
+.shell{font-family:var(--font-sans,Helvetica,Arial,sans-serif)}
+.dark{color-scheme:dark}
+/* glass primitives, literal values from the reference implementation */
+.g-panel{background:var(--glass-panel-bg);border:1px solid var(--glass-panel-border);backdrop-filter:blur(64px);-webkit-backdrop-filter:blur(64px);box-shadow:0 25px 50px rgba(0,0,0,0.45)}
+.g-card{background:var(--glass-card-bg);border:1px solid var(--glass-card-border);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px)}
+.tx{color:var(--glass-text-primary)}.tx2{color:var(--glass-text-secondary)}
+/* app icon */
+.ic{display:flex;flex-direction:column;align-items:center;cursor:pointer;user-select:none}
+.ic .tile{overflow:hidden;box-shadow:var(--shadow-icon);transition:transform .2s cubic-bezier(0.34,1.56,0.64,1),box-shadow .2s ease}
+.ic:hover .tile{transform:scale(1.08);box-shadow:var(--shadow-icon-hover)}
+.ic:active .tile{transform:scale(0.92)}
+.ic .tile img{width:100%;height:100%;object-fit:cover;display:block}
+.ic.free .tile{box-shadow:none;overflow:visible}
+.ic.free .tile img{object-fit:contain}
+.ic .lbl{color:var(--glass-text-primary);font-weight:600;text-align:center;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:var(--glass-label-shadow)}
+.xs{--b:40px;--r:11px;--f:10px;--g:5px}.sm{--b:48px;--r:13px;--f:11px;--g:6px}
+.md{--b:56px;--r:16px;--f:13px;--g:8px}.lg{--b:72px;--r:20px;--f:14px;--g:10px}.xl{--b:88px;--r:24px;--f:15px;--g:12px}
+.ic{gap:var(--g)}.ic .tile{width:var(--b);height:var(--b);border-radius:var(--r);flex-shrink:0}
+.ic .lbl{font-size:var(--f);max-width:calc(var(--b) + 16px)}
+/* active markers */
+.dot{width:4px;height:4px;border-radius:2px;background:var(--glass-text-primary);opacity:.7}
+.bar{width:20px;height:2px;border-radius:1px;background:var(--glass-text-primary);opacity:.7}
+/* bars */
+.taskbar{height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-top:1px solid rgba(255,255,255,0.12)}
+.stage.lightwall .taskbar{border-top:1px solid rgba(255,255,255,0.40)}
+.tb-apps{display:flex;align-items:center;gap:4px}
+.tb-app{display:flex;flex-direction:column;align-items:center;gap:2px}
+.divider{width:1px;background:rgba(255,255,255,0.12);margin:0 6px}
+.stage.lightwall .divider{background:rgba(0,0,0,0.10)}
+.navbtn{width:32px;height:32px;border-radius:9px;background:transparent;border:none;color:var(--glass-text-primary);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s}
+.navbtn:hover{background:rgba(255,255,255,0.14)}
+.navbtn.round{border-radius:50%}
+.bare{filter:drop-shadow(0 0 4px rgba(255,255,255,0.85))}
+.player{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:14px}
+.album{border-radius:7px;background:linear-gradient(135deg,#a855f7,#ec4899);flex-shrink:0}
+.play{border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.9);color:#000;font-size:9px}
+.dockpill{display:flex;align-items:center;gap:4px;padding:8px 12px;border-radius:24px}
+.launchbtn{border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid var(--glass-panel-border)}
+/* measurement chrome */
+.rulerbox{position:relative}
+.dim{position:absolute;font-family:var(--font-mono,monospace);font-size:10px;color:#5eead4;background:rgba(6,20,22,0.82);padding:1px 5px;border-radius:4px;white-space:nowrap;z-index:5}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+.swatchrow{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+.sw{font-family:var(--font-mono,monospace);font-size:11px;padding:8px 10px;border-radius:10px;background:var(--pg2);border:1px solid var(--rule);color:var(--ink2)}
+.sw b{color:var(--ink);display:block;font-size:12px;font-family:var(--font-sans,Helvetica,Arial,sans-serif)}
+.lblcheck{display:flex;gap:36px;align-items:flex-end;padding:26px 24px}
+kbd{background:rgba(255,255,255,0.08);color:var(--ink)}
+</style></head>
+<body><div class="wrap">
+
+<h1>Launcher — Layout- &amp; Verhaltens-Spec</h1>
+<p class="sub">Die exakten Maße, Zustände und Regeln für Startmenü, Taskbar, Dock und Icon-Arbeitsfläche in Desktop- und Tablet-Modus. Alle Werte hier sind die literalen Zahlen aus der Referenz-Implementierung (<code>reference/launcher-source.html</code>) — 1:1 portieren. Die Tokens dieses Dokuments werden live aus <code>reference/tokens/*.css</code> geladen, die Beispiele unten sind echtes Glas mit echtem <code>backdrop-filter</code>.</p>
+
+<div class="toc">
+<div>1 · Modus-Logik (Modus × Breite)</div>
+<div>2 · Icon-Größen &amp; Varianten</div>
+<div>3 · Icons im Arbeitsbereich</div>
+<div>4 · Hover / Press / Fokus</div>
+<div>5 · Label-Schatten dark/light</div>
+<div>6 · Desktop-Taskbar (56px)</div>
+<div>7 · Aktive App — Taskbar vs. Dock</div>
+<div>8 · Tablet-Dock &amp; Landscape/Phone</div>
+<div>9 · Startmenü Desktop (klein)</div>
+<div>10 · Startmenü Fullscreen (groß)</div>
+<div>11 · Tablet-Launcher (paged)</div>
+<div>12 · Animationen</div>
+</div>
+
+<!-- ═══ 1 ═══ -->
+<h2>1 · Modus-Logik: Modus × Breite</h2>
+<p>Zwei unabhängige Achsen entscheiden das ganze Layout. Erst diese Regel bauen, dann die Oberflächen.</p>
+<table><thead><tr><th>Achse</th><th>Quelle</th><th>Wirkung</th></tr></thead><tbody>
+<tr><td><code>desktopMode</code></td><td>Explizites Boolean, vom Nutzer im Control Center umgeschaltet — <b>nicht</b> aus der Breite abgeleitet</td><td><code>true</code> → Desktop-Taskbar + Fenster-Startmenü + einzelne Status-Panels. <code>false</code> → Touch-Shell.</td></tr>
+<tr><td><code>vw</code> (Viewport-Breite)</td><td>Live-Messung</td><td>Nur relevant wenn <code>desktopMode === false</code>: wählt zwischen den drei Touch-Layouts.</td></tr>
+</tbody></table>
+<table><thead><tr><th>Layout</th><th>Bedingung</th><th>Dock-Familie</th><th>Startmenü</th><th>Icon-Fläche</th></tr></thead><tbody>
+<tr><td><b>Desktop</b></td><td><code>desktopMode === true</code> (jede Breite)</td><td>Randlose Taskbar, 56px, volle Breite</td><td>Fenster 720×520 <i>oder</i> Fullscreen (umschaltbar)</td><td>Spalte, umbrechend, oben links</td></tr>
+<tr><td><b>Landscape</b></td><td><code>vw ≥ 1024</code></td><td>3 freistehende Glas-Elemente</td><td>Nur Fullscreen</td><td>6-Spalten-Grid</td></tr>
+<tr><td><b>Tablet Portrait</b></td><td><code>640 ≤ vw &lt; 1024</code></td><td>Launcher-Kreis + Dock-Pille, darunter blanke Nav</td><td>Nur Fullscreen</td><td>6-Spalten-Grid</td></tr>
+<tr><td><b>Phone</b></td><td><code>vw &lt; 640</code></td><td>Dock-Reihe volle Breite + blanke Nav-Reihe</td><td>Nur Fullscreen</td><td>6-Spalten-Grid</td></tr>
+</tbody></table>
+<div class="note"><b>Regel:</b> Im Touch-Modus gibt es nie einzelne WiFi-/Ton-/Batterie-Panels — sie klappen ins Control Center. Im Desktop-Modus gibt es sie einzeln, jeweils rechts unter der eigenen Pille. Immer nur <b>ein</b> Panel offen: Öffnen schließt alle anderen.</div>
+
+<!-- ═══ 2 ═══ -->
+<h2>2 · Icon-Größen &amp; Varianten</h2>
+<p>Ein einziger Icon-Baustein, fünf benannte Größen. Alles im Shell benutzt diese Tabelle — keine freien Pixelwerte.</p>
+<table><thead><tr><th>Name</th><th>Tile</th><th>Radius</th><th>Label</th><th>Gap Tile→Label</th><th>Eingesetzt in</th></tr></thead><tbody>
+<tr><td><code>xs</code></td><td>40px</td><td>11px</td><td>10px</td><td>5px</td><td>Desktop-Taskbar</td></tr>
+<tr><td><code>sm</code></td><td>48px</td><td>13px</td><td>11px</td><td>6px</td><td>Phone-Dock</td></tr>
+<tr><td><code>md</code></td><td>56px</td><td>16px</td><td>13px</td><td>8px</td><td>Arbeitsfläche (Desktop + Tablet), Fenster-Startmenü</td></tr>
+<tr><td><code>lg</code></td><td>72px</td><td>20px</td><td>14px</td><td>10px</td><td>reserviert</td></tr>
+<tr><td><code>xl</code></td><td>88px</td><td>24px</td><td>15px</td><td>12px</td><td>Fullscreen-/Tablet-Launcher-Grid</td></tr>
+</tbody></table>
+<p>Pixel-zu-Name-Mapping wenn eine Größe berechnet ankommt: <code>≤42 → xs · ≤52 → sm · ≤64 → md · ≤80 → lg · &gt;80 → xl</code>.</p>
+<h4>Drei Render-Varianten</h4>
+<div class="stage"><div class="wall"></div><div class="tint"></div><div class="inner dark shell" style="display:flex;gap:44px;padding:30px 28px;align-items:flex-end">
+<div class="ic md"><div class="tile"><img src="assets/icons/locus.svg" alt="Locus"></div><span class="lbl">native</span></div>
+<div class="ic md"><div class="tile" style="background:var(--glass-icon-bg);border:1px solid var(--glass-icon-border);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center"><img src="assets/icons/markup.svg" alt="Markup" style="width:65%;height:65%;object-fit:contain"></div><span class="lbl">wrapped</span></div>
+<div class="ic md free"><div class="tile"><img src="assets/icons/pictures.svg" alt="Bilder"></div><span class="lbl">freestanding</span></div>
+</div></div>
+<p class="cap"><b>native</b> — Asset ist schon ein fertiges Tile: nur runde Maske + Icon-Schatten, kein zusätzliches Glas. Default für Erstanbieter-Apps. &nbsp;·&nbsp; <b>wrapped</b> — formloses/sideloaded Icon: Glas-Panel als Unterlage (<code>blur(20px)</code>, <code>--glass-icon-bg</code>, 1px <code>--glass-icon-border</code>, Top-Shine), Icon auf 65% der Kachel. &nbsp;·&nbsp; <b>freestanding</b> — komplett blank, keine Unterlage, kein Schatten: Ordner &amp; Spezialordner (Stash/Bilder/Videos/Dokumente/Downloads).</p>
+<div class="note">Der Badge sitzt <b>immer</b> am äußeren Icon-Wrapper, nie im Tile mit <code>overflow:hidden</code> — sonst wird er beschnitten. Position: <code>top:-4 / right:-4</code> (native, wrapped) bzw. <code>top:12% / right:2%</code> (freestanding). Größe <code>min-width:18 · height:18 · radius:9</code>, Farbe <code>--glass-notif-dot</code>, Text 10px/700 weiß, &gt;99 → „99+“.</div>
+
+<!-- ═══ 3 ═══ -->
+<h2>3 · Icons im Arbeitsbereich</h2>
+<p>Die Fläche zwischen Topbar und Dock, <code>z-index:10</code>, <code>overflow:hidden</code>. Zwei völlig verschiedene Anordnungen — Icon-Größe ist in beiden <code>md</code> (56px), mit Label.</p>
+
+<h3>3.1 Desktop — Spalte, die umbricht</h3>
+<table><tbody>
+<tr><th>Layout</th><td><code>display:flex; flex-direction:column; flex-wrap:wrap; align-content:flex-start; height:100%</code></td></tr>
+<tr><th>Abstand</th><td><code>gap: 22px 34px</code> → 22px vertikal zwischen Icons, 34px horizontal zwischen Spalten</td></tr>
+<tr><th>Padding</th><td>20px auf allen Seiten</td></tr>
+<tr><th>Ursprung</th><td>oben links; füllt die Spalte nach unten, bricht dann in die nächste Spalte rechts um</td></tr>
+<tr><th>Zellbreite</th><td>ergibt sich aus dem breitesten Label der Spalte (Label max. <code>Tile + 16px</code> = 72px, danach Ellipse)</td></tr>
+</tbody></table>
+<div class="stage" style="height:330px"><div class="wall"></div><div class="tint"></div><div class="inner dark shell rulerbox" style="height:330px;padding:20px;display:flex;flex-direction:column;flex-wrap:wrap;align-content:flex-start;gap:22px 34px">
+<div class="ic md"><div class="tile"><img src="assets/icons/files.svg" alt=""></div><span class="lbl">Stash</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/glyph.svg" alt=""></div><span class="lbl">Glyph</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/relay.svg" alt=""></div><span class="lbl">Relay</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/iris.svg" alt=""></div><span class="lbl">Iris</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/music-app.svg" alt=""></div><span class="lbl">Music</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/atlas.svg" alt=""></div><span class="lbl">Atlas</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/console.svg" alt=""></div><span class="lbl">Console</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/inkwell.svg" alt=""></div><span class="lbl">Inkwell</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/cipher.svg" alt=""></div><span class="lbl">Cipher</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/echo.svg" alt=""></div><span class="lbl">Echo</span></div>
+<div class="dim" style="left:20px;top:96px">↕ 22px</div>
+<div class="dim" style="left:80px;top:24px">↔ 34px</div>
+</div></div>
+<p class="cap">Desktop-Icon-Feld · <b>md</b> (56px) · <code>gap 22 × 34</code> · Padding 20 · Umbruch in Spalten. Hover-Skalierung darf nicht clippen — deshalb kein <code>overflow:hidden</code> auf der Zelle selbst.</p>
+
+<h3>3.2 Tablet / Touch — zentriertes 6-Spalten-Grid</h3>
+<table><tbody>
+<tr><th>Layout</th><td><code>display:grid; grid-template-columns:repeat(6,1fr); place-items:center; align-content:start</code></td></tr>
+<tr><th>Abstand</th><td><code>gap: 24px 16px</code> → 24px Zeilen, 16px Spalten (Spalten atmen zusätzlich, weil <code>1fr</code>)</td></tr>
+<tr><th>Padding</th><td>28px auf allen Seiten</td></tr>
+<tr><th>Ursprung</th><td>oben, horizontal über die volle Breite verteilt; feste 6 Spalten in Portrait <i>und</i> Landscape</td></tr>
+</tbody></table>
+<div class="stage" style="height:250px"><div class="wall"></div><div class="tint"></div><div class="inner dark shell" style="height:250px;padding:28px;display:grid;grid-template-columns:repeat(6,1fr);gap:24px 16px;place-items:center;align-content:start">
+<div class="ic md"><div class="tile"><img src="assets/icons/files.svg" alt=""></div><span class="lbl">Stash</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/glyph.svg" alt=""></div><span class="lbl">Glyph</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/relay.svg" alt=""></div><span class="lbl">Relay</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/iris.svg" alt=""></div><span class="lbl">Iris</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/music-app.svg" alt=""></div><span class="lbl">Music</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/atlas.svg" alt=""></div><span class="lbl">Atlas</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/console.svg" alt=""></div><span class="lbl">Console</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/inkwell.svg" alt=""></div><span class="lbl">Inkwell</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/cipher.svg" alt=""></div><span class="lbl">Cipher</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/echo.svg" alt=""></div><span class="lbl">Echo</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/reel.svg" alt=""></div><span class="lbl">Reel</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/resonance.svg" alt=""></div><span class="lbl">Resonance</span></div>
+</div></div>
+<p class="cap">Touch-Arbeitsfläche · <b>md</b> (56px) · <code>gap 24 × 16</code> · Padding 28 · <code>repeat(6,1fr)</code>, oben ausgerichtet.</p>
+
+<!-- ═══ 4 ═══ -->
+<h2>4 · Hover, Press, Touch-Ziele</h2>
+<p>Der Zustand liegt <b>auf dem Tile</b>, nicht auf dem Label — das Label bewegt sich nie mit. Zeiger auf der ganzen Zelle (Tile + Label) ist die Trefferfläche.</p>
+<table><thead><tr><th>Zustand</th><th>Transform</th><th>Schatten</th><th>Kurve / Dauer</th></tr></thead><tbody>
+<tr><td>Ruhe</td><td><code>scale(1)</code></td><td><code>--shadow-icon</code> = <code>0 4px 12px rgba(0,0,0,0.20)</code></td><td>—</td></tr>
+<tr><td>Hover (nur Zeiger)</td><td><code>scale(1.08)</code></td><td><code>--shadow-icon-hover</code> = <code>0 8px 20px rgba(0,0,0,0.30)</code></td><td><code>cubic-bezier(0.34,1.56,0.64,1)</code>, 0.2s (überschwingt leicht — „Pop“)</td></tr>
+<tr><td>Press / Tap</td><td><code>scale(0.92)</code></td><td>Hover-Schatten bleibt</td><td>gleiche Kurve, fühlt sich sofort an (~0.1s wirksam)</td></tr>
+<tr><td>Leave während Press</td><td>zurück auf <code>scale(1)</code></td><td>Ruhe-Schatten</td><td>Press-Flag wird beim Verlassen mit zurückgesetzt</td></tr>
+</tbody></table>
+<div class="stage"><div class="wall"></div><div class="tint"></div><div class="inner dark shell" style="display:flex;gap:52px;padding:30px 28px">
+<div class="ic md"><div class="tile"><img src="assets/icons/locus.svg" alt=""></div><span class="lbl">Ruhe</span></div>
+<div class="ic md"><div class="tile" style="transform:scale(1.08);box-shadow:var(--shadow-icon-hover)"><img src="assets/icons/relay.svg" alt=""></div><span class="lbl">Hover 1.08</span></div>
+<div class="ic md"><div class="tile" style="transform:scale(0.92);box-shadow:var(--shadow-icon-hover)"><img src="assets/icons/iris.svg" alt=""></div><span class="lbl">Press 0.92</span></div>
+<div class="ic md"><div class="tile"><img src="assets/icons/atlas.svg" alt=""></div><span class="lbl">live: hover mich</span></div>
+</div></div>
+<p class="cap">Die drei Zustände fest eingefroren + ein lebendes Icon rechts zum Gegenprüfen.</p>
+<ul>
+<li><b>Desktop:</b> Hover ist ein echter Zustand — Icon-Pop, Taskbar-/Nav-Buttons füllen sich (<code>rgba(255,255,255,0.14)</code> dark / <code>rgba(0,0,0,0.06)</code> light), Topbar-Pillen nur Hover-Füllung (<code>rgba(255,255,255,0.18)</code> dark / <code>rgba(0,0,0,0.10)</code> light), niemals dauerhafter Hintergrund.</li>
+<li><b>Tablet/Touch:</b> keinen Hover-Zustand rendern (kein Zeiger). Nur Press. Trefferflächen ≥ <b>44px</b> — <code>md</code>-Icon = 56px erfüllt das; blanke Nav-Icons sitzen in 32px-Buttons und brauchen deshalb ≥ 6px Luft ringsum, um auf 44px zu kommen.</li>
+<li>Blanke Icons (Taskbar-Launcher-Glyph, Nav-Icons) haben keine Chrome: Legibilität kommt über <code>filter: drop-shadow(0 0 4px rgba(255,255,255,0.85))</code> im Touch-Modus.</li>
+</ul>
+
+<!-- ═══ 5 ═══ -->
+<h2>5 · Schrift auf dem Wallpaper: der Gegenschatten</h2>
+<p>Jedes Label, das direkt auf dem Wallpaper liegt (Arbeitsfläche, Dock, Launcher-Grid, blanke Nav), bekommt einen <b>Halo in der Gegenfarbe</b> — nicht einen Schatten in der Textfarbe. Das ist die Regel, die die Schrift auf jedem Bild lesbar hält.</p>
+<table><thead><tr><th>Modus</th><th>Textfarbe</th><th><code>--glass-label-shadow</code></th></tr></thead><tbody>
+<tr><td><b>Dark</b></td><td><code>rgba(255,255,255,0.92)</code> — weiß</td><td><code>0 0 3px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.45)</code> → <b>dunkler</b> Halo</td></tr>
+<tr><td><b>Light</b></td><td><code>rgba(0,0,0,0.88)</code> — schwarz</td><td><code>0 0 3px rgba(255,255,255,0.70), 0 1px 3px rgba(255,255,255,0.55)</code> → <b>heller</b> Halo</td></tr>
+</tbody></table>
+<div class="grid2">
+<div><div class="stage"><div class="wall"></div><div class="tint"></div><div class="inner dark shell lblcheck">
+<div class="ic md"><div class="tile"><img src="assets/icons/nex-studio.svg" alt=""></div><span class="lbl">NeX Studio</span></div>
+<div style="color:var(--glass-text-primary);text-shadow:var(--glass-label-shadow);font-size:22px;font-weight:700;letter-spacing:-0.03em">Guten Morgen</div>
+</div></div><p class="cap"><b>dark</b> — weiße Schrift, dunkler Halo</p></div>
+<div><div class="stage lightwall"><div class="wall"></div><div class="tint"></div><div class="inner shell lblcheck">
+<div class="ic md"><div class="tile"><img src="assets/icons/nex-studio.svg" alt=""></div><span class="lbl">NeX Studio</span></div>
+<div style="color:var(--glass-text-primary);text-shadow:var(--glass-label-shadow);font-size:22px;font-weight:700;letter-spacing:-0.03em">Guten Morgen</div>
+</div></div><p class="cap"><b>light</b> — schwarze Schrift, heller Halo</p></div>
+</div>
+<div class="note"><b>Wo der Halo <u>nicht</u> hin darf:</b> Text <i>innerhalb</i> einer Glasfläche (Panel, Karte, Taskbar, Dock-Pille, Startmenü) bekommt <b>keinen</b> Text-Schatten — dort erledigt das Glas den Kontrast, und der Halo würde matschig wirken. Halo nur für Text, der auf dem nackten Wallpaper sitzt. Genau zwei Ausnahmen: die Dock-Labels und die blanken Nav-Icons (dort als <code>drop-shadow</code>, weil es SVG-Formen sind).</div>
+
+<!-- ═══ 6 ═══ -->
+<h2>6 · Desktop-Taskbar</h2>
+<p>Volle Breite, unten angeschlagen, <code>z-index:50</code>. Kein Radius, kein freistehender Schatten — nur eine 1px-Oberkante.</p>
+<table><tbody>
+<tr><th>Höhe</th><td><b>56px</b> fix</td></tr>
+<tr><th>Padding</th><td><code>0 12px</code>, Inhalt vertikal zentriert</td></tr>
+<tr><th>Material</th><td>Panel-Glas, <code>backdrop-filter: blur(64px)</code>, Fill <code>--glass-panel-bg</code></td></tr>
+<tr><th>Oberkante</th><td><code>1px solid rgba(255,255,255,0.12)</code> dark · <code>rgba(255,255,255,0.40)</code> light — nur oben</td></tr>
+<tr><th>Zonen</th><td><code>space-between</code>: links Launcher-Glyph · Mitte App-Icons + Divider + Mini-Player · rechts Zurück/Home/Übersicht</td></tr>
+<tr><th>Launcher-Button</th><td>36×36, Radius 9, transparent, Glyph 20px; Hover nur Aufhellung</td></tr>
+<tr><th>App-Icons</th><td><b>xs</b> (40px), <code>gap:4px</code>, <b>ohne</b> Label — sie sitzen direkt in der Bar, nicht in einer eigenen Pille</td></tr>
+<tr><th>Divider</th><td>1px × 28px, <code>rgba(255,255,255,0.12)</code>, <code>margin:0 6px</code></td></tr>
+<tr><th>Mini-Player</th><td>Karten-Glas (<code>blur(40px)</code>), Radius 12, Padding <code>4px 10px</code>, Cover 28×28/Radius 8, Titel 11px/600, Interpret 10px, Play 22px-Kreis, Skip 22px transparent, Textspalte 90px fix</td></tr>
+<tr><th>Nav rechts</th><td>3 × 32px-Buttons, Radius 9, <code>gap:2px</code>, Icons 14/14/13px, blank</td></tr>
+</tbody></table>
+<div class="stage"><div class="wall"></div><div class="tint"></div><div class="inner dark shell" style="height:210px;display:flex;flex-direction:column;justify-content:flex-end">
+<div class="taskbar g-panel rulerbox" style="box-shadow:none">
+<button class="navbtn" style="width:36px;height:36px" aria-label="Launcher"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="9" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="9" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="15" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="15" r="2" fill="currentColor" stroke="none"/><circle cx="17" cy="6" r="4"/><line x1="19.8" y1="8.8" x2="22.5" y2="11.5"/></svg></button>
+<div class="tb-apps">
+<div class="tb-app"><div class="ic xs"><div class="tile"><img src="assets/icons/locus.svg" alt=""></div></div></div>
+<div class="tb-app"><div class="ic xs free"><div class="tile"><img src="assets/icons/files.svg" alt=""></div></div></div>
+<div class="tb-app"><div class="ic xs"><div class="tile"><img src="assets/icons/settings.svg" alt=""></div></div><div class="bar"></div></div>
+<div class="tb-app"><div class="ic xs"><div class="tile"><img src="assets/icons/relay.svg" alt=""></div></div></div>
+<div class="tb-app"><div class="ic xs"><div class="tile"><img src="assets/icons/iris.svg" alt=""></div></div></div>
+<div class="divider" style="height:28px"></div>
+<div class="player g-card" style="border-radius:12px;padding:4px 10px">
+<div class="album" style="width:28px;height:28px;border-radius:8px"></div>
+<div style="width:90px"><div class="tx" style="font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Summer Vibes</div><div class="tx2" style="font-size:10px">The Artist</div></div>
+<button class="play" style="width:22px;height:22px;font-size:10px">▶</button>
+<button class="play" style="width:22px;height:22px;font-size:10px;background:transparent;color:var(--glass-text-secondary)">⏭</button>
+</div>
+</div>
+<div style="display:flex;align-items:center;gap:2px">
+<button class="navbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></button>
+<button class="navbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+<button class="navbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg></button>
+</div>
+<div class="dim" style="left:12px;top:-18px">Höhe 56px · blur(64px) · Oberkante 1px</div>
+</div>
+</div></div>
+<p class="cap">Desktop-Taskbar, dark. Tuner (3. Icon) ist die aktive App → <b>Unterstrich</b>.</p>
+
+<!-- ═══ 7 ═══ -->
+<h2>7 · Aktive App: Taskbar-Unterstrich vs. Dock-Punkt</h2>
+<p>Zwei verschiedene Marker für denselben Zustand — bewusst, weil die Kontexte verschieden sind: Die Taskbar ist eine <i>Fensterliste</i>, das Dock ein <i>Startbrett</i>.</p>
+<table><thead><tr><th>Ort</th><th>Marker</th><th>Maß</th><th>Position</th><th>Bedeutung</th></tr></thead><tbody>
+<tr><td><b>Desktop-Taskbar</b></td><td>Unterstrich</td><td><code>20 × 2px</code>, Radius 1</td><td>zentriert unter dem Tile, <code>gap:2px</code> zum Icon</td><td>Fenster ist offen (läuft), Klick fokussiert bzw. minimiert</td></tr>
+<tr><td><b>Tablet-/Landscape-Dock</b></td><td>Punkt</td><td><code>4 × 4px</code>, Radius 2</td><td>zentriert unter dem Tile, <code>gap:2px</code></td><td>App läuft im Hintergrund; Tap holt sie nach vorn</td></tr>
+<tr><td><b>Arbeitsfläche</b></td><td>Punkt</td><td><code>4 × 4px</code>, <code>margin-top:-4px</code></td><td>zwischen Tile und Label</td><td>identisch mit Dock — läuft</td></tr>
+<tr><td><b>Phone-Dock</b></td><td>keiner</td><td>—</td><td>—</td><td>zu wenig Platz; Zustand steht in der Übersicht</td></tr>
+</tbody></table>
+<p>Farbe in allen Fällen <code>--glass-text-primary</code> bei <code>opacity: 0.7</code> — also weiß im Dark-, schwarz im Light-Mode. <b>Kein</b> Akzentfarbton, keine Füllung hinter dem Icon, kein Glow.</p>
+<div class="stage"><div class="wall"></div><div class="tint"></div><div class="inner dark shell" style="display:flex;gap:56px;padding:28px;align-items:flex-start">
+<div style="display:flex;gap:10px;align-items:flex-start">
+<div class="tb-app"><div class="ic xs"><div class="tile"><img src="assets/icons/settings.svg" alt=""></div></div><div class="bar"></div></div>
+<div class="tb-app"><div class="ic xs"><div class="tile"><img src="assets/icons/relay.svg" alt=""></div></div></div>
+<div class="tx2" style="font-size:11px;font-family:var(--font-mono,monospace);padding-top:14px">xs + 20×2 Unterstrich<br>= Taskbar aktiv</div>
+</div>
+<div style="display:flex;gap:12px;align-items:flex-start">
+<div class="tb-app"><div class="ic sm"><div class="tile"><img src="assets/icons/settings.svg" alt=""></div></div><div class="dot"></div></div>
+<div class="tb-app"><div class="ic sm"><div class="tile"><img src="assets/icons/relay.svg" alt=""></div></div></div>
+<div class="tx2" style="font-size:11px;font-family:var(--font-mono,monospace);padding-top:16px">Dock-Tile + 4×4 Punkt<br>= läuft</div>
+</div>
+</div></div>
+
+<!-- ═══ 8 ═══ -->
+<h2>8 · Touch-Docks: Tablet, Landscape, Phone</h2>
+<p>Alle drei sitzen frei auf dem Wallpaper (nicht angeschlagen), mit Panel-Glas und echtem Schatten <code>0 25px 50px rgba(0,0,0,0.45)</code>. Untere Außenkante überall <code>12px</code>.</p>
+
+<h3>8.1 Tablet Portrait (640–1024)</h3>
+<p>Launcher-Kreis und Dock-Pille <b>nebeneinander, zentriert</b>; darunter eine Reihe <b>blanker</b> Nav-Icons. Außenpadding <code>0 24px 12px</code>, Abstand Reihe→Reihe <code>8px</code>, Launcher→Pille <code>8px</code>, Nav-Icons untereinander <code>gap:24px</code>.</p>
+<div class="stage"><div class="wall"></div><div class="tint"></div><div class="inner dark shell" style="height:210px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:8px;padding:0 24px 12px">
+<div style="display:flex;align-items:stretch;justify-content:center;gap:8px">
+<button class="launchbtn g-panel" style="aspect-ratio:1/1;padding:0 12px;background:var(--glass-panel-bg)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--glass-text-primary)" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="9" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="9" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="15" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="15" r="2" fill="currentColor" stroke="none"/><circle cx="17" cy="6" r="4"/><line x1="19.8" y1="8.8" x2="22.5" y2="11.5"/></svg></button>
+<div class="dockpill g-panel">
+<div class="tb-app"><div class="ic sm"><div class="tile"><img src="assets/icons/locus.svg" alt=""></div></div></div>
+<div class="tb-app"><div class="ic sm free"><div class="tile"><img src="assets/icons/files.svg" alt=""></div></div></div>
+<div class="tb-app"><div class="ic sm"><div class="tile"><img src="assets/icons/settings.svg" alt=""></div></div><div class="dot"></div></div>
+<div class="tb-app"><div class="ic sm"><div class="tile"><img src="assets/icons/relay.svg" alt=""></div></div></div>
+<div class="tb-app"><div class="ic sm"><div class="tile"><img src="assets/icons/iris.svg" alt=""></div></div></div>
+<div class="divider" style="height:32px"></div>
+<div class="player g-card">
+<div class="album" style="width:24px;height:24px"></div>
+<div style="width:64px;overflow:hidden"><div class="tx" style="font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Summer Vibes</div><div class="tx2" style="font-size:9px;white-space:nowrap">The Artist</div></div>
+<button class="play" style="width:20px;height:20px">▶</button>
+</div>
+</div>
+</div>
+<div class="bare" style="display:flex;align-items:center;gap:24px">
+<button class="navbtn round"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></button>
+<button class="navbtn round"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+<button class="navbtn round"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg></button>
+</div>
+</div></div>
+<p class="cap">Dock-Pille: <code>padding 8px 12px · radius 24 · gap 4</code>, Icons <b>sm→</b> in der Referenz mit 44px berechnet (→ Name <code>sm</code>, 48px Tile), Divider 1×32 mit <code>margin 0 6px</code>, dann Mini-Player (Karten-Glas, Radius 14, Cover 24, Textspalte 64px, Play 20px).</p>
+
+<h3>8.2 Landscape (≥1024)</h3>
+<p>Drei getrennte Elemente über die Breite: Launcher-Kreis <b>42×42</b> links · Dock-Pille zentriert · Nav-Pille rechts (<code>padding 6px 10px</code>, Radius 24, Panel-Glas, <code>gap:2</code>, Icons 14/14/13). <code>align-items:flex-end</code>, Padding <code>0 24px 12px</code>. Die Nav ist hier <b>eingefasst</b>, nicht blank.</p>
+<div class="stage"><div class="wall"></div><div class="tint"></div><div class="inner dark shell" style="height:180px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 24px 12px">
+<button class="launchbtn g-panel" style="width:42px;height:42px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--glass-text-primary)" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="9" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="9" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="15" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="15" r="2" fill="currentColor" stroke="none"/><circle cx="17" cy="6" r="4"/><line x1="19.8" y1="8.8" x2="22.5" y2="11.5"/></svg></button>
+<div class="dockpill g-panel">
+<div class="tb-app"><div class="ic sm"><div class="tile"><img src="assets/icons/locus.svg" alt=""></div></div></div>
+<div class="tb-app"><div class="ic sm free"><div class="tile"><img src="assets/icons/files.svg" alt=""></div></div></div>
+<div class="tb-app"><div class="ic sm"><div class="tile"><img src="assets/icons/settings.svg" alt=""></div></div><div class="dot"></div></div>
+<div class="tb-app"><div class="ic sm"><div class="tile"><img src="assets/icons/relay.svg" alt=""></div></div></div>
+<div class="tb-app"><div class="ic sm"><div class="tile"><img src="assets/icons/iris.svg" alt=""></div></div></div>
+<div class="divider" style="height:32px"></div>
+<div class="player g-card"><div class="album" style="width:24px;height:24px"></div><div style="width:64px;overflow:hidden"><div class="tx" style="font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Summer Vibes</div><div class="tx2" style="font-size:9px">The Artist</div></div><button class="play" style="width:20px;height:20px">▶</button></div>
+</div>
+<div class="g-panel" style="display:flex;align-items:center;gap:2px;padding:6px 10px;border-radius:24px;backdrop-filter:blur(40px)">
+<button class="navbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></button>
+<button class="navbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+<button class="navbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg></button>
+</div>
+</div></div>
+
+<h3>8.3 Phone (&lt;640)</h3>
+<p>Dock-Reihe über die <b>volle Breite</b>: 5 Apps, jede in <code>flex:1</code> zentriert, Größe <b>sm</b> (48px), Pille <code>padding 8px 12px · radius 24 · gap 8</code>, Außenpadding <code>0 16px 12px</code>. Darunter eine blanke Nav-Reihe mit <code>space-around</code> und <b>vier</b> Elementen: Zurück · Launcher-Glyph · Home · Übersicht — der Launcher-Glyph wandert hier in die Nav, weil kein Platz für einen eigenen Kreis ist. Kein Mini-Player, kein Aktiv-Punkt.</p>
+<div class="stage" style="max-width:390px"><div class="wall"></div><div class="tint"></div><div class="inner dark shell" style="height:190px;display:flex;flex-direction:column;justify-content:flex-end;gap:8px;padding:0 16px 12px">
+<div class="g-panel" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:24px">
+<div style="flex:1;display:flex;justify-content:center"><div class="ic sm"><div class="tile"><img src="assets/icons/locus.svg" alt=""></div></div></div>
+<div style="flex:1;display:flex;justify-content:center"><div class="ic sm free"><div class="tile"><img src="assets/icons/files.svg" alt=""></div></div></div>
+<div style="flex:1;display:flex;justify-content:center"><div class="ic sm"><div class="tile"><img src="assets/icons/settings.svg" alt=""></div></div></div>
+<div style="flex:1;display:flex;justify-content:center"><div class="ic sm"><div class="tile"><img src="assets/icons/relay.svg" alt=""></div></div></div>
+<div style="flex:1;display:flex;justify-content:center"><div class="ic sm"><div class="tile"><img src="assets/icons/iris.svg" alt=""></div></div></div>
+</div>
+<div class="bare" style="display:flex;align-items:center;justify-content:space-around">
+<button class="navbtn round"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></button>
+<button class="navbtn round"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="9" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="9" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="15" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="15" r="2" fill="currentColor" stroke="none"/><circle cx="17" cy="6" r="4"/><line x1="19.8" y1="8.8" x2="22.5" y2="11.5"/></svg></button>
+<button class="navbtn round"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+<button class="navbtn round"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg></button>
+</div>
+</div></div>
+<h4>Dock-Belegung (Standard)</h4>
+<p>Locus · Stash (Dateien, <code>freestanding</code>) · Tuner (Einstellungen) · Relay · Iris — in dieser Reihenfolge, in allen Dock-Varianten identisch. Der Mini-Player spiegelt immer denselben Now-Playing-Zustand wie die Dynamic Island.</p>
+
+<!-- ═══ 9 ═══ -->
+<h2>9 · Startmenü — Desktop, klein (Fenster)</h2>
+<p>Default im Desktop-Modus. Ein schwebendes Fenster über dem Desktop, <b>ohne</b> Backdrop-Blur auf dem Hintergrund — der Desktop bleibt scharf sichtbar, nur das Fenster ist Glas. Das ist der wichtigste Unterschied zum Fullscreen-Modus.</p>
+<table><tbody>
+<tr><th>Größe</th><td><b>720 × 520px</b> fix</td></tr>
+<tr><th>Radius / Padding</th><td>24px / <code>24px</code> rundum</td></tr>
+<tr><th>Position</th><td>horizontal zentriert, <code>align-items:flex-end</code> mit <code>padding-bottom:88px</code> → sitzt über der Taskbar</td></tr>
+<tr><th>Backdrop</th><td><b>keiner</b> — kein Scrim, kein Blur hinter dem Fenster. Klick daneben schließt.</td></tr>
+<tr><th>Material</th><td>Panel-Glas, <code>blur(64px)</code>, Schatten <code>0 25px 50px rgba(0,0,0,0.45)</code></td></tr>
+<tr><th>Kopf</th><td>Suchfeld (volle Breite) + Expand-Button rechts → schaltet auf Fullscreen</td></tr>
+<tr><th>Sektionslabel</th><td>„ALLE APPS“, 12px/600, <code>uppercase</code>, <code>letter-spacing .08em</code>, sekundäre Textfarbe</td></tr>
+<tr><th>Grid</th><td><code>repeat(4,1fr)</code>, <code>gap: 12px 8px</code>, <code>align-content:start</code>, vertikal scrollend, Icons <b>md</b> mit Label</td></tr>
+<tr><th>Footer</th><td><code>padding-top:16px</code>, Trennlinie oben 1px (<code>rgba(255,255,255,0.10)</code> dark / <code>rgba(0,0,0,0.08)</code> light): links Avatar + Name (<code>gap:10</code>), rechts Power-/Einstellungs-Aktionen</td></tr>
+<tr><th>Transform-Origin</th><td><code>center bottom</code> — es wächst aus der Taskbar heraus</td></tr>
+</tbody></table>
+<div class="stage" style="height:400px"><div class="wall"></div><div class="tint"></div><div class="inner dark shell" style="height:400px;position:relative">
+<div style="position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;padding-bottom:66px">
+<div class="g-panel" style="width:600px;height:300px;border-radius:24px;padding:20px;display:flex;flex-direction:column;overflow:hidden;transform-origin:center bottom">
+<div style="display:flex;gap:8px;margin-bottom:10px">
+<div class="g-card" style="flex:1;border-radius:12px;padding:8px 12px;display:flex;align-items:center;gap:8px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--glass-text-secondary)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="tx2" style="font-size:12px">Apps suchen …</span></div>
+<button class="navbtn" style="width:34px;height:34px;border-radius:12px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg></button>
+</div>
+<div class="tx2" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Alle Apps</div>
+<div style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:12px 8px;align-content:start;overflow:hidden">
+<div style="display:flex;justify-content:center"><div class="ic md"><div class="tile"><img src="assets/icons/locus.svg" alt=""></div><span class="lbl">Locus</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic md"><div class="tile"><img src="assets/icons/relay.svg" alt=""></div><span class="lbl">Relay</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic md"><div class="tile"><img src="assets/icons/cipher.svg" alt=""></div><span class="lbl">Cipher</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic md"><div class="tile"><img src="assets/icons/weather.svg" alt=""></div><span class="lbl">Weather</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic md"><div class="tile"><img src="assets/icons/atlas.svg" alt=""></div><span class="lbl">Atlas</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic md free"><div class="tile"><img src="assets/icons/files.svg" alt=""></div><span class="lbl">Stash</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic md"><div class="tile"><img src="assets/icons/nib.svg" alt=""></div><span class="lbl">Nib</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic md"><div class="tile"><img src="assets/icons/iris.svg" alt=""></div><span class="lbl">Iris</span></div></div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10)">
+<div style="display:flex;align-items:center;gap:10px"><div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#5eead4,#3b82f6)"></div><span class="tx" style="font-size:12px;font-weight:600">Jenning</span></div>
+<div style="display:flex;gap:4px"><button class="navbtn" style="width:28px;height:28px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.2 4.2l2.9 2.9M16.9 16.9l2.9 2.9M1 12h4M19 12h4M4.2 19.8l2.9-2.9M16.9 7.1l2.9-2.9"/></svg></button><button class="navbtn" style="width:28px;height:28px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" x2="12" y1="2" y2="12"/></svg></button></div>
+</div>
+</div>
+</div>
+<div class="taskbar g-panel" style="position:absolute;left:0;right:0;bottom:0;box-shadow:none">
+<button class="navbtn" style="width:36px;height:36px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="9" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="9" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="15" r="2" fill="currentColor" stroke="none"/><circle cx="11" cy="15" r="2" fill="currentColor" stroke="none"/><circle cx="17" cy="6" r="4"/><line x1="19.8" y1="8.8" x2="22.5" y2="11.5"/></svg></button>
+<div class="tb-apps">
+<div class="tb-app"><div class="ic xs"><div class="tile"><img src="assets/icons/locus.svg" alt=""></div></div></div>
+<div class="tb-app"><div class="ic xs"><div class="tile"><img src="assets/icons/settings.svg" alt=""></div></div><div class="bar"></div></div>
+<div class="tb-app"><div class="ic xs"><div class="tile"><img src="assets/icons/iris.svg" alt=""></div></div></div>
+</div>
+<div style="display:flex;gap:2px"><button class="navbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></button><button class="navbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg></button></div>
+</div>
+</div></div>
+<p class="cap">Fenster-Startmenü, hier auf 600×300 verkleinert dargestellt (Spec: <b>720×520</b>). Beachte: <b>Desktop dahinter bleibt scharf</b> — kein Backdrop-Blur.</p>
+
+<!-- ═══ 10 ═══ -->
+<h2>10 · Startmenü — Fullscreen (zu groß)</h2>
+<p>Im Desktop-Modus über den Expand-Button erreichbar, im Touch-Modus der <b>einzige</b> Zustand. Deckt die ganze Fläche, Radius 0, und blurrt jetzt <b>den Hintergrund</b>.</p>
+<table><tbody>
+<tr><th>Größe</th><td><code>100% × 100%</code>, Radius 0</td></tr>
+<tr><th>Backdrop</th><td>Scrim <code>rgba(0,0,0,0.45)</code> dark / <code>rgba(255,255,255,0.30)</code> light + <code>backdrop-filter: blur(24px)</code></td></tr>
+<tr><th>Padding</th><td>Desktop-Fullscreen <code>24px 24px 96px</code> · Touch <code>48px 24px 150px</code> — der große untere Wert hält das Grid über dem Dock frei</td></tr>
+<tr><th>Kopf</th><td>Begrüßung 22px/700, <code>letter-spacing -0.03em</code> („Guten Morgen, Jenning“) + Datumszeile, zentriert; darunter Suchfeld</td></tr>
+<tr><th>Grid</th><td>Gepagert (§11), Icons <b>xl</b> (88px) mit Label</td></tr>
+<tr><th>Fußzeile</th><td><b>keine</b> — Avatar/Power gibt es nur im Fenster-Modus</td></tr>
+<tr><th>Transform-Origin</th><td><code>center</code></td></tr>
+</tbody></table>
+<div class="note"><b>Warum zwei Modi:</b> Im Fenster-Modus ist der Launcher ein <i>Werkzeug</i> zwischen Fenstern — er darf den Desktop nicht verdecken oder verwaschen. Im Fullscreen-Modus ist er ein <i>Ort</i> — deshalb Scrim + Blur, größere Icons (<code>xl</code> statt <code>md</code>) und Begrüßung. Beim Wechsel bleibt die Suchanfrage erhalten.</div>
+
+<!-- ═══ 11 ═══ -->
+<h2>11 · Tablet-Launcher — gepagertes Grid</h2>
+<p>Spalten und Zeilen werden <b>gemessen, nicht gesetzt</b>: der Grid-Container beobachtet seine eigene Größe (<code>ResizeObserver</code>) und rechnet daraus, wie viele ganze Zellen hineinpassen. So gibt es auf keiner Diagonale halbe Reihen.</p>
+<table><tbody>
+<tr><th>Zellmaß</th><td><code>CELL_W = tile + 56</code> · <code>CELL_H = tile + 66</code> — bei <code>tile = 88</code> (xl): <b>144 × 154px</b></td></tr>
+<tr><th>Spalten / Zeilen</th><td><code>cols = max(2, floor(width / CELL_W))</code> · <code>rows = max(1, floor(height / CELL_H))</code></td></tr>
+<tr><th>Grid</th><td><code>grid-template-columns: repeat(cols,1fr)</code>, <code>grid-auto-rows: CELL_H − 12</code>, <code>gap: 20px 12px</code>, <code>align-content:start</code>, Padding <code>8px 2px 0</code></td></tr>
+<tr><th>Seiten</th><td><code>perPage = cols × rows</code>; Apps werden in dieser Reihenfolge aufgefüllt, immer mindestens eine (evtl. leere) Seite</td></tr>
+<tr><th>Blättern</th><td>Track ist ein Flex-Streifen, <code>translateX(-page × 100% + dragPx)</code></td></tr>
+<tr><th>Wisch-Schwelle</th><td>Seitenwechsel ab <code>|dx| &gt; 16%</code> der Containerbreite; darunter federt es zurück</td></tr>
+<tr><th>Drag-Erkennung</th><td>ab 4px Bewegung gilt es als Drag → der Klick auf das darunterliegende Icon wird unterdrückt (kein versehentlicher App-Start)</td></tr>
+<tr><th>Mausrad</th><td>Delta akkumulieren, ab 30 blättern, dann 360ms Sperre (verhindert Durchrutschen mehrerer Seiten)</td></tr>
+<tr><th>Übergang</th><td><code>transform .42s cubic-bezier(0.22,1,0.36,1)</code>; während des Ziehens <code>transition:none</code> (Finger-1:1)</td></tr>
+<tr><th>Seiten-Punkte</th><td><code>padding-top:14px</code>, <code>gap:7px</code>; inaktiv <b>7×7</b>, aktiv <b>18×7</b> (Pille), Radius 4; aktiv <code>rgba(255,255,255,0.9)</code> / inaktiv <code>0.28</code> (dark). Klickbar. <code>transition:all .2s</code></td></tr>
+<tr><th>Touch</th><td><code>touch-action: pan-y</code> — vertikales Scrollen der Seite bleibt möglich, horizontal übernimmt der Pager</td></tr>
+</tbody></table>
+<div class="stage" style="height:420px"><div class="wall"></div><div class="tint"></div>
+<div class="inner shell dark" style="height:420px;position:relative;background:rgba(0,0,0,0.45);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);padding:32px 24px 20px;display:flex;flex-direction:column">
+<div style="text-align:center;margin-bottom:10px"><div class="tx" style="font-size:22px;font-weight:700;letter-spacing:-0.03em">Guten Morgen, Jenning</div><div class="tx2" style="font-size:12px;margin-top:2px">Donnerstag, 30. Juli</div></div>
+<div class="g-card" style="border-radius:14px;padding:9px 14px;display:flex;align-items:center;gap:8px;margin-bottom:14px;max-width:420px;width:100%;align-self:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--glass-text-secondary)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="tx2" style="font-size:12px">Apps suchen …</span></div>
+<div style="flex:1;display:grid;grid-template-columns:repeat(5,1fr);grid-auto-rows:142px;gap:20px 12px;align-content:start;padding:8px 2px 0;overflow:hidden">
+<div style="display:flex;justify-content:center"><div class="ic xl"><div class="tile"><img src="assets/icons/locus.svg" alt=""></div><span class="lbl">Locus</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic xl"><div class="tile"><img src="assets/icons/relay.svg" alt=""></div><span class="lbl">Relay</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic xl"><div class="tile"><img src="assets/icons/cipher.svg" alt=""></div><span class="lbl">Cipher</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic xl"><div class="tile"><img src="assets/icons/weather.svg" alt=""></div><span class="lbl">Weather</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic xl"><div class="tile"><img src="assets/icons/atlas.svg" alt=""></div><span class="lbl">Atlas</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic xl free"><div class="tile"><img src="assets/icons/files.svg" alt=""></div><span class="lbl">Stash</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic xl"><div class="tile"><img src="assets/icons/nib.svg" alt=""></div><span class="lbl">Nib</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic xl"><div class="tile"><img src="assets/icons/iris.svg" alt=""></div><span class="lbl">Iris</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic xl"><div class="tile"><img src="assets/icons/music-app.svg" alt=""></div><span class="lbl">Music</span></div></div>
+<div style="display:flex;justify-content:center"><div class="ic xl"><div class="tile"><img src="assets/icons/gaming-hub.svg" alt=""></div><span class="lbl">Gaming Hub</span></div></div>
+</div>
+<div style="display:flex;justify-content:center;gap:7px;padding-top:14px">
+<div style="width:18px;height:7px;border-radius:4px;background:rgba(255,255,255,0.9)"></div>
+<div style="width:7px;height:7px;border-radius:4px;background:rgba(255,255,255,0.28)"></div>
+<div style="width:7px;height:7px;border-radius:4px;background:rgba(255,255,255,0.28)"></div>
+</div>
+</div></div>
+<p class="cap">Fullscreen-/Tablet-Launcher · Icons <b>xl</b> (88px) · gemessenes Grid · <code>gap 20 × 12</code> · aktive Seiten-Pille 18×7.</p>
+
+<!-- ═══ 12 ═══ -->
+<h2>12 · Animationen</h2>
+<p>Ein Bewegungs-Vokabular für das ganze Shell — vier Kurven, nicht mehr. Die Kurven stehen als Tokens in <code>reference/tokens/motion.css</code>.</p>
+<table><thead><tr><th>Bewegung</th><th>Kurve</th><th>Dauer</th><th>Wo</th></tr></thead><tbody>
+<tr><td>Eintritt „Spring“</td><td><code>cubic-bezier(0.34,1.4,0.5,1)</code></td><td>0.3–0.5s</td><td>Dynamic Island (Breite/Höhe/Radius, 0.5s / Radius 0.45s), Notifications-<code>slideDown</code> 0.35s</td></tr>
+<tr><td>Startmenü öffnen</td><td><code>cubic-bezier(0.16,1,0.3,1)</code></td><td>0.3s</td><td><code>slideUp</code>: Opacity 0→1, <code>translateY</code>, leichter Scale. Origin <b>center bottom</b> (Fenster) bzw. <b>center</b> (Fullscreen)</td></tr>
+<tr><td>Seiten schieben „Glide“</td><td><code>cubic-bezier(0.22,1,0.36,1)</code></td><td>0.42s</td><td>Launcher-Pager; während Drag <code>none</code></td></tr>
+<tr><td>Icon-Hover „Pop“</td><td><code>cubic-bezier(0.34,1.56,0.64,1)</code></td><td>0.2s</td><td>Tile-Scale 1 → 1.08 (überschwingt)</td></tr>
+<tr><td>Press</td><td>gleiche Pop-Kurve</td><td>~0.1s wirksam</td><td>Scale 0.92 — muss sofort greifen</td></tr>
+<tr><td>Austritt</td><td><code>cubic-bezier(0.4,0,0.2,1)</code></td><td>schneller als Eintritt</td><td>Panels/Launcher schließen — Schließen nie federn lassen</td></tr>
+<tr><td>Hover-Füllung</td><td><code>ease</code> / linear</td><td>0.12–0.15s</td><td>Taskbar-Buttons, Topbar-Pillen, Nav</td></tr>
+<tr><td>Fenster-Eintritt</td><td><code>aiva-window-in</code></td><td>—</td><td><code>opacity 0 → 1</code>, <code>scale(0.97) translateY(6px) → scale(1)</code></td></tr>
+</tbody></table>
+<div class="note"><b>Reduced Motion:</b> Bei <code>prefers-reduced-motion</code> alle Dauern auf ~0 kollabieren und Transforms weglassen — Opacity-Wechsel dürfen bleiben. Nie ganze Zustände unterschlagen.</div>
+<h4>Reihenfolge beim Öffnen des Startmenüs</h4>
+<ul>
+<li>Alle anderen Panels schließen (es ist immer nur eines offen).</li>
+<li>Backdrop einblenden — <b>nur</b> im Fullscreen-Modus (Scrim + <code>blur(24px)</code>); im Fenster-Modus nur ein unsichtbarer Klick-Fänger.</li>
+<li>Container mit <code>slideUp</code> 0.3s einfahren, Origin je nach Modus.</li>
+<li>Fokus in das Suchfeld; <kbd>Esc</kbd> und Klick außerhalb schließen.</li>
+<li>Beim Umschalten Fenster ↔ Fullscreen läuft <code>slideUp</code> erneut — es ist derselbe Container, nur andere Geometrie.</li>
+</ul>
+
+<h2>Referenz-Dateien</h2>
+<table><thead><tr><th>Datei</th><th>Rolle</th></tr></thead><tbody>
+<tr><td><code>OpenNexusLauncher.html</code></td><td>Interaktive Ground Truth — alle Modi live, echtes Glas. Bei Zweifel gilt diese Datei.</td></tr>
+<tr><td><code>LAUNCHER-SPEC.html</code></td><td>Dieses Dokument: die Maße und Regeln.</td></tr>
+<tr><td><code>reference/launcher-source.html</code></td><td>Lesbare Referenz-Implementierung (React/JSX), aus der alle Zahlen hier stammen.</td></tr>
+<tr><td><code>reference/launcher-modes.card.html</code></td><td>Responsive-Diagramm der 4 Layouts.</td></tr>
+<tr><td><code>reference/tokens/*.css</code></td><td>Der numerische Vertrag: Farben, Glas, Typo, Spacing/Radius/Schatten, Motion.</td></tr>
+<tr><td><code>assets/icons/*.svg</code></td><td>Alle im Launcher verwendeten App- und Ordner-Icons (siehe <code>assets/icons/README.md</code> für die Varianten-Zuordnung).</td></tr>
+<tr><td><code>screenshots/</code></td><td>Statische Ansichten. Achtung: Backdrop-Blur rendert im Screenshot nicht.</td></tr>
+</tbody></table>
+<p class="sub" style="margin-top:40px">open nexus OS Design System · Launcher-Handoff · UI-Sprache Deutsch (de-DE), 24-Stunden-Zeit, Satzschreibung.</p>
+</div></body></html>

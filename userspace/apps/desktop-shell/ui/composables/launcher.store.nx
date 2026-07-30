@@ -18,6 +18,11 @@ Store LauncherStore {
     launching: Str = "",
     clock: Str = "--:--",
     date: Str = "",
+    // The fullscreen pager's ACTIVE page (design_handoff_launcher §11).
+    // Wheel turns arrive as host-fired PageNext/PagePrev triggers (the host
+    // only fires when a turn actually happened, so ±1 stays in range); a dot
+    // tap SETS the page and the effect glides the viewport there.
+    page: Int = 0,
 }
 
 // RFC-0076: host-driven minute tick (tz-converted wall time; "--:--" until
@@ -41,6 +46,14 @@ Event LauncherEvent {
     Launch(Str),
     LaunchDone(Bool),
     LaunchFailed(Int),
+    Activate(Str),
+    ActivateDone(Bool),
+    WindowsMoved,
+    PageNext,
+    PagePrev,
+    SetPage(Int),
+    PageSynced(Bool),
+    PageSyncFailed(Int),
 }
 
 reduce LauncherEvent {
@@ -61,6 +74,14 @@ reduce LauncherEvent {
         state.launching = "";
         state.lastError = code;
     },
+    Activate(id) => state.launching = id,
+    ActivateDone(ok) => state.launching = "",
+    WindowsMoved => state.lastError = 0,
+    PageNext => state.page = state.page + 1,
+    PagePrev => state.page = state.page - 1,
+    SetPage(i) => state.page = i,
+    PageSynced(ok) => state.page = state.page,
+    PageSyncFailed(code) => state.lastError = code,
 }
 
 @effect on Refresh {
@@ -81,5 +102,39 @@ reduce LauncherEvent {
     match svc.ability.launch(id, timeoutMs: 500) {
         Ok(ok) => dispatch(LaunchDone(ok)),
         Err(e) => dispatch(LaunchFailed(e)),
+    }
+}
+
+// RFC-0086: the compositor's window set moved — re-read the registry so the
+// merged running/minimized/focused flags reach the tiles. A SEPARATE event
+// from `Refresh` on purpose: `Refresh` is dispatched by NOTHING, which is
+// exactly what makes it the ROOT effect that loads the app list at mount
+// (docs/dev/dsl/state.md). Dispatching it from a handler would silently turn
+// the initial load off.
+@effect on WindowsMoved {
+    match svc.bundlemgr.enumerate(state.query, timeoutMs: 250) {
+        Ok(apps) => dispatch(Loaded(apps)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
+}
+
+// Taskbar/dock tile tap (RFC-0086): bring the app forward. The app-host
+// decides HOW — restore/raise via windowd when a window of this app is
+// running, else a normal launch — so the shell never duplicates that state
+// machine.
+@effect on Activate(id) {
+    match svc.shell.activate(id, timeoutMs: 200) {
+        Ok(ok) => dispatch(ActivateDone(ok)),
+        Err(e) => dispatch(LaunchFailed(e)),
+    }
+}
+
+// Dot tap: the reducer already set `state.page`; this glides the paged
+// viewport there (in-process app-host verb — NO PageNext/PagePrev fires for
+// an effect-driven move, so the page cannot double-count).
+@effect on SetPage(i) {
+    match svc.shell.scrollToPage(i, timeoutMs: 50) {
+        Ok(ok) => dispatch(PageSynced(ok)),
+        Err(e) => dispatch(PageSyncFailed(e)),
     }
 }

@@ -1,0 +1,29 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The DESKTOP workspace icon field (design_handoff_launcher §3.1): a
+// top-left column of md (56) icons with label — the classic desktop icon
+// field, NO scrolling (the field wraps, it never scrolls). Column-WRAP into
+// further columns is a recorded delta until the engine grows column
+// wrapping; with the current registry (≤ ~8 launchable apps) one column
+// holds everything. Gap 24 (spec 22, 4px grid), padding 20.
+
+Component WorkspaceColumn {
+    Stack {
+        if $state.loading {
+            Text(@t("common.loading")).fg(onSurfaceVariant)
+        } else {
+            List($state.apps) { app in
+                Stack {
+                    AppTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt, running: app.running }
+                }
+                .key(app.id)
+                on Tap -> dispatch(Activate(app.id))
+            }
+            .gap(6)
+            .align(start)
+        }
+    }
+    .grow(1)
+    .padding(5)
+}

@@ -1,0 +1,18 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ff" x1="510" y1="380" x2="510" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2EDCB0"></stop><stop offset="1" stop-color="#009B78"></stop>
+    </linearGradient>
+  </defs>
+  <g data-layer="symbol" data-customizable="folder-color">
+    <path d="M 80 280 Q 80 220 140 220 L 400 220 L 480 300 L 880 300 Q 940 300 940 360 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="#7AF8D8"></path>
+    <path d="M 80 420 Q 80 380 140 380 L 880 380 Q 940 380 940 440 L 940 820 Q 940 880 880 880 L 140 880 Q 80 880 80 820 Z" fill="url(#ff)"></path>
+    <g transform="translate(370,490) scale(11.667)" fill="none" stroke="white" stroke-opacity="0.85" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+      <polyline points="14 2 14 8 20 8"></polyline>
+      <line x1="16" x2="8" y1="13" y2="13"></line>
+      <line x1="16" x2="8" y1="17" y2="17"></line>
+      <line x1="10" x2="8" y1="9" y2="9"></line>
+    </g>
+  </g>
+</svg>

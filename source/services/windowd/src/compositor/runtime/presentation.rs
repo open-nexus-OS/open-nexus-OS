@@ -49,6 +49,8 @@ impl DisplayServerRuntime {
     /// receives the snapshot twice per generation.
     #[allow(unused_variables)]
     pub(crate) fn pump_presentation(&mut self) {
+        // RFC-0086 rides the same retained-delivery pass (owed → retry).
+        self.pump_window_feed();
         #[cfg(nexus_env = "os")]
         {
             let desktop_slot = self.desktop_channel;

@@ -99,27 +99,9 @@ impl DisplayServerRuntime {
         // invisible UI affordance living in the compositor's input router is
         // the boundary violation this codebase explicitly forbids — windowd is
         // a compositor SERVICE; shell UI belongs to the shell.
-        // Dock (bottom-center bar of minimized windows): composited above the
-        // windows, so its presses resolve BEFORE the window loop. A press on an
-        // icon restores that window; anywhere else on the bar just consumes.
-        if primary_press && !window_consumed_press {
-            if let Some(bar) = self.dock_bar_rect() {
-                if crate::dock::dock_contains(bar, cursor_x, cursor_y) {
-                    window_consumed_press = true;
-                    let (list, n) = self.windows.minimized_list();
-                    if let Some(slot) = crate::dock::dock_slot_at(bar, n, cursor_x, cursor_y) {
-                        // Track C3: fly-in from the clicked dock cell (state
-                        // change runs up front inside the transition).
-                        let cell = crate::dock::dock_slot_rect(bar, slot);
-                        self.start_restore_transition(
-                            list[slot],
-                            cell.x as f32 + cell.width as f32 / 2.0,
-                            cell.y as f32 + cell.height as f32 / 2.0,
-                        );
-                    }
-                }
-            }
-        }
+        // RFC-0086: minimized windows live in the SHELL taskbar/dock now —
+        // the compositor no longer draws or hit-tests a dock of its own; the
+        // shell sends `OP_SURFACE_TASKBAR` to restore.
         // Windows, hit-tested FRONT-TO-BACK in the z/focus stack's order — the
         // exact reverse of the composite order (one SSOT in `window_scene`), so
         // input can never disagree with occlusion. The topmost window containing

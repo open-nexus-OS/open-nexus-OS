@@ -2,20 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //! CONTEXT: windowd compositor runtime — window-management actions (TASK-0070
-//! Phase 2): minimize into the dock, restore, fullscreen toggle, and the dock
+//! Phase 2): minimize, restore, fullscreen toggle, and the window
 //! surface lifecycle. The DECISIONS live in the host-tested `window_scene`
-//! stack and `compositor/dock` geometry; this module only applies them to the
+//! stack; this module only applies them to the
 //! runtime (surfaces, damage, markers). Post-cleanup (cleanup-map DELETE):
 //! the only windows are the app-client (floating) and the desktop base — the
 //! legacy chat/search/settings windows are DSL apps now.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: No tests (pure logic host-tested in `window_scene` + `dock`)
+//! TEST_COVERAGE: No tests (pure logic host-tested in `window_scene`)
 
 use super::*;
 use crate::compositor::shell_window::{Frame, ResizeEdge};
-use crate::dock;
 use crate::snap;
 use crate::window_scene::WindowId;
 
@@ -41,14 +40,12 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Minimize a window into the dock. Refused (with a marker) when the dock
-    /// surface cannot be allocated — a window must NEVER become unreachable.
+    /// Minimize a window. The SHELL taskbar/dock is the target (RFC-0086):
+    /// the window stays open and reachable through its taskbar tile, which
+    /// the window feed below keeps in sync — a window must NEVER become
+    /// unreachable.
     pub(super) fn minimize_window(&mut self, id: WindowId) {
         if !self.windows.is_visible(id) || self.windows.is_minimized(id) {
-            return;
-        }
-        if !self.ensure_dock_surface() {
-            let _ = debug_println("windowd: minimize denied (dock atlas)");
             return;
         }
         let vacated = self.window_damage_rect(id);
@@ -69,10 +66,12 @@ impl DisplayServerRuntime {
             // need=1280x800 rows_remaining=24` on the fullscreen re-create).
             self.release_app_surface_band(i as usize);
         }
-        self.update_dock();
+        // RFC-0086: the shell taskbar/dock IS the minimize target — it must
+        // learn the new state or the window is unreachable from the UI.
+        self.push_window_set();
     }
 
-    /// Restore a minimized window from the dock: composited again, raised,
+    /// Restore a minimized window (shell taskbar tile): composited again, raised,
     /// focused (blur cache invalidated — the backdrop may have changed).
     pub(super) fn restore_window(&mut self, id: WindowId) {
         if !self.windows.is_minimized(id) {
@@ -92,7 +91,7 @@ impl DisplayServerRuntime {
         let _ = debug_println(&alloc::format!("windowd: restore id={}", Self::window_name(id)));
         let rect = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(rect);
-        self.update_dock();
+        self.push_window_set();
         // Restoring a fullscreen window re-covers the chrome — full present.
         if self.windows.fullscreen_active().is_some() {
             self.queue_full_frame_damage();
@@ -473,124 +472,5 @@ impl DisplayServerRuntime {
             shape
         };
         self.set_cursor_shape(shape);
-    }
-
-    // ── Dock (bottom-center bar of minimized windows) ──
-
-    /// The dock's display rect while it is active (≥1 minimized window, no
-    /// greeter, no fullscreen cover). `None` = no dock on screen.
-    pub(super) fn dock_bar_rect(&self) -> Option<dock::DockRect> {
-        let n = self.windows.minimized_list().1;
-        if n == 0
-            || self.dock_surface.is_none()
-            || self.greeter_active()
-            || !self.session_resolved()
-            || self.windows.fullscreen_active().is_some()
-        {
-            return None;
-        }
-        Some(dock::dock_rect(self.mode.width, self.mode.height, n))
-    }
-
-    /// Allocate the dock's atlas surface on first use (sized for the MAX icon
-    /// count so a later minimize never re-allocates). False = pool exhausted.
-    fn ensure_dock_surface(&mut self) -> bool {
-        if self.dock_surface.is_some() {
-            return true;
-        }
-        let w = dock::dock_width(crate::window_scene::MAX_WINDOWS);
-        match self.atlas_alloc.alloc(w, dock::DOCK_H) {
-            Some(surface) => {
-                self.dock_surface = Some(surface);
-                self.dock_dirty = true;
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// Reconcile the dock with the stack after a minimize/restore/close: frees
-    /// the surface when the last window left, re-renders + damages on change.
-    pub(super) fn update_dock(&mut self) {
-        let n = self.windows.minimized_list().1;
-        // Damage the WIDEST footprint the bar had/has so shrink leaves no trail.
-        let widest = self.dock_rendered_n.max(n);
-        if widest > 0 {
-            let bar = dock::dock_rect(self.mode.width, self.mode.height, widest);
-            self.queue_gpu_blit_rect(DamageRect {
-                x: bar.x,
-                y: bar.y,
-                width: bar.width,
-                height: bar.height,
-            });
-        }
-        if n == 0 {
-            if let Some(surface) = self.dock_surface.take() {
-                self.atlas_alloc.free(surface);
-                let _ = debug_println("windowd: dock hide");
-            }
-            self.dock_rendered_n = 0;
-            self.dock_dirty = false;
-            return;
-        }
-        if n != self.dock_rendered_n {
-            let _ = debug_println(&alloc::format!("windowd: dock show (n={n})"));
-            self.dock_dirty = true;
-        }
-    }
-
-    /// Render the dock surface (bar tint + one icon per minimized window, in
-    /// the stack's stable dock order). 2D-packed like the app window: the
-    /// surface may sit at a column offset, so rows write `w*4` bytes at it.
-    pub(super) fn render_dock_surface(&mut self) -> Result<(), WindowdError> {
-        let Some(handle) = self.framebuffer else {
-            return Ok(());
-        };
-        let Some(surface) = self.dock_surface else {
-            return Ok(());
-        };
-        let (list, n) = self.windows.minimized_list();
-        if n == 0 {
-            return Ok(());
-        }
-        let stride = self.mode.stride as usize;
-        let w = dock::dock_width(crate::window_scene::MAX_WINDOWS);
-        let row_bytes = w as usize * 4;
-        if self.band_scratch.len() < stride {
-            return Err(WindowdError::BufferLengthMismatch);
-        }
-        // Bar-local geometry: slots relative to a bar at (0, 0).
-        let bar_local =
-            dock::DockRect { x: 0, y: 0, width: dock::dock_width(n), height: dock::DOCK_H };
-        // Translucent glass tint; the composite adds blur + corners + shadow.
-        // `BAR_TINT[3]` is the SSOT for the frosted alpha; the theme swaps the RGB.
-        const BAR_TINT: [u8; 4] = [56, 50, 46, 150];
-        let tk = self.theme();
-        let bar_col = crate::theme::with_alpha(tk.glass_tint, BAR_TINT[3]);
-        let glyph_tint = Some(crate::theme::rgb3(tk.fg));
-        let band = &mut self.band_scratch;
-        for ly in 0..dock::DOCK_H {
-            let row = &mut band[0..stride];
-            row[..row_bytes].fill(0);
-            super::super::shell_window::write_tint_span(row, 0, bar_local.width, bar_col);
-            for (slot, _wid) in list[..n].iter().enumerate() {
-                let cell = dock::dock_slot_rect(bar_local, slot);
-                // Only the app-client window minimizes (the desktop base never
-                // does); a per-app glyph lands with the DSL-shell dock (MOVE).
-                let (icon, dim) =
-                    (crate::assets::DOCK_SEARCH_ICON_BGRA, crate::assets::DOCK_SEARCH_ICON_DIM);
-                let iy0 = cell.y + cell.height.saturating_sub(dim) / 2;
-                if ly >= iy0 && ly < iy0 + dim {
-                    let ix = cell.x + cell.width.saturating_sub(dim) / 2;
-                    crate::assets::blend_icon_row(row, ix, icon, dim, ly - iy0, 255, glyph_tint);
-                }
-            }
-            let dst = (surface.abs_row + ly) as usize * stride + surface.x as usize * 4;
-            vmo_write(handle, dst, &row[..row_bytes])
-                .map_err(|_| WindowdError::BufferLengthMismatch)?;
-        }
-        self.dock_rendered_n = n;
-        crate::atlas::note_atlas_content_write();
-        Ok(())
     }
 }

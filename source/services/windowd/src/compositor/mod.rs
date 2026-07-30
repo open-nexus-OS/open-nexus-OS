@@ -364,9 +364,10 @@ fn dispatch_client_frame(
         runtime.handle_surface_frame_req(frame);
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_CONTROL)
     {
-        // Presentation control (theme / shell profile) from a shell surface.
-        // Data-only frame; windowd applies live + persists via settingsd.
+        // Presentation control from a shell surface; applied live + persisted.
         runtime.handle_surface_control(frame, sender_sid);
+    } else if frame.get(3).copied() == Some(nexus_display_proto::OP_SURFACE_TASKBAR) {
+        runtime.handle_surface_taskbar(frame, sender_sid); // RFC-0086
     } else if frame.get(3).copied()
         == Some(nexus_display_proto::surface_text::OP_SURFACE_TEXT_FOCUS)
     {
@@ -485,11 +486,10 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     #[cfg(nexus_env = "os")]
     runtime::gpud::note_server_recv_slot(server.slots().0);
     // Resolve the VISIBLE display mode from gpud BEFORE anything sizes to it
-    // (gpud resolved it at probe from the device's GET_DISPLAY_INFO; the
-    // framebuffer-handoff ack would be far too late — atlas/dock/damage all
-    // derive from the mode). One bounded blocking round-trip; any failure
-    // keeps the 1280×800 fixed-layout default. The shared-VMO layout stays
-    // at the fixed maximum regardless — only the visible sub-rect follows.
+    // (gpud resolved it at probe from GET_DISPLAY_INFO; the framebuffer-handoff
+    // ack would be far too late — atlas/damage derive from the mode). One
+    // bounded blocking round-trip; failure keeps the 1280×800 default. The
+    // shared-VMO layout stays at the fixed maximum — only the sub-rect follows.
     let (visible_w, visible_h) = query_gpud_display_mode();
     let mut runtime = match DisplayServerRuntime::new_with_mode(visible_w, visible_h) {
         Ok(rt) => {

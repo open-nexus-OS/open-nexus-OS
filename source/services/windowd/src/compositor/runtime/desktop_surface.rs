@@ -29,7 +29,13 @@ impl DisplayServerRuntime {
         format: u8,
         vmo_slot: u32,
         nonce: u64,
+        sender_sid: u64,
     ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
+        // RFC-0086: the desktop-surface owner is the ONLY sender the taskbar
+        // verbs (OP_SURFACE_TASKBAR) accept — captured from the kernel recv
+        // metadata here, never from payload bytes. sid 0 (an unnamed spawn)
+        // stays 0 and everything gated on it refuses.
+        self.desktop_owner_sid = sender_sid;
         let id = match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => id,
             Err(status) => {
@@ -71,6 +77,9 @@ impl DisplayServerRuntime {
             self.desktop_channel = Some(ch);
             self.presentation.note_bound(crate::presentation_state::DESKTOP);
             self.desktop_pending_nonce = None;
+            // RFC-0086: the feed is RETAINED state, not an event stream — a
+            // fresh (or re-created) shell gets the whole window set now.
+            self.windows_feed.owed = true;
         } else {
             // The event-channel attach for this nonce has not arrived yet — the
             // desktop's OP_SURFACE_CREATE raced ahead of attach_app_event_channel.
@@ -140,6 +149,8 @@ impl DisplayServerRuntime {
         );
         let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rect.len() as u32);
         let _ = nexus_abi::ipc_send_v1(slot, &hdr, &rect, nexus_abi::IPC_SYS_NONBLOCK, 0);
+        // RFC-0086: same retained re-push as the non-deferred bind path.
+        self.windows_feed.owed = true;
         let _ = debug_println("WINDOWD: desktop bind completed (late channel attach)");
     }
 

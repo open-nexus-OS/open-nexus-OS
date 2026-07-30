@@ -1,9 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One dock app icon (design_handoff_launcher dock pill entry, `AppIcon sm`):
-// 44×44 — per-app gradient artwork when the manifest carries colors, the
-// uniform glass tile otherwise. Tap handlers attach at the use site.
+// One dock app icon (design_handoff_launcher dock pill entry, `AppIcon sm`,
+// LAUNCHER-SPEC §2/§8): tile 48, radius 13, no label — per-app artwork
+// sprite, gradient tile, or the uniform glass tile. `running` renders the
+// 4×4 dot under the tile (§7: app runs in the background, tap brings it
+// forward); the marker slot keeps its height either way. Tap handlers
+// attach at the use site.
 
 Component DockTile {
     props: {
@@ -12,30 +15,47 @@ Component DockTile {
         iconTop: Str,
         iconBottom: Str,
         iconArt: Str,
+        running: Bool,
     }
-    if $props.iconArt != "" {
-        Image { source: $props.iconArt, size: 44 }
-    } else { if $props.iconTop != "" {
-        Stack {
-            Icon { symbol: $props.icon, size: 22 }
-                .fg(onAccent)
+    Stack {
+        if $props.iconArt != "" {
+            Image { source: $props.iconArt, size: 48 }
+        } else { if $props.iconTop != "" {
+            Stack {
+                Icon { symbol: $props.icon, size: 24 }
+                    .fg(onAccent)
+            }
+            .width(48)
+            .height(48)
+            .bgGradient($props.iconTop, $props.iconBottom)
+            .rounded(13)
+            .align(center)
+            .justify(center)
+        } else {
+            Stack {
+                Icon { symbol: $props.icon, size: 24 }
+                    .fg(onSurface)
+            }
+            .width(48)
+            .height(48)
+            .material(card)
+            .rounded(13)
+            .align(center)
+            .justify(center)
+        } }
+        if $props.running {
+            Stack { }
+                .width(4)
+                .height(4)
+                .bg(onSurface)
+                .rounded(2)
+                .opacity(179)
+        } else {
+            Stack { }
+                .width(4)
+                .height(4)
         }
-        .width(44)
-        .height(44)
-        .bgGradient($props.iconTop, $props.iconBottom)
-        .rounded(lg)
-        .align(center)
-        .justify(center)
-    } else {
-        Stack {
-            Icon { symbol: $props.icon, size: 22 }
-                .fg(onSurface)
-        }
-        .width(44)
-        .height(44)
-        .material(card)
-        .rounded(lg)
-        .align(center)
-        .justify(center)
-    } }
+    }
+    .align(center)
+    .gap(0)
 }

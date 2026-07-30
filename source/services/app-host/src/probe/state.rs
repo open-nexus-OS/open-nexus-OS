@@ -67,6 +67,14 @@ pub(super) struct DslApp {
     pub(super) momentum: animation::ScrollMomentum,
     /// Last physics tick (ns) for dt integration.
     pub(super) momentum_last_ns: u64,
+    /// The PAGER physics (`.scroll(paged)` viewports — launcher pager):
+    /// the same `ScrollMomentum`, driving `scroll_x` toward whole-page
+    /// multiples of the viewport width (glide-eased snap). A page has ONE
+    /// scroll region, so this and `momentum` are never active together.
+    pub(super) pager: animation::ScrollMomentum,
+    /// Wheel lock: notches before this instant are swallowed, so one flick
+    /// turns ONE page instead of rushing through several (spec: 360 ms).
+    pub(super) pager_lock_until_ns: u64,
     /// The DSL animation subsystem (`.animate`/`.transition`/`.effect`):
     /// the `AnimationDriver` physics + per-node paint transforms, ticked on
     /// the compositor frame pulse. Host owns the clock (the DSL stays pure);

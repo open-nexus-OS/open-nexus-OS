@@ -1,0 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The windowed start menu's identity footer (design_handoff_launcher §9):
+// hairline on top, avatar + user name left, settings/power actions right.
+// Window mode only — the fullscreen launcher has no footer (§10). Power
+// closes the launcher (session actions land with the session product).
+
+Component LauncherFooter {
+    Stack {
+        Stack {
+            Text(@t("launcher.userInitial")).textSize(sm).fg(onAccent)
+        }
+        .width(34)
+        .height(34)
+        .bg(accent)
+        .rounded(full)
+        .align(center)
+        .justify(center)
+        Text(@t("launcher.userName")).textSize(sm).fg(onSurface)
+        Spacer
+        Stack {
+            Icon { symbol: "gearshape", size: 15 }
+                .fg(onSurface)
+        }
+        .width(36)
+        .height(36)
+        .align(center)
+        .justify(center)
+        .material(card)
+        .rounded(lg)
+        on Tap -> dispatch(Launch("settings"))
+        Stack {
+            Icon { symbol: "power", size: 15 }
+                .fg(onSurface)
+        }
+        .width(36)
+        .height(36)
+        .align(center)
+        .justify(center)
+        .material(card)
+        .rounded(lg)
+        on Tap -> dispatch(SetPanel(""))
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+    .paddingY(2)
+}

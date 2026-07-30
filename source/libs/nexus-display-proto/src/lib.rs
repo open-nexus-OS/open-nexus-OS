@@ -36,6 +36,8 @@ pub mod control;
 pub mod envelope;
 pub mod surface_settings;
 pub mod surface_text;
+pub mod surface_windows;
+pub use surface_windows::{OP_SURFACE_TASKBAR, OP_SURFACE_WINDOWS};
 
 // ── Opcodes (frame byte 0) ───────────────────────────────────────────────────
 

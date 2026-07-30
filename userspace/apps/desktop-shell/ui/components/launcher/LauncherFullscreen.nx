@@ -1,0 +1,71 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The FULLSCREEN launcher (design_handoff_launcher §10): the touch shell's
+// only launcher state and the desktop expand state ("launcher-big"). Covers
+// the work area with panel glass over the wallpaper, centred greeting +
+// date, search, then the PAGED xl grid (§11 — horizontal pages, page dots,
+// wheel turns pages; NO vertical scrolling). Desktop shows a compress
+// button back to the window state; ✕ closes. No footer here — that is the
+// window mode's (§9).
+
+Component LauncherFullscreen {
+    Stack {
+        Stack {
+            Spacer
+            Stack {
+                Text(@t("launcher.greeting")).textSize(xl).fontWeight(bold).fg(onSurface)
+                Text($state.date).textSize(sm).fg(onSurfaceVariant)
+            }
+            .gap(1)
+            .align(center)
+            Spacer
+            if device.profile == desktop {
+                Stack {
+                    Icon { symbol: "minimize", size: 15 }
+                        .fg(onSurface)
+                }
+                .width(36)
+                .height(36)
+                .align(center)
+                .justify(center)
+                .material(card)
+                .rounded(full)
+                on Tap -> dispatch(SetPanel("launcher"))
+            } else {
+                Stack { }
+            }
+            Stack {
+                Icon { symbol: "xmark", size: 16 }
+                    .fg(onSurface)
+            }
+            .width(36)
+            .height(36)
+            .align(center)
+            .justify(center)
+            .material(card)
+            .rounded(full)
+            on Tap -> dispatch(SetPanel(""))
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(6)
+        Stack {
+            Spacer
+            Stack {
+                SearchBar { value: $state.query, placeholder: @t("launcher.search") }
+                on Change -> dispatch(QueryChanged)
+            }
+            .width(420)
+            Spacer
+        }
+        .direction(row)
+        LauncherPager { }
+    }
+    .grow(1)
+    .gap(4)
+    .paddingY(6)
+    .material(panel)
+    .transition(slideUp)
+}

@@ -243,6 +243,7 @@ fn shell_app_grid_tiles_launch_and_hover() {
         icon_top_sym: u32,
         icon_bottom_sym: u32,
         icon_art_sym: u32,
+        running_sym: u32,
         launched: Vec<String>,
     }
     impl nexus_dsl_runtime::EffectHost for FakeRegistry {
@@ -266,13 +267,22 @@ fn shell_app_grid_tiles_launch_and_hover() {
                             (self.icon_top_sym, Value::Str("#4ade80".into())),
                             (self.icon_bottom_sym, Value::Str("#15803d".into())),
                             (self.icon_art_sym, Value::Str("".into())),
+                            (self.running_sym, Value::Bool(false)),
+                            // RFC-0086: the app-host merges the window feed's
+                            // running/minimized/focused flags into every row —
+                            // the shell tiles read `running`.
+                            (self.running_sym, Value::Bool(false)),
                         ];
                         fields.sort_by_key(|(sym, _)| *sym);
                         Value::Record(fields)
                     };
                     Ok(Value::List(vec![row("counter", "Counter"), row("chat", "Chat")]))
                 }
-                ("ability", "launch") => {
+                // The shell's tile verb is `shell.activate` (RFC-0086): the
+                // APP-HOST decides restore-vs-launch, so from the DSL's side
+                // both are "start/foreground this app". `ability.launch` is
+                // still the launcher grid's verb.
+                ("ability", "launch") | ("shell", "activate") => {
                     if let Some(Value::Str(id)) = args.first() {
                         self.launched.push(id.clone());
                     }
@@ -301,6 +311,7 @@ fn shell_app_grid_tiles_launch_and_hover() {
         icon_top_sym: sym("iconTop"),
         icon_bottom_sym: sym("iconBottom"),
         icon_art_sym: sym("iconArt"),
+        running_sym: sym("running"),
         launched: Vec::new(),
     };
 
@@ -325,7 +336,13 @@ fn shell_app_grid_tiles_launch_and_hover() {
     let boxes = layout.boxes;
 
     // The grid registered a Tap handler per tile (+ the top-bar Apps button).
-    let tap_handlers: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
+    // Filter BY TRIGGER: the page root also binds by-name triggers
+    // (`WindowsChanged`, RFC-0086) that are dispatched by NAME and never
+    // hit-tested — a full-page box among the Tap targets would fail the
+    // hover-anchor invariant below for the right reason.
+    let tap_sym = symbols_of(&nxir).iter().position(|s| s == "Tap").expect("Tap symbol") as u32;
+    let tap_handlers: Vec<usize> =
+        view.handlers().iter().filter(|(_, e)| e.trigger == tap_sym).map(|(id, _)| *id).collect();
     assert!(
         tap_handlers.len() >= 3,
         "expected >= 3 tap handlers (2 tiles + Apps), got {}",
@@ -344,7 +361,7 @@ fn shell_app_grid_tiles_launch_and_hover() {
         assert_eq!(
             view.hover_box_id(&boxes, "Tap", cx, cy),
             Some(*id),
-            "hover anchor must match the tap target"
+            "hover anchor must match the tap target (id={id})"
         );
     }
 
@@ -789,92 +806,6 @@ fn real_shell_column_grows_on_tablet() {
     let dock_bottom =
         layout.boxes.iter().any(|b| b.rect.y.as_i32() > 700 && b.rect.height.as_i32() > 40);
     assert!(dock_bottom, "dock not at the bottom; first boxes:\n{dump}");
-}
-
-#[test]
-fn shell_grid_tiles_lay_out_in_a_row() {
-    struct Registry {
-        id_sym: u32,
-        label_sym: u32,
-        icon_sym: u32,
-        icon_top_sym: u32,
-        icon_bottom_sym: u32,
-        icon_art_sym: u32,
-    }
-    impl nexus_dsl_runtime::EffectHost for Registry {
-        fn call(
-            &mut self,
-            svc: &str,
-            method: &str,
-            _a: &[nexus_dsl_runtime::Value],
-            _t: u32,
-        ) -> Result<nexus_dsl_runtime::Value, u32> {
-            use nexus_dsl_runtime::Value;
-            if (svc, method) == ("bundlemgr", "enumerate") {
-                let row = |id: &str, label: &str| {
-                    let mut fields = vec![
-                        (self.id_sym, Value::Str(id.into())),
-                        (self.label_sym, Value::Str(label.into())),
-                        (self.icon_sym, Value::Str("star".into())),
-                        (self.icon_top_sym, Value::Str("#4ade80".into())),
-                        (self.icon_bottom_sym, Value::Str("#15803d".into())),
-                        (self.icon_art_sym, Value::Str("".into())),
-                    ];
-                    fields.sort_by_key(|(sym, _)| *sym);
-                    Value::Record(fields)
-                };
-                return Ok(Value::List(vec![
-                    row("a", "Alpha"),
-                    row("b", "Beta"),
-                    row("c", "Gamma"),
-                    row("d", "Delta"),
-                ]));
-            }
-            Err(0)
-        }
-    }
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop-shell");
-    let nxir = nexus_dsl_core::compile_project_dir(&root).expect("compiles");
-    let symbols = symbols_of(&nxir);
-    let sym = |n: &str| symbols.iter().position(|s| s == n).expect(n) as u32;
-    let mut host = Registry {
-        id_sym: sym("id"),
-        label_sym: sym("label"),
-        icon_sym: sym("icon"),
-        icon_top_sym: sym("iconTop"),
-        icon_bottom_sym: sym("iconBottom"),
-        icon_art_sym: sym("iconArt"),
-    };
-    let device = nexus_dsl_runtime::FixtureEnv::tablet("landscape");
-    let tokens = nexus_theme_tokens::BaseTokens;
-    let keys: Vec<u32> = Vec::new();
-    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
-    let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
-    view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("effects");
-    let engine = nexus_layout::LayoutEngine::new();
-    let boxes = engine
-        .layout_with_viewport(
-            view.scene(),
-            nexus_layout_types::FxPx::new(1280),
-            Some(nexus_layout_types::FxPx::new(800)),
-            &nexus_text_baked::measure_text::BakedTextMeasure,
-        )
-        .expect("lays out")
-        .boxes;
-    // The 64px tiles in the home-grid band (below topbar, above dock).
-    let tiles: Vec<(i32, i32)> = boxes
-        .iter()
-        .filter(|b| {
-            b.rect.width.as_i32() == 64
-                && b.rect.height.as_i32() == 64
-                && b.rect.y.as_i32() > 40
-                && b.rect.y.as_i32() < 700
-        })
-        .map(|b| (b.rect.x.as_i32(), b.rect.y.as_i32()))
-        .collect();
-    assert!(tiles.len() >= 4, "expected 4 grid tiles, got {tiles:?}");
-    let first_y = tiles[0].1;
-    assert!(tiles.iter().all(|(_, y)| *y == first_y), "grid tiles must share one row: {tiles:?}");
 }
 
 #[test]

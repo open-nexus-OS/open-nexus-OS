@@ -169,15 +169,29 @@ pub(super) fn lower_expr(
             }
         }
         Expr::Call { path, args, span } => {
-            // The one expression-position call in the v0.1 subset is the
-            // `tail(list, n)` store-window builtin (keep the last n elements).
-            // Everything else (svc.*) is lowered at effect-step level only.
-            if path.len() == 1 && path[0].text == "tail" && args.len() == 2 {
+            // Expression-position calls are the LIST builtins only —
+            // `tail(list, n)` (store window), `skip(list, n)` / `take(list, n)`
+            // (the launcher pager's page-cell slices), `len(list)` (page-dot
+            // count). Everything else (svc.*) is lowered at effect-step level.
+            let builtin2 = |name: &str| match name {
+                "tail" => Some(ir::ListOpKind::Tail),
+                "skip" => Some(ir::ListOpKind::Skip),
+                "take" => Some(ir::ListOpKind::Take),
+                _ => None,
+            };
+            if path.len() == 1 && args.len() == 2 && builtin2(&path[0].text).is_some() {
                 set_opaque_type(&mut b);
                 let mut lop = b.init_list_op();
-                lop.set_op(ir::ListOpKind::Tail);
+                lop.set_op(builtin2(&path[0].text).unwrap_or(ir::ListOpKind::Tail));
                 lower_expr(env, &args[0].value, lop.reborrow().init_base())?;
                 lower_expr(env, &args[1].value, lop.init_arg())?;
+            } else if path.len() == 1 && path[0].text == "len" && args.len() == 1 {
+                set_opaque_type(&mut b);
+                let mut lop = b.init_list_op();
+                lop.set_op(ir::ListOpKind::Len);
+                lower_expr(env, &args[0].value, lop.reborrow().init_base())?;
+                // `arg` is unused for len; a zero literal keeps the IR shape.
+                lop.init_arg().set_lit_int(0);
             } else {
                 return Err(unsupported(*span, "expression-position calls"));
             }

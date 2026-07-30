@@ -204,18 +204,18 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                     }
                     continue;
                 }
-                // App-host children (exec'd apps) carry no service identity
-                // yet (sender id 0); their access IS the object capability
-                // execd granted for the declared manifest permission
-                // (ENUMERATE → the child's fixed bundlemgr slot). The apps
-                // LISTING is the launcher's own public registry data, so
-                // capability possession suffices for OP_LIST_APPS; every
-                // other op keeps the named-sender gate (GET_PAYLOAD and
-                // mutations stay core-service-only). Recorded follow-up:
-                // real per-app sender identities (TASK-0081 C2 requester-id).
+                // App-host children may read the apps LISTING (public
+                // registry data). RFC-0086 delivered the per-app-identity
+                // follow-up: execd names hosts `app:<bundle_id>`, so the gate
+                // resolves that name against THIS registry instead of taking
+                // "sender id 0" (any unnamed task). Other ops keep the
+                // named-sender gate (GET_PAYLOAD + mutations = core-only).
                 let is_app_list = nexus_abi::bundlemgrd::decode_request_op(frame.as_slice())
                     == Some(nexus_abi::bundlemgrd::OP_LIST_APPS)
-                    && sender_service_id == 0;
+                    && crate::app_sender::is_registered_app_host(
+                        sender_service_id,
+                        &APP_REGISTRY.map(|(id, ..)| id),
+                    );
                 let rsp = if is_app_list || is_allowed_sender(sender_service_id) {
                     handle_frame_vec(frame.as_slice())
                 } else {

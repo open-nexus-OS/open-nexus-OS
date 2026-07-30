@@ -35,10 +35,7 @@ use animation::{AnimProp, AnimationDriver, SceneUpdate, ScrollConfig, ScrollMome
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
 use nexus_abi::{debug_println, debug_trace, nsec, vmo_write, Handle};
 use nexus_gfx::command::buffer::RgbaColor;
-use nexus_gfx::{
-    BackdropCache, CommandBuffer, Layer, LayerBackdrop, LayerShadow, PipelineTimer, RenderPassDesc,
-    TileRect,
-};
+use nexus_gfx::{CommandBuffer, Layer, PipelineTimer, RenderPassDesc, TileRect};
 use nexus_ipc::{Client as _, KernelClient, Wait};
 
 // Gate 2: the windowd↔gpud wire is the shared SSOT in `nexus-display-proto`;
@@ -98,6 +95,7 @@ mod shell;
 mod slots;
 pub(crate) mod text_input;
 mod transitions;
+mod windows_feed;
 mod wm;
 
 // The split-out `impl` submodules live one module deeper than the original
@@ -268,7 +266,7 @@ pub(crate) struct AppWindowSlot {
     /// its override table then — the scroll snap-back contract).
     pub(crate) transform: WinTransform,
     /// Deferred WM action executed when the transition converges (close
-    /// after fade-out, minimize after fly-to-dock).
+    /// after fade-out, minimize after fly-to-taskbar).
     pub(crate) pending_wm: Option<PendingWm>,
     /// `OP_SURFACE_CURSOR_HINT` shape while the pointer hovers the body.
     pub(crate) cursor_hint: u8,
@@ -550,6 +548,10 @@ pub(crate) struct DisplayServerRuntime {
     osk_dismissed: bool,
     pending_intent_replies: [Option<(u64, [u8; 12])>; 4],
     desktop_band: Option<crate::atlas::AtlasSurface>,
+    /// RFC-0086: desktop-surface owner sid (taskbar-verb gate) + the window
+    /// feed's retained delivery state (see `windows_feed`).
+    desktop_owner_sid: u64,
+    windows_feed: windows_feed::FeedState,
     desktop_dirty: bool,
     /// One-shot frame pulse armed by the desktop surface (shell scroll).
     desktop_frame_pulse: bool,
@@ -651,14 +653,6 @@ pub(crate) struct DisplayServerRuntime {
     /// Visibility here MIRRORS each `ShellWindow.visible` — kept in sync by the
     /// `show_window`/`hide_window` helpers, never written directly.
     windows: crate::window_scene::WindowStack,
-    /// Dock surface (TASK-0070 Phase 2): the bottom-center bar of MINIMIZED
-    /// windows. Allocated on the first minimize (sized for `MAX_WINDOWS`
-    /// icons), freed when the last window restores — no permanent taskbar.
-    dock_surface: Option<crate::atlas::AtlasSurface>,
-    /// Icon count the dock surface currently renders (0 = never rendered).
-    dock_rendered_n: usize,
-    /// The dock surface needs re-rendering (membership changed).
-    dock_dirty: bool,
     /// Active pointer shape (TASK-0070 Phase 3: resize edges swap the sprite).
     cursor_shape: cursor::CursorShape,
     /// Hotspot of the ACTIVE shape (SW/GL draw offset; gpud gets it per upload).
@@ -912,6 +906,8 @@ impl DisplayServerRuntime {
             osk_dismissed: false,
             pending_intent_replies: [None; 4],
             desktop_band: None,
+            desktop_owner_sid: 0,
+            windows_feed: windows_feed::FeedState::new(),
             desktop_dirty: false,
             desktop_frame_pulse: false,
             shell_app_launched: false,
@@ -953,9 +949,6 @@ impl DisplayServerRuntime {
                 // (2b-render / 2c session-gate). DESKTOP z-band → always bottom.
                 crate::window_scene::WindowId::Desktop,
             ]),
-            dock_surface: None,
-            dock_rendered_n: 0,
-            dock_dirty: false,
             cursor_shape: cursor::CursorShape::Default,
             cursor_hot: (crate::assets::CURSOR_HOTSPOT_X, crate::assets::CURSOR_HOTSPOT_Y),
             resize_drag: None,
@@ -1057,18 +1050,19 @@ impl DisplayServerRuntime {
             Self::window_name(id),
             self.windows.z_of(id),
         ));
+        self.push_window_set(); // RFC-0086: a window ENTERED the set
     }
 
     /// Mirror a window hiding into the stack; focus falls to the topmost
     /// remaining visible window (marker only on actual moves). Close also
-    /// leaves the dock + forgets fullscreen (dock reconciled here).
+    /// forgets fullscreen, and re-publishes the RFC-0086 window feed.
     pub(super) fn hide_window(&mut self, id: crate::window_scene::WindowId) {
         let before = self.windows.focused();
         self.windows.hide(id);
         if let Some(slot) = self.app_slot_mut(id) {
             slot.win.leave_fullscreen();
         }
-        self.update_dock();
+        self.push_window_set();
         let after = self.windows.focused();
         if after != before {
             if let Some(next) = after {
@@ -1104,5 +1098,9 @@ impl DisplayServerRuntime {
                 self.windows.z_of(id),
             ));
         }
+        // RFC-0086: focus is part of the feed (the taskbar's active marker).
+        // Deduped — an unchanged set sends nothing, so this is free on the
+        // raises that change no state.
+        self.push_window_set();
     }
 }

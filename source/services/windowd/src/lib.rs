@@ -30,10 +30,10 @@ mod session_client;
 mod settings_client;
 // Pure window-composition decisions (which windows show + z-order) extracted from
 // the runtime monolith so the black-screen-prone logic is host-tested (RFC-0066).
-/// Pure dock geometry (TASK-0070 Phase 2) — host-tested, like `window_scene`.
-/// (Consumed by the os-lite compositor runtime + its own host unit tests.)
+/// RFC-0086 sender-identity gates (own-window verbs + taskbar verbs) — pure,
+/// host-tested (`test_reject_*` tables), like `window_scene`.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
-mod dock;
+mod control_gate;
 /// Pure drag-to-edge snap geometry (TASK-0070 Phase 3) — host-tested.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod snap;
@@ -44,6 +44,10 @@ mod snap;
 /// and under `cargo test`, configured out of the plain host lib.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod surface_presentation;
+/// RFC-0086 window-feed derivation (which windows the shell sees) — pure,
+/// host-tested.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod window_feed;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod window_scene;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]

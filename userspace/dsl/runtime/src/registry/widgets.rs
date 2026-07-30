@@ -8,7 +8,9 @@
 //! the OS uses from `userspace/ui/widgets/*` — the DSL widget IS the kit
 //! widget, so a page and a hand-written surface cannot render it differently.
 
-use super::{material_token, plain_stack, radius, spacing, text_node, value_px, value_text, Mods};
+use super::{
+    material_token, plain_grid, plain_stack, radius, spacing, text_node, value_px, value_text, Mods,
+};
 use crate::store::Value;
 use alloc::string::String;
 use nexus_layout_types::{
@@ -26,6 +28,21 @@ pub(super) fn build_widget_inner(
     let prop = |name: &str| props.iter().find(|(n, _)| n == name).map(|(_, v)| v);
     match kind {
         "Stack" | "List" => plain_stack(mods, tokens, children),
+        "Grid" => {
+            // Container primitive: the engine's REAL fixed-column grid.
+            // `columns: n` = n equal 1fr tracks (row-major fill), `.gap()` =
+            // column gap, `rowGap:` = row gap (same spacing scale; defaults
+            // to the column gap inside the engine).
+            let columns = match prop("columns") {
+                Some(Value::Int(n)) => (*n).clamp(1, 12) as usize,
+                _ => mods.columns.unwrap_or(1),
+            };
+            let row_gap = match prop("rowGap") {
+                Some(Value::Int(n)) => Some(spacing(*n)),
+                _ => mods.row_gap,
+            };
+            plain_grid(columns, row_gap, mods, tokens, children)
+        }
         "Panel" => {
             // Container primitive: a Stack with the panel-glass surface
             // pre-applied — explicit `.material/.rounded/.padding` win.

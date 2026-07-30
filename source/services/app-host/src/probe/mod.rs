@@ -16,7 +16,7 @@ use nexus_abi::{cap_clone, debug_println, nsec, vmo_create, vmo_write, yield_};
 /// folding for every process it bootstraps, so `debug_println` swallows
 /// non-FAIL lines in interactive boots (recall-only). The R1 proof chain
 /// goes through the raw write syscall instead.
-fn raw_marker(line: &str) {
+pub(crate) fn raw_marker(line: &str) {
     let mut buf = [0u8; 96];
     let bytes = line.as_bytes();
     let n = bytes.len().min(buf.len() - 1);
@@ -44,6 +44,7 @@ mod paint;
 mod presentation;
 mod scroll;
 mod state;
+mod windows; // RFC-0086 feed intake
 use boot::*;
 pub(crate) use env::{device_for, size_class_for, tokens_for};
 pub(crate) use interaction::TapOutcome;
@@ -701,10 +702,8 @@ pub(super) fn run() -> Result<(), &'static str> {
                         // full-frame rasters per click are what made menus
                         // feel like they never opened on the TCG boot.
                         dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
-                        // The tap may also have started an animation — arm
-                        // the frame pulse so the physics ticks on the real
-                        // cadence.
-                        if dsl.anim_active() {
+                        // Tap may have started an animation or pager glide.
+                        if dsl.anim_active() || dsl.momentum_active() {
                             let req = wire::encode_surface_frame_req(surface_id);
                             let _ = client.send(&req, Wait::NonBlocking);
                         }
@@ -719,6 +718,8 @@ pub(super) fn run() -> Result<(), &'static str> {
                     }
                 }
             }
+        } else if app.as_mut().is_some_and(|d| d.absorb_window_feed(&event_frame[..len])) {
+            (dirty, dirty_rows) = (true, None); // RFC-0086 feed → full repaint
         } else if let Some(snap) =
             nexus_display_proto::surface_settings::decode_surface_settings(&event_frame[..len])
         {

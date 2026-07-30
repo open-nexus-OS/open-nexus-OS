@@ -62,6 +62,15 @@ const dslSurface :List(DslMethod) = [
   # display name. Returning bare ids made every greeter render the id; the
   # record row is what bundlemgr's AppEntry already does.
   (service = "session", method = "users", args = [], result = "List<SessionUser>"),
+  # -- shell window activation (RFC-0086): bring the app's window forward —
+  #    restore-or-raise via windowd when it is RUNNING, else a normal launch.
+  #    The app-host decides which; the store only says "activate".
+  (service = "shell", method = "activate", args = ["Str"], result = "Bool"),
+  # -- shell pager: in-process app-host verb, no service round trip — glides
+  #    the page's `.scroll(paged)` viewport to page i on a dot tap. The wheel
+  #    path is host-owned — PageNext/PagePrev triggers; this is the reverse
+  #    direction, store → pager.
+  (service = "shell", method = "scrollToPage", args = ["Int"], result = "Bool"),
   # -- OSK key injection (imed's dedicated osk endpoint, RFC-0075 Phase 2;
   #    ime-type bundles only). `key` commits ONE character; `action` sends a
   #    control action ("backspace" | "enter").

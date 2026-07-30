@@ -227,8 +227,8 @@ impl WindowStack {
         self.index_of(id).map(|i| self.entries[i].minimized).unwrap_or(false)
     }
 
-    /// Minimized (docked) windows in stable registration order — the dock's
-    /// slot order, independent of z so icons never shuffle. Alloc-free.
+    /// Minimized windows in registration order (RFC-0086: the SHELL renders them).
+    #[cfg(test)]
     pub fn minimized_list(&self) -> ([WindowId; MAX_WINDOWS], usize) {
         let mut out = [WindowId::App(0); MAX_WINDOWS];
         let mut n = 0;

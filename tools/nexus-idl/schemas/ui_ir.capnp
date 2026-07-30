@@ -197,6 +197,12 @@ enum ListOpKind {
   # builtin — bounds resident list growth on the app's non-freeing bump heap
   # so a paged transcript stays O(window), not O(all-loaded).
   tail @9;
+  # skip(list, n) / take(list, n): drop / keep the FIRST n elements. Together
+  # they slice a window out of a list in expression position —
+  # `take(skip($state.apps, page * perPage), perPage)` is how the launcher
+  # pager renders page cells from ONE store list (no per-page store fields).
+  skip @10;
+  take @11;
 }
 
 struct Expr {

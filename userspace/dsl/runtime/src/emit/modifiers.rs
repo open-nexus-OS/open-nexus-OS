@@ -143,13 +143,17 @@ pub(super) fn apply_modifier(
             }
         } // overflow
         47 => {
-            // scroll(vertical|horizontal): the page's scroll viewport.
+            // scroll(vertical|horizontal|paged): the page's scroll viewport.
+            // `paged` = horizontal + host-side page snap (launcher pager).
             mods.scroll = Some(match token_name(ctx).as_str() {
                 "horizontal" => registry::ScrollAxis::Horizontal,
+                "paged" => registry::ScrollAxis::Paged,
                 _ => registry::ScrollAxis::Vertical,
             });
         } // scroll
         48 => mods.overlay = true, // overlay(): full-bleed out-of-flow layer
+        52 => mods.columns = Some(int_arg().clamp(1, 12) as usize), // columns(n): grid tracks
+        53 => mods.row_gap = Some(registry::spacing(int_arg())), // rowGap(n)
         49 => {
             // bgGradient(top, bottom): both args are exprs → "#rrggbb[aa]"
             // strings (literal or prop-fed). Unparseable = no gradient —

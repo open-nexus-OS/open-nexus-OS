@@ -1,11 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One home-grid app tile (design_handoff `AppIcon md`, screenshots/
-// 12-app-icons.png): per-app icon ARTWORK — a vertical-gradient rounded
-// square (colors from the app manifest, `icon = "symbol|#top|#bottom"`)
-// with a white glyph. Apps without artwork colors keep the uniform glass
-// tile. Label 12/600 below; tap handlers attach at the use site.
+// One workspace/window-menu app tile (design_handoff_launcher `AppIcon md`,
+// LAUNCHER-SPEC §2): tile 56, radius 16, label below. Per-app icon ARTWORK —
+// the baked squircle sprite when the bundle ships one, else a vertical-
+// gradient rounded square (colors from the manifest `icon = "symbol|#top|
+// #bottom"`), else the uniform glass tile. `running` renders the 4×4 dot
+// between tile and label (§7: text-primary @ 0.7 — an app runs in the
+// background); the marker slot keeps its 4px height either way so a state
+// flip never shifts the label. Tap handlers attach at the use site.
 
 Component AppTile {
     props: {
@@ -14,37 +17,50 @@ Component AppTile {
         iconTop: Str,
         iconBottom: Str,
         iconArt: Str,
+        running: Bool,
     }
     Stack {
         if $props.iconArt != "" {
             // The REAL bundle artwork (assets/icon.svg, baked by
             // nexus-app-icons) — the squircle+gradient lives in the sprite.
-            Image { source: $props.iconArt, size: 64 }
+            Image { source: $props.iconArt, size: 56 }
         } else { if $props.iconTop != "" {
             Stack {
-                Icon { symbol: $props.icon, size: 30 }
+                Icon { symbol: $props.icon, size: 28 }
                     .fg(onAccent)
             }
-            .width(64)
-            .height(64)
+            .width(56)
+            .height(56)
             .bgGradient($props.iconTop, $props.iconBottom)
-            .rounded(xl)
+            .rounded(16)
             .align(center)
             .justify(center)
         } else {
             Stack {
-                Icon { symbol: $props.icon, size: 30 }
+                Icon { symbol: $props.icon, size: 28 }
                     .fg(onSurface)
             }
-            .width(64)
-            .height(64)
+            .width(56)
+            .height(56)
             .material(card)
-            .rounded(xl)
+            .rounded(16)
             .align(center)
             .justify(center)
         } }
+        if $props.running {
+            Stack { }
+                .width(4)
+                .height(4)
+                .bg(onSurface)
+                .rounded(2)
+                .opacity(179)
+        } else {
+            Stack { }
+                .width(4)
+                .height(4)
+        }
         Text($props.label).textSize(sm).fg(onSurface)
     }
     .align(center)
-    .gap(2)
+    .gap(1)
 }

@@ -161,6 +161,48 @@ pub(crate) fn eval(ctx: &mut EvalCtx<'_>, expr: ir::expr::Reader<'_>) -> Result<
                         _ => Err(RtError::TypeMismatch),
                     }
                 }
+                // skip(list, n) / take(list, n): the launcher pager's page
+                // slices — `take(skip(apps, page*perPage), perPage)` renders
+                // one page cell from ONE store list. Out-of-range n degrades
+                // to empty/whole, never an error (page math over a shrinking
+                // enumerate result must not wedge the view).
+                ir::ListOpKind::Skip => {
+                    let base = eval(ctx, lop.get_base().map_err(|_| RtError::Malformed)?)?;
+                    let n = match eval(ctx, lop.get_arg().map_err(|_| RtError::Malformed)?)? {
+                        Value::Int(i) => i.max(0) as usize,
+                        _ => return Err(RtError::TypeMismatch),
+                    };
+                    match base {
+                        Value::List(mut items) => {
+                            items.drain(0..n.min(items.len()));
+                            Ok(Value::List(items))
+                        }
+                        _ => Err(RtError::TypeMismatch),
+                    }
+                }
+                ir::ListOpKind::Take => {
+                    let base = eval(ctx, lop.get_base().map_err(|_| RtError::Malformed)?)?;
+                    let n = match eval(ctx, lop.get_arg().map_err(|_| RtError::Malformed)?)? {
+                        Value::Int(i) => i.max(0) as usize,
+                        _ => return Err(RtError::TypeMismatch),
+                    };
+                    match base {
+                        Value::List(mut items) => {
+                            items.truncate(n);
+                            Ok(Value::List(items))
+                        }
+                        _ => Err(RtError::TypeMismatch),
+                    }
+                }
+                // len(list): the page-dot count — `if len($state.apps) > 16`
+                // guards dot k. `arg` is a shape-keeping zero literal.
+                ir::ListOpKind::Len => {
+                    let base = eval(ctx, lop.get_base().map_err(|_| RtError::Malformed)?)?;
+                    match base {
+                        Value::List(items) => Ok(Value::Int(items.len() as i64)),
+                        _ => Err(RtError::TypeMismatch),
+                    }
+                }
                 // Other combinators (map/filter/…) still land in v0.2.
                 _ => Err(RtError::Unsupported),
             }

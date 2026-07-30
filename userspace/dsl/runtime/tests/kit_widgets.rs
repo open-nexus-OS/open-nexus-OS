@@ -139,3 +139,158 @@ fn breadcrumbs_degrades_a_scalar_items_prop_to_one_crumb() {
     let view = mount("Page Main { Breadcrumbs { items: \"Einstellungen\" } }");
     assert_eq!(scene_texts(&view), vec![String::from("Einstellungen")]);
 }
+
+/// `Grid { columns: n }` is the engine's REAL fixed-column grid
+/// (`LayoutNode::Grid`) — the first `.nx`-reachable grid. Until now every
+/// "grid" in the shell was `.direction(row).wrap(true)`, and `flex_wrap` is
+/// a field the engine never reads, so twelve tiles laid out as one
+/// overflowing row. Pin the two behaviors that distinguish a grid from that
+/// bug: children occupy exactly `columns` x-positions, and overflow moves
+/// DOWN into new rows (distinct y rungs), row-major.
+#[test]
+fn grid_widget_places_children_in_fixed_columns_and_rows() {
+    let view = mount(
+        r#"Page Main {
+    Grid { columns: 3, rowGap: 2
+        Stack { }.width(40).height(40)
+        Stack { }.width(40).height(40)
+        Stack { }.width(40).height(40)
+        Stack { }.width(40).height(40)
+        Stack { }.width(40).height(40)
+        Stack { }.width(40).height(40)
+        Stack { }.width(40).height(40)
+    }
+    .gap(2)
+}
+"#,
+    );
+    let cells: Vec<_> = layout_boxes(&view)
+        .iter()
+        .filter(|b| b.rect.width.as_i32() == 40 && b.rect.height.as_i32() == 40)
+        .map(|b| (b.rect.x.as_i32(), b.rect.y.as_i32()))
+        .collect();
+    assert_eq!(cells.len(), 7, "all seven cells laid out: {cells:?}");
+
+    let mut xs: Vec<i32> = cells.iter().map(|(x, _)| *x).collect();
+    xs.sort_unstable();
+    xs.dedup();
+    assert_eq!(xs.len(), 3, "three fixed column tracks: {cells:?}");
+
+    let mut ys: Vec<i32> = cells.iter().map(|(_, y)| *y).collect();
+    ys.sort_unstable();
+    ys.dedup();
+    assert_eq!(ys.len(), 3, "seven cells over three rows (3+3+1): {cells:?}");
+
+    // Row-major: the 7th cell starts a new row in the FIRST column.
+    let last = cells[6];
+    assert_eq!(last.0, xs[0], "8th slot wraps to column 0: {cells:?}");
+    assert_eq!(last.1, ys[2], "…on the third row: {cells:?}");
+}
+
+/// `skip`/`take`/`len` — the pager's page-slice builtins. One store list,
+/// page cells sliced in expression position: `take(skip(xs, 2), 3)` renders
+/// exactly items 2..5, and `len(xs)` guards the page-dot arms. (Only `tail`
+/// existed before; the other combinators returned `Unsupported`, so a pager
+/// had no way to render "page k of ONE list".)
+#[test]
+fn skip_take_len_slice_a_page_out_of_one_list() {
+    let view = mount(
+        r#"Store S {
+    xs: List<Str> = ["a", "b", "c", "d", "e", "f", "g"],
+}
+
+Page Main {
+    Stack {
+        List(take(skip($state.xs, 2), 3)) { x in
+            Stack {
+                Text(x)
+            }
+            .key(x)
+        }
+        if len($state.xs) > 5 {
+            Text("dot-1")
+        }
+        if len($state.xs) > 99 {
+            Text("dot-2")
+        }
+    }
+}
+"#,
+    );
+    let texts = scene_texts(&view);
+    assert_eq!(
+        texts,
+        vec![String::from("c"), String::from("d"), String::from("e"), String::from("dot-1")],
+        "slice = items 2..5, len-guard shows dot-1 only"
+    );
+}
+
+/// An UNPASSED component prop reads as its type's empty value — `Bool` =
+/// false. The shell's tile family leans on this: `AppTile { … }` without
+/// `running:` must render the not-running state (the running flag only
+/// arrives once the window feed lands), never error or truthy-default.
+#[test]
+fn unpassed_bool_prop_defaults_to_false() {
+    let view = mount(
+        r#"Component T {
+    props: {
+        label: Str,
+        running: Bool,
+    }
+    Stack {
+        Text($props.label)
+        if $props.running {
+            Text("dot")
+        }
+    }
+}
+
+Page Main {
+    T { label: "hi" }
+}
+"#,
+    );
+    assert_eq!(scene_texts(&view), vec![String::from("hi")], "no dot without running:");
+}
+
+/// `.columns(n)` on a `List` — the DATA-DRIVEN grid: the spliced items
+/// become the grid cells (workspace 6-column grid, launcher 4-column grid).
+/// Without this, a dynamic collection could never be a real grid — `Grid`
+/// takes static children and `.wrap(true)` is the engine no-op.
+#[test]
+fn list_with_columns_modifier_lays_out_as_a_grid() {
+    let view = mount(
+        r#"Store S {
+    xs: List<Str> = ["a", "b", "c", "d", "e"],
+}
+
+Page Main {
+    List($state.xs) { x in
+        Stack {
+            Text(x)
+        }
+        .key(x)
+        .width(40)
+        .height(40)
+    }
+    .columns(2)
+    .rowGap(2)
+    .gap(2)
+}
+"#,
+    );
+    let cells: Vec<_> = layout_boxes(&view)
+        .iter()
+        .filter(|b| b.rect.width.as_i32() == 40 && b.rect.height.as_i32() == 40)
+        .map(|b| (b.rect.x.as_i32(), b.rect.y.as_i32()))
+        .collect();
+    assert_eq!(cells.len(), 5, "five cells: {cells:?}");
+    let mut xs: Vec<i32> = cells.iter().map(|(x, _)| *x).collect();
+    xs.sort_unstable();
+    xs.dedup();
+    assert_eq!(xs.len(), 2, "two column tracks: {cells:?}");
+    let mut ys: Vec<i32> = cells.iter().map(|(_, y)| *y).collect();
+    ys.sort_unstable();
+    ys.dedup();
+    assert_eq!(ys.len(), 3, "five cells over three rows (2+2+1): {cells:?}");
+}

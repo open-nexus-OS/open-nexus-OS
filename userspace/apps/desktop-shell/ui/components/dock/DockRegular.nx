@@ -1,0 +1,69 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The TABLET-PORTRAIT touch dock (design_handoff_launcher §8.1,
+// `640 ≤ vw < 1024`): launcher button and dock pill side by side, CENTRED;
+// a row of BARE nav icons below them (nav is enclosed only in landscape).
+
+Component DockRegular {
+    Stack {
+        Stack {
+            Stack {
+                LauncherButton { }
+            }
+            on Tap -> dispatch(SetPanel("launcher"))
+            Stack {
+                List($state.apps) { app in
+                    Stack {
+                        DockTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt, running: app.running }
+                    }
+                    .key(app.id)
+                    on Tap -> dispatch(Activate(app.id))
+                }
+                .direction(row)
+                .gap(1)
+                Stack { }
+                    .width(1)
+                    .height(32)
+                    .bg(surfaceVariant)
+                MiniPlayer { }
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
+            .paddingX(3)
+            .paddingY(2)
+            .material(panel)
+            .rounded(full)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        Stack {
+            Stack {
+                Icon { symbol: "chevron.left", size: 16 }
+                    .fg(onSurface)
+            }
+            .padding(2)
+            on Tap -> navigate("/")
+            Stack {
+                Icon { symbol: "house", size: 16 }
+                    .fg(onSurface)
+            }
+            .padding(2)
+            on Tap -> navigate("/")
+            Stack {
+                Icon { symbol: "square", size: 14 }
+                    .fg(onSurface)
+            }
+            .padding(2)
+            on Tap -> navigate("/")
+        }
+        .direction(row)
+        .align(center)
+        .gap(6)
+    }
+    .align(center)
+    .gap(2)
+    .paddingY(3)
+}

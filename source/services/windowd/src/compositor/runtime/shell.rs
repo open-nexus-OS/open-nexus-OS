@@ -47,11 +47,13 @@ impl DisplayServerRuntime {
     /// settingsd (the native-toggle path; a DSL Control Center can never
     /// desynchronize the compositor). Unknown controls are reported, not
     /// silently dropped.
-    /// RECORDED FOLLOW-UP: enforce the sender ROLE (desktop-surface owner or
-    /// settings-role app) once the server endpoint carries per-sender identity
-    /// (the execd requester-id pattern) — today any surface client could send
-    /// this; presentation-only blast radius, but it should be fail-closed.
-    pub(crate) fn handle_surface_control(&mut self, frame: &[u8], _sender_sid: u64) {
+    ///
+    /// RFC-0086 closes the old follow-up: every `CONTROL_WIN_*` verb is now
+    /// gated on the kernel sender id matching the window's captured
+    /// `owner_sid` (execd names app-hosts `app:<id>` via exec_v2). The value
+    /// byte still RESOLVES the caller's surface, but it no longer carries
+    /// authority — a spoofed id fails the gate (`control_gate`, host-tested).
+    pub(crate) fn handle_surface_control(&mut self, frame: &[u8], sender_sid: u64) {
         use nexus_display_proto::client_surface as wire;
         let Some((control, value)) = wire::decode_surface_control(frame) else {
             let _ = debug_println("WINDOWD: FAIL control (malformed)");
@@ -68,14 +70,15 @@ impl DisplayServerRuntime {
                 // wait ring until the fresh window's surface arrives.
                 self.begin_cursor_wait();
             }
-            // App-chrome window controls (window-kit app menu). The recv
-            // path carries no sender identity (sid=0 observed), so the value
-            // byte names the caller's own surface id: minimize/close =
-            // `id`; mode = `id << 4 | WIN_MODE_*`. Fail-closed on no match.
-            // RECORDED FOLLOW-UP: enforce per-sender identity once the
-            // kernel meta carries it (presentation-only blast radius).
+            // App-chrome window controls (window-kit app menu): the value
+            // byte names the caller's own surface id (minimize/close = `id`;
+            // mode = `id << 4 | WIN_MODE_*`), the SID GATE enforces it is
+            // really the caller's. Fail-closed on no match or a foreign sid.
             wire::CONTROL_WIN_MINIMIZE => {
                 if let Some(idx) = self.app_idx_by_surface(u32::from(value)) {
+                    if !self.win_control_allowed(idx, sender_sid) {
+                        return;
+                    }
                     if self.apps[idx].intent_level == wire::WIN_LEVEL_OVERLAY {
                         // OSK X (RFC-0075 Phase 8c): dismiss the band — it
                         // stays hidden until the next field tap re-announces.
@@ -90,6 +93,9 @@ impl DisplayServerRuntime {
             }
             wire::CONTROL_WIN_CLOSE => {
                 if let Some(idx) = self.app_idx_by_surface(u32::from(value)) {
+                    if !self.win_control_allowed(idx, sender_sid) {
+                        return;
+                    }
                     self.start_close_transition(idx);
                 } else {
                     let _ = debug_println("WINDOWD: control win (no window for id)");
@@ -98,6 +104,9 @@ impl DisplayServerRuntime {
             wire::CONTROL_WIN_MODE => {
                 let (sid, mode) = (u32::from(value >> 4), value & 0x0F);
                 if let Some(idx) = self.app_idx_by_surface(sid) {
+                    if !self.win_control_allowed(idx, sender_sid) {
+                        return;
+                    }
                     self.apply_window_mode(idx, mode);
                 } else {
                     let _ = debug_println("WINDOWD: control win (no window for id)");
@@ -120,6 +129,9 @@ impl DisplayServerRuntime {
                 // ran the edge snap wherever the pointer happened to be
                 // (top edge = surprise fullscreen).
                 if let Some(idx) = self.app_idx_by_surface(u32::from(value)) {
+                    if !self.win_control_allowed(idx, sender_sid) {
+                        return;
+                    }
                     let wid = crate::window_scene::WindowId::App(idx as u8);
                     if !self.windows.is_fullscreen(wid) {
                         self.raise_window(wid);
@@ -135,6 +147,24 @@ impl DisplayServerRuntime {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: control unknown kind={other} value={value}"
                 ));
+            }
+        }
+    }
+
+    /// RFC-0086 own-window gate for `CONTROL_WIN_*`: the kernel sender id
+    /// must match the window's captured `owner_sid` (`control_gate`,
+    /// host-tested reject tables). Distinct markers per reject reason —
+    /// bounded by verb rate, and a reject is always a bug or an attack.
+    fn win_control_allowed(&self, idx: usize, sender_sid: u64) -> bool {
+        match crate::control_gate::own_window_gate(self.apps[idx].owner_sid, sender_sid) {
+            crate::control_gate::GateVerdict::Allow => true,
+            crate::control_gate::GateVerdict::RejectSidZero => {
+                let _ = debug_println("WINDOWD: control win REJECT (sid 0)");
+                false
+            }
+            crate::control_gate::GateVerdict::RejectForeign => {
+                let _ = debug_println("WINDOWD: control win REJECT (foreign sender)");
+                false
             }
         }
     }
@@ -288,7 +318,6 @@ impl DisplayServerRuntime {
             slot.surface_dirty_rows = None; // re-theme: full re-blit (chrome too)
             slot.win.blur_valid = false;
         }
-        self.dock_dirty = true;
         self.queue_full_frame_damage();
         // RFC-0083: the packed theme byte is part of the presentation
         // snapshot — every bound channel owes the new state.

@@ -1,8 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+//
+// The launcher is NOT a route: it is an overlay over the shell home
+// (`components/launcher/LauncherHost.nx`, PanelStore "launcher"/
+// "launcher-big") so the desktop stays visible behind the windowed menu —
+// design_handoff_launcher §9/§10.
 
 Routes {
     "/" -> ShellPage;
-    "/launcher" -> LauncherPage;
     "/control" -> ControlCenterPage;
 }

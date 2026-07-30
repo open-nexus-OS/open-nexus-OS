@@ -145,6 +145,16 @@ impl super::DslApp {
     /// detector that disagrees with the re-create re-creates onto the wrong
     /// path (the too-tall chat thread vanished exactly that way).
     pub(super) fn negotiated_band(&self) -> Option<(u32, u32, u32)> {
+        // AXIS GUARD: the band is a VERTICAL compositor-scroll path (its
+        // geometry is header/footer/content ROWS). A horizontal or paged
+        // viewport whose content is also taller than the viewport would
+        // otherwise negotiate a band — and a banded surface short-circuits
+        // `wheel_event`, killing horizontal scrolling entirely.
+        if let Some((_, _, _, axis)) = self.scroll_region_axis() {
+            if axis != nexus_layout_types::ScrollAxis::Vertical {
+                return None;
+            }
+        }
         self.band_geometry()
             .filter(|&(h, f, c)| h + f + c <= super::MAX_BAND_ROWS)
             .filter(|_| !self.band_statics_intersect_viewport())
@@ -180,7 +190,12 @@ impl super::DslApp {
         let band = self.negotiated_band();
         if band.is_none() {
             if let Some((h, f, c)) = self.band_geometry() {
-                if h + f + c > super::MAX_BAND_ROWS {
+                let horizontal = self
+                    .scroll_region_axis()
+                    .is_some_and(|(_, _, _, a)| a != nexus_layout_types::ScrollAxis::Vertical);
+                if horizontal {
+                    super::raw_marker("apphost: horizontal viewport, plain-path fallback");
+                } else if h + f + c > super::MAX_BAND_ROWS {
                     super::raw_marker("apphost: band too tall, plain-path fallback");
                 } else {
                     super::raw_marker("apphost: statics beside the viewport, plain-path fallback");
@@ -231,7 +246,9 @@ impl super::DslApp {
             // now so a single notch responds within THIS frame.
             return self.momentum_step(clip, max_y, view_h);
         }
-        // Horizontal viewports (launcher pages) stay direct-stepped v1.
+        // Paged viewports never reach here — `wheel_event` routes them to
+        // `pager_wheel` (page snap + trigger). Plain horizontal viewports
+        // stay direct-stepped v1.
         if axis == nexus_layout_types::ScrollAxis::Horizontal && max_x > 0 {
             let old = self.scroll_x;
             self.scroll_x = (self.scroll_x + delta).clamp(0, max_x);
@@ -248,22 +265,40 @@ impl super::DslApp {
         (None, false)
     }
 
-    /// Advance the vertical scroll physics by real elapsed time and apply
-    /// the eased position. Returns the viewport repaint span while moving.
+    /// Advance the scroll physics (vertical ease OR pager glide — a page has
+    /// ONE scroll region, so only one is ever live) by real elapsed time and
+    /// apply the eased position. Returns the viewport repaint span while
+    /// moving.
     pub(super) fn momentum_tick(&mut self) -> (Option<(i32, i32)>, bool) {
-        if !self.momentum.is_animating() {
+        if !self.momentum.is_animating() && !self.pager.is_animating() {
             return (None, false);
         }
-        let Some((clip, _, content_h)) = self.scroll_region() else {
-            return (None, false);
-        };
-        let view_h = clip.3 - clip.1;
-        let max_y = (content_h - view_h).max(0);
         let now = nsec_now();
         let dt = now.saturating_sub(self.momentum_last_ns).min(100_000_000);
         self.momentum_last_ns = now;
-        let _ = self.momentum.tick(dt);
-        self.momentum_step(clip, max_y, view_h)
+        if self.momentum.is_animating() {
+            let Some((clip, _, content_h)) = self.scroll_region() else {
+                return (None, false);
+            };
+            let view_h = clip.3 - clip.1;
+            let max_y = (content_h - view_h).max(0);
+            let _ = self.momentum.tick(dt);
+            return self.momentum_step(clip, max_y, view_h);
+        }
+        // Pager glide toward the snapped page offset.
+        let Some((clip, content_w, _ch, axis)) = self.scroll_region_axis() else {
+            // The paged container left the scene (page swap): settle cleanly.
+            self.pager.set_offset(0.0);
+            return (None, false);
+        };
+        if axis != nexus_layout_types::ScrollAxis::Paged {
+            self.pager.set_offset(0.0);
+            return (None, false);
+        }
+        let view_w = clip.2 - clip.0;
+        let max_x = (content_w - view_w).max(0);
+        let _ = self.pager.tick(dt);
+        self.pager_step(clip, max_x)
     }
 
     /// Apply the physics position to the paint offset + the lazy-load
@@ -290,7 +325,133 @@ impl super::DslApp {
 
     /// Whether the physics still eases/coasts (the loop keeps ticking).
     pub(super) fn momentum_active(&self) -> bool {
-        self.momentum.is_animating()
+        self.momentum.is_animating() || self.pager.is_animating()
+    }
+
+    /// Wheel over a `.scroll(paged)` viewport: ONE notch turns ONE page —
+    /// the glide target snaps to the next/previous whole page multiple and
+    /// a 360 ms lock swallows the rest of the flick (the handoff's "Delta
+    /// akkumulieren, ab 30 blättern, dann 360ms Sperre" for a ±1-notch
+    /// wheel). Returns (repaint span, page delta: −1/0/+1) — the caller
+    /// fires the `PageNext`/`PagePrev` trigger so the store's page index
+    /// tracks the snapped offset.
+    pub(super) fn pager_wheel(&mut self, delta_notches: i32) -> (Option<(i32, i32)>, i32) {
+        let Some((clip, content_w, _ch, axis)) = self.scroll_region_axis() else {
+            return (None, 0);
+        };
+        if axis != nexus_layout_types::ScrollAxis::Paged || delta_notches == 0 {
+            return (None, 0);
+        }
+        let view_w = clip.2 - clip.0;
+        let max_x = (content_w - view_w).max(0);
+        if view_w <= 0 || max_x == 0 {
+            return (None, 0); // one page — nothing to turn
+        }
+        let now = nsec_now();
+        let Some(turn) = crate::pager_math::page_turn(
+            self.pager.target() as i32,
+            view_w,
+            max_x,
+            delta_notches,
+            now < self.pager_lock_until_ns,
+        ) else {
+            return (None, 0);
+        };
+        self.pager.set_extent(view_w as f32, content_w as f32);
+        let glide = turn.target_px as f32 - self.pager.target();
+        let _ = self.pager.scroll_wheel(glide);
+        self.momentum_last_ns = now;
+        self.pager_lock_until_ns = now + 360_000_000;
+        // First eased step within THIS frame (same contract as the vertical
+        // impulse).
+        let (span, _) = self.pager_step(clip, max_x);
+        (span, turn.dir)
+    }
+
+    /// Glide the pager to an absolute page index (the store's `SetPage` dot
+    /// tap, via the `svc.shell.scrollToPage` effect). NO trigger fires for
+    /// this move — the store already knows the page it asked for (firing
+    /// would double-count).
+    pub(super) fn pager_scroll_to(&mut self, page: i32) {
+        let Some((clip, content_w, _ch, axis)) = self.scroll_region_axis() else {
+            return;
+        };
+        if axis != nexus_layout_types::ScrollAxis::Paged {
+            return;
+        }
+        let view_w = clip.2 - clip.0;
+        let max_x = (content_w - view_w).max(0);
+        if view_w <= 0 {
+            return;
+        }
+        self.pager.set_extent(view_w as f32, content_w as f32);
+        let target_px = crate::pager_math::page_target_px(page, view_w, max_x) as f32;
+        let glide = target_px - self.pager.target();
+        let _ = self.pager.scroll_wheel(glide);
+        self.momentum_last_ns = nsec_now();
+    }
+
+    /// Apply the pager physics position to the paint offset. The span is the
+    /// viewport rows (the glide repaints the whole pager strip).
+    pub(super) fn pager_step(
+        &mut self,
+        clip: (i32, i32, i32, i32),
+        max_x: i32,
+    ) -> (Option<(i32, i32)>, bool) {
+        let pos = self.pager.offset_px().clamp(0, max_x);
+        if pos == self.scroll_x {
+            return (None, false);
+        }
+        self.scroll_x = pos;
+        let span = (clip.1.max(0), clip.3.min(self.h as i32));
+        (Some(span), false)
+    }
+
+    /// Dispatches the page's declarative `on WindowsChanged` handler
+    /// (RFC-0086): the compositor's window set moved, so the shell re-runs
+    /// its enumerate effect and picks up the merged running/minimized/focused
+    /// flags. Container-scoped BY NAME, like `EndReached` — "the windows
+    /// changed" has no pixel to hit-test.
+    pub(super) fn fire_windows_changed(&mut self) -> bool {
+        use nexus_dsl_runtime::Damage;
+        let tokens = tokens_for(self.theme_mode);
+        let device =
+            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
+        let locale = super::app_locale!(self);
+        let damage = self
+            .view
+            .fire_trigger(tokens, &device, &locale, &mut self.host, "WindowsChanged")
+            .ok()
+            .flatten();
+        if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
+            return false;
+        }
+        if matches!(damage, Some(Damage::Layout)) {
+            self.relayout_retained();
+        }
+        true
+    }
+
+    /// Dispatches the pager container's declarative `on PageNext`/`on
+    /// PagePrev` handler (container-scoped, BY NAME — the `EndReached`
+    /// contract) so the store's page index follows a wheel-turned page.
+    /// Returns whether the model changed (caller full-repaints).
+    pub(super) fn fire_pager_trigger(&mut self, next: bool) -> bool {
+        use nexus_dsl_runtime::Damage;
+        let tokens = tokens_for(self.theme_mode);
+        let device =
+            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
+        let locale = super::app_locale!(self);
+        let name = if next { "PageNext" } else { "PagePrev" };
+        let damage =
+            self.view.fire_trigger(tokens, &device, &locale, &mut self.host, name).ok().flatten();
+        if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
+            return false;
+        }
+        if matches!(damage, Some(Damage::Layout)) {
+            self.relayout_retained();
+        }
+        true
     }
 
     /// Dispatches the declarative `on EndReached` handler of the scroll
@@ -348,9 +509,10 @@ impl super::DslApp {
             raw_marker(&m);
         }
         self.end_fired = false;
-        if let Some((clip, content_w, content_h)) = self.scroll_region() {
+        if let Some((clip, content_w, content_h, axis)) = self.scroll_region_axis() {
+            let view_w = clip.2 - clip.0;
             let view_h = clip.3 - clip.1;
-            let max_x = (content_w - (clip.2 - clip.0)).max(0);
+            let max_x = (content_w - view_w).max(0);
             let max_y = (content_h - view_h).max(0);
             self.scroll_x = self.scroll_x.clamp(0, max_x);
             self.scroll_y = self.scroll_y.clamp(0, max_y);
@@ -358,9 +520,15 @@ impl super::DslApp {
             // (set_extent re-clamps both) so a LoadMore append continues
             // the ease seamlessly instead of snapping.
             self.momentum.set_extent(view_h as f32, content_h as f32);
+            if axis == nexus_layout_types::ScrollAxis::Paged {
+                // Pager: keep the glide consistent with the (possibly
+                // resized) page strip — extent re-clamps position + target.
+                self.pager.set_extent(view_w as f32, content_w as f32);
+            }
         } else {
             self.scroll_x = 0;
             self.scroll_y = 0;
+            self.pager.set_offset(0.0);
         }
         // A relayout follows a re-emit (tap Layout damage / EndReached
         // LoadMore): reconcile the animation driver with the new intents.

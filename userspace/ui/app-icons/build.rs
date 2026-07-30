@@ -8,7 +8,9 @@
 //! Build script: rasterizes each app bundle's REAL icon artwork
 //! (`userspace/apps/<id>/assets/icon.svg`, declared in the bundle manifest as
 //! `icon_svg = "assets/icon.svg"`) into straight-alpha RGBA sprites at every
-//! tile size the shell uses (64 grid / 44 dock / 32 taskbar). Same house
+//! tile size the shell uses (design_handoff_launcher named sizes: xl 88
+//! fullscreen launcher / md 56 workspace + windowed launcher / sm 48 dock /
+//! xs 40 taskbar, plus 64 as the generic probe/fallback size). Same house
 //! style as the windowd cursor/chrome bake: nexus-svg renders at 4×
 //! supersampling, a box average downscales, alpha is unassociated. The
 //! manifest is the SSOT — an app without `icon_svg` simply has no sprite and
@@ -17,8 +19,9 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-/// Tile sizes the shell renders (AppTile / DockTile / TaskbarTile).
-const SIZES: &[u32] = &[64, 44, 32];
+/// Tile sizes the shell renders (AppIcon xl/md/sm/xs + the 64 probe size).
+/// Keep in lock-step with the fallback ladder in `src/lib.rs::sprite`.
+const SIZES: &[u32] = &[88, 64, 56, 48, 40];
 /// Supersampling factor for crisp AA at small sizes.
 const SS: u32 = 4;
 

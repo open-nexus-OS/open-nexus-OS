@@ -45,8 +45,14 @@ fn main() {
 mod effect_files;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_host;
+// The embedded nexus-query demo store (split out of effect_host — ratchet).
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_ime;
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod effect_query;
+// RFC-0086 shell window state: the sid↔app-id join + `svc.shell.activate`.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod effect_windows;
 // The `svc.files` listing filter (RFC-0084 Phase 6). Compiled for the OS build
 // — where `effect_host` calls it — and for host TEST builds, where its unit
 // tests exercise it. A plain host build compiles it nowhere, so it is never
@@ -61,6 +67,11 @@ mod file_filter;
 mod hover_wash;
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod layout_diff;
+// Pure `.scroll(paged)` page-turn decisions (launcher pager) — same one-cfg
+// shape as `hover_wash`: the physics/timing lives in RISC-V-only `probe/`,
+// the decision here where host tests reach it.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod pager_math;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod svc_call;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

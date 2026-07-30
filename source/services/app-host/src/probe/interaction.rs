@@ -85,6 +85,12 @@ impl super::DslApp {
                 None
             }
         };
+        // Drain the in-process pager verb a dispatched effect may have parked
+        // (`svc.shell.scrollToPage`, the dot tap) — the glide starts now and
+        // the caller's `momentum_active()` frame-pulse arming keeps it ticking.
+        if let Some(page) = self.host.pending_scroll_page.take() {
+            self.pager_scroll_to(page);
+        }
         if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
             // A handler DID run (an absorber like the panel's `PanelNoop`, or
             // one whose effect is off-surface such as a shell-profile switch) —
@@ -553,6 +559,25 @@ impl super::DslApp {
             return (false, None);
         }
         let delta = wire::wheel_delta_from_wire(y_raw);
+        // Paged viewport (`.scroll(paged)`): a notch turns the PAGE — glide
+        // snap + the container's PageNext/PagePrev trigger (store page sync).
+        if matches!(
+            self.scroll_region_axis(),
+            Some((_, _, _, nexus_layout_types::ScrollAxis::Paged))
+        ) {
+            let (span, dir) = self.pager_wheel(delta);
+            let mut dirty = span.is_some();
+            let mut rows = span;
+            if dir != 0 && self.fire_pager_trigger(dir > 0) {
+                dirty = true;
+                rows = None; // model changed (page index): full repaint
+            }
+            if self.momentum_active() {
+                let req = wire::encode_surface_frame_req(surface_id);
+                let _ = client.send(&req, Wait::NonBlocking);
+            }
+            return (dirty, rows);
+        }
         let (span, end) = self.scroll_wheel(delta);
         let mut dirty = false;
         let mut rows = span;

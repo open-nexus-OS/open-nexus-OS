@@ -114,69 +114,28 @@ pub(crate) struct AppEffectHost {
     /// this host makes reads it. Was `_timeout_ms` — accepted, type-checked,
     /// documented and discarded, so a page could not actually bound a call.
     pub(crate) budget_ns: u64,
+    /// RFC-0086 window feed: the last `OP_SURFACE_WINDOWS` set windowd
+    /// pushed, keyed by the owning app-host's kernel service id. Merged into
+    /// `bundlemgr.enumerate` rows (running/minimized/focused) and used to
+    /// resolve `svc.shell.activate` to a target sid. Retained latest-wins:
+    /// every frame REPLACES the set.
+    pub(crate) windows: [nexus_display_proto::surface_windows::WindowEntry;
+        nexus_display_proto::surface_windows::WINDOWS_MAX],
+    pub(crate) windows_len: usize,
+    /// `running`/`minimized`/`focused` record symbols — interned only when a
+    /// page actually reads them (the `icon_sym` pattern).
+    pub(crate) running_sym: Option<u32>,
+    pub(crate) minimized_sym: Option<u32>,
+    pub(crate) focused_sym: Option<u32>,
+    /// `svc.shell.scrollToPage(i)` request, parked here during the dispatch
+    /// (the effect runs under `&mut host` while the probe owns the pager
+    /// physics) and drained by the probe right after — an in-process seam,
+    /// no wire. The store's dot-tap effect glides the pager WITHOUT a
+    /// `PageNext`/`PagePrev` trigger (the store already knows the page).
+    pub(crate) pending_scroll_page: Option<i32>,
 }
 
-/// The embedded `nexus-query` engine + its KV. v1 catalog: one demo
-/// `messages` table (seq Int pk/order, text Str) seeded with a large
-/// transcript — the scrolling/lazy-loading proof corpus until statefsd-backed
-/// tables land (@persist wiring).
-struct QueryStore {
-    engine: nexus_query::Engine,
-    kv: nexus_query::MemKv,
-}
-
-/// Demo transcript scale: large enough that only WINDOWS of it are ever
-/// resident in the DSL store (the lazy-loading contract), small enough to
-/// seed in one bounded pass.
-// Demo-source size: the synthetic generator below is zero-resident (only the
-// requested page is materialized), so this is just the upper bound of the
-// transcript. The store-window builtin `tail(list, 96)` in chat.store.nx keeps
-// the resident `messages` list (and the derived emit/layout/paint/concat cost)
-// bounded, so paging this far no longer grows unbounded. The ceiling now is the
-// non-freeing bump heap's tolerance for the per-page whole-scene re-emit churn
-// (see chat.store.nx); 300 pages cleanly, unbounded needs emit-virtualization.
-const SEED_MESSAGES: i64 = 300;
-
-impl QueryStore {
-    fn seeded() -> Self {
-        use nexus_query::{QType, QVal, TableDef};
-        let engine = nexus_query::Engine::new(alloc::vec![TableDef {
-            id: 0,
-            columns: alloc::vec![QType::Int, QType::Str],
-            pk_col: 0,
-            indexed: alloc::vec![0],
-        }]);
-        let mut kv = nexus_query::MemKv::new();
-        // Deterministic two-voice transcript (no external data source yet).
-        const LINES: [&str; 6] = [
-            "Hast du den neuen Build schon gebootet?",
-            "Ja - der Frost-Effekt sitzt jetzt richtig.",
-            "Dann teste mal drei Fenster gleichzeitig.",
-            "Laeuft. Fokus und Drag fuehlen sich gut an.",
-            "Als naechstes kommt das lange Transcript.",
-            "Genau dafuer ist diese Nachricht da.",
-        ];
-        for seq in 1..=SEED_MESSAGES {
-            // Pure line — the UI derives the voice from the seq PARITY
-            // (even = "you", right-aligned accent bubble) and renders the
-            // sender label itself; a "Mira #3:" prefix inside the bubble
-            // was the old plain-list look.
-            let line = LINES[(seq as usize) % LINES.len()];
-            let mut text = String::new();
-            let _ = core::fmt::write(&mut text, format_args!("{line} (#{seq})"));
-            let _ = engine.put(&mut kv, 0, &[QVal::Int(seq), QVal::Str(text)]);
-        }
-        Self { engine, kv }
-    }
-
-    /// Column index of `name` in the `messages` table.
-    fn col(name: &str) -> usize {
-        match name {
-            "text" => 1,
-            _ => 0, // seq (pk/order)
-        }
-    }
-}
+use crate::effect_query::{QueryStore, SEED_MESSAGES};
 
 impl AppEffectHost {
     pub(crate) fn new(symbols: &[String]) -> Self {
@@ -198,6 +157,13 @@ impl AppEffectHost {
             date_sym: symbols.iter().position(|s| s == "date").map(|i| i as u32),
             query_store: None,
             readdir_cache: None,
+            windows: [nexus_display_proto::surface_windows::WindowEntry::default();
+                nexus_display_proto::surface_windows::WINDOWS_MAX],
+            windows_len: 0,
+            running_sym: symbols.iter().position(|s| s == "running").map(|i| i as u32),
+            minimized_sym: symbols.iter().position(|s| s == "minimized").map(|i| i as u32),
+            focused_sym: symbols.iter().position(|s| s == "focused").map(|i| i as u32),
+            pending_scroll_page: None,
             surface_id: 0,
             budget_ns: SVC_DEADLINE_NS,
         }
@@ -235,6 +201,7 @@ impl AppEffectHost {
                 } else {
                     alloc::string::String::new()
                 };
+                let app_id_for_join = id.clone();
                 let mut fields =
                     alloc::vec![(id_sym, Value::Str(id)), (label_sym, Value::Str(label))];
                 // The launcher-tile artwork: the manifest packs
@@ -256,6 +223,25 @@ impl AppEffectHost {
                 }
                 if let Some(sym) = self.icon_art_sym {
                     fields.push((sym, Value::Str(icon_art)));
+                }
+                // RFC-0086 window-state merge: join the compositor's feed by
+                // the app-host service id execd stamped on this bundle
+                // (`app:<id>`). windowd never sees bundle ids — this is where
+                // sid and app id meet.
+                if self.running_sym.is_some()
+                    || self.minimized_sym.is_some()
+                    || self.focused_sym.is_some()
+                {
+                    let win = self.window_state_of(&app_id_for_join);
+                    if let Some(sym) = self.running_sym {
+                        fields.push((sym, Value::Bool(win.0)));
+                    }
+                    if let Some(sym) = self.minimized_sym {
+                        fields.push((sym, Value::Bool(win.1)));
+                    }
+                    if let Some(sym) = self.focused_sym {
+                        fields.push((sym, Value::Bool(win.2)));
+                    }
                 }
                 fields.sort_by_key(|(sym, _)| *sym);
                 Value::Record(fields)
@@ -348,7 +334,7 @@ impl AppEffectHost {
     /// `[A, M, ver, OP_LAUNCH, app_len, app…, abil_len, abil…]`. Fire-and-
     /// forget: abilitymgr owns lifecycle + emits the launch marker chain; the
     /// caller does not block on a reply (windowd's host has the same contract).
-    fn ability_launch(&self, app_id: &str) -> Result<Value, u32> {
+    pub(crate) fn ability_launch(&self, app_id: &str) -> Result<Value, u32> {
         let send_slot = Self::svc_send_slot("ability").ok_or(ERR_SVC_UNKNOWN)?;
         let app = app_id.as_bytes();
         const ABIL: &[u8] = b"main";
@@ -648,6 +634,18 @@ impl EffectHost for AppEffectHost {
             ("ability", "launch") => {
                 let id = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
                 self.ability_launch(id)
+            }
+            ("shell", "activate") => {
+                let id = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                self.shell_activate(id)
+            }
+            ("shell", "scrollToPage") => {
+                // In-process pager verb (no service round trip): park the
+                // page index; the probe drains it after the dispatch and
+                // glides the `.scroll(paged)` viewport there.
+                let page = args.first().and_then(int_of).ok_or(ERR_SVC_SHAPE)?;
+                self.pending_scroll_page = Some(page.clamp(0, 64) as i32);
+                Ok(Value::Bool(true))
             }
             ("files", "list") => {
                 let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;

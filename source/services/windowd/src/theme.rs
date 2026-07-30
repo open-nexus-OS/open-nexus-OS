@@ -57,13 +57,6 @@ pub(crate) const fn with_alpha(mut c: [u8; 4], alpha: u8) -> [u8; 4] {
     c
 }
 
-/// The BGR triple of a BGRA color — the recolor tint for a monochrome glyph
-/// sprite (the sprite's own alpha stays the anti-aliased coverage).
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-pub(crate) const fn rgb3(c: [u8; 4]) -> [u8; 3] {
-    [c[0], c[1], c[2]]
-}
-
 /// One baked theme snapshot: the semantic tokens the compositor's chrome uses,
 /// in BGRA8888. Field names mirror the `.nxtheme.toml` token vocabulary —
 /// the FULL vocabulary is baked by build.rs even where the chrome reads only a

@@ -82,13 +82,21 @@ pub struct Mods {
     /// over its parent's content (drop-down panels / dialogs). Anchoring
     /// happens INSIDE the layer with ordinary flex.
     pub overlay: bool,
+    /// `.columns(n)`: this container is an n-column GRID (`LayoutNode::Grid`,
+    /// row-major 1fr tracks). On a `List` the items are the cells — the
+    /// data-driven launcher/workspace grids.
+    pub columns: Option<usize>,
+    /// `.rowGap(n)` — the grid's row gap (spacing scale); `None` = `.gap()`.
+    pub row_gap: Option<FxPx>,
 }
 
-/// Scroll axis of a `.scroll(...)` viewport.
+/// Scroll axis of a `.scroll(...)` viewport (`paged` = horizontal with
+/// host-side page snap — the launcher pager).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ScrollAxis {
     Vertical,
     Horizontal,
+    Paged,
 }
 
 impl Default for Mods {
@@ -126,6 +134,8 @@ impl Default for Mods {
             material: None,
             scroll: None,
             overlay: false,
+            columns: None,
+            row_gap: None,
         }
     }
 }
@@ -231,6 +241,12 @@ fn plain_stack(
     tokens: &dyn Tokens,
     children: alloc::vec::Vec<LayoutNode>,
 ) -> LayoutNode {
+    // `.columns(n)` re-shapes ANY plain container into the n-column grid —
+    // on a `List` the spliced items become the cells (the data-driven
+    // launcher/workspace grids). One lowering; the `Grid` widget is sugar.
+    if let Some(cols) = mods.columns {
+        return plain_grid(cols, mods.row_gap, mods, tokens, children);
+    }
     // `.width(px)`/`.height(px)` pin the box (min == max); explicit min/max
     // win over the pin so `.width(320).maxWidth(400)` still means something.
     let min_w = mods.min_width.or(mods.width);
@@ -264,12 +280,66 @@ fn plain_stack(
                 Some(ScrollAxis::Horizontal) => {
                     Overflow::Scroll(nexus_layout_types::ScrollAxis::Horizontal)
                 }
+                Some(ScrollAxis::Paged) => Overflow::Scroll(nexus_layout_types::ScrollAxis::Paged),
                 Some(ScrollAxis::Vertical) => {
                     Overflow::Scroll(nexus_layout_types::ScrollAxis::Vertical)
                 }
                 None => Overflow::Visible,
             },
             flex_wrap: mods.wrap,
+            min_width: min_w,
+            max_width: max_w,
+            min_height: min_h,
+            max_height: max_h,
+            item,
+        },
+        mods.visual(tokens),
+        children,
+    )
+}
+
+/// The `Grid` widget's lowering: the engine's `LayoutNode::Grid` (row-major,
+/// n equal `1fr` tracks). Shares the `plain_stack` mod plumbing — width/height
+/// pins, grow/shrink, `.overlay()`, `.scroll()` — so a Grid composes exactly
+/// like a Stack; only `direction/align/justify/wrap` don't apply (a grid has
+/// no main axis).
+fn plain_grid(
+    columns: usize,
+    row_gap: Option<FxPx>,
+    mods: &Mods,
+    tokens: &dyn Tokens,
+    children: alloc::vec::Vec<LayoutNode>,
+) -> LayoutNode {
+    let min_w = mods.min_width.or(mods.width);
+    let max_w = mods.max_width.or(mods.width);
+    let min_h = mods.min_height.or(mods.height);
+    let max_h = mods.max_height.or(mods.height);
+    let mut item =
+        FlexItem { flex_grow: mods.grow, hit_slop: mods.hit_slop, ..FlexItem::default() };
+    if let Some(shrink) = mods.shrink {
+        item.flex_shrink = shrink;
+    }
+    if mods.overlay {
+        item.position = nexus_layout_types::Position::Absolute;
+        item.flex_grow = item.flex_grow.max(1);
+    }
+    LayoutNode::Grid(
+        nexus_layout_types::Grid {
+            id: None,
+            columns: alloc::vec![nexus_layout_types::Fraction(1); columns.clamp(1, 12)],
+            gap: mods.gap,
+            row_gap,
+            padding: mods.padding,
+            overflow: match mods.scroll {
+                Some(ScrollAxis::Horizontal) => {
+                    Overflow::Scroll(nexus_layout_types::ScrollAxis::Horizontal)
+                }
+                Some(ScrollAxis::Paged) => Overflow::Scroll(nexus_layout_types::ScrollAxis::Paged),
+                Some(ScrollAxis::Vertical) => {
+                    Overflow::Scroll(nexus_layout_types::ScrollAxis::Vertical)
+                }
+                None => Overflow::Visible,
+            },
             min_width: min_w,
             max_width: max_w,
             min_height: min_h,

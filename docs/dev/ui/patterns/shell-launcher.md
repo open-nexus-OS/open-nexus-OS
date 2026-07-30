@@ -156,11 +156,53 @@ runs whose box lies under a LATER glass box (text paints after all fills and
 would otherwise print over the reset). Panels ride the plain `panel`
 material.
 
+## Launcher, workspace and docks (design_handoff_launcher, TASK-0313)
+
+The launcher is an **overlay, not a route** (`components/launcher/`): it rides
+the same `PanelStore.panel` exclusivity as the drop-downs, so opening it
+closes any panel and the desktop stays visible (and SHARP — the windowed menu
+has no scrim; the invisible overlay backdrop is the outside-tap closer).
+Two states, selected by `panel`:
+
+- `"launcher"` — desktop: the **windowed** menu (720×520, r24, search +
+  expand button, "ALLE APPS", vertically scrolling 4-column md grid, identity
+  footer); touch: fullscreen.
+- `"launcher-big"` — **fullscreen** (desktop expand + the touch default):
+  scrim + panel glass, centred greeting/date, search, the paged xl grid.
+
+**Paged grid (§11).** `.scroll(paged)` marks a horizontal strip of
+viewport-width page cells; the HOST snaps to whole pages
+(`probe/scroll.rs` + the pure `pager_math`), one wheel notch = one page with a
+360 ms lock, and fires `PageNext`/`PagePrev` so `$state.page` follows the
+snap. A dot tap goes the other way — `SetPage(k)` → `svc.shell.scrollToPage`
+glides there WITHOUT firing a trigger (the store already knows). Page cells
+slice one store list with `take(skip(apps, k*perPage), perPage)`.
+
+**Grids are real now.** `.columns(n)` (and the `Grid` widget) lower to the
+engine's `LayoutNode::Grid`: workspace touch = 6 columns, windowed launcher =
+4, pager cells = 8 (or 3 narrow). `.wrap(true)` was a silent no-op — the
+engine never read `flex_wrap`, so every "grid" was one overflowing row.
+
+**Tiles** are one family by named size (§2): `AppTile` md 56 (workspace,
+windowed menu) · `DockTile` sm 48 · `TaskbarTile` xs 40 · `LauncherTile` xl 88
+(fullscreen). Running state (§7) rides `app.running` from the RFC-0086 window
+feed: a 4×4 dot under dock/workspace tiles, a 20×2 underline under taskbar
+tiles ("the taskbar is a window list"). The marker slot keeps its height in
+both states so a flip never shifts the label.
+
+**Docks** are one component per family (`dock/Taskbar` desktop 56 · `DockWide`
+landscape three floating elements · `DockRegular` · `DockCompact`), and pages
+are thin compositions of them.
+
 Known deltas vs the handoff (deliberate): island bars are static and the
 island does not expand on hover (media service pending; a hover-driven size
-change is not an expressible motion token), paged launcher grid + page dots
-land when one page overflows, desktop icon field wraps in rows (column-wrap
-pending engine support).
+change is not an expressible motion token), desktop icon field is a single
+top-left column (column-WRAP pending engine support; today's registry fits),
+the pager has no 1:1 finger drag/swipe (the wire carries no drag kinds — only
+`TAP/MOVE/LEAVE/WHEEL/SCROLL_POS`) and its glide is the ScrollMomentum
+approximation of `cubic-bezier(0.22,1,0.36,1)`, page cap 4, and grid
+columns/per-page are per-arm CONSTANTS rather than measured (`ResizeObserver`
+has no DSL equivalent; the QEMU mode is a fixed 1280×800).
 
 Panel-specific deltas, all platform limits rather than choices: **no exit
 animation** (`.transition` is enter-only), **sliders render but do not drag**
