@@ -55,6 +55,14 @@ pub(crate) fn effective_item(child: &LayoutNode) -> FlexItem {
     item
 }
 
+/// Whether this child is a `.scroll(...)` viewport. Such a node measures
+/// width 0 (its clipped content must not drive the parent's flex
+/// negotiation), so a COLUMN parent stretches it to the parent width at
+/// placement — the block `fill-available` rule.
+pub(crate) fn is_scroll_viewport(child: &LayoutNode) -> bool {
+    matches!(child, LayoutNode::Stack(s, _, _) if matches!(s.overflow, Overflow::Scroll(_)))
+}
+
 pub(crate) fn update_box_geometry(
     boxes: &mut [LayoutBox],
     node_id: usize,

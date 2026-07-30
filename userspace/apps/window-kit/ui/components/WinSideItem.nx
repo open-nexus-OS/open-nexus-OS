@@ -11,9 +11,11 @@
 // the icon to a two-pixel sliver — which is what the settings sidebar looked
 // like the first time it shipped twelve German section names.
 //
-// `sub: ""` = the COMPACT row (36px, one line) — the handoff's "Sidebar
-// kompakt" form. Twelve compact rows fit the default 526px frame; the
-// two-line 44px form returns wherever the caller has the height for it.
+// Two-line rows (title + smaller description, the handoff's DEFAULT sidebar
+// form) are 38px with tight leading; `sub: ""` = the compact one-line row
+// (32px, the handoff's "Sidebar kompakt"). Both carry `.hitSlop(3)` so the
+// input target stays at ~44px even where the visual row is denser — the
+// handoff's own sidebar rows are ~35px.
 
 Component WinSideItem {
     props: {
@@ -33,8 +35,8 @@ Component WinSideItem {
             .align(center)
             .justify(center)
             Stack {
-                Text($props.label).textSize(sm).fg(onAccent)
-                Text($props.sub).textSize(xs).fg(onAccent)
+                Text($props.label).textSize(sm).leading(tight).fg(onAccent)
+                Text($props.sub).textSize(xs).leading(tight).fg(onAccent)
             }
             .gap(0)
             .grow(1)
@@ -43,7 +45,8 @@ Component WinSideItem {
         .align(center)
         .gap(2)
         .paddingX(2)
-        .height(44)
+        .height(38)
+        .hitSlop(3)
         .rounded(lg)
         .bg(accent)
         on Tap -> dispatch(WinMenuPick($props.id))
@@ -66,7 +69,8 @@ Component WinSideItem {
         .align(center)
         .gap(2)
         .paddingX(2)
-        .height(36)
+        .height(32)
+        .hitSlop(3)
         .rounded(lg)
         .bg(accent)
         on Tap -> dispatch(WinMenuPick($props.id))
@@ -80,8 +84,8 @@ Component WinSideItem {
             .align(center)
             .justify(center)
             Stack {
-                Text($props.label).textSize(sm).fg(onGlass)
-                Text($props.sub).textSize(xs).fg(onGlassMuted)
+                Text($props.label).textSize(sm).leading(tight).fg(onGlass)
+                Text($props.sub).textSize(xs).leading(tight).fg(onGlassMuted)
             }
             .gap(0)
             .grow(1)
@@ -90,7 +94,8 @@ Component WinSideItem {
         .align(center)
         .gap(2)
         .paddingX(2)
-        .height(44)
+        .height(38)
+        .hitSlop(3)
         .rounded(lg)
         on Tap -> dispatch(WinMenuPick($props.id))
     } else {
@@ -112,7 +117,8 @@ Component WinSideItem {
         .align(center)
         .gap(2)
         .paddingX(2)
-        .height(36)
+        .height(32)
+        .hitSlop(3)
         .rounded(lg)
         on Tap -> dispatch(WinMenuPick($props.id))
     }

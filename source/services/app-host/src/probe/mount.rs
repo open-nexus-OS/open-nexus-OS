@@ -117,6 +117,8 @@ impl DslApp {
             vis_pick: alloc::vec::Vec::new(),
             vis_anim: alloc::vec::Vec::new(),
             vis_text: alloc::vec::Vec::new(),
+            tap_render_span: None,
+            layers_dirty: false,
             banded: false,
             last_band: None,
             alloc_band_h: 0,

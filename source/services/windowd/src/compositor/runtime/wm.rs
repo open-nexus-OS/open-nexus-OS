@@ -324,8 +324,13 @@ impl DisplayServerRuntime {
                 }
                 let top = self.full_surface_frame(idx).0;
                 let wa_h = self.work_area_h().saturating_sub(top as u32);
+                // ¾ wide, ⅚ tall — MUST stay the fraction `handle_surface_intent`
+                // answers, or a freeform flip re-creates at a different size
+                // than the window mounted with (design proportion: the
+                // handoffs' 900×600 windows; ¾ height could not seat a
+                // sidebar's full section list).
                 let w = (self.mode.width * 3 / 4).max(MIN_WIN_W);
-                let h = (wa_h * 3 / 4).max(MIN_WIN_H);
+                let h = (wa_h * 5 / 6).max(MIN_WIN_H);
                 let x = ((self.mode.width.saturating_sub(w)) / 2) as i32;
                 let y = top + ((wa_h.saturating_sub(h)) / 2) as i32;
                 self.apps[idx].win.title_h = self.app_title_h(idx);

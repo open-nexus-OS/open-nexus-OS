@@ -189,9 +189,9 @@ const CHILD_WINDOWD_RECV_SLOT: u32 = 6;
 const BUNDLE_SEND_SLOT: u32 = 10;
 /// The child slot receiving the payload VMO (app-host's fixed constant).
 const CHILD_PAYLOAD_SLOT: u32 = 7;
-/// Payload VMO budget: 16-byte header + up to ~256KB canonical `.nxir`
-/// (counter is ~4KB; the bound is the transport contract, not a hint).
-const PAYLOAD_VMO_BYTES: usize = 16 + 256 * 1024;
+/// Payload VMO budget: header + 512KB NXLC container (transport CONTRACT,
+/// = app-host `PAYLOAD_MAX_LEN`; settings hit 93% of 256KB, probe alarms 90%).
+const PAYLOAD_VMO_BYTES: usize = 16 + 512 * 1024;
 /// ADR-0042 per-app event channel (init-minted pair; slot-order contract,
 /// proven by `init: execd app-event slots send=0xb recv=0xc`): windowd gets
 /// a SEND clone (`OP_SURFACE_EVENTS`, cap-move) and delivers input events +

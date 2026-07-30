@@ -149,10 +149,46 @@ app-level deviations. Fixed at the owning layer:
   dropped its `.scroll` (single-band rule) and uses compact single-line
   items so all 12 sections fit the 526px frame.
 
-Known cosmetic rest (polish backlog): overview grid's third column can kiss
-the pane edge at 960px; the sidebar header row clips under the pane top;
-`windowd: STALL present stuck ~530ms` once during the fullscreen re-create
-(self-healing).
+Known cosmetic rest (polish backlog): the sidebar header row clips under the
+pane top; `windowd: STALL present stuck ~530ms` once during the fullscreen
+re-create (self-healing). (The overview grid's right-edge kiss turned out to
+be the round-3 scroll-viewport width leak — fixed, see below.)
+
+## Round 3 (2026-07-30, user-reported: "still no menu opens", two-line sidebar)
+
+- **Menus DID open — 1.4 s later.** A structural tap re-rastered the whole
+  1280-row frame under TCG, so the user's natural second click toggled the
+  menu closed before the first frame presented. Fix:
+  `app-host/src/layout_diff.rs` (`changed_row_span`, prefix/suffix box+text
+  diff, ≥80 % ⇒ full) bounds the repaint to the changed rows;
+  `submit_layers` re-runs on span presents (`layers_dirty`). Menus present
+  well under a second now; NOT routing (`Routes.nx` was verified correct —
+  settings never navigates).
+- **Two-line sidebar restored** (the handoff's default form): `WinSideItem`
+  two-line arms (38 px, `.leading(tight)`, `.hitSlop(3)`), descriptions from
+  `sec.*.n` keys. Twelve two-line rows need more height than ¾-frame:
+  windowd's freeform default is now ¾ × **⅚** of the work area (960×620),
+  and `plain` windows are no longer charged the WM title bar.
+- **Scroll-viewport width leak** (found chasing "labels overlap their icons
+  in overview mode only"): the engine let a vertical scroller's CONTENT
+  width drive the parent flex negotiation — the overview grid measured
+  745 px through the content pane's scroller, the window row's deficit path
+  squeezed the fixed 240 px sidebar to 228, and the pane overflowed the
+  window by 13 px (the "right-edge kiss"). Engine rule: scroll viewports
+  measure width 0 (the `min-width: 0` analog of the existing main-axis
+  rule) and a column parent stretches them to the pane width
+  (fill-available). Regression: `engine_tests::
+  vertical_scroll_viewport_width_never_squeezes_siblings`,
+  `budget_probe::probe_sidebar_width_mode_invariant` (mode-invariant rows,
+  no in-flow box past the window edge).
+- **Budget audit** (user: "is this app too big?"): payload NXLC container
+  238,696 B was 93 % of execd's 256 KiB VMO — raised to 512 KiB on BOTH
+  contract sides (`PAYLOAD_VMO_BYTES`/`PAYLOAD_MAX_LEN`), alarm test at
+  90 %. Node cap: 371/4096 worst mode (9 %). app-host heap 8→16 MiB
+  (`heap-16m` feature) + one-time 50/75/90 % `heap-watermark` markers —
+  the bump allocator never frees and every structural tap leaks
+  ~100–300 KB; the honest fix (emit-generation arena) stays in the backlog
+  below.
 
 ## Proofs
 

@@ -477,14 +477,4 @@ impl DisplayServerRuntime {
             .saturating_add(self.apps[idx].footer_h)
             .saturating_add(self.apps[idx].content_h)
     }
-
-    /// True when the app surface composes edge-to-edge without a cached-blur
-    /// band. Declaratively: any full-screen presentation — PLUS the transient
-    /// user-toggled fullscreen ("□"), which is WM state, not intent. This is an
-    /// ATLAS-BUDGET decision (skip the blur band; a display-sized band would
-    /// starve the atlas); chrome is decided by `app_title_h`.
-    fn app_is_desktop_surface(&self, idx: usize) -> bool {
-        self.app_presentation(idx).full_screen
-            || self.windows.is_fullscreen(crate::window_scene::WindowId::App(idx as u8))
-    }
 }

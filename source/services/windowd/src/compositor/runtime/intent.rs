@@ -52,19 +52,26 @@ impl DisplayServerRuntime {
             (self.mode.width as u16, h as u16)
         } else {
             // Default body size for a NEW floating window: the SAME centred
-            // three-quarter frame `set_window_mode(freeform)` applies, so a
-            // window that asks before it exists and one the user later flips to
-            // freeform land on identical geometry.
+            // fraction `set_window_mode(freeform)` applies (¾ wide, ⅚ tall),
+            // so a window that asks before it exists and one the user later
+            // flips to freeform land on the same geometry. ⅚ rather than ¾
+            // for the HEIGHT: the design handoffs draw 900×600-proportioned
+            // windows, and at ¾ (526 rows) a settings/file-manager sidebar
+            // could not seat its full section list.
             //
             // This used to read the next free SLOT's frame, which for a slot
             // nothing has framed yet is the allocator CEILING (1280x3072) — a
             // "default size" three times taller than the display. Nothing
             // caught it because app-host never asked on this path until a
             // window declared `mode: freeform`.
-            let idx = self.free_app_index().unwrap_or(0);
-            let title = self.app_title_h(idx);
+            //
+            // The title reserve comes from THIS intent's resolved
+            // presentation — a chromeless (`plain`) window draws no WM title
+            // bar, and charging it one anyway (via the free slot's default)
+            // shrank every chromeless window by a bar it never shows.
+            let title = if p.has_chrome { app_window::APP_TITLE_H } else { 0 };
             let w = (self.mode.width * 3 / 4).max(super::wm::MIN_WIN_W);
-            let h = (self.work_area_h() * 3 / 4).max(super::wm::MIN_WIN_H);
+            let h = (self.work_area_h() * 5 / 6).max(super::wm::MIN_WIN_H);
             (w as u16, h.saturating_sub(title) as u16)
         };
         let rect = wire::encode_surface_rect(0, 0, rw, rh);

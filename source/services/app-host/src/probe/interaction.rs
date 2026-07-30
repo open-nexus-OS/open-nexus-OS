@@ -96,8 +96,27 @@ impl super::DslApp {
         // (widget props — including text content — record Layout deps).
         // A paint-only change re-renders from the RETAINED boxes: the
         // pre-measured text + kept layout make that the cheap path.
+        self.tap_render_span = None;
         if matches!(damage, Some(Damage::Layout)) {
+            // Take (not clone) the previous retained state: `relayout_retained`
+            // rebuilds both, and the old lists feed the damage diff — a
+            // structural tap whose change is bounded (an overlay toggles, a
+            // row swaps its value) then re-renders ONLY the changed rows
+            // instead of the whole frame. On the QEMU TCG boot a full-frame
+            // CPU raster costs >1s per click, which read as "menus never
+            // open" (the user's next click toggled the menu back closed
+            // before the first one ever presented).
+            let old_boxes = core::mem::take(&mut self.layout.boxes);
+            let old_texts = core::mem::take(&mut self.texts);
             self.relayout_retained();
+            self.tap_render_span = crate::layout_diff::changed_row_span(
+                &old_boxes,
+                &self.layout.boxes,
+                &old_texts,
+                &self.texts,
+                self.h as i32,
+            );
+            self.layers_dirty = true;
         }
         // Part-press (toggle thumb): the flip has re-laid-out, the knob sits
         // at its new end — stretch it along the travel axis and slide it in
@@ -114,6 +133,38 @@ impl super::DslApp {
         // its motion). The caller arms the frame pulse when `anim_active`.
         self.anim_sync();
         TapOutcome::Repainted
+    }
+
+    /// Folds the last tap's damage span into the present-loop's dirty state:
+    /// `None` = genuine full repaint; an EMPTY span = pixels identical, no
+    /// repaint needed; a real span unions with whatever is already pending
+    /// (an earlier full request always wins).
+    pub(super) fn merge_tap_damage(
+        &mut self,
+        dirty: &mut bool,
+        dirty_rows: &mut Option<(i32, i32)>,
+    ) {
+        match self.tap_render_span.take() {
+            None => {
+                *dirty = true;
+                *dirty_rows = None;
+            }
+            Some((y0, y1)) if y1 <= y0 => {}
+            Some(span) => {
+                *dirty_rows = match (*dirty, *dirty_rows) {
+                    (true, None) => None,
+                    (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                    (false, None) => Some(span),
+                };
+                *dirty = true;
+            }
+        }
+    }
+
+    /// Whether the glass-region set may have changed since the last
+    /// `submit_layers` (consumed once).
+    pub(super) fn take_layers_dirty(&mut self) -> bool {
+        core::mem::take(&mut self.layers_dirty)
     }
 
     /// Reserve `top` surface rows for the shell status bar and re-lay-out.
@@ -509,82 +560,5 @@ impl super::DslApp {
             let _ = client.send(&req, Wait::NonBlocking);
         }
         (dirty, rows)
-    }
-
-    /// R1 layer seam: submit the material-tagged glass regions of the current
-    /// layout to windowd (`OP_SURFACE_LAYERS`). Each `LayoutBox` whose
-    /// `.material()` is glass becomes a `LayerDesc` (surface-local rect +
-    /// level + radius + shadow); windowd composites each as a real frosted
-    /// `nexus-gfx` layer over the wallpaper. No glass nodes ⇒ empty list ⇒
-    /// windowd composites the surface with the default treatment (unchanged).
-    ///
-    /// WHEN it is re-sent is the subtle part. The rects are SURFACE-LOCAL, so
-    /// they are stale the moment the surface is re-created at a new size — and
-    /// the only caller besides mount sits behind `span.is_none()`, i.e. it runs
-    /// on a FULL present only. A resize that left a partial damage span behind
-    /// therefore never re-declared anything, and windowd kept compositing the
-    /// pre-resize rects: a maximized file manager painted its 960-wide panes in
-    /// the corner of a 1280-wide window. The resize path now forces a full
-    /// present, and windowd clears the list on create as well
-    /// (`app_surface::clear_app_layers`) so neither side can carry a stale set
-    /// alone.
-    pub(super) fn submit_layers(&self, client: &KernelClient, surface_id: u32) {
-        use nexus_layout_types::{GlassLevel, SurfaceMaterial};
-        let clamp = |v: i32| v.max(0).min(u16::MAX as i32) as u16;
-        let mut layers = [wire::LayerDesc::default(); wire::MAX_SURFACE_LAYERS];
-        let mut n = 0;
-        let mut dropped = 0usize;
-        for b in &self.layout.boxes {
-            // Only glass ROOTS become compositor regions: nested glass
-            // blends into its parent's pixels (`glass_nested`), so a region
-            // per inner card would both re-blur what the root already
-            // frosts AND overflow the 16-layer wire cap — a settings-like
-            // page carries ~27 glass nodes but only 3-4 roots.
-            if b.glass_nested {
-                continue;
-            }
-            if n >= wire::MAX_SURFACE_LAYERS {
-                dropped += 1;
-                continue;
-            }
-            // The wire `glass_level` is a BLUR BUCKET, not the material: the
-            // tint, shine, hairline and gradient are already painted into this
-            // surface's own pixels by `Style::glass`, and windowd reads the
-            // level only to pick a backdrop radius (`scene.rs`: panel/overlay
-            // 40, card 20, subtle 8). So the two window levels ride the bucket
-            // whose radius the theme authors for them — `windowPane` 20 = card,
-            // `windowBar` 40 = panel — instead of costing two new wire values
-            // that would carry no extra information.
-            let glass_level = match b.visual.material {
-                SurfaceMaterial::Glass(GlassLevel::Panel) => wire::GLASS_PANEL,
-                SurfaceMaterial::Glass(GlassLevel::Card) => wire::GLASS_CARD,
-                SurfaceMaterial::Glass(GlassLevel::Subtle) => wire::GLASS_SUBTLE,
-                SurfaceMaterial::Glass(GlassLevel::Window) => wire::GLASS_WINDOW,
-                SurfaceMaterial::Glass(GlassLevel::WindowPane) => wire::GLASS_CARD,
-                SurfaceMaterial::Glass(GlassLevel::WindowBar) => wire::GLASS_PANEL,
-                SurfaceMaterial::Glass(GlassLevel::Overlay) => wire::GLASS_OVERLAY,
-                SurfaceMaterial::Opaque => continue,
-            };
-            layers[n] = wire::LayerDesc {
-                x: clamp(b.rect.x.0),
-                y: clamp(b.rect.y.0),
-                w: clamp(b.rect.width.0),
-                h: clamp(b.rect.height.0),
-                material: wire::MATERIAL_GLASS,
-                glass_level,
-                radius: b.visual.corner_radius.top_left.0.clamp(0, 255) as u8,
-                shadow_alpha: if b.visual.shadow.is_some() { 80 } else { 0 },
-            };
-            n += 1;
-        }
-        let mut buf = [0u8; wire::SURFACE_LAYERS_MAX_LEN];
-        let len = wire::encode_surface_layers(surface_id, &layers[..n], &mut buf);
-        let _ = client.send(&buf[..len], Wait::NonBlocking);
-        raw_marker(&alloc::format!("apphost: submitted {n} layers"));
-        if dropped > 0 {
-            // A silent `break` here once cost half a page its glass — the
-            // cap is a wire constant, exceeding it must be visible.
-            raw_marker(&alloc::format!("apphost: {dropped} glass regions over the layer cap"));
-        }
     }
 }

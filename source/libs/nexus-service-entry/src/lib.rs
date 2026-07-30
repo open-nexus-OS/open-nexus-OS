@@ -98,70 +98,47 @@ pub mod os {
     /// Result type expected from service OS entry functions.
     pub type ServiceResult<E> = core::result::Result<(), E>;
 
-    // Bring-up sizing: keep service heaps bounded to avoid exhausting the kernel's early linear map.
-    // Most services stay at 384KiB; heavy proof clients may opt into 512KiB or 768KiB.
-    // windowd needs 2MiB: interactive mode (high-rate input events + GPU command
-    // buffers) filled ~1MiB, and the login-greeter bake (TASK-0065B: blur ring +
-    // avatar-card buffers, ~0.5MiB one-time on a never-freeing bump) overflowed it.
-    // app-host needs 4MiB: the shell REMOUNTS its DSL program on every
-    // profile switch (tablet ⇄ desktop) and width-class re-emit — each mount
-    // allocates a fresh program + view + layout on the never-freeing bump, so
-    // repeated toggles page-faulted the 2MiB heap on the third mount.
-    // 8MiB: a THEME switch is another full drop-first remount, and with an
-    // overlay panel open (Control Center) that mount is the largest one —
-    // the shell page-faulted at exactly heap-base + 4MiB mid re-theme.
-    #[cfg(feature = "heap-8m")]
-    const HEAP_SIZE: usize = 8 * 1024 * 1024;
-    #[cfg(all(feature = "heap-4m", not(feature = "heap-8m")))]
-    const HEAP_SIZE: usize = 4 * 1024 * 1024;
-    #[cfg(all(feature = "heap-2m", not(any(feature = "heap-4m", feature = "heap-8m"))))]
-    const HEAP_SIZE: usize = 2 * 1024 * 1024;
-    #[cfg(all(
-        feature = "heap-1m",
-        not(any(feature = "heap-2m", feature = "heap-4m", feature = "heap-8m"))
-    ))]
-    const HEAP_SIZE: usize = 1024 * 1024;
-    #[cfg(all(
-        feature = "heap-768k",
-        not(any(
-            feature = "heap-1m",
-            feature = "heap-2m",
-            feature = "heap-4m",
-            feature = "heap-8m"
-        ))
-    ))]
-    const HEAP_SIZE: usize = 768 * 1024;
-    #[cfg(all(
-        feature = "heap-512k",
-        not(any(
-            feature = "heap-768k",
-            feature = "heap-1m",
-            feature = "heap-2m",
-            feature = "heap-4m",
-            feature = "heap-8m"
-        ))
-    ))]
-    const HEAP_SIZE: usize = 512 * 1024;
-    #[cfg(not(any(
-        feature = "heap-512k",
-        feature = "heap-768k",
-        feature = "heap-1m",
-        feature = "heap-2m",
-        feature = "heap-4m",
-        feature = "heap-8m"
-    )))]
-    const HEAP_SIZE: usize = 384 * 1024;
+    // Bring-up sizing: bounded heaps (kernel early-linear-map budget). Most
+    // services: 384KiB; proof clients 512/768KiB. windowd 2MiB (input bursts
+    // + greeter bake overflowed 1MiB). Shell app-host history: 4MiB (profile
+    // remounts page-faulted 2MiB), then 8MiB (theme = drop-first remount with
+    // an open overlay panel faulted at exactly base+4MiB). 16MiB (app-host):
+    // every structural DSL interaction re-emits scene + layout + texts onto
+    // this never-freeing bump (~100-300KiB/click, settings-sized page) —
+    // 8MiB froze after a few dozen clicks. Honest fix (emit-generation
+    // arena) recorded in TASK-0311; the watermark markers below make the
+    // remaining ceiling visible before it freezes.
+    const HEAP_SIZE: usize = if cfg!(feature = "heap-16m") {
+        16 * 1024 * 1024
+    } else if cfg!(feature = "heap-8m") {
+        8 * 1024 * 1024
+    } else if cfg!(feature = "heap-4m") {
+        4 * 1024 * 1024
+    } else if cfg!(feature = "heap-2m") {
+        2 * 1024 * 1024
+    } else if cfg!(feature = "heap-1m") {
+        1024 * 1024
+    } else if cfg!(feature = "heap-768k") {
+        768 * 1024
+    } else if cfg!(feature = "heap-512k") {
+        512 * 1024
+    } else {
+        384 * 1024
+    };
     static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
     struct Bump {
         start: usize,
         end: usize,
         current: usize,
+        /// Reported high-water marks (bitmask 50/75/90%): bump exhaustion
+        /// was a silent freeze — one UART line per threshold warns first.
+        watermarks: u8,
     }
 
     impl Bump {
         const fn empty() -> Self {
-            Self { start: 0, end: 0, current: 0 }
+            Self { start: 0, end: 0, current: 0, watermarks: 0 }
         }
 
         fn init(&mut self, base: usize, size: usize) {
@@ -194,8 +171,31 @@ pub mod os {
                 self.end,
                 result as usize,
             );
+            self.note_watermark();
             result
         }
+
+        fn note_watermark(&mut self) {
+            let total = self.end.saturating_sub(self.start);
+            let used = self.current.saturating_sub(self.start);
+            for (bit, pct) in [(1u8, 50usize), (2, 75), (4, 90)] {
+                if total > 0 && self.watermarks & bit == 0 && used >= total / 100 * pct {
+                    self.watermarks |= bit;
+                    log_heap_watermark(pct, used, total);
+                }
+            }
+        }
+    }
+
+    /// Crossed-watermark UART line (alloc-free: runs inside the allocator).
+    fn log_heap_watermark(pct: usize, used: usize, total: usize) {
+        debug_write_bytes(b"heap-watermark svc=");
+        debug_write_str(service_name());
+        for (label, v) in [(b" pct=" as &[u8], pct), (b" used=0x", used), (b" of=0x", total)] {
+            debug_write_bytes(label);
+            debug_write_hex(v);
+        }
+        debug_write_byte(b'\n');
     }
 
     struct LockedBump {

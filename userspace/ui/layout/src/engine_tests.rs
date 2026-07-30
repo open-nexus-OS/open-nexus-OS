@@ -8,8 +8,9 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_SCOPE: Layout engine (flex, grid, text, visual styles)
-//! TEST_SCENARIOS: 9 tests (empty, text, col, row, max_nodes, grid, grid_div0,
-//! visual_style_propagated, column_shrink_respects_zero_shrink_children)
+//! TEST_SCENARIOS: 10 tests (empty, text, col, row, max_nodes, grid, grid_div0,
+//! visual_style_propagated, column_shrink_respects_zero_shrink_children,
+//! vertical_scroll_viewport_width_never_squeezes_siblings)
 //! ADR: docs/adr/0030-layout-engine-deterministic-pretext.md
 
 #[cfg(test)]
@@ -291,5 +292,118 @@ mod tests {
         assert_eq!(fixed.rect.height, px(20));
         assert!(flex.rect.height < px(20));
         assert_eq!(flex.rect.y, fixed.rect.y + fixed.rect.height + px(4));
+    }
+
+    /// A vertical scroll viewport's CONTENT width must not leak into the
+    /// parent flex negotiation (settings: the overview grid measured wider
+    /// than the window through the content pane's scroller and the row
+    /// deficit squeezed the fixed sidebar). The viewport measures width 0 and
+    /// a column parent stretches it to the pane width at placement.
+    #[test]
+    fn vertical_scroll_viewport_width_never_squeezes_siblings() {
+        let wide_text = LayoutNode::Text(
+            TextNode {
+                id: Some("wide"),
+                content: TextContent::new("this content is far wider than the row"),
+                style: text_style(),
+                item: FlexItem::default(),
+                max_lines: None,
+                min_width: None,
+                max_width: None,
+            },
+            VisualStyle::default(),
+        );
+        let scroller = LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some("scroller"),
+                direction: Direction::Column,
+                gap: px(0),
+                padding: EdgeInsets::all(px(0)),
+                align: Align::Start,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Scroll(
+                    nexus_layout_types::ScrollAxis::Vertical,
+                ),
+                flex_wrap: false,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                item: FlexItem { flex_grow: 1, ..FlexItem::default() },
+            },
+            VisualStyle::default(),
+            vec![wide_text],
+        );
+        let pane = LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some("pane"),
+                direction: Direction::Column,
+                gap: px(0),
+                padding: EdgeInsets::all(px(0)),
+                align: Align::Start,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Visible,
+                flex_wrap: false,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                item: FlexItem { flex_grow: 1, ..FlexItem::default() },
+            },
+            VisualStyle::default(),
+            vec![scroller],
+        );
+        let sidebar = LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some("sidebar"),
+                direction: Direction::Column,
+                gap: px(0),
+                padding: EdgeInsets::all(px(0)),
+                align: Align::Start,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Visible,
+                flex_wrap: false,
+                min_width: Some(px(80)),
+                max_width: Some(px(80)),
+                min_height: None,
+                max_height: None,
+                item: FlexItem::default(),
+            },
+            VisualStyle::default(),
+            vec![],
+        );
+        let root = LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some("root"),
+                direction: Direction::Row,
+                gap: px(0),
+                padding: EdgeInsets::all(px(0)),
+                align: Align::Stretch,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Visible,
+                flex_wrap: false,
+                min_width: None,
+                max_width: None,
+                min_height: Some(px(100)),
+                max_height: Some(px(100)),
+                item: FlexItem::default(),
+            },
+            VisualStyle::default(),
+            vec![sidebar, pane],
+        );
+        // 39 chars * 10px = 390px of content in a 200px row.
+        let r = LayoutEngine::new()
+            .layout(&root, px(200), &MockMeasure { char_width: px(10) })
+            .unwrap();
+        let sidebar = r.boxes.iter().find(|b| b.id == Some("sidebar")).unwrap();
+        let pane = r.boxes.iter().find(|b| b.id == Some("pane")).unwrap();
+        let scroller = r.boxes.iter().find(|b| b.id == Some("scroller")).unwrap();
+        // The fixed sidebar keeps its width; the pane takes exactly the rest.
+        assert_eq!(sidebar.rect.width, px(80));
+        assert_eq!(pane.rect.x, px(80));
+        assert_eq!(pane.rect.width, px(120));
+        // The scroll viewport fills the pane (block fill-available), it does
+        // not collapse to its measured 0 nor balloon to its 390px content.
+        assert_eq!(scroller.rect.width, px(120));
     }
 }

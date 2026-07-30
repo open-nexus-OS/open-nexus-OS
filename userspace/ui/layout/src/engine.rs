@@ -14,7 +14,7 @@ use crate::constraints::{child_constraints, row_child_constraints};
 use crate::error::LayoutError;
 use crate::geometry::{
     align_offset, clamp_height, clamp_to_max_height, clamp_width, effective_item, intersect_clip,
-    justify_offsets, update_box_geometry,
+    is_scroll_viewport, justify_offsets, update_box_geometry,
 };
 use alloc::vec::Vec;
 use nexus_layout_types::{
@@ -690,7 +690,11 @@ impl LayoutEngine {
         let mut column_height = FxPx::ZERO;
         for ((child, item, measured, _), allocation) in in_flow.iter().zip(allocations.iter()) {
             let align = item.align_self.unwrap_or(stack.align);
-            let child_width = if matches!(align, Align::Stretch) {
+            // A scroll viewport measures width 0 (see `measure_stack`) — in a
+            // column it fills the parent width like a stretched child, the
+            // block `fill-available` rule.
+            let fills = matches!(align, Align::Stretch) || is_scroll_viewport(child);
+            let child_width = if fills {
                 content_width.saturating_sub(item.margin.horizontal())
             } else {
                 measured.width.min(content_width.saturating_sub(item.margin.horizontal()))
@@ -705,7 +709,7 @@ impl LayoutEngine {
             // child FILL it, so its own children lay out against the real
             // size (a hugging nested row collapsed its Spacer: the shell's
             // topbar was 161px wide inside a 1280px slot).
-            let child_c = if matches!(align, Align::Stretch) {
+            let child_c = if fills {
                 LayoutConstraints::definite(child_width, Some(allocated_height))
             } else {
                 child_constraints(constraints, *item, child_width, Some(allocated_height))
@@ -1033,10 +1037,20 @@ impl LayoutEngine {
         // A clipped container is a SCROLL VIEWPORT: its content scrolls, so
         // its preferred MAIN size must not be the content sum (that squeezed
         // every sibling to its minimum — the CSS `min-height: 0` flex rule).
-        // The viewport takes only what flex gives it (`grow`); CROSS still
-        // follows the content so a horizontal scroller keeps its row height.
+        // The viewport takes only what flex gives it (`grow`). The same rule
+        // holds for its WIDTH: a vertical scroller's content width must not
+        // leak into the parent's flex negotiation (the settings overview grid
+        // measured 745px through its scroll pane and the row deficit squeezed
+        // the fixed 240px sidebar to 228 — icons under text). A COLUMN parent
+        // stretches a scroll child to its own width at placement
+        // (`place_stack_column`), a ROW parent sizes it via `grow`. Only a
+        // horizontal scroller's HEIGHT still follows content, so a chip row
+        // keeps its row height.
         if matches!(stack.overflow, Overflow::Scroll(_)) {
             main = FxPx::ZERO;
+            if !stack.direction.is_horizontal() {
+                cross = FxPx::ZERO;
+            }
         }
         let preferred_width = if stack.direction.is_horizontal() {
             main + stack.padding.horizontal()

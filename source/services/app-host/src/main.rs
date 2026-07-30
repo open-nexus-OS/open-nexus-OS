@@ -59,6 +59,8 @@ mod file_filter;
 // instead, where host tests can actually reach it.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod hover_wash;
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod layout_diff;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod svc_call;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

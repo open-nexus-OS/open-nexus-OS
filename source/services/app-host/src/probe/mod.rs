@@ -37,6 +37,7 @@ mod boot;
 mod clock;
 mod env;
 mod interaction;
+mod layers;
 mod locale;
 mod mount;
 mod paint;
@@ -86,8 +87,10 @@ const EVENTS_SEND_CLONE_SLOT: u32 = 14;
 /// the content-rect budget below).
 const PAYLOAD_BUDGET_NS: u64 = 8_000_000_000;
 /// Upper payload bound accepted from the header (matches execd's VMO
-/// budget; anything larger is a malformed header by contract).
-const PAYLOAD_MAX_LEN: usize = 256 * 1024;
+/// budget; anything larger is a malformed header by contract). Raised with
+/// execd's `PAYLOAD_VMO_BYTES` 256K→512K — settings' NXLC container hit 93%
+/// of the old bound.
+const PAYLOAD_MAX_LEN: usize = 512 * 1024;
 
 /// Probe surface: well under the transport bounds.
 const SURFACE_W: u16 = 320;
@@ -694,11 +697,13 @@ pub(super) fn run() -> Result<(), &'static str> {
                     // lands in another service) is NOT a miss; calling it
                     // one sent readers hunting a hit-test bug for days.
                     if outcome == TapOutcome::Repainted {
-                        dirty = true;
-                        // Model change: full repaint. The tap may also have
-                        // started an animation — arm the frame pulse so the
-                        // physics ticks on the real cadence.
-                        dirty_rows = None;
+                        // Damage-bounded structural repaint (`layout_diff`):
+                        // full-frame rasters per click are what made menus
+                        // feel like they never opened on the TCG boot.
+                        dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
+                        // The tap may also have started an animation — arm
+                        // the frame pulse so the physics ticks on the real
+                        // cadence.
                         if dsl.anim_active() {
                             let req = wire::encode_surface_frame_req(surface_id);
                             let _ = client.send(&req, Wait::NonBlocking);
@@ -917,10 +922,17 @@ pub(super) fn run() -> Result<(), &'static str> {
             present_in_flight = true;
             dirty = false;
             dirty_rows = None;
+            let layers_dirty = dsl.take_layers_dirty();
             if span.is_none() {
                 raw_marker("APPHOST: interactive frame presented");
                 // Re-declare glass regions: a re-layout may have moved/
                 // resized them. Paint-only spans keep the layout — skip.
+                dsl.submit_layers(&client, surface_id);
+            } else if layers_dirty {
+                // A damage-BOUNDED structural present can still change the
+                // glass-region set (an overlay opened/closed): re-declare,
+                // or the new panel would composite without its blur — and a
+                // closed one would keep frosting thin air.
                 dsl.submit_layers(&client, surface_id);
             }
         }

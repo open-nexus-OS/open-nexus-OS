@@ -104,6 +104,14 @@ pub(super) struct DslApp {
     /// notch — it only mirrors the pushed `INPUT_KIND_SCROLL_POS` and
     /// re-renders the band on a content change (LoadMore). `false` = the
     /// legacy paint-time-`dy` scroll (unchanged).
+    /// Damage span of the LAST structural tap (`merge_tap_damage`): `Some` =
+    /// the diffed row window (may be empty — pixels identical), `None` =
+    /// full repaint. Set by `tap()`, consumed once by the event loop.
+    pub(super) tap_render_span: Option<(i32, i32)>,
+    /// Whether the last structural tap may have changed the GLASS-REGION
+    /// set (an overlay opened/closed): a span present must still re-declare
+    /// layers then — `submit_layers` used to run on full presents only.
+    pub(super) layers_dirty: bool,
     pub(super) banded: bool,
     /// The band geometry (`header_h, footer_h, content_h`) the CURRENT
     /// windowd surface was created with — the re-negotiation detector

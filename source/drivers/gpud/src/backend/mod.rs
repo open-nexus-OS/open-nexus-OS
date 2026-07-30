@@ -366,7 +366,7 @@ pub(crate) struct LayerTransform {
 /// A CompositeLayer op deferred for RT-direct compositing after the base upload.
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
 #[derive(Clone, Copy, Default)]
-struct PendingRtLayer {
+pub(crate) struct PendingRtLayer {
     src_row_abs: u32,
     src_x: u32,
     width: u32,

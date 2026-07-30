@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-30 (Settings round 3: menus open, two-line sidebar, budget headroom)
+
+"Still no menu opens" was latency, not routing: a structural tap re-rastered
+the full 1280-row frame (~1.4 s press→present under TCG), so the second
+click toggled the menu closed before the first one ever showed. And the
+handoff's sidebar rows are two-line (title + smaller description) — the
+compact rows were a round-2 regression workaround, not the design.
+
+- **app-host**: `layout_diff::changed_row_span` — prefix/suffix box+text
+  diff bounds a structural repaint to the changed row span (full repaint
+  only past 80 % of the surface); layer set resubmitted on span presents.
+  Menus now present in well under a second on TCG.
+- **layout engine**: a `.scroll` viewport's WIDTH no longer leaks its
+  content width into the parent flex negotiation (the `min-width: 0`
+  analog of the existing main-axis rule), and a column parent stretches a
+  scroll child to the pane width (block fill-available). The settings
+  overview grid used to measure 745 px through the content pane's
+  scroller: the window row's deficit path squeezed the fixed 240 px
+  sidebar to 228 (labels overlapped their icons — overview mode only) and
+  the pane overflowed the window's right edge by 13 px. Regression tests
+  in the engine suite and `budget_probe` (mode-invariant sidebar).
+- **windowd**: the freeform default frame is ¾ wide × **⅚ tall** of the
+  work area (960×620 at 1280×800) — at ¾ (526 rows) a settings-class
+  sidebar could not seat twelve sections; chromeless (`plain`) windows are
+  no longer charged a WM title bar they never draw.
+- **window-kit + settings**: two-line sidebar rows restored per the
+  handoff (38 px, tight leading, `.hitSlop(3)` keeps the ~44 px input
+  target); all twelve sections + account footer fit the new frame.
+- **budgets** (the "is this app too big?" audit): app-host heap 8→16 MiB
+  (`heap-16m`) with one-time 50/75/90 % watermark markers (the bump
+  allocator never frees; every structural tap leaks ~100–300 KB — the
+  honest arena fix is in the TASK-0311 backlog); execd payload VMO
+  256→512 KiB on both contract sides (settings' NXLC container was at
+  93 %); `budget_probe` asserts ≤90 % payload, node cap at 9 %.
+
 ### Fixed - 2026-07-29 (Settings repair round: five platform bugs behind "selecting anything freezes")
 
 The settings rebuild's real-session test failed four ways (freeze on select,
