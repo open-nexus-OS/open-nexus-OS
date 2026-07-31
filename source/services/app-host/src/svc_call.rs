@@ -31,6 +31,39 @@ pub(crate) fn call_reply_within(
     resp: &mut [u8],
     budget_ns: u64,
 ) -> Option<usize> {
+    // DRAIN FIRST. A call that times out abandons its reply, but the service
+    // still sends one — it lands in this same inbox and the NEXT call reads it
+    // as its own. One slow service at boot therefore desyncs every later call
+    // by one, permanently: `settings.set` timed out, settingsd replied 40ms
+    // late, and the following `bundlemgr.enumerate` parsed THAT frame, found no
+    // app list and reported zero apps — the desktop lost every icon.
+    //
+    // At the start of a call the inbox must be empty, so anything here is
+    // stale by construction. Bounded, non-blocking, and loud: a silent
+    // resync would hide the very race it is compensating for.
+    let mut stale = [0u8; 64];
+    let mut discarded = 0u32;
+    while discarded < 8 {
+        let mut sh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        if nexus_abi::ipc_recv_v1(
+            CHILD_REPLY_RECV_SLOT,
+            &mut sh,
+            &mut stale,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        )
+        .is_err()
+        {
+            break;
+        }
+        discarded += 1;
+    }
+    if discarded > 0 {
+        crate::effect_host::raw_marker(&alloc::format!(
+            "apphost: svc reply desync — dropped {discarded} stale reply(ies)"
+        ));
+    }
+
     let reply_send = nexus_abi::cap_clone(CHILD_REPLY_SEND_SLOT).ok()?;
     let hdr =
         nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);

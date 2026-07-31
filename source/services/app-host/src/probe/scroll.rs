@@ -508,6 +508,13 @@ impl super::DslApp {
             );
             raw_marker(&m);
         }
+        // …and ONCE, the detail: content, resolved face and box per run. The
+        // count alone cannot distinguish "the scene is right" from "the glyph
+        // pass draws nothing", which is the whole "right on host, blank on
+        // device" class.
+        if core::mem::take(&mut self.text_dump_pending) {
+            super::paint::collect_dump_text_runs(&self.texts, &self.layout.boxes);
+        }
         self.end_fired = false;
         if let Some((clip, content_w, content_h, axis)) = self.scroll_region_axis() {
             let view_w = clip.2 - clip.0;

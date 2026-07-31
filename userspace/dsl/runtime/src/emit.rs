@@ -458,6 +458,22 @@ fn loop_subkind(kind: &str, props: &[(String, Value)]) -> Option<i32> {
 /// `trigger:` expression — recording it as a PAINT dependency and snapshotting
 /// the committed value so the host can detect a change on the next emit. An
 /// unknown token (the checker rejects it) or a missing value is a no-op.
+///
+/// `.animate` and `.effect` read DIFFERENT things out of that expression, and
+/// conflating them cost a day of debugging:
+///
+///   * `.animate(token, value:)` is a PRESENT/ABSENT binding — the host seeds
+///     the node at `MotionToken::resting(prop, value != 0)`, and for every
+///     opacity-primary token that means a zero value rests it INVISIBLE. A
+///     value that cannot be folded to a number therefore must NOT become 0:
+///     it stamps no intent at all, so the node paints normally. Failing open
+///     is not politeness here — the alternative failure is a silently blank
+///     surface with a perfectly correct scene behind it.
+///   * `.effect(token, trigger:)` only ever asks "did this change since the
+///     last emit". It has no present/absent semantics, so any value that can
+///     be reduced to a stable token works — including a `Str`, which used to
+///     collapse to a constant 0 and made every string-triggered effect in the
+///     system dead code.
 pub(super) fn stamp_anim(
     ctx: &mut EmitCtx<'_, '_>,
     args: capnp::struct_list::Reader<'_, ir::token_arg::Owned>,
@@ -483,7 +499,14 @@ pub(super) fn stamp_anim(
                 Ok(ir::token_arg::Which::Expr(Ok(expr))) => {
                     ctx.record_deps(expr, Damage::Paint);
                     match ctx.eval(expr) {
-                        Ok(v) => snapshot_i32(&v),
+                        // An `.animate` value that is not a number has no
+                        // present/absent reading — stamp NOTHING rather than
+                        // guess 0 and hide the node.
+                        Ok(v) if kind == AnimKind::Animate => match presence_i32(&v) {
+                            Some(n) => n,
+                            None => return,
+                        },
+                        Ok(v) => change_token_i32(&v),
                         Err(_) => return,
                     }
                 }
@@ -498,12 +521,46 @@ pub(super) fn stamp_anim(
     ctx.anim_intents.push((ctx.path.clone(), AnimIntent::new(kind, token, value)));
 }
 
-/// Collapses a committed [`Value`] to the `i32` change-detector the host diffs.
-fn snapshot_i32(v: &Value) -> i32 {
+/// The PRESENCE reading of an `.animate(…, value:)` expression: `Some(n)` when
+/// the value has an honest zero/non-zero meaning, `None` when it does not.
+///
+/// `None` is the whole point. A `Str`, a record or a list says nothing about
+/// whether a node is present, and answering 0 on its behalf rests the node at
+/// opacity 0 — invisible, permanently, with no diagnostic anywhere.
+fn presence_i32(v: &Value) -> Option<i32> {
     match v {
-        Value::Bool(b) => i32::from(*b),
-        Value::Int(i) => (*i).clamp(i32::MIN as i64, i32::MAX as i64) as i32,
-        Value::Fx(raw) => (raw >> 32).clamp(i32::MIN as i64, i32::MAX as i64) as i32,
-        _ => 0,
+        Value::Bool(b) => Some(i32::from(*b)),
+        Value::Int(i) => Some((*i).clamp(i32::MIN as i64, i32::MAX as i64) as i32),
+        Value::Fx(raw) => Some((raw >> 32).clamp(i32::MIN as i64, i32::MAX as i64) as i32),
+        _ => None,
     }
+}
+
+/// The CHANGE token of an `.effect(…, trigger:)` expression — any stable `i32`
+/// that differs when the value differs. Effects only diff this against the
+/// previous emit, so a hash is exactly the right resolution for a string: a
+/// collision costs one missed attention effect and nothing else.
+///
+/// Note `Fx` keeps its integer-part reading here rather than hashing the raw
+/// fixed-point bits: a trigger that fires on every sub-pixel step of an
+/// animated number would be an attention effect firing at frame rate.
+fn change_token_i32(v: &Value) -> i32 {
+    match v {
+        Value::Str(s) => fnv1a_i32(s.as_bytes()),
+        other => presence_i32(other).unwrap_or(0),
+    }
+}
+
+/// FNV-1a over the bytes, folded into an `i32`. Allocation-free and stable
+/// across emits, which is all a change detector needs.
+fn fnv1a_i32(bytes: &[u8]) -> i32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for &b in bytes {
+        h ^= u32::from(b);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    // An empty string must not collide with `Int 0`/`Bool false` — those mean
+    // "absent" to a `.animate`, and while an effect never reads presence, the
+    // two paths share this file and the distinction is cheap to keep.
+    h as i32
 }

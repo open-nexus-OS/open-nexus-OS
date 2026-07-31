@@ -56,9 +56,19 @@ pub struct AnimIntent {
     /// `animation::MotionToken` id (append-only stable wire id).
     pub token: u8,
     /// Committed snapshot of the driving `value:` / `trigger:` expression at
-    /// emit time (Bool → 0/1, Int → the value, everything else → 0). For
-    /// `.transition` (no expr) this is 1 = "present in the tree this frame".
-    /// The host animates when this changes vs the last emit of the same node.
+    /// emit time. For `.transition` (no expr) this is 1 = "present in the tree
+    /// this frame". The host animates when this changes vs the last emit of
+    /// the same node.
+    ///
+    /// What gets folded in here depends on `kind`, because the two modifiers
+    /// ask different questions of the same expression (see `emit::stamp_anim`):
+    ///
+    ///   * [`AnimKind::Animate`] — PRESENCE. `Bool` → 0/1, `Int`/`Fx` → the
+    ///     integer value; anything else has no presence reading and the intent
+    ///     is **not stamped at all**, so an un-foldable `value:` leaves the
+    ///     node un-animated instead of resting it at opacity 0 (invisible).
+    ///   * [`AnimKind::Effect`] — CHANGE only. Numbers as above, `Str` as a
+    ///     stable hash, so a string trigger actually fires.
     pub value: i32,
 }
 

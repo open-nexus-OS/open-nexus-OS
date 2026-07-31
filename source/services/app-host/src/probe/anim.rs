@@ -44,18 +44,10 @@ pub(super) const MAX_NODE_ANIMS: usize = 32;
 /// may fan out to its contained boxes (tile + glyph + label…).
 pub(super) const MAX_EXPANDED_ANIMS: usize = 48;
 
-/// SlideUp travel (px): the offset a slide-in transition starts from.
-const SLIDE_PX: f32 = 16.0;
-/// SlideDown travel (px): a drop-down starts ABOVE its resting place, so the
-/// offset is negative — and shorter, because it falls out of a 36px bar
-/// rather than rising from the bottom of the screen.
-const SLIDE_DOWN_PX: f32 = -10.0;
 /// Wiggle travel (px): the ± attention swing of the `.effect(wiggle)` token.
 const WIGGLE_PX: f32 = 6.0;
 /// Pulse peak scale (fraction over 1.0) of the `.effect(pulse)` token.
 const PULSE_PEAK: f32 = 0.12;
-/// FadeScale's absent-state scale (grows to 1.0 on enter, per animation.md).
-const FADE_SCALE_FROM: f32 = 0.92;
 
 /// Continuous-loop (`AnimKind::Loop`) breathe opacity endpoints + midpoint —
 /// an inherently-animated widget (Skeleton) pulses between these forever via a
@@ -77,49 +69,13 @@ const SPINNER_STEP_NS: u64 = 80_000_000;
 /// Trailing-spoke minimum alpha (mirrors the Spinner builder's `TAIL_ALPHA`).
 const SPINNER_TAIL_ALPHA: u16 = 64;
 
-/// The identity value of an animation property (opacity/scale rest at 1.0,
-/// translate at 0.0) — the "no visible effect" anchor for interpolation.
-fn prop_identity(prop: AnimProp) -> f32 {
-    match prop {
-        AnimProp::Opacity | AnimProp::ScaleX | AnimProp::ScaleY => 1.0,
-        _ => 0.0,
-    }
-}
-
-/// The property target for a driving value under a token: opacity/scale/
-/// translate present (value != 0) vs absent (value == 0). A nonzero value is
-/// "shown/in place"; zero is "hidden/offset" — the value-tracking contract of
-/// `.animate` (a Bool `value:` is the canonical driver).
+/// The property target for a driving value under a token — `MotionToken`'s own
+/// present/absent contract, which is the SSOT both this seed path and the app
+/// conformance tests read. It used to live HERE, in a RISC-V-only module no
+/// host test could reach; that is precisely why "an unfoldable `value:` rests
+/// the node at opacity 0" reached a device unnoticed.
 fn target_for(token: MotionToken, prop: AnimProp, value: i32) -> f32 {
-    let present = value != 0;
-    match prop {
-        AnimProp::Opacity => {
-            if present {
-                1.0
-            } else {
-                0.0
-            }
-        }
-        // Both slide tokens rest IN place (0) when present; absent, they sit
-        // on the side they travel FROM — SlideUp below, SlideDown above.
-        AnimProp::TranslateY => {
-            if present {
-                0.0
-            } else if matches!(token, MotionToken::SlideDown) {
-                SLIDE_DOWN_PX
-            } else {
-                SLIDE_PX
-            }
-        }
-        AnimProp::ScaleX | AnimProp::ScaleY => {
-            if matches!(token, MotionToken::FadeScale) && !present {
-                FADE_SCALE_FROM
-            } else {
-                1.0
-            }
-        }
-        _ => prop_identity(prop),
-    }
+    token.resting(prop, value != 0)
 }
 
 /// One continuous widget loop (reconciled against the emitted Loop intents).
@@ -190,7 +146,7 @@ impl AnimState {
     /// mid-flight continues smoothly instead of snapping.
     fn cur(&self, node_id: usize, prop: AnimProp) -> f32 {
         let Some(a) = self.anims.iter().find(|a| a.node_id == node_id) else {
-            return prop_identity(prop);
+            return prop.identity();
         };
         match prop {
             AnimProp::Opacity => a.opacity as f32 / 255.0,
@@ -200,7 +156,7 @@ impl AnimState {
             // ScaleY mirrors X unless a non-uniform interaction split it
             // (toggle-thumb stretch) — the NodeAnim superset contract.
             AnimProp::ScaleY => a.scale_y_pct.unwrap_or(a.scale_pct) as f32 / 100.0,
-            _ => prop_identity(prop),
+            _ => prop.identity(),
         }
     }
 

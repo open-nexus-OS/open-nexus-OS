@@ -13,6 +13,11 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+# The motion SSOT: `MotionToken::resting` answers "where does this node sit at
+# rest", which is the LAST stage of the paint pipeline and the one an app can
+# blank itself with. The conformance tests must read it from the same place the
+# app-host seed path does.
+animation = { path = "../../userspace/ui/animation" }
 nexus-dsl-core = { path = "../../userspace/dsl/core", features = ["std"] }
 nexus-dsl-ir = { path = "../../userspace/dsl/ir" }
 nexus-dsl-runtime = { path = "../../userspace/dsl/runtime" }

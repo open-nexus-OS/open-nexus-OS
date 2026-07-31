@@ -1,0 +1,8 @@
+{
+  "calc.entry": "{0:ns.,}",
+  "calc.value": "{0:n.,}",
+  "calc.error": "Error",
+  "calc.hist.op": "{0:n.,} {1}",
+  "calc.hist.eq": "{0:n.,} {1} {2:n.,} =",
+  "calc.raw.digit": "{0}"
+}

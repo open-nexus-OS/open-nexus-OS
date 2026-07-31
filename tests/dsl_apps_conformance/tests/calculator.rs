@@ -44,7 +44,16 @@ fn digit_dispatch_updates_the_display() {
 
     let (e, c) = view.runtime().event_case("CalcEvent", "Digit").expect("Digit exists");
     let d = view
-        .dispatch(&tokens, &device, &locale, &mut host, e, c, vec![Value::Int(7)])
+        // `Digit` carries `Fx` (the DSL has no Int→Fx coercion); 7 in Q32.32.
+        .dispatch(
+            &tokens,
+            &device,
+            &locale,
+            &mut host,
+            e,
+            c,
+            vec![Value::Fx(7 << 32), Value::Str("7".into())],
+        )
         .expect("Digit dispatches");
     assert_ne!(d, Damage::None, "Digit must produce visible damage");
     assert!(scene_texts(&view).iter().any(|t| t == "7"), "display shows 7");
@@ -174,12 +183,90 @@ fn clear_is_two_stage() {
         view.runtime().event_case("CalcEvent", n).unwrap_or_else(|| panic!("{n} exists"))
     };
     let (de, dc) = case(&view, "Digit");
-    view.dispatch(&tokens, &device, &locale, &mut host, de, dc, vec![Value::Int(5)])
-        .expect("digit");
+    view.dispatch(
+        &tokens,
+        &device,
+        &locale,
+        &mut host,
+        de,
+        dc,
+        vec![Value::Fx(5 << 32), Value::Str("5".into())],
+    )
+    .expect("digit");
     assert!(scene_texts(&view).iter().any(|t| t == "5"));
     let (ce, cc) = case(&view, "Clear");
     view.dispatch(&tokens, &device, &locale, &mut host, ce, cc, vec![]).expect("clear 1");
     assert!(scene_texts(&view).iter().any(|t| t == "0"), "first Clear zeroes the entry");
     view.dispatch(&tokens, &device, &locale, &mut host, ce, cc, vec![]).expect("clear 2");
     assert!(scene_texts(&view).iter().any(|t| t == "0"), "second Clear resets the state");
+}
+
+/// Tapping the "7" KEY must put a 7 on the display.
+///
+/// Every other test dispatches `Value::Fx(..)` by hand, which bypasses the
+/// DSL's own `dispatch(Digit(7.0))` literal — the path the buttons actually
+/// take. That gap is why "clicking a button shows nothing" survived a green
+/// suite.
+#[test]
+fn tapping_a_digit_key_shows_that_digit() {
+    let (nxir, symbols) = mounted();
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let device = FixtureEnv::desktop();
+    let keys = common::program_i18n_keys(&nxir);
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let mut host = NoHost;
+    let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("effects");
+    let boxes = nexus_layout::LayoutEngine::new()
+        .layout_with_viewport(
+            view.scene(),
+            nexus_layout_types::FxPx::new(392),
+            Some(nexus_layout_types::FxPx::new(616)),
+            &nexus_text_baked::measure_text::BakedTextMeasure,
+        )
+        .expect("lays out")
+        .boxes;
+
+    // The "7" key: first key of the second keypad row (handler order is
+    // authoring order), located by its own box rather than a magic index.
+    let key_boxes: Vec<_> = view
+        .handlers()
+        .iter()
+        .filter_map(|(id, _)| boxes.iter().find(|b| b.node_id == *id))
+        .filter(|b| b.rect.y.0 > 130)
+        .collect();
+    let row_y = {
+        let mut ys: Vec<i32> = key_boxes.iter().map(|b| b.rect.y.0).collect();
+        ys.sort_unstable();
+        ys.dedup();
+        ys[1] // second row = 7 8 9 ×
+    };
+    let seven = key_boxes
+        .iter()
+        .filter(|b| b.rect.y.0 == row_y)
+        .min_by_key(|b| b.rect.x.0)
+        .expect("the 7 key");
+    let (x, y) =
+        (seven.rect.x.0 + seven.rect.width.0 / 2, seven.rect.y.0 + seven.rect.height.0 / 2);
+    // Tap it TWICE: "77" is a string no key label can produce, so the
+    // assertion cannot pass on the key's own text (which "7" alone would).
+    for _ in 0..2 {
+        view.pointer_scrolled(
+            &tokens,
+            &device,
+            &locale,
+            &mut host,
+            &boxes,
+            "Tap",
+            nexus_layout_types::FxPx::new(x),
+            nexus_layout_types::FxPx::new(y),
+            None,
+        )
+        .expect("pointer ok");
+    }
+    let texts = scene_texts(&view);
+    assert!(
+        texts.iter().any(|t| t == "77"),
+        "tapping the 7 key twice must display 77, got {texts:?}"
+    );
 }

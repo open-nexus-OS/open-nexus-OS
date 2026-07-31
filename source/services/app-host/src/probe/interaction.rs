@@ -125,6 +125,7 @@ impl super::DslApp {
             );
             self.layers_dirty = true;
         }
+        self.trace_tap(x, y, hit, damage);
         // Part-press (toggle thumb): the flip has re-laid-out, the knob sits
         // at its new end — stretch it along the travel axis and slide it in
         // from where it was (node ids are stable across the re-emit).

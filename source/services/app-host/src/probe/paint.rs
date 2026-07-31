@@ -10,6 +10,7 @@ use super::*;
 
 mod collect;
 pub(super) use collect::collect_texts;
+pub(super) use collect::dump_text_runs as collect_dump_text_runs;
 use collect::{caret_input, paint_caret_row};
 
 impl super::DslApp {
@@ -64,6 +65,34 @@ impl super::DslApp {
         if handlers.len() > 32 {
             raw_marker(&alloc::format!("apphost: … {} more handlers", handlers.len() - 32));
         }
+    }
+
+    /// ONE line per tap: the whole input→output pipeline in a form that says
+    /// WHERE it stops. `hit` = the node the hit-test chose (cross-reference
+    /// `dump_text_runs`/`dump_handler_boxes`), `dmg` = what the dispatch
+    /// reported, `txt` = the first text runs AFTER the relayout.
+    ///
+    /// Reading it: no `hit` = the hit-test missed; `hit` but `dmg=None` = a
+    /// handler ran and changed nothing (wrong event, or a reducer that wrote
+    /// the same value); `dmg=Layout` with unchanged `txt` = the store moved
+    /// but the view did not. Bounded so a tap storm cannot flood the
+    /// non-freeing bump heap.
+    pub(super) fn trace_tap(
+        &self,
+        x: i32,
+        y: i32,
+        hit: Option<usize>,
+        damage: Option<nexus_dsl_runtime::Damage>,
+    ) {
+        static TAPS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+        if TAPS.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= 16 {
+            return;
+        }
+        let mut txt = alloc::string::String::new();
+        for (_, content, _, _, _) in self.texts.iter().take(2) {
+            let _ = core::fmt::write(&mut txt, format_args!("'{content}' "));
+        }
+        raw_marker(&alloc::format!("apphost: tap ({x},{y}) hit={hit:?} dmg={damage:?} txt={txt}"));
     }
 
     pub(super) fn render(&mut self, vmo: u32) -> bool {

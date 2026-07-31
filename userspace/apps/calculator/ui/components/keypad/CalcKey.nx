@@ -31,6 +31,7 @@ Component CalcKey {
     if $props.kind == "equals" {
         Stack {
             Text($props.label)
+                .textSize(xl)
                 .fg(onAccent)
                 .fontWeight(medium)
         }
@@ -49,6 +50,7 @@ Component CalcKey {
         if $props.kind == "operator" {
             Stack {
                 Text($props.label)
+                    .textSize(xl)
                     .fg(onGlassStrong)
             }
             .direction(row)
@@ -64,6 +66,7 @@ Component CalcKey {
             if $props.kind == "function" {
                 Stack {
                     Text($props.label)
+                        .textSize(xl)
                         .fg(onGlassStrong)
                         .fontWeight(medium)
                 }
@@ -79,6 +82,7 @@ Component CalcKey {
             } else {
                 Stack {
                     Text($props.label)
+                        .textSize(xl)
                         .fg(onGlassStrong)
                 }
                 .direction(row)

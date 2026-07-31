@@ -86,6 +86,15 @@ pub fn ellipsis_cut(text: &str, size: FontSize, max_w: u32) -> (usize, bool) {
 mod tests {
     use super::*;
 
+    /// A run that fits is never touched; one that does not is cut short enough
+    /// that the ellipsis still fits the same width. The second half is the
+    /// property that matters: an ellipsis that overflows would be the very
+    /// clipping it exists to announce.
+    ///
+    /// Its `#[test]` had been left behind in `lib.rs` when the body moved here,
+    /// so this asserted nothing at all — it compiled as an ordinary unused
+    /// function while a duplicate attribute sat on an unrelated test.
+    #[test]
     fn ellipsis_cut_marks_only_what_it_must() {
         let size = FontSize::Caption;
         let short = "WLAN";

@@ -147,10 +147,14 @@ impl LocaleSource for CatalogOverBaked<'_> {
         if let Some(template) = self.catalog.and_then(|c| c.lookup(key)) {
             return format_template(template, args);
         }
+        // The BAKED default is a template too — it has to be interpolated, or
+        // an app running without a loaded catalog prints `{0}` at the user.
+        // Argument-less keys are unaffected (nothing to substitute), which is
+        // why this went unnoticed until a key took arguments.
         self.keys
             .get(key as usize)
             .and_then(|&sym| self.symbols.get(sym as usize))
-            .cloned()
+            .map(|t| format_template(t, args))
             .unwrap_or_default()
     }
 }
@@ -203,8 +207,10 @@ pub fn parse_payload_container(bytes: &[u8]) -> Option<(&[u8], Vec<ContainerPack
     Some((nxir, packs))
 }
 
-/// Fills `{n}` placeholders from the argument values.
-fn format_template(template: &str, args: &[Value]) -> String {
+/// Fills `{n}` placeholders from the argument values, honouring the optional
+/// `:spec` (see [`crate::numfmt`]). Public because it is pure and is the unit
+/// under test for locale number rendering.
+pub fn format_template(template: &str, args: &[Value]) -> String {
     let mut out = String::with_capacity(template.len());
     let mut chars = template.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -216,13 +222,42 @@ fn format_template(template: &str, args: &[Value]) -> String {
                 digits += 1;
                 chars.next();
             }
+            // Optional `:spec` — `{0:n,.}` renders a NUMBER in the locale's
+            // separators, `{0:ns,.}` a numeric STRING (what the user typed, so
+            // `1,50` keeps its trailing zero). Each catalog states its own
+            // separators, which is why they ride in the spec instead of
+            // needing a locale side-channel.
+            let mut spec = alloc::string::String::new();
+            if digits > 0 && chars.peek() == Some(&':') {
+                chars.next();
+                while let Some(c) = chars.peek() {
+                    if *c == '}' {
+                        break;
+                    }
+                    spec.push(*c);
+                    chars.next();
+                }
+            }
             if digits > 0 && chars.peek() == Some(&'}') {
                 chars.next();
-                match args.get(index) {
-                    Some(Value::Str(s)) => out.push_str(s),
-                    Some(Value::Int(i)) => out.push_str(&i.to_string()),
-                    Some(Value::Bool(b)) => out.push_str(if *b { "true" } else { "false" }),
-                    Some(Value::Fx(raw)) => out.push_str(&(raw >> 32).to_string()),
+                let num = crate::numfmt::NumSpec::parse(&spec);
+                match (args.get(index), num) {
+                    // `ns` on anything already textual; `n` on the numerics.
+                    (Some(Value::Str(s)), Some(n)) if n.from_string => {
+                        out.push_str(&crate::numfmt::format_num_str(s, n));
+                    }
+                    (Some(Value::Int(i)), Some(n)) => {
+                        out.push_str(&crate::numfmt::format_int(*i, n));
+                    }
+                    (Some(Value::Fx(raw)), Some(n)) => {
+                        out.push_str(&crate::numfmt::format_fx(*raw, n));
+                    }
+                    (Some(Value::Str(s)), _) => out.push_str(s),
+                    (Some(Value::Int(i)), _) => out.push_str(&i.to_string()),
+                    (Some(Value::Bool(b)), _) => out.push_str(if *b { "true" } else { "false" }),
+                    // Unspecified `Fx` keeps the historical integer-part
+                    // rendering; only an explicit spec opts into fractions.
+                    (Some(Value::Fx(raw)), _) => out.push_str(&(raw >> 32).to_string()),
                     _ => out.push('?'),
                 }
                 continue;

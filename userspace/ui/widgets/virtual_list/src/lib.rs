@@ -1252,10 +1252,7 @@ mod tests {
     fn scrollable_list_shares_the_core_and_scrolls() {
         use nexus_layout_types::measure::{LineLayout, PreparedTextHandle};
         use nexus_layout_types::node::TextContent;
-        use nexus_layout_types::{
-            Align, Direction, EdgeInsets, FlexItem, Justify, MeasureText, Overflow, Rgba8, Stack,
-            TextStyle, VisualStyle,
-        };
+        use nexus_layout_types::{MeasureText, Rgba8, Stack, TextStyle, VisualStyle};
 
         struct StubMeasure;
         impl MeasureText for StubMeasure {
@@ -1280,21 +1277,11 @@ mod tests {
             type Item = u32;
             fn build_item(&self, _i: usize, _item: &u32) -> LayoutNode {
                 LayoutNode::Stack(
-                    Stack {
-                        id: None,
-                        direction: Direction::Column,
-                        gap: FxPx::ZERO,
-                        padding: EdgeInsets::all(FxPx::ZERO),
-                        align: Align::Start,
-                        justify: Justify::Start,
-                        overflow: Overflow::Visible,
-                        flex_wrap: false,
-                        min_width: None,
-                        max_width: None,
-                        min_height: Some(FxPx::new(30)),
-                        max_height: None,
-                        item: FlexItem::default(),
-                    },
+                    // Struct-update, not every field spelled out: this fixture
+                    // only cares about the row HEIGHT, and enumerating the rest
+                    // meant a field added to `Stack` (`text_fit`) broke the
+                    // test build of a widget that has nothing to do with it.
+                    Stack { min_height: Some(FxPx::new(30)), ..Stack::default() },
                     VisualStyle {
                         background: Some(Rgba8::new(20, 24, 32, 255)),
                         ..Default::default()
@@ -1395,10 +1382,7 @@ mod tests {
     fn visible_boxes_are_windowed_not_all_items() {
         use nexus_layout_types::measure::{LineLayout, PreparedTextHandle};
         use nexus_layout_types::node::TextContent;
-        use nexus_layout_types::{
-            Align, Direction, EdgeInsets, FlexItem, Justify, MeasureText, Overflow, Rgba8, Stack,
-            TextStyle, VisualStyle,
-        };
+        use nexus_layout_types::{MeasureText, Rgba8, Stack, TextStyle, VisualStyle};
 
         struct StubMeasure;
         impl MeasureText for StubMeasure {
@@ -1423,21 +1407,11 @@ mod tests {
             type Item = &'static str;
             fn build_item(&self, _i: usize, _item: &&'static str) -> LayoutNode {
                 LayoutNode::Stack(
-                    Stack {
-                        id: None,
-                        direction: Direction::Column,
-                        gap: FxPx::ZERO,
-                        padding: EdgeInsets::all(FxPx::ZERO),
-                        align: Align::Start,
-                        justify: Justify::Start,
-                        overflow: Overflow::Visible,
-                        flex_wrap: false,
-                        min_width: None,
-                        max_width: None,
-                        min_height: Some(FxPx::new(30)),
-                        max_height: None,
-                        item: FlexItem::default(),
-                    },
+                    // Struct-update, not every field spelled out: this fixture
+                    // only cares about the row HEIGHT, and enumerating the rest
+                    // meant a field added to `Stack` (`text_fit`) broke the
+                    // test build of a widget that has nothing to do with it.
+                    Stack { min_height: Some(FxPx::new(30)), ..Stack::default() },
                     VisualStyle {
                         background: Some(Rgba8::new(20, 24, 32, 255)),
                         ..Default::default()

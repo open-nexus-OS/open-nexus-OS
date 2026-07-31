@@ -57,12 +57,49 @@ fn calculator_compiles_and_mounts() {
     compile_and_mount("calculator");
 }
 
-/// The DSL animation binding (TASK-0062/0075): the counter page authors
-/// `.effect(wiggle, …)` on the value text and `.animate(fadeScale, …)` on the
-/// activity bar. Both intents must reach the mounted `View` — proof the
-/// front-end stamps the decided motion modifiers (not a silent `_ => {}`).
+/// The DSL animation binding (TASK-0062/0075): BOTH modifier intents must
+/// reach the mounted `View` — proof the front-end stamps the decided motion
+/// modifiers instead of a silent `_ => {}`.
+///
+/// Asserted on the FIXTURE, not on a shipped app, and that placement is the
+/// finding rather than a tidying preference. This used to demand an
+/// `AnimKind::Animate` from the calculator, whose doc still described the
+/// counter page's activity bar; when the counter became a calculator the bar
+/// went away and the assertion was kept alive by putting
+/// `.animate(snappy, value: $state.disp)` on the display card. A `Str` has no
+/// present/absent reading, so it folded to 0, and the host rested the card at
+/// opacity 0 — a blank display, caused by a test demanding a modifier the app
+/// had no honest use for. The fixture owns a real `Int` driver; the app owns
+/// only the motion it actually wants.
 #[test]
-fn calculator_emits_animation_intents() {
+fn animdemo_emits_both_modifier_intents() {
+    use nexus_dsl_runtime::AnimKind;
+    let nxir = nexus_dsl_core::compile_project_dir(&fixture_root("animdemo"))
+        .unwrap_or_else(|e| panic!("animdemo compiles: {e}"));
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let device = FixtureEnv::tablet("landscape");
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let view = View::mount(&nxir, &tokens, &device, &locale)
+        .unwrap_or_else(|e| panic!("animdemo mounts: {e:?}"));
+    let anims = view.animations();
+    assert!(
+        anims.iter().any(|(_, i)| i.kind == AnimKind::Effect),
+        "animdemo: expected the `.effect(wiggle)` intent, got {anims:?}"
+    );
+    assert!(
+        anims.iter().any(|(_, i)| i.kind == AnimKind::Animate),
+        "animdemo: expected the `.animate(fadeScale)` intent, got {anims:?}"
+    );
+}
+
+/// The calculator's own motion: the numeral's attention `.effect`, and nothing
+/// else. It is still the platform's animation demo, but only for the motion it
+/// has an honest driver for — see `calculator_pixels.rs` for the invariant that
+/// none of it may rest the display invisible.
+#[test]
+fn calculator_emits_its_attention_effect() {
     use nexus_dsl_runtime::AnimKind;
     let nxir = nexus_dsl_core::compile_project_dir(&app_root("calculator"))
         .unwrap_or_else(|e| panic!("calculator compiles: {e}"));
@@ -76,11 +113,7 @@ fn calculator_emits_animation_intents() {
     let anims = view.animations();
     assert!(
         anims.iter().any(|(_, i)| i.kind == AnimKind::Effect),
-        "calculator: expected the `.effect(wiggle)` intent, got {anims:?}"
-    );
-    assert!(
-        anims.iter().any(|(_, i)| i.kind == AnimKind::Animate),
-        "calculator: expected the `.animate(fadeScale)` intent, got {anims:?}"
+        "calculator: expected the display's `.effect(wiggle)` intent, got {anims:?}"
     );
 }
 

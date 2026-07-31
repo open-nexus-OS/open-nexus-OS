@@ -1,9 +1,11 @@
 # Copyright 2026 Open Nexus OS Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# CONTEXT: Calculator — a REAL calculator (was: the counter demo; the user
-# asked for the promotion) and still the canonical smallest DSL app + the
-# DSL animation demo (the display carries `.effect(wiggle)`). Launched via
+# CONTEXT: Calculator — built to `docs/design_handoff_calculator` (TASK-0314):
+# decimals with locale separators, %, ±, two-stage AC/C, history line and an
+# error state, on a keypad that divides exactly at any window size and sizes
+# its labels from their own keys. Still the DSL animation demo (the display
+# carries `.animate` + `.effect`). Launched via
 # abilitymgr → execd → app-host, presenting through its own cross-process
 # windowd surface (ADR-0042).
 # Compiled to `manifest.nxb` (Cap'n Proto) by `tools/nxb-pack` and installed

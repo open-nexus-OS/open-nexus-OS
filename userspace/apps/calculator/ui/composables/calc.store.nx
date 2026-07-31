@@ -1,28 +1,69 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Calculator state (design_handoff_calculator "Funktion").
+// Calculator state (design_handoff_calculator "Funktion"): real decimals,
+// locale separators, `%`, `±`, two-stage AC/C, the history line and an error
+// state on division by zero.
 //
-// Integer arithmetic for now — the handoff's decimals, thousands grouping and
-// `%` need a locale-aware number FORMATTER the DSL does not have yet: `Fx`
-// renders as `raw >> 32`, so every fraction is silently dropped on the way to
-// text (`runtime/src/registry.rs`, `i18n.rs`). That formatter is its own
-// stage; keeping this honest beats printing a wrong number.
+// THE SHAPE, and why it is two representations rather than one:
 //
-// `entry` is the display STRING and `acc`/`op` the pending operation, which is
-// the same shape the handoff's own reducer uses.
+//   entry  the digits as TYPED, character by character, straight from the key
+//          that was pressed. A number cannot hold this — `1.50` and `1.5` are
+//          the same `Fx`, but the user typing that second zero has to see it
+//          appear. It is displayed VERBATIM: nothing on the typing path may
+//          depend on the locale catalog, because if `@t` yields nothing the
+//          entry never grows and the display stays blank no matter what is
+//          pressed. Thousands grouping while typing therefore waits for the
+//          `@t`-with-arguments path to be proven on device (recorded).
+//   value  the same entry as `Fx`, accumulated by arithmetic as digits arrive.
+//          No string→number parse builtin exists, and none is needed: every
+//          keystroke that grows `entry` also updates `value` numerically.
+//
+// `disp` is what the display renders — set from `entry` while typing and from
+// a formatted `value` after a computation. `@t(...)` is evaluable inside a
+// reducer (it lowers to an `Expr` the reducer evaluator handles), which is
+// what lets a computed number become a localized string with no new builtin
+// and no IR change.
+//
+// LIMIT (recorded, not hidden): Q32.32 holds ~2.1e9, so the entry is capped at
+// 9 integer digits, not the handoff's 12. Past that the key is ignored rather
+// than wrapping into a wrong number.
 Store CalcStore {
-    display: Int = 0,
-    acc: Int = 0,
+    // What the display shows (already localized).
+    disp: Str = "0",
+    // The typed entry in machine format, and the same value as a number.
+    entry: Str = "0",
+    value: Fx = 0.0,
+    // The entry as an EXACT integer mantissa plus the power of ten to divide
+    // it by. Accumulating `value + d * 0.1` instead walks off the number:
+    // 0.1 has no exact Q32.32 form, so every fractional keystroke compounds
+    // its error and `0,5 + 0,25` came out as 0,7500000006. One division at
+    // the end keeps 1234.5 and 0.25 exact.
+    mant: Fx = 0.0,
+    divisor: Fx = 1.0,
+    // 1 once the separator has been pressed (a second press is ignored).
+    dotted: Int = 0,
+    digits: Int = 1,
+    acc: Fx = 0.0,
     op: Str = "",
+    // The small line above the number ("1.234,5 x 8 =").
+    history: Str = "",
+    // 1 after a computation / at rest: the next digit starts a new entry.
     fresh: Int = 1,
-    // AC (nothing typed) vs C (something typed) — the handoff's first press
-    // clears the entry, the second the whole state.
+    // AC vs C: 1 once anything has been typed.
     dirty: Int = 0,
+    err: Int = 0,
 }
 
 Event CalcEvent {
-    Digit(Int),
+    // (value, character). The CHARACTER travels as a literal from the keypad
+    // instead of being derived with `@t("calc.raw.digit", d)`: the entry — and
+    // therefore everything on screen — must not depend on the locale catalog
+    // to exist. `Fx` (not `Int`) because the DSL has no numeric coercion.
+    Digit(Fx, Str),
+    // The decimal separator, also as the key's own literal, so the displayed
+    // mark matches the key without a locale round-trip.
+    Sep(Str),
     Op(Str),
     Eq,
     Clear,
@@ -31,41 +72,80 @@ Event CalcEvent {
 }
 
 reduce CalcEvent {
-    Digit(d) => {
-        state.dirty = 1;
+    Digit(d, ch) => {
+        if state.err == 1 {
+            state.disp = "0";
+            state.entry = "0";
+            state.value = 0.0;
+            state.mant = 0.0;
+            state.divisor = 1.0;
+            state.dotted = 0;
+            state.digits = 1;
+            state.err = 0;
+            state.fresh = 1;
+        }
         if state.fresh == 1 {
-            state.display = d;
+            state.entry = "";
+            state.mant = 0.0;
+            state.divisor = 1.0;
+            state.dotted = 0;
+            state.digits = 0;
             state.fresh = 0;
-        } else {
-            if state.display < 99999999 {
-                if state.display > -99999999 {
-                    state.display = state.display * 10 + d;
-                } else {
-                    state.display = state.display;
-                }
+        }
+        if state.digits < 9 {
+            state.digits = state.digits + 1;
+            state.entry = state.entry + ch;
+            state.mant = state.mant * 10.0 + d;
+            if state.dotted == 1 {
+                state.divisor = state.divisor * 10.0;
             } else {
-                state.display = state.display;
+                state.divisor = state.divisor;
             }
+            state.value = state.mant / state.divisor;
+            state.disp = state.entry;
+            state.dirty = 1;
+        } else {
+            state.disp = state.disp;
+        }
+    },
+    Sep(ch) => {
+        if state.fresh == 1 {
+            state.entry = "0";
+            state.mant = 0.0;
+            state.divisor = 1.0;
+            state.dotted = 0;
+            state.value = 0.0;
+            state.digits = 1;
+            state.fresh = 0;
+        }
+        // Only the FIRST separator starts a fraction; a second is ignored.
+        if state.dotted == 0 {
+            state.dotted = 1;
+            state.entry = state.entry + ch;
+            state.disp = state.entry;
+            state.dirty = 1;
+        } else {
+            state.disp = state.disp;
         }
     },
     Op(o) => {
         if state.op == "" {
-            state.acc = state.display;
+            state.acc = state.value;
         } else {
             if state.fresh == 0 {
                 if state.op == "+" {
-                    state.acc = state.acc + state.display;
+                    state.acc = state.acc + state.value;
                 } else {
                     if state.op == "-" {
-                        state.acc = state.acc - state.display;
+                        state.acc = state.acc - state.value;
                     } else {
                         if state.op == "*" {
-                            state.acc = state.acc * state.display;
+                            state.acc = state.acc * state.value;
                         } else {
-                            if state.display != 0 {
-                                state.acc = state.acc / state.display;
+                            if state.value != 0.0 {
+                                state.acc = state.acc / state.value;
                             } else {
-                                state.acc = 0;
+                                state.err = 1;
                             }
                         }
                     }
@@ -74,52 +154,83 @@ reduce CalcEvent {
                 state.acc = state.acc;
             }
         }
-        state.display = state.acc;
+        if state.err == 1 {
+            state.disp = @t("calc.error");
+            state.history = "";
+        } else {
+            state.value = state.acc;
+            state.disp = @t("calc.value", state.acc);
+            state.history = @t("calc.hist.op", state.acc, o);
+        }
         state.op = o;
         state.fresh = 1;
+        state.dotted = 0;
         state.dirty = 1;
     },
     Eq => {
-        if state.op == "+" {
-            state.display = state.acc + state.display;
+        if state.op == "" {
+            state.history = state.history;
         } else {
-            if state.op == "-" {
-                state.display = state.acc - state.display;
+            state.history = @t("calc.hist.eq", state.acc, state.op, state.value);
+            if state.op == "+" {
+                state.value = state.acc + state.value;
             } else {
-                if state.op == "*" {
-                    state.display = state.acc * state.display;
+                if state.op == "-" {
+                    state.value = state.acc - state.value;
                 } else {
-                    if state.op == "/" {
-                        if state.display != 0 {
-                            state.display = state.acc / state.display;
-                        } else {
-                            state.display = 0;
-                        }
+                    if state.op == "*" {
+                        state.value = state.acc * state.value;
                     } else {
-                        state.display = state.display;
+                        if state.value != 0.0 {
+                            state.value = state.acc / state.value;
+                        } else {
+                            state.err = 1;
+                        }
                     }
                 }
             }
+            if state.err == 1 {
+                state.disp = @t("calc.error");
+                state.history = "";
+            } else {
+                state.disp = @t("calc.value", state.value);
+            }
         }
-        state.acc = 0;
+        state.acc = 0.0;
         state.op = "";
         state.fresh = 1;
+        state.dotted = 0;
         state.dirty = 1;
     },
     // First press clears the ENTRY, second the whole state (handoff AC/C).
     Clear => {
+        state.entry = "0";
+        state.value = 0.0;
+        state.mant = 0.0;
+        state.divisor = 1.0;
+        state.dotted = 0;
+        state.digits = 1;
+        state.disp = "0";
+        state.err = 0;
+        state.fresh = 1;
         if state.dirty == 1 {
-            state.display = 0;
-            state.fresh = 1;
             state.dirty = 0;
         } else {
-            state.display = 0;
-            state.acc = 0;
+            state.acc = 0.0;
             state.op = "";
-            state.fresh = 1;
-            state.dirty = 0;
+            state.history = "";
         }
     },
-    Neg => state.display = 0 - state.display,
-    Percent => state.display = state.display / 100,
+    Neg => {
+        state.value = 0.0 - state.value;
+        state.disp = @t("calc.value", state.value);
+        state.fresh = 1;
+        state.dotted = 0;
+    },
+    Percent => {
+        state.value = state.value / 100.0;
+        state.disp = @t("calc.value", state.value);
+        state.fresh = 1;
+        state.dotted = 0;
+    },
 }

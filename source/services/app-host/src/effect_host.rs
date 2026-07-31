@@ -191,7 +191,10 @@ impl AppEffectHost {
             raw_marker("apphost: dsl svc bundlemgr.enumerate FAIL (registry unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
-        let entries = parse_app_entries(&resp[..len]);
+        let Some(entries) = crate::effect_parse::parse_app_entries(&resp[..len]) else {
+            raw_marker("apphost: dsl svc bundlemgr.enumerate FAIL (bad reply)");
+            return Err(ERR_SVC_UNAVAILABLE);
+        };
         let rows: Vec<Value> = entries
             .into_iter()
             .map(|(id, label, icon)| {
@@ -268,7 +271,7 @@ impl AppEffectHost {
             raw_marker("apphost: dsl svc session.users FAIL (sessiond unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
-        let rows: Vec<Value> = parse_session_users(&resp[..len])
+        let rows: Vec<Value> = crate::effect_parse::parse_session_users(&resp[..len])
             .into_iter()
             .map(|(id, label)| {
                 // Records are FIELD-SORTED by symbol id (the `Value::Record`
@@ -296,7 +299,7 @@ impl AppEffectHost {
             raw_marker("apphost: dsl svc session.active FAIL (sessiond unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
-        let Some(active) = parse_session_active(&resp[..len]) else {
+        let Some(active) = crate::effect_parse::parse_session_active(&resp[..len]) else {
             // No users registered, or a malformed frame: an empty id is the
             // honest answer ("nobody is the default"), never a fabricated one.
             raw_marker("apphost: dsl svc session.active none");
@@ -731,77 +734,4 @@ fn send_fire_and_forget(send_slot: u32, req: &[u8]) -> bool {
     // removes everywhere.
     let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(SVC_DEADLINE_NS);
     nexus_abi::ipc_send_v1(send_slot, &hdr, req, 0, deadline).is_ok()
-}
-
-/// Parses the `OP_LIST_APPS` response body into `(id, label, icon)` triples.
-/// Header + per-entry length-prefixed strings
-/// (`[id_len,id, label_len,label, icon_len,icon]`); a malformed/short frame
-/// yields the entries parsed so far (fail-soft, bounded).
-fn parse_app_entries(frame: &[u8]) -> Vec<(String, String, String)> {
-    let mut out = Vec::new();
-    let Some((status, count)) = nexus_abi::bundlemgrd::decode_list_apps_header(frame) else {
-        return out;
-    };
-    if status != nexus_abi::bundlemgrd::STATUS_OK {
-        return out;
-    }
-    let mut pos = nexus_abi::bundlemgrd::LIST_APPS_BODY_OFFSET;
-    for _ in 0..count {
-        let Some(id) = take_lp_str(frame, &mut pos) else { break };
-        let Some(label) = take_lp_str(frame, &mut pos) else { break };
-        let Some(icon) = take_lp_str(frame, &mut pos) else { break };
-        out.push((id, label, icon));
-    }
-    out
-}
-
-/// Parses the sessiond `OP_GET_STATE` response into user DISPLAY NAMES. Each
-/// entry is `[id_len, id, name_len, name, product_len, product]`; we keep the
-/// name (the greeter renders it). Fail-soft like [`parse_app_entries`].
-/// The registered users as `(id, display_name)`. `login` takes the id; the
-/// UI shows the name.
-fn parse_session_users(frame: &[u8]) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    let Some((status, _state, _active, count)) =
-        nexus_abi::sessiond::decode_get_state_header(frame)
-    else {
-        return out;
-    };
-    if status != nexus_abi::sessiond::STATUS_OK {
-        return out;
-    }
-    let mut pos = nexus_abi::sessiond::GET_STATE_BODY_OFFSET;
-    for _ in 0..count {
-        let id = take_lp_str(frame, &mut pos);
-        let name = take_lp_str(frame, &mut pos);
-        let product = take_lp_str(frame, &mut pos);
-        match (id, name, product) {
-            (Some(id), Some(name), Some(_)) => out.push((id, name)),
-            _ => break,
-        }
-    }
-    out
-}
-
-/// The id of the user at sessiond's `active_idx` — its answer to "who logs in
-/// if nobody picks". `None` when there are no users or the frame is short.
-fn parse_session_active(frame: &[u8]) -> Option<String> {
-    let (status, _state, active, count) = nexus_abi::sessiond::decode_get_state_header(frame)?;
-    if status != nexus_abi::sessiond::STATUS_OK || count == 0 {
-        return None;
-    }
-    let users = parse_session_users(frame);
-    let idx = (active as usize).min(users.len().saturating_sub(1));
-    users.into_iter().nth(idx).map(|(id, _)| id)
-}
-
-/// Reads a `[len:u8, bytes…]` UTF-8 string, advancing `pos`. `None` on a short
-/// frame or invalid UTF-8 (the bound the callers stop on).
-fn take_lp_str(frame: &[u8], pos: &mut usize) -> Option<String> {
-    let len = *frame.get(*pos)? as usize;
-    let start = pos.checked_add(1)?;
-    let end = start.checked_add(len)?;
-    let bytes = frame.get(start..end)?;
-    *pos = end;
-    core::str::from_utf8(bytes).ok().map(String::from)
 }

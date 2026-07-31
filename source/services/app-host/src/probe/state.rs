@@ -87,6 +87,8 @@ pub(super) struct DslApp {
     pub(super) catalogs: alloc::vec::Vec<(alloc::string::String, nexus_dsl_runtime::Catalog)>,
     /// Index into `catalogs` of the ACTIVE locale (None = baked default).
     pub(super) active_catalog: Option<usize>,
+    /// One-shot guard for the text-run dump (see `paint::dump_text_runs_once`).
+    pub(super) text_dump_pending: bool,
     /// The last region-pushed locale tag (e.g. `de-DE`).
     pub(super) locale_tag: alloc::string::String,
     /// The active keymap layout tag (`us`/`de`/… — `device.keymap`).

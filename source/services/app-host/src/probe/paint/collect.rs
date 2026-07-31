@@ -175,3 +175,33 @@ pub(in crate::probe) fn paint_caret_row(
         }
     }
 }
+
+/// One-shot, bounded dump of the TEXT runs and the face each will actually be
+/// painted with — the counterpart of `dump_handler_boxes`.
+///
+/// Exists because "renders fine on host, blank on device" has no other signal:
+/// the scene, the layout and the run count can all be correct while the glyph
+/// pass draws nothing, and `texts=N` only reports the count. Printing the
+/// content, the resolved face and the box turns that into one boot.
+pub(in crate::probe) fn dump_text_runs(
+    texts: &[crate::layout_diff::TextRun],
+    boxes: &[nexus_layout::LayoutBox],
+) {
+    super::raw_marker(&alloc::format!("apphost: {} text runs", texts.len()));
+    for (idx, content, font, _, weight) in texts.iter().take(8) {
+        let b = boxes.iter().find(|b| b.node_id == *idx);
+        let painted = b.and_then(|b| b.text_px).map_or(*font, |px| {
+            nexus_text_baked::FontSize::nearest(
+                px.0,
+                nexus_text_baked::measure_text::BakedTextMeasure::weight(*weight),
+            )
+        });
+        super::raw_marker(&alloc::format!(
+            "apphost: run '{}' face={:?} px={:?} box={:?}",
+            content,
+            painted,
+            b.and_then(|b| b.text_px).map(|p| p.0),
+            b.map(|b| (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0)),
+        ));
+    }
+}

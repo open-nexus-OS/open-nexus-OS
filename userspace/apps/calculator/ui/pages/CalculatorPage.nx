@@ -11,7 +11,7 @@
 // and the surfaces in `components/keypad/`.
 Page CalculatorPage {
     Stack {
-        CalcDisplay { value: $state.display }
+        CalcDisplay { }
         CalcKeypad { }
     }
     .material(windowPane)

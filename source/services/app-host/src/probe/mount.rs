@@ -115,6 +115,7 @@ impl DslApp {
             anim: anim::AnimState::new(),
             catalogs,
             active_catalog: None,
+            text_dump_pending: true,
             locale_tag: alloc::string::String::new(),
             keymap: alloc::string::String::new(),
             clock_tz: alloc::string::String::from("Europe/Berlin"),

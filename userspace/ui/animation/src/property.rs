@@ -19,6 +19,20 @@ impl Default for AnimProp {
     }
 }
 
+impl AnimProp {
+    /// The value at which this property has NO visible effect — the anchor a
+    /// fresh interpolation starts from and the state a converged animation is
+    /// pruned at. Opacity and the scales rest at 1.0 (fully drawn, unscaled);
+    /// the translates rest at 0.0.
+    #[must_use]
+    pub const fn identity(self) -> f32 {
+        match self {
+            AnimProp::Opacity | AnimProp::ScaleX | AnimProp::ScaleY => 1.0,
+            _ => 0.0,
+        }
+    }
+}
+
 /// Identifies a compositor layer for animation targeting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct LayerId(pub u64);

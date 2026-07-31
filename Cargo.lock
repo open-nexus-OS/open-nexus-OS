@@ -783,6 +783,7 @@ dependencies = [
 name = "dsl_apps_conformance"
 version = "0.1.0"
 dependencies = [
+ "animation",
  "nexus-dsl-core",
  "nexus-dsl-ir",
  "nexus-dsl-runtime",

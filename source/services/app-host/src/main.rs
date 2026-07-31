@@ -45,6 +45,8 @@ fn main() {
 mod effect_files;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_host;
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod effect_parse;
 // The embedded nexus-query demo store (split out of effect_host — ratchet).
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_ime;

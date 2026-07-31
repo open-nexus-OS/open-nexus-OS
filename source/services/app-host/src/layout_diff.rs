@@ -54,6 +54,11 @@ fn box_pixels_eq(a: &LayoutBox, b: &LayoutBox) -> bool {
         && a.overflow == b.overflow
         && a.glass_nested == b.glass_nested
         && a.visual == b.visual
+        // `.textFit`: the LAYOUT-chosen size is a PIXEL property. A run whose
+        // box and content are unchanged but whose fitted size stepped (the
+        // window grew, the number got longer) would otherwise be declared
+        // pixel-equal and never repainted.
+        && a.text_px == b.text_px
 }
 
 /// The painted row extent of a box (clipped to its viewport), or `None` when
@@ -221,16 +226,24 @@ mod tests {
     #[test]
     fn a_text_change_damages_its_box_rows() {
         let boxes = vec![boxed(1, 0, 40), boxed(2, 100, 30)];
-        let old_t = vec![(2usize, alloc_string("Aus"), font(), [0, 0, 0, 255])];
-        let new_t = vec![(2usize, alloc_string("An"), font(), [0, 0, 0, 255])];
+        let old_t = vec![run(2, "Aus")];
+        let new_t = vec![run(2, "An")];
         let span = changed_row_span(&boxes, &boxes.clone(), &old_t, &new_t, 800);
         assert_eq!(span, Some((98, 132)));
     }
 
-    fn alloc_string(s: &str) -> alloc::string::String {
-        alloc::string::String::from(s)
-    }
-    fn font() -> nexus_text_baked::FontSize {
-        nexus_text_baked::FontSize::Small
+    /// A text run for `node_id` carrying `content`, built THROUGH the
+    /// [`TextRun`] alias — the tuple's shape lives in exactly one place, so a
+    /// field added to the alias breaks here loudly instead of the tests
+    /// silently building a differently-shaped tuple (which is how they stopped
+    /// compiling when the requested weight was appended).
+    fn run(node_id: usize, content: &str) -> TextRun {
+        (
+            node_id,
+            alloc::string::String::from(content),
+            nexus_text_baked::FontSize::Small,
+            [0, 0, 0, 255],
+            nexus_layout_types::FontWeight::Regular,
+        )
     }
 }

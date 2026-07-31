@@ -361,6 +361,19 @@ mod tests {
         sum
     }
 
+    /// The `.textFit` rungs must actually RASTERISE. A face that bakes empty
+    /// lays out identically and renders nothing, so every layout-level and
+    /// scene-text test stays green while the screen goes blank — which is
+    /// exactly the gap that let a blank display reach the device.
+    #[test]
+    fn the_textfit_rungs_have_ink() {
+        for size in [FontSize::Fit44, FontSize::Fit52Light] {
+            assert!(ink("0123456789", size) > 0, "{size:?} rasterises no digits");
+            assert!(ink("AC", size) > 0, "{size:?} rasterises no letters");
+            assert!(advance('7', size) > 0, "{size:?} has no advance");
+        }
+    }
+
     #[test]
     fn atlas_stays_within_the_rfc0082_budget() {
         // The atlas is ONE shared RO VMO mapped into every app-host
@@ -393,11 +406,6 @@ mod tests {
         assert_eq!(ascent(FontSize::Body), 16);
     }
 
-    /// A run that fits is never touched; one that does not is cut short enough
-    /// that the ellipsis still fits the same width. The second half is the
-    /// property that matters: an ellipsis that overflows would be the very
-    /// clipping it exists to announce.
-    #[test]
     #[test]
     fn nearest_picks_size_first_then_weight() {
         // Exact rungs.

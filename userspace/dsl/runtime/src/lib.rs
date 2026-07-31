@@ -26,6 +26,7 @@ pub mod i18n;
 mod initial;
 pub mod interact;
 pub mod nav;
+mod numfmt;
 pub mod persist;
 pub mod reduce;
 pub mod registry;
@@ -481,11 +482,14 @@ pub struct IdentityLocale<'a> {
 }
 
 impl LocaleSource for IdentityLocale<'_> {
-    fn format(&self, key: u32, _args: &[Value]) -> String {
+    fn format(&self, key: u32, args: &[Value]) -> String {
+        // The baked string is a TEMPLATE: interpolate it, exactly as the
+        // catalog-backed sources do. Returning it raw made every host test
+        // that used an `@t` with arguments assert against `{0}`.
         self.keys
             .get(key as usize)
             .and_then(|&sym| self.symbols.get(sym as usize))
-            .cloned()
+            .map(|t| crate::i18n::format_template(t, args))
             .unwrap_or_default()
     }
 }

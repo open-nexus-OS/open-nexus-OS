@@ -195,11 +195,45 @@ Semantic motion tokens with explicit categories — no free-form animation langu
 
 | Modifier | Args | Meaning |
 |---|---|---|
-| `.animate(t, value: expr)` | motion token + driving value | animate state-driven property changes |
+| `.animate(t, value: expr)` | motion token + `Bool`/`Int`/`Fx` | animate state-driven property changes |
 | `.transition(t)` | motion token | insert/remove/open/close lifecycle motion |
-| `.effect(t, trigger: expr)` | motion token + trigger | bounded attention effect on trigger change |
+| `.effect(t, trigger: expr)` | motion token + any scalar | bounded attention effect on trigger change |
 
 Reduced-motion behavior is part of each token's contract.
+
+### `value:` is PRESENT/ABSENT — not "on change"
+
+`.animate` binds a property to whether its driving value is **non-zero**, not to
+the fact that the value moved. The host seeds the node at
+`MotionToken::resting(prop, value != 0)`, so for every opacity-primary token
+(`snappy`, `smooth`, `emphasized`, `fade`, `fadeScale`):
+
+| `value:` | resting opacity |
+|---|---|
+| non-zero | `1.0` — drawn |
+| `0` | `0.0` — **invisible**, and cascaded to every box inside the node |
+
+That is the intended contract ("show this while `x`"), and it is sharp enough to
+cut. `.animate(snappy, value: $state.disp)` on a display card — a `Str`, which
+has no zero/non-zero reading — rested the card at opacity 0 and blanked the
+number, the history line and the card's own glass together, while the store, the
+scene, the layout and the glyph raster were all provably correct. The animation
+transform is applied **last**, so it erases six correct stages silently.
+
+Consequences, all enforced:
+
+- **`value:` takes `Bool`/`Int`/`Fx` only** — the same rule `types.md` already
+  states for modifier arguments. Anything else has no presence reading and
+  stamps **no intent at all** (fail-open: no animation, never an invisible
+  node). Never let it fold to `0`.
+- **Motion on change is `.effect`**, not `.animate`. A node that is always
+  present has no honest `value:`; give it `.effect(pulse|wiggle, trigger: …)`.
+- **`trigger:` accepts any scalar including `Str`** — an effect only asks "did
+  this change", so a string folds to a stable hash.
+
+Regression signals: `userspace/dsl/runtime/tests/anim_intent_folding.rs` (the
+folding rules) and `tests/dsl_apps_conformance/tests/calculator_pixels.rs`
+(`nothing_rests_invisible_over_the_display` — the app-level invariant).
 
 **Status: implemented** (Tier 2, TASK-0062/0075). The token argument is validated
 against the curated motion set (`snappy, smooth, emphasized, fade, slideUp,

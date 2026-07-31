@@ -40,13 +40,13 @@ Component CalcKeypad {
         Stack {
             Stack { CalcKey { label: "7", kind: "digit" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Digit(7))
+            on Tap -> dispatch(Digit(7.0, "7"))
             Stack { CalcKey { label: "8", kind: "digit" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Digit(8))
+            on Tap -> dispatch(Digit(8.0, "8"))
             Stack { CalcKey { label: "9", kind: "digit" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Digit(9))
+            on Tap -> dispatch(Digit(9.0, "9"))
             Stack { CalcKey { label: "×", kind: "operator" } }
                 .direction(row).basis(0).grow(1)
             on Tap -> dispatch(Op("*"))
@@ -56,13 +56,13 @@ Component CalcKeypad {
         Stack {
             Stack { CalcKey { label: "4", kind: "digit" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Digit(4))
+            on Tap -> dispatch(Digit(4.0, "4"))
             Stack { CalcKey { label: "5", kind: "digit" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Digit(5))
+            on Tap -> dispatch(Digit(5.0, "5"))
             Stack { CalcKey { label: "6", kind: "digit" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Digit(6))
+            on Tap -> dispatch(Digit(6.0, "6"))
             Stack { CalcKey { label: "−", kind: "operator" } }
                 .direction(row).basis(0).grow(1)
             on Tap -> dispatch(Op("-"))
@@ -72,13 +72,13 @@ Component CalcKeypad {
         Stack {
             Stack { CalcKey { label: "1", kind: "digit" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Digit(1))
+            on Tap -> dispatch(Digit(1.0, "1"))
             Stack { CalcKey { label: "2", kind: "digit" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Digit(2))
+            on Tap -> dispatch(Digit(2.0, "2"))
             Stack { CalcKey { label: "3", kind: "digit" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Digit(3))
+            on Tap -> dispatch(Digit(3.0, "3"))
             Stack { CalcKey { label: "+", kind: "operator" } }
                 .direction(row).basis(0).grow(1)
             on Tap -> dispatch(Op("+"))
@@ -89,10 +89,10 @@ Component CalcKeypad {
             // Two tracks plus the gap they straddle — a grid span without Grid.
             Stack { CalcKey { label: "0", kind: "digit" } }
                 .direction(row).basis(12).grow(2)
-            on Tap -> dispatch(Digit(0))
+            on Tap -> dispatch(Digit(0.0, "0"))
             Stack { CalcKey { label: ",", kind: "digit" } }
                 .direction(row).basis(0).grow(1)
-            on Tap -> dispatch(Digit(0))
+            on Tap -> dispatch(Sep(","))
             Stack { CalcKey { label: "=", kind: "equals" } }
                 .direction(row).basis(0).grow(1)
             on Tap -> dispatch(Eq)

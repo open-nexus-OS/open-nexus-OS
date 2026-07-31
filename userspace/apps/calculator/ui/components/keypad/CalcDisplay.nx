@@ -15,24 +15,50 @@
 //
 // MOTION (a deviation, recorded): the handoff specifies only a press
 // `scale(0.94)`, which the DSL cannot express — there is no press-down/up
-// trigger, only `Tap`. The calculator is also the platform's animation demo
-// (its manifest says so, and `apps_compile` pins both intent kinds), so the
-// card carries a value-driven `.animate` and the numeral an attention
-// `.effect` — motion on the thing that actually changed.
+// trigger, only `Tap`. What the numeral carries instead is an attention
+// `.effect(wiggle)`: motion on the thing that actually changed.
+//
+// The card itself carries NO `.animate`, and this is load-bearing rather than
+// an omission. `.animate(token, value: expr)` is a PRESENT/ABSENT binding —
+// `MotionToken::resting` puts an opacity-primary token at opacity 0 whenever
+// the driving value folds to 0 — so `.animate(snappy, value: $state.disp)`
+// rested this card at zero alpha and the host cascade carried that to the
+// history line and the number inside it. A blank display for a day, while the
+// store, the layout and the text runs were all correct. The display is always
+// present; there is no honest `value:` for it. Motion on change is `.effect`,
+// which is where it now lives.
 Component CalcDisplay {
-    props: {
-        value: Int,
-    }
+    // NO props for the live values. Store field names are program-GLOBAL in
+    // this DSL, so a component reads `$state.x` directly — that is what every
+    // working live-value component does (`Text($state.clock)` in ClockPill,
+    // `Text($state.preedit)` in the OSK). Threading a changing value through a
+    // prop is the one thing the calculator did differently, and props are for
+    // STATIC per-instance data (`CalcKey`'s label/kind), not for state.
     Stack {
+        // The history line ("1.234,5 x 8 ="), right-aligned above the number.
+        Stack {
+            Spacer
+            Text($state.history)
+                .textSize(base)
+                .fontWeight(medium)
+                .fg(onGlassMuted)
+        }
+        .direction(row)
         // The numeral row TAKES the card's height, because `.textFit` reads
         // its container's box: left at its text height (20px) the target came
         // out at 17px instead of the handoff's 52.
         Stack {
             Spacer
-            Text($props.value)
+            // EXPLICIT `.textSize` even though `.textFit` normally overrides
+            // it: the fit is a refinement, never the only thing standing
+            // between the value and the screen. Without it this Text's size
+            // came solely from a modifier that had never run on a device, so
+            // any failure there took the whole number with it.
+            Text($state.disp)
+                .textSize(display)
                 .fg(onGlassStrong)
                 .fontWeight(light)
-                .effect(wiggle, trigger: $props.value)
+                .effect(wiggle, trigger: $state.disp)
         }
         .direction(row)
         .align(center)
@@ -42,7 +68,6 @@ Component CalcDisplay {
     .minHeight(104)
     .rounded(14)
     .material(card)
-    .animate(snappy, value: $props.value)
     // 4px steps: handoff 8/10/12 padding + 4 gap -> 2/2/3 steps + 1 step.
     .paddingX(2)
     .paddingTop(2)

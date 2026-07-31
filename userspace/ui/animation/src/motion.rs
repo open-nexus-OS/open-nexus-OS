@@ -194,7 +194,67 @@ impl MotionToken {
             _ => None,
         }
     }
+
+    /// Where `prop` RESTS under this token for a driving value that is
+    /// `present` (non-zero) or absent (zero) — the `.animate(token, value:)`
+    /// contract, and the seed a host writes on first sight of the node.
+    ///
+    /// **`.animate` is a PRESENT/ABSENT binding, not "move when the value
+    /// changes".** Read the opacity arm literally: an absent value rests at
+    /// `0.0`, so a node carrying an opacity-primary token
+    /// (`snappy`/`smooth`/`emphasized`/`fade`/`fadeScale`) and a driving value
+    /// of 0 is INVISIBLE, and stays invisible until the value becomes
+    /// non-zero. That is the intended semantic — and it is also the one that
+    /// blanks a whole card when the `value:` expression cannot be folded to a
+    /// number, which is why the folding side must refuse such an expression
+    /// rather than pass 0 (see the DSL runtime's `stamp_anim`).
+    ///
+    /// Lives here, on the token, because both the app-host seed path and the
+    /// app conformance tests have to answer this question the same way — the
+    /// host copy used to be the only one, inside a RISC-V-only module no host
+    /// test could reach.
+    #[must_use]
+    pub fn resting(self, prop: AnimProp, present: bool) -> f32 {
+        match prop {
+            AnimProp::Opacity => {
+                if present {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            // Both slide tokens rest IN place (0) when present; absent, they
+            // sit on the side they travel FROM — SlideUp below, SlideDown
+            // above.
+            AnimProp::TranslateY => {
+                if present {
+                    0.0
+                } else if matches!(self, MotionToken::SlideDown) {
+                    SLIDE_DOWN_PX
+                } else {
+                    SLIDE_PX
+                }
+            }
+            AnimProp::ScaleX | AnimProp::ScaleY => {
+                if matches!(self, MotionToken::FadeScale) && !present {
+                    FADE_SCALE_FROM
+                } else {
+                    1.0
+                }
+            }
+            _ => prop.identity(),
+        }
+    }
 }
+
+/// SlideUp travel (px): the offset a slide-in transition starts from.
+pub const SLIDE_PX: f32 = 16.0;
+/// SlideDown travel (px): a drop-down starts ABOVE its resting place, so the
+/// offset is negative — and shorter, because it falls out of a 36px bar rather
+/// than rising from the bottom of the screen.
+pub const SLIDE_DOWN_PX: f32 = -10.0;
+/// FadeScale's absent-state scale (grows to 1.0 on enter, per animation.md).
+pub const FADE_SCALE_FROM: f32 = 0.92;
 
 #[cfg(test)]
 mod tests {
@@ -222,5 +282,56 @@ mod tests {
         assert_eq!(MotionToken::Fade.primary_prop(), AnimProp::Opacity);
         assert_eq!(MotionToken::Fade.secondary_prop(), None);
         assert_eq!(MotionToken::FadeScale.secondary_prop(), Some(AnimProp::ScaleX));
+    }
+
+    /// The trap, written down: on every opacity-primary token, a driving value
+    /// of ZERO rests the node fully TRANSPARENT. `.animate(snappy, value: x)`
+    /// therefore means "visible while x != 0" — it is not "animate on change".
+    ///
+    /// This cost a day on the calculator: a `Str` `value:` folded to 0, the
+    /// display card seeded to opacity 0, and the transform cascaded to every
+    /// box inside it — a blank card while the store, the layout and the text
+    /// runs were all provably correct. The sentence was true the whole time
+    /// and written nowhere.
+    #[test]
+    fn a_zero_driving_value_rests_hidden() {
+        for token in MotionToken::ALL {
+            if token.primary_prop() != AnimProp::Opacity {
+                continue;
+            }
+            assert_eq!(
+                token.resting(AnimProp::Opacity, false),
+                0.0,
+                "{token:?}: an absent value must rest hidden"
+            );
+            assert_eq!(
+                token.resting(AnimProp::Opacity, true),
+                1.0,
+                "{token:?}: a present value must rest fully drawn"
+            );
+        }
+    }
+
+    /// The travel tokens rest IN PLACE when present and offset when absent —
+    /// and SlideDown falls from above, so its offset is the negative one.
+    #[test]
+    fn travel_tokens_rest_in_place_when_present() {
+        assert_eq!(MotionToken::SlideUp.resting(AnimProp::TranslateY, true), 0.0);
+        assert_eq!(MotionToken::SlideUp.resting(AnimProp::TranslateY, false), SLIDE_PX);
+        assert_eq!(MotionToken::SlideDown.resting(AnimProp::TranslateY, false), SLIDE_DOWN_PX);
+        assert!(SLIDE_DOWN_PX < 0.0, "a drop-down starts above its resting place");
+        // Only fadeScale scales in; every other token rests unscaled.
+        assert_eq!(MotionToken::FadeScale.resting(AnimProp::ScaleX, false), FADE_SCALE_FROM);
+        assert_eq!(MotionToken::Snappy.resting(AnimProp::ScaleX, false), 1.0);
+    }
+
+    /// A property the token does not drive rests at ITS identity, never at 0 —
+    /// a scale must not be seeded to zero by a token that only fades.
+    #[test]
+    fn an_undriven_property_rests_at_its_own_identity() {
+        assert_eq!(AnimProp::Opacity.identity(), 1.0);
+        assert_eq!(AnimProp::ScaleX.identity(), 1.0);
+        assert_eq!(AnimProp::TranslateX.identity(), 0.0);
+        assert_eq!(MotionToken::Fade.resting(AnimProp::BlurRadius, false), 0.0);
     }
 }
