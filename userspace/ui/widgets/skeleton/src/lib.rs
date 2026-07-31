@@ -119,6 +119,7 @@ impl Skeleton {
                     margin: EdgeInsets { left: FxPx::new(band_left), ..EdgeInsets::zero() },
                     ..FlexItem::default()
                 },
+                text_fit: None,
             },
             VisualStyle {
                 background: Some(shimmer),
@@ -142,6 +143,7 @@ impl Skeleton {
                 min_height: Some(self.height),
                 max_height: Some(self.height),
                 item: FlexItem::default(),
+                text_fit: None,
             },
             VisualStyle {
                 background: Some(block),
@@ -224,6 +226,7 @@ impl SkeletonText {
                 min_height: None,
                 max_height: None,
                 item: FlexItem::default(),
+                text_fit: None,
             },
             VisualStyle::default(),
             rows,

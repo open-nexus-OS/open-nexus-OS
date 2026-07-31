@@ -93,6 +93,7 @@ pub fn swatch(px: i32) -> LayoutNode {
             min_height: d,
             max_height: d,
             item: FlexItem::default(),
+            text_fit: None,
         },
         visual,
         Vec::new(),

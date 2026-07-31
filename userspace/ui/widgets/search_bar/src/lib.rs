@@ -128,6 +128,7 @@ impl SearchBar {
                 min_height: None,
                 max_height: None,
                 item: FlexItem::default(),
+                text_fit: None,
             },
             style.visual(),
             children,

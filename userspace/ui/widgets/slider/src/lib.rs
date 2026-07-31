@@ -105,6 +105,7 @@ impl Slider {
                 min_height: Some(FxPx::new(TRACK_H)),
                 max_height: Some(FxPx::new(TRACK_H)),
                 item: FlexItem { flex_grow: weight, ..FlexItem::default() },
+                text_fit: None,
             },
             visual,
             children,
@@ -168,6 +169,7 @@ impl Slider {
                 max_height: Some(FxPx::new(TRACK_H)),
                 // The track takes the row's free space (handoff `flex: 1`).
                 item: FlexItem { flex_grow: 1, ..FlexItem::default() },
+                text_fit: None,
             },
             track_visual,
             children,

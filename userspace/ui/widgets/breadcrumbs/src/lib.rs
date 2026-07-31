@@ -67,6 +67,7 @@ impl Breadcrumbs {
                 min_height: None,
                 max_height: None,
                 item: FlexItem::default(),
+                text_fit: None,
             },
             VisualStyle::default(),
             row,

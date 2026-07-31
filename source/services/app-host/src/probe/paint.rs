@@ -149,7 +149,7 @@ impl super::DslApp {
             // Box -> anim mapping ONCE per repaint (not per row).
             vis_anim
                 .push(anims.iter().position(|a| a.node_id == b.node_id).map_or(-1, |i| i as i16));
-            if let Ok(ti) = self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id) {
+            if let Ok(ti) = self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _, _)| *id) {
                 vis_text.push((bi as u32, ti as u32));
             }
         }
@@ -219,7 +219,19 @@ impl super::DslApp {
                     continue;
                 }
                 {
-                    let (_, content, font, color) = &self.texts[ti as usize];
+                    let (_, content, font, color, weight) = &self.texts[ti as usize];
+                    // `.textFit`: the LAYOUT chose this run's size from its
+                    // container's box, so it wins over the scene's authored
+                    // `.textSize`. Re-resolved with the REQUESTED weight —
+                    // `font` alone has already collapsed onto a rung and would
+                    // hand back the wrong weight class.
+                    let font = &match b.text_px {
+                        Some(px) => nexus_text_baked::FontSize::nearest(
+                            px.0,
+                            nexus_text_baked::measure_text::BakedTextMeasure::weight(*weight),
+                        ),
+                        None => *font,
+                    };
                     // Animated text node (`.animate(fade)`/`.effect(wiggle)` on a
                     // Text): fade its glyphs by the node opacity and shift them
                     // by the horizontal translate. Vertical translate + scale on
@@ -405,8 +417,19 @@ impl super::DslApp {
                 if bw <= 0 || bh <= 0 || model_y < by || model_y >= by + bh {
                     continue;
                 }
-                if let Ok(ti) = self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id) {
-                    let (_, content, font, color) = &self.texts[ti];
+                if let Ok(ti) = self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _, _)| *id)
+                {
+                    let (_, content, font, color, weight) = &self.texts[ti];
+                    // Same `.textFit` override as the plain path — both glyph
+                    // passes must agree or a banded window paints its labels
+                    // at the authored size while the unbanded one fits them.
+                    let font = &match b.text_px {
+                        Some(px) => nexus_text_baked::FontSize::nearest(
+                            px.0,
+                            nexus_text_baked::measure_text::BakedTextMeasure::weight(*weight),
+                        ),
+                        None => *font,
+                    };
                     // Animated text node: fade + horizontal shift (same
                     // contract as the plain-path glyph pass).
                     let (color, bx_glyph) =

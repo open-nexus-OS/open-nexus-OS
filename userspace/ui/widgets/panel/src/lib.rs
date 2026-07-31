@@ -136,6 +136,7 @@ impl Panel {
                 min_height: None,
                 max_height: None,
                 item: FlexItem::default(),
+                text_fit: None,
             },
             self.style.visual(),
             self.children,

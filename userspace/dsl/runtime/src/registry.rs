@@ -44,6 +44,9 @@ pub struct Mods {
     pub shrink: Option<u32>,
     /// `.basis(n)` — flex base size on the parent's main axis.
     pub basis: Option<FxPx>,
+    /// `.textFit(pct, min, max)` — box-relative type for this container's
+    /// text descendants.
+    pub text_fit: Option<nexus_layout_types::TextFit>,
     pub wrap: bool,
     pub direction: Option<Direction>,
     pub align: Option<Align>,
@@ -117,6 +120,7 @@ impl Default for Mods {
             max_height: None,
             grow: 0,
             basis: None,
+            text_fit: None,
             shrink: None,
             wrap: false,
             direction: None,
@@ -299,6 +303,7 @@ fn plain_stack(
             min_height: min_h,
             max_height: max_h,
             item,
+            text_fit: mods.text_fit,
         },
         mods.visual(tokens),
         children,
@@ -356,6 +361,7 @@ fn plain_grid(
             min_height: min_h,
             max_height: max_h,
             item,
+            text_fit: mods.text_fit,
         },
         mods.visual(tokens),
         children,

@@ -157,6 +157,22 @@ pub(super) fn apply_modifier(
         // basis(n): raw px like `.width`, NOT a spacing step — it names a
         // geometry the layout divides, not a design-system rhythm.
         54 => mods.basis = Some(FxPx::new(int_arg().clamp(0, 16384) as i32)), // basis(n)
+        55 => {
+            // textFit(pct, min, max): three positional ints, read by INDEX —
+            // `first` only ever sees the leading argument (the `.bgFade` shape).
+            let nth = |n: usize| -> i64 {
+                match args.get(n as u32).which() {
+                    Ok(ir::token_arg::Which::Int(i)) => i,
+                    _ => 0,
+                }
+            };
+            let px = |v: i64| FxPx::new(v.clamp(0, 16384) as i32);
+            mods.text_fit = Some(nexus_layout_types::TextFit {
+                pct: nth(0).clamp(1, 100) as u32,
+                min: px(nth(1)),
+                max: px(nth(2)),
+            });
+        } // textFit
         49 => {
             // bgGradient(top, bottom): both args are exprs → "#rrggbb[aa]"
             // strings (literal or prop-fed). Unparseable = no gradient —

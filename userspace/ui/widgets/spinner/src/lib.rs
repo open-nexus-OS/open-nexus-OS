@@ -135,6 +135,7 @@ impl Spinner {
                     min_height: d,
                     max_height: d,
                     item: FlexItem { position: Position::Absolute, ..FlexItem::default() },
+                    text_fit: None,
                 },
                 VisualStyle {
                     background: Some(color),
@@ -160,6 +161,7 @@ impl Spinner {
                 min_height: d,
                 max_height: d,
                 item: FlexItem::default(),
+                text_fit: None,
             },
             VisualStyle::default(),
             spokes,

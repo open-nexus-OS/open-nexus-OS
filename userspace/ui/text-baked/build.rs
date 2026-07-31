@@ -110,6 +110,22 @@ const FACES: &[FaceSpec] = &[
     // untouched, and CJK captions fall back through `BODY` as everywhere else.
     FaceSpec { name: "FONT11", px: 11.0, weight: 400, charset: Charset::Latin },
     FaceSpec { name: "FONT11_SEMI", px: 11.0, weight: 600, charset: Charset::Latin },
+    // The `.textFit` rungs (TASK-0314). Box-relative type needs somewhere to
+    // STEP: between 36 and 120 the ladder was empty, so every request from 30
+    // to 72 px resolved to the same 36 px face and a calculator key label
+    // stopped growing the moment the window did.
+    //
+    // 44 and 52 are chosen because they move NO existing token: `nearest`
+    // still answers 36 for `xxxl`(30) and `display`(36), and 120 for
+    // `hero`(120). Rungs at 26 or 30 would silently re-render `xxl`/`xxxl`
+    // across settings, launcher and shell — a separate decision, not a
+    // side effect of this task.
+    //
+    // `Latin` (not the cheaper digits-only set) so the fit stays usable by
+    // any app: a codepoint the face does not carry falls back to the 16 px
+    // face, which on a large key would paint a tiny label in a huge box.
+    FaceSpec { name: "FONT44", px: 44.0, weight: 400, charset: Charset::Latin },
+    FaceSpec { name: "FONT52_LIGHT", px: 52.0, weight: 300, charset: Charset::Latin },
 ];
 
 // -------------------------------------------------------------------- fonts

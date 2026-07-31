@@ -18,7 +18,13 @@ use super::*;
 pub(in crate::probe) fn collect_texts(
     node: &nexus_layout_types::LayoutNode,
     index: &mut usize,
-    out: &mut alloc::vec::Vec<(usize, alloc::string::String, nexus_text_baked::FontSize, [u8; 4])>,
+    out: &mut alloc::vec::Vec<(
+        usize,
+        alloc::string::String,
+        nexus_text_baked::FontSize,
+        [u8; 4],
+        nexus_layout_types::FontWeight,
+    )>,
 ) {
     use nexus_layout_types::LayoutNode as N;
     *index += 1;
@@ -31,6 +37,7 @@ pub(in crate::probe) fn collect_texts(
                 alloc::string::String::from(text.content.as_str()),
                 font,
                 [c.b, c.g, c.r, c.a],
+                text.style.font_weight,
             ));
         }
         N::TextInput(input, _) => {
@@ -46,6 +53,7 @@ pub(in crate::probe) fn collect_texts(
                     alloc::string::String::from(input.content.as_str()),
                     font,
                     [c.b, c.g, c.r, c.a],
+                    input.style.font_weight,
                 ));
             } else if let Some(placeholder) = &input.placeholder {
                 // Placeholder at ~55% of the content color (dimmed).
@@ -55,11 +63,18 @@ pub(in crate::probe) fn collect_texts(
                     alloc::string::String::from(placeholder.as_str()),
                     font,
                     [dim(c.b), dim(c.g), dim(c.r), c.a],
+                    input.style.font_weight,
                 ));
             } else {
                 // Empty field without placeholder: keep an (empty) run —
                 // the caret bar anchors to a paint entry.
-                out.push((*index, alloc::string::String::new(), font, [c.b, c.g, c.r, c.a]));
+                out.push((
+                    *index,
+                    alloc::string::String::new(),
+                    font,
+                    [c.b, c.g, c.r, c.a],
+                    input.style.font_weight,
+                ));
             }
         }
         N::Stack(_, _, children) => {

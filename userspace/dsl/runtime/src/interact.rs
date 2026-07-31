@@ -246,6 +246,7 @@ mod hit_slop_tests {
             overflow: Overflow::Visible,
             hit_slop: FxPx::new(slop),
             glass_nested: false,
+            text_px: None,
         }
     }
 
@@ -348,6 +349,7 @@ mod multi_viewport_tests {
             overflow: Overflow::Visible,
             hit_slop: FxPx::ZERO,
             glass_nested: false,
+            text_px: None,
         }
     }
 

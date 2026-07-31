@@ -25,6 +25,9 @@ pub(crate) fn child_constraints(
         max_width.max(FxPx::ZERO),
         height.map(|value| value.saturating_sub(item.margin.vertical())),
     )
+    // `.textFit` is INHERITED: it must survive every constraint rebuild on the
+    // way down, or only a container's direct text children would fit.
+    .with_text_px(parent.text_px)
 }
 
 /// What a ROW child lays its own subtree out against.
@@ -54,9 +57,10 @@ pub(crate) fn row_child_constraints(
             child_width,
             Some(available_cross.saturating_sub(item.margin.vertical())),
         )
+        .with_text_px(parent.text_px)
     } else if item.flex_grow > 0 && child_width > measured_width {
         // Width only: the height stays whatever `final_height` records.
-        LayoutConstraints::definite(child_width, Some(measured_height))
+        LayoutConstraints::definite(child_width, Some(measured_height)).with_text_px(parent.text_px)
     } else {
         child_constraints(parent, item, child_width, Some(available_cross))
     }

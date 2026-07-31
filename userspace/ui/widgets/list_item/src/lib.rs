@@ -86,6 +86,7 @@ impl ListItem {
                 min_height: None,
                 max_height: None,
                 item: FlexItem::default(),
+                text_fit: None,
             },
             VisualStyle::default(),
             children,

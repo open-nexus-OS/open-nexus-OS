@@ -192,6 +192,7 @@ fn stripe_node(color: Rgba8) -> LayoutNode {
             min_height: Some(FxPx::new(28)),
             max_height: None,
             item: FlexItem { align_self: Some(Align::Stretch), ..FlexItem::default() },
+            text_fit: None,
         },
         VisualStyle {
             background: Some(color),
@@ -220,6 +221,7 @@ fn tap_region(id: Option<&'static str>, content: LayoutNode, tokens: &dyn Tokens
             min_height: None,
             max_height: None,
             item: FlexItem::default(),
+            text_fit: None,
         },
         VisualStyle::default(),
         alloc::vec![content],

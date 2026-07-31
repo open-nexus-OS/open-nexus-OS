@@ -16,12 +16,14 @@
 extern crate alloc;
 
 pub mod boxes;
+mod boxsize_tests;
 mod constraints;
 pub mod engine;
 #[cfg(test)]
 mod engine_tests;
 pub mod error;
 mod geometry;
+mod textfit;
 
 pub use boxes::{compute_scroll_damage, LayoutBox, LayoutResult, ScrollDamage};
 pub use engine::LayoutEngine;

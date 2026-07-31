@@ -135,7 +135,7 @@ impl super::DslApp {
             // root, spacers-in-disguise) span everything and paint nothing.
             b.visual.background.is_some()
                 || !matches!(b.visual.material, nexus_layout_types::SurfaceMaterial::Opaque)
-                || self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id).is_ok()
+                || self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _, _)| *id).is_ok()
         })
     }
 

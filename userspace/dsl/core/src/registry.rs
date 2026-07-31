@@ -155,6 +155,16 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // child makes the split exact, and `.basis(gap).grow(2)` spans two tracks
     // (the calculator's double-width `0`). Raw px, like `.width`.
     ModifierSpec { name: "basis", args: &[ModArg::Int], class: FieldClass::Layout },
+    // `.textFit(pct, min, max)` — BOX-RELATIVE type (append-only id). THIS
+    // container derives one font size from its own content-box height and
+    // hands it to its text descendants, like an inherited CSS `font-size`.
+    // A ratio, not "as large as fits": the calculator handoff puts a 23px
+    // label in a ~75px key (~30%). Percent + two raw-px clamps.
+    ModifierSpec {
+        name: "textFit",
+        args: &[ModArg::Int, ModArg::Int, ModArg::Int],
+        class: FieldClass::Layout,
+    },
 ];
 
 #[must_use]

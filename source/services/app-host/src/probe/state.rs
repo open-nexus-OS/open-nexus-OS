@@ -21,8 +21,17 @@ pub(super) struct DslApp {
     pub(super) symbols: alloc::vec::Vec<alloc::string::String>,
     pub(super) keys: alloc::vec::Vec<u32>,
     pub(super) layout: nexus_layout::LayoutResult,
-    pub(super) texts:
-        alloc::vec::Vec<(usize, alloc::string::String, nexus_text_baked::FontSize, [u8; 4])>,
+    /// The pre-order text runs the painter indexes by. The REQUESTED weight
+    /// rides along because `FontSize` cannot give it back — a Light request at
+    /// 36px already resolved to the SemiBold rung, so re-resolving a
+    /// `.textFit` size from the FontSize alone would silently change weight.
+    pub(super) texts: alloc::vec::Vec<(
+        usize,
+        alloc::string::String,
+        nexus_text_baked::FontSize,
+        [u8; 4],
+        nexus_layout_types::FontWeight,
+    )>,
     /// The service seam: `svc.*` effects (tap handlers AND the root
     /// initial-load effects) call through this over the provisioned slots.
     pub(super) host: effect_host::AppEffectHost,

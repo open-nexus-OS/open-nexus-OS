@@ -7,6 +7,41 @@ Audit vom 2026-07-14 (Quelle: `docs/dev/design_handoff_open_nexus_os/reference/t
 + `component-api.d.ts` gegen `userspace/ui/theme-tokens`, `resources/themes/base.nxtheme.toml`,
 DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbeitsliste.
 
+## Behoben (2026-07-31, TASK-0314)
+
+- **`.basis(n)` (modId 54)** — die fehlende Flexbox-Grundgröße. `.grow()`
+  verteilte nur den ÜBERSCHUSS auf die gemessene Eigenbreite, deshalb wurde
+  eine Tastenreihe `AC`/`7`/`8`/`9` bei KEINER Fenstergröße gleichmäßig
+  geteilt. Nebenbefund und mitgefixt: der Grow-Pfad verwarf den unteilbaren
+  Rest (bis zu `total_grow − 1` px als Rinne an der Schlusskante), während
+  `place_grid` seinen längst verteilte — beide rechnen jetzt nach
+  größtem Rest und kacheln exakt.
+- **`.textFit(pct, min, max)` (modId 55)** — box-relative Typografie als
+  CONTAINER-Modifier, vererbt an den Teilbaum. Kein „so groß wie passt":
+  der Handoff kodiert ein VERHÄLTNIS (23 px Label in ~75 px Taste ≈ 30 %).
+- **Type-Ramp erweitert**: 44 Regular + 52 Light (Latin). Vorher landete
+  ALLES zwischen 30 und 72 px auf dem 36-px-Face, d. h. ein gefittetes Label
+  hörte auf zu wachsen, sobald das Fenster es tat. Beide Sprossen wurden so
+  gewählt, dass `nearest` KEIN bestehendes Token verschiebt (26 oder 30 hätten
+  `xxl`/`xxxl` in Settings, Launcher und Shell still neu gerendert).
+  Atlas: 4,44 → 4,60 MB von 5 MB.
+
+## Offen / neu gefunden (2026-07-31)
+
+- **`Button` verwirft Geometrie**: `.width/.height/.padding/.rounded/
+  .material/.shadow/.border/.align` erreichen das Kit-Widget nicht
+  (`registry/widgets.rs`); nur `label`, `.bg(danger|surfaceVariant)`,
+  `.disabled`, `.fg`, `.textSize`, `.gap`, `.grow/.shrink/.basis` wirken.
+  Handoff-Tasten sind damit nicht aus `Button` baubar — sie werden als
+  `Stack { Text }` gebaut (wie die Shell-Tiles).
+- **`Grid` ohne Zeilen-Tracks und ohne Spaltenverbund**: Spalten sind exakt
+  gleiche 1fr-Tracks, Zeilen aber INHALTSHOCH. Für gleich hohe Zeilen und
+  eine doppelt breite Taste wird `.basis(0).grow(n)` auf Stacks benutzt.
+  Zurückgestellt, nicht vergessen.
+- **Nicht gebackene Zeichen in `.nx`-Literalen**: `§ → ≤ ≥ ⋯ ─ ✕ ⅚` stehen in
+  Quelltexten, sind aber weder in `EXTRAS` noch in einem i18n-Katalog — sie
+  rendern heute als `?`.
+
 ## Behoben (2026-07-14)
 
 - **Gradients als Primitiv**: `VisualStyle.background_gradient` + DSL `.bgGradient(top, bottom)`
@@ -46,8 +81,12 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
   `FontSize::nearest(px, weight)` ist die eine, dokumentierte Auflösung
   (Größe schlägt Gewicht). CJK oberhalb 16 px fällt bewusst auf das 16-px-
   *Full*-Face zurück. 13/16 px sind **byte-identisch** geblieben.
-- **`.fontWeight` / `.leading` / `.textAlign` / `.paddingTop|Bottom|Leading|
+- **`.fontWeight` / `.leading` / `.paddingTop|Bottom|Leading|
   Trailing` / `.border` / `.borderColor`** sind keine No-ops mehr.
+  **KORREKTUR (2026-07-31):** `.textAlign` stand hier zu Unrecht.
+  `TextStyle.text_align` wird gesetzt und von NIEMANDEM gelesen — weder in
+  `userspace/ui/layout/src/**` noch im app-host-Painter. Zentrierung von Text
+  kommt bis auf Weiteres vom Elternteil (`.align(center).justify(center)`).
 - **Text-Shadow**: `.textShadow(none|soft|strong)` (modId 50) + zweiter
   `draw_text_row`-Pass. Bewusst OHNE Blur — der Zeilen-Painter hat keinen
   Offscreen-Puffer; die Token sind Emphase-Stufen, keine Radien.

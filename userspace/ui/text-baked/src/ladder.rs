@@ -37,6 +37,13 @@ pub enum FontSize {
     Caption,
     /// 11 px SemiBold — emphasized captions (tile labels, pill counters).
     CaptionSemi,
+    /// 44 px Regular — a `.textFit` rung (TASK-0314): the step between the
+    /// 36 px display face and the 52 px one, so box-relative type actually
+    /// changes size as its container grows.
+    Fit44,
+    /// 52 px Light — the calculator handoff's display numeral. Light because
+    /// that is what the handoff specifies (`font-weight: 300`).
+    Fit52Light,
 }
 
 /// Weight class the ladder can serve. Deliberately coarser than CSS: these
@@ -50,7 +57,7 @@ pub enum Weight {
 
 /// Every baked face as `(size, px, weight)` — the ladder's SSOT on the read
 /// side, kept in lock-step with `FACES` in `build.rs`.
-const LADDER: [(FontSize, i32, Weight); 10] = [
+const LADDER: [(FontSize, i32, Weight); 12] = [
     (FontSize::Small, 13, Weight::Regular),
     (FontSize::Body, 16, Weight::Regular),
     (FontSize::SmallSemi, 13, Weight::SemiBold),
@@ -61,6 +68,8 @@ const LADDER: [(FontSize, i32, Weight); 10] = [
     (FontSize::Hero, 120, Weight::Light),
     (FontSize::Caption, 11, Weight::Regular),
     (FontSize::CaptionSemi, 11, Weight::SemiBold),
+    (FontSize::Fit44, 44, Weight::Regular),
+    (FontSize::Fit52Light, 52, Weight::Light),
 ];
 
 impl FontSize {
@@ -77,6 +86,38 @@ impl FontSize {
     /// the ladder extensible: the `sm` step (12) landed on the new 11/13 tie
     /// the moment the caption rung was baked, and rounding down would have
     /// silently shrunk every 12 px label in every shipped app.
+    /// The baked pixel size of this rung — the inverse of [`Self::nearest`].
+    ///
+    /// Callers that pick a size from a box (`.textFit`) need to know what they
+    /// actually got: the request is continuous, the ladder is not, and a test
+    /// asserting the REQUEST would happily pass while every size collapsed
+    /// onto one face.
+    #[must_use]
+    pub fn px(self) -> i32 {
+        let mut i = 0;
+        while i < LADDER.len() {
+            if matches!(
+                (LADDER[i].0, self),
+                (FontSize::Small, FontSize::Small)
+                    | (FontSize::Body, FontSize::Body)
+                    | (FontSize::SmallSemi, FontSize::SmallSemi)
+                    | (FontSize::BodySemi, FontSize::BodySemi)
+                    | (FontSize::Title, FontSize::Title)
+                    | (FontSize::TitleSemi, FontSize::TitleSemi)
+                    | (FontSize::DisplaySemi, FontSize::DisplaySemi)
+                    | (FontSize::Hero, FontSize::Hero)
+                    | (FontSize::Caption, FontSize::Caption)
+                    | (FontSize::CaptionSemi, FontSize::CaptionSemi)
+                    | (FontSize::Fit44, FontSize::Fit44)
+                    | (FontSize::Fit52Light, FontSize::Fit52Light)
+            ) {
+                return LADDER[i].1;
+            }
+            i += 1;
+        }
+        16
+    }
+
     #[must_use]
     pub fn nearest(px: i32, weight: Weight) -> FontSize {
         let mut best_px = LADDER[0].1;
@@ -287,6 +328,34 @@ pub(super) const HERO: Face = Face {
     fallback: Some(&BODY),
 };
 
+const FIT44: Face = Face {
+    id: 10,
+    cov_off: baked::FONT44_COV_OFFSET,
+    cov_len: baked::FONT44_COV_LEN,
+    glyphs: baked::FONT44_GLYPHS,
+    extras: baked::FONT44_EXTRAS,
+    wide: baked::FONT44_WIDE,
+    kern: baked::FONT44_KERN,
+    line_h: baked::FONT44_LINE_H,
+    avg_advance: baked::FONT44_AVG_ADVANCE,
+    ascent: baked::FONT44_ASCENT,
+    fallback: Some(&BODY),
+};
+
+const FIT52_LIGHT: Face = Face {
+    id: 11,
+    cov_off: baked::FONT52_LIGHT_COV_OFFSET,
+    cov_len: baked::FONT52_LIGHT_COV_LEN,
+    glyphs: baked::FONT52_LIGHT_GLYPHS,
+    extras: baked::FONT52_LIGHT_EXTRAS,
+    wide: baked::FONT52_LIGHT_WIDE,
+    kern: baked::FONT52_LIGHT_KERN,
+    line_h: baked::FONT52_LIGHT_LINE_H,
+    avg_advance: baked::FONT52_LIGHT_AVG_ADVANCE,
+    ascent: baked::FONT52_LIGHT_ASCENT,
+    fallback: Some(&BODY),
+};
+
 pub(super) const fn face(size: FontSize) -> &'static Face {
     match size {
         FontSize::Small => &SMALL,
@@ -299,5 +368,7 @@ pub(super) const fn face(size: FontSize) -> &'static Face {
         FontSize::Hero => &HERO,
         FontSize::Caption => &CAPTION,
         FontSize::CaptionSemi => &CAPTION_SEMI,
+        FontSize::Fit44 => &FIT44,
+        FontSize::Fit52Light => &FIT52_LIGHT,
     }
 }

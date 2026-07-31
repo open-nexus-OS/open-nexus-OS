@@ -119,7 +119,28 @@ Two properties are worth stating because they are contracts, not accidents:
 | `.fontWeight(w)` | `light\|regular\|medium\|semibold\|bold` | weight |
 | `.textAlign(a)` | `left\|center\|right` | alignment |
 | `.leading(t)` | `flat\|tight\|snug\|normal\|relaxed` | line height as a percentage of the font size; omit it and the baked face's own line height is used |
+| `.textFit(pct, min, max)` | `Int` %, `Int` px, `Int` px | **container** modifier: derives ONE font size from this container's content-box height (`pct` %, clamped to `min`/`max`) and hands it down to its text descendants like an inherited CSS `font-size` |
 | `.truncate(n)` | `Int` lines | multi-line clamp — **not implemented** (nothing wraps, so there is only ever one line). Single-line clipping needs no opt-in: the painter marks ANY run wider than its own box with `…`. |
+
+**Why `.textFit` is a ratio, and why it sits on the container.** A design
+handoff does not say "make the label as large as fits" — it says a 23px label
+sits in a ~75px key, i.e. ~30% of the box. `.textFit(30, 11, 52)` states exactly
+that, so the label tracks the key at every window size instead of at three
+breakpoints. Two consequences worth knowing:
+
+- It is a **container** modifier. On a text node the target would be measured
+  against `constraints.max_height`, which is the PARENT's height while
+  measuring and the text's own line box while placing — 30% of 75 → 23, then
+  30% of 25 → 7. It oscillates. A container's box is settled before its
+  children are placed, so the target is constant for the subtree.
+- It needs a box somebody else decided (a stretched or grown child — the
+  common case). A **hugging** container would size itself from the very text it
+  is sizing, so there the fit is skipped and `max` applies.
+
+After the height gives the target, each text steps DOWN through the ladder
+until its run fits its own width. That is what reproduces the calculator
+handoff's 52/38/30 display ramp without hard-coding digit counts: a long number
+simply stops fitting at the larger rungs.
 
 **What the type ramp can actually render** (RFC-0082). The platform bakes a
 sparse ladder of `(size, weight)` faces and resolves a request to the nearest
@@ -132,6 +153,8 @@ one — **size wins over weight**:
 | 16 | Regular, SemiBold | full at Regular; Latin at SemiBold |
 | 21 | Regular, SemiBold | Latin |
 | 36 | SemiBold | Latin |
+| 44 | Regular | Latin (a `.textFit` rung) |
+| 52 | Light | Latin (a `.textFit` rung — the calculator display numeral) |
 | 120 | Light | **digits only** (`0-9 : .`) |
 
 So `.textSize(hero)` is for numerals — letters at that size fall back to the
@@ -204,6 +227,13 @@ silently degrades to `start`.
 
 ## Changelog
 
+- **v5 (2026-07-31, TASK-0314)** — `.textFit(pct, min, max)` added
+  (append-only id 55): box-relative type, inherited by the subtree. The ladder
+  gained 44 Regular and 52 Light so it has somewhere to step — everything from
+  30 to 72px used to resolve to the same 36px face, which made a fitted label
+  stop growing the moment the window did. Both rungs were chosen because
+  `nearest` moves NO existing token (a rung at 26 or 30 would silently
+  re-render `xxl`/`xxxl` across every shipped app).
 - **v4 (2026-07-31, TASK-0314)** — `.basis(n)` added (append-only id 54): the
   flex base size, so `.grow()` divides a row or column EXACTLY instead of only
   sharing out the leftover on top of unequal content widths. The grow path also

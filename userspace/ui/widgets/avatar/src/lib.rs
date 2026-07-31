@@ -202,6 +202,7 @@ impl Avatar {
                 min_height: d,
                 max_height: d,
                 item: FlexItem::default(),
+                text_fit: None,
             },
             style.visual(),
             alloc::vec![content],

@@ -43,6 +43,16 @@ pub struct LayoutBox {
     /// only the wallpaper. Stamped by the engine (it walks the real tree;
     /// geometry alone cannot recover ancestry).
     pub glass_nested: bool,
+    /// The font size the LAYOUT chose for this text box under an ancestor's
+    /// `.textFit` — `None` when the node keeps its authored `.textSize`.
+    ///
+    /// It lives on the box and not on the scene node on purpose. `resize()` is
+    /// a pure relayout: it rebuilds these boxes and re-walks the UNCHANGED
+    /// scene, so a size recorded at emit time could never follow a window
+    /// resize. Writing back into the scene would also mean mutating a tree
+    /// that `collect_texts`, `path_to_box_id` and the animation keyer each
+    /// walk with their own pre-order counters.
+    pub text_px: Option<FxPx>,
 }
 
 impl Default for LayoutBox {
@@ -61,6 +71,7 @@ impl Default for LayoutBox {
             overflow: Overflow::Visible,
             hit_slop: FxPx::ZERO,
             glass_nested: false,
+            text_px: None,
         }
     }
 }

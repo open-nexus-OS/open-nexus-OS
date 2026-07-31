@@ -56,6 +56,9 @@ pub struct Stack {
     pub min_height: Option<FxPx>,
     pub max_height: Option<FxPx>,
     pub item: FlexItem,
+    /// `.textFit(pct, min, max)` — see [`TextFit`]. Inherited by the whole
+    /// subtree, so nested wrappers do not each need to declare it.
+    pub text_fit: Option<TextFit>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +74,8 @@ pub struct Grid {
     pub min_height: Option<FxPx>,
     pub max_height: Option<FxPx>,
     pub item: FlexItem,
+    /// `.textFit(pct, min, max)` — see [`TextFit`].
+    pub text_fit: Option<TextFit>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +84,42 @@ pub struct Spacer {
     pub flex_grow: u32,
     pub min_size: Option<FxPx>,
     pub item: FlexItem,
+}
+
+/// `.textFit(pct, min, max)` — BOX-RELATIVE type on a container.
+///
+/// The container derives one font size from its own content-box HEIGHT and
+/// hands it down to its text descendants, exactly like an inherited CSS
+/// `font-size`. That is what makes a key label grow with its key instead of
+/// with a breakpoint: the whole point of the calculator handoff is that a
+/// 23px label sits in a 75px key — a RATIO (~30%), not "as large as fits".
+///
+/// Deliberately NOT a text-node modifier. On a `Text` the target would be
+/// computed against `constraints.max_height`, which is the PARENT's height
+/// while measuring and the text's own line box while placing — 30% of 75 → 23,
+/// then 30% of 25 → 7. It oscillates. A container's box is settled before its
+/// children are placed, so the target is a constant for the whole subtree.
+///
+/// Applies only under DEFINITE constraints (a stretched or grown child, i.e.
+/// a parent that has already decided this box's size). A hugging container
+/// would size itself from the text it is sizing, so there the fit is skipped
+/// and `max` is used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextFit {
+    /// Percent of the container's content-box height.
+    pub pct: u32,
+    pub min: FxPx,
+    pub max: FxPx,
+}
+
+impl TextFit {
+    /// The target size for a settled content-box height, before the per-text
+    /// width step-down.
+    #[must_use]
+    pub fn target(&self, content_height: FxPx) -> FxPx {
+        let raw = content_height.0.saturating_mul(self.pct as i32) / 100;
+        FxPx::new(raw.clamp(self.min.0, self.max.0.max(self.min.0)))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,6 +261,7 @@ impl Default for Stack {
             min_height: None,
             max_height: None,
             item: FlexItem::default(),
+            text_fit: None,
         }
     }
 }
@@ -244,6 +286,7 @@ impl Default for Grid {
             min_height: None,
             max_height: None,
             item: FlexItem::default(),
+            text_fit: None,
         }
     }
 }

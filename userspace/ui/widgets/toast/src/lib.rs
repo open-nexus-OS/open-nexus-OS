@@ -150,6 +150,7 @@ impl Toast {
                     min_height: None,
                     max_height: None,
                     item: FlexItem::default(),
+                    text_fit: None,
                 },
                 VisualStyle::default(),
                 alloc::vec![label],
@@ -177,6 +178,7 @@ fn dot_node(color: Rgba8) -> LayoutNode {
             min_height: d,
             max_height: d,
             item: FlexItem::default(),
+            text_fit: None,
         },
         VisualStyle {
             background: Some(color),

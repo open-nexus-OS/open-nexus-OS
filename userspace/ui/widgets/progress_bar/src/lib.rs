@@ -137,6 +137,7 @@ impl ProgressBar {
                         margin: EdgeInsets { left: FxPx::new(left), ..EdgeInsets::zero() },
                         ..FlexItem::default()
                     },
+                    text_fit: None,
                 },
                 VisualStyle {
                     background: Some(fill),
@@ -161,6 +162,7 @@ impl ProgressBar {
                 min_height: h,
                 max_height: h,
                 item: FlexItem::default(),
+                text_fit: None,
             },
             VisualStyle {
                 background: Some(track),

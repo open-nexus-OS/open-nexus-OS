@@ -33,7 +33,8 @@ pub use color::Rgba8;
 pub use direction::{Align, Direction, Justify, Overflow, Position, ScrollAxis, ZIndex};
 pub use measure::{LineLayout, LineMetrics, MeasureText, PreparedTextHandle};
 pub use node::{
-    FlexItem, Fraction, Grid, LayoutNode, Spacer, Stack, TextContent, TextInputNode, TextNode,
+    FlexItem, Fraction, Grid, LayoutNode, Spacer, Stack, TextContent, TextFit, TextInputNode,
+    TextNode,
 };
 pub use text::{FontWeight, LineHeight, TextAlign, TextStyle, WhiteSpace};
 pub use types::{EdgeInsets, FxPx, Rect};

@@ -39,15 +39,25 @@ pub(crate) struct LayoutConstraints {
     /// page root spans the surface, so `.align(center)` + `Spacer` really
     /// center. Never propagated to children (they keep content sizing).
     definite: bool,
+    /// The INHERITED font size from the nearest `.textFit` ancestor, like a
+    /// CSS `font-size` handed down the subtree. `None` = use each text node's
+    /// own authored `.textSize`.
+    pub(crate) text_px: Option<crate::textfit::FitCtx>,
 }
 
 impl LayoutConstraints {
     pub(crate) const fn new(max_width: FxPx, max_height: Option<FxPx>) -> Self {
-        Self { max_width, max_height, definite: false }
+        Self { max_width, max_height, definite: false, text_px: None }
     }
 
     pub(crate) const fn definite(max_width: FxPx, max_height: Option<FxPx>) -> Self {
-        Self { max_width, max_height, definite: true }
+        Self { max_width, max_height, definite: true, text_px: None }
+    }
+
+    /// Re-establishes the inherited text size for a subtree.
+    pub(crate) const fn with_text_px(mut self, text_px: Option<crate::textfit::FitCtx>) -> Self {
+        self.text_px = text_px;
+        self
     }
 }
 
@@ -176,6 +186,7 @@ impl LayoutEngine {
                     scroll_offset,
                     overflow: Overflow::Visible,
                     glass_nested: in_glass,
+                    text_px: None,
                 });
                 Ok(NodeSize { width: main, height: FxPx::ZERO })
             }
@@ -227,7 +238,17 @@ impl LayoutEngine {
             text.min_width.or(text.item.min_width),
             text.max_width.or(text.item.max_width),
         );
-        let handle = measure.prepare(&text.content, &text.style);
+        // `.textFit` from an ancestor replaces the authored `.textSize`, then
+        // steps DOWN until the run fits `width_limit` — which is what turns a
+        // long number into a smaller one instead of an ellipsis.
+        let fitted = crate::textfit::fitted_style(
+            measure,
+            &text.content,
+            &text.style,
+            constraints.text_px,
+            width_limit,
+        );
+        let handle = measure.prepare(&text.content, &fitted);
         let natural_width = measure.measure_width(&handle);
         let target_width = natural_width.min(width_limit);
         let lines = measure.layout_lines(&handle, target_width, text.max_lines);
@@ -258,6 +279,9 @@ impl LayoutEngine {
             scroll_offset,
             overflow: Overflow::Visible,
             glass_nested: in_glass,
+            // Only when a `.textFit` ancestor actually overrode the authored
+            // size — the painter falls back to the scene's own font otherwise.
+            text_px: constraints.text_px.map(|_| fitted.font_size),
         });
         Ok(NodeSize { width, height })
     }
@@ -362,6 +386,7 @@ impl LayoutEngine {
             scroll_offset: container_scroll,
             overflow: stack.overflow,
             glass_nested: in_glass,
+            text_px: None,
         });
         // The container's DESCENDANTS are nested under this glass (the
         // container itself is nested only under an ancestor's).
@@ -374,10 +399,26 @@ impl LayoutEngine {
         // content is allowed to overflow the clip (that overflow IS the
         // scrollable extent). A definite height here made the inner list
         // shrink its rows to fit — nothing left to scroll.
+        // `.textFit`: the container's content box is settled HERE, before any
+        // child is placed, so the derived size is a constant for the subtree —
+        // that is what makes it terminate. A hugging container would size
+        // itself from the very text it is sizing, so the fit needs a box
+        // somebody else decided: definite constraints only.
+        // The box counts as externally decided only when the parent handed
+        // down BOTH a definite flag and a height — `definite` alone is true at
+        // the root even in width-only layout, where the height still comes
+        // from the content and the fit would chase its own tail.
+        let box_is_given = constraints.definite && constraints.max_height.is_some();
+        let fit_ctx = stack.text_fit.map(|fit| {
+            let target =
+                if box_is_given { fit.target(content_height) } else { fit.max.max(fit.min) };
+            crate::textfit::FitCtx { target, min: fit.min }
+        });
+        let inherited_text = fit_ctx.or(constraints.text_px);
         let child_constraints = if matches!(stack.overflow, Overflow::Scroll(_)) {
-            LayoutConstraints::new(content_width, None)
+            LayoutConstraints::new(content_width, None).with_text_px(inherited_text)
         } else {
-            LayoutConstraints::new(content_width, Some(content_height))
+            LayoutConstraints::new(content_width, Some(content_height)).with_text_px(inherited_text)
         };
         if stack.direction.is_horizontal() {
             self.place_stack_row(
@@ -819,6 +860,7 @@ impl LayoutEngine {
             scroll_offset: container_scroll,
             overflow: grid.overflow,
             glass_nested: in_glass,
+            text_px: None,
         });
         // Descendants nest under this container's glass, if any.
         let in_glass =
@@ -974,7 +1016,16 @@ impl LayoutEngine {
             text.min_width.or(text.item.min_width),
             text.max_width.or(text.item.max_width),
         );
-        let handle = measure.prepare(&text.content, &text.style);
+        // MUST mirror `place_text`: measuring at one size and painting at
+        // another is exactly how a run ends up clipped mid-word.
+        let fitted = crate::textfit::fitted_style(
+            measure,
+            &text.content,
+            &text.style,
+            constraints.text_px,
+            width_limit,
+        );
+        let handle = measure.prepare(&text.content, &fitted);
         let natural_width = measure.measure_width(&handle);
         let target_width = natural_width.min(width_limit);
         let lines = measure.layout_lines(&handle, target_width, text.max_lines);

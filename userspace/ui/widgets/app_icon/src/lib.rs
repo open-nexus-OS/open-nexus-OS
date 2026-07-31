@@ -179,6 +179,7 @@ impl AppIcon {
                 min_height: Some(dim),
                 max_height: Some(dim),
                 item: FlexItem::default(),
+                text_fit: None,
             },
             visual,
             children,
