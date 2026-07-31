@@ -27,7 +27,23 @@ extern crate alloc;
 
 use nexus_layout::LayoutBox;
 
-type TextRun = (usize, alloc::string::String, nexus_text_baked::FontSize, [u8; 4]);
+/// One collected text run: `(node index, content, resolved face, BGRA, the
+/// REQUESTED weight)`.
+///
+/// The weight rides along because `FontSize` cannot give it back — a Light
+/// request at 36px has already resolved to the SemiBold rung, so re-resolving
+/// a `.textFit` size from the face alone would silently change weight.
+///
+/// SHARED alias on purpose: `probe::state`, `probe::paint::collect` and this
+/// module must agree, and three hand-written copies of the tuple is exactly
+/// how the OS build broke while `just check` stayed green.
+pub(crate) type TextRun = (
+    usize,
+    alloc::string::String,
+    nexus_text_baked::FontSize,
+    [u8; 4],
+    nexus_layout_types::FontWeight,
+);
 
 /// Pixel-equality of two boxes for damage purposes. `node_id` is
 /// deliberately ignored (see module doc); `hit_slop` never paints.

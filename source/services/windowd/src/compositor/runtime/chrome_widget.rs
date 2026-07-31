@@ -133,6 +133,7 @@ impl DisplayServerRuntime {
                 min_height: Some(FxPx::new(title_h as i32)),
                 max_height: Some(FxPx::new(title_h as i32)),
                 item: FlexItem::default(),
+                text_fit: None,
             },
             VisualStyle::default(),
             alloc::vec![

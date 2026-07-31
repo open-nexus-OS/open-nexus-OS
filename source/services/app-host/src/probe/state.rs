@@ -25,13 +25,7 @@ pub(super) struct DslApp {
     /// rides along because `FontSize` cannot give it back — a Light request at
     /// 36px already resolved to the SemiBold rung, so re-resolving a
     /// `.textFit` size from the FontSize alone would silently change weight.
-    pub(super) texts: alloc::vec::Vec<(
-        usize,
-        alloc::string::String,
-        nexus_text_baked::FontSize,
-        [u8; 4],
-        nexus_layout_types::FontWeight,
-    )>,
+    pub(super) texts: alloc::vec::Vec<crate::layout_diff::TextRun>,
     /// The service seam: `svc.*` effects (tap handlers AND the root
     /// initial-load effects) call through this over the provisioned slots.
     pub(super) host: effect_host::AppEffectHost,

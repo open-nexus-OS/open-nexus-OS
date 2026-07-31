@@ -10,7 +10,8 @@
 //! on the order nodes are counted in. Keeping the three walkers together makes
 //! that agreement visible instead of spread across a 600-line file.
 
-use super::*;
+// Deliberately no `use super::*`: every type this walker touches is named in
+// full, so the module stays readable next to `paint.rs`'s glob.
 
 /// Pre-order text collection (index parallels `LayoutBox::node_id` − 1;
 /// the same three-consumer numbering as windowd's demo mount — do not
@@ -18,13 +19,7 @@ use super::*;
 pub(in crate::probe) fn collect_texts(
     node: &nexus_layout_types::LayoutNode,
     index: &mut usize,
-    out: &mut alloc::vec::Vec<(
-        usize,
-        alloc::string::String,
-        nexus_text_baked::FontSize,
-        [u8; 4],
-        nexus_layout_types::FontWeight,
-    )>,
+    out: &mut alloc::vec::Vec<crate::layout_diff::TextRun>,
 ) {
     use nexus_layout_types::LayoutNode as N;
     *index += 1;
