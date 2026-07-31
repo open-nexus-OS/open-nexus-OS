@@ -92,6 +92,15 @@ glassIcon = "#14141acc"
 glassPlaceholder = "#14141a80"
 glassFocus = "#14141a80"
 glassFill = "#ffffff99"
+# A RAISED control on glass: the handoff's rgba(255,255,255,.16) function
+# keys — stronger than `glassSubtle` (6% in dark), weaker than a solid fill.
+# On light surfaces the same role is an ink wash, not a white one.
+glassFillStrong = "#0000001f"
+# The accent as a TINT, not a fill: an accent-tinted control that still reads
+# as glass (calculator operator keys, tinted chips). Alpha 0x3d = 24%.
+# `AccentTokens` re-derives this from the LIVE accent, so a user accent moves
+# it too — a literal here would pin every tinted control to the default blue.
+accentSoft = "#3b82f63d"
 # Wallpaper legibility (RFC-0082): a full-bleed wash that keeps content
 # readable without killing the image, plus the bottom stop of the fade that
 # carries the footer.

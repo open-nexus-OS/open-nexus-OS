@@ -63,6 +63,7 @@ glassIcon = "#ffffffd9"
 glassPlaceholder = "#ffffff73"
 glassFocus = "#ffffff8c"
 glassFill = "#ffffff33"
+glassFillStrong = "#ffffff29"
 # Wallpaper legibility: dark mode leans on a much denser tint (the handoff's
 # 55% black) because light ink over a bright photo is the harder direction.
 wallpaperTint = "#0000008c"

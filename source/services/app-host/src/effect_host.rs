@@ -247,7 +247,7 @@ impl AppEffectHost {
                 Value::Record(fields)
             })
             .collect();
-        raw_marker("apphost: dsl svc bundlemgr.enumerate ok");
+        raw_marker(&alloc::format!("apphost: dsl svc bundlemgr.enumerate ok n={}", rows.len()));
         Ok(Value::List(rows))
     }
 

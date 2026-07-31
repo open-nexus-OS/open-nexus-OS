@@ -103,3 +103,109 @@ fn windows_changed_trigger_keeps_the_app_list_rendered() {
     let after_feed = tile_count(&view);
     assert!(after_feed >= 2, "tiles must SURVIVE the feed re-emit, got {after_feed}");
 }
+
+/// The same feed, but asserted at LAYOUT level: the tiles must still occupy
+/// real, on-screen boxes after a window opens.
+///
+/// `tiles_survive_the_window_feed` counts SCENE texts, which stay put even if
+/// every box collapses to zero — the user-visible symptom ("the desktop icons
+/// disappear when I open an app") is a geometry/paint failure that a scene
+/// count cannot see.
+#[test]
+fn workspace_tiles_keep_real_boxes_after_a_window_opens() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../userspace/apps/desktop-shell");
+    let nxir = nexus_dsl_core::compile_project_dir(&root).expect("desktop-shell compiles");
+    let symbols: Vec<String> =
+        nexus_dsl_runtime::Runtime::mount(&nxir).expect("mounts").symbols().to_vec();
+    let sym = |name: &str| {
+        symbols.iter().position(|s| s == name).unwrap_or_else(|| panic!("symbol '{name}' missing"))
+            as u32
+    };
+    let mut host = Registry {
+        id_sym: sym("id"),
+        label_sym: sym("label"),
+        icon_sym: sym("icon"),
+        icon_top_sym: sym("iconTop"),
+        icon_bottom_sym: sym("iconBottom"),
+        icon_art_sym: sym("iconArt"),
+        running_sym: sym("running"),
+        enumerates: 0,
+    };
+    let device = nexus_dsl_runtime::FixtureEnv::desktop();
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("initial effects");
+
+    let (w, h) = (1280i32, 800i32);
+    let paintable = |view: &View<'_>| -> usize {
+        let layout = nexus_layout::LayoutEngine::new()
+            .layout_with_viewport(
+                view.scene(),
+                nexus_layout_types::FxPx::new(w),
+                Some(nexus_layout_types::FxPx::new(h)),
+                &nexus_text_baked::measure_text::BakedTextMeasure,
+            )
+            .expect("lays out");
+        layout
+            .boxes
+            .iter()
+            .filter(|b| {
+                b.rect.width.0 > 0
+                    && b.rect.height.0 > 0
+                    && b.rect.x.0 < w
+                    && b.rect.y.0 < h
+                    && b.rect.x.0 + b.rect.width.0 > 0
+                    && b.rect.y.0 + b.rect.height.0 > 0
+            })
+            .count()
+    };
+
+    let before = paintable(&view);
+    assert!(before > 10, "desktop should paint real boxes at mount, got {before}");
+
+    view.fire_trigger(&tokens, &device, &locale, &mut host, "WindowsChanged")
+        .expect("WindowsChanged dispatches");
+    let after = paintable(&view);
+    assert!(
+        after >= before,
+        "opening a window must not erase the desktop: {before} -> {after} paintable boxes"
+    );
+}
+
+/// Diagnostic: how many handlers does the real shell register when the
+/// registry returns NOTHING? The device log showed exactly 11 with no desktop
+/// icons, so this pins whether "icons gone" means "app list empty".
+#[test]
+fn handler_count_with_and_without_apps() {
+    struct Empty;
+    impl nexus_dsl_runtime::EffectHost for Empty {
+        fn call(
+            &mut self,
+            svc: &str,
+            method: &str,
+            _a: &[nexus_dsl_runtime::Value],
+            _t: u32,
+        ) -> Result<nexus_dsl_runtime::Value, u32> {
+            if (svc, method) == ("bundlemgr", "enumerate") {
+                return Ok(nexus_dsl_runtime::Value::List(vec![]));
+            }
+            Err(0)
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../userspace/apps/desktop-shell");
+    let nxir = nexus_dsl_core::compile_project_dir(&root).expect("compiles");
+    let symbols: Vec<String> =
+        nexus_dsl_runtime::Runtime::mount(&nxir).expect("mounts").symbols().to_vec();
+    let device = nexus_dsl_runtime::FixtureEnv::desktop();
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    let mut host = Empty;
+    view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("effects");
+    println!("EMPTY REGISTRY -> {} handlers", view.handlers().len());
+}

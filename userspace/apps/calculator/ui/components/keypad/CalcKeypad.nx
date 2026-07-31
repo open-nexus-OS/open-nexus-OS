@@ -1,0 +1,104 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The 4x5 keypad (handoff: `grid-template-columns:repeat(4,1fr);
+// grid-template-rows:repeat(5,1fr); gap:10px`, and the keypad takes ALL the
+// height the display leaves).
+//
+// Explicit rows of `.basis(0).grow(1)`, not `Grid`: Grid's columns are exactly
+// equal 1fr tracks, but its ROWS are content-sized and it has no column span,
+// so neither "five equally tall rows" nor the double-width `0` is expressible
+// there. `.basis(0)` gives both axes the exact division, and `.basis(10).grow(2)`
+// spans two tracks across the gap.
+//
+// UNITS: `.gap` is in 4px STEPS (handoff 10px -> 3 steps = 12px), while
+// `.basis` is RAW px like `.width` — so the span's basis is 12, matching the
+// gap it straddles in pixels, not in steps.
+//
+// The `.direction(row)` on every key wrapper is LOAD-BEARING: a flex-grown row
+// child is allocated the shared width, but its subtree keeps its own natural
+// width, so without it the tappable area is a sliver of the painted key and
+// every tap logs `apphost: input tap miss` (see `OverviewGrid.nx`).
+Component CalcKeypad {
+    Stack {
+        Stack {
+            Stack { CalcKey { label: "AC", kind: "function" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Clear)
+            Stack { CalcKey { label: "±", kind: "function" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Neg)
+            Stack { CalcKey { label: "%", kind: "function" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Percent)
+            Stack { CalcKey { label: "÷", kind: "operator" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Op("/"))
+        }
+        .direction(row).gap(3).basis(0).grow(1)
+
+        Stack {
+            Stack { CalcKey { label: "7", kind: "digit" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Digit(7))
+            Stack { CalcKey { label: "8", kind: "digit" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Digit(8))
+            Stack { CalcKey { label: "9", kind: "digit" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Digit(9))
+            Stack { CalcKey { label: "×", kind: "operator" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Op("*"))
+        }
+        .direction(row).gap(3).basis(0).grow(1)
+
+        Stack {
+            Stack { CalcKey { label: "4", kind: "digit" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Digit(4))
+            Stack { CalcKey { label: "5", kind: "digit" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Digit(5))
+            Stack { CalcKey { label: "6", kind: "digit" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Digit(6))
+            Stack { CalcKey { label: "−", kind: "operator" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Op("-"))
+        }
+        .direction(row).gap(3).basis(0).grow(1)
+
+        Stack {
+            Stack { CalcKey { label: "1", kind: "digit" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Digit(1))
+            Stack { CalcKey { label: "2", kind: "digit" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Digit(2))
+            Stack { CalcKey { label: "3", kind: "digit" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Digit(3))
+            Stack { CalcKey { label: "+", kind: "operator" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Op("+"))
+        }
+        .direction(row).gap(3).basis(0).grow(1)
+
+        Stack {
+            // Two tracks plus the gap they straddle — a grid span without Grid.
+            Stack { CalcKey { label: "0", kind: "digit" } }
+                .direction(row).basis(12).grow(2)
+            on Tap -> dispatch(Digit(0))
+            Stack { CalcKey { label: ",", kind: "digit" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Digit(0))
+            Stack { CalcKey { label: "=", kind: "equals" } }
+                .direction(row).basis(0).grow(1)
+            on Tap -> dispatch(Eq)
+        }
+        .direction(row).gap(3).basis(0).grow(1)
+    }
+    .gap(3)
+    .grow(1)
+}

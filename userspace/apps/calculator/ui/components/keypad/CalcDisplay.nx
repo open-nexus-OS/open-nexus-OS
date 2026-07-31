@@ -1,0 +1,51 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The display card (handoff: min-height 104, radius 14, `--glass-card-bg`,
+// content bottom-RIGHT aligned, history line above the number).
+//
+// `flex-shrink:0` in the handoff = a fixed minimum here: the KEYPAD absorbs
+// every extra pixel of window height, which is what the user asked for.
+//
+// The number carries `.textFit(85, 16, 52)` — 85% of the card's own height,
+// which lands on the handoff's 52px at the handoff's 104px card. The width
+// step-down then reproduces the handoff's 52/38/30 ramp for free: a long
+// number simply stops fitting at the larger rungs, instead of being cut with
+// an ellipsis or hard-coded against a digit count.
+//
+// MOTION (a deviation, recorded): the handoff specifies only a press
+// `scale(0.94)`, which the DSL cannot express — there is no press-down/up
+// trigger, only `Tap`. The calculator is also the platform's animation demo
+// (its manifest says so, and `apps_compile` pins both intent kinds), so the
+// card carries a value-driven `.animate` and the numeral an attention
+// `.effect` — motion on the thing that actually changed.
+Component CalcDisplay {
+    props: {
+        value: Int,
+    }
+    Stack {
+        // The numeral row TAKES the card's height, because `.textFit` reads
+        // its container's box: left at its text height (20px) the target came
+        // out at 17px instead of the handoff's 52.
+        Stack {
+            Spacer
+            Text($props.value)
+                .fg(onGlassStrong)
+                .fontWeight(light)
+                .effect(wiggle, trigger: $props.value)
+        }
+        .direction(row)
+        .align(center)
+        .grow(1)
+        .textFit(70, 16, 52)
+    }
+    .minHeight(104)
+    .rounded(14)
+    .material(card)
+    .animate(snappy, value: $props.value)
+    // 4px steps: handoff 8/10/12 padding + 4 gap -> 2/2/3 steps + 1 step.
+    .paddingX(2)
+    .paddingTop(2)
+    .paddingBottom(3)
+    .gap(1)
+}

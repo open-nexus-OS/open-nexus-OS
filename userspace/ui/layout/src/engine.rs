@@ -616,6 +616,7 @@ impl LayoutEngine {
             // fill semantic). Plain absolutes keep content sizing (pips).
             let child_c = if item.flex_grow > 0 {
                 LayoutConstraints::definite(child_width, constraints.max_height)
+                    .with_text_px(constraints.text_px)
             } else {
                 child_constraints(constraints, item, child_width, constraints.max_height)
             };
@@ -749,7 +750,11 @@ impl LayoutEngine {
             // size (a hugging nested row collapsed its Spacer: the shell's
             // topbar was 161px wide inside a 1280px slot).
             let child_c = if fills {
+                // `.with_text_px`: a `.textFit` context must survive this
+                // rebuild, or the inheritance dies at the first stretched
+                // column child (which is nearly every container).
                 LayoutConstraints::definite(child_width, Some(allocated_height))
+                    .with_text_px(constraints.text_px)
             } else {
                 child_constraints(constraints, *item, child_width, Some(allocated_height))
             };
@@ -789,6 +794,7 @@ impl LayoutEngine {
             // fill semantic). Plain absolutes keep content sizing (pips).
             let child_c = if item.flex_grow > 0 {
                 LayoutConstraints::definite(child_width, constraints.max_height)
+                    .with_text_px(constraints.text_px)
             } else {
                 child_constraints(constraints, item, child_width, constraints.max_height)
             };

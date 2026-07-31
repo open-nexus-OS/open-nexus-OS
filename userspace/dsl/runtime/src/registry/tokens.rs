@@ -53,6 +53,8 @@ pub fn color_token(name: &str) -> Option<ColorToken> {
         "glassPlaceholder" => ColorToken::GlassPlaceholder,
         "glassFocus" => ColorToken::GlassFocus,
         "glassFill" => ColorToken::GlassFill,
+        "glassFillStrong" => ColorToken::GlassFillStrong,
+        "accentSoft" => ColorToken::AccentSoft,
         "wallpaperTint" => ColorToken::WallpaperTint,
         "wallpaperVignette" => ColorToken::WallpaperVignette,
         "textShadow" => ColorToken::TextShadow,

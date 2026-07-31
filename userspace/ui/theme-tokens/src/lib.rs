@@ -18,121 +18,9 @@
 //! one of these `Tokens` snapshots (build-time generated or runtime-selected);
 //! this crate is the `no_std` runtime contract consumed by the UI.
 
+mod color_token;
+pub use color_token::ColorToken;
 use nexus_layout_types::{FxPx, Rgba8};
-
-/// Semantic color roles. Add roles here (and to every theme) rather than using
-/// raw colors in widgets/shells.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ColorToken {
-    /// Base surface (panels, cards, sheets).
-    Surface,
-    /// A raised/variant surface (hover, selected rows).
-    SurfaceVariant,
-    /// Primary content (text/icons) on `Surface`.
-    OnSurface,
-    /// Secondary/dimmed content on `Surface`.
-    OnSurfaceVariant,
-    /// Accent / primary action.
-    Accent,
-    /// Content on `Accent`.
-    OnAccent,
-    /// Hairline borders / separators.
-    Border,
-    /// Shadow tint.
-    Shadow,
-    /// Window/desktop background.
-    Background,
-    /// Brand ink (headings, high-emphasis).
-    Primary,
-    /// Content on `Primary`.
-    OnPrimary,
-    /// Destructive / danger action.
-    Danger,
-    /// Content on `Danger`.
-    OnDanger,
-    /// Warning status.
-    Warning,
-    /// Success status.
-    Success,
-    /// Informational status.
-    Info,
-    /// Content on `Warning`.
-    OnWarning,
-    /// Content on `Success`.
-    OnSuccess,
-    /// Content on `Info`.
-    OnInfo,
-    /// Focus ring / keyboard focus indicator.
-    FocusRing,
-    /// The Dynamic-Island pill fill (solid black in both themes).
-    IslandBg,
-    /// Modal/sheet backdrop dim (handoff `--glass-scrim`).
-    Scrim,
-    /// Destructive action (handoff role distinct from `Danger`).
-    Destructive,
-    /// Content on `Destructive`.
-    OnDestructive,
-
-    // ---- RFC-0082: content on glass / directly on the wallpaper ----
-    // These exist because the lock surface, the dock and the launcher paint
-    // over a PHOTOGRAPH, not over `Surface`. `OnSurface` is tuned for a solid
-    // panel and disappears on a bright sky.
-    /// Primary text on glass or wallpaper.
-    OnGlass,
-    /// Secondary/dimmed text on glass or wallpaper.
-    OnGlassMuted,
-    /// High-emphasis text on glass or wallpaper.
-    OnGlassStrong,
-    /// Icon stroke on glass.
-    GlassIcon,
-    /// Placeholder text inside a glass field.
-    GlassPlaceholder,
-    /// Border color a FOCUSED glass control takes (distinct from the solid
-    /// `FocusRing` blue — on glass the ring is a tint of the ink).
-    GlassFocus,
-    /// Flat translucent fill of a control sitting INSIDE glass (a submit
-    /// button in a pill). Never its own glass layer — the compositor does not
-    /// nest backdrop blur.
-    GlassFill,
-    /// Full-bleed wash over the wallpaper that keeps content legible.
-    WallpaperTint,
-    /// Bottom stop of the wallpaper legibility fade.
-    WallpaperVignette,
-    /// Soft text-shadow tint (light halo in light mode, drop shadow in dark).
-    TextShadow,
-    /// Strong text-shadow tint for small labels over busy imagery.
-    TextShadowStrong,
-    /// Fully transparent — the identity color, used as a gradient stop.
-    Transparent,
-
-    // ---- Roles that were AUTHORED in every `.nxtheme.toml` but had no
-    // ---- variant here, so nothing above the theme file could reach them.
-    /// Hairline separator (handoff `--glass-divider`). Distinct from `Border`:
-    /// a divider is a translucent wash that reads on glass, `Border` is the
-    /// opaque control outline. Painting hairlines with `Border` is why every
-    /// separator in a glass window was a solid `#262626` bar.
-    Divider,
-    /// Hover wash over an interactive surface (handoff `--glass-hover-bg`).
-    GlassHover,
-    /// Pressed/active wash over an interactive surface
-    /// (handoff `--glass-active-bg`).
-    GlassActive,
-    /// Track fill of a switch in the ON state (handoff `--glass-toggle-on-bg`).
-    ToggleOnBg,
-    /// Track fill of a switch in the OFF state.
-    ToggleOffBg,
-    /// The notification dot (handoff `--glass-notif-dot`, always red).
-    NotifDot,
-    /// Recessed track of a range slider (handoff `--track`) — dark in BOTH
-    /// themes, because the track reads as a groove cut into the surface.
-    SliderTrack,
-    /// Filled portion of a range slider (handoff `--fill`) — bright in both,
-    /// the inverse polarity of its own track.
-    SliderFill,
-    /// The glyph embedded IN a slider's fill (handoff `.slider .embed`). It
-    /// sits on `SliderFill`, so it is dark in both themes like the track.
-    SliderIcon,
-}
 
 /// Semantic length roles (radii, spacing, hairline widths).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -446,6 +334,13 @@ impl Tokens for AccentTokens {
     fn color(&self, token: ColorToken) -> Rgba8 {
         match token {
             ColorToken::Accent => self.accent,
+            // Accent-DERIVED roles have to follow the live accent as well, or
+            // picking an orange accent leaves every tinted surface blue. The
+            // alpha is the role's, the hue is the user's.
+            ColorToken::AccentSoft => {
+                let a = self.base.color(ColorToken::AccentSoft).a;
+                Rgba8::new(self.accent.r, self.accent.g, self.accent.b, a)
+            }
             other => self.base.color(other),
         }
     }

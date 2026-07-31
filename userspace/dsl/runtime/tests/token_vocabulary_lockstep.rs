@@ -61,6 +61,8 @@ fn canonical_name(token: ColorToken) -> &'static str {
         ColorToken::GlassPlaceholder => "glassPlaceholder",
         ColorToken::GlassFocus => "glassFocus",
         ColorToken::GlassFill => "glassFill",
+        ColorToken::GlassFillStrong => "glassFillStrong",
+        ColorToken::AccentSoft => "accentSoft",
         ColorToken::WallpaperTint => "wallpaperTint",
         ColorToken::WallpaperVignette => "wallpaperVignette",
         ColorToken::TextShadow => "textShadow",
@@ -104,7 +106,7 @@ fn color_vocabulary_is_a_bijection() {
 /// catches the next step — an arm that never reaches the checker's list.
 #[test]
 fn every_color_role_is_sayable() {
-    const ROLES: usize = 45;
+    const ROLES: usize = 47;
     assert_eq!(
         COLOR_TOKENS.len(),
         ROLES,

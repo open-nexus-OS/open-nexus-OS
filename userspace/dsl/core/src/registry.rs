@@ -500,6 +500,8 @@ pub const COLOR_TOKENS: &[&str] = &[
     "glassPlaceholder",
     "glassFocus",
     "glassFill",
+    "glassFillStrong",
+    "accentSoft",
     "wallpaperTint",
     "wallpaperVignette",
     "textShadow",

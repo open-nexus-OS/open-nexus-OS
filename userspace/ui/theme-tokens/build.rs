@@ -68,6 +68,8 @@ const ROLES: &[(&str, &str)] = &[
     ("GlassPlaceholder", "glassPlaceholder"),
     ("GlassFocus", "glassFocus"),
     ("GlassFill", "glassFill"),
+    ("GlassFillStrong", "glassFillStrong"),
+    ("AccentSoft", "accentSoft"),
     ("WallpaperTint", "wallpaperTint"),
     ("WallpaperVignette", "wallpaperVignette"),
     ("TextShadow", "textShadow"),

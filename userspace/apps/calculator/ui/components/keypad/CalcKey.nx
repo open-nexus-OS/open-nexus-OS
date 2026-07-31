@@ -1,0 +1,94 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One key of the keypad (design_handoff_calculator, the 4x5 grid).
+//
+// NOT a `Button`: the kit widget consumes only `label`/`.bg`/`.fg`/
+// `.textSize`/`.disabled`/`.gap`/flex and DROPS `.width/.height/.padding/
+// .rounded/.material/.shadow/.border/.align`, so it cannot carry the
+// handoff's radius-14 glass tile at all. Every shell tile is built the same
+// way (`Stack { Text }` + `on Tap`).
+//
+// `kind` picks the surface, because `.material($props.x)` does not exist —
+// modifier arguments are literal tokens, never expressions, so the choice has
+// to be a branch (the same reason `WinAppWindow` spells out its arms):
+//   digit    glass card      -- the handoff's `--glass-card-bg`
+//   function raised wash     -- rgba(255,255,255,.16)
+//   operator accent TINT     -- accent @ 24%, still reads as glass
+//   equals   accent FILL     -- accent @ 82% + white label + drop shadow
+//
+// The caller owns the OUTER flex (`.basis(0).grow(n)`) and the `on Tap`,
+// because a handler binds to a NODE and components are not nodes. The key's
+// own `.grow(1)` is separate and load-bearing: inside a row wrapper, cross-axis
+// stretch gives the key its HEIGHT for free, but its WIDTH only follows the
+// allocation if it grows — without it the key painted at label width (23px)
+// inside an 81px cell.
+Component CalcKey {
+    props: {
+        label: Str,
+        kind: Str,
+    }
+    if $props.kind == "equals" {
+        Stack {
+            Text($props.label)
+                .fg(onAccent)
+                .fontWeight(medium)
+        }
+        .direction(row)
+        .align(center)
+        .justify(center)
+        .grow(1)
+        .rounded(14)
+        .bg(accent)
+        .shadow(md)
+        // The label tracks the KEY, not a breakpoint: ~30% of the key's own
+        // height, floored at the smallest baked rung so a 204x120 window
+        // degrades instead of overflowing, capped at the largest Latin one.
+        .textFit(30, 11, 52)
+    } else {
+        if $props.kind == "operator" {
+            Stack {
+                Text($props.label)
+                    .fg(onGlassStrong)
+            }
+            .direction(row)
+            .align(center)
+            .justify(center)
+            .grow(1)
+            .rounded(14)
+            .bg(accentSoft)
+            .border(hairline)
+            .borderColor(glassFocus)
+            .textFit(30, 11, 52)
+        } else {
+            if $props.kind == "function" {
+                Stack {
+                    Text($props.label)
+                        .fg(onGlassStrong)
+                        .fontWeight(medium)
+                }
+                .direction(row)
+                .align(center)
+                .justify(center)
+                .grow(1)
+                .rounded(14)
+                .bg(glassFillStrong)
+                .border(hairline)
+                .borderColor(border)
+                .textFit(28, 11, 44)
+            } else {
+                Stack {
+                    Text($props.label)
+                        .fg(onGlassStrong)
+                }
+                .direction(row)
+                .align(center)
+                .justify(center)
+                .grow(1)
+                .rounded(14)
+                .material(card)
+                .textFit(30, 11, 52)
+            }
+        }
+    }
+}

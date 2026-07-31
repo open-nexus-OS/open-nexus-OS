@@ -1,0 +1,125 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Calculator state (design_handoff_calculator "Funktion").
+//
+// Integer arithmetic for now — the handoff's decimals, thousands grouping and
+// `%` need a locale-aware number FORMATTER the DSL does not have yet: `Fx`
+// renders as `raw >> 32`, so every fraction is silently dropped on the way to
+// text (`runtime/src/registry.rs`, `i18n.rs`). That formatter is its own
+// stage; keeping this honest beats printing a wrong number.
+//
+// `entry` is the display STRING and `acc`/`op` the pending operation, which is
+// the same shape the handoff's own reducer uses.
+Store CalcStore {
+    display: Int = 0,
+    acc: Int = 0,
+    op: Str = "",
+    fresh: Int = 1,
+    // AC (nothing typed) vs C (something typed) — the handoff's first press
+    // clears the entry, the second the whole state.
+    dirty: Int = 0,
+}
+
+Event CalcEvent {
+    Digit(Int),
+    Op(Str),
+    Eq,
+    Clear,
+    Neg,
+    Percent,
+}
+
+reduce CalcEvent {
+    Digit(d) => {
+        state.dirty = 1;
+        if state.fresh == 1 {
+            state.display = d;
+            state.fresh = 0;
+        } else {
+            if state.display < 99999999 {
+                if state.display > -99999999 {
+                    state.display = state.display * 10 + d;
+                } else {
+                    state.display = state.display;
+                }
+            } else {
+                state.display = state.display;
+            }
+        }
+    },
+    Op(o) => {
+        if state.op == "" {
+            state.acc = state.display;
+        } else {
+            if state.fresh == 0 {
+                if state.op == "+" {
+                    state.acc = state.acc + state.display;
+                } else {
+                    if state.op == "-" {
+                        state.acc = state.acc - state.display;
+                    } else {
+                        if state.op == "*" {
+                            state.acc = state.acc * state.display;
+                        } else {
+                            if state.display != 0 {
+                                state.acc = state.acc / state.display;
+                            } else {
+                                state.acc = 0;
+                            }
+                        }
+                    }
+                }
+            } else {
+                state.acc = state.acc;
+            }
+        }
+        state.display = state.acc;
+        state.op = o;
+        state.fresh = 1;
+        state.dirty = 1;
+    },
+    Eq => {
+        if state.op == "+" {
+            state.display = state.acc + state.display;
+        } else {
+            if state.op == "-" {
+                state.display = state.acc - state.display;
+            } else {
+                if state.op == "*" {
+                    state.display = state.acc * state.display;
+                } else {
+                    if state.op == "/" {
+                        if state.display != 0 {
+                            state.display = state.acc / state.display;
+                        } else {
+                            state.display = 0;
+                        }
+                    } else {
+                        state.display = state.display;
+                    }
+                }
+            }
+        }
+        state.acc = 0;
+        state.op = "";
+        state.fresh = 1;
+        state.dirty = 1;
+    },
+    // First press clears the ENTRY, second the whole state (handoff AC/C).
+    Clear => {
+        if state.dirty == 1 {
+            state.display = 0;
+            state.fresh = 1;
+            state.dirty = 0;
+        } else {
+            state.display = 0;
+            state.acc = 0;
+            state.op = "";
+            state.fresh = 1;
+            state.dirty = 0;
+        }
+    },
+    Neg => state.display = 0 - state.display,
+    Percent => state.display = state.display / 100,
+}
