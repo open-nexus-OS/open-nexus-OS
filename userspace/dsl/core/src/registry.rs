@@ -147,6 +147,14 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // to the column gap).
     ModifierSpec { name: "columns", args: &[ModArg::Int], class: FieldClass::Layout },
     ModifierSpec { name: "rowGap", args: &[ModArg::Int], class: FieldClass::Layout },
+    // -- flex base size (layout, APPEND-ONLY id): `.basis(n)` is the child's
+    // base size on the parent's MAIN axis, replacing its measured content
+    // size in the parent's distribution. `.grow()` alone only shares out the
+    // LEFTOVER on top of each child's own width, so a keypad row labelled
+    // `AC`/`7`/`8`/`9` never divides evenly — `.basis(0).grow(1)` on every
+    // child makes the split exact, and `.basis(gap).grow(2)` spans two tracks
+    // (the calculator's double-width `0`). Raw px, like `.width`.
+    ModifierSpec { name: "basis", args: &[ModArg::Int], class: FieldClass::Layout },
 ];
 
 #[must_use]

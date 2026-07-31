@@ -55,7 +55,26 @@ Rules:
 | `.width(v)` / `.height(v)` | length token \| `full` \| `Int` px | fixed or full-bleed |
 | `.minWidth(v)` / `.maxWidth(v)` / `.minHeight(v)` / `.maxHeight(v)` | length token \| `Int` px | constraints |
 | `.grow(n)` / `.shrink(n)` | `Int` weight | flex participation |
+| `.basis(n)` | `Int` px | flex BASE SIZE on the parent's main axis, replacing the child's measured content size in the parent's distribution |
 | `.aspect(w, h)` | `Int, Int` | aspect ratio |
+
+**Why `.basis` exists.** `.grow(n)` shares out only the space LEFT OVER after
+every child has claimed its own measured size, so a row of keys labelled
+`AC` / `7` / `8` / `9` never divides evenly — the two-character key stays wider
+forever, at every window size. `.basis(0).grow(1)` on each child zeroes the
+base and makes the split exact; `.basis(g).grow(2)` spans two tracks across a
+gap `g` (a double-width key without needing grid spans). It works on BOTH axes,
+so it is also how a column of rows gets equal heights.
+
+Two properties are worth stating because they are contracts, not accidents:
+
+- **Equal within 1px, tiles exactly.** When the space does not divide evenly the
+  leftover pixels are handed out by largest remainder, so the children sum to
+  the container exactly and differ by at most 1px. That is the same guarantee
+  `Grid`'s `1fr` tracks give, and the two now agree.
+- **Deliberate deviation from CSS:** `.basis` does NOT change the node's
+  intrinsic contribution when an ancestor is hugging its content. Only the
+  parent's space distribution reads it.
 
 ## Layout (class: layout)
 
@@ -185,6 +204,13 @@ silently degrades to `start`.
 
 ## Changelog
 
+- **v4 (2026-07-31, TASK-0314)** — `.basis(n)` added (append-only id 54): the
+  flex base size, so `.grow()` divides a row or column EXACTLY instead of only
+  sharing out the leftover on top of unequal content widths. The grow path also
+  stopped losing the indivisible remainder — an evenly grown row used to leave
+  up to `total_grow − 1` pixels as a gutter on its trailing edge, while
+  `place_grid` already redistributed its own; both now apportion by largest
+  remainder and tile exactly.
 - **v3 (2026-07-26, TASK-0306)** — `.hitSlop(n)` wired end to end. It grows
   only the hit rect, never the painted one, so a 28px status pill can be a
   44px target. Overlapping slop regions resolve to the NEAREST control, and an

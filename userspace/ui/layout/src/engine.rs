@@ -13,8 +13,8 @@ use crate::boxes::{LayoutBox, LayoutResult};
 use crate::constraints::{child_constraints, row_child_constraints};
 use crate::error::LayoutError;
 use crate::geometry::{
-    align_offset, clamp_height, clamp_to_max_height, clamp_width, effective_item, intersect_clip,
-    is_scroll_viewport, justify_offsets, update_box_geometry,
+    align_offset, clamp_height, clamp_to_max_height, clamp_width, effective_item, grow_shares,
+    intersect_clip, is_scroll_viewport, justify_offsets, update_box_geometry,
 };
 use alloc::vec::Vec;
 use nexus_layout_types::{
@@ -455,7 +455,10 @@ impl LayoutEngine {
                 absolute.push((child, item, measured));
                 continue;
             }
-            let base_main = measured.width + item.margin.horizontal();
+            // `.basis(n)` replaces the MEASURED base size in the distribution
+            // below, so `.grow` splits the row exactly instead of only sharing
+            // out the leftover on top of unequal label widths.
+            let base_main = item.flex_basis.unwrap_or(measured.width) + item.margin.horizontal();
             fixed_main += base_main;
             total_grow += item.flex_grow;
             in_flow.push((index, child, item, measured, base_main));
@@ -465,14 +468,10 @@ impl LayoutEngine {
         let free_or_deficit = content_width.0 - fixed_with_gap.0;
         let mut allocations: Vec<FxPx> = Vec::with_capacity(in_flow.len());
         if free_or_deficit >= 0 {
-            let free_space = FxPx::new(free_or_deficit);
-            for (_, _, item, _, base_main) in &in_flow {
-                let extra = if total_grow > 0 && item.flex_grow > 0 {
-                    FxPx::new((free_space.0 * item.flex_grow as i32) / total_grow as i32)
-                } else {
-                    FxPx::ZERO
-                };
-                allocations.push(*base_main + extra);
+            let grows: Vec<u32> = in_flow.iter().map(|t| t.2.flex_grow).collect();
+            let shares = grow_shares(free_or_deficit, total_grow, &grows);
+            for ((_, _, _, _, base_main), extra) in in_flow.iter().zip(shares.iter()) {
+                allocations.push(*base_main + *extra);
             }
         } else {
             let deficit = (-free_or_deficit) as u32;
@@ -630,7 +629,10 @@ impl LayoutEngine {
                 absolute.push((child, item));
                 continue;
             }
-            let base_main = measured.height + item.margin.vertical();
+            // `.basis(n)` on the column's main axis — the same exact-division
+            // rule as the row path above (this is what makes the calculator's
+            // five key rows equal in HEIGHT, not just in width).
+            let base_main = item.flex_basis.unwrap_or(measured.height) + item.margin.vertical();
             max_cross = max_cross.max(measured.width + item.margin.horizontal());
             fixed_main += base_main;
             total_grow += item.flex_grow;
@@ -644,14 +646,10 @@ impl LayoutEngine {
         let mut used_main = FxPx::ZERO;
         if free_or_deficit >= 0 {
             // Extra space: distribute via flex_grow
-            let free_space = FxPx::new(free_or_deficit);
-            for (_, item, _, base_main) in &in_flow {
-                let extra = if total_grow > 0 && item.flex_grow > 0 {
-                    FxPx::new((free_space.0 * item.flex_grow as i32) / total_grow as i32)
-                } else {
-                    FxPx::ZERO
-                };
-                let allocation = *base_main + extra;
+            let grows: Vec<u32> = in_flow.iter().map(|t| t.1.flex_grow).collect();
+            let shares = grow_shares(free_or_deficit, total_grow, &grows);
+            for ((_, _, _, base_main), extra) in in_flow.iter().zip(shares.iter()) {
+                let allocation = *base_main + *extra;
                 allocations.push(allocation);
                 used_main += allocation;
             }

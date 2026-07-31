@@ -42,6 +42,8 @@ pub struct Mods {
     pub max_height: Option<FxPx>,
     pub grow: u32,
     pub shrink: Option<u32>,
+    /// `.basis(n)` — flex base size on the parent's main axis.
+    pub basis: Option<FxPx>,
     pub wrap: bool,
     pub direction: Option<Direction>,
     pub align: Option<Align>,
@@ -114,6 +116,7 @@ impl Default for Mods {
             min_height: None,
             max_height: None,
             grow: 0,
+            basis: None,
             shrink: None,
             wrap: false,
             direction: None,
@@ -253,8 +256,12 @@ fn plain_stack(
     let max_w = mods.max_width.or(mods.width);
     let min_h = mods.min_height.or(mods.height);
     let max_h = mods.max_height.or(mods.height);
-    let mut item =
-        FlexItem { flex_grow: mods.grow, hit_slop: mods.hit_slop, ..FlexItem::default() };
+    let mut item = FlexItem {
+        flex_grow: mods.grow,
+        hit_slop: mods.hit_slop,
+        flex_basis: mods.basis,
+        ..FlexItem::default()
+    };
     if let Some(shrink) = mods.shrink {
         item.flex_shrink = shrink;
     }
@@ -314,8 +321,12 @@ fn plain_grid(
     let max_w = mods.max_width.or(mods.width);
     let min_h = mods.min_height.or(mods.height);
     let max_h = mods.max_height.or(mods.height);
-    let mut item =
-        FlexItem { flex_grow: mods.grow, hit_slop: mods.hit_slop, ..FlexItem::default() };
+    let mut item = FlexItem {
+        flex_grow: mods.grow,
+        hit_slop: mods.hit_slop,
+        flex_basis: mods.basis,
+        ..FlexItem::default()
+    };
     if let Some(shrink) = mods.shrink {
         item.flex_shrink = shrink;
     }
@@ -420,13 +431,19 @@ pub fn build_widget(
     // `mods` itself; the kit arms build their own node and would otherwise
     // drop `.grow()`/`.shrink()` on the floor — which is how a `.grow(1)`
     // TextField ended up 0px wide inside a row.
-    if mods.grow > 0 || mods.shrink.is_some() {
+    if mods.grow > 0 || mods.shrink.is_some() || mods.basis.is_some() {
         if let Some(item) = node_item_mut(&mut node) {
             if mods.grow > 0 {
                 item.flex_grow = mods.grow;
             }
             if let Some(shrink) = mods.shrink {
                 item.flex_shrink = shrink;
+            }
+            // Without this a `.basis(0)` Button keeps its label width and
+            // the row stops dividing evenly — the same class of bug as the
+            // 0px-wide `.grow(1)` TextField above.
+            if mods.basis.is_some() {
+                item.flex_basis = mods.basis;
             }
         }
     }

@@ -97,6 +97,19 @@ pub struct FlexItem {
     /// small (a 28px status pill) but be hittable by a finger (44px), and it
     /// is why slop is layout data and not paint data.
     pub hit_slop: FxPx,
+    /// `.basis(n)` — the flex BASE SIZE on the parent's main axis, replacing
+    /// the child's measured content size in the parent's space distribution.
+    ///
+    /// Without it `.grow(n)` only splits the LEFTOVER space on top of each
+    /// child's own width, so a row of four keys labelled `AC`/`7`/`8`/`9` is
+    /// never evenly divided — the `AC` cell stays wider forever. `.basis(0)`
+    /// on every child makes the split exact; `.basis(gap).grow(2)` reproduces
+    /// a two-track grid span across a gap.
+    ///
+    /// DELIBERATE DEVIATION FROM CSS: this does NOT change the node's
+    /// intrinsic contribution to `measure_stack`, so a hugging ancestor still
+    /// hugs its content. Only the parent's distribution reads it.
+    pub flex_basis: Option<FxPx>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,6 +193,7 @@ impl Default for FlexItem {
             min_width: None,
             max_width: None,
             hit_slop: FxPx::ZERO,
+            flex_basis: None,
         }
     }
 }

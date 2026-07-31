@@ -1,0 +1,54 @@
+/* AIVA OS — Spacing, Radius, Shadow & Z-Index Tokens */
+
+:root {
+  /* ─── Spacing Scale ──────────────────────────────────────── */
+  --space-0:    0;
+  --space-px:   1px;
+  --space-0-5:  0.125rem;   /*  2px */
+  --space-1:    0.25rem;    /*  4px */
+  --space-1-5:  0.375rem;   /*  6px */
+  --space-2:    0.5rem;     /*  8px */
+  --space-2-5:  0.625rem;   /* 10px */
+  --space-3:    0.75rem;    /* 12px */
+  --space-3-5:  0.875rem;   /* 14px */
+  --space-4:    1rem;       /* 16px */
+  --space-5:    1.25rem;    /* 20px */
+  --space-6:    1.5rem;     /* 24px */
+  --space-7:    1.75rem;    /* 28px */
+  --space-8:    2rem;       /* 32px */
+  --space-10:   2.5rem;     /* 40px */
+  --space-12:   3rem;       /* 48px */
+  --space-16:   4rem;       /* 64px */
+  --space-20:   5rem;       /* 80px */
+  --space-24:   6rem;       /* 96px */
+
+  /* ─── Border Radius ──────────────────────────────────────── */
+  --radius-base: 0.625rem;                           /* 10px  — theme base */
+  --radius-sm:   calc(var(--radius-base) - 4px);     /*  6px  — small controls */
+  --radius-md:   calc(var(--radius-base) - 2px);     /*  8px  — buttons */
+  --radius-lg:   var(--radius-base);                 /* 10px  — inputs */
+  --radius-xl:   calc(var(--radius-base) + 4px);     /* 14px  — icon chips */
+  --radius-2xl:  1rem;                               /* 16px  — cards, app icons */
+  --radius-3xl:  1.5rem;                             /* 24px  — panels, dock */
+  --radius-full: 9999px;                             /* pills, circles */
+
+  /* ─── Box Shadows ────────────────────────────────────────── */
+  --shadow-sm:   0 1px 2px rgba(0, 0, 0, 0.12);
+  --shadow-md:   0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-lg:   0 8px 24px rgba(0, 0, 0, 0.18);
+  --shadow-xl:   0 12px 32px rgba(0, 0, 0, 0.22);
+  --shadow-2xl:  0 25px 50px rgba(0, 0, 0, 0.25);
+
+  --shadow-icon:       0 4px 12px rgba(0, 0, 0, 0.20);
+  --shadow-icon-hover: 0 8px 20px rgba(0, 0, 0, 0.30);
+  --shadow-dock-light: 0 25px 50px rgba(0, 0, 0, 0.15);
+  --shadow-dock-dark:  0 25px 50px rgba(0, 0, 0, 0.40);
+
+  /* ─── Z-Index ────────────────────────────────────────────── */
+  --z-base:     0;    /* @kind other */
+  --z-raised:   10;   /* @kind other */
+  --z-overlay:  20;   /* @kind other */
+  --z-modal:    30;   /* @kind other */
+  --z-topbar:   40;   /* @kind other */
+  --z-island:   50;   /* @kind other */
+}

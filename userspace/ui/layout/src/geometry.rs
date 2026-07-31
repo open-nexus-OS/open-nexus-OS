@@ -12,6 +12,7 @@
 //! ADR: docs/adr/0030-layout-engine-deterministic-pretext.md
 
 use crate::LayoutBox;
+use alloc::vec::Vec;
 use nexus_layout_types::{Align, FlexItem, FxPx, Justify, LayoutNode, Overflow, Rect};
 
 pub(crate) fn clamp_width(value: FxPx, min: Option<FxPx>, max: Option<FxPx>) -> FxPx {
@@ -41,6 +42,53 @@ pub(crate) fn clamp_to_max_height(value: FxPx, max_height: Option<FxPx>) -> FxPx
         Some(max_height) => value.min(max_height),
         None => value,
     }
+}
+
+/// The per-child share of `free` space, apportioned by `grows` so that the
+/// shares SUM EXACTLY to `free`.
+///
+/// `free * grow / total_grow` alone discards up to `total_grow - 1` pixels, and
+/// on a four-key row that is a 2px gutter on the trailing edge: with `.basis(0)`
+/// the cells come out equal but no longer TILE their container, which reads as a
+/// misaligned right edge. `place_grid` already redistributes its own remainder
+/// over its column tracks; the flex path did not.
+///
+/// The leftover goes by LARGEST REMAINDER, not to whoever comes first. That
+/// distinction is load-bearing: in a `2/1/1` row over 330px the double-width
+/// child divides exactly (165) while each single cell loses ½, so handing the
+/// spare pixel to the first child would push the wide one to 176 and break the
+/// `span == 2*cell + gap` relationship the calculator's `0` key depends on.
+pub(crate) fn grow_shares(free: i32, total_grow: u32, grows: &[u32]) -> Vec<FxPx> {
+    let mut shares: Vec<FxPx> = Vec::with_capacity(grows.len());
+    if total_grow == 0 || free <= 0 {
+        shares.resize(grows.len(), FxPx::ZERO);
+        return shares;
+    }
+    let total = total_grow as i64;
+    let mut handed_out = 0i64;
+    // (remainder, index) for the leftover pass.
+    let mut rests: Vec<(i64, usize)> = Vec::with_capacity(grows.len());
+    for (index, grow) in grows.iter().enumerate() {
+        let exact = free as i64 * i64::from(*grow);
+        let share = exact / total;
+        if *grow > 0 {
+            rests.push((exact % total, index));
+        }
+        handed_out += share;
+        shares.push(FxPx::new(share as i32));
+    }
+    // Largest remainder first; ties keep source order so layout stays
+    // deterministic (the engine's whole contract).
+    rests.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let mut left = free as i64 - handed_out;
+    for (_, index) in rests {
+        if left <= 0 {
+            break;
+        }
+        shares[index].0 += 1;
+        left -= 1;
+    }
+    shares
 }
 
 /// The child's flex data with `Spacer::flex_grow` honored: a `Spacer` grows

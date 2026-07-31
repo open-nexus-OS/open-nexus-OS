@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="_ds/open-nexus-os-design-system-afec52d7-b0d1-460d-891c-a73b37254eaa/tokens/fonts.css">
+  <link rel="stylesheet" href="_ds/open-nexus-os-design-system-afec52d7-b0d1-460d-891c-a73b37254eaa/tokens/colors.css">
+  <link rel="stylesheet" href="_ds/open-nexus-os-design-system-afec52d7-b0d1-460d-891c-a73b37254eaa/tokens/typography.css">
+  <link rel="stylesheet" href="_ds/open-nexus-os-design-system-afec52d7-b0d1-460d-891c-a73b37254eaa/tokens/spacing.css">
+  <link rel="stylesheet" href="_ds/open-nexus-os-design-system-afec52d7-b0d1-460d-891c-a73b37254eaa/tokens/glass.css">
+  <link rel="stylesheet" href="_ds/open-nexus-os-design-system-afec52d7-b0d1-460d-891c-a73b37254eaa/tokens/motion.css">
+  <link rel="stylesheet" href="_ds/open-nexus-os-design-system-afec52d7-b0d1-460d-891c-a73b37254eaa/styles.css">
+  <script>
+    (function () {
+      var bad = function (n) {
+        if (!n || n.nodeType !== 1) return false;
+        if (n.classList && n.classList.contains('card-theme-toggle')) return true;
+        var a = n.tagName === 'LINK' ? n.getAttribute('href') : n.tagName === 'SCRIPT' ? n.getAttribute('src') : null;
+        return !!a && a.indexOf('../../') === 0;
+      };
+      var ac = Node.prototype.appendChild, ib = Node.prototype.insertBefore;
+      Node.prototype.appendChild = function (n) { return bad(n) ? n : ac.call(this, n); };
+      Node.prototype.insertBefore = function (n, r) { return bad(n) ? n : ib.call(this, n, r); };
+      setTimeout(function () { Node.prototype.appendChild = ac; Node.prototype.insertBefore = ib; }, 8000);
+    })();
+  </script>
+  <script src="_ds/open-nexus-os-design-system-afec52d7-b0d1-460d-891c-a73b37254eaa/_ds_bundle.js"></script>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; }
+    html,body { width:100%; height:100%; }
+    body { font-family:'Inter',-apple-system,system-ui,sans-serif; -webkit-font-smoothing:antialiased; background:linear-gradient(140deg,#0b1020 0%,#131a2c 48%,#0d1524 100%); display:flex; align-items:center; justify-content:center; min-height:100vh; }
+    a { color:#7fb0ff; text-decoration:none; }
+    a:hover { color:#a9c9ff; }
+    ::selection { background:rgba(59,130,246,0.30); }
+  </style>
+</helmet>
+
+<div style="--calc-accent:{{ accent }};position:relative;z-index:10;display:flex;">
+<x-import component-from-global-scope="AIVAOSDesignSystem_afec52.Window"
+  theme="dark" width="{{ winW }}" height="{{ winH }}"
+  leading="{{ leading }}" body-style="{{ bodyStyle }}"
+  on-minimize="{{ noop }}" on-maximize="{{ noop }}" on-close="{{ noop }}" hint-size="392px,616px">
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px;padding:18px 16px 16px;border-radius:var(--radius-2xl);background:var(--glass-window-pane-bg);border:1px solid var(--glass-window-pane-border);box-shadow:inset 0 1px 0 var(--glass-window-pane-inset);">
+
+    <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;justify-content:flex-end;gap:4px;min-height:104px;padding:10px 8px 12px;border-radius:var(--radius-xl,16px);background:var(--glass-card-bg);border:1px solid var(--glass-card-border);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);overflow:hidden;">
+      <span style="max-width:100%;font-size:13px;font-weight:500;letter-spacing:0.02em;font-variant-numeric:tabular-nums;color:var(--glass-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ expr }}</span>
+      <span style="max-width:100%;font-size:{{ dispSize }};font-weight:300;line-height:1.05;letter-spacing:-0.01em;font-variant-numeric:tabular-nums;color:var(--glass-text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ disp }}</span>
+    </div>
+
+    <div style="flex:1;min-height:0;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(5,1fr);gap:10px;">
+
+      <button onClick="{{ onClear }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:rgba(255,255,255,0.16);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);font:inherit;font-size:19px;font-weight:500;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:rgba(255,255,255,0.24)" style-active="transform:scale(0.94)">{{ clearLabel }}</button>
+      <button onClick="{{ onSign }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:rgba(255,255,255,0.16);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);font:inherit;font-size:19px;font-weight:500;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:rgba(255,255,255,0.24)" style-active="transform:scale(0.94)">±</button>
+      <button onClick="{{ onPercent }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:rgba(255,255,255,0.16);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);font:inherit;font-size:19px;font-weight:500;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:rgba(255,255,255,0.24)" style-active="transform:scale(0.94)">%</button>
+      <button onClick="{{ onDiv }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-toggle-on-border,rgba(59,130,246,0.5));background:color-mix(in srgb, var(--calc-accent,#3b82f6) 24%, transparent);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);font:inherit;font-size:24px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:color-mix(in srgb, var(--calc-accent,#3b82f6) 44%, transparent)" style-active="transform:scale(0.94)">÷</button>
+
+      <button onClick="{{ k7 }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:var(--glass-card-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);font:inherit;font-size:23px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:var(--glass-hover-bg)" style-active="transform:scale(0.94)">7</button>
+      <button onClick="{{ k8 }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:var(--glass-card-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);font:inherit;font-size:23px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:var(--glass-hover-bg)" style-active="transform:scale(0.94)">8</button>
+      <button onClick="{{ k9 }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:var(--glass-card-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);font:inherit;font-size:23px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:var(--glass-hover-bg)" style-active="transform:scale(0.94)">9</button>
+      <button onClick="{{ onMul }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-toggle-on-border,rgba(59,130,246,0.5));background:color-mix(in srgb, var(--calc-accent,#3b82f6) 24%, transparent);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);font:inherit;font-size:22px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:color-mix(in srgb, var(--calc-accent,#3b82f6) 44%, transparent)" style-active="transform:scale(0.94)">×</button>
+
+      <button onClick="{{ k4 }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:var(--glass-card-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);font:inherit;font-size:23px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:var(--glass-hover-bg)" style-active="transform:scale(0.94)">4</button>
+      <button onClick="{{ k5 }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:var(--glass-card-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);font:inherit;font-size:23px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:var(--glass-hover-bg)" style-active="transform:scale(0.94)">5</button>
+      <button onClick="{{ k6 }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:var(--glass-card-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);font:inherit;font-size:23px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:var(--glass-hover-bg)" style-active="transform:scale(0.94)">6</button>
+      <button onClick="{{ onSub }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-toggle-on-border,rgba(59,130,246,0.5));background:color-mix(in srgb, var(--calc-accent,#3b82f6) 24%, transparent);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);font:inherit;font-size:26px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:color-mix(in srgb, var(--calc-accent,#3b82f6) 44%, transparent)" style-active="transform:scale(0.94)">−</button>
+
+      <button onClick="{{ k1 }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:var(--glass-card-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);font:inherit;font-size:23px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:var(--glass-hover-bg)" style-active="transform:scale(0.94)">1</button>
+      <button onClick="{{ k2 }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:var(--glass-card-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);font:inherit;font-size:23px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:var(--glass-hover-bg)" style-active="transform:scale(0.94)">2</button>
+      <button onClick="{{ k3 }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:var(--glass-card-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);font:inherit;font-size:23px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:var(--glass-hover-bg)" style-active="transform:scale(0.94)">3</button>
+      <button onClick="{{ onAdd }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-toggle-on-border,rgba(59,130,246,0.5));background:color-mix(in srgb, var(--calc-accent,#3b82f6) 24%, transparent);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.16);font:inherit;font-size:24px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:color-mix(in srgb, var(--calc-accent,#3b82f6) 44%, transparent)" style-active="transform:scale(0.94)">+</button>
+
+      <button onClick="{{ k0 }}" style="grid-column:span 2;display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:var(--glass-card-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);font:inherit;font-size:23px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:var(--glass-hover-bg)" style-active="transform:scale(0.94)">0</button>
+      <button onClick="{{ onDot }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-card-border);background:var(--glass-card-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);font:inherit;font-size:23px;font-weight:400;color:var(--glass-text-strong);cursor:pointer;transition:background 0.24s var(--motion-spring-soft,cubic-bezier(0.34,1.2,0.5,1)),transform 0.1s ease;" style-hover="background:var(--glass-hover-bg)" style-active="transform:scale(0.94)">{{ decimalMark }}</button>
+      <button onClick="{{ onEquals }}" style="display:flex;align-items:center;justify-content:center;padding:0;border-radius:var(--radius-xl,16px);border:1px solid var(--glass-toggle-on-border,rgba(59,130,246,0.55));background:color-mix(in srgb, var(--calc-accent,#3b82f6) 82%, transparent);box-shadow:0 6px 18px rgba(0,0,0,0.28),inset 0 1px 0 rgba(255,255,255,0.22);font:inherit;font-size:26px;font-weight:500;color:#fff;cursor:pointer;transition:filter 0.24s ease,transform 0.1s ease;" style-hover="filter:brightness(1.12)" style-active="transform:scale(0.94)">=</button>
+    </div>
+  </div>
+</x-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:420,&quot;height&quot;:640},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#3b82f6&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#3b82f6&quot;,&quot;#14b8a6&quot;,&quot;#8b5cf6&quot;],&quot;section&quot;:&quot;Darstellung&quot;},&quot;decimalComma&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Format&quot;},&quot;groupThousands&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Format&quot;}}">
+class Component extends DCLogic {
+  state = { disp: '0', acc: null, op: null, fresh: true, expr: '', appMenuOpen: false };
+
+  componentDidMount() {
+    this._waitDS(); this._scrub();
+    this._scrubT = setInterval(() => this._scrub(), 250);
+    setTimeout(() => { if (this._scrubT) { clearInterval(this._scrubT); this._scrubT = null; } }, 6000);
+    this._key = (e) => this._onKey(e);
+    window.addEventListener('keydown', this._key);
+  }
+  componentWillUnmount() { if (this._dsT) clearInterval(this._dsT); if (this._scrubT) clearInterval(this._scrubT); window.removeEventListener('keydown', this._key); }
+  _scrub() { document.querySelectorAll('link[href^="../../"], script[src^="../../"], .card-theme-toggle').forEach((n) => n.remove()); }
+  _ns() { return window.AIVAOSDesignSystem_afec52; }
+  _waitDS() { if (this._ns()) return; this._dsT = setInterval(() => { if (this._ns()) { clearInterval(this._dsT); this.forceUpdate(); } }, 60); }
+  _ic(paths, size, sw, color) {
+    const DS = this._ns() || {};
+    if (DS.Icon) return React.createElement(DS.Icon, { paths, size: size || 16, strokeWidth: sw || 2, color });
+    return React.createElement('svg', { width: size || 16, height: size || 16, viewBox: '0 0 24 24', fill: 'none', stroke: color || 'currentColor', strokeWidth: sw || 2, strokeLinecap: 'round', strokeLinejoin: 'round', dangerouslySetInnerHTML: { __html: paths } });
+  }
+
+  _mark() { return this.props.decimalComma === false ? '.' : ','; }
+  _digit(d) {
+    this.setState((s) => {
+      if (s.fresh) return { disp: d === '0' ? '0' : d, fresh: false, expr: s.op === null ? '' : s.expr };
+      if (s.disp === '0') return { disp: d === '0' ? '0' : d };
+      if (s.disp.replace(/[^0-9]/g, '').length >= 12) return {};
+      return { disp: s.disp + d };
+    });
+  }
+  _dot() {
+    this.setState((s) => {
+      if (s.fresh) return { disp: '0.', fresh: false, expr: s.op === null ? '' : s.expr };
+      return s.disp.indexOf('.') > -1 ? {} : { disp: s.disp + '.' };
+    });
+  }
+  _sign() { this.setState((s) => ({ disp: s.disp.charAt(0) === '-' ? s.disp.slice(1) : (s.disp === '0' ? '0' : '-' + s.disp) })); }
+  _pct() { this.setState((s) => ({ disp: this._trim(parseFloat(s.disp) / 100), fresh: false })); }
+  _clear() {
+    this.setState((s) => (s.disp !== '0' || s.fresh === false)
+      ? { disp: '0', fresh: true, expr: s.op ? s.expr : '' }
+      : { disp: '0', acc: null, op: null, fresh: true, expr: '' });
+  }
+  _back() { this.setState((s) => { const d = s.disp.slice(0, -1); return { disp: (d === '' || d === '-') ? '0' : d, fresh: false }; }); }
+  _trim(n) {
+    if (!isFinite(n)) return 'Fehler';
+    let out = String(Math.round(n * 1e10) / 1e10);
+    if (out.indexOf('e') > -1) out = n.toPrecision(10).replace(/0+$/, '');
+    return out;
+  }
+  _apply(a, b, op) {
+    if (op === '+') return a + b;
+    if (op === '−') return a - b;
+    if (op === '×') return a * b;
+    if (op === '÷') return b === 0 ? NaN : a / b;
+    return b;
+  }
+  _op(sym) {
+    this.setState((s) => {
+      const cur = parseFloat(s.disp);
+      if (s.op !== null && !s.fresh) {
+        const res = this._apply(s.acc, cur, s.op);
+        const rs = this._trim(res);
+        return { acc: parseFloat(rs), disp: rs, op: sym, fresh: true, expr: this._fmt(rs) + ' ' + sym };
+      }
+      return { acc: cur, op: sym, fresh: true, expr: this._fmt(s.disp) + ' ' + sym };
+    });
+  }
+  _eq() {
+    this.setState((s) => {
+      if (s.op === null) return { expr: '', fresh: true };
+      const cur = parseFloat(s.disp);
+      const rs = this._trim(this._apply(s.acc, cur, s.op));
+      return { disp: rs, acc: null, op: null, fresh: true, expr: this._fmt(s.acc) + ' ' + s.op + ' ' + this._fmt(cur) + ' =' };
+    });
+  }
+  _onKey(e) {
+    const k = e.key;
+    if (k >= '0' && k <= '9') { this._digit(k); }
+    else if (k === ',' || k === '.') { this._dot(); }
+    else if (k === '+') { this._op('+'); }
+    else if (k === '-') { this._op('−'); }
+    else if (k === '*' || k === 'x') { this._op('×'); }
+    else if (k === '/') { this._op('÷'); }
+    else if (k === '%') { this._pct(); }
+    else if (k === 'Enter' || k === '=') { this._eq(); }
+    else if (k === 'Backspace') { this._back(); }
+    else if (k === 'Escape') { this._clear(); }
+    else return;
+    e.preventDefault();
+  }
+  _fmt(v) {
+    if (v === null || v === undefined || v === 'Fehler') return v === 'Fehler' ? 'Fehler' : '';
+    const str = String(v);
+    const neg = str.charAt(0) === '-';
+    const body = neg ? str.slice(1) : str;
+    const parts = body.split('.');
+    let int = parts[0];
+    if (this.props.groupThousands !== false) int = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    const dec = parts[1] !== undefined ? this._mark() + parts[1] : '';
+    return (neg ? '−' : '') + int + dec;
+  }
+
+  renderVals() {
+    const ic = (p, sz, sw, c) => this._ic(p, sz, sw, c);
+    const mi = (label, icon, onClick) => React.createElement('button', {
+      type: 'button', onClick,
+      style: { display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 12px', border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit', fontSize: 12.5, color: 'var(--glass-text-primary)', textAlign: 'left', borderRadius: 8 },
+      onMouseEnter: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; },
+      onMouseLeave: (e) => { e.currentTarget.style.background = 'transparent'; },
+    }, icon, React.createElement('span', null, label));
+    const appMenu = this.state.appMenuOpen ? React.createElement('div', {
+      style: { position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: 190, padding: 5, borderRadius: 12, border: '1px solid var(--glass-divider)', background: 'var(--glass-overlay-bg,rgba(24,28,38,0.94))', backdropFilter: 'blur(24px)', boxShadow: '0 18px 40px rgba(0,0,0,0.42)', zIndex: 60 },
+    },
+      mi('Alles löschen', ic('<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>', 14, 2, 'var(--glass-text-secondary)'), () => this.setState({ appMenuOpen: false, disp: '0', acc: null, op: null, fresh: true, expr: '' })),
+      mi('Ergebnis kopieren', ic('<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>', 14, 2, 'var(--glass-text-secondary)'), () => {
+        const t = this._fmt(this.state.disp);
+        if (navigator.clipboard) navigator.clipboard.writeText(t).catch(() => {});
+        this.setState({ appMenuOpen: false });
+      }),
+    ) : null;
+    const leading = React.createElement('div', { style: { position: 'relative', display: 'flex', alignItems: 'center', gap: 8 } },
+      React.createElement('div', {
+        onClick: () => this.setState((s) => ({ appMenuOpen: !s.appMenuOpen })),
+        style: { display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' },
+      },
+        React.createElement('img', { src: 'assets/icons/calculator.svg', alt: '', style: { width: 30, height: 30, display: 'block', flexShrink: 0 } }),
+        ic('<path d="m6 9 6 6 6-6"/>', 11, 2.5, 'var(--glass-text-secondary)'),
+      ),
+      React.createElement('span', { style: { fontSize: 12.5, fontWeight: 500, color: 'var(--glass-text-primary)' } }, 'Rechner'),
+      appMenu,
+    );
+
+    const shown = this._fmt(this.state.disp);
+    const len = String(shown).length;
+    return {
+      winW: 392, winH: 616,
+      bodyStyle: { padding: '0 8px 12px 8px', minHeight: 0 },
+      accent: this.props.accent || '#3b82f6',
+      leading,
+      expr: this.state.expr,
+      disp: shown,
+      dispSize: len > 13 ? '30px' : len > 9 ? '38px' : '52px',
+      decimalMark: this._mark(),
+      clearLabel: (this.state.disp !== '0' || !this.state.fresh) ? 'C' : 'AC',
+      k0: () => this._digit('0'), k1: () => this._digit('1'), k2: () => this._digit('2'),
+      k3: () => this._digit('3'), k4: () => this._digit('4'), k5: () => this._digit('5'),
+      k6: () => this._digit('6'), k7: () => this._digit('7'), k8: () => this._digit('8'),
+      k9: () => this._digit('9'),
+      onDot: () => this._dot(),
+      onAdd: () => this._op('+'), onSub: () => this._op('−'), onMul: () => this._op('×'), onDiv: () => this._op('÷'),
+      onEquals: () => this._eq(), onClear: () => this._clear(), onSign: () => this._sign(), onPercent: () => this._pct(),
+      noop: () => {},
+    };
+  }
+}
+</script>
+</body>
+</html>

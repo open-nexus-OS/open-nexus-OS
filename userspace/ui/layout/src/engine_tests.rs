@@ -406,4 +406,159 @@ mod tests {
         // not collapse to its measured 0 nor balloon to its 390px content.
         assert_eq!(scroller.rect.width, px(120));
     }
+
+    // ---------------------------------------------------------------- basis
+    // `.basis(n)` — the flex BASE SIZE. Without it `.grow` only shares out the
+    // LEFTOVER on top of each child's own measured width, so a keypad row of
+    // `AC`/`7`/`8`/`9` is never evenly divided. Every test below asserts the
+    // fix AND (via `keys_without_basis_are_uneven`) that the bug was real.
+
+    /// A child wrapped so it carries its own `FlexItem` — the shape the DSL
+    /// produces for `Stack { … }.grow(n).basis(m)`.
+    fn flex_child(id: &'static str, label: &str, grow: u32, basis: Option<i32>) -> LayoutNode {
+        LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some(id),
+                direction: Direction::Row,
+                gap: px(0),
+                padding: EdgeInsets::all(px(0)),
+                align: Align::Stretch,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Visible,
+                flex_wrap: false,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                item: FlexItem {
+                    flex_grow: grow,
+                    flex_basis: basis.map(px),
+                    ..FlexItem::default()
+                },
+            },
+            VisualStyle::default(),
+            vec![txt(label)],
+        )
+    }
+
+    fn keypad_row(children: Vec<LayoutNode>, gap: i32) -> LayoutNode {
+        LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some("row"),
+                direction: Direction::Row,
+                gap: px(gap),
+                padding: EdgeInsets::all(px(0)),
+                align: Align::Stretch,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Visible,
+                flex_wrap: false,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                item: FlexItem::default(),
+            },
+            VisualStyle::default(),
+            children,
+        )
+    }
+
+    fn width_of(r: &crate::LayoutResult, id: &str) -> FxPx {
+        r.boxes.iter().find(|b| b.id == Some(id)).unwrap().rect.width
+    }
+
+    /// The bug `.basis` exists to fix: equal `.grow(1)` does NOT equalise
+    /// children whose measured widths differ.
+    #[test]
+    fn keys_without_basis_are_uneven() {
+        let row = keypad_row(
+            vec![
+                flex_child("k0", "AC", 1, None),
+                flex_child("k1", "7", 1, None),
+                flex_child("k2", "8", 1, None),
+                flex_child("k3", "9", 1, None),
+            ],
+            10,
+        );
+        let r =
+            LayoutEngine::new().layout(&row, px(400), &MockMeasure { char_width: px(10) }).unwrap();
+        assert_ne!(
+            width_of(&r, "k0"),
+            width_of(&r, "k1"),
+            "without basis the two-character key must stay wider — otherwise this \
+             whole primitive is unnecessary and the test is lying"
+        );
+    }
+
+    #[test]
+    fn row_basis_zero_divides_exactly() {
+        for container in [200, 400, 823] {
+            let row = keypad_row(
+                vec![
+                    flex_child("k0", "AC", 1, Some(0)),
+                    flex_child("k1", "7", 1, Some(0)),
+                    flex_child("k2", "8", 1, Some(0)),
+                    flex_child("k3", "9", 1, Some(0)),
+                ],
+                10,
+            );
+            let r = LayoutEngine::new()
+                .layout(&row, px(container), &MockMeasure { char_width: px(10) })
+                .unwrap();
+            let widths: Vec<i32> =
+                ["k0", "k1", "k2", "k3"].iter().map(|id| width_of(&r, id).0).collect();
+            // Equal to the pixel where the space divides, otherwise within one
+            // — the same guarantee `place_grid` gives its 1fr column tracks.
+            let (lo, hi) = (*widths.iter().min().unwrap(), *widths.iter().max().unwrap());
+            assert!(hi - lo <= 1, "cells uneven at container {container}: {widths:?}");
+            // …and the row TILES: no lost pixels on the trailing edge.
+            assert_eq!(
+                widths.iter().sum::<i32>() + 30,
+                container,
+                "cells+gaps must tile the row at {container}: {widths:?}"
+            );
+            // The whole point: this is dramatically tighter than no basis.
+            assert!(hi - lo < 5, "basis must beat the ~10px label-width spread");
+        }
+    }
+
+    /// The `0` key: two tracks plus the gap between them, without Grid spans.
+    #[test]
+    fn basis_plus_grow_spans_a_track() {
+        let row = keypad_row(
+            vec![
+                flex_child("zero", "0", 2, Some(10)),
+                flex_child("comma", ",", 1, Some(0)),
+                flex_child("eq", "=", 1, Some(0)),
+            ],
+            10,
+        );
+        let r =
+            LayoutEngine::new().layout(&row, px(360), &MockMeasure { char_width: px(10) }).unwrap();
+        let (zero, comma, eq) =
+            (width_of(&r, "zero").0, width_of(&r, "comma").0, width_of(&r, "eq").0);
+        assert!((comma - eq).abs() <= 1, "single-track cells {comma}/{eq} must match within 1px");
+        // Spanning two tracks means covering both cells AND the gap they
+        // straddle (±1 for the same indivisible-remainder reason as above).
+        assert!((zero - (comma * 2 + 10)).abs() <= 1, "zero={zero} should span 2*{comma}+10");
+        // And the row still tiles exactly.
+        assert_eq!(zero + comma + eq + 20, 360);
+    }
+
+    /// The `Spacer` special case (`effective_item` overrides `flex_grow` from
+    /// the spacer's own field): a basis-0 sibling must not disturb it.
+    #[test]
+    fn basis_coexists_with_spacer_grow() {
+        let row = keypad_row(
+            vec![
+                LayoutNode::Spacer(nexus_layout_types::Spacer::default()),
+                flex_child("tail", "9", 1, Some(0)),
+            ],
+            0,
+        );
+        let r =
+            LayoutEngine::new().layout(&row, px(200), &MockMeasure { char_width: px(10) }).unwrap();
+        // Spacer grow 1 and tail grow 1, both from a 0 base → an even split.
+        assert_eq!(width_of(&r, "tail"), px(100));
+    }
 }

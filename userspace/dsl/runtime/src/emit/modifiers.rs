@@ -14,7 +14,7 @@ use crate::store::Value;
 use crate::RtError;
 use alloc::string::String;
 use nexus_dsl_ir::ui_ir_capnp as ir;
-use nexus_layout_types::{Align, Direction, EdgeInsets, Justify};
+use nexus_layout_types::{Align, Direction, EdgeInsets, FxPx, Justify};
 
 /// Applies one modifier; mod ids index the compiler catalog
 /// (`nexus-dsl-core::registry::MODIFIERS`) — matched here by stable id order.
@@ -154,6 +154,9 @@ pub(super) fn apply_modifier(
         48 => mods.overlay = true, // overlay(): full-bleed out-of-flow layer
         52 => mods.columns = Some(int_arg().clamp(1, 12) as usize), // columns(n): grid tracks
         53 => mods.row_gap = Some(registry::spacing(int_arg())), // rowGap(n)
+        // basis(n): raw px like `.width`, NOT a spacing step — it names a
+        // geometry the layout divides, not a design-system rhythm.
+        54 => mods.basis = Some(FxPx::new(int_arg().clamp(0, 16384) as i32)), // basis(n)
         49 => {
             // bgGradient(top, bottom): both args are exprs → "#rrggbb[aa]"
             // strings (literal or prop-fed). Unparseable = no gradient —
@@ -178,9 +181,9 @@ pub(super) fn apply_modifier(
                 mods.bg_gradient = Some((colors[0], colors[1]));
             }
         } // bgGradient
-        26 => mods.border_color = registry::color_token(&token_name(ctx)), // borderColor
-        30 => mods.border_width = registry::border_width(&token_name(ctx)), // border
-        50 => mods.text_shadow = registry::text_shadow(&token_name(ctx)), // textShadow
+        26 => mods.border_color = registry::color_token(&token_name(ctx)),    // borderColor
+        30 => mods.border_width = registry::border_width(&token_name(ctx)),   // border
+        50 => mods.text_shadow = registry::text_shadow(&token_name(ctx)),     // textShadow
         51 => {
             // bgFade(top, bottom): the same vertical fill as `.bgGradient`,
             // but from two COLOR TOKENS so it re-themes. Both must resolve —
