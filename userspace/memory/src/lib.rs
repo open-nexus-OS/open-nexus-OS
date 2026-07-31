@@ -34,8 +34,6 @@ compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or 
 
 const MAX_VMO_BYTES: usize = 8 * 1024 * 1024;
 const TRANSFER_CONTROL_BYTES: u64 = 16;
-#[cfg(all(nexus_env = "os", feature = "os-lite"))]
-const PAGE_SIZE_BYTES: usize = 4096;
 
 static NEXT_VMO_ID: AtomicU64 = AtomicU64::new(1);
 

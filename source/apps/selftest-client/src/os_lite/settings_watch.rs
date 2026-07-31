@@ -92,8 +92,11 @@ fn fail(prefix: &str, code: u32) -> Result<(), ()> {
     Err(())
 }
 
-const WATCH_STEP: &str = "SELFTEST: settings watch step=0x";
-const I18N_STEP: &str = "SELFTEST: i18n switch step=0x";
+// Rule 3 (ADR-0027): marker literals live in the manifest-generated SSOT only.
+// These two step-prefixes are declared in `proof-manifest/markers/bringup.toml`;
+// reference the generated constants instead of re-spelling the strings here.
+const WATCH_STEP: &str = crate::markers::M_SELFTEST_SETTINGS_WATCH_STEP_0X;
+const I18N_STEP: &str = crate::markers::M_SELFTEST_I18N_SWITCH_STEP_0X;
 
 /// Settle: concurrent services receive the same OP_EVENTs and print their
 /// own UART lines — give those time to complete before the verdict marker

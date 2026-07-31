@@ -27,7 +27,6 @@ use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Add
 use super::super::mmio::MmioBus;
 use crate::markers::{emit_byte, emit_bytes, emit_line, emit_u64};
 
-const VIRTQ_DESC_F_NEXT: u16 = 1;
 const VIRTQ_DESC_F_WRITE: u16 = 2;
 
 #[repr(C)]

@@ -189,6 +189,16 @@ be the round-3 scroll-viewport width leak — fixed, see below.)
   the bump allocator never frees and every structural tap leaks
   ~100–300 KB; the honest fix (emit-generation arena) stays in the backlog
   below.
+- **Image-budget follow-up (2026-07-31)**: the 8→16 MiB heap above lands in
+  `.bss`, so the app-host IMAGE went 10.0 → 18.8 MB and broke
+  `just contract-image-budgets` (14 MB ceiling, 128 %) — commit 45780c77
+  raised the heap but not the budget table, so `just test-all` was red from
+  that commit on. Budget raised 14 → 24 MB in
+  `scripts/check-image-budgets.sh` WITH the rationale inline: 16.8 MB of the
+  image is the fixed heap and does not grow with code; only the ~2 MB text
+  half does. A further heap doubling (32 MiB) trips the gate again by
+  design. The emit-generation arena in the backlog below is still the real
+  fix — this is headroom, not a licence.
 
 ## Proofs
 

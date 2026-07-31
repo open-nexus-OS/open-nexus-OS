@@ -16,11 +16,17 @@ struct Registry {
     icon_top_sym: u32,
     icon_bottom_sym: u32,
     icon_art_sym: u32,
+    running_sym: u32,
 }
 impl nexus_dsl_runtime::EffectHost for Registry {
     fn call(&mut self, svc: &str, method: &str, _args: &[Value], _t: u32) -> Result<Value, u32> {
         if (svc, method) == ("bundlemgr", "enumerate") {
             let row = |id: &str, label: &str, icon: &str| {
+                // Mirror the REAL row shape from app-host's effect_host: the
+                // RFC-0086 window-state merge appends `running` to every
+                // enumerate row, and the shell's tiles read `app.running`.
+                // A row without it makes the re-render after `Loaded` fail
+                // with `UnknownField` before the sweep ever starts.
                 let mut fields = vec![
                     (self.id_sym, Value::Str(id.into())),
                     (self.label_sym, Value::Str(label.into())),
@@ -28,7 +34,7 @@ impl nexus_dsl_runtime::EffectHost for Registry {
                     (self.icon_top_sym, Value::Str("#4ade80".into())),
                     (self.icon_bottom_sym, Value::Str("#15803d".into())),
                     (self.icon_art_sym, Value::Str("".into())),
-                    (self.icon_art_sym, Value::Str("".into())),
+                    (self.running_sym, Value::Bool(false)),
                 ];
                 fields.sort_by_key(|(s, _)| *s);
                 Value::Record(fields)
@@ -55,6 +61,7 @@ fn hover_sweep_never_panics() {
         icon_top_sym: sym("iconTop"),
         icon_bottom_sym: sym("iconBottom"),
         icon_art_sym: sym("iconArt"),
+        running_sym: sym("running"),
     };
     let tokens = nexus_theme_tokens::BaseTokens;
     let device = FixtureEnv::tablet("landscape");

@@ -1,9 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: MMIO selftest helpers — `MmioBus` adapter, virtio-net mapping
-//!   probe, MMIO-policy enforcement probe (USER|RW only, never executable),
-//!   and the W^X reject path consumed by `phases::mmio`.
+//! CONTEXT: MMIO selftest helpers — the RFC-0085 `vm_map` roundtrip proof and
+//!   the `cap_query` probes consumed by `phases::mmio`, plus the `MmioBus`
+//!   adapter used by the opt-in `smoltcp-probe` bring-up lane.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -11,14 +11,16 @@
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
-use net_virtio::{VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
-
-use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line, emit_u64};
-
+/// MMIO bus adapter for the bounded smoltcp-over-virtio bring-up probe.
+/// `smoltcp-probe` is off by default (see Cargo.toml), and `net/smoltcp_probe.rs`
+/// is its only consumer — so the adapter is gated with it rather than left to
+/// warn as never-constructed in every default build.
+#[cfg(feature = "smoltcp-probe")]
 pub(crate) struct MmioBus {
     pub(crate) base: usize,
 }
 
+#[cfg(feature = "smoltcp-probe")]
 impl nexus_hal::Bus for MmioBus {
     fn read(&self, addr: usize) -> u32 {
         unsafe { core::ptr::read_volatile((self.base + addr) as *const u32) }

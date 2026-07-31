@@ -36,12 +36,12 @@ KERNEL_MM="source/kernel/neuron/src/mm/mod.rs"
 # budgeted on its own because each is separately spawned and separately capable
 # of running away.
 #
-#   service      budget      measured 2026-07-26   note
+#   service      budget      measured 2026-07-31   note
 declare -A BUDGETS=(
-    [init-lite]=$((24 * 1024 * 1024))   # 16.5 MB — carries the embed chain
-    [app-host]=$((14 * 1024 * 1024))    # 10.0 MB — DSL runtime + widget kit
-    [windowd]=$((14 * 1024 * 1024))     #  9.1 MB — see the atlas note below
-    [execd]=$((10 * 1024 * 1024))       #  6.4 MB — embeds app-host
+    [init-lite]=$((24 * 1024 * 1024))   # 17.0 MB — carries the embed chain
+    [app-host]=$((24 * 1024 * 1024))    # 18.8 MB — see the heap note below
+    [windowd]=$((14 * 1024 * 1024))     #  8.9 MB — see the atlas note below
+    [execd]=$((10 * 1024 * 1024))       #  6.8 MB — embeds app-host
     [gpud]=$((2 * 1024 * 1024))         #  0.9 MB
 )
 # Any service image not named above. Deliberately tight: every service that
@@ -55,6 +55,17 @@ declare -A NOT_A_SERVICE=(
     [recv-wake-probe]="a kernel IPC probe binary, not a service"
 )
 
+# app-host note (TASK-0311 round 3, raised 2026-07-31 for commit 45780c77):
+# 16.8 MB of the 18.8 MB image is the FIXED 16 MiB bump heap
+# (`nexus-service-entry/heap-16m`), raised 8->16 MiB because every structural
+# DSL interaction re-emits scene + layout + texts onto a never-freeing bump
+# (~100-300 KiB/click) — 8 MiB froze after a few dozen clicks. That half does
+# NOT grow with code; only the ~2 MB text half does, which is what the 24 MB
+# ceiling actually budgets. Watermark markers (50/75/90%) make the heap's own
+# ceiling visible at runtime. The honest fix is the emit-generation arena
+# tracked in TASK-0311; this budget is headroom, not a licence — a second heap
+# doubling (32 MiB) trips this gate immediately, which is the point.
+#
 # windowd note (TASK-0305): ~4.4 MB of its image is the shared glyph atlas,
 # linked in via `nexus-text-baked`'s `embedded-atlas` feature — HALF the image.
 # RFC-0080 already built the mechanism to map that atlas as one shared RO VMO

@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-07-31 (`just test-all` green again: three gates were red, four warnings were yellow)
+
+`just test-all` had been failing since 2026-07-22 (arch-gate) and 2026-07-30
+(image budget). Each failure was a real signal that had simply never been
+answered — no gate was weakened to get green.
+
+- **selftest-client**: `os_lite/settings_watch.rs` spelled two marker
+  step-prefixes as local `&str` consts, which broke arch-gate Rule 3 (marker
+  literals live only in the manifest-generated SSOT). They now reference
+  `M_SELFTEST_SETTINGS_WATCH_STEP_0X` / `M_SELFTEST_I18N_SWITCH_STEP_0X` —
+  byte-identical strings, so the marker contract is unchanged. The literals
+  slipped in when the fail-prefix moved from a `b"…"` byte string (which the
+  rule's regex does not match) to a `&str` const.
+- **selftest-client**: `MmioBus` and its `nexus_hal::Bus` impl are now gated
+  with `#[cfg(feature = "smoltcp-probe")]`, matching their only consumer
+  (`net/smoltcp_probe.rs`). The feature is off by default precisely to avoid
+  unused-code warnings, but `mmio.rs` was never gated with it — so every
+  default OS build emitted never-constructed + unused-import warnings and the
+  real build's `NEXUS_WARN_GATE=1` failed. Two dead import lines dropped, plus
+  an unused `VIRTQ_DESC_F_NEXT` in the probe lane itself.
+- **nexus-vmo**: dropped `PAGE_SIZE_BYTES`, orphaned when RFC-0085 P5
+  (`aa79dc5c`) deleted its only consumer `Vmo::map_ro_pages`.
+- **image budgets**: app-host is 18.8 MB against a 14 MB ceiling because
+  `45780c77` raised its bump heap 8 → 16 MiB for TASK-0311 without moving the
+  budget. Raised to 24 MB with the rationale inline — 16.8 MB of the image is
+  the FIXED heap and does not grow with code; only the ~2 MB text half does,
+  and a further heap doubling still trips the gate. Recorded in the TASK-0311
+  ledger, per the gate's own instruction.
+- **dsl_apps_conformance**: `hover_sweep`'s `bundlemgr.enumerate` fixture
+  predated the RFC-0086 window-state merge — it returned rows without
+  `running` (and duplicated `iconArt`), so the re-render after `Loaded` died
+  with `UnknownField` before the sweep started. The fixture now mirrors the
+  real `app-host` row shape. Production code was correct; only the fixture had
+  rotted. It is the only shell test that runs root effects, which is why
+  nothing else caught it.
+- **systemui_bootstrap_shell_host**: four launcher tests still called
+  `navigate("/launcher")`, but the launcher stopped being a route when
+  design_handoff_launcher §9/§10 made it an OVERLAY over the shell home
+  (`ui/pages/Routes.nx` says so in a comment) — they died on an unmatched
+  route. They now open it the way the shell does, via
+  `PanelStore.panel = "launcher"`. The profile-divergence test additionally
+  asserted a phone Back button (`launcher.back`) that no longer exists
+  anywhere in the tree; it now pins the real divergence — desktop takes
+  `LauncherWindow` (section header leads, identity footer ends), phone takes
+  `LauncherFullscreen` (its own greeting, neither header nor footer) — by the
+  launcher's own keys and their order rather than the whole scene's
+  first/last text, since home chrome now brackets both. Its shared
+  `app_entry()` helper got the same `running` field.
+
+Both test failures were masked: `cargo test` stops at the first failing
+target, so only one surfaced per run. `--no-fail-fast` over the whole host
+workspace is now clean.
+
+Known-open (unchanged by this pass): `just deadcode` cannot fail. Its
+allowlist reduces to one empty line, and `grep -vFf` treats an empty pattern
+as matching everything, so all ~40 `#[allow(dead_code)]`/`#[allow(unused)]`
+sites pass unchecked.
+
 ### Fixed - 2026-07-30 (Shell panels round 2: the desktop/tablet switch actually switches)
 
 The Control Center's Ansichtsmodus tile was a silent no-op, and the dead zone

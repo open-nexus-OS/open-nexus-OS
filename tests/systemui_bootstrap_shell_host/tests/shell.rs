@@ -10,6 +10,16 @@ use nexus_dsl_runtime::svc::{value_to_text, TranscriptHost};
 use nexus_dsl_runtime::{FixtureEnv, Value};
 use systemui_bootstrap_shell_host::{app_entry, compile_project, texts, Mounted};
 
+/// Open the launcher. It is NOT a route any more (`ui/pages/Routes.nx`): since
+/// design_handoff_launcher §9/§10 it is an OVERLAY over the shell home, opened
+/// by `PanelStore.panel = "launcher"` so the desktop stays visible behind it.
+/// The panel dispatch runs through `NoIo` — it fires no effect, so it must not
+/// consume a transcript line.
+fn open_launcher(mounted: &mut Mounted<'_>) {
+    use nexus_dsl_runtime::NoIo;
+    mounted.dispatch(&mut NoIo, "PanelEvent", "SetPanel", vec![Value::Str("launcher".into())]);
+}
+
 fn enumerate_line(mounted: &Mounted<'_>, query: &str, apps: &[(&str, &str)]) -> String {
     let rows: Vec<String> =
         apps.iter().map(|(id, label)| value_to_text(&app_entry(mounted, id, label))).collect();
@@ -42,8 +52,8 @@ fn launcher_lists_registry_apps_and_tap_launches_by_id() {
     let nxir = compile_project("desktop-shell");
     let mut mounted = Mounted::new(&nxir, FixtureEnv::default());
 
-    // Navigate to the launcher (the shell's Apps flow) and load the registry.
-    mounted.navigate("/launcher");
+    // Open the launcher overlay (the shell's Apps flow) and load the registry.
+    open_launcher(&mut mounted);
     let transcript = format!(
         "# nx-transcript v1\n{}\ncall ability.launch(Str(\"counter\")) -> Ok(Bool(true))\n",
         enumerate_line(
@@ -73,7 +83,7 @@ fn launcher_lists_registry_apps_and_tap_launches_by_id() {
 fn launcher_search_refilters_through_the_service() {
     let nxir = compile_project("desktop-shell");
     let mut mounted = Mounted::new(&nxir, FixtureEnv::default());
-    mounted.navigate("/launcher");
+    open_launcher(&mut mounted);
 
     let all = enumerate_line(
         &mounted,
@@ -82,7 +92,7 @@ fn launcher_search_refilters_through_the_service() {
     );
     // The query travels WITH the call — filtering is the service's job.
     let mut mounted2 = Mounted::new(&nxir, FixtureEnv::default());
-    mounted2.navigate("/launcher");
+    open_launcher(&mut mounted2);
     let filtered = enumerate_line(&mounted2, "cou", &[("counter", "Counter")]);
     let transcript = format!("# nx-transcript v1\n{all}\n{filtered}\n");
     let mut host = TranscriptHost::parse(&transcript).expect("transcript parses");
@@ -108,22 +118,28 @@ fn launcher_search_refilters_through_the_service() {
 fn launcher_phone_override_diverges_structurally() {
     let nxir = compile_project("desktop-shell");
     let mut desktop = Mounted::new(&nxir, FixtureEnv::default());
-    desktop.navigate("/launcher");
+    open_launcher(&mut desktop);
     let mut phone = Mounted::new(&nxir, FixtureEnv::phone("portrait"));
-    phone.navigate("/launcher");
-    // Same program bytes, same store — different page structure: the
-    // desktop override is the windowed panel ("Alle Apps" section header
-    // leads, the user-identity footer ends it); the phone override stays
-    // the single-column list that still ends with its own Back button (the
-    // desktop panel has no Back text at all). Text ORDER is the witness.
+    open_launcher(&mut phone);
+    // Same program bytes, same store — different structure per profile.
+    // Desktop takes `LauncherWindow`: the "Alle Apps" section header LEADS the
+    // panel and `LauncherFooter`'s user identity ENDS it. Phone takes
+    // `LauncherFullscreen`: its own greeting, no section header and no
+    // identity footer. Both now render OVER the shell home (the launcher is an
+    // overlay, not a route), so home chrome brackets the scene — the witness is
+    // the launcher's own keys and their ORDER, not the scene's first/last text.
     let d = texts(desktop.view.scene());
     let p = texts(phone.view.scene());
     assert_ne!(d, p, "profiles must not collapse to one layout");
-    assert_eq!(d.first().map(String::as_str), Some("launcher.allApps"));
-    assert_eq!(d.last().map(String::as_str), Some("launcher.userName"));
-    assert_eq!(p.last().map(String::as_str), Some("launcher.back"));
-    assert!(!d.contains(&"launcher.back".to_string()), "desktop panel has no Back: {d:?}");
+    let idx = |t: &[String], key: &str| t.iter().position(|s| s == key);
+    let (d_header, d_footer) = (idx(&d, "launcher.allApps"), idx(&d, "launcher.userName"));
+    assert!(d_header.is_some(), "desktop panel leads with the section header: {d:?}");
+    assert!(d_footer.is_some(), "desktop panel ends with the user identity: {d:?}");
+    assert!(d_header < d_footer, "header leads, identity footer ends: {d:?}");
+    assert!(!d.contains(&"launcher.greeting".to_string()), "desktop has no greeting: {d:?}");
+    assert!(p.contains(&"launcher.greeting".to_string()), "phone list has its greeting: {p:?}");
     assert!(!p.contains(&"launcher.allApps".to_string()), "phone list has no header: {p:?}");
+    assert!(!p.contains(&"launcher.userName".to_string()), "phone list has no footer: {p:?}");
 }
 
 #[test]
@@ -213,7 +229,7 @@ fn launcher_grid_reorders_and_inserts_by_key() {
     use nexus_dsl_runtime::NoIo;
     let nxir = compile_project("desktop-shell");
     let mut mounted = Mounted::new(&nxir, FixtureEnv::default());
-    mounted.navigate("/launcher");
+    open_launcher(&mut mounted);
 
     let entries = |mounted: &Mounted<'_>, apps: &[(&str, &str)]| {
         Value::List(apps.iter().map(|(id, label)| app_entry(mounted, id, label)).collect())

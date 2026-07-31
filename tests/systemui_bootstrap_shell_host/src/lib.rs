@@ -166,9 +166,13 @@ pub fn texts(scene: &nexus_layout_types::LayoutNode) -> Vec<String> {
 }
 
 /// An `AppEntry` record value (`{id, label, icon, iconTop, iconBottom,
-/// iconArt}`) with the program's interned field symbols — what
+/// iconArt, running}`) with the program's interned field symbols — what
 /// `svc.bundlemgr.enumerate` returns. The icon fields stay empty so the
 /// tiles take the uniform glass-tile branch (no artwork colors needed).
+///
+/// `running` is the RFC-0086 window-state merge that app-host's `effect_host`
+/// appends to every enumerate row; the shell's tiles read `app.running`, so a
+/// row without it fails the re-render with `UnknownField`.
 #[must_use]
 pub fn app_entry(mounted: &Mounted<'_>, id: &str, label: &str) -> Value {
     let mut fields = vec![
@@ -178,6 +182,7 @@ pub fn app_entry(mounted: &Mounted<'_>, id: &str, label: &str) -> Value {
         (mounted.sym("iconTop"), Value::Str("".into())),
         (mounted.sym("iconBottom"), Value::Str("".into())),
         (mounted.sym("iconArt"), Value::Str("".into())),
+        (mounted.sym("running"), Value::Bool(false)),
     ];
     fields.sort_by_key(|(sym, _)| *sym);
     Value::Record(fields)
