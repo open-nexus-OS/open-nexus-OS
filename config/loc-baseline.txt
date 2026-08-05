@@ -67,11 +67,6 @@
 810	source/services/windowd/src/smoke.rs
 646	source/services/windowd/src/systemui_shell.rs
 658	source/services/windowd/src/window_scene.rs
-863	tools/qemu-src/rust/bql/src/cell.rs
-781	tools/qemu-src/rust/hw/char/pl011/src/device.rs
-1132	tools/qemu-src/rust/hw/timer/hpet/src/device.rs
-680	tools/qemu-src/rust/migration/src/vmstate.rs
-956	tools/qemu-src/rust/qom/src/qom.rs
 710	userspace/config/nexus-config/src/lib.rs
 955	userspace/dsl/runtime/tests/layout_viewport.rs
 735	userspace/dsoftbus/src/host.rs

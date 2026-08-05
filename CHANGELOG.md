@@ -26,6 +26,16 @@ gate SSOT), not papered over in the workflow.
   `diag-os{,-strict}`, `build-os-workspace`, `test-os`. CI additionally caches
   `resources/fonts/noto`, and the qemu job calls `just fonts` explicitly because
   it shells out to `scripts/qemu-test.sh` directly rather than through a recipe.
+- **structure-gate scanned submodule contents.** Same shape as the fonts: the
+  LOC ratchet walked `tools/`, which contains the `qemu-src` submodule, so what
+  it saw depended on which submodules happened to be checked out. A
+  `submodules: recursive` CI runner pulls qemu-src's nested `roms/edk2` — which
+  vendors pyca-cryptography's Rust x509 sources — and flagged 8 over-limit files
+  a developer box never had. `scan_loc` now prunes every path registered in
+  `.gitmodules`: the ratchet governs code this repo owns, "split by
+  responsibility" is not actionable advice for vendored QEMU/EDK2/OpenSSL, and
+  an upstream bump can no longer red the gate. The five now-unreachable
+  `tools/qemu-src/rust/**` entries are dropped from `config/loc-baseline.txt`.
 - **`test-all` ran `build-kernel` but never `lint-kernel`.** The kernel builds
   and lints under different flags — clippy is denied via `deny(warnings)` in
   `lib.rs` under the riscv/none cfg — so a clean cross-build proved nothing

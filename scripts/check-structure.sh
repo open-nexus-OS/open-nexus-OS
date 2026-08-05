@@ -14,8 +14,9 @@
 #      unless grandfathered in config/service-layout.allow.
 #
 # Exit 1 on any violation; silent-ish green otherwise. Scan scope: source/,
-# userspace/, tools/ — excluding target/, generated code (*_generated.rs,
-# */generated/*, *_capnp.rs).
+# userspace/, tools/ — excluding registered submodules (upstream trees, see
+# scan_loc), target/, and generated code (*_generated.rs, */generated/*,
+# *_capnp.rs).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -24,8 +25,28 @@ BASELINE="config/loc-baseline.txt"
 LAYOUT_ALLOW="config/service-layout.allow"
 SERVICES="config/os-services.txt"
 
+# Registered submodules (from .gitmodules) are UPSTREAM trees. Two reasons the
+# ratchet must not reach into them:
+#   * Ownership: "split by responsibility" is not actionable advice for vendored
+#     QEMU/EDK2/OpenSSL sources we do not maintain, and an upstream bump would
+#     red the gate through no change of ours.
+#   * Determinism: the scan would otherwise depend on WHICH submodules happen to
+#     be checked out. A `submodules: recursive` CI runner pulls qemu-src's nested
+#     roms/edk2 (which vendors pyca-cryptography's Rust x509 sources) and saw 8
+#     over-limit files a developer box — nested submodules absent — never did.
+#     Same environment-shaped failure class as the un-fetched build-input fonts.
+submodule_paths() {
+    git config --file .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null |
+        awk '{print $2}'
+}
+
 scan_loc() {
+    local prune=()
+    while read -r sub; do
+        [ -n "$sub" ] && prune+=(-not -path "$sub/*")
+    done < <(submodule_paths)
     find source userspace tools -name '*.rs' \
+        ${prune[@]+"${prune[@]}"} \
         -not -path '*/target/*' \
         -not -name '*_generated.rs' \
         -not -path '*/generated/*' \
