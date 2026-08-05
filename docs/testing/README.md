@@ -37,6 +37,15 @@ Open Nexus OS follows a **host-first, OS-last** strategy. Most logic is exercise
 
 The full layer reference — including the end-to-end coverage table and the per-TASK requirement matrices (TASK-0020 … TASK-0057) — lives in [layers.md](layers.md).
 
+> **`just ci-network` is currently RED — known, tracked, not a regression you introduced.**
+> Measured 2026-08-05: `ci-os-dhcp` green, `ci-os-quic` and `ci-os-os2vm` red.
+> Cross-VM DSoftBus discovery does not happen at all (`OS2VM_E_DISCOVERY_TIMEOUT`,
+> no marker on either node within the full window), and `quic-required` requires
+> a peer connect that its own marker contract documents as impossible in a
+> single-VM profile. The lane is in neither `test-all` nor CI, which is why it
+> rotted unnoticed since ~2026-07-24. Details, workstreams and exit criteria:
+> [tasks/TRACK-NETWORK-PROOF-LANES.md](../../tasks/TRACK-NETWORK-PROOF-LANES.md).
+
 ## Workflow checklist
 
 1. Extend userspace tests first and run `cargo test --workspace` until green.

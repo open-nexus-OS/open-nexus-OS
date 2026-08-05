@@ -292,8 +292,15 @@ ci-os-dhcp-strict:
 ci-os-quic:
     RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os quic-required
 
-ci-os-os2vm:
-    RUN_OS2VM=1 RUN_TIMEOUT=${RUN_TIMEOUT:-180s} just test-os os2vm
+# 2-VM DSoftBus lane. Delegates to `test-os2vm` instead of `just test-os os2vm`,
+# because the profile declares `runner = "tools/os2vm.sh"` (harness.toml) and
+# `test-os` invokes scripts/qemu-test.sh — a SINGLE-VM harness that does not
+# reference RUN_OS2VM anywhere. Routing the profile through it booted ONE VM and
+# then demanded cross-VM markers that cannot exist there, so the lane failed for
+# a fabricated reason and masked the real one (cross-VM discovery times out:
+# `OS2VM_E_DISCOVERY_TIMEOUT`, A=0 B=0). `test-os2vm` runs the declared 2-VM
+# harness and checks the os2vm marker group against node A's log.
+ci-os-os2vm: test-os2vm
 
 # Aggregate: profile-driven network matrix (replacement for `test-network`).
 ci-network:

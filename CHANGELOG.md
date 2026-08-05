@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-08-05 (`ci-os-os2vm` ran a 2-VM profile through the single-VM harness)
+
+`[profile.os2vm]` declares `runner = "tools/os2vm.sh"`, but `ci-os-os2vm` ran
+`RUN_OS2VM=1 just test-os os2vm` — and `test-os` invokes
+`scripts/qemu-test.sh`, which does not reference `RUN_OS2VM` anywhere. The
+variable was set and silently ignored, so the lane booted ONE VM and then
+demanded cross-VM markers that cannot exist there. It now delegates to
+`test-os2vm`, which runs the declared harness and checks the `os2vm` marker
+group against node A's log.
+
+This does NOT make the lane green, and saying so is the point: with the correct
+harness it fails as `OS2VM_E_DISCOVERY_TIMEOUT` (`cross-vm markers pending:
+A=0 B=0` for the full 180 s window) — cross-VM discovery never happens at all.
+The wrong runner was masking a real dsoftbus defect behind a fabricated one.
+`SELFTEST: dsoftbus os connect FAIL` is present in every run log back to
+2026-07-24; `just ci-network` has been red at least that long, unnoticed because
+it is in neither `test-all` nor CI.
+
+Still open, deliberately untouched here: (1) the dsoftbus cross-device discovery
+failure itself, and (2) `[profile.quic-required]`, which uses the single-VM
+runner yet sets `REQUIRE_DSOFTBUS=1` — demanding a peer connect that the marker
+contract itself documents as impossible there ("no peer in single-VM profiles",
+`markers/net.toml`). Changing what that profile asserts is a marker-contract
+decision, not a drive-by edit.
+
 ### Added - 2026-08-05 (make "green here ⇒ green in CI" checkable instead of hoped)
 
 Three CI breaks in one day, patched one at a time. Reviewing them together, they
