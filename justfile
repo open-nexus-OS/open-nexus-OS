@@ -87,6 +87,18 @@ help:
     @echo "  CARGO_TARGET_DIR defaults to <repo>/target for just recipes"
     @echo "  NEXUS_CARGO_TARGET_DIR=/path/to/target just test-all  # override target dir"
 
+# Pinned BUILD-INPUT fonts (Inter is vendored; the ~50 MB Noto Sans CJK OTFs
+# are gitignored and fetched at a pinned commit+SHA — scripts/fetch-fonts.sh,
+# docs contract in font-library.md). No-op once they verify.
+#
+# Every recipe that compiles the workspace depends on this, because
+# `nexus-text-baked`'s build script bakes its atlases from these OTFs and hard-
+# fails when they are absent. Without the dependency the gate is environment-
+# shaped: a developer machine (fonts fetched months ago) stays green while a
+# fresh checkout — i.e. every CI runner — dies in the build script.
+fonts:
+    @scripts/fetch-fonts.sh
+
 # Build the bootable NEURON binary crate
 build-kernel:
     cargo +{{toolchain}} build -p neuron-boot --target riscv64imac-unknown-none-elf --release
@@ -149,7 +161,7 @@ start-vnc *args:
 # Migration target: invoke `just test-os <headless|smp1|smp|dhcp|quic-required|os2vm>`
 # (positional arg; just 1.47 parses `PROFILE=foo` after the recipe name as
 # another recipe name, not a parameter override) everywhere.
-test-os profile='headless':
+test-os profile='headless': fonts
     scripts/qemu-test.sh --profile={{profile}}
     @echo "[hint] Kernel triage: illegal-instruction dumps sepc/scause/stval+bytes; enable trap_symbols for name+offset; post-SATP marker validates return path."
 
@@ -359,11 +371,11 @@ fmt-check:
         exit 1; \
     fi
 
-lint:
+lint: fonts
     @echo "==> clippy (host cfg, exclude kernel)"
     @env RUSTFLAGS='--cfg nexus_env="host"' cargo +{{toolchain}} clippy --workspace --exclude neuron --exclude neuron-boot -- -D warnings -D clippy::unwrap_used -D clippy::expect_used -W dead_code -A unexpected_cfgs
 
-test-host:
+test-host: fonts
     @echo "==> Running host test suite (exclude kernel)"
     @env RUSTFLAGS='{{host_rustflags}}' cargo +{{toolchain}} test --workspace --exclude neuron --exclude neuron-boot
 
@@ -387,7 +399,7 @@ pack-bundles:
     done
     echo "[ok] bundles packed under $out/"
 
-test-e2e:
+test-e2e: fonts
     @echo "==> Running host E2E tests"
     @env RUSTFLAGS='{{host_rustflags}}' cargo +{{toolchain}} test -p nexus-e2e -p remote_e2e -p logd-e2e -p vfs-e2e -p e2e_policy
 
@@ -444,7 +456,7 @@ deadcode:
 # PLUS the real OS cross-build. This is the step that makes a green `test-all`
 # actually predict a green `make build`/`just start`/CI, instead of testing a
 # different toolchain than the one that ships.
-build-os-workspace:
+build-os-workspace: fonts
     @echo "==> full host workspace build (pinned {{toolchain}}, as make build)"
     @env RUSTFLAGS='{{host_rustflags}}' cargo +{{toolchain}} build --workspace --exclude neuron --exclude neuron-boot
     @echo "==> real OS cross-build (scripts/build.sh, warning-gated)"
@@ -466,6 +478,7 @@ test-all:
     just miri-strict
     just miri-fs
     just build-kernel
+    just lint-kernel
     just ci-os-smp1
     @scripts/hypothesis-log.sh H5 "justfile:test-all:end" "aggregate gate completed"
 
@@ -475,7 +488,7 @@ test-all:
 
 # Host: enable cfg validation and surface warnings (including unexpected cfg).
 # This intentionally excludes the kernel crates (they require nightly features).
-diag-host:
+diag-host: fonts
     @echo "==> diag-host (toolchain={{toolchain}}, nexus_env=host)"
     @rustc +{{toolchain}} -V
     @cargo +{{toolchain}} -V
@@ -484,7 +497,7 @@ diag-host:
 # OS: enable cfg validation and surface warnings for riscv builds (os-lite style).
 # Note: OS builds are a *slice* (kernel + init-lite + OS services). Do not use --all-targets on bare-metal
 # as it pulls in cfg(test) paths and host-only crates which is not representative.
-diag-os:
+diag-os: fonts
     @echo "==> diag-os (toolchain={{toolchain}}, target=riscv64imac-unknown-none-elf, nexus_env=os)"
     @rustc +{{toolchain}} -V
     @cargo +{{toolchain}} -V
@@ -508,11 +521,11 @@ diag-kernel:
 # -----------------------------------------------------------------------------
 diag: diag-host-strict diag-os-strict diag-kernel-strict
 
-diag-host-strict:
+diag-host-strict: fonts
     @echo "==> diag (host, deny warnings)"
     @env RUSTFLAGS='{{host_rustflags}} -D warnings -A unexpected_cfgs {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check --workspace --exclude neuron --exclude neuron-boot --all-targets --message-format=short
 
-diag-os-strict:
+diag-os-strict: fonts
     @echo "==> diag (os slice, deny warnings)"
     @env RUSTFLAGS='{{os_rustflags}} -D warnings {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
     @env RUSTFLAGS='{{os_rustflags}} -D warnings {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short

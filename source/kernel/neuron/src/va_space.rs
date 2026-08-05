@@ -303,7 +303,6 @@ impl VaSpace {
     /// window? The legacy fixed-VA syscall's admission check: it may map
     /// anywhere EXCEPT into the kernel's window (that is the invariant that
     /// keeps the hole-finder sound without consulting the page table).
-    #[must_use]
     pub fn admits_fixed(&self, va: usize, len: usize) -> Result<(), VaError> {
         let Some(end) = va.checked_add(len) else {
             return Err(VaError::BadInput);

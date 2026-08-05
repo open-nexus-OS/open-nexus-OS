@@ -322,7 +322,7 @@ pub fn wait_for_online_mask(expected_mask: usize, budget_ns: u64) -> bool {
                 riscv::register::sstatus::set_sie();
             }
         }
-        return result;
+        result
     }
     #[allow(unreachable_code)]
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]

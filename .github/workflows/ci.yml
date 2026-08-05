@@ -53,6 +53,14 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-lint-${{ hashFiles('**/Cargo.lock') }}
+      # Pinned Noto Sans CJK OTFs (~50 MB, gitignored build inputs — see
+      # scripts/fetch-fonts.sh). Cached so the fetch is a checksum no-op on
+      # warm runs instead of a re-download per job.
+      - name: Font cache (pinned Noto Sans CJK)
+        uses: actions/cache@v4
+        with:
+          path: resources/fonts/noto
+          key: ${{ runner.os }}-fonts-${{ hashFiles('scripts/fetch-fonts.sh') }}
       # Prebuilt binary: `cargo install cargo-deny` would compile it with the
       # last-installed toolchain (nightly-2025-01-15 = rustc 1.86), but recent
       # cargo-deny needs rustc >= 1.88. A downloaded binary sidesteps the skew.
@@ -84,6 +92,14 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-test-${{ hashFiles('**/Cargo.lock') }}
+      # Pinned Noto Sans CJK OTFs (~50 MB, gitignored build inputs — see
+      # scripts/fetch-fonts.sh). Cached so the fetch is a checksum no-op on
+      # warm runs instead of a re-download per job.
+      - name: Font cache (pinned Noto Sans CJK)
+        uses: actions/cache@v4
+        with:
+          path: resources/fonts/noto
+          key: ${{ runner.os }}-fonts-${{ hashFiles('scripts/fetch-fonts.sh') }}
       - name: just test-host
         run: just test-host
       - name: just test-e2e
@@ -187,6 +203,18 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-qemu-${{ hashFiles('**/Cargo.lock') }}
+      # Pinned Noto Sans CJK OTFs (~50 MB, gitignored build inputs — see
+      # scripts/fetch-fonts.sh). Cached so the fetch is a checksum no-op on
+      # warm runs instead of a re-download per job.
+      - name: Font cache (pinned Noto Sans CJK)
+        uses: actions/cache@v4
+        with:
+          path: resources/fonts/noto
+          key: ${{ runner.os }}-fonts-${{ hashFiles('scripts/fetch-fonts.sh') }}
+      # `just check`/`test-host` pull this in via their `fonts` dependency, but
+      # this job shells out to scripts/qemu-test.sh directly.
+      - name: just fonts
+        run: just fonts
       # `headless` is the CI profile (justfile: `ci-os-headless`): full service
       # chain, display phases truncated (GitHub runners have no display/GPU
       # backend). `full` expects visible/display markers and is for local

@@ -164,7 +164,7 @@ fn observe_wake_outcome(outcome: task::WakeOutcome) {
 
 /// Deadline sweep run at EVERY scheduling transition (`yield`, blocking
 /// `ipc_recv_v1/v2`, `waitset_wait`) — i.e. the one body all three of the
-/// >10 ms BKL holders observed on 2026-07-25 have in common
+/// `>10 ms` BKL holders observed on 2026-07-25 have in common
 /// (`KINIT: long ecall nr=0|18|26|40 10..26ms`, 146 waits >10 ms in an
 /// interactive 4-hart boot). It is O(tasks) and each expiry it finds wakes a
 /// task, which can IPI another hart — so its cost is attributed separately

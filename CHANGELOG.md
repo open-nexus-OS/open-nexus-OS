@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-08-05 (CI was red where `test-all` was green: two holes in the gate)
+
+A green `just test-all` is supposed to predict a green CI. It did not: CI's
+`lint`, `host tests` and `kernel` jobs all failed on a commit that passed
+`test-all` locally. Two distinct holes, both now closed in the justfile (the
+gate SSOT), not papered over in the workflow.
+
+- **Fonts — the gate was environment-shaped.** `nexus-text-baked`'s build
+  script bakes its atlases from the pinned Noto Sans CJK OTFs, which are ~50 MB
+  and therefore gitignored and fetched by `scripts/fetch-fonts.sh`. Nothing in
+  the gate chain ever *called* that script, so a machine that had run it once
+  (every developer box) stayed green while a fresh checkout (every CI runner)
+  died in the build script — a failure `test-all` could never have reproduced
+  locally, no matter how complete it was. New `just fonts` recipe (~150 ms
+  checksum no-op when the OTFs verify) is now a dependency of every recipe that
+  compiles the workspace: `lint`, `test-host`, `test-e2e`, `diag-host{,-strict}`,
+  `diag-os{,-strict}`, `build-os-workspace`, `test-os`. CI additionally caches
+  `resources/fonts/noto`, and the qemu job calls `just fonts` explicitly because
+  it shells out to `scripts/qemu-test.sh` directly rather than through a recipe.
+- **`test-all` ran `build-kernel` but never `lint-kernel`.** The kernel builds
+  and lints under different flags — clippy is denied via `deny(warnings)` in
+  `lib.rs` under the riscv/none cfg — so a clean cross-build proved nothing
+  about kernel clippy. CI ran both; `test-all` ran only the first. `just
+  lint-kernel` is now chained into `test-all`, and the three lints it had been
+  hiding are fixed: a `needless_return` in `smp::bringup::wait_for_online_mask`
+  (the cfg'd tail block is the function's trailing expression), a stray
+  `#[must_use]` on `VaSpace::admits_fixed` (its `Result` already carries one),
+  and a `doc_lazy_continuation` cascade in `wake_expired_blocked`'s doc comment,
+  where a line starting with `>10 ms` opened an unintended markdown blockquote.
+
 ### Fixed - 2026-07-31 (`just test-all` green again: three gates were red, four warnings were yellow)
 
 `just test-all` had been failing since 2026-07-22 (arch-gate) and 2026-07-30
