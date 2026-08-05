@@ -34,8 +34,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Install system deps (capnproto, just)
         run: sudo apt-get update && sudo apt-get install -y capnproto just
       # One pinned toolchain (rust-toolchain.toml drives it) so CI clippy/rustfmt
@@ -76,8 +74,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Install system deps (capnproto, just)
         run: sudo apt-get update && sudo apt-get install -y capnproto just
       - name: Install Rust (pinned nightly-2025-01-15)
@@ -110,8 +106,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Install system deps (capnproto, just)
         run: sudo apt-get update && sudo apt-get install -y capnproto just
       - name: Install Rust (nightly + miri)
@@ -137,8 +131,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Install system deps (ripgrep, just)
         run: sudo apt-get update && sudo apt-get install -y ripgrep just
       - name: just deadcode
@@ -149,8 +141,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Install system deps (capnproto, just)
         run: sudo apt-get update && sudo apt-get install -y capnproto just
       - name: Install Rust (nightly, riscv target + build-std)
@@ -178,8 +168,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Install system deps (qemu, capnproto, mold, just)
         run: |
           sudo apt-get update
@@ -211,10 +199,11 @@ jobs:
         with:
           path: resources/fonts/noto
           key: ${{ runner.os }}-fonts-${{ hashFiles('scripts/fetch-fonts.sh') }}
-      # `just check`/`test-host` pull this in via their `fonts` dependency, but
-      # this job shells out to scripts/qemu-test.sh directly.
-      - name: just fonts
-        run: just fonts
+      # Build inputs (submodules + pinned fonts). Every compiling recipe pulls
+      # this in via its `inputs` dependency; this job needs it explicitly
+      # because it shells out to scripts/qemu-test.sh directly.
+      - name: just inputs
+        run: just inputs
       # `headless` is the CI profile (justfile: `ci-os-headless`): full service
       # chain, display phases truncated (GitHub runners have no display/GPU
       # backend). `full` expects visible/display markers and is for local

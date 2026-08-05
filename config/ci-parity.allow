@@ -1,0 +1,25 @@
+# Recipes .github/workflows/ci.yml runs that `just test-all` deliberately does
+# NOT reach. Enforced by scripts/check-ci-parity.sh (in `just check`).
+#
+# Format: one recipe name per line. An entry is a RECORDED DECISION — say why,
+# or it is just an oversight with better paperwork. Entries whose CI step is
+# gone fail the gate, so this file cannot rot.
+
+# SMP=2 real-parallelism lane (MTTCG). Inherently non-deterministic — host
+# scheduling variance makes its timing proofs flaky — so it retries (bounded) in
+# CI and is kept out of the pre-commit loop. test-all runs the DETERMINISTIC
+# 1-hart equivalent instead (`ci-os-smp1`, -smp 1 + icount), which covers the
+# same marker ladder without the flake.
+ci-os-smp
+
+# Provisioning, not a gate: `inputs` is a dependency edge of every recipe that
+# compiles the workspace, so test-all pulls it in implicitly on its first
+# compiling step. CI's qemu job calls it explicitly only because that job shells
+# out to scripts/qemu-test.sh directly instead of going through a recipe.
+inputs
+
+# NOTE — not expressible here: the qemu job's first lane runs
+# `./scripts/qemu-test.sh --profile=headless` directly rather than via a recipe,
+# so the parity gate cannot see it. test-all covers the same ladder through
+# `ci-os-smp1` (profile smp1). If that direct call ever becomes `just
+# ci-os-headless`, the gate will start seeing it and this note can go.

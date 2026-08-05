@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-05 (make "green here ⇒ green in CI" checkable instead of hoped)
+
+Three CI breaks in one day, patched one at a time. Reviewing them together, they
+were two failure classes, and only one of them is about test coverage:
+
+- **Coverage** — `test-all` simply did not run `lint-kernel`.
+- **Environment** — the gate's inputs were implicit, so it measured the MACHINE.
+  A box that had provisioned an input months ago stayed green while a fresh
+  checkout failed. No amount of local test coverage can catch this: a
+  100 %-covering gate would have passed all three breaks.
+
+So the answer is not "more tests" but three mechanisms, one per class and one to
+verify the whole thing:
+
+- **`just inputs`** (`submodules` + `fonts`) is now the declared SSOT for
+  everything a checkout needs but does not carry in-tree, and a dependency of
+  every recipe that compiles the workspace. Inputs that are declared cannot be
+  ambiently missing.
+- **`just ci-parity`** (in `just check`, `scripts/check-ci-parity.sh`) asserts
+  that every `just` recipe the workflow invokes is transitively reachable from
+  `test-all`. Deliberate divergences live in `config/ci-parity.allow` with a
+  rationale, and an entry whose CI step disappears fails the gate, so the
+  allowlist cannot rot. Verified against the real regression: deleting
+  `lint-kernel` from `test-all` reproduces the 2026-08-05 break as a gate
+  failure.
+- **`just ci-verify`** runs the gates in a PRISTINE clone of HEAD provisioned
+  with exactly `just inputs` — the clean-room that answers the half `ci-parity`
+  cannot ("same recipes" vs "same inputs"). It also catches uncommitted or
+  untracked files a gate silently leans on, since it verifies HEAD rather than
+  your working tree. Proven from a genuinely empty state: with neither the Inter
+  submodule nor the pinned Noto OTFs present, `just check` self-provisions and
+  passes.
+
+CI checkout slimmed to match: `submodules: recursive` is gone from all six jobs.
+It pulled `tools/qemu-src` (1.9 GB) plus its nested `roms/edk2` and OpenSSL on
+every job, for a tree no build or test tool references — it is excluded from the
+cargo workspace, every script takes `qemu-system-riscv64` from `PATH`, and CI
+installs that from apt. Those nested sources are exactly what reddened
+structure-gate. The build's real submodule needs are now declared by `just
+inputs` and provisioned by the recipe that needs them.
+
+Honest limits: toolchain versions from apt, the RustSec advisory DB and MTTCG
+timing stay outside local control, so this makes the prediction reliable, never
+proven.
+
 ### Fixed - 2026-08-05 (CI was red where `test-all` was green: two holes in the gate)
 
 A green `just test-all` is supposed to predict a green CI. It did not: CI's

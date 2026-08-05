@@ -87,17 +87,38 @@ help:
     @echo "  CARGO_TARGET_DIR defaults to <repo>/target for just recipes"
     @echo "  NEXUS_CARGO_TARGET_DIR=/path/to/target just test-all  # override target dir"
 
-# Pinned BUILD-INPUT fonts (Inter is vendored; the ~50 MB Noto Sans CJK OTFs
-# are gitignored and fetched at a pinned commit+SHA — scripts/fetch-fonts.sh,
-# docs contract in font-library.md). No-op once they verify.
+# -----------------------------------------------------------------------------
+# BUILD INPUTS — the SSOT for everything a checkout needs but does not carry
+# in-tree. Every recipe that compiles the workspace depends on `inputs`.
 #
-# Every recipe that compiles the workspace depends on this, because
-# `nexus-text-baked`'s build script bakes its atlases from these OTFs and hard-
-# fails when they are absent. Without the dependency the gate is environment-
-# shaped: a developer machine (fonts fetched months ago) stays green while a
-# fresh checkout — i.e. every CI runner — dies in the build script.
+# WHY this exists as a declared dependency and not as a README step: a gate
+# whose inputs are implicit measures the MACHINE, not the code. Both CI breaks
+# of 2026-08-05 were exactly that — a box that had provisioned an input months
+# ago stayed green while a fresh checkout (every CI runner) failed, and no
+# amount of local test coverage could have reproduced it. Declare inputs, and
+# the failure mode cannot recur.
+# -----------------------------------------------------------------------------
+
+# Submodules the BUILD needs. Deliberately NOT `--recursive`: tools/qemu-src is
+# a 1.9 GB vendored QEMU tree that no build or test tool references (it is
+# excluded from the cargo workspace, and every script takes qemu-system-riscv64
+# from PATH — CI installs it from apt). Recursing into it also pulled its nested
+# roms/edk2 + OpenSSL, whose vendored pyca-cryptography sources reddened
+# structure-gate on files no developer box ever had.
+build_submodules := "resources/fonts/inter resources/icons/lucide resources/cursors/mocu"
+
+submodules:
+    @git submodule update --init {{build_submodules}}
+
+# Pinned Noto Sans CJK OTFs: ~50 MB, gitignored, fetched at a pinned commit +
+# SHA-256 (scripts/fetch-fonts.sh, contract in font-library.md). No-op once
+# they verify. `nexus-text-baked`'s build script bakes its atlases from these
+# and hard-fails when they are absent.
 fonts:
     @scripts/fetch-fonts.sh
+
+# Everything above, in one dependency edge.
+inputs: submodules fonts
 
 # Build the bootable NEURON binary crate
 build-kernel:
@@ -161,7 +182,7 @@ start-vnc *args:
 # Migration target: invoke `just test-os <headless|smp1|smp|dhcp|quic-required|os2vm>`
 # (positional arg; just 1.47 parses `PROFILE=foo` after the recipe name as
 # another recipe name, not a parameter override) everywhere.
-test-os profile='headless': fonts
+test-os profile='headless': inputs
     scripts/qemu-test.sh --profile={{profile}}
     @echo "[hint] Kernel triage: illegal-instruction dumps sepc/scause/stval+bytes; enable trap_symbols for name+offset; post-SATP marker validates return path."
 
@@ -371,11 +392,11 @@ fmt-check:
         exit 1; \
     fi
 
-lint: fonts
+lint: inputs
     @echo "==> clippy (host cfg, exclude kernel)"
     @env RUSTFLAGS='--cfg nexus_env="host"' cargo +{{toolchain}} clippy --workspace --exclude neuron --exclude neuron-boot -- -D warnings -D clippy::unwrap_used -D clippy::expect_used -W dead_code -A unexpected_cfgs
 
-test-host: fonts
+test-host: inputs
     @echo "==> Running host test suite (exclude kernel)"
     @env RUSTFLAGS='{{host_rustflags}}' cargo +{{toolchain}} test --workspace --exclude neuron --exclude neuron-boot
 
@@ -399,7 +420,7 @@ pack-bundles:
     done
     echo "[ok] bundles packed under $out/"
 
-test-e2e: fonts
+test-e2e: inputs
     @echo "==> Running host E2E tests"
     @env RUSTFLAGS='{{host_rustflags}}' cargo +{{toolchain}} test -p nexus-e2e -p remote_e2e -p logd-e2e -p vfs-e2e -p e2e_policy
 
@@ -437,7 +458,71 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate
+check: fmt-check lint deny-check arch-check structure-gate ci-parity
+
+# CI/test-all COVERAGE parity: every `just` recipe the workflow invokes must
+# also be reachable from `test-all`. Mechanical guard against the drift that let
+# `lint-kernel` run in CI but never locally. See scripts/check-ci-parity.sh.
+ci-parity:
+    @./scripts/check-ci-parity.sh
+
+# -----------------------------------------------------------------------------
+# CLEAN-ROOM: reproduce a CI runner locally.
+#
+# Coverage parity (`ci-parity`) answers "do we run the same recipes?". This
+# answers the harder half — "against the same inputs?". It runs the gates in a
+# PRISTINE checkout of HEAD provisioned with exactly `just inputs`, so it
+# catches the class no amount of test coverage can:
+#   * gitignored build inputs nobody fetches (the 2026-08-05 font break)
+#   * files CI has and you don't, or vice versa (the edk2 structure-gate break)
+#   * uncommitted/untracked files a gate silently leans on
+# It verifies HEAD, not your working tree — uncommitted work is invisible to it
+# BY DESIGN, because it is invisible to CI too.
+#
+#   just ci-verify              # the lint job (`check`) — where 2 of 3 breaks landed
+#   just ci-verify check test-host lint-kernel
+#
+# The room lives OUTSIDE the repo (override with NEXUS_CI_VERIFY_DIR): nested
+# inside build/ it would still be inside this workspace, and cargo walks up to
+# the outer Cargo.toml — "current package believes it's in a workspace when it's
+# not". The CHECKOUT is always pristine; the target dir persists across runs so
+# a second run is quick. A warm target dir cannot mask an input-provisioning
+# bug — only a dirty checkout could, and that is what gets rebuilt every time.
+# -----------------------------------------------------------------------------
+ci-verify *recipes='check':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$(pwd)"
+    room="${NEXUS_CI_VERIFY_DIR:-${TMPDIR:-/tmp}/open-nexus-ci-verify}"
+    sha="$(git rev-parse HEAD)"
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        echo "[warn] working tree is dirty — ci-verify checks HEAD ($(git rev-parse --short HEAD)), not your edits."
+    fi
+    echo "==> clean-room checkout of $sha -> $room"
+    rm -rf "$room"
+    git clone --quiet --local --shared "$root" "$room"
+    git -C "$room" checkout --quiet "$sha"
+    # Resolve submodules from the local clones when present: same objects CI
+    # would fetch, without re-downloading them. Local paths mean file:// URLs,
+    # which git >= 2.38 refuses for submodules by default (CVE-2022-39253).
+    # It has to travel in the ENVIRONMENT, not the room's config: the clone runs
+    # as a child process that reads the new submodule's config, not the
+    # superproject's, so `git -C "$room" config protocol.file.allow always` is
+    # silently ignored. Exported here so the room's own `just submodules` — which
+    # carries no -c flag of its own — inherits it too.
+    for s in {{build_submodules}}; do
+        if [ -e "$root/$s/.git" ]; then
+            git -C "$room" config "submodule.$s.url" "$root/$s"
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always
+        fi
+    done
+    echo "==> provisioning inputs (exactly what CI provisions)"
+    ( cd "$room" && git submodule update --quiet --init {{build_submodules}} )
+    for r in {{recipes}}; do
+        echo "==> [clean-room] just $r"
+        ( cd "$room" && NEXUS_CARGO_TARGET_DIR="$root/build/ci-verify-target" just "$r" )
+    done
+    echo "[ok] ci-verify: {{recipes}} green in a pristine checkout of $sha"
 
 # Kernel clippy (nightly, build-std). Split out of the host `lint` because it
 # needs -Z build-std and the bare-metal target.
@@ -456,7 +541,7 @@ deadcode:
 # PLUS the real OS cross-build. This is the step that makes a green `test-all`
 # actually predict a green `make build`/`just start`/CI, instead of testing a
 # different toolchain than the one that ships.
-build-os-workspace: fonts
+build-os-workspace: inputs
     @echo "==> full host workspace build (pinned {{toolchain}}, as make build)"
     @env RUSTFLAGS='{{host_rustflags}}' cargo +{{toolchain}} build --workspace --exclude neuron --exclude neuron-boot
     @echo "==> real OS cross-build (scripts/build.sh, warning-gated)"
@@ -488,7 +573,7 @@ test-all:
 
 # Host: enable cfg validation and surface warnings (including unexpected cfg).
 # This intentionally excludes the kernel crates (they require nightly features).
-diag-host: fonts
+diag-host: inputs
     @echo "==> diag-host (toolchain={{toolchain}}, nexus_env=host)"
     @rustc +{{toolchain}} -V
     @cargo +{{toolchain}} -V
@@ -497,7 +582,7 @@ diag-host: fonts
 # OS: enable cfg validation and surface warnings for riscv builds (os-lite style).
 # Note: OS builds are a *slice* (kernel + init-lite + OS services). Do not use --all-targets on bare-metal
 # as it pulls in cfg(test) paths and host-only crates which is not representative.
-diag-os: fonts
+diag-os: inputs
     @echo "==> diag-os (toolchain={{toolchain}}, target=riscv64imac-unknown-none-elf, nexus_env=os)"
     @rustc +{{toolchain}} -V
     @cargo +{{toolchain}} -V
@@ -521,11 +606,11 @@ diag-kernel:
 # -----------------------------------------------------------------------------
 diag: diag-host-strict diag-os-strict diag-kernel-strict
 
-diag-host-strict: fonts
+diag-host-strict: inputs
     @echo "==> diag (host, deny warnings)"
     @env RUSTFLAGS='{{host_rustflags}} -D warnings -A unexpected_cfgs {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check --workspace --exclude neuron --exclude neuron-boot --all-targets --message-format=short
 
-diag-os-strict: fonts
+diag-os-strict: inputs
     @echo "==> diag (os slice, deny warnings)"
     @env RUSTFLAGS='{{os_rustflags}} -D warnings {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
     @env RUSTFLAGS='{{os_rustflags}} -D warnings {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
