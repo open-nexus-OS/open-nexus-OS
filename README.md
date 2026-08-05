@@ -9,6 +9,13 @@ Support ongoing development:
 Open Nexus OS is a research microkernel targeting QEMU RISC‑V `virt` hardware with an OpenHarmony‑inspired userland.
 The repo is run **host-first, QEMU-last**: most logic lives in host-testable userspace crates, while QEMU is used for bounded end-to-end smoke proofs.
 
+<p align="center">
+  <img src="docs/assets/desktop.png" alt="Open Nexus OS desktop running in QEMU: launcher dock, settings, calendar and calculator windows composited by windowd" width="900">
+</p>
+<p align="center">
+  <sub>The desktop booted in QEMU RISC‑V — <code>windowd</code> compositor, <code>gpud</code> virgl backend, and DSL apps (settings, calendar, calculator) on the app-host.</sub>
+</p>
+
 ## Citation
 
 If you use Open Nexus OS in research or reference its architecture, please cite the software record and the related architecture series papers.
@@ -90,8 +97,8 @@ If you want the historical eager-rebuild behavior in a one-shot run, use `NEXUS_
 
 ## Current state
 
-The system boots to an interactive graphical desktop in QEMU. The current stack, all
-regression-gated by deterministic QEMU marker proofs:
+The system boots to an interactive graphical desktop in QEMU (see the screenshot above).
+The current stack, all regression-gated by deterministic QEMU marker proofs:
 
 - **UI stack**: `windowd` compositor service + `gpud` (virtio-gpu 2D and virgl 3D backends)
   + a declarative DSL app platform — apps are `.nx` files run by the app-host (launcher,
