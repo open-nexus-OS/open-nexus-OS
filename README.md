@@ -30,13 +30,10 @@ If you use Open Nexus OS in research or reference its architecture, please cite 
 ## Quickstart (new machine)
 
 Supported hosts: **Debian/Ubuntu, Fedora and Arch** (and their derivatives).
-The checkout **must live under `$HOME`** — rootless podman maps this tree into a
-user namespace and cargo writes `target/` as you, so both need a user-owned
-path. `make initial-setup` refuses to run anywhere else.
 
-Prerequisites: **`git`, `curl` and `make`** — nothing else. A bare distro install
-has no `make` (it arrives with `build-essential` / `base-devel`), and no Makefile
-can bootstrap the tool that reads it, so install those three first:
+**Prerequisites: `git`, `curl` and `make` — nothing else.** A bare distro
+install has no `make` (it arrives with `build-essential` / `base-devel`), and no
+Makefile can bootstrap the tool that reads it, so install those three first:
 
 ```sh
 sudo apt install -y git curl make          # Debian/Ubuntu
@@ -51,6 +48,10 @@ git clone <repo>
 cd ~/open-nexus-OS
 make initial-setup          # installs everything, then verifies it
 ```
+
+The checkout **must live under `$HOME`** — rootless podman maps this tree into a
+user namespace and cargo writes `target/` as you, so both need a user-owned
+path. `make initial-setup` refuses to run anywhere else.
 
 (If you would rather not install `make` by hand, `./scripts/install-deps.sh`
 does the same package step with nothing but bash — `make initial-setup` is
