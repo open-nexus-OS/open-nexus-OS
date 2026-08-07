@@ -81,7 +81,18 @@ env = { SMP = "1", QEMU_NO_ICOUNT = "0" }
 [profile.dhcp]
 runner = "scripts/qemu-test.sh"
 extends = "headless"
-env = { REQUIRE_QEMU_DHCP = "1" }
+# QEMU_NO_ICOUNT: this lane proves NETWORK behaviour against real host I/O, and
+# icount makes that host-dependent instead of deterministic. The launcher turns
+# icount on automatically at -smp 1, which decouples guest time from the wall
+# clock: the guest's DNS deadline then expires long before slirp's forwarder can
+# come back with a reply that took a few real milliseconds. Measured on
+# 2026-08-07 (Ubuntu 26.04, QEMU 10.2.1): 3/3 runs with icount ended in
+# `dbg:netstackd: dns h1 deadline` → `netstackd: net dns proof fail`; the same
+# build with QEMU_NO_ICOUNT=1 emitted `SELFTEST: net udp dns ok` and exited 0.
+# DHCP/ICMP/TCP pass either way — they need no host answer inside a guest
+# deadline. Determinism for the boot ladder stays where it belongs, in
+# [profile.smp1]; this lane is a network proof, not a scheduling proof.
+env = { REQUIRE_QEMU_DHCP = "1", QEMU_NO_ICOUNT = "1" }
 
 [profile.dhcp-strict]
 runner = "scripts/qemu-test.sh"

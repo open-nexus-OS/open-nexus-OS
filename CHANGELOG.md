@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-08-07 (the dhcp lane raced the guest clock against host DNS)
+
+`[profile.dhcp]` runs at `-smp 1`, and the launcher turns on `-icount 1,sleep=on`
+whenever there is one hart. icount decouples guest time from the wall clock, so
+the guest's DNS deadline expired long before slirp's forwarder returned a reply
+that took a few real milliseconds. DHCP, ICMP and TCP passed in the same run —
+none of them needs a host answer inside a guest deadline.
+
+Measured on Ubuntu 26.04 / QEMU 10.2.1: 3/3 runs with icount ended in
+`dbg:netstackd: dns h1 deadline` → `netstackd: net dns proof fail` (exit 1); the
+same build with `QEMU_NO_ICOUNT=1` emitted `SELFTEST: net udp dns ok` and exited
+0. Whether the lane was green therefore depended on how fast the host's resolver
+answered, which is exactly what a proof must not depend on.
+
+The profile now declares `QEMU_NO_ICOUNT = "1"`, the same way `[profile.smp]`
+already does. icount exists for reproducible *scheduling* proofs; this lane
+proves network behaviour against real host I/O. Determinism for the boot ladder
+stays in `[profile.smp1]`.
+
 ### Fixed - 2026-08-07 (`make initial-setup` could not bootstrap a current Ubuntu at all)
 
 `scripts/install-deps.sh` listed `qemu-system-riscv64` and `qemu-system-misc` as
