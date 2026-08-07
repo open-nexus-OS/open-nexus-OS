@@ -19,7 +19,14 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Ask git, do not derive from BASH_SOURCE: as a symlinked .git/hooks/pre-commit
+# the source path is `.git/hooks/pre-commit`, so `dirname/..` resolves to `.git`
+# and the run would log into an invisible .git/build/logs that `just logs-gc`
+# never prunes (and point CARGO_TARGET_DIR at .git/target).
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$REPO_ROOT" ]; then
+  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
 cd "$REPO_ROOT"
 export CARGO_TARGET_DIR="${NEXUS_CARGO_TARGET_DIR:-${REPO_ROOT}/target}"
 
