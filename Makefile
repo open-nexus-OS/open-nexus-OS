@@ -6,6 +6,12 @@ SMP ?= 2
 TARGET_DIR := target
 export CARGO_TARGET_DIR := $(CURDIR)/$(TARGET_DIR)
 
+# rustup installs its proxies into ~/.cargo/bin and wires that into the shell
+# PROFILE — which an already-running shell has not read. Without this, the very
+# `make initial-setup` that just installed rustup would then report it missing,
+# and so would every `make build` until the user opened a new terminal.
+export PATH := $(HOME)/.cargo/bin:$(PATH)
+
 # Canonical artifact paths that `make build` must produce and that
 # `make test` / `make run` consume via NEXUS_SKIP_BUILD=1.
 RV_TARGET := riscv64imac-unknown-none-elf
@@ -15,34 +21,51 @@ UID := $(shell id -u)
 GID := $(shell id -g)
 SELINUX_LABEL := $(shell command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled && echo ":Z" || true)
 
-.PHONY: initial-setup build test run pull clean
+.PHONY: initial-setup doctor build test run pull clean
 .PHONY: run-init-host test-init-host
 .PHONY: dep-gate
 
+# One-command bootstrap for a fresh Ubuntu/Debian, Fedora or Arch box that has
+# nothing but git + curl. Everything it installs is verified afterwards by
+# `make doctor`, which checks CAPABILITIES rather than package names — the only
+# post-condition that means the same thing on all three distros.
+#
+# Flags:
+#   YES=1      non-interactive (no sudo prompt, no y/N)
+#   GUI=0      skip GTK/EGL/virgl — headless only, `just start` will not work
+#   PODMAN=0   skip the rootless-podman checks (use `make build MODE=host`)
 initial-setup:
-	@echo "==> Checking workspace location (must be under \$$HOME for rootless podman + cargo cache permissions)"
-	@case "$(CURDIR)" in \
-	  $$HOME/*) echo "[ok] workspace under \$$HOME ($(CURDIR))" ;; \
-	  *) echo "[error] workspace is at $(CURDIR) which is NOT under \$$HOME ($$HOME)."; \
-	     echo "[error] rootless podman + cargo target/ caches need user-owned paths."; \
-	     echo "[error] move the checkout under \$$HOME (e.g. ~/open-nexus-OS) and re-run."; \
-	     exit 1 ;; \
-	esac
-	@echo "==> Installing host packages (mirrors podman/Containerfile)"
-	@./scripts/install-deps.sh $(if $(YES),--yes,)
-	@echo "==> Checking podman rootless support"
-	@scripts/check-rootless.sh
-	@echo "==> Checking QEMU build deps (for virtio-mmio modern patch)"
-	@command -v ninja >/dev/null 2>&1 || echo "[warn] ninja not found (required for QEMU build)"
-	@command -v meson >/dev/null 2>&1 || echo "[warn] meson not found (required for QEMU build)"
-	@echo "==> Installing Rust targets"
-	@rustup target add riscv64imac-unknown-none-elf
-	@echo "==> Running pre-commit gate (fmt + clippy + cargo-deny)"
-	@# Note: this does NOT install a git hook. It just runs the same gate
-	@# that a pre-commit hook would. To wire it as an actual hook, do:
-	@#   ln -sf ../../scripts/fmt-clippy-deny.sh .git/hooks/pre-commit
-	@./scripts/fmt-clippy-deny.sh
-	@echo "==> QEMU modern virtio-mmio patch: run ./tools/qemu/build-modern.sh"
+	@echo "==> [1/6] Checking workspace location"
+	@# Rootless podman maps this tree into a user namespace and cargo writes
+	@# target/ as the invoking user: both need a user-owned path under $$HOME.
+	@./scripts/check-deps.sh --workspace-only
+	@echo "==> [2/6] Installing host packages"
+	@./scripts/install-deps.sh $(if $(YES),--yes,) $(if $(filter 0,$(GUI)),--no-gui,)
+	@echo "==> [3/6] Fetching declared build inputs (submodules + pinned fonts)"
+	@./scripts/fetch-inputs.sh
+	@echo "==> [4/6] Checking podman rootless support"
+ifeq ($(PODMAN),0)
+	@echo "[skip] PODMAN=0 — use 'make build MODE=host'"
+else
+	@./scripts/check-rootless.sh
+endif
+	@echo "==> [5/6] Wiring the pre-commit gate as a git hook"
+	@if [ -e .git/hooks/pre-commit ]; then \
+	  echo "[skip] .git/hooks/pre-commit already exists — leaving it alone"; \
+	else \
+	  ln -sf ../../scripts/fmt-clippy-deny.sh .git/hooks/pre-commit && \
+	  echo "[ok] .git/hooks/pre-commit -> scripts/fmt-clippy-deny.sh"; \
+	fi
+	@echo "==> [6/6] Verifying the result"
+	@GUI=$(if $(filter 0,$(GUI)),0,1) PODMAN=$(if $(filter 0,$(PODMAN)),0,1) ./scripts/check-deps.sh
+	@echo ""
+	@echo "Optional: ./tools/qemu/build-modern.sh builds a QEMU with force-modern"
+	@echo "virtio-mmio defaults. Not required — the canonical harness passes"
+	@echo "-global virtio-mmio.force-legacy=off itself."
+
+# Verify this host can build, test and run the OS. No sudo, seconds, honest.
+doctor:
+	@./scripts/check-deps.sh
 
 build:
 ifeq ($(MODE),host)

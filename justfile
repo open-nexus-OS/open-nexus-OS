@@ -12,6 +12,14 @@ os_rustflags   := "--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexu
 
 export CARGO_TARGET_DIR := cargo_target_dir
 
+# rustup installs its proxies into ~/.cargo/bin and wires that into the shell
+# PROFILE — which the shell you are in right now has not read if rustup was
+# installed after it started. Without this, every recipe dies with a bare
+# "cargo: command not found" on a freshly provisioned box until the user opens
+# a new terminal, which reads as a broken repo rather than a stale PATH. Mirrors
+# the same export in the Makefile.
+export PATH := env_var("HOME") / ".cargo/bin:" + env_var("PATH")
+
 default: help
 
 # -----------------------------------------------------------------------------
@@ -99,26 +107,31 @@ help:
 # the failure mode cannot recur.
 # -----------------------------------------------------------------------------
 
-# Submodules the BUILD needs. Deliberately NOT `--recursive`: tools/qemu-src is
-# a 1.9 GB vendored QEMU tree that no build or test tool references (it is
-# excluded from the cargo workspace, and every script takes qemu-system-riscv64
-# from PATH — CI installs it from apt). Recursing into it also pulled its nested
-# roms/edk2 + OpenSSL, whose vendored pyca-cryptography sources reddened
-# structure-gate on files no developer box ever had.
-build_submodules := "resources/fonts/inter resources/icons/lucide resources/cursors/mocu"
-
+# The input list itself lives in scripts/fetch-inputs.sh, NOT here: `make
+# initial-setup` must fetch the same inputs without depending on `just` (the
+# make spur stays self-contained, see the note above `run:` in the Makefile).
+# Two lists would be two truths, and the drift would only show on a fresh
+# checkout — exactly the failure mode this section exists to prevent.
+#
+# Deliberately NOT `--recursive`: tools/qemu-src is a 1.9 GB vendored QEMU tree
+# that no build or test tool references (it is excluded from the cargo
+# workspace, and every script takes qemu-system-riscv64 from PATH — CI installs
+# it from apt). Recursing into it also pulled its nested roms/edk2 + OpenSSL,
+# whose vendored pyca-cryptography sources reddened structure-gate on files no
+# developer box ever had.
 submodules:
-    @git submodule update --init {{build_submodules}}
+    @scripts/fetch-inputs.sh --submodules
 
 # Pinned Noto Sans CJK OTFs: ~50 MB, gitignored, fetched at a pinned commit +
 # SHA-256 (scripts/fetch-fonts.sh, contract in font-library.md). No-op once
 # they verify. `nexus-text-baked`'s build script bakes its atlases from these
 # and hard-fails when they are absent.
 fonts:
-    @scripts/fetch-fonts.sh
+    @scripts/fetch-inputs.sh --fonts
 
-# Everything above, in one dependency edge.
-inputs: submodules fonts
+# Everything above, in one dependency edge for other recipes to declare.
+inputs:
+    @scripts/fetch-inputs.sh
 
 # Build the bootable NEURON binary crate
 build-kernel:
@@ -517,14 +530,14 @@ ci-verify *recipes='check':
     # superproject's, so `git -C "$room" config protocol.file.allow always` is
     # silently ignored. Exported here so the room's own `just submodules` — which
     # carries no -c flag of its own — inherits it too.
-    for s in {{build_submodules}}; do
+    for s in $(scripts/fetch-inputs.sh --list-submodules); do
         if [ -e "$root/$s/.git" ]; then
             git -C "$room" config "submodule.$s.url" "$root/$s"
             export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always
         fi
     done
     echo "==> provisioning inputs (exactly what CI provisions)"
-    ( cd "$room" && git submodule update --quiet --init {{build_submodules}} )
+    ( cd "$room" && git submodule update --quiet --init $(scripts/fetch-inputs.sh --list-submodules) )
     for r in {{recipes}}; do
         echo "==> [clean-room] just $r"
         ( cd "$room" && NEXUS_CARGO_TARGET_DIR="$root/build/ci-verify-target" just "$r" )

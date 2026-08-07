@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-08-07 (`make initial-setup` could not bootstrap a current Ubuntu at all)
+
+`scripts/install-deps.sh` listed `qemu-system-riscv64` and `qemu-system-misc` as
+literal package names. On Ubuntu 25.10+ RISC-V was split out of
+`qemu-system-misc`; `qemu-system-riscv64` survives only as a *virtual* name with
+two providers, so `apt-get install` refuses it and the whole setup aborted before
+installing anything. `dpkg -s` also always fails for a virtual name, so the
+idempotency probe had never worked there either.
+
+Package names drift per distro **and** per release, so the fix is structural:
+every entry is now a candidate list and the first name the local package index
+actually knows wins (`qemu-system-riscv` on 26.04, `qemu-system-misc` on 24.04,
+no version special-casing). Non-essential groups (GUI, optional) warn instead of
+aborting, so a renamed display package can no longer block a whole setup.
+
+Also missing, and now installed: `just` (which `scripts/fmt-clippy-deny.sh` —
+called by setup itself — shells out to), `ripgrep` (`just deadcode`,
+`just arch-gate`, QEMU failure triage), `cargo-deny` (`just check`),
+`cargo-nextest`, the `miri` component (`just test-all`), and the GTK/OpenGL QEMU
+display backends without which `just start` cannot open its virgl window. Where
+a distro ships no package, the tool is installed from crates.io as a fallback.
+Setup also fetches the declared build inputs (three submodules + pinned Noto
+fonts) — previously it never did, so a fresh clone failed in `build.rs`.
+
+New `scripts/check-deps.sh` (`make doctor`) is the post-condition: it verifies
+CAPABILITIES, not package names — binaries, Python ≥ 3.11, toolchain/target/
+components, `llvm-objcopy`, QEMU's `virt` machine and `gtk`/`egl-headless`
+display backends, submodules + fonts, rootless podman — and prints the exact
+command that fixes each failure. It is the only host statement that means the
+same thing on Ubuntu, Fedora and Arch.
+
+`scripts/fetch-inputs.sh` is now the single source of truth for the input list
+(`just submodules`/`fonts`/`inputs` and `make initial-setup` both call it), so
+the two spurs cannot drift. CI's qemu job picks its QEMU package the same
+resilient way and gained `ripgrep`, whose absence made red lanes report nothing
+useful (`rg` exiting 127 inside an `if` is invisible to `set -e`).
+
+Setup no longer runs the full fmt+clippy+deny gate at the end (that is
+`just check`); it runs the doctor instead. It now also wires
+`scripts/fmt-clippy-deny.sh` as the `pre-commit` hook, which README had claimed
+for a while and the Makefile had explicitly not done.
+
+Noted, not changed: `mold` and `flatbuffers-compiler` are installed by all three
+spurs but used by none (no `-fuse-ld=mold` and no `flatc` invocation exists in
+the tree). Left in place to keep host/container/CI parity intact.
+
 ### Fixed - 2026-08-05 (`ci-os-os2vm` ran a 2-VM profile through the single-VM harness)
 
 `[profile.os2vm]` declares `runner = "tools/os2vm.sh"`, but `ci-os-os2vm` ran

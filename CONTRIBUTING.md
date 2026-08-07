@@ -11,23 +11,47 @@ Please also read our [Code of Conduct](CODE_OF_CONDUCT.md) and
 
 ## Prerequisites and setup
 
+Supported hosts: Debian/Ubuntu, Fedora, Arch. The checkout **must live under
+`$HOME`** (rootless podman + cargo caches need user-owned paths); setup refuses
+to run anywhere else.
+
 ```sh
 git clone git@github.com:open-nexus-OS/open-nexus-OS.git
-cd open-nexus-OS
+cd ~/open-nexus-OS
 make initial-setup
 ```
 
-`make initial-setup` (see `scripts/install-deps.sh`) installs system packages
-(capnproto, qemu-system-riscv64, mold, ...), the pinned Rust toolchains
-(stable + `nightly-2025-01-15`, from `rust-toolchain.toml` and the justfile),
-the `riscv64imac-unknown-none-elf` target, and required components.
+Prerequisites are `git`, `curl` and `make` — a bare distro install has no `make`
+(it arrives with `build-essential` / `base-devel`), and no Makefile can bootstrap
+the tool that reads it. `./scripts/install-deps.sh` does the same package step
+with nothing but bash if you prefer; `make initial-setup` is idempotent either
+way.
 
-Recommended: wire the pre-commit gate as a git hook so formatting/lint/license
-drift is caught before it lands in a commit:
+`make initial-setup` (see `scripts/install-deps.sh`) installs the system
+packages (a C toolchain, capnproto, ripgrep, just, QEMU for RISC-V incl. its
+GTK/OpenGL display backends, podman, ...), the pinned Rust toolchains
+(stable + `nightly-2025-01-15`, from `rust-toolchain.toml` and the justfile),
+the `riscv64imac-unknown-none-elf` target, the required components (including
+`miri`, which `just test-all` needs), `cargo-deny` and `cargo-nextest`; fetches
+the declared build inputs (`scripts/fetch-inputs.sh`: three submodules + pinned
+Noto fonts); and wires `scripts/fmt-clippy-deny.sh` as your `pre-commit` hook —
+it leaves an existing hook untouched, link it yourself with
+`ln -sf ../../scripts/fmt-clippy-deny.sh .git/hooks/pre-commit`.
+
+Flags: `YES=1` (non-interactive), `GUI=0` (skip GTK/EGL/virgl — `just start`
+will not work), `PODMAN=0` (skip the rootless-podman checks; build with
+`make build MODE=host`).
 
 ```sh
-ln -sf ../../scripts/fmt-clippy-deny.sh .git/hooks/pre-commit
+make doctor    # verify a host can build/test/run — no sudo, seconds
 ```
+
+`make doctor` checks capabilities rather than package names (binaries, Python
+≥ 3.11, toolchain/target/components, `llvm-objcopy`, QEMU's `virt` machine and
+`gtk`/`egl-headless` display backends, submodules + fonts, rootless podman) and
+prints the exact fix for each failure. Package *names* differ per distro and per
+release; capabilities do not — run this whenever a build behaves oddly on a new
+box.
 
 ## Building and running
 

@@ -23,8 +23,8 @@ echo "[qemu] configure..."
 echo "[qemu] build..."
 ninja -C build
 
-cat <<'EOF'
+cat <<EOF
 [qemu] done
 Use this QEMU by prepending PATH:
-  export PATH="/home/jenning/open-nexus-OS/tools/qemu-src/build:$PATH"
+  export PATH="$QEMU_DIR/build:\$PATH"
 EOF

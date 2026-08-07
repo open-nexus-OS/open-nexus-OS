@@ -168,15 +168,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system deps (qemu, capnproto, mold, just)
+      - name: Install system deps (qemu, capnproto, mold, just, ripgrep)
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            qemu-system-misc \
-            qemu-system-riscv64 \
-            capnproto \
-            mold \
-            just
+          # ripgrep: scripts/qemu-test.sh shells out to `rg` for failure triage.
+          # Without it the triage silently degrades (exit 127 inside an `if`,
+          # which `set -e` does not catch) and a red lane reports nothing useful.
+          # Keep `just` LAST on this line: scripts/check-ci-parity.sh scans the
+          # workflow for `just <word>` and would read a package name after it
+          # as a recipe invocation.
+          sudo apt-get install -y capnproto mold ripgrep just
+          # RISC-V was split out of qemu-system-misc on Ubuntu >= 25.10, where
+          # `qemu-system-riscv64` is a virtual name with two providers and
+          # therefore not installable. Take whichever real package exists.
+          sudo apt-get install -y qemu-system-riscv \
+            || sudo apt-get install -y qemu-system-misc qemu-system-riscv64
       - name: Install Rust (pinned nightly, riscv target + llvm-tools)
         uses: dtolnay/rust-toolchain@nightly
         with:

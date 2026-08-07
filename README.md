@@ -29,11 +29,47 @@ If you use Open Nexus OS in research or reference its architecture, please cite 
 
 ## Quickstart (new machine)
 
+Supported hosts: **Debian/Ubuntu, Fedora and Arch** (and their derivatives).
+The checkout **must live under `$HOME`** — rootless podman maps this tree into a
+user namespace and cargo writes `target/` as you, so both need a user-owned
+path. `make initial-setup` refuses to run anywhere else.
+
+Prerequisites: **`git`, `curl` and `make`** — nothing else. A bare distro install
+has no `make` (it arrives with `build-essential` / `base-devel`), and no Makefile
+can bootstrap the tool that reads it, so install those three first:
+
+```sh
+sudo apt install -y git curl make          # Debian/Ubuntu
+sudo dnf install -y git curl make          # Fedora
+sudo pacman -S --needed git curl make      # Arch
+```
+
+Then one command does the rest:
+
 ```sh
 git clone <repo>
-cd open-nexus-OS
-make initial-setup
+cd ~/open-nexus-OS
+make initial-setup          # installs everything, then verifies it
 ```
+
+(If you would rather not install `make` by hand, `./scripts/install-deps.sh`
+does the same package step with nothing but bash — `make initial-setup` is
+idempotent, so run it afterwards either way.)
+
+`make initial-setup` installs the system packages, the pinned Rust toolchain
+(`nightly-2025-01-15` + `stable`, the `riscv64imac-unknown-none-elf` target and
+the `clippy`/`rustfmt`/`rust-src`/`llvm-tools-preview`/`miri` components),
+`cargo-deny` and `cargo-nextest`, fetches the declared build inputs (three
+submodules + pinned Noto fonts), wires `scripts/fmt-clippy-deny.sh` as your
+`pre-commit` hook, and finishes with `make doctor`.
+
+Useful flags:
+
+| Flag | Effect |
+| --- | --- |
+| `YES=1` | non-interactive (no sudo prompt) |
+| `GUI=0` | skip GTK/EGL/virgl — headless lanes only, `just start` will not work |
+| `PODMAN=0` | skip the rootless-podman checks; use `make build MODE=host` |
 
 Then try a build and a boot:
 
@@ -41,6 +77,24 @@ Then try a build and a boot:
 make build
 make run
 ```
+
+### Checking a host: `make doctor`
+
+```sh
+make doctor
+```
+
+Verifies **capabilities**, not package names — binaries on `PATH`, Python ≥ 3.11,
+the pinned toolchain/target/components, `llvm-objcopy`, that QEMU knows the
+`virt` machine and the `gtk` + `egl-headless` display backends (which is what
+`just start` actually needs), that the submodules and pinned fonts are present,
+and that podman runs rootless. Every failure prints the exact command that fixes
+it. No sudo, runs in seconds.
+
+`just start` opens a real virgl window (`-display gtk,gl=on`). On Debian/Ubuntu
+the GTK and OpenGL display backends live in packages separate from the RISC-V
+emulator (`qemu-system-gui`, `qemu-system-modules-opengl`); `make initial-setup`
+installs them unless you pass `GUI=0`.
 
 ### QEMU (virtio-mmio modern for persistence)
 
@@ -132,7 +186,9 @@ Start here:
 
 ## Git workflow (quick reference)
 
-- Run `make initial-setup` to install hooks.
+- `make initial-setup` wires `scripts/fmt-clippy-deny.sh` as your `pre-commit`
+  hook (it leaves an existing hook alone — link it yourself with
+  `ln -sf ../../scripts/fmt-clippy-deny.sh .git/hooks/pre-commit`).
 - Use `just diag-host` and `just dep-gate` before OS commits.
 - Keep commits scoped to a single task intent.
 - Full workflow (branches, commit style, verify-before-commit ladder): `docs/dev/git-workflow.md`

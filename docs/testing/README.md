@@ -84,9 +84,11 @@ The complete just-target catalog (incl. per-TASK proof floors) lives in [os-mark
 
 ## Environment parity essentials
 
-- Toolchain pinned via `rust-toolchain.toml`; targets require `rustup target add riscv64imac-unknown-none-elf`.
-- System dependencies: `qemu-system-misc`, `capnproto`, and supporting build packages; the Podman container image installs the same set for CI parity.
-- Do not rely on host-only tools — update `recipes/` or the container definitions when new packages are needed.
+- `make initial-setup` provisions all of the below; `make doctor` (`scripts/check-deps.sh`) verifies a host in seconds and names the exact fix for each gap. Prefer it over eyeballing package lists — package *names* differ per distro and per release (Ubuntu 25.10+ split RISC-V out of `qemu-system-misc`), capabilities do not.
+- Toolchain pinned via `rust-toolchain.toml`; targets require `rustup target add riscv64imac-unknown-none-elf`. `just test-all` additionally needs the `miri` component.
+- System dependencies: a RISC-V-capable `qemu-system-riscv64`, `capnproto`, `ripgrep` (failure triage in `scripts/qemu-test.sh` and `just deadcode` shell out to `rg`), `just`, and supporting build packages; the Podman container image installs the same set for CI parity.
+- **Headless lanes need no display stack; `just start` does.** The interactive path defaults to `GPU_MODE=virgl` in a `-display gtk,gl=on` window, and the virgl proof lane uses `egl-headless`. Both come from host GTK + EGL/virglrenderer, which on Debian/Ubuntu live in packages separate from the emulator (`qemu-system-gui`, `qemu-system-modules-opengl`). CI is deliberately headless and never exercises this path — `make doctor` is what catches a QEMU that boots fine but cannot open a window.
+- Do not rely on host-only tools — update `scripts/install-deps.sh` **and** `podman/Containerfile` together when new packages are needed.
 - Full detail: [e2e.md](e2e.md) § "Environment parity & prerequisites".
 
 ## Test logs
