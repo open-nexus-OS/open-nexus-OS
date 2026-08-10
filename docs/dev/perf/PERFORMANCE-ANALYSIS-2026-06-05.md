@@ -1,8 +1,39 @@
 # Performance Analysis — open-nexus-OS TASK-62 / RFC-59
 
+> ## ⚠️ SUPERSEDED — historical record only
+>
+> **Do not cite the numbers in this document.** They describe the compositor as
+> it stood on **2026-06-05**, before the double-render fix and before the virgl
+> command ring landed (ADR-0032, 2026-06-16) and the GL glass-blur cache
+> (~2026-07-29). Both root causes diagnosed below have since been fixed:
+> the frame is no longer computed twice, and `VirtioGpuBackend::submit()` is no
+> longer a no-op.
+>
+> **Current measurements** (2026-08-09, from `build/logs/manual--*/uart.log`,
+> under interactive load with glass/blur/shadow active):
+>
+> | Metric | Median | Peak |
+> |---|---|---|
+> | GPU present cost (`gpud: present us avg`) | **3–4 ms** | — |
+> | Presents/s | ~30 | 77–91 |
+> | Compositor loop (`windowd: loop hz=`) | 26–44 Hz | 109–138 Hz |
+>
+> That is roughly 15–45× the throughput reported below. Note the execution
+> environment when quoting these: the **CPU is fully TCG-emulated** (RISC-V
+> guest, MTTCG, no KVM) while the **GL path is host-accelerated via virgl**.
+>
+> These figures are reproducible from the run logs but are **not
+> regression-gated** — deterministic perf gates are still open
+> (`TASK-0145`, `TASK-0173`). Quote the median with its source, never a single
+> hero number.
+>
+> Kept because the root-cause analysis in §2–§3 documents *why* the fixes took
+> the shape they did.
+
 **Date:** 2026-06-05  
+**Status:** SUPERSEDED (see banner above)  
 **Scope:** Input-to-display pipeline latency, CPU rendering, virtio-gpu integration  
-**Severity:** CRITICAL — 2 FPS compositor, 468ms avg frame time
+**Severity at the time:** CRITICAL — 2 FPS compositor, 468ms avg frame time
 
 ---
 

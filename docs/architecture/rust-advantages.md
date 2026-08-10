@@ -66,8 +66,13 @@ match get_task(pid) {
 **Impact for NEURON**:
 
 - ✅ Entire classes of CVEs eliminated at compile time
-- ✅ No need for expensive formal verification (borrow checker is "lightweight verification")
 - ✅ Refactoring is safe (compiler catches broken invariants)
+
+**What this is not.** The type system does not substitute for formal
+verification. It says nothing about functional correctness, nothing about
+whether the security model is the right one, and nothing about the kernel's
+remaining `unsafe` blocks (171 across 37 of 79 files). What it does is shrink
+the surface a proof would have to cover — which is a different, smaller claim.
 
 ---
 
@@ -275,17 +280,12 @@ proptest = "1.3"
 - **Android**: Rust in Binder, Bluetooth stack
 - **Microsoft**: Rust in Windows kernel (experimental)
 
-### Talent Pool
-
-- **Growing**: Rust is #1 "most loved" language (Stack Overflow Survey, 5 years running)
-- **Young**: Most Rust developers are <35 (easier to hire)
-- **Passionate**: Strong community (RustConf, Rust Belt Rust, etc.)
-
 **Impact for NEURON**:
 
-- ✅ **Future-proof**: Rust adoption is accelerating (not a niche language)
-- ✅ **Hiring**: Easier to find Rust developers than seL4 experts
-- ✅ **Contributions**: Open-source community is active (crates.io has 150k+ crates)
+- ✅ Systems-programming crates exist for most non-kernel needs, and the
+  `no_std` subset of the ecosystem is large enough to build against
+- ✅ Contributors do not have to learn a project-specific dialect to read
+  the code
 
 ---
 
@@ -321,44 +321,43 @@ proptest = "1.3"
 
 ---
 
-## 8. Conclusion: Why Rust is Optimal for NEURON
+## 8. Conclusion: Why NEURON is written in Rust
 
-### The Sweet Spot
+### What this document does and does not argue
 
-```text
-Security ←──────────────────────────────────────→ Pragmatism
-  seL4                NEURON                    Zircon
-  (C + verification)  (Rust + tests)            (C++ + TSan)
-```
+This is a **language-choice rationale**, not a comparison of operating systems.
+NEURON has not been measured against seL4, Zircon, Redox or Linux on any axis —
+there are no comparative benchmarks, no shared workload, and no verification
+work. Any ranking against those systems would be unearned, and earlier revisions
+of this document made exactly that mistake.
 
-**NEURON's position**:
+What can be said is narrower and checkable:
 
-- ✅ **More secure than Zircon** (compile-time safety, no data races)
-- ✅ **More pragmatic than seL4** (no formal verification required)
-- ✅ **Rust-native** (leverages ownership, fearless concurrency, zero-cost abstractions)
+- **Memory and concurrency safety are enforced by the compiler** for the ~80% of
+  the tree that is safe Rust, rather than by review discipline. 153 crates carry
+  `#![forbid(unsafe_code)]` outright.
+- **The unsafe core is bounded and located**: 171 `unsafe` blocks in 37 of the
+  kernel's 79 files, everything else structurally excluded.
+- **Some invariants are enforced by types rather than at runtime** — the
+  per-task capability table is hart-local by way of
+  `assert_not_impl_any!(CapTable: Send, Sync)`, so an accidental cross-hart
+  share fails to compile rather than failing in production.
+- **Abstractions are zero-cost**, so the safety above does not have to be traded
+  against the kernel's latency budgets.
 
-### Decision Matrix
+### What Rust does not give us
 
-- **Memory safety**: C/seL4 = manual/verification; C++/Zircon = manual/tooling; Rust/NEURON = compile-time guarantees
-- **Concurrency safety**: C/seL4 = manual; C++/Zircon = runtime tooling; Rust/NEURON = compile-time rules + ownership
-- **Performance**: all can be excellent; Rust adds safety with zero-cost abstractions
-- **Developer productivity**: Rust tends to be higher via Cargo + explicit error handling
-- **Consumer OS viability**: NEURON targets the “secure + pragmatic” sweet spot
-- **Long-term maintenance**: Rust makes refactors safer via types/ownership
-
-### Final Verdict
-
-**Rust is the optimal choice for NEURON** because:
-
-1. ✅ **Safety**: Compile-time guarantees (no data races, no use-after-free)
-2. ✅ **Performance**: Zero-cost abstractions (as fast as C)
-3. ✅ **Pragmatism**: No formal verification required (borrow checker is "good enough")
-4. ✅ **SMP**: Fearless concurrency (Servo-inspired parallelism)
-5. ✅ **Ecosystem**: Modern tooling (Cargo, crates.io)
-6. ✅ **Future**: Growing adoption (Rust in Linux, Android, Windows)
-
-**NEURON's competitive advantage**: We can move **faster** than seL4 (no verification) and
-**safer** than Zircon (compile-time safety), while delivering a **consumer-friendly OS**.
+- **Not functional correctness.** The type system cannot tell us the capability
+  model is the right model, only that we implement it without data races.
+- **Not a verification substitute.** See §1. Shrinking the proof obligation is
+  not discharging it.
+- **Not concurrency for free.** The kernel still serializes behind a big kernel
+  lock with declarative escape classes (ADR-0049); the parallelism story is a
+  *measured, budgeted* BKL, not lock-free design. See
+  `docs/architecture/16-rust-concurrency-model.md`.
+- **Not an argument that C or C++ could not have produced this system.** They
+  could. The claim is that this particular team — one person — got further with
+  Rust than it would have without a compiler enforcing the invariants.
 
 ---
 

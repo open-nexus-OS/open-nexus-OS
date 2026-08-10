@@ -1,28 +1,32 @@
 <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#3A3D48"/>
-      <stop offset="1" stop-color="#0F0F1A"/>
+      <stop offset="0" stop-color="#DCD8CE"/>
+      <stop offset="1" stop-color="#C9C4B8"/>
     </linearGradient>
   </defs>
   <g data-layer="background">
     <rect width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
-    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#1C1B19" stroke-opacity="0.12" stroke-width="3"/>
   </g>
   <g data-layer="symbol">
-    <rect x="200" y="220" width="624" height="584" rx="56" fill="#FFFFFF"/>
-    <rect x="240" y="260" width="544" height="124" rx="20" fill="#2A2A30"/>
-    <g fill="#3A3D48">
-      <circle cx="320" cy="476" r="40"/><circle cx="440" cy="476" r="40"/><circle cx="560" cy="476" r="40"/>
-      <circle cx="320" cy="580" r="40"/><circle cx="440" cy="580" r="40"/><circle cx="560" cy="580" r="40"/>
-      <circle cx="320" cy="684" r="40"/><circle cx="440" cy="684" r="40"/><circle cx="560" cy="684" r="40"/>
-      <circle cx="320" cy="760" r="40"/>
+    <rect x="212" y="180" width="600" height="140" rx="16" fill="#1C1B19"/>
+    <rect x="248" y="228" width="200" height="44" rx="8" fill="#0E7C7B" opacity="0.75"/>
+    <g fill="#1C1B19">
+      <rect x="212" y="380" width="130" height="130" rx="65"/>
+      <rect x="368" y="380" width="130" height="130" rx="65"/>
+      <rect x="524" y="380" width="130" height="130" rx="65"/>
+      <rect x="212" y="536" width="130" height="130" rx="65"/>
+      <rect x="368" y="536" width="130" height="130" rx="65"/>
+      <rect x="524" y="536" width="130" height="130" rx="65"/>
+      <rect x="212" y="692" width="130" height="130" rx="65"/>
+      <rect x="368" y="692" width="130" height="130" rx="65"/>
+      <rect x="524" y="692" width="130" height="130" rx="65"/>
     </g>
-    <g fill="#FFA85B">
-      <circle cx="680" cy="476" r="40"/>
-      <circle cx="680" cy="580" r="40"/>
-      <circle cx="680" cy="684" r="40"/>
-      <circle cx="680" cy="760" r="40"/>
+    <g fill="#0E7C7B">
+      <rect x="680" y="380" width="130" height="130" rx="65"/>
+      <rect x="680" y="536" width="130" height="130" rx="65"/>
+      <rect x="680" y="692" width="130" height="130" rx="65"/>
     </g>
   </g>
 </svg>

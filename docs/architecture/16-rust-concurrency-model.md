@@ -615,12 +615,26 @@ qemu-system-riscv64 -smp 4 -kernel neuron.elf
 
 ## Summary
 
-**Rust's ownership model enables NEURON to achieve:**
+**What the ownership model buys us today:**
 
 1. ✅ **Safe parallelism** without data races (compile-time guarantees)
-2. ✅ **Lock-free hot paths** (per-CPU ownership)
-3. ✅ **Explicit concurrency boundaries** (`Send`/`Sync` traits)
-4. ✅ **Servo-style work stealing** (ownership transfer via message passing)
+2. ✅ **Explicit concurrency boundaries** (`Send`/`Sync` traits) — e.g. both
+   `CapTable` and `Scheduler` are `!Send`/`!Sync` by assertion, so hart-locality
+   is a compile error to violate rather than a convention
+3. ✅ **Per-CPU run queues** with affinity-respecting, bounded work stealing
 
-**Key insight**: Rust doesn't just prevent memory bugs—it prevents **concurrency bugs** at compile time.
-This is NEURON's competitive advantage over C-based kernels (seL4, Zircon).
+**What is aspiration, not implemented state** — do not cite these as achieved:
+
+- **Lock-free hot paths.** The lock-free syscall class currently contains
+  exactly one entry (`nsec`); `debug_putc`/`debug_write` were moved back under
+  the lock. IPC send/recv, present and timer arming all run under the BKL.
+- **Servo-style work stealing via message passing.** `steal_into_current` pops a
+  task directly out of another CPU's queue and pushes it onto the current one —
+  shared-memory mutation of a single `Scheduler` under the BKL. There is no
+  channel and no IPI-carried ownership handoff.
+
+The honest description of the concurrency story is a **measured, budgeted big
+kernel lock** with three declarative escape classes (lock-free, phased, cpu0
+right-of-way), enforced as a boot gate at max 6 ms wait / 4 ms hold. See
+`docs/adr/0049-bkl-lockclass-and-softrt-cpu-placement.md`. Splitting the lock is
+a deferred follow-up, not a done deal.

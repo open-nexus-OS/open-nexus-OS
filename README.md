@@ -18,7 +18,7 @@ The repo is run **host-first, QEMU-last**: most logic lives in host-testable use
 
 ## Citation
 
-If you use Open Nexus OS in research or reference its architecture, please cite the software record and the related architecture series papers.
+If you use Open Nexus OS in research or reference its architecture, please cite the software record and the related architecture series. Note that the records below are self-archived preprints deposited on Zenodo; none of them has been peer reviewed.
 
 - Software DOI: [10.5281/zenodo.18934993](https://doi.org/10.5281/zenodo.18934993)
 - Part I, Type-Driven Deterministic Construction of a Capability Microkernel: [10.5281/zenodo.18935402](https://doi.org/10.5281/zenodo.18935402)
@@ -162,8 +162,12 @@ The current stack, all regression-gated by deterministic QEMU marker proofs:
   phased/lock-free syscall classes).
 - **Storage**: nxfs + VFS v2 provide persistent user-data storage (`svc.files`, cold-boot
   persistence proofs).
-- **Networking**: DSoftBus with stream mux and QUIC transports, proven host-first and in
-  2-VM QEMU harnesses.
+- **Networking**: DSoftBus with stream mux and a Noise XK handshake. Session
+  establishment and transport selection are proven host-first and in single-VM
+  QEMU (`ci-os-dhcp` green); real QUIC (quinn/rustls) exists on the host
+  transport path, while the in-OS transport is currently a Noise-authenticated
+  UDP datagram facade. The 2-VM cross-device harness exists but its discovery
+  lane is currently failing — see `tasks/TRACK-NETWORK-PROOF-LANES.md`.
 
 Day-to-day status (open tasks, tracks, blockers) lives in `tasks/STATUS-BOARD.md`.
 
