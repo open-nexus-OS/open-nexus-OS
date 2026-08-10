@@ -10,7 +10,7 @@
       "orcid": "0009-0004-6778-1398"
     }
   ],
-  "description": "Open Nexus OS is a research microkernel operating system written in Rust for RISC-V virtual hardware. The project follows a host-first, QEMU-last workflow and combines a minimal microkernel architecture with an OpenHarmony-inspired userspace. It emphasizes deterministic testing, capability-based security, and userspace-first service design.",
+  "description": "Open Nexus OS is a research microkernel operating system written in Rust for RISC-V virtual hardware. The project follows a host-first, QEMU-last workflow and combines a minimal microkernel architecture with a distributed-services userspace. It emphasizes deterministic testing, capability-based security, and userspace-first service design.",
   "keywords": [
     "microkernel",
     "operating system",

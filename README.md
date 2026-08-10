@@ -14,8 +14,8 @@ Support ongoing development:
 It is a research operating system, not a general-purpose distribution: the RISC-V
 microkernel keeps only scheduling, virtual memory, IPC and capabilities, and
 everything else — drivers, filesystem, networking, window system — runs as
-userspace services under deny-by-default capability policy, in an
-OpenHarmony‑inspired userland.
+userspace services under deny-by-default capability policy, in a
+distributed-services userland.
 
 The repo is run **host-first, QEMU-last**: most logic lives in host-testable userspace crates, while QEMU is used for bounded end-to-end smoke proofs.
 
@@ -249,11 +249,12 @@ Not yet. The proof target is QEMU `virt` with virtio devices; the GUI path uses
 virtio-gpu (2D) and virgl (3D). Porting to a physical board means new drivers,
 not a new kernel.
 
-### Which other RISC-V operating systems is this like?
+### How does it relate to other RISC-V operating systems?
 
-It follows the seL4/Fuchsia line — small verified-in-spirit kernel, userspace
-everything, capabilities as the only authority. It is not a Linux derivative and
-does not use Linux drivers, Wayland or X11.
+It sits in the capability-microkernel family rather than the monolithic one: a
+small kernel, everything else in userspace, capabilities as the only authority.
+It is not a Linux derivative — no Linux drivers, no X11, no Wayland; the
+graphics path is this project's own compositor service.
 
 ## Contributing
 

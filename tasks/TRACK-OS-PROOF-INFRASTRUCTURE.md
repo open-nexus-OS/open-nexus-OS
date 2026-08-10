@@ -30,7 +30,7 @@ Existing OS testing models we benchmarked:
 
 - **Linux**: scripted boot tests, KASAN/KCSAN, no marker contract, no portable evidence per run.
 - **Component-framework OSes**: structured component test frameworks, but proof artifacts are not signed-replayable across machines.
-- **seL4**: formal proof of kernel core, but userspace test discipline is project-specific.
+- **Formally verified microkernels**: formal proof of the kernel core, but userspace test discipline is project-specific.
 - **Closed vendor platforms**: signed test runs internal to the vendor; not externally provable.
 
 None of them combines: (a) a single manifest as marker SSOT, (b) signed per-run evidence, (c) deterministic replay, (d) per-phase observability budgets, (e) measured capability coverage. This track is the part beyond Phase 6 that makes the combination self-policing.

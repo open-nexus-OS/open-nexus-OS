@@ -59,7 +59,7 @@ impl DisplayServerRuntime {
         // hold the minimized window — re-blur them (see close_app_window).
         if let WindowId::App(i) = id {
             self.invalidate_overlapping_blur(vacated, i as usize);
-            // Atlas residency (the HarmonyOS model): only VISIBLE windows hold
+            // Atlas residency (visibility-scoped model): only VISIBLE windows hold
             // atlas rows. A minimized window frees its content+blur bands;
             // restore re-allocates and re-blits from the client VMO. Four open
             // windows otherwise starved the pool (`surface open FAIL atlas

@@ -1898,7 +1898,7 @@ unqualified `BakedTextMeasure`) were invisible to both and only fell out of
 #### TASK-0062 Phase 6: GPU-only display architecture — windowd sole owner
 
 - **Architecture**: Removed fbdevd/ramfb from OS graph. windowd is sole display owner,
-  gpud is pure GPU driver. Follows OHOS/Fuchsia/Android pattern: one compositor,
+  gpud is pure GPU driver. Follows the common mobile-graphics pattern: one compositor,
   one GPU driver, zero-copy VMO handoff via `OP_SET_FRAMEBUFFER_VMO`. No fbdevd,
   no ramfb, no handoff from another service.
 

@@ -14,7 +14,7 @@
 
 use super::*;
 
-// Typed decoders for seL4-style Decode→Check→Execute
+// Typed decoders for the Decode→Check→Execute syscall discipline
 
 #[derive(Copy, Clone)]
 pub(super) struct AsMapArgsTyped {

@@ -7,7 +7,7 @@ narratives live in `docs/`, execution state lives in `tasks/`.
 ## What this is
 
 A research microkernel OS in Rust targeting RISC-V (`qemu-system-riscv64 virt`),
-following seL4/Fuchsia principles: minimal kernel (sched/vm/ipc/caps), userspace
+following capability-microkernel principles: minimal kernel (sched/vm/ipc/caps), userspace
 services, capability-based security, deny-by-default policy. Host-first
 development, QEMU-last proof.
 
