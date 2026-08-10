@@ -1,4 +1,9 @@
-# open-nexus-os
+# Open Nexus OS — a capability-based RISC-V microkernel operating system written in Rust
+
+**Open Nexus OS is an open source RISC-V operating system: a capability-based
+microkernel written in Rust, with userspace drivers and services and a graphical
+desktop.** It targets `qemu-system-riscv64 virt` and boots to an interactive GUI —
+a compositor service, a virgl/virtio-gpu backend, and a declarative app platform.
 
 [![Software DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.18934993-blue)](https://doi.org/10.5281/zenodo.18934993)
 
@@ -6,15 +11,31 @@ Support ongoing development:
 
 [![Sponsor open-nexus-OS](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/open-nexus-OS)
 
-Open Nexus OS is a research microkernel targeting QEMU RISC‑V `virt` hardware with an OpenHarmony‑inspired userland.
+It is a research operating system, not a general-purpose distribution: the RISC-V
+microkernel keeps only scheduling, virtual memory, IPC and capabilities, and
+everything else — drivers, filesystem, networking, window system — runs as
+userspace services under deny-by-default capability policy, in an
+OpenHarmony‑inspired userland.
+
 The repo is run **host-first, QEMU-last**: most logic lives in host-testable userspace crates, while QEMU is used for bounded end-to-end smoke proofs.
 
 <p align="center">
-  <img src="docs/assets/desktop.png" alt="Open Nexus OS desktop running in QEMU: launcher dock, settings, calendar and calculator windows composited by windowd" width="900">
+  <img src="docs/assets/desktop.png" alt="Open Nexus OS, a Rust RISC-V microkernel operating system, running its graphical desktop in QEMU: launcher dock, settings, calendar and calculator windows composited by windowd" width="900">
 </p>
 <p align="center">
   <sub>The desktop booted in QEMU RISC‑V — <code>windowd</code> compositor, <code>gpud</code> virgl backend, and DSL apps (settings, calendar, calculator) on the app-host.</sub>
 </p>
+
+## At a glance
+
+| | |
+| --- | --- |
+| **Kernel** | `neuron` — a capability microkernel in Rust (`no_std`): scheduling, virtual memory, IPC, capabilities. Drivers and policy stay out of it. |
+| **Architecture** | RISC-V 64-bit (`riscv64imac-unknown-none-elf`), `qemu-system-riscv64 virt`, SMP=4 by default |
+| **Language** | Rust throughout — kernel, userspace services and drivers; `#![forbid(unsafe_code)]` in userspace crates |
+| **Security model** | Capability-based, deny-by-default; identity comes from kernel-provided `sender_service_id`, never from payload strings |
+| **Desktop / GUI** | `windowd` compositor service + `gpud` (virtio-gpu 2D, virgl 3D) + a declarative `.nx` app platform |
+| **License** | Apache-2.0 — see [LICENSE](LICENSE) |
 
 ## Citation
 
@@ -150,9 +171,9 @@ If you want the historical eager-rebuild behavior in a one-shot run, use `NEXUS_
 
 `make verify` was retired; the canonical aggregate gate is `just test-all`.
 
-## Current state
+## Current state (2026)
 
-The system boots to an interactive graphical desktop in QEMU (see the screenshot above).
+The system boots to an interactive graphical desktop in QEMU RISC-V (see the screenshot above).
 The current stack, all regression-gated by deterministic QEMU marker proofs:
 
 - **UI stack**: `windowd` compositor service + `gpud` (virtio-gpu 2D and virgl 3D backends)
@@ -197,6 +218,42 @@ Start here:
 - Use `just diag-host` and `just dep-gate` before OS commits.
 - Keep commits scoped to a single task intent.
 - Full workflow (branches, commit style, verify-before-commit ladder): `docs/dev/git-workflow.md`
+
+## FAQ
+
+### Is this a real operating system, or a kernel study?
+
+It is a full OS image: the `neuron` microkernel plus a userland of services and
+drivers that boots to a graphical desktop. It is a **research** OS, though — it
+runs on `qemu-system-riscv64 virt`, not on physical RISC-V boards, and it is not
+a distribution you would install as a daily driver.
+
+### Why a microkernel written in Rust for RISC-V?
+
+The kernel holds only scheduling, virtual memory, IPC and capabilities, so
+drivers, filesystems and the window system can fail without taking the system
+down. Rust removes the memory-safety class of bugs from that userspace; RISC-V
+gives an open, well-specified target where the whole boot path — firmware,
+kernel, services — is inspectable.
+
+### What does "capability-based" mean in this OS?
+
+There are no ambient rights. A service can only touch what it holds a capability
+for, policy is deny-by-default, and identity is the kernel-provided
+`sender_service_id` on an IPC channel rather than anything a caller can put in a
+payload. See `docs/architecture/11-policyd-and-policy-flow.md`.
+
+### Does the RISC-V desktop run on real hardware?
+
+Not yet. The proof target is QEMU `virt` with virtio devices; the GUI path uses
+virtio-gpu (2D) and virgl (3D). Porting to a physical board means new drivers,
+not a new kernel.
+
+### Which other RISC-V operating systems is this like?
+
+It follows the seL4/Fuchsia line — small verified-in-spirit kernel, userspace
+everything, capabilities as the only authority. It is not a Linux derivative and
+does not use Linux drivers, Wayland or X11.
 
 ## Contributing
 
