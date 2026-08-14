@@ -1,6 +1,6 @@
 ---
 title: TASK-0048 Crashdump v2a (host-first): nxsym build-id index + .nxcd format + nx crash CLI + deterministic tests
-status: Draft
+status: In Progress
 owner: @reliability
 created: 2025-12-23
 depends-on: []

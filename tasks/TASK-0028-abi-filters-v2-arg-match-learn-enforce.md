@@ -17,6 +17,39 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Rebase 2026-08-14 (heavy de-scope — most of this ledger already shipped)
+
+Verified against the repo on 2026-08-14. **Do NOT re-implement** the following; it exists and is tested:
+
+- **Argument-level matching shipped with v1 (TASK-0019, Done).** `source/libs/nexus-abi/src/abi_filter.rs`
+  already implements statefs **path-prefix** matching (with payload-size bounds) and net-bind
+  **port-range** matching: `matches_statefs_put` / `matches_net_bind` at
+  `source/libs/nexus-abi/src/abi_filter.rs:189-207`, enforced via `check_statefs_put` (:248) and
+  `check_net_bind` (:264), with negative tests in `source/libs/nexus-abi/tests/abi_filter_reject.rs`.
+  The v2 plan items "path prefixes" and "port ranges" are therefore already green.
+- **learn→enforce lifecycle + authenticated, epoch-guarded mode switching shipped via TASK-0047 (Done).**
+  policyd already carries `PolicyMode::{Enforce, DryRun, Learn}` and an authenticated, stale-version-guarded
+  `set_mode` (`source/services/policyd/src/std_server.rs:355-388`, `ensure_authorized` rejects
+  unauthorized actors and stale observed versions fail-closed, with audit records). This ledger's two
+  headline security tests are effectively green there:
+  `test_reject_unauthenticated_mode_change` (`std_server.rs:969`) and
+  `test_reject_stale_mode_change` (`std_server.rs:985`). policyd is the single profile/mode authority —
+  the YELLOW "policyd vs abi-filterd" decision below is resolved: **policyd, no abi-filterd**.
+
+**Honest residual scope** (what is actually left, if still wanted):
+
+- Richer argument matchers **beyond** path-prefix/port-range: bounded regex allow-list, deadline
+  (`deadline_ms`) bounds, `NetConnect { dst_port }` matching.
+- The **learn-event pipeline**: rate-limited/sampled `abi.learn` emission to logd, plus the
+  `abi-gen` generator tool (learn logs → conservative TOML skeleton).
+- OS selftest markers for learn/enforce once the above exists.
+
+Effective size shrinks **M → S**. Status stays Draft.
+
+**Kernel untouched — unambiguous.** This task is and remains a pure userland guardrail
+(`nexus-abi` + policyd); no kernel paths are in scope. (`tasks/STATUS-BOARD.md` wrongly lists
+TASK-0028 as kernel-touching; that board entry is being fixed separately — this ledger is the truth.)
+
 ## Context
 
 TASK-0019 defines ABI syscall guardrails in `nexus-abi` (userland, kernel untouched). v2 extends that

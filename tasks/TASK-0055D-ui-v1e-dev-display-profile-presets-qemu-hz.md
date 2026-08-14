@@ -19,6 +19,47 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Rebase (2026-08-14)
+
+### Shipped since draft — do NOT re-implement
+
+- **Per-profile TOML manifests exist**:
+  `source/services/systemui/manifests/profiles/{desktop,tablet}/profile.toml`
+  with `[input]` and `[display_defaults]` sections, consumed by
+  `tools/systemui_profile_qemu_devices.py` for QEMU device wiring.
+- **`device.profile` / `device.shellMode` / `device.sizeClass` are a live DSL
+  env axis** (`userspace/dsl/core/src/registry.rs:570-575`;
+  `source/services/app-host/src/probe/env.rs:72-88` derives `sizeClass` from
+  the REAL surface width), with re-emit on change.
+- **`ui.shell.mode` is a persisted settingsd key**
+  (`source/libs/nexus-wire/src/settingsd.rs:68`, default `"tablet"`).
+
+### Honest residual scope
+
+1. **Preset catalog**: `phone-portrait`, `phone-landscape`, `tablet-portrait`,
+   `tablet-landscape`, `laptop`, `laptop-pro`, `convertible` — today only
+   `desktop` and `tablet` manifests exist.
+2. **Schema validation** for the manifests (bounded schema, actionable
+   diagnostics — today ad-hoc parsing).
+3. **Decoupling resolution/Hz**: today one mode is hardcoded end-to-end —
+   `scripts/qemu-test.sh` asserts the literal marker
+   `windowd: ready (w=1280, h=800, hz=120)`. Presets that vary w/h/hz must
+   turn that assertion into a per-preset expectation (marker contract:
+   `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` + docs together).
+
+### Constraint added by the rebase — no parallel authority
+
+Presets resolve INTO the existing authorities: the settingsd `ui.shell.mode`
+key and the systemui profile-manifest model. Do not introduce a second
+profile store, a second shell-mode source, or a dev-only fake env path.
+
+### Corrected touched paths
+
+The draft's `tools/nx-dsl/` is dead (real tool home: `tools/nx/`), and the
+manifest home is `source/services/systemui/manifests/profiles/`, not
+`ui/profiles/`/`ui/shells/`/`schemas/`. The allowlist below is updated;
+`scripts/**` and `config/**` are approval zones.
+
 ## Context
 
 We want early UI work to exercise the same cross-device/profile logic that apps and SystemUI will rely on later.
@@ -114,14 +155,15 @@ UART markers (order tolerant):
 - `systemui: shell mode -> desktop|tablet` (for `convertible` proof path)
 - `SELFTEST: ui preset boot ok`
 
-## Touched paths (allowlist)
+## Touched paths (allowlist) — corrected 2026-08-14
 
-- `source/services/windowd/`
-- SystemUI runtime/profile detection wiring
-- `tools/nx-dsl/` or QEMU/dev tooling entrypoints
+- `source/services/systemui/manifests/profiles/` (preset manifests — extend the existing model)
+- `tools/systemui_profile_qemu_devices.py` (preset → QEMU device resolution)
+- `tools/nx/` (dev tooling entrypoints, if needed)
+- `scripts/qemu-test.sh` (per-preset marker expectations — approval zone `scripts/**`)
+- `source/services/windowd/` (mode plumbing only)
+- `source/services/app-host/src/probe/env.rs` (env axis wiring, if extended)
 - `source/apps/selftest-client/`
-- `ui/profiles/` / `ui/shells/` / `ui/products/` or equivalent manifest directories
-- `schemas/` (preset/profile/shell manifest schema, if adopted under config/schema infra)
 - `docs/dev/ui/foundations/layout/profiles.md`
 - `docs/dev/ui/foundations/quality/testing.md`
 - `docs/dev/ui/dsl-migration.md`

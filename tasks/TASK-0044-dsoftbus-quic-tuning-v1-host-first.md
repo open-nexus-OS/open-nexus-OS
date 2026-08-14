@@ -1,6 +1,6 @@
 ---
-title: TASK-0044 DSoftBus QUIC tuning v1: pacing + congestion selection + mux WFQ priorities (host-first, OS-gated)
-status: Draft
+title: TASK-0044 DSoftBus QUIC tuning v1: pacing + congestion selection + mux WFQ priorities (Superseded 2026-08-14 — priorities shipped in 0020; pacing residual → TASK-0024)
+status: Superseded
 owner: @runtime
 created: 2025-12-22
 depends-on: []
@@ -14,6 +14,17 @@ links:
 ---
 
 ## Short description
+
+> **SUPERSEDED (2026-08-14, sub-80 roadmap).** Three reasons: (1) mux priorities +
+> anti-starvation already shipped with TASK-0020 (`source/services/dsoftbusd/src/os/mux_v2.rs:269-300`);
+> (2) the host quinn pacing/CC knobs do NOT transfer to the OS transport — the OS path is a
+> bespoke `QD`-magic UDP framing, not quinn — so "OS-gated tuning" was built on a false
+> continuum; (3) fake-green hazard: this ledger's markers (`SELFTEST: mux pri control ok` /
+> `mux bulk ok` / `mux backpressure ok`) are already emitted by an in-process state-machine
+> exercise in the harness ladder (`scripts/qemu-test.sh:1356-1358`), which would let this task
+> "pass" without proving pacing under load. The genuine residual — pacing/congestion behavior
+> on the OS QD framing — folds into the rebased TASK-0024 (QUIC-v2 reliability), which owns
+> retransmit/cwnd and must claim NEW marker names. Do not execute.
 
 - **Scope**: Tune host QUIC behavior (pacing/CC) and improve mux scheduling fairness under mixed load.
 - **Deliver**: Deterministic host load proofs for latency/throughput trade-offs with explicit fallback behavior.

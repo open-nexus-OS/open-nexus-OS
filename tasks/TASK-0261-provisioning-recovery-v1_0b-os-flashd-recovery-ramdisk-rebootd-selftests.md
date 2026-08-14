@@ -18,6 +18,20 @@ links:
 
 ## Context
 
+> **Alignment note 2026-08-14 (boot-target contract decided).** TASK-0050 holds the recovery
+> authority per `tasks/TRACK-AUTHORITY-NAMING.md:97`: recovery orchestration is
+> `recovery-init` + `recovery-sh` (built-ins only), selected via the boot arg
+> **`nexus.target=recovery`**. This ledger must align before execution:
+>
+> - **drop** its competing `recovery=1` boot arg (use `nexus.target=recovery`),
+> - **drop** the `nx-recovery` menu naming (recovery UX belongs to `recovery-sh` built-ins),
+> - **drop** its second next-boot persistence key (`state:/boot/next_mode` as an independent key) —
+>   next-boot selection follows TASK-0050's boot-mode contract, with `rebootd` as the single
+>   next-boot selector, not a parallel persistence scheme.
+>
+> The provisioning/flashd scope (flashd service, virtio-serial channel, flash protocol, factory
+> reset) remains valid, but it **rebases on TASK-0050's boot-mode contract** before execution.
+
 We need OS/QEMU integration for Provisioning/Recovery v1.0:
 
 - `flashd` service (target side flasher),

@@ -17,6 +17,15 @@ links:
 
 ## Context
 
+> **Collision note (2026-08-14):** slot-state-machine ownership was decided on
+> 2026-08-14 — **TASK-0036 owns the healthmux/rollback/deadline evolution of
+> the A/B slot state machine.** A shipped state machine already exists
+> (`userspace/updates/src/bootctrl.rs` + persistent state in
+> `source/services/updated/src/os_lite.rs`, `/state/boot/bootctl.v1`). This
+> task must NOT re-specify the slot state machine; before execution it rebases
+> against TASK-0036's outcome (any `bootctld` service boundary would wrap that
+> machine, not duplicate it).
+
 Current updates tasks reference a file-based “bootctl.json” slot selector. For deterministic, auditable orchestration,
 we want an explicit service boundary:
 

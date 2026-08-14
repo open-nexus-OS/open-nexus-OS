@@ -1,6 +1,6 @@
 ---
-title: TASK-0041 Lock profiling v1 (userspace-first): contention/hold-time stats + bounded export hooks
-status: Draft
+title: TASK-0041 Lock profiling v1 (userspace-first): contention/hold-time stats + bounded export hooks (Superseded 2026-08-14 — motivation consumed by ADR-0049)
+status: Superseded
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -13,6 +13,17 @@ links:
 ---
 
 ## Context
+
+> **SUPERSEDED (2026-08-14, sub-80 roadmap).** The justification ("before we optimize SMP, we
+> need visibility") was consumed by the SMP/BKL track: ADR-0049 is Accepted and implemented,
+> and the kernel ships exactly this profiling one layer down — `source/kernel/neuron/src/core/
+> trap/budgets.rs` (`record_bkl_wait`, `record_ecall_hold` with worst-hold syscall attribution,
+> 4-bucket wait histogram) enforced as a boot gate (`KSELFTEST: bkl budget ok`, hard-required in
+> `scripts/qemu-test.sh`). Measured win recorded in ADR-0049: 90.8 ms → ~6 ms wait. The thin
+> userspace residual (instrumenting `nexus-sync::SpinLock` / the four host-side `parking_lot`
+> users) is explicitly NOT funded — `parking_lot` is forbidden in the OS graph (RFC-0009) and
+> the ledger never targeted `nexus-sync`. If service-level lock visibility is ever needed,
+> seed a fresh S-sized `nexus-sync` instrumentation task instead. Do not execute.
 
 Before we “optimize SMP”, we need visibility. A userspace lock profiler gives immediate value on host and
 in OS services without requiring kernel changes:

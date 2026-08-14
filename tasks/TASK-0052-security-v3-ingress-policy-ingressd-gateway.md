@@ -3,7 +3,9 @@ title: TASK-0052 Security v3 (Ingress): default-deny inbound policy + ingressd u
 status: Draft
 owner: @security
 created: 2025-12-23
-depends-on: []
+depends-on:
+  - TASK-0046 # configd (Done — satisfied)
+  - TASK-0047 # policyd / Policy-as-Code (Done — satisfied)
 follow-up-tasks: []
 links:
   - Vision: docs/architecture/vision.md
@@ -16,6 +18,21 @@ links:
   - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
   - Testing contract: scripts/qemu-test.sh
 ---
+
+## Metadata correction 2026-08-14
+
+- `depends-on` was empty; the real prerequisites are configd (TASK-0046) and policyd (TASK-0047) —
+  **both Done**, so this task is unblocked on them.
+- Touched paths corrected: `userspace/libs/nexus-abi/` does not exist — the crate lives at
+  `source/libs/nexus-abi/`. `schemas/policy/` does not exist — policy rules live in `policies/`
+  (e.g. `policies/nexus.policy.toml`, `policies/base.toml`) and the schema is
+  `schemas/policy.config.schema.json`.
+- **Scope alert (nexus-abi):** "deny non-loopback bind" needs a new **address dimension** on the
+  `NetBind` matcher in nexus-abi — today it matches **port ranges only**
+  (`source/libs/nexus-abi/src/abi_filter.rs`). `source/libs/**` is an approval-gated protection
+  zone; plan that change explicitly and get approval before touching it.
+- **RFC seed required** for the `ingressd` service contract (new service API + exposure-intent IDL)
+  before building, per the repo workflow (new service API → RFC seed first).
 
 ## Context
 
@@ -95,10 +112,10 @@ UART markers (once networking + policy + config are present):
 
 ## Touched paths (allowlist)
 
-- `policies/` + `schemas/policy/` (extend: ingress domain)
-- `source/services/ingressd/` (new)
+- `policies/` + `schemas/policy.config.schema.json` (extend: ingress domain)
+- `source/services/ingressd/` (new; RFC seed required first)
 - `source/services/execd/` (optional: exposure intent registration)
-- `userspace/libs/nexus-abi/` (bind guardrail)
+- `source/libs/nexus-abi/` (bind guardrail; approval-gated zone — needs address dimension on NetBind)
 - `tools/nx/` (optional follow-up: `nx ingress` or `nx policy` integration)
 - `tests/ingress_host/`
 - `docs/security/ingress.md`

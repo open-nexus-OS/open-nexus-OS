@@ -13,7 +13,7 @@ links:
   - Playbook: CLAUDE.md
   - Contract seed: docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md
   - Depends-on (OS QUIC session baseline): tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md
-  - Follow-up (transport hardening): tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md
+  - Follow-up (transport hardening): tasks/TASK-0024-dsoftbus-quic-v2-reliability-os.md
   - Testing harness: scripts/qemu-test.sh
   - 2-VM harness: tools/os2vm.sh
   - Phase contract: docs/rfcs/RFC-0014-testing-contracts-and-qemu-phases-v1.md

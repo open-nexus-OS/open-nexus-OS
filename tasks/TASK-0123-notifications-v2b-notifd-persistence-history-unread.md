@@ -17,11 +17,22 @@ links:
 
 ## Context
 
-`TASK-0069` establishes **Notifications v2 minimal** (channels/actions/inline reply + basic SystemUI rendering) and explicitly defers persistence/history.
+> **Scope carried in from TASK-0069 (Superseded 2026-08-14):** 0069 never executed; this task
+> is now the FIRST real notifd build, starting from a 14-line placeholder (`source/services/
+> notifd/src/main.rs`) with no `nexus_wire` module. It therefore also owns the **actions +
+> inline-reply wire shape** (`notify/action/reply/cancel` op set + channel importance) that
+> 0069 carried — the shell's notification centre UI already exists as design-handoff DSL
+> (`userspace/apps/desktop-shell/ui/components/panels/NotificationsPanel.nx`,
+> `notifications.store.nx` waits on `svc.notif`). Model the service on settingsd (TASK-0072
+> Done): real no_std OS entry + wire module + registry/persist pattern. An RFC seed for the
+> notifd wire protocol is required before building (CLAUDE.md rule).
+
+`TASK-0069` established **Notifications v2 minimal** as a plan only (now Superseded — see above).
 
 This task upgrades **notifd** into a production-grade service model while remaining kernel-unchanged and deterministic:
 
 - channel registration semantics (per app),
+- actions + inline reply (wire shape inherited from 0069),
 - visibility (lock-screen policy hints),
 - persistence of channel settings,
 - history ring persistence,

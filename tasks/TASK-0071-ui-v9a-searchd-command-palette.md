@@ -1,6 +1,6 @@
 ---
-title: TASK-0071 UI v9a: searchd index + global search / command palette UI + app/settings registration
-status: Draft
+title: TASK-0071 UI v9a: searchd index + global search / command palette UI (Superseded 2026-08-14 by TASK-0151/0152 (UI) + TASK-0153/0154 (backend))
+status: Superseded
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -17,6 +17,14 @@ links:
 ---
 
 ## Context
+
+> **SUPERSEDED (2026-08-14, sub-80 roadmap).** This ledger's own scope note already tracks
+> Search v2 as TASK-0151/0152 (palette/UI) + TASK-0153/0154 (index backend) — those are the
+> executable successors. Repo reality: `searchd` is a 14-line placeholder over a
+> `STATUS: Placeholder` CLI shim, no wire module, no palette anywhere in the shell; and this
+> ledger's touched paths are dead (`userspace/apps/launcher/` no longer exists — the launcher
+> lives inside `userspace/apps/desktop-shell/`; "SystemUI plugins" is a retired concept).
+> Do not execute; see 0151–0154.
 
 UI v9 introduces a “productivity spine”:
 

@@ -1,5 +1,5 @@
 ---
-title: TASK-0040 Remote observability v1: scrape logs/metrics over DSoftBus (host-first, OS-gated; VMO backfill deferred)
+title: TASK-0040 Remote observability v1: scrape logs/metrics over DSoftBus (host-first, OS-gated; VMO backfill deferred) (rebased 2026-08-14 onto shipped logd/metricsd/dsoftbus)
 status: Draft
 owner: @runtime
 created: 2025-12-22
@@ -9,7 +9,7 @@ depends-on:
   - TASK-0014
   - TASK-0020
   - TASK-0030
-  - TASK-0031
+  - TASK-0031  # satisfied for v1: VMO backfill is an explicit non-goal (rebase 2026-08-14)
 follow-up-tasks: []
 links:
   - Vision: docs/architecture/vision.md
@@ -57,14 +57,38 @@ We want remote collection of logs and metrics across nodes via DSoftBus with:
 - retention/rotation on the collector,
 - a small query API for recent data.
 
-Repo reality today:
+## Rebase note (2026-08-14) — verified against repo reality
 
-- logd v1 and metricsd are still planned tasks (not implemented).
-- OS DSoftBus backend is a placeholder until networking tasks land.
-- Mux v2 baseline is available from `TASK-0020`.
+The original "Repo reality today" paragraph here was false and is replaced. Corrected reality:
+
+- **logd v1 is Done and marker-gated** (`logd: ready` in `scripts/qemu-test.sh`):
+  `source/services/logd/src/` has 8 source files including a real `journal.rs`, protocol, security,
+  and os_lite server. NOT a planned task.
+- **metricsd is Done and marker-gated** (`metricsd: ready`): `source/services/metricsd/src/lib.rs`
+  (1004 LOC) + `os_lite.rs` (605 LOC). NOT a planned task.
+- **The OS DSoftBus path is real**, not a placeholder: TASK-0003/0005 are Done; dsoftbusd runs
+  authenticated sessions + mux_v2 in the OS build (only `userspace/dsoftbus/src/os.rs` remains a
+  bypassed placeholder shim).
+- `obsscraped` does **not** exist anywhere in the repo — the collector service is genuinely
+  greenfield, so the scope of this task stands.
+- **depends-on TASK-0031 is satisfied for v1**: VMO bulk backfill is already an explicit non-goal
+  here, so nothing in v1 waits on VMO plumbing.
+- The RFC-0034 production-gate phase structure and the security section with the named
+  `test_reject_*` tests below are the newest, verified-correct parts of this ledger — they are
+  kept verbatim and remain binding.
+
+**Hard gate on cross-node proof:** OS cross-node scrape markers are blocked on the
+`tasks/TRACK-NETWORK-PROOF-LANES.md` repair (2-VM lane red in `OS2VM_E_DISCOVERY_TIMEOUT`;
+`quic-required` lane missing all `REQUIRE_DSOFTBUS` markers). Host-first phases can proceed now.
+
+Repo reality today (corrected):
+
+- logd v1 + metricsd are shipped and queryable (see above).
+- OS DSoftBus sessions + mux v2 are real; only the proof lanes are red.
 - True “VMO bulk backfill over DSoftBus” depends on VMO sharing + mux VMO frames (not available yet).
 
-Therefore v1 must be **host-first** and **OS-gated**, and VMO backfill must be explicitly deferred.
+Therefore v1 is **host-first**, OS proofs are gated on the proof-lane repair, and VMO backfill
+stays explicitly deferred.
 
 ## Goal
 
@@ -74,7 +98,8 @@ Deliver remote observability v1 where, on host builds:
 - a “collector” connects to peers, enforces ACL/rate/sampling, stores data with rotation,
 - deterministic tests prove correctness (including negative cases).
 
-Once OS prerequisites exist, add QEMU markers and enable the same flow on OS.
+Once the network proof lanes are green (TRACK-NETWORK-PROOF-LANES), add QEMU markers and enable
+the same flow on OS.
 
 ## Non-Goals
 
@@ -107,10 +132,9 @@ This task does **not** assume:
 ## Red flags / decision points
 
 - **RED (gating)**:
-  - OS implementation is blocked until:
-    - logd v1 exists (TASK-0006),
-    - metricsd exists (TASK-0014),
-    - DSoftBus OS backend exists (TASK-0003 + TASK-0020).
+  - logd/metricsd/DSoftBus prerequisites are Done (see rebase note); the remaining OS gate is the
+    `tasks/TRACK-NETWORK-PROOF-LANES.md` repair — no cross-node OS markers until those lanes are
+    green.
 - **YELLOW (wire formats)**:
   - Logs as JSONL is fine, but must be bounded and optionally sampled.
   - Metrics deltas must cap label cardinality; prefer a small, versioned frame format.
@@ -184,9 +208,9 @@ New deterministic host tests (`tests/remote_obs_host/`):
 - retention:
   - rotation triggers on size/time budget and is deterministic.
 
-### Proof (OS / QEMU) — gated
+### Proof (OS / QEMU) — gated on TRACK-NETWORK-PROOF-LANES repair
 
-Once OS prerequisites exist, extend `scripts/qemu-test.sh` with:
+Once the proof lanes are green, extend `scripts/qemu-test.sh` with:
 
 - `logd: obs logs live ready`
 - `metricsd: obs metrics live ready`
@@ -200,9 +224,9 @@ Once OS prerequisites exist, extend `scripts/qemu-test.sh` with:
 ## Touched paths (allowlist)
 
 - `userspace/dsoftbus/` (host integration for obs streams)
-- `source/services/logd/` (once implemented; expose obs.logs endpoint)
-- `source/services/metricsd/` (once implemented; expose obs.metrics endpoint)
-- `source/services/obsscraped/` (new collector service; host-first)
+- `source/services/logd/` (shipped; expose obs.logs endpoint)
+- `source/services/metricsd/` (shipped; expose obs.metrics endpoint)
+- `source/services/obsscraped/` (new collector service; greenfield, host-first)
 - `tests/`
 - `docs/observability/remote.md`
 - `scripts/qemu-test.sh` (gated)

@@ -221,7 +221,7 @@ Minimale Voraussetzungen für den UI-Stack. Alles andere aus dem 24–53 Bereich
 | TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | UI-Profil-Broker für windowd + input |
 | TASK-0047 | Policy as Code v1: unified policy engine | Asset-Zugriff + Permissions für UI-Services |
 
-**Übersprungen (24–53):** `0024` (DSoftBus UDP sec), `0025–0027` (StateFS hardening/encryption — verified still open 2026-08-14, see Defer-Bucket), `0028` (ABI filters v2), `0030` (DSoftBus discovery authz), `0033` (PackageFS VMO-splice — ⤳ superseded by 0295), `0034–0037` (OTA/delta updates), `0038` (Tracing v2), `0040` (Remote observability), `0041` (Lock profiling), `0042` (SMP v2 voll — minimaler QoS-Slice kommt via 0054B), `0043–0044` (Security sandbox quotas / QUIC tuning), `0048–0053` (Crashdump v2 / Recovery / Security v3).
+**Übersprungen (24–53):** `0024` (DSoftBus UDP sec), `0025–0027` (StateFS hardening/encryption — verified still open 2026-08-14, see Defer-Bucket), `0028` (ABI filters v2), `0030` (DSoftBus discovery authz), `0033` (PackageFS VMO-splice — ⤳ superseded by 0295), `0034–0037` (OTA/delta updates), `0038` (Tracing v2), `0040` (Remote observability), `0041` (Lock profiling), `0042` (SMP v2 voll — inzwischen Done; 0054B war der QoS-Slice-Träger und ist Superseded), `0043–0044` (Security sandbox quotas / QUIC tuning — 0044 Superseded 2026-08-14), `0048–0053` (Crashdump v2 / Recovery / Security v3).
 
 ---
 
@@ -241,7 +241,7 @@ Vom CPU-Renderer bis zum sichtbaren deterministischen Input-Proof und dann direk
 | TASK-0253 | Input v1.0b: OS/QEMU hidrawd + touchd + inputd + windowd/IME hooks (Done; live QEMU pointer/keyboard floor, full closure gates green) |
 | ✅ TASK-0056C | UI v2a: embedded reactor/runtime floor + present/input perf latency + coalescing (Done; host-first coalescing + no-damage-skip + idle-cheap proofs green; QEMU marker ladder + diag-os pending downstream) |
 
-**Defer aus diesem Bereich:** `0054B/C/D` (Kernel UI/IPC/MM perf floor — Perf-Polish nach Baseline), `0055D` (dev display presets).
+**Defer aus diesem Bereich (Stand 2026-08-14):** ⤳ `0054B`/`0054D` Superseded (geliefert via 0042/0277/0283/0288 bzw. 0310/0309/0302); `0054C` (IPC-Fastpath, rebased) und `0055D` (dev display presets, rebased) in der Sub-80-Umsetzung.
 
 **Eingebetteter Reactor/Runtime-Faden (kein separater Parallel-Track):**
 `TASK-0056C` setzt das Mindestniveau fuer eine fluessige echte Desktop-UI:
@@ -329,9 +329,9 @@ WM-Overlays, Settings-Panel, Design System, App Shell.
 | ✅ TASK-0070 | UI v8b: WM resize/move/snap/dock (Done; keyboard shortcuts = Non-Goal by design; settings overlays descoped → 0072) |
 | ✅ TASK-0072 | UI v9b: settingsd + settings panel DSL app (Done; prefsd replaced by settingsd; quick-settings dropped as Non-Goal) |
 | ✅ TASK-0073 | UI v10a: design system primitives + goldens (Done; 37 widgets + 74 goldens + a11y lints) |
-| TASK-0074 | UI v10b: app shell adoption + **modals** — **still open** (not started; no AppWindow kit, no modal/overlay widgets) |
+| TASK-0074 | UI v10b: **modals/modal-manager residual** — still open, aber stark reduziert (rebased 2026-08-14: App-Shell-Kit existiert längst via TASK-0308/`userspace/apps/window-kit` (RFC-0084); W6-Konvergenz anders erledigt; Overlays = app-owned `.nx`; Rest = Modal-Manager-Semantik NICHT in windowd) |
 
-**Defer aus diesem Bereich:** `0067` (DnD/clipboard v2 — kommt via 0122C), `0068` (screenshot/share), `0069` (notifications v2 advanced), `0071` (searchd/command palette).
+**Defer aus diesem Bereich:** `0067` (rebased 2026-08-14: clipboardd-SERVICE + DnD-Routing — 0122C ist nur die DSL-Bridge), `0068` (rebased: capture-only, Share → 0126–0128); ⤳ `0069` Superseded → 0123–0125, ⤳ `0071` Superseded → 0151–0154.
 
 ---
 
@@ -370,10 +370,16 @@ Vollständige DSL-Kette: Lexer → Interpreter → AOT → State/Nav → Bootstr
 
 ## Defer-Bucket (nach 122C ergänzen)
 
-Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen:
+Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen.
+
+> **Sub-80-Umsetzung gestartet 2026-08-14:** alle offenen Tasks < 80 wurden gegen die
+> Repo-Realität triagiert (7× Superseded, Rest rebased) und werden jetzt in Lanes gebaut
+> (Storage/Recovery · OTA · Security · UI/DSL · Networking · Kernel). Ledger = Wahrheit.
 
 **DSoftBus / Networking:**
-`0024`, `0030`, `0044` (DSoftBus follow-ons)
+`0024` (rebased 2026-08-14 → QUIC-v2-Reliability; OS-Proof gated auf TRACK-NETWORK-PROOF-LANES),
+`0030` (rebased → NXSB-Realität statt mDNS); ⤳ `0044` Superseded (Prioritäten via 0020 geliefert;
+Pacing-Residual → 0024)
 
 **StateFS / Storage** (verified 2026-08-14 — still genuinely open, `Draft`, zero code):
 `0025`, `0026`, `0027` (StateFS hardening + encryption; lane order 0025 → 0026 → 0027).
@@ -389,23 +395,37 @@ ADR-0043/RFC-0071; absorbed by 0316/0317/0318).
 `0028`, `0043`, `0052`, `0053` (ABI filters, sandbox quotas, ingress policy, signed recovery)
 
 **OTA / Updates / Supply Chain:**
-`0034`, `0035`, `0036`, `0037` (delta updates, OTA v2);
-⤳ `0033` (PackageFS VMO-splice) — **Superseded by TASK-0295 (Done)**, seam moved to vfsd
+`0034` (rebased 2026-08-14: nur noch `.nxdelta` offen), `0035` (unblocked), `0036` (rebased;
+Owner der Slot-State-Machine — 0178/0179 defer);
+⤳ `0033` — **Superseded by TASK-0295 (Done)**, seam moved to vfsd;
+⤳ `0037` — **Superseded 2026-08-14 by TASK-0289** (boot trust floor)
 
 **Observability / Debug:**
-`0038`, `0040`, `0041`, `0048`, `0049` (Tracing v2, remote observability, lock profiling, crashdump v2)
+`0038` (rebased 2026-08-14: Ziel ist dsoftbusd/mux_v2, Prämisse war invertiert), `0040`
+(rebased: logd/metricsd sind längst Done), `0048`, `0049` (Crashdump v2, execute-as-is);
+⤳ `0041` — **Superseded 2026-08-14** (Motivation von ADR-0049 konsumiert — Kernel-BKL-Budgets
+sind Boot-Gate)
 
 **Recovery:**
-`0050`, `0051` (Recovery v1a/v1b)
+`0050`, `0051` (Recovery v1a/v1b; Entscheidung 2026-08-14: 0050 hält die Boot-Target-Authority
+(`nexus.target=recovery`, TRACK-AUTHORITY-NAMING) — 0261 aligned; 0051 nutzt `fsck-statefs`
+aus 0026)
 
 **SMP v2 (voll):**
 ✅ `0042` Done (see "Post-0064 — SMP + Filesystem" section above); SMP closure `0281`/`0282`/`0286`/`0287`/`0290` still open.
 
 **UI Perf-Polish:**
-`0054B`, `0054C`, `0054D`, `0055D` (still deferred); ✅ `0060`, `0060B`, `0062B` now Done.
+`0054C` (rebased 2026-08-14 auf phased/lockfree-Baseline; Kernel-Approval-Zone), `0055D`
+(rebased: Preset-Katalog auf existierender Profile-/settingsd-Mechanik);
+⤳ `0054B`/`0054D` — **Superseded 2026-08-14** (geliefert via 0042/0277/0283/0288 bzw.
+0310/0309/0302; Residuen → 0290); ✅ `0060`, `0060B`, `0062B` now Done.
 
 **Advanced UI Features:**
-`0066`, `0067`, `0068`, `0069`, `0071`, `0077B` (still deferred); ✅ `0080` now Done.
+`0066` (rebased: Residual Thirds/Zone-Map/Reflow/list()/Policy — 0070 lieferte den Rest),
+`0067` (rebased: clipboardd-Service + DnD-Routing, Boundary-konform), `0068` (rebased:
+capture-only), `0077B` (rebased: Spine = keyed per-instance state);
+⤳ `0069` → 0123–0125, ⤳ `0071` → 0151–0154 (beide Superseded 2026-08-14);
+✅ `0080` now Done (2026-08-14: AOT-Demo-Anteil war fälschlich mit-claimt — re-owned von 0079).
 
 **Apps + Plattform (81–118):**
 `0081–0118` (MIME registry, browser, kamera, office apps etc. — nach DSL App Platform 0122B/C)
@@ -417,8 +437,8 @@ ADR-0043/RFC-0071; absorbed by 0316/0317/0318).
 Honest reconciliation floor (2026-07-19). These are real, unimplemented feature areas — not paperwork drift:
 
 - **IME / text input engine (ACTIVE TRACK 2026-07-21, RFC-0075):** `0146`, `0147`, `0149`, `0150`, `0203`, `0204` — ledgers rewritten against repo reality; `0096` Superseded, `0148` Deferred (no bidi need for Latin+CJK)
-- **Notifications service:** `0069`, `0123`, `0124`, `0125` (minimal surface shipped in 0065; notifd/DND/headsup open)
-- **Search / command palette:** `0071`, `0151–0154`
+- **Notifications service:** `0123`, `0124`, `0125` (minimal surface shipped in 0065; notifd/DND/headsup open; ⤳ `0069` Superseded 2026-08-14 — actions/inline-reply-Wire-Shape in 0123 übernommen)
+- **Search / command palette:** `0151–0154` (⤳ `0071` Superseded 2026-08-14)
 - **Clipboard / share / DnD:** `0067`, `0087`, `0126–0128`
 - **Content / files apps:** `0081–0093`, `0232`, `0233`
 - **Media / audio:** `0099–0102`, `0155`, `0156`, `0184–0187`, `0217–0220`, `0254`, `0255`

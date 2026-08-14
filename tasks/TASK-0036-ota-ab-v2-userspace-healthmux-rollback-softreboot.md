@@ -3,6 +3,7 @@ title: TASK-0036 OTA A/B v2 (userspace): slot state machine + health multiplexer
 status: Draft
 owner: @runtime
 created: 2025-12-22
+updated: 2026-08-14
 depends-on: []
 follow-up-tasks: []
 links:
@@ -15,6 +16,48 @@ links:
   - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
+## Rebase 2026-08-14 — what already shipped (do NOT re-implement)
+
+Verified against the repo on 2026-08-14.
+
+**Decision (ownership): TASK-0036 is THE owner of the A/B slot-state-machine
+evolution.** TASK-0178 (bootctld stub) and TASK-0179 (updated v2 offline feed)
+overlap with this task; both defer to TASK-0036 for the slot state machine,
+health multiplexing, rollback, and deadline semantics, and must rebase against
+this task's outcome before execution.
+
+**Shipped — the slot/trial/rollback state machine core:**
+
+- `userspace/updates/src/bootctrl.rs` implements the machine this ledger's
+  Plan steps 1 and 3 describe: `stage` (:82), `switch` with `tries_left`
+  (:88), `commit_health` (:102), `tick_boot_attempt` (:113, auto-rollback on
+  exhausted tries), `rollback` (:127). Do NOT re-implement.
+- Persistence is real: `source/services/updated/src/os_lite.rs:53`
+  `BOOTCTRL_STATE_KEY = "/state/boot/bootctl.v1"` (note: the shipped path is
+  `bootctl.v1`, not this ledger's `/state/boot/slot.nxs`), marker
+  `updated: ready (statefs)` gated at `scripts/qemu-test.sh:482`.
+- `updated` service side: `source/services/updated/src/os_lite.rs` (971 LOC)
+  with `handle_stage` :396, `handle_switch` :463, `handle_health_ok` :516,
+  `handle_boot_attempt` :555.
+- Host proof: `tests/updates_host/tests/ota_flow.rs` (11 tests, incl.
+  `rollback_on_health_timeout` :105, `reject_mismatched_digest` :92).
+- QEMU proof: full OTA ladder gated at `scripts/qemu-test.sh:536-540`
+  (`SELFTEST: ota stage/switch/health/rollback ok`) plus negative proofs in
+  `proof-manifest markers/ota.toml:39-54`.
+
+**Honest residual scope (what v2 still adds):**
+
+- (a) **Health multiplexer with quorum** — nothing named healthmux/quorum
+  exists anywhere in the repo (grep: zero hits). Today health confirmation is
+  a single `handle_health_ok` call.
+- (b) **Wall-clock `deadline_ns` alongside tries** — the shipped machine is
+  tries-based only (`tries_left` / `tick_boot_attempt`); there is no
+  wall-clock deadline path.
+- (c) **`healthd`** — does not exist. Also decide whether `bootargd` is still
+  needed at all, given the boot-chain task moved TASK-0037 → TASK-0289.
+- (d) **Soft-reboot simulation proof** — the "new init cycle uses slot B"
+  simulated-boot marker lane is not built.
+
 ## Context
 
 We want robust A/B OTA behavior:
@@ -24,9 +67,12 @@ We want robust A/B OTA behavior:
 - confirm health via a health multiplexer,
 - auto-rollback on timeout/degradation.
 
-Repo reality today:
+Repo reality (superseded by the Rebase 2026-08-14 section above — kept for
+history):
 
-- `updated` exists as a v1.0 non-persistent skeleton; v2 builds on it with health mux and soft-reboot proof.
+- `updated` is a persistent 971-LOC service with a QEMU-gated
+  stage/switch/health/rollback ladder (see Rebase section); v2 adds health mux
+  quorum, wall-clock deadline, and soft-reboot proof on top.
 - “Boot slot via SBI/bootargs” cannot be *truly* proven without boot chain/kernel/firmware integration.
 
 This task focuses on the **userspace state machine** and provides **honest proof** via a soft-reboot simulation.
@@ -44,7 +90,7 @@ Deliver a userspace A/B OTA v2 state machine with:
 ## Non-Goals
 
 - Real OpenSBI bootargs wiring (separate blocked task).
-- Real `.nxs` system set staging (blocked until tooling and `updated` exist).
+- Real `.nxs` system set staging (owned by TASK-0035; tooling and `updated` exist now).
 - Kernel changes.
 
 ## Constraints / invariants (hard requirements)
@@ -58,9 +104,11 @@ Deliver a userspace A/B OTA v2 state machine with:
 
 - **RED**:
   - Without a boot chain, “bootargs” cannot be validated. Proof is limited to **soft-reboot** simulation.
-- **YELLOW**:
-  - Health signal sources: in v2 we want `execd/metricsd/logd/statefs`, but some are planned not implemented.
-    v2 must allow optional sources and keep a minimal quorum that works today.
+- ~~**YELLOW**: health signal sources `execd/metricsd/logd/statefs` are
+  "planned not implemented".~~ **CORRECTED 2026-08-14**: all four services
+  are shipped and marker-gated. The health mux can draw on real sources from
+  day one; the open work is the multiplexer/quorum itself (see Rebase
+  section), not the sources.
 
 ## Contract sources (single source of truth)
 
@@ -72,29 +120,32 @@ Deliver a userspace A/B OTA v2 state machine with:
 
 ### Proof (Host) — required
 
-Add deterministic tests (`tests/ota_ab_v2_host/`):
+Note (2026-08-14): the tries-based stage/switch/health/rollback flows are
+already covered by `tests/updates_host/tests/ota_flow.rs` (11 tests) — do not
+duplicate them. New v2 tests cover only the residual scope:
 
-- stage+commit schedules trial slot B with boots-left and deadline
-- no health confirmation before deadline → rollback scheduled to last_good
-- health confirmation within grace → promote current to B and clear trial
+- wall-clock `deadline_ns`: no health confirmation before deadline → rollback scheduled to last_good
+- health-mux quorum: confirmation within grace → promote and clear trial
 - degradation path: repeated “critical restart” events triggers unhealthy decision
+- soft-reboot simulation drives the above deterministically (injectable clock)
 
-### Proof (OS / QEMU) — gated on statefs + minimal services
+### Proof (OS / QEMU)
 
-Once statefs exists, selftest proves:
+Already shipped and gated (do not re-add): `SELFTEST: ota stage/switch/health/rollback ok`
+at `scripts/qemu-test.sh:536-540` + negatives in `proof-manifest markers/ota.toml:39-54`.
 
-- `SELFTEST: ota stage ok`
-- `SELFTEST: ota commit scheduled ok`
+New v2 markers (residual scope only):
+
 - `SELFTEST: ota simulated boot ok (slot=B)`
-- `SELFTEST: ota healthy confirm ok`
-- `SELFTEST: ota rollback scheduled ok`
+- `SELFTEST: ota deadline rollback ok`
+- `SELFTEST: ota health quorum ok`
 
 ## Touched paths (allowlist)
 
 - `source/services/`:
-  - `bootargd` (userspace slot selector service; writes “next slot” state)
+  - `bootargd` (only if still needed — decide first, given TASK-0037 → TASK-0289; see Rebase section)
   - `healthd` (health multiplexer; minimal sources first)
-  - `updated` (if/when it exists; otherwise a minimal OTA orchestrator service can be introduced)
+  - `updated` (exists — extend `source/services/updated/`, do not introduce a parallel orchestrator)
 - `userspace/ota/` (`slotstate`, `healthmux` libs)
 - `source/apps/selftest-client/`
 - `tests/`
@@ -103,11 +154,10 @@ Once statefs exists, selftest proves:
 
 ## Plan (small PRs)
 
-1. **Slot state model (`slotstate`)**
-   - Persist at `/state/boot/slot.nxs` (Cap'n Proto snapshot; canonical):
-     - `current`, `next`, `last_good`
-     - `trial`, `boots_left`, `deadline_ns`
-   - Provide atomic update helpers (statefs put_atomic once available).
+1. **Slot state model** — ✅ **largely SHIPPED** (Rebase 2026-08-14; do NOT
+   re-implement): `userspace/updates/src/bootctrl.rs` + persistence at
+   `/state/boot/bootctl.v1` (`os_lite.rs:53`). Residual: add the wall-clock
+   `deadline_ns` field alongside the existing tries-based machinery.
 
 2. **Health multiplexer (`healthd`)**
    - Minimal quorum that can work in early OS:
@@ -117,11 +167,10 @@ Once statefs exists, selftest proves:
      - logd (fatal repeats), metrics counters, execd restart counts.
    - Deterministic clock injection for tests.
 
-3. **Rollback controller**
-   - On each “boot cycle”, if `trial=true`:
-     - decrement `boots_left`
-     - if `boots_left==0` or `now>deadline_ns` and not confirmed healthy → schedule rollback to `last_good`.
-   - If health confirmed within grace → promote and clear trial.
+3. **Rollback controller** — ✅ **tries-based path SHIPPED** (Rebase
+   2026-08-14; do NOT re-implement): `tick_boot_attempt` (bootctrl.rs:113)
+   decrements tries and auto-rolls-back; `commit_health` (:102) promotes.
+   Residual: the `now>deadline_ns` wall-clock branch.
 
 4. **Soft-reboot proof**
    - Define a test-only mechanism to simulate a “new init cycle”:

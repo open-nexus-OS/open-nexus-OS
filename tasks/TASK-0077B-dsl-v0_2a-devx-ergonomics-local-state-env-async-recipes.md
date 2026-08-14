@@ -13,6 +13,46 @@ links:
   - Principles this task serves: docs/dev/dsl/principles.md (encapsulation without magic)
 ---
 
+## Rebase (2026-08-14) — ~60-70% shipped
+
+### Shipped — do NOT re-implement
+
+- **Local `$state` → implicit per-instance stores**: `state:` block on
+  components, lowered to an implicit store through the one mutation path
+  (`userspace/dsl/core/src/ast.rs:363-368` — `ComponentDecl.state`;
+  reference chapter `docs/dev/dsl/state.md:49-70`).
+- **Effect cancellation, latest-wins**: per-(event, case) generations;
+  follow-up dispatches tagged with their trigger's generation and dropped at
+  dequeue if it advanced (`userspace/dsl/runtime/src/effects.rs:23-28`;
+  `docs/dev/dsl/state.md:72-79`).
+- **`timeoutMs` first-class** on `svc.*` calls + lint **NX0409** when it is
+  missing (`userspace/dsl/core/src/check/lints.rs:173-178`).
+- **Change/Submit/Focus/Blur triggers** shipped.
+- **Two-way binding mechanism** shipped (IR v1.2 `Handler.bind`,
+  `Runtime::write_binding` — same compare-and-mark store path as reducers):
+  Toggle/Checkbox (Tap-flip) and TextField/TextArea (Change-write) auto-bind
+  at lowering.
+
+### Honest residual scope (Size S-M) — spine first
+
+1. **Keyed per-instance state storage** (the spine): lift the v1 restriction
+   "a stateful component is instantiated exactly once … until per-instance
+   keyed storage lands" (`docs/dev/dsl/state.md:66-70`, enforced as a build
+   error at lowering). The headline proof — **"local state survives keyed
+   reorder"** — is blocked exactly on this.
+2. **Two-way binding sugar completed across the seven controls**: the
+   mechanism exists, the sugar doesn't for the value-carrying/options
+   controls — **Slider, Select, Stepper** (the other four already auto-bind).
+3. **Async-recipes chapter in `docs/dev/dsl/patterns.md`**: canonical
+   loading/error/empty/retry Store shape. The cancellation machinery is
+   implemented and documented in state.md; patterns.md must show the recipes.
+4. **Create `tests/dsl_v0_2a_devx_host/`**: named as this ledger's proof home
+   but never created; the cases proven so far live in `tests/dsl_conformance/`.
+
+> The ⬜ OPEN list at the bottom is partially stale (it still lists
+> "`$state` locals" as open although the second DONE increment above it
+> records the landing). This rebase section is the authoritative residual.
+
 ## Context (updated 2026-07-06)
 
 The v0.2a core is powerful; this task makes the common cases feel effortless —

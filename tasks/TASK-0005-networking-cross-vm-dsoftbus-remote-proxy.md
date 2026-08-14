@@ -12,7 +12,7 @@ links:
   - Playbook: CLAUDE.md
   - Depends-on: tasks/TASK-0004-networking-dhcp-icmp-dsoftbus-dual-node.md
   - Follow-on: tasks/TASK-0022-dsoftbus-core-no_std-transport-refactor.md
-  - Follow-on: tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md
+  - Follow-on: tasks/TASK-0024-dsoftbus-quic-v2-reliability-os.md
   - Follow-on: tasks/TASK-0020-dsoftbus-streams-v2-mux-flow-control.md
   - Follow-on: tasks/TASK-0021-dsoftbus-quic-v1-host-first-os-scaffold.md
   - ADR: docs/adr/0005-dsoftbus-architecture.md

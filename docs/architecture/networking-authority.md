@@ -99,7 +99,7 @@ Concrete profile values are maintained in `docs/architecture/network-address-mat
 
 ---
 
-## Task Mapping (Updated 2026-04-14)
+## Task Mapping (Updated 2026-08-14)
 
 | Task | Path | Services | Status |
 |------|------|----------|--------|
@@ -108,9 +108,10 @@ Concrete profile values are maintained in `docs/architecture/network-address-mat
 | TASK-0003C | Canonical | (UDP discovery) | ✅ Done (loopback scope) |
 | TASK-0004 | Canonical | (dual-node + identity binding) | ✅ Done |
 | TASK-0005 | Canonical | (cross-VM DSoftBus + remote proxy) | ✅ Done (opt-in 2-VM harness) |
-| TASK-0021 | Canonical (host-first) | (QUIC v1 selection + host transport proof, OS fallback markers) | 🟨 In Progress |
-| TASK-0023 | Canonical (OS QUIC) | (OS QUIC enablement gate) | Blocked |
-| TASK-0024 | Canonical | (UDP-sec OS transport path, non-QUIC) | Draft |
+| TASK-0021 | Canonical (host-first) | (QUIC v1 selection + host transport proof, OS fallback markers) | ✅ Done |
+| TASK-0023 | Canonical (OS QUIC) | (OS QUIC enablement gate) | ✅ Done |
+| TASK-0024 | Canonical | (QUIC-v2 OS reliability follow-up: DATA/ACK + retransmit + cwnd, `tasks/TASK-0024-dsoftbus-quic-v2-reliability-os.md`) | Draft |
+| TASK-0044 | Canonical | (QUIC tuning; superseded — pacing residual folded into TASK-0024) | Superseded |
 | TASK-0248 | Alternative | `virtionetd-lite`, `netstackd-lite` | Draft |
 | TASK-0249 | Alternative | (OS wiring for lite services) | Draft |
 

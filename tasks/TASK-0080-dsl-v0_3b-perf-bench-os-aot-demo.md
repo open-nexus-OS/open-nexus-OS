@@ -18,6 +18,15 @@ links:
 
 ## Context (updated 2026-07-06)
 
+> **Done-status correction (2026-08-14, sub-80 triage):** the "Done (reconciled 2026-07-19)"
+> status covers at most the **interpreter-side** perf work. The AOT half of this ledger has
+> **no code**: `tools/bench/dsl_aot_vs_interp/` does not exist (`tools/bench/` holds only
+> `src/lib.rs` + `benches/latency.rs`), no `aot parity` artifact exists anywhere, and the
+> premise "AOT ELF from 0079" is false — TASK-0079 is Draft, `userspace/dsl/` has no codegen
+> crate, the runtime is interpreter-only. The AOT bench/demo/parity scope of this ledger is
+> therefore **re-owned by TASK-0079** (which must deliver the bench + parity gate as part of
+> its DoD); this ledger stays Done for the interpreter cold-start/marker work only.
+
 Both execution tiers exist (interpreter app-host from 0080D, AOT ELF from 0079) and
 the launch pipeline is live (0080C). This task makes performance a **measured,
 CI-gated property**: the masterplan's promise is app cold-start in the class of the

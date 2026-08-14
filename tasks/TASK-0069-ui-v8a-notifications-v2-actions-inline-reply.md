@@ -1,6 +1,6 @@
 ---
-title: TASK-0069 UI v8a: Notifications v2 (channels + actions + inline reply) + SystemUI rendering + tests/markers
-status: Draft
+title: TASK-0069 UI v8a: Notifications v2 (Superseded 2026-08-14 by TASK-0123/0124/0125; actions+inline-reply wire shape carried into 0123)
+status: Superseded
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -19,6 +19,15 @@ links:
 ---
 
 ## Context
+
+> **SUPERSEDED (2026-08-14, sub-80 roadmap).** This ledger's own Non-Goals already deferred
+> persistence → TASK-0123, DND/modes → TASK-0124, heads-up/redaction/badging → TASK-0125;
+> STATUS-BOARD records TASK-0121 Done with "real notif delivery folded → 0123–0125". Repo
+> reality: `notifd` is a 14-line placeholder, and the shell's notification centre already
+> exists as design-handoff DSL UI (`userspace/apps/desktop-shell/ui/components/panels/
+> NotificationsPanel.nx` + `notifications.store.nx` — "DEMO DATA … when `svc.notif` lands").
+> The one homeless piece — the **actions + inline-reply wire shape** — has been carried into
+> TASK-0123's ledger as an explicit line item. Do not execute; see 0123/0124/0125.
 
 UI v6 introduced minimal notifications/toasts. UI v8a upgrades notifications into a more useful system:
 

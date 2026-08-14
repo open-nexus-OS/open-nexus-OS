@@ -1,6 +1,6 @@
 ---
 title: TASK-0025 StateFS write-path hardening: authenticity envelopes + anti-rollback + budgets (rebased 2026-07-15 onto shipped statefs v1)
-status: Draft
+status: In Progress
 owner: @runtime
 created: 2025-12-22
 depends-on:

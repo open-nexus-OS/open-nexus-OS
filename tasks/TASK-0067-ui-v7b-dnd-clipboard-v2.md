@@ -16,6 +16,53 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Rebase (2026-08-14)
+
+### Verified reality — the baseline is near zero
+
+- Clipboard today is a **host-only** `Mutex<Option<String>>`
+  (`userspace/clipboard/src/lib.rs:31`);
+  `source/services/clipboardd/src/main.rs` is a **14-line placeholder**; and
+  there is **no clipboard module in `source/libs/nexus-wire/src/`** — no OS
+  wire protocol exists at all.
+- DnD: nothing exists beyond vendored cursor shapes
+  (`userspace/ui/cursor/src/hotspot.rs:31-34` — `dnd-none/copy/move/link`).
+
+### Ownership — this task builds the real clipboardd
+
+Successors TASK-0087 (clipboard v3 upgrade) and TASK-0122C (DSL bridge) both
+presume a working clipboardd; no other ledger owns it. **This task does.**
+Model the service on settingsd (TASK-0072, Done): a real no_std OS entry
+point (os-lite), a new `nexus_wire::clipboardd` wire module, and settingsd's
+registry/persist pattern — no parallel service shape.
+
+### Boundary fix (docs/dev/ui/windowd-cleanup-map.md:4-9)
+
+windowd = Single Present Authority (compositor SERVICE). The draft's
+"drag image overlay (VMO-backed)" inside windowd violates that boundary: the
+**drag image is a client/app surface** (the dragging app or the DSL shell app
+presents it). windowd gets ONLY:
+
+- DnD **hit-test/routing**: enter/over/leave/drop targeting, and
+- **focus semantics** during a drag (no background input leak).
+
+No DnD rendering, no overlay drawing, no clipboard UI in windowd (the history
+UI is TASK-0067B's DSL overlay). Never build into a MOVE/DELETE file.
+
+### Process gate
+
+**RFC seed required before implementation**: the clipboard wire protocol
+(`nexus_wire::clipboardd`) and the DnD routing ops are new service API/wire
+formats → `docs/rfcs/RFC-TEMPLATE.md`, next free number, RFC index update.
+`source/libs/**` and `docs/rfcs/**` are approval zones.
+
+### Corrected proof + touched paths
+
+`tests/ui_v7b_host/` never existed, and windowd has no `idl/*.capnp` — ops
+live in wire-module libs. Host proofs go to `source/services/clipboardd/tests/`
+(service layout: src/ + tests/) and `source/services/windowd/tests/` for DnD
+routing. Allowlist below updated.
+
 ## Context
 
 To make the system productive, we need interoperable content transfer:
@@ -31,10 +78,12 @@ Screenshot/share is handled separately (v7c).
 
 Deliver:
 
-1. DnD protocol + routing in `windowd`:
+1. DnD protocol + routing in `windowd` (routing/hit-test/focus ONLY — see
+   rebase boundary fix):
    - DragSource/DropTarget interfaces
-   - global DnD controller: enter/over/leave/drop
-   - drag image overlay (VMO-backed, bounded)
+   - global DnD controller: enter/over/leave/drop targeting
+   - drag image = client/app surface (bounded VMO); windowd routes it, never
+     draws it
    - negotiated pull (`read(mime)` after accept)
 2. Clipboard v2 service `clipboardd`:
    - multi-MIME items
@@ -66,7 +115,8 @@ Deliver:
 
 ### Proof (Host) — required
 
-`tests/ui_v7b_host/`:
+`source/services/clipboardd/tests/` + `source/services/windowd/tests/`
+(corrected 2026-08-14; `tests/ui_v7b_host/` never existed):
 
 - DnD negotiation:
   - offer `{text/plain,image/png}` → target selects `text/plain` → drop ok
@@ -89,13 +139,14 @@ UART markers:
 - `SELFTEST: ui v7 dnd ok`
 - `SELFTEST: ui v7 clipboard ok`
 
-## Touched paths (allowlist)
+## Touched paths (allowlist) — corrected 2026-08-14
 
-- `source/services/windowd/idl/dnd.capnp` + `source/services/windowd/` (DnD)
-- `source/services/clipboardd/` (new)
-- `tests/ui_v7b_host/`
+- `source/services/clipboardd/` (replace the placeholder: src/ + tests/, os-lite, settingsd-pattern)
+- `source/libs/nexus-wire/src/clipboardd.rs` (new wire module — approval zone `source/libs/**`)
+- `source/services/windowd/` (DnD hit-test/routing + focus semantics ONLY; check the cleanup map first)
+- `userspace/clipboard/` (host lib aligns to the same protocol shapes for host tests)
+- `docs/rfcs/` (clipboard wire + DnD routing RFC seed — approval zone)
 - `source/apps/selftest-client/`
-- `tools/postflight-ui-v7b.sh` (delegates)
 - `docs/dev/ui/patterns/transfer-sharing/drag-and-drop.md` + `docs/dev/ui/patterns/transfer-sharing/clipboard.md`
 
 ## Plan (small PRs)

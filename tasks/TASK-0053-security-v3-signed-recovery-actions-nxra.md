@@ -3,7 +3,10 @@ title: TASK-0053 Security v3 (Recovery): signed Recovery Action tokens (.nxra) +
 status: Draft
 owner: @security
 created: 2025-12-23
-depends-on: []
+depends-on:
+  - TASK-0008B # keystored / device keys (Done — satisfied)
+  - TASK-0009 # statefs / /state (Done — satisfied)
+  - TASK-0047 # Policy-as-Code (Done — satisfied)
 follow-up-tasks: []
 links:
   - Vision: docs/architecture/vision.md
@@ -16,6 +19,21 @@ links:
   - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
   - Testing contract: scripts/qemu-test.sh
 ---
+
+## Metadata correction 2026-08-14
+
+- `depends-on` was empty; the real prerequisites are all **satisfied**: `ed25519-dalek` is already
+  in the workspace graph (Cargo.lock), keystored exists (`source/services/keystored/`, TASK-0008B
+  Done), and statefs/`/state` exists (`source/services/statefsd/`, TASK-0009 Done).
+- Touched paths corrected: `userspace/security/` does not exist — `userspace/` crates are flat
+  topical directories (e.g. `userspace/crash`, `userspace/updates`, `userspace/identity`,
+  `userspace/keystore`), so the new crate belongs at `userspace/nxra/`. `schemas/policy/` does not
+  exist — policy rules live in `policies/` and the schema is `schemas/policy.config.schema.json`.
+- **RFC seed required** for the `.nxra` token format (new wire/artifact format) before building,
+  per the repo workflow.
+- Relation: the recovery consumers are TASK-0050/TASK-0051 (both still scheduled/Draft), so the
+  OS-gated half stays blocked on them — but the **host-first half (format, sign/verify crate,
+  `nx recovery token` helpers, host tests) is buildable independently today**.
 
 ## Context
 
@@ -87,9 +105,9 @@ UART markers:
 ## Touched paths (allowlist)
 
 - `source/apps/recovery-sh/` (gate mutating commands on nxra)
-- `userspace/security/nxra/` (new crate: parse/sign/verify)
+- `userspace/nxra/` (new crate: parse/sign/verify)
 - `tools/nx/` (`nx recovery token make/show`)
-- `policies/` + `schemas/policy/` (trust + allowed actions)
+- `policies/` + `schemas/policy.config.schema.json` (trust + allowed actions)
 - `tests/nxra_host/`
 - `docs/recovery/nxra.md`
 

@@ -7,7 +7,7 @@
 - Links:
   - Execution SSOT: `tasks/TASK-0023B-selftest-client-production-grade-deterministic-test-architecture-refactor.md`
   - Long-running infrastructure track: `tasks/TRACK-OS-PROOF-INFRASTRUCTURE.md`
-  - Follow-on task: `tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md`
+  - Follow-on task: `tasks/TASK-0024-dsoftbus-quic-v2-reliability-os.md`
   - ADRs:
     - `docs/adr/0005-dsoftbus-architecture.md`
   - Related RFCs:

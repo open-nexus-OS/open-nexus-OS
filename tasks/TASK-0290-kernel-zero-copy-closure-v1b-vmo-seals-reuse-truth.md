@@ -5,9 +5,6 @@ owner: @runtime @kernel-team @ui
 created: 2026-04-13
 depends-on:
   - TASK-0031
-  - TASK-0054B
-  - TASK-0054C
-  - TASK-0054D
 follow-up-tasks: []
 links:
   - Vision: docs/architecture/vision.md
@@ -21,6 +18,13 @@ links:
 ---
 
 ## Context
+
+> **Dependency edge corrected (2026-08-14):** the former `depends-on: TASK-0054B/0054C/0054D`
+> was backwards — 0054B and 0054D are now Superseded (their goals landed via 0042/0277/0283/
+> 0288 and 0310/0309/0302 respectively) and their **residuals fold INTO this task**: the
+> reuse/fallback counter floor (ex-0054D goal 5) and the zero-copy-truth accounting
+> (ex-0054B goal 1). 0054C (IPC fastpath) is unrelated to VMO sealing and no longer gates
+> this task either.
 
 `TASK-0031` correctly treats v1 as plumbing plus honesty, but it explicitly leaves an important gap:
 read-only sealing is still a userspace convention rather than a kernel-enforced contract.

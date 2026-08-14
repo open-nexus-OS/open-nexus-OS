@@ -18,6 +18,68 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Rebase (2026-08-14) — heavily reduced residual
+
+### Delivered elsewhere — do NOT re-implement
+
+1. **App Shell shipped as DSL, not widget crates**: `userspace/apps/window-kit/`
+   (`bundle_type = "library"`) with `WinAppWindow.nx` (three-zone body,
+   RFC-0084 slots) + `WinTopBar`/`WinMenuItem`/`WinSideItem`/`WinPropRow`/
+   `WinActionItem`/`WinActionFace`. Responsive collapse happens at **640/1024
+   via `device.sizeClass`** (`source/services/app-host/src/probe/env.rs:72-88`),
+   not this ledger's 820/560 breakpoints. Owner: **TASK-0308** (In progress);
+   consumers: TASK-0311/0312/0313. Do not rebuild an `AppWindow` scaffold here.
+2. **W6 windowd convergence executed differently**: the per-surface
+   migrate-then-delete list (chat → search → settings → desktop_layer →
+   greeter) is dead. `docs/dev/ui/windowd-cleanup-map.md` DELETE column,
+   "Status 2026-07-10: AUSGEFÜHRT" — chat/search/settings_window/greeter/
+   desktop_layer/app_menu were deleted outright; chrome comes from the widget.
+   The remaining windowd shrink is the map's **MOVE column — not this task**.
+3. **Overlay primitives: the repo voted app-owned `.nx` overlays**, not widget
+   crates. Evidence: the `.overlay()` modifier
+   (`userspace/dsl/core/src/registry.rs:115`), the "app-owned overlay" rule
+   (`registry.rs:398-400` — e.g. `Select`'s open panel is an app-owned
+   `.overlay()`), and real examples
+   `userspace/apps/settings/ui/components/chrome/{PickerSheet,MoreMenu}.nx`.
+   No Modal/Popover/Menu/Tooltip/ActionSheet/Alert/FAB crates exist among the
+   37 widgets — **by design, not as a gap**. The W4 "overlays wave" of widget
+   primitives is dead scope.
+
+**Doc drift noted (do not edit now):**
+`docs/dev/ui/components/inventory.md:97-103` still claims those overlays are
+"new — 0074" widget promotions. That is stale against the app-owned-overlay
+decision — correct inventory.md during this task's build phase, not in this
+rebase.
+
+### Honest residual scope (Size M)
+
+**Modal-manager SEMANTICS**, implemented in the widget/DSL layer plus one
+minimal windowd hook:
+
+- bounded modal stack depth,
+- **focus trap via windowd focus routing** (the one windowd hook — routing
+  only, no UI),
+- ESC/backdrop dismissal contract,
+- toast unification + routing (5-surface notification routing).
+
+Boundary SSOT (`docs/dev/ui/windowd-cleanup-map.md:4-9`): windowd = Single
+Present Authority (compositor SERVICE); widgets/chrome → `ui/widgets/*`;
+shell UI → the DSL shell app. windowd gets only the focus-routing hook — no
+modal rendering, no toast drawing, and never build into a MOVE/DELETE file.
+
+### Corrected adoption targets
+
+`userspace/apps/{launcher,notes}` are not valid targets: `notes` does not
+exist, and `launcher` is a legacy Rust stub (launcher UI lives in
+`userspace/apps/desktop-shell`). Real DSL apps today: calculator, chat,
+desktop-shell, greeter, ime-ui, settings, stash.
+
+### Corrected touched paths
+
+`source/services/windowd/src/compositor/runtime/*` is removed from the
+allowlist except the focus-routing hook; see the corrected allowlist below.
+The STATUS ledger at the bottom (2026-07-06) is superseded by this section.
+
 ## Context (updated 2026-07-05)
 
 With the primitive SSOT in place (TASK-0073: W1–W3 + W5-nav/window), this task delivers the
@@ -34,6 +96,13 @@ best impl, then delete the bespoke loser — this is where the triple structure 
 `docs/dev/` kept at Human-Interface-Guidelines quality throughout.
 
 ## Goal
+
+> **Rebased 2026-08-14:** only item 2 (modal manager) survives as residual
+> scope, in the widget/DSL layer + a minimal windowd focus-routing hook.
+> Item 1 (W4 overlay primitives) is dead by design (app-owned `.nx`
+> overlays), item 3 (App Shell) is owned by TASK-0308 (window-kit), items
+> 4-5 (W6 convergence, per-surface migration/adoption list) were executed
+> differently or target apps that don't exist — see the Rebase section.
 
 1. **W4 — overlays wave (primitives):** Modal, ActionSheet, Alert, Popover/PopoverItem, Menu/
    ContextMenu, Tooltip, FAB — full handoff contract, on the reactive path, on the dense overlay
@@ -100,13 +169,17 @@ best impl, then delete the bespoke loser — this is where the triple structure 
 - `docs/dev/ui/status/notifications.md` reflects the 5-surface routing wired to `Toast`;
 - inventory verdicts flipped to "converged" as each surface lands.
 
-## Touched paths (allowlist)
+## Touched paths (allowlist) — corrected 2026-08-14
 
-- `userspace/ui/widgets/overlays/*`, `userspace/ui/widgets/window/*` (App Shell), `userspace/ui/shells/*`
-- `source/services/windowd/src/compositor/runtime/*` (W6 collapse — net deletion), `windowd/src/scene_graph.rs`
-- SystemUI plugins (adoption); `userspace/apps/{launcher,notes,settings}/` (adoption)
-- `source/apps/selftest-client/` (markers); `tools/postflight-ui-v10.sh`
-- `docs/dev/ui/patterns/app-shell.md`, `docs/dev/ui/foundations/quality/testing.md`, `docs/dev/ui/status/notifications.md`
+- `userspace/ui/widgets/*` (modal/toast semantics where widget-shaped)
+- app-owned overlay `.nx` surfaces in `userspace/apps/*` (modal/toast
+  adoption; coordinate `window-kit` changes with TASK-0308, its owner)
+- `source/services/windowd/` — ONLY the focus-routing hook for focus traps
+  (check the cleanup map first; no rendering, no overlays)
+- `source/apps/selftest-client/` (markers)
+- `docs/dev/ui/patterns/app-shell.md`, `docs/dev/ui/foundations/quality/testing.md`,
+  `docs/dev/ui/status/notifications.md`,
+  `docs/dev/ui/components/inventory.md` (fix the "new — 0074" drift during build)
 
 ## Plan (small PRs)
 
@@ -120,6 +193,11 @@ best impl, then delete the bespoke loser — this is where the triple structure 
 ---
 
 ## STATUS / PROGRESS LEDGER (updated 2026-07-06)
+
+> **SUPERSEDED by the "Rebase (2026-08-14)" section above** — kept for
+> history only. The W4 overlays wave, the App Shell build, and the W6
+> per-surface convergence recorded below are dead scope (delivered elsewhere
+> or executed differently); only the modal-manager semantics remain.
 
 > Durable done/open record. **Nothing in this task has started yet** — it is unblocked now that
 > TASK-0073's primitive kit + token SSOT + Icon system + goldens/a11y harness are in place (host-safe,

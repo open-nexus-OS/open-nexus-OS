@@ -1,6 +1,6 @@
 ---
-title: TASK-0054D UI v1a extension: kernel MM perf floor (VMO surface reuse + mapping discipline + cheap activate path)
-status: Draft
+title: TASK-0054D UI v1a extension: kernel MM perf floor (Superseded 2026-08-14 — delivered by 0310/0309/0302; residual counters → TASK-0290)
+status: Superseded
 owner: @kernel-mm-team @runtime @ui
 created: 2026-03-29
 depends-on: []
@@ -18,6 +18,15 @@ links:
 ---
 
 ## Context
+
+> **SUPERSEDED (2026-08-14, sub-80 roadmap).** Substantially delivered by newer, finished
+> kernel work: kernel-owned VA allocation → TASK-0310 (Done 2026-07-28, RFC-0085 Implemented,
+> syscalls 4+27 retired); cheap mapping path → TASK-0309 resolution (RFC-0085 P4 replaced the
+> per-page loop with ONE `vm_map`); the biggest real UI buffer reuse → TASK-0302 (RFC-0080
+> shared glyph-atlas RO VMO — N app windows add ~0 atlas bytes); phased copies exist
+> (`CopyPlan`, `syscall/api/exec.rs:101`). The residual (reuse counters / instrumentation
+> floor) folds into TASK-0290, whose backwards `depends-on: 0054B/C/D` edge has been cut.
+> Do not execute.
 
 For early UI work, the most expensive memory-management problems are not “desktop-class VM” features like paging
 policy or swap. The hot path is much narrower:

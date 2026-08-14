@@ -16,6 +16,36 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Rebase (2026-08-14)
+
+### Verified baseline
+
+- **Zero fastpath code exists.** `source/kernel/neuron/src/ipc/` is 4 files
+  (`mod.rs` 718, `trace.rs` 279, `endpoint.rs` 151, `header.rs` 92 LOC) with no
+  short-message fastpath, and there is no IPC microbench harness anywhere in
+  the repo. The goal below **stands**: short control-message fastpath +
+  reply/wake tightening + VMO-first bulk rule + deterministic microbenches.
+
+### Stale baseline — design against the phased/lockfree world
+
+The ledger's queueing/wake framing predates TASK-0288's addendum, which landed:
+
+- **phased syscalls** (`source/kernel/neuron/src/core/trap/phased.rs`),
+- a **lock-free syscall class** and **cpu0 right-of-way**,
+- BKL wait 90.8 ms → ~6 ms — ADR-0049 Accepted and implemented
+  (`docs/adr/0049-bkl-lockclass-and-softrt-cpu-placement.md`).
+
+Do NOT re-derive wake/queue costs from the pre-0288 BKL picture. Before any
+code, the fastpath design must answer explicitly: which trap phase the
+fastpath executes in, whether its syscalls can qualify for the lock-free
+class, and how reply/wake interacts with cpu0 right-of-way.
+
+### Process gate
+
+`source/kernel/**` and `source/libs/**` are approval zones: run the
+`architecture-review` skill on the design and obtain explicit user approval
+before editing kernel files. Status stays Draft until that design pass exists.
+
 ## Context
 
 The current IPC architecture is directionally right for the system:

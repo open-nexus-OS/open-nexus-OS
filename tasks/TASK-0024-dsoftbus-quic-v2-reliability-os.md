@@ -1,5 +1,5 @@
 ---
-title: TASK-0024 DSoftBus QUIC-v2 OS follow-up: reliability + bounded recovery + transport hardening
+title: TASK-0024 DSoftBus QUIC-v2 OS follow-up: reliability + bounded recovery + transport hardening (rebased 2026-08-14 onto verified repo reality)
 status: Draft
 owner: @runtime
 created: 2025-12-22
@@ -7,8 +7,7 @@ depends-on:
   - TASK-0003
   - TASK-0020
   - TASK-0022
-follow-up-tasks:
-  - TASK-0044
+follow-up-tasks: []  # TASK-0044 superseded 2026-08-14; its real residual (pacing) folds into this task
 links:
   - Vision: docs/architecture/vision.md
   - Playbook: CLAUDE.md
@@ -26,6 +25,38 @@ links:
 - **Scope**: Close the remaining transport features on top of the already shipped OS QUIC-v2 session path from `TASK-0023`.
 - **Deliver**: Real reliability/recovery/congestion behavior (bounded, deterministic) for the OS QUIC-v2 datapath and explicit proof coverage.
 - **Out of scope**: full IETF QUIC/TLS parity and kernel-side changes.
+
+## Rebase note (2026-08-14) — verified against repo reality
+
+File renamed from `TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md` to
+`TASK-0024-dsoftbus-quic-v2-reliability-os.md`: the body was already rebased (~2026-04) to be the
+QUIC-v2 OS reliability follow-up, but the filename still said "udp-sec". All repo references
+updated.
+
+**Scope verified genuinely greenfield — nothing below is already implemented:**
+
+- The OS QUIC-v2 frame layer knows only handshake/liveness opcodes: `QUIC_OP_MSG1/MSG2/MSG3/PING/PONG`
+  (`source/services/dsoftbusd/src/os/session/quic_frame.rs:16-20`, `QD` magic framing).
+- Zero retransmit, congestion-window, or reorder code exists anywhere in the OS datapath
+  (verified by search across `source/services/dsoftbusd` and `userspace/dsoftbus`).
+- Residual scope therefore stands as written: DATA/ACK framing + packet-number retransmit +
+  Reno-style cwnd + bounded recovery, layered on the existing OS `QD` UDP framing.
+
+**TASK-0044 is superseded; its real residual folds in here.** What 0044 wanted is mostly moot:
+
+- Mux priority scheduling with anti-starvation already shipped in TASK-0020
+  (`userspace/dsoftbus/src/mux_v2.rs:266-300` `PriorityScheduler` with `HIGH_PRIORITY_BURST_LIMIT`;
+  the same file is compiled into dsoftbusd via `#[path]` at `source/services/dsoftbusd/src/os/mod.rs:23`)
+  — do NOT re-implement.
+- quinn host-side tuning knobs do not transfer to the OS `QD` UDP path (different transport code).
+- The only honest 0044 residual is **pacing** on the OS datapath, which belongs with the cwnd work
+  in this task.
+
+**Hard gate on OS proofs (2026-08-14):** all OS/QEMU proof claims in this ledger are blocked until
+`tasks/TRACK-NETWORK-PROOF-LANES.md` W1 is repaired. The `quic-required` lane is currently missing
+ALL 19 `REQUIRE_DSOFTBUS=1` markers (`scripts/qemu-test.sh:1341-1361`) — dsoftbusd boots but emits
+nothing; red since at least 2026-07-24. Host-first work (Phases A/B) can proceed now; Phase C+ must
+wait for a green lane.
 
 ## Production Closure Phases (RFC-0034 alignment)
 
@@ -82,7 +113,8 @@ In QEMU and host testbeds, prove:
 ## Non-Goals
 
 - Full IETF QUIC wire compatibility.
-- 0-RTT, migration, multipath, and advanced BBR/pacing tuning (belongs in `TASK-0044`).
+- 0-RTT, migration, multipath, and advanced BBR-style congestion control (deferred; `TASK-0044` is
+  superseded — only its basic pacing residual is in scope here, see rebase note).
 - Kernel changes.
 
 ## Constraints / invariants (hard requirements)
@@ -271,4 +303,4 @@ Update `docs/distributed/dsoftbus-transport.md`:
 - define concrete QUIC-v2 OS follow-up feature set (DATA/ACK/recovery/congestion bounds),
 - PMTU/timeout/budget defaults,
 - security caveats (RNG requirement, replay/reorder reject policy),
-- explicit split: `TASK-0024` correctness/hardening vs `TASK-0044` advanced tuning.
+- explicit note that `TASK-0044` is superseded and its pacing residual landed here.

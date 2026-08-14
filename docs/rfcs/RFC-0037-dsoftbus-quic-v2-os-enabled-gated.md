@@ -6,7 +6,7 @@
 - Last Updated: 2026-04-15
 - Links:
   - Execution SSOT: `tasks/TASK-0023-dsoftbus-quic-v2-os-enabled-gated.md`
-  - Follow-up implementation task: `tasks/TASK-0024-dsoftbus-udp-sec-v1-os-enabled.md`
+  - Follow-up implementation task: `tasks/TASK-0024-dsoftbus-quic-v2-reliability-os.md`
   - Program gate track: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
   - Status board: `tasks/STATUS-BOARD.md`
   - Related RFCs:

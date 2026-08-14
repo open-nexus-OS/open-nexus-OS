@@ -21,6 +21,18 @@ links:
 
 ## Context
 
+> **Collision note (2026-08-14):** slot-state-machine ownership was decided on
+> 2026-08-14 — **TASK-0036 owns the healthmux/rollback/deadline evolution of
+> the A/B slot state machine.** A shipped machine already exists
+> (`userspace/updates/src/bootctrl.rs`; persistent state
+> `/state/boot/bootctl.v1` in `source/services/updated/src/os_lite.rs`). This
+> task must NOT re-specify the slot state machine (its trial/confirm/rollback
+> items are TASK-0036's scope); before execution it rebases against
+> TASK-0036's outcome. Stale-claim flag: the Context below says "Updates A/B
+> skeleton exists as a task (`TASK-0007`) but is still draft" — **TASK-0007 is
+> Done**, and `updated` is a shipped, persistent 971-LOC service with a
+> QEMU-gated OTA ladder (`scripts/qemu-test.sh:536-540`).
+
 We want an offline, deterministic updater with:
 
 - A/B slot lifecycle (trial/confirm/rollback),

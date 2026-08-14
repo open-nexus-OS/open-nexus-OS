@@ -274,3 +274,9 @@ host-tested hit-test), backdrop cache thrash (generation keys, measure first).
 ## Closure (2026-07-19) — Reconciliation
 Core delivered + host-proven: window resize (edge/corner + min-clamp), move/title-drag, edge-snap, minimize/dock/fullscreen — real code in `source/services/windowd/src/compositor/runtime/wm.rs`, `snap.rs`, `dock.rs`, `cursor.rs` with 23+ host tests (`window_scene.rs`, `snap.rs`, `dock.rs`). Markers `windowd: resize …`, `windowd: snap edge=… id=…` emitted. Status → Done.
 **Scope reconciliation:** keyboard **shortcuts were rejected by design** (Non-Goal; `snap.rs:7` "Pointer-driven only — there are NO snap keyboard shortcuts") — not a gap. Settings-**overlays** were **descoped into TASK-0072**. Note: the emitted markers are not registered in the central proof manifest (host-test-backed instead).
+
+**Post-closure note (2026-08-14):** `dock.rs` no longer exists — RFC-0086 (2026-07-30) deleted
+it; minimize now targets the shell's taskbar via `OP_SURFACE_WINDOWS` (27) /
+`OP_SURFACE_TASKBAR` (28). The closure text above is accurate for its date; current WM reality
+is `wm.rs` + `snap.rs` + `window_scene.rs`. Residual split/tiling scope lives in the rebased
+TASK-0066.

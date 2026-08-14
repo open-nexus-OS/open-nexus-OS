@@ -25,6 +25,36 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Rebase 2026-08-14 (prerequisites landed; quotas/egress genuinely unbuilt)
+
+Verified against the repo on 2026-08-14. The old "Repo reality today" claims below were false and are
+corrected. **Do NOT re-implement** the prerequisites; they shipped:
+
+- **Sandboxing v1 shipped (TASK-0039, Done).** vfsd carries namespace view enforcement, canonical
+  path resolution/traversal rejection, and HMAC-integrity CapFd tokens with replay-guarded
+  verification (`source/services/vfsd/src/sandbox.rs:4-6` CONTEXT header; implementation in that
+  module). VFS is NOT "read-only `pkg:/` only" anymore.
+- **Persistence shipped (TASK-0009, Done).** `/state` via statefsd is real.
+- **OS networking shipped (TASK-0003, Done for Track A/B).** Networking is not "planned"; the
+  substrate exists (Noise XK follow-up tracked separately in TASK-0003B).
+
+**Genuinely unbuilt** (checked: zero quota/EDQUOTA code in `source/services/vfsd/` or
+`source/services/statefsd/`; zero egress/CIDR policy code anywhere in `source/`):
+
+- per-subject quotas for `/tmp` + `/state` write paths (deny-on-exceed),
+- per-subject egress policy (CIDR/ports, default deny),
+- the ABI audit trail tightening (structured deny reasons + counters).
+
+That is the honest residual scope of this task. Kernel untouched.
+
+> **Coordination note (binding): ONE quota model, shared with TASK-0133.**
+> The quota model here MUST be the same model as TASK-0133 (statefs quotas, `/state`):
+> this task **adopts** the TASK-0133 accounting/enforcement model — `EDQUOTA` / soft-warn /
+> hard-deny semantics — and never forks a second quota model. TASK-0133's ledger already carries
+> the matching note pointing the `/data` (nxfs) half at the storage ladder
+> (seed on the same model after TASK-0317). If this task lands first, its implementation becomes
+> the reference implementation of that shared model, not a competing one.
+
 ## Context
 
 After Sandboxing v1 exists (namespaces + CapFd + manifest-driven views), we want stronger isolation:
@@ -33,12 +63,9 @@ After Sandboxing v1 exists (namespaces + CapFd + manifest-driven views), we want
 - per-subject network egress rules (CIDR/ports, default deny),
 - tighter ABI policy matching and auditable deny reasons.
 
-Repo reality today:
-
-- OS-lite VFS is still read-only `pkg:/` only; namespaces/state/tmp are not real on OS yet.
-- OS networking and sockets surface are planned tasks.
-
-So this task is **host-first** and **OS-gated**.
+Repo reality (corrected 2026-08-14, see rebase above): namespaces, `/state`, and OS networking all
+exist; quotas and egress do not. The host-first / OS-gated split below still applies to the residual
+scope.
 
 ## Goal
 

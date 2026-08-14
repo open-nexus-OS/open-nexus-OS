@@ -1,6 +1,6 @@
 ---
-title: TASK-0054B UI v1a extension: kernel/UI perf floor (zero-copy bulk path + coarse QoS/affinity + SMP hardening carry-ins)
-status: Draft
+title: TASK-0054B UI v1a extension: kernel/UI perf floor (Superseded 2026-08-14 — delivered by 0042/0277/0283/0288; residual → TASK-0290)
+status: Superseded
 owner: @kernel-team @runtime @ui
 created: 2026-03-29
 depends-on: []
@@ -21,6 +21,15 @@ links:
 ---
 
 ## Context
+
+> **SUPERSEDED (2026-08-14, sub-80 roadmap).** Every goal landed via newer, finished work:
+> coarse QoS/affinity → TASK-0042 (Done); SMP hot-path carry-ins → TASK-0277 + TASK-0283
+> (Done, `source/kernel/neuron/src/sync/percpu.rs`); budget metrics + microbench floor →
+> TASK-0288 (Done — it emits exactly this ledger's markers: `SELFTEST: ui runtime floor ok`,
+> `KSELFTEST: runtime timer budget ok` / `runtime ipi budget ok`, via the declarative budget
+> module `core/trap/budgets.rs`). The zero-copy-truth residual (VMO seals, reuse counters) is
+> TASK-0290's explicit title. TASK-0290's `depends-on: 0054B/C/D` edge was backwards and has
+> been cut as part of this supersession. Do not execute.
 
 `TASK-0054` deliberately keeps the first renderer slice host-first and kernel-free. That is still the right
 baseline, but if we want later blur, glass, transitions, and rich windowd scenes to feel as fluid as possible

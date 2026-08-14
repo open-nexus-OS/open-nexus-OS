@@ -1,10 +1,11 @@
 ---
 
-title: TASK-0034 Delta updates v1 + v1.1 features: nxdelta (rollsum+zstd) + digest/size fields + persistent bootctl + resume
+title: TASK-0034 Delta updates v1: nxdelta (rollsum+zstd) + bundlemgrd delta apply (digest/bootctl goals shipped)
 status: Draft
 owner: @runtime
 created: 2025-12-22
-updated: 2026-01-15
+updated: 2026-08-14
+size: M  # was L; Goals 1+2 shipped (see Rebase 2026-08-14), residual scope is the .nxdelta lane only
 depends-on: []
 follow-up-tasks: []
 links:
@@ -24,6 +25,58 @@ links:
   - TASK-0009: Persistence v1 (statefs for bootctl + resume checkpoints)
 ---
 
+## Rebase 2026-08-14 — what already shipped (do NOT re-implement)
+
+Verified against the repo on 2026-08-14. Goals 1 and 2 of this ledger are
+**delivered and QEMU-gated**; only the delta lane (Goal 3) remains.
+
+**Goal 1 — v1.1 manifest digest fields: SHIPPED.**
+
+- Schema: `tools/nexus-idl/schemas/manifest.capnp:13` carries the changelog
+  entry "v1.1: Add payloadDigest + payloadSize (TASK-0034)"; the fields live at
+  `manifest.capnp:67` (`payloadDigest`) and `manifest.capnp:71` (`payloadSize`).
+- Producer: `tools/nxb-pack/src/main.rs:188` computes SHA-256(payload.elf).
+- Verifier: `source/services/bundlemgrd/src/std_server.rs:747-751` verifies the
+  digest on install; SBOM check at `:824`, repro check at `:839`, signature
+  policy at `:1041`.
+
+**Goal 2 — persistent bootctl: SHIPPED.**
+
+- `updated` is a real 971-LOC service, not a skeleton:
+  `source/services/updated/src/os_lite.rs` with `handle_stage` (:396),
+  `handle_switch` (:463), `handle_health_ok` (:516), `handle_boot_attempt`
+  (:555).
+- Persistence: `os_lite.rs:53` `BOOTCTRL_STATE_KEY = "/state/boot/bootctl.v1"`.
+- Marker: shipped as `updated: ready (statefs)`, gated at
+  `scripts/qemu-test.sh:482`. (This ledger previously said
+  `updated: ready (persistent)` — the shipped string is the contract.)
+- The full OTA ladder is QEMU-gated at `scripts/qemu-test.sh:536-540`
+  (`SELFTEST: ota stage/switch/health/rollback ok`), with negative proofs in
+  `proof-manifest markers/ota.toml:39-54`.
+- Host proof exists: `tests/updates_host/tests/ota_flow.rs` (11 tests, incl.
+  `rollback_on_health_timeout` :105 and `reject_mismatched_digest` :92) over
+  `userspace/updates/src/bootctrl.rs` (stage :82, switch/tries_left :88,
+  commit_health :102, tick_boot_attempt :113 auto-rollback, rollback :127).
+
+**Honest residual scope (all that is left of this task):**
+
+- The `.nxdelta` on-disk format, `tools/nxdelta/` (make/apply CLI + library),
+  resume/checkpoint, and the `bundlemgrd` delta-apply path. Nothing named
+  `nxdelta` exists anywhere in the repo today (`tools/` has `nxb-pack`,
+  `nxs-pack`, `pkgr`, `pkgimg-build`).
+- **RFC seed required before building**: `.nxdelta` is a new on-disk wire
+  format, so per the CLAUDE.md workflow rule it needs an RFC seed
+  (`docs/rfcs/RFC-TEMPLATE.md`, next free number, update the RFC index) before
+  implementation starts.
+
+Corrections to stale flags below (kept struck-through for history):
+
+- The old RED flag "`.nxs`/`updated` do not exist yet" is dead: `.nxs` is live
+  end-to-end (`source/apps/selftest-client/build.rs:53` generates
+  `system-test.nxs`; parser `userspace/updates/src/system_set.rs`, 441 LOC).
+- The old YELLOW "tooling still writes manifest.json" is dead:
+  `manifest.capnp` is the shipped contract (see Goal 1 evidence above).
+
 ## Context
 
 We want bandwidth-efficient bundle updates via binary deltas:
@@ -38,9 +91,10 @@ We want bandwidth-efficient bundle updates via binary deltas:
 - **Persistent bootctl** integration (after TASK-0009)
 - **Digest verification** on bundle install
 
-Repo reality after TASK-0007 v1.0:
+Repo reality (superseded by the Rebase 2026-08-14 section above — kept for
+history):
 
-- `updated` service exists (non-persistent A/B skeleton)
+- `updated` service exists (now persistent, 971 LOC — see Rebase section)
 - `manifest.nxb` (Cap'n Proto) is unified repo-wide
 - `.nxs` tooling exists for system-set packaging
 - Bundle install/verify exists via `bundlemgrd`
@@ -52,17 +106,21 @@ This task is **bundle-only**, **host-first**, and **OS-gated**.
 
 Deliver:
 
-1. **v1.1 manifest fields** (from TASK-0007):
-   - Add `payloadDigest` + `payloadSize` to `manifest.capnp` schema
-   - Update `nxb-pack` to compute SHA-256(payload.elf)
-   - Update `bundlemgrd` to verify digest on install
+1. **v1.1 manifest fields** (from TASK-0007) — ✅ **DELIVERED** (see Rebase
+   2026-08-14; do NOT re-implement):
+   - `payloadDigest` + `payloadSize` in `manifest.capnp` (:67/:71)
+   - `nxb-pack` computes SHA-256(payload.elf) (`tools/nxb-pack/src/main.rs:188`)
+   - `bundlemgrd` verifies digest on install (`std_server.rs:747-751`)
 
-2. **Persistent bootctl** (from TASK-0007):
-   - Integrate `updated` with TASK-0009 statefs
-   - `/state/boot/bootctl.v1` survives reboot (Cap'n Proto snapshot; canonical)
-   - Marker: `updated: ready (persistent)`
+2. **Persistent bootctl** (from TASK-0007) — ✅ **DELIVERED** (see Rebase
+   2026-08-14; do NOT re-implement):
+   - `updated` integrated with statefs (`os_lite.rs:53`,
+     `BOOTCTRL_STATE_KEY = "/state/boot/bootctl.v1"`)
+   - Marker: `updated: ready (statefs)` (shipped string; gated at
+     `scripts/qemu-test.sh:482`)
 
-3. **Delta format and tooling** (`.nxdelta`):
+3. **Delta format and tooling** (`.nxdelta`) — **RESIDUAL SCOPE** (RFC seed
+   for the on-disk format required first):
    - Deterministic delta format (rollsum + zstd)
    - Bundle-level apply flow
    - Resume/checkpoint support
@@ -87,11 +145,14 @@ Deliver:
 
 ## Red flags / decision points
 
-- **RED (system delta gating)**:
-  - `.nxs`/`updated` do not exist yet. Do not implement or promise system delta in this task.
-- **YELLOW (manifest drift)**:
-  - Docs say `.nxb` uses `manifest.nxb`, but tooling currently still writes `manifest.json` in some paths.
-  - Delta logic must operate on payload bytes and/or a canonical digest, not bake in `manifest.json` as a long-term contract.
+- ~~**RED (system delta gating)**: `.nxs`/`updated` do not exist yet.~~
+  **RESOLVED 2026-08-14**: both exist and are QEMU-gated (see Rebase section).
+  System-set delta orchestration still stays out of this task (TASK-0035).
+- ~~**YELLOW (manifest drift)**: tooling still writes `manifest.json` in some
+  paths.~~ **RESOLVED 2026-08-14**: `manifest.capnp` v1.1 is the shipped
+  contract; delta logic operates on payload bytes + canonical digests.
+- **RED (new wire format)**: `.nxdelta` needs an RFC seed before
+  implementation (CLAUDE.md workflow rule for new on-disk formats).
 - **YELLOW (VMO fast path feasibility)**:
   - VMO-based apply can be added as an optional optimization only after VMO sharing/transfer is proven (TASK-0031).
 
@@ -129,6 +190,7 @@ Notes:
 
 ## Touched paths (allowlist)
 
+- `docs/rfcs/` (new: RFC seed for the `.nxdelta` on-disk format — first PR)
 - `tools/nxdelta/` (new: format + make/apply)
 - `tests/` (new: host tests)
 - `source/services/bundlemgrd/` (apply+verify+commit; OS-gated)
