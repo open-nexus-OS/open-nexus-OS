@@ -16,6 +16,13 @@ links:
 
 ## Context
 
+> **RESCOPE NEEDED (2026-08-14, storage end-state rework).** This draft is written entirely
+> against the statefs model (TASK-0133/0134) and predates nxfs. The end-state Storage UI must be
+> `/data`-first: volume usage, per-app usage on the user-data store, `/data` quotas, and nxfs
+> snapshots (TASK-0319) — with the statefs `/state` view as a small admin/diagnostic section, not
+> the main surface. Rewrite this ledger against RFC-0071/0073 before execution; execute after
+> TASK-0319 (snapshots) and the `/data` quota follow-up noted in TASK-0133.
+
 Storage management is a user-facing requirement once `/state` is real:
 
 - users need to see per-app usage,

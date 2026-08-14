@@ -1,6 +1,6 @@
 ---
 title: TASK-0264 Storage Write-Path v1.0a (host-first): durable I/O + atomic operations + fsync barriers + crash-recovery + deterministic tests
-status: Draft
+status: Superseded
 owner: @platform
 created: 2025-12-29
 depends-on: []
@@ -15,6 +15,17 @@ links:
 ---
 
 ## Context
+
+> **SUPERSEDED (2026-08-14, storage end-state rework).** This draft predates nxfs/RFC-0071 and
+> builds durability as a userspace temp-then-commit rename dance in `contentd`, with its journal
+> in `state:/content/journal/` — an architecture that ADR-0043 forbids (no file semantics on
+> statefs) and RFC-0071 makes redundant: crash-atomicity and rename-atomicity are properties of
+> the **nxfs transaction** (delivered in TASK-0292; hardened/extended by TASK-0316/0319), not a
+> layer above the FS. Keeping this draft alive would create a second, contradictory durability
+> authority. Surviving ideas map to the new ladder: crash-injection/failpoint testing →
+> `userspace/nxfs/tests/crash_injection.rs` (exists) + TASK-0316/0319; durability modes/fsync
+> semantics → RFC-0071 group-commit contract (TASK-0316); quotas → TASK-0133 (statefs) and the
+> `/data` quota follow-up noted there. Do not execute.
 
 We need a deterministic storage write-path foundation:
 

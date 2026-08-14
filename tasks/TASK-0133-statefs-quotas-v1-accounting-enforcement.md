@@ -24,6 +24,12 @@ namespaces are not shipped yet.
 This task defines a **minimal, deterministic quota enforcement surface** for `/state` that can be
 proved host-first and later wired into OS once `/state` exists.
 
+> **Scope note (2026-08-14, storage end-state rework):** this task covers `/state` (statefs)
+> only. The **`/data` (nxfs) quota half is a known, currently unowned gap** — RFC-0071 names the
+> TASK-0133 model as the one to apply to `/data`, and TRACK-STASH-USER-DATA-FS lists `/data`
+> quotas as a YELLOW gate for calling the stack production-grade. Seed the `/data` quota task on
+> this model once TASK-0317 (nxfsd extraction) has landed; do not fork a second quota model.
+
 ## Goal
 
 Deliver:

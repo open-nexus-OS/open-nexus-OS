@@ -25,23 +25,34 @@ first user-visible win (real listing) lands before any new storage engine exists
 | # | Milestone | Task | Proof headline |
 |---|---|---|---|
 | 1 | ✅ **stash lists real content** — vfs ReadDir + stable errors + `svc.files` + FILES permission + `filemanager` role; `/packages` RO listing | `TASK-0291` (Done, boot-proven) | `stash: listing real (n=<n>)` + screenshot |
-| 2 | ✅ **nxfs engine exists (host)** — RFC-0071 P1 format/txn/replay/fsck, crash-injection determinism | `TASK-0292` (In Review, host-proven) | `cargo test -p nxfs` (17 unit + 5 crash-injection) |
-| 3 | ✅ **stash writes + persists** — v1 staging: 2nd virtio-blk device + nxfs `/data` hosted in-process by vfsd (`nxfsd::DataStore`); write path AND keep-blk cold-boot persistence boot-proven (ADR-0043/0044 amended). Fixed a mount deadlock (full-journal read on 2nd device) via incremental journal read | `TASK-0293` (In Review) | `nxfsd: mounted /data (rw, clean)` · `files.mkdir ok` + folder visible · cold-boot → folder persists (n=1, screenshot) |
-| 4 | ✅ **file-type icons** — mime SSOT (`resources/mimetypes/mimetypes.toml`) + `nexus-mime-icons` bake + `Image { source: "mime:…" }`; app-host emits `mime:<stem>` per entry, stash `FileRow` renders it; `/data` seeded with varied first-run files | `TASK-0294` (In Review, boot-proven) | `stash: mime icons resolved (n=9)` + screenshot (distinct PDF/ZIP/PNG/MP3/TXT/MD/JSON/folder icons) |
-| 5 | ✅ **zero-copy bulk path** — `OP_READ_VMO` cross-process CAP_MOVE splice at the vfsd seam (pkg + nxfs `/data`), header-last fill, inline cap (`E2BIG`) enforced; VMO-backed writes deferred | `TASK-0295` (In Review, boot-proven) | `vfsd: vmo splice read ok (bytes=19, fallbacks=0)` + `SELFTEST: vfs splice roundtrip ok` + `SELFTEST: vfs inline oversize deny ok` |
-| 6 | **CoW + snapshots/clones** (RFC-0071 P3) | seeded after #3 proves | (task defines) |
-| 7 | **encryption classes** (RFC-0071 P4; absorbs old TASK-0182/0183 UX pieces) | seeded after #6 proves | `nxfsd: encryption on (device-class)` |
+| 2 | ✅ **nxfs engine exists (host)** — RFC-0071 P1 format/txn/replay/fsck, crash-injection determinism | `TASK-0292` (Done, host-proven) | `cargo test -p nxfs` (17 unit + 5 crash-injection) |
+| 3 | ✅ **stash writes + persists** — v1 staging: 2nd virtio-blk device + nxfs `/data` hosted in-process by vfsd (`nxfsd::DataStore`); write path AND keep-blk cold-boot persistence boot-proven (ADR-0043/0044 amended). Fixed a mount deadlock (full-journal read on 2nd device) via incremental journal read | `TASK-0293` (Done) | `nxfsd: mounted /data (rw, clean)` · `files.mkdir ok` + folder visible · cold-boot → folder persists (n=1, screenshot) |
+| 4 | ✅ **file-type icons** — mime SSOT (`resources/mimetypes/mimetypes.toml`) + `nexus-mime-icons` bake + `Image { source: "mime:…" }`; app-host emits `mime:<stem>` per entry, stash `FileRow` renders it; `/data` seeded with varied first-run files | `TASK-0294` (Done, boot-proven) | `stash: mime icons resolved (n=9)` + screenshot (distinct PDF/ZIP/PNG/MP3/TXT/MD/JSON/folder icons) |
+| 5 | ✅ **zero-copy bulk path** — `OP_READ_VMO` cross-process CAP_MOVE splice at the vfsd seam (pkg + nxfs `/data`), header-last fill, inline cap (`E2BIG`) enforced; VMO-backed writes deferred | `TASK-0295` (Done, boot-proven) | `vfsd: vmo splice read ok (bytes=19, fallbacks=0)` + `SELFTEST: vfs splice roundtrip ok` + `SELFTEST: vfs inline oversize deny ok` |
+| 6 | **block driver v2** — multi-sector requests, real queue depth, IRQ completion, seq-read deadlock fixed at the root; the perf multiplier under statefs AND nxfs | `TASK-0314` (Draft) | requests/4 KiB block 8 → 1 · `blk: irq completion on` |
+| 7 | **topology end state (ADR-0044)** — ONE GPT device, `virtioblkd` sole queue owner, statefsd/vfsd lose device caps, direct-MMIO path deleted | `TASK-0315` (Draft) | `virtioblkd: gpt ok (parts=2)` · `SELFTEST: blk cross-partition deny ok` |
+| 8 | **engine v2** — format v2 (contracted object-record fields + volume table + reserved data-checksum field), block-granular CoW writes, group commit, block cache + readahead, 4 MiB cap removed | `TASK-0316` (Draft) | 1-byte write costs O(touched blocks) · `nxfs: group commit on (interval=<n>ms)` |
+| 9 | **nxfsd extracted + write plane** — own process ("one authority per store"), `vfs.capnp` v2 write ops (RFC-0072 P2 closed), `OP_WRITE_VMO` (the 0295-deferred write half) | `TASK-0317` (Draft) | `nxfsd: ready` · `SELFTEST: vfs write vmo ok` |
+| 10 | **perf contract + bench gate** — RFC-0071 performance amendment (budgets, cache/durability model), bench harness with real-number markers, op-count regression gates, app-host round-trip hygiene | `TASK-0318` (Draft) | `SELFTEST: storage bench ok (…)` within budget |
+| 11 | **CoW + snapshots/clones + data checksums** (RFC-0071 P3; ADR "B-tree vs sorted-run" first) | `TASK-0319` (Draft) | `SELFTEST: nxfs snapshot roundtrip ok` |
+| 12 | **encryption classes** (RFC-0071 P4; absorbs old TASK-0182/0183 UX pieces) | `TASK-0320` (Draft) | `nxfsd: encryption on (device-class)` |
 
-Milestones 6/7 are deliberately **not pre-seeded as tasks** (seed-when-ready rule); their contracts
-are already fixed in RFC-0071 so nothing drifts while they wait.
+**Ladder extended 2026-08-14 (user decision: end architecture, production grade, no transitional
+solutions — and the FS is measurably slow).** Milestones 6–12 replace the former "seed-when-ready"
+placeholders: the v1 staging (2 devices, in-process DataStore, whole-file rewrites, poll-driven
+512 B block driver, no cache, no perf contract) is now explicitly owned by tasks that retire it.
+Ordering is by performance leverage first (6 → 8 → 9), topology consolidation where it
+naturally slots (7 before the cap moves in 9), contract/gate work alongside (10), then the
+contracted P3/P4 phases (11, 12).
 
 ## Parallel lane: statefs hardening (NOT this ladder's critical path)
 
 statefs stays the boot-critical service-state KV (ADR-0043) and hardens independently:
 `TASK-0025` (authenticity envelopes + anti-rollback + budgets) → `TASK-0026` (2PC + compaction +
-fsck — patterns shared with nxfs P1) → `TASK-0027` (record encryption for non-boot-critical
-prefixes, reusing the RFC-0071 key hierarchy). `TASK-0026`'s cold-boot proof reuses milestone 3's
-`NEXUS_KEEP_BLK` harness.
+fsck — reuse nxfs P1's shipped journal/fsck/crash-injection patterns, see its 2026-08-14 note) →
+`TASK-0027` (record encryption for non-boot-critical prefixes, reusing the RFC-0071 key
+hierarchy). `TASK-0026`'s cold-boot proof reuses milestone 3's `NEXUS_KEEP_BLK` harness (landed).
+Verified still open 2026-08-14 — none of the three is covered by the nxfs ladder.
 
 ## Contracts (stable interfaces to design around)
 
@@ -62,8 +73,12 @@ prefixes, reusing the RFC-0071 key hierarchy). `TASK-0026`'s cold-boot proof reu
 
 - `TASK-0033` → absorbed into `TASK-0295` (zero-copy moves to the vfsd seam).
 - `TASK-0132` → vfs error-code slice absorbed into RFC-0072/`TASK-0291`; higher-layer remainder stays.
-- `TASK-0134` → user-data snapshots move to RFC-0071 P3; statefs-side remainder stays.
-- `TASK-0182`/`TASK-0183` → superseded by RFC-0071 P4 (no securefsd overlay).
+- `TASK-0134` → user-data snapshots move to RFC-0071 P3 (`TASK-0319`); statefs-side remainder stays.
+- `TASK-0182`/`TASK-0183` → superseded by RFC-0071 P4 (no securefsd overlay; now `TASK-0320`).
+- `TASK-0264`/`TASK-0265` → superseded 2026-08-14: pre-nxfs durability-above-the-FS design
+  (contentd rename dance + journal in `state:/`) conflicts with ADR-0043/RFC-0071 — atomicity
+  lives in the nxfs transaction (`TASK-0316`), transport in `TASK-0317`, gates in `TASK-0318`.
+- `TASK-0135` → rescope needed before execution: Storage UI must be `/data`-first (see its note).
 
 ## Non-Goals
 

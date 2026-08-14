@@ -1,6 +1,6 @@
 ---
 title: TASK-0265 Storage Write-Path v1.0b (OS/QEMU): contentd extension + Files app tweaks + `nx io` + selftests
-status: Draft
+status: Superseded
 owner: @platform
 created: 2025-12-29
 depends-on: []
@@ -18,6 +18,13 @@ links:
 ---
 
 ## Context
+
+> **SUPERSEDED (2026-08-14, storage end-state rework).** OS half of the superseded TASK-0264
+> design (durability in `contentd` above the FS, journal in `state:/`) — same conflict with
+> ADR-0043/RFC-0071, same verdict. The user-visible pieces map to the new ladder: atomic writes
+> land in the nxfs transaction (TASK-0316), the write transport in TASK-0317
+> (`vfs.capnp` v2 + VMO writes), selftest/bench markers in TASK-0318; a files-app "Save"
+> UX task can be reseeded on top of RFC-0073 when the app exists. Do not execute.
 
 We need OS/QEMU integration for Storage Write-Path v1.0:
 

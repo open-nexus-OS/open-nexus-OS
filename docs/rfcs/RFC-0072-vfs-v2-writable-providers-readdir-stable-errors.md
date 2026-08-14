@@ -3,7 +3,7 @@
 - Status: Draft (2026-07-15)
 - Owners: @runtime
 - Created: 2026-07-15
-- Last Updated: 2026-07-15
+- Last Updated: 2026-08-14 (status sync: P2 behavior shipped via TASK-0293; capnp-v2 wire closure + VMO write half owned by TASK-0317)
 - Links:
   - Tasks: `tasks/TASK-0291-vfs-readdir-svc-files-stash-real-listing.md` (P1 execution + proof), `tasks/TASK-0293-nxfsd-os-bringup-gpt-mount-data-keepblk.md` (P2 execution + proof), `tasks/TASK-0295-zero-copy-read-write-vmo-splice.md` (P3)
   - ADRs: `docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md`
@@ -14,7 +14,7 @@
 ## Status at a Glance
 
 - **Phase 1 (ReadDir + stable error codes on the read-only surface)**: ✅ — `TASK-0291` (host tests + `SELFTEST: vfs readdir ok`/`deny ok` + visible-boot evidence, 2026-07-15)
-- **Phase 2 (write ops + writable provider registration, `/data` via nxfsd)**: ⬜ — `TASK-0293`
+- **Phase 2 (write ops + writable provider registration, `/data` via nxfsd)**: 🟨 — behavior shipped by `TASK-0293` (Done 2026-07-19: writable `/data`, mkdir/write/rename/remove live + cold-boot persistence boot-proven), but over the private `nexus-vfs-types::fileops` frame codec, **not** the `vfs.capnp` v2 ops this contract specifies. Wire-contract closure (capnp v2 write ops + nxfsd as its own process) is owned by `TASK-0317`.
 - **Phase 3 (VMO handle data plane for large reads/writes)**: ✅ (read path) — `TASK-0295` (`OP_READ_VMO` cross-process CAP_MOVE splice + inline `E2BIG`; `vfsd: vmo splice read ok (bytes=19, fallbacks=0)` + `SELFTEST: vfs splice roundtrip ok` + `SELFTEST: vfs inline oversize deny ok`, 2026-07-15). VMO-backed writes remain a follow-up.
 
 Definition:

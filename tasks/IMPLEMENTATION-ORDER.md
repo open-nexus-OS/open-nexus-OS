@@ -173,6 +173,31 @@ These tracks were executed after the Fast-Lane cut and are boot-/host-proven.
 
 ---
 
+## Storage End-State Ladder (seeded 2026-08-14) — 0314–0320 + statefs lane
+
+User decision 2026-08-14: build the **end architecture** (RFC-0071 "Apple-like" contract +
+ADR-0044 topology), production grade, no further transitional solutions — and fix that the
+filesystem is measurably slow (512 B/queue-depth-1 block driver, whole-file rewrites, FLUSH per
+txn, zero caching, no VMO write path, no perf contract anywhere). Full rationale + milestone
+table: `tasks/TRACK-STASH-USER-DATA-FS.md` (milestones 6–12).
+
+| Task | Title | Status |
+|------|-------|--------|
+| TASK-0314 | Block driver v2: multi-sector + real queue depth + IRQ completion (perf multiplier for statefs AND nxfs) | Draft |
+| TASK-0315 | Block topology consolidation: ONE GPT device + virtioblkd sole queue owner (ADR-0044 end state) | Draft |
+| TASK-0316 | nxfs engine v2: format v2 (contracted fields + volume table) + block-granular CoW + group commit + cache | Draft |
+| TASK-0317 | nxfsd process extraction + vfs.capnp v2 write surface + VMO write path (RFC-0072 P2 closed) | Draft |
+| TASK-0318 | Storage performance contract + benchmark gate (RFC-0071 perf amendment, real-number markers, regression gates) | Draft |
+| TASK-0319 | nxfs Phase 3: CoW metadata tree (ADR first) + snapshots/clones + data checksums | Draft |
+| TASK-0320 | nxfs Phase 4: encryption classes (per-extent XChaCha20-Poly1305, keystored HKDF) | Draft |
+
+Parallel statefs lane (separate store, ADR-0043): `0025` → `0026` → `0027` (see Defer-Bucket
+note; 0026 additionally defuses the `/state` replay-limit boot time bomb).
+Superseded by this ladder: `0264`/`0265` (pre-nxfs write-path drafts); `0135` needs a
+`/data`-first rescope before execution.
+
+---
+
 ## UI Fast Lane — Ziel: 119–122C
 
 Statt aller Tasks 24–118 sequenziell werden nur die für die UI-Kette notwendigen Tasks abgearbeitet.
@@ -196,7 +221,7 @@ Minimale Voraussetzungen für den UI-Stack. Alles andere aus dem 24–53 Bereich
 | TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | UI-Profil-Broker für windowd + input |
 | TASK-0047 | Policy as Code v1: unified policy engine | Asset-Zugriff + Permissions für UI-Services |
 
-**Übersprungen (24–53):** `0024` (DSoftBus UDP sec), `0025–0027` (StateFS hardening/encryption), `0028` (ABI filters v2), `0030` (DSoftBus discovery authz), `0033` (PackageFS VMO-splice), `0034–0037` (OTA/delta updates), `0038` (Tracing v2), `0040` (Remote observability), `0041` (Lock profiling), `0042` (SMP v2 voll — minimaler QoS-Slice kommt via 0054B), `0043–0044` (Security sandbox quotas / QUIC tuning), `0048–0053` (Crashdump v2 / Recovery / Security v3).
+**Übersprungen (24–53):** `0024` (DSoftBus UDP sec), `0025–0027` (StateFS hardening/encryption — verified still open 2026-08-14, see Defer-Bucket), `0028` (ABI filters v2), `0030` (DSoftBus discovery authz), `0033` (PackageFS VMO-splice — ⤳ superseded by 0295), `0034–0037` (OTA/delta updates), `0038` (Tracing v2), `0040` (Remote observability), `0041` (Lock profiling), `0042` (SMP v2 voll — minimaler QoS-Slice kommt via 0054B), `0043–0044` (Security sandbox quotas / QUIC tuning), `0048–0053` (Crashdump v2 / Recovery / Security v3).
 
 ---
 
@@ -350,14 +375,22 @@ Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen:
 **DSoftBus / Networking:**
 `0024`, `0030`, `0044` (DSoftBus follow-ons)
 
-**StateFS / Storage:**
-`0025`, `0026`, `0027` (StateFS hardening + encryption)
+**StateFS / Storage** (verified 2026-08-14 — still genuinely open, `Draft`, zero code):
+`0025`, `0026`, `0027` (StateFS hardening + encryption; lane order 0025 → 0026 → 0027).
+Not covered by nxfs: the 2PC/fsck/crash-injection discipline exists only in nxfs (0292), statefs
+stays a separate boot-critical store (ADR-0043). 0026's cold-boot gate is unblocked
+(`NEXUS_KEEP_BLK`, 0293) and its ledger now carries the perf/robustness scope (journal compaction
+defuses the `MAX_REPLAY_RECORDS` boot time bomb). The nxfs/storage **end-state ladder** is now
+seeded as `0314`–`0320` — see "Storage End-State Ladder" section below.
+⤳ `0264`/`0265` (pre-nxfs write-path drafts) Superseded 2026-08-14 (conflict with
+ADR-0043/RFC-0071; absorbed by 0316/0317/0318).
 
 **Security / Compliance:**
 `0028`, `0043`, `0052`, `0053` (ABI filters, sandbox quotas, ingress policy, signed recovery)
 
 **OTA / Updates / Supply Chain:**
-`0033`, `0034`, `0035`, `0036`, `0037` (PackageFS VMO-splice, delta updates, OTA v2)
+`0034`, `0035`, `0036`, `0037` (delta updates, OTA v2);
+⤳ `0033` (PackageFS VMO-splice) — **Superseded by TASK-0295 (Done)**, seam moved to vfsd
 
 **Observability / Debug:**
 `0038`, `0040`, `0041`, `0048`, `0049` (Tracing v2, remote observability, lock profiling, crashdump v2)

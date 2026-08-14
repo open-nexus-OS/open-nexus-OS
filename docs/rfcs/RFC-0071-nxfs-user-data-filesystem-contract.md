@@ -3,7 +3,7 @@
 - Status: Draft (2026-07-15) — user decision 2026-07-15: production-grade, future-proof ("Apple-like"), not the minimal solution; engine ships in phases but the contract is CoW-ready from day one.
 - Owners: @runtime
 - Created: 2026-07-15
-- Last Updated: 2026-07-15
+- Last Updated: 2026-08-14 (status sync to shipped reality; P3/P4 tasks seeded: TASK-0319/0320; performance amendment owned by TASK-0318)
 - Links:
   - Tasks: `tasks/TASK-0292-nxfs-v1-core-host-first.md` (P1 execution + proof), `tasks/TASK-0293-nxfsd-os-bringup-gpt-mount-data-keepblk.md` (P2 execution + proof)
   - ADRs: `docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md`, `docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md`
@@ -13,11 +13,12 @@
 
 ## Status at a Glance
 
-- **Phase 0 (contract + on-disk format v1 spec)**: 🟨 (this document)
-- **Phase 1 (host-first core: transactions, extents, checksums, replay, fsck)**: ⬜ — `TASK-0292`
-- **Phase 2 (OS bring-up: nxfsd on GPT partition, writable `/data` mount, cold-boot persistence)**: ⬜ — `TASK-0293`
-- **Phase 3 (CoW checkpointing + snapshots/clones)**: ⬜ — task seeded when P2 is proven
-- **Phase 4 (encryption classes via keystored-derived keys)**: ⬜ — task seeded when P3 is proven
+- **Phase 0 (contract + on-disk format v1 spec)**: ✅ (this document; format-v2 completion step owned by `TASK-0316`)
+- **Phase 1 (host-first core: transactions, extents, checksums, replay, fsck)**: ✅ — `TASK-0292` (Done 2026-07-19; host-proven, crash-injection suite). Shipped in a reduced v1 shape vs. this contract: whole-state checkpoint blob into two fixed regions (not a paged object table), whole-file rewrite on write, 4 MiB file cap, no volume table / object-record inert fields / per-extent checksum field on disk yet — the format-v2 gap closure is `TASK-0316`.
+- **Phase 2 (OS bring-up: writable `/data` mount, cold-boot persistence)**: ✅ — `TASK-0293` (Done 2026-07-19, boot-proven; real marker `nxfsd: mounted /data (rw, clean)` + keep-blk cold-boot persistence). Shipped as the ADR-0044-amended **staging**: 2nd virtio-blk device + store in-process in vfsd, NOT the GPT partition topology — consolidation is `TASK-0315`, process extraction `TASK-0317`.
+- **Phase 3 (CoW checkpointing + snapshots/clones)**: ⬜ — seeded as `TASK-0319` (gated on the "B-tree vs sorted-run" narrow ADR, see Open Questions)
+- **Phase 4 (encryption classes via keystored-derived keys)**: ⬜ — seeded as `TASK-0320`
+- **Performance contract (cache model, durability modes, budgets, bench gate)**: ⬜ — amendment owned by `TASK-0318` (contract gap identified 2026-08-14: this document currently states no performance requirements)
 
 Definition:
 
@@ -318,11 +319,11 @@ When writing this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: contract + format v1 frozen (this doc reviewed) — proof: review + cross-links live
-- [ ] **Phase 1**: host-first engine + fsck — proof: `cargo test -p nxfs` / `cargo test -p fsck-nxfs` (TASK-0292)
-- [ ] **Phase 2**: nxfsd + GPT partition + `/data` RW mount + cold-boot persistence — proof: markers `nxfsd: mounted /data (rw, gen=<n>)`, `nxfs: persisted across cold boot` (TASK-0293)
-- [ ] **Phase 3**: CoW tree + snapshots/clones + data checksums — proof: new task (seed-when-ready)
-- [ ] **Phase 4**: encryption classes — proof: new task (seed-when-ready), markers `nxfsd: encryption on (device-class)`
-- [ ] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`: integrity, path canonicalization, unsupported-capability, oversize).
+- [x] **Phase 0**: contract + format v1 frozen (this doc reviewed) — proof: review + cross-links live (format-v2 completion: TASK-0316)
+- [x] **Phase 1**: host-first engine + fsck — proof: `cargo test -p nxfs` / `cargo test -p fsck-nxfs` (TASK-0292, Done; reduced v1 shape, see Status at a Glance)
+- [x] **Phase 2**: `/data` RW mount + cold-boot persistence — proof: markers `nxfsd: mounted /data (rw, clean)` + keep-blk cold boot (TASK-0293, Done; GPT topology deferred to TASK-0315, process extraction to TASK-0317)
+- [ ] **Phase 3**: CoW tree + snapshots/clones + data checksums — TASK-0319 (ADR first)
+- [ ] **Phase 4**: encryption classes — TASK-0320, markers `nxfsd: encryption on (device-class)`
+- [x] Task(s) linked with stop conditions + proof commands (ladder: TASK-0314–0320 + TRACK-STASH-USER-DATA-FS milestones 6–12).
+- [x] QEMU markers appear in `scripts/qemu-test.sh` and pass (P1/P2 marker set).
+- [x] Security-relevant negative tests exist for the shipped surface (`test_reject_*`: integrity fail-closed, path bounds, oversize/E2BIG); P3/P4 negatives arrive with their tasks.

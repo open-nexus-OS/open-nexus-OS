@@ -57,6 +57,11 @@ delivered by v1 itself. What v1 already provides — do NOT re-implement:
 Per-subject **quotas** stay in TASK-0133. User-data encryption is **not** statefs business
 (ADR-0043 / RFC-0071); statefs record encryption for its own values is TASK-0027.
 
+**Verified still open (2026-08-14, storage reconciliation):** repo reality unchanged — no
+envelope/HMAC/seq code in `userspace/statefs`, and settingsd still speaks the hand-rolled wire
+copy. Note the nxfs ladder (TASK-0314–0320) does not cover this: statefs stays a separate,
+boot-critical store per ADR-0043, so this lane (0025 → 0026 → 0027) still has to run.
+
 ## Goal
 
 Prove, deterministically:

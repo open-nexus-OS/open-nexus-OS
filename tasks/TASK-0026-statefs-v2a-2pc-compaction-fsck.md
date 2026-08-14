@@ -38,6 +38,23 @@ settingsd). The scope of THIS task is still **fully open** — v1 has:
 This is the same 2PC/compaction/fsck discipline nxfs P1 needs (RFC-0071); patterns and test
 harnesses built here are explicitly meant to be reused there (ADR-0043 consequence).
 
+**Verified still open + reuse direction reversed (2026-08-14).** The reuse ran the other way:
+nxfs P1 (TASK-0292, Done) shipped the 2PC/compaction/fsck discipline first — committed-only
+`TXN_BEGIN…COMMIT` replay (`userspace/nxfs/src/journal.rs`), `fsck` with stable exit codes
+(`userspace/nxfs/src/fsck.rs`, `tools/fsck-nxfs/`), and the SpyDevice crash-injection harness
+(`userspace/nxfs/tests/crash_injection.rs`). **Reuse those patterns here**, don't re-invent.
+The cold-boot dependency is also delivered: `NEXUS_KEEP_BLK=1` landed with TASK-0293 (Done) —
+the cold-boot DoD gate below is unblocked.
+
+**Performance/robustness stakes (sharpened 2026-08-14, storage-perf sweep):** this is not
+polish — it defuses a boot time bomb and the statefs share of "storage is slow":
+
+- The journal grows **unbounded** (`append_record` only ever advances `write_pos`; nothing
+  truncates) and replay rescans from block 0 every open. Replay cost grows with lifetime writes.
+- `MAX_REPLAY_RECORDS = 100_000` is a **hard fail**, not a throttle: once accumulated writes
+  (settingsd prefs alone) cross it, `/state` **refuses to open at boot** (`ReplayLimitExceeded`).
+  Compaction is the only fix; this task owns it.
+
 ## Goal
 
 Prove deterministically (host tests) that:
@@ -100,6 +117,10 @@ recreates `build/blk.img` every boot).
 - idempotence: replay same journal twice → same state
 - v1 journal → v2 upgrade path: replay v1, compact, resulting journal is v2 + state identical
 - compaction: threshold → snapshot+rotate; state intact; bounded cycle work observable
+- **replay stays incremental after compaction** (added 2026-08-14): a stored write-head (or
+  zeroed tail) makes reopen cost proportional to the live journal, independent of lifetime
+  writes — proven by an op-count assertion (records scanned after N put+compact cycles is
+  bounded), and the `MAX_REPLAY_RECORDS` hard-fail becomes unreachable in normal operation
 - fsck: detect orphaned txns; `--repair` converts orphans to ABORT; exit codes stable
   (0 ok, 1 repaired, 2 unrecoverable)
 
@@ -127,5 +148,5 @@ recreates `build/blk.img` every boot).
 2. **Compaction (snapshot + rotate)** — reuse the reserved `Checkpoint` opcode as the snapshot
    boundary; threshold configurable (ratio or bytes); bounded work per cycle.
 3. **fsck-statefs (host)** — offline replay/validate/repair, deterministic output + exit codes.
-4. **OS selftest + cold-boot gate** — Reopen-based soft-reboot proof stays; add keep-blk cold-boot
-   cycle once ADR-0044 lands (TASK-0293 wiring).
+4. **OS selftest + cold-boot gate** — Reopen-based soft-reboot proof stays; keep-blk cold-boot
+   cycle via the `NEXUS_KEEP_BLK=1` harness (landed with TASK-0293 — no longer blocked).

@@ -46,6 +46,11 @@ boot-critical prefixes stay plaintext-but-authenticated (TASK-0025 envelopes). E
 to non-boot-critical prefixes (e.g. `/state/settingsd/*`, `/state/app/*`) — per-prefix class,
 default **off**.
 
+**Verified still open (2026-08-14, storage reconciliation):** repo reality unchanged — values
+plaintext, no AEAD/HKDF wiring in-tree; hard deps TASK-0025 and TASK-0026 are still open. The
+nxfs-side sibling (user-data encryption classes) is now explicitly seeded as TASK-0320; the two
+share the RFC-0071 key-derivation discipline but remain separate stores.
+
 ## Goal
 
 Provide an opt-in `STATEFS_ENCRYPTION=on` mode that:
