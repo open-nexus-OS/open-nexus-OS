@@ -29,6 +29,14 @@ pub use os_lite::*;
 #[cfg(any(feature = "std", all(feature = "os-lite", nexus_env = "os")))]
 pub mod hardening;
 
+// Transaction + compaction core (TASK-0026 step 4): cfg-free wire-status
+// mapping / cap table / compaction tick shared by the OS serve loop and the
+// host contract tests (mirrors the `hardening` split).
+#[cfg(any(feature = "std", all(feature = "os-lite", nexus_env = "os")))]
+pub mod txn;
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
+mod txn_os;
+
 #[cfg(not(all(feature = "os-lite", nexus_env = "os")))]
 mod std_server;
 #[cfg(not(all(feature = "os-lite", nexus_env = "os")))]

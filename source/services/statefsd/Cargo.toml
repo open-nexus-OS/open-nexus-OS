@@ -6,7 +6,10 @@ license = "Apache-2.0"
 
 [features]
 default = ["std"]
-std = ["dep:statefs", "statefs/std"]
+# `dep:storage` under std: the cfg-free txn/compaction core (src/txn.rs) is
+# generic over `storage::BlockDevice` so the host contract tests exercise the
+# exact code the OS serve loop runs.
+std = ["dep:statefs", "statefs/std", "dep:storage"]
 os-lite = [
     "dep:nexus-service-entry",
     "dep:nexus-abi",

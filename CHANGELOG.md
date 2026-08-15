@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-15 (statefs journal v2: 2PC + bounded compaction, engine)
+
+- **statefs journal v2 engine (TASK-0026, steps 1–2, host-first)**: transactional
+  record set `PREPARE/PAYLOAD/COMMIT/ABORT/SYNC` (opcodes `0x10`–`0x14`) on the
+  frozen NXSF framing with committed-only replay (prepared-without-commit is
+  discarded wholesale, nxfs discipline), plus crash-safe bounded compaction:
+  `CHECKPOINT (0x03)` snapshot into the inactive half of an A/B region split,
+  atomic `NXS2` superblock flip, zeroed-tail write head. Reopen cost is now
+  proportional to the live journal instead of lifetime writes — defusing the
+  `MAX_REPLAY_RECORDS` boot time bomb (`/state` refusing to open). v1 journals
+  replay byte-identically; first compaction upgrades them to generation 1.
+  New modules `journal_v2.rs`/`compact.rs` (+ `protocol` split out of lib.rs),
+  SpyDevice crash-injection suite (`tests/crash_injection.rs`): both-or-neither
+  at every write cut, v1→v2 upgrade, threshold rotation, incremental-replay
+  op-count bound, `test_reject_*` negatives. statefsd wiring + fsck follow.
+
 ### Added - 2026-08-15 (statefs authenticity envelopes + crashdump host pipeline)
 
 - **statefs write-path hardening v1 (TASK-0025, steps 1–3)**: values can now be

@@ -1,6 +1,6 @@
 ---
 title: TASK-0026 StateFS v2a: 2PC crash-atomicity + bounded compaction + fsck tool (rebased 2026-07-15 onto shipped statefs v1)
-status: Draft
+status: In Progress
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -54,6 +54,59 @@ polish — it defuses a boot time bomb and the statefs share of "storage is slow
 - `MAX_REPLAY_RECORDS = 100_000` is a **hard fail**, not a throttle: once accumulated writes
   (settingsd prefs alone) cross it, `/state` **refuses to open at boot** (`ReplayLimitExceeded`).
   Compaction is the only fix; this task owns it.
+
+## Progress
+
+**2026-08-15 — plan steps 1+2 landed (engine, host-first; uncommitted).** Journal v2 record
+set + committed-only 2PC replay and bounded crash-safe compaction are implemented in
+`userspace/statefs` (new `src/journal_v2.rs` 600 LOC, `src/compact.rs` 327 LOC; `protocol`
+module split out of `lib.rs` → lib.rs 888 LOC, well under its 1630 baseline). Byte contract
+written as normative in `docs/storage/statefs.md` §Journal v2. Design points as fixed by this
+ledger: v2 opcodes `0x10–0x14` on the frozen NXSF framing; DELETE stays a committed v1 record
+(YELLOW upheld); journal `SYNC` record named `SyncBarrier` apart from the protocol `Sync` op
+(YELLOW upheld); `Checkpoint (0x03)` reused as the snapshot boundary. Compaction mirrors the
+nxfs checkpoint-flip discipline: snapshot into the inactive half of an A/B region split behind
+a new `NXS2` superblock (block 0), atomic single-block flip, zeroed-tail write head — reopen
+scans only the live region, so the incremental-replay DoD line holds (op-count assertion:
+3 records scanned after N put+compact cycles, independent of N) and `MAX_REPLAY_RECORDS`
+becomes unreachable in normal operation. All host DoD bullets for steps 1+2 are covered by
+`tests/crash_injection.rs` (SpyDevice harness mirroring nxfs, both-or-neither at every write
+cut) + unit tests: 40 lib + 15 crash-injection + 14 envelope green; os-cfg cross-check of
+statefs+statefsd clean (statefsd unchanged); structure/dep gates PASS; clippy clean.
+Remaining: step 3 fsck-statefs, step 4 statefsd txn wire ops + compaction trigger + OS
+selftests/cold-boot gate.
+
+**2026-08-15 — plan step 3 landed (fsck-statefs, host; uncommitted).** Mirrors the nxfs fsck
+split exactly: validate/repair CORE in the engine crate (`userspace/statefs/src/fsck.rs`,
+485 LOC, no_std-compatible — compiles in the os-lite path, so statefsd could reuse it later)
++ thin host CLI `tools/fsck-statefs/` (`src/main.rs` 126 LOC, `tests/cli.rs` 175 LOC; auto
+workspace member via the `tools/*` glob — no root Cargo.toml edit was needed). CLI surface:
+`fsck-statefs [--repair] [--dry-run] <journal-image>` on 512-byte-block images
+(`statefs::FSCK_BLOCK_SIZE`). Exit codes as per DoD: 0 clean / 1 orphans found-or-repaired /
+2 unrecoverable; repair appends one `TXN_ABORT` per orphan (never rewrites committed data),
+then re-validates — `repaired` only when the re-validation is clean, else the outcome
+degrades to 2. Validation set: v1+v2 layout detection, superblock sanity (`NXS2`
+magic/version/CRC/active/geometry), checkpoint↔superblock gen+entries consistency, record
+framing/CRC via the engine's own `parse_record`, txn completeness (open-txn mirror of the
+replay `TxnTable` membership rules), zeroed-tail discipline (`tail_dirty`, informational),
+plus a validator↔replayer record-count cross-check. Semantic line drawn per nxfs discipline:
+corruption FOLLOWED by a valid record = mid-journal damage → 2 (byte offset + stable reason:
+unknown opcode / record length exceeds caps / crc mismatch / invalid key encoding / invalid
+record shape / invalid superblock / …); corruption with nothing valid after it = torn-tail
+crash residue replay already discards → reported, not fatal. Inert replay anomalies
+(unknown-txn COMMIT/PAYLOAD/ABORT, poisoned txns, out-of-place CHECKPOINT) are counted
+(`anomalies`) but never change the exit code — they are not repairable append-only. Engine
+crates untouched except: `pub mod fsck` + re-exports in `lib.rs` and three same-line
+`pub(crate)` visibility widenings in `compact.rs` (`SUPERBLOCK_MAGIC`, `parse_superblock`,
+`region_geometry`); `journal_v2.rs` stays byte-for-byte at its 600-LOC ratchet edge. Proof:
+`cargo test -p statefs -p fsck-statefs` all green — statefs 44 lib (40 pre-existing + 4 fsck
+unit) + 15 crash-injection + 14 envelope + 16 new `tests/fsck.rs` (outcome matrix incl.
+`test_reject_*` negatives), fsck-statefs 9 CLI-contract tests (exit codes, dry-run
+no-write, repair→re-fsck-clean, byte-exact fixtures built via the engine API); os-cfg
+cross-check statefs+statefsd clean; structure/dep gates PASS; approved fmt; clippy clean
+(one pinned-clippy `literal_string_with_formatting_args` FP avoided by hoisting `format!`
+out of `assert!` in cli.rs). Remaining: step 4 OS selftests/cold-boot gate (statefsd txn
+wire ops + compaction trigger landed in parallel — see its own note).
 
 ## Goal
 

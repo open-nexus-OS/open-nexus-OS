@@ -8,7 +8,10 @@
 //! TEST_COVERAGE: Host unit tests + negative tests
 //!
 //! PUBLIC API:
-//!   - JournalEngine: Journaled KV store with Put/Get/Delete/List/Sync
+//!   - JournalEngine: Journaled KV store with Put/Get/Delete/List/Sync, plus
+//!     journal v2 (TASK-0026): txn_begin/append/commit/abort, sync_barrier,
+//!     maybe_compact/compact_now (see journal_v2.rs / compact.rs)
+//!   - fsck: offline validate/repair core for tools/fsck-statefs (fsck.rs)
 //!   - protocol: IPC framing helpers for statefsd
 //!   - client: IPC client wrapper (feature = "ipc-client")
 //!   - envelope: Authenticity envelope v1 (seal/verify, SeqTracker, WriteBudget)
@@ -38,7 +41,7 @@ use storage::BlockDevice;
 // ============================================================================
 
 /// Journal record magic: "NXSF" (Nexus StateFS)
-const JOURNAL_MAGIC: u32 = 0x4E58_5346;
+pub(crate) const JOURNAL_MAGIC: u32 = 0x4E58_5346;
 
 /// Maximum key length in bytes
 pub const MAX_KEY_LEN: usize = 255;
@@ -50,7 +53,7 @@ pub const MAX_VALUE_SIZE: usize = 65536;
 const MAX_REPLAY_RECORDS: usize = 100_000;
 
 /// Journal record header size: magic(4) + opcode(1) + key_len(2) + value_len(4) + crc(4) = 15
-const RECORD_HEADER_SIZE: usize = 15;
+pub(crate) const RECORD_HEADER_SIZE: usize = 15;
 
 // ============================================================================
 // Error Types
@@ -105,565 +108,29 @@ impl StatefsError {
 // IPC Protocol (statefsd)
 // ============================================================================
 
-pub mod protocol {
-    use alloc::string::String;
-    use alloc::string::ToString;
-    use alloc::vec;
-    use alloc::vec::Vec;
-    use core::str;
-
-    use super::{StatefsError, MAX_KEY_LEN, MAX_VALUE_SIZE};
-
-    pub const MAGIC0: u8 = b'S';
-    pub const MAGIC1: u8 = b'F';
-    pub const VERSION: u8 = 1;
-    pub const VERSION_V2: u8 = 2;
-
-    pub const OP_PUT: u8 = 1;
-    pub const OP_GET: u8 = 2;
-    pub const OP_DEL: u8 = 3;
-    pub const OP_LIST: u8 = 4;
-    pub const OP_SYNC: u8 = 5;
-    pub const OP_REOPEN: u8 = 6;
-
-    pub const STATUS_OK: u8 = 0;
-    pub const STATUS_NOT_FOUND: u8 = 1;
-    pub const STATUS_ACCESS_DENIED: u8 = 2;
-    pub const STATUS_VALUE_TOO_LARGE: u8 = 3;
-    pub const STATUS_KEY_TOO_LONG: u8 = 4;
-    pub const STATUS_INVALID_KEY: u8 = 5;
-    pub const STATUS_MALFORMED: u8 = 6;
-    pub const STATUS_IO_ERROR: u8 = 7;
-    pub const STATUS_UNSUPPORTED: u8 = 8;
-    pub const STATUS_INTEGRITY_VIOLATION: u8 = 9;
-    pub const STATUS_ROLLBACK_DETECTED: u8 = 10;
-
-    pub const MAX_LIST_LIMIT: u16 = 256;
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum Request<'a> {
-        Put { key: &'a str, value: &'a [u8] },
-        Get { key: &'a str },
-        Delete { key: &'a str },
-        List { prefix: &'a str, limit: u16 },
-        Sync,
-        Reopen,
-    }
-
-    fn decode_request_no_nonce(frame: &[u8]) -> Result<Request<'_>, u8> {
-        if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
-            return Err(STATUS_MALFORMED);
-        }
-        let op = frame[3];
-        let payload = &frame[4..];
-        match op {
-            OP_PUT => decode_put_payload(payload),
-            OP_GET => decode_key_only_payload(payload).map(|key| Request::Get { key }),
-            OP_DEL => decode_key_only_payload(payload).map(|key| Request::Delete { key }),
-            OP_LIST => decode_list_payload(payload),
-            OP_SYNC => {
-                if !payload.is_empty() {
-                    Err(STATUS_MALFORMED)
-                } else {
-                    Ok(Request::Sync)
-                }
-            }
-            OP_REOPEN => {
-                if !payload.is_empty() {
-                    Err(STATUS_MALFORMED)
-                } else {
-                    Ok(Request::Reopen)
-                }
-            }
-            _ => Err(STATUS_UNSUPPORTED),
-        }
-    }
-
-    /// Decode a request and (optionally) a trailing u64 nonce (little-endian).
-    ///
-    /// Backward compatible:
-    /// - If the frame matches the v1 shape exactly, nonce is `None`.
-    pub fn decode_request_with_nonce(frame: &[u8]) -> Result<(Request<'_>, Option<u64>), u8> {
-        if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
-            return Err(STATUS_MALFORMED);
-        }
-        match frame[2] {
-            VERSION => decode_request_no_nonce(frame).map(|r| (r, None)),
-            VERSION_V2 => {
-                if frame.len() < 12 {
-                    return Err(STATUS_MALFORMED);
-                }
-                let op = frame[3];
-                let mut nb = [0u8; 8];
-                nb.copy_from_slice(&frame[4..12]);
-                let nonce = u64::from_le_bytes(nb);
-                let payload = &frame[12..];
-                let req = match op {
-                    OP_PUT => decode_put_payload(payload),
-                    OP_GET => decode_key_only_payload(payload).map(|key| Request::Get { key }),
-                    OP_DEL => decode_key_only_payload(payload).map(|key| Request::Delete { key }),
-                    OP_LIST => decode_list_payload(payload),
-                    OP_SYNC => {
-                        if !payload.is_empty() {
-                            Err(STATUS_MALFORMED)
-                        } else {
-                            Ok(Request::Sync)
-                        }
-                    }
-                    OP_REOPEN => {
-                        if !payload.is_empty() {
-                            Err(STATUS_MALFORMED)
-                        } else {
-                            Ok(Request::Reopen)
-                        }
-                    }
-                    _ => Err(STATUS_UNSUPPORTED),
-                }?;
-                Ok((req, Some(nonce)))
-            }
-            _ => Err(STATUS_MALFORMED),
-        }
-    }
-
-    pub fn decode_request(frame: &[u8]) -> Result<Request<'_>, u8> {
-        decode_request_with_nonce(frame).map(|(r, _)| r)
-    }
-
-    pub fn encode_status_response(op: u8, status: u8) -> Vec<u8> {
-        vec![MAGIC0, MAGIC1, VERSION, op | 0x80, status]
-    }
-
-    pub fn encode_status_response_with_nonce(op: u8, status: u8, nonce: Option<u64>) -> Vec<u8> {
-        if let Some(n) = nonce {
-            let mut out = Vec::with_capacity(13);
-            out.push(MAGIC0);
-            out.push(MAGIC1);
-            out.push(VERSION_V2);
-            out.push(op | 0x80);
-            out.push(status);
-            out.extend_from_slice(&n.to_le_bytes());
-            out
-        } else {
-            encode_status_response(op, status)
-        }
-    }
-
-    pub fn encode_get_response(status: u8, value: &[u8]) -> Vec<u8> {
-        let mut out = Vec::with_capacity(9 + value.len());
-        out.push(MAGIC0);
-        out.push(MAGIC1);
-        out.push(VERSION);
-        out.push(OP_GET | 0x80);
-        out.push(status);
-        out.extend_from_slice(&(value.len() as u32).to_le_bytes());
-        out.extend_from_slice(value);
-        out
-    }
-
-    pub fn encode_get_response_with_nonce(status: u8, value: &[u8], nonce: Option<u64>) -> Vec<u8> {
-        if let Some(n) = nonce {
-            let mut out = Vec::with_capacity(17 + value.len());
-            out.push(MAGIC0);
-            out.push(MAGIC1);
-            out.push(VERSION_V2);
-            out.push(OP_GET | 0x80);
-            out.push(status);
-            out.extend_from_slice(&n.to_le_bytes());
-            out.extend_from_slice(&(value.len() as u32).to_le_bytes());
-            out.extend_from_slice(value);
-            out
-        } else {
-            encode_get_response(status, value)
-        }
-    }
-
-    pub fn encode_list_response(status: u8, keys: &[String], max_bytes: usize) -> Vec<u8> {
-        let mut out = Vec::with_capacity(8);
-        out.push(MAGIC0);
-        out.push(MAGIC1);
-        out.push(VERSION);
-        out.push(OP_LIST | 0x80);
-        out.push(status);
-
-        // Placeholder for count
-        out.extend_from_slice(&0u16.to_le_bytes());
-        let count_pos = 5;
-        let mut count: u16 = 0;
-
-        for key in keys {
-            let key_bytes = key.as_bytes();
-            if key_bytes.len() > MAX_KEY_LEN {
-                continue;
-            }
-            let entry_len = 2usize.saturating_add(key_bytes.len());
-            if out.len().saturating_add(entry_len) > max_bytes {
-                break;
-            }
-            out.extend_from_slice(&(key_bytes.len() as u16).to_le_bytes());
-            out.extend_from_slice(key_bytes);
-            count = count.saturating_add(1);
-            if count == u16::MAX {
-                break;
-            }
-        }
-
-        let count_bytes = count.to_le_bytes();
-        if out.len() >= count_pos + 2 {
-            out[count_pos] = count_bytes[0];
-            out[count_pos + 1] = count_bytes[1];
-        }
-        out
-    }
-
-    pub fn encode_list_response_with_nonce(
-        status: u8,
-        keys: &[String],
-        max_bytes: usize,
-        nonce: Option<u64>,
-    ) -> Vec<u8> {
-        if let Some(n) = nonce {
-            // v2 layout:
-            // [MAGIC0, MAGIC1, VERSION_V2, OP_LIST|0x80, status, nonce:u64, count:u16, entries...]
-            let mut out = Vec::with_capacity(15);
-            out.push(MAGIC0);
-            out.push(MAGIC1);
-            out.push(VERSION_V2);
-            out.push(OP_LIST | 0x80);
-            out.push(status);
-            out.extend_from_slice(&n.to_le_bytes());
-
-            // Placeholder for count.
-            out.extend_from_slice(&0u16.to_le_bytes());
-            let count_pos = 13;
-            let mut count: u16 = 0;
-
-            for key in keys {
-                let key_bytes = key.as_bytes();
-                if key_bytes.len() > MAX_KEY_LEN {
-                    continue;
-                }
-                let entry_len = 2usize.saturating_add(key_bytes.len());
-                if out.len().saturating_add(entry_len) > max_bytes {
-                    break;
-                }
-                out.extend_from_slice(&(key_bytes.len() as u16).to_le_bytes());
-                out.extend_from_slice(key_bytes);
-                count = count.saturating_add(1);
-                if count == u16::MAX {
-                    break;
-                }
-            }
-
-            let count_bytes = count.to_le_bytes();
-            if out.len() >= count_pos + 2 {
-                out[count_pos] = count_bytes[0];
-                out[count_pos + 1] = count_bytes[1];
-            }
-            out
-        } else {
-            encode_list_response(status, keys, max_bytes)
-        }
-    }
-
-    pub fn decode_status_response(expected_op: u8, frame: &[u8]) -> Result<u8, StatefsError> {
-        if frame.len() < 5 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
-            return Err(StatefsError::Corrupted);
-        }
-        if frame[3] != (expected_op | 0x80) {
-            return Err(StatefsError::Corrupted);
-        }
-        match frame[2] {
-            VERSION => Ok(frame[4]),
-            VERSION_V2 => {
-                if frame.len() < 13 {
-                    return Err(StatefsError::Corrupted);
-                }
-                Ok(frame[4])
-            }
-            _ => Err(StatefsError::Corrupted),
-        }
-    }
-
-    pub fn decode_get_response(frame: &[u8]) -> Result<Vec<u8>, StatefsError> {
-        if frame.len() < 9 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
-            return Err(StatefsError::Corrupted);
-        }
-        if frame[3] != (OP_GET | 0x80) {
-            return Err(StatefsError::Corrupted);
-        }
-        match frame[2] {
-            VERSION => {
-                if frame.len() < 9 {
-                    return Err(StatefsError::Corrupted);
-                }
-                let status = frame[4];
-                if status != STATUS_OK {
-                    return Err(error_from_status(status));
-                }
-                let val_len = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]) as usize;
-                if val_len > MAX_VALUE_SIZE || frame.len() != 9 + val_len {
-                    return Err(StatefsError::Corrupted);
-                }
-                Ok(frame[9..9 + val_len].to_vec())
-            }
-            VERSION_V2 => {
-                if frame.len() < 17 {
-                    return Err(StatefsError::Corrupted);
-                }
-                let status = frame[4];
-                if status != STATUS_OK {
-                    return Err(error_from_status(status));
-                }
-                let val_len =
-                    u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]) as usize;
-                if val_len > MAX_VALUE_SIZE || frame.len() != 17 + val_len {
-                    return Err(StatefsError::Corrupted);
-                }
-                Ok(frame[17..17 + val_len].to_vec())
-            }
-            _ => Err(StatefsError::Corrupted),
-        }
-    }
-
-    pub fn decode_list_response(frame: &[u8]) -> Result<Vec<String>, StatefsError> {
-        if frame.len() < 7 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
-            return Err(StatefsError::Corrupted);
-        }
-        if frame[3] != (OP_LIST | 0x80) {
-            return Err(StatefsError::Corrupted);
-        }
-        let (count, mut pos) = match frame[2] {
-            VERSION => {
-                if frame.len() < 7 {
-                    return Err(StatefsError::Corrupted);
-                }
-                (u16::from_le_bytes([frame[5], frame[6]]) as usize, 7usize)
-            }
-            VERSION_V2 => {
-                if frame.len() < 15 {
-                    return Err(StatefsError::Corrupted);
-                }
-                (u16::from_le_bytes([frame[13], frame[14]]) as usize, 15usize)
-            }
-            _ => return Err(StatefsError::Corrupted),
-        };
-        let status = frame[4];
-        if status != STATUS_OK {
-            return Err(error_from_status(status));
-        }
-        let mut keys = Vec::with_capacity(count);
-        for _ in 0..count {
-            if pos + 2 > frame.len() {
-                return Err(StatefsError::Corrupted);
-            }
-            let key_len = u16::from_le_bytes([frame[pos], frame[pos + 1]]) as usize;
-            pos += 2;
-            if key_len > MAX_KEY_LEN || pos + key_len > frame.len() {
-                return Err(StatefsError::Corrupted);
-            }
-            let key = str::from_utf8(&frame[pos..pos + key_len])
-                .map_err(|_| StatefsError::Corrupted)?
-                .to_string();
-            pos += key_len;
-            keys.push(key);
-        }
-        Ok(keys)
-    }
-
-    pub fn encode_put_request(key: &str, value: &[u8]) -> Result<Vec<u8>, StatefsError> {
-        if key.len() > MAX_KEY_LEN {
-            return Err(StatefsError::KeyTooLong);
-        }
-        if value.len() > MAX_VALUE_SIZE {
-            return Err(StatefsError::ValueTooLarge);
-        }
-        let mut out = Vec::with_capacity(10 + key.len() + value.len());
-        out.push(MAGIC0);
-        out.push(MAGIC1);
-        out.push(VERSION);
-        out.push(OP_PUT);
-        out.extend_from_slice(&(key.len() as u16).to_le_bytes());
-        out.extend_from_slice(&(value.len() as u32).to_le_bytes());
-        out.extend_from_slice(key.as_bytes());
-        out.extend_from_slice(value);
-        Ok(out)
-    }
-
-    pub fn encode_key_only_request(op: u8, key: &str) -> Result<Vec<u8>, StatefsError> {
-        if key.len() > MAX_KEY_LEN {
-            return Err(StatefsError::KeyTooLong);
-        }
-        let mut out = Vec::with_capacity(6 + key.len());
-        out.push(MAGIC0);
-        out.push(MAGIC1);
-        out.push(VERSION);
-        out.push(op);
-        out.extend_from_slice(&(key.len() as u16).to_le_bytes());
-        out.extend_from_slice(key.as_bytes());
-        Ok(out)
-    }
-
-    pub fn encode_list_request(prefix: &str, limit: u16) -> Result<Vec<u8>, StatefsError> {
-        if prefix.len() > MAX_KEY_LEN {
-            return Err(StatefsError::KeyTooLong);
-        }
-        let limit = if limit == 0 { 1 } else { limit.min(MAX_LIST_LIMIT) };
-        let mut out = Vec::with_capacity(8 + prefix.len());
-        out.push(MAGIC0);
-        out.push(MAGIC1);
-        out.push(VERSION);
-        out.push(OP_LIST);
-        out.extend_from_slice(&(prefix.len() as u16).to_le_bytes());
-        out.extend_from_slice(&limit.to_le_bytes());
-        out.extend_from_slice(prefix.as_bytes());
-        Ok(out)
-    }
-
-    pub fn encode_sync_request() -> Vec<u8> {
-        vec![MAGIC0, MAGIC1, VERSION, OP_SYNC]
-    }
-
-    pub fn encode_reopen_request() -> Vec<u8> {
-        vec![MAGIC0, MAGIC1, VERSION, OP_REOPEN]
-    }
-
-    pub fn status_from_error(err: StatefsError) -> u8 {
-        match err {
-            StatefsError::NotFound => STATUS_NOT_FOUND,
-            StatefsError::AccessDenied => STATUS_ACCESS_DENIED,
-            StatefsError::ValueTooLarge => STATUS_VALUE_TOO_LARGE,
-            StatefsError::KeyTooLong => STATUS_KEY_TOO_LONG,
-            StatefsError::InvalidKey => STATUS_INVALID_KEY,
-            StatefsError::IoError => STATUS_IO_ERROR,
-            StatefsError::Corrupted => STATUS_MALFORMED,
-            StatefsError::ReplayLimitExceeded => STATUS_IO_ERROR,
-            StatefsError::IntegrityViolation => STATUS_INTEGRITY_VIOLATION,
-            StatefsError::RollbackDetected => STATUS_ROLLBACK_DETECTED,
-        }
-    }
-
-    pub fn error_from_status(status: u8) -> StatefsError {
-        match status {
-            STATUS_NOT_FOUND => StatefsError::NotFound,
-            STATUS_ACCESS_DENIED => StatefsError::AccessDenied,
-            STATUS_VALUE_TOO_LARGE => StatefsError::ValueTooLarge,
-            STATUS_KEY_TOO_LONG => StatefsError::KeyTooLong,
-            STATUS_INVALID_KEY => StatefsError::InvalidKey,
-            STATUS_IO_ERROR => StatefsError::IoError,
-            STATUS_MALFORMED | STATUS_UNSUPPORTED => StatefsError::Corrupted,
-            STATUS_INTEGRITY_VIOLATION => StatefsError::IntegrityViolation,
-            STATUS_ROLLBACK_DETECTED => StatefsError::RollbackDetected,
-            _ => StatefsError::Corrupted,
-        }
-    }
-
-    fn decode_put_payload(payload: &[u8]) -> Result<Request<'_>, u8> {
-        // payload: key_len:u16, val_len:u32, key, value
-        if payload.len() < 6 {
-            return Err(STATUS_MALFORMED);
-        }
-        let key_len = u16::from_le_bytes([payload[0], payload[1]]) as usize;
-        let val_len = u32::from_le_bytes([payload[2], payload[3], payload[4], payload[5]]) as usize;
-        if key_len == 0 {
-            return Err(STATUS_MALFORMED);
-        }
-        if key_len > MAX_KEY_LEN {
-            return Err(STATUS_KEY_TOO_LONG);
-        }
-        if val_len > MAX_VALUE_SIZE {
-            return Err(STATUS_VALUE_TOO_LARGE);
-        }
-        let expected = 6usize.saturating_add(key_len).saturating_add(val_len);
-        if payload.len() != expected {
-            return Err(STATUS_MALFORMED);
-        }
-        let key_start = 6;
-        let key_end = key_start + key_len;
-        let key = str::from_utf8(&payload[key_start..key_end]).map_err(|_| STATUS_MALFORMED)?;
-        let value = &payload[key_end..expected];
-        Ok(Request::Put { key, value })
-    }
-
-    fn decode_key_only_payload(payload: &[u8]) -> Result<&str, u8> {
-        // payload: key_len:u16, key
-        if payload.len() < 2 {
-            return Err(STATUS_MALFORMED);
-        }
-        let key_len = u16::from_le_bytes([payload[0], payload[1]]) as usize;
-        if key_len == 0 {
-            return Err(STATUS_MALFORMED);
-        }
-        if key_len > MAX_KEY_LEN {
-            return Err(STATUS_KEY_TOO_LONG);
-        }
-        let expected = 2usize.saturating_add(key_len);
-        if payload.len() != expected {
-            return Err(STATUS_MALFORMED);
-        }
-        let key_start = 2;
-        let key_end = key_start + key_len;
-        str::from_utf8(&payload[key_start..key_end]).map_err(|_| STATUS_MALFORMED)
-    }
-
-    fn decode_list_payload(payload: &[u8]) -> Result<Request<'_>, u8> {
-        // payload: prefix_len:u16, limit:u16, prefix
-        if payload.len() < 4 {
-            return Err(STATUS_MALFORMED);
-        }
-        let prefix_len = u16::from_le_bytes([payload[0], payload[1]]) as usize;
-        let limit = u16::from_le_bytes([payload[2], payload[3]]);
-        if prefix_len > MAX_KEY_LEN {
-            return Err(STATUS_KEY_TOO_LONG);
-        }
-        let expected = 4usize.saturating_add(prefix_len);
-        if payload.len() != expected {
-            return Err(STATUS_MALFORMED);
-        }
-        let prefix = str::from_utf8(&payload[4..expected]).map_err(|_| STATUS_MALFORMED)?;
-        let limit = if limit == 0 { 1 } else { limit.min(MAX_LIST_LIMIT) };
-        Ok(Request::List { prefix, limit })
-    }
-}
+pub mod protocol;
 
 #[cfg(all(feature = "ipc-client", nexus_env = "os"))]
 pub mod client;
+pub mod compact;
 pub mod derive;
 pub mod envelope;
+pub mod fsck;
+pub mod journal_v2;
 pub mod writer;
+
+pub use compact::{CompactionConfig, CompactionStats};
+pub use fsck::{fsck, FsckFault, FsckOutcome, FsckReport, JournalLayout, FSCK_BLOCK_SIZE};
+pub use journal_v2::JournalOpCode;
+
+use journal_v2::TxnTable;
+
 // ============================================================================
-// Journal Record Format
+// Journal Record Format (byte layouts: journal_v2.rs; framing is frozen v1)
 // ============================================================================
-
-/// Journal operation codes
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum JournalOpCode {
-    Put = 0x01,
-    Delete = 0x02,
-    Checkpoint = 0x03,
-}
-
-impl JournalOpCode {
-    fn from_u8(v: u8) -> Option<Self> {
-        match v {
-            0x01 => Some(Self::Put),
-            0x02 => Some(Self::Delete),
-            0x03 => Some(Self::Checkpoint),
-            _ => None,
-        }
-    }
-}
-
-/// A parsed journal record
-#[derive(Debug, Clone)]
-struct JournalRecord {
-    op: JournalOpCode,
-    key: String,
-    value: Vec<u8>,
-}
 
 /// Compute CRC32-C (Castagnoli) over data.
-fn crc32c(data: &[u8]) -> u32 {
+pub(crate) fn crc32c(data: &[u8]) -> u32 {
     let mut crc: u32 = 0xFFFF_FFFF;
     for &byte in data {
         crc ^= byte as u32;
@@ -675,139 +142,70 @@ fn crc32c(data: &[u8]) -> u32 {
     !crc
 }
 
-/// Serialize a journal record to bytes (including CRC32).
-fn serialize_record(op: JournalOpCode, key: &str, value: &[u8]) -> Vec<u8> {
-    let key_bytes = key.as_bytes();
-    let key_len = key_bytes.len() as u16;
-    let value_len = value.len() as u32;
-
-    // Calculate total size: header + key + value + crc
-    let total_len = RECORD_HEADER_SIZE + key_bytes.len() + value.len();
-    let mut buf = vec![0u8; total_len];
-
-    // Magic (4 bytes, little-endian)
-    buf[0..4].copy_from_slice(&JOURNAL_MAGIC.to_le_bytes());
-
-    // OpCode (1 byte)
-    buf[4] = op as u8;
-
-    // KeyLen (2 bytes, little-endian)
-    buf[5..7].copy_from_slice(&key_len.to_le_bytes());
-
-    // ValueLen (4 bytes, little-endian)
-    buf[7..11].copy_from_slice(&value_len.to_le_bytes());
-
-    // Key
-    let key_start = 11;
-    let key_end = key_start + key_bytes.len();
-    buf[key_start..key_end].copy_from_slice(key_bytes);
-
-    // Value
-    let value_start = key_end;
-    let value_end = value_start + value.len();
-    buf[value_start..value_end].copy_from_slice(value);
-
-    // CRC32 over [magic..value] (everything except the CRC itself)
-    let crc = crc32c(&buf[..value_end]);
-    buf[value_end..value_end + 4].copy_from_slice(&crc.to_le_bytes());
-
-    buf
-}
-
-/// Try to parse a journal record from a byte slice.
-/// Returns (record, bytes_consumed) on success.
-fn parse_record(data: &[u8]) -> Result<Option<(JournalRecord, usize)>, StatefsError> {
-    // Need at least header size
-    if data.len() < RECORD_HEADER_SIZE {
-        return Ok(None);
-    }
-
-    // Check magic
-    let magic = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-    if magic != JOURNAL_MAGIC {
-        // Not a valid record start; might be end of journal
-        return Ok(None);
-    }
-
-    // Parse header
-    let op_byte = data[4];
-    let op = JournalOpCode::from_u8(op_byte).ok_or(StatefsError::Corrupted)?;
-
-    let key_len = u16::from_le_bytes([data[5], data[6]]) as usize;
-    let value_len = u32::from_le_bytes([data[7], data[8], data[9], data[10]]) as usize;
-
-    // Validate lengths
-    if key_len > MAX_KEY_LEN {
-        return Err(StatefsError::Corrupted);
-    }
-    if value_len > MAX_VALUE_SIZE {
-        return Err(StatefsError::Corrupted);
-    }
-
-    let total_len = RECORD_HEADER_SIZE + key_len + value_len;
-    if data.len() < total_len {
-        // Truncated record
-        return Ok(None);
-    }
-
-    // Extract key and value
-    let key_start = 11;
-    let key_end = key_start + key_len;
-    let key_bytes = &data[key_start..key_end];
-
-    let value_start = key_end;
-    let value_end = value_start + value_len;
-    let value = &data[value_start..value_end];
-
-    // Verify CRC
-    let crc_start = value_end;
-    if data.len() < crc_start + 4 {
-        return Ok(None);
-    }
-    let stored_crc = u32::from_le_bytes([
-        data[crc_start],
-        data[crc_start + 1],
-        data[crc_start + 2],
-        data[crc_start + 3],
-    ]);
-    let computed_crc = crc32c(&data[..value_end]);
-    if stored_crc != computed_crc {
-        return Err(StatefsError::Corrupted);
-    }
-
-    // Parse key as UTF-8
-    let key = core::str::from_utf8(key_bytes).map_err(|_| StatefsError::Corrupted)?.into();
-
-    Ok(Some((JournalRecord { op, key, value: value.to_vec() }, total_len)))
-}
-
 // ============================================================================
 // JournalEngine
 // ============================================================================
 
 /// Journaled key-value store engine.
+///
+/// Layout on the device (detected at open, see `compact::detect_layout`):
+/// - legacy v1: records from block 0 over the whole device (generation 0);
+/// - v2 (post-compaction): block 0 = `NXS2` superblock, records in the
+///   active half of an A/B region split (generation >= 1).
 pub struct JournalEngine<B: BlockDevice> {
     device: B,
     /// In-memory key-value map (populated from journal replay)
     kv: BTreeMap<String, Vec<u8>>,
-    /// Current write position in the journal (byte offset)
+    /// Current write position, in bytes RELATIVE to the region start
     write_pos: usize,
-    /// Number of records replayed (for bounded replay check)
+    /// Number of records replayed/appended (for bounded replay check)
     record_count: usize,
+    /// Records scanned by the most recent replay (incremental-replay proof)
+    replayed_count: usize,
+    /// Anomalies (orphaned txn records) seen by the most recent replay
+    replay_orphans: usize,
+    /// First device block of the live journal region (0 = legacy layout)
+    region_first_block: u64,
+    /// Number of blocks in the live journal region
+    region_block_count: u64,
+    /// Journal generation (0 until the first compaction)
+    generation: u32,
+    /// Next transaction id (max id ever seen + 1; ids are never reused)
+    next_txn: u64,
+    /// Open (prepared, uncommitted) transactions — bounded, see journal_v2
+    txns: TxnTable,
+    /// Compaction thresholds and per-cycle work bounds
+    compaction: CompactionConfig,
 }
 
 impl<B: BlockDevice> JournalEngine<B> {
     /// Create a new journal engine and replay existing journal from device.
     pub fn open(device: B) -> Result<Self, StatefsError> {
-        let mut engine = Self { device, kv: BTreeMap::new(), write_pos: 0, record_count: 0 };
+        let mut engine = Self {
+            device,
+            kv: BTreeMap::new(),
+            write_pos: 0,
+            record_count: 0,
+            replayed_count: 0,
+            replay_orphans: 0,
+            region_first_block: 0,
+            region_block_count: 0,
+            generation: 0,
+            next_txn: 1,
+            txns: TxnTable::new(),
+            compaction: CompactionConfig::default(),
+        };
+        engine.detect_layout()?;
         engine.replay()?;
         Ok(engine)
     }
 
-    /// Replay journal from device into in-memory KV map.
+    /// Replay the live journal region into the in-memory KV map.
+    /// Committed-only 2PC semantics live in `journal_v2::Replayer`; this
+    /// loop only streams region blocks and frames records.
     fn replay(&mut self) -> Result<(), StatefsError> {
         let block_size = self.device.block_size();
-        let block_count = self.device.block_count();
+        let block_count = self.region_block_count;
 
         // Stream journal replay to avoid large allocations in os-lite builds.
         let mut block_buf = vec![0u8; block_size];
@@ -815,9 +213,12 @@ impl<B: BlockDevice> JournalEngine<B> {
         let mut buf_len = 0usize;
         let mut file_pos = 0usize;
         let mut done = false;
+        let mut replayer = journal_v2::Replayer::new();
 
         for block_idx in 0..block_count {
-            self.device.read_block(block_idx, &mut block_buf).map_err(|_| StatefsError::IoError)?;
+            self.device
+                .read_block(self.region_first_block + block_idx, &mut block_buf)
+                .map_err(|_| StatefsError::IoError)?;
 
             if buf_len + block_size > buf.len() {
                 buf.resize(buf_len + block_size, 0);
@@ -845,17 +246,9 @@ impl<B: BlockDevice> JournalEngine<B> {
                         break;
                     }
                 }
-                match parse_record(&buf[pos..buf_len]) {
+                match journal_v2::parse_record(&buf[pos..buf_len]) {
                     Ok(Some((record, consumed))) => {
-                        match record.op {
-                            JournalOpCode::Put => {
-                                self.kv.insert(record.key, record.value);
-                            }
-                            JournalOpCode::Delete => {
-                                self.kv.remove(&record.key);
-                            }
-                            JournalOpCode::Checkpoint => {}
-                        }
+                        replayer.apply(&mut self.kv, record);
                         pos += consumed;
                         file_pos = file_pos.saturating_add(consumed);
                         self.record_count += 1;
@@ -887,8 +280,24 @@ impl<B: BlockDevice> JournalEngine<B> {
             return Err(StatefsError::ReplayLimitExceeded);
         }
 
+        // Prepared-without-commit tails are discarded here; discarded txn
+        // ids stay burned (never reused).
+        let outcome = replayer.finish();
+        self.next_txn = core::cmp::max(self.next_txn, outcome.next_txn);
+        // Superblock generation is the SSOT; the checkpoint record inside
+        // the region carries the same number (fsck cross-check).
+        self.generation = core::cmp::max(self.generation, outcome.generation);
+        self.replay_orphans = outcome.orphans;
+        self.replayed_count = self.record_count;
         self.write_pos = file_pos;
         Ok(())
+    }
+
+    /// Anomalies (orphaned/ignored transaction records) seen by the most
+    /// recent replay. Informational — feeds the future `fsck-statefs`
+    /// orphan detection; a nonzero count is not an error.
+    pub fn replay_orphans(&self) -> usize {
+        self.replay_orphans
     }
 
     /// Validate a key path.
@@ -910,23 +319,23 @@ impl<B: BlockDevice> JournalEngine<B> {
         Ok(())
     }
 
-    /// Write a record to the journal and update in-memory state.
-    fn append_record(
-        &mut self,
-        op: JournalOpCode,
-        key: &str,
-        value: &[u8],
-    ) -> Result<(), StatefsError> {
-        let record_bytes = serialize_record(op, key, value);
+    /// Write a serialized record to the journal (region-relative append).
+    ///
+    /// Zeroed-tail invariant: the bytes past the new write head, through the
+    /// end of the FOLLOWING block, are always zero — so replay stops exactly
+    /// at the head and stale records from an earlier generation of a reused
+    /// region can never be resurrected. Bounded: at most one extra block
+    /// write per append (only when a record ends exactly on a block edge).
+    pub(crate) fn append_bytes(&mut self, record_bytes: &[u8]) -> Result<(), StatefsError> {
         let block_size = self.device.block_size();
 
-        // Calculate which blocks to write
+        // Calculate which region blocks to write
         let start_block = self.write_pos / block_size;
         let end_byte = self.write_pos + record_bytes.len();
         let end_block = end_byte.div_ceil(block_size);
 
-        // Check if we have space
-        if end_block as u64 > self.device.block_count() {
+        // Check if we have space in the live region
+        if end_block as u64 > self.region_block_count {
             return Err(StatefsError::IoError);
         }
 
@@ -935,10 +344,9 @@ impl<B: BlockDevice> JournalEngine<B> {
         let mut record_offset = 0;
 
         for block_idx in start_block..end_block {
+            let device_block = self.region_first_block + block_idx as u64;
             // Read existing block
-            self.device
-                .read_block(block_idx as u64, &mut buf)
-                .map_err(|_| StatefsError::IoError)?;
+            self.device.read_block(device_block, &mut buf).map_err(|_| StatefsError::IoError)?;
 
             // Calculate what portion of the record goes in this block
             let block_start_byte = block_idx * block_size;
@@ -953,13 +361,38 @@ impl<B: BlockDevice> JournalEngine<B> {
                 .copy_from_slice(&record_bytes[record_offset..record_offset + record_chunk_len]);
             record_offset += record_chunk_len;
 
+            // Zeroed-tail: scrub stale bytes after the record in its last block.
+            if block_idx + 1 == end_block && write_end < block_size {
+                buf[write_end..].fill(0);
+            }
+
             // Write block back
-            self.device.write_block(block_idx as u64, &buf).map_err(|_| StatefsError::IoError)?;
+            self.device.write_block(device_block, &buf).map_err(|_| StatefsError::IoError)?;
+        }
+
+        // Record ends exactly on a block edge: zero the next block so the
+        // head is always followed by non-record bytes.
+        if end_byte % block_size == 0 && (end_block as u64) < self.region_block_count {
+            buf.fill(0);
+            self.device
+                .write_block(self.region_first_block + end_block as u64, &buf)
+                .map_err(|_| StatefsError::IoError)?;
         }
 
         self.write_pos = end_byte;
         self.record_count += 1;
         Ok(())
+    }
+
+    /// Serialize and append one record.
+    fn append_record(
+        &mut self,
+        op: JournalOpCode,
+        key: &str,
+        value: &[u8],
+    ) -> Result<(), StatefsError> {
+        let record_bytes = journal_v2::encode_record(op, key, value);
+        self.append_bytes(&record_bytes)
     }
 
     /// Put a key-value pair.
@@ -1016,11 +449,22 @@ impl<B: BlockDevice> JournalEngine<B> {
     }
 
     /// Reopen the journal by replaying from the current device.
+    /// Open transactions are discarded (crash-equivalent restart).
     pub fn reopen(&mut self) -> Result<(), StatefsError> {
         self.kv.clear();
         self.write_pos = 0;
         self.record_count = 0;
+        self.replayed_count = 0;
+        self.replay_orphans = 0;
+        self.txns.clear();
+        self.detect_layout()?;
         self.replay()
+    }
+
+    /// Consume the engine and return the underlying device (test harnesses,
+    /// offline tooling).
+    pub fn into_device(self) -> B {
+        self.device
     }
 
     /// Get the number of keys in the store.
@@ -1353,8 +797,8 @@ mod tests {
     #[test]
     fn test_truncated_tail_stops_replay() {
         let mut device = MemBlockDevice::new(64, 4);
-        let record_a = serialize_record(JournalOpCode::Put, "/state/test/a", b"one");
-        let record_b = serialize_record(JournalOpCode::Put, "/state/test/b", b"two");
+        let record_a = journal_v2::encode_record(JournalOpCode::Put, "/state/test/a", b"one");
+        let record_b = journal_v2::encode_record(JournalOpCode::Put, "/state/test/b", b"two");
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&record_a);
         bytes.extend_from_slice(&record_b);
@@ -1377,8 +821,9 @@ mod tests {
     fn test_partial_record_boundary_replay() {
         let mut device = MemBlockDevice::new(512, 6);
         let large_value = vec![0x11u8; 1300];
-        let record_large = serialize_record(JournalOpCode::Put, "/state/test/large", &large_value);
-        let record_tail = serialize_record(JournalOpCode::Put, "/state/test/tail", b"ok");
+        let record_large =
+            journal_v2::encode_record(JournalOpCode::Put, "/state/test/large", &large_value);
+        let record_tail = journal_v2::encode_record(JournalOpCode::Put, "/state/test/tail", b"ok");
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&record_large);
         bytes.extend_from_slice(&record_tail);

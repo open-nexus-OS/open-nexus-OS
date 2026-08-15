@@ -154,6 +154,31 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             emit_line(crate::markers::M_SELFTEST_STATEFS_TAMPER_DENY_FAIL);
             emit_line(crate::markers::M_SELFTEST_STATEFS_ROLLBACK_DENY_FAIL);
         }
+        // TASK-0026 journal v2: crash-atomic 2PC over the txn wire ops,
+        // bounded compaction under real churn (compaction-done line
+        // cross-checked via logd), then the keep-blk cold-boot sentinel
+        // (ok only ever on a second boot against a preserved image).
+        if services::statefs_v2::statefs_txn_crash_atomic(&statefsd).is_ok() {
+            emit_line(crate::markers::M_SELFTEST_STATEFS_V2_CRASH_ATOMIC_OK);
+        } else {
+            emit_line(crate::markers::M_SELFTEST_STATEFS_V2_CRASH_ATOMIC_FAIL);
+        }
+        if services::statefs_v2::statefs_compact_churn(&statefsd).is_ok() {
+            emit_line(crate::markers::M_SELFTEST_STATEFS_V2_COMPACT_OK);
+        } else {
+            emit_line(crate::markers::M_SELFTEST_STATEFS_V2_COMPACT_FAIL);
+        }
+        match services::statefs_v2::statefs_cold_boot(&statefsd) {
+            Ok(services::statefs_v2::ColdBoot::Present) => {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_COLD_BOOT_PERSIST_OK);
+            }
+            Ok(services::statefs_v2::ColdBoot::Seeded) => {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_COLD_BOOT_SEEDED);
+            }
+            Err(()) => {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_COLD_BOOT_PERSIST_FAIL);
+            }
+        }
     } else {
         emit_line(crate::markers::M_SELFTEST_STATEFS_PUT_FAIL);
         emit_line(crate::markers::M_SELFTEST_STATEFS_UNAUTHORIZED_ACCESS_REJECTED_FAIL);
@@ -161,6 +186,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_STATEFS_AUTH_PUT_FAIL);
         emit_line(crate::markers::M_SELFTEST_STATEFS_TAMPER_DENY_FAIL);
         emit_line(crate::markers::M_SELFTEST_STATEFS_ROLLBACK_DENY_FAIL);
+        emit_line(crate::markers::M_SELFTEST_STATEFS_V2_CRASH_ATOMIC_FAIL);
+        emit_line(crate::markers::M_SELFTEST_STATEFS_V2_COMPACT_FAIL);
+        emit_line(crate::markers::M_SELFTEST_STATEFS_COLD_BOOT_PERSIST_FAIL);
     }
     if let Some(pubkey) = device_pubkey {
         if probes::device_key::device_key_reload_and_check(&pubkey).is_ok() {

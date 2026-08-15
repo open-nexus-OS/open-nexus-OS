@@ -77,14 +77,14 @@ const BLOCK_SIZE: usize = 512;
 const BLOCK_COUNT: u64 = 64;
 const MAX_LIST_RESPONSE_BYTES: usize = 512;
 const IPC_MAX_FRAME_BYTES: usize = 8 * 1024;
-const MAX_INLINE_VALUE_BYTES: usize = IPC_MAX_FRAME_BYTES - 64;
+pub(crate) const MAX_INLINE_VALUE_BYTES: usize = IPC_MAX_FRAME_BYTES - 64;
 
 const CAP_READ: &str = "statefs.read";
-const CAP_WRITE: &str = "statefs.write";
+pub(crate) const CAP_WRITE: &str = "statefs.write";
 const CAP_KEYSTORE: &str = "statefs.keystore";
-const CAP_BOOT: &str = "statefs.boot";
+pub(crate) const CAP_BOOT: &str = "statefs.boot";
 
-enum Backend {
+pub(crate) enum Backend {
     Virtio(VirtioBlkDevice),
     Mem(MemBlockDevice),
 }
@@ -126,15 +126,16 @@ impl BlockDevice for Backend {
     }
 }
 
-/// TASK-0025 write-path hardening state carried by the serve loop.
-struct Hardening {
+/// TASK-0025 write-path hardening state carried by the serve loop
+/// (shared with the txn glue in `txn_os.rs`, TASK-0026).
+pub(crate) struct Hardening {
     /// Per-key max-seen seq (anti-rollback), fed at replay + on accepted puts.
-    tracker: SeqTracker,
+    pub(crate) tracker: SeqTracker,
     /// Deterministic write-latency budget (warn accounting to audit/log).
     budget: WriteBudget,
     /// Lazily derived envelope MAC key (chicken-egg rule: Integrity-class
     /// prefixes are served before keystored has generated the device key).
-    key: Option<EnvelopeKey>,
+    pub(crate) key: Option<EnvelopeKey>,
 }
 
 impl Hardening {
@@ -146,7 +147,7 @@ impl Hardening {
 /// Lazily derive (and cache) the envelope MAC key from the persisted
 /// device-key record. Returns None until keystored has generated it —
 /// Authenticated-class ops fail closed until then.
-fn envelope_mac_key<'a>(
+pub(crate) fn envelope_mac_key<'a>(
     engine: &JournalEngine<Backend>,
     cached: &'a mut Option<EnvelopeKey>,
 ) -> Option<&'a EnvelopeKey> {
@@ -240,6 +241,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 return Err(ServerError::Unsupported);
             }
         };
+    // TASK-0026: journal v2 (2PC committed-only replay + bounded compaction)
+    // is active on every successful open of this engine — emitted once,
+    // only after open() actually succeeded above.
+    emit_line("statefsd: journal v2 mounted (2PC)");
     // Track whether we've processed any mutating operations yet. We'll only "upgrade"
     // to the virtio-blk backend while still pristine, to avoid losing in-memory state.
     let mut pristine = true;
@@ -303,7 +308,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     if matches!(
                         op,
                         proto::OP_PUT | proto::OP_DEL | proto::OP_SYNC | proto::OP_REOPEN
-                    ) {
+                    ) || proto::txn::is_txn_op(op)
+                    {
                         pristine = false;
                     }
                 }
@@ -316,6 +322,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         emit_line("statefsd: send fail");
                     }
                 }
+                // TASK-0026: between-requests compaction opportunity (the
+                // tick itself defers while transactions are open; the done
+                // marker is emitted only after a reopen-verified cycle).
+                crate::txn_os::compaction_tick(&mut engine);
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 let _ = yield_();
@@ -354,6 +364,11 @@ fn handle_frame(
     frame: &[u8],
 ) -> Vec<u8> {
     let op_hint = frame.get(3).copied().unwrap_or(proto::OP_GET);
+    // TASK-0026: transaction ops (7–10) are decoded and served by the txn
+    // glue (same policy authority, envelope hardening at TXN_PUT time).
+    if proto::txn::is_txn_op(op_hint) {
+        return crate::txn_os::handle_txn_frame(engine, hard, sender_service_id, frame);
+    }
     let (request, nonce) = match proto::decode_request_with_nonce(frame) {
         Ok(v) => v,
         Err(status) => return proto::encode_status_response_with_nonce(op_hint, status, None),
@@ -584,7 +599,7 @@ fn required_cap(op: u8, path: &str) -> &'static str {
     }
 }
 
-fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
+pub(crate) fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
     // RFC-0066: the shared CAP_MOVE policy check (nexus_ipc::policyd::check_cap_on)
     // over statefsd's init-wired policyd slots (send=7, @reply recv=5/send=6) —
     // behaviour-preserving; the ~90-line hand-rolled copy was removed.

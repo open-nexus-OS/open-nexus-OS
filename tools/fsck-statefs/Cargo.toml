@@ -1,0 +1,13 @@
+[package]
+name = "fsck-statefs"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Offline fsck for statefs journal images (TASK-0026): validate v1/v2 layouts, detect orphaned transactions, and optionally repair by appending ABORT records. Exit codes: 0 clean, 1 repaired/orphan, 2 unrecoverable."
+
+[dependencies]
+statefs = { path = "../../userspace/statefs" }
+storage = { path = "../../userspace/storage", default-features = false }
+
+[lints.rust]
+unsafe_code = "forbid"

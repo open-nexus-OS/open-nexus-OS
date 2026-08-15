@@ -405,6 +405,18 @@ phase = "bringup"
 phase = "bringup"
 proves = "TASK-0025: envelope policy table active + replay-fed anti-rollback tracker initialized before the first served frame (key derivation is lazy by contract)"
 
+[marker."statefsd: journal v2 mounted (2PC)"]
+phase = "bringup"
+proves = "TASK-0026: the journal opened with v2 semantics active (committed-only 2PC replay + bounded compaction) — emitted once, only after a successful open()"
+
+[marker."statefsd: compaction done (gen="]
+phase = "bringup"
+proves = "TASK-0026: one bounded compaction cycle completed AND the rotated journal re-replayed clean (statefsd reopen-verifies generation + live-entry count against the cycle stats before emitting; also audited to logd for the selftest cross-check)"
+
+[marker."statefsd: compaction verify failed"]
+phase = "bringup"
+proves = "TASK-0026 failure signature: a compaction cycle ran (or errored) but the post-cycle reopen-verify did not come back clean — the done marker is withheld"
+
 [marker."updated: ready (statefs)"]
 phase = "bringup"
 
@@ -865,6 +877,31 @@ proves = "TASK-0025: a bit-flipped (structurally valid, MAC-broken) envelope is 
 
 [marker."SELFTEST: statefs tamper deny FAIL"]
 phase = "bringup"
+
+[marker."SELFTEST: statefs v2 crash-atomic ok"]
+phase = "bringup"
+proves = "TASK-0026: 2PC over the txn wire ops — an aborted transaction leaves neither key visible (also invisible before commit); a committed two-key transaction stays both-visible after the protocol Reopen re-replayed the journal"
+
+[marker."SELFTEST: statefs v2 crash-atomic FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs v2 compact ok"]
+phase = "bringup"
+proves = "TASK-0026: bounded overwrite churn crossed statefsd's default compaction threshold, the service's reopen-verified 'compaction done' line was cross-checked via logd, and every churn key carried its last-written value after Reopen"
+
+[marker."SELFTEST: statefs v2 compact FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs cold-boot persist ok"]
+phase = "bringup"
+proves = "TASK-0026/ADR-0044: the cold-boot sentinel written on an earlier boot was replayed from a PRESERVED block image (NEXUS_KEEP_BLK=1 second boot) — real cold-boot durability, not soft-reboot replay"
+
+[marker."SELFTEST: statefs cold-boot persist FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs cold-boot seeded"]
+phase = "bringup"
+proves = "TASK-0026: sentinel was absent — seeded + synced for the next boot (informational; never the ok marker on the boot that wrote it)"
 
 [marker."SELFTEST: statefs unauthorized access rejected FAIL"]
 phase = "bringup"

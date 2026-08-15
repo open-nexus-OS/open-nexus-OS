@@ -66,6 +66,32 @@ pub(crate) fn emit_budget_warn(warn_count: u64, elapsed_ns: u64) {
     append_logd_audit(msg.as_bytes());
 }
 
+/// TASK-0026: one compaction cycle completed AND the rotated journal
+/// re-replayed clean (reopen-verified by the caller — never emitted on the
+/// engine flip alone). Also audited to logd so the selftest can cross-check
+/// that compaction really ran. Marker contract: scripts/qemu-test.sh.
+pub(crate) fn emit_compaction_done(generation: u32, entries: usize) {
+    let mut buf = [0u8; 96];
+    let mut len = 0usize;
+    let _ = push_bytes(&mut buf, &mut len, b"statefsd: compaction done (gen=");
+    push_u32(&mut buf, &mut len, generation);
+    let _ = push_bytes(&mut buf, &mut len, b", entries=");
+    push_u64(&mut buf, &mut len, entries as u64);
+    let _ = push_bytes(&mut buf, &mut len, b")");
+    let msg = core::str::from_utf8(&buf[..len]).unwrap_or("statefsd: compaction done");
+    emit_line(msg);
+    append_logd_audit(msg.as_bytes());
+}
+
+/// TASK-0026: a compaction cycle ran (or errored) but the post-cycle
+/// reopen-verify did not come back clean — loud failure signature, the done
+/// marker is withheld.
+pub(crate) fn emit_compaction_verify_failed() {
+    let msg = "statefsd: compaction verify failed";
+    emit_line(msg);
+    append_logd_audit(msg.as_bytes());
+}
+
 pub(crate) fn emit_line(message: &str) {
     // RFC-0068: fold routine markers into recall (interactive); failures & proof print raw.
     // One atomic `debug_write` (via `debug_println`, which also owns the verdict
