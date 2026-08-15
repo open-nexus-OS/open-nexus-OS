@@ -101,6 +101,23 @@ cargo run -p nx -- inspect nxb path/to/bundle.nxb --json
   - evaluates via the shared policy crate and returns bounded explain trace data
 - `nx policy mode --set enforce|dry-run|learn --observed-version <ver> --actor-service-id <id> --authorized [--json]`
   - validates host-side mode transition preconditions as preflight only; stale or unauthorized requests fail closed, and no live daemon mode is changed by this host command
+- `nx crash ls [--dir <path>] [--json]`
+  - lists dumps in a directory (`.nxcd`, `.nxcd.zst` canonical, legacy `.nmd`),
+    sorted deterministically; corrupt dumps are reported as `valid: false`
+    instead of aborting the listing
+- `nx crash show <file> [--sym <symbols.nxsym>] [--json]`
+  - decodes one dump (decompressing / converting as needed) and prints header,
+    frames, and modules; with `--sym`, frames are symbolized via the Build-ID
+    carried in the dump (see `docs/reliability/crashdump-v2.md`)
+- `nx crash export <file> -o <out.nxcd[.zst]> [--json]`
+  - re-encodes any supported dump into the canonical `.nxcd.zst` artifact
+    (or plain `.nxcd`); other output extensions are rejected
+- `nx crash purge [--dir <path>] [--max-bytes <N>] [--max-count <N>] [--dry-run] [--json]`
+  - deterministic GC: keeps the newest dumps that fit both budgets, deletes the
+    rest; invalid dump files are never deleted by budget logic, only reported
+- `nx crash grep <pattern> [--dir <path>] [--json]`
+  - substring search over header fields, frames, modules, and the textual
+    log/span sections; prints matching dump ids
 
 ## Postflight topic extension contract
 
@@ -119,4 +136,4 @@ Current live-input topic:
 
 ## Subcommand extension contract
 
-Future topics (`nx crash`, `nx sdk`, `nx diagnose`, `nx sec`) must extend `tools/nx` as subcommands. Do not introduce separate `nx-*` binaries.
+Future topics (`nx sdk`, `nx diagnose`, `nx sec`) must extend `tools/nx` as subcommands. Do not introduce separate `nx-*` binaries. `nx crash` (TASK-0048) follows this contract; `nxsym` is a separate binary because it is a symbol indexer, not an `nx` topic shim.

@@ -516,7 +516,6 @@ const STATUS_DENY: u8 = 5;
 // Device identity key status codes
 const STATUS_KEY_EXISTS: u8 = 10;
 const STATUS_KEY_NOT_FOUND: u8 = 11;
-#[allow(dead_code)] // Used in test_reject_device_key_private_export
 const STATUS_PRIVATE_EXPORT_DENIED: u8 = 12;
 
 const MAX_KEY_LEN: usize = 64;
@@ -847,13 +846,11 @@ where
     }
 }
 
-/// Handle DEVICE_SIGN request.
-/// Signs a payload with the device's private key.
-///
-/// # Security
-/// - Policy-gated via `crypto.sign` capability
-/// - Private key NEVER leaves keystored
-/// - Only signature is returned
+/// Handle DEVICE_SIGN: signs a payload with the device's private key.
+/// Policy-gated (TASK-0025 rule in `statefs::derive::device_sign_allowed`):
+/// the exact envelope-derivation label needs `crypto.derive.statefs` (or
+/// `crypto.sign`); any other payload needs full `crypto.sign`. The private
+/// key never leaves keystored; identity is the kernel IPC sender.
 fn handle_device_sign(
     pending: &mut ReplyBuffer<16, 512>,
     device_keypair: &mut DeviceKeyPair,
@@ -875,8 +872,11 @@ fn handle_device_sign(
         return rsp(OP_DEVICE_SIGN, STATUS_MALFORMED, &[]);
     }
 
-    // Policy check: caller must have crypto.sign capability
-    if !policyd_allows(pending, sender_service_id, b"crypto.sign") {
+    let payload = &frame[HEADER_LEN..expected];
+    let allowed = statefs::derive::device_sign_allowed(payload, |cap| {
+        policyd_allows(pending, sender_service_id, cap.as_bytes())
+    });
+    if !allowed {
         return rsp(OP_DEVICE_SIGN, STATUS_DENY, &[]);
     }
 
@@ -890,16 +890,13 @@ fn handle_device_sign(
         return rsp(OP_DEVICE_SIGN, STATUS_KEY_NOT_FOUND, &[]);
     }
 
-    let payload = &frame[HEADER_LEN..expected];
     match device_keypair.sign(payload) {
         Some(signature) => rsp(OP_DEVICE_SIGN, STATUS_OK, &signature),
         None => rsp(OP_DEVICE_SIGN, STATUS_KEY_NOT_FOUND, &[]),
     }
 }
 
-/// Handle GET_DEVICE_PRIVKEY request.
-///
-/// This operation is intentionally unsupported: private key export is forbidden.
+/// GET_DEVICE_PRIVKEY is intentionally unsupported: private-key export is forbidden.
 fn handle_get_device_privkey() -> Vec<u8> {
     rsp(OP_GET_DEVICE_PRIVKEY, STATUS_PRIVATE_EXPORT_DENIED, &[])
 }
@@ -1051,6 +1048,8 @@ fn status_from_statefs_error(err: StatefsError) -> u8 {
         StatefsError::ValueTooLarge | StatefsError::KeyTooLong => STATUS_TOO_LARGE,
         StatefsError::InvalidKey | StatefsError::Corrupted => STATUS_MALFORMED,
         StatefsError::IoError | StatefsError::ReplayLimitExceeded => STATUS_UNSUPPORTED,
+        // TASK-0025 envelope refusals (integrity/anti-rollback) => deny.
+        StatefsError::IntegrityViolation | StatefsError::RollbackDetected => STATUS_DENY,
     }
 }
 

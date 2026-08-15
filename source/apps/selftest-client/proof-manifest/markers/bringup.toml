@@ -401,6 +401,10 @@ phase = "bringup"
 [marker."statefsd: ready"]
 phase = "bringup"
 
+[marker."statefsd: write hardening on (auth-envelope)"]
+phase = "bringup"
+proves = "TASK-0025: envelope policy table active + replay-fed anti-rollback tracker initialized before the first served frame (key derivation is lazy by contract)"
+
 [marker."updated: ready (statefs)"]
 phase = "bringup"
 
@@ -772,6 +776,13 @@ phase = "bringup"
 [marker."SELFTEST: samgrd v1 unknown FAIL"]
 phase = "bringup"
 
+[marker."SELFTEST: statefs auth put ok"]
+phase = "bringup"
+proves = "TASK-0025: HMAC-enveloped put under the Authenticated-mandatory prefix accepted by statefsd (verify-on-put) and read back with a client-verified MAC + identical payload"
+
+[marker."SELFTEST: statefs auth put FAIL"]
+phase = "bringup"
+
 [marker."SELFTEST: statefs persist begin"]
 phase = "bringup"
 
@@ -817,6 +828,13 @@ phase = "bringup"
 [marker."SELFTEST: statefs recv timeout"]
 phase = "bringup"
 
+[marker."SELFTEST: statefs rollback deny ok"]
+phase = "bringup"
+proves = "TASK-0025: a validly MAC'd envelope with a stale seq is rejected with STATUS_ROLLBACK_DETECTED (anti-rollback high-water mark)"
+
+[marker."SELFTEST: statefs rollback deny FAIL"]
+phase = "bringup"
+
 [marker."SELFTEST: statefs send disconnected"]
 phase = "bringup"
 
@@ -839,6 +857,13 @@ phase = "bringup"
 phase = "bringup"
 
 [marker."SELFTEST: statefs send would-block"]
+phase = "bringup"
+
+[marker."SELFTEST: statefs tamper deny ok"]
+phase = "bringup"
+proves = "TASK-0025: a bit-flipped (structurally valid, MAC-broken) envelope is rejected with STATUS_INTEGRITY_VIOLATION and never reaches the journal"
+
+[marker."SELFTEST: statefs tamper deny FAIL"]
 phase = "bringup"
 
 [marker."SELFTEST: statefs unauthorized access rejected FAIL"]

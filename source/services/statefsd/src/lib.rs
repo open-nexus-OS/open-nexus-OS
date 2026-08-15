@@ -18,9 +18,16 @@
 extern crate alloc;
 
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
+mod emit_os;
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod os_lite;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 pub use os_lite::*;
+
+// Write-path hardening v1 (TASK-0025): cfg-free verification/derivation
+// logic shared by the OS serve loop and the host contract tests.
+#[cfg(any(feature = "std", all(feature = "os-lite", nexus_env = "os")))]
+pub mod hardening;
 
 #[cfg(not(all(feature = "os-lite", nexus_env = "os")))]
 mod std_server;

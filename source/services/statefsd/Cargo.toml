@@ -24,10 +24,17 @@ stack_pages = 0
 
 [dependencies]
 statefs = { path = "../../../userspace/statefs", optional = true, default-features = false }
+# TASK-0025 hardening: deterministic device-key signature as the HKDF ikm
+# (see src/hardening.rs). Same no_std configuration keystored ships.
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 storage = { path = "../../../userspace/storage", optional = true, default-features = false }
+
+[dev-dependencies]
+# hardening_contract.rs replays a journal on a MemBlockDevice.
+storage = { path = "../../../userspace/storage" }
 
 [lib]
 path = "src/lib.rs"

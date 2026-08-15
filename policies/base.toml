@@ -48,7 +48,12 @@ settingsd = ["ipc.core", "statefs.read", "statefs.write"]
 # pinched (system-internal compute broker): routes only to resolve its own
 # server endpoint at boot; it calls no other service.
 pinched = ["ipc.core"]
-"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.boot"]
+# TASK-0025: `crypto.derive.statefs` lets the selftest derive the statefs
+# envelope MAC key via keystored OP_DEVICE_SIGN — but ONLY over the fixed
+# label "statefs.envelope.v1" (rule: statefs::derive::device_sign_allowed).
+# Deliberately NOT `crypto.sign`: generic device-signing power stays denied
+# (the `keystored sign denied` selftest guards exactly that).
+"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.boot"]
 "demo.testsvc" = []
 
 [abi_profile."selftest-client"]

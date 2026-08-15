@@ -207,6 +207,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     StatefsError::ReplayLimitExceeded => {
                         "updated: bootctl load err (ReplayLimitExceeded)"
                     }
+                    // TASK-0025 envelope statuses (statefsd write hardening).
+                    StatefsError::IntegrityViolation => "updated: bootctl load err (Integrity)",
+                    StatefsError::RollbackDetected => "updated: bootctl load err (Rollback)",
                     StatefsError::NotFound => unreachable!("handled above"),
                 });
             }
@@ -779,18 +782,9 @@ fn persist_bootctrl_state(
     // #region agent log (persist failure detail; rate-limited)
     static PERSIST_ERR_LOGGED: core::sync::atomic::AtomicBool =
         core::sync::atomic::AtomicBool::new(false);
-    let label = |e: StatefsError| -> &'static str {
-        match e {
-            StatefsError::NotFound => "NotFound",
-            StatefsError::AccessDenied => "AccessDenied",
-            StatefsError::ValueTooLarge => "ValueTooLarge",
-            StatefsError::KeyTooLong => "KeyTooLong",
-            StatefsError::IoError => "IoError",
-            StatefsError::Corrupted => "Corrupted",
-            StatefsError::InvalidKey => "InvalidKey",
-            StatefsError::ReplayLimitExceeded => "ReplayLimitExceeded",
-        }
-    };
+    // Diagnostic labels come from the statefs SSOT (covers the TASK-0025
+    // envelope statuses too).
+    let label = |e: StatefsError| -> &'static str { e.label() };
     if let Err(e) = client.put(BOOTCTRL_STATE_KEY, &payload) {
         if !PERSIST_ERR_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
             emit_bytes(b"updated: bootctl persist put err=");

@@ -146,3 +146,85 @@ Prove, deterministically:
 2. statefsd: per-prefix envelope policy (off / integrity / authenticated), budgets + warn path.
 3. settingsd client-crate migration (independent, lands first — pure debt payoff).
 4. keystored/updated adoption + selftest markers.
+
+## Progress
+
+### 2026-08-14 — plan step 2 landed (statefsd wiring + selftests + host proofs); QEMU proof pending
+
+Step 2 is code-complete and host-proven; status stays **In Progress** until the QEMU markers
+are registered (`scripts/qemu-test.sh` + `tools/nx/chains/markers.txt`, main session) and boot-proven.
+
+- **Key derivation contract (v1, decided here):** `EnvelopeKey = HKDF-SHA256(ikm, salt=info=
+  "statefs.envelope.v1")` with **ikm = the deterministic Ed25519 device-key signature over the
+  label**. Rationale: keystored refuses raw-key export by design, and statefsd→keystored IPC
+  from inside the serve loop is a deadlock-shaped dependency (keystored is a statefsd client).
+  So statefsd signs locally with the `/state/keystore/device.signing` record it already stores
+  (lazy; before keygen, Authenticated ops fail closed = chicken-egg rule), while writers get
+  the identical ikm from keystored `OP_DEVICE_SIGN` (existing wire op; authorization is
+  label-scoped, see the 2026-08-15 note below). Shared HKDF lives in
+  `statefs::derive` (new `hkdf` dep, RustCrypto no_std, dep-gate green). Documented v1
+  boundary: one envelope key per device; any derivation-cap holder can derive it.
+- **statefsd** (`src/hardening.rs` new, cfg-free + host-tested; `src/emit_os.rs` split out of
+  the grandfathered `os_lite.rs`, now 592 LOC ≤ 622): const policy table
+  (`AUTHENTICATED_PREFIXES = ["/state/selftest/secure/"]` + Integrity floor via
+  `default_for_key`), verify-on-put ordered decode → MAC → `check_put` (a forged value never
+  advances the seq high-water mark), verify-on-get (`check_read` + MAC), replay-time
+  `observe_enrolled` walk (bounded, re-run on the mem→virtio upgrade), migration
+  accept-and-audit for raw bytes under the Integrity floor (keystored/updated keep booting),
+  `WriteBudget` (250 ms) wired with `nsec()` around `engine.put` + audit warn line, envelope
+  denials audited via logd (`statefsd: envelope deny path=… status=…`, no payload/keys).
+  Marker `statefsd: write hardening on (auth-envelope)` emitted once after tracker feed +
+  hardening init, directly after `statefsd: ready`.
+- **selftest-client:** `services/statefs_hardening.rs` derives the key via keystored keygen
+  (idempotent) + `OP_DEVICE_SIGN`, then proves: authenticated put accepted + get returns the
+  sealed bytes with client-side MAC verify + payload equality (`SELFTEST: statefs auth put ok`);
+  payload bit-flip → status 9 (`SELFTEST: statefs tamper deny ok`); stale seq with valid MAC →
+  status 10 (`SELFTEST: statefs rollback deny ok`). FAIL variants emitted on every failure
+  path. Markers declared in `proof-manifest/markers/bringup.toml`.
+- **Host proofs:** `cargo test -p statefs -p statefsd` green — 13 new tests in
+  `statefsd/tests/hardening_contract.rs` incl. `test_reject_forged_value_integrity_violation`,
+  `test_reject_stale_seq_rollback_detected`, `test_reject_oversize_envelope_meta`,
+  `test_reject_authenticated_without_key_fail_closed`,
+  `test_reject_downgrade_integrity_envelope_on_authenticated_prefix`,
+  `test_reject_raw_bytes_on_authenticated_prefix_no_migration_window`, budget-warn hook, and
+  `test_derivation_matches_keystored_sign_oracle` (statefsd-local derivation ≡ writer-side).
+- **Collateral integration:** the new `StatefsError::{IntegrityViolation,RollbackDetected}`
+  variants broke exhaustive matches in keystored/updated OS builds — fixed (keystored maps
+  both to `STATUS_DENY`; updated now uses the new `StatefsError::label()` SSOT). All four
+  crates compile clean under the os cfg (riscv64, `--features os-lite`, zero warnings);
+  `just structure-gate`, `just dep-gate`, `just arch-check`, clippy all PASS.
+- **Remaining for step 2 DoD (main session):** register the four markers in
+  `scripts/qemu-test.sh` / `tools/nx/chains/markers.txt`; run the QEMU ladder for
+  `statefsd: write hardening on (auth-envelope)` + the three SELFTEST markers.
+
+### 2026-08-15 — QEMU run 1: hardening markers green; over-broad `crypto.sign` grant fixed (label-scoped derivation cap)
+
+QEMU (`build/logs/headless--2026-08-15T12-01-25`): all four new markers green, but the broad
+`crypto.sign` grant to selftest-client regressed `SELFTEST: keystored sign denied` (raw
+`OP_SIGN` with an arbitrary payload was no longer denied) — the deny test is right: the grant
+handed the test subject generic device-signing power just to derive one MAC key.
+
+- **Fix (label-scoped authorization, SSOT in `statefs::derive::device_sign_allowed`):**
+  keystored `handle_device_sign` now authorizes the EXACT derivation label under the new
+  narrow cap `crypto.derive.statefs` (or `crypto.sign`); any other payload keeps requiring
+  full `crypto.sign`. `OP_SIGN` (op 5) is untouched and still requires `crypto.sign`.
+  `policies/base.toml`: selftest-client's `crypto.sign` replaced by `crypto.derive.statefs`.
+  statefsd (signs locally) needs no cap. Identity stays the kernel IPC sender; the policy
+  check is injected (`FnMut(&str) -> bool`), the rule lives next to the label so oracle and
+  contract cannot drift. Host `test_reject_non_label_sign_with_only_derive_cap` (+ label/no-cap
+  and near-miss-label negatives) in `statefs::derive` tests.
+- **Why `SELFTEST: policy deny ok` (policyd OP_CHECK_CAP selftest-client/crypto.sign) still
+  passed while keystored allowed:** it was a false-pass by probe construction, not a second
+  policy source. Both paths consult the same generated table with the same
+  `normalize_subject_id` canonicalization, and the table demonstrably contained the grant
+  (the derivation markers passed through the delegated check). The deny probe computes
+  `policyd_check_cap(..).unwrap_or(false) == false` with a 100 ms recv timeout — any transport
+  error, late reply, or non-ALLOW status (incl. MALFORMED) counts as "denied". So the marker
+  can pass without policyd ever evaluating a deny; it proves "no ALLOW observed within
+  100 ms", not "DENY decided". Worth hardening in a selftest-focused task (out of 0025 scope).
+- Verification: `cargo test -p statefs -p statefsd -p keystored` = 115 passed / 0 failed
+  (incl. the new reject tests); os-cfg riscv64 check keystored/statefsd/selftest-client clean;
+  structure-gate (keystored os_stub 1225 → 1224), dep-gate, fmt, clippy all PASS. Marker
+  strings unchanged. Awaiting QEMU re-run (main session).
+- Steps 3 (settingsd client migration — already in tree, uncommitted) and 4
+  (keystored/updated `put_authenticated` adoption) remain.

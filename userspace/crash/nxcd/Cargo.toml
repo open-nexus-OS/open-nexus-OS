@@ -1,0 +1,19 @@
+[package]
+name = "nxcd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+description = "Crashdump v2 .nxcd container format (host-first)"
+
+[features]
+default = []
+# Optional zstd wrapper (.nxcd.zst). Host-tool-only: never enable this feature
+# from an OS-graph crate (RFC-0009 dependency hygiene).
+zst = ["dep:zstd"]
+
+[dependencies]
+crash = { path = ".." }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+zstd = { version = "0.13", optional = true }

@@ -28,10 +28,6 @@ pub mod watch;
 /// serves GET/SET (validate → persist → apply). Boot service (RFC-0069).
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub mod os_lite;
-/// statefsd persistence client — loads/stores the prefs blob at
-/// `state:/prefs/device.nxs`.
-#[cfg(all(nexus_env = "os", feature = "os-lite"))]
-mod statefs_client;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub use os_lite::{service_main_loop, SettingsdError, SettingsdResult};

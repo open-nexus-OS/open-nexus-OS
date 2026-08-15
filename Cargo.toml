@@ -77,6 +77,7 @@ members = [
     "userspace/dsl/runtime",
     "userspace/dsl/cli",
     "userspace/nexus-gfx",
+    "tests/crashdump_v2_host",
     "tests/ui_v4_host",
     "tests/ui_v5b_host",
     "tests/ui_v10_goldens",

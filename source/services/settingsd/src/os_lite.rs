@@ -26,11 +26,13 @@ use core::fmt;
 use core::fmt::Write as _;
 
 use nexus_abi::settingsd as wire;
-use nexus_ipc::{KernelServer, Server as _, Wait};
+use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
+use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
+use statefs::client::StatefsClient;
+use statefs::protocol as sf_proto;
 
 use crate::persist::{Action, Persister};
 use crate::registry::{SetError, SettingsRegistry};
-use crate::statefs_client;
 use crate::watch::WatchTable;
 use core::time::Duration;
 
@@ -61,7 +63,7 @@ pub fn service_main_loop() -> SettingsdResult<()> {
 
     // Boot prefs load: overrides persisted by a prior session (statefsd). Best-
     // effort — statefsd unreachable / unset simply leaves the code defaults.
-    let loaded = match statefs_client::load_prefs() {
+    let loaded = match load_prefs() {
         Some(blob) => registry.load_prefs_blob(&blob),
         None => 0,
     };
@@ -147,7 +149,7 @@ pub fn service_main_loop() -> SettingsdResult<()> {
 /// the UART while the backoff retries forever.
 fn pump_persist(persister: &mut Persister, registry: &SettingsRegistry) {
     let now = nexus_abi::nsec().unwrap_or(0);
-    while let Some(ok) = statefs_client::poll_put_reply() {
+    while let Some(ok) = poll_put_reply() {
         persister.on_reply(ok, now);
         if ok {
             let _ = nexus_abi::debug_println("settingsd: persist ok");
@@ -156,7 +158,7 @@ fn pump_persist(persister: &mut Persister, registry: &SettingsRegistry) {
         }
     }
     if persister.poll(now) == Action::SendPut {
-        if statefs_client::try_send_put(&registry.to_prefs_blob()) {
+        if try_send_put(&registry.to_prefs_blob()) {
             persister.on_put_sent(now);
         } else {
             persister.on_send_failed(now);
@@ -267,4 +269,144 @@ fn bind_server() -> SettingsdResult<KernelServer> {
         return Ok(server);
     }
     KernelServer::new_with_slots(3, 4).map_err(|_| SettingsdError::Ipc("bind"))
+}
+
+// ── statefsd persistence (TASK-0025 step 3: wire SSOT = `statefs`) ───────────
+// The hand-rolled wire copy (`statefs_client.rs`) is gone: the boot-time GET
+// goes through the shared `statefs::client::StatefsClient`, and the RFC-0083
+// ASYNC persist path (NONBLOCK PUT send + NONBLOCK reply drain, driven by
+// `persist::Persister`) encodes/filters frames via `statefs::protocol`. Only
+// slot-level glue lives here. Best-effort throughout: a routing/policy/IPC
+// failure degrades to defaults / retry-with-backoff — never a boot failure,
+// never a blocked client.
+
+/// init-lite control-channel slots (route requests go through the responder).
+const CTRL_SEND_SLOT: u32 = 1;
+const CTRL_RECV_SLOT: u32 = 2;
+
+/// settingsd's key in statefsd's flat KV store. Stable across boots (a const),
+/// so the same overrides load back every time. statefsd's journal engine
+/// accepts ONLY `/state/`-rooted keys (validate_key) — the original bare
+/// `settingsd/prefs` earned STATUS_INVALID_KEY on every PUT, which was the
+/// actual `persist=fail` after the route was wired.
+const PREFS_KEY: &str = "/state/settingsd/prefs";
+
+/// Load the persisted prefs blob via the shared statefs client, or `None`
+/// when statefsd is unreachable / the key is unset. The returned string is
+/// the `key=value\n` override blob
+/// [`crate::registry::SettingsRegistry::load_prefs_blob`] consumes. BOOT
+/// ONLY (before the serve loop starts); the client's request/reply exchange
+/// is bounded, never an indefinite block.
+fn load_prefs() -> Option<String> {
+    let Some((send_slot, reply_send_slot, reply_recv_slot)) = cached_slots() else {
+        let _ = nexus_abi::debug_write(b"settingsd: statefs route FAIL\n");
+        return None;
+    };
+    // Named-route slots are persistent and `KernelClient` never closes its
+    // slots, so wrapping the cached slots here is drop-safe.
+    let client = KernelClient::new_with_slots(send_slot, reply_recv_slot).ok()?;
+    let reply = KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).ok();
+    let statefs = StatefsClient::from_clients(client, reply);
+    match statefs.get(PREFS_KEY) {
+        Ok(value) => String::from_utf8(value).ok(),
+        Err(_) => None,
+    }
+}
+
+/// NONBLOCK send of one prefs PUT (RFC-0083 async persist). Returns whether
+/// the frame LEFT — the reply arrives later via [`poll_put_reply`]. A refused
+/// send (full queue / no route) is the caller's backoff signal, never a spin.
+fn try_send_put(blob: &str) -> bool {
+    let Some((send_slot, reply_send_slot, _)) = cached_slots() else {
+        return false;
+    };
+    let Ok(req) = sf_proto::encode_put_request(PREFS_KEY, blob.as_bytes()) else {
+        return false;
+    };
+    let Ok(reply_send_clone) = nexus_abi::cap_clone(reply_send_slot) else {
+        return false;
+    };
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        req.len() as u32,
+    );
+    match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+        Ok(_) => true,
+        Err(_) => {
+            let _ = nexus_abi::cap_close(reply_send_clone);
+            false
+        }
+    }
+}
+
+/// NONBLOCK drain of the shared `@reply` inbox for a statefsd PUT reply.
+/// `Some(ok)` = a PUT reply arrived; `None` = nothing (or only foreign
+/// frames) waiting. Foreign frames are skipped, bounded per call. The status
+/// byte sits at offset 4 in both v1 and v2 statefs replies.
+fn poll_put_reply() -> Option<bool> {
+    let (_, _, reply_recv_slot) = cached_slots()?;
+    for _ in 0..4 {
+        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 64]; // a PUT status reply is a handful of bytes
+        match nexus_abi::ipc_recv_v1(
+            reply_recv_slot,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                let frame = &buf[..n];
+                if n >= 5
+                    && frame[0] == sf_proto::MAGIC0
+                    && frame[1] == sf_proto::MAGIC1
+                    && frame[3] == (sf_proto::OP_PUT | 0x80)
+                {
+                    return Some(frame[4] == sf_proto::STATUS_OK);
+                }
+                // Foreign inbox traffic: skip and keep draining (bounded).
+            }
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
+/// Route slots resolved ONCE (named routes are persistent slots — never
+/// closed, safe to cache): `(statefsd send, @reply send, @reply recv)`.
+fn cached_slots() -> Option<(u32, u32, u32)> {
+    use core::sync::atomic::{AtomicU32, Ordering};
+    static STATEFS_SEND: AtomicU32 = AtomicU32::new(0);
+    static REPLY_SEND: AtomicU32 = AtomicU32::new(0);
+    static REPLY_RECV: AtomicU32 = AtomicU32::new(0);
+    if STATEFS_SEND.load(Ordering::Relaxed) == 0 {
+        let (send, _) = route_blocking(b"statefsd")?;
+        let (rs, rr) = route_blocking(b"@reply")?;
+        STATEFS_SEND.store(send, Ordering::Relaxed);
+        REPLY_SEND.store(rs, Ordering::Relaxed);
+        REPLY_RECV.store(rr, Ordering::Relaxed);
+    }
+    Some((
+        STATEFS_SEND.load(Ordering::Relaxed),
+        REPLY_SEND.load(Ordering::Relaxed),
+        REPLY_RECV.load(Ordering::Relaxed),
+    ))
+}
+
+/// Resolve a service (or `@reply`) to its `(send, recv)` slots via the responder.
+fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
+    match budget::route_with_nonce_budgeted(
+        name,
+        CTRL_SEND_SLOT,
+        CTRL_RECV_SLOT,
+        Duration::from_secs(2),
+        NonceMismatchBudget::new(64),
+    ) {
+        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
+        _ => None,
+    }
 }

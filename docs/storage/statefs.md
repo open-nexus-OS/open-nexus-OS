@@ -70,14 +70,39 @@ arrive with `NEXUS_KEEP_BLK=1` (ADR-0044, wired in TASK-0293; used by TASK-0026)
 | no per-subject quotas | TASK-0133 |
 | KV snapshots / RO snapshot mounts | TASK-0134 (statefs slice only) |
 
-## §Authenticity envelope v1 (normative once TASK-0025 lands)
+## §Authenticity envelope v1 (normative; statefsd wiring landed 2026-08-14)
 
 Value-internal envelope (journal bytes untouched):
 `{ver, alg, seq (monotonic per key), hmac?, meta{subject, purpose, ts}}` with strict caps;
-HMAC key = keystored material → HKDF label `"statefs.envelope.v1"`. Per-prefix policy
-off / integrity / authenticated; boot-critical prefixes (`/state/keystore/*`, `/state/boot/*`)
-are integrity+seq only (bootstrap chicken-egg — authenticity there comes from the boot chain,
-documented not faked). Replay tracks max-seen `seq` per key; a stale `seq` is a rollback reject.
+binary layout + caps in `userspace/statefs/src/envelope.rs` (module header is the byte-level
+SSOT). Per-prefix policy off / integrity / authenticated; boot-critical prefixes
+(`/state/keystore/*`, `/state/boot/*`) are integrity+seq only (bootstrap chicken-egg —
+authenticity there comes from the boot chain, documented not faked). Replay tracks max-seen
+`seq` per key; a stale `seq` is a rollback reject (`STATUS_ROLLBACK_DETECTED = 10`); a failed
+MAC / downgrade / missing envelope under an authenticated prefix is
+`STATUS_INTEGRITY_VIOLATION = 9`.
+
+**Key derivation (v1 contract, `statefs::derive`):** ikm = the deterministic Ed25519
+device-key signature over the fixed label `"statefs.envelope.v1"`, then
+HKDF-SHA256(salt = info = label) → 32-byte MAC key. statefsd computes the signature locally
+from the `/state/keystore/device.signing` record it stores (lazy — before keystored keygen,
+authenticated puts fail closed); writers obtain the identical ikm via keystored
+`OP_DEVICE_SIGN` — label-scoped: signing the exact derivation label is authorized by the narrow
+`crypto.derive.statefs` capability (rule SSOT: `statefs::derive::device_sign_allowed`); any other
+payload still requires full `crypto.sign`, so the derivation oracle grants no generic signing
+power. The raw key never leaves keystored and is never used as a MAC key directly. v1 boundary:
+every `crypto.derive.statefs` (or `crypto.sign`) holder can derive the one envelope key
+(per-prefix keys are follow-up work).
+
+**Policy table (v1, `statefsd::hardening`):** authenticated-mandatory = `/state/selftest/secure/`
+(fail-closed, no migration window); integrity floor = the boot-critical prefixes above.
+**Migration:** keystored/updated still write raw (non-envelope) bytes under the integrity floor
+until TASK-0025 plan step 4 — such puts are accepted and audited
+(`statefsd: envelope migration accept path=…`), reads pass through; envelope-magic bytes are
+always verified. Per-write latency budget: 250 ms, overruns audited
+(`statefsd: write budget exceeded …`). Full-journal rollback (truncation to before every
+tracked seq) still needs an out-of-band anchor (TASK-0289 boot-chain era) — documented, not
+claimed.
 
 ## §Journal v2 — 2PC (normative once TASK-0026 lands)
 

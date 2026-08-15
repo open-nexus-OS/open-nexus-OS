@@ -64,6 +64,13 @@ impl Cli {
                 PolicyAction::Explain(a) => a.json,
                 PolicyAction::Mode(a) => a.json,
             },
+            Commands::Crash(args) => match &args.action {
+                CrashAction::Ls(a) => a.json,
+                CrashAction::Show(a) => a.json,
+                CrashAction::Export(a) => a.json,
+                CrashAction::Purge(a) => a.json,
+                CrashAction::Grep(a) => a.json,
+            },
         }
     }
 }
@@ -79,6 +86,7 @@ pub(crate) enum Commands {
     Dsl(DslArgs),
     Config(ConfigArgs),
     Policy(PolicyArgs),
+    Crash(CrashArgs),
 }
 
 #[derive(Args, Debug)]
@@ -376,4 +384,73 @@ pub(crate) enum PolicyCliMode {
     Enforce,
     DryRun,
     Learn,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct CrashArgs {
+    #[command(subcommand)]
+    pub(crate) action: CrashAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum CrashAction {
+    Ls(CrashLsArgs),
+    Show(CrashShowArgs),
+    Export(CrashExportArgs),
+    Purge(CrashPurgeArgs),
+    Grep(CrashGrepArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct CrashLsArgs {
+    #[arg(long, default_value = "./crash")]
+    pub(crate) dir: PathBuf,
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct CrashShowArgs {
+    pub(crate) path: PathBuf,
+    /// Optional symbols.nxsym index used to symbolize frames.
+    #[arg(long)]
+    pub(crate) sym: Option<PathBuf>,
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct CrashExportArgs {
+    pub(crate) path: PathBuf,
+    /// Output path; `.nxcd.zst` (canonical) or `.nxcd` (uncompressed).
+    #[arg(short, long)]
+    pub(crate) output: PathBuf,
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct CrashPurgeArgs {
+    #[arg(long, default_value = "./crash")]
+    pub(crate) dir: PathBuf,
+    /// Byte budget for kept dumps (default: unlimited).
+    #[arg(long)]
+    pub(crate) max_bytes: Option<u64>,
+    /// Count budget for kept dumps (default: unlimited).
+    #[arg(long)]
+    pub(crate) max_count: Option<usize>,
+    /// Plan only; delete nothing.
+    #[arg(long)]
+    pub(crate) dry_run: bool,
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct CrashGrepArgs {
+    pub(crate) pattern: String,
+    #[arg(long, default_value = "./crash")]
+    pub(crate) dir: PathBuf,
+    #[arg(long)]
+    pub(crate) json: bool,
 }

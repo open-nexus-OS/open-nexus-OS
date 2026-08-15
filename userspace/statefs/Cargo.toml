@@ -16,5 +16,12 @@ ipc-client = ["dep:nexus-ipc", "dep:nexus-abi", "nexus-ipc/os-lite", "nexus-ipc/
 nexus-abi = { path = "../../source/libs/nexus-abi", optional = true, default-features = false }
 nexus-ipc = { path = "../nexus-ipc", optional = true, default-features = false }
 storage = { path = "../storage", default-features = false }
+# Authenticity envelope v1 (TASK-0025): RustCrypto HMAC-SHA256, no_std-capable,
+# no getrandom/parking_lot in the dependency set (RFC-0009).
+hmac = { version = "0.12", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+# Envelope-key derivation v1 (statefs::derive): HKDF-SHA256 over keystored
+# material; RustCrypto, no_std, no getrandom (RFC-0009).
+hkdf = { version = "0.12", default-features = false }
 
 [dev-dependencies]

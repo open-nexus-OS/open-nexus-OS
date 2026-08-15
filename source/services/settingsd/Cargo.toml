@@ -13,6 +13,9 @@ os-lite = [
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
+    "dep:statefs",
+    "statefs/ipc-client",
+    "statefs/os-lite",
 ]
 
 [package.metadata.nexus-service]

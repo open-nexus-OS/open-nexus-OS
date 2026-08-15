@@ -1,6 +1,6 @@
 ---
 title: TASK-0048 Crashdump v2a (host-first): nxsym build-id index + .nxcd format + nx crash CLI + deterministic tests
-status: In Progress
+status: Done
 owner: @reliability
 created: 2025-12-23
 depends-on: []
@@ -104,3 +104,55 @@ Deliver on host:
    - Build a fixture binary with known frames; index it; verify symbolization.
    - Create fixture dumps; exercise `nx crash`.
    - Budget/GC logic on a directory tree.
+
+## Progress
+
+### 2026-08-14 — v2a implemented and closed (host proofs complete)
+
+Reuse acknowledgment: TASK-0018 (Done) already shipped minidump v1 —
+`userspace/crash` provides `MinidumpFrame` **with an embedded `build_id`**
+(execd stamps `crash::deterministic_build_id(name)`), plus host symbolizer
+prior art in `tools/minidump-host`. v2a builds on that instead of reinventing:
+`nxsym` **consumes** `MinidumpFrame.build_id` verbatim as the lookup key
+(carried through `.nxcd` `header.json`/`frames.json`/`maps.json`), and the
+documented indexing fallback for ELFs without a `.note.gnu.build-id` note is
+the very same `crash::deterministic_build_id(<file stem>)` so index keys and
+dump keys can never drift.
+
+Shipped:
+
+- `userspace/crash/nxcd/` — `.nxcd` container crate: canonical binary layout
+  (kind-sorted table, contiguous payloads, per-section + 1 MiB total bounds),
+  typed JSON sections with stable keys, minidump-v1 conversion, pure GC
+  planner, zstd wrapper behind host-only `zst` feature (bomb-bounded decode).
+- `tools/nxsym/` — lib + CLI: GNU-note Build-ID extraction w/ tested fallback,
+  CBOR `symbols.nxsym` (stable ordering, bounded + invariant-validated reads),
+  `index` / `addr2line` commands, Build-ID keyed lookup.
+- `tools/nx` — new `nx crash ls|show|export|purge|grep` subcommand
+  (`src/commands/crash.rs`), `--sym` symbolization in `show`, canonical
+  `.nxcd.zst` export, deterministic purge via `nxcd::plan_purge`.
+- `tests/crashdump_v2_host/` — end-to-end host suite (real fixture binary
+  indexing + symbolization, file roundtrips, GC on a directory tree, rejects).
+- Docs: `docs/reliability/crashdump-v2.md` (new), `docs/dev/nx-cli.md`
+  (crash commands; `nx crash` removed from "future topics").
+- Red flag honored: no packer was touched; packaging embedding stays deferred.
+- Dependency note: `zstd` (C binding) enters host tools only; `jobserver`
+  pinned to 0.1.33 in `Cargo.lock` to keep the `r-efi` duplicate ban green;
+  `just dep-gate` confirms the OS graph stays clean.
+
+### Closure — DoD met by host proofs (this task is host-only by design)
+
+- `cargo test -p crashdump_v2_host` → ok, 8 passed (indexer correctness,
+  Build-ID keyed symbolization of a known frame incl. file+line, `.nxcd`
+  plain/zst file roundtrips, GC/budget on a directory tree, reject paths).
+- `cargo test -p nxcd --features zst` → ok, 19 passed (roundtrip identical
+  header fields + bounded sections, `test_reject_*` for magic/version/
+  truncation/order/oversize/bomb).
+- `cargo test -p nxsym` → ok, 12 lib + 3 CLI passed (GNU-note extraction on a
+  synthetic ELF, fallback == producer derivation, index roundtrip/rejects,
+  process-boundary `index`/`addr2line` on a real binary).
+- `cargo test -p nx` → ok, all suites green incl. new `tests/crash_cli.rs`
+  (8 passed: ls/show/export/purge/grep + symbolized show + rejects).
+- Gates: `just structure-gate` PASS, `just dep-gate` PASS,
+  `just deny-check` PASS (advisories/bans/licenses/sources ok), clippy
+  `-D warnings` clean on nxcd/nxsym/nx, approved rustfmt clean.

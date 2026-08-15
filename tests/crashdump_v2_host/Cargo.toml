@@ -1,0 +1,16 @@
+[package]
+name = "crashdump_v2_host"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+
+[dependencies]
+crash = { path = "../../userspace/crash" }
+nxcd = { path = "../../userspace/crash/nxcd", features = ["zst"] }
+nxsym = { path = "../../tools/nxsym" }
+object = "0.36"
+serde_json = "1.0.145"
+
+[dev-dependencies]
+tempfile = "3.23.0"

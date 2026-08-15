@@ -1,0 +1,19 @@
+[package]
+name = "nxsym"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+description = "Build-ID keyed symbol indexer and lookup tool (host)"
+publish = false
+
+[dependencies]
+addr2line = "0.24"
+object = "0.36"
+ciborium = "0.2"
+serde = { version = "1.0.228", features = ["derive"] }
+clap = { version = "4.5.53", features = ["derive"] }
+crash = { path = "../../userspace/crash" }
+
+[dev-dependencies]
+tempfile = "3.23.0"

@@ -9,6 +9,7 @@
 //! ADR: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 
 pub(crate) mod config;
+pub(crate) mod crash;
 pub(crate) mod doctor;
 pub(crate) mod dsl;
 pub(crate) mod idl;
@@ -60,5 +61,6 @@ pub(crate) fn execute(cli: Cli, cfg: &RuntimeConfig) -> ExecResult {
         Commands::Dsl(args) => dsl::handle_dsl(args, cfg),
         Commands::Config(args) => config::handle_config(args, cfg),
         Commands::Policy(args) => policy::handle_policy(args, cfg),
+        Commands::Crash(args) => crash::handle_crash(args),
     }
 }

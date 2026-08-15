@@ -122,10 +122,45 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         } else {
             emit_line(crate::markers::M_SELFTEST_STATEFS_PERSIST_FAIL);
         }
+        // TASK-0025 write hardening: derive the envelope MAC key through
+        // keystored's sign oracle, then prove verify-on-put (accept),
+        // tamper denial (status 9) and rollback denial (status 10).
+        // A time-based base seq keeps re-runs against a persisted journal
+        // monotonic (nsec is per-boot; blk.img is wiped per test boot).
+        if let Some(env_key) = services::statefs_hardening::derive_envelope_key() {
+            let base_seq = nexus_abi::nsec().unwrap_or(0).max(1);
+            if services::statefs_hardening::statefs_auth_put(&statefsd, &env_key, base_seq).is_ok()
+            {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_AUTH_PUT_OK);
+            } else {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_AUTH_PUT_FAIL);
+            }
+            if services::statefs_hardening::statefs_tamper_deny(&statefsd, &env_key, base_seq)
+                .is_ok()
+            {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_TAMPER_DENY_OK);
+            } else {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_TAMPER_DENY_FAIL);
+            }
+            if services::statefs_hardening::statefs_rollback_deny(&statefsd, &env_key, base_seq)
+                .is_ok()
+            {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_ROLLBACK_DENY_OK);
+            } else {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_ROLLBACK_DENY_FAIL);
+            }
+        } else {
+            emit_line(crate::markers::M_SELFTEST_STATEFS_AUTH_PUT_FAIL);
+            emit_line(crate::markers::M_SELFTEST_STATEFS_TAMPER_DENY_FAIL);
+            emit_line(crate::markers::M_SELFTEST_STATEFS_ROLLBACK_DENY_FAIL);
+        }
     } else {
         emit_line(crate::markers::M_SELFTEST_STATEFS_PUT_FAIL);
         emit_line(crate::markers::M_SELFTEST_STATEFS_UNAUTHORIZED_ACCESS_REJECTED_FAIL);
         emit_line(crate::markers::M_SELFTEST_STATEFS_PERSIST_FAIL);
+        emit_line(crate::markers::M_SELFTEST_STATEFS_AUTH_PUT_FAIL);
+        emit_line(crate::markers::M_SELFTEST_STATEFS_TAMPER_DENY_FAIL);
+        emit_line(crate::markers::M_SELFTEST_STATEFS_ROLLBACK_DENY_FAIL);
     }
     if let Some(pubkey) = device_pubkey {
         if probes::device_key::device_key_reload_and_check(&pubkey).is_ok() {

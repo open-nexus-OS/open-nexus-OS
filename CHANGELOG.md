@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-15 (statefs authenticity envelopes + crashdump host pipeline)
+
+- **statefs write-path hardening v1 (TASK-0025, steps 1–3)**: values can now be
+  wrapped in an authenticity envelope (`NXEV` v1: seq counter, subject/purpose
+  meta, optional HMAC-SHA256 keyed via HKDF over a device-key signature of the
+  label `statefs.envelope.v1`). statefsd verifies enrolled prefixes on put
+  (decode → MAC → anti-rollback seq check), audits denials, and enforces a
+  250 ms write budget. New wire statuses `9` (integrity violation) and `10`
+  (rollback detected). Signing authorization is label-scoped: the new
+  `crypto.derive.statefs` capability only allows signing the fixed derivation
+  label; generic device signing still requires `crypto.sign`. settingsd now
+  uses the shared `statefs::client` (hand-rolled wire copy deleted). QEMU
+  proof: `statefsd: write hardening on (auth-envelope)`,
+  `SELFTEST: statefs auth put ok` / `tamper deny ok` / `rollback deny ok`.
+- **Crashdump v2a host pipeline (TASK-0048, Done)**: canonical `.nxcd`/
+  `.nxcd.zst` crash-artifact container (`nxcd` crate), Build-ID-keyed `nxsym`
+  symbol indexer with ELF-free lookup, and `nx crash ls|show|export|purge|grep`
+  over new and legacy dumps.
+
 ### Fixed - 2026-08-07 (the dhcp lane raced the guest clock against host DNS)
 
 `[profile.dhcp]` runs at `-smp 1`, and the launcher turns on `-icount 1,sleep=on`
