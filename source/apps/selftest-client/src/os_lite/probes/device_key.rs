@@ -43,8 +43,20 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
             emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_KEYGEN_SEND);
             return None;
         }
-        match client.recv(wait) {
-            Ok(rsp) => {
+        // Keygen persists through statefsd (enveloped RMW since TASK-0025) and can
+        // exceed one recv budget under TCG load. Bounded re-recv: abandoning the
+        // recv would leave the late response queued and poison every subsequent
+        // probe on this channel, so consume it within a bounded number of waits.
+        let mut attempt = 0u32;
+        let rsp = loop {
+            match client.recv(wait) {
+                Ok(rsp) => break Some(rsp),
+                Err(_) if attempt < 3 => attempt += 1,
+                Err(_) => break None,
+            }
+        };
+        match rsp {
+            Some(rsp) => {
                 if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
                     emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_KEYGEN_MALFORMED);
                     return None;
@@ -60,7 +72,7 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
                     return None;
                 }
             }
-            Err(_) => {
+            None => {
                 emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_KEYGEN_RECV);
                 return None;
             }

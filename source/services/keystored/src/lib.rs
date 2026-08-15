@@ -20,8 +20,15 @@ extern crate alloc;
 /// Wire protocol constants + encoding/decoding (host + OS).
 pub mod protocol;
 
+/// statefs record codecs (Integrity envelopes, TASK-0025) — cfg-free so the
+/// host suite proves the same bytes the OS path writes.
+#[cfg(any(feature = "std", feature = "os-lite"))]
+pub mod state_record;
+
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod os_stub;
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
+mod store_os;
 
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 pub use os_stub::*;

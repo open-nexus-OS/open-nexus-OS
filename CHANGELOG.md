@@ -21,6 +21,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses the shared `statefs::client` (hand-rolled wire copy deleted). QEMU
   proof: `statefsd: write hardening on (auth-envelope)`,
   `SELFTEST: statefs auth put ok` / `tamper deny ok` / `rollback deny ok`.
+  Step 4 closes the first-party migration window: keystored
+  (`/state/keystore/*` incl. `device.signing`) and updated
+  (`/state/boot/bootctl.v1`) now write Integrity envelopes
+  (read-modify-write, seq = last-seen + 1 via the new `statefs::writer`
+  helper); legacy raw values stay readable, host suites gained
+  roundtrip/legacy/stale-seq/malformed contract tests.
+- **Ladder honesty fixes (found while proving TASK-0025)**: `scripts/qemu-test.sh`
+  gained a statefs-hardening fake-green guard (the proof-manifest phase walker
+  counted FAIL marker variants as "marker seen", so a run with three
+  `SELFTEST: statefs * FAIL` lines exited 0); the selftest device-key probe now
+  does a bounded re-recv on keygen — an abandoned recv left the late response
+  queued and poisoned all subsequent probes, and `SELFTEST: device key pubkey ok`
+  had been silently absent from every earlier "green" run.
 - **Crashdump v2a host pipeline (TASK-0048, Done)**: canonical `.nxcd`/
   `.nxcd.zst` crash-artifact container (`nxcd` crate), Build-ID-keyed `nxsym`
   symbol indexer with ELF-free lookup, and `nx crash ls|show|export|purge|grep`

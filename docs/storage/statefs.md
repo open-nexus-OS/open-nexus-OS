@@ -96,10 +96,13 @@ every `crypto.derive.statefs` (or `crypto.sign`) holder can derive the one envel
 
 **Policy table (v1, `statefsd::hardening`):** authenticated-mandatory = `/state/selftest/secure/`
 (fail-closed, no migration window); integrity floor = the boot-critical prefixes above.
-**Migration:** keystored/updated still write raw (non-envelope) bytes under the integrity floor
-until TASK-0025 plan step 4 — such puts are accepted and audited
-(`statefsd: envelope migration accept path=…`), reads pass through; envelope-magic bytes are
-always verified. Per-write latency budget: 250 ms, overruns audited
+**Migration (closed for first-party writers, 2026-08-15):** keystored and updated write
+Integrity envelopes for their own keys (`/state/keystore/*` incl. `device.signing`,
+`/state/boot/bootctl.v1`) — read-modify-write with seq = last-seen + 1 (first write: seq 1;
+shared helper `statefs::writer`, meta subject `keystored`/`updated`). The accept-and-audit
+path (`statefsd: envelope migration accept path=…`) now only covers legacy raw bytes still on
+the medium (pre-migration journals) and any third-party writer not yet enveloping; reads of
+such legacy values pass through, envelope-magic bytes are always verified. Per-write latency budget: 250 ms, overruns audited
 (`statefsd: write budget exceeded …`). Full-journal rollback (truncation to before every
 tracked seq) still needs an out-of-band anchor (TASK-0289 boot-chain era) — documented, not
 claimed.

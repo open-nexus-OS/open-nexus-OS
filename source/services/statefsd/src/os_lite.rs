@@ -152,11 +152,17 @@ fn envelope_mac_key<'a>(
 ) -> Option<&'a EnvelopeKey> {
     if cached.is_none() {
         if let Ok(bytes) = engine.get(hardening::DEVICE_KEY_PATH) {
-            if bytes.len() == 32 {
-                let mut seed = [0u8; 32];
-                seed.copy_from_slice(&bytes);
-                if let Ok(key) = hardening::derive_key_from_device_seed(&seed) {
-                    *cached = Some(key);
+            // TASK-0025 step 4: keystored wraps the record as an Integrity
+            // envelope; pre-migration journals still hold the raw 32-byte
+            // seed. `open_stored` handles both (deterministic, no panic).
+            if let Ok(stored) = statefs::writer::open_stored(&bytes) {
+                let payload = stored.payload();
+                if payload.len() == 32 {
+                    let mut seed = [0u8; 32];
+                    seed.copy_from_slice(payload);
+                    if let Ok(key) = hardening::derive_key_from_device_seed(&seed) {
+                        *cached = Some(key);
+                    }
                 }
             }
         }

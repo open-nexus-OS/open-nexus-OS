@@ -1,6 +1,6 @@
 ---
 title: TASK-0025 StateFS write-path hardening: authenticity envelopes + anti-rollback + budgets (rebased 2026-07-15 onto shipped statefs v1)
-status: In Progress
+status: Done
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -228,3 +228,95 @@ handed the test subject generic device-signing power just to derive one MAC key.
   strings unchanged. Awaiting QEMU re-run (main session).
 - Steps 3 (settingsd client migration — already in tree, uncommitted) and 4
   (keystored/updated `put_authenticated` adoption) remain.
+
+### 2026-08-15 — plan step 4 landed (keystored/updated envelope adoption); only the QEMU re-run remains
+
+keystored and updated now write Integrity-class envelopes for their own keys — the
+first-party migration window is closed (statefsd's accept-and-audit path now only covers
+legacy raw values on the medium and third-party writers). All behind existing markers; no
+new marker strings.
+
+- **Shared helper `statefs::writer`** (new, cfg-free): `open_stored` (envelope-or-legacy
+  classification, deterministic `Corrupted` on magic-bearing malformed bytes — never a
+  legacy fallback that could mask tampering, never a panic), `next_seq`
+  (read-modify-write discipline: first write / legacy = seq 1, else last-seen + 1,
+  saturating), `seal_integrity` (alg = none — chicken-egg rule holds: no MAC key, no new
+  IPC on the device-key bootstrap path).
+- **keystored**: new cfg-free `state_record` (subject `keystored`, purposes
+  `device-key` / `scoped-kv`; device-key payload must be exactly 32 bytes) + new
+  `store_os` (KeyStore/StatefsStore moved out of the LOC-capped os_stub.rs; every
+  `/state/keystore/*` put — device.signing and the scoped KV shim — is a
+  read-modify-write seal with one bounded retry on a rollback race; reads accept
+  envelope v1 AND legacy raw). os_stub.rs 1224 → 996 LOC.
+- **updated**: bootctl codec moved cfg-free to `bootctl_state` (subject `updated`,
+  purpose `bootctl`) + `seal_bootctl`/`open_bootctl`; `persist_bootctrl_state` is the
+  same RMW loop (get → seq+1 → put → sync, loud labeled errors kept). os_lite.rs
+  965 → 918 LOC.
+- **statefsd** (compatibility fix, noted): `envelope_mac_key` unwraps the now-enveloped
+  `device.signing` record via `statefs::writer::open_stored` before deriving the MAC key
+  (raw 32-byte legacy seeds still work) — without this, Authenticated prefixes would have
+  failed closed forever once keystored envelopes its record. Hardening logic untouched.
+- **Host proofs**: `cargo test -p statefs -p statefsd -p keystored -p updated` = 128
+  passed / 0 failed, incl. new `keystored/tests/state_record_contract.rs` (5) and
+  `updated/tests/bootctl_envelope.rs` (4): envelope roundtrip, legacy-raw migration read,
+  `test_reject_stale_seq_*_rewrite` (server SeqTracker contract vs. the client
+  discipline), `test_reject_malformed_envelope_deterministic_no_panic`. statefs `writer`
+  unit tests (4) cover classification + seq discipline.
+- **Gates**: os-cfg riscv64 check (keystored/updated/statefsd/selftest-client, os-lite)
+  zero warnings; host-cfg check zero warnings; structure-gate, dep-gate, clippy, pinned
+  fmt all PASS.
+- **Remaining for DoD (main session)**: one QEMU ladder run proving the four registered
+  markers plus the existing `SELFTEST: device key persist ok` / `SELFTEST: statefs
+  persist ok` / bootctl markers with envelopes on (also expect NO
+  `statefsd: envelope migration accept` lines for keystored/updated fresh writes).
+
+#### 2026-08-15 — QEMU run 2 regressions fixed (bootctl probe + delete/re-put seq)
+
+Run `headless--2026-08-15T12-46-51` was RED on step 4; both root causes confirmed and fixed:
+
+1. **`SELFTEST: bootctl persist FAIL`** — the probe
+   (`selftest-client/src/os_lite/services/bootctl.rs`) GETs `/state/boot/bootctl.v1` raw
+   and asserted `len == 6 && bytes[0] == 1`; the record is now an envelope. Fix: unwrap
+   via `statefs::writer::open_stored` first (legacy raw still passes; malformed fails
+   deterministically). Marker strings untouched. Host mirror:
+   `updated/tests/bootctl_envelope.rs::test_bootctl_selftest_probe_shape`.
+2. **241× `statefsd: envelope deny …/6b31 status=10`** — bringup's `keystored_ping` does
+   PUT k1 → GET → DEL → GET-miss (tracker high-water = 1, value deleted); the policy
+   phase re-resolves keystored, which re-runs the ping: the RMW learned seq from the
+   (missing) stored value → sealed seq 1 → RollbackDetected, and
+   `resolve_keystored_client` retries up to 128× (the deny flood; enforcement itself was
+   correct). Fix in the writer's seq discipline: new bounded
+   `statefs::writer::SeqCache` — keystored's `StatefsStore` now uses
+   `seq = max(stored seq, last seq written) + 1` and records every accepted write;
+   DELETE never evicts. statefsd's rollback enforcement untouched. Host proofs:
+   `test_scoped_kv_put_delete_reput_seq_progression` (keystored) +
+   `test_seq_cache_survives_delete_then_reput` / `test_seq_cache_takes_max_of_stored_and_cached`
+   (statefs). All suites green (132 tests), os/host-cfg zero warnings, structure/dep
+   gates + clippy + pinned fmt PASS. QEMU re-run still pending (main session).
+
+## Closure (2026-08-15)
+
+QEMU proof complete: `build/logs/headless--2026-08-15T13-48-44/uart.log` — all four
+markers present (`statefsd: write hardening on (auth-envelope)`,
+`SELFTEST: statefs auth put ok` / `tamper deny ok` / `rollback deny ok`), plus
+`SELFTEST: bootctl persist ok`, `device key pubkey ok`, `device key persist ok`,
+`keystored sign denied ok`; zero `envelope deny` under `/state/keystore/`, zero
+migration-accept lines (keystored/updated write envelopes natively), zero FAIL
+variants. Host: 132 tests green across statefs/statefsd/keystored/updated.
+
+Two hardening by-products shipped with the closure:
+
+- `scripts/qemu-test.sh` now carries a TASK-0025 fake-green guard: once
+  `write hardening on (auth-envelope)` appears, the three hardening ok-markers are
+  mandatory and their FAIL variants fatal (the proof-manifest phase walker counts a
+  FAIL variant as "marker seen", so this was a real enforcement hole — observed in
+  the 12:56 run, which exited 0 despite three FAIL markers).
+- `selftest-client` device-key probe: bounded re-recv (≤4 waits) on keygen — the
+  enveloped RMW made keygen slower than one recv budget; an abandoned recv left the
+  late response queued and poisoned every subsequent probe on the channel (the 12:56
+  cascade). Latent before this task: `SELFTEST: device key pubkey ok` had been
+  silently absent from earlier "green" runs; it now appears for the first time.
+
+Residual scope tracked elsewhere: multi-op atomicity/compaction/fsck → TASK-0026;
+value encryption → TASK-0027; quotas → TASK-0133; full-journal rollback anchor →
+TASK-0289/boot chain (documented boundary).

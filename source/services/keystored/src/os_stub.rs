@@ -16,8 +16,6 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
-use alloc::string::String;
 use alloc::vec::Vec;
 
 use core::fmt;
@@ -28,9 +26,10 @@ use core::time::Duration;
 use nexus_abi::yield_;
 use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
-use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
-use statefs::client::StatefsClient;
+use nexus_ipc::{KernelServer, Server as _, Wait};
 use statefs::StatefsError;
+
+use crate::store_os::{KeyStore, MAX_KEY_LEN};
 
 /// Result type surfaced by the lite keystored shim.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -122,217 +121,9 @@ pub fn run_with_transport_default_anchors<T: Transport>(_transport: &mut T) -> L
     Err(ServerError::Unsupported("keystored run_with_transport_default_anchors"))
 }
 
-enum KeyStoreBackend {
-    Statefs(StatefsStore),
-    Memory(BTreeMap<(u64, Vec<u8>), Vec<u8>>),
-}
-
-struct KeyStore {
-    backend: KeyStoreBackend,
-    device_key_bytes: Option<[u8; 32]>,
-}
-
-impl KeyStore {
-    fn new() -> Self {
-        if let Some(mut store) = StatefsStore::new() {
-            emit_line("keystored: statefs backend ok");
-            let device_key_bytes = store.load_device_key().ok().flatten();
-            return Self { backend: KeyStoreBackend::Statefs(store), device_key_bytes };
-        }
-        emit_line("keystored: memory backend fallback");
-        Self { backend: KeyStoreBackend::Memory(BTreeMap::new()), device_key_bytes: None }
-    }
-
-    #[cfg(test)]
-    fn new_memory() -> Self {
-        Self { backend: KeyStoreBackend::Memory(BTreeMap::new()), device_key_bytes: None }
-    }
-
-    fn get(&mut self, sender_service_id: u64, key: &[u8]) -> Result<Option<Vec<u8>>, StatefsError> {
-        match &mut self.backend {
-            KeyStoreBackend::Statefs(store) => match store.get(sender_service_id, key) {
-                Ok(value) => Ok(value),
-                Err(StatefsError::AccessDenied) => {
-                    self.fallback_to_memory_backend();
-                    self.get(sender_service_id, key)
-                }
-                Err(err) => Err(err),
-            },
-            KeyStoreBackend::Memory(map) => {
-                Ok(map.get(&(sender_service_id, key.to_vec())).cloned())
-            }
-        }
-    }
-
-    fn put(
-        &mut self,
-        sender_service_id: u64,
-        key: &[u8],
-        value: &[u8],
-    ) -> Result<(), StatefsError> {
-        match &mut self.backend {
-            KeyStoreBackend::Statefs(store) => match store.put(sender_service_id, key, value) {
-                Ok(()) => Ok(()),
-                Err(StatefsError::AccessDenied) => {
-                    self.fallback_to_memory_backend();
-                    self.put(sender_service_id, key, value)
-                }
-                Err(err) => Err(err),
-            },
-            KeyStoreBackend::Memory(map) => {
-                map.insert((sender_service_id, key.to_vec()), value.to_vec());
-                Ok(())
-            }
-        }
-    }
-
-    fn delete(&mut self, sender_service_id: u64, key: &[u8]) -> Result<bool, StatefsError> {
-        match &mut self.backend {
-            KeyStoreBackend::Statefs(store) => match store.delete(sender_service_id, key) {
-                Ok(deleted) => Ok(deleted),
-                Err(StatefsError::AccessDenied) => {
-                    self.fallback_to_memory_backend();
-                    self.delete(sender_service_id, key)
-                }
-                Err(err) => Err(err),
-            },
-            KeyStoreBackend::Memory(map) => {
-                Ok(map.remove(&(sender_service_id, key.to_vec())).is_some())
-            }
-        }
-    }
-
-    fn device_key_bytes(&self) -> Option<[u8; 32]> {
-        self.device_key_bytes
-    }
-
-    /// Reload device key from statefsd (for persistence proof after reboot).
-    fn reload_device_key(&mut self) -> Result<Option<[u8; 32]>, StatefsError> {
-        match &mut self.backend {
-            KeyStoreBackend::Statefs(store) => match store.load_device_key() {
-                Ok(Some(bytes)) => {
-                    emit_line("keystored: reload from statefs ok");
-                    self.device_key_bytes = Some(bytes);
-                    Ok(Some(bytes))
-                }
-                Ok(None) => {
-                    emit_line("keystored: reload from statefs (not found)");
-                    Ok(None)
-                }
-                Err(err) => {
-                    emit_line("keystored: reload from statefs err");
-                    Err(err)
-                }
-            },
-            KeyStoreBackend::Memory(_) => {
-                emit_line("keystored: reload from memory backend");
-                Ok(self.device_key_bytes)
-            }
-        }
-    }
-
-    fn set_device_key_bytes(&mut self, bytes: [u8; 32]) -> Result<(), StatefsError> {
-        if let KeyStoreBackend::Statefs(store) = &mut self.backend {
-            if let Err(err) = store.store_device_key(&bytes) {
-                if err == StatefsError::AccessDenied {
-                    self.fallback_to_memory_backend();
-                } else {
-                    return Err(err);
-                }
-            }
-        }
-        self.device_key_bytes = Some(bytes);
-        Ok(())
-    }
-
-    fn fallback_to_memory_backend(&mut self) {
-        if !matches!(self.backend, KeyStoreBackend::Memory(_)) {
-            emit_line("keystored: statefs access denied fallback");
-            self.backend = KeyStoreBackend::Memory(BTreeMap::new());
-        }
-    }
-}
-
-struct StatefsStore {
-    client: StatefsClient,
-}
-
-impl StatefsStore {
-    fn new() -> Option<Self> {
-        // init-lite deterministic slots for keystored -> statefsd:
-        // - send=0x07, reply recv=0x05, reply send=0x06
-        const STATEFS_SEND_SLOT: u32 = 0x07;
-        const REPLY_RECV_SLOT: u32 = 0x05;
-        const REPLY_SEND_SLOT: u32 = 0x06;
-        let client = KernelClient::new_with_slots(STATEFS_SEND_SLOT, REPLY_RECV_SLOT).ok()?;
-        let reply = KernelClient::new_with_slots(REPLY_SEND_SLOT, REPLY_RECV_SLOT).ok();
-        let client = StatefsClient::from_clients(client, reply);
-        Some(Self { client })
-    }
-
-    fn get(&mut self, sender_service_id: u64, key: &[u8]) -> Result<Option<Vec<u8>>, StatefsError> {
-        let path = self.key_path(sender_service_id, key)?;
-        match self.client.get(&path) {
-            Ok(value) => Ok(Some(value)),
-            Err(StatefsError::NotFound) => Ok(None),
-            Err(err) => Err(err),
-        }
-    }
-
-    fn put(
-        &mut self,
-        sender_service_id: u64,
-        key: &[u8],
-        value: &[u8],
-    ) -> Result<(), StatefsError> {
-        let path = self.key_path(sender_service_id, key)?;
-        self.client.put(&path, value)
-    }
-
-    fn delete(&mut self, sender_service_id: u64, key: &[u8]) -> Result<bool, StatefsError> {
-        let path = self.key_path(sender_service_id, key)?;
-        match self.client.delete(&path) {
-            Ok(()) => Ok(true),
-            Err(StatefsError::NotFound) => Ok(false),
-            Err(err) => Err(err),
-        }
-    }
-
-    fn load_device_key(&mut self) -> Result<Option<[u8; 32]>, StatefsError> {
-        match self.client.get(STATEFS_DEVICE_KEY_PATH) {
-            Ok(bytes) => {
-                if bytes.len() != 32 {
-                    return Err(StatefsError::Corrupted);
-                }
-                let mut out = [0u8; 32];
-                out.copy_from_slice(&bytes);
-                Ok(Some(out))
-            }
-            Err(StatefsError::NotFound) => Ok(None),
-            Err(err) => Err(err),
-        }
-    }
-
-    fn store_device_key(&mut self, key_bytes: &[u8; 32]) -> Result<(), StatefsError> {
-        self.client.put(STATEFS_DEVICE_KEY_PATH, key_bytes)
-    }
-
-    fn key_path(&self, sender_service_id: u64, key: &[u8]) -> Result<String, StatefsError> {
-        if key.is_empty() || key.len() > MAX_KEY_LEN {
-            return Err(StatefsError::KeyTooLong);
-        }
-        let mut path = String::with_capacity(STATEFS_KEY_PREFIX.len() + 16 + 1 + key.len() * 2);
-        path.push_str(STATEFS_KEY_PREFIX);
-        push_hex_u64(&mut path, sender_service_id);
-        path.push('/');
-        push_hex_bytes(&mut path, key);
-        if path.len() > statefs::MAX_KEY_LEN {
-            return Err(StatefsError::KeyTooLong);
-        }
-        Ok(path)
-    }
-}
-
+// KeyStore / StatefsStore moved to `crate::store_os` (TASK-0025 step 4:
+// Integrity-envelope read-modify-write lives there; this file keeps the
+// wire protocol + handlers within its LOC grandfather).
 /// Device identity keypair storage.
 /// Stores the signing key (private) and allows deriving the verifying key (public).
 struct DeviceKeyPair {
@@ -518,13 +309,11 @@ const STATUS_KEY_EXISTS: u8 = 10;
 const STATUS_KEY_NOT_FOUND: u8 = 11;
 const STATUS_PRIVATE_EXPORT_DENIED: u8 = 12;
 
-const MAX_KEY_LEN: usize = 64;
+// MAX_KEY_LEN lives in `crate::store_os` (shared with the statefs key-path
+// builder); the statefs path constants moved to `crate::state_record`.
 const MAX_VAL_LEN: usize = 256;
 const MAX_VERIFY_PAYLOAD: usize = 1 * 1024 * 1024;
 const MAX_SIGN_PAYLOAD: usize = 1 * 1024 * 1024;
-
-const STATEFS_KEY_PREFIX: &str = "/state/keystore/";
-const STATEFS_DEVICE_KEY_PATH: &str = "/state/keystore/device.signing";
 
 fn handle_frame(
     store: &mut KeyStore,
@@ -1053,27 +842,10 @@ fn status_from_statefs_error(err: StatefsError) -> u8 {
     }
 }
 
-fn push_hex_u64(out: &mut String, value: u64) {
-    for shift in (0..16).rev() {
-        let nibble = ((value >> (shift * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-        out.push(ch as char);
-    }
-}
-
-fn push_hex_bytes(out: &mut String, bytes: &[u8]) {
-    for byte in bytes {
-        let high = (byte >> 4) & 0xF;
-        let low = byte & 0xF;
-        out.push(if high < 10 { (b'0' + high) as char } else { (b'a' + (high - 10)) as char });
-        out.push(if low < 10 { (b'0' + low) as char } else { (b'a' + (low - 10)) as char });
-    }
-}
-
 /// Touches schema types to keep host parity; no-op in the stub.
 pub fn touch_schemas() {}
 
-fn emit_line(message: &str) {
+pub(crate) fn emit_line(message: &str) {
     // Verdict folding: tally this marker into keystored's `keystored N/N` verdict. In an interactive
     // boot a routine marker is suppressed (folded); a failure — or any marker in a proof boot —
     // prints live & raw (so `verify-uart` is unaffected). Alloc-free counters in nexus-abi.

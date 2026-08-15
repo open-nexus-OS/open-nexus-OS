@@ -50,9 +50,7 @@ const KEYSTORE_VERSION: u8 = 1;
 const KEYSTORE_OP_VERIFY: u8 = 4;
 const KEYSTORE_STATUS_OK: u8 = 0;
 
-const BOOTCTRL_STATE_KEY: &str = "/state/boot/bootctl.v1";
-const BOOTCTRL_STATE_VERSION: u8 = 1;
-const SLOT_NONE: u8 = 0xff;
+use crate::bootctl_state::{self, encode_slot, BOOTCTRL_STATE_KEY};
 
 /// Result alias used by the os-lite backend.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -680,94 +678,15 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
     }
 }
 
-fn encode_slot(slot: Slot) -> u8 {
-    match slot {
-        Slot::A => 1,
-        Slot::B => 2,
-    }
-}
-
-fn decode_slot(byte: u8) -> Result<Option<Slot>, StatefsError> {
-    match byte {
-        1 => Ok(Some(Slot::A)),
-        2 => Ok(Some(Slot::B)),
-        SLOT_NONE => Ok(None),
-        _ => Err(StatefsError::Corrupted),
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct BootCtrlState {
-    active: Slot,
-    pending: Option<Slot>,
-    staged: Option<Slot>,
-    tries_left: u8,
-    health_ok: bool,
-}
-
-impl BootCtrlState {
-    fn from_bootctrl(boot: &BootCtrl) -> Self {
-        Self {
-            active: boot.active_slot(),
-            pending: boot.pending_slot(),
-            staged: boot.staged_slot(),
-            tries_left: boot.tries_left(),
-            health_ok: boot.health_ok(),
-        }
-    }
-}
-
-fn encode_bootctrl_state(boot: &BootCtrl) -> [u8; 6] {
-    let state = BootCtrlState::from_bootctrl(boot);
-    [
-        BOOTCTRL_STATE_VERSION,
-        encode_slot(state.active),
-        state.pending.map(encode_slot).unwrap_or(SLOT_NONE),
-        state.staged.map(encode_slot).unwrap_or(SLOT_NONE),
-        state.tries_left,
-        if state.health_ok { 1 } else { 0 },
-    ]
-}
-
-fn decode_bootctrl_state(bytes: &[u8]) -> Result<BootCtrlState, StatefsError> {
-    if bytes.len() != 6 || bytes[0] != BOOTCTRL_STATE_VERSION {
-        return Err(StatefsError::Corrupted);
-    }
-    let active = decode_slot(bytes[1])?.ok_or(StatefsError::Corrupted)?;
-    let pending = decode_slot(bytes[2])?;
-    let staged = decode_slot(bytes[3])?;
-    let tries_left = bytes[4];
-    let health_ok = bytes[5] == 1;
-    Ok(BootCtrlState { active, pending, staged, tries_left, health_ok })
-}
-
-fn bootctrl_from_state(state: BootCtrlState) -> Result<BootCtrl, BootCtrlError> {
-    if state.pending.is_some() {
-        let base = state.active.other();
-        let mut boot = BootCtrl::new(base);
-        boot.stage();
-        let _ = boot.switch(state.tries_left)?;
-        return Ok(boot);
-    }
-    if state.health_ok {
-        let base = state.active.other();
-        let mut boot = BootCtrl::new(base);
-        boot.stage();
-        let _ = boot.switch(0)?;
-        let _ = boot.commit_health()?;
-        return Ok(boot);
-    }
-    let mut boot = BootCtrl::new(state.active);
-    if state.staged.is_some() {
-        boot.stage();
-    }
-    Ok(boot)
-}
+// Bootctl codec (slots, state bytes, BootCtrl reconstruction) moved cfg-free
+// to `crate::bootctl_state` (TASK-0025 step 4) so the host suite covers it.
 
 fn load_bootctrl_state(client: &mut StatefsClient) -> Result<BootCtrl, StatefsError> {
+    // Accepts both the Integrity envelope (fresh writes) and legacy raw
+    // bytes (pre-migration journals); the seq is re-read at persist time.
     let bytes = client.get(BOOTCTRL_STATE_KEY)?;
-    let state = decode_bootctrl_state(&bytes)?;
-    bootctrl_from_state(state).map_err(|_| StatefsError::Corrupted)
+    let (boot, _seq) = bootctl_state::open_bootctl(&bytes)?;
+    Ok(boot)
 }
 
 fn persist_bootctrl_state(
@@ -778,28 +697,62 @@ fn persist_bootctrl_state(
         Some(client) => client,
         None => return Ok(()),
     };
-    let payload = encode_bootctrl_state(boot);
     // #region agent log (persist failure detail; rate-limited)
     static PERSIST_ERR_LOGGED: core::sync::atomic::AtomicBool =
         core::sync::atomic::AtomicBool::new(false);
-    // Diagnostic labels come from the statefs SSOT (covers the TASK-0025
-    // envelope statuses too).
-    let label = |e: StatefsError| -> &'static str { e.label() };
-    if let Err(e) = client.put(BOOTCTRL_STATE_KEY, &payload) {
+    let log_err = |stage: &'static [u8], e: StatefsError| {
         if !PERSIST_ERR_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-            emit_bytes(b"updated: bootctl persist put err=");
-            emit_line(label(e));
+            emit_bytes(stage);
+            // Diagnostic labels come from the statefs SSOT (covers the
+            // TASK-0025 envelope statuses too).
+            emit_line(e.label());
         }
-        return Err(e);
+    };
+    // #endregion agent log
+    // TASK-0025 step 4: Integrity-envelope read-modify-write — learn the
+    // stored seq (legacy raw / missing = none -> first write seq 1), seal
+    // with seq = last_seen + 1, put. One bounded retry on a rollback race
+    // (statefsd's replay-fed tracker is authoritative).
+    let mut retried = false;
+    loop {
+        let last_seen = match client.get(BOOTCTRL_STATE_KEY) {
+            Ok(bytes) => match statefs::writer::open_stored(&bytes) {
+                Ok(stored) => stored.seq(),
+                Err(e) => {
+                    log_err(b"updated: bootctl persist read err=", e);
+                    return Err(e);
+                }
+            },
+            Err(StatefsError::NotFound) => None,
+            Err(e) => {
+                log_err(b"updated: bootctl persist read err=", e);
+                return Err(e);
+            }
+        };
+        let seq = statefs::writer::next_seq(last_seen);
+        let ts = nexus_abi::nsec().unwrap_or(0);
+        let sealed = match bootctl_state::seal_bootctl(boot, seq, ts) {
+            Ok(sealed) => sealed,
+            Err(e) => {
+                log_err(b"updated: bootctl persist seal err=", e);
+                return Err(e);
+            }
+        };
+        match client.put(BOOTCTRL_STATE_KEY, &sealed) {
+            Ok(()) => break,
+            Err(StatefsError::RollbackDetected) if !retried => {
+                retried = true;
+            }
+            Err(e) => {
+                log_err(b"updated: bootctl persist put err=", e);
+                return Err(e);
+            }
+        }
     }
     if let Err(e) = client.sync() {
-        if !PERSIST_ERR_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-            emit_bytes(b"updated: bootctl persist sync err=");
-            emit_line(label(e));
-        }
+        log_err(b"updated: bootctl persist sync err=", e);
         return Err(e);
     }
-    // #endregion agent log
     Ok(())
 }
 

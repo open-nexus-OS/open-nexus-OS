@@ -629,6 +629,7 @@ pub mod protocol {
 pub mod client;
 pub mod derive;
 pub mod envelope;
+pub mod writer;
 // ============================================================================
 // Journal Record Format
 // ============================================================================

@@ -101,7 +101,11 @@ pub(crate) fn bootctl_persist_check() -> core::result::Result<(), ()> {
         return Err(());
     }
     let bytes = statefs_proto::decode_get_response(&buf[..n]).map_err(|_| ())?;
-    if bytes.len() != 6 || bytes[0] != BOOTCTL_VERSION {
+    // TASK-0025 step 4: updated seals the record as an Integrity envelope;
+    // unwrap it (legacy raw bytes from pre-migration journals pass through).
+    let stored = statefs::writer::open_stored(&bytes).map_err(|_| ())?;
+    let payload = stored.payload();
+    if payload.len() != 6 || payload[0] != BOOTCTL_VERSION {
         return Err(());
     }
     Ok(())

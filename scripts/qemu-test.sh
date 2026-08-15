@@ -1442,6 +1442,33 @@ if grep -aFq "SELFTEST: ui launcher present ok" "$UART_LOG"; then
     fi
   done
 fi
+# TASK-0025 fake-green guard: once statefsd reports envelope hardening on, the
+# three hardening selftests must complete ok (the proof-manifest phase walker
+# counts FAIL variants as "marker seen", so enforce the ok/FAIL split here).
+if grep -aFq "statefsd: write hardening on (auth-envelope)" "$UART_LOG"; then
+  for m in \
+    "SELFTEST: statefs auth put ok" \
+    "SELFTEST: statefs tamper deny ok" \
+    "SELFTEST: statefs rollback deny ok"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
+      echo "[error] statefs hardening active but selftest marker missing: $m" >&2
+      print_uart_excerpt "statefsd: write hardening on (auth-envelope)" "SELFTEST: statefs persist ok"
+      exit 1
+    fi
+  done
+  for m in \
+    "SELFTEST: statefs auth put FAIL" \
+    "SELFTEST: statefs tamper deny FAIL" \
+    "SELFTEST: statefs rollback deny FAIL"; do
+    if grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=bringup missing_marker='${m% FAIL} ok'" >&2
+      echo "[error] statefs hardening selftest emitted failure marker: $m" >&2
+      print_uart_excerpt "statefsd: write hardening on (auth-envelope)" "SELFTEST: statefs persist ok"
+      exit 1
+    fi
+  done
+fi
 if grep -aFq "SELFTEST: ui resize ok" "$UART_LOG" && ! grep -aFq "SELFTEST: ui launcher present ok" "$UART_LOG"; then
   echo "[error] first_failed_phase=end missing_marker='SELFTEST: ui launcher present ok'" >&2
   echo "[error] UI resize marker appeared without launcher-present proof" >&2
