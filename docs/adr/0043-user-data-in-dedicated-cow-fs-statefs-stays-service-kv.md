@@ -18,7 +18,8 @@ chain itself — keystored's device key, updated's bootctl, settingsd's prefs.
 The platform now needs **user data**: real files and directories for the stash file manager, media,
 documents — gigabyte-scale, streamed, eventually snapshot-able and encrypted per class. Two forces
 tempt a shortcut: statefs already exists and already persists; and the write-hardening tasks
-(TASK-0025/0026/0027) are open anyway. Meanwhile the old TASK-0182/0183 sketched a third thing — a
+(TASK-0025/0026/0027) were open anyway (all Done 2026-08-18 — they hardened statefs in place,
+they did NOT widen its contract). Meanwhile the old TASK-0182/0183 sketched a third thing — a
 "securefsd" encrypted overlay on top of `/state`.
 
 ## Decision
@@ -26,8 +27,8 @@ tempt a shortcut: statefs already exists and already persists; and the write-har
 1. **User data gets a dedicated filesystem service** (`nxfsd`, engine crate `userspace/nxfs`),
    designed per RFC-0071 (container/volumes, transactions, CoW track, integrity, encryption
    classes), mounted read-write at `/data` through vfsd.
-2. **statefs is not extended.** Its contract (RFC-0018) stays Complete; its open tasks
-   (TASK-0025/0026/0027) harden the existing KV semantics — authenticity, 2PC, compaction, record
+2. **statefs is not extended.** Its contract (RFC-0018) stays Complete; TASK-0025/0026/0027
+   (Done 2026-08-18) hardened the existing KV semantics — authenticity, 2PC, compaction, record
    encryption for its own values — and nothing else. No file semantics, no large values, no
    directory model in statefs, ever.
 3. **The securefsd overlay direction (TASK-0182/0183) is superseded.** Encrypted user data is an
@@ -73,6 +74,7 @@ storage-engine and device level today; only the vfsd/nxfsd process split is defe
   stash/app surface gets one clean mount (`/data`) to grow into.
 - **Cost**: two storage engines to maintain. Mitigated: both are host-first Rust crates sharing the
   `BlockDevice` trait, the CRC/journal discipline, and (post ADR-0044) the same partition layer —
-  and the 2PC/fsck patterns TASK-0026 builds for statefs are the same patterns nxfs P1 needs.
+  and the 2PC/fsck patterns TASK-0026 shipped for statefs are the same patterns nxfs P1 needs
+  (the reuse ran nxfs -> statefs in the end: 0292 landed first).
 - **Boundary rule for reviews**: any PR that adds file/path/large-value semantics to
   `userspace/statefs` or `statefsd` is rejected on sight and redirected to nxfs.

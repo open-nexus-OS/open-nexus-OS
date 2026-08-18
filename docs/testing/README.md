@@ -69,6 +69,12 @@ The full layer reference — including the end-to-end coverage table and the per
 - Host E2E: `just test-e2e` (runs `nexus-e2e`, `remote_e2e`, `logd-e2e`, `vfs-e2e`, `e2e_policy`)
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os` (defaults to `PROFILE=full`; e.g. `just test-os visible-bootstrap` for the visible ladder)
 - Phase-gated triage: `RUN_PHASE=bring-up RUN_TIMEOUT=90s just test-os` (supported phases and failure output: [os-markers.md](os-markers.md))
+- Cold-boot durability (statefs, ADR-0044): two runs — `just test-os` seeds the sentinel on a
+  fresh image (`SELFTEST: statefs cold-boot seeded`), then
+  `NEXUS_KEEP_BLK=1 REQUIRE_STATEFS_COLD_BOOT=1 just test-os` boots against the PRESERVED
+  image and requires `SELFTEST: statefs cold-boot persist ok`. Without the `REQUIRE_` flag a
+  "seeded" verdict on the second boot would pass silently; with it, broken persistence fails
+  the lane. This is the only lane that proves real cold boot rather than soft-reboot replay.
 - Miri tiers: `just miri-strict` / `just miri-fs` (tier rules: [os-markers.md](os-markers.md))
 - Build hygiene gates: `just diag-os`, `just dep-gate`, `just diag-host` ([build-hygiene.md](build-hygiene.md))
 - Full gate before "everything is green": `just test-all`; Make wrapper: `make verify`

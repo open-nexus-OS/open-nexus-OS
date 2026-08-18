@@ -191,8 +191,9 @@ table: `tasks/TRACK-STASH-USER-DATA-FS.md` (milestones 6–12).
 | TASK-0319 | nxfs Phase 3: CoW metadata tree (ADR first) + snapshots/clones + data checksums | Draft |
 | TASK-0320 | nxfs Phase 4: encryption classes (per-extent XChaCha20-Poly1305, keystored HKDF) | Draft |
 
-Parallel statefs lane (separate store, ADR-0043): `0025` → `0026` → `0027` (see Defer-Bucket
-note; 0026 additionally defuses the `/state` replay-limit boot time bomb).
+Parallel statefs lane (separate store, ADR-0043): `0025` → `0026` → `0027` — **all Done
+2026-08-18** (see Defer-Bucket note; 0026 defused the `/state` replay-limit boot time bomb,
+0027 shipped opt-in record AEAD).
 Superseded by this ladder: `0264`/`0265` (pre-nxfs write-path drafts); `0135` needs a
 `/data`-first rescope before execution.
 
@@ -221,7 +222,7 @@ Minimale Voraussetzungen für den UI-Stack. Alles andere aus dem 24–53 Bereich
 | TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | UI-Profil-Broker für windowd + input |
 | TASK-0047 | Policy as Code v1: unified policy engine | Asset-Zugriff + Permissions für UI-Services |
 
-**Übersprungen (24–53):** `0024` (DSoftBus UDP sec), `0025–0027` (StateFS hardening/encryption — verified still open 2026-08-14, see Defer-Bucket), `0028` (ABI filters v2), `0030` (DSoftBus discovery authz), `0033` (PackageFS VMO-splice — ⤳ superseded by 0295), `0034–0037` (OTA/delta updates), `0038` (Tracing v2), `0040` (Remote observability), `0041` (Lock profiling), `0042` (SMP v2 voll — inzwischen Done; 0054B war der QoS-Slice-Träger und ist Superseded), `0043–0044` (Security sandbox quotas / QUIC tuning — 0044 Superseded 2026-08-14), `0048–0053` (Crashdump v2 / Recovery / Security v3).
+**Übersprungen (24–53):** `0024` (DSoftBus UDP sec), ✅ `0025–0027` (StateFS hardening/encryption — **alle Done 2026-08-18**, siehe Defer-Bucket), `0028` (ABI filters v2), `0030` (DSoftBus discovery authz), `0033` (PackageFS VMO-splice — ⤳ superseded by 0295), `0034–0037` (OTA/delta updates), `0038` (Tracing v2), `0040` (Remote observability), `0041` (Lock profiling), `0042` (SMP v2 voll — inzwischen Done; 0054B war der QoS-Slice-Träger und ist Superseded), `0043–0044` (Security sandbox quotas / QUIC tuning — 0044 Superseded 2026-08-14), `0048–0053` (Crashdump v2 / Recovery / Security v3).
 
 ---
 
@@ -381,12 +382,12 @@ Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen.
 `0030` (rebased → NXSB-Realität statt mDNS); ⤳ `0044` Superseded (Prioritäten via 0020 geliefert;
 Pacing-Residual → 0024)
 
-**StateFS / Storage** (verified 2026-08-14 — still genuinely open, `Draft`, zero code):
-`0025`, `0026`, `0027` (StateFS hardening + encryption; lane order 0025 → 0026 → 0027).
-Not covered by nxfs: the 2PC/fsck/crash-injection discipline exists only in nxfs (0292), statefs
-stays a separate boot-critical store (ADR-0043). 0026's cold-boot gate is unblocked
-(`NEXUS_KEEP_BLK`, 0293) and its ledger now carries the perf/robustness scope (journal compaction
-defuses the `MAX_REPLAY_RECORDS` boot time bomb). The nxfs/storage **end-state ladder** is now
+**StateFS / Storage** — ✅ **lane complete 2026-08-18** (`0025`, `0026`, `0027` all Done):
+authenticity envelopes + anti-rollback (0025), journal v2 with 2PC + bounded compaction +
+`fsck-statefs` (0026, defused the `MAX_REPLAY_RECORDS` boot time bomb), opt-in record AEAD
+for enrolled non-boot-critical prefixes (0027). All QEMU-proven via the keep-blk double boot
+(`NEXUS_KEEP_BLK=1 REQUIRE_STATEFS_COLD_BOOT=1`, unblocked by 0293). statefs stays a separate
+boot-critical store (ADR-0043) — not covered by nxfs. The nxfs/storage **end-state ladder** is
 seeded as `0314`–`0320` — see "Storage End-State Ladder" section below.
 ⤳ `0264`/`0265` (pre-nxfs write-path drafts) Superseded 2026-08-14 (conflict with
 ADR-0043/RFC-0071; absorbed by 0316/0317/0318).
@@ -409,7 +410,7 @@ sind Boot-Gate)
 **Recovery:**
 `0050`, `0051` (Recovery v1a/v1b; Entscheidung 2026-08-14: 0050 hält die Boot-Target-Authority
 (`nexus.target=recovery`, TRACK-AUTHORITY-NAMING) — 0261 aligned; 0051 nutzt `fsck-statefs`
-aus 0026)
+aus 0026 — **seit 2026-08-18 geliefert**, inkl. `--enc-*` Sealed-Value-Verifikation)
 
 **SMP v2 (voll):**
 ✅ `0042` Done (see "Post-0064 — SMP + Filesystem" section above); SMP closure `0281`/`0282`/`0286`/`0287`/`0290` still open.

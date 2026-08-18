@@ -1,10 +1,12 @@
 # StateFS — the `/state` service-state KV store (current state + hardening roadmap)
 
 CONTEXT: Current-state documentation for statefs/statefsd as shipped (TASK-0009 Done,
-RFC-0018 Complete, ADR-0023) plus the normative home for the v2 extensions that the hardening
-tasks keep here (TASK-0025 envelopes, TASK-0026 journal v2, TASK-0027 record encryption).
+RFC-0018 Complete, ADR-0023) and the normative home for the v2 extensions
+(TASK-0025 envelopes, TASK-0026 journal v2, TASK-0027 record encryption — all Done
+2026-08-18).
 OWNERS: @runtime
-STATUS: v1 shipped and boot-proven; v2 sections below are contracts-in-waiting, clearly marked.
+STATUS: v1 + v1b/v2a/v2b shipped and boot-proven (keep-blk double boot); every section below
+describes behavior that exists — no contracts-in-waiting remain in this file.
 
 ## What statefs is (and is not)
 

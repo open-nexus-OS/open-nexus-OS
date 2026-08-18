@@ -45,6 +45,28 @@ ECALL storms), but ordinary syscall errors are returned to userspace.
 
 **RFC:** `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md`
 
+## StateFS hardening snapshot (TASK-0025/0026/0027, 2026-08-18)
+
+| Objective | Status | Notes |
+| --- | --- | --- |
+| Value authenticity + anti-rollback | ✅ Done | `NXEV` envelopes (HMAC-SHA256, key via label-scoped HKDF over a device-key signature) verified on put AND get; replay-fed seq high-water mark. Wire statuses 9/10. Never a signing key used raw as a MAC key. |
+| Multi-key atomicity | ✅ Done | Journal v2 `PREPARE/PAYLOAD/COMMIT/ABORT`, committed-only replay — both-or-neither across restart at every write boundary (crash-injection suite cuts at every block write). |
+| Bounded replay / boot availability | ✅ Done | Compaction (`CHECKPOINT` snapshot → inactive A/B region → atomic `NXS2` superblock flip) makes reopen cost proportional to live state, defusing the `MAX_REPLAY_RECORDS` hard open-failure of `/state`. |
+| Offline repair | ✅ Done | `tools/fsck-statefs`: stable exit codes (0/1/2), append-only repair (`TXN_ABORT` per orphan), never rewrites committed data; decrypt-aware with an explicit key. |
+| Encryption at rest (opt-in) | ✅ Done | XChaCha20-Poly1305 for enrolled non-boot-critical prefixes; deterministic nonces (no `getrandom` in the OS graph), AAD binds header + key path; boot-critical prefixes structurally unenrollable; enablement behind the `statefs.admin` capability. |
+| Marker honesty | ✅ Done | `compaction done` requires a device readback verify; `encryption on` requires an in-process AEAD seal/open/tamper self-check; both coupled to their selftests by fake-green guards in `scripts/qemu-test.sh`. |
+| Cold-boot durability | ✅ Done | Proven against a PRESERVED image (`NEXUS_KEEP_BLK=1 REQUIRE_STATEFS_COLD_BOOT=1` second boot), not soft-reboot replay. |
+
+**Known limits (documented, not defended):** no sealed storage on this platform — an attacker
+with the device seed derives all keys; keys/paths stay plaintext; at-rest tampering of the
+enablement meta record is inside the at-rest attacker's power; no key rotation yet.
+
+**Proofs:** `cargo test -p statefs -p statefsd -p fsck-statefs`, plus the QEMU double boot
+(`just test-os`, then `NEXUS_KEEP_BLK=1 REQUIRE_STATEFS_COLD_BOOT=1 just test-os`).
+
+**Contract:** `docs/storage/statefs.md` · **ADRs:** 0023 (persistence), 0043 (statefs stays
+service KV), 0044 (block layout + keep-blk) · **RFC:** `RFC-0018` (v1 framing, frozen).
+
 ## Related canonical references
 
 - Kernel overview: `docs/architecture/01-neuron-kernel.md`

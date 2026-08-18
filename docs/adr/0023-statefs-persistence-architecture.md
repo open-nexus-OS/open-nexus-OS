@@ -33,6 +33,34 @@ Key architectural decisions:
 - `/state` semantics are limited to key-value operations in v1.
 - Follow-up tasks will be needed for mounts, compaction, quotas, and encryption-at-rest.
 
+### Delivered follow-ups (2026-08-18) — v1b/v2a/v2b shipped
+
+The v1 substrate described above is unchanged; three follow-ups closed the gaps this ADR
+predicted (full byte contracts: `docs/storage/statefs.md`):
+
+- **TASK-0025 (v1b, authenticity):** CRC32 detects corruption, not tampering — values under
+  enrolled prefixes now carry `NXEV` envelopes (HMAC-SHA256 keyed via label-scoped HKDF over
+  a device-key signature) with a replay-fed anti-rollback seq tracker and a write budget.
+  New wire statuses 9 (integrity) / 10 (rollback).
+- **TASK-0026 (v2a, atomicity + compaction + fsck):** journal v2 adds
+  `PREPARE/PAYLOAD/COMMIT/ABORT` with committed-only replay (multi-key both-or-neither) and
+  bounded compaction (`CHECKPOINT` snapshot into the inactive half of an A/B region split,
+  atomic `NXS2` superblock flip). Replay cost is now proportional to the live journal instead
+  of lifetime writes, which **defused a boot time bomb**: `MAX_REPLAY_RECORDS` was a hard
+  open-failure of `/state`, not a throttle. Offline tooling: `fsck-statefs` (stable exit
+  codes, append-only repair). Cold-boot durability is proven against a preserved image
+  (`NEXUS_KEEP_BLK=1`), no longer only soft-reboot replay.
+- **TASK-0027 (v2b, encryption at rest):** opt-in XChaCha20-Poly1305 sealing of value
+  payloads for enrolled **non-boot-critical** prefixes, default off. Keys/paths stay
+  plaintext; boot-critical prefixes (`/state/keystore/`, `/state/boot/`) are structurally
+  unenrollable (they must replay before key material exists). Enablement is gated by a new
+  `statefs.admin` capability and the `encryption on` marker only follows an in-process AEAD
+  self-check.
+
+Invariant additions from these tasks: transactions are all-or-nothing across restart at every
+write boundary; compaction is bounded per cycle and its completion marker requires a device
+readback verify; sealed values are never served as plaintext on any verification failure.
+
 ## Invariants
 - No secrets are logged or emitted in error messages.
 - Access decisions are based on kernel `sender_service_id`.

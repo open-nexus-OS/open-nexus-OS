@@ -17,9 +17,26 @@
 use std::path::{Path, PathBuf};
 
 /// Repo root (this crate lives at `tests/sdk_surface`).
+///
+/// `CARGO_MANIFEST_DIR` is baked in at COMPILE time, so a test binary built
+/// inside the container (`/workspace/...`) and then run on the host resolves
+/// to a path that does not exist — the guard failed with a bare
+/// `repo root: NotFound` instead of checking anything. Fall back to walking
+/// up from the working directory in that case.
 #[must_use]
 pub fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("repo root")
+    if let Ok(path) = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize() {
+        if path.join("docs/dev/sdk/crates.toml").is_file() {
+            return path;
+        }
+    }
+    let mut dir = std::env::current_dir().expect("current dir");
+    loop {
+        if dir.join("docs/dev/sdk/crates.toml").is_file() {
+            return dir;
+        }
+        assert!(dir.pop(), "repo root not found from the working directory either");
+    }
 }
 
 /// Parses the `[sdk]` entries of `docs/dev/sdk/crates.toml` →

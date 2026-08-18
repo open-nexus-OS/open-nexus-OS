@@ -33,13 +33,18 @@ This RFC is a **design seed / contract**. Implementation planning and proofs liv
   - statefsd IPC API (Put/Get/Delete/List/Sync)
   - BlockDevice trait abstraction
   - Value size limits and path normalization
-- **This RFC does NOT own**:
+- **This RFC does NOT own** (v1 framing stays frozen; the v2 extensions below are all
+  specified in `docs/storage/statefs.md`, which is their normative home):
   - VFS mount integration (follow-up: `TASK-0134`)
-  - Snapshots, compaction, quotas (follow-ups)
-  - Encryption-at-rest (follow-up: `TASK-0027`)
-  - Real VM reboot/bootloader integration (follow-up)
-  - Journal authenticity / anti-rollback (follow-ups; see Security considerations)
-  - Offline repair / fsck tooling (follow-up)
+  - Snapshots (follow-up: `TASK-0134`), quotas (follow-up: `TASK-0133`);
+    ✅ compaction shipped with `TASK-0026` (journal v2 `CHECKPOINT` + A/B region flip)
+  - ✅ Encryption-at-rest shipped with `TASK-0027` (opt-in record AEAD, non-boot-critical
+    prefixes only — `docs/storage/statefs.md` §Record encryption v2b)
+  - Real VM reboot/bootloader integration (follow-up); ✅ cold-boot durability against a
+    preserved image is proven since `TASK-0026` (`NEXUS_KEEP_BLK=1`)
+  - ✅ Journal authenticity / anti-rollback shipped with `TASK-0025` (`NXEV` envelopes;
+    see Security considerations)
+  - ✅ Offline repair / fsck tooling shipped with `TASK-0026` (`tools/fsck-statefs`)
   - RPC framing improvements (request IDs / conversation IDs) beyond v1 byte frames.
     - Note (2026-02-05): request/reply correlation is now specified in
       `docs/rfcs/RFC-0019-ipc-request-reply-correlation-v1.md` because deterministic QEMU proofs (and future OS

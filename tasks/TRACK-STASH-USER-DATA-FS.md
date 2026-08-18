@@ -47,12 +47,13 @@ contracted P3/P4 phases (11, 12).
 
 ## Parallel lane: statefs hardening (NOT this ladder's critical path)
 
-statefs stays the boot-critical service-state KV (ADR-0043) and hardens independently:
-`TASK-0025` (authenticity envelopes + anti-rollback + budgets) → `TASK-0026` (2PC + compaction +
-fsck — reuse nxfs P1's shipped journal/fsck/crash-injection patterns, see its 2026-08-14 note) →
-`TASK-0027` (record encryption for non-boot-critical prefixes, reusing the RFC-0071 key
-hierarchy). `TASK-0026`'s cold-boot proof reuses milestone 3's `NEXUS_KEEP_BLK` harness (landed).
-Verified still open 2026-08-14 — none of the three is covered by the nxfs ladder.
+statefs stays the boot-critical service-state KV (ADR-0043) and hardened independently —
+✅ **lane complete 2026-08-18**: `TASK-0025` (authenticity envelopes + anti-rollback + budgets)
+→ `TASK-0026` (2PC + bounded compaction + `fsck-statefs`, reusing nxfs P1's journal/fsck/
+crash-injection patterns) → `TASK-0027` (opt-in record AEAD for non-boot-critical prefixes,
+one HKDF discipline with RFC-0071). Cold-boot durability is proven via milestone 3's
+`NEXUS_KEEP_BLK` harness (`NEXUS_KEEP_BLK=1 REQUIRE_STATEFS_COLD_BOOT=1` second boot).
+None of the three was covered by the nxfs ladder; the shared-pattern reuse ran nxfs → statefs.
 
 ## Contracts (stable interfaces to design around)
 

@@ -12,7 +12,8 @@ Storage follows **one authority per store**, with `vfsd` as the single client-fa
 Canonical sources:
 
 - VFS overview: `docs/storage/vfs.md`
-- StateFS current state + hardening roadmap: `docs/storage/statefs.md`
+- StateFS current state (v1 + v1b envelopes + v2a journal-v2/compaction/fsck + v2b opt-in
+  record encryption, all shipped 2026-08-18): `docs/storage/statefs.md`
 - nxfs orientation (user data, `/data`): `docs/storage/nxfs.md`
 - Track (milestones to a working stash file manager): `tasks/TRACK-STASH-USER-DATA-FS.md`
 - Packaging and publication: `docs/packaging/nxb.md`

@@ -97,7 +97,11 @@ device; "one device per filesystem" does not survive contact with a real board.
 
 - **Positive**: real-hardware-shaped storage stack from day one; one shared, tested partition
   seam; cold-boot persistence becomes provable (closing an honesty gap in all current
-  "persist ok" markers, which only ever proved soft-reboot).
+  "persist ok" markers, which only ever proved soft-reboot). **Realized 2026-08-18** for
+  statefs: `SELFTEST: statefs cold-boot persist ok` appears only on a second boot against a
+  preserved image, with `REQUIRE_STATEFS_COLD_BOOT=1` making a "seeded" verdict on that lane
+  a hard failure (TASK-0026). The lane immediately earned its keep — it exposed a device-key
+  regeneration bug that only manifests across real cold boots (see TASK-0027 closure note).
 - **Cost**: TASK-0293 touches statefsd's backend selection (Mem → virtio upgrade now selects a
   PartitionView). Guarded by keeping RFC-0018 bytes identical and by host tests running the same
   engine over raw vs. partition views.

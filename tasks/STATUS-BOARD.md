@@ -14,25 +14,27 @@ Sequential execution order remains `tasks/IMPLEMENTATION-ORDER.md`.
 
 This section adds a navigation layer over the full `TASK-*` set. Task files remain the execution truth; the groups below are for drift-free review, gate planning, and fast kernel/service scanning.
 
-> **Reconciliation note (2026-07-19):** The cumulative Done list below was reconciled against real proof markers/tests (post-0064 UI/DSL, SMP core 0042/0276/0277/0283/0288, filesystem 0291–0295, boot-gates 0269, bundlemgr 0130). The per-group `Done / Total` counters are hand-maintained approximate mirrors and lag the Done list; treat the Done list + each `TASK-*.md` header as authoritative. Counters for the groups touched by this reconciliation (Storage, Windowing) are refreshed here; the rest are refreshed opportunistically.
+> **Reconciliation note (2026-07-19):** The cumulative Done list below was reconciled against real proof markers/tests (post-0064 UI/DSL, SMP core 0042/0276/0277/0283/0288, filesystem 0291–0295, boot-gates 0269, bundlemgr 0130). Treat the Done list + each `TASK-*.md` header as authoritative.
+>
+> **Counter recount (2026-08-18):** every `Done / Total` counter — both this table and the per-group sections — was recomputed mechanically from the `status:` header of each task named in that group's `Tasks:` list (`Done`/`Complete` count as done; `Superseded` counts toward the total but not as done). They had drifted by up to 8 tasks per group because they were hand-maintained. Re-run the same way after any status flip rather than nudging a number.
 
 | Group | Done / Total | Progress | Kernel-touch tasks | Notes |
 |------|---------------|----------|--------------------|-------|
-| Kernel Core & Runtime | 6 / 30 | 20% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
-| DSoftBus & Distributed | 7 / 27 | 26% | — | Distributed session, transport, mux, and remote-service stack. |
+| Kernel Core & Runtime | 14 / 34 | 41% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
+| DSoftBus & Distributed | 14 / 28 | 50% | — | Distributed session, transport, mux, and remote-service stack. |
 | Networking & Transport | 1 / 8 | 12% | — | Netstack, dev networking, ingress, and OS transport services. |
-| Observability, Crash, Perf & Diagnostics | 3 / 33 | 9% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
+| Observability, Crash, Perf & Diagnostics | 9 / 33 | 27% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
 | Accounts, Ability & Sessions | 2 / 9 | 22% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. Spine done (0065 lifecycle broker + 0065B session authority); continuation open (KILL/backoff → 0234/0235, lock/multi-user → 0109/0110/0223/0224, delegation → 0126B). |
-| Security, Policy & Identity | 4 / 36 | 11% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
-| Storage, PackageFS & Content | 9 / 30 | 30% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done. |
+| Security, Policy & Identity | 8 / 37 | 22% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
+| Storage, PackageFS & Content | 12 / 30 | 40% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done. |
 | Updates, Packaging & Recovery | 1 / 21 | 5% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
-| Bringup, Hardware & Drivers | 0 / 11 | 0% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
-| Windowing, UI & Graphics | 27 / 76 | 36% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
-| Text, IME, I18N & Accessibility | 0 / 7 | 0% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
+| Bringup, Hardware & Drivers | 1 / 13 | 8% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
+| Windowing, UI & Graphics | 31 / 85 | 36% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
+| Text, IME, I18N & Accessibility | 4 / 7 | 57% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
 | DSL, App Platform & SDK | 2 / 14 | 14% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
-| DevX, Config & Tooling | 2 / 10 | 20% | — | CLI/dev tooling, config/schema plumbing, and repo hygiene. |
+| DevX, Config & Tooling | 3 / 9 | 33% | — | CLI/dev tooling, config/schema plumbing, and repo hygiene. |
 
 ---
 
@@ -91,13 +93,13 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Kernel Core & Runtime
 
-- Progress: `6 / 30` done (`20%`)
+- Progress: `14 / 34` done (`41%`)
 - Kernel-touch tasks: `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054C`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` (2026-08-14: `TASK-0054B`/`TASK-0054D` Superseded → removed)
 - Tasks: `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0228`..`TASK-0230`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0267`, `TASK-0269`, `TASK-0276`..`TASK-0277`, `TASK-0281`..`TASK-0290`
 
 ### DSoftBus & Distributed
 
-- Progress: `7 / 27` done (`26%`)
+- Progress: `14 / 28` done (`50%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0003`, `TASK-0003B`, `TASK-0003C`, `TASK-0004`..`TASK-0005`, `TASK-0015`..`TASK-0017`, `TASK-0020`..`TASK-0024`, `TASK-0023B`, `TASK-0030`, `TASK-0038`, `TASK-0040`, `TASK-0044`, `TASK-0157`..`TASK-0158`, `TASK-0195`..`TASK-0196`, `TASK-0211`..`TASK-0212`, `TASK-0219`..`TASK-0220`, `TASK-0231`
 
@@ -109,7 +111,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Observability, Crash, Perf & Diagnostics
 
-- Progress: `3 / 33` done (`9%`)
+- Progress: `9 / 33` done (`27%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0006`, `TASK-0014`, `TASK-0018`, `TASK-0026`, `TASK-0041`, `TASK-0048`..`TASK-0049`, `TASK-0056C`, `TASK-0060`, `TASK-0062B`, `TASK-0080`, `TASK-0141`..`TASK-0145`, `TASK-0152`, `TASK-0170`, `TASK-0172`..`TASK-0173`, `TASK-0183`, `TASK-0190`, `TASK-0201`..`TASK-0202`, `TASK-0205`, `TASK-0216`..`TASK-0217`, `TASK-0227`, `TASK-0234`, `TASK-0236`, `TASK-0242`..`TASK-0243`, `TASK-0264`
 
@@ -121,13 +123,13 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Security, Policy & Identity
 
-- Progress: `3 / 36` done (`8%`)
+- Progress: `8 / 37` done (`22%`)
 - Kernel-touch tasks: `TASK-0008`, `TASK-0019` (2026-08-14: `TASK-0028`/`TASK-0043` removed — their ledgers state "kernel untouched" as a hard invariant; the board entry was wrong)
 - Tasks: `TASK-0008`, `TASK-0008B`, `TASK-0019`, `TASK-0027`..`TASK-0029`, `TASK-0039`, `TASK-0043`, `TASK-0047`, `TASK-0053`, `TASK-0066`..`TASK-0068`, `TASK-0103`, `TASK-0107`..`TASK-0108`, `TASK-0111`, `TASK-0124`, `TASK-0126`, `TASK-0130`, `TASK-0136`..`TASK-0137`, `TASK-0139`, `TASK-0160`, `TASK-0162`, `TASK-0167`..`TASK-0168`, `TASK-0181`..`TASK-0182`, `TASK-0189`, `TASK-0191`..`TASK-0192`, `TASK-0221`, `TASK-0238`, `TASK-0259`, `TASK-0263`
 
 ### Storage, PackageFS & Content
 
-- Progress: `9 / 30` done (`30%`)
+- Progress: `12 / 30` done (`40%`)
 - Kernel-touch tasks: `TASK-0031`
 - Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0051`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`, `TASK-0291`..`TASK-0295`
 - Notes (2026-07-15): `TASK-0025`..`TASK-0027` rebased onto shipped statefs v1; `TASK-0033` superseded by `TASK-0295`; `TASK-0182`/`TASK-0183` superseded by RFC-0071 (nxfs encryption classes); ladder + contracts in `tasks/TRACK-STASH-USER-DATA-FS.md`.
@@ -145,20 +147,20 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Bringup, Hardware & Drivers
 
-- Progress: `0 / 11` done (`0%`)
+- Progress: `1 / 13` done (`8%`)
 - Kernel-touch tasks: `TASK-0244`, `TASK-0251`
 - Tasks: `TASK-0055D`, `TASK-0244`, `TASK-0250`..`TASK-0251`, `TASK-0255`..`TASK-0258`, `TASK-0271`..`TASK-0272`, `TASK-0280`, `TASK-0297`, `TASK-0299`
 - Notes (2026-07-21): `TASK-0297` (goldfish rtcd + timed walltime + tz-lite + live clock, RFC-0076) is part of the active IME/General-management track; `TASK-0299` (SNTP time-syncd) is a seed gated on netstackd UDP readiness.
 
 ### Windowing, UI & Graphics
 
-- Progress: `27 / 76` done (`36%`)
+- Progress: `31 / 85` done (`36%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0088`, `TASK-0091`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`
 
 ### Text, IME, I18N & Accessibility
 
-- Progress: `0 / 7` done (`0%`)
+- Progress: `4 / 7` done (`57%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0077`, `TASK-0148`..`TASK-0149`, `TASK-0151`, `TASK-0175`, `TASK-0240`..`TASK-0241`
 - Notes (2026-07-21): IME v2 + i18n v2 track active — ledgers 0146/0147/0149/0150/0203/0204/0240/0241 rewritten against repo reality (RFC-0075/0077); `TASK-0096`/`TASK-0174`/`TASK-0175` Superseded; `TASK-0148` Deferred (no bidi need for Latin+CJK); 0204 retargeted securefsd → statefsd (`state:/ime`), encryption follow-up seeded as `TASK-0300`.
@@ -183,7 +185,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### DevX, Config & Tooling
 
-- Progress: `2 / 9` done (`22%`)
+- Progress: `3 / 9` done (`33%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0045`..`TASK-0046`, `TASK-0138`, `TASK-0222`, `TASK-0262`, `TASK-0266`, `TASK-0268`, `TASK-0273`, `TASK-0285`
 
@@ -221,6 +223,9 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0021 | DSoftBus QUIC v1 host-first scaffold | Done | Real host QUIC transport + QUIC/mux payload proof + deterministic OS fallback markers + strict-mode fail-closed closure synced |
 | ✅ TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | Done | `dsoftbus-core` no_std crate boundary extracted, required `test_reject_*` + deterministic perf/zero-copy trait evidence green, closure sync complete |
 | ✅ TASK-0023 | DSoftBus QUIC v2 OS enabled (gated) | Done | Real OS QUIC-v2 UDP session path shipped: `transport selected quic` + auth/session markers proven; fallback markers rejected in QUIC-required profile |
+| ✅ TASK-0025 | StateFS v1b: authenticity envelopes + anti-rollback + write budgets | Done | `NXEV` envelopes (HMAC via label-scoped HKDF), replay-fed seq tracker, keystored/updated adoption; QEMU `write hardening on` + auth/tamper/rollback markers behind a fake-green guard |
+| ✅ TASK-0026 | StateFS v2a: 2PC crash-atomicity + bounded compaction + fsck | Done | Journal v2 (committed-only replay, A/B checkpoint flip — defuses the `MAX_REPLAY_RECORDS` boot time bomb), statefsd txn wire ops, readback-verified compaction marker, `fsck-statefs`; keep-blk double-boot cold-boot proof |
+| ✅ TASK-0027 | StateFS v2b: opt-in record encryption at rest | Done | XChaCha20-Poly1305 sealing for enrolled non-boot-critical prefixes, deterministic nonces (no getrandom), admin-gated enablement + self-check-gated `encryption on`, decrypt-aware fsck; statefs lane 0025→0026→0027 complete |
 | ✅ TASK-0029 | Supply-Chain v1: SBOM + repro metadata + signature allowlist policy | Done | Host reject-path proofs + OS supply-chain marker gate green; docs and tracking synced |
 | ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Done | Host-first + OS-gated VMO plumbing closure complete; kernel production-grade dependencies remain explicit follow-up scope |
 | ✅ TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | Done | Host-first config authority closure complete; `RFC-0044` done, JSON-only authoring enforced, `configd`/`nx config` contract synced |
