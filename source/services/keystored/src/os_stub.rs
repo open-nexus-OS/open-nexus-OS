@@ -516,6 +516,18 @@ fn handle_device_keygen(
         return rsp(OP_DEVICE_KEYGEN, STATUS_KEY_EXISTS, &[]);
     }
 
+    // Keep-blk device-identity fix (found by the TASK-0027 double-boot
+    // ladder): keystored's initial store load can race statefsd's
+    // mem→virtio backend upgrade, so on a preserved image the in-memory
+    // "no key" belief may be stale. Regenerating would fork the device
+    // identity and orphan every envelope MAC'd under the old key — so
+    // re-read the persisted record before EVER generating.
+    if let Ok(Some(bytes)) = store.reload_device_key() {
+        device_keypair.load_from_bytes(bytes);
+        emit_line("keystored: device key reloaded (pre-keygen)");
+        return rsp(OP_DEVICE_KEYGEN, STATUS_KEY_EXISTS, &[]);
+    }
+
     // Request entropy from rngd (entropy authority service).
     let entropy = match request_entropy_from_rngd(pending, 32) {
         Some(bytes) if bytes.len() == 32 => {
