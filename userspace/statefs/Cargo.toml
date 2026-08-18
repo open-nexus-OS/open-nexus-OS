@@ -23,5 +23,9 @@ sha2 = { version = "0.10", default-features = false }
 # Envelope-key derivation v1 (statefs::derive): HKDF-SHA256 over keystored
 # material; RustCrypto, no_std, no getrandom (RFC-0009).
 hkdf = { version = "0.12", default-features = false }
+# Record encryption v2b (TASK-0027, statefs::enc): XChaCha20-Poly1305 AEAD.
+# default-features off keeps `getrandom` out of the OS graph (RFC-0009) —
+# nonces are deterministic (salt || txn_id || chunk_idx), never sampled.
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]

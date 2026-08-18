@@ -93,47 +93,12 @@ pub(crate) struct JournalRecord {
 }
 
 /// Record serialization lives in `crate::record` (append-in-place encoder
-/// for bump-allocator hot paths); re-exported here for the existing users.
-pub use crate::record::{encode_record, encode_record_into};
-
-/// Encode `TXN_PREPARE{txn_id}`.
-pub fn encode_prepare(txn_id: u64) -> Vec<u8> {
-    encode_record(JournalOpCode::TxnPrepare, "", &txn_id.to_le_bytes())
-}
-
-/// Encode `TXN_PAYLOAD{txn_id, key, chunk}`. Chunk must be `<= MAX_TXN_CHUNK`.
-pub fn encode_payload(txn_id: u64, key: &str, chunk: &[u8]) -> Result<Vec<u8>, StatefsError> {
-    if chunk.len() > MAX_TXN_CHUNK {
-        return Err(StatefsError::ValueTooLarge);
-    }
-    let mut value = Vec::with_capacity(8 + chunk.len());
-    value.extend_from_slice(&txn_id.to_le_bytes());
-    value.extend_from_slice(chunk);
-    Ok(encode_record(JournalOpCode::TxnPayload, key, &value))
-}
-
-/// Encode `TXN_COMMIT{txn_id}`.
-pub fn encode_commit(txn_id: u64) -> Vec<u8> {
-    encode_record(JournalOpCode::TxnCommit, "", &txn_id.to_le_bytes())
-}
-
-/// Encode `TXN_ABORT{txn_id}`.
-pub fn encode_abort(txn_id: u64) -> Vec<u8> {
-    encode_record(JournalOpCode::TxnAbort, "", &txn_id.to_le_bytes())
-}
-
-/// Encode `SYNC{}` (journal durability-barrier record).
-pub fn encode_sync_barrier() -> Vec<u8> {
-    encode_record(JournalOpCode::SyncBarrier, "", &[])
-}
-
-/// Encode `CHECKPOINT{gen, entries}` (snapshot boundary, compaction only).
-pub fn encode_checkpoint(generation: u32, entries: u32) -> Vec<u8> {
-    let mut value = Vec::with_capacity(8);
-    value.extend_from_slice(&generation.to_le_bytes());
-    value.extend_from_slice(&entries.to_le_bytes());
-    encode_record(JournalOpCode::Checkpoint, "", &value)
-}
+/// for bump-allocator hot paths); the txn/checkpoint encode helpers moved
+/// there too. Re-exported here for the existing users.
+pub use crate::record::{
+    encode_abort, encode_checkpoint, encode_commit, encode_payload, encode_prepare, encode_record,
+    encode_record_into, encode_sync_barrier,
+};
 
 /// Per-opcode payload shape check (valid CRC does not make a record
 /// well-formed). A violation is `Corrupted`: replay stops deterministically.
@@ -326,6 +291,13 @@ impl TxnTable {
     fn contains(&self, id: u64) -> bool {
         self.txns.iter().any(|t| t.id == id)
     }
+
+    /// (buffered entry count, whether `key` already has bytes) for an open
+    /// txn — the sealed-chunk index and single-chunk rule (TASK-0027).
+    fn entry_state(&self, id: u64, key: &str) -> Option<(usize, bool)> {
+        let txn = self.txns.iter().find(|t| t.id == id)?;
+        Some((txn.entries.len(), txn.entries.iter().any(|(k, _)| k == key)))
+    }
 }
 
 // ============================================================================
@@ -439,6 +411,14 @@ impl Replayer {
         }
     }
 
+    /// TASK-0027: a sealed chunk that failed its AEAD verify poisons the
+    /// whole transaction (both-or-neither — a tampered chunk must never
+    /// half-apply). Counted like any other discarded-group anomaly.
+    pub(crate) fn poison(&mut self, id: u64) {
+        self.txns.poison(id);
+        self.orphans += 1;
+    }
+
     /// End of scan: any still-open transaction is discarded wholesale.
     pub(crate) fn finish(self) -> ReplayOutcome {
         let dropped = self.txns.open_count();
@@ -488,6 +468,31 @@ impl<B: BlockDevice> JournalEngine<B> {
     /// caps exceeded; key errors as in `put`.
     pub fn txn_append(&mut self, txn_id: u64, key: &str, chunk: &[u8]) -> Result<(), StatefsError> {
         Self::validate_key(key)?;
+        // TASK-0027: enrolled keys are sealed per chunk with nonce input
+        // (txn_id, entry index). Sealing forbids concatenation, so enrolled
+        // values must arrive as ONE complete chunk (envelope discipline).
+        if let Some(class) = self.enc.as_ref().and_then(|c| c.class_for(key)) {
+            let (idx, present) =
+                self.txns.entry_state(txn_id, key).ok_or(StatefsError::NotFound)?;
+            if present || chunk.len().saturating_add(crate::enc::SEALED_OVERHEAD) > MAX_VALUE_SIZE {
+                return Err(StatefsError::ValueTooLarge);
+            }
+            let mut sealed = core::mem::take(&mut self.seal_scratch);
+            let result = match self.enc.as_ref() {
+                Some(ctx) => {
+                    crate::enc::seal_into(ctx, class, key, txn_id, idx as u32, chunk, &mut sealed)
+                }
+                None => Err(StatefsError::IntegrityViolation),
+            };
+            let outcome = result.and_then(|()| {
+                self.txns.can_append(txn_id, key, &sealed)?;
+                let record = encode_payload(txn_id, key, &sealed)?;
+                self.append_bytes(&record)?;
+                self.txns.append(txn_id, key, &sealed)
+            });
+            self.seal_scratch = sealed;
+            return outcome;
+        }
         // Validate against the buffer caps FIRST (side-effect free), then
         // journal the payload, then mirror into the buffer — journal bytes
         // and buffer state must never diverge.

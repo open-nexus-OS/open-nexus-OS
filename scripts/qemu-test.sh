@@ -479,6 +479,10 @@ expected_sequence=(
   "samgrd: ready"
   "bundlemgrd: ready"
   "statefsd: journal v2 mounted (2PC)"
+  # TASK-0027: the mem-backed mount is always meta-less, so every boot
+  # announces the default (off) exactly once; the on-marker is coupled to
+  # the roundtrip selftest by the TASK-0027 fake-green guard below.
+  "statefsd: encryption off"
   "statefsd: ready"
   "statefsd: write hardening on (auth-envelope)"
   "updated: ready (statefs)"
@@ -531,6 +535,10 @@ expected_sequence=(
   "SELFTEST: statefs v2 crash-atomic ok"
   "statefsd: compaction done (gen="
   "SELFTEST: statefs v2 compact ok"
+  # TASK-0027: enablement + plaintext roundtrip through an enrolled prefix
+  # (put/get equality before AND after Sync+Reopen — the AEAD-verified
+  # replay path in-VM).
+  "SELFTEST: statefs enc roundtrip ok"
   "SELFTEST: device key persist ok"
   "SELFTEST: net tcp listen ok"
   "netstackd: facade up"
@@ -690,6 +698,7 @@ case "${PROFILE:-full}" in
       "samgrd: ready"
       "bundlemgrd: ready"
       "statefsd: journal v2 mounted (2PC)"
+      "statefsd: encryption off"
       "statefsd: ready"
       "updated: ready (statefs)"
       "packagefsd: ready"
@@ -1527,6 +1536,34 @@ if grep -aFq "statefsd: journal v2 mounted (2PC)" "$UART_LOG"; then
     fi
   done
 fi
+# TASK-0027 fake-green guard: the `encryption on` marker (emitted only after
+# statefsd's in-process AEAD self-check) and the roundtrip selftest must
+# agree in both directions; the loud failure signatures are fatal.
+if grep -aFq "statefsd: encryption on (xchacha20poly1305)" "$UART_LOG" \
+   && ! grep -aFq "SELFTEST: statefs enc roundtrip ok" "$UART_LOG"; then
+  echo "[error] first_failed_phase=bringup missing_marker='SELFTEST: statefs enc roundtrip ok'" >&2
+  echo "[error] statefs encryption on but the roundtrip selftest did not pass" >&2
+  print_uart_excerpt "statefsd: encryption on (xchacha20poly1305)" "SELFTEST: statefs v2 compact ok"
+  exit 1
+fi
+if grep -aFq "SELFTEST: statefs enc roundtrip ok" "$UART_LOG" \
+   && ! grep -aFq "statefsd: encryption on (xchacha20poly1305)" "$UART_LOG"; then
+  echo "[error] first_failed_phase=bringup missing_marker='statefsd: encryption on (xchacha20poly1305)'" >&2
+  echo "[error] statefs enc roundtrip claimed ok without the encryption-on marker (fake green)" >&2
+  print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs v2 compact ok"
+  exit 1
+fi
+for m in \
+  "SELFTEST: statefs enc roundtrip FAIL" \
+  "statefsd: enc self-check failed" \
+  "statefsd: enc meta invalid"; do
+  if grep -aFq "$m" "$UART_LOG"; then
+    echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
+    echo "[error] statefs record encryption emitted failure signature: $m" >&2
+    print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs v2 compact ok"
+    exit 1
+  fi
+done
 if grep -aFq "SELFTEST: ui resize ok" "$UART_LOG" && ! grep -aFq "SELFTEST: ui launcher present ok" "$UART_LOG"; then
   echo "[error] first_failed_phase=end missing_marker='SELFTEST: ui launcher present ok'" >&2
   echo "[error] UI resize marker appeared without launcher-present proof" >&2

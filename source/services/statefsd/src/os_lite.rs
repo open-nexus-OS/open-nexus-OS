@@ -144,58 +144,10 @@ impl Hardening {
     }
 }
 
-/// Lazily derive (and cache) the envelope MAC key from the persisted
-/// device-key record. Returns None until keystored has generated it —
-/// Authenticated-class ops fail closed until then.
-pub(crate) fn envelope_mac_key<'a>(
-    engine: &JournalEngine<Backend>,
-    cached: &'a mut Option<EnvelopeKey>,
-) -> Option<&'a EnvelopeKey> {
-    if cached.is_none() {
-        if let Ok(bytes) = engine.get(hardening::DEVICE_KEY_PATH) {
-            // TASK-0025 step 4: keystored wraps the record as an Integrity
-            // envelope; pre-migration journals still hold the raw 32-byte
-            // seed. `open_stored` handles both (deterministic, no panic).
-            if let Ok(stored) = statefs::writer::open_stored(&bytes) {
-                let payload = stored.payload();
-                if payload.len() == 32 {
-                    let mut seed = [0u8; 32];
-                    seed.copy_from_slice(payload);
-                    if let Ok(key) = hardening::derive_key_from_device_seed(&seed) {
-                        *cached = Some(key);
-                    }
-                }
-            }
-        }
-    }
-    cached.as_ref()
-}
-
-/// Replay-time anti-rollback feed: walk the enrolled prefixes of a freshly
-/// replayed engine and record each envelope seq. Bounded; malformed or
-/// migration-era (non-envelope) values are skipped without panic.
-fn observe_enrolled(engine: &JournalEngine<Backend>, tracker: &mut SeqTracker) {
-    /// Per-prefix replay-walk bound (matches the store's practical key count).
-    const PER_PREFIX_LIMIT: usize = 256;
-    for prefix in hardening::ENROLLED_PREFIXES {
-        let keys = match engine.list(prefix, PER_PREFIX_LIMIT) {
-            Ok(keys) => keys,
-            Err(_) => continue,
-        };
-        for key in keys {
-            let value = match engine.get(&key) {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            if hardening::observe_replayed(&key, &value, tracker).is_err() {
-                // Tracker capacity exhausted: fail loud, keep serving (the
-                // put path still rejects stale seqs for tracked keys).
-                emit_line("statefsd: replay observe limit");
-                return;
-            }
-        }
-    }
-}
+// Envelope-hardening glue (lazy MAC key + replay anti-rollback feed) lives
+// in `hardening_os.rs` (moved verbatim for the structure ratchet).
+pub(crate) use crate::hardening_os::envelope_mac_key;
+use crate::hardening_os::observe_enrolled;
 
 /// Main statefsd bring-up service loop (os-lite).
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
@@ -261,6 +213,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("statefsd: ready");
     emit_line("statefsd: write hardening on (auth-envelope)");
+    // TASK-0027: mount-time enablement (announces `encryption off` when no
+    // meta record exists — the mem engine is always fresh, the virtio
+    // upgrade below re-checks against the persisted store).
+    crate::enc_os::try_enable(&mut engine, true);
 
     nexus_abi::service_verdict_flush("statefsd");
     // SMP robustness circuit breaker (see the Err arm below).
@@ -285,6 +241,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                                     hard.tracker = SeqTracker::new();
                                     observe_enrolled(&engine, &mut hard.tracker);
                                     emit_line("statefsd: virtio upgrade ok");
+                                    crate::enc_os::try_enable(&mut engine, false);
                                 }
                                 Err(err) => {
                                     virtio_retry_count += 1;
@@ -422,6 +379,12 @@ fn handle_frame(
                         // The derivation ikm changed (keystored keygen):
                         // drop the cached MAC key so it re-derives lazily.
                         hard.key = None;
+                    }
+                    // TASK-0027: the admin meta key (enable switch) or the
+                    // device key (record keys became derivable) landing
+                    // re-runs the enablement path (idempotent).
+                    if key == statefs::enc::META_KEY || key == hardening::DEVICE_KEY_PATH {
+                        crate::enc_os::try_enable(engine, false);
                     }
                     proto::encode_status_response_with_nonce(proto::OP_PUT, proto::STATUS_OK, nonce)
                 }
@@ -592,6 +555,8 @@ fn required_cap(op: u8, path: &str) -> &'static str {
         CAP_KEYSTORE
     } else if path.starts_with("/state/boot/") {
         CAP_BOOT
+    } else if crate::enc_svc::is_admin_key(path) && matches!(op, proto::OP_PUT | proto::OP_DEL) {
+        crate::enc_svc::CAP_ADMIN
     } else if matches!(op, proto::OP_PUT | proto::OP_DEL | proto::OP_SYNC | proto::OP_REOPEN) {
         CAP_WRITE
     } else {

@@ -1,6 +1,6 @@
 ---
 title: TASK-0027 StateFS v2b: record encryption for statefs values (rescoped 2026-07-15 — user-data encryption moved to RFC-0071/nxfs)
-status: Draft
+status: Done
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -124,6 +124,84 @@ Otherwise:
 - `source/services/keystored/` (expose HKDF-derived AEAD key handle; gated)
 - `tools/fsck-statefs/` (decrypt-aware validation)
 - `docs/storage/statefs.md`, `scripts/qemu-test.sh` (markers)
+
+## Progress — 2026-08-18: implemented end to end (host green; QEMU double boot running)
+
+**Design (architecture-review, three lenses):** engine-owned sealing — `statefs::enc` (new
+module): sealed value `NXR1 v1` (36-byte overhead: header `magic|ver|class|reserved|txn_id
+u64|chunk_idx u32` + Poly1305 tag), nonce = `salt(12) || txn_id || chunk_idx` (deterministic,
+no getrandom — RFC-0009; plain puts consume ids from the txn counter, replay re-seeds the
+counter above every id in PREPARE records AND sealed headers, so nonces never repeat across
+reopen/compaction), AAD binds header + full key path (splice-proof). Values stay sealed in
+kv and through compaction (snapshots copy ciphertext — compaction/readback-verify untouched);
+`get` opens on demand; replay AEAD-verifies when the context is installed (tampered plain put
+skipped + counted, tampered txn chunk poisons its whole txn via the new `Replayer::poison`).
+Enrolled txn values are single-chunk (sealing forbids concatenation; chunk_idx = txn entry
+slot). Keys: HKDF over the deterministic Ed25519 device-seed signature of
+`statefs.record.v1.<class>` — statefsd-local, NO keystored oracle (`device_sign_allowed`
+untouched). **Enablement**: admin meta record `/state/statefsd/enc.v1` (NXEM: salt, CRC,
+zero-salt rejected) behind a NEW `statefs.admin` cap-table row (plain `statefs.write` cannot
+toggle; granted to selftest-client in policies/base.toml); salt is per-store forever;
+statefsd enables at mount/virtio-upgrade/device-key-write/meta-write and only after an
+in-process seal/open/tamper self-check gates `statefsd: encryption on (xchacha20poly1305)`.
+Deviation from the ledger's OS DoD, documented: `SELFTEST: statefs enc tamper deny ok` is not
+honestly producible over the wire (the wire carries plaintext; the adversary is the disk) —
+tamper negatives are host proofs (replay/get/fsck + TamperDevice) and the on-marker is gated
+by statefsd's in-process tamper self-check; the OS selftest proves enable + roundtrip +
+AEAD-verified replay via Sync+Reopen (`SELFTEST: statefs enc roundtrip ok`).
+
+**Touched:** `userspace/statefs/{enc.rs (new), lib.rs, journal_v2.rs, record.rs, fsck.rs}`
+(encode helpers moved to record.rs for the ratchet — journal_v2 587→~560), statefsd
+`{enc_svc.rs (new, cfg-free), enc_os.rs (new), hardening_os.rs (new — envelope glue moved
+out of os_lite.rs, 628→580), os_lite.rs hooks, txn.rs cap mirror}`, `tools/fsck-statefs`
+(`--enc-key-hex/--enc-class/--enc-salt-hex`), selftest `statefs_enc.rs` (salt from rngd,
+idempotent meta put, roundtrip), policies/base.toml (+`statefs.admin`), qemu-test.sh
+(markers + 0027 fake-green guard: on-marker ↔ roundtrip coupled both ways, FAIL signatures
+fatal), statefs.md §v2b normative flesh-out. Crate: `chacha20poly1305` no-default-features
++alloc (`just dep-gate` PASS).
+
+**Host proof:** enc unit matrix (roundtrip, per-byte tamper, cross-key splice, enrollment
+chicken-egg incl. parent-prefix denial, meta codec, label bounds, domain separation);
+engine tests (sealed-at-rest — plaintext never on the medium, tamper→replay skip + get
+EINTEGRITY, tampered txn chunk → both-or-neither discard, compaction stays decryptable,
+nonce-id monotonicity across reopen, single-chunk rule, legacy-plaintext migration);
+statefsd `tests/enc_contract.rs` (seed-bound determinism, self-check,
+`test_reject_enc_meta_write_without_admin_cap`, enrolled-table invariants, meta gate);
+fsck (sealed counted keyless, keyed verify, `test_reject_fsck_reports_tampered_sealed_value`
+— report-only, exit ≥1, never rewrites). All statefs/statefsd/fsck suites green; clippy,
+diag-os, dep-gate PASS.
+
+**Real bug found by the double-boot ladder (fixed in keystored):** keystored's initial store
+load races statefsd's mem→virtio upgrade; on a preserved image it believed "no key" and
+REGENERATED the device key at the keygen op — forking the device identity and orphaning
+every envelope MAC'd under boot 1's key (the earlier "green" keep-blk run only passed
+because the probes' time-based fallback seq happened to exceed the tracker high-water).
+Fix: the keygen op now re-reads the persisted record (`store.reload_device_key()`) before
+ever generating — `keystored: device key reloaded (pre-keygen)` + KEY_EXISTS on boot 2.
+
+## Closure — 2026-08-18: Done
+
+Final double-boot sequence GREEN (both runs exit 0, all 0025/0026 markers intact):
+
+- boot 1, fresh image (headless--2026-08-18T15-19-56): `statefsd: encryption off` (mount) →
+  device keygen → selftest enables (rngd salt → admin meta put) →
+  `statefsd: encryption on (xchacha20poly1305)` (post self-check) →
+  `SELFTEST: statefs enc roundtrip ok` (put/get equality before AND after Sync+Reopen =
+  AEAD-verified replay in-VM), `cold-boot seeded`.
+- boot 2, preserved image `NEXUS_KEEP_BLK=1 REQUIRE_STATEFS_COLD_BOOT=1`
+  (headless--2026-08-18T15-21-34): `keystored: device key reloaded (pre-keygen)` (device
+  identity stable across cold boots — the keystored fix), encryption on at the virtio
+  upgrade (meta + seed persisted), roundtrip ok against the PRESERVED sealed store,
+  `SELFTEST: statefs auth put ok` (0025 hardening green on the preserved journal),
+  `SELFTEST: statefs cold-boot persist ok`.
+
+DoD deltas, both documented above: the OS tamper negative lives in statefsd's marker-gating
+self-check + host proofs (wire carries plaintext by design); `statefsd: encryption
+unavailable (entropy)` became `unavailable (keys)` — statefsd itself needs no entropy
+(deterministic nonces; the salt's entropy provenance is the enabler's, and the selftest
+only enables after a successful rngd read, which is the RED rule enforced end-to-end).
+Follow-ups unchanged (non-goals): key rotation, path/metadata encryption, `/data`
+encryption classes (TASK-0320 / RFC-0071 P4).
 
 ## Docs (English)
 

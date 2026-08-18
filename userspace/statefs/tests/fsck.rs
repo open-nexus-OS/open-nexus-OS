@@ -321,3 +321,86 @@ fn test_reject_unknown_opcode_mid_journal() {
     assert_eq!(f.offset, head as u64);
     assert_eq!(f.reason, "unknown opcode");
 }
+
+// ============================================================================
+// TASK-0027: sealed-value awareness (count, keyed verify, tamper report)
+// ============================================================================
+
+fn enc_ctx() -> statefs::enc::EncContext {
+    let mut ctx = statefs::enc::EncContext::new([3u8; statefs::enc::SALT_LEN]);
+    let key = statefs::enc::record_key_from_ikm(b"fsck-test-ikm", "app").unwrap();
+    let class = ctx.add_class("app", &key).unwrap();
+    ctx.enroll("/state/app/", class).unwrap();
+    ctx
+}
+
+/// v1 journal carrying two sealed values (written through the engine).
+fn enc_image() -> MemBlockDevice {
+    let mut engine = JournalEngine::open(v1_image()).expect("open");
+    engine.set_enc_context(enc_ctx());
+    engine.put("/state/app/enc/a", b"alpha").expect("put");
+    engine.put("/state/app/enc/b", b"beta").expect("put");
+    engine.sync().expect("sync");
+    engine.into_device()
+}
+
+#[test]
+fn fsck_counts_sealed_values_and_verifies_with_key() {
+    // Without a key: counted, not verified, still clean.
+    let (report, device) = fsck(enc_image(), false);
+    assert_eq!(report.outcome, FsckOutcome::Clean);
+    assert_eq!(report.enc_records, 2);
+    assert_eq!(report.enc_failures, 0);
+    // With the key: verified clean.
+    let ctx = enc_ctx();
+    let (report, _) = statefs::fsck_with_enc(device.expect("device"), false, Some(&ctx));
+    assert_eq!(report.outcome, FsckOutcome::Clean);
+    assert_eq!(report.enc_records, 2);
+    assert_eq!(report.enc_failures, 0);
+}
+
+#[test]
+fn test_reject_fsck_reports_tampered_sealed_value() {
+    let device = enc_image();
+    // Locate the first sealed blob and flip a ciphertext byte, then repair
+    // the record CRC (a disk attacker recomputes CRCs; only AEAD catches
+    // the flip). Key "/state/app/enc/a" (16 bytes), plain Put layout.
+    let mut image = vec![0u8; BLOCK_SIZE * BLOCKS as usize];
+    let mut buf = vec![0u8; BLOCK_SIZE];
+    for idx in 0..BLOCKS {
+        device.read_block(idx, &mut buf).expect("read");
+        image[idx as usize * BLOCK_SIZE..(idx as usize + 1) * BLOCK_SIZE].copy_from_slice(&buf);
+    }
+    let sealed_pos = image
+        .windows(statefs::enc::SEALED_MAGIC.len())
+        .position(|w| w == statefs::enc::SEALED_MAGIC)
+        .expect("sealed value present");
+    image[sealed_pos + statefs::enc::SEALED_OVERHEAD - 16] ^= 0x01;
+    let key_len = "/state/app/enc/a".len();
+    let rec_start = sealed_pos - key_len - 11;
+    let value_len = u32::from_le_bytes([
+        image[rec_start + 7],
+        image[rec_start + 8],
+        image[rec_start + 9],
+        image[rec_start + 10],
+    ]) as usize;
+    let total = 15 + key_len + value_len;
+    let crc = statefs::crc32c(&image[rec_start..rec_start + total - 4]);
+    image[rec_start + total - 4..rec_start + total].copy_from_slice(&crc.to_le_bytes());
+    let mut device = MemBlockDevice::new(BLOCK_SIZE, BLOCKS);
+    for idx in 0..BLOCKS {
+        device
+            .write_block(idx, &image[idx as usize * BLOCK_SIZE..(idx as usize + 1) * BLOCK_SIZE])
+            .expect("write");
+    }
+    // Keyless fsck cannot see it (CRC is valid) — keyed fsck reports it.
+    let (report, device) = fsck(device, false);
+    assert_eq!(report.enc_failures, 0);
+    let ctx = enc_ctx();
+    let (report, _) = statefs::fsck_with_enc(device.expect("device"), false, Some(&ctx));
+    assert_eq!(report.enc_records, 2);
+    assert_eq!(report.enc_failures, 1);
+    // Report-only: structure stays clean, ciphertext is never rewritten
+    // (the CLI maps enc failures to a nonzero exit).
+    assert_eq!(report.outcome, FsckOutcome::Clean);
+}

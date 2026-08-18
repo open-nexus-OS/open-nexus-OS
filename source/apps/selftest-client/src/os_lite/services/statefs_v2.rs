@@ -3,10 +3,10 @@
 
 //! CONTEXT: statefs journal-v2 selftest probes (TASK-0026 step 4) — 2PC
 //!   crash-atomicity over the txn wire ops (abort discards / commit survives
-//!   Reopen replay), bounded compaction under real churn (compaction-done
-//!   line cross-checked via logd, live keys verified after Reopen), and the
-//!   keep-blk cold-boot sentinel discipline (ok only on a second boot
-//!   against a preserved image).
+//!   Reopen replay), bounded compaction under real churn (cycle-ran proof =
+//!   the harness-gated `statefsd: compaction done` marker; live keys
+//!   verified after Reopen), and the keep-blk cold-boot sentinel discipline
+//!   (ok only on a second boot against a preserved image).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -62,7 +62,11 @@ pub(crate) enum ColdBoot {
     Present,
 }
 
-fn put_ok(client: &KernelClient, key: &str, value: &[u8]) -> core::result::Result<(), ()> {
+pub(crate) fn put_ok(
+    client: &KernelClient,
+    key: &str,
+    value: &[u8],
+) -> core::result::Result<(), ()> {
     let frame = statefs_proto::encode_put_request(key, value).map_err(|_| ())?;
     let rsp = statefs_send_recv(client, &frame)?;
     match statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp) {
@@ -71,7 +75,10 @@ fn put_ok(client: &KernelClient, key: &str, value: &[u8]) -> core::result::Resul
     }
 }
 
-fn get_value(client: &KernelClient, key: &str) -> core::result::Result<alloc::vec::Vec<u8>, ()> {
+pub(crate) fn get_value(
+    client: &KernelClient,
+    key: &str,
+) -> core::result::Result<alloc::vec::Vec<u8>, ()> {
     let frame =
         statefs_proto::encode_key_only_request(statefs_proto::OP_GET, key).map_err(|_| ())?;
     let rsp = statefs_send_recv(client, &frame)?;
@@ -141,7 +148,7 @@ fn txn_abort(client: &KernelClient, txn_id: u64) -> core::result::Result<(), ()>
     }
 }
 
-fn sync_and_reopen(client: &KernelClient) -> core::result::Result<(), ()> {
+pub(crate) fn sync_and_reopen(client: &KernelClient) -> core::result::Result<(), ()> {
     match status_op(client, &statefs_proto::encode_sync_request(), statefs_proto::OP_SYNC) {
         Ok(statefs_proto::STATUS_OK) => {}
         _ => return Err(()),

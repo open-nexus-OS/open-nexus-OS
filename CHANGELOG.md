@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-18 (statefs record encryption v2b, opt-in AEAD at rest)
+
+- **statefs record encryption (TASK-0027)**: opt-in XChaCha20-Poly1305 sealing
+  of value payloads for enrolled non-boot-critical prefixes (`/state/app/` →
+  class `app`), engine-owned: sealed `NXR1` values (36-byte overhead) stay
+  sealed in memory and through compaction; `get` opens on demand (plaintext on
+  the wire, `EINTEGRITY` on tamper/splice); replay AEAD-verifies under the
+  installed context (tampered txn chunk poisons its whole transaction). Nonce
+  = per-store salt ‖ txn-counter id ‖ chunk index — deterministic, never
+  sampled (RFC-0009: no getrandom; `chacha20poly1305` added
+  no-default-features), never reused (replay re-seeds the counter above every
+  sealed header). Keys per class via HKDF over the deterministic device-seed
+  signature of `statefs.record.v1.<class>` — statefsd-local, no keystored
+  oracle. Enablement = admin meta record `/state/statefsd/enc.v1` behind the
+  new `statefs.admin` capability; `statefsd: encryption on (xchacha20poly1305)`
+  only after an in-process seal/open/tamper self-check; default stays off
+  (`statefsd: encryption off`). fsck counts sealed values and verifies them
+  with `--enc-key-hex/--enc-class/--enc-salt-hex` (report-only, never rewrites
+  ciphertext). QEMU: `SELFTEST: statefs enc roundtrip ok` (enable + put/get
+  equality before/after Sync+Reopen) + fake-green guard coupling the on-marker
+  and the roundtrip in both directions.
+- **keystored: keep-blk device-identity fix (found by the double-boot
+  ladder)**: the initial store load can race statefsd's mem→virtio upgrade —
+  on a preserved image keystored believed "no key" and regenerated the device
+  key at the keygen op, forking the device identity and orphaning every
+  envelope MAC'd under the previous boot's key. The keygen op now re-reads the
+  persisted record before ever generating
+  (`keystored: device key reloaded (pre-keygen)`).
+
 ### Added - 2026-08-18 (statefs journal v2: statefsd 2PC wire ops + QEMU closure)
 
 - **statefsd journal v2 service closure (TASK-0026, step 4 + ladder)**: txn wire

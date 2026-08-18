@@ -903,6 +903,33 @@ phase = "bringup"
 phase = "bringup"
 proves = "TASK-0026: sentinel was absent — seeded + synced for the next boot (informational; never the ok marker on the boot that wrote it)"
 
+[marker."statefsd: encryption off"]
+phase = "bringup"
+proves = "TASK-0027: record encryption is opt-in and OFF by default — emitted at mount when no admin meta record exists (the mem engine is always fresh, so every boot shows it once)"
+
+[marker."statefsd: encryption on (xchacha20poly1305)"]
+phase = "bringup"
+proves = "TASK-0027: the admin meta record + device key were present, record keys derived (HKDF over the deterministic device-key signature of statefs.record.v1.<class>), AND the in-process self-check ran a real AEAD seal/open roundtrip plus a real tamper rejection — only then is this emitted"
+
+[marker."statefsd: encryption unavailable (keys)"]
+phase = "bringup"
+proves = "TASK-0027 honesty: encryption is enabled (meta present) but the device key does not exist yet — no silent plaintext claim, keys pending"
+
+[marker."statefsd: enc self-check failed"]
+phase = "bringup"
+proves = "TASK-0027 failure signature: the enable-time AEAD self-check did not pass — the on-marker is withheld and writes stay plaintext (loud, fatal in the harness guard)"
+
+[marker."statefsd: enc meta invalid"]
+phase = "bringup"
+proves = "TASK-0027 failure signature: the admin meta record exists but does not decode (bounds/CRC/zero-salt) — encryption stays off, loudly"
+
+[marker."SELFTEST: statefs enc roundtrip ok"]
+phase = "bringup"
+proves = "TASK-0027: enablement e2e over the wire — salt from rngd, admin meta put (statefs.admin cap), then plaintext put/get equality through an enrolled prefix BOTH before and after Sync+Reopen (the reopen replays sealed records under the installed context, i.e. the AEAD-verified replay path ran in-VM)"
+
+[marker."SELFTEST: statefs enc roundtrip FAIL"]
+phase = "bringup"
+
 [marker."SELFTEST: statefs unauthorized access rejected FAIL"]
 phase = "bringup"
 

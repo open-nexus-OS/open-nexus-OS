@@ -37,6 +37,16 @@ pub mod txn;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod txn_os;
 
+// Record-encryption core (TASK-0027): cfg-free enrolled-prefix table /
+// admin-cap rule / key derivation / enable self-check, shared by the OS
+// serve loop and the host contract tests (same split as `txn`).
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
+mod enc_os;
+#[cfg(any(feature = "std", all(feature = "os-lite", nexus_env = "os")))]
+pub mod enc_svc;
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
+mod hardening_os;
+
 #[cfg(not(all(feature = "os-lite", nexus_env = "os")))]
 mod std_server;
 #[cfg(not(all(feature = "os-lite", nexus_env = "os")))]

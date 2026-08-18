@@ -53,7 +53,7 @@ pinched = ["ipc.core"]
 # label "statefs.envelope.v1" (rule: statefs::derive::device_sign_allowed).
 # Deliberately NOT `crypto.sign`: generic device-signing power stays denied
 # (the `keystored sign denied` selftest guards exactly that).
-"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.boot"]
+"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.boot", "statefs.admin"]
 "demo.testsvc" = []
 
 [abi_profile."selftest-client"]

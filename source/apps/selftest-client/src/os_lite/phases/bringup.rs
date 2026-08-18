@@ -185,6 +185,14 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
                 emit_line(crate::markers::M_SELFTEST_STATEFS_COLD_BOOT_PERSIST_FAIL);
             }
         }
+        // TASK-0027 record encryption: enable over the wire (salt from
+        // rngd, admin meta put) + plaintext roundtrip through an enrolled
+        // prefix incl. the AEAD-verified replay via Sync+Reopen.
+        if services::statefs_enc::statefs_enc_roundtrip(&statefsd).is_ok() {
+            emit_line(crate::markers::M_SELFTEST_STATEFS_ENC_ROUNDTRIP_OK);
+        } else {
+            emit_line(crate::markers::M_SELFTEST_STATEFS_ENC_ROUNDTRIP_FAIL);
+        }
     } else {
         emit_line(crate::markers::M_SELFTEST_STATEFS_PUT_FAIL);
         emit_line(crate::markers::M_SELFTEST_STATEFS_UNAUTHORIZED_ACCESS_REJECTED_FAIL);
@@ -195,6 +203,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_STATEFS_V2_CRASH_ATOMIC_FAIL);
         emit_line(crate::markers::M_SELFTEST_STATEFS_V2_COMPACT_FAIL);
         emit_line(crate::markers::M_SELFTEST_STATEFS_COLD_BOOT_PERSIST_FAIL);
+        emit_line(crate::markers::M_SELFTEST_STATEFS_ENC_ROUNDTRIP_FAIL);
     }
     if let Some(pubkey) = device_pubkey {
         if probes::device_key::device_key_reload_and_check(&pubkey).is_ok() {

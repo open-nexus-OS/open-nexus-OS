@@ -27,6 +27,49 @@ pub fn encode_record(op: JournalOpCode, key: &str, value: &[u8]) -> Vec<u8> {
     buf
 }
 
+/// Encode `TXN_PREPARE{txn_id}`.
+pub fn encode_prepare(txn_id: u64) -> Vec<u8> {
+    encode_record(JournalOpCode::TxnPrepare, "", &txn_id.to_le_bytes())
+}
+
+/// Encode `TXN_PAYLOAD{txn_id, key, chunk}`. Chunk must be `<= MAX_TXN_CHUNK`.
+pub fn encode_payload(
+    txn_id: u64,
+    key: &str,
+    chunk: &[u8],
+) -> Result<Vec<u8>, crate::StatefsError> {
+    if chunk.len() > crate::journal_v2::MAX_TXN_CHUNK {
+        return Err(crate::StatefsError::ValueTooLarge);
+    }
+    let mut value = Vec::with_capacity(8 + chunk.len());
+    value.extend_from_slice(&txn_id.to_le_bytes());
+    value.extend_from_slice(chunk);
+    Ok(encode_record(JournalOpCode::TxnPayload, key, &value))
+}
+
+/// Encode `TXN_COMMIT{txn_id}`.
+pub fn encode_commit(txn_id: u64) -> Vec<u8> {
+    encode_record(JournalOpCode::TxnCommit, "", &txn_id.to_le_bytes())
+}
+
+/// Encode `TXN_ABORT{txn_id}`.
+pub fn encode_abort(txn_id: u64) -> Vec<u8> {
+    encode_record(JournalOpCode::TxnAbort, "", &txn_id.to_le_bytes())
+}
+
+/// Encode `SYNC{}` (journal durability-barrier record).
+pub fn encode_sync_barrier() -> Vec<u8> {
+    encode_record(JournalOpCode::SyncBarrier, "", &[])
+}
+
+/// Encode `CHECKPOINT{gen, entries}` (snapshot boundary, compaction only).
+pub fn encode_checkpoint(generation: u32, entries: u32) -> Vec<u8> {
+    let mut value = Vec::with_capacity(8);
+    value.extend_from_slice(&generation.to_le_bytes());
+    value.extend_from_slice(&entries.to_le_bytes());
+    encode_record(JournalOpCode::Checkpoint, "", &value)
+}
+
 /// Append one framed record to `buf` (no fresh allocation beyond `buf`'s
 /// own growth — pass a persistent scratch on hot paths). The CRC covers
 /// only the appended record, so records can be packed back to back.

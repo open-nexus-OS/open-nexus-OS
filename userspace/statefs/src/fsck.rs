@@ -87,6 +87,14 @@ pub struct FsckReport {
     /// True only when `repair` appended ABORTs AND the re-validation of the
     /// repaired journal came back clean.
     pub repaired: bool,
+    /// Sealed (TASK-0027 `NXR1`) values seen in the live region.
+    pub enc_records: usize,
+    /// Sealed values whose AEAD open FAILED under the provided context
+    /// (`fsck_with_enc`). Report-only for committed data: ciphertext is
+    /// never rewritten — a keyed replay discards the affected txns; an
+    /// uncommitted bad txn falls under the normal orphan repair. Any
+    /// nonzero count keeps the CLI exit code away from 0.
+    pub enc_failures: usize,
     pub fault: Option<FsckFault>,
 }
 
@@ -97,7 +105,20 @@ pub struct FsckReport {
 /// outcome degrades to `Unrecoverable`. The device is returned for
 /// write-back except on a pre-repair unrecoverable fault (mirrors nxfs).
 pub fn fsck<D: BlockDevice>(device: D, repair: bool) -> (FsckReport, Option<D>) {
-    let scan = match scan_device(&device) {
+    fsck_with_enc(device, repair, None)
+}
+
+/// `fsck` with an optional record-encryption context (TASK-0027): sealed
+/// values are AEAD-verified during the walk (header-driven — the class
+/// index and nonce inputs come from the sealed header, the key path from
+/// the record). Without a context sealed values are counted but not
+/// verified.
+pub fn fsck_with_enc<D: BlockDevice>(
+    device: D,
+    repair: bool,
+    enc: Option<&crate::enc::EncContext>,
+) -> (FsckReport, Option<D>) {
+    let scan = match scan_device(&device, enc) {
         Ok(scan) => scan,
         Err(f) => return (unrecoverable(f), None),
     };
@@ -121,6 +142,8 @@ pub fn fsck<D: BlockDevice>(device: D, repair: bool) -> (FsckReport, Option<D>) 
         anomalies: inert + scan.checkpoint_anomalies,
         tail_dirty: scan.tail_dirty,
         repaired: false,
+        enc_records: scan.enc_records,
+        enc_failures: scan.enc_failures,
         fault: None,
     };
     if report.orphan_txns.is_empty() {
@@ -144,7 +167,7 @@ pub fn fsck<D: BlockDevice>(device: D, repair: bool) -> (FsckReport, Option<D>) 
         return (report, Some(engine.into_device()));
     }
     let device = engine.into_device();
-    match scan_device(&device) {
+    match scan_device(&device, None) {
         Ok(rescan) if rescan.orphan_txns.is_empty() => {
             report.repaired = true;
             (report, Some(device))
@@ -168,6 +191,8 @@ struct Scan {
     orphan_txns: Vec<u64>,
     checkpoint_anomalies: usize,
     tail_dirty: bool,
+    enc_records: usize,
+    enc_failures: usize,
 }
 
 fn fault(offset: u64, reason: &'static str) -> FsckFault {
@@ -185,6 +210,8 @@ fn unrecoverable(f: FsckFault) -> FsckReport {
         anomalies: 0,
         tail_dirty: false,
         repaired: false,
+        enc_records: 0,
+        enc_failures: 0,
         fault: Some(f),
     }
 }
@@ -192,7 +219,10 @@ fn unrecoverable(f: FsckFault) -> FsckReport {
 /// Read-only structural walk of the live journal region. `Err` = a fault
 /// replay would stop on (structural corruption, invalid/inconsistent
 /// superblock or checkpoint, replay limit).
-fn scan_device<D: BlockDevice>(device: &D) -> Result<Scan, FsckFault> {
+fn scan_device<D: BlockDevice>(
+    device: &D,
+    enc: Option<&crate::enc::EncContext>,
+) -> Result<Scan, FsckFault> {
     let block_size = device.block_size();
     let block_count = device.block_count();
     if block_size == 0 {
@@ -243,6 +273,8 @@ fn scan_device<D: BlockDevice>(device: &D) -> Result<Scan, FsckFault> {
     let mut records = 0usize;
     let mut open: Vec<u64> = Vec::new();
     let mut checkpoint_anomalies = 0usize;
+    let mut enc_records = 0usize;
+    let mut enc_failures = 0usize;
     loop {
         if records >= crate::MAX_REPLAY_RECORDS {
             return Err(fault(region_base + pos as u64, "replay record limit exceeded"));
@@ -257,6 +289,27 @@ fn scan_device<D: BlockDevice>(device: &D) -> Result<Scan, FsckFault> {
                     // Replay tolerates it (state reset) but only compaction
                     // legitimately writes CHECKPOINT — report it.
                     checkpoint_anomalies += 1;
+                }
+                // TASK-0027: sealed values are counted; with a context they
+                // are AEAD-verified (Put value directly, txn chunk past the
+                // 8-byte id prefix). Failures are reported, never repaired
+                // by rewriting — a keyed replay discards the affected txns.
+                let sealed_view = match record.op {
+                    JournalOpCode::Put => Some(record.value.as_slice()),
+                    JournalOpCode::TxnPayload if record.value.len() >= 8 => {
+                        Some(&record.value[8..])
+                    }
+                    _ => None,
+                };
+                if let Some(bytes) = sealed_view {
+                    if crate::enc::is_sealed(bytes) {
+                        enc_records += 1;
+                        if let Some(ctx) = enc {
+                            if !crate::enc::verify(ctx, &record.key, bytes) {
+                                enc_failures += 1;
+                            }
+                        }
+                    }
                 }
                 track_open_txns(&mut open, &record);
                 pos += consumed;
@@ -286,7 +339,16 @@ fn scan_device<D: BlockDevice>(device: &D) -> Result<Scan, FsckFault> {
     let tail_end = core::cmp::min((pos / block_size + 2).saturating_mul(block_size), region.len());
     let tail_dirty = region[pos..tail_end].iter().any(|&b| b != 0);
 
-    Ok(Scan { layout, generation, records, orphan_txns: open, checkpoint_anomalies, tail_dirty })
+    Ok(Scan {
+        layout,
+        generation,
+        records,
+        orphan_txns: open,
+        checkpoint_anomalies,
+        tail_dirty,
+        enc_records,
+        enc_failures,
+    })
 }
 
 /// v2 snapshot rule: the live region MUST start with `CHECKPOINT{gen,

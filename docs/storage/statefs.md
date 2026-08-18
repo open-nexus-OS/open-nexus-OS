@@ -81,7 +81,7 @@ the guard — the ok marker only ever appears on a boot that replayed a preserve
 |---|---|
 | CRC detects corruption, not tampering (no authenticity); no anti-rollback | TASK-0025 |
 | ~~no multi-op atomicity (2PC), no compaction, no fsck~~ engine 2PC + bounded compaction (steps 1–2), `fsck-statefs` (step 3) and statefsd txn wire ops + compaction trigger (step 4) landed (§Journal v2) | TASK-0026 |
-| values plaintext at rest | TASK-0027 (record AEAD, non-boot-critical prefixes only) |
+| ~~values plaintext at rest~~ opt-in record AEAD shipped (§Record encryption v2b; non-boot-critical prefixes, default off) | TASK-0027 |
 | no per-subject quotas | TASK-0133 |
 | KV snapshots / RO snapshot mounts | TASK-0134 (statefs slice only) |
 
@@ -248,12 +248,60 @@ report carries the byte offset + a stable reason string. Corruption with nothing
 it is torn-tail crash residue: replay already discards it, fsck reports it (`tail_dirty`)
 without failing. `--dry-run` prints the repair plan and never writes.
 
-## §Record encryption v2b (normative once TASK-0027 lands)
+## §Record encryption v2b (normative, TASK-0027)
 
-Opt-in per-prefix AEAD (XChaCha20-Poly1305) of value payloads for **non-boot-critical** prefixes;
-key = keystored material → HKDF `"statefs.record.v1.<prefix-class>"`; nonce bound to
-`(txn_id, chunk_idx)`; AAD binds record header fields. Keys/paths stay plaintext (documented).
-Default off; `statefsd: encryption off` when disabled; never claim security without OS entropy.
+Opt-in per-prefix AEAD (XChaCha20-Poly1305) of value payloads for **non-boot-critical**
+prefixes. Threat model: the block device at rest — the wire carries plaintext (clients never
+hold record keys), authorization stays `sender_service_id` + per-key caps. Keys and paths
+stay plaintext. No sealed storage exists on this platform (same honesty rule as RFC-0071):
+an attacker with the device seed derives the keys.
+
+- **Sealed value (`NXR1` v1, 36-byte overhead):** `magic(4) | ver(1) | class(1) |
+  reserved(2) | txn_id u64 LE | chunk_idx u32 LE | ciphertext | tag(16)`. Values are sealed
+  at write time and stay sealed in memory and through compaction (snapshots copy
+  ciphertext); `get` opens on demand — plaintext out, `EINTEGRITY` (status 9) on any
+  tamper/splice.
+- **Nonce (24 B, deterministic — no getrandom in the OS graph, RFC-0009):**
+  `salt(12) || txn_id LE(8) || chunk_idx LE(4)`. Plain puts consume an id from the txn
+  counter; replay re-seeds the counter above every id in PREPARE records AND sealed
+  headers, so ids (hence nonces) never repeat across reopen/compaction. Enrolled values in
+  transactions are single-chunk (sealing forbids concatenation; the chunk index is the
+  txn's entry slot), envelope discipline.
+- **AAD** binds the sealed header and the full key path — ciphertext moved to another key,
+  txn, or chunk fails to open.
+- **Keys:** per class, HKDF-SHA256 over the deterministic Ed25519 device-key signature of
+  `statefs.record.v1.<class>` (label = salt = info). Only statefsd derives record keys
+  (locally, from the persisted seed) — no keystored oracle, `device_sign_allowed` is
+  untouched. Enrolled table (statefsd `enc_svc::ENCRYPTED_PREFIXES`): `/state/app/` →
+  class `app`. `/state/keystore/`, `/state/boot/`, `/state/statefsd/` are structurally
+  unenrollable (chicken-egg: replay/boot must work before keys exist; the switch itself
+  must stay readable).
+- **Enablement (default OFF):** the admin meta record `/state/statefsd/enc.v1`
+  (`NXEM v1: magic|ver|salt(12)|crc32c`, zero salt rejected). Writing it requires the
+  `statefs.admin` capability (per-key cap table row; plain `statefs.write` cannot toggle
+  it). The salt is per-store FOREVER — overwriting it would orphan every sealed nonce.
+  statefsd enables at mount / after the virtio upgrade / after a device-key or meta write,
+  and only after an in-process self-check (real seal → open roundtrip + real tamper
+  rejection). Replay-side AEAD verify runs whenever the context is installed (a tampered
+  plain put is skipped and counted, a tampered txn chunk poisons its whole transaction);
+  the first mount is key-less by construction — sealed values pass through as ciphertext
+  and every `get` verifies once keys exist. Disabling never plaintext-ifies anything:
+  decryption keys are deterministic, only NEW writes stop being sealed. At-rest tampering
+  of the meta record (downgrade of future writes) is inside the at-rest attacker's power
+  and outside this task's model — documented, not defended.
+- **Markers:** `statefsd: encryption off` (every boot, mem-mount) ·
+  `statefsd: encryption on (xchacha20poly1305)` (only after the self-check) ·
+  `statefsd: encryption unavailable (keys)` · failure signatures
+  `statefsd: enc self-check failed`, `statefsd: enc meta invalid` ·
+  `SELFTEST: statefs enc roundtrip ok` (enable + put/get equality before AND after
+  Sync+Reopen). The qemu-test.sh guard couples on-marker ↔ roundtrip in both directions;
+  FAIL signatures are fatal.
+- **fsck:** sealed values are counted (`enc_records`); with
+  `--enc-key-hex/--enc-class/--enc-salt-hex` they are AEAD-verified (`enc_failures`,
+  exit ≥ 1) — report-only, ciphertext is never rewritten (a keyed replay discards the
+  affected txns).
+- **Non-goals (unchanged):** key rotation, path/metadata encryption, user-data (`/data`)
+  encryption — RFC-0071 P4 / TASK-0320.
 
 ## Proof pointers
 

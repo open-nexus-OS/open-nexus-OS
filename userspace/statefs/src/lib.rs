@@ -114,6 +114,7 @@ pub mod protocol;
 pub mod client;
 pub mod compact;
 pub mod derive;
+pub mod enc;
 pub mod envelope;
 pub mod fsck;
 pub mod journal_v2;
@@ -121,7 +122,9 @@ pub mod record;
 pub mod writer;
 
 pub use compact::{CompactionConfig, CompactionStats};
-pub use fsck::{fsck, FsckFault, FsckOutcome, FsckReport, JournalLayout, FSCK_BLOCK_SIZE};
+pub use fsck::{
+    fsck, fsck_with_enc, FsckFault, FsckOutcome, FsckReport, JournalLayout, FSCK_BLOCK_SIZE,
+};
 pub use journal_v2::JournalOpCode;
 
 use journal_v2::TxnTable;
@@ -130,8 +133,11 @@ use journal_v2::TxnTable;
 // Journal Record Format (byte layouts: journal_v2.rs; framing is frozen v1)
 // ============================================================================
 
-/// Compute CRC32-C (Castagnoli) over data.
-pub(crate) fn crc32c(data: &[u8]) -> u32 {
+/// Compute CRC32-C (Castagnoli) over data. Public for offline tooling and
+/// adversarial tests (a disk attacker can recompute record CRCs — CRC is
+/// framing integrity, never a security boundary; that is what the TASK-0025
+/// envelopes and TASK-0027 AEAD are for).
+pub fn crc32c(data: &[u8]) -> u32 {
     let mut crc: u32 = 0xFFFF_FFFF;
     for &byte in data {
         crc ^= byte as u32;
@@ -186,6 +192,13 @@ pub struct JournalEngine<B: BlockDevice> {
     pub(crate) block_scratch: Vec<u8>,
     /// Persistent record-encoding scratch for `append_record`
     record_scratch: Vec<u8>,
+    /// Record-encryption context (TASK-0027, opt-in): present = sealed
+    /// writes for enrolled prefixes + AEAD verify on replay/get
+    pub(crate) enc: Option<enc::EncContext>,
+    /// Persistent seal-output scratch (bump-allocator hot path)
+    pub(crate) seal_scratch: Vec<u8>,
+    /// Sealed values rejected by the most recent replay's AEAD verify
+    replay_enc_rejects: usize,
 }
 
 impl<B: BlockDevice> JournalEngine<B> {
@@ -207,6 +220,9 @@ impl<B: BlockDevice> JournalEngine<B> {
             compact_scratch: Vec::new(),
             block_scratch: Vec::new(),
             record_scratch: Vec::new(),
+            enc: None,
+            seal_scratch: Vec::new(),
+            replay_enc_rejects: 0,
         };
         engine.detect_layout()?;
         engine.replay()?;
@@ -227,6 +243,7 @@ impl<B: BlockDevice> JournalEngine<B> {
         let mut file_pos = 0usize;
         let mut done = false;
         let mut replayer = journal_v2::Replayer::new();
+        self.replay_enc_rejects = 0;
 
         for block_idx in 0..block_count {
             self.device
@@ -261,7 +278,15 @@ impl<B: BlockDevice> JournalEngine<B> {
                 }
                 match journal_v2::parse_record(&buf[pos..buf_len]) {
                     Ok(Some((record, consumed))) => {
-                        replayer.apply(&mut self.kv, record);
+                        // TASK-0027: with the enc context present, sealed
+                        // values are AEAD-verified BEFORE application — a
+                        // tampered plain Put is skipped (counted), a
+                        // tampered txn chunk poisons its whole transaction.
+                        if self.enc_replay_rejects(&mut replayer, &record) {
+                            self.replay_enc_rejects += 1;
+                        } else {
+                            replayer.apply(&mut self.kv, record);
+                        }
                         pos += consumed;
                         file_pos = file_pos.saturating_add(consumed);
                         self.record_count += 1;
@@ -303,7 +328,66 @@ impl<B: BlockDevice> JournalEngine<B> {
         self.replay_orphans = outcome.orphans;
         self.replayed_count = self.record_count;
         self.write_pos = file_pos;
+        // TASK-0027 nonce safety: sealed values consumed ids from the txn
+        // counter; re-seed it ABOVE every id any surviving sealed header
+        // carries (compaction snapshots keep the headers, so this holds
+        // across rotations — an id, hence a nonce, is never reused).
+        let mut max_sealed = 0u64;
+        for value in self.kv.values() {
+            if let Some(id) = enc::sealed_txn_id(value) {
+                max_sealed = core::cmp::max(max_sealed, id);
+            }
+        }
+        self.next_txn = core::cmp::max(self.next_txn, max_sealed.saturating_add(1));
         Ok(())
+    }
+
+    /// TASK-0027 replay-side verify (only with the enc context present):
+    /// returns true when `record` carries a sealed value that fails its
+    /// AEAD open — the caller skips it; a failing txn chunk additionally
+    /// poisons the whole transaction (both-or-neither). Legacy plaintext
+    /// under enrolled prefixes replays untouched (pre-enable migration).
+    fn enc_replay_rejects(
+        &self,
+        replayer: &mut journal_v2::Replayer,
+        record: &journal_v2::JournalRecord,
+    ) -> bool {
+        let Some(ctx) = &self.enc else { return false };
+        match record.op {
+            JournalOpCode::Put => {
+                enc::is_sealed(&record.value) && !enc::verify(ctx, &record.key, &record.value)
+            }
+            JournalOpCode::TxnPayload if record.value.len() >= 8 => {
+                let chunk = &record.value[8..];
+                if enc::is_sealed(chunk) && !enc::verify(ctx, &record.key, chunk) {
+                    let mut id = [0u8; 8];
+                    id.copy_from_slice(&record.value[..8]);
+                    replayer.poison(u64::from_le_bytes(id));
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Install the record-encryption context (TASK-0027). Takes effect for
+    /// every subsequent write/get and for the next replay (`reopen`).
+    pub fn set_enc_context(&mut self, ctx: enc::EncContext) {
+        self.enc = Some(ctx);
+    }
+
+    /// The installed encryption context, if any.
+    #[must_use]
+    pub fn enc_context(&self) -> Option<&enc::EncContext> {
+        self.enc.as_ref()
+    }
+
+    /// Sealed values the most recent replay rejected (AEAD verify failure).
+    #[must_use]
+    pub fn replay_enc_rejects(&self) -> usize {
+        self.replay_enc_rejects
     }
 
     /// Anomalies (orphaned/ignored transaction records) seen by the most
@@ -420,32 +504,60 @@ impl<B: BlockDevice> JournalEngine<B> {
         result
     }
 
-    /// Put a key-value pair.
+    /// Put a key-value pair. Under an enrolled prefix (enc context present,
+    /// TASK-0027) the value is sealed first — the journal, the in-memory
+    /// map, and every compaction snapshot only ever hold ciphertext; the
+    /// nonce consumes one id from the txn counter (never reused).
     pub fn put(&mut self, key: &str, value: &[u8]) -> Result<(), StatefsError> {
         Self::validate_key(key)?;
         if value.len() > MAX_VALUE_SIZE {
             return Err(StatefsError::ValueTooLarge);
         }
+        if let Some(class) = self.enc.as_ref().and_then(|c| c.class_for(key)) {
+            if value.len().saturating_add(enc::SEALED_OVERHEAD) > MAX_VALUE_SIZE {
+                return Err(StatefsError::ValueTooLarge);
+            }
+            let id = self.next_txn;
+            self.next_txn = self.next_txn.saturating_add(1);
+            let mut sealed = core::mem::take(&mut self.seal_scratch);
+            let result = match self.enc.as_ref() {
+                Some(ctx) => enc::seal_into(ctx, class, key, id, 0, value, &mut sealed),
+                None => Err(StatefsError::IntegrityViolation),
+            };
+            let outcome = result.and_then(|()| self.put_applied(key, &sealed));
+            self.seal_scratch = sealed;
+            return outcome;
+        }
+        self.put_applied(key, value)
+    }
 
-        // Append to journal
-        self.append_record(JournalOpCode::Put, key, value)?;
-
-        // Update in-memory state. Overwrites reuse the existing value
-        // buffer's capacity (steady-state overwrite churn — the common
-        // service pattern — then allocates nothing per put).
+    /// Journal + apply an (already sealed, if enrolled) value. Overwrites
+    /// reuse the existing value buffer's capacity (steady-state overwrite
+    /// churn — the common service pattern — allocates nothing per put).
+    fn put_applied(&mut self, key: &str, bytes: &[u8]) -> Result<(), StatefsError> {
+        self.append_record(JournalOpCode::Put, key, bytes)?;
         if let Some(slot) = self.kv.get_mut(key) {
             slot.clear();
-            slot.extend_from_slice(value);
+            slot.extend_from_slice(bytes);
         } else {
-            self.kv.insert(String::from(key), value.to_vec());
+            self.kv.insert(String::from(key), bytes.to_vec());
         }
         Ok(())
     }
 
-    /// Get a value by key.
+    /// Get a value by key. A sealed value (TASK-0027) is opened — plaintext
+    /// out, `IntegrityViolation` on any tamper/splice; without the enc
+    /// context the raw sealed bytes are returned (pre-key boot window —
+    /// ciphertext only, never silently wrong plaintext).
     pub fn get(&self, key: &str) -> Result<Vec<u8>, StatefsError> {
         Self::validate_key(key)?;
-        self.kv.get(key).cloned().ok_or(StatefsError::NotFound)
+        let value = self.kv.get(key).ok_or(StatefsError::NotFound)?;
+        if enc::is_sealed(value) {
+            if let Some(ctx) = &self.enc {
+                return enc::open(ctx, key, value);
+            }
+        }
+        Ok(value.clone())
     }
 
     /// Delete a key.

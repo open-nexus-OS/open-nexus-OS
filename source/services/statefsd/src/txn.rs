@@ -30,6 +30,10 @@ pub fn required_txn_put_cap(key: &str) -> &'static str {
         "statefs.keystore"
     } else if key.starts_with("/state/boot/") {
         "statefs.boot"
+    } else if crate::enc_svc::is_admin_key(key) {
+        // TASK-0027: the statefsd admin prefix (encryption enablement
+        // switch) — mirrored in os_lite::required_cap for the plain ops.
+        crate::enc_svc::CAP_ADMIN
     } else {
         "statefs.write"
     }
