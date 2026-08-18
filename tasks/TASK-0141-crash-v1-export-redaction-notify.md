@@ -8,7 +8,8 @@ follow-up-tasks: []
 links:
   - Vision: docs/architecture/vision.md
   - Playbook: CLAUDE.md
-  - Crashdump v2b OS pipeline (crashd + .nxcd.zst): tasks/TASK-0049-crashdump-v2b-os-crashd-retention-correlation-policy.md
+  - Crash evidence at rest (.nxcd.zst on device): tasks/TASK-0051B-crash-evidence-at-rest.md
+  - Fault truth (exit reasons, proof reanimation): tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
   - Crashdump v2a host tooling (`nx crash`): tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
   - Notifications v2 (for crash notifications): tasks/TASK-0069-ui-v8a-notifications-v2-actions-inline-reply.md
   - Policy capability gates (diagnostics.export): tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md
@@ -16,6 +17,17 @@ links:
   - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - logd (recent logs pull): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
 ---
+
+## Rebase note 2026-08-18 (reliability-lane recut)
+
+The former TASK-0049 (`crashd` ingestion + retention + redaction) was recut:
+detection went to the new TASK-0049, artifacts-at-rest + retention/GC + the
+**redaction core** went to TASK-0051B, and there is **no `crashd` daemon by
+default** (writer lives in the execd-side crash path; any future service must
+enter TRACK-AUTHORITY-NAMING first). This ledger rebases before execution:
+it keeps notifications + the single-report export *surface*, consumes 0051B's
+artifacts and redaction policy, and must not re-specify retention or redaction
+semantics. depends-on: TASK-0051B, TASK-0123 (notifd).
 
 ## Context
 

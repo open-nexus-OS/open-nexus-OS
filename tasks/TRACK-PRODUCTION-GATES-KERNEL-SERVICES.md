@@ -158,19 +158,32 @@ Closure definition:
 
 Representative task spine:
 
-- `TASK-0007`, `TASK-0029`, `TASK-0034`, `TASK-0035`, `TASK-0036`, `TASK-0037`
-- `TASK-0050`, `TASK-0051`
+- `TASK-0007`, `TASK-0029`, `TASK-0034`, `TASK-0035`, `TASK-0036`
+- `TASK-0049B`, `TASK-0050`, `TASK-0051`, `TASK-0053`
 - `TASK-0129`, `TASK-0130`
 - `TASK-0197`, `TASK-0198`, `TASK-0238`, `TASK-0239`
 - `TASK-0260`, `TASK-0261`, `TASK-0289`
 
+(2026-08-18: `TASK-0037` removed — Superseded by `TASK-0289` since 2026-08-14;
+`TASK-0049B`/`TASK-0053` added — supervision + signed recovery actions are part
+of the recovery closure per RFC-0087; `TASK-0050`/`TASK-0051` now refer to the
+recut ledgers: bootctld/reset/targets and the recovery ops surface.)
+
 Closure definition:
 
 - Canonical package/bundle format is the only referenced release contract.
-- Update and rollback state machines are durable, auditable, and recoverable.
+- Update and rollback state machines are durable, auditable, and recoverable —
+  owned by the single boot-state authority (`bootctld`, ADR-0055).
 - Recovery tooling is signed/policy-gated where required and does not invent side channels around
   the normal authority model.
 - Provisioning/reflash flows are deterministic enough to support bringup and field recovery.
+
+**Phase-inversion note (2026-08-18):** Gate D deliverables consume Gate H
+surfaces (evidence journal `TASK-0049C`, crash chain, `nx diagnose` inputs).
+The reliability spine `TASK-0049` → `0049B` → `0049C` therefore executes
+BEFORE the Gate D recovery tasks even though Gate H is a Phase-2
+production-floor group — sequencing follows the dependency spine
+(RFC-0087 phases), not the gate tier.
 
 ## Production-floor closure groups
 
@@ -229,13 +242,23 @@ Closure definition:
 Representative task spine:
 
 - `TASK-0006`, `TASK-0014`, `TASK-0018`
+- `TASK-0048`, `TASK-0049`, `TASK-0049C`, `TASK-0051B`, `TASK-0141`, `TASK-0142`
 - `TASK-0143`, `TASK-0144`, `TASK-0145`
 - `TASK-0172`, `TASK-0173`
 - `TASK-0227`, `TASK-0242`, `TASK-0243`
 
+(2026-08-18: the crash chain finally has a gate home — `0048` host pipeline,
+`0049` fault/exhaustion truth + reanimated OS proof, `0049C` persistent
+evidence, `0051B` artifacts at rest, `0141`/`0142` export/UI surfaces. Note the
+`TASK-0018` caveat: its ledger is Done but the OS proof was retired during the
+RFC-0068 exec migration; `TASK-0049` re-gates it — Gate H is not closable on
+`0018`'s Done status alone.)
+
 Closure definition:
 
 - crash and bugreport flows produce real evidence,
+- every service death carries a kernel-attributed reason, and evidence
+  survives reboot within bounded budgets (RFC-0087 §1/§5),
 - perf gates are deterministic and tied to scenes or bounded workloads,
 - soak/flake handling detects drift instead of normalizing it.
 

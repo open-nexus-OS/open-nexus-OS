@@ -15,6 +15,15 @@ links:
   - OOM watchdog (kill integration): tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
 ---
 
+## Rebase note 2026-08-18 (reliability-lane recut)
+
+RFC-0087 now owns the system-service supervision contract (tiers, backoff,
+crash-loop — TASK-0049B), and ADR-0056 provides real kernel exit reasons. This
+ledger stays the APP/ability-side state machine, but before execution: the
+`KillReason` enum must map 1:1 onto ADR-0056 reasons (no parallel taxonomy),
+and the backoff/crash-loop schedule SHAPE follows RFC-0087 §2 (same semantics,
+app-scope parameters). appmgrd-not-abilityd stands. depends-on: TASK-0049.
+
 ## Context
 
 We need a robust, deterministic process/ability lifecycle system with:

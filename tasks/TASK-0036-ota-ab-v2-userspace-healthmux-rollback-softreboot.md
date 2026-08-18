@@ -16,6 +16,28 @@ links:
   - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
+## Rebase amendment 2026-08-18 (ADR-0055 + RFC-0087)
+
+Three open points from the 2026-08-14 rebase are now decided:
+
+- **Slot-machine home**: `bootctld` is the single boot-state authority
+  (ADR-0055); TASK-0050 relocates `bootctrl.rs`/`bootctl_state.rs` there and
+  `updated` becomes a client. This task REMAINS owner of the state-machine
+  *evolution* (healthmux quorum, wall-clock deadline) — but implements it in
+  bootctld's machine, through bootctld ops.
+- **`bootargd` decision (open point c)**: dead. Next-boot/target selection is
+  the ADR-0055 record + SBI reset (TASK-0050); TASK-0037 stayed Superseded by
+  TASK-0289.
+- **`healthd` (open point c)**: no new daemon. Health confirmation vocabulary
+  belongs to RFC-0087 (§2 liveness/health contract); the quorum multiplexer
+  lands as a bootctld-side aggregation over existing health-ok reporters, not
+  as a service. Any daemon proposal must enter TRACK-AUTHORITY-NAMING first.
+- **Soft-reboot simulation (open point d)**: superseded by a REAL reset proof —
+  TASK-0050 ships SBI SRST; the "new init cycle uses slot B" proof rides the
+  reset/double-boot lane instead of a simulation.
+
+depends-on at execution: TASK-0050.
+
 ## Rebase 2026-08-14 — what already shipped (do NOT re-implement)
 
 Verified against the repo on 2026-08-14.

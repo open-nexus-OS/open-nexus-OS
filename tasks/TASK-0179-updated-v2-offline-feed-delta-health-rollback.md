@@ -19,6 +19,16 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Rebase note 2026-08-18 (ADR-0055: bootctld is real)
+
+The "boot control service stub" this ledger references (TASK-0178) is
+Superseded: ADR-0055 makes `bootctld` the single boot-state authority and
+TASK-0050 builds it by relocating the proven slot machine — `updated` becomes a
+CLIENT. Before execution: trial/confirm/rollback and any slot mutation in this
+ledger go through bootctld ops (schedule/commit semantics per TASK-0050/0051);
+`updated` keeps feed/verify/apply. TASK-0036's ownership note stands for
+healthmux/deadline semantics. depends-on: TASK-0050, TASK-0036.
+
 ## Context
 
 > **Collision note (2026-08-14):** slot-state-machine ownership was decided on

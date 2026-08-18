@@ -13,7 +13,8 @@
     - `tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md`
     - `tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md`
     - `tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md`
-    - `tasks/TASK-0049-crashdump-v2b-os-crashd-retention-correlation-policy.md`
+    - `tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md`
+    - `tasks/TASK-0051B-crash-evidence-at-rest.md`
 
 ## Status at a Glance
 

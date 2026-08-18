@@ -199,6 +199,43 @@ Superseded by this ladder: `0264`/`0265` (pre-nxfs write-path drafts); `0135` ne
 
 ---
 
+## Reliability Spine (seeded 2026-08-18) — recut sub-80 recovery lane
+
+User decision 2026-08-18: the old `0049 → 0050 → 0051` sequence built forensics and
+operator escape hatches for a system that cannot yet survive a failure (no OS-side
+supervision, no reset path, RAM-only evidence, every fault = `exit(-22)`, TASK-0018's
+OS proof retired). The lane was recut to the **end architecture** in dependency order:
+detection → supervision → evidence → boot state → operations → authorization. No
+transitional solutions; conservation principles from the S3K analysis live in the
+contracts (restart = derivation, exhaustion = event, supervision right-of-way), the
+slice mechanism is rejected — mechanism study parked in `TRACK-TIME-AS-RESOURCE`
+(no tasks; gates RED).
+
+Contracts: RFC-0087 (failure model) · ADR-0055 (`bootctld` = boot-state authority) ·
+ADR-0056 (exit reasons in the kernel ABI) · ADR-0057 (restart/capability re-resolve).
+
+| # | Task | Title | Status |
+|---|------|-------|--------|
+| 1 | TASK-0049 | Fault & exhaustion truth + crash-proof reanimation (rewritten; old crashd scope → 0051B) | Draft |
+| 2 | TASK-0049B | Service supervision v1: tiers + restart/backoff/crash-loop + re-resolve | Draft |
+| 3 | TASK-0049C | Persistent evidence journal (logd → statefs spill) | Draft |
+| 4 | TASK-0050 | System reset (SBI SRST) + boot targets via `bootctld` (rewritten) | Draft |
+| 5 | TASK-0051 | Recovery operations surface: fsck op + slot/target ops + `nx diagnose` (rewritten) | Draft |
+| 6 | TASK-0051B | Crash evidence at rest: on-device `.nxcd` + retention/GC + redaction | Draft |
+| 7 | TASK-0053 | `.nxra` signed recovery actions (rewritten: enforcement on the 0051 ops surface) | Draft |
+| — | TASK-0050B | Recovery bringup console — **Deferred by decision** (no shell in the consumer end state) | Deferred |
+
+⤳ `0178` **Superseded 2026-08-18** (absorbed by 0050/ADR-0055). Rebased against this
+lane: `0036` (amendment: `bootargd`/`healthd` dead, soft-reboot sim → real reset proof),
+`0141`/`0142` (crash pipeline reownership), `0179` (updated = bootctld client),
+`0227` (`nx diagnose` = the ONE bundle; consumes 0049C/0050/0051 edges), `0228` (oomd
+kills carry ADR-0056 reasons; supervisor owns restarts), `0234`/`0235` (kill-reason
+taxonomy = ADR-0056), `0260`/`0261` (boot-state seam; `rebootd`/initrd/`nx-diag`
+dropped), `0289` (rollback indices anchor in the bootctld record). `0052` left the
+lane (Networking/Ingress, unchanged).
+
+---
+
 ## UI Fast Lane — Ziel: 119–122C
 
 Statt aller Tasks 24–118 sequenziell werden nur die für die UI-Kette notwendigen Tasks abgearbeitet.
@@ -222,7 +259,7 @@ Minimale Voraussetzungen für den UI-Stack. Alles andere aus dem 24–53 Bereich
 | TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | UI-Profil-Broker für windowd + input |
 | TASK-0047 | Policy as Code v1: unified policy engine | Asset-Zugriff + Permissions für UI-Services |
 
-**Übersprungen (24–53):** `0024` (DSoftBus UDP sec), ✅ `0025–0027` (StateFS hardening/encryption — **alle Done 2026-08-18**, siehe Defer-Bucket), `0028` (ABI filters v2), `0030` (DSoftBus discovery authz), `0033` (PackageFS VMO-splice — ⤳ superseded by 0295), `0034–0037` (OTA/delta updates), `0038` (Tracing v2), `0040` (Remote observability), `0041` (Lock profiling), `0042` (SMP v2 voll — inzwischen Done; 0054B war der QoS-Slice-Träger und ist Superseded), `0043–0044` (Security sandbox quotas / QUIC tuning — 0044 Superseded 2026-08-14), `0048–0053` (Crashdump v2 / Recovery / Security v3).
+**Übersprungen (24–53):** `0024` (DSoftBus UDP sec), ✅ `0025–0027` (StateFS hardening/encryption — **alle Done 2026-08-18**, siehe Defer-Bucket), `0028` (ABI filters v2), `0030` (DSoftBus discovery authz), `0033` (PackageFS VMO-splice — ⤳ superseded by 0295), `0034–0037` (OTA/delta updates), `0038` (Tracing v2), `0040` (Remote observability), `0041` (Lock profiling), `0042` (SMP v2 voll — inzwischen Done; 0054B war der QoS-Slice-Träger und ist Superseded), `0043–0044` (Security sandbox quotas / QUIC tuning — 0044 Superseded 2026-08-14), ✅ `0048` (Crashdump v2a host, Done 2026-08-14), `0049–0051`/`0053` (→ **Reliability Spine**, Sektion oben — rewritten 2026-08-18), `0052` (Ingress, in der Networking-Lane).
 
 ---
 
@@ -393,7 +430,8 @@ seeded as `0314`–`0320` — see "Storage End-State Ladder" section below.
 ADR-0043/RFC-0071; absorbed by 0316/0317/0318).
 
 **Security / Compliance:**
-`0028`, `0043`, `0052`, `0053` (ABI filters, sandbox quotas, ingress policy, signed recovery)
+`0028`, `0043`, `0052` (ABI filters, sandbox quotas, ingress policy);
+`0053` moved into the Reliability Spine (signed recovery actions on the 0051 ops surface)
 
 **OTA / Updates / Supply Chain:**
 `0034` (rebased 2026-08-14: nur noch `.nxdelta` offen), `0035` (unblocked), `0036` (rebased;
@@ -403,14 +441,18 @@ Owner der Slot-State-Machine — 0178/0179 defer);
 
 **Observability / Debug:**
 `0038` (rebased 2026-08-14: Ziel ist dsoftbusd/mux_v2, Prämisse war invertiert), `0040`
-(rebased: logd/metricsd sind längst Done), `0048`, `0049` (Crashdump v2, execute-as-is);
+(rebased: logd/metricsd sind längst Done); ✅ `0048` Done (host pipeline);
+`0049` → **Reliability Spine** (rewritten 2026-08-18: fault/exhaustion truth — der alte
+crashd-Scope lebt in `0051B`);
 ⤳ `0041` — **Superseded 2026-08-14** (Motivation von ADR-0049 konsumiert — Kernel-BKL-Budgets
 sind Boot-Gate)
 
 **Recovery:**
-`0050`, `0051` (Recovery v1a/v1b; Entscheidung 2026-08-14: 0050 hält die Boot-Target-Authority
-(`nexus.target=recovery`, TRACK-AUTHORITY-NAMING) — 0261 aligned; 0051 nutzt `fsck-statefs`
-aus 0026 — **seit 2026-08-18 geliefert**, inkl. `--enc-*` Sealed-Value-Verifikation)
+→ **Reliability Spine** (Sektion oben). Entscheidung 2026-08-18 ersetzt die vom
+2026-08-14: Boot-Target-Authority ist `bootctld` (ADR-0055), nicht ein
+`nexus.target`-Parser; `0050`/`0051`/`0053` rewritten, `0050B` neu (Deferred),
+`0178` Superseded; `0051` exponiert die gelieferte fsck-Engine aus 0026 statt sie
+neu zu bauen
 
 **SMP v2 (voll):**
 ✅ `0042` Done (see "Post-0064 — SMP + Filesystem" section above); SMP closure `0281`/`0282`/`0286`/`0287`/`0290` still open.
@@ -465,6 +507,7 @@ Honest reconciliation floor (2026-07-19). These are real, unimplemented feature 
 | TRACK-NEXUSINFER-SDK | On-device ML runtime (CPU ref + future NPU), hybrid IPC | TASK-0031, TASK-0010, TASK-0280 |
 | TRACK-NEXUSMEDIA-SDK | Audio/video/image SDK | UI tasks, codec tasks |
 | TRACK-STASH-USER-DATA-FS | User-data FS ladder (vfs v2 → nxfs → zero-copy → CoW/enc) + stash | Milestones 1–5 Done (0291–0295); CoW/encryption seed-when-ready; RFC-0071/0072/0073 |
+| TRACK-TIME-AS-RESOURCE | Conserved time/budget rights along the init tree (S3K-inspired; slice model rejected) | Gates RED: bounded kernel ops/revoke (BKL), TASK-0286/0287, hmv2 SMP direction |
 | TRACK-ZEROCOPY-APP-PLATFORM | RichContent + OpLog + connectors | TASK-0031, TASK-0087 |
 | TRACK-APP-STORE | Distribution + publishing | Packaging tasks |
 | TRACK-DEVSTUDIO-IDE | Developer IDE | DSL tasks (0075+) |

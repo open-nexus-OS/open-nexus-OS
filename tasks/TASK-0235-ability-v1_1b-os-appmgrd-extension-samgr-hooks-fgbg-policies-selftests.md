@@ -18,6 +18,13 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Rebase note 2026-08-18 (reliability-lane recut)
+
+Kill-reason plumbing consumes ADR-0056 kernel exit reasons end-to-end (no
+inferred reasons); samgr hooks reuse the ADR-0057 staleness/re-resolve protocol
+from TASK-0049B rather than a second liveness mechanism. Rebase against both
+before execution. depends-on: TASK-0234, TASK-0049, TASK-0049B.
+
 ## Context
 
 We need OS/QEMU wiring for Ability/Lifecycle v1.1:

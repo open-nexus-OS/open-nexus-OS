@@ -9,10 +9,16 @@ links:
   - Vision: docs/architecture/vision.md
   - Playbook: CLAUDE.md
   - Crash export/notify surface: tasks/TASK-0141-crash-v1-export-redaction-notify.md
-  - Crashdump v2b OS pipeline: tasks/TASK-0049-crashdump-v2b-os-crashd-retention-correlation-policy.md
+  - Crashdump v2b OS pipeline: tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
   - SystemUI→DSL baseline: tasks/TASK-0121-systemui-dsl-migration-phase2a-settings-notifs-host.md
   - Share v2 (optional export destination): tasks/TASK-0126-share-v2a-intentsd-registry-dispatch-policy-host.md
 ---
+
+## Rebase note 2026-08-18 (reliability-lane recut)
+
+Crash pipeline ownership moved: artifacts at rest = TASK-0051B (no `crashd`
+daemon), export/notify surface = TASK-0141 (rebased). This UI consumes those;
+rebase links/inputs before execution. depends-on: TASK-0141, TASK-0051B.
 
 ## Context
 

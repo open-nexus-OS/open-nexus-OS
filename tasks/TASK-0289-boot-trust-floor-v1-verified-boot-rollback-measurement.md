@@ -21,6 +21,16 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Rebase note 2026-08-18 (ADR-0055: boot-state record owner decided)
+
+The rollback-index / boot-attempt state this task anchors now has ONE owner:
+`bootctld` (ADR-0055, built in TASK-0050 by relocating the proven
+`bootctrl.rs`/`bootctl.v1` machine; `updated` is a client, TASK-0178
+Superseded, `bootargd`/`rebootd` dead). Anchor the verified-boot rollback
+indices in/behind that record instead of introducing a parallel store; the
+`source/services/bootctld/` touched path below is now the real service, not a
+new one. Add TASK-0050 to depends-on at execution.
+
 ## Context
 
 The current security root direction explicitly calls for verified boot plus signed packages, but the

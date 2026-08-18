@@ -1,5 +1,17 @@
 # Process lifecycle & supervision
 
+> **Reality note (2026-08-18).** The supervision loop described below exists
+> only in execd's **host (std) backend** (`source/services/execd/src/std_server.rs`).
+> On the OS, `exec_elf(…, restart)` ignores the policy and returns
+> `Unsupported` (`os_lite.rs`), and `init: supervise <svc> restart=<policy>` is
+> a printed hint with no enforcement — **no service is restarted on the OS
+> today**. The real supervision contract is RFC-0087
+> (`docs/rfcs/RFC-0087-reliability-failure-model-v1.md`); execution:
+> TASK-0049 (exit reasons), TASK-0049B (restart/backoff/crash-loop +
+> capability re-resolve per ADR-0057). Until those land, read the
+> "execd supervision loop" and "init supervision hints" sections as
+> host-backend behavior and OS *direction*, not shipped OS behavior.
+
 The Neuron kernel models a task's lifetime with explicit `Running → Zombie → Reaped`
 transitions. A task invokes the `exit` syscall to publish its status and transition into the
 `Zombie` state. The kernel preserves the task control block, address space handle, and exit

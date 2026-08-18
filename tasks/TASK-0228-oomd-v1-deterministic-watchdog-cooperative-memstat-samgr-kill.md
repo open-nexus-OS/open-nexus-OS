@@ -13,9 +13,19 @@ links:
   - Boot gates (readiness/spawn reasons/resource sentinels): docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
   - Observability (logd): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
   - Execd (spawner/supervision): tasks/TASK-0001-runtime-roles-and-boundaries.md
-  - Crash pipeline (optional correlation): tasks/TASK-0049-crashdump-v2b-os-crashd-retention-correlation-policy.md
+  - Crash pipeline (optional correlation): tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
   - Testing contract: scripts/qemu-test.sh
 ---
+
+## Rebase note 2026-08-18 (reliability-lane recut)
+
+Before execution, align with RFC-0087 + the supervision spine: kills issued by
+`oomd` must carry the ADR-0056 `kill{by}` exit reason (so 0049B's crash-loop
+policy never miscounts an OOM kill as a crash), pressure/exhaustion signals use
+the RFC-0087 `exhaust.v1` event vocabulary (no parallel event shape), and any
+restart-after-kill decision belongs to the 0049B supervisor — oomd selects and
+kills, it never respawns. Kernel accounting truth stays TASK-0286/0287.
+depends-on: TASK-0049, TASK-0049B.
 
 ## Context
 

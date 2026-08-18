@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-08-18 (reliability lane recut: contracts + ledgers, no code)
+
+- **Reliability spine seeded (planning-only)**: the sub-80 recovery lane
+  (`0049`/`0050`/`0051`/`0053`) was recut against code ground truth — the old
+  sequence built crash forensics and operator escape hatches on top of missing
+  primitives (no OS-side supervision, no reset path, RAM-only evidence, every
+  fault indistinguishable from `exit(-22)`, TASK-0018's OS proof retired during
+  the RFC-0068 exec migration). New contracts: **RFC-0087** (failure model:
+  exit reasons, exhaustion-is-an-event, supervision tiers, restart = derivation,
+  boot targets, evidence retention), **ADR-0055** (`bootctld` = single
+  boot-state authority; `updated` becomes client; `rebootd`/`bootargd` dead),
+  **ADR-0056** (kernel-attributed task exit reasons through `wait`),
+  **ADR-0057** (restart re-provisions from declared topology only + samgrd
+  staleness/re-resolve). Ledgers: `0049` rewritten (fault & exhaustion truth +
+  proof reanimation), new `0049B` (service supervision v1), `0049C` (persistent
+  evidence journal), `0051B` (crash evidence at rest — owns the old crashd
+  scope, no daemon), `0050`/`0051`/`0053` rewritten, `0050B` seeded Deferred
+  (no recovery shell in the consumer end state), `0178` Superseded. Twelve
+  adjacent ledgers rebased; authority registry + production gates + status
+  board updated. `TRACK-TIME-AS-RESOURCE` seeded (S3K-inspired conserved
+  time/budget rights; slice mechanism rejected; all gates RED — no tasks).
+
 ### Added - 2026-08-18 (statefs record encryption v2b, opt-in AEAD at rest)
 
 - **statefs record encryption (TASK-0027)**: opt-in XChaCha20-Poly1305 sealing

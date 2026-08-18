@@ -1,6 +1,6 @@
 ---
 title: TASK-0178 Boot control v1 (OS/QEMU): bootctld stub service + slot/trial state + markers (no real reboot)
-status: Draft
+status: Superseded
 owner: @runtime
 created: 2025-12-27
 depends-on: []
@@ -14,6 +14,17 @@ links:
   - Testing contract: scripts/qemu-test.sh
   - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
+
+## Superseded 2026-08-18 → TASK-0050 (ADR-0055)
+
+`bootctld` is now real, not a stub: ADR-0055 makes it the single boot-state
+authority (boot target + one-shot next-boot + slot/tries/rollback/attempts),
+and `tasks/TASK-0050-system-reset-boot-targets-bootctld.md` builds it by
+relocating the proven machine (`userspace/updates/src/bootctrl.rs` +
+`bootctl_state.rs`) with a REAL reset path (SBI SRST) instead of this ledger's
+marker-only `reboot()` stub. Everything this ledger wanted is owned there;
+executing this ledger separately would create the parallel slot surface its own
+collision note warns against. Do not execute; see TASK-0050.
 
 ## Context
 

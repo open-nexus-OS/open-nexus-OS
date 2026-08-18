@@ -10,12 +10,23 @@ links:
   - Playbook: CLAUDE.md
   - /state (persistence gate): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - logd (recent logs query): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
-  - Crash pipeline (OS): tasks/TASK-0049-crashdump-v2b-os-crashd-retention-correlation-policy.md
+  - Crash pipeline (OS): tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md
   - Crash export/redaction (single report): tasks/TASK-0141-crash-v1-export-redaction-notify.md
   - Host tooling (`nx crash`, `nxsym`, `.nxcd`): tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
   - DevX CLI base (`nx ...`): tasks/TASK-0045-devx-nx-cli-v1.md
   - Testing contract: scripts/qemu-test.sh
 ---
+
+## Rebase note 2026-08-18 (reliability-lane recut)
+
+Ownership seam decided in TASK-0051: **this ledger keeps the bundle
+format + host `nx diagnose` pipeline**; TASK-0051 delivers the on-device query
+edges it consumes (logd `persisted` evidence scope from TASK-0049C, boot record
+snapshot from `bootctld`, fsck report from the statefsd op). The `crashd`
+inputs this ledger referenced do not exist — crash artifacts come from
+TASK-0051B. The competing bundle shapes (old recovery-sh `diag`, 0261
+`nx-diag`) are retired; `nx diagnose` is the ONE bundle (Keystone Gate 6).
+depends-on: TASK-0049C, TASK-0051, TASK-0051B.
 
 ## Context
 

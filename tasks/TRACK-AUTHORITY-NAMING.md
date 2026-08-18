@@ -92,11 +92,27 @@ This exists to remove “warnings” by making the architecture **decided** and 
 - **Location authority (apps consume)**: `locationd`
 - **GNSS device driver**: `gnssd`
 
-### Recovery / provisioning
+### Reliability / recovery / provisioning (recut 2026-08-18, RFC-0087)
 
-- **Recovery orchestration**: `recovery-init` + `recovery-sh` (built-ins only)
-- **Flashing (recovery target)**: `flashd`
-- **Next-boot selector**: `rebootd`
+- **Supervision policy**: `nexus-init` (declarative tiers/restart/backoff in the
+  RFC-0069 ServiceSpec manifest — TASK-0049B); **supervision mechanics**
+  (spawn/reap/exit-report): `execd` (RFC-0081). No `supervisord`/`healthd`
+  daemon; any proposal must be registered here first.
+- **Boot state** (boot target, one-shot next-boot, active slot, rollback index,
+  boot attempts): `bootctld` — single authority per ADR-0055; `updated` is a
+  client. ~~`rebootd`~~ and ~~`bootargd`~~ are dead; ~~`recovery-init` +
+  `recovery-sh`~~ replaced — recovery is a declarative boot-target stage graph
+  (TASK-0050), the console idea is parked as TASK-0050B (Deferred, thin client
+  of the ops surface only).
+- **Crash artifact writer**: the execd-side crash path (library, TASK-0051B) —
+  there is NO `crashd` daemon by default; `.nxcd.zst` stays the only at-rest
+  format (see artifact registry below).
+- **Recovery operations**: policy-gated IPC ops on their owners — fsck on
+  `statefsd` (engine SSOT `userspace/statefs/src/fsck.rs`), slot/target on
+  `bootctld` — driven by `nx` verbs; ONE diag bundle: `nx diagnose`
+  (TASK-0051/0227).
+- **Flashing (recovery target)**: `flashd` (joins the recovery target's service
+  graph; no recovery ramdisk/initrd — TASK-0261 alignment note).
 
 ## Canonical URI schemes (v1 direction)
 

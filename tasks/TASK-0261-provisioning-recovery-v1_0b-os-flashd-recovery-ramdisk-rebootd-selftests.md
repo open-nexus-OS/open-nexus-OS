@@ -10,8 +10,8 @@ links:
   - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
   - Provisioning core (host-first): tasks/TASK-0260-provisioning-recovery-v1_0a-host-image-builder-flasher-protocol-deterministic.md
-  - Recovery baseline: tasks/TASK-0050-recovery-v1a-boot-target-minimal-shell-diag.md
-  - Recovery tools: tasks/TASK-0051-recovery-v1b-safe-tools-fsck-slot-ota-nx-recovery.md
+  - Recovery baseline: tasks/TASK-0050-system-reset-boot-targets-bootctld.md
+  - Recovery tools: tasks/TASK-0051-recovery-operations-surface.md
   - Persistence: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
   - Testing contract: scripts/qemu-test.sh
 ---
@@ -31,6 +31,22 @@ links:
 >
 > The provisioning/flashd scope (flashd service, virtio-serial channel, flash protocol, factory
 > reset) remains valid, but it **rebases on TASK-0050's boot-mode contract** before execution.
+
+> **Alignment note 2026-08-18 (supersedes parts of the 2026-08-14 note above).**
+> ADR-0055 decided the boot-state authority; the reliability lane recut the
+> recovery architecture. Before execution this ledger additionally:
+>
+> - **drops `rebootd` entirely** (not just its persistence key): next-boot is a
+>   `bootctld` op (ADR-0055); the `rebootd: *` markers and the
+>   `source/services/rebootd/` touched path are void,
+> - **drops the recovery ramdisk/initrd approach**: recovery is a declarative
+>   stage graph selected via the bootctld record (TASK-0050), not a second
+>   initrd with its own userspace — `flashd` joins the `recovery` target's
+>   service graph instead,
+> - **drops `nx-recovery` AND `nx-diag` binaries**: diagnostics is `nx diagnose`
+>   (TASK-0051/0227, Keystone Gate 6),
+> - keeps: `flashd` + virtio-serial + flash protocol (from TASK-0260) + factory
+>   reset — mutating verbs `.nxra`-gated per TASK-0053 once available.
 
 We need OS/QEMU integration for Provisioning/Recovery v1.0:
 

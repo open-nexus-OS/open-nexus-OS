@@ -10,12 +10,20 @@ links:
   - Vision: docs/architecture/vision.md
   - Playbook: CLAUDE.md
   - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Recovery baseline: tasks/TASK-0050-recovery-v1a-boot-target-minimal-shell-diag.md
-  - Recovery tools: tasks/TASK-0051-recovery-v1b-safe-tools-fsck-slot-ota-nx-recovery.md
+  - Recovery baseline: tasks/TASK-0050-system-reset-boot-targets-bootctld.md
+  - Recovery tools: tasks/TASK-0051-recovery-operations-surface.md
   - NXB format: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
   - Packagefs image builder: tasks/TASK-0246-bringup-rv-virt-v1_1a-host-virtio-blk-image-builder-deterministic.md
   - Testing contract: scripts/qemu-test.sh
 ---
+
+## Rebase note 2026-08-18 (ADR-0055 + lane recut)
+
+Recovery baseline changed: boot target/next-boot live in the `bootctld` record
+(ADR-0055, TASK-0050) — no boot-arg contract, no `rebootd`. The host-first
+image-builder/flash-protocol/factory-reset scope here stays valid; anything in
+this ledger that touches next-boot or reset must target bootctld ops.
+depends-on: TASK-0050 (for the boot-state seam only).
 
 ## Context
 

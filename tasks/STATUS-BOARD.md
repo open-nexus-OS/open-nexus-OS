@@ -23,11 +23,11 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Kernel Core & Runtime | 14 / 34 | 41% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
 | DSoftBus & Distributed | 14 / 28 | 50% | — | Distributed session, transport, mux, and remote-service stack. |
 | Networking & Transport | 1 / 8 | 12% | — | Netstack, dev networking, ingress, and OS transport services. |
-| Observability, Crash, Perf & Diagnostics | 9 / 33 | 27% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
+| Observability, Crash, Perf & Diagnostics | 9 / 36 | 25% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
 | Accounts, Ability & Sessions | 2 / 9 | 22% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. Spine done (0065 lifecycle broker + 0065B session authority); continuation open (KILL/backoff → 0234/0235, lock/multi-user → 0109/0110/0223/0224, delegation → 0126B). |
-| Security, Policy & Identity | 8 / 37 | 22% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
-| Storage, PackageFS & Content | 12 / 30 | 40% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done. |
-| Updates, Packaging & Recovery | 1 / 21 | 5% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
+| Security, Policy & Identity | 8 / 35 | 23% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
+| Storage, PackageFS & Content | 12 / 29 | 41% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done. |
+| Updates, Packaging & Recovery | 1 / 24 | 4% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
 | Bringup, Hardware & Drivers | 1 / 13 | 8% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
 | Windowing, UI & Graphics | 31 / 85 | 36% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
 | Text, IME, I18N & Accessibility | 4 / 7 | 57% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
@@ -111,9 +111,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Observability, Crash, Perf & Diagnostics
 
-- Progress: `9 / 33` done (`27%`)
+- Progress: `9 / 36` done (`25%`)
 - Kernel-touch tasks: —
-- Tasks: `TASK-0006`, `TASK-0014`, `TASK-0018`, `TASK-0026`, `TASK-0041`, `TASK-0048`..`TASK-0049`, `TASK-0056C`, `TASK-0060`, `TASK-0062B`, `TASK-0080`, `TASK-0141`..`TASK-0145`, `TASK-0152`, `TASK-0170`, `TASK-0172`..`TASK-0173`, `TASK-0183`, `TASK-0190`, `TASK-0201`..`TASK-0202`, `TASK-0205`, `TASK-0216`..`TASK-0217`, `TASK-0227`, `TASK-0234`, `TASK-0236`, `TASK-0242`..`TASK-0243`, `TASK-0264`
+- Tasks: `TASK-0006`, `TASK-0014`, `TASK-0018`, `TASK-0026`, `TASK-0041`, `TASK-0048`..`TASK-0049`, `TASK-0049B`, `TASK-0049C`, `TASK-0051B`, `TASK-0056C`, `TASK-0060`, `TASK-0062B`, `TASK-0080`, `TASK-0141`..`TASK-0145`, `TASK-0152`, `TASK-0170`, `TASK-0172`..`TASK-0173`, `TASK-0183`, `TASK-0190`, `TASK-0201`..`TASK-0202`, `TASK-0205`, `TASK-0216`..`TASK-0217`, `TASK-0227`, `TASK-0234`, `TASK-0236`, `TASK-0242`..`TASK-0243`, `TASK-0264`
+- Notes (2026-08-18, reliability-lane recut): the sub-80 reliability spine was recut against code ground truth (details: `tasks/IMPLEMENTATION-ORDER.md` "Reliability Spine" section). `TASK-0049` rewritten (fault & exhaustion truth + crash-proof reanimation — the old crashd scope moved to the new `TASK-0051B`); new `TASK-0049B` (service supervision v1) + `TASK-0049C` (persistent evidence journal). Contracts: RFC-0087, ADR-0055/0056/0057. Caveat recorded: `TASK-0018` is Done but its OS proof was retired during the RFC-0068 exec migration (only FAIL markers gated); `TASK-0049` re-gates it.
 
 ### Accounts, Ability & Sessions
 
@@ -123,15 +124,17 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Security, Policy & Identity
 
-- Progress: `8 / 37` done (`22%`)
+- Progress: `8 / 35` done (`23%`)
 - Kernel-touch tasks: `TASK-0008`, `TASK-0019` (2026-08-14: `TASK-0028`/`TASK-0043` removed — their ledgers state "kernel untouched" as a hard invariant; the board entry was wrong)
-- Tasks: `TASK-0008`, `TASK-0008B`, `TASK-0019`, `TASK-0027`..`TASK-0029`, `TASK-0039`, `TASK-0043`, `TASK-0047`, `TASK-0053`, `TASK-0066`..`TASK-0068`, `TASK-0103`, `TASK-0107`..`TASK-0108`, `TASK-0111`, `TASK-0124`, `TASK-0126`, `TASK-0130`, `TASK-0136`..`TASK-0137`, `TASK-0139`, `TASK-0160`, `TASK-0162`, `TASK-0167`..`TASK-0168`, `TASK-0181`..`TASK-0182`, `TASK-0189`, `TASK-0191`..`TASK-0192`, `TASK-0221`, `TASK-0238`, `TASK-0259`, `TASK-0263`
+- Tasks: `TASK-0008`, `TASK-0008B`, `TASK-0019`, `TASK-0027`..`TASK-0029`, `TASK-0039`, `TASK-0043`, `TASK-0047`, `TASK-0066`..`TASK-0068`, `TASK-0103`, `TASK-0107`..`TASK-0108`, `TASK-0111`, `TASK-0124`, `TASK-0126`, `TASK-0130`, `TASK-0136`..`TASK-0137`, `TASK-0139`, `TASK-0160`, `TASK-0162`, `TASK-0167`..`TASK-0168`, `TASK-0181`..`TASK-0182`, `TASK-0189`, `TASK-0191`..`TASK-0192`, `TASK-0221`, `TASK-0238`, `TASK-0259`, `TASK-0263`
+- Notes (2026-08-18, group move): `TASK-0053` moved to Updates/Recovery — `.nxra` is part of the recovery-lane closure; enforcement lands on the TASK-0051 ops surface.
 
 ### Storage, PackageFS & Content
 
-- Progress: `12 / 30` done (`40%`)
+- Progress: `12 / 29` done (`41%`)
 - Kernel-touch tasks: `TASK-0031`
-- Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0051`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`, `TASK-0291`..`TASK-0295`
+- Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`, `TASK-0291`..`TASK-0295`
+- Notes (2026-08-18, group move): `TASK-0051` moved to Updates/Recovery — the recut ledger is the recovery ops surface; its fsck part only *exposes* the shipped statefs engine.
 - Notes (2026-07-15): `TASK-0025`..`TASK-0027` rebased onto shipped statefs v1; `TASK-0033` superseded by `TASK-0295`; `TASK-0182`/`TASK-0183` superseded by RFC-0071 (nxfs encryption classes); ladder + contracts in `tasks/TRACK-STASH-USER-DATA-FS.md`.
 - Notes (2026-07-21): `TASK-0298` (settingsd region/keymap/time keys + `OP_WATCH` spine, RFC-0078) added to this family next to `TASK-0225` (which keeps only the provider-apply-hook remainder); `TASK-0300` (IME-store encryption-at-rest) seeded, gated on an accepted encryption substrate.
 - Notes (2026-08-14, storage reconciliation + end-state ladder): `TASK-0025`..`TASK-0027` verified still open (Draft, zero code — statefs is a separate store, not covered by nxfs; 0026 now also owns defusing the `/state` replay-limit boot time bomb); `TASK-0033` remains Superseded by `TASK-0295`; `TASK-0264`/`TASK-0265` Superseded (pre-nxfs durability-above-the-FS design conflicts with ADR-0043/RFC-0071); `TASK-0135` needs a `/data`-first rescope. New end-state ladder seeded: `TASK-0314`..`TASK-0320` (block-driver perf, GPT/virtioblkd topology, nxfs format v2 + write-path perf, nxfsd extraction + VMO writes, perf contract + bench gate, CoW/snapshots, encryption classes) — see `tasks/TRACK-STASH-USER-DATA-FS.md` milestones 6–12.
@@ -141,9 +144,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Updates, Packaging & Recovery
 
-- Progress: `1 / 21` done (`5%`)
+- Progress: `1 / 24` done (`4%`)
 - Kernel-touch tasks: `TASK-0289`
-- Tasks: `TASK-0007`, `TASK-0034`..`TASK-0037`, `TASK-0050`, `TASK-0089`..`TASK-0090`, `TASK-0129`, `TASK-0131`, `TASK-0140`, `TASK-0174`, `TASK-0178`..`TASK-0180`, `TASK-0197`..`TASK-0198`, `TASK-0239`, `TASK-0260`..`TASK-0261`, `TASK-0289`
+- Tasks: `TASK-0007`, `TASK-0034`..`TASK-0037`, `TASK-0050`, `TASK-0050B`, `TASK-0051`, `TASK-0053`, `TASK-0089`..`TASK-0090`, `TASK-0129`, `TASK-0131`, `TASK-0140`, `TASK-0174`, `TASK-0178`..`TASK-0180`, `TASK-0197`..`TASK-0198`, `TASK-0239`, `TASK-0260`..`TASK-0261`, `TASK-0289`
+- Notes (2026-08-18, reliability-lane recut): recovery architecture recut per RFC-0087 + ADR-0055 — `TASK-0050` rewritten (system reset via SBI SRST + boot targets; `bootctld` = single boot-state authority, relocating the proven `bootctrl.rs` machine; `updated` becomes client), `TASK-0051` rewritten (recovery ops surface: statefsd fsck op over the shipped 0026 engine + bootctld slot/target ops + ONE diag bundle `nx diagnose`; joined from Storage group), `TASK-0053` rewritten (`.nxra` enforcement on the ops surface; joined from Security group), new `TASK-0050B` (recovery console, **Deferred** by decision — consumer end state needs no shell), `TASK-0178` **Superseded** (absorbed by TASK-0050/ADR-0055). `TASK-0036` amendment: `bootargd`/`healthd` dead, soft-reboot simulation superseded by the real reset proof. `TASK-0261`: `rebootd`/initrd/`nx-diag` dropped per alignment note.
 
 ### Bringup, Hardware & Drivers
 
