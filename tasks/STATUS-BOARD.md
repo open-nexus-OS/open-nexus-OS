@@ -134,6 +134,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 - Notes (2026-07-21): `TASK-0298` (settingsd region/keymap/time keys + `OP_WATCH` spine, RFC-0078) added to this family next to `TASK-0225` (which keeps only the provider-apply-hook remainder); `TASK-0300` (IME-store encryption-at-rest) seeded, gated on an accepted encryption substrate.
 - Notes (2026-08-14, storage reconciliation + end-state ladder): `TASK-0025`..`TASK-0027` verified still open (Draft, zero code — statefs is a separate store, not covered by nxfs; 0026 now also owns defusing the `/state` replay-limit boot time bomb); `TASK-0033` remains Superseded by `TASK-0295`; `TASK-0264`/`TASK-0265` Superseded (pre-nxfs durability-above-the-FS design conflicts with ADR-0043/RFC-0071); `TASK-0135` needs a `/data`-first rescope. New end-state ladder seeded: `TASK-0314`..`TASK-0320` (block-driver perf, GPT/virtioblkd topology, nxfs format v2 + write-path perf, nxfsd extraction + VMO writes, perf contract + bench gate, CoW/snapshots, encryption classes) — see `tasks/TRACK-STASH-USER-DATA-FS.md` milestones 6–12.
 - Notes (2026-08-15): `TASK-0025` Done (authenticity envelopes + anti-rollback + budgets; QEMU-proven, see ledger closure note incl. the qemu-test.sh fake-green guard). `TASK-0048` Done (crashdump v2a host pipeline: .nxcd container, nxsym, nx crash). Next in lane: `TASK-0026` (multi-op atomicity + compaction + `/state` replay-limit time bomb), then `TASK-0027`.
+- Notes (2026-08-18): `TASK-0026` Done — journal v2 end to end: engine 2PC + bounded compaction (replay-limit boot time bomb defused), `fsck-statefs`, statefsd txn wire ops 7–10 + no-fake-green compaction verify (bounded readback — the reopen-per-cycle variant OOM'd statefsd under the bump allocator, found by the ladder), keep-blk double-boot cold-boot proof (`REQUIRE_STATEFS_COLD_BOOT=1`), markers + fake-green guard in qemu-test.sh. Next in lane: `TASK-0027` (record encryption; deps 0025/0026 now both Done).
 
 ### Updates, Packaging & Recovery
 
@@ -203,7 +204,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0009 | Persistence v1: virtio-blk + statefs | Done | State persistence baseline complete |
 | ✅ TASK-0010 | Device MMIO access model | Done | Capability-gated device access complete |
 | ✅ TASK-0011 | Kernel simplification phase A | Done | Simplification baseline complete |
-| ✅ TASK-0011B | Kernel Rust idioms pre-SMP | Done | Idiom cleanup complete |
+| ✅ TASK-0011B | Kernel Rust idioms pre-SMP | Superseded | Pre-SMP prep obsolete — SMP v1/v1b/v2 (`TASK-0012`/`0012B`/`0042`) shipped; residual idiom debt owned by current kernel tasks (ledger closed 2026-08-18) |
 | ✅ TASK-0012 | Kernel SMP v1 | Done | Baseline complete |
 | ✅ TASK-0012B | Kernel SMP v1b hardening bridge | Done | Hardening complete |
 | ✅ TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | Done | QoS/timing contract complete |

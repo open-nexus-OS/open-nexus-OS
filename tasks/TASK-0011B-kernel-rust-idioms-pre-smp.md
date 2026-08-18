@@ -1,6 +1,6 @@
 ---
 title: TASK-0011B Kernel Rust idioms & ownership clarity (pre-SMP prep)
-status: Draft
+status: Superseded
 owner: @kernel-team
 created: 2026-01-09
 depends-on: []
@@ -15,6 +15,16 @@ links:
   - Kernel overview: docs/architecture/01-neuron-kernel.md
   - SMP follow-up: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
 ---
+
+## Superseded (2026-08-18)
+
+This was a **pre-SMP prep** task, but the SMP work it was preparing for has long shipped
+(`TASK-0012` SMP v1, `TASK-0012B` v1b, `TASK-0042` v2 — all Done). Whatever idiom/ownership
+cleanup the kernel needed happened inside those tasks and the later kernel tracks; keeping a
+"prepare for SMP" draft open after SMP shipped is stale state. STATUS-BOARD already carried
+this row as Done ("Idiom cleanup complete") — this closure removes the board-vs-ledger drift.
+Any *remaining* idiom debt is ordinary kernel hygiene, owned by the current kernel tasks, not
+by a pre-SMP ledger.
 
 ## Context
 

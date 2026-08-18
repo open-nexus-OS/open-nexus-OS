@@ -1,9 +1,9 @@
 ---
 title: TASK-0031 Zero-copy VMOs v1: shared RO buffers via existing VMO syscalls + handle transfer (plumbing, host-first, OS-gated)
-status: In Review
+status: Done
 owner: @runtime
 created: 2025-12-22
-updated: 2026-04-23
+updated: 2026-08-18
 depends-on:
   - TASK-0009
   - TASK-0020
@@ -92,6 +92,11 @@ UI/perf note:
 
 This task is therefore positioned as **In Review** for the v1 plumbing slice: host + OS proofs are green,
 and kernel production closure items are explicitly handed off to `TASK-0290`.
+
+**Closure (2026-08-18):** review closed as **Done**. Host + OS plumbing proofs are green
+(`SELFTEST: vmo share ok` in the ladder), the out-of-scope kernel items below are owned by
+`TASK-0290`, and STATUS-BOARD already carried this task as Done — this flip removes the
+board-vs-ledger drift.
 
 ## Goal
 
