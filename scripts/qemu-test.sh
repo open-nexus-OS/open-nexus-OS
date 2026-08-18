@@ -478,6 +478,7 @@ expected_sequence=(
   "abi-profile: ready (server=policyd|abi-filterd)"
   "samgrd: ready"
   "bundlemgrd: ready"
+  "statefsd: journal v2 mounted (2PC)"
   "statefsd: ready"
   "statefsd: write hardening on (auth-envelope)"
   "updated: ready (statefs)"
@@ -522,6 +523,14 @@ expected_sequence=(
   "SELFTEST: statefs auth put ok"
   "SELFTEST: statefs tamper deny ok"
   "SELFTEST: statefs rollback deny ok"
+  # TASK-0026 journal v2: 2PC crash-atomicity + bounded compaction (the
+  # compaction-done line is reopen-verified by statefsd before it is emitted).
+  # The cold-boot verdict is boot-dependent (seeded on a fresh image, persist
+  # ok only on a preserved-image second boot) and is gated by the TASK-0026
+  # fake-green guard below, not by this sequence.
+  "SELFTEST: statefs v2 crash-atomic ok"
+  "statefsd: compaction done (gen="
+  "SELFTEST: statefs v2 compact ok"
   "SELFTEST: device key persist ok"
   "SELFTEST: net tcp listen ok"
   "netstackd: facade up"
@@ -680,6 +689,7 @@ case "${PROFILE:-full}" in
       "policyd: ready"
       "samgrd: ready"
       "bundlemgrd: ready"
+      "statefsd: journal v2 mounted (2PC)"
       "statefsd: ready"
       "updated: ready (statefs)"
       "packagefsd: ready"
@@ -1465,6 +1475,54 @@ if grep -aFq "statefsd: write hardening on (auth-envelope)" "$UART_LOG"; then
       echo "[error] first_failed_phase=bringup missing_marker='${m% FAIL} ok'" >&2
       echo "[error] statefs hardening selftest emitted failure marker: $m" >&2
       print_uart_excerpt "statefsd: write hardening on (auth-envelope)" "SELFTEST: statefs persist ok"
+      exit 1
+    fi
+  done
+fi
+# TASK-0026 fake-green guard: once statefsd reports journal v2 mounted, the
+# 2PC/compaction selftests must complete ok and one honest cold-boot verdict
+# must appear ("seeded" on a fresh image; "persist ok" only ever on a second
+# boot against a preserved image). FAIL variants and a failed compaction
+# reopen-verify are fatal (the proof-manifest phase walker counts FAIL
+# variants as "marker seen", so enforce the ok/FAIL split here).
+if grep -aFq "statefsd: journal v2 mounted (2PC)" "$UART_LOG"; then
+  for m in \
+    "SELFTEST: statefs v2 crash-atomic ok" \
+    "statefsd: compaction done (gen=" \
+    "SELFTEST: statefs v2 compact ok"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
+      echo "[error] statefs journal v2 active but selftest marker missing: $m" >&2
+      print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs rollback deny ok"
+      exit 1
+    fi
+  done
+  if ! grep -aFq "SELFTEST: statefs cold-boot persist ok" "$UART_LOG" \
+     && ! grep -aFq "SELFTEST: statefs cold-boot seeded" "$UART_LOG"; then
+    echo "[error] first_failed_phase=bringup missing_marker='SELFTEST: statefs cold-boot persist ok'" >&2
+    echo "[error] statefs journal v2 active but no cold-boot verdict (seeded|persist ok) appeared" >&2
+    print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs v2 compact ok"
+    exit 1
+  fi
+  # Cold-boot lane (REQUIRE_STATEFS_COLD_BOOT=1, run with NEXUS_KEEP_BLK=1
+  # against an image a prior boot seeded): the sentinel must be PRESENT —
+  # "seeded" on this lane means persistence silently failed.
+  if [[ "${REQUIRE_STATEFS_COLD_BOOT:-0}" == "1" ]] \
+     && ! grep -aFq "SELFTEST: statefs cold-boot persist ok" "$UART_LOG"; then
+    echo "[error] first_failed_phase=bringup missing_marker='SELFTEST: statefs cold-boot persist ok'" >&2
+    echo "[error] cold-boot lane: preserved-image boot did not replay the sentinel" >&2
+    print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs v2 compact ok"
+    exit 1
+  fi
+  for m in \
+    "SELFTEST: statefs v2 crash-atomic FAIL" \
+    "SELFTEST: statefs v2 compact FAIL" \
+    "SELFTEST: statefs cold-boot persist FAIL" \
+    "statefsd: compaction verify failed"; do
+    if grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
+      echo "[error] statefs journal v2 selftest emitted failure signature: $m" >&2
+      print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs v2 compact ok"
       exit 1
     fi
   done

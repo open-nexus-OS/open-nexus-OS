@@ -448,3 +448,68 @@ fn test_reject_txn_buffer_cap_replay_poisons() {
     assert_eq!(engine.get("/state/test/after").expect("get"), b"applies");
     assert_eq!(engine.get("/state/test/keep").expect("get"), b"stable content");
 }
+
+/// Wraps a device and, once armed, corrupts every read of one target block
+/// — models a device that acked writes but persisted garbage, exactly what
+/// the post-compaction readback verify exists to catch (no-fake-green).
+struct TamperDevice {
+    inner: MemBlockDevice,
+    tamper_block: std::rc::Rc<core::cell::Cell<Option<u64>>>,
+}
+
+impl BlockDevice for TamperDevice {
+    fn block_size(&self) -> usize {
+        self.inner.block_size()
+    }
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+    fn read_block(&self, block_idx: u64, buf: &mut [u8]) -> Result<(), BlockError> {
+        self.inner.read_block(block_idx, buf)?;
+        if self.tamper_block.get() == Some(block_idx) {
+            buf[0] ^= 0xFF;
+        }
+        Ok(())
+    }
+    fn write_block(&mut self, block_idx: u64, buf: &[u8]) -> Result<(), BlockError> {
+        self.inner.write_block(block_idx, buf)
+    }
+    fn sync(&mut self) -> Result<(), BlockError> {
+        self.inner.sync()
+    }
+}
+
+#[test]
+fn test_reject_compaction_verify_detects_tampered_readback() {
+    let tamper = std::rc::Rc::new(core::cell::Cell::new(None));
+    let device = TamperDevice {
+        inner: MemBlockDevice::new(BLOCK_SIZE, BLOCKS),
+        tamper_block: tamper.clone(),
+    };
+    let mut engine = JournalEngine::open(device).expect("open");
+    engine.set_compaction_config(CompactionConfig {
+        min_journal_bytes: 1024,
+        ratio: 2,
+        max_entries_per_cycle: 128,
+    });
+    for round in 0..50u8 {
+        engine.put("/state/test/churn", &[round; 64]).expect("churn put");
+    }
+    let stats = engine.maybe_compact().expect("compact").expect("cycle ran");
+    // Clean readback: the cycle verifies.
+    assert!(engine.verify_last_compaction(&stats));
+    // Wrong stats must never verify (generation or entry-count drift).
+    let mut wrong = stats;
+    wrong.entries += 1;
+    assert!(!engine.verify_last_compaction(&wrong));
+    // Tampered snapshot readback (first block of the fresh region, i.e.
+    // region B after the first compaction on a 64-block device): the done
+    // marker must be withheld.
+    tamper.set(Some(BLOCKS / 2));
+    assert!(!engine.verify_last_compaction(&stats));
+    // And a tampered superblock readback fails as well.
+    tamper.set(Some(0));
+    assert!(!engine.verify_last_compaction(&stats));
+    tamper.set(None);
+    assert!(engine.verify_last_compaction(&stats));
+}

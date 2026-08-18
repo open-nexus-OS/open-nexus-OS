@@ -125,10 +125,15 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         // TASK-0025 write hardening: derive the envelope MAC key through
         // keystored's sign oracle, then prove verify-on-put (accept),
         // tamper denial (status 9) and rollback denial (status 10).
-        // A time-based base seq keeps re-runs against a persisted journal
-        // monotonic (nsec is per-boot; blk.img is wiped per test boot).
+        // Base seq: boot time, lifted above the stored envelope's seq —
+        // nsec restarts per boot, but under NEXUS_KEEP_BLK=1 the journal
+        // (and statefsd's replay-fed anti-rollback tracker) survives, so a
+        // purely time-based seq would trip rollback denial on boot 2.
         if let Some(env_key) = services::statefs_hardening::derive_envelope_key() {
-            let base_seq = nexus_abi::nsec().unwrap_or(0).max(1);
+            let base_seq = services::statefs_hardening::next_base_seq(
+                &statefsd,
+                nexus_abi::nsec().unwrap_or(0).max(1),
+            );
             if services::statefs_hardening::statefs_auth_put(&statefsd, &env_key, base_seq).is_ok()
             {
                 emit_line(crate::markers::M_SELFTEST_STATEFS_AUTH_PUT_OK);
@@ -155,9 +160,10 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             emit_line(crate::markers::M_SELFTEST_STATEFS_ROLLBACK_DENY_FAIL);
         }
         // TASK-0026 journal v2: crash-atomic 2PC over the txn wire ops,
-        // bounded compaction under real churn (compaction-done line
-        // cross-checked via logd), then the keep-blk cold-boot sentinel
-        // (ok only ever on a second boot against a preserved image).
+        // bounded compaction under real churn (cycle-ran proof is the
+        // harness-gated `statefsd: compaction done` marker), then the
+        // keep-blk cold-boot sentinel (ok only ever on a second boot
+        // against a preserved image).
         if services::statefs_v2::statefs_txn_crash_atomic(&statefsd).is_ok() {
             emit_line(crate::markers::M_SELFTEST_STATEFS_V2_CRASH_ATOMIC_OK);
         } else {

@@ -118,11 +118,15 @@ pub enum CompactionTick {
 /// Threshold-driven compaction between served requests.
 ///
 /// Honesty note (verified against `statefs::compact`): the engine's
-/// `compact_now` snapshots and flips the superblock but does NOT re-replay
+/// `compact_now` snapshots and flips the superblock but does NOT re-verify
 /// the rotated journal itself. The `statefsd: compaction done` marker
-/// therefore requires this tick to re-open the engine (full replay of the
-/// live region) and check generation + live-entry count against the cycle
-/// stats before the caller may emit.
+/// therefore requires this tick to run `verify_last_compaction` — a bounded
+/// device readback of the superblock + fresh snapshot checked byte-for-byte
+/// against what the cycle serialized — before the caller may emit. A full
+/// `engine.reopen()` here would prove the same thing but materializes a
+/// second engine state every cycle; under the os-lite bump allocator (never
+/// frees) that exhausted statefsd's heap after a handful of ambient cycles
+/// (QEMU: alloc-fail at gen=7, 384 KiB heap).
 pub fn compaction_tick<B: BlockDevice>(engine: &mut JournalEngine<B>) -> CompactionTick {
     if engine.open_txns() != 0 {
         return CompactionTick::Idle;
@@ -132,10 +136,9 @@ pub fn compaction_tick<B: BlockDevice>(engine: &mut JournalEngine<B>) -> Compact
         Ok(Some(stats)) => stats,
         Err(_) => return CompactionTick::VerifyFailed,
     };
-    match engine.reopen() {
-        Ok(()) if engine.generation() == stats.generation && engine.len() == stats.entries => {
-            CompactionTick::Done(stats)
-        }
-        _ => CompactionTick::VerifyFailed,
+    if engine.verify_last_compaction(&stats) {
+        CompactionTick::Done(stats)
+    } else {
+        CompactionTick::VerifyFailed
     }
 }

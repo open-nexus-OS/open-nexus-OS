@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-18 (statefs journal v2: statefsd 2PC wire ops + QEMU closure)
+
+- **statefsd journal v2 service closure (TASK-0026, step 4 + ladder)**: txn wire
+  ops `TXN_BEGIN/PUT/COMMIT/ABORT` (opcodes 7–10, appended status
+  `TXN_LIMIT = 11`) with the same per-key capability table and TASK-0025
+  envelope verify-at-`TXN_PUT` as the plain put path; between-requests
+  compaction tick with a no-fake-green verify. QEMU proof (headless +
+  keep-blk double boot): `statefsd: journal v2 mounted (2PC)`,
+  `SELFTEST: statefs v2 crash-atomic ok`, `statefsd: compaction done (gen=`,
+  `SELFTEST: statefs v2 compact ok`, `SELFTEST: statefs cold-boot seeded` /
+  `persist ok`; markers + ok/FAIL fake-green guards registered in
+  `scripts/qemu-test.sh` (cold-boot strictness via
+  `REQUIRE_STATEFS_COLD_BOOT=1` on the preserved-image second boot).
+- **statefs engine: bump-allocator-proof hot paths (found by the first QEMU
+  round, real bug)**: the compaction tick's original reopen-verify replayed a
+  full second engine state per cycle and — os-lite services never free —
+  exhausted statefsd's 384 KiB heap at generation 7. Replaced by
+  `verify_last_compaction`: bounded device readback (superblock + checkpoint +
+  snapshot byte-compare against the cycle's serialized state, O(one block)
+  memory), proven tamper-detecting by a new `TamperDevice` negative test.
+  Append/put paths now reuse persistent scratches (record encoding via new
+  `statefs::record::encode_record_into`, block RMW buffer, value-capacity
+  reuse on overwrites) — steady-state overwrite churn allocates nothing per
+  put (QEMU heap watermark 50% after 20 compaction generations, previously
+  alloc-fail).
+
+### Added - 2026-08-15 (fsck-statefs: offline journal validate/repair)
+
+- **fsck-statefs host tool (TASK-0026, step 3)**: offline validation/repair of
+  statefs journal images, mirroring the nxfs fsck split — no_std-compatible
+  core `statefs::fsck` (`userspace/statefs/src/fsck.rs`) + thin CLI
+  `tools/fsck-statefs` (`fsck-statefs [--repair] [--dry-run] <image>`).
+  Validates v1 and v2 layouts (superblock sanity, checkpoint↔superblock
+  gen/entries consistency, framing/CRC, txn completeness, zeroed-tail
+  discipline) and detects orphaned transactions (PREPARE/PAYLOAD without
+  COMMIT/ABORT). Stable exit codes: 0 clean / 1 orphans found-or-repaired /
+  2 unrecoverable (byte offset + stable reason). Repair is append-only (one
+  `TXN_ABORT` per orphan, committed data never rewritten) and counts only
+  after the repaired journal re-validates clean; `--dry-run` prints the plan
+  without writing. Covered by a 16-test outcome matrix
+  (`userspace/statefs/tests/fsck.rs`) + 9 CLI-contract tests.
+
 ### Added - 2026-08-15 (statefs journal v2: 2PC + bounded compaction, engine)
 
 - **statefs journal v2 engine (TASK-0026, steps 1–2, host-first)**: transactional

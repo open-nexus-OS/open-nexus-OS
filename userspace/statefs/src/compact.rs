@@ -18,7 +18,8 @@ use alloc::vec;
 
 use storage::BlockDevice;
 
-use crate::journal_v2::{encode_checkpoint, encode_record, JournalOpCode};
+use crate::journal_v2::JournalOpCode;
+use crate::record::encode_record_into;
 use crate::{JournalEngine, StatefsError, RECORD_HEADER_SIZE};
 
 // ============================================================================
@@ -221,11 +222,23 @@ impl<B: BlockDevice> JournalEngine<B> {
         let new_gen = self.generation.saturating_add(1);
 
         // Serialize the snapshot: checkpoint boundary, then live Puts in
-        // deterministic (BTreeMap) key order — plain v1 records.
-        let mut snapshot = encode_checkpoint(new_gen, entries as u32);
+        // deterministic (BTreeMap) key order — plain v1 records. The buffer
+        // is the engine's persistent scratch: its capacity survives across
+        // cycles, keeping per-cycle heap growth bounded under the os-lite
+        // bump allocator (which never frees). It also stays valid after the
+        // flip so `verify_last_compaction` can check the device readback
+        // against exactly what this cycle intended to write.
+        let mut snapshot = core::mem::take(&mut self.compact_scratch);
+        snapshot.clear();
+        let mut ckpt_value = [0u8; 8];
+        ckpt_value[..4].copy_from_slice(&new_gen.to_le_bytes());
+        ckpt_value[4..].copy_from_slice(&(entries as u32).to_le_bytes());
+        encode_record_into(&mut snapshot, JournalOpCode::Checkpoint, "", &ckpt_value);
         for (key, value) in &self.kv {
-            snapshot.extend_from_slice(&encode_record(JournalOpCode::Put, key, value));
+            encode_record_into(&mut snapshot, JournalOpCode::Put, key, value);
         }
+        self.compact_scratch = snapshot;
+        let snapshot = &self.compact_scratch;
         let snap_blocks = snapshot.len().div_ceil(block_size) as u64;
         // +1: the block after the snapshot is zeroed (tail terminator) so
         // stale records from an older generation can never be replayed.
@@ -234,7 +247,12 @@ impl<B: BlockDevice> JournalEngine<B> {
         }
 
         // Phase 1: snapshot into the inactive region (old journal intact).
-        let mut buf = vec![0u8; block_size];
+        // One-block scratch, persistent for the same bump-allocator reason
+        // as the snapshot buffer (an error `?` below drops it — the next
+        // cycle re-allocates once; the happy path always restores it).
+        let mut buf = core::mem::take(&mut self.block_scratch);
+        buf.clear();
+        buf.resize(block_size, 0);
         for i in 0..snap_blocks as usize {
             let start = i * block_size;
             let end = core::cmp::min(start + block_size, snapshot.len());
@@ -259,17 +277,91 @@ impl<B: BlockDevice> JournalEngine<B> {
         self.device.sync().map_err(|_| StatefsError::IoError)?;
 
         // Adopt the new region as the live journal.
+        let snapshot_len = snapshot.len();
+        self.block_scratch = buf;
         self.region_first_block = target_first;
         self.region_block_count = region_blocks;
         self.generation = new_gen;
-        self.write_pos = snapshot.len();
+        self.write_pos = snapshot_len;
         self.record_count = entries + 1;
         Ok(CompactionStats {
             generation: new_gen,
             entries,
-            bytes_written: snapshot.len(),
+            bytes_written: snapshot_len,
             blocks_written: snap_blocks as usize + 2,
         })
+    }
+
+    /// Bounded post-cycle verification for the service marker honesty rule
+    /// (`statefsd: compaction done` is only emitted after this returns
+    /// `true`). Re-reads the superblock and the freshly written snapshot
+    /// from the device and checks them byte-for-byte against this cycle's
+    /// serialized snapshot (still held in the persistent scratch), the
+    /// checkpoint boundary, and the zeroed tail terminator.
+    ///
+    /// Byte-equality with the serialization of the live map, plus replay
+    /// determinism, proves exactly what a full `reopen()` would prove —
+    /// WITHOUT materializing a second engine state. That matters under the
+    /// os-lite bump allocator (never frees): a reopen-per-cycle duplicates
+    /// the whole store every compaction and exhausts the service heap
+    /// (observed in QEMU at gen=7 with a 384 KiB heap).
+    pub fn verify_last_compaction(&mut self, stats: &CompactionStats) -> bool {
+        let block_size = self.device.block_size();
+        if block_size < SUPERBLOCK_LEN
+            || self.compact_scratch.len() != stats.bytes_written
+            || self.generation != stats.generation
+        {
+            return false;
+        }
+        let Some((_, a_first, _)) = region_geometry(self.device.block_count()) else {
+            return false;
+        };
+        let expected_active: u8 = if self.region_first_block == a_first { 0 } else { 1 };
+
+        // Checkpoint boundary: the snapshot must open with
+        // `CHECKPOINT{gen, entries}` (cheap: one tiny record parse).
+        match crate::journal_v2::parse_record(&self.compact_scratch) {
+            Ok(Some((record, _)))
+                if record.op == JournalOpCode::Checkpoint
+                    && record.key.is_empty()
+                    && record.value.len() == 8
+                    && record.value[..4] == stats.generation.to_le_bytes()
+                    && record.value[4..8] == (stats.entries as u32).to_le_bytes() => {}
+            _ => return false,
+        }
+
+        let mut buf = core::mem::take(&mut self.block_scratch);
+        buf.clear();
+        buf.resize(block_size, 0);
+
+        // Superblock: must select this region, generation, and entry count.
+        let mut ok = self.device.read_block(0, &mut buf).is_ok()
+            && parse_superblock(&buf)
+                == Some((expected_active, stats.generation, stats.entries as u32));
+
+        // Snapshot bytes, zero padding, and the zeroed terminator block.
+        if ok {
+            let snap_blocks = stats.bytes_written.div_ceil(block_size) as u64;
+            for i in 0..=snap_blocks {
+                if self.device.read_block(self.region_first_block + i, &mut buf).is_err() {
+                    ok = false;
+                    break;
+                }
+                let start = (i as usize).saturating_mul(block_size);
+                let end = core::cmp::min(start + block_size, stats.bytes_written);
+                if start < end && buf[..end - start] != self.compact_scratch[start..end] {
+                    ok = false;
+                    break;
+                }
+                let pad_from = end.saturating_sub(start);
+                if buf[pad_from..].iter().any(|&b| b != 0) {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        self.block_scratch = buf;
+        ok
     }
 
     /// Replace the compaction thresholds/bounds.

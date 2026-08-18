@@ -411,7 +411,7 @@ proves = "TASK-0026: the journal opened with v2 semantics active (committed-only
 
 [marker."statefsd: compaction done (gen="]
 phase = "bringup"
-proves = "TASK-0026: one bounded compaction cycle completed AND the rotated journal re-replayed clean (statefsd reopen-verifies generation + live-entry count against the cycle stats before emitting; also audited to logd for the selftest cross-check)"
+proves = "TASK-0026: one bounded compaction cycle completed AND the device readback verified clean (superblock + checkpoint + snapshot byte-compare against the cycle's serialized state; bounded memory — no reopen, the bump allocator never frees; also audited to logd for the selftest cross-check)"
 
 [marker."statefsd: compaction verify failed"]
 phase = "bringup"
@@ -887,7 +887,7 @@ phase = "bringup"
 
 [marker."SELFTEST: statefs v2 compact ok"]
 phase = "bringup"
-proves = "TASK-0026: bounded overwrite churn crossed statefsd's default compaction threshold, the service's reopen-verified 'compaction done' line was cross-checked via logd, and every churn key carried its last-written value after Reopen"
+proves = "TASK-0026: bounded overwrite churn crossed statefsd's default compaction threshold and every churn key carried its last-written value after Reopen (post-compaction replay). That a cycle really ran is gated harness-side: 'statefsd: compaction done (gen=' is a required marker + fake-green guard in qemu-test.sh, emitted only after the service's bounded readback verify"
 
 [marker."SELFTEST: statefs v2 compact FAIL"]
 phase = "bringup"

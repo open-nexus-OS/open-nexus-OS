@@ -150,7 +150,7 @@ fn test_reject_txn_put_cap_table_matches_put_path() {
 }
 
 #[test]
-fn test_compaction_tick_threshold_stats_and_reopen_verify() {
+fn test_compaction_tick_threshold_stats_and_readback_verify() {
     let mut engine = engine();
     engine.set_compaction_config(CompactionConfig {
         min_journal_bytes: 1024,
@@ -170,11 +170,15 @@ fn test_compaction_tick_threshold_stats_and_reopen_verify() {
     };
     assert_eq!(stats.generation, 1);
     assert_eq!(stats.entries, 1);
-    // The tick already reopened (rotated journal re-replayed clean): the
-    // engine now reports the new generation and intact state.
+    // The tick verified the cycle via bounded device readback — NOT via a
+    // reopen (a reopen per cycle materializes a second engine state, which
+    // the os-lite bump allocator never frees): the engine reports the new
+    // generation and intact state without a re-replay.
     assert_eq!(engine.generation(), 1);
     assert_eq!(engine.get(KEY_A).expect("a"), [49u8; 64]);
-    // Incremental replay: the reopen scanned only the snapshot (+ nothing).
+    // Incremental replay stays provable via an explicit reopen: it scans
+    // only the snapshot (+ nothing appended since).
+    engine.reopen().expect("reopen");
     assert_eq!(engine.replayed_records(), stats.entries + 1);
     // Immediately after a cycle: idle again (below min_journal_bytes).
     assert_eq!(txn::compaction_tick(&mut engine), CompactionTick::Idle);

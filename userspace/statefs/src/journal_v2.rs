@@ -92,22 +92,9 @@ pub(crate) struct JournalRecord {
     pub(crate) value: Vec<u8>,
 }
 
-/// Serialize one record on the v1 framing:
-/// `NXSF | op | keylen u16 | vallen u32 | key | value | crc32c`.
-pub fn encode_record(op: JournalOpCode, key: &str, value: &[u8]) -> Vec<u8> {
-    let key_bytes = key.as_bytes();
-    let total_len = RECORD_HEADER_SIZE + key_bytes.len() + value.len();
-    let mut buf = Vec::with_capacity(total_len);
-    buf.extend_from_slice(&crate::JOURNAL_MAGIC.to_le_bytes());
-    buf.push(op as u8);
-    buf.extend_from_slice(&(key_bytes.len() as u16).to_le_bytes());
-    buf.extend_from_slice(&(value.len() as u32).to_le_bytes());
-    buf.extend_from_slice(key_bytes);
-    buf.extend_from_slice(value);
-    let crc = crate::crc32c(&buf);
-    buf.extend_from_slice(&crc.to_le_bytes());
-    buf
-}
+/// Record serialization lives in `crate::record` (append-in-place encoder
+/// for bump-allocator hot paths); re-exported here for the existing users.
+pub use crate::record::{encode_record, encode_record_into};
 
 /// Encode `TXN_PREPARE{txn_id}`.
 pub fn encode_prepare(txn_id: u64) -> Vec<u8> {

@@ -59,9 +59,21 @@ Magic "NXSF" (4) | OpCode (1) | KeyLen (u16) | ValueLen (u32) | Key | Value | CR
 
 ## Durability honesty
 
-The launcher recreates `build/blk.img` on every boot, so all current "persist ok" markers prove
-**soft-reboot replay** (Reopen within one VM run), not cold-boot durability. Cold-boot proofs
-arrive with `NEXUS_KEEP_BLK=1` (ADR-0044, wired in TASK-0293; used by TASK-0026).
+The launcher recreates `build/blk.img` on every boot, so plain "persist ok" markers prove
+**soft-reboot replay** (Reopen within one VM run), not cold-boot durability. The real
+cold-boot proof (TASK-0026) is a double boot against a preserved image:
+
+```bash
+just test-os                                          # boot 1 (fresh image): seeds the
+                                                      #   sentinel → `SELFTEST: statefs cold-boot seeded`
+NEXUS_KEEP_BLK=1 REQUIRE_STATEFS_COLD_BOOT=1 just test-os   # boot 2 (preserved image):
+                                                      #   `SELFTEST: statefs cold-boot persist ok` REQUIRED
+```
+
+`NEXUS_KEEP_BLK=1` (ADR-0044, wired in TASK-0293) keeps `blk.img`/`data.img` across runs;
+`REQUIRE_STATEFS_COLD_BOOT=1` makes the harness treat a `seeded` verdict on the second boot
+as the failure it is (persistence silently broken). Without the flag, either verdict passes
+the guard — the ok marker only ever appears on a boot that replayed a preserved image.
 
 ## Limits of v1 (= the hardening roadmap)
 
@@ -207,10 +219,15 @@ high-water mark never rolls back — fail-closed).
 
 **Compaction trigger (statefsd):** after each served request, when `open_txns() == 0`, the
 service runs `maybe_compact`. `statefsd: compaction done (gen=<n>, entries=<m>)` is emitted
-(UART + logd audit) only after the rotated journal re-replayed clean — the engine's flip does
-not re-replay by itself, so the service re-opens the engine and checks generation + live-entry
-count against the cycle stats first; a mismatch emits `statefsd: compaction verify failed`
-and withholds the marker. Mount marker: `statefsd: journal v2 mounted (2PC)` once, directly
+(UART + logd audit) only after `verify_last_compaction` came back clean — a bounded device
+readback that checks the superblock (region/generation/entry count), the checkpoint boundary,
+and the fresh snapshot byte-for-byte against what the cycle serialized (held in a persistent
+scratch whose capacity is reused across cycles). A failure emits
+`statefsd: compaction verify failed` and withholds the marker. The verify deliberately does
+NOT re-open the engine: a reopen per cycle materializes a second engine state, and the
+os-lite bump allocator never frees — in QEMU that exhausted statefsd's 384 KiB heap at
+generation 7 (alloc-fail → service wedged). Byte-equality with the serialized live map plus
+deterministic replay proves the same statement with O(one block) memory. Mount marker: `statefsd: journal v2 mounted (2PC)` once, directly
 after the journal open() succeeded. The in-VM compaction proof uses the DEFAULT thresholds
 (8 KiB / 2×): the selftest's bounded overwrite churn under `/state/app/selftest/compact/`
 crosses them deterministically — no test-only threshold exists.

@@ -93,6 +93,26 @@ fn put_sealed(statefsd: &KernelClient, value: &[u8]) -> Option<u8> {
     statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp).ok()
 }
 
+/// Keep-blk-correct base seq for the hardening probes. statefsd's
+/// anti-rollback tracker is fed from the REPLAYED journal, so on a
+/// preserved image (`NEXUS_KEEP_BLK=1` second boot) the stored envelope's
+/// seq survives across boots while `nsec` restarts near zero — a purely
+/// boot-time base seq then trips `STATUS_ROLLBACK_DETECTED` on the very
+/// first put. Start ABOVE the stored seq instead: the same
+/// `max(stored, last) + 1` discipline as `statefs::writer`'s SeqCache.
+pub(crate) fn next_base_seq(statefsd: &KernelClient, boot_time_seq: u64) -> u64 {
+    let stored_seq = (|| -> Option<u64> {
+        let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, AUTH_KEY).ok()?;
+        let rsp = statefs_send_recv(statefsd, &get).ok()?;
+        let bytes = statefs_proto::decode_get_response(&rsp).ok()?;
+        Some(envelope::decode(&bytes).ok()?.seq)
+    })();
+    match stored_seq {
+        Some(seq) => boot_time_seq.max(seq.saturating_add(1)),
+        None => boot_time_seq,
+    }
+}
+
 /// Positive round-trip: authenticated put accepted, get returns the sealed
 /// bytes, MAC verifies client-side and the payload matches.
 pub(crate) fn statefs_auth_put(

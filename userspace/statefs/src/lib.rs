@@ -117,6 +117,7 @@ pub mod derive;
 pub mod envelope;
 pub mod fsck;
 pub mod journal_v2;
+pub mod record;
 pub mod writer;
 
 pub use compact::{CompactionConfig, CompactionStats};
@@ -176,6 +177,15 @@ pub struct JournalEngine<B: BlockDevice> {
     txns: TxnTable,
     /// Compaction thresholds and per-cycle work bounds
     compaction: CompactionConfig,
+    /// Persistent snapshot serialization buffer (capacity reused across
+    /// compaction cycles — the os-lite bump allocator never frees, so
+    /// per-cycle buffers must not be reallocated; see compact.rs)
+    pub(crate) compact_scratch: Vec<u8>,
+    /// Persistent one-block scratch: append RMW, compaction writes, and
+    /// the readback verify all reuse it (never a fresh Vec per append)
+    pub(crate) block_scratch: Vec<u8>,
+    /// Persistent record-encoding scratch for `append_record`
+    record_scratch: Vec<u8>,
 }
 
 impl<B: BlockDevice> JournalEngine<B> {
@@ -194,6 +204,9 @@ impl<B: BlockDevice> JournalEngine<B> {
             next_txn: 1,
             txns: TxnTable::new(),
             compaction: CompactionConfig::default(),
+            compact_scratch: Vec::new(),
+            block_scratch: Vec::new(),
+            record_scratch: Vec::new(),
         };
         engine.detect_layout()?;
         engine.replay()?;
@@ -339,8 +352,14 @@ impl<B: BlockDevice> JournalEngine<B> {
             return Err(StatefsError::IoError);
         }
 
-        // Read-modify-write for blocks that span the write
-        let mut buf = vec![0u8; block_size];
+        // Read-modify-write for blocks that span the write. The one-block
+        // buffer is the engine's persistent scratch — appends are the
+        // hottest path, and the os-lite bump allocator never frees, so a
+        // fresh Vec per append leaks the heap dry (an error `?` below
+        // drops it; the next append re-allocates once).
+        let mut buf = core::mem::take(&mut self.block_scratch);
+        buf.clear();
+        buf.resize(block_size, 0);
         let mut record_offset = 0;
 
         for block_idx in start_block..end_block {
@@ -381,18 +400,24 @@ impl<B: BlockDevice> JournalEngine<B> {
 
         self.write_pos = end_byte;
         self.record_count += 1;
+        self.block_scratch = buf;
         Ok(())
     }
 
-    /// Serialize and append one record.
+    /// Serialize and append one record (persistent encoding scratch — no
+    /// per-record allocation on the hot path).
     fn append_record(
         &mut self,
         op: JournalOpCode,
         key: &str,
         value: &[u8],
     ) -> Result<(), StatefsError> {
-        let record_bytes = journal_v2::encode_record(op, key, value);
-        self.append_bytes(&record_bytes)
+        let mut record_bytes = core::mem::take(&mut self.record_scratch);
+        record_bytes.clear();
+        record::encode_record_into(&mut record_bytes, op, key, value);
+        let result = self.append_bytes(&record_bytes);
+        self.record_scratch = record_bytes;
+        result
     }
 
     /// Put a key-value pair.
@@ -405,8 +430,15 @@ impl<B: BlockDevice> JournalEngine<B> {
         // Append to journal
         self.append_record(JournalOpCode::Put, key, value)?;
 
-        // Update in-memory state
-        self.kv.insert(key.into(), value.to_vec());
+        // Update in-memory state. Overwrites reuse the existing value
+        // buffer's capacity (steady-state overwrite churn — the common
+        // service pattern — then allocates nothing per put).
+        if let Some(slot) = self.kv.get_mut(key) {
+            slot.clear();
+            slot.extend_from_slice(value);
+        } else {
+            self.kv.insert(String::from(key), value.to_vec());
+        }
         Ok(())
     }
 
