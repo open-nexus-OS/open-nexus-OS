@@ -571,8 +571,22 @@ expected_sequence=(
   "SELFTEST: policyd requester spoof denied ok"
   "SELFTEST: policy malformed ok"
   "SELFTEST: ipc routing execd ok"
+  "child: hello-elf"
   "execd: elf load ok"
   "SELFTEST: e2e exec-elf ok"
+  "child: exit0 start"
+  "execd: child exited"
+  "SELFTEST: child exit ok"
+  "child: minidump start"
+  "execd: crash report pid="
+  "execd: minidump written"
+  "SELFTEST: crash report ok"
+  "SELFTEST: minidump ok"
+  "SELFTEST: minidump forged metadata rejected"
+  "SELFTEST: minidump no-artifact metadata rejected"
+  "SELFTEST: minidump mismatched build_id rejected"
+  "SELFTEST: exec denied ok"
+  "SELFTEST: execd malformed ok"
   "logd: reject invalid_args"
   "logd: reject over_limit"
   "logd: reject rate_limited"
@@ -635,7 +649,9 @@ case "${PROFILE:-full}" in
     ;;
   headless|smp1|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain)
     # Use a reduced expected sequence for headless — omits display-gated
-    # child lifecycle, minidump, metrics, VFS, sandbox, and windowd markers.
+    # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
+    # minidump chain is NOT display-gated: it is appended for headless/smp1
+    # below — TASK-0049 reanimation.)
     # `smp1` (deterministic 1 hart + icount) shares this ladder: it is the
     # headless service chain on one hart, so the `tlb shootdown skipped
     # (smp=1)` line below is its explicit "no secondary hart" proof.
@@ -752,6 +768,34 @@ case "${PROFILE:-full}" in
       "SELFTEST: ipc routing execd ok"
       "execd: elf load ok"
       "SELFTEST: e2e exec-elf ok"
+    )
+    ;;
+esac
+
+# TASK-0049 reanimation (2026-08-19): the exec/exit0/crash/minidump chain is
+# hard-gated again on the profiles that run the full service ladder. The
+# retirement-era masking was exactly this hole: the headless arm never listed
+# the chain, so "children load but don't execute" stayed green. Only appended
+# for headless/smp1 (network/display profiles may stop before the exec phase);
+# the `full` profile carries the same gates in the base list above. Order is
+# free — the strict-order loop only checks init:/KSELFTEST: markers.
+case "${PROFILE:-full}" in
+  headless|smp1)
+    expected_sequence+=(
+      "child: hello-elf"
+      "child: exit0 start"
+      "execd: child exited"
+      "SELFTEST: child exit ok"
+      "child: minidump start"
+      "execd: crash report pid="
+      "execd: minidump written"
+      "SELFTEST: crash report ok"
+      "SELFTEST: minidump ok"
+      "SELFTEST: minidump forged metadata rejected"
+      "SELFTEST: minidump no-artifact metadata rejected"
+      "SELFTEST: minidump mismatched build_id rejected"
+      "SELFTEST: exec denied ok"
+      "SELFTEST: execd malformed ok"
     )
     ;;
 esac

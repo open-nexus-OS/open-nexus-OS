@@ -10,6 +10,7 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: nexus-init host tests + QEMU boot ladder.
 
+use crate::bootstrap::diag::iw;
 use crate::bootstrap::endpoints::Endpoints;
 use crate::bootstrap::helpers::debug_write_bytes;
 use crate::bootstrap::CtrlChannel;
@@ -388,5 +389,90 @@ pub(crate) fn provision_selftest_imed_osk(
             debug_write_bytes(b"init: selftest route->imed-osk ok\n");
         }
         Err(_) => debug_write_bytes(b"init: selftest route->imed-osk FAIL (xfer)\n"),
+    }
+}
+
+/// The execd NAMED routes (TASK-0080C / RFC-0076 / RFC-0073 / TASK-0049):
+/// settingsd, timed, imed-osk, vfsd, statefsd. Split out of the wiring execd
+/// arm (module-size ratchet); bodies + iw-gated prints are verbatim. NAMED
+/// routes are non-positional — their slot numbers travel in the route
+/// response — so this must stay AFTER the positional probe/windowd/bundle
+/// blocks in the execd arm.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn provision_execd_named_routes(
+    pid: u32,
+    eps: &Endpoints,
+    timed_req: u32,
+    reply_recv_slot: u32,
+    chan: &mut CtrlChannel,
+    init_wire: &mut nexus_event::SpanTally,
+    init_fold: bool,
+) {
+    // svc.settings.* (DSL settings app / Control Center): CLONE —
+    // the pre-minted settingsd request endpoint also serves the
+    // windowd arm. Named route (non-positional, behind the probe
+    // block like the others).
+    if let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) {
+        if let Ok(clone) = nexus_abi::cap_clone(settings_req) {
+            if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
+                chan.set_send(ServiceId::Settingsd, s);
+                chan.set_recv(ServiceId::Settingsd, reply_recv_slot);
+                if iw(init_wire, init_fold, "init:execd") {
+                    debug_write_bytes(b"init: execd route->settingsd ok\n");
+                }
+            }
+        }
+    }
+    // svc.time.* / clock tick (RFC-0076): direct transfer of the
+    // pre-minted timed request endpoint (non-consuming). Named
+    // route; replies ride the child's CAP_MOVE inbox (timed is
+    // ReplyCap-aware).
+    if let Ok(s) = nexus_abi::cap_transfer(pid, timed_req, Rights::SEND) {
+        chan.set_send(ServiceId::Timed, s);
+        chan.set_recv(ServiceId::Timed, reply_recv_slot);
+        if iw(init_wire, init_fold, "init:execd") {
+            debug_write_bytes(b"init: execd route->timed ok\n");
+        }
+    }
+    provision_execd_imed_osk(pid, eps.imed_osk_execd, reply_recv_slot, chan);
+    // svc.files.* (filemanager role, RFC-0073/TASK-0291): CLONE of
+    // the pre-minted vfsd request endpoint — the generic vfsd arm
+    // transfers the original to vfsd itself. Named route, replies
+    // ride the child's CAP_MOVE inbox (vfsd is ReplyCap-aware).
+    if let Some((vfs_req, _)) = eps.server_pair(ServiceId::Vfsd) {
+        if let Ok(clone) = nexus_abi::cap_clone(vfs_req) {
+            if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
+                chan.set_send(ServiceId::Vfsd, s);
+                chan.set_recv(ServiceId::Vfsd, reply_recv_slot);
+                if iw(init_wire, init_fold, "init:execd") {
+                    debug_write_bytes(b"init: execd route->vfsd ok\n");
+                }
+            }
+        }
+    }
+    // TASK-0049 reanimation: execd's statefsd route — (a) execd
+    // clones this pair into demo.minidump children BEFORE resume
+    // (grant_minidump_statefs_route, child slots 7/8) and (b)
+    // execd's own crash-dump writer (`write_dump_to_statefs`)
+    // resolves "statefsd" through this table. SharedResponse pair
+    // like the dsoftbusd statefs proxy: execd's own wire use is
+    // nonce-matched v2; the payload's single v1 PUT rides the
+    // quiet exec-phase window. CLONE — the pre-minted pair also
+    // serves the generic statefsd arm. Named route (non-positional,
+    // behind the probe block like the others).
+    if let Some((state_req_ep, state_rsp_ep)) = eps.server_pair(ServiceId::Statefsd) {
+        let send = nexus_abi::cap_clone(state_req_ep)
+            .and_then(|clone| nexus_abi::cap_transfer(pid, clone, Rights::SEND));
+        let recv = nexus_abi::cap_clone(state_rsp_ep)
+            .and_then(|clone| nexus_abi::cap_transfer(pid, clone, Rights::RECV));
+        if let (Ok(s), Ok(r)) = (send, recv) {
+            chan.set_send(ServiceId::Statefsd, s);
+            chan.set_recv(ServiceId::Statefsd, r);
+            if iw(init_wire, init_fold, "init:execd") {
+                debug_write_bytes(b"init: execd route->statefsd ok\n");
+            }
+        } else {
+            debug_write_bytes(b"init: execd route->statefsd FAIL\n");
+        }
     }
 }

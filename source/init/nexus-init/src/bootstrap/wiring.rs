@@ -693,48 +693,15 @@ pub(crate) fn wire_services(
                         }
                     }
                 }
-                // svc.settings.* (DSL settings app / Control Center): CLONE —
-                // the pre-minted settingsd request endpoint also serves the
-                // windowd arm. Named route (non-positional, behind the probe
-                // block like the others).
-                if let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) {
-                    if let Ok(clone) = nexus_abi::cap_clone(settings_req) {
-                        if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
-                            chan.set_send(ServiceId::Settingsd, s);
-                            chan.set_recv(ServiceId::Settingsd, reply_recv_slot);
-                            if iw(init_wire, init_fold, "init:execd") {
-                                debug_write_bytes(b"init: execd route->settingsd ok\n");
-                            }
-                        }
-                    }
-                }
-                // svc.time.* / clock tick (RFC-0076): direct transfer of the
-                // pre-minted timed request endpoint (non-consuming). Named
-                // route; replies ride the child's CAP_MOVE inbox (timed is
-                // ReplyCap-aware).
-                if let Ok(s) = nexus_abi::cap_transfer(pid, timed_req, Rights::SEND) {
-                    chan.set_send(ServiceId::Timed, s);
-                    chan.set_recv(ServiceId::Timed, reply_recv_slot);
-                    if iw(init_wire, init_fold, "init:execd") {
-                        debug_write_bytes(b"init: execd route->timed ok\n");
-                    }
-                }
-                provision_execd_imed_osk(pid, eps.imed_osk_execd, reply_recv_slot, chan);
-                // svc.files.* (filemanager role, RFC-0073/TASK-0291): CLONE of
-                // the pre-minted vfsd request endpoint — the generic vfsd arm
-                // transfers the original to vfsd itself. Named route, replies
-                // ride the child's CAP_MOVE inbox (vfsd is ReplyCap-aware).
-                if let Some((vfs_req, _)) = eps.server_pair(ServiceId::Vfsd) {
-                    if let Ok(clone) = nexus_abi::cap_clone(vfs_req) {
-                        if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
-                            chan.set_send(ServiceId::Vfsd, s);
-                            chan.set_recv(ServiceId::Vfsd, reply_recv_slot);
-                            if iw(init_wire, init_fold, "init:execd") {
-                                debug_write_bytes(b"init: execd route->vfsd ok\n");
-                            }
-                        }
-                    }
-                }
+                provision_execd_named_routes(
+                    pid,
+                    eps,
+                    timed_req,
+                    reply_recv_slot,
+                    chan,
+                    init_wire,
+                    init_fold,
+                );
             }
             "keystored" => {
                 // #region agent log (keystored arm entry)

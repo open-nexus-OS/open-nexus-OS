@@ -17,6 +17,7 @@
 //!   * `core_service`  — generic "is this core service answering?" probe (logd evidence).
 //!   * `ipc_kernel`    — kernel-IPC plumbing / security / soak probes (RFC-0005).
 //!   * `pinched`       — compute-broker job round-trip (SMP track Phase D).
+//!   * `soaks`         — ADR-0048 standing integrity detectors (exec phase).
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
@@ -26,3 +27,4 @@ pub(crate) mod elf;
 pub(crate) mod ipc_kernel;
 pub(crate) mod pinched;
 pub(crate) mod rng;
+pub(crate) mod soaks;

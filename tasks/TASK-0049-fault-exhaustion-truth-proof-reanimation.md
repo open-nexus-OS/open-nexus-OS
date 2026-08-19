@@ -97,10 +97,58 @@ Three detection holes, all verified in code:
 
 ## Red flags / decision points
 
-- **RED (unknown size — retired chain root cause)**: "children LOAD but no longer
-  execute" is undocumented. Bounded debugging first (hypotheses + time cap); if
-  the cause reaches deep into the RFC-0068 exec migration, split the reanimation
-  into its own ledger rather than inflating this one. Record findings here.
+- **RED → RESOLVED 2026-08-19 (root-cause round, bounded)**: the retired chain's
+  root cause was already found and fixed by 0080D R1 — `spawn_inner` starts every
+  task Suspended (grants-before-resume hardening) and execd never resumed its
+  children; the fix is live at `source/services/execd/src/os_lite.rs:902-908`
+  ("#102 ROOT CAUSE FIX" comment). The #102-family kernel doubt (sender-wake for
+  blocking-recv children) has a green standing regression gate since 2026-07-07
+  (`SELFTEST: exec child blocking recv wake ok` via `recv-wake-probe`).
+  **Boot-verified 2026-08-19** (headless ladder, exit 0): `child: hello-elf`
+  appears in UART BEFORE the parent's `execd: elf load ok` — exec'd children
+  execute. Consequences: (a) reanimation STAYS in this task, no split;
+  (b) restoration is a bounded revert-shaped patch — the retirement commit
+  `af0c7a8d` ("fix: selftest bug, now green", 2026-06-30) deleted exactly
+  185 lines in `phases/exec.rs`, 42 marker lines in `markers/exec.toml`, and
+  16 UART gates in `scripts/qemu-test.sh` (list preserved in that commit);
+  all six selftest helpers the chain used still exist (`wait_for_pid`,
+  `emit_line_with_pid_status`, `locate_minidump_for_crash`,
+  `statefs_has_crash_dump`, `grant_statefs_caps_to_child`,
+  `logd_query_contains_since_paged`); (c) reanimation can land as the FIRST
+  PR of this task (independent of the exit-reason ABI work) — note the
+  current `execd: elf load ok` / `SELFTEST: e2e exec-elf ok` emits are
+  parent-side and unconditional after 256 yields, i.e. they do not prove
+  child execution; `child: hello-elf` must return as a gated marker.
+- **Reanimation findings 2026-08-19 (second round, during restore)**:
+  (d) the restored chain's selftest-side statefs cap grant into the
+  demo.minidump child raced the child's exit — it was only ever reliable
+  while the #102 bug kept children suspended. Fixed the end-state way:
+  execd grants the statefs route (child slots 7/8, payload SSOT
+  `userspace/apps/demo-exit0/build.rs`) BEFORE `task_resume`
+  (`grant_minidump_statefs_route`, same grants-before-resume discipline as
+  the app-host grants); the selftest-side helper was deleted.
+  (e) **ADR-0054 gap found in the kernel**: `core/trap/errno.rs:44` maps
+  EVERY `SysError::Transfer(_)` to EPERM — InvalidChild (reaped task),
+  Capability(NoSpace) and slot-occupied all collapse to `CapabilityDenied`
+  in userspace, which cost one full instrumented boot to differentiate.
+  Fold the identity-preserving errno split into this task's kernel PR
+  (same file family as the exit-reason work; keep ADR-0054 discipline).
+  (f) **execd had no statefsd route at all** (`init: route statefsd
+  NOT_FOUND`): neither declared in `REQUIRED_ROUTES` nor wired in the init
+  execd arm — which also means execd's own crash-dump writer
+  (`write_dump_to_statefs` → `KernelClient::new_for("statefsd")`) could
+  never have worked on this topology. Fixed declaratively: route entry
+  `(Execd, Statefsd)` + a SharedResponse clone pair in the execd wiring arm
+  (appended as a NAMED route behind the positional slot-order contracts —
+  never insert transfers before the windowd 8/9 / bundle 10 / probe 11–14
+  blocks). Boot proof: `init: execd route->statefsd ok`,
+  `execd: minidump statefs route granted`, child exits 42, full chain green
+  (headless run 2026-08-19T11-43-28, 16/16 markers).
+  (g) The headless/smp1 harness arm never gated the chain (pre-dating the
+  retirement) — that was the second half of the masking. Fixed: the 14
+  chain gates are appended for `headless|smp1` (profiles that run the full
+  service ladder); network/display profiles are deliberately excluded
+  (they may stop before the exec phase).
 - **YELLOW (wait-ABI shape)**: whether reason rides in the status word (packed)
   or a widened return struct is decided in ADR-0056 execution; whichever is
   chosen, `nexus-abi` presents a typed enum and both wait paths agree.
@@ -156,11 +204,21 @@ UART markers (gated in `scripts/qemu-test.sh` + proof-manifest):
 
 ## Plan (small PRs)
 
-1. **Root-cause round (bounded)**: why do execd-spawned children load but not
-   execute? Fix or split; record here.
+1. ✅ **Root-cause round (bounded)** — DONE 2026-08-19; findings recorded in
+   the resolved RED above (root cause already fixed by 0080D R1; two follow-on
+   root causes found and fixed during restore).
 2. **Kernel + ABI exit reason** (after approval): TCB field, trap/exit/kill call
-   sites, wait delivery, `nexus-abi` enum + tests.
+   sites, wait delivery, `nexus-abi` enum + tests. Include the errno identity
+   split for `SysError::Transfer(_)` (finding (e)).
 3. **execd plumbing**: reason in reap loop, envelope field, markers.
 4. **Exhaustion events**: gpud + statefsd transitions, selftest knobs, markers.
-5. **Proof reanimation**: restore ladder, re-gate ok-markers + negative rejects,
-   `just test-all`.
+5. ✅ **Proof reanimation** — DONE 2026-08-19 (PR-1, delivered before step 2 —
+   independent of the ABI work): chain restored verbatim from af0c7a8d^,
+   16/16 markers boot-proven, hard-gated on headless|smp1 (`just test-all`
+   green incl. the smp1 deterministic gate). Mechanics: execd grants the
+   minidump child's statefs route BEFORE resume
+   (`source/services/execd/src/child_grants.rs`), execd↔statefsd named route
+   added declaratively (REQUIRED_ROUTES + execd wiring arm →
+   `provision_execd_named_routes` in `route_provision.rs`). Structure-ratchet
+   splits shipped alongside: `phases/exec.rs` → `probes/soaks.rs` (ADR-0048
+   detectors), execd grant family → `child_grants.rs`.

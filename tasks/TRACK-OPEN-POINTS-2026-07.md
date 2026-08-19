@@ -69,9 +69,20 @@ hier abgehakt UND im jeweiligen Ledger geschlossen.
       Boot 2026-07-07T12-12, zugestellte OP_SURFACE_INPUT-Frames, Empfänger
       still; app-host-Workaround = Wait::Timeout(30ms)-Loop). Kernel-Fix:
       Sender-Wake-Pfad für U-Task-Kinder prüfen (park/wake in sys_ipc_recv).
-- [ ] **#102-Folge**: den stillgelegten Selftest-Exec/exit0/Minidump-Chain
+- [x] **#102-Folge**: den stillgelegten Selftest-Exec/exit0/Minidump-Chain
       auf dem Resume-Fix wiederherstellen (Root Cause: execd resumte seine
       suspended-gespawnten Kinder nie — behoben in 0080D R1).
+      **GELIEFERT 2026-08-19 (TASK-0049 PR-1)**: Kette restauriert aus
+      af0c7a8d^, 16/16 Marker boot-bewiesen + hart gegated (headless|smp1
+      Append in qemu-test.sh; die zweite Maskierungshälfte — der
+      headless-Arm gatete die Kette noch NIE — ist damit zu). Zwei
+      Folge-Root-Causes gefixt: (1) der selftest-seitige statefs-Cap-Grant
+      ans minidump-Kind racete dessen Exit, sobald Kinder wirklich laufen →
+      execd granted jetzt vor Resume (`child_grants.rs`); (2) execd hatte
+      NIE eine statefsd-Route (`init: route statefsd NOT_FOUND`) →
+      deklarativ ergänzt (REQUIRED_ROUTES + execd-Arm named route). Offen
+      als ADR-0054-Lücke notiert in TASK-0049: errno.rs kollabiert jeden
+      TransferError auf EPERM.
 - [ ] nxb-pack `rewrite_manifest_with_digests` droppt die v2.0-LISTEN-Felder
       (dependencies/providedServices/resources) — kopieren, sobald das erste
       Bundle sie nutzt (Kommentar an Ort und Stelle).

@@ -21,6 +21,8 @@ extern crate alloc;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod atlas_vmo;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod child_grants;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod crash_fields;
 // RFC-0086 app-host service-name derivation (`app:<bundle_id>`) — pure and
 // host-tested; `os_lite` is RISC-V-only, so the decision lives here where

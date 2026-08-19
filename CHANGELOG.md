@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-08-19 (TASK-0049 PR-1: exec/crash/minidump proof chain reanimated)
+
+- **The retired exec-chain proof is back and hard-gated** (open point #102):
+  the exit0-lifecycle / minidump-v1 / crash-report ladder plus its three
+  negative rejects (forged metadata, no-artifact, mismatched build_id) and the
+  spoofed-requester/malformed-request rejects run again in QEMU — 16/16 UART
+  markers, gated in `scripts/qemu-test.sh` for `full`, `headless` AND the
+  deterministic `smp1` lane (the headless arm had NEVER gated the chain; that
+  was half the masking). Two follow-on root causes fixed during restore:
+  (1) the selftest-side statefs cap grant into the `demo.minidump` child raced
+  the child's exit once children actually run (post-0080D-R1 resume fix) — the
+  grant moved into execd, BEFORE `task_resume` (grants-before-resume,
+  `source/services/execd/src/child_grants.rs`); (2) execd never had a statefsd
+  route at all (`init: route statefsd NOT_FOUND`) — added declaratively
+  (`REQUIRED_ROUTES` + execd wiring arm named route), which also makes execd's
+  own crash-dump writer resolvable for the first time. Structure-ratchet
+  splits shipped alongside: selftest soak detectors → `probes/soaks.rs`,
+  execd grant family → `child_grants.rs`, execd named routes →
+  `route_provision::provision_execd_named_routes`. Known follow-up recorded in
+  the TASK-0049 ledger: kernel `errno.rs` collapses every transfer error to
+  EPERM (ADR-0054 gap, folded into the exit-reason kernel PR).
+
 ### Changed - 2026-08-18 (reliability lane recut: contracts + ledgers, no code)
 
 - **Reliability spine seeded (planning-only)**: the sub-80 recovery lane

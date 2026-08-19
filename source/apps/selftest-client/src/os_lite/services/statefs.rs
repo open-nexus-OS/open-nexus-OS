@@ -246,7 +246,7 @@ pub(crate) fn statefs_persist(client: &KernelClient) -> core::result::Result<(),
     Ok(())
 }
 
-#[allow(dead_code)] // statefs crash-dump contract helper: documents dump paths/cap grants; ladder wiring pending
+// Wired again since the TASK-0049 reanimation (2026-08-19).
 pub(crate) fn statefs_has_crash_dump(client: &KernelClient) -> core::result::Result<bool, ()> {
     const CHILD_DUMP_PATH: &str = "/state/crash/child.demo.minidump.nmd";
     let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_DUMP_PATH)
@@ -255,34 +255,15 @@ pub(crate) fn statefs_has_crash_dump(client: &KernelClient) -> core::result::Res
     Ok(statefs_proto::decode_get_response(&rsp).is_ok())
 }
 
-#[allow(dead_code)] // statefs crash-dump contract helper: documents dump paths/cap grants; ladder wiring pending
-pub(crate) fn grant_statefs_caps_to_child(
-    statefs: &KernelClient,
-    child_pid: Pid,
-) -> core::result::Result<(), ()> {
-    const CHILD_STATEFS_SEND_SLOT: u32 = 7;
-    const CHILD_STATEFS_RECV_SLOT: u32 = 8;
-    let (send_slot, recv_slot) = statefs.slots();
-    let send_clone = nexus_abi::cap_clone(send_slot).map_err(|_| ())?;
-    nexus_abi::cap_transfer_to_slot(
-        child_pid,
-        send_clone,
-        nexus_abi::Rights::SEND,
-        CHILD_STATEFS_SEND_SLOT,
-    )
-    .map_err(|_| ())?;
-    let recv_clone = nexus_abi::cap_clone(recv_slot).map_err(|_| ())?;
-    nexus_abi::cap_transfer_to_slot(
-        child_pid,
-        recv_clone,
-        nexus_abi::Rights::RECV,
-        CHILD_STATEFS_RECV_SLOT,
-    )
-    .map_err(|_| ())?;
-    Ok(())
-}
+// TASK-0049 reanimation (2026-08-19): the former `grant_statefs_caps_to_child`
+// helper is retired. It transferred the statefs route into the demo.minidump
+// child AFTER spawn — reliable only while the #102 bug kept children suspended
+// forever. With the resume fix the transfer raced the child's exit (a transfer
+// into a reaped task collapses to EPERM, see kernel errno.rs Transfer arm).
+// The route is now granted by EXECD before resume (grants-before-resume):
+// `grant_minidump_statefs_route` in source/services/execd/src/os_lite.rs.
 
-#[allow(dead_code)] // statefs crash-dump contract helper: documents dump paths/cap grants; ladder wiring pending
+// Wired again since the TASK-0049 reanimation (2026-08-19).
 pub(crate) fn locate_minidump_for_crash(
     client: &KernelClient,
     pid: Pid,

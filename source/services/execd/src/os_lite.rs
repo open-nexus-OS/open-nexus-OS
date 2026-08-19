@@ -138,39 +138,13 @@ mod app_caps {
     include!(concat!(env!("OUT_DIR"), "/app_manifest_caps.rs"));
 }
 
-/// execd's own capability slots holding the windowd client route for spawned
-/// app processes (granted by nexus-init in the execd wiring arm, slot-order
-/// convention like `LOGD_SEND_SLOT`; init logs `init: execd windowd slots`).
-const APP_WINDOWD_SEND_SLOT: u32 = 8;
-const APP_WINDOWD_RECV_SLOT: u32 = 9;
-/// The child slots the app-host expects them in (its fixed constants).
-const CHILD_WINDOWD_SEND_SLOT: u32 = 5;
-const CHILD_WINDOWD_RECV_SLOT: u32 = 6;
 /// GET_PAYLOAD (TASK-0080D): execd's own slot holding the bundlemgrd request
 /// SEND cap (granted by nexus-init in the execd arm — slot-order contract,
 /// proven by `init: execd bundle slot send=0xa`).
 const BUNDLE_SEND_SLOT: u32 = 10;
-/// The child slot receiving the payload VMO (app-host's fixed constant).
-const CHILD_PAYLOAD_SLOT: u32 = 7;
 /// Payload VMO budget: header + 512KB NXLC container (transport CONTRACT,
 /// = app-host `PAYLOAD_MAX_LEN`; settings hit 93% of 256KB, probe alarms 90%).
 const PAYLOAD_VMO_BYTES: usize = 16 + 512 * 1024;
-/// ADR-0042 per-app event channel (init-minted pair; slot-order contract,
-/// proven by `init: execd app-event slots send=0xb recv=0xc`): windowd gets
-/// a SEND clone (`OP_SURFACE_EVENTS`, cap-move) and delivers input events +
-/// surface acks on it; the child gets a RECV clone. Replaces the shared
-/// `window_rsp` delivery, which raced with inputd's ack drain (taps were
-/// consumed by inputd before the app ever saw them).
-// Per-app event channels are minted DYNAMICALLY per launch via init's ctrl
-// plane (`@mint-pair`): init — the EndpointFactory holder — mints a fresh
-// PRIVATE pair on demand; execd does mint→grant→close (zero cap-table
-// accumulation). No static pair, no pool sizing, no slot-order contract —
-// the whole "adjust the pool after every feature" class is retired.
-/// The child slot receiving the event-channel RECV (app-host's constant).
-const CHILD_EVENTS_SLOT: u32 = 8;
-/// SEND clone of the child's OWN event channel (it attaches this to windowd
-/// itself, nonce-tagged). After the service SEND slots 11..13 (nexus-sdk-routes).
-const CHILD_EVENTS_SEND_SLOT: u32 = 14;
 /// P0.2 recv-wake regression gate (init-minted pairs; slot-order contract,
 /// proven by `init: execd recv-wake slots …`): TWO one-way endpoints for the
 /// probe handshake — ping (execd SEND @13, child RECV granted into child
@@ -880,15 +854,15 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             state.track_child(pid as u32, image_id);
             apply_sched_recipe(pid as u32, image_id);
             if image_id == IMG_APPHOST {
-                grant_windowd_route(pid as u32);
+                crate::child_grants::grant_windowd_route(pid as u32);
                 if let Some(vmo) = payload_vmo {
-                    grant_payload_vmo(pid as u32, vmo);
+                    crate::child_grants::grant_payload_vmo(pid as u32, vmo);
                 }
                 // Dedicated event channel: attach windowd's SEND half FIRST
                 // (same request queue the child's SURFACE_CREATE uses, so
                 // windowd holds the channel before the create), then hand
                 // the RECV half to the child — all before resume.
-                grant_event_channel(pid as u32);
+                crate::child_grants::grant_event_channel(pid as u32);
                 // RFC-0080: RO clone of the shared atlas VMO (before resume).
                 crate::atlas_vmo::grant(pid as u32, state.atlas_vmo);
                 // TASK-0080C: provision the app's DECLARED service routes
@@ -897,6 +871,16 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
                 if let Some(app) = app_id {
                     provision_app_service_routes(pid as u32, app);
                 }
+            }
+            // TASK-0049 reanimation: the demo.minidump payload PUTs its own
+            // NMD1 dump via statefs slots 7/8 (in-process capture, RFC-0031).
+            // Under the #102 resume fix children run immediately, so the old
+            // post-spawn transfer from the selftest raced the child's exit
+            // (transfer into a reaped task collapses to EPERM). The SPAWNER
+            // installs the route before resume — same grants-before-resume
+            // discipline as the app-host grants above.
+            if image_id == IMG_EXIT42 {
+                crate::child_grants::grant_minidump_statefs_route(pid as u32);
             }
             // #102 ROOT CAUSE FIX: `spawn_inner` starts EVERY task Suspended
             // (the grants-before-resume hardening); nexus-init resumes its
@@ -1201,54 +1185,6 @@ fn run_recv_wake_probe() {
     let _ = nexus_abi::debug_println("SELFTEST: exec child blocking recv wake ok");
 }
 
-/// Hands the child its RECV half of the dedicated event channel
-/// (`CHILD_EVENTS_SLOT`).
-fn grant_event_channel(child_pid: u32) {
-    // Mint a fresh PRIVATE pair via init's ctrl plane (`@mint-pair`); the
-    // child gets BOTH halves: RECV→slot 8 (its event inbox) and a SEND clone→
-    // slot 14 — the child attaches that to windowd ITSELF, tagged with its
-    // nonce (deterministic channel↔surface binding). execd closes its own
-    // halves after the grants: mint→grant→close, zero accumulation.
-    let Some((send_slot, recv_slot)) = route_ctrl(b"@mint-pair") else {
-        let _ = nexus_abi::debug_println("execd: FAIL app event channel mint");
-        return;
-    };
-    // NOTE: `cap_transfer_to_slot` COPIES, so `grant_clone` closes each clone
-    // after the transfer — else execd retains a live SEND cap to every child's
-    // event channel, which both LEAKS a cap per launch AND keeps the RFC-0079
-    // last-sender scan non-zero (the window-close EOF never fires).
-    let recv_ok = grant_clone(child_pid, recv_slot, nexus_abi::Rights::RECV, CHILD_EVENTS_SLOT);
-    let send_ok =
-        grant_clone(child_pid, send_slot, nexus_abi::Rights::SEND, CHILD_EVENTS_SEND_SLOT);
-    // Close execd's own minted halves too (the child holds the live ones).
-    let _ = nexus_abi::cap_close(send_slot);
-    let _ = nexus_abi::cap_close(recv_slot);
-    if recv_ok && send_ok {
-        let _ = nexus_abi::debug_println("execd: app event channel granted (minted)");
-    } else {
-        let _ = nexus_abi::debug_println("execd: FAIL app event channel grant (minted)");
-    }
-}
-
-/// Moves the payload VMO into the child's fixed payload slot
-/// (`CHILD_PAYLOAD_SLOT`, Rights::MAP — `vmo_read` is all the child needs).
-fn grant_payload_vmo(child_pid: u32, vmo: u32) {
-    match nexus_abi::cap_transfer_to_slot(
-        child_pid as nexus_abi::Pid,
-        vmo,
-        nexus_abi::Rights::MAP,
-        CHILD_PAYLOAD_SLOT,
-    ) {
-        Ok(_) => {
-            let _ = nexus_abi::debug_println("execd: app payload granted");
-        }
-        Err(_) => {
-            let _ = nexus_abi::debug_println("execd: FAIL app payload grant");
-            let _ = nexus_abi::cap_close(vmo);
-        }
-    }
-}
-
 fn rsp(op: u8, status: u8, pid: u32) -> [u8; 9] {
     let mut out = [0u8; 9];
     out[0] = MAGIC0;
@@ -1258,41 +1194,6 @@ fn rsp(op: u8, status: u8, pid: u32) -> [u8; 9] {
     out[4] = status;
     out[5..9].copy_from_slice(&pid.to_le_bytes());
     out
-}
-
-/// ADR-0042: hands the spawned app process its windowd client route —
-/// clones of execd's own granted caps, placed into the child's FIXED slots
-/// (the app-host constants). The child retries its first sends bounded, so
-/// the transfer landing moments after resume is safe (#123 lesson).
-fn grant_windowd_route(child_pid: u32) {
-    let send = nexus_abi::cap_clone(APP_WINDOWD_SEND_SLOT)
-        .and_then(|clone| {
-            nexus_abi::cap_transfer_to_slot(
-                child_pid as nexus_abi::Pid,
-                clone,
-                nexus_abi::Rights::SEND,
-                CHILD_WINDOWD_SEND_SLOT,
-            )
-            .map_err(|_| nexus_abi::AbiError::Unsupported)
-        })
-        .is_ok();
-    let recv = nexus_abi::cap_clone(APP_WINDOWD_RECV_SLOT)
-        .and_then(|clone| {
-            nexus_abi::cap_transfer_to_slot(
-                child_pid as nexus_abi::Pid,
-                clone,
-                nexus_abi::Rights::RECV,
-                CHILD_WINDOWD_RECV_SLOT,
-            )
-            .map_err(|_| nexus_abi::AbiError::Unsupported)
-        })
-        .is_ok();
-    if send && recv {
-        let _ = nexus_abi::debug_println("execd: apphost windowd route granted");
-    } else {
-        // Values, not guesses: the probe's send retries will exhaust next.
-        let _ = nexus_abi::debug_println("execd: FAIL apphost windowd route grant");
-    }
 }
 
 /// The caps a spawned app's manifest declares (generated table), or `&[]` if
@@ -1310,7 +1211,7 @@ fn caps_for(app_id: &str) -> &'static [&'static str] {
 /// execd's init control channel (slots 1/2) — the same responder bahn
 /// windowd/abilitymgr route through. `None` on any routing failure (policyd
 /// deny, timeout, exhausted nonce budget); the caller then skips that route.
-fn route_ctrl(name: &[u8]) -> Option<(u32, u32)> {
+pub(crate) fn route_ctrl(name: &[u8]) -> Option<(u32, u32)> {
     use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
     match budget::route_with_nonce_budgeted(
         name,
@@ -1322,23 +1223,6 @@ fn route_ctrl(name: &[u8]) -> Option<(u32, u32)> {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }
-}
-
-/// Clones `src_slot` and transfers the clone into the child's `child_slot`
-/// with `rights`; returns whether the grant landed.
-fn grant_clone(child_pid: u32, src_slot: u32, rights: nexus_abi::Rights, child_slot: u32) -> bool {
-    // `cap_transfer_to_slot` COPIES, so close execd's clone after the transfer
-    // — otherwise execd accumulates a live cap per grant (RFC-0079: a retained
-    // SEND cap to a child's event channel keeps the last-sender scan non-zero
-    // and the window-close EOF never fires).
-    let Ok(clone) = nexus_abi::cap_clone(src_slot) else {
-        return false;
-    };
-    let ok =
-        nexus_abi::cap_transfer_to_slot(child_pid as nexus_abi::Pid, clone, rights, child_slot)
-            .is_ok();
-    let _ = nexus_abi::cap_close(clone);
-    ok
 }
 
 /// TASK-0080C declarative routing: provisions the spawned app-host child's
@@ -1369,13 +1253,13 @@ fn provision_app_service_routes(child_pid: u32, app_id: &[u8]) {
     // `FAIL app reply inbox grant` (boot-proven 2026-07-10).
     match route_ctrl(b"@mint-pair") {
         Some((send_slot, recv_slot)) => {
-            let ok_recv = grant_clone(
+            let ok_recv = crate::child_grants::grant_clone(
                 child_pid,
                 recv_slot,
                 nexus_abi::Rights::RECV,
                 nexus_sdk_routes::CHILD_REPLY_RECV_SLOT,
             );
-            let ok_send = grant_clone(
+            let ok_send = crate::child_grants::grant_clone(
                 child_pid,
                 send_slot,
                 nexus_abi::Rights::SEND,
@@ -1404,8 +1288,12 @@ fn provision_app_service_routes(child_pid: u32, app_id: &[u8]) {
         };
         match route_ctrl(route.route.as_bytes()) {
             Some((send_slot, _recv_slot)) => {
-                let ok =
-                    grant_clone(child_pid, send_slot, nexus_abi::Rights::SEND, route.child_slot);
+                let ok = crate::child_grants::grant_clone(
+                    child_pid,
+                    send_slot,
+                    nexus_abi::Rights::SEND,
+                    route.child_slot,
+                );
                 // Do NOT close these slots: named routes resolve to execd's
                 // PERSISTENT route-table slots (recorded once at wiring) — the
                 // responder answers every later resolve with the SAME slot
