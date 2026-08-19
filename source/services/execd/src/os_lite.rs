@@ -25,7 +25,10 @@ use core::time::Duration;
 use crate::crash_fields::{
     append_field, append_field_i32, append_field_u32, append_field_u64, push_i32_dec, push_u32_dec,
 };
-use nexus_abi::{debug_putc, exec, nsec, service_id_from_name, wait, wait_nohang, yield_, Pid};
+use nexus_abi::{
+    debug_putc, exec, nsec, service_id_from_name, wait_nohang_with_reason, wait_with_reason,
+    yield_, ExitReason, Pid,
+};
 use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
 use nexus_ipc::{KernelServer, Server as _, Wait};
@@ -116,6 +119,9 @@ use crate::sched_recipe::apply_sched_recipe;
 pub(crate) const IMG_HELLO: u8 = 1;
 const IMG_EXIT0: u8 = 2;
 const IMG_EXIT42: u8 = 3;
+/// ADR-0056 fault-truth proof child: prints its marker, then dereferences
+/// VA 0 — the kernel kills it with `ExitReason::Fault` (TASK-0049).
+const IMG_FAULT: u8 = 5;
 /// TASK-0080D R1: the app-host runtime (ADR-0042 transport probe). The ELF is
 /// embedded by `build.rs` when `scripts/build.sh` provides it; empty ⇒
 /// UNSUPPORTED (fail-closed, never a fake payload).
@@ -174,12 +180,24 @@ static EXEC_SPAN_LOCAL: AtomicU64 = AtomicU64::new(1);
 const RUNTIME_APP_CAPS: [&str; 4] = ["vfsd", "samgrd", "policyd", "logd"];
 
 /// Stubbed service loop that reports readiness and yields forever.
-/// Builds the `OP_WAIT_PID` success reply `[E,X,ver,OP|0x80, STATUS_OK, pid, code]`.
-fn wait_ok_response(pid: u32, code: i32) -> Vec<u8> {
-    let mut out = Vec::with_capacity(13);
+/// Builds the `OP_WAIT_PID` success reply
+/// `[E,X,ver,OP|0x80, STATUS_OK, pid:u32le, code:i32le, reason:u8, cause:u8]`.
+/// The two ADR-0056 tail bytes are additive (v1 replies were 13 bytes);
+/// reason byte = 0 clean / 1 error / 2 fault / 3 killed / 0xFF unknown.
+fn wait_ok_response(pid: u32, code: i32, reason: ExitReason) -> Vec<u8> {
+    let (tag, cause): (u8, u8) = match reason {
+        ExitReason::Clean => (0, 0),
+        ExitReason::Error => (1, 0),
+        ExitReason::Fault { cause } => (2, cause),
+        ExitReason::Killed => (3, 0),
+        ExitReason::Unknown => (0xFF, 0),
+    };
+    let mut out = Vec::with_capacity(15);
     out.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_WAIT_PID | 0x80, STATUS_OK]);
     out.extend_from_slice(&pid.to_le_bytes());
     out.extend_from_slice(&code.to_le_bytes());
+    out.push(tag);
+    out.push(cause);
     out
 }
 
@@ -192,9 +210,9 @@ fn wait_ok_response(pid: u32, code: i32) -> Vec<u8> {
 fn reap_ready_children(state: &mut State) {
     // Children are bounded to 16; 32 iterations covers any transient burst.
     for _ in 0..32 {
-        match wait_nohang() {
-            Ok(Some((pid, code))) => {
-                state.handle_child_exit(pid, code);
+        match wait_nohang_with_reason() {
+            Ok(Some((pid, code, reason))) => {
+                state.handle_child_exit(pid, code, reason);
                 let _ = nexus_abi::debug_println(&alloc::format!(
                     "execd: reaped pid={pid} code={code}"
                 ));
@@ -244,10 +262,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
 struct TrackedChild {
     pid: u32,
     image_id: u8,
-    /// RFC-0081: exit code once reaped (by the auto-sweep or an `OP_WAIT_PID`);
-    /// `None` while still running. Lets `OP_WAIT_PID` answer from cache after
-    /// the sweep already reaped the child in the kernel.
-    exit: Option<i32>,
+    /// RFC-0081: exit code + ADR-0056 reason once reaped (by the auto-sweep
+    /// or an `OP_WAIT_PID`); `None` while still running. Lets `OP_WAIT_PID`
+    /// answer from cache after the sweep already reaped the child.
+    exit: Option<(i32, ExitReason)>,
     /// The crash-marker / minidump / nexus-log path ran for this exit (once).
     reported: bool,
 }
@@ -285,6 +303,7 @@ impl State {
             IMG_EXIT0 => "demo.exit0",
             IMG_APPHOST => "app.probe",
             IMG_EXIT42 => "demo.minidump",
+            IMG_FAULT => "demo.fault",
             _ => "unknown",
         }
     }
@@ -293,11 +312,11 @@ impl State {
     /// minidump / nexus-log path EXACTLY once (idempotent via `reported`).
     /// Called by both the auto-reap sweep and `OP_WAIT_PID` so exit handling
     /// happens once regardless of which observed the exit first.
-    fn handle_child_exit(&mut self, pid: u32, code: i32) {
+    fn handle_child_exit(&mut self, pid: u32, code: i32, reason: ExitReason) {
         let (image_id, already) = match self.children.iter_mut().find(|c| c.pid == pid) {
             Some(child) => {
                 let already = child.reported;
-                child.exit = Some(code);
+                child.exit = Some((code, reason));
                 child.reported = true;
                 (Some(child.image_id), already)
             }
@@ -306,7 +325,15 @@ impl State {
         if already {
             return;
         }
-        if code != 0 {
+        // ADR-0056: one exit-truth line per child, exactly once — the reason
+        // is kernel-attributed, so a fault kill is no longer indistinguishable
+        // from a voluntary `exit(-22)`.
+        emit_exit_reason_marker(pid, code, reason);
+        // Crash decision on the REAL reason: fault/kill is always a crash,
+        // a voluntary non-zero exit stays one (unchanged v1 semantics),
+        // a clean exit never is.
+        let crashed = matches!(reason, ExitReason::Fault { .. } | ExitReason::Killed) || code != 0;
+        if crashed {
             let name = image_id.map(State::child_name).unwrap_or("unknown");
             // For minidump-managed payloads, crash publication is deferred to
             // OP_REPORT_EXIT so dump metadata can be validated before markers.
@@ -314,7 +341,14 @@ impl State {
                 let build_id = deterministic_build_id(name);
                 let dump_path = write_minidump_artifact(pid, code, name, &build_id);
                 emit_crash_marker(pid, code, name);
-                self.log_crash_via_nexus_log(pid, code, name, &build_id, dump_path.as_deref());
+                self.log_crash_via_nexus_log(
+                    pid,
+                    code,
+                    name,
+                    &build_id,
+                    dump_path.as_deref(),
+                    reason,
+                );
             }
         }
     }
@@ -326,6 +360,7 @@ impl State {
         name: &str,
         build_id: &str,
         dump_path: Option<&str>,
+        reason: ExitReason,
     ) {
         // Best-effort: if sink-logd isn't routable, it will fall back to UART-only.
         // Keep the message bounded; sink-logd enforces v1 caps.
@@ -364,7 +399,7 @@ impl State {
         // Append directly to logd (independent of the global sink) so the crash-report selftest can query it.
         let mut ok = false;
         for _ in 0..8 {
-            if append_crash_to_logd(pid, code, name, build_id, dump_path).is_ok() {
+            if append_crash_to_logd(pid, code, name, build_id, dump_path, reason).is_ok() {
                 ok = true;
                 break;
             }
@@ -384,6 +419,7 @@ fn append_crash_to_logd(
     name: &str,
     build_id: &str,
     dump_path: Option<&str>,
+    reason: ExitReason,
 ) -> Result<(), ()> {
     const MAGIC0: u8 = b'L';
     const MAGIC1: u8 = b'O';
@@ -407,6 +443,9 @@ fn append_crash_to_logd(
         msg.truncate(256);
     }
     let mut fields = Vec::with_capacity(192);
+    // ADR-0056: kernel-attributed exit reason rides the crash.v1 envelope
+    // (RFC-0011 reserved extensibility for exactly this kind of field).
+    append_field(&mut fields, b"reason=", reason.label().as_bytes());
     append_field(&mut fields, b"build_id=", build_id.as_bytes());
     append_field_i32(&mut fields, b"code=", code);
     if let Some(path) = dump_path {
@@ -570,16 +609,16 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         // AS freed, exit handled once). Answer from the cached record so a
         // client wait still succeeds instead of failing on a gone kernel zombie.
         if pid > 0 {
-            if let Some(code) =
+            if let Some((code, reason)) =
                 state.children.iter().find(|c| c.pid == pid as u32).and_then(|c| c.exit)
             {
-                return wait_ok_response(pid as u32, code);
+                return wait_ok_response(pid as u32, code, reason);
             }
         }
-        return match wait(pid) {
-            Ok((got, code)) => {
-                state.handle_child_exit(got, code);
-                wait_ok_response(got, code)
+        return match wait_with_reason(pid) {
+            Ok((got, code, reason)) => {
+                state.handle_child_exit(got, code, reason);
+                wait_ok_response(got, code, reason)
             }
             Err(_) => {
                 let mut out = Vec::with_capacity(13);
@@ -674,12 +713,23 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
                     (build_id, dump_path)
                 };
                 emit_crash_marker(pid, code, name);
+                // Reason comes from the reap cache (kernel truth); a report
+                // for a child the sweep has not reaped yet falls back to the
+                // voluntary reading of the reported code (v1 semantics).
+                let reason = state
+                    .children
+                    .iter()
+                    .find(|c| c.pid == pid)
+                    .and_then(|c| c.exit)
+                    .map(|(_, reason)| reason)
+                    .unwrap_or(if code == 0 { ExitReason::Clean } else { ExitReason::Error });
                 state.log_crash_via_nexus_log(
                     pid,
                     code,
                     name,
                     build_id.as_str(),
                     dump_path.as_deref(),
+                    reason,
                 );
             }
             return rsp(op, STATUS_OK, pid).to_vec();
@@ -817,6 +867,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         IMG_HELLO => HELLO_ELF,
         IMG_EXIT0 => DEMO_EXIT0_ELF,
         IMG_EXIT42 => DEMO_MINIDUMP_ELF,
+        IMG_FAULT => demo_exit0::DEMO_FAULT_ELF,
         IMG_APPHOST if !apphost_payload::APPHOST_ELF.is_empty() => apphost_payload::APPHOST_ELF,
         _ => return rsp(op, STATUS_UNSUPPORTED, 0).to_vec(),
     };
@@ -1335,6 +1386,18 @@ fn emit_line(message: &str) {
     // kernel's locked log records and DROPS the tail — a torn ready marker is a
     // red ladder gate.
     let _ = nexus_abi::debug_println(message);
+}
+
+/// ADR-0056 exit-truth line — one per reaped child, exactly once:
+/// `execd: exit pid=<p> reason=<label> code=<c>`.
+fn emit_exit_reason_marker(pid: u32, code: i32, reason: ExitReason) {
+    emit_line_no_nl("execd: exit pid=");
+    emit_u64(pid as u64);
+    emit_line_no_nl(" reason=");
+    emit_line_no_nl(reason.label());
+    emit_line_no_nl(" code=");
+    emit_i64(code as i64);
+    let _ = debug_putc(b'\n');
 }
 
 fn emit_crash_marker(pid: u32, code: i32, name: &str) {

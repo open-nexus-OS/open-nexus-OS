@@ -31,6 +31,14 @@ fn main() {
     let out_path = out_dir.join("demo-minidump.elf");
     fs::write(&out_path, minidump).expect("write demo-minidump");
 
+    // TASK-0049 / ADR-0056: deterministic fault payload — prints its marker,
+    // then loads from VA 0 (unmapped ⇒ load page fault ⇒ the kernel kills it
+    // with ExitReason::Fault). The unreachable fallthrough exits voluntarily,
+    // so the selftest's reason==fault assert fails loudly, never hangs.
+    let fault = build_elf(&build_fault_text(b"child: fault start\n\0"));
+    let out_path = out_dir.join("demo-fault.elf");
+    fs::write(&out_path, fault).expect("write demo-fault");
+
     let vmo_consumer = build_elf(&build_vmo_consumer_text());
     let out_path = out_dir.join("demo-vmo-consumer.elf");
     fs::write(&out_path, vmo_consumer).expect("write demo-vmo-consumer");
@@ -147,6 +155,19 @@ fn build_text(exit_code: i32, msg: &[u8]) -> Vec<u8> {
     assert_eq!(pc, MSG_OFFSET, "message offset mismatch");
 
     text.extend_from_slice(msg);
+    text
+}
+
+/// `build_text`, with the "done:" tail's first slot (offset 0x20 =
+/// LABEL_DONE, `addi a0, x0, <code>`) replaced by `lbu a0, 0(x0)` — a load
+/// from the never-mapped null page, so the kernel kills the child with
+/// `ExitReason::Fault` right after it printed its marker (TASK-0049 /
+/// ADR-0056). If the load ever stops faulting, the child falls through to
+/// the original exit with reason=voluntary and the selftest's tag assert
+/// fails loudly instead of hanging.
+fn build_fault_text(msg: &[u8]) -> Vec<u8> {
+    let mut text = build_text(7, msg);
+    text[0x20..0x24].copy_from_slice(&encode_lbu(10, 0, 0).to_le_bytes());
     text
 }
 

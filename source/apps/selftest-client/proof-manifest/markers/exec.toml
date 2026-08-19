@@ -41,6 +41,22 @@ phase = "exec"
 [marker."child: exit0 start"]
 phase = "exec"
 
+# ADR-0056 exit-reason truth (TASK-0049 step 2): the kernel records WHY a
+# task died and `wait` delivers it. `execd: exit pid=` is the per-child
+# truth line (prefix marker; `reason=<label> code=<c>` follows); the
+# selftest asserts clean-on-exit0 and fault-on-VA0-deref.
+[marker."execd: exit pid="]
+phase = "exec"
+
+[marker."child: fault start"]
+phase = "exec"
+
+[marker."SELFTEST: exit reason ok"]
+phase = "exec"
+
+[marker."SELFTEST: exit reason FAIL"]
+phase = "exec"
+
 [marker."execd: child exited"]
 phase = "exec"
 

@@ -41,7 +41,20 @@ pub(super) fn encode_error(err: SysError) -> usize {
         },
         SysError::Ipc(ipc_err) => ipc_errno(&ipc_err),
         SysError::Spawn(spawn) => spawn_errno(&spawn),
-        SysError::Transfer(_) => errno(EPERM),
+        // ADR-0054 (fixed 2026-08-19, TASK-0049 finding (e)): every transfer
+        // error used to collapse to EPERM — a reaped-child transfer and a
+        // full cap table were indistinguishable from a rights denial, which
+        // cost a full instrumented boot to tell apart. Identity preserved:
+        SysError::Transfer(t) => match t {
+            crate::task::TransferError::InvalidParent
+            | crate::task::TransferError::InvalidChild => errno(ESRCH),
+            crate::task::TransferError::Capability(cap) => match cap {
+                crate::cap::CapError::NoSpace => errno(ENOSPC),
+                crate::cap::CapError::InvalidSlot => errno(EINVAL),
+                // Includes the occupied-destination-slot case (`set_if_empty`).
+                crate::cap::CapError::PermissionDenied => errno(EPERM),
+            },
+        },
         SysError::AddressSpace(as_err) => address_space_errno(&as_err),
         SysError::Wait(wait) => wait_errno(&wait),
         SysError::TaskExit => errno(EINVAL),

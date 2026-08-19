@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-19 (TASK-0049 PR-2: kernel-attributed task exit reasons, ADR-0056)
+
+- **The kernel now records WHY a task died and `wait` delivers it** — a page
+  fault, a policy/fail-fast kill and a voluntary `exit(-22)` are no longer
+  indistinguishable. `task::ExitReason { Voluntary, Fault{cause}, Killed }`
+  is recorded at all five death sites (sys_exit; USER-PF kill with the scause
+  low byte; ecall-from-unmapped-sepc as synthetic cause 0xF1; two SATP
+  fail-fast sites as Killed) and rides the high bits of the `wait`/
+  `wait_nohang` status register — old decoders cast `as i32`, so the change
+  is invisible to existing callers. `nexus-abi` gains a cfg-free `ExitReason`
+  (Clean/Error/Fault{cause}/Killed/Unknown, host-tested decode incl.
+  fail-closed Unknown) plus `wait_with_reason`/`wait_nohang_with_reason`.
+  execd consumes the truth: crash decisions on the real reason, one
+  `execd: exit pid=<p> reason=<label> code=<c>` line per child, `reason=` in
+  the crash.v1 envelope, reason+cause tail bytes on `OP_WAIT_PID`. Proof: new
+  `demo.fault` payload (prints its marker, then dereferences VA 0) — one boot
+  shows `reason=clean code=0`, `reason=fault code=-22` and `reason=error
+  code=42`, gated as `SELFTEST: exit reason ok` on full/headless/smp1.
+  Also: the ADR-0054 errno gap from PR-1 is closed (`SysError::Transfer`
+  splits into ESRCH/ENOSPC/EINVAL/EPERM instead of collapsing to EPERM).
+  Structure-ratchet splits alongside: `task/exit_reason.rs`,
+  `task/affinity.rs`, compact `demo.fault` builder.
+
 ### Fixed - 2026-08-19 (TASK-0049 PR-1: exec/crash/minidump proof chain reanimated)
 
 - **The retired exec-chain proof is back and hard-gated** (open point #102):

@@ -352,7 +352,7 @@ pub(super) fn sys_exit(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // already purged from the scheduler below, so its image pages are
     // unreachable (RFC-0075 8e — process images were bump-only, exhausting
     // the arena after a handful of app launches).
-    super::exit_current_and_release(ctx.tasks, status);
+    super::exit_current_and_release(ctx.tasks, status, task::ExitReason::Voluntary);
     for pid in waiters {
         observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler));
     }
@@ -381,9 +381,13 @@ pub(super) fn sys_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let target = if raw_pid <= 0 { None } else { Some(task::Pid::from_raw(raw_pid as u32)) };
     loop {
         match ctx.tasks.reap_child(target, ctx.address_spaces) {
-            Ok((pid, status)) => {
+            Ok((pid, status, reason)) => {
                 if let Some(task) = ctx.tasks.task_mut(ctx.tasks.current_pid()) {
-                    task.frame_mut().x[11] = status as usize;
+                    // ADR-0056: a1 low 32 bits = exit code, high bits = the
+                    // exit-reason wire word. Old decoders cast `a1 as i32`,
+                    // so the reason is invisible to them (compatible).
+                    task.frame_mut().x[11] =
+                        ((reason.wire_bits() as usize) << 32) | (status as u32 as usize);
                 }
                 return Ok(pid.as_index());
             }
@@ -470,9 +474,11 @@ pub(super) fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> 
 /// untouched — this is a pure sibling for service reaper loops.
 pub(super) fn sys_wait_nohang(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     match ctx.tasks.reap_child(None, ctx.address_spaces) {
-        Ok((pid, status)) => {
+        Ok((pid, status, reason)) => {
             if let Some(task) = ctx.tasks.task_mut(ctx.tasks.current_pid()) {
-                task.frame_mut().x[11] = status as usize;
+                // ADR-0056: same a1 packing as `sys_wait` (code low, reason high).
+                task.frame_mut().x[11] =
+                    ((reason.wire_bits() as usize) << 32) | (status as u32 as usize);
             }
             Ok(pid.as_index())
         }

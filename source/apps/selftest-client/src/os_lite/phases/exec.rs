@@ -109,9 +109,28 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // Exit lifecycle: spawn exit0 payload, wait for termination, and print markers.
     let exit_pid = services::execd::execd_spawn_image(&execd_client, "selftest-client", 2)?;
     // Wait for exit; child prints crate::markers::M_CHILD_EXIT0_START itself.
-    let status = services::execd::wait_for_pid(&execd_client, exit_pid).unwrap_or(-1);
+    // ADR-0056: the reply also carries the kernel-attributed exit reason.
+    let (status, exit0_tag) =
+        match services::execd::wait_for_pid_with_reason(&execd_client, exit_pid) {
+            Some((code, tag, _cause)) => (code, Some(tag)),
+            None => (-1, None),
+        };
     services::execd::emit_line_with_pid_status(exit_pid, status);
     emit_line(crate::markers::M_SELFTEST_CHILD_EXIT_OK);
+
+    // ADR-0056 exit-reason truth (TASK-0049): a clean exit must report
+    // reason=clean (tag 0), and a child that dereferences VA 0 must report
+    // reason=fault (tag 2) — kernel truth, not exit-code guesswork. The
+    // demo.fault payload prints `child: fault start`, then loads from 0; its
+    // unreachable fallback exits 7, which fails this assert loudly.
+    let fault_pid = services::execd::execd_spawn_image(&execd_client, "selftest-client", 5)?;
+    let fault_tag = services::execd::wait_for_pid_with_reason(&execd_client, fault_pid)
+        .map(|(_code, tag, _cause)| tag);
+    if status == 0 && exit0_tag == Some(0) && fault_tag == Some(2) {
+        emit_line(crate::markers::M_SELFTEST_EXIT_REASON_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_EXIT_REASON_FAIL);
+    }
 
     // TASK-0018: Minidump v1 proof. Spawn a deterministic non-zero exit (42), then
     // verify execd appended crash metadata and wrote a bounded minidump path.

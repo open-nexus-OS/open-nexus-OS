@@ -207,10 +207,31 @@ UART markers (gated in `scripts/qemu-test.sh` + proof-manifest):
 1. ✅ **Root-cause round (bounded)** — DONE 2026-08-19; findings recorded in
    the resolved RED above (root cause already fixed by 0080D R1; two follow-on
    root causes found and fixed during restore).
-2. **Kernel + ABI exit reason** (after approval): TCB field, trap/exit/kill call
-   sites, wait delivery, `nexus-abi` enum + tests. Include the errno identity
-   split for `SysError::Transfer(_)` (finding (e)).
-3. **execd plumbing**: reason in reap loop, envelope field, markers.
+2. ✅ **Kernel + ABI exit reason** — DONE 2026-08-19 (PR-2 with step 3):
+   `task::ExitReason { Voluntary, Fault{cause}, Killed }` folded into
+   `exit_code: Option<(i32, ExitReason)>` (reason can never exist without the
+   code); set at all five death sites — `sys_exit` (voluntary), USER-PF kill
+   (scause low byte), ecall-from-unmapped-sepc (synthetic 0xF1), two SATP
+   fail-fast sites (Killed) via the `exit_current_faulted/killed` funnels;
+   `wait`/`wait_nohang` pack the reason into the high a1 bits (old decoders
+   cast `as i32` — invisible, compatible). ABI: cfg-free `ExitReason` +
+   `decode_wait_status` + `label()` (3 host roundtrip tests, incl. reserved
+   tag 1 → Unknown, never silently Error) + `wait_with_reason` /
+   `wait_nohang_with_reason` (old wrappers delegate). Finding (e) closed:
+   `errno.rs` TransferError identity split (ESRCH/ENOSPC/EINVAL/EPERM).
+   Structure-ratchet splits alongside: `task/exit_reason.rs`,
+   `task/affinity.rs`.
+3. ✅ **execd plumbing** — DONE 2026-08-19 (PR-2): reap via
+   `wait_nohang_with_reason`, `(code, reason)` exit cache, crash decision on
+   the REAL reason (`Fault|Killed` always crash; voluntary non-zero stays
+   one; clean never), truth line `execd: exit pid=<p> reason=<label>
+   code=<c>` once per child, `reason=` field in the crash.v1 envelope,
+   additive reason+cause tail bytes on the `OP_WAIT_PID` reply, new
+   `IMG_FAULT=5` → `demo.fault` payload (prints `child: fault start`, then
+   `lbu a0, 0(x0)`). QEMU proof (headless 2026-08-19T17-25-10, gated in
+   full + headless|smp1): all three taxonomy classes in ONE boot —
+   `reason=clean code=0`, `reason=fault code=-22`, `reason=error code=42` —
+   plus `SELFTEST: exit reason ok`.
 4. **Exhaustion events**: gpud + statefsd transitions, selftest knobs, markers.
 5. ✅ **Proof reanimation** — DONE 2026-08-19 (PR-1, delivered before step 2 —
    independent of the ABI work): chain restored verbatim from af0c7a8d^,

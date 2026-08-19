@@ -271,9 +271,17 @@ pub(crate) fn execd_report_exit_with_dump(
 
 // Wired again since the TASK-0049 reanimation (2026-08-19).
 pub(crate) fn wait_for_pid(execd: &KernelClient, pid: Pid) -> Option<i32> {
-    // Execd IPC v1:
+    wait_for_pid_with_reason(execd, pid).map(|(code, _reason, _cause)| code)
+}
+
+/// ADR-0056: `OP_WAIT_PID` incl. the kernel-attributed exit reason tail
+/// (reason tag byte + fault-cause byte). Tag: 0 clean / 1 error / 2 fault /
+/// 3 killed / 0xFF unknown.
+pub(crate) fn wait_for_pid_with_reason(execd: &KernelClient, pid: Pid) -> Option<(i32, u8, u8)> {
+    // Execd IPC:
     // Wait:     [E, X, ver, OP_WAIT_PID=3, pid:u32le]
-    // Response: [E, X, ver, OP_WAIT_PID|0x80, status:u8, pid:u32le, code:i32le]
+    // Response: [E, X, ver, OP_WAIT_PID|0x80, status:u8, pid:u32le, code:i32le,
+    //            reason:u8, cause:u8]
     const MAGIC0: u8 = b'E';
     const MAGIC1: u8 = b'X';
     const VERSION: u8 = 1;
@@ -312,7 +320,7 @@ pub(crate) fn wait_for_pid(execd: &KernelClient, pid: Pid) -> Option<i32> {
                 continue;
             }
         };
-        if rsp.len() != 13 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
+        if rsp.len() != 15 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
             return None;
         }
         if rsp[3] != (OP_WAIT_PID | 0x80) {
@@ -326,7 +334,7 @@ pub(crate) fn wait_for_pid(execd: &KernelClient, pid: Pid) -> Option<i32> {
             return None;
         }
         let code = i32::from_le_bytes([rsp[9], rsp[10], rsp[11], rsp[12]]);
-        return Some(code);
+        return Some((code, rsp[13], rsp[14]));
     }
     None
 }

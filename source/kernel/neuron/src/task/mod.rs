@@ -33,37 +33,6 @@ pub const ALL_CPUS_MASK: u8 = ((1u16 << crate::smp::MAX_CPUS) - 1) as u8;
 /// Default scheduling shares (one preemption tick per slice).
 pub const DEFAULT_SHARES: u16 = 100;
 
-/// Validates an affinity mask at the ABI boundary: non-empty, within the
-/// CPU ceiling, and intersecting the online set (a mask of only-offline CPUs
-/// would strand the task forever).
-pub fn validate_affinity_mask(mask: usize, online_mask: usize) -> Result<u8, ()> {
-    if mask == 0 || mask > ALL_CPUS_MASK as usize {
-        return Err(());
-    }
-    if mask & online_mask == 0 {
-        return Err(());
-    }
-    Ok(mask as u8)
-}
-
-/// Clamps a home CPU into an affinity mask: keeps `home` when allowed,
-/// otherwise picks the first ONLINE CPU in the mask (boot as last resort).
-pub fn clamp_home_to_affinity(
-    mask: u8,
-    home: crate::types::CpuId,
-    online_mask: usize,
-) -> crate::types::CpuId {
-    if mask & (1u8 << home.as_index()) != 0 && online_mask & (1usize << home.as_index()) != 0 {
-        return home;
-    }
-    for idx in 0..crate::smp::MAX_CPUS {
-        if mask & (1u8 << idx) != 0 && online_mask & (1usize << idx) != 0 {
-            return crate::types::CpuId::from_raw(idx as u16);
-        }
-    }
-    crate::types::CpuId::BOOT
-}
-
 /// Lifecycle state of a task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskState {
@@ -139,6 +108,11 @@ pub enum WaitError {
     /// Target child exists but has not exited yet.
     WouldBlock,
 }
+
+mod affinity;
+mod exit_reason;
+pub use affinity::{clamp_home_to_affinity, validate_affinity_mask};
+pub use exit_reason::ExitReason;
 
 #[cfg(target_os = "none")]
 mod stack_pool;
@@ -309,7 +283,9 @@ pub struct Task {
     pid: Pid,
     parent: Option<Pid>,
     state: TaskState,
-    exit_code: Option<i32>,
+    /// Exit code + ADR-0056 reason — present exactly while the task is a
+    /// reapable zombie, so the reason can never outlive or predate the code.
+    exit_code: Option<(i32, ExitReason)>,
     frame: TrapFrame,
     caps: CapTable,
     trap_domain: TrapDomainId,
@@ -423,7 +399,7 @@ impl Task {
 
     /// Returns the stored exit code, if any.
     pub fn exit_code(&self) -> Option<i32> {
-        self.exit_code
+        self.exit_code.map(|(code, _reason)| code)
     }
 
     /// Returns the child list.
@@ -1007,13 +983,13 @@ impl TaskTable {
     /// the zombie keeps only its exit code, so its image memory is the
     /// caller's to hand back to the arena (see `syscall::api::task_image`).
     #[must_use = "a dropped image record leaks the task's arena memory"]
-    pub fn exit_current(&mut self, status: i32) -> ImageAllocs {
+    pub fn exit_current(&mut self, status: i32, reason: ExitReason) -> ImageAllocs {
         let pid = self.current_pid().as_index();
         let Some(task) = self.tasks.get_mut(pid) else {
             return ImageAllocs::new();
         };
         task.state = TaskState::Zombie;
-        task.exit_code = Some(status);
+        task.exit_code = Some((status, reason));
         task.caps = CapTable::default();
         task.bootstrap_slot = None;
         task.frame = TrapFrame::default();
@@ -1151,7 +1127,7 @@ impl TaskTable {
         &mut self,
         target: Option<Pid>,
         address_spaces: &mut AddressSpaceManager,
-    ) -> Result<(Pid, i32), WaitError> {
+    ) -> Result<(Pid, i32, ExitReason), WaitError> {
         let parent_pid = self.current_pid();
         let parent_index = parent_pid.as_index();
         if parent_index >= self.tasks.len() {
@@ -1195,7 +1171,7 @@ impl TaskTable {
             return Err(WaitError::NoSuchPid);
         }
 
-        let status = {
+        let (status, reason) = {
             let child_task = self.tasks.get(child_index).ok_or(WaitError::NoSuchPid)?;
             if child_task.parent != Some(parent_pid) {
                 return Err(WaitError::NoSuchPid);
@@ -1250,7 +1226,7 @@ impl TaskTable {
             }
         }
 
-        Ok((selected_pid, status))
+        Ok((selected_pid, status, reason))
     }
 }
 

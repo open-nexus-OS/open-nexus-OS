@@ -59,7 +59,7 @@ use ipc_msg::*;
 use ipc_recv_v2::*;
 use sched_task::*;
 use sync_objects::*;
-pub(crate) use task_image::exit_current_and_release;
+pub(crate) use task_image::{exit_current_and_release, exit_current_faulted, exit_current_killed};
 use vm_map::*;
 pub(crate) use vm_map::{vm_unmap_clear, vm_unmap_finish};
 pub use vmo::vmo_idle_zero_step;

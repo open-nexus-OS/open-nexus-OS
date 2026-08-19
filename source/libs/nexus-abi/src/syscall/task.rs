@@ -457,12 +457,21 @@ pub fn exit(status: i32) -> ! {
 /// Waits for the child identified by `pid` (or any child when `pid <= 0`).
 #[cfg(nexus_env = "os")]
 pub fn wait(pid: i32) -> SysResult<(Pid, i32)> {
+    wait_with_reason(pid).map(|(pid, code, _reason)| (pid, code))
+}
+
+/// ADR-0056: `wait` plus the kernel-attributed exit reason. Supervision and
+/// crash reporting MUST use this variant — the bare exit code cannot tell a
+/// fault kill from a voluntary `exit(-22)`.
+#[cfg(nexus_env = "os")]
+pub fn wait_with_reason(pid: i32) -> SysResult<(Pid, i32, ExitReason)> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_WAIT: usize = 12;
         let (raw_pid, raw_status) = unsafe { ecall1_pair(SYSCALL_WAIT, pid as usize) };
         let pid = decode_syscall(raw_pid)?;
-        Ok((pid as Pid, raw_status as i32))
+        let (code, reason) = ExitReason::decode_wait_status(raw_status);
+        Ok((pid as Pid, code, reason))
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
@@ -477,6 +486,14 @@ pub fn wait(pid: i32) -> SysResult<(Pid, i32)> {
 /// `None` so its exited children's address spaces are reclaimed promptly.
 #[cfg(nexus_env = "os")]
 pub fn wait_nohang() -> SysResult<Option<(Pid, i32)>> {
+    wait_nohang_with_reason().map(|opt| opt.map(|(pid, code, _reason)| (pid, code)))
+}
+
+/// ADR-0056: `wait_nohang` plus the kernel-attributed exit reason (see
+/// [`wait_with_reason`]). The reaper-of-record uses this so crash handling
+/// never has to guess from the exit code.
+#[cfg(nexus_env = "os")]
+pub fn wait_nohang_with_reason() -> SysResult<Option<(Pid, i32, ExitReason)>> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_WAIT_NOHANG: usize = 52;
@@ -487,7 +504,8 @@ pub fn wait_nohang() -> SysResult<Option<(Pid, i32)>> {
             // 0 = nothing ready to reap (a reaped child is always pid >= 1).
             Ok(None)
         } else {
-            Ok(Some((pid as Pid, raw_status as i32)))
+            let (code, reason) = ExitReason::decode_wait_status(raw_status);
+            Ok(Some((pid as Pid, code, reason)))
         }
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]

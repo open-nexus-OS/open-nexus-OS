@@ -1,6 +1,10 @@
 # ADR-0056: The kernel records WHY a task exited and exposes it through wait — exit code alone is not failure truth
 
-- Status: Accepted
+- Status: Accepted (implemented 2026-08-19 — TASK-0049 PR-2; the panic
+  sub-flag is DEFERRED: the kernel taxonomy ships without it, and the
+  service-runtime marker lands when the panic handler is next touched.
+  Until then a panic arrives as `Error` via its abort exit code, which the
+  taxonomy already treats as a crash.)
 - Date: 2026-08-18
 - Links:
   - Tasks: `tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md` (execution + proof)

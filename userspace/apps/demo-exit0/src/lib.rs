@@ -24,6 +24,10 @@ pub const DEMO_MINIDUMP_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/d
 pub const DEMO_VMO_CONSUMER_ELF: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/demo-vmo-consumer.elf"));
 
+/// Prebuilt ELF payload that dereferences VA 0 after printing its marker —
+/// the deterministic `ExitReason::Fault` proof child (TASK-0049 / ADR-0056).
+pub const DEMO_FAULT_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/demo-fault.elf"));
+
 /// Manifest used by selftests when staging `demo.exit0` through bundlemgrd.
 pub const DEMO_EXIT0_MANIFEST_TOML: &str = r#"name = \"demo.exit0\"
 version = \"0.0.1\"

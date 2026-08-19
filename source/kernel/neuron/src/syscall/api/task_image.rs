@@ -56,8 +56,26 @@ pub fn release_image(allocs: &ImageAllocs) -> usize {
 
 /// Exits the current task and returns its process image to the arena — the
 /// single funnel every exit path uses (`sys_exit` and the trap handler's
-/// fault exits), so no teardown can forget the memory.
-pub fn exit_current_and_release(tasks: &mut TaskTable, status: i32) {
-    let allocs = tasks.exit_current(status);
+/// fault exits), so no teardown can forget the memory. The caller states WHY
+/// the task dies (ADR-0056) so `wait` can deliver kernel truth instead of an
+/// ambiguous exit code.
+pub fn exit_current_and_release(
+    tasks: &mut TaskTable,
+    status: i32,
+    reason: crate::task::ExitReason,
+) {
+    let allocs = tasks.exit_current(status, reason);
     let _ = release_image(&allocs);
+}
+
+/// Trap-handler funnel: the kernel killed the current task on a trap
+/// (`ExitReason::Fault`, cause = scause low byte or a synthetic ≥0xF0 code).
+pub fn exit_current_faulted(tasks: &mut TaskTable, cause: u8) {
+    exit_current_and_release(tasks, -22, crate::task::ExitReason::Fault { cause });
+}
+
+/// Trap-handler funnel: kernel fail-fast termination (`ExitReason::Killed`,
+/// e.g. a SATP activation failure that makes the task unresumable).
+pub fn exit_current_killed(tasks: &mut TaskTable) {
+    exit_current_and_release(tasks, -22, crate::task::ExitReason::Killed);
 }

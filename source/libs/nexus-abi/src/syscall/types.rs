@@ -95,6 +95,64 @@ pub enum AbiError {
     Unsupported,
 }
 
+/// WHY a child died — kernel truth delivered alongside the exit code by
+/// `wait_with_reason`/`wait_nohang_with_reason` (ADR-0056). `Clean`/`Error`
+/// are the consumer-side split of a voluntary exit by its code; `Fault` and
+/// `Killed` come from the kernel and can never be asserted by the child.
+/// (cfg-free on purpose: the decode is pure logic, host-tested below.)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExitReason {
+    /// Voluntary `exit(0)`.
+    Clean,
+    /// Voluntary `exit(code != 0)` (panic-abort paths land here too).
+    Error,
+    /// Kernel killed the task on a trap. `cause` is the scause low byte, or
+    /// a synthetic code ≥ 0xF0 (0xF1 = ecall from unmapped sepc).
+    Fault {
+        /// scause low byte / synthetic ≥0xF0 code.
+        cause: u8,
+    },
+    /// An authority terminated the task (kernel fail-fast; policy/OOM later).
+    Killed,
+    /// The kernel sent a reason tag this ABI build does not know. NEVER
+    /// folded into another variant (ADR-0054 discipline; fail closed).
+    Unknown,
+}
+
+impl ExitReason {
+    /// Decodes the packed a1 status register from `wait`/`wait_nohang`:
+    /// low 32 bits = exit code, high 32 bits = the kernel wire word
+    /// (low byte reason tag 0/2/3, next byte fault cause).
+    pub fn decode_wait_status(raw_status: usize) -> (i32, Self) {
+        let code = raw_status as u32 as i32;
+        let word = (raw_status >> 32) as u32;
+        let reason = match word & 0xff {
+            0 => {
+                if code == 0 {
+                    Self::Clean
+                } else {
+                    Self::Error
+                }
+            }
+            2 => Self::Fault { cause: ((word >> 8) & 0xff) as u8 },
+            3 => Self::Killed,
+            _ => Self::Unknown,
+        };
+        (code, reason)
+    }
+
+    /// Deterministic label for markers/log fields.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Clean => "clean",
+            Self::Error => "error",
+            Self::Fault { .. } => "fault",
+            Self::Killed => "killed",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 /// Spawn failure reasons reported by the kernel (RFC-0013).
 #[cfg(nexus_env = "os")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -189,5 +247,44 @@ impl AbiError {
             // turned every fence/waitset timeout into a silent pseudo-Ok).
             _ => Some(Self::Unknown),
         }
+    }
+}
+
+#[cfg(test)]
+mod exit_reason_tests {
+    use super::ExitReason;
+
+    /// Mirrors the kernel's `ExitReason::wire_bits` packing (a1 high half).
+    fn pack(tag: u32, cause: u32, code: i32) -> usize {
+        (((tag | (cause << 8)) as usize) << 32) | (code as u32 as usize)
+    }
+
+    #[test]
+    fn decode_clean_and_error_split_voluntary_by_code() {
+        assert_eq!(ExitReason::decode_wait_status(pack(0, 0, 0)), (0, ExitReason::Clean));
+        assert_eq!(ExitReason::decode_wait_status(pack(0, 0, 42)), (42, ExitReason::Error));
+        assert_eq!(ExitReason::decode_wait_status(pack(0, 0, -22)), (-22, ExitReason::Error));
+    }
+
+    #[test]
+    fn decode_fault_carries_cause() {
+        assert_eq!(
+            ExitReason::decode_wait_status(pack(2, 13, -22)),
+            (-22, ExitReason::Fault { cause: 13 })
+        );
+        assert_eq!(
+            ExitReason::decode_wait_status(pack(2, 0xF1, -22)),
+            (-22, ExitReason::Fault { cause: 0xF1 })
+        );
+    }
+
+    #[test]
+    fn decode_killed_and_unknown_never_collapse() {
+        assert_eq!(ExitReason::decode_wait_status(pack(3, 0, -22)), (-22, ExitReason::Killed));
+        // Unknown tag stays Unknown (ADR-0054: no wildcard folding).
+        assert_eq!(ExitReason::decode_wait_status(pack(9, 0, 0)), (0, ExitReason::Unknown));
+        // Reserved tag 1 (consumer-side error) must not arrive from the
+        // kernel; if it ever does, it is Unknown — not silently Error.
+        assert_eq!(ExitReason::decode_wait_status(pack(1, 0, 5)), (5, ExitReason::Unknown));
     }
 }
