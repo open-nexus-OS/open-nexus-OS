@@ -162,11 +162,33 @@ re-provisions from declared topology only).
 - `source/apps/selftest-client/proof-manifest/markers/` + `scripts/qemu-test.sh`
 - `docs/reliability/` (supervision section), `docs/services/lifecycle.md`
 
-## Plan (small PRs)
+## Plan (small PRs) — resequenced 2026-08-20 (observation → engine → protocol)
 
-1. Spec fields + host tests (pure, no OS risk).
-2. samgrd staleness + rejects (host-first).
-3. Connection re-resolve (host-first, mock transport).
-4. os-lite restart port + exit-report edge + markers.
-5. Crash-loop persistence + double-boot proof.
-6. Standing fault injector + full gates (`just test-all`).
+1. ✅ **PR-B1 (2026-08-20) — observation + policy SSOT**: init sweeps its own
+   children (`bootstrap/supervision.rs`, the kernel forces this — see the
+   resolved RED), death line with ADR-0056 truth, one-shot exit0 probe
+   proves the sweep every boot (gated full/headless/smp1), FATAL guard on a
+   real service death in proof boots. `service_supervision.rs` policy SSOT
+   (tiers/restart/DEFAULT_BACKOFF, 3 host tests).
+2. ✅ **PR-B2 (2026-08-20) — restart engine + standing fault injector**:
+   pure `supervision_engine.rs` (injected time, ADR-0056 reason input,
+   decisions as values; 5 host tests: exact 500→1000→2000→4000 schedule +
+   clamp, cap exactly at threshold and terminal, window aging, clean never
+   counts across all three policies, due/ack roundtrip; `ExitReason` gained
+   a host-side re-export in nexus-abi for this). Standing injector
+   (ADR-0048 doctrine): a supervised `demo.fault` child with a tight test
+   backoff walks REAL kernel fault exits through the engine every boot —
+   `init: restart svc=fault-probe attempt=0x1..0x4`,
+   `SELFTEST: supervision restart ok` (2nd exit = the restarted child ran),
+   `init: crash-loop blocked svc=fault-probe reason=fault` +
+   `SELFTEST: crash-loop cap ok` at the 5th; all verdicts fail-loud
+   (cap without proven restart = FAIL, clean reason on the fault probe =
+   FAIL). Gated full/headless/smp1. Boot 2026-08-20T12-33-59: full cycle
+   visible, ladder green.
+3. **PR-B3 — the ADR-0057 protocol on real services**: samgrd staleness +
+   rejects (host-first), Connection re-resolve (host-first, mock
+   transport), restart of REAL declarative services via the generic
+   orchestrator provisioning path (no-rights-drift; resource sentinel under
+   restart storm), crash-loop counter persistence (statefs envelope) +
+   double-boot proof (`SELFTEST: crash-loop persist ok`), and the
+   critical-session re-attach contract text per RFC-0087 §3.

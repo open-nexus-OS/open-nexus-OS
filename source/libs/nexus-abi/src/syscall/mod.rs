@@ -26,6 +26,11 @@ pub use task::*;
 pub use time::*;
 #[cfg(nexus_env = "os")]
 pub use types::*;
+// ADR-0056: `ExitReason` is deliberately cfg-free (pure decode logic, host
+// tested + host consumers like the supervision engine); the os glob above
+// already covers it there, so the explicit re-export is host-only.
+#[cfg(not(nexus_env = "os"))]
+pub use types::ExitReason;
 
 // Root-level shared items the submodules reach through their `use super::*`.
 #[cfg(nexus_env = "os")]

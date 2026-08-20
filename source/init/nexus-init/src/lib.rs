@@ -42,6 +42,7 @@ pub mod slot_map;
 /// the `.cml`-equivalent: pure data, validated on the host.
 pub mod service_supervision;
 pub mod service_topology;
+pub mod supervision_engine;
 
 /// Typed capability routing table — binds the declarative routes to OS capability
 /// slots (`nexus_abi::Rights`), hence OS-only.

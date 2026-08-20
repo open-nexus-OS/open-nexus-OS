@@ -1081,3 +1081,31 @@ phase = "bringup"
 
 [marker."init: FAIL supervision probe resume"]
 phase = "bringup"
+
+# TASK-0049B PR-B2 standing fault injector (init emits every boot).
+[marker."SELFTEST: supervision restart ok"]
+phase = "bringup"
+
+[marker."SELFTEST: supervision restart FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: crash-loop cap ok"]
+phase = "bringup"
+
+[marker."SELFTEST: crash-loop cap FAIL"]
+phase = "bringup"
+
+[marker."init: restart svc=fault-probe attempt=0x"]
+phase = "bringup"
+
+[marker."init: crash-loop blocked svc=fault-probe reason="]
+phase = "bringup"
+
+[marker."init: FAIL fault-probe spawn"]
+phase = "bringup"
+
+[marker."init: FAIL fault-probe resume"]
+phase = "bringup"
+
+[marker."init: FAIL fault-probe respawn"]
+phase = "bringup"

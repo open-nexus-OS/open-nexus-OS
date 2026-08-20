@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-20 (TASK-0049B PR-B2: restart engine + standing fault injector)
+
+- **Supervision acts now, deterministically**: the restart/backoff/crash-loop
+  engine is pure and host-tested (`supervision_engine.rs` — injected time,
+  ADR-0056 exit reasons as input, decisions as values; exact
+  500→1000→2000→4000 schedule with clamp, cap exactly at the threshold and
+  terminal, window aging, and `clean` never burns budget under any policy).
+  A standing fault injector (ADR-0048 doctrine) proves it with REAL kernel
+  fault exits every boot: a supervised `demo.fault` child is restarted with
+  backoff (`init: restart svc=fault-probe attempt=0x1..0x4`), the second
+  exit proves the restarted child ran (`SELFTEST: supervision restart ok`),
+  and the fifth crash parks it (`init: crash-loop blocked svc=fault-probe
+  reason=fault` + `SELFTEST: crash-loop cap ok`) — gated on full, headless
+  and smp1, with fail-loud verdicts for every degenerate path. Real-service
+  restarts (ADR-0057 re-provisioning, samgrd staleness, client re-resolve)
+  and counter persistence follow in PR-B3.
+
 ### Added - 2026-08-20 (TASK-0049B PR-B1: init observes every service death)
 
 - **A dying boot service is no longer invisible**: boot services are init's

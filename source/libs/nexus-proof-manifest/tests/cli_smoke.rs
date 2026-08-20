@@ -103,14 +103,16 @@ fn list_markers_full_is_byte_identical_lower_bound() {
     // whose `forbidden_when` does not. Baseline history: ~476 after the
     // TASK-0055/0056 ladders; ~542 after the 2026-07 repo-hygiene back-fill
     // (all remaining SELFTEST FAIL/diagnostic literals declared per Rule 3,
-    // visible-bootstrap-only markers removed with that profile). If it drifts
-    // outside the range, the harness must be told.
+    // visible-bootstrap-only markers removed with that profile); ~627 after
+    // the TASK-0049/0049B reliability spine (reanimated exec/crash/minidump
+    // chain, exit-reason truth, supervision sweep + fault-injector markers).
+    // If it drifts outside the range, the harness must be told.
     let (code, stdout, stderr) = run(&["list-markers", "--profile=full", &manifest_arg()]);
     assert_eq!(code, 0, "stderr=`{stderr}`");
     let count = stdout.lines().filter(|l| !l.is_empty()).count();
     assert!(
-        (500..=620).contains(&count),
-        "list-markers full produced {count} markers; expected ~542 (range 500..=620)"
+        (580..=700).contains(&count),
+        "list-markers full produced {count} markers; expected ~627 (range 580..=700)"
     );
 }
 
