@@ -20,7 +20,7 @@ use nexus_ipc::reqrep::FrameStash;
 /// Run the routing responder loop forever. Only returns via `fatal()` on watchdog expiry.
 pub(crate) fn run_responder_loop(
     ctrl_channels: Vec<CtrlChannel>,
-    route_table: RouteTable,
+    mut route_table: RouteTable,
     pol_ctl_route_req: u32,
     pol_ctl_route_rsp: u32,
     pol_ctl_exec_req: u32,
@@ -46,7 +46,7 @@ pub(crate) fn run_responder_loop(
     // death with kernel truth; the one-shot probe proves the sweep each boot.
     let mut supervision = crate::bootstrap::supervision::SupervisionSweep::start();
     loop {
-        supervision.sweep(&ctrl_channels);
+        supervision.sweep(&ctrl_channels, &mut route_table);
         for chan in &ctrl_channels {
             let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
             let mut buf = [0u8; 64];
@@ -339,6 +339,11 @@ pub(crate) fn run_responder_loop(
             let (status, send_slot, recv_slot) =
                 match route_table.lookup_by_name(chan.svc_name.as_bytes(), name) {
                     Ok(route) => (nexus_abi::routing::STATUS_OK, route.send.slot, route.recv.slot),
+                    // ADR-0057: a dead target answers STALE — never the dangling
+                    // slots of a corpse, and never a misleading NOT_FOUND.
+                    Err(crate::route_table::RouteError::TargetStale) => {
+                        (nexus_abi::routing::STATUS_STALE, 0u32, 0u32)
+                    }
                     Err(_) => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 };
             if name == b"statefsd" {

@@ -67,6 +67,10 @@ pub enum RouteError {
     RouteNotFound,
     /// A route with the same (from, to) already exists.
     DuplicateRoute,
+    /// ADR-0057: the target is registered but currently dead (marked stale
+    /// by the supervision sweep); its recorded slots would dangle. Cleared
+    /// when the restarted instance is re-provisioned.
+    TargetStale,
 }
 
 /// Central routing table — maps (requester, target) → ServiceRoute.
@@ -77,6 +81,10 @@ pub enum RouteError {
 #[derive(Default)]
 pub struct RouteTable {
     routes: Vec<RouteEntry>,
+    /// ADR-0057: services currently DEAD (marked by the supervision sweep,
+    /// cleared on re-provisioning). Routes to them resolve to `TargetStale`
+    /// instead of handing out slots that would dangle on a corpse.
+    stale: Vec<ServiceId>,
 }
 
 /// Internal route storage entry.
@@ -89,7 +97,25 @@ struct RouteEntry {
 impl RouteTable {
     /// Create an empty routing table with space for 64 routes.
     pub fn new() -> Self {
-        Self { routes: Vec::with_capacity(64) }
+        Self { routes: Vec::with_capacity(64), stale: Vec::new() }
+    }
+
+    /// ADR-0057: mark `id` dead — subsequent resolves answer `TargetStale`
+    /// (wire `STATUS_STALE`) until [`RouteTable::clear_stale`].
+    pub fn mark_stale(&mut self, id: ServiceId) {
+        if !self.stale.contains(&id) {
+            self.stale.push(id);
+        }
+    }
+
+    /// ADR-0057: the restarted instance is re-provisioned — resolves flow again.
+    pub fn clear_stale(&mut self, id: ServiceId) {
+        self.stale.retain(|s| *s != id);
+    }
+
+    /// `true` while `id` is marked dead.
+    pub fn is_stale(&self, id: ServiceId) -> bool {
+        self.stale.contains(&id)
     }
 
     /// Add a route from `from` to `to`. Overwrites if already present.
@@ -112,7 +138,13 @@ impl RouteTable {
     ) -> Result<ServiceRoute, RouteError> {
         let from = ServiceId::from_name(from_name).ok_or(RouteError::UnknownService)?;
         let to = ServiceId::from_name(to_name).ok_or(RouteError::UnknownService)?;
-        self.lookup(from, to).ok_or(RouteError::RouteNotFound)
+        let route = self.lookup(from, to).ok_or(RouteError::RouteNotFound)?;
+        // Stale check AFTER the route check: "you have no route" and "your
+        // target is down" are different answers (ADR-0054 discipline).
+        if self.is_stale(to) {
+            return Err(RouteError::TargetStale);
+        }
+        Ok(route)
     }
 
     /// Iterate all routes from a given service.
@@ -185,6 +217,29 @@ mod tests {
         let route = table.lookup_by_name(b"gpud", b"windowd").expect("route should exist");
         assert_eq!(route.send.slot, 0x30);
         assert_eq!(route.recv.slot, 0x31);
+    }
+
+    /// ADR-0057: a dead target answers `TargetStale` (distinct from
+    /// RouteNotFound — "you have no route" vs "your target is down"), and
+    /// clearing the mark restores the route unchanged.
+    #[test]
+    fn stale_target_is_a_distinct_answer_and_recovers() {
+        let mut table = RouteTable::new();
+        table.add_route(
+            ServiceId::Gpud,
+            ServiceId::Windowd,
+            CapSlot::new(0x30, Rights::SEND),
+            CapSlot::new(0x31, Rights::RECV),
+        );
+        table.mark_stale(ServiceId::Windowd);
+        assert!(matches!(table.lookup_by_name(b"gpud", b"windowd"), Err(RouteError::TargetStale)));
+        // No route at all stays RouteNotFound, stale or not.
+        assert!(matches!(table.lookup_by_name(b"gpud", b"vfsd"), Err(RouteError::RouteNotFound)));
+        // Idempotent mark, then recovery.
+        table.mark_stale(ServiceId::Windowd);
+        table.clear_stale(ServiceId::Windowd);
+        let route = table.lookup_by_name(b"gpud", b"windowd").expect("route restored");
+        assert_eq!(route.send.slot, 0x30);
     }
 
     #[test]

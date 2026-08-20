@@ -7,7 +7,9 @@
 
 // ——— Task and capability primitives (OS build) ———
 
-#[cfg(nexus_env = "os")]
+// `Rights` is cfg-free on purpose: pure bitflags data consumed by
+// host-tested logic (init's RouteTable, ADR-0057) — same rule as
+// `ExitReason` below. The syscalls taking it stay os-gated.
 bitflags::bitflags! {
     /// Rights mask accepted by capability-transfer syscalls.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

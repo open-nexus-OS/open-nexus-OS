@@ -102,7 +102,11 @@ impl SupervisionSweep {
     /// One bounded drain of exited children (called once per responder
     /// round). Every reaped death is announced exactly once — the kernel
     /// reap itself is the once-latch.
-    pub(crate) fn sweep(&mut self, channels: &[CtrlChannel]) {
+    pub(crate) fn sweep(
+        &mut self,
+        channels: &[CtrlChannel],
+        route_table: &mut crate::route_table::RouteTable,
+    ) {
         // init's child count is the boot service fleet; 8 per round drains
         // any realistic burst without letting a pathological loop spin.
         for _ in 0..8 {
@@ -121,7 +125,7 @@ impl SupervisionSweep {
                         self.injector.on_exit(code, reason);
                         continue;
                     }
-                    announce_service_exit(pid, code, reason, channels);
+                    announce_service_exit(pid, code, reason, channels, route_table);
                 }
                 Ok(None) | Err(_) => break,
             }
@@ -214,9 +218,21 @@ fn spawn_fault_probe() -> Option<u32> {
 /// kernel-truth death line for a boot service (RFC-0087 §2). `name=unknown`
 /// for a child without a control channel (nothing supervised is nameless;
 /// if this ever prints, that is the finding).
-fn announce_service_exit(pid: u32, code: i32, reason: ExitReason, channels: &[CtrlChannel]) {
+fn announce_service_exit(
+    pid: u32,
+    code: i32,
+    reason: ExitReason,
+    channels: &[CtrlChannel],
+    route_table: &mut crate::route_table::RouteTable,
+) {
     let name =
         channels.iter().find(|chan| chan.pid == pid).map(|chan| chan.svc_name).unwrap_or("unknown");
+    // ADR-0057: the moment a service is known dead, its routes answer STALE
+    // instead of handing out slots that dangle on the corpse. Cleared when a
+    // restarted instance is re-provisioned (PR-B3b).
+    if let Some(id) = crate::service_topology::ServiceId::from_name(name.as_bytes()) {
+        route_table.mark_stale(id);
+    }
     debug_write_bytes(b"init: service exit name=");
     debug_write_bytes(name.as_bytes());
     debug_write_bytes(b" reason=");

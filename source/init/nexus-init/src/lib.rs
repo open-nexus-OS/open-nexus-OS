@@ -44,9 +44,11 @@ pub mod service_supervision;
 pub mod service_topology;
 pub mod supervision_engine;
 
-/// Typed capability routing table — binds the declarative routes to OS capability
-/// slots (`nexus_abi::Rights`), hence OS-only.
-#[cfg(all(feature = "os-payload", nexus_env = "os"))]
+/// Typed capability routing table — binds the declarative routes to capability
+/// slots. cfg-free since ADR-0057 (`Rights` is plain bitflags data): the
+/// stale/lookup logic is host-proven, only the bootstrap wiring that FILLS
+/// it is OS-only. (This settles the RFC-0066 "route_table host-testability
+/// is Phase 2" debt.)
 pub mod route_table;
 
 /// Bootstrap subsystem — split from os_payload.rs per RFC-0061.

@@ -23,6 +23,11 @@ pub const STATUS_NOT_FOUND: u8 = 1;
 pub const STATUS_MALFORMED: u8 = 2;
 /// Request was understood but denied by policy.
 pub const STATUS_DENIED: u8 = 3;
+/// ADR-0057: the target service is registered but currently DEAD — its old
+/// slots would dangle. Clients retry bounded (the supervisor restarts and
+/// re-registers; RFC-0025 deadline semantics apply) instead of hammering a
+/// corpse or misreading the outage as "no such service".
+pub const STATUS_STALE: u8 = 4;
 
 /// Maximum supported service-name length in routing frames.
 pub const MAX_SERVICE_NAME_LEN: usize = 48;

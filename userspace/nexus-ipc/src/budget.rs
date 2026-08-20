@@ -56,6 +56,12 @@ pub enum RouteRetryOutcome {
     },
     /// Route operation timed out under budget.
     Timeout,
+    /// ADR-0057: the target service is registered but currently DEAD (the
+    /// supervisor marked it stale). The whole budget was spent retrying —
+    /// the restarted instance did not come back inside the deadline. Callers
+    /// treat this like Timeout for flow control but keep the identity for
+    /// diagnosis (ADR-0054: never collapse it into Rejected).
+    TargetStale,
     /// Too many nonce mismatches were observed.
     NonceMismatchBudgetExceeded,
     /// Route response decoded but returned a non-OK status or malformed frame.
@@ -255,6 +261,7 @@ pub fn route_with_nonce_budgeted(
 
     let mut mismatches: u32 = 0;
     let mut loops: usize = 0;
+    let mut stale_seen = false;
     loop {
         if (loops & 0x1f) == 0 {
             match clock.now_ns() {
@@ -268,7 +275,13 @@ pub fn route_with_nonce_budgeted(
         let mut buf = [0u8; 32];
         let n = match raw::recv_budgeted(&clock, ctrl_recv_slot, &mut rh, &mut buf, deadline_ns) {
             Ok(v) => core::cmp::min(v, buf.len()),
-            Err(IpcError::Timeout) => return RouteRetryOutcome::Timeout,
+            Err(IpcError::Timeout) => {
+                return if stale_seen {
+                    RouteRetryOutcome::TargetStale
+                } else {
+                    RouteRetryOutcome::Timeout
+                }
+            }
             Err(e) => return RouteRetryOutcome::Ipc(e),
         };
 
@@ -298,11 +311,40 @@ pub fn route_with_nonce_budgeted(
             continue;
         }
 
-        return if status == nexus_abi::routing::STATUS_OK {
-            RouteRetryOutcome::Success { send_slot, recv_slot }
-        } else {
-            RouteRetryOutcome::Rejected
-        };
+        if status == nexus_abi::routing::STATUS_OK {
+            return RouteRetryOutcome::Success { send_slot, recv_slot };
+        }
+        if status == nexus_abi::routing::STATUS_STALE {
+            // ADR-0057 re-resolve: the target is dead but supervised — the
+            // supervisor restarts and re-provisions it, so KEEP RETRYING
+            // this same nonce-correlated ask until the deadline (RFC-0025
+            // bounded semantics). A dead-forever target ends as TargetStale,
+            // never as a hammering loop or a silent Rejected.
+            match clock.now_ns() {
+                Some(now) if now >= deadline_ns => return RouteRetryOutcome::TargetStale,
+                Some(_) => {
+                    stale_seen = true;
+                    let _ = nexus_abi::yield_();
+                    loops = loops.wrapping_add(1);
+                    if let Err(e) = raw::send_budgeted(
+                        &clock,
+                        ctrl_send_slot,
+                        &hdr,
+                        &req[..req_len],
+                        deadline_ns,
+                    ) {
+                        return match e {
+                            IpcError::Timeout if stale_seen => RouteRetryOutcome::TargetStale,
+                            IpcError::Timeout => RouteRetryOutcome::Timeout,
+                            other => RouteRetryOutcome::Ipc(other),
+                        };
+                    }
+                    continue;
+                }
+                None => return RouteRetryOutcome::Ipc(IpcError::Unsupported),
+            }
+        }
+        return RouteRetryOutcome::Rejected;
     }
 }
 

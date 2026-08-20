@@ -33,11 +33,16 @@ tree (RFC-0066/0069); restart must reuse exactly that machinery.
   declare. After N restarts, held rights and kernel resources are ≤ the state
   before the first restart (proved via the RFC-0013 resource sentinel under a
   restart storm).
-- **samgrd learns staleness.** When a supervised service dies, the supervisor
-  notifies samgrd; samgrd marks the service's registration **stale**. Resolves
-  against a stale entry return a deterministic `Stale`-class error (ADR-0054: no
-  wildcard) until the new instance re-registers, then resolves return the fresh
-  endpoint.
+- **The RESOLVE AUTHORITY learns staleness.** (Precision 2026-08-20, during
+  execution: the ADR originally named samgrd, but the repo's actual resolve
+  authority today is init's responder + `RouteTable` — samgrd is a secondary
+  self-scoped registry. Staleness lives where resolving happens; samgrd
+  inherits the same contract if/when it becomes the broker.) When a
+  supervised service dies, the supervision sweep marks it stale in the
+  `RouteTable`; resolves against a stale target return the deterministic
+  wire status `STATUS_STALE` (ADR-0054: distinct from NOT_FOUND — "you have
+  no route" vs "your target is down") until the restarted instance is
+  re-provisioned, which clears the mark.
 - **Clients re-resolve, triggered by PeerClosed.** A client observing
   `PeerClosed`/EOF (RFC-0079) or a stale-resolve error drops its cached cap and
   re-resolves via its broker connection (RFC-0066 `Connection`), under RFC-0025

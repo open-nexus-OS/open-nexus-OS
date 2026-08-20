@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-20 (TASK-0049B PR-B3a: staleness at the resolve authority)
+
+- **A dead service's routes answer STALE, not dangling slots**: the ADR-0057
+  staleness contract landed at the repo's REAL resolve authority — init's
+  responder + `RouteTable` (the ADR is amended: samgrd is a secondary
+  self-scoped registry today and inherits the contract if it becomes the
+  broker). The supervision sweep marks a service stale at its death line;
+  `lookup_by_name` answers `TargetStale` (distinct from RouteNotFound,
+  ADR-0054 discipline) and the responder wires it as the new routing
+  `STATUS_STALE`. Client side, `route_with_nonce_budgeted` keeps re-asking a
+  stale target until its deadline (RFC-0025 bounded re-resolve) and surfaces
+  `TargetStale` — never a hammering loop, never a silent Rejected. Enablers:
+  `Rights` is cfg-free (pure bitflags) and `route_table` is host-testable,
+  settling the RFC-0066 "route_table host-testability is Phase 2" debt (its
+  lookup tests had never actually run). The boot-positive STALE→OK proof
+  lands with PR-B3b's real-service restart (a proof boot forbids real
+  service deaths by design).
+
 ### Added - 2026-08-20 (TASK-0049B PR-B2: restart engine + standing fault injector)
 
 - **Supervision acts now, deterministically**: the restart/backoff/crash-loop

@@ -185,10 +185,25 @@ re-provisions from declared topology only).
    (cap without proven restart = FAIL, clean reason on the fault probe =
    FAIL). Gated full/headless/smp1. Boot 2026-08-20T12-33-59: full cycle
    visible, ladder green.
-3. **PR-B3 — the ADR-0057 protocol on real services**: samgrd staleness +
-   rejects (host-first), Connection re-resolve (host-first, mock
-   transport), restart of REAL declarative services via the generic
-   orchestrator provisioning path (no-rights-drift; resource sentinel under
-   restart storm), crash-loop counter persistence (statefs envelope) +
-   double-boot proof (`SELFTEST: crash-loop persist ok`), and the
+3. 🟨 **PR-B3a (2026-08-20) — staleness at the real resolve authority**
+   (ADR-0057 precision recorded in the ADR: the broker today is init's
+   responder + RouteTable, NOT samgrd — staleness lives where resolving
+   happens): `RouteTable` gained `mark_stale`/`clear_stale`,
+   `lookup_by_name` answers `TargetStale` (distinct from RouteNotFound,
+   ADR-0054), the responder wires it as the new routing `STATUS_STALE`, and
+   the supervision sweep marks a service stale at its death line. Client
+   side: `route_with_nonce_budgeted` keeps re-asking a STALE target until
+   the deadline (RFC-0025) and surfaces `TargetStale` — never a hammering
+   loop, never a silent Rejected. Enablers landed: `Rights` is cfg-free
+   (pure bitflags) and `route_table` is host-testable — the RFC-0066
+   "route_table host-testability is Phase 2" debt is settled (stale test +
+   the previously never-running lookup tests now run on host).
+   Boot-positive STALE answer is NOT provable yet (a proof boot forbids
+   real service deaths by design) — it lands with PR-B3b's restart of a
+   real service.
+4. **PR-B3b — restart of REAL declarative services** via the generic
+   orchestrator provisioning path (re-provision → `clear_stale` →
+   boot-positive STALE→OK proof; no-rights-drift via resource sentinel
+   under restart storm), crash-loop counter persistence (statefs envelope)
+   + double-boot proof (`SELFTEST: crash-loop persist ok`), and the
    critical-session re-attach contract text per RFC-0087 §3.
