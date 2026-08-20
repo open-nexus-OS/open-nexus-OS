@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-20 (TASK-0049B PR-B3c: restart counters that survive reboot — 0049B closed)
+
+- **Supervision now has a memory**: init persists a per-service restart
+  counter at `/state/init/restarts/<svc>` (`bootstrap/persist.rs`) over a
+  nonce-correlated statefs v2 wire on its own pre-minted slots, with strict
+  PUT+SYNC **before** `task_resume` — the record is durable before any
+  client can observe the restarted instance. init's policy identity is the
+  kernel-set `"init-lite"` id; `policies/base.toml` grants it
+  `statefs.read`/`statefs.write`. The end-phase proof is now a 3-cycle
+  restart **storm** with client slot hygiene (previous SEND cap closed
+  after each re-resolve — the consumer half of no-rights-drift) and a
+  counter truth assert (`SELFTEST: crash-loop count ok`); the keep-blk
+  double boot replays the baseline (`SELFTEST: crash-loop persist ok`).
+  RFC-0087 §3 gained the normative client re-attach contract.
+
+### Fixed - 2026-08-20 (statefsd: a dead-beat client can no longer wedge the state store)
+
+- **statefsd was silently DEAF from the exec phase on in every proof boot**:
+  it replied on the shared response queue with a blocking send, and
+  metricsd's retention writer never drains its replies (its statefs recv
+  slot aliases the logd reply inbox — follow-up recorded in TASK-0049B).
+  Eight abandoned replies filled the depth-8 queue and parked statefsd in
+  the send — invisible until TASK-0049B's end-phase traffic finally spoke
+  to statefsd after exec. The reply send is now bounded (500 ms) and drops
+  LOUD (`statefsd: rsp queue stalled (dropping reply)` +
+  `statefsd: dropped reply op=0x..`) — RFC-0087 exhaustion-is-an-event
+  applied to the server's own reply path.
+
 ### Added - 2026-08-20 (TASK-0049B PR-B3b: the first real supervised service restart)
 
 - **A real service dies and comes back — end to end, every boot**: the

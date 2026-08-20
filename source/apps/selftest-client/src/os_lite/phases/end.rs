@@ -44,7 +44,7 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     // TASK-0049B PR-B3b: real-service supervised-restart E2E (standing
     // detector) — LAST in the ladder so every ordinary pinched consumer ran
     // against the original instance first.
-    crate::os_lite::probes::pinched::restart_proof();
+    crate::os_lite::probes::pinched_restart::restart_proof();
     let auto_exit_after_proof = display_bootstrap::enabled()
         && crate::os_lite::boot_cfg::runtime_mode_with_retry().unwrap_or(RuntimeMode::Proof)
             == RuntimeMode::Proof;

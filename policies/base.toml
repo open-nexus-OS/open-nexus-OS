@@ -6,8 +6,11 @@ statefsd = ["ipc.core", "policy.delegate", "device.mmio.blk"]
 execd = ["proc.spawn", "ipc.core", "fs.read"]
 "packagefsd" = ["ipc.core", "fs.read"]
 "vfsd" = ["ipc.core", "device.mmio.blk"]
-"init-lite" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate"]
-"nexus-init" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate"]
+# TASK-0049B PR-B3c: init persists supervision restart counters at
+# /state/init/restarts/* (statefs.write covers PUT+SYNC; statefs.read the
+# read-back). No statefs.boot/admin — init is a regular record client here.
+"init-lite" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate", "statefs.read", "statefs.write"]
+"nexus-init" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate", "statefs.read", "statefs.write"]
 updated = ["crypto.verify", "ipc.core", "statefs.boot"]
 dsoftbusd = ["ipc.core", "statefs.read", "statefs.write"]
 metricsd = ["ipc.core", "statefs.write"]

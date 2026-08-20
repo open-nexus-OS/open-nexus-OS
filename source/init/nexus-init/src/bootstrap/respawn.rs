@@ -37,6 +37,8 @@ pub struct RespawnContext {
     pub selftest_pid: u32,
     /// init's slot for pinched's RESPONSE endpoint (client-owned, survives).
     pub pinch_rsp_parent_slot: Option<u32>,
+    /// init's own statefsd pre-minted pair (restart-counter persistence).
+    pub statefs_slots: Option<(u32, u32)>,
 }
 
 /// Which services the respawn arm can actually re-provision today.
@@ -50,6 +52,8 @@ pub(crate) struct Respawner {
     ctx: RespawnContext,
     /// The service currently in a restart cycle, if any.
     engine: Option<(ServiceId, SupervisedChild)>,
+    /// Restart-counter persistence over init's statefsd wire (RFC-0087 §2).
+    persist: Option<crate::bootstrap::persist::SupervisionPersist>,
 }
 
 impl RespawnContext {
@@ -58,14 +62,16 @@ impl RespawnContext {
         images: &'static [ServiceImage],
         selftest_pid: u32,
         pinch_rsp_parent_slot: Option<u32>,
+        statefs_slots: Option<(u32, u32)>,
     ) -> Self {
-        Self { images, selftest_pid, pinch_rsp_parent_slot }
+        Self { images, selftest_pid, pinch_rsp_parent_slot, statefs_slots }
     }
 }
 
 impl Respawner {
     pub(crate) fn new(ctx: RespawnContext) -> Self {
-        Self { ctx, engine: None }
+        let persist = crate::bootstrap::persist::SupervisionPersist::new(ctx.statefs_slots);
+        Self { ctx, engine: None, persist }
     }
 
     /// A supervised service died (already announced + marked stale by the
@@ -105,7 +111,7 @@ impl Respawner {
         let Some((id, mut child)) = self.engine.take() else {
             return;
         };
-        match respawn_pinched(&self.ctx, channels, route_table) {
+        match respawn_pinched(&self.ctx, self.persist.as_mut(), channels, route_table) {
             Some(pid) => {
                 child.on_restarted();
                 self.engine = Some((id, child));
@@ -136,6 +142,7 @@ impl Respawner {
 /// SEND clone + RouteTable update → resume. Returns the new pid.
 fn respawn_pinched(
     ctx: &RespawnContext,
+    persist: Option<&mut crate::bootstrap::persist::SupervisionPersist>,
     channels: &mut [CtrlChannel],
     route_table: &mut RouteTable,
 ) -> Option<u32> {
@@ -195,6 +202,13 @@ fn respawn_pinched(
     // init's own handle to the new endpoint is not needed further (the next
     // respawn mints again); close it so respawns never accumulate caps.
     let _ = nexus_abi::cap_close(req);
+
+    // RFC-0087 §2: the restart counter is durable BEFORE anyone can observe
+    // the restarted instance (strict PUT+SYNC → resume ordering keeps the
+    // shared statefs response queue race-free for readers).
+    if let Some(persist) = persist {
+        persist.bump_restart_count(image.name);
+    }
 
     if nexus_abi::task_resume(pid).is_err() {
         debug_write_bytes(b"init: FAIL respawn resume\n");

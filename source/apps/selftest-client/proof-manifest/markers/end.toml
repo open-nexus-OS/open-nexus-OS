@@ -30,3 +30,15 @@ phase = "end"
 
 [marker."SELFTEST: service restart FAIL"]
 phase = "end"
+
+# TASK-0049B PR-B3c: restart-counter truth (init persists via statefs; the
+# selftest asserts exactly 3 storm bumps landed) + cross-boot persistence
+# (baseline > 0 only on the second keep-blk boot).
+[marker."SELFTEST: crash-loop count ok"]
+phase = "end"
+
+[marker."SELFTEST: crash-loop count FAIL"]
+phase = "end"
+
+[marker."SELFTEST: crash-loop persist ok"]
+phase = "end"

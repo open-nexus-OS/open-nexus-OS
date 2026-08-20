@@ -125,6 +125,19 @@ pub(crate) fn emit_line(message: &str) {
     let _ = nexus_abi::debug_println(message);
 }
 
+/// Forensic tag for a dropped reply: names the request op whose response
+/// could not be delivered (shared response queue stalled).
+pub(crate) fn emit_op_byte(op: u8) {
+    let mut line = [0u8; 40];
+    let mut len = 0usize;
+    let _ = push_bytes(&mut line, &mut len, b"statefsd: dropped reply op=0x");
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let _ = push_bytes(&mut line, &mut len, &[HEX[(op >> 4) as usize], HEX[(op & 0xf) as usize]]);
+    if let Ok(msg) = core::str::from_utf8(&line[..len]) {
+        emit_line(msg);
+    }
+}
+
 pub(crate) fn emit_statefs_error(err: StatefsError) {
     let msg = match err {
         StatefsError::NotFound => "statefsd: err not-found",

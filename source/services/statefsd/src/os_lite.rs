@@ -30,7 +30,8 @@ use storage::MemBlockDevice;
 
 use crate::emit_os::{
     emit_access_denied, emit_blk_marker, emit_budget_warn, emit_degrade_ram_backed,
-    emit_envelope_denied, emit_envelope_migration, emit_ipc_error, emit_line, emit_statefs_error,
+    emit_envelope_denied, emit_envelope_migration, emit_ipc_error, emit_line, emit_op_byte,
+    emit_statefs_error,
 };
 use crate::hardening;
 
@@ -284,8 +285,21 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         emit_line("statefsd: reply send fail");
                     }
                 } else {
-                    if server.send(&rsp, Wait::Blocking).is_err() {
-                        emit_line("statefsd: send fail");
+                    // Bounded reply send (RFC-0087 exhaustion-is-an-event):
+                    // the shared response queue is drained by nonce-matched
+                    // clients; a client that abandons its reply must never
+                    // wedge the server in a blocking send (that deafness hid
+                    // behind the quiet post-exec window until TASK-0049B's
+                    // end-phase traffic surfaced it). Timeout >> client poll
+                    // cadence, then drop LOUD with the op byte for forensics.
+                    if server
+                        .send(&rsp, Wait::Timeout(core::time::Duration::from_millis(500)))
+                        .is_err()
+                    {
+                        emit_line("statefsd: rsp queue stalled (dropping reply)");
+                        if let Some(op) = frame.get(3).copied() {
+                            emit_op_byte(op);
+                        }
                     }
                 }
                 // TASK-0026: between-requests compaction opportunity (the

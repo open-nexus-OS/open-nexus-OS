@@ -576,8 +576,10 @@ expected_sequence=(
   "SELFTEST: crash-loop cap ok"
   "pinched: selftest crash requested"
   "init: service exit name=pinched reason=error"
+  "init: supervision persist restarts=0x"
   "init: service restarted name=pinched"
   "SELFTEST: service restart ok"
+  "SELFTEST: crash-loop count ok"
   "SELFTEST: ipc routing execd ok"
   "child: hello-elf"
   "execd: elf load ok"
@@ -782,8 +784,10 @@ case "${PROFILE:-full}" in
       "SELFTEST: crash-loop cap ok"
       "pinched: selftest crash requested"
       "init: service exit name=pinched reason=error"
+      "init: supervision persist restarts=0x"
       "init: service restarted name=pinched"
       "SELFTEST: service restart ok"
+      "SELFTEST: crash-loop count ok"
       "SELFTEST: ipc routing execd ok"
       "execd: elf load ok"
       "SELFTEST: e2e exec-elf ok"
@@ -1589,6 +1593,15 @@ if grep -aFq "statefsd: journal v2 mounted (2PC)" "$UART_LOG"; then
     print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs v2 compact ok"
     exit 1
   fi
+  # TASK-0049B PR-B3c: on the preserved-image boot the prior boot's restart
+  # counters must be visible again (baseline > 0 → persist marker).
+  if [[ "${REQUIRE_STATEFS_COLD_BOOT:-0}" == "1" ]] \
+     && ! grep -aFq "SELFTEST: crash-loop persist ok" "$UART_LOG"; then
+    echo "[error] first_failed_phase=end missing_marker='SELFTEST: crash-loop persist ok'" >&2
+    echo "[error] cold-boot lane: restart counters did not survive the reboot" >&2
+    grep -a "init: supervision persist\|SELFTEST: crash-loop" "$UART_LOG" | head -n 8 >&2
+    exit 1
+  fi
   for m in \
     "SELFTEST: statefs v2 crash-atomic FAIL" \
     "SELFTEST: statefs v2 compact FAIL" \
@@ -1632,6 +1645,20 @@ if [[ "${svc_exits:-0}" -ne "${svc_restarts:-0}" ]]; then
   grep -a "init: service exit name=\|init: service restarted name=\|init: FAIL" "$UART_LOG" | head -n 8 >&2
   exit 1
 fi
+# TASK-0049B PR-B3c: restart-counter truth is fatal in both directions — a
+# count mismatch means init lost bumps (or the selftest read a stale value),
+# and a persist FAIL means the supervisor silently forgot its history.
+for m in \
+  "SELFTEST: service restart FAIL" \
+  "SELFTEST: crash-loop count FAIL" \
+  "init: FAIL supervision persist"; do
+  if grep -aFq "$m" "$UART_LOG"; then
+    echo "[error] first_failed_phase=end missing_marker='$m'" >&2
+    echo "[error] supervision restart/persistence emitted failure signature: $m" >&2
+    grep -a "init: service exit name=\|init: service restarted name=\|init: supervision persist\|SELFTEST: crash-loop\|SELFTEST: service restart" "$UART_LOG" | head -n 12 >&2
+    exit 1
+  fi
+done
 # TASK-0049 / RFC-0087 exhaustion-is-an-event guard: a proof boot MUST
 # upgrade statefs to virtio — a degrade marker means /state durability was
 # silently RAM-only for the whole run, which would fake-green every

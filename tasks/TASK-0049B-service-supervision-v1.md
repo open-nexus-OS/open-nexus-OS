@@ -1,6 +1,6 @@
 ---
 title: TASK-0049B Reliability v1b: service supervision — declarative tiers + restart/backoff/crash-loop + capability re-resolve
-status: Draft
+status: Done (2026-08-20 — B1/B2/B3a/B3b/B3c QEMU-proven incl. keep-blk double boot + smp1; test-all green; see DoD reconciliation)
 owner: @reliability @runtime
 created: 2026-08-18
 depends-on:
@@ -162,6 +162,39 @@ re-provisions from declared topology only).
 - `source/apps/selftest-client/proof-manifest/markers/` + `scripts/qemu-test.sh`
 - `docs/reliability/` (supervision section), `docs/services/lifecycle.md`
 
+## DoD reconciliation (2026-08-20, documented recuts — Option C)
+
+- Host "persistence record roundtrip" → **recut**: the wire encode/decode is
+  host-tested in the `statefs` crate; init's `persist.rs` is an os-only
+  no-alloc client with no host seam — the honest proof is the QEMU double
+  boot (delivered), not a mock roundtrip.
+- Host "execd os-lite restart path" → **recut in PR-B1**: the kernel only
+  lets the PARENT wait; supervision lives in init, execd keeps spawn/reap
+  mechanics. No execd restart path exists by design (resolved RED (a)).
+- Host "samgrd stale/re-register tests" → **recut in PR-B3a**: the resolve
+  authority is init's responder + `RouteTable` (ADR-0057 amended); staleness
+  + rejects are host-tested there (8 route_table tests). samgrd is a
+  secondary self-scoped registry and stays untouched.
+- OS "resource sentinel green in the same run (restart storm)" → **recut**:
+  the kernel sentinel runs at boot, and a post-storm sentinel would be RED
+  by design today — pinched's parked worker threads leak one pair per cycle
+  (recorded residual, needs TASK-0304 Part 2). Structural no-drift stands in
+  instead: PAIRED exit/restart counting, client slot hygiene in the storm,
+  init closing its respawn-minted cap each cycle. The sentinel-under-storm
+  proof ships WITH the worker-teardown task, where it can honestly be flat.
+- "Widening `respawnable()` beyond the pilot" → **follow-up**: every widened
+  service needs worker/state teardown maturity first (same TASK-0304 Part 2
+  dependency); the pilot proves the mechanism end to end.
+
+Follow-ups recorded: (1) TASK-0304 Part 2 worker teardown → then
+sentinel-under-storm + respawnable() widening; (2) metricsd statefs reply
+wiring (recv aims at the logd reply inbox — slot aliasing; today loud-dropped
+by statefsd, must be rewired to a real reply path); (3) cross-boot
+AUTO-blocking on the persisted counter needs a wall-clock-anchored window
+(RFC-0076) — in-boot windows use monotonic time which does not compare
+across boots; (4) ADR-0056 panic sub-flag (deferred); (5) escalation
+reboot-into-safe parks until TASK-0050 (reset path).
+
 ## Plan (small PRs) — resequenced 2026-08-20 (observation → engine → protocol)
 
 1. ✅ **PR-B1 (2026-08-20) — observation + policy SSOT**: init sweeps its own
@@ -217,8 +250,31 @@ re-provisions from declared topology only).
    the main task's death parked — TASK-0304 Part 2 ("no shipping service
    needs it yet") is now needed by respawn; one leaked worker pair per
    proof cycle until it lands.
-5. **PR-B3c — remaining 0049B closure**: crash-loop counter persistence
-   (statefs envelope) + double-boot proof (`SELFTEST: crash-loop persist
-   ok`), resource sentinel under a restart storm (no-rights-drift
-   measurement), widening `respawnable()` beyond the pilot, and the
-   critical-session re-attach contract text per RFC-0087 §3.
+5. ✅ **PR-B3c (2026-08-20) — persistence + storm + re-attach contract**:
+   init persists the restart counter per service at
+   `/state/init/restarts/<svc>` (`bootstrap/persist.rs`: statefs v2
+   nonce-correlated wire on init's own pre-minted statefsd slots, bounded
+   no-alloc buffers, strict PUT+SYNC **before** `task_resume` so the record
+   is durable before any client can observe the restarted instance).
+   init's identity for the policy gate is the kernel-set FNV of
+   `"init-lite"`; `policies/base.toml` grants it `statefs.read/write`.
+   The E2E proof is now a 3-cycle restart **storm** with client slot
+   hygiene (the selftest closes its previous SEND cap after each
+   re-resolve) and a counter truth assert
+   (`SELFTEST: crash-loop count ok`, C_after == C_before + 3, fatal in
+   both directions); the keep-blk double boot proves cross-boot
+   persistence (`SELFTEST: crash-loop persist ok`, baseline > 0 replayed —
+   boots 2026-08-20T17-26-38 + 17-29-39, both ladders green). RFC-0087 §3
+   gained the normative client re-attach contract (death window, STALE ≠
+   NOT_FOUND, re-resolve protocol, slot hygiene as the consumer half of
+   no-rights-drift, ctrl-plane exemption).
+   **Root cause fixed along the way (RFC-0087 exhaustion-is-an-event in
+   its own service)**: statefsd replied on the SHARED response queue with
+   `Wait::Blocking` — clients that abandon replies (metricsd's retention
+   writer: `wiring.rs` points its statefs recv at the LOGD reply inbox,
+   slot aliasing) filled the depth-8 queue and wedged statefsd DEAF for
+   everyone from the exec phase on. Invisible until now because no proof
+   traffic spoke to statefsd after exec. Fix: bounded reply send (500 ms)
+   + loud forensic drop (`statefsd: dropped reply op=0x..`) — the server
+   can never again be wedged by a dead-beat client, and the marker keeps
+   the metricsd wiring hole visible until fixed (follow-up below).

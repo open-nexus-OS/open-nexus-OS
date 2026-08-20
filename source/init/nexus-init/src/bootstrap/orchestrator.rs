@@ -978,7 +978,12 @@ where
     }
 
     Ok(BootstrapState {
-        respawn: crate::bootstrap::respawn::RespawnContext::new(images, selftest_pid, pinch_rsp),
+        respawn: crate::bootstrap::respawn::RespawnContext::new(
+            images,
+            selftest_pid,
+            pinch_rsp,
+            eps.server_pair(crate::service_topology::ServiceId::Statefsd),
+        ),
         ctrl_channels,
         route_table,
         pol_ctl_route_req,

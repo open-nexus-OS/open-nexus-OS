@@ -217,7 +217,7 @@ ADR-0056 (exit reasons in the kernel ABI) · ADR-0057 (restart/capability re-res
 | # | Task | Title | Status |
 |---|------|-------|--------|
 | 1 | ✅ TASK-0049 | Fault & exhaustion truth + crash-proof reanimation (rewritten; old crashd scope → 0051B) | Done 2026-08-20 |
-| 2 | TASK-0049B | Service supervision v1: tiers + restart/backoff/crash-loop + re-resolve | Draft |
+| 2 | ✅ TASK-0049B | Service supervision v1: tiers + restart/backoff/crash-loop + re-resolve | Done 2026-08-20 |
 | 3 | TASK-0049C | Persistent evidence journal (logd → statefs spill) | Draft |
 | 4 | TASK-0050 | System reset (SBI SRST) + boot targets via `bootctld` (rewritten) | Draft |
 | 5 | TASK-0051 | Recovery operations surface: fsck op + slot/target ops + `nx diagnose` (rewritten) | Draft |

@@ -171,6 +171,32 @@ what the restarted instance guarantees (state recovery source), and what the
 degraded mode is if restart is exhausted. No critical service may have an
 undefined death behavior.
 
+**Client re-attach contract** (implemented by TASK-0049B; proven by the
+selftest restart storm):
+
+1. **Death window.** Between service exit and supervised respawn, the
+   service's request endpoint is gone (kernel closes owner-bound endpoints
+   with the task). Clients observe send/recv errors or `PeerClosed` — never
+   a hang: every client wait is bounded (RFC-0025).
+2. **Staleness is answered, not guessed.** The resolve authority (init
+   responder + RouteTable; ADR-0057) marks the dead service's route stale
+   and answers route requests with `STATUS_STALE` until the respawn has
+   re-provisioned the endpoint. Clients must treat `STATUS_STALE` as
+   "retry bounded", not as `NOT_FOUND`.
+3. **Re-resolve, then re-attach.** Recovery is always: re-resolve the route
+   (bounded retry budget), obtain fresh slots, resume the protocol from a
+   client-side known state. Session state held by the dead instance is gone
+   unless the service's ledger names a recovery source (statefs record,
+   re-subscription, replay).
+4. **Slot hygiene is part of the contract.** After a successful re-resolve,
+   the client closes its previous send-slot cap. A client that hoards caps
+   to dead endpoints across N restarts violates the no-rights-drift
+   invariant from the consumer side (resources must stay flat under a
+   restart storm — the resource sentinel is the gate).
+5. **Persistent ctrl-plane slots are exempt.** init-owned ctrl channels and
+   `@reply` slots survive the restart by construction and are NEVER closed
+   or re-minted per restart; only the service's request endpoint cycles.
+
 ### 4. Boot targets (normative)
 
 - `boot_target ∈ {normal, recovery, safe}` lives in the ADR-0055 record
