@@ -20,7 +20,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use nexus_abi::yield_;
-use nexus_ipc::{KernelClient, Wait as IpcWait};
+use nexus_ipc::{Client as _, KernelClient, Wait as IpcWait};
 use pinched::broker::mix_u32;
 use pinched::protocol as pn;
 
@@ -377,4 +377,99 @@ fn submit_and_poll(
     }
     let _ = nexus_abi::cap_close(vmo);
     Some((status, elems, workers, data))
+}
+
+/// TASK-0049B PR-B3b: real-service restart E2E (ADR-0057, standing —
+/// ADR-0048 doctrine). Crashes pinched via the identity-gated
+/// OP_SELFTEST_CRASH, then re-resolves the route until init's supervision
+/// has restarted and re-provisioned it (STALE/dead window included), and
+/// proves the NEW instance answers by pinging an unknown op (deterministic
+/// MALFORMED echo). Fail-loud on deadline.
+pub(crate) fn restart_proof() {
+    use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
+
+    const OP_SELFTEST_CRASH: u8 = 2;
+    const OP_PING_UNKNOWN: u8 = 0x7e;
+    const DEADLINE_NS: u64 = 20_000_000_000;
+
+    // Resolve the live route and fire the crash request (no reply comes —
+    // the service exits on it).
+    let crash = [b'P', b'N', 1, OP_SELFTEST_CRASH];
+    match budget::route_with_nonce_budgeted(
+        b"pinched",
+        1,
+        2,
+        core::time::Duration::from_secs(2),
+        NonceMismatchBudget::new(64),
+    ) {
+        RouteRetryOutcome::Success { send_slot, recv_slot } => {
+            let Ok(client) = KernelClient::new_with_slots(send_slot, recv_slot) else {
+                emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_FAIL);
+                return;
+            };
+            if client
+                .send(&crash, IpcWait::Timeout(core::time::Duration::from_millis(500)))
+                .is_err()
+            {
+                emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_FAIL);
+                return;
+            }
+        }
+        _ => {
+            emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_FAIL);
+            return;
+        }
+    }
+
+    // Re-resolve until the restarted instance answers the ping. The window
+    // covers the death sweep, the 500ms backoff and the responder's 1s idle
+    // cadence; a stale/timeout resolve or a dead-slot ping just retries.
+    let start = nexus_abi::nsec().unwrap_or(0);
+    loop {
+        let now = nexus_abi::nsec().unwrap_or(u64::MAX);
+        if now.saturating_sub(start) > DEADLINE_NS {
+            emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_FAIL);
+            return;
+        }
+        let (send_slot, recv_slot) = match budget::route_with_nonce_budgeted(
+            b"pinched",
+            1,
+            2,
+            core::time::Duration::from_secs(2),
+            NonceMismatchBudget::new(64),
+        ) {
+            RouteRetryOutcome::Success { send_slot, recv_slot } => (send_slot, recv_slot),
+            _ => {
+                let _ = nexus_abi::yield_();
+                continue;
+            }
+        };
+        let Ok(client) = KernelClient::new_with_slots(send_slot, recv_slot) else {
+            let _ = nexus_abi::yield_();
+            continue;
+        };
+        let ping = [b'P', b'N', 1, OP_PING_UNKNOWN];
+        if client.send(&ping, IpcWait::Timeout(core::time::Duration::from_millis(500))).is_err() {
+            let _ = nexus_abi::yield_();
+            continue;
+        }
+        // Accept only the deterministic MALFORMED echo for OUR op; skip
+        // any stale frames left on the shared response endpoint (bounded).
+        for _ in 0..16 {
+            match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(500))) {
+                Ok(rsp) => {
+                    if rsp.len() == 5
+                        && rsp[0] == b'P'
+                        && rsp[1] == b'N'
+                        && rsp[3] == OP_PING_UNKNOWN | 0x80
+                    {
+                        emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_OK);
+                        return;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = nexus_abi::yield_();
+    }
 }

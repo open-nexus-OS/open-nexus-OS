@@ -76,6 +76,11 @@ pub mod protocol {
 
     /// Run a job on the caller's VMO (CAP_MOVE) and complete via its header.
     pub const OP_COMPUTE: u8 = 1;
+    /// TASK-0049B PR-B3b: deterministic supervised-restart probe — the
+    /// SELFTEST HARNESS (kernel-attributed identity, nothing else) asks
+    /// pinched to exit non-zero so init's supervision restart is provable
+    /// E2E on a real service. Foreign senders get STATUS_DENIED.
+    pub const OP_SELFTEST_CRASH: u8 = 2;
     /// Response flag for frame replies (malformed/non-compute traffic only).
     pub const OP_RESPONSE: u8 = 0x80;
 
@@ -86,6 +91,8 @@ pub mod protocol {
     pub const STATUS_IO: u32 = 4;
     /// Job payload failed validation/parsing (e.g. malformed SVG).
     pub const STATUS_BAD_INPUT: u32 = 5;
+    /// Identity-gated op refused (OP_SELFTEST_CRASH from a foreign sender).
+    pub const STATUS_DENIED: u32 = 6;
 
     /// Job kinds. v1 ships the deterministic proof transform; SVG raster is
     /// the first real workload behind the same partition→map contract.

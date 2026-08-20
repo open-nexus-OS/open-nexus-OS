@@ -1109,3 +1109,28 @@ phase = "bringup"
 
 [marker."init: FAIL fault-probe respawn"]
 phase = "bringup"
+
+# TASK-0049B PR-B3b real-service respawn lines (init/pinched emit these).
+[marker."pinched: selftest crash requested"]
+phase = "bringup"
+
+[marker."pinched: crash denied (foreign sender)"]
+phase = "bringup"
+
+[marker."init: service restarted name="]
+phase = "bringup"
+
+[marker."init: FAIL service respawn name="]
+phase = "bringup"
+
+[marker."init: FAIL respawn ctrl re-transfer"]
+phase = "bringup"
+
+[marker."init: FAIL respawn server slots"]
+phase = "bringup"
+
+[marker."init: FAIL respawn resume"]
+phase = "bringup"
+
+[marker."init: crash-loop blocked svc=pinched reason="]
+phase = "bringup"

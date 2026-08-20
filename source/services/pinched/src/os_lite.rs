@@ -164,9 +164,41 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> PinchedResult<()> {
 
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
-            Ok((frame, _sender_service_id, reply_cap)) => {
+            Ok((frame, sender_service_id, reply_cap)) => {
                 breaker.on_success();
                 let frame = frame.as_slice();
+                // TASK-0049B PR-B3b: supervised-restart probe. Identity is
+                // the kernel-attributed sender id — unforgeable, so the
+                // deny path has no probeable forgery surface by design.
+                if frame.len() >= MIN_FRAME_LEN
+                    && frame[0] == MAGIC0
+                    && frame[1] == MAGIC1
+                    && frame[2] == VERSION
+                    && frame[3] == OP_SELFTEST_CRASH
+                {
+                    let trusted = nexus_abi::service_id_from_name(b"selftest-client");
+                    // Bring-up alias (same strict-exact rule as execd's).
+                    const SID_SELFTEST_CLIENT_ALT: u64 = 0x68c1_66c3_7bcd_7154;
+                    if sender_service_id == trusted || sender_service_id == SID_SELFTEST_CLIENT_ALT
+                    {
+                        emit_line("pinched: selftest crash requested");
+                        nexus_abi::exit(101);
+                    }
+                    emit_line("pinched: crash denied (foreign sender)");
+                    let rsp = [
+                        MAGIC0,
+                        MAGIC1,
+                        VERSION,
+                        OP_SELFTEST_CRASH | OP_RESPONSE,
+                        STATUS_DENIED as u8,
+                    ];
+                    if let Some(reply) = reply_cap {
+                        let _ = reply.reply_and_close(&rsp);
+                    } else {
+                        let _ = server.send(&rsp, Wait::Blocking);
+                    }
+                    continue;
+                }
                 if frame.len() >= MIN_FRAME_LEN
                     && frame[0] == MAGIC0
                     && frame[1] == MAGIC1

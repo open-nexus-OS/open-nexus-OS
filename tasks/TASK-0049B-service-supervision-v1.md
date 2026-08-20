@@ -201,9 +201,24 @@ re-provisions from declared topology only).
    Boot-positive STALE answer is NOT provable yet (a proof boot forbids
    real service deaths by design) — it lands with PR-B3b's restart of a
    real service.
-4. **PR-B3b — restart of REAL declarative services** via the generic
-   orchestrator provisioning path (re-provision → `clear_stale` →
-   boot-positive STALE→OK proof; no-rights-drift via resource sentinel
-   under restart storm), crash-loop counter persistence (statefs envelope)
-   + double-boot proof (`SELFTEST: crash-loop persist ok`), and the
+4. 🟨 **PR-B3b — restart of a REAL service (pinched pilot), in flight
+   2026-08-20**: `bootstrap/respawn.rs` re-provisions pinched from
+   boot-held state only (no-rights-drift by construction): `'static` image
+   ELF, init-owned ctrl endpoints re-transferred to slots 1/2, surviving
+   client-owned response endpoint to slot 4, ONLY the owner-bound request
+   endpoint re-minted (RECV→3) with a fresh client SEND clone +
+   RouteTable update → `clear_stale`. Trigger: identity-gated
+   `OP_SELFTEST_CRASH` in pinched (kernel-attributed sender; the deny path
+   has no forgeable probe surface by design). Standing E2E in the end
+   phase: crash → STALE window → re-resolve → ping the NEW instance →
+   `SELFTEST: service restart ok`; harness guard is now PAIRED counting
+   (`service exit` == `service restarted`, unpaired either way = red).
+   **Known residual recorded**: pinched's same-AS worker threads survive
+   the main task's death parked — TASK-0304 Part 2 ("no shipping service
+   needs it yet") is now needed by respawn; one leaked worker pair per
+   proof cycle until it lands.
+5. **PR-B3c — remaining 0049B closure**: crash-loop counter persistence
+   (statefs envelope) + double-boot proof (`SELFTEST: crash-loop persist
+   ok`), resource sentinel under a restart storm (no-rights-drift
+   measurement), widening `respawnable()` beyond the pilot, and the
    critical-session re-attach contract text per RFC-0087 §3.

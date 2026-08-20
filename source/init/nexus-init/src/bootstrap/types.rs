@@ -90,6 +90,8 @@ impl CtrlChannel {
 
 pub(crate) struct BootstrapState {
     pub ctrl_channels: Vec<CtrlChannel>,
+    /// TASK-0049B PR-B3b: boot-held state the real-service respawn derives from.
+    pub respawn: crate::bootstrap::respawn::RespawnContext,
     pub route_table: crate::route_table::RouteTable,
     pub pol_ctl_route_req: u32,
     pub pol_ctl_route_rsp: u32,

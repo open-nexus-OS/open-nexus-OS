@@ -225,3 +225,26 @@ pub(crate) fn clone_osk_pair(imed_osk: u32) -> Result<(u32, u32), crate::os_payl
     let selftest = nexus_abi::cap_clone(imed_osk).map_err(InitError::Abi)?;
     Ok((execd, selftest))
 }
+
+/// Compute broker (SMP track Phase D): pre-mint pinched's server pair so the
+/// selftest client route clones the SAME endpoints pinched serves. The
+/// response endpoint is minted for the selftest client (the primary
+/// frame-reply reader — job completion itself rides the VMO header). Moved
+/// out of the orchestrator (module-size ratchet), body verbatim.
+pub(crate) fn mint_pinched_pair(
+    ctrl_channels: &[crate::bootstrap::CtrlChannel],
+    selftest_pid: u32,
+) -> crate::os_payload::Result<(Option<u32>, Option<u32>)> {
+    use crate::os_payload::{InitError, ENDPOINT_FACTORY_CAP_SLOT};
+    let pinched_pid =
+        ctrl_channels.iter().find(|chan| chan.svc_name == "pinched").map(|chan| chan.pid);
+    if let Some(pid) = pinched_pid {
+        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+            .map_err(InitError::Abi)?;
+        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
+            .map_err(InitError::Abi)?;
+        Ok((Some(req), Some(rsp)))
+    } else {
+        Ok((None, None))
+    }
+}

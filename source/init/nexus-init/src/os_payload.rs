@@ -408,6 +408,7 @@ where
     let state = bootstrap_service_images(images, notifier)?;
     crate::bootstrap::responder::run_responder_loop(
         state.ctrl_channels,
+        state.respawn,
         state.route_table,
         state.pol_ctl_route_req,
         state.pol_ctl_route_rsp,

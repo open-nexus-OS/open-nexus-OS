@@ -12,6 +12,7 @@ pub(crate) mod helpers;
 pub(crate) mod labels;
 pub(crate) mod orchestrator;
 pub(crate) mod policyd;
+pub(crate) mod respawn;
 pub(crate) mod responder;
 pub(crate) mod resume;
 pub(crate) mod route_builder;

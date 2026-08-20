@@ -23,3 +23,10 @@ phase = "end"
 
 [marker."SELFTEST: signed install ok"]
 phase = "end"
+
+# TASK-0049B PR-B3b: real-service supervised-restart E2E (standing detector).
+[marker."SELFTEST: service restart ok"]
+phase = "end"
+
+[marker."SELFTEST: service restart FAIL"]
+phase = "end"

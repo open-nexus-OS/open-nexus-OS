@@ -104,8 +104,9 @@ impl SupervisionSweep {
     /// reap itself is the once-latch.
     pub(crate) fn sweep(
         &mut self,
-        channels: &[CtrlChannel],
+        channels: &mut [CtrlChannel],
         route_table: &mut crate::route_table::RouteTable,
+        respawner: &mut crate::bootstrap::respawn::Respawner,
     ) {
         // init's child count is the boot service fleet; 8 per round drains
         // any realistic burst without letting a pathological loop spin.
@@ -125,12 +126,13 @@ impl SupervisionSweep {
                         self.injector.on_exit(code, reason);
                         continue;
                     }
-                    announce_service_exit(pid, code, reason, channels, route_table);
+                    announce_service_exit(pid, code, reason, channels, route_table, respawner);
                 }
                 Ok(None) | Err(_) => break,
             }
         }
         self.injector.tick();
+        respawner.tick(channels, route_table);
     }
 }
 
@@ -224,6 +226,7 @@ fn announce_service_exit(
     reason: ExitReason,
     channels: &[CtrlChannel],
     route_table: &mut crate::route_table::RouteTable,
+    respawner: &mut crate::bootstrap::respawn::Respawner,
 ) {
     let name =
         channels.iter().find(|chan| chan.pid == pid).map(|chan| chan.svc_name).unwrap_or("unknown");
@@ -232,6 +235,7 @@ fn announce_service_exit(
     // restarted instance is re-provisioned (PR-B3b).
     if let Some(id) = crate::service_topology::ServiceId::from_name(name.as_bytes()) {
         route_table.mark_stale(id);
+        respawner.on_service_exit(id, reason, code);
     }
     debug_write_bytes(b"init: service exit name=");
     debug_write_bytes(name.as_bytes());

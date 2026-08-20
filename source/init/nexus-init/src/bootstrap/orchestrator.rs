@@ -490,20 +490,8 @@ where
         (None, None)
     };
 
-    // Compute broker (SMP track Phase D): pre-mint pinched's server pair so
-    // the selftest client route clones the SAME endpoints pinched serves.
-    // The response endpoint is minted for the selftest client (the primary
-    // frame-reply reader — job completion itself rides the VMO header).
-    let pinched_pid = find_pid(&ctrl_channels, "pinched");
-    let (pinch_req, pinch_rsp) = if let Some(pid) = pinched_pid {
-        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-            .map_err(InitError::Abi)?;
-        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-            .map_err(InitError::Abi)?;
-        (Some(req), Some(rsp))
-    } else {
-        (None, None)
-    };
+    let (pinch_req, pinch_rsp) =
+        crate::bootstrap::endpoints::mint_pinched_pair(&ctrl_channels, selftest_pid)?;
 
     // Bundle the minted endpoint caps NOW — before the policy-gated grant phase —
     // and distribute every declared service's server pair immediately (RFC-0069
@@ -990,6 +978,7 @@ where
     }
 
     Ok(BootstrapState {
+        respawn: crate::bootstrap::respawn::RespawnContext::new(images, selftest_pid, pinch_rsp),
         ctrl_channels,
         route_table,
         pol_ctl_route_req,

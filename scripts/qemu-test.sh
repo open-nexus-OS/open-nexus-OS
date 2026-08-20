@@ -574,6 +574,10 @@ expected_sequence=(
   "SELFTEST: supervision restart ok"
   "init: crash-loop blocked svc=fault-probe reason="
   "SELFTEST: crash-loop cap ok"
+  "pinched: selftest crash requested"
+  "init: service exit name=pinched reason=error"
+  "init: service restarted name=pinched"
+  "SELFTEST: service restart ok"
   "SELFTEST: ipc routing execd ok"
   "child: hello-elf"
   "execd: elf load ok"
@@ -776,6 +780,10 @@ case "${PROFILE:-full}" in
       "SELFTEST: supervision restart ok"
       "init: crash-loop blocked svc=fault-probe reason="
       "SELFTEST: crash-loop cap ok"
+      "pinched: selftest crash requested"
+      "init: service exit name=pinched reason=error"
+      "init: service restarted name=pinched"
+      "SELFTEST: service restart ok"
       "SELFTEST: ipc routing execd ok"
       "execd: elf load ok"
       "SELFTEST: e2e exec-elf ok"
@@ -1611,14 +1619,17 @@ if grep -aFq "SELFTEST: statefs enc roundtrip ok" "$UART_LOG" \
   print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs v2 compact ok"
   exit 1
 fi
-# TASK-0049B supervision guard: no restart exists yet, so a boot service
-# dying in a proof run means the rest of the ladder ran against a corpse —
-# fail the run at the death line instead of a confusing downstream timeout.
-if grep -aq "init: service exit name=" "$UART_LOG"; then
-  m=$(grep -a "init: service exit name=" "$UART_LOG" | head -n1)
-  echo "[error] first_failed_phase=bringup missing_marker='(no service death expected)'" >&2
-  echo "[error] a supervised boot service died in a proof boot: $m" >&2
-  print_uart_excerpt "init: ready" "SELFTEST: Completed"
+# TASK-0049B supervision guard (PR-B3b form): every announced service death
+# must be PAIRED with a successful supervised restart — an unpaired death
+# means the rest of the ladder ran against a corpse; an unpaired restart
+# line would be fake green. (The restart E2E proof kills pinched once per
+# boot on purpose.)
+svc_exits=$(grep -ac "init: service exit name=" "$UART_LOG" || true)
+svc_restarts=$(grep -ac "init: service restarted name=" "$UART_LOG" || true)
+if [[ "${svc_exits:-0}" -ne "${svc_restarts:-0}" ]]; then
+  echo "[error] first_failed_phase=bringup missing_marker='init: service restarted name='" >&2
+  echo "[error] service deaths ($svc_exits) != supervised restarts ($svc_restarts) in a proof boot" >&2
+  grep -a "init: service exit name=\|init: service restarted name=\|init: FAIL" "$UART_LOG" | head -n 8 >&2
   exit 1
 fi
 # TASK-0049 / RFC-0087 exhaustion-is-an-event guard: a proof boot MUST

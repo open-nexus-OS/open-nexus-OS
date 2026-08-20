@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-20 (TASK-0049B PR-B3b: the first real supervised service restart)
+
+- **A real service dies and comes back — end to end, every boot**: the
+  pinched pilot (`bootstrap/respawn.rs`) is re-provisioned from boot-held
+  state only, which makes no-rights-drift structural: the `'static` image
+  ELF, init-owned ctrl endpoints re-transferred to slots 1/2, the surviving
+  client-owned response endpoint to slot 4 — only the owner-bound request
+  endpoint (it died WITH the service) is re-minted, with RECV to the new
+  instance, a fresh SEND clone to the client and a RouteTable update, then
+  `clear_stale`. The trigger is the identity-gated `OP_SELFTEST_CRASH`
+  (kernel-attributed sender id — the deny path has no forgeable surface by
+  design). The standing end-phase detector proves the whole ADR-0057 story
+  in one boot: crash → `init: service exit name=pinched reason=error` →
+  supervised backoff → `init: service restarted name=pinched pid=…` → the
+  NEW instance answers → `SELFTEST: service restart ok` (gated
+  full/headless/smp1). The harness guard is now PAIRED counting: every
+  announced service death must match a supervised restart, unpaired either
+  way is red. Known residual (recorded in the ledger): pinched's same-AS
+  worker threads survive the main task parked — TASK-0304 Part 2 is now
+  actually needed by respawn.
+
 ### Added - 2026-08-20 (TASK-0049B PR-B3a: staleness at the resolve authority)
 
 - **A dead service's routes answer STALE, not dangling slots**: the ADR-0057

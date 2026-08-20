@@ -19,7 +19,8 @@ use nexus_ipc::reqrep::FrameStash;
 
 /// Run the routing responder loop forever. Only returns via `fatal()` on watchdog expiry.
 pub(crate) fn run_responder_loop(
-    ctrl_channels: Vec<CtrlChannel>,
+    mut ctrl_channels: Vec<CtrlChannel>,
+    respawn_ctx: crate::bootstrap::respawn::RespawnContext,
     mut route_table: RouteTable,
     pol_ctl_route_req: u32,
     pol_ctl_route_rsp: u32,
@@ -45,8 +46,9 @@ pub(crate) fn run_responder_loop(
     // (`wait` is parent-bound) — one bounded sweep per round announces every
     // death with kernel truth; the one-shot probe proves the sweep each boot.
     let mut supervision = crate::bootstrap::supervision::SupervisionSweep::start();
+    let mut respawner = crate::bootstrap::respawn::Respawner::new(respawn_ctx);
     loop {
-        supervision.sweep(&ctrl_channels, &mut route_table);
+        supervision.sweep(&mut ctrl_channels, &mut route_table, &mut respawner);
         for chan in &ctrl_channels {
             let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
             let mut buf = [0u8; 64];
