@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-20 (TASK-0049B PR-B1: init observes every service death)
+
+- **A dying boot service is no longer invisible**: boot services are init's
+  kernel children and `wait` is parent-bound, so init is the ONLY possible
+  reaper — and until now nobody reaped them at all. init's responder loop now
+  runs one bounded `wait_nohang_with_reason` sweep per round
+  (`bootstrap/supervision.rs`) and announces every death exactly once with
+  kernel truth: `init: service exit name=<svc> reason=<label> code=0x<hex>`
+  (ADR-0056 reasons — a fault kill is not a voluntary exit). A one-shot
+  exit0 probe proves the sweep every boot (`SELFTEST: init supervision sweep
+  ok`, gated full/headless/smp1), and a real service death in a proof boot is
+  FATAL at the death line (no restart exists yet — the ladder must not run
+  against a corpse). The supervision policy SSOT ships alongside:
+  `service_supervision.rs` — criticality tiers + restart policy for the whole
+  fleet (incl. bespoke services that must never grow a ServiceSpec) + the one
+  declared backoff schedule, host-tested (coverage, RFC-0087 critical-boot
+  floor, schedule shape). Restart/backoff (the action half) is the next PR.
+
 ### Added - 2026-08-20 (TASK-0049 PR-3: exhaustion is an event — statefs upgrade window)
 
 - **Losing `/state` durability is no longer silent** (RFC-0087 §1): statefsd's

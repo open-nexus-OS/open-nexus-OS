@@ -40,6 +40,7 @@ pub mod slot_map;
 /// Declarative service topology — host-compilable SSOT for service identity +
 /// capability routes, decoupled from the OS capability binding (RFC-0066). This is
 /// the `.cml`-equivalent: pure data, validated on the host.
+pub mod service_supervision;
 pub mod service_topology;
 
 /// Typed capability routing table — binds the declarative routes to OS capability

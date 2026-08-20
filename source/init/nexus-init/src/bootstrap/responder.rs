@@ -41,7 +41,12 @@ pub(crate) fn run_responder_loop(
     // every channel on each wake, so the waitset is purely a "stop spinning while idle" layer —
     // a failed add or a missed wake only costs the 1s safety-net latency, never a dropped request.
     let waitset = build_ctrl_waitset(&ctrl_channels);
+    // TASK-0049B: init is the ONLY possible reaper of its service children
+    // (`wait` is parent-bound) — one bounded sweep per round announces every
+    // death with kernel truth; the one-shot probe proves the sweep each boot.
+    let mut supervision = crate::bootstrap::supervision::SupervisionSweep::start();
     loop {
+        supervision.sweep(&ctrl_channels);
         for chan in &ctrl_channels {
             let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
             let mut buf = [0u8; 64];

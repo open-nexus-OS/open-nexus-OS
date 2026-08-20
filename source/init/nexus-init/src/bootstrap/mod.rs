@@ -17,6 +17,7 @@ pub(crate) mod resume;
 pub(crate) mod route_builder;
 pub(crate) mod route_provision;
 pub(crate) mod spawn;
+pub(crate) mod supervision;
 pub(crate) mod types;
 pub(crate) mod wiring;
 

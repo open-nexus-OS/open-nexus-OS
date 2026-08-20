@@ -570,6 +570,7 @@ expected_sequence=(
   "SELFTEST: mmio policy deny ok"
   "SELFTEST: policyd requester spoof denied ok"
   "SELFTEST: policy malformed ok"
+  "SELFTEST: init supervision sweep ok"
   "SELFTEST: ipc routing execd ok"
   "child: hello-elf"
   "execd: elf load ok"
@@ -768,6 +769,7 @@ case "${PROFILE:-full}" in
       "SELFTEST: mmio policy deny ok"
       "SELFTEST: policyd requester spoof denied ok"
       "SELFTEST: policy malformed ok"
+      "SELFTEST: init supervision sweep ok"
       "SELFTEST: ipc routing execd ok"
       "execd: elf load ok"
       "SELFTEST: e2e exec-elf ok"
@@ -1601,6 +1603,16 @@ if grep -aFq "SELFTEST: statefs enc roundtrip ok" "$UART_LOG" \
   echo "[error] first_failed_phase=bringup missing_marker='statefsd: encryption on (xchacha20poly1305)'" >&2
   echo "[error] statefs enc roundtrip claimed ok without the encryption-on marker (fake green)" >&2
   print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs v2 compact ok"
+  exit 1
+fi
+# TASK-0049B supervision guard: no restart exists yet, so a boot service
+# dying in a proof run means the rest of the ladder ran against a corpse —
+# fail the run at the death line instead of a confusing downstream timeout.
+if grep -aq "init: service exit name=" "$UART_LOG"; then
+  m=$(grep -a "init: service exit name=" "$UART_LOG" | head -n1)
+  echo "[error] first_failed_phase=bringup missing_marker='(no service death expected)'" >&2
+  echo "[error] a supervised boot service died in a proof boot: $m" >&2
+  print_uart_excerpt "init: ready" "SELFTEST: Completed"
   exit 1
 fi
 # TASK-0049 / RFC-0087 exhaustion-is-an-event guard: a proof boot MUST

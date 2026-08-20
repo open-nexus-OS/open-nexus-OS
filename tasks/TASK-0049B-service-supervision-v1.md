@@ -92,11 +92,26 @@ re-provisions from declared topology only).
 
 ## Red flags / decision points
 
-- **RED (who observes init's children)**: init spawns services via its own
-  exec_v2 wrapper; the reaper-of-record is execd (RFC-0081). The exit-report
-  edge init needs (execd → init, or init's own wait_nohang sweep over its
-  children) must be decided at execution start and recorded here — do NOT build
-  both.
+- **RED → RESOLVED 2026-08-20 (forced by the kernel, not chosen)**: `wait` /
+  `wait_nohang` are parent-bound (`reap_child` rejects non-children), and
+  boot services are INIT's kernel children — execd cannot reap them at all.
+  execd's reaper-of-record role (RFC-0081) covers exactly its own children
+  (apps, probes); **init sweeps its own children** via
+  `wait_nohang_with_reason` once per responder round
+  (`bootstrap/supervision.rs`). No execd→init exit-report edge exists or is
+  needed. Shipped in PR-B1 (observation half): every service death is
+  announced once with kernel truth
+  (`init: service exit name=<svc> reason=<label> code=0x<hex>`), a one-shot
+  exit0 probe proves the sweep every boot
+  (`SELFTEST: init supervision sweep ok`, gated full+headless+smp1), and a
+  proof boot treats a real service death as FATAL (no restart exists yet —
+  the ladder would otherwise run against a corpse). Policy SSOT shipped
+  alongside: `service_supervision.rs` (criticality tiers + restart policy
+  for the whole fleet incl. bespoke services + the ONE declared backoff
+  schedule; 3 host tests pin coverage, the RFC-0087 critical-boot floor and
+  the schedule shape) — deliberately a sibling table, NOT ServiceSpec
+  fields (half the fleet is bespoke and must never grow a spec, or the
+  generic provisioning arm would fire for it).
 - **YELLOW (critical-boot escalation)**: repeated critical-boot failure
   escalates to reboot-into-`safe` per RFC-0087 — but reset lands in TASK-0050.
   Until 0050 ships, escalation emits the decision marker and parks

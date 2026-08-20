@@ -1061,3 +1061,23 @@ phase = "bringup"
 
 [marker."SELFTEST: workpool determinism FAIL (run, woke=0 selfsig=ok)"]
 phase = "bringup"
+
+# TASK-0049B supervision sweep (init emits these every boot — KNOWN or
+# nexus-evidence rejects the trace). `init: service exit name=` is the
+# kernel-truth death line for a boot service; a proof boot must never
+# print it (fatal guard in qemu-test.sh) — the probe verdict is the
+# per-boot positive proof.
+[marker."SELFTEST: init supervision sweep ok"]
+phase = "bringup"
+
+[marker."SELFTEST: init supervision sweep FAIL"]
+phase = "bringup"
+
+[marker."init: service exit name="]
+phase = "bringup"
+
+[marker."init: FAIL supervision probe spawn"]
+phase = "bringup"
+
+[marker."init: FAIL supervision probe resume"]
+phase = "bringup"

@@ -2093,6 +2093,7 @@ version = "0.1.0"
 dependencies = [
  "bundlemgrd",
  "capnp",
+ "demo-exit0",
  "execd",
  "keystored",
  "nexus-abi",
