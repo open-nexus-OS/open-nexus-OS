@@ -92,6 +92,30 @@ pub(crate) fn emit_compaction_verify_failed() {
     append_logd_audit(msg.as_bytes());
 }
 
+/// TASK-0049 / RFC-0087 "exhaustion is an event": the boot lost the virtio
+/// upgrade window and `/state` durability is RAM-only from here on. One
+/// deterministic marker per boot (the upgrade-window machine fires each
+/// terminal state exactly once) plus an `event=exhaust.v1` audit record so
+/// the degradation is queryable from logd, not just visible on the UART.
+/// The proof harness treats this marker in a proof boot as FATAL — the
+/// proof profiles must upgrade.
+pub(crate) fn emit_degrade_ram_backed(reason: &str) {
+    let mut msg = [0u8; 128];
+    let mut len = 0usize;
+    let _ = push_bytes(&mut msg, &mut len, b"statefsd: degrade ram-backed (");
+    let _ = push_bytes(&mut msg, &mut len, reason.as_bytes());
+    let _ = push_bytes(&mut msg, &mut len, b")");
+    if let Ok(text) = core::str::from_utf8(&msg[..len]) {
+        emit_line(text);
+    }
+    let mut audit = [0u8; 160];
+    let mut alen = 0usize;
+    let _ = push_bytes(&mut audit, &mut alen, b"event=exhaust.v1 resource=virtio-blk ");
+    let _ = push_bytes(&mut audit, &mut alen, b"action=ram-backed reason=");
+    let _ = push_bytes(&mut audit, &mut alen, reason.as_bytes());
+    append_logd_audit(&audit[..alen]);
+}
+
 pub(crate) fn emit_line(message: &str) {
     // RFC-0068: fold routine markers into recall (interactive); failures & proof print raw.
     // One atomic `debug_write` (via `debug_println`, which also owns the verdict

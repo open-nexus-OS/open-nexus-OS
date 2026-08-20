@@ -28,6 +28,7 @@ pub use os_lite::*;
 // logic shared by the OS serve loop and the host contract tests.
 #[cfg(any(feature = "std", all(feature = "os-lite", nexus_env = "os")))]
 pub mod hardening;
+pub mod upgrade_window;
 
 // Transaction + compaction core (TASK-0026 step 4): cfg-free wire-status
 // mapping / cap table / compaction tick shared by the OS serve loop and the

@@ -1603,6 +1603,18 @@ if grep -aFq "SELFTEST: statefs enc roundtrip ok" "$UART_LOG" \
   print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs v2 compact ok"
   exit 1
 fi
+# TASK-0049 / RFC-0087 exhaustion-is-an-event guard: a proof boot MUST
+# upgrade statefs to virtio — a degrade marker means /state durability was
+# silently RAM-only for the whole run, which would fake-green every
+# persistence claim downstream (cold-boot lanes would catch it a run later;
+# this catches it in the run that degraded).
+if grep -aq "statefsd: degrade ram-backed" "$UART_LOG"; then
+  m=$(grep -a "statefsd: degrade ram-backed" "$UART_LOG" | head -n1)
+  echo "[error] first_failed_phase=bringup missing_marker='statefsd: virtio upgrade ok'" >&2
+  echo "[error] statefs degraded to RAM-only in a proof boot: $m" >&2
+  print_uart_excerpt "statefsd: ready" "SELFTEST: statefs put ok"
+  exit 1
+fi
 for m in \
   "SELFTEST: statefs enc roundtrip FAIL" \
   "statefsd: enc self-check failed" \

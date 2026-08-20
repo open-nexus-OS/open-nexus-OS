@@ -29,8 +29,8 @@ use storage::BlockDevice;
 use storage::MemBlockDevice;
 
 use crate::emit_os::{
-    emit_access_denied, emit_blk_marker, emit_budget_warn, emit_envelope_denied,
-    emit_envelope_migration, emit_ipc_error, emit_line, emit_statefs_error,
+    emit_access_denied, emit_blk_marker, emit_budget_warn, emit_degrade_ram_backed,
+    emit_envelope_denied, emit_envelope_migration, emit_ipc_error, emit_line, emit_statefs_error,
 };
 use crate::hardening;
 
@@ -197,12 +197,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // is active on every successful open of this engine — emitted once,
     // only after open() actually succeeded above.
     emit_line("statefsd: journal v2 mounted (2PC)");
-    // Track whether we've processed any mutating operations yet. We'll only "upgrade"
-    // to the virtio-blk backend while still pristine, to avoid losing in-memory state.
-    let mut pristine = true;
-    let mut virtio_upgraded = false;
-    let mut virtio_retry_count = 0u8;
-    const VIRTIO_MAX_RETRIES: u8 = 5;
+    // TASK-0049 / RFC-0087: the virtio-upgrade window is a pure, host-tested
+    // state machine now — both ways of losing it (early mutating op, retry
+    // exhaustion) are terminal degradations announced exactly once below.
+    let mut window = crate::upgrade_window::UpgradeState::new();
 
     // TASK-0025: write-path hardening — policy table is const, the seq
     // tracker is fed from the replayed engine, the MAC key derives lazily
@@ -225,7 +223,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
                 breaker.on_success();
-                if pristine && !virtio_upgraded && virtio_retry_count < VIRTIO_MAX_RETRIES {
+                if window.wants_upgrade() {
                     let mut q = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
                     let mmio_ready = nexus_abi::cap_query(48, &mut q).is_ok() && q.kind_tag == 2;
                     if mmio_ready {
@@ -234,7 +232,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                             match JournalEngine::open(Backend::Virtio(blk)) {
                                 Ok(new_engine) => {
                                     engine = new_engine;
-                                    virtio_upgraded = true;
+                                    let _ = window.on_open_ok();
                                     // New backing store: rebuild the
                                     // anti-rollback state from its replay
                                     // (the mem engine was still pristine).
@@ -244,14 +242,18 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                                     crate::enc_os::try_enable(&mut engine, false);
                                 }
                                 Err(err) => {
-                                    virtio_retry_count += 1;
                                     emit_line("statefsd: journal open failed (virtio)");
                                     emit_statefs_error(err);
-                                    // Delay before next retry to let QEMU virtio settle
-                                    if virtio_retry_count < VIRTIO_MAX_RETRIES {
-                                        emit_line("statefsd: virtio retry scheduled");
-                                        for _ in 0..100 {
-                                            let _ = yield_();
+                                    match window.on_open_failed() {
+                                        crate::upgrade_window::UpgradeAction::AnnounceRetriesExhausted => {
+                                            emit_degrade_ram_backed("virtio retries exhausted");
+                                        }
+                                        _ => {
+                                            // Delay before next retry to let QEMU virtio settle
+                                            emit_line("statefsd: virtio retry scheduled");
+                                            for _ in 0..100 {
+                                                let _ = yield_();
+                                            }
                                         }
                                     }
                                 }
@@ -260,14 +262,21 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     }
                 }
                 let rsp = handle_frame(&mut engine, &mut hard, sender_service_id, frame.as_slice());
-                // Once we accept a mutating op, we no longer allow backend upgrade.
+                // Once we accept a mutating op, we no longer allow backend
+                // upgrade — and losing the window this way is a TERMINAL
+                // degradation the boot must hear about (RFC-0087), not a
+                // silent bool flip: durability is RAM-only from here on.
                 if let Some(op) = frame.get(3).copied() {
                     if matches!(
                         op,
                         proto::OP_PUT | proto::OP_DEL | proto::OP_SYNC | proto::OP_REOPEN
                     ) || proto::txn::is_txn_op(op)
                     {
-                        pristine = false;
+                        if window.on_mutating_op()
+                            == crate::upgrade_window::UpgradeAction::AnnounceMissedWindow
+                        {
+                            emit_degrade_ram_backed("upgrade window missed");
+                        }
                     }
                 }
                 if let Some(reply) = reply {

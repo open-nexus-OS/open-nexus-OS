@@ -1,9 +1,10 @@
 ---
 title: TASK-0049 Reliability v1a: fault & exhaustion truth — exit reasons in the kernel ABI + first exhaustion events + crash-proof reanimation
-status: Draft
+status: Done
 owner: @reliability
 created: 2025-12-23
-updated: 2026-08-18
+updated: 2026-08-20
+completed: 2026-08-20
 depends-on:
   - TASK-0006 # logd (Done — crash envelope sink)
   - TASK-0018 # crashdumps v1 (Done — but OS proof retired; reanimated HERE)
@@ -168,9 +169,17 @@ Three detection holes, all verified in code:
 ### Proof (Host) — required
 
 - `cargo test -p nexus-abi` — exit-reason enum roundtrip, no-wildcard mapping.
-- `cargo test -p execd` — reap path maps reason → envelope field; `test_reject_*`
-  for forged/malformed reason bytes on the wire.
-- Kernel host-proof where applicable (fault→reason table pure-function tests).
+  ✅ 3 decode tests (clean/error split, fault cause, killed + fail-closed
+  Unknown incl. reserved tag 1); the test's `pack()` mirrors the kernel's
+  `wire_bits` exactly, so it is the two-sided wire contract.
+- ~~`test_reject_*` for forged/malformed reason bytes on the wire~~ —
+  RESOLVED AS DESIGNED-OUT (2026-08-20): the reason is kernel-attributed and
+  never exists as wire INPUT anywhere (OP_REPORT_EXIT carries no reason;
+  execd takes it from its own reap cache; OP_WAIT_PID only OUTPUTS it).
+  There is no forgeable surface to reject — strictly stronger than a reject
+  test.
+- `cargo test -p statefsd upgrade_window` — ✅ 4 transition-table tests
+  (the deterministic replacement for the QEMU force-knobs, see Plan step 4).
 
 ### Proof (OS/QEMU) — required
 
@@ -183,10 +192,17 @@ UART markers (gated in `scripts/qemu-test.sh` + proof-manifest):
 - `SELFTEST: minidump ok` + `execd: minidump written <path>` (reanimated)
 - three negative rejects from TASK-0018 (forged metadata / no-artifact /
   mismatched build_id) re-gated
-- `gpud: degrade gl->2d (reason=arena)` — proven via forced-arena-exhaustion
-  selftest knob (deterministic), and
-- `statefsd: degrade ram-backed (upgrade missed)` — proven via withheld-grant
-  selftest knob; both also as `event=exhaust.v1` records queryable from logd.
+- Exhaustion events — DoD recut 2026-08-20 (workflow Option C, rationale in
+  Plan step 4): statefsd emits `statefsd: degrade ram-backed (<reason>)` +
+  an `event=exhaust.v1` audit record on BOTH terminal window losses; the
+  decision logic is host-proven (transition table) and every proof boot
+  carries a FATAL guard against the degrade marker (2026-08-20T11-28-49:
+  upgrade ok 1×, degrade 0×, ladder green). gpud's degrade markers were
+  already delivered by the earlier fail-loud hardening (classified
+  `gl init err …` / `gl scanout fallback 2d`); its `exhaust.v1` logd record
+  → TASK-0049C with the systematic evidence-class wiring. The
+  force-exhaustion knobs were deliberately NOT built (global-arena
+  collateral / boot-critical-store poke).
 
 ## Touched paths (allowlist)
 
@@ -232,7 +248,34 @@ UART markers (gated in `scripts/qemu-test.sh` + proof-manifest):
    full + headless|smp1): all three taxonomy classes in ONE boot —
    `reason=clean code=0`, `reason=fault code=-22`, `reason=error code=42` —
    plus `SELFTEST: exit reason ok`.
-4. **Exhaustion events**: gpud + statefsd transitions, selftest knobs, markers.
+4. ✅ **Exhaustion events** — DONE 2026-08-20 (PR-3), with a documented DoD
+   recut (workflow Option C — the milestone "no silent degradation on the
+   two documented cases" stands, the mechanics changed):
+   - **statefsd** (the genuinely silent case): both ways of losing the
+     virtio upgrade window — first mutating op arriving early, and retry
+     budget exhaustion — were wordless bool flips. The window is now a pure,
+     host-tested state machine (`src/upgrade_window.rs`, 4 transition-table
+     tests, terminal states announce exactly once) consumed by the serve
+     loop; each terminal degradation emits
+     `statefsd: degrade ram-backed (<reason>)` PLUS an `event=exhaust.v1`
+     audit record over the existing `statefsd.audit` logd path (queryable,
+     no new route). The harness treats the degrade marker in a proof boot
+     as FATAL (a RAM-only run would fake-green every downstream persistence
+     claim; the cold-boot lane would only catch it one run later).
+   - **gpud**: the marker half was ALREADY delivered by the earlier
+     fail-loud hardening (classified `gpud: gl init err resource-exhausted`
+     + `gpud: gl scanout fallback 2d` + `gpud: resource vmo_create fail`) —
+     no duplicate marker was added. The `event=exhaust.v1` logd record for
+     gpud moves to TASK-0049C (gpud has NO logd path today; 0049C wires the
+     evidence class systematically instead of a one-off route here).
+   - **Force-knobs replaced, deliberately**: the planned
+     forced-arena-exhaustion knob would starve the GLOBAL 96 MiB VMO pool
+     (collateral on every service), and a withheld-grant knob would poke
+     the boot-critical store's bring-up; both are strictly worse proofs
+     than what shipped — a deterministic host transition table for the
+     decision logic + a fatal negative guard in every proof boot.
+   Proof: headless 2026-08-20T11-28-49 — `statefsd: virtio upgrade ok` 1×,
+   degrade marker 0×, guard armed, ladder exit 0.
 5. ✅ **Proof reanimation** — DONE 2026-08-19 (PR-1, delivered before step 2 —
    independent of the ABI work): chain restored verbatim from af0c7a8d^,
    16/16 markers boot-proven, hard-gated on headless|smp1 (`just test-all`

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-20 (TASK-0049 PR-3: exhaustion is an event — statefs upgrade window)
+
+- **Losing `/state` durability is no longer silent** (RFC-0087 §1): statefsd's
+  virtio upgrade window — RAM-first for a deterministic `ready`, upgraded to
+  virtio-blk only while pristine — could be lost two ways without a word (an
+  early mutating op flipped a bool; the retry budget ran out with no final
+  verdict), leaving the whole boot RAM-backed. The window is now a pure,
+  host-tested state machine (`statefsd/src/upgrade_window.rs`; terminal
+  states announce exactly once) and each terminal degradation emits
+  `statefsd: degrade ram-backed (<reason>)` plus an `event=exhaust.v1` audit
+  record via the existing statefsd.audit logd path. The QEMU harness treats
+  the degrade marker in a proof boot as FATAL — a RAM-only run would
+  fake-green every downstream persistence claim. gpud's GL→2D side was
+  already fail-loud (classified `gl init err …` markers from the earlier
+  hardening); its logd evidence record follows in TASK-0049C together with
+  the systematic evidence-class wiring. With this, TASK-0049 (fault &
+  exhaustion truth) is fully delivered.
+
 ### Added - 2026-08-19 (TASK-0049 PR-2: kernel-attributed task exit reasons, ADR-0056)
 
 - **The kernel now records WHY a task died and `wait` delivers it** — a page

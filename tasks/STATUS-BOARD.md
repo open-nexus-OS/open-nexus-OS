@@ -23,7 +23,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Kernel Core & Runtime | 14 / 34 | 41% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
 | DSoftBus & Distributed | 14 / 28 | 50% | — | Distributed session, transport, mux, and remote-service stack. |
 | Networking & Transport | 1 / 8 | 12% | — | Netstack, dev networking, ingress, and OS transport services. |
-| Observability, Crash, Perf & Diagnostics | 9 / 36 | 25% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
+| Observability, Crash, Perf & Diagnostics | 10 / 36 | 28% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
 | Accounts, Ability & Sessions | 2 / 9 | 22% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. Spine done (0065 lifecycle broker + 0065B session authority); continuation open (KILL/backoff → 0234/0235, lock/multi-user → 0109/0110/0223/0224, delegation → 0126B). |
 | Security, Policy & Identity | 8 / 35 | 23% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
 | Storage, PackageFS & Content | 12 / 29 | 41% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done. |
@@ -111,10 +111,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Observability, Crash, Perf & Diagnostics
 
-- Progress: `9 / 36` done (`25%`)
+- Progress: `10 / 36` done (`28%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0006`, `TASK-0014`, `TASK-0018`, `TASK-0026`, `TASK-0041`, `TASK-0048`..`TASK-0049`, `TASK-0049B`, `TASK-0049C`, `TASK-0051B`, `TASK-0056C`, `TASK-0060`, `TASK-0062B`, `TASK-0080`, `TASK-0141`..`TASK-0145`, `TASK-0152`, `TASK-0170`, `TASK-0172`..`TASK-0173`, `TASK-0183`, `TASK-0190`, `TASK-0201`..`TASK-0202`, `TASK-0205`, `TASK-0216`..`TASK-0217`, `TASK-0227`, `TASK-0234`, `TASK-0236`, `TASK-0242`..`TASK-0243`, `TASK-0264`
-- Notes (2026-08-18, reliability-lane recut): the sub-80 reliability spine was recut against code ground truth (details: `tasks/IMPLEMENTATION-ORDER.md` "Reliability Spine" section). `TASK-0049` rewritten (fault & exhaustion truth + crash-proof reanimation — the old crashd scope moved to the new `TASK-0051B`); new `TASK-0049B` (service supervision v1) + `TASK-0049C` (persistent evidence journal). Contracts: RFC-0087, ADR-0055/0056/0057. Caveat recorded: `TASK-0018` is Done but its OS proof was retired during the RFC-0068 exec migration (only FAIL markers gated); `TASK-0049` re-gates it.
+- Notes (2026-08-18, reliability-lane recut): the sub-80 reliability spine was recut against code ground truth (details: `tasks/IMPLEMENTATION-ORDER.md` "Reliability Spine" section). `TASK-0049` rewritten (fault & exhaustion truth + crash-proof reanimation — the old crashd scope moved to the new `TASK-0051B`); new `TASK-0049B` (service supervision v1) + `TASK-0049C` (persistent evidence journal). Contracts: RFC-0087, ADR-0055/0056/0057.
 
 ### Accounts, Ability & Sessions
 
