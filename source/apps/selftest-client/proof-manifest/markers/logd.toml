@@ -167,3 +167,17 @@ phase = "logd"
 
 [marker."SELFTEST: tracing spans FAIL"]
 phase = "logd"
+
+# TASK-0049C: persistent evidence journal (RFC-0087 §5) — persisted-scope
+# query finds crash evidence; the flood proof pins the on-disk ring bound.
+[marker."SELFTEST: evidence query ok"]
+phase = "logd"
+
+[marker."SELFTEST: evidence query FAIL"]
+phase = "logd"
+
+[marker."SELFTEST: evidence budget ok"]
+phase = "logd"
+
+[marker."SELFTEST: evidence budget FAIL"]
+phase = "logd"

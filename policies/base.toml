@@ -13,6 +13,9 @@ execd = ["proc.spawn", "ipc.core", "fs.read"]
 "nexus-init" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate", "statefs.read", "statefs.write"]
 updated = ["crypto.verify", "ipc.core", "statefs.boot"]
 dsoftbusd = ["ipc.core", "statefs.read", "statefs.write"]
+# TASK-0049C: logd persists evidence-class records under /state/logd/
+# (statefs.write covers PUT/TXN/SYNC; statefs.read the boot-time ring load).
+logd = ["ipc.core", "statefs.read", "statefs.write"]
 metricsd = ["ipc.core", "statefs.write"]
 # timed routes to metricsd to report timer metrics — surfaced by the new
 # !route-deny marker as a previously-silent denial (it lacked ipc.core).

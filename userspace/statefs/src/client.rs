@@ -79,6 +79,45 @@ impl StatefsClient {
         Ok(())
     }
 
+    /// Begin a journal-v2 transaction (TASK-0026 wire ops; TASK-0049C
+    /// exposes them on the shared client so multi-key writers get
+    /// both-or-neither without hand-rolled frames).
+    pub fn txn_begin(&self) -> Result<u64, StatefsError> {
+        let rsp = self.send_and_recv_raw(
+            protocol::txn::encode_txn_begin_request(),
+            protocol::txn::OP_TXN_BEGIN,
+        )?;
+        let (status, txn_id) = protocol::txn::decode_txn_begin_response(&rsp)?;
+        if status == protocol::STATUS_OK {
+            Ok(txn_id)
+        } else {
+            Err(protocol::error_from_status(status))
+        }
+    }
+
+    /// Stage one key write inside an open transaction.
+    pub fn txn_put(&self, txn_id: u64, key: &str, value: &[u8]) -> Result<(), StatefsError> {
+        let frame = protocol::txn::encode_txn_put_request(txn_id, key, value)?;
+        self.send_and_recv(frame, protocol::txn::OP_TXN_PUT)
+    }
+
+    /// Commit: all staged writes become visible atomically (2PC replay
+    /// drops a torn transaction whole — proven TASK-0026 semantics).
+    pub fn txn_commit(&self, txn_id: u64) -> Result<(), StatefsError> {
+        self.send_and_recv(
+            protocol::txn::encode_txn_commit_request(txn_id),
+            protocol::txn::OP_TXN_COMMIT,
+        )
+    }
+
+    /// Abort: discard all staged writes.
+    pub fn txn_abort(&self, txn_id: u64) -> Result<(), StatefsError> {
+        self.send_and_recv(
+            protocol::txn::encode_txn_abort_request(txn_id),
+            protocol::txn::OP_TXN_ABORT,
+        )
+    }
+
     fn send_and_recv(&self, frame: Vec<u8>, op: u8) -> Result<(), StatefsError> {
         let rsp = self.send_and_recv_raw(frame, op)?;
         let status = protocol::decode_status_response(op, &rsp)?;

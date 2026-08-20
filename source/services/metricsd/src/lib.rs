@@ -22,9 +22,7 @@
 
 extern crate alloc;
 
-use alloc::collections::VecDeque;
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{collections::VecDeque, string::String, vec::Vec};
 
 use nexus_metrics::{MAX_ATTRS_LEN, MAX_LABELS_LEN, MAX_METRIC_NAME_LEN, MAX_SPAN_NAME_LEN};
 
@@ -390,6 +388,8 @@ fn utoa(mut value: u64) -> String {
 
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod os_lite;
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
+mod statefs_io;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 pub use os_lite::*;
 

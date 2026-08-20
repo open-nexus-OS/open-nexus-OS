@@ -1093,56 +1093,35 @@ fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
     };
     let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
 
-    // Send bounded NONBLOCK.
+    // TASK-0049C: fire-and-forget with inbox hygiene — the old bounded
+    // ACK-wait was one edge of a cross-service wait TRIANGLE (statefsd
+    // blocks on this policyd check, this audit blocks on logd's ack, logd's
+    // evidence spill blocks on statefsd), which turned unrelated cap checks
+    // into fail-closed denials whenever evidence traffic burst. Drain our
+    // own inbox instead of awaiting the ack; the ack (or any stale reply)
+    // is discarded on the NEXT audit's drain.
+    let _ = nonce;
+    let _ = STATUS_OK;
+    for _ in 0..8 {
+        let mut ah = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut abuf = [0u8; 64];
+        if nexus_abi::ipc_recv_v1(
+            REPLY_RECV_SLOT,
+            &mut ah,
+            &mut abuf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        )
+        .is_err()
+        {
+            break;
+        }
+    }
     let clock = OsClock;
     let deadline = match deadline_after(&clock, Duration::from_millis(500)) {
         Ok(v) => v,
         Err(_) => return false,
     };
-    if nexus_ipc::budget::raw::send_budgeted(&clock, LOGD_SEND_SLOT, &hdr, &frame[..len], deadline)
-        .is_err()
-    {
-        return false;
-    }
-
-    // Deterministic: wait (bounded) for the APPEND ack so the reply inbox cannot fill.
-    let mut ah = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut abuf = [0u8; 64];
-    let mut j: usize = 0;
-    loop {
-        if (j & 0x7f) == 0 {
-            let now = match nexus_abi::nsec() {
-                Ok(v) => v,
-                Err(_) => return false,
-            };
-            if now >= deadline {
-                return false;
-            }
-        }
-        let n = match nexus_ipc::budget::raw::recv_budgeted(
-            &clock,
-            REPLY_RECV_SLOT,
-            &mut ah,
-            &mut abuf,
-            deadline,
-        ) {
-            Ok(v) => core::cmp::min(v, abuf.len()),
-            Err(_) => return false,
-        };
-        if n >= 13
-            && abuf[0] == MAGIC0
-            && abuf[1] == MAGIC1
-            && abuf[2] == VERSION
-            && abuf[3] == (OP_APPEND | 0x80)
-        {
-            if let Ok((status, got_nonce)) =
-                nexus_ipc::logd_wire::parse_append_response_v2_prefix(&abuf[..n])
-            {
-                if got_nonce == nonce {
-                    return status == STATUS_OK;
-                }
-            }
-        }
-        j = j.wrapping_add(1);
-    }
+    nexus_ipc::budget::raw::send_budgeted(&clock, LOGD_SEND_SLOT, &hdr, &frame[..len], deadline)
+        .is_ok()
 }

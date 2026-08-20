@@ -262,6 +262,32 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_CORE_SERVICES_LOG_FAIL);
     }
 
+    // ============================================================
+    // TASK-0049C: persistent evidence journal proofs (RFC-0087 §5)
+    // ============================================================
+    // The exec phase ran before this one, so its crash.v1 record has been
+    // spilled: the persisted mirror must answer the additive QUERY source
+    // scope and contain crash evidence. On a preserved-image boot the
+    // mirror ALSO holds last boot's records — the cross-boot truth is
+    // gated on logd's own `evidence persist on (loaded=0x..)` marker.
+    let evidence_found =
+        services::logd::logd_query_contains_paged_from(&logd, 0, b"event=crash.v1", true)
+            .unwrap_or(false);
+    if evidence_found {
+        emit_line(crate::markers::M_SELFTEST_EVIDENCE_QUERY_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_EVIDENCE_QUERY_FAIL);
+    }
+
+    // Budget proof: flood more evidence-class records than the on-disk
+    // ring holds, then count the keys — the store must stay at the ring
+    // bound (32 slots + head), drop-oldest by rotation, no disk growth.
+    if services::logd::evidence_budget_probe(&logd).unwrap_or(false) {
+        emit_line(crate::markers::M_SELFTEST_EVIDENCE_BUDGET_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_EVIDENCE_BUDGET_FAIL);
+    }
+
     let _ = logd;
     Ok(())
 }

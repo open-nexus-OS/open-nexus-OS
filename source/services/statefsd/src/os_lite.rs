@@ -290,12 +290,13 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     // clients; a client that abandons its reply must never
                     // wedge the server in a blocking send (that deafness hid
                     // behind the quiet post-exec window until TASK-0049B's
-                    // end-phase traffic surfaced it). Timeout >> client poll
-                    // cadence, then drop LOUD with the op byte for forensics.
-                    if server
-                        .send(&rsp, Wait::Timeout(core::time::Duration::from_millis(500)))
-                        .is_err()
-                    {
+                    // end-phase traffic surfaced it). Drop IMMEDIATELY on a
+                    // full queue — a timeout here multiplies into seconds of
+                    // store deafness when several replies rot at once, which
+                    // starved init's persist path in the 0049C bring-up. The
+                    // legitimate nonce-matched client retries; the op byte
+                    // stays for forensics.
+                    if server.send(&rsp, Wait::NonBlocking).is_err() {
                         emit_line("statefsd: rsp queue stalled (dropping reply)");
                         if let Some(op) = frame.get(3).copied() {
                             emit_op_byte(op);

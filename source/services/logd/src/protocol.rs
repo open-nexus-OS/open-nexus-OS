@@ -85,10 +85,19 @@ pub struct AppendRequest {
     pub fields: Vec<u8>,
 }
 
+/// Which journal a QUERY reads (TASK-0049C additive source byte; absent =
+/// `Ram` so pre-0049C frames stay valid).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuerySource {
+    Ram,
+    Persisted,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct QueryRequest {
     pub since_nsec: TimestampNsec,
     pub max_count: u16,
+    pub source: QuerySource,
 }
 
 #[derive(Debug, PartialEq)]
@@ -110,6 +119,7 @@ pub struct QueryRequestV2 {
     pub nonce: u64,
     pub since_nsec: TimestampNsec,
     pub max_count: u16,
+    pub source: QuerySource,
 }
 
 /// A decoded v2 STATS request (nonce-correlated).
@@ -220,22 +230,33 @@ fn decode_append_v2(frame: &[u8]) -> Result<Request, DecodeError> {
 }
 
 fn decode_query_v1(frame: &[u8]) -> Result<Request, DecodeError> {
-    // [L,O,ver,OP, since_nsec:u64le, max_count:u16le]
-    if frame.len() != 14 {
-        return Err(DecodeError::Malformed);
-    }
+    // [L,O,ver,OP, since_nsec:u64le, max_count:u16le, source:u8?]
+    let source = decode_query_source(frame, 14)?;
     let since = u64::from_le_bytes([
         frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11],
     ]);
     let max_count = u16::from_le_bytes([frame[12], frame[13]]);
-    Ok(Request::Query(QueryRequest { since_nsec: TimestampNsec(since), max_count }))
+    Ok(Request::Query(QueryRequest { since_nsec: TimestampNsec(since), max_count, source }))
+}
+
+/// Decodes the optional trailing QUERY source byte (TASK-0049C): a frame of
+/// `base_len` targets `Ram`; exactly one extra byte selects the source;
+/// anything else is malformed.
+fn decode_query_source(frame: &[u8], base_len: usize) -> Result<QuerySource, DecodeError> {
+    match frame.len().checked_sub(base_len) {
+        Some(0) => Ok(QuerySource::Ram),
+        Some(1) => match frame[base_len] {
+            0 => Ok(QuerySource::Ram),
+            1 => Ok(QuerySource::Persisted),
+            _ => Err(DecodeError::Malformed),
+        },
+        _ => Err(DecodeError::Malformed),
+    }
 }
 
 fn decode_query_v2(frame: &[u8]) -> Result<Request, DecodeError> {
-    // [L,O,ver=2,OP, nonce:u64le, since_nsec:u64le, max_count:u16le]
-    if frame.len() != 22 {
-        return Err(DecodeError::Malformed);
-    }
+    // [L,O,ver=2,OP, nonce:u64le, since_nsec:u64le, max_count:u16le, source:u8?]
+    let source = decode_query_source(frame, 22)?;
     let nonce = u64::from_le_bytes([
         frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11],
     ]);
@@ -243,7 +264,12 @@ fn decode_query_v2(frame: &[u8]) -> Result<Request, DecodeError> {
         frame[12], frame[13], frame[14], frame[15], frame[16], frame[17], frame[18], frame[19],
     ]);
     let max_count = u16::from_le_bytes([frame[20], frame[21]]);
-    Ok(Request::QueryV2(QueryRequestV2 { nonce, since_nsec: TimestampNsec(since), max_count }))
+    Ok(Request::QueryV2(QueryRequestV2 {
+        nonce,
+        since_nsec: TimestampNsec(since),
+        max_count,
+        source,
+    }))
 }
 
 fn decode_stats_v1(frame: &[u8]) -> Result<Request, DecodeError> {
@@ -434,8 +460,9 @@ pub fn encode_query_response_bounded_iter(
         let record_len =
             8 + 8 + 1 + 8 + 1 + 2 + 2 + scope_len as usize + msg_len as usize + fields_len as usize;
         if idx.saturating_add(record_len) > buf.len() {
-            // Skip records that don't fit.
-            continue;
+            // Page is full: STOP (skipping would LOSE the record — paging
+            // resumes past max_ts, so a skipped record is never re-served).
+            break;
         }
         write_u64(rec.record_id.0, &mut buf, &mut idx);
         write_u64(rec.timestamp_nsec.0, &mut buf, &mut idx);
@@ -524,7 +551,8 @@ pub fn encode_query_response_bounded_iter_v2(
         let record_len =
             8 + 8 + 1 + 8 + 1 + 2 + 2 + scope_len as usize + msg_len as usize + fields_len as usize;
         if idx.saturating_add(record_len) > buf.len() {
-            continue;
+            // Page full: stop, never skip (see the v1 encoder note).
+            break;
         }
         write_u64(rec.record_id.0, &mut buf, &mut idx);
         write_u64(rec.timestamp_nsec.0, &mut buf, &mut idx);

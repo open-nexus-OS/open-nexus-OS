@@ -263,8 +263,19 @@ pub(crate) fn logd_query_count(logd: &KernelClient) -> core::result::Result<u64,
 
 pub(crate) fn logd_query_contains_since_paged(
     logd: &KernelClient,
+    since_nsec: u64,
+    needle: &[u8],
+) -> core::result::Result<bool, ()> {
+    logd_query_contains_paged_from(logd, since_nsec, needle, false)
+}
+
+/// TASK-0049C: same paged scan with the additive QUERY source byte —
+/// `persisted = true` reads logd's boot-loaded evidence mirror.
+pub(crate) fn logd_query_contains_paged_from(
+    logd: &KernelClient,
     mut since_nsec: u64,
     needle: &[u8],
+    persisted: bool,
 ) -> core::result::Result<bool, ()> {
     let clock = nexus_ipc::budget::OsClock;
     const REPLY_RECV_SLOT: u32 = 0x17;
@@ -275,8 +286,9 @@ pub(crate) fn logd_query_contains_since_paged(
     static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(10_000);
     for _ in 0..64 {
         let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        // Allocation-free QUERY frame v2 (22 bytes).
-        let mut frame = [0u8; 22];
+        // Allocation-free QUERY frame v2 (22 bytes; +1 source byte when
+        // targeting the persisted mirror — TASK-0049C).
+        let mut frame = [0u8; 23];
         frame[0] = nexus_ipc::logd_wire::MAGIC0;
         frame[1] = nexus_ipc::logd_wire::MAGIC1;
         frame[2] = nexus_ipc::logd_wire::VERSION_V2;
@@ -284,6 +296,8 @@ pub(crate) fn logd_query_contains_since_paged(
         frame[4..12].copy_from_slice(&nonce.to_le_bytes());
         frame[12..20].copy_from_slice(&since_nsec.to_le_bytes());
         frame[20..22].copy_from_slice(&8u16.to_le_bytes()); // max_count (page cap)
+        frame[22] = 1;
+        let frame = &frame[..if persisted { 23 } else { 22 }];
 
         // Send with CAP_MOVE so replies arrive on the reply inbox.
         let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| {
@@ -303,7 +317,7 @@ pub(crate) fn logd_query_contains_since_paged(
         let deadline_ns =
             nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
                 .map_err(|_| ())?;
-        nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, &frame, deadline_ns)
+        nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, frame, deadline_ns)
             .map_err(|_| {
                 if !emitted {
                     emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_SEND_FAIL);
@@ -373,4 +387,44 @@ pub(crate) fn logd_query_contains_since_paged(
         since_nsec = next_since;
     }
     Ok(false)
+}
+
+/// TASK-0049C budget proof: flood past the evidence ring size, then count
+/// the on-disk keys — bounded by construction means the store NEVER grows
+/// past `slots + head`, no matter how many evidence records arrive. The
+/// flood paces itself under logd's per-sender rate limiter (bounded).
+pub(crate) fn evidence_budget_probe(logd: &KernelClient) -> core::result::Result<bool, ()> {
+    const FLOOD: usize = 40; // > 32 ring slots
+    let mut sent = 0usize;
+    let mut tries = 0usize;
+    while sent < FLOOD {
+        tries += 1;
+        if tries > 4096 {
+            return Err(());
+        }
+        match logd_append_status_v2(
+            logd,
+            b"selftest.evidence",
+            b"budget flood probe",
+            b"event=exhaust.v1\nresource=selftest-probe\n",
+        ) {
+            Ok(0) => sent += 1,
+            // Rate-limited: wait out the 1s window (bounded yields).
+            Ok(6) => {
+                for _ in 0..256 {
+                    let _ = nexus_abi::yield_();
+                }
+            }
+            Ok(_) => return Ok(false),
+            Err(_) => return Err(()),
+        }
+    }
+    // Count on-disk evidence keys via statefs LIST (selftest holds
+    // statefs.read). 32 slots + 1 head is the hard cap.
+    let statefs = crate::os_lite::ipc::routing::route_with_retry("statefsd")?;
+    let req =
+        statefs::protocol::encode_list_request("/state/logd/evidence/", 64).map_err(|_| ())?;
+    let rsp = super::statefs::statefs_send_recv(&statefs, &req)?;
+    let keys = statefs::protocol::decode_list_response(&rsp).map_err(|_| ())?;
+    Ok(!keys.is_empty() && keys.len() <= 33)
 }

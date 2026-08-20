@@ -215,6 +215,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Samgrd, ServiceId::Logd), // structured logs via CAP_MOVE
     (ServiceId::Statefsd, ServiceId::Policyd), // policy checks via CAP_MOVE
     (ServiceId::Settingsd, ServiceId::Statefsd), // persist prefs (TASK-0072 Phase 8)
+    (ServiceId::Logd, ServiceId::Statefsd), // evidence spill (TASK-0049C, RFC-0087 §5)
 ];
 // NOTE: imed's routes (windowd/settingsd/statefsd) are provisioned IMPERATIVELY
 // in `provision_imed_legs` (fixed pinned slots, RFC-0075 / TASK-0204), not via
@@ -389,12 +390,14 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         routes_to: &[Route { to: ServiceId::Policyd, kind: RouteKind::ReplyInbox }],
         announce: true,
     },
-    // Batch 4: pure server (optional pair — logd may be absent from an image).
+    // Batch 4 (amended by TASK-0049C): logd persists evidence-class records
+    // to statefsd (spill txns via its CAP_MOVE reply inbox — never the
+    // shared response queue).
     ServiceSpec {
         id: ServiceId::Logd,
         exposes_server: true,
-        reply_inbox: false,
-        routes_to: &[],
+        reply_inbox: true,
+        routes_to: &[Route { to: ServiceId::Statefsd, kind: RouteKind::ReplyInbox }],
         announce: true,
     },
     // Batch S (RFC-0069 §4): the session manager — a NEW service that is

@@ -95,12 +95,12 @@ fn spawn_logd_service(cap_records: u32, cap_bytes: u32) -> LoopbackClient {
                         Err(_) => encode_append_response_v2(3, nonce, RecordId(0), 0),
                     }
                 }
-                Request::Query(QueryRequest { since_nsec, max_count }) => {
+                Request::Query(QueryRequest { since_nsec, max_count, source: _ }) => {
                     let records = journal.query(since_nsec, max_count);
                     let stats = journal.stats();
                     encode_query_response(STATUS_OK, stats, &records)
                 }
-                Request::QueryV2(QueryRequestV2 { nonce, since_nsec, max_count }) => {
+                Request::QueryV2(QueryRequestV2 { nonce, since_nsec, max_count, source: _ }) => {
                     let records = journal.query(since_nsec, max_count);
                     let stats = journal.stats();
                     encode_query_response_v2(STATUS_OK, nonce, stats, &records)

@@ -73,6 +73,9 @@ const JOURNAL_CAP_BYTES: u32 = 16 * 1024;
 const JOURNAL_ALLOC_CAP_BYTES: u32 = 256 * 1024;
 
 /// Main logd bring-up service loop (os-lite).
+use crate::route_os::route_logd_blocking;
+use crate::spill_os::SpillState;
+
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // RFC-0068: fold logd's own bring-up status into a `logd N/N` verdict (interactive).
     nexus_abi::service_verdict_arm();
@@ -110,6 +113,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut saw_reject_over_limit = false;
     let mut saw_reject_rate_limited = false;
     let mut rate_limiter = crate::security::SenderRateLimiter::new();
+    // TASK-0049C: evidence spill (lazy statefsd attach + persisted mirror).
+    let mut spill = SpillState::new();
     let selftest_sid = service_id_from_name(b"selftest-client");
     // RFC-0068 P4: logd is the central SUBJECT collector. Recv with a timeout (instead of blocking)
     // so a QUIET period — boot settled, no appends for a while — wakes us to render one verdict per
@@ -136,6 +141,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 }
                 let rsp = handle_frame(
                     &mut journal,
+                    &mut spill,
                     sender_service_id,
                     frame,
                     &mut fallback_ts,
@@ -249,8 +255,13 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         saw_drop_nonself = true;
                     }
                 }
+                // TASK-0049C: one spill tick per served request (response
+                // already sent — spill I/O never delays an emitter's ack).
+                spill.tick();
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                // TASK-0049C: drain the evidence backlog while quiet.
+                spill.tick();
                 // Quiet (no request for the timeout window): once boot has settled after appends,
                 // render the per-subject journal verdicts once. Interactive only — proof keeps the
                 // raw records for verify-uart.
@@ -308,75 +319,6 @@ fn render_subject_verdicts(journal: &Journal) {
     }
 }
 
-fn route_logd_blocking() -> Option<KernelServer> {
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
-    let name = b"logd";
-    static ROUTE_NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
-    let nonce = ROUTE_NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-
-    // Routing v1+nonce extension:
-    // GET: [R,T,1,OP_ROUTE_GET, name_len, name..., nonce:u32le]
-    // RSP: [R,T,1,OP_ROUTE_RSP, status, send_slot:u32le, recv_slot:u32le, nonce:u32le]
-    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN + 4];
-    let base_len = nexus_abi::routing::encode_route_get(name, &mut req[..5 + name.len()])?;
-    req[base_len..base_len + 4].copy_from_slice(&nonce.to_le_bytes());
-    let req_len = base_len + 4;
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
-    // Bounded probing: if routing isn't available yet, fall back quickly to deterministic slots.
-    for _ in 0..64 {
-        // Avoid blocking IPC on the routing control plane (can deadlock under cooperative scheduling).
-        if nexus_abi::ipc_send_v1(
-            CTRL_SEND_SLOT,
-            &hdr,
-            &req[..req_len],
-            nexus_abi::IPC_SYS_NONBLOCK,
-            0,
-        )
-        .is_err()
-        {
-            let _ = yield_();
-            continue;
-        }
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
-        match nexus_abi::ipc_recv_v1(
-            CTRL_RECV_SLOT,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = n as usize;
-                if n == 17 {
-                    let got_nonce = u32::from_le_bytes([buf[13], buf[14], buf[15], buf[16]]);
-                    if got_nonce != nonce {
-                        let _ = yield_();
-                        continue;
-                    }
-                }
-                if n != 17 {
-                    let _ = yield_();
-                    continue;
-                }
-                let (status, send_slot, recv_slot) =
-                    nexus_abi::routing::decode_route_rsp(&buf[..13])?;
-                if status != nexus_abi::routing::STATUS_OK {
-                    let _ = yield_();
-                    continue;
-                }
-                return KernelServer::new_with_slots(recv_slot, send_slot).ok();
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => {}
-        }
-    }
-    None
-}
-
 enum ResponseFrame {
     Small { buf: [u8; 64], len: usize },
     Medium { buf: [u8; 512], len: usize },
@@ -393,6 +335,7 @@ impl ResponseFrame {
 
 fn handle_frame(
     journal: &mut Journal,
+    spill: &mut SpillState,
     sender_service_id: u64,
     frame: &[u8],
     fallback_ts: &mut u64,
@@ -438,11 +381,21 @@ fn handle_frame(
                         );
                     }
                     match journal.append(sender_service_id, now, level, scope, message, fields) {
-                        Ok(outcome) => encode_append_response_small(
-                            STATUS_OK,
-                            outcome.record_id,
-                            outcome.dropped_records,
-                        ),
+                        Ok(outcome) => {
+                            spill.maybe_spill(
+                                sender_service_id,
+                                now,
+                                level,
+                                scope,
+                                message,
+                                fields,
+                            );
+                            encode_append_response_small(
+                                STATUS_OK,
+                                outcome.record_id,
+                                outcome.dropped_records,
+                            )
+                        }
                         Err(_) => encode_append_response_small(
                             STATUS_OVER_LIMIT,
                             RecordId(0),
@@ -457,9 +410,14 @@ fn handle_frame(
                 ),
             },
             OP_QUERY => match decode_query_v1(frame) {
-                Ok((since, max_count)) => {
+                Ok((since, max_count, persisted)) => {
+                    let src = if persisted { spill.mirror() } else { &*journal };
                     let bounded = encode_query_response_bounded_iter_proto(
-                        STATUS_OK, stats, journal, since, max_count,
+                        STATUS_OK,
+                        src.stats(),
+                        src,
+                        since,
+                        max_count,
                     );
                     ResponseFrame::Medium { buf: bounded.buf, len: bounded.len }
                 }
@@ -499,12 +457,22 @@ fn handle_frame(
                         }
                         match journal.append(sender_service_id, now, level, scope, message, fields)
                         {
-                            Ok(outcome) => encode_append_response_small_v2(
-                                STATUS_OK,
-                                nonce,
-                                outcome.record_id,
-                                outcome.dropped_records,
-                            ),
+                            Ok(outcome) => {
+                                spill.maybe_spill(
+                                    sender_service_id,
+                                    now,
+                                    level,
+                                    scope,
+                                    message,
+                                    fields,
+                                );
+                                encode_append_response_small_v2(
+                                    STATUS_OK,
+                                    nonce,
+                                    outcome.record_id,
+                                    outcome.dropped_records,
+                                )
+                            }
                             Err(_) => encode_append_response_small_v2(
                                 STATUS_OVER_LIMIT,
                                 nonce,
@@ -521,9 +489,15 @@ fn handle_frame(
                     ),
                 },
                 OP_QUERY => match decode_query_v2(frame) {
-                    Ok((since, max_count)) => {
+                    Ok((since, max_count, persisted)) => {
+                        let src = if persisted { spill.mirror() } else { &*journal };
                         let bounded = encode_query_response_bounded_iter_proto_v2(
-                            STATUS_OK, nonce, stats, journal, since, max_count,
+                            STATUS_OK,
+                            nonce,
+                            src.stats(),
+                            src,
+                            since,
+                            max_count,
                         );
                         ResponseFrame::Medium { buf: bounded.buf, len: bounded.len }
                     }
@@ -594,15 +568,27 @@ fn decode_append_v1(frame: &[u8]) -> Result<(crate::journal::LogLevel, &[u8], &[
     Ok((level, &frame[start..end_scope], &frame[end_scope..end_msg], &frame[end_msg..end_fields]))
 }
 
-fn decode_query_v1(frame: &[u8]) -> Result<(TimestampNsec, u16), u8> {
-    if frame.len() != 14 {
-        return Err(STATUS_MALFORMED);
-    }
+fn decode_query_v1(frame: &[u8]) -> Result<(TimestampNsec, u16, bool), u8> {
+    let persisted = decode_query_source(frame, 14)?;
     let since = u64::from_le_bytes([
         frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11],
     ]);
     let max_count = u16::from_le_bytes([frame[12], frame[13]]);
-    Ok((TimestampNsec(since), max_count))
+    Ok((TimestampNsec(since), max_count, persisted))
+}
+
+/// Optional trailing QUERY source byte (TASK-0049C): absent = RAM; one
+/// extra byte 0|1 selects RAM|persisted; anything else malformed.
+fn decode_query_source(frame: &[u8], base_len: usize) -> Result<bool, u8> {
+    match frame.len().checked_sub(base_len) {
+        Some(0) => Ok(false),
+        Some(1) => match frame[base_len] {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(STATUS_MALFORMED),
+        },
+        _ => Err(STATUS_MALFORMED),
+    }
 }
 
 fn decode_nonce_v2(frame: &[u8]) -> Option<u64> {
@@ -636,16 +622,14 @@ fn decode_append_v2(frame: &[u8]) -> Result<(crate::journal::LogLevel, &[u8], &[
     Ok((level, &frame[start..end_scope], &frame[end_scope..end_msg], &frame[end_msg..end_fields]))
 }
 
-fn decode_query_v2(frame: &[u8]) -> Result<(TimestampNsec, u16), u8> {
-    // [L,O,2,OP_QUERY, nonce:u64le, since_nsec:u64le, max_count:u16le]
-    if frame.len() != 22 {
-        return Err(STATUS_MALFORMED);
-    }
+fn decode_query_v2(frame: &[u8]) -> Result<(TimestampNsec, u16, bool), u8> {
+    // [L,O,2,OP_QUERY, nonce:u64le, since_nsec:u64le, max_count:u16le, source:u8?]
+    let persisted = decode_query_source(frame, 22)?;
     let since = u64::from_le_bytes([
         frame[12], frame[13], frame[14], frame[15], frame[16], frame[17], frame[18], frame[19],
     ]);
     let max_count = u16::from_le_bytes([frame[20], frame[21]]);
-    Ok((TimestampNsec(since), max_count))
+    Ok((TimestampNsec(since), max_count, persisted))
 }
 
 fn encode_append_response_small(status: u8, record_id: RecordId, dropped: u64) -> ResponseFrame {

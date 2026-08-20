@@ -139,9 +139,13 @@ pub(crate) fn compaction_tick(engine: &mut JournalEngine<Backend>) {
 
 /// `TXN_BEGIN`/`TXN_COMMIT`/`TXN_ABORT` carry no key: durability/atomicity
 /// control mirrors `Sync`/`Reopen` — boot authority or generic state writer.
+/// Order matters (TASK-0049C): the generic writer cap is checked FIRST — a
+/// boot-cap-first probe earned every ordinary txn writer a policyd DENY
+/// audit per op, and for logd's evidence spill that deny audit was itself
+/// evidence: each spill minted the next record, a 1:1 self-sustaining loop.
 fn txn_ctl_allowed(sender_service_id: u64) -> bool {
-    policyd_allows(sender_service_id, CAP_BOOT.as_bytes())
-        || policyd_allows(sender_service_id, CAP_WRITE.as_bytes())
+    policyd_allows(sender_service_id, CAP_WRITE.as_bytes())
+        || policyd_allows(sender_service_id, CAP_BOOT.as_bytes())
 }
 
 /// Per-key gate for `TXN_PUT` — same capability table as the plain put path

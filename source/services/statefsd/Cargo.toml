@@ -30,7 +30,12 @@ statefs = { path = "../../../userspace/statefs", optional = true, default-featur
 # TASK-0025 hardening: deterministic device-key signature as the HKDF ikm
 # (see src/hardening.rs). Same no_std configuration keystored ships.
 ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }
-nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+# TASK-0049C: 1MiB heap — the 384KiB default starved on preserved-image
+# boots (journal replay + ~40 compaction generations + evidence-spill txn
+# churn on the never-freeing bump; alloc-fail killed the store mid-proof).
+# Honest fix for the per-request Vec churn is buffer reuse (follow-up in
+# the 0049C ledger); the watermark markers keep the ceiling visible.
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true, features = ["heap-1m"] }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 storage = { path = "../../../userspace/storage", optional = true, default-features = false }

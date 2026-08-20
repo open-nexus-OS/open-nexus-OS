@@ -1759,6 +1759,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-service-entry",
  "proptest",
+ "statefs",
 ]
 
 [[package]]

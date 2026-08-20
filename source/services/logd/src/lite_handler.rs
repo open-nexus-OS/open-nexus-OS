@@ -15,7 +15,7 @@
 //!
 //! INVARIANTS:
 //! - Bounded parsing and responses (never panics on malformed input)
-//! - QUERY responses use the fixed-size 512-byte encoding and skip records that do not fit
+//! - QUERY responses use the fixed-size 512-byte encoding and STOP at the first record that no longer fits (a skipped record would be lost to paging)
 
 #![forbid(unsafe_code)]
 
@@ -46,6 +46,24 @@ pub fn handle_frame(
 /// Same as [`handle_frame`] but allows caller-managed rate limiter state.
 pub fn handle_frame_with_limiter(
     journal: &mut Journal,
+    sender_service_id: u64,
+    now: TimestampNsec,
+    frame: &[u8],
+    limiter: &mut SenderRateLimiter,
+) -> Vec<u8> {
+    // No persisted mirror in the legacy entry points: `Persisted` queries
+    // answer from an empty journal (count=0), never an error — the scope is
+    // additive (TASK-0049C).
+    let empty = Journal::new(1, 512);
+    handle_frame_with_journals(journal, &empty, sender_service_id, now, frame, limiter)
+}
+
+/// Full entry point (TASK-0049C): `persisted` is the boot-loaded mirror of
+/// the on-disk evidence ring; QUERY picks its journal via the request's
+/// source byte, everything else is unchanged.
+pub fn handle_frame_with_journals(
+    journal: &mut Journal,
+    persisted: &Journal,
     sender_service_id: u64,
     now: TimestampNsec,
     frame: &[u8],
@@ -123,21 +141,23 @@ pub fn handle_frame_with_limiter(
             }
         }
         crate::protocol::Request::Query(q) => {
+            let src = query_journal(journal, persisted, q.source);
             let bounded = encode_query_response_bounded_iter(
                 STATUS_OK,
-                journal.stats(),
-                journal,
+                src.stats(),
+                src,
                 q.since_nsec,
                 q.max_count,
             );
             bounded.as_slice().to_vec()
         }
         crate::protocol::Request::QueryV2(q) => {
+            let src = query_journal(journal, persisted, q.source);
             let bounded = encode_query_response_bounded_iter_v2(
                 STATUS_OK,
                 q.nonce,
-                journal.stats(),
-                journal,
+                src.stats(),
+                src,
                 q.since_nsec,
                 q.max_count,
             );
@@ -147,6 +167,17 @@ pub fn handle_frame_with_limiter(
         crate::protocol::Request::StatsV2(s) => {
             encode_stats_response_v2(STATUS_OK, s.nonce, journal.stats())
         }
+    }
+}
+
+fn query_journal<'a>(
+    ram: &'a Journal,
+    persisted: &'a Journal,
+    source: crate::protocol::QuerySource,
+) -> &'a Journal {
+    match source {
+        crate::protocol::QuerySource::Ram => ram,
+        crate::protocol::QuerySource::Persisted => persisted,
     }
 }
 

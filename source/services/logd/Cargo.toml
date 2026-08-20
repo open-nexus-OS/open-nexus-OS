@@ -19,6 +19,9 @@ os-lite = [
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
+    "dep:statefs",
+    "statefs/os-lite",
+    "statefs/ipc-client",
 ]
 
 [package.metadata.nexus-service]
@@ -30,6 +33,8 @@ capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+# TASK-0049C: evidence spill client (statefs wire + txn ops; engine stays in statefsd).
+statefs = { path = "../../../userspace/statefs", optional = true, default-features = false }
 # RFC-0068: logd is the central subject-indexed journal — it folds records by scope (= subject) into
 # the SHARED verdict math, so cross-emitter records about one subject become one verdict.
 nexus-event = { path = "../../libs/nexus-event" }

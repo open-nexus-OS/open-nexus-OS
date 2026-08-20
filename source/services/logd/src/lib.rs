@@ -30,13 +30,19 @@
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern crate alloc;
 
+pub mod evidence;
 pub mod journal;
 pub mod lite_handler;
 pub mod protocol;
 pub mod security;
+pub mod spill;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod route_os;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod spill_os;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub use os_lite::*;
 

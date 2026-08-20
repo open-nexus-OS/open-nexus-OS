@@ -112,8 +112,14 @@ impl SupervisionPersist {
         req[12..12 + v1_frame.len() - 4].copy_from_slice(&v1_frame[4..]);
         let req_len = v1_frame.len() + 8;
         let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
+        // Time-based bounds (NOT yield counters): with statefsd busy
+        // draining stalled replies, thousands of yields can burn off in
+        // microseconds while the store needs real milliseconds — a counter
+        // bound starved this exact path in the 0049C bring-up boots.
+        let start = nexus_abi::nsec().unwrap_or(0);
+        let send_deadline = start.saturating_add(2_000_000_000);
         let mut sent = false;
-        for _ in 0..256 {
+        loop {
             match nexus_abi::ipc_send_v1(
                 self.send_slot,
                 &hdr,
@@ -126,6 +132,9 @@ impl SupervisionPersist {
                     break;
                 }
                 Err(nexus_abi::IpcError::QueueFull) => {
+                    if nexus_abi::nsec().unwrap_or(u64::MAX) >= send_deadline {
+                        break;
+                    }
                     let _ = nexus_abi::yield_();
                 }
                 Err(_) => return None,
@@ -135,7 +144,11 @@ impl SupervisionPersist {
             debug_write_bytes(b"init: supervision persist send stalled\n");
             return None;
         }
-        for _ in 0..4096 {
+        let recv_deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(2_000_000_000);
+        loop {
+            if nexus_abi::nsec().unwrap_or(u64::MAX) >= recv_deadline {
+                return None;
+            }
             let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
             let mut buf = heapless_vec::RspBuf::zeroed();
             match nexus_abi::ipc_recv_v1(
@@ -165,7 +178,6 @@ impl SupervisionPersist {
                 Err(_) => return None,
             }
         }
-        None
     }
 }
 

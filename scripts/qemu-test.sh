@@ -616,6 +616,8 @@ expected_sequence=(
   "SELFTEST: log query ok"
   "SELFTEST: nexus-log sink-logd ok"
   "SELFTEST: core services log ok"
+  "SELFTEST: evidence query ok"
+  "SELFTEST: evidence budget ok"
   "SELFTEST: ipc payload roundtrip ok"
   "SELFTEST: ipc deadline timeout ok"
   "SELFTEST: nexus-ipc kernel loopback ok"
@@ -822,6 +824,8 @@ case "${PROFILE:-full}" in
       "SELFTEST: minidump mismatched build_id rejected"
       "SELFTEST: exec denied ok"
       "SELFTEST: execd malformed ok"
+      "SELFTEST: evidence query ok"
+      "SELFTEST: evidence budget ok"
     )
     ;;
 esac
@@ -1593,6 +1597,16 @@ if grep -aFq "statefsd: journal v2 mounted (2PC)" "$UART_LOG"; then
     print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs v2 compact ok"
     exit 1
   fi
+  # TASK-0049C: on the preserved-image boot logd's spill attach must have
+  # loaded last boot's evidence ring (loaded=0x00 on a keep-blk lane means
+  # persistence silently failed).
+  if [[ "${REQUIRE_STATEFS_COLD_BOOT:-0}" == "1" ]] \
+     && ! grep -aqE "logd: evidence persist on \(loaded=0x0*[1-9a-f]" "$UART_LOG"; then
+    echo "[error] first_failed_phase=logd missing_marker='logd: evidence persist on (loaded>0)'" >&2
+    echo "[error] cold-boot lane: no evidence records survived the reboot" >&2
+    grep -a "logd: evidence persist on" "$UART_LOG" | head -n 4 >&2
+    exit 1
+  fi
   # TASK-0049B PR-B3c: on the preserved-image boot the prior boot's restart
   # counters must be visible again (baseline > 0 → persist marker).
   if [[ "${REQUIRE_STATEFS_COLD_BOOT:-0}" == "1" ]] \
@@ -1659,6 +1673,31 @@ for m in \
     exit 1
   fi
 done
+# TASK-0049C evidence-journal guards: the persisted-scope proofs are fatal
+# in both directions, and a proof boot that ran the logd phase must have
+# attached the spill (the persist-on marker carries the honest count of
+# records loaded FROM DISK). Degrade/spill-fail signatures are fatal on any
+# profile (they cannot appear unless the spill path ran and broke).
+if grep -aFq "SELFTEST: log query ok" "$UART_LOG" \
+   && ! grep -aFq "logd: evidence persist on (loaded=0x" "$UART_LOG"; then
+  echo "[error] first_failed_phase=logd missing_marker='logd: evidence persist on (loaded=0x'" >&2
+  echo "[error] logd phase ran but the evidence spill never attached to statefsd" >&2
+  grep -a "logd: evidence\|logd: degrade" "$UART_LOG" | head -n 6 >&2
+  exit 1
+fi
+for m in \
+  "SELFTEST: evidence query FAIL" \
+  "SELFTEST: evidence budget FAIL" \
+  "logd: degrade evidence volatile" \
+  "logd: evidence spill fail (txn)"; do
+  if grep -aFq "$m" "$UART_LOG"; then
+    echo "[error] first_failed_phase=logd missing_marker='$m'" >&2
+    echo "[error] persistent evidence journal emitted failure signature: $m" >&2
+    grep -a "logd: evidence\|SELFTEST: evidence" "$UART_LOG" | head -n 8 >&2
+    exit 1
+  fi
+done
+
 # TASK-0049 / RFC-0087 exhaustion-is-an-event guard: a proof boot MUST
 # upgrade statefs to virtio — a degrade marker means /state durability was
 # silently RAM-only for the whole run, which would fake-green every

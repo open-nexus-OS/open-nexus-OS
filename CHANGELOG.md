@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-20 (TASK-0049C: the evidence journal survives reboot — 0049C closed)
+
+- **Crash and exhaustion evidence now outlives the boot**: logd persists
+  evidence-class records (`event=crash.v1`, `event=exhaust.v1`, deny/audit
+  records — allow-audits stay RAM-only as the spill's own echo) to a fixed
+  slot ring under `/state/logd/evidence/` (32 × ≤512 B ⇒ 16 KiB by
+  construction, drop-oldest IS the rotation), each spill riding ONE
+  journal-v2 transaction. The QUERY wire gained an additive source byte:
+  `persisted` queries answer from a boot-loaded mirror through the same
+  renderer. Spill I/O is fully decoupled from request handling (bounded
+  pending queue + between-requests tick), arms on the first crash/exhaust
+  event, loads the mirror one slot per quiet tick, and degrades terminally
+  LOUD after consecutive failures. Proofs: `SELFTEST: evidence query ok`,
+  `SELFTEST: evidence budget ok` (40-record flood, on-disk keys ≤ 33),
+  keep-blk double boot replays the ring (`logd: evidence persist on
+  (loaded=0x16)`, gated > 0 on the cold-boot lane).
+
+### Fixed - 2026-08-20 (five systemic reliability bugs surfaced by the evidence lane)
+
+- **logd query pagination lost records (wire bug since RFC-0011)**: the
+  bounded encoder skipped records that did not fit the 512 B page while
+  paging resumes past the page's max timestamp — a skipped record was
+  never served again. Crash reports vanished on preserved-image boots
+  (`SELFTEST: crash report FAIL`). The encoder now stops at the first
+  non-fitting record; store caps guarantee any record fits an empty page.
+- **Cross-service wait triangle**: statefsd (cap check) → policyd
+  (audit-ACK wait) → logd (spill txn) → statefsd composed bounded waits
+  into fail-closed policy DENIALS for uninvolved services. policyd's audit
+  append is now fire-and-forget with inbox drain.
+- **metricsd's retention bulk path had no reply consumer** — every PUT/DEL
+  reply rotted on statefsd's shared response queue (the exact wedge class
+  fixed in 0049B). Bulk ops now CAP_MOVE replies onto metricsd's own inbox
+  and drain it before each send.
+- **statefsd txn gate checked `statefs.boot` before `statefs.write`**,
+  minting a policyd deny audit per op for every ordinary txn writer (for
+  the spill, that audit was itself evidence — a 1:1 loop). Order flipped.
+- **statefsd died of bump-heap exhaustion** (384 KiB) on preserved-image
+  boots under journal replay + compaction + evidence churn — the store
+  exited mid-proof. Heap raised to 1 MiB; the per-request Vec churn is a
+  recorded buffer-reuse follow-up.
+
 ### Added - 2026-08-20 (TASK-0049B PR-B3c: restart counters that survive reboot — 0049B closed)
 
 - **Supervision now has a memory**: init persists a per-service restart

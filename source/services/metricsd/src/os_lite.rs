@@ -23,7 +23,7 @@ use core::time::Duration;
 
 use nexus_abi::{nsec, yield_};
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
-use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
+use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
 use nexus_metrics::{
     decode_request, encode_status_response, DecodeError, Request, OP_COUNTER_INC, OP_GAUGE_SET,
     OP_HIST_OBSERVE, OP_PING, OP_SPAN_END, OP_SPAN_START, STATUS_INVALID_ARGS, STATUS_NOT_FOUND,
@@ -35,8 +35,8 @@ use crate::{
     SpanStartArgs,
 };
 
+use crate::statefs_io::{put_with_retries, statefs_delete_nonblocking};
 use statefs::client::StatefsClient;
-use statefs::protocol as statefs_proto;
 
 /// Result type for metricsd service loop.
 pub type MetricsResult<T> = Result<T, MetricsError>;
@@ -48,8 +48,8 @@ const METRICSD_RECV_SLOT: u32 = 0x03;
 const METRICSD_SEND_SLOT: u32 = 0x04;
 const METRICSD_STATEFSD_SEND_SLOT: u32 = 0x07;
 const METRICSD_LOGD_SEND_SLOT: u32 = 0x08;
-const METRICSD_REPLY_SEND_SLOT: u32 = 0x06;
-const METRICSD_REPLY_RECV_SLOT: u32 = 0x05;
+pub(crate) const METRICSD_REPLY_SEND_SLOT: u32 = 0x06;
+pub(crate) const METRICSD_REPLY_RECV_SLOT: u32 = 0x05;
 
 /// Errors surfaced by the metricsd os-lite backend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -190,30 +190,6 @@ impl RetentionSink {
             let _ = statefs_delete_nonblocking(client, key.as_str());
         }
     }
-}
-
-fn statefs_put_nonblocking(client: &KernelClient, key: &str, value: &[u8]) -> bool {
-    let Ok(frame) = statefs_proto::encode_put_request(key, value) else {
-        return false;
-    };
-    client.send(&frame, Wait::NonBlocking).is_ok()
-}
-
-fn statefs_delete_nonblocking(client: &KernelClient, key: &str) -> bool {
-    let Ok(frame) = statefs_proto::encode_key_only_request(statefs_proto::OP_DEL, key) else {
-        return false;
-    };
-    client.send(&frame, Wait::NonBlocking).is_ok()
-}
-
-fn put_with_retries(client: &KernelClient, key: &str, value: &[u8], retries: u32) -> bool {
-    for _ in 0..retries {
-        if statefs_put_nonblocking(client, key, value) {
-            return true;
-        }
-        let _ = yield_();
-    }
-    false
 }
 
 /// Ready notifier invoked by init glue once service bootstrap is complete.
