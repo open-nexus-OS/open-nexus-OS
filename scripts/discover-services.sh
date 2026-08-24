@@ -73,6 +73,7 @@ ORDER = [
     'imed',
     'pinched',
     'selftest-client',
+    'bootctld',
 ]
 rank = {name: idx for idx, name in enumerate(ORDER)}
 svcs.sort(key=lambda x: (rank.get(x[0], len(ORDER)), x[0]))

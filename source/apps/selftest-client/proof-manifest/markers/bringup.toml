@@ -1134,3 +1134,22 @@ phase = "bringup"
 
 [marker."init: crash-loop blocked svc=pinched reason="]
 phase = "bringup"
+
+# TASK-0050 PR-1: bootctld bring-up (single boot-state authority, ADR-0055).
+[marker."init: start bootctld"]
+phase = "bringup"
+
+[marker."init: up bootctld"]
+phase = "bringup"
+
+[marker."bootctld: ready"]
+phase = "bringup"
+
+[marker."bootctld: target=normal next=none"]
+phase = "bringup"
+
+[marker."bootctld: record unavailable (defaults)"]
+phase = "bringup"
+
+[marker."bootctld: record corrupt (defaults)"]
+phase = "bringup"

@@ -12,7 +12,12 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 if [[ -z "${RUN_TIMEOUT:-}" && "${GPU_MODE:-}" == "virgl" ]]; then
   RUN_TIMEOUT=240s
 fi
-RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
+# Re-measured 2026-08-20: the reliability-spine proofs grew the ladder's END
+# phase (3-cycle restart storm with real backoffs, evidence journal proofs,
+# bootctld bring-up) past the old 90s wall-clock cap — the outer timeout cut
+# the storm's third cycle deterministically. 180s outer cap pairs with the
+# launcher's 150s ready-grace (early-stop still ends green runs promptly).
+RUN_TIMEOUT=${RUN_TIMEOUT:-180s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
 RUN_PHASE=${RUN_PHASE:-}
 NEXUS_FORCE_WORKSPACE_TARGET=${NEXUS_FORCE_WORKSPACE_TARGET:-1}
@@ -468,6 +473,8 @@ expected_sequence=(
   "init: up inputd"
   "init: start imed"
   "init: up imed"
+  "init: start bootctld"
+  "init: up bootctld"
   "init: ready"
   # Service readiness markers are emitted asynchronously by the spawned processes.
   # With the kernel `exec` loader path, init emits spawn markers first, then yields;
@@ -501,6 +508,8 @@ expected_sequence=(
   "blk: virtio-blk up"
   "logd: ready"
   "metricsd: ready"
+  "bootctld: ready"
+  "bootctld: target=normal next=none"
   "bundlemgrd: slot a active"
   "SELFTEST: ipc routing keystored ok"
   "SELFTEST: keystored v1 ok"
@@ -1673,6 +1682,21 @@ for m in \
     exit 1
   fi
 done
+# TASK-0050 PR-1 guards: the boot-state authority must come up against a
+# readable record — "defaults" markers in a proof boot mean statefsd was
+# unreachable (or the record rotted), which would fake-green every
+# OTA/target claim downstream.
+for m in \
+  "bootctld: record unavailable (defaults)" \
+  "bootctld: record corrupt (defaults)"; do
+  if grep -aFq "$m" "$UART_LOG"; then
+    echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
+    echo "[error] bootctld emitted failure signature: $m" >&2
+    grep -a "bootctld:" "$UART_LOG" | head -n 6 >&2
+    exit 1
+  fi
+done
+
 # TASK-0049C evidence-journal guards: the persisted-scope proofs are fatal
 # in both directions, and a proof boot that ran the logd phase must have
 # attached the spill (the persist-on marker carries the honest count of

@@ -409,10 +409,14 @@ monitor_uart_stream() {
       # before its later phases: with selftest-client no longer Idle-starved the
       # ladder actually runs, and reaching the OTA phase (`bundlemgrd: slot a
       # active`, phase 3, gated behind bringup's slow statefs-persist disk I/O)
-      # needs ~90s — measured, the full ladder completes well within it. So the
-      # grace is 90s regardless of GPU_MODE (the ladder, not the display, is the
-      # limiter). `QEMU_READY_GRACE_SECS` still overrides for ad-hoc runs.
-      local grace_secs="${QEMU_READY_GRACE_SECS:-90}"
+      # needs ~90s — measured. Re-measured 2026-08-20: the reliability-spine
+      # proofs grew the END phase (3-cycle restart storm with real backoffs,
+      # evidence spill/query/budget, bootctld bring-up), and 90s now cuts the
+      # storm's third cycle mid-flight. 150s covers the full ladder with
+      # margin; the early-stop below still ends green runs ~2s after their
+      # final marker, so only hanging runs pay the wider window.
+      # `QEMU_READY_GRACE_SECS` still overrides for ad-hoc runs.
+      local grace_secs="${QEMU_READY_GRACE_SECS:-150}"
       local start_nsec
       start_nsec=$(date +%s 2>/dev/null || echo 0)
       # Early exit: the moment the ladder's FINAL marker flushes, stop after a

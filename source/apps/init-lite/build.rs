@@ -87,6 +87,7 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
         "imed",
         "pinched",
         "selftest-client",
+        "bootctld",
     ];
 
     // If no manifest is provided, auto-discover services for which ELFs are present.

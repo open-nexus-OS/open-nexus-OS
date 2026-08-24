@@ -12,6 +12,9 @@ execd = ["proc.spawn", "ipc.core", "fs.read"]
 "init-lite" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate", "statefs.read", "statefs.write"]
 "nexus-init" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate", "statefs.read", "statefs.write"]
 updated = ["crypto.verify", "ipc.core", "statefs.boot"]
+# TASK-0050 (ADR-0055): the single boot-state authority — /state/boot/* is
+# gated on statefs.boot for BOTH reads and writes (prefix rule).
+bootctld = ["ipc.core", "statefs.boot"]
 dsoftbusd = ["ipc.core", "statefs.read", "statefs.write"]
 # TASK-0049C: logd persists evidence-class records under /state/logd/
 # (statefs.write covers PUT/TXN/SYNC; statefs.read the boot-time ring load).

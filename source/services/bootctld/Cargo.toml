@@ -1,0 +1,33 @@
+[package]
+name = "bootctld"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[features]
+default = ["std"]
+std = ["statefs/std"]
+os-lite = [
+    "dep:nexus-service-entry",
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+    "statefs/os-lite",
+    "statefs/ipc-client",
+]
+
+[package.metadata.nexus-service]
+stack_pages = 0
+
+[dependencies]
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+# Boot record envelope/writer SSOT (Integrity floor, monotonic seq).
+statefs = { path = "../../../userspace/statefs", default-features = false }
+
+[[bin]]
+name = "bootctld"
+path = "src/main.rs"
+required-features = []

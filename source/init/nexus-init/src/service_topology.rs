@@ -81,15 +81,18 @@ pub enum ServiceId {
     /// the injection authorization — execd provisions it only to
     /// `nexus.permission.IME` bundles; the selftest harness probes it.
     ImedOsk = 27,
+    /// Single boot-state authority (TASK-0050, ADR-0055): A/B slot record +
+    /// boot targets + one-shot next_boot; `updated` is a client.
+    Bootctld = 28,
 }
 
 impl ServiceId {
     /// Number of entries needed to index a per-service array by `id as usize`
-    /// (discriminants are `1..=27`, so the array spans `0..=27`; index 0 is unused).
-    pub const COUNT: usize = 28;
+    /// (discriminants are `1..=28`, so the array spans `0..=28`; index 0 is unused).
+    pub const COUNT: usize = 29;
 
     /// Every service identifier, for iterating a per-service routing array.
-    pub const ALL: [ServiceId; 27] = [
+    pub const ALL: [ServiceId; 28] = [
         Self::Vfsd,
         Self::Packagefsd,
         Self::Policyd,
@@ -117,6 +120,7 @@ impl ServiceId {
         Self::Pinched,
         Self::Imed,
         Self::ImedOsk,
+        Self::Bootctld,
     ];
 
     /// Look up a service by its canonical name. Returns None for unknown names.
@@ -149,6 +153,7 @@ impl ServiceId {
             b"pinched" => Self::Pinched,
             b"imed" => Self::Imed,
             b"imed-osk" => Self::ImedOsk,
+            b"bootctld" => Self::Bootctld,
             _ => return None,
         })
     }
@@ -183,6 +188,7 @@ impl ServiceId {
             Self::Pinched => "pinched",
             Self::Imed => "imed",
             Self::ImedOsk => "imed-osk",
+            Self::Bootctld => "bootctld",
         }
     }
 }
@@ -216,6 +222,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Statefsd, ServiceId::Policyd), // policy checks via CAP_MOVE
     (ServiceId::Settingsd, ServiceId::Statefsd), // persist prefs (TASK-0072 Phase 8)
     (ServiceId::Logd, ServiceId::Statefsd), // evidence spill (TASK-0049C, RFC-0087 §5)
+    (ServiceId::Bootctld, ServiceId::Statefsd), // boot record (TASK-0050, ADR-0055)
 ];
 // NOTE: imed's routes (windowd/settingsd/statefsd) are provisioned IMPERATIVELY
 // in `provision_imed_legs` (fixed pinned slots, RFC-0075 / TASK-0204), not via
@@ -432,6 +439,16 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         reply_inbox: false,
         routes_to: &[],
         announce: false,
+    },
+    // bootctld: single boot-state authority (TASK-0050, ADR-0055). Exposes a
+    // server (updated/init/selftest are clients) and reads/writes the boot
+    // record via statefsd on its CAP_MOVE reply inbox.
+    ServiceSpec {
+        id: ServiceId::Bootctld,
+        exposes_server: true,
+        reply_inbox: true,
+        routes_to: &[Route { to: ServiceId::Statefsd, kind: RouteKind::ReplyInbox }],
+        announce: true,
     },
 ];
 

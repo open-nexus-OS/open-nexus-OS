@@ -91,6 +91,9 @@ pub const SUPERVISION: &[(ServiceId, Criticality, RestartPolicy)] = &[
     (ServiceId::Bundlemgrd, Criticality::CriticalSession, RestartPolicy::OnFailure),
     (ServiceId::Abilitymgr, Criticality::CriticalSession, RestartPolicy::OnFailure),
     (ServiceId::Packagefsd, Criticality::CriticalSession, RestartPolicy::OnFailure),
+    // Boot-state authority (TASK-0050, ADR-0055): losing the record owner
+    // mid-boot dead-ends every OTA/target decision — critical-boot tier.
+    (ServiceId::Bootctld, Criticality::CriticalBoot, RestartPolicy::Always),
     // Standard tier.
     (ServiceId::Updated, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Rngd, Criticality::Standard, RestartPolicy::OnFailure),

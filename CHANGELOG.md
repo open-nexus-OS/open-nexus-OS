@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-20 (TASK-0050 PR-1: bootctld — the single boot-state authority boots)
+
+- **`bootctld` exists and owns the boot record's shape**: the proven
+  RFC-0012 A/B machine relocated verbatim from `userspace/updates` and
+  extended with the RFC-0087 §4 target axis (`boot_target`, one-shot
+  `next_boot`). The v2 record (same key `/state/boot/bootctl.v1`) persists
+  EVERY field — including the rollback slot the v1 codec lost, killing the
+  replay-reconstruction hack on load; v1/legacy records migrate on read,
+  unknown target bytes fail closed. The OS slice is deliberately
+  READ-ONLY (`bootctld: target=normal next=none` from the real record;
+  mutating ops answer UNSUPPORTED) so `updated` stays the record's single
+  writer until the client conversion flips — never two writers during the
+  transition. 13 host tests incl. the ported OTA machine flows; spawned
+  last (no boot-layout shift); critical-boot/Always supervision tier.
+- **Harness time budget re-measured**: the reliability-spine proofs grew
+  the ladder past the old caps — the outer `RUN_TIMEOUT` (90s→180s) was
+  cutting the restart storm's third cycle deterministically, looking
+  exactly like an init hang; launcher ready-grace 90s→150s. Early-stop
+  still ends green runs ~2 seconds after their final marker.
+
 ### Added - 2026-08-20 (TASK-0049C: the evidence journal survives reboot — 0049C closed)
 
 - **Crash and exhaustion evidence now outlives the boot**: logd persists
