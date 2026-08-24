@@ -571,6 +571,8 @@ expected_sequence=(
   # TASK-0007 OTA proof: stage → switch → health gate → rollback (userspace-only, non-persistent)
   "SELFTEST: ota stage ok"
   "bundlemgrd: slot b active"
+  # TASK-0051: authority-side proof that the switch persisted before the ack
+  "bootctld: switch scheduled (to=b)"
   "SELFTEST: ota switch ok"
   "SELFTEST: ota health ok"
   "SELFTEST: ota rollback ok"
@@ -783,6 +785,7 @@ case "${PROFILE:-full}" in
       "SELFTEST: bundlemgrd v1 malformed ok"
       "SELFTEST: ota stage ok"
       "bundlemgrd: slot b active"
+      "bootctld: switch scheduled (to=b)"
       "SELFTEST: ota switch ok"
       "SELFTEST: ota health ok"
       "SELFTEST: ota rollback ok"
@@ -1726,7 +1729,14 @@ if [[ "${REQUIRE_RESET_PROOF:-0}" == "1" ]]; then
     "init: stage graph drivers skipped (recovery)" \
     "SELFTEST: recovery graph reached" \
     "SELFTEST: boot target roundtrip ok" \
-    "SELFTEST: recovery cycle ok"; do
+    "SELFTEST: recovery cycle ok" \
+    "statefsd: fsck repaired (n=1)" \
+    "statefsd: fsck busy (open txns)" \
+    "statefsd: fsck check ok (clean)" \
+    "SELFTEST: recovery fsck ok" \
+    "bootctld: commit blocked (target=recovery)" \
+    "SELFTEST: recovery slot ok" \
+    "SELFTEST: recovery ops deny ok"; do
     if ! grep -aFq "$m" "$UART_LOG"; then
       echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
       echo "[error] reset lane: cycle chain marker missing" >&2
@@ -1749,6 +1759,10 @@ fi
 for m in \
   "SELFTEST: reset request FAIL" \
   "SELFTEST: boot target roundtrip FAIL" \
+  "SELFTEST: recovery fsck FAIL" \
+  "SELFTEST: recovery slot FAIL" \
+  "SELFTEST: recovery ops deny FAIL" \
+  "statefsd: fsck fail (unrecoverable)" \
   "bootctld: reset refused"; do
   if grep -aFq "$m" "$UART_LOG"; then
     echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2

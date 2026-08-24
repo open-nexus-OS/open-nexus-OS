@@ -1206,3 +1206,40 @@ phase = "bringup"
 
 [marker."init: stage graph drivers skipped (recovery)"]
 phase = "bringup"
+
+# TASK-0051: recovery operations surface (fsck op + commit-block + deny).
+[marker."SELFTEST: recovery fsck ok"]
+phase = "bringup"
+
+[marker."SELFTEST: recovery fsck FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: recovery slot ok"]
+phase = "bringup"
+
+[marker."SELFTEST: recovery slot FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: recovery ops deny ok"]
+phase = "bringup"
+
+[marker."SELFTEST: recovery ops deny FAIL"]
+phase = "bringup"
+
+[marker."statefsd: fsck check ok (clean)"]
+phase = "bringup"
+
+[marker."statefsd: fsck busy (open txns)"]
+phase = "bringup"
+
+[marker."statefsd: fsck repaired (n=1)"]
+phase = "bringup"
+
+[marker."bootctld: commit blocked (target=recovery)"]
+phase = "bringup"
+
+[marker."bootctld: switch scheduled (to=a)"]
+phase = "bringup"
+
+[marker."bootctld: switch scheduled (to=b)"]
+phase = "bringup"

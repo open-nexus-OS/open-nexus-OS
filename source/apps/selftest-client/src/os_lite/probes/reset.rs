@@ -20,6 +20,8 @@
 //!   in ONE uart.log + request/ok markers, gated.
 //! ADR: docs/adr/0055-bootctld-single-boot-state-authority.md
 
+extern crate alloc;
+
 use core::time::Duration;
 
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
@@ -45,13 +47,30 @@ pub(crate) fn reset_proof(statefsd: &KernelClient) {
             if !(malformed_rejected && armed) {
                 emit_line(crate::markers::M_SELFTEST_BOOT_TARGET_ROUNDTRIP_FAIL);
             }
+            // TASK-0051 induced corruption: leave a txn OPEN across the
+            // reset — PREPARE/PAYLOAD are journaled at append time and the
+            // RAM stage dies with this boot, so boot 2 finds a durable
+            // orphan for the REPAIR proof (no external corruption tool).
+            let _ = leave_orphan_txn(statefsd);
             reboot_with_stamp(statefsd, b"p1");
         }
         // Boot 2: the RECOVERY graph (core-only resume set). Prove we got
-        // here, stamp phase 2, go back to normal (next_boot was one-shot —
-        // already consumed, so a plain reboot lands on `normal`).
+        // here, run the TASK-0051 ops proofs (fsck + commit-block), stamp
+        // phase 2, go back to normal (next_boot was one-shot — already
+        // consumed, so a plain reboot lands on `normal`).
         Some(1) => {
             emit_line(crate::markers::M_SELFTEST_RECOVERY_GRAPH_REACHED);
+            if recovery_fsck_proof(statefsd) {
+                emit_line(crate::markers::M_SELFTEST_RECOVERY_FSCK_OK);
+            } else {
+                emit_line(crate::markers::M_SELFTEST_RECOVERY_FSCK_FAIL);
+            }
+            // Slot mutations are commit-blocked while the session graph is
+            // recovery — checked before identity, so this probe is honest.
+            match bootctl_call(1, None) {
+                Some((5, _)) => emit_line(crate::markers::M_SELFTEST_RECOVERY_SLOT_OK),
+                _ => emit_line(crate::markers::M_SELFTEST_RECOVERY_SLOT_FAIL),
+            }
             reboot_with_stamp(statefsd, b"p2");
         }
         // Boot 3 (normal again): the cycle closed — consume the sentinel,
@@ -66,6 +85,13 @@ pub(crate) fn reset_proof(statefsd: &KernelClient) {
                 _ => emit_line(crate::markers::M_SELFTEST_BOOT_TARGET_ROUNDTRIP_FAIL),
             }
             emit_line(crate::markers::M_SELFTEST_RECOVERY_CYCLE_OK);
+            // Back on normal: an UNGRANTED slot mutation (the selftest is
+            // not updated) must be a deterministic DENY (kernel-attributed
+            // identity — no forgeable probe surface).
+            match bootctl_call(1, None) {
+                Some((4, _)) => emit_line(crate::markers::M_SELFTEST_RECOVERY_OPS_DENY_OK),
+                _ => emit_line(crate::markers::M_SELFTEST_RECOVERY_OPS_DENY_FAIL),
+            }
         }
         _ => emit_line(crate::markers::M_SELFTEST_RESET_REQUEST_FAIL),
     }
@@ -120,6 +146,115 @@ fn del_sentinel(statefsd: &KernelClient) -> Result<(), ()> {
     let del = proto::encode_key_only_request(proto::OP_DEL, SENTINEL_KEY).map_err(|_| ())?;
     let rsp = statefs_send_recv(statefsd, &del)?;
     let _ = proto::decode_status_response(proto::OP_DEL, &rsp);
+    Ok(())
+}
+
+/// TASK-0051: fsck ops proof on the RECOVERY graph. Boot 1 left ONE
+/// orphan txn on disk (induced corruption), so the order is: REPAIR
+/// retires it (repaired, n=1), the quiesce gate rejects while a txn is
+/// open, and the post-repair CHECK is clean.
+fn recovery_fsck_proof(statefsd: &KernelClient) -> bool {
+    // Repair the boot-1 orphan: wire report [ver=1, outcome=1(repaired),
+    // layout, repaired=1, .., orphan_count(16)=1].
+    let repaired = match fsck_call_quiesced(statefsd, proto::OP_FSCK_REPAIR) {
+        Some((0, payload)) => {
+            payload.first() == Some(&1)
+                && payload.get(1) == Some(&1)
+                && payload.get(3) == Some(&1)
+                && payload.get(16) == Some(&1)
+        }
+        _ => false,
+    };
+    if !repaired {
+        return false;
+    }
+    // Quiesce gate: open a txn, expect STATUS_BUSY (11), abort.
+    let Ok(txn_id) = txn_begin(statefsd) else { return false };
+    let busy = matches!(fsck_call(statefsd, proto::OP_FSCK_CHECK), Some((11, _)));
+    let _ = txn_abort(statefsd, txn_id);
+    if !busy {
+        return false;
+    }
+    // Post-repair check: clean store, outcome byte 0.
+    match fsck_call_quiesced(statefsd, proto::OP_FSCK_CHECK) {
+        Some((0, payload)) => payload.first() == Some(&1) && payload.get(1) == Some(&0),
+        _ => false,
+    }
+}
+
+/// `fsck_call` with a BOUNDED busy retry: a core service (logd spill) may
+/// hold a short-lived txn exactly when the op lands — up to 5 attempts,
+/// ~200ms apart, then the last status stands (self-terminating).
+fn fsck_call_quiesced(statefsd: &KernelClient, op: u8) -> Option<(u8, alloc::vec::Vec<u8>)> {
+    let mut last = None;
+    for attempt in 0..5u8 {
+        last = fsck_call(statefsd, op);
+        match last {
+            Some((proto::STATUS_BUSY, _)) if attempt < 4 => {
+                let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(200_000_000);
+                while nexus_abi::nsec().unwrap_or(u64::MAX) < deadline {
+                    let _ = nexus_abi::yield_();
+                }
+            }
+            _ => break,
+        }
+    }
+    last
+}
+
+/// Boot-1 side of the REPAIR proof: journal PREPARE+PAYLOAD, never
+/// commit/abort — the reset turns it into a durable orphan.
+fn leave_orphan_txn(statefsd: &KernelClient) -> Result<(), ()> {
+    let txn_id = txn_begin(statefsd)?;
+    let req = statefs::protocol::txn::encode_txn_put_request(
+        txn_id,
+        "/state/app/selftest/orphan",
+        b"torn",
+    )
+    .map_err(|_| ())?;
+    let _ = statefs_send_recv(statefsd, &req)?;
+    Ok(())
+}
+
+/// One fsck op round trip → `(status, report payload)`. Generous budget:
+/// the op re-replays the journal over virtio (512B/QD1) twice.
+fn fsck_call(statefsd: &KernelClient, op: u8) -> Option<(u8, alloc::vec::Vec<u8>)> {
+    let frame = [proto::MAGIC0, proto::MAGIC1, proto::VERSION, op];
+    let rsp = crate::os_lite::services::statefs::statefs_send_recv_deadline(
+        statefsd,
+        &frame,
+        20_000_000_000,
+    )
+    .ok()?;
+    // Reports are v2 GET-shaped ([S,F,2,op|0x80,status,nonce8,len4,
+    // payload]); rejects (busy/denied) are STATUS-shaped (13 bytes, no
+    // payload) — accept both.
+    if rsp.len() < 13 || rsp[3] != (op | 0x80) {
+        return None;
+    }
+    let status = rsp[4];
+    let payload = if rsp.len() >= 17 {
+        let len = u32::from_le_bytes([rsp[13], rsp[14], rsp[15], rsp[16]]) as usize;
+        rsp.get(17..17 + len.min(64))?.to_vec()
+    } else {
+        alloc::vec::Vec::new()
+    };
+    Some((status, payload))
+}
+
+fn txn_begin(statefsd: &KernelClient) -> Result<u64, ()> {
+    let rsp = statefs_send_recv(statefsd, &statefs::protocol::txn::encode_txn_begin_request())?;
+    let (status, txn_id) =
+        statefs::protocol::txn::decode_txn_begin_response(&rsp).map_err(|_| ())?;
+    if status == proto::STATUS_OK {
+        Ok(txn_id)
+    } else {
+        Err(())
+    }
+}
+
+fn txn_abort(statefsd: &KernelClient, txn_id: u64) -> Result<(), ()> {
+    let _ = statefs_send_recv(statefsd, &statefs::protocol::txn::encode_txn_abort_request(txn_id))?;
     Ok(())
 }
 

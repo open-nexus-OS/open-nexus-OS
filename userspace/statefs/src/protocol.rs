@@ -32,6 +32,12 @@ pub const OP_DEL: u8 = 3;
 pub const OP_LIST: u8 = 4;
 pub const OP_SYNC: u8 = 5;
 pub const OP_REOPEN: u8 = 6;
+// TASK-0051: expose the shipped fsck engine as ops (11/12; 7..=10 are the
+// txn ops in `protocol::txn`). CHECK is read-only; REPAIR is the engine's
+// append-only orphan-abort pass, quiesce-gated (`STATUS_BUSY` while
+// transactions are open).
+pub const OP_FSCK_CHECK: u8 = 11;
+pub const OP_FSCK_REPAIR: u8 = 12;
 
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_NOT_FOUND: u8 = 1;
@@ -44,6 +50,8 @@ pub const STATUS_IO_ERROR: u8 = 7;
 pub const STATUS_UNSUPPORTED: u8 = 8;
 pub const STATUS_INTEGRITY_VIOLATION: u8 = 9;
 pub const STATUS_ROLLBACK_DETECTED: u8 = 10;
+/// TASK-0051: quiesce gate — the store has open transactions; retry later.
+pub const STATUS_BUSY: u8 = 11;
 
 pub const MAX_LIST_LIMIT: u16 = 256;
 

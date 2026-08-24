@@ -71,6 +71,7 @@ impl Cli {
                 CrashAction::Purge(a) => a.json,
                 CrashAction::Grep(a) => a.json,
             },
+            Commands::Diagnose(args) => args.json,
         }
     }
 }
@@ -87,6 +88,21 @@ pub(crate) enum Commands {
     Config(ConfigArgs),
     Policy(PolicyArgs),
     Crash(CrashArgs),
+    Diagnose(DiagnoseArgs),
+}
+
+/// `nx diagnose` — ONE deterministic diagnostic bundle from a statefs
+/// image (TASK-0051; Keystone Gate 6: nx is the only diagnostics CLI).
+#[derive(Args, Debug)]
+pub(crate) struct DiagnoseArgs {
+    /// statefs journal image (QEMU runs leave it at build/blk.img).
+    #[arg(long, default_value = "build/blk.img")]
+    pub(crate) image: PathBuf,
+    /// Output archive path (plain deterministic ustar).
+    #[arg(short, long, default_value = "nx-diagnose.tar")]
+    pub(crate) out: PathBuf,
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Args, Debug)]

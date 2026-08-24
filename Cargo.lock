@@ -2837,9 +2837,11 @@ dependencies = [
 name = "nx"
 version = "0.1.0"
 dependencies = [
+ "bootctld",
  "clap",
  "configd",
  "crash",
+ "logd",
  "nexus-config",
  "nxcd",
  "nxsym",
@@ -2848,6 +2850,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "statefs",
+ "storage",
  "tempfile",
  "tokio",
 ]

@@ -11,7 +11,9 @@
 //! committed data, and only re-validated-clean repairs count as repaired.
 //! Mirrors the nxfs fsck discipline (userspace/nxfs/src/fsck.rs): the core
 //! lives in the engine crate (no_std-compatible, alloc only) and
-//! tools/fsck-statefs is the thin host CLI.
+//! tools/fsck-statefs is the thin host CLI. The scan STREAMS the region
+//! through a bounded window (`fsck_window.rs`) so it also runs in-service
+//! on statefsd's 1 MiB heap (TASK-0051).
 //! OWNERS: @runtime
 //! STATUS: Functional (host-first)
 //! API_STABILITY: Unstable (v2a)
@@ -24,6 +26,7 @@ use alloc::vec::Vec;
 use storage::BlockDevice;
 
 use crate::compact::{parse_superblock, region_geometry, SUPERBLOCK_MAGIC};
+use crate::fsck_window::RegionWindow;
 use crate::journal_v2::{encode_abort, parse_record, JournalOpCode, JournalRecord, MAX_OPEN_TXNS};
 use crate::{JournalEngine, RECORD_HEADER_SIZE};
 
@@ -256,16 +259,10 @@ fn scan_device<D: BlockDevice>(
     }
     let region_base = region_first.saturating_mul(block_size as u64);
 
-    // Load the live region (bounded by device size; offline tool profile).
-    let mut region = vec![0u8; (region_blocks as usize).saturating_mul(block_size)];
-    let mut block_buf = vec![0u8; block_size];
-    for i in 0..region_blocks {
-        device.read_block(region_first + i, &mut block_buf).map_err(|_| {
-            fault((region_first + i).saturating_mul(block_size as u64), "device read failed")
-        })?;
-        let start = i as usize * block_size;
-        region[start..start + block_size].copy_from_slice(&block_buf);
-    }
+    // Stream the live region through a bounded sliding window (TASK-0051):
+    // the scan runs in-service on a 1 MiB heap, so the region is never
+    // materialized — and a clean journal only reads ~journal-length bytes.
+    let mut win = RegionWindow::new(device, region_first, region_blocks, block_size);
 
     // Record walk: framing/CRC via `parse_record`, checkpoint placement,
     // and a mirror of the replay TxnTable id-membership rules.
@@ -279,7 +276,7 @@ fn scan_device<D: BlockDevice>(
         if records >= crate::MAX_REPLAY_RECORDS {
             return Err(fault(region_base + pos as u64, "replay record limit exceeded"));
         }
-        match parse_record(&region[pos..]) {
+        match parse_record(win.view(pos)?) {
             Ok(Some((record, consumed))) => {
                 check_checkpoint(layout, records, &record, generation, sb_entries)
                     .map_err(|reason| fault(region_base + pos as u64, reason))?;
@@ -322,8 +319,9 @@ fn scan_device<D: BlockDevice>(
                 // replay would stop on, silently losing that record: fatal.
                 // Corruption with nothing valid after it is torn-tail crash
                 // residue replay already discards: reported via tail_dirty.
-                if has_valid_record_after(&region, pos) {
-                    return Err(fault(region_base + pos as u64, classify(&region[pos..])));
+                if has_valid_record_after(&mut win, pos)? {
+                    let reason = classify(win.view(pos)?);
+                    return Err(fault(region_base + pos as u64, reason));
                 }
                 break;
             }
@@ -336,8 +334,9 @@ fn scan_device<D: BlockDevice>(
     // Zeroed-tail discipline: bytes past the write head through the end of
     // the FOLLOWING block must be zero. Nonzero = crash residue replay
     // already ignores — reported, not fatal.
-    let tail_end = core::cmp::min((pos / block_size + 2).saturating_mul(block_size), region.len());
-    let tail_dirty = region[pos..tail_end].iter().any(|&b| b != 0);
+    let tail_end =
+        core::cmp::min((pos / block_size + 2).saturating_mul(block_size), win.region_len());
+    let tail_dirty = win.view(pos)?[..tail_end - pos].iter().any(|&b| b != 0);
 
     Ok(Scan {
         layout,
@@ -404,19 +403,21 @@ fn track_open_txns(open: &mut Vec<u64>, record: &JournalRecord) {
 /// before valid data) and discarded torn-tail residue (reported only).
 /// Conservative: value bytes that happen to embed a whole valid record
 /// count as "valid data after" (errs toward Unrecoverable). Bounded by the
-/// region size.
-fn has_valid_record_after(region: &[u8], from: usize) -> bool {
+/// region size; streams through the same window as the walk.
+fn has_valid_record_after<D: BlockDevice>(
+    win: &mut RegionWindow<'_, D>,
+    from: usize,
+) -> Result<bool, FsckFault> {
     let magic = crate::JOURNAL_MAGIC.to_le_bytes();
     let mut i = from + 1;
-    while i + RECORD_HEADER_SIZE <= region.len() {
-        if region[i..i + 4] == magic {
-            if let Ok(Some(_)) = parse_record(&region[i..]) {
-                return true;
-            }
+    while i + RECORD_HEADER_SIZE <= win.region_len() {
+        let view = win.view(i)?;
+        if view[..4] == magic && matches!(parse_record(view), Ok(Some(_))) {
+            return Ok(true);
         }
         i += 1;
     }
-    false
+    Ok(false)
 }
 
 /// Stable reason for a record `parse_record` rejects (it only reports

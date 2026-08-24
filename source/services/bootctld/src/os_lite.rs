@@ -92,6 +92,10 @@ const POLICYD_SEND_SLOT: u32 = 0x08;
 struct Authority {
     boot: BootCtrl,
     client: StatefsClient,
+    /// The graph THIS session runs on: the one-shot target bootctld handed
+    /// to init with the boot-attempt ack (the record clears it, so the
+    /// persistent field cannot answer "are we in recovery right now").
+    session_graph: BootTarget,
 }
 
 /// Main bootctld service loop (os-lite).
@@ -241,6 +245,10 @@ fn handle_frame(
             ];
             encode_payload(rsp, op, &payload)
         }
+        wire::OP_GET_RECORD => {
+            let payload = record::encode_record(&auth.boot);
+            encode_payload(rsp, op, &payload)
+        }
         wire::OP_GET_TARGET => {
             let payload = [
                 record::encode_target(auth.boot.boot_target()),
@@ -249,6 +257,14 @@ fn handle_frame(
             encode_payload(rsp, op, &payload)
         }
         wire::OP_STAGE => {
+            // TASK-0051: slot mutations are blocked while the PERSISTENT
+            // target is recovery — checked BEFORE the sender gate so the
+            // block is provable from the recovery boot itself (commits
+            // belong to the normal boot path; RFC-0087 §4).
+            if auth.session_graph == BootTarget::Recovery {
+                emit("bootctld: commit blocked (target=recovery)");
+                return encode_status(rsp, op, wire::STATUS_COMMIT_BLOCKED);
+            }
             if !gates.ota_allowed(sender) {
                 return deny(rsp, op, sender);
             }
@@ -257,6 +273,14 @@ fn handle_frame(
             commit(auth, snapshot, rsp, op, &[])
         }
         wire::OP_SWITCH => {
+            // TASK-0051: slot mutations are blocked while the PERSISTENT
+            // target is recovery — checked BEFORE the sender gate so the
+            // block is provable from the recovery boot itself (commits
+            // belong to the normal boot path; RFC-0087 §4).
+            if auth.session_graph == BootTarget::Recovery {
+                emit("bootctld: commit blocked (target=recovery)");
+                return encode_status(rsp, op, wire::STATUS_COMMIT_BLOCKED);
+            }
             if !gates.ota_allowed(sender) {
                 return deny(rsp, op, sender);
             }
@@ -267,12 +291,24 @@ fn handle_frame(
             match auth.boot.switch(tries) {
                 Ok(slot) => {
                     let payload = [record::encode_slot(slot)];
-                    commit(auth, snapshot, rsp, op, &payload)
+                    let marker = match slot {
+                        Slot::A => "bootctld: switch scheduled (to=a)",
+                        Slot::B => "bootctld: switch scheduled (to=b)",
+                    };
+                    commit_marked(auth, snapshot, rsp, op, &payload, Some(marker))
                 }
                 Err(err) => machine_fail(rsp, op, err),
             }
         }
         wire::OP_HEALTH_OK => {
+            // TASK-0051: slot mutations are blocked while the PERSISTENT
+            // target is recovery — checked BEFORE the sender gate so the
+            // block is provable from the recovery boot itself (commits
+            // belong to the normal boot path; RFC-0087 §4).
+            if auth.session_graph == BootTarget::Recovery {
+                emit("bootctld: commit blocked (target=recovery)");
+                return encode_status(rsp, op, wire::STATUS_COMMIT_BLOCKED);
+            }
             if !gates.ota_allowed(sender) {
                 return deny(rsp, op, sender);
             }
@@ -283,6 +319,14 @@ fn handle_frame(
             }
         }
         wire::OP_ROLLBACK => {
+            // TASK-0051: slot mutations are blocked while the PERSISTENT
+            // target is recovery — checked BEFORE the sender gate so the
+            // block is provable from the recovery boot itself (commits
+            // belong to the normal boot path; RFC-0087 §4).
+            if auth.session_graph == BootTarget::Recovery {
+                emit("bootctld: commit blocked (target=recovery)");
+                return encode_status(rsp, op, wire::STATUS_COMMIT_BLOCKED);
+            }
             if !gates.ota_allowed(sender) {
                 return deny(rsp, op, sender);
             }
@@ -306,6 +350,9 @@ fn handle_frame(
                     // the attempt ack (RFC-0087 §4): consumed here, cleared
                     // on disk atomically with the tick.
                     let next = auth.boot.take_next_boot();
+                    if let Some(target) = next {
+                        auth.session_graph = target;
+                    }
                     let payload = [
                         rolled_back.map(record::encode_slot).unwrap_or(0),
                         next.map(record::encode_target).unwrap_or(wire::TARGET_NONE),
@@ -373,8 +420,26 @@ fn commit(
     op: u8,
     payload: &[u8],
 ) -> usize {
+    commit_marked(auth, snapshot, rsp, op, payload, None)
+}
+
+/// `commit` that emits `marker` ONLY after the record persisted — a
+/// scheduled-switch claim before the disk commit would be fake green.
+fn commit_marked(
+    auth: &mut Authority,
+    snapshot: BootCtrl,
+    rsp: &mut [u8; 32],
+    op: u8,
+    payload: &[u8],
+    marker: Option<&str>,
+) -> usize {
     match persist_record(&auth.client, &auth.boot) {
-        Ok(()) => encode_payload(rsp, op, payload),
+        Ok(()) => {
+            if let Some(line) = marker {
+                emit(line);
+            }
+            encode_payload(rsp, op, payload)
+        }
         Err(_) => {
             auth.boot = snapshot;
             encode_status(rsp, op, wire::STATUS_FAILED)
@@ -455,7 +520,11 @@ fn try_attach() -> Option<Authority> {
         Err(StatefsError::NotFound) => BootCtrl::new(Slot::A),
         Err(_) => return None,
     };
-    Some(Authority { boot, client: statefs })
+    // Until the boot-attempt consumes a one-shot, this session's graph is
+    // whatever the armed next_boot says (init WILL consume it) falling
+    // back to the persistent target.
+    let session_graph = boot.next_boot().unwrap_or(boot.boot_target());
+    Some(Authority { boot, client: statefs, session_graph })
 }
 
 fn announce_target(boot: &BootCtrl) {

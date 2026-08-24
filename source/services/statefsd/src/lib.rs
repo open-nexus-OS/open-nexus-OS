@@ -34,6 +34,10 @@ pub mod upgrade_window;
 // mapping / cap table / compaction tick shared by the OS serve loop and the
 // host contract tests (mirrors the `hardening` split).
 #[cfg(any(feature = "std", all(feature = "os-lite", nexus_env = "os")))]
+pub mod fsck_op;
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
+mod fsck_os;
+#[cfg(any(feature = "std", all(feature = "os-lite", nexus_env = "os")))]
 pub mod txn;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod txn_os;

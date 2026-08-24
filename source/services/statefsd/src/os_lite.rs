@@ -350,6 +350,10 @@ fn handle_frame(
     if proto::txn::is_txn_op(op_hint) {
         return crate::txn_os::handle_txn_frame(engine, hard, sender_service_id, frame);
     }
+    // TASK-0051: fsck ops (11/12) — quiesce-gated engine swap (fsck_os).
+    if matches!(op_hint, proto::OP_FSCK_CHECK | proto::OP_FSCK_REPAIR) {
+        return crate::fsck_os::handle_fsck_frame(engine, hard, sender_service_id, frame);
+    }
     let (request, nonce) = match proto::decode_request_with_nonce(frame) {
         Ok(v) => v,
         Err(status) => return proto::encode_status_response_with_nonce(op_hint, status, None),

@@ -16,6 +16,10 @@ nxcd = { path = "../../userspace/crash/nxcd", features = ["zst"] }
 nxsym = { path = "../nxsym" }
 nexus-config = { path = "../../userspace/config" }
 nexus_policy = { package = "policy", path = "../../userspace/policy" }
+statefs = { path = "../../userspace/statefs" }
+storage = { path = "../../userspace/storage" }
+logd = { path = "../../source/services/logd" }
+bootctld = { path = "../../source/services/bootctld" }
 
 [dev-dependencies]
 object = "0.36"

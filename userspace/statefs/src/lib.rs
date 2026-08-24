@@ -117,6 +117,7 @@ pub mod derive;
 pub mod enc;
 pub mod envelope;
 pub mod fsck;
+mod fsck_window;
 pub mod journal_v2;
 pub mod record;
 pub mod writer;

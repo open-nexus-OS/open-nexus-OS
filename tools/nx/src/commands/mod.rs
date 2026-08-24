@@ -10,6 +10,7 @@
 
 pub(crate) mod config;
 pub(crate) mod crash;
+pub(crate) mod diagnose;
 pub(crate) mod doctor;
 pub(crate) mod dsl;
 pub(crate) mod idl;
@@ -62,5 +63,6 @@ pub(crate) fn execute(cli: Cli, cfg: &RuntimeConfig) -> ExecResult {
         Commands::Config(args) => config::handle_config(args, cfg),
         Commands::Policy(args) => policy::handle_policy(args, cfg),
         Commands::Crash(args) => crash::handle_crash(args),
+        Commands::Diagnose(args) => diagnose::handle_diagnose(args),
     }
 }

@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-24 (TASK-0051: recovery operations surface — fsck op, bootctld ops, nx diagnose)
+
+- **fsck is now an OS operation on the mounted store**: statefs wire ops
+  `OP_FSCK_CHECK`/`OP_FSCK_REPAIR` run the delivered 0026/0027 engine
+  in-service — policy-gated (`statefs.read`/`statefs.admin`,
+  deny-by-default), quiesce-gated (`STATUS_BUSY` while any txn is open;
+  fsck re-opens from the raw device and would drop RAM-staged txns), with
+  the virtio-upgrade re-open pattern after the run. ONE repair semantics:
+  the op layer adds transport + gating only; the engine matrix and the
+  `fsck-statefs` host twin stay the SSOT.
+- **The fsck scan streams instead of slurping**: the engine used to
+  materialize the whole journal region (`vec![0u8; region]` — a 64 MiB
+  `alloc_zeroed` that killed statefsd's 1 MiB heap mid-op). A bounded
+  sliding window (`statefs::fsck_window`) keeps the walk O(window)
+  resident and lets a clean journal read ~journal-length bytes instead of
+  the whole region; two window-spanning matrix cases pin the behavior.
+- **Induced-corruption REPAIR proof without tooling**: reset-lane boot 1
+  leaves a txn open across the SBI reset (PREPARE/PAYLOAD are journaled at
+  append time; the RAM stage dies with the boot) — boot 2 repairs the
+  durable orphan end to end: `statefsd: fsck repaired (n=1)` →
+  quiesce-busy → check clean → `SELFTEST: recovery fsck ok`, all required.
+- **bootctld ops lane**: `OP_GET_RECORD` (read-only snapshot) and the
+  recovery commit block — while the session graph is recovery, every slot
+  mutation rejects with `STATUS_COMMIT_BLOCKED` BEFORE the sender gate
+  (`bootctld: commit blocked (target=recovery)`, proven from the recovery
+  boot). `bootctld: switch scheduled (to=<slot>)` is emitted only after
+  the record persisted and is now required in the OTA ladder.
+- **`nx diagnose` — the ONE diagnostic bundle** (Keystone Gate 6):
+  host-side assembly over the SSOT decoders (statefs replay, logd evidence
+  ring, bootctld record, fsck verdict) into a deterministic plain-ustar
+  `.tar` (mtime 0, fixed order; byte-identical for identical images). The
+  fsck outcome is data inside the bundle — nx exit classes stay the CLI
+  contract. Docs: `docs/reliability/recovery-operations.md`.
+
 ### Added - 2026-08-24 (TASK-0050 PR-5: boot targets materialize — the recovery cycle is real; 0050 closed)
 
 - **A boot target now selects what actually RUNS**: init always spawns

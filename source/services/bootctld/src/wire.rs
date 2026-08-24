@@ -41,6 +41,9 @@ pub const OP_RESET: u8 = 9;
 /// Explicit rollback to the recorded rollback slot (updated's switch
 /// compensation when bundlemgrd activation fails mid-flight).
 pub const OP_ROLLBACK: u8 = 10;
+/// Full boot-record snapshot (read; TASK-0051 — `nx diagnose` + the
+/// recovery ops surface): the 9-byte record payload v2.
+pub const OP_GET_RECORD: u8 = 11;
 
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_MALFORMED: u8 = 1;
@@ -48,6 +51,9 @@ pub const STATUS_UNSUPPORTED: u8 = 2;
 pub const STATUS_FAILED: u8 = 3;
 /// Deterministic reject: sender/policy denied (deny-by-default).
 pub const STATUS_DENIED: u8 = 4;
+/// TASK-0051: slot mutations are blocked while the persistent target is
+/// `recovery` — commits belong to the normal boot path.
+pub const STATUS_COMMIT_BLOCKED: u8 = 5;
 
 /// `next_boot` absent on the wire.
 pub const TARGET_NONE: u8 = 0xff;

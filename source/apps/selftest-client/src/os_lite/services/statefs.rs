@@ -28,6 +28,16 @@ pub(crate) fn statefs_send_recv(
     client: &KernelClient,
     frame: &[u8],
 ) -> core::result::Result<Vec<u8>, ()> {
+    statefs_send_recv_deadline(client, frame, 2_000_000_000)
+}
+
+/// Same exchange with a caller-chosen budget — the fsck ops re-replay the
+/// journal over virtio (512B/QD1) and legitimately exceed the default 2s.
+pub(crate) fn statefs_send_recv_deadline(
+    client: &KernelClient,
+    frame: &[u8],
+    budget_ns: u64,
+) -> core::result::Result<Vec<u8>, ()> {
     // Deterministic: upgrade request to SF v2 (nonce) and only accept the matching reply.
     static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
     let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -66,7 +76,7 @@ pub(crate) fn statefs_send_recv(
         return Err(());
     }
     let start = nexus_abi::nsec().map_err(|_| ())?;
-    let deadline = start.saturating_add(2_000_000_000);
+    let deadline = start.saturating_add(budget_ns);
     loop {
         let now = nexus_abi::nsec().map_err(|_| ())?;
         if now >= deadline {
