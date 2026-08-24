@@ -1715,7 +1715,13 @@ if [[ "${REQUIRE_RESET_PROOF:-0}" == "1" ]]; then
     grep -a "SELFTEST: reset\|bootctld: reset" "$UART_LOG" | head -n 6 >&2
     exit 1
   fi
-  for m in "SELFTEST: reset request" "bootctld: reset (reboot)" "SELFTEST: reset ok"; do
+  for m in \
+    "SELFTEST: reset request" \
+    "bootctld: reset (reboot)" \
+    "SELFTEST: reset ok" \
+    "bootctld: target=normal next=recovery" \
+    "init: next boot target=recovery" \
+    "SELFTEST: boot target roundtrip ok"; do
     if ! grep -aFq "$m" "$UART_LOG"; then
       echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
       echo "[error] reset lane: reset chain marker missing" >&2
@@ -1726,6 +1732,7 @@ if [[ "${REQUIRE_RESET_PROOF:-0}" == "1" ]]; then
 fi
 for m in \
   "SELFTEST: reset request FAIL" \
+  "SELFTEST: boot target roundtrip FAIL" \
   "bootctld: reset refused"; do
   if grep -aFq "$m" "$UART_LOG"; then
     echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2

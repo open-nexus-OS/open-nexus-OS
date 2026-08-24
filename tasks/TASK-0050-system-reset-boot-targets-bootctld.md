@@ -237,6 +237,23 @@ RFC-0087 Phase 3. Two verified holes:
    and silently broke the rng channel → enc-roundtrip FAIL two lanes
    away); (b) uart lines can carry CR — never `$`-anchor a harness grep
    (the two-boot count matched 0 with an anchor and 2 without).
-4. Target fields + one-shot semantics + policy gating.
+4. ✅ **PR-4 (2026-08-24) — target ops + one-shot roundtrip, policy-gated**:
+   bootctld serves `OP_SET_NEXT_BOOT`/`OP_SET_TARGET` gated on the
+   delegated policyd capability `boot.target` (deny-by-default; bootctld
+   gained a fixed policyd send slot 0x08 + `policy.delegate`, statefsd
+   shape). `OP_RESET` upgraded to `boot.reset` (sender gate stays as
+   defense in depth). Unknown target bytes are wire-MALFORMED (probed).
+   One-shot proof rides the reset lane end to end:
+   boot 1 arms `next_boot=recovery` → real reset → boot 2's authority
+   loads `target=normal next=recovery`, init consumes it WITH the attempt
+   ack (`init: next boot target=recovery` — same persisted commit clears
+   it) → the selftest reads `(normal, none)` back →
+   `SELFTEST: boot target roundtrip ok`. All six chain markers gated in
+   the reset lane; roundtrip-FAIL fatal.
+   **DoD recut**: `test_reject_target_change_denied` as a host test has no
+   seam (the gate is the delegated policyd check, OS-only); coverage =
+   the deterministic `STATUS_DENIED` path + kernel-attributed identity +
+   the wire-MALFORMED probe; a true unprivileged-caller deny run arrives
+   with TASK-0051's ops surface (nx CLI as the ungranted caller).
 5. Init stage-graph selection + recovery/safe graphs + full proofs;
    `just test-all`.

@@ -86,6 +86,7 @@ pub fn touch_schemas() {}
 const REPLY_RECV_SLOT: u32 = 0x05;
 const REPLY_SEND_SLOT: u32 = 0x06;
 const STATEFS_SEND_SLOT: u32 = 0x07;
+const POLICYD_SEND_SLOT: u32 = 0x08;
 
 /// The loaded record + its statefs wire (present once the lazy attach ran).
 struct Authority {
@@ -315,7 +316,9 @@ fn handle_frame(
             }
         }
         wire::OP_RESET => {
-            if !gates.reset_allowed(sender) {
+            // Defense in depth: kernel-attributed sender gate AND the
+            // delegated `boot.reset` capability (deny-by-default).
+            if !gates.reset_allowed(sender) || !policy_allows(sender, b"boot.reset") {
                 return deny(rsp, op, sender);
             }
             let kind = match frame.get(4).copied() {
@@ -333,9 +336,29 @@ fn handle_frame(
             emit("bootctld: reset refused");
             encode_status(rsp, op, wire::STATUS_FAILED)
         }
-        // Target mutations land with PR-4 (policy gating).
-        wire::OP_SET_NEXT_BOOT | wire::OP_SET_TARGET => {
-            encode_status(rsp, op, wire::STATUS_UNSUPPORTED)
+        wire::OP_SET_NEXT_BOOT => {
+            if !policy_allows(sender, b"boot.target") {
+                return deny(rsp, op, sender);
+            }
+            let Some(target) = frame.get(4).copied().and_then(|b| record::decode_target(b).ok())
+            else {
+                return encode_status(rsp, op, wire::STATUS_MALFORMED);
+            };
+            let snapshot = auth.boot.clone();
+            auth.boot.set_next_boot(target);
+            commit(auth, snapshot, rsp, op, &[])
+        }
+        wire::OP_SET_TARGET => {
+            if !policy_allows(sender, b"boot.target") {
+                return deny(rsp, op, sender);
+            }
+            let Some(target) = frame.get(4).copied().and_then(|b| record::decode_target(b).ok())
+            else {
+                return encode_status(rsp, op, wire::STATUS_MALFORMED);
+            };
+            let snapshot = auth.boot.clone();
+            auth.boot.set_boot_target(target);
+            commit(auth, snapshot, rsp, op, &[])
         }
         _ => encode_status(rsp, op, wire::STATUS_UNSUPPORTED),
     }
@@ -372,6 +395,20 @@ fn machine_fail(rsp: &mut [u8; 32], op: u8, err: BootCtrlError) -> usize {
     rsp[5..7].copy_from_slice(&1u16.to_le_bytes());
     rsp[base] = reason;
     base + 1
+}
+
+/// Delegated capability check (deny-by-default; Unreachable = deny).
+fn policy_allows(sender: u64, cap: &[u8]) -> bool {
+    matches!(
+        nexus_ipc::policyd::check_cap_on(
+            POLICYD_SEND_SLOT,
+            REPLY_SEND_SLOT,
+            REPLY_RECV_SLOT,
+            sender,
+            cap,
+        ),
+        nexus_ipc::policyd::CapDecision::Allow
+    )
 }
 
 fn deny(rsp: &mut [u8; 32], op: u8, sender: u64) -> usize {

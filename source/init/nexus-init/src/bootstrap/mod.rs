@@ -8,6 +8,7 @@
 
 pub(crate) mod diag;
 pub(crate) mod endpoints;
+pub(crate) mod handshake;
 pub(crate) mod helpers;
 pub(crate) mod labels;
 pub(crate) mod orchestrator;

@@ -904,28 +904,15 @@ where
 
     let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
         nexus_ipc::reqrep::FrameStash::new();
-    match boot_req.map_or(Ok(None), |b| {
-        bootctld_boot_attempt(&mut upd_pending, b, init_reply_send, pol_ctl_route_rsp)
-    }) {
-        Ok(Some(slot)) => {
-            let ok = bundlemgrd_set_active_slot(
-                &mut upd_pending,
-                bnd_req,
-                init_reply_send,
-                pol_ctl_route_rsp,
-                slot,
-            );
-            if !ok && il(&mut init_misc, init_fold, "init") {
-                debug_write_str("init: rollback deferred");
-                debug_write_byte(b'\n');
-            }
-        }
-        Ok(None) => {}
-        Err(_) => {
-            debug_write_str("init: boot attempt fail");
-            debug_write_byte(b'\n');
-        }
-    }
+    crate::bootstrap::handshake::boot_attempt_handshake(
+        &mut upd_pending,
+        boot_req,
+        init_reply_send,
+        pol_ctl_route_rsp,
+        bnd_req,
+        &mut init_misc,
+        init_fold,
+    );
 
     let route_table = route_builder::build_route_table(&ctrl_channels);
     route_builder::populate_samgrd_registry(init_sam_send, init_sam_recv, &route_table);

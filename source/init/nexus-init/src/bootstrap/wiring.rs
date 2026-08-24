@@ -437,7 +437,7 @@ pub(crate) fn wire_services(
             // TASK-0050 PR-2: bespoke fixed-slot wiring (see route_provision).
             "bootctld" => {
                 crate::bootstrap::route_provision::provision_bootctld_fixed_slots(
-                    pid, chan, eps, state_req,
+                    pid, chan, eps, state_req, pol_req,
                 )?;
             }
             "updated" => {

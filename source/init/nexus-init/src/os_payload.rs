@@ -29,14 +29,13 @@ pub(crate) use crate::bootstrap::BootstrapState;
 // so existing imports from `crate::os_payload` continue to resolve.
 pub use crate::bootstrap::helpers::fatal_err;
 pub(crate) use crate::bootstrap::helpers::{
-    abi_error_label, bootctld_boot_attempt, bundlemgrd_set_active_slot, configure_log_topics,
-    debug_write_byte, debug_write_bytes, debug_write_hex, debug_write_str,
-    decode_init_health_ok_req, decode_init_health_ok_req_with_optional_nonce,
-    encode_init_health_ok_rsp, encode_init_health_ok_rsp_with_optional_nonce, fatal,
-    grant_mmio_cap, ipc_error_label, log_str_ptr, probe_debug_write_words, probe_virtio_mmio_slots,
-    probes_enabled, raw_probe_str, updated_health_ok, virtio_mmio_window, watchdog_limit_ticks,
-    ServiceNameGuard, DATA_DEVICE_MMIO_CAP_SLOT, DEVICE_MMIO_CAP_SLOT, INPUT_MMIO_CAP_SLOT_BASE,
-    POLICY_NONCE,
+    abi_error_label, bundlemgrd_set_active_slot, configure_log_topics, debug_write_byte,
+    debug_write_bytes, debug_write_hex, debug_write_str, decode_init_health_ok_req,
+    decode_init_health_ok_req_with_optional_nonce, encode_init_health_ok_rsp,
+    encode_init_health_ok_rsp_with_optional_nonce, fatal, grant_mmio_cap, ipc_error_label,
+    log_str_ptr, probe_debug_write_words, probe_virtio_mmio_slots, probes_enabled, raw_probe_str,
+    updated_health_ok, virtio_mmio_window, watchdog_limit_ticks, ServiceNameGuard,
+    DATA_DEVICE_MMIO_CAP_SLOT, DEVICE_MMIO_CAP_SLOT, INPUT_MMIO_CAP_SLOT_BASE, POLICY_NONCE,
 };
 pub(crate) use crate::bootstrap::policyd::policyd_cap_allowed;
 pub(crate) use nexus_abi::Rights;

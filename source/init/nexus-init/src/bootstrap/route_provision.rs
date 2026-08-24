@@ -487,6 +487,7 @@ pub(crate) fn provision_bootctld_fixed_slots(
     chan: &mut CtrlChannel,
     eps: &Endpoints,
     state_req: u32,
+    pol_req: u32,
 ) -> core::result::Result<(), crate::os_payload::InitError> {
     use crate::os_payload::{InitError, ENDPOINT_FACTORY_CAP_SLOT};
     // Server pair: usually already distributed as pre-grants (slots 3/4) by
@@ -513,6 +514,12 @@ pub(crate) fn provision_bootctld_fixed_slots(
         .map_err(InitError::Abi)?;
     chan.set_send(ServiceId::Statefsd, state_send);
     chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
+    // PR-4: policyd send @0x08 — target/reset mutations are gated on the
+    // delegated `boot.target`/`boot.reset` capabilities (statefsd shape).
+    let pol_send = nexus_abi::cap_transfer_to_slot(pid, pol_req, Rights::SEND, 0x08)
+        .map_err(InitError::Abi)?;
+    chan.set_send(ServiceId::Policyd, pol_send);
+    chan.set_recv(ServiceId::Policyd, reply_recv_slot);
     debug_write_bytes(b"init: bootctld slots inbox=0x");
     crate::bootstrap::helpers::debug_write_hex(reply_recv_slot as usize);
     debug_write_bytes(b" statefs=0x");

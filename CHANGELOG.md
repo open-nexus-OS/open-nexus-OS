@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-24 (TASK-0050 PR-4: boot targets — set, reset, consumed exactly once)
+
+- **The one-shot boot target works end to end, proven across a real
+  reboot**: bootctld serves `OP_SET_NEXT_BOOT`/`OP_SET_TARGET` gated on
+  the delegated policyd capability `boot.target` (deny-by-default;
+  unknown target bytes are wire-rejected and probed); `OP_RESET` upgraded
+  to `boot.reset` with the sender gate as defense in depth. The reset
+  lane now proves the full RFC-0087 §4 contract: boot 1 arms
+  `next_boot=recovery` → real SBI reboot → boot 2's authority loads
+  `target=normal next=recovery`, init consumes it WITH the boot-attempt
+  ack (`init: next boot target=recovery` — the same persisted commit
+  clears it) → the selftest reads `(normal, none)` back →
+  `SELFTEST: boot target roundtrip ok`. Six chain markers gated.
+  Materializing the target as a reduced stage graph is PR-5.
+
 ### Added - 2026-08-24 (TASK-0050 PR-3: the repo's first REAL system reset)
 
 - **The OS can reboot itself — and proves it**: `SYSCALL_SYSTEM_RESET`

@@ -9,12 +9,12 @@ execd = ["proc.spawn", "ipc.core", "fs.read"]
 # TASK-0049B PR-B3c: init persists supervision restart counters at
 # /state/init/restarts/* (statefs.write covers PUT+SYNC; statefs.read the
 # read-back). No statefs.boot/admin — init is a regular record client here.
-"init-lite" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate", "statefs.read", "statefs.write"]
-"nexus-init" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate", "statefs.read", "statefs.write"]
+"init-lite" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate", "statefs.read", "statefs.write", "boot.target", "boot.reset"]
+"nexus-init" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate", "statefs.read", "statefs.write", "boot.target", "boot.reset"]
 updated = ["crypto.verify", "ipc.core", "statefs.boot"]
 # TASK-0050 (ADR-0055): the single boot-state authority — /state/boot/* is
 # gated on statefs.boot for BOTH reads and writes (prefix rule).
-bootctld = ["ipc.core", "statefs.boot"]
+bootctld = ["ipc.core", "statefs.boot", "policy.delegate"]
 dsoftbusd = ["ipc.core", "statefs.read", "statefs.write"]
 # TASK-0049C: logd persists evidence-class records under /state/logd/
 # (statefs.write covers PUT/TXN/SYNC; statefs.read the boot-time ring load).
@@ -62,7 +62,7 @@ pinched = ["ipc.core"]
 # label "statefs.envelope.v1" (rule: statefs::derive::device_sign_allowed).
 # Deliberately NOT `crypto.sign`: generic device-signing power stays denied
 # (the `keystored sign denied` selftest guards exactly that).
-"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.boot", "statefs.admin"]
+"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.boot", "statefs.admin", "boot.target", "boot.reset"]
 "demo.testsvc" = []
 
 [abi_profile."selftest-client"]

@@ -1175,3 +1175,17 @@ phase = "bringup"
 
 [marker."bootctld: reset refused"]
 phase = "bringup"
+
+# TASK-0050 PR-4: one-shot boot-target roundtrip (set on boot 1, consumed
+# by init with the attempt ack, cleared on the authority — reset lane).
+[marker."SELFTEST: boot target roundtrip ok"]
+phase = "bringup"
+
+[marker."SELFTEST: boot target roundtrip FAIL"]
+phase = "bringup"
+
+[marker."init: next boot target=recovery"]
+phase = "bringup"
+
+[marker."bootctld: target=normal next=recovery"]
+phase = "bringup"
