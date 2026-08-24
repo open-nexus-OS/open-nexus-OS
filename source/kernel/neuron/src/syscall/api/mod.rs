@@ -338,6 +338,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
     table.register(SYSCALL_DEBUG_WRITE, sys_debug_write);
     table.register(SYSCALL_BOOT_MODE, sys_boot_mode);
+    table.register(crate::syscall::SYSCALL_SYSTEM_RESET, sys_system_reset);
     table.register(SYSCALL_BOOT_DISPLAY_MODE, sys_boot_display_mode);
     // RFC-0068: fold this per-process syscall-table install echo into the `syscalls` verdict
     // (NEXUS_LOG_EXPAND=syscalls to see them raw). One tally per install event.
@@ -427,6 +428,33 @@ fn sys_debug_putc(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 /// `verify-uart` stays deterministic). Pure read of the kernel's fw_cfg-derived flag; no args.
 fn sys_boot_mode(_ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     Ok(usize::from(crate::boot_mode::fold_verdicts()))
+}
+
+/// `SYSCALL_SYSTEM_RESET` (56): SBI SRST reset — cold reboot (0) or shutdown
+/// (1). Identity-bound to bootctld (kernel-attributed service id; ADR-0055:
+/// reset always travels through the boot-state authority so a target/record
+/// commit can precede it). Returns only on failure.
+fn sys_system_reset(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let bootctld = crate::syscall::api::sched_task::service_id_from_name(b"bootctld");
+    if ctx.tasks.current_service_id() != bootctld {
+        return Err(crate::syscall::Error::Capability(crate::cap::CapError::PermissionDenied));
+    }
+    match args.get(0) {
+        0 => {
+            let _ = sbi_rt::system_reset(sbi_rt::ColdReboot, sbi_rt::NoReason);
+        }
+        1 => {
+            let _ = sbi_rt::system_reset(sbi_rt::Shutdown, sbi_rt::NoReason);
+        }
+        _ => {
+            return Err(crate::syscall::Error::AddressSpace(
+                crate::mm::AddressSpaceError::InvalidArgs,
+            ))
+        }
+    }
+    // SBI SRST does not return on success; reaching here means the SEE
+    // refused the reset — surface it instead of pretending.
+    Err(crate::syscall::Error::Ipc(crate::ipc::IpcError::PermissionDenied))
 }
 
 /// `SYSCALL_BOOT_DISPLAY_MODE` (50): the fw_cfg-configured display mode packed as

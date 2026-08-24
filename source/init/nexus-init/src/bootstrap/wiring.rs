@@ -1432,6 +1432,18 @@ pub(crate) fn wire_services(
                         _ => debug_write_bytes(b"init: selftest route->imed FAIL (xfer)\n"),
                     }
                 }
+                // TASK-0050 PR-3: reset-lane proof route to bootctld. LAST in
+                // this arm (slot-layout convention above) and a DIRECT
+                // transfer (no clone — init's cap table runs at its ceiling
+                // here). Fire-and-forget: a successful reset never answers.
+                if let Some((boot_req, _)) = eps.server_pair(ServiceId::Bootctld) {
+                    if let Ok(s) = nexus_abi::cap_transfer(pid, boot_req, Rights::SEND) {
+                        chan.set_send(ServiceId::Bootctld, s);
+                        if let Some(reply_recv_slot) = chan.reply_recv_slot {
+                            chan.set_recv(ServiceId::Bootctld, reply_recv_slot);
+                        }
+                    }
+                }
             }
             // RFC-0066 Phase 3 (incremental): services whose wiring is just "a
             // server endpoint" are provisioned **data-driven** from the declarative

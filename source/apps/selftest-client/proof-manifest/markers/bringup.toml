@@ -1155,3 +1155,23 @@ phase = "bringup"
 
 [marker."bootctld: record corrupt (defaults)"]
 phase = "bringup"
+
+# TASK-0050 PR-3: real system-reset proof (reset lane; sentinel discipline —
+# request on boot 1, ok ONLY on the boot after the reset).
+[marker."SELFTEST: reset request"]
+phase = "bringup"
+
+[marker."SELFTEST: reset request FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: reset ok"]
+phase = "bringup"
+
+[marker."bootctld: reset (reboot)"]
+phase = "bringup"
+
+[marker."bootctld: reset (poweroff)"]
+phase = "bringup"
+
+[marker."bootctld: reset refused"]
+phase = "bringup"

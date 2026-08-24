@@ -214,7 +214,29 @@ RFC-0087 Phase 3. Two verified holes:
    3/4 for every service with a minted pair — a bespoke arm must GUARD on
    `chan.recv(id).is_none()` before transferring again, or the pair shifts
    to 5/6 and fixed-slot transfers collide (cost one red boot).
-3. SRST syscall (after approval) + reset proof decision (RED above).
+3. ✅ **PR-3 (2026-08-24) — SRST syscall + the repo's first REAL reset
+   proof**: `SYSCALL_SYSTEM_RESET` (56) wraps `sbi_rt::system_reset`
+   (ColdReboot/Shutdown — the crate already shipped SRST, zero new deps);
+   the primitive is dumb but IDENTITY-BOUND to bootctld (kernel-attributed
+   service id → EPERM for everyone else), so a reset always travels
+   through the boot-state authority. `nexus_abi::system_reset(ResetKind)`
+   wrapper; bootctld `OP_RESET` (sender-gated init/selftest for now —
+   policyd `boot.reset` upgrades this in PR-4 with the target ops).
+   **RED resolved — the REAL variant**: the launcher runs without
+   `-no-reboot`, so a guest SBI reboot restarts the same machine and the
+   uart stream carries BOTH boots. New `[profile.reset]` lane (extends
+   headless): the guest arms a statefs sentinel EARLY in bringup, requests
+   the reset (`SELFTEST: reset request` → `bootctld: reset (reboot)`), and
+   the boot AFTER the reset consumes the sentinel →
+   `SELFTEST: reset ok` + a full ladder to `Completed`. Gates: two
+   `init: ready` in one log + the full chain; `reset refused`/`request
+   FAIL` fatal. Wired into `test-all` as `ci-os-reset`.
+   **Traps recorded**: (a) routes resolve PER REQUESTER — the selftest
+   needed its own bootctld send clone in the wiring arm, and it must be
+   LAST in the arm (the mid-arm insert shifted every later first-free slot
+   and silently broke the rng channel → enc-roundtrip FAIL two lanes
+   away); (b) uart lines can carry CR — never `$`-anchor a harness grep
+   (the two-boot count matched 0 with an anchor and 2 without).
 4. Target fields + one-shot semantics + policy gating.
 5. Init stage-graph selection + recovery/safe graphs + full proofs;
    `just test-all`.

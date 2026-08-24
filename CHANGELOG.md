@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-24 (TASK-0050 PR-3: the repo's first REAL system reset)
+
+- **The OS can reboot itself — and proves it**: `SYSCALL_SYSTEM_RESET`
+  (56) wraps SBI SRST (cold reboot / shutdown; `sbi-rt` already shipped
+  it). The primitive is dumb but identity-bound to bootctld in the kernel
+  — a reset always travels through the boot-state authority, everyone
+  else gets EPERM. bootctld serves `OP_RESET` sender-gated (policyd
+  `boot.reset` upgrades this with the target ops).
+- **New `reset` proof lane, wired into `test-all`** (`ci-os-reset`): the
+  guest arms a statefs sentinel early in bringup, requests the reset, and
+  QEMU restarts the same machine — the uart stream carries BOTH boots
+  (`SELFTEST: reset request` → `bootctld: reset (reboot)` → second
+  `init: ready` → `SELFTEST: reset ok` → full ladder). Never a simulated
+  "would have rebooted" print; the gates demand two boots in one log and
+  make `reset refused` fatal.
+
 ### Added - 2026-08-24 (TASK-0050 PR-2: updated becomes a bootctld client — one writer, proven)
 
 - **The boot record has exactly one writer now**: bootctld serves the

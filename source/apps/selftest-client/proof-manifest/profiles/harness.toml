@@ -78,6 +78,16 @@ runner = "scripts/qemu-test.sh"
 extends = "headless"
 env = { SMP = "1", QEMU_NO_ICOUNT = "0" }
 
+# TASK-0050 PR-3: real system-reset lane. The guest requests an SBI cold
+# reboot EARLY in bringup (sentinel discipline over statefs); QEMU restarts
+# the same machine (no -no-reboot), the uart log carries BOTH boots, and
+# boot 2 proves it ran after a real reset. The full ladder then completes
+# in boot 2 (the trigger is raw fw_cfg; phase scope stays full).
+[profile.reset]
+runner = "scripts/qemu-test.sh"
+extends = "headless"
+env = { NEXUS_SELFTEST_PROFILE = "reset", REQUIRE_RESET_PROOF = "1" }
+
 [profile.dhcp]
 runner = "scripts/qemu-test.sh"
 extends = "headless"
@@ -91,7 +101,7 @@ extends = "headless"
 # build with QEMU_NO_ICOUNT=1 emitted `SELFTEST: net udp dns ok` and exited 0.
 # DHCP/ICMP/TCP pass either way — they need no host answer inside a guest
 # deadline. Determinism for the boot ladder stays where it belongs, in
-# [profile.smp1]; this lane is a network proof, not a scheduling proof.
+# `[profile.smp1]`; this lane is a network proof, not a scheduling proof.
 env = { REQUIRE_QEMU_DHCP = "1", QEMU_NO_ICOUNT = "1" }
 
 [profile.dhcp-strict]

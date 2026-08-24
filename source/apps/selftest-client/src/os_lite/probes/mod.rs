@@ -27,5 +27,6 @@ pub(crate) mod elf;
 pub(crate) mod ipc_kernel;
 pub(crate) mod pinched;
 pub(crate) mod pinched_restart;
+pub(crate) mod reset;
 pub(crate) mod rng;
 pub(crate) mod soaks;

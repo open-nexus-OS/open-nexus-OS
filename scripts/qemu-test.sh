@@ -12,6 +12,12 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 if [[ -z "${RUN_TIMEOUT:-}" && "${GPU_MODE:-}" == "virgl" ]]; then
   RUN_TIMEOUT=240s
 fi
+# TASK-0050 reset lane: ONE run carries TWO boots (guest SBI reboot mid-run),
+# so the wall clock covers boot 1 up to the reset plus a full ladder.
+if [[ -z "${RUN_TIMEOUT:-}" && "${PROFILE:-}" == "reset" ]]; then
+  RUN_TIMEOUT=360s
+  export QEMU_READY_GRACE_SECS="${QEMU_READY_GRACE_SECS:-330}"
+fi
 # Re-measured 2026-08-20: the reliability-spine proofs grew the ladder's END
 # phase (3-cycle restart storm with real backoffs, evidence journal proofs,
 # bootctld bring-up) past the old 90s wall-clock cap — the outer timeout cut
@@ -671,7 +677,7 @@ case "${PROFILE:-full}" in
       "init: ready"
     )
     ;;
-  headless|smp1|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain)
+  headless|smp1|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain)
     # Use a reduced expected sequence for headless — omits display-gated
     # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
     # minidump chain is NOT display-gated: it is appended for headless/smp1
@@ -814,7 +820,7 @@ esac
 # the `full` profile carries the same gates in the base list above. Order is
 # free — the strict-order loop only checks init:/KSELFTEST: markers.
 case "${PROFILE:-full}" in
-  headless|smp1)
+  headless|smp1|reset)
     expected_sequence+=(
       "child: hello-elf"
       "child: exit0 start"
@@ -1697,6 +1703,38 @@ for m in \
   fi
 done
 
+# TASK-0050 PR-3 reset-lane guards: the proof is a REAL reboot — two boots
+# in one uart stream, request on boot 1, ok strictly on boot 2 (sentinel).
+if [[ "${REQUIRE_RESET_PROOF:-0}" == "1" ]]; then
+  # Substring count on purpose: UART lines may carry CR endings, which a
+  # `$` anchor silently refuses to match.
+  ready_count=$(grep -ac "init: ready" "$UART_LOG" || true)
+  if [[ "${ready_count:-0}" -lt 2 ]]; then
+    echo "[error] first_failed_phase=bringup missing_marker='init: ready (second boot)'" >&2
+    echo "[error] reset lane: expected TWO boots in one uart stream, saw $ready_count" >&2
+    grep -a "SELFTEST: reset\|bootctld: reset" "$UART_LOG" | head -n 6 >&2
+    exit 1
+  fi
+  for m in "SELFTEST: reset request" "bootctld: reset (reboot)" "SELFTEST: reset ok"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
+      echo "[error] reset lane: reset chain marker missing" >&2
+      grep -a "SELFTEST: reset\|bootctld: reset" "$UART_LOG" | head -n 6 >&2
+      exit 1
+    fi
+  done
+fi
+for m in \
+  "SELFTEST: reset request FAIL" \
+  "bootctld: reset refused"; do
+  if grep -aFq "$m" "$UART_LOG"; then
+    echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
+    echo "[error] reset path emitted failure signature: $m" >&2
+    grep -a "SELFTEST: reset\|bootctld: reset" "$UART_LOG" | head -n 6 >&2
+    exit 1
+  fi
+done
+
 # TASK-0049C evidence-journal guards: the persisted-scope proofs are fatal
 # in both directions, and a proof boot that ran the logd phase must have
 # attached the spill (the persist-on marker carries the honest count of
@@ -1760,7 +1798,7 @@ fi
 # red with "GPU chain contract broken" on a headless boot (2026-07-25).
 profile_has_display() {
   case "${PROFILE:-full}" in
-    headless | smp | smp1 | dhcp | dhcp-strict | quic-required | os2vm | supply-chain) return 1 ;;
+    headless | smp | smp1 | reset | dhcp | dhcp-strict | quic-required | os2vm | supply-chain) return 1 ;;
     *) return 0 ;;
   esac
 }

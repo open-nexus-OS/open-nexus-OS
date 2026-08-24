@@ -193,6 +193,14 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         } else {
             emit_line(crate::markers::M_SELFTEST_STATEFS_ENC_ROUNDTRIP_FAIL);
         }
+        // TASK-0050 PR-3: real reset proof — reset lane ONLY (raw fw_cfg
+        // trigger; proof boots keep the full phase scope). Early on purpose:
+        // both boots must fit one harness window.
+        if crate::os_lite::boot_cfg::runtime_profile_with_retry()
+            == Some(crate::runtime_mode::RuntimeProfile::Reset)
+        {
+            crate::os_lite::probes::reset::reset_proof(&statefsd);
+        }
     } else {
         emit_line(crate::markers::M_SELFTEST_STATEFS_PUT_FAIL);
         emit_line(crate::markers::M_SELFTEST_STATEFS_UNAUTHORIZED_ACCESS_REJECTED_FAIL);

@@ -183,6 +183,8 @@ impl Profile {
                 RuntimeProfile::Ota => Profile::Ota,
                 RuntimeProfile::Net => Profile::Net,
                 RuntimeProfile::None => Profile::None,
+                // Reset lane: the trigger is separate; the phase scope is full.
+                RuntimeProfile::Reset => Profile::Full,
             };
         }
         // …otherwise the interactive mode is the single source of truth for the phase scope:

@@ -267,6 +267,12 @@ ci-os-display-gpu-pci:
 ci-os-smp1:
     RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-200s} just test-os smp1
 
+# TASK-0050: real system-reset lane — the guest SBI-reboots mid-run and the
+# harness proves BOTH boots in one uart stream (profile owns the topology;
+# timeout widening lives in qemu-test.sh's reset arm).
+ci-os-reset:
+    just test-os reset
+
 # SMP=2 REAL-PARALLELISM lane (MTTCG, icount impossible — it forces
 # single-threaded round-robin vCPUs and would kill the cpu1/per-hart/IPI
 # proofs). MTTCG + host-scheduling variance make several of its timing proofs
@@ -585,6 +591,7 @@ test-all:
     just build-kernel
     just lint-kernel
     just ci-os-smp1
+    just ci-os-reset
     @scripts/hypothesis-log.sh H5 "justfile:test-all:end" "aggregate gate completed"
 
 # -----------------------------------------------------------------------------

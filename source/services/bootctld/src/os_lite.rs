@@ -112,6 +112,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let sid_updated = nexus_abi::service_id_from_name(b"updated");
     let sid_init_lite = nexus_abi::service_id_from_name(b"init-lite");
     let sid_init = nexus_abi::service_id_from_name(b"nexus-init");
+    let sid_selftest = nexus_abi::service_id_from_name(b"selftest-client");
 
     let mut authority: Option<Authority> = None;
     let mut load_attempts: u8 = 0;
@@ -149,7 +150,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 let mut rsp = [0u8; 32];
                 let len = handle_frame(
                     authority.as_mut(),
-                    Gates { sid_updated, sid_init_lite, sid_init },
+                    Gates { sid_updated, sid_init_lite, sid_init, sid_selftest },
                     sender,
                     frame,
                     &mut rsp,
@@ -189,6 +190,7 @@ struct Gates {
     sid_updated: u64,
     sid_init_lite: u64,
     sid_init: u64,
+    sid_selftest: u64,
 }
 
 impl Gates {
@@ -199,6 +201,12 @@ impl Gates {
     /// Boot-attempt tick: the update fassade or init itself.
     fn attempt_allowed(&self, sender: u64) -> bool {
         sender == self.sid_updated || sender == self.sid_init_lite || sender == self.sid_init
+    }
+    /// System reset: init (escalation, PR-5) or the proof harness. PR-4
+    /// upgrades this to the policyd `boot.reset` capability alongside the
+    /// target ops; the sender gate stays as defense in depth.
+    fn reset_allowed(&self, sender: u64) -> bool {
+        sender == self.sid_init_lite || sender == self.sid_init || sender == self.sid_selftest
     }
 }
 
@@ -306,8 +314,27 @@ fn handle_frame(
                 Err(err) => machine_fail(rsp, op, err),
             }
         }
-        // Target mutations + reset land with PR-3/4 (policy gating + SRST).
-        wire::OP_SET_NEXT_BOOT | wire::OP_SET_TARGET | wire::OP_RESET => {
+        wire::OP_RESET => {
+            if !gates.reset_allowed(sender) {
+                return deny(rsp, op, sender);
+            }
+            let kind = match frame.get(4).copied() {
+                Some(0) => nexus_abi::ResetKind::Reboot,
+                Some(1) => nexus_abi::ResetKind::Poweroff,
+                _ => return encode_status(rsp, op, wire::STATUS_MALFORMED),
+            };
+            emit(match kind {
+                nexus_abi::ResetKind::Reboot => "bootctld: reset (reboot)",
+                nexus_abi::ResetKind::Poweroff => "bootctld: reset (poweroff)",
+            });
+            // Does not return on success — the machine restarts; the caller
+            // never sees a reply (its bounded wait dies with the boot).
+            let _ = nexus_abi::system_reset(kind);
+            emit("bootctld: reset refused");
+            encode_status(rsp, op, wire::STATUS_FAILED)
+        }
+        // Target mutations land with PR-4 (policy gating).
+        wire::OP_SET_NEXT_BOOT | wire::OP_SET_TARGET => {
             encode_status(rsp, op, wire::STATUS_UNSUPPORTED)
         }
         _ => encode_status(rsp, op, wire::STATUS_UNSUPPORTED),

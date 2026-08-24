@@ -377,3 +377,34 @@ pub fn debug_trace(s: &str) -> SysResult<()> {
         Ok(())
     }
 }
+
+/// System reset kind for [`system_reset`] (TASK-0050, ADR-0055).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetKind {
+    /// SBI SRST cold reboot: the machine restarts the same image.
+    Reboot,
+    /// SBI SRST shutdown: the machine powers off.
+    Poweroff,
+}
+
+/// SBI SRST system reset (`SYSCALL_SYSTEM_RESET`, 56). Identity-bound to
+/// bootctld in the kernel — every other caller gets a deterministic error.
+/// Returns only on failure (denied, invalid kind, or the SEE refused).
+#[cfg(nexus_env = "os")]
+pub fn system_reset(kind: ResetKind) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_SYSTEM_RESET: usize = 56;
+        let arg = match kind {
+            ResetKind::Reboot => 0usize,
+            ResetKind::Poweroff => 1usize,
+        };
+        let raw = unsafe { ecall1(SYSCALL_SYSTEM_RESET, arg) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = kind;
+        Err(AbiError::Unsupported)
+    }
+}

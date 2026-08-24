@@ -23,6 +23,10 @@ pub(crate) enum RuntimeProfile {
     Ota,
     Net,
     None,
+    /// TASK-0050 reset lane: full ladder + the reset-proof trigger in
+    /// bringup (sentinel discipline; the trigger is read RAW from fw_cfg —
+    /// proof boots keep the full phase scope regardless).
+    Reset,
 }
 
 #[must_use]
@@ -44,6 +48,7 @@ pub(crate) fn parse_runtime_profile(bytes: &[u8]) -> Option<RuntimeProfile> {
         b"ota" => Some(RuntimeProfile::Ota),
         b"net" => Some(RuntimeProfile::Net),
         b"none" => Some(RuntimeProfile::None),
+        b"reset" => Some(RuntimeProfile::Reset),
         _ => None,
     }
 }

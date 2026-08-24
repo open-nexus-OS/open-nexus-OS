@@ -226,6 +226,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     // wiring arm), not a declared route: it must work before the responder
     // serves, so it never goes through route resolution.
     (ServiceId::Updated, ServiceId::Bootctld), // slot mutations delegate (PR-2)
+    (ServiceId::SelftestClient, ServiceId::Bootctld), // reset-lane proof (PR-3)
 ];
 // NOTE: imed's routes (windowd/settingsd/statefsd) are provisioned IMPERATIVELY
 // in `provision_imed_legs` (fixed pinned slots, RFC-0075 / TASK-0204), not via

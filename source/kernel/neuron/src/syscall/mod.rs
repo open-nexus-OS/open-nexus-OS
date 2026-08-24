@@ -106,6 +106,11 @@ pub const SYSCALL_VM_UNMAP: usize = 54;
 /// never EXEC). Args: (mmio_slot, offset, len). Replaces the retired
 /// fixed-VA `SYSCALL_MMIO_MAP` (27).
 pub const SYSCALL_MMIO_MAP_AUTO: usize = 55;
+/// TASK-0050 (ADR-0055): SBI SRST system reset. Args: (kind) — 0 = cold
+/// reboot, 1 = shutdown. The primitive is dumb (no policy in the kernel);
+/// it is identity-bound to bootctld, the single boot-state authority —
+/// every other caller gets EPERM. Does not return on success.
+pub const SYSCALL_SYSTEM_RESET: usize = 56;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).
