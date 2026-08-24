@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-24 (TASK-0050 PR-2: updated becomes a bootctld client — one writer, proven)
+
+- **The boot record has exactly one writer now**: bootctld serves the
+  full mutation wire (stage/switch/health/rollback/boot-attempt),
+  sender-gated on kernel-attributed identity with deterministic
+  `STATUS_DENIED`. Every mutation is both-or-neither — snapshot → mutate
+  → persist; a failed persist restores the snapshot, so RAM and disk can
+  never tell different stories (the old writer mutated first). updated
+  keeps the OTA fassade (wire, SystemSet verification, audit markers —
+  the ladder is unchanged and green through the relocation) and delegates
+  via a bounded client; `updates::bootctrl` and updated's persistence
+  path are deleted. init's boot-attempt handshake calls bootctld directly
+  over a pre-minted init-owned endpoint (the responder is not serving yet
+  at that point) — bootctld is bespoke-wired with fixed slots and loads
+  the record eagerly; the reply already carries the one-shot `next_boot`
+  for PR-5's target graphs.
+- **Torn contract markers fixed**: init printed supervision markers as
+  per-byte writes — a freshly resumed service tore its ready line into
+  the middle of `init: service restarted …`, breaking the paired
+  exit/restart harness count on smp1. All gate-counted supervision
+  markers (exit, restarted, crash-loop blocked, persist) are now single
+  atomic `debug_println` lines.
+
 ### Added - 2026-08-20 (TASK-0050 PR-1: bootctld — the single boot-state authority boots)
 
 - **`bootctld` exists and owns the boot record's shape**: the proven

@@ -237,11 +237,14 @@ fn announce_service_exit(
         route_table.mark_stale(id);
         respawner.on_service_exit(id, reason, code);
     }
-    debug_write_bytes(b"init: service exit name=");
-    debug_write_bytes(name.as_bytes());
-    debug_write_bytes(b" reason=");
-    debug_write_bytes(reason.label().as_bytes());
-    debug_write_bytes(b" code=0x");
-    debug_write_hex(code as u32 as usize);
-    debug_write_byte(b'\n');
+    crate::bootstrap::diag::emit_marker_atomic(
+        &[
+            b"init: service exit name=",
+            name.as_bytes(),
+            b" reason=",
+            reason.label().as_bytes(),
+            b" code=0x",
+        ],
+        Some(code as u32 as u64),
+    );
 }

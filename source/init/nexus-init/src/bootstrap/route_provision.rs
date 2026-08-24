@@ -476,3 +476,48 @@ pub(crate) fn provision_execd_named_routes(
         }
     }
 }
+
+/// TASK-0050 PR-2 (ADR-0055): bootctld's bespoke FIXED slots — it must
+/// attach to statefsd WITHOUT the responder (init itself calls the
+/// boot-attempt handshake before the responder serves; a route-resolving
+/// attach would deadlock on init). Convention: server 3/4, reply inbox
+/// 5/6, statefsd send 7 (metricsd shape).
+pub(crate) fn provision_bootctld_fixed_slots(
+    pid: u32,
+    chan: &mut CtrlChannel,
+    eps: &Endpoints,
+    state_req: u32,
+) -> core::result::Result<(), crate::os_payload::InitError> {
+    use crate::os_payload::{InitError, ENDPOINT_FACTORY_CAP_SLOT};
+    // Server pair: usually already distributed as pre-grants (slots 3/4) by
+    // `distribute_server_pairs` — transferring again here shifted the pair
+    // to 5/6 and made the fixed-slot inbox transfer below collide.
+    if chan.recv(ServiceId::Bootctld).is_none() {
+        if let Some((req, rsp)) = eps.server_pair(ServiceId::Bootctld) {
+            let r = nexus_abi::cap_transfer(pid, req, Rights::RECV).map_err(InitError::Abi)?;
+            let sslot = nexus_abi::cap_transfer(pid, rsp, Rights::SEND).map_err(InitError::Abi)?;
+            chan.set_recv(ServiceId::Bootctld, r);
+            chan.set_send(ServiceId::Bootctld, sslot);
+        }
+    }
+    let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+        .map_err(InitError::Abi)?;
+    let reply_recv_slot = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::RECV, 0x05)
+        .map_err(InitError::Abi)?;
+    let reply_send_slot = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::SEND, 0x06)
+        .map_err(InitError::Abi)?;
+    chan.reply_recv_slot = Some(reply_recv_slot);
+    chan.reply_send_slot = Some(reply_send_slot);
+    let _ = nexus_abi::cap_close(reply_ep);
+    let state_send = nexus_abi::cap_transfer_to_slot(pid, state_req, Rights::SEND, 0x07)
+        .map_err(InitError::Abi)?;
+    chan.set_send(ServiceId::Statefsd, state_send);
+    chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
+    debug_write_bytes(b"init: bootctld slots inbox=0x");
+    crate::bootstrap::helpers::debug_write_hex(reply_recv_slot as usize);
+    debug_write_bytes(b" statefs=0x");
+    crate::bootstrap::helpers::debug_write_hex(state_send as usize);
+    debug_write_bytes(b"\n");
+    debug_write_bytes(b"init: bootctld route->statefsd ok\n");
+    Ok(())
+}

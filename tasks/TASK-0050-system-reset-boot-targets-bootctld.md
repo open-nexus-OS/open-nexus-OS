@@ -186,7 +186,34 @@ RFC-0087 Phase 3. Two verified holes:
    the wider window). The 90s cap cut the restart storm's third cycle
    deterministically and looked exactly like an init hang — recorded here
    because the next person WILL hit it when the ladder grows again.
-2. updated → client conversion; OTA ladder re-proof.
+2. ✅ **PR-2 (2026-08-24) — updated → bootctld client; OTA ladder
+   re-proven**: bootctld is the single WRITER now (mutations sender-gated
+   on the kernel-attributed id: OTA ops `updated`-only, boot-attempt also
+   init; deterministic `STATUS_DENIED`, no forgeable probe surface). Every
+   mutation is both-or-neither: snapshot → mutate → persist (relocated
+   read-modify-write incl. the one-retry rollback-race rule) — a failed
+   persist restores the snapshot, so RAM and disk can never diverge (the
+   old updated writer mutated first and persisted second). updated keeps
+   the OTA fassade (U,D wire, SystemSet verification, audit markers —
+   ladder markers unchanged) and delegates via `bootctl_client` (CAP_MOVE
+   onto its own inbox, foreign frames skipped; `OP_ROLLBACK` added for the
+   bundlemgrd-failure compensation). `updates::bootctrl` and updated's
+   `bootctl_state`/persist path are DELETED (relocation complete; machine
+   flows live in bootctld's host tests). init's boot-attempt handshake now
+   calls bootctld DIRECTLY over the pre-minted init-owned request endpoint
+   — the responder is not serving yet at that point, so bootctld is
+   BESPOKE-wired with FIXED slots (inbox 5/6, statefsd send 7, metricsd
+   convention; `provision_bootctld_fixed_slots`) and loads the record
+   eagerly. The boot-attempt reply already carries
+   `[rolled_back, next_boot]` — one-shot consumption rides the same
+   persisted commit; init materializes targets in PR-5.
+   Marker recut (contract): `updated: ready (statefs)` →
+   `updated: ready (bootctl client)` (updated no longer reads the record);
+   selftest's persist check accepts payload v1 AND v2.
+   **Trap recorded**: `distribute_server_pairs` pre-grants server slots
+   3/4 for every service with a minted pair — a bespoke arm must GUARD on
+   `chan.recv(id).is_none()` before transferring again, or the pair shifts
+   to 5/6 and fixed-slot transfers collide (cost one red boot).
 3. SRST syscall (after approval) + reset proof decision (RED above).
 4. Target fields + one-shot semantics + policy gating.
 5. Init stage-graph selection + recovery/safe graphs + full proofs;

@@ -434,6 +434,12 @@ pub(crate) fn wire_services(
                     chan.set_recv(ServiceId::Logd, reply_recv_slot);
                 }
             }
+            // TASK-0050 PR-2: bespoke fixed-slot wiring (see route_provision).
+            "bootctld" => {
+                crate::bootstrap::route_provision::provision_bootctld_fixed_slots(
+                    pid, chan, eps, state_req,
+                )?;
+            }
             "updated" => {
                 // Server pair: usually distributed pre-grants (task #123).
                 let (recv_slot, send_slot) =
@@ -523,6 +529,20 @@ pub(crate) fn wire_services(
                     }
                 }
                 let _ = nexus_abi::cap_close(reply_ep);
+
+                // TASK-0050 PR-2 (ADR-0055): updated delegates every slot
+                // mutation to bootctld — clone the pre-minted request
+                // endpoint so the responder can answer the named route.
+                if let Some((boot_req, _)) = eps.server_pair(ServiceId::Bootctld) {
+                    if let Ok(clone) = nexus_abi::cap_clone(boot_req) {
+                        if let Ok(send_slot) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
+                            chan.set_send(ServiceId::Bootctld, send_slot);
+                            if let Some(reply_recv_slot) = reply_recv_slot {
+                                chan.set_recv(ServiceId::Bootctld, reply_recv_slot);
+                            }
+                        }
+                    }
+                }
 
                 // TASK-0006: allow updated to send structured logs to logd via CAP_MOVE (reply inbox).
                 if let Some(req) = log_req {

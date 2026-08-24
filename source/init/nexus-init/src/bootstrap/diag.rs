@@ -43,3 +43,31 @@ pub(crate) fn il(wire: &mut nexus_event::SpanTally, fold: bool, subject: &str) -
     let svc = subject.strip_prefix("init:").unwrap_or(subject);
     !fold || expanded("lifecycle") || expanded(svc)
 }
+
+/// Emits one CONTRACT marker line atomically (single `debug_println`).
+/// The per-byte `debug_write_*` helpers tear against concurrently running
+/// services — a freshly resumed instance printed its ready line INSIDE
+/// init's `service restarted` marker (smp1, 2026-08-24), which broke the
+/// paired exit/restart harness count. `hex` (when given) is appended as
+/// 16 lowercase nibbles.
+pub(crate) fn emit_marker_atomic(parts: &[&[u8]], hex: Option<u64>) {
+    let mut line = [0u8; 112];
+    let mut len = 0usize;
+    for part in parts {
+        let take = part.len().min(line.len() - len);
+        line[len..len + take].copy_from_slice(&part[..take]);
+        len += take;
+    }
+    if let Some(value) = hex {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        for shift in (0..16).rev() {
+            if len < line.len() {
+                line[len] = HEX[((value >> (shift * 4)) & 0xf) as usize];
+                len += 1;
+            }
+        }
+    }
+    if let Ok(msg) = core::str::from_utf8(&line[..len]) {
+        let _ = nexus_abi::debug_println(msg);
+    }
+}

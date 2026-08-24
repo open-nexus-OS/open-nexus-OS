@@ -38,6 +38,9 @@ pub const OP_SET_NEXT_BOOT: u8 = 7;
 pub const OP_SET_TARGET: u8 = 8;
 /// System reset via the kernel SRST primitive (policy-gated; PR-3).
 pub const OP_RESET: u8 = 9;
+/// Explicit rollback to the recorded rollback slot (updated's switch
+/// compensation when bundlemgrd activation fails mid-flight).
+pub const OP_ROLLBACK: u8 = 10;
 
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_MALFORMED: u8 = 1;

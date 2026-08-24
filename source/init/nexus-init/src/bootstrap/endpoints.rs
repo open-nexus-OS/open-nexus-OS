@@ -140,6 +140,11 @@ pub(crate) struct Endpoints {
     pub sett_req: Option<u32>,
     /// settingsd server response endpoint.
     pub sett_rsp: Option<u32>,
+    /// bootctld server request endpoint (pre-minted, init-owned v2: init
+    /// itself is a client for the boot-attempt handshake — TASK-0050 PR-2).
+    pub boot_req: Option<u32>,
+    /// bootctld server response endpoint (init-owned; non-CAP_MOVE fallback).
+    pub boot_rsp: Option<u32>,
     /// pinched (compute broker) server request endpoint (pre-minted so the
     /// selftest client route clones the SAME pair pinched serves).
     pub pinch_req: Option<u32>,
@@ -182,6 +187,7 @@ impl Endpoints {
             // Session authority (TASK-0065B): pre-minted so windowd/abilitymgr
             // client routes exist long before sessiond (spawned last) binds.
             ServiceId::Sessiond => self.sess_req.zip(self.sess_rsp),
+            ServiceId::Bootctld => self.boot_req.zip(self.boot_rsp),
             // Launch authority (TASK-0080D): pre-minted so windowd's
             // OP_LAUNCH route targets the pair abilitymgr actually serves.
             ServiceId::Abilitymgr => self.abil_req.zip(self.abil_rsp),

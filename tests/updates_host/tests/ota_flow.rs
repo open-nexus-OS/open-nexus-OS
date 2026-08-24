@@ -10,12 +10,10 @@
 //! TEST_SCOPE:
 //!   - System-set signature verification
 //!   - Digest mismatch rejection
-//!   - BootCtrl stage/switch/health
 //!   - Rollback on health timeout
 //!   - Missing signature rejection
 //!   - Oversized archive rejection
 //!   - Path-traversal rejection (security)
-//!   - BootCtrl error states
 //!
 //! TEST_SCENARIOS:
 //!   - test_stage_switch_health_commit(): happy-path flow
@@ -26,9 +24,8 @@
 //!   - test_reject_oversized_archive(): oversized archive rejected
 //!   - test_reject_path_traversal_dotdot(): ../ escape rejected
 //!   - test_reject_absolute_path(): /etc/passwd rejected
-//!   - test_bootctrl_switch_without_stage_fails(): error state
-//!   - test_bootctrl_commit_health_without_switch_fails(): error state
-//!   - test_bootctrl_double_switch_fails(): error state
+//!   (BootCtrl machine tests RELOCATED to source/services/bootctld/tests/
+//!   record_v2.rs with the machine itself — TASK-0050, ADR-0055.)
 //!
 //! ADR: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
 
@@ -38,7 +35,7 @@ use tar::{Builder as TarBuilder, EntryType, Header};
 
 use updates::system_set_capnp::system_set_index;
 use updates::SystemSetError;
-use updates::{BootCtrl, Ed25519Verifier, Slot, SystemSet};
+use updates::{Ed25519Verifier, SystemSet};
 
 use capnp::message::Builder;
 use capnp::serialize;
@@ -50,29 +47,6 @@ struct BundleFixture {
     version: String,
     manifest: Vec<u8>,
     payload: Vec<u8>,
-}
-
-#[test]
-fn test_stage_switch_health_commit() {
-    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
-    let bundle = fixture_bundle("demo.hello", "1.0.0");
-    let nxs = build_nxs(&signing_key, &[bundle]);
-
-    let verifier = Ed25519Verifier;
-    let parsed = SystemSet::parse(&nxs, &verifier).expect("system-set parse ok");
-    assert_eq!(parsed.bundles.len(), 1);
-
-    let mut boot = BootCtrl::new(Slot::A);
-    let staged = boot.stage();
-    assert_eq!(staged, Slot::B);
-    let switched = boot.switch(2).expect("switch ok");
-    assert_eq!(switched, Slot::B);
-    assert_eq!(boot.active_slot(), Slot::B);
-    assert_eq!(boot.pending_slot(), Some(Slot::B));
-    assert_eq!(boot.tries_left(), 2);
-    boot.commit_health().expect("health ok");
-    assert_eq!(boot.pending_slot(), None);
-    assert!(boot.health_ok());
 }
 
 #[test]
@@ -99,17 +73,6 @@ fn test_reject_mismatched_digest() {
     let verifier = Ed25519Verifier;
     let err = SystemSet::parse(&nxs, &verifier).expect_err("digest mismatch");
     assert!(matches!(err, updates::SystemSetError::DigestMismatch { .. }));
-}
-
-#[test]
-fn test_rollback_on_health_timeout() {
-    let mut boot = BootCtrl::new(Slot::A);
-    boot.stage();
-    boot.switch(1).expect("switch ok");
-    let rolled = boot.tick_boot_attempt().expect("tick").expect("rollback");
-    assert_eq!(rolled, Slot::A);
-    assert_eq!(boot.active_slot(), Slot::A);
-    assert_eq!(boot.pending_slot(), None);
 }
 
 #[test]
@@ -180,30 +143,6 @@ fn test_reject_absolute_path() {
     assert!(matches!(err, SystemSetError::ArchiveMalformed("unsafe path")));
 }
 
-#[test]
-fn test_bootctrl_switch_without_stage_fails() {
-    let mut boot = BootCtrl::new(Slot::A);
-    let err = boot.switch(2).expect_err("should fail without stage");
-    assert_eq!(err, updates::BootCtrlError::NotStaged);
-}
-
-#[test]
-fn test_bootctrl_commit_health_without_switch_fails() {
-    let mut boot = BootCtrl::new(Slot::A);
-    let err = boot.commit_health().expect_err("should fail without switch");
-    assert_eq!(err, updates::BootCtrlError::NotPending);
-}
-
-#[test]
-fn test_bootctrl_double_switch_fails() {
-    let mut boot = BootCtrl::new(Slot::A);
-    boot.stage();
-    boot.switch(2).expect("first switch ok");
-    boot.stage();
-    let err = boot.switch(2).expect_err("second switch should fail");
-    assert_eq!(err, updates::BootCtrlError::AlreadyPending);
-}
-
 fn fixture_bundle(name: &str, version: &str) -> BundleFixture {
     let manifest = build_manifest(name, version);
     let payload = vec![0xAAu8; 16];
@@ -225,12 +164,6 @@ fn build_manifest(name: &str, version: &str) -> Vec<u8> {
     let mut out = Vec::new();
     serialize::write_message(&mut out, &builder).expect("manifest encode");
     out
-}
-
-fn build_nxs(signing_key: &SigningKey, bundles: &[BundleFixture]) -> Vec<u8> {
-    let signature =
-        signing_key.sign(&build_index(&signing_key.verifying_key().to_bytes(), bundles));
-    build_nxs_with_signature(signing_key, bundles, &signature.to_bytes())
 }
 
 fn build_nxs_with_signature(

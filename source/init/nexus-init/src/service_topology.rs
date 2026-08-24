@@ -222,7 +222,10 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Statefsd, ServiceId::Policyd), // policy checks via CAP_MOVE
     (ServiceId::Settingsd, ServiceId::Statefsd), // persist prefs (TASK-0072 Phase 8)
     (ServiceId::Logd, ServiceId::Statefsd), // evidence spill (TASK-0049C, RFC-0087 §5)
-    (ServiceId::Bootctld, ServiceId::Statefsd), // boot record (TASK-0050, ADR-0055)
+    // NOTE: bootctld -> statefsd is BESPOKE fixed-slot wiring (see the
+    // wiring arm), not a declared route: it must work before the responder
+    // serves, so it never goes through route resolution.
+    (ServiceId::Updated, ServiceId::Bootctld), // slot mutations delegate (PR-2)
 ];
 // NOTE: imed's routes (windowd/settingsd/statefsd) are provisioned IMPERATIVELY
 // in `provision_imed_legs` (fixed pinned slots, RFC-0075 / TASK-0204), not via
@@ -441,13 +444,15 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         announce: false,
     },
     // bootctld: single boot-state authority (TASK-0050, ADR-0055). Exposes a
-    // server (updated/init/selftest are clients) and reads/writes the boot
-    // record via statefsd on its CAP_MOVE reply inbox.
+    // server (updated/init/selftest are clients). BESPOKE-wired with FIXED
+    // slots (inbox 5/6, statefsd send 7): its statefs attach must not
+    // resolve routes — init calls the boot-attempt handshake before the
+    // responder serves, so a responder-dependent attach would deadlock.
     ServiceSpec {
         id: ServiceId::Bootctld,
         exposes_server: true,
-        reply_inbox: true,
-        routes_to: &[Route { to: ServiceId::Statefsd, kind: RouteKind::ReplyInbox }],
+        reply_inbox: false,
+        routes_to: &[],
         announce: true,
     },
 ];

@@ -21,7 +21,8 @@ extern crate alloc;
 /// Bootctl persistence codec (Integrity envelopes, TASK-0025) — cfg-free so
 /// the host suite proves the same bytes the OS path writes.
 #[cfg(any(feature = "std", feature = "os-lite"))]
-pub mod bootctl_state;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod bootctl_client;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;

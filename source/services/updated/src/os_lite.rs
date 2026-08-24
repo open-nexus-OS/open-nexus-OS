@@ -20,11 +20,10 @@ use core::fmt;
 use nexus_abi::{debug_putc, ipc_send_v1, nsec, yield_, MsgHeader, IPC_SYS_NONBLOCK};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Wait};
 use statefs::client::StatefsClient;
-use statefs::StatefsError;
 
-use updates::{
-    BootCtrl, BootCtrlError, SignatureVerifier, Slot, SystemSet, SystemSetError, VerifyError,
-};
+use crate::bootctl_client;
+
+use updates::{SignatureVerifier, Slot, SystemSet, SystemSetError, VerifyError};
 
 const MAGIC0: u8 = nexus_abi::updated::MAGIC0;
 const MAGIC1: u8 = nexus_abi::updated::MAGIC1;
@@ -49,8 +48,6 @@ const KEYSTORE_MAGIC1: u8 = b'S';
 const KEYSTORE_VERSION: u8 = 1;
 const KEYSTORE_OP_VERIFY: u8 = 4;
 const KEYSTORE_STATUS_OK: u8 = 0;
-
-use crate::bootctl_state::{self, encode_slot, BOOTCTRL_STATE_KEY};
 
 /// Result alias used by the os-lite backend.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -89,14 +86,13 @@ impl fmt::Display for ServerError {
 }
 
 struct UpdatedState {
-    boot: BootCtrl,
     staged: Option<Vec<u8>>,
     staged_slot: Option<Slot>,
 }
 
 impl UpdatedState {
     fn new() -> Self {
-        Self { boot: BootCtrl::new(Slot::A), staged: None, staged_slot: None }
+        Self { staged: None, staged_slot: None }
     }
 }
 
@@ -148,76 +144,15 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         emit_byte(b'\n');
     }
     let (recv_slot, _) = server.slots();
-    let mut statefs = None;
-    emit_line("updated: statefs init");
-    // init-lite distributes a per-service statefsd SEND cap + reply inbox for
-    // CAP_MOVE; prefer these deterministic slots during early bring-up.
-    const STATEFS_SEND_SLOT: u32 = 0x09;
-    const REPLY_RECV_SLOT: u32 = 0x0a;
-    const REPLY_SEND_SLOT: u32 = 0x0b;
-    if let Ok(client) = KernelClient::new_with_slots(STATEFS_SEND_SLOT, REPLY_RECV_SLOT) {
-        let reply = KernelClient::new_with_slots(REPLY_SEND_SLOT, REPLY_RECV_SLOT).ok();
-        statefs = Some(StatefsClient::from_clients(client, reply));
-        emit_line("updated: statefs slot fallback");
-    }
-    if statefs.is_some() {
-        emit_line("updated: statefs available");
-    } else {
-        emit_line("updated: statefs unavailable");
-    }
+    // TASK-0050 PR-2 (ADR-0055): updated no longer loads or persists the
+    // boot record — bootctld is the single boot-state authority; every
+    // slot mutation delegates over its wire (`bootctl_client`). The route
+    // resolves lazily on the first call (bootctld spawns after updated).
+    let mut statefs: Option<StatefsClient> = None;
     let mut probe_emitted = false;
     let mut state = UpdatedState::new();
     let mut logged_recv_err = false;
-    if let Some(client) = statefs.as_mut() {
-        // Bounded retry for the TRANSIENT class: updated boots early (~0.2s) and
-        // statefsd may not be serving yet — a one-shot load turned that races
-        // into a permanent-looking `bootctl load err` every boot (the ERROR
-        // 5/6 verdict). IoError retries up to the deadline (each attempt's recv
-        // parks on its own internal budget — no busy-yield); every other error
-        // is immediate and LOUD WITH ITS VALUE (DoD: never a bare "err").
-        let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(5_000_000_000);
-        let outcome = loop {
-            match load_bootctrl_state(client) {
-                Ok(boot) => break Ok(boot),
-                Err(StatefsError::IoError) => {
-                    if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                        break Err(StatefsError::IoError);
-                    }
-                    let _ = yield_();
-                }
-                Err(e) => break Err(e),
-            }
-        };
-        match outcome {
-            Ok(boot) => {
-                state.boot = boot;
-                emit_line("updated: bootctl load ok");
-            }
-            Err(StatefsError::NotFound) => emit_line("updated: bootctl load miss"),
-            Err(e) => {
-                emit_line(match e {
-                    StatefsError::IoError => "updated: bootctl load err (IoError)",
-                    StatefsError::AccessDenied => "updated: bootctl load err (AccessDenied)",
-                    StatefsError::Corrupted => "updated: bootctl load err (Corrupted)",
-                    StatefsError::ValueTooLarge => "updated: bootctl load err (ValueTooLarge)",
-                    StatefsError::KeyTooLong => "updated: bootctl load err (KeyTooLong)",
-                    StatefsError::InvalidKey => "updated: bootctl load err (InvalidKey)",
-                    StatefsError::ReplayLimitExceeded => {
-                        "updated: bootctl load err (ReplayLimitExceeded)"
-                    }
-                    // TASK-0025 envelope statuses (statefsd write hardening).
-                    StatefsError::IntegrityViolation => "updated: bootctl load err (Integrity)",
-                    StatefsError::RollbackDetected => "updated: bootctl load err (Rollback)",
-                    StatefsError::NotFound => unreachable!("handled above"),
-                });
-            }
-        }
-    }
-    emit_line(if statefs.is_some() {
-        "updated: ready (statefs)"
-    } else {
-        "updated: ready (non-persistent)"
-    });
+    emit_line("updated: ready (bootctl client)");
     nexus_abi::service_verdict_flush("updated");
     let mut recv_buf = Vec::with_capacity(MAX_STAGE_FRAME);
     recv_buf.resize(MAX_STAGE_FRAME, 0);
@@ -380,12 +315,13 @@ fn handle_frame(
         None => return rsp(OP_STAGE, STATUS_MALFORMED, &[]),
     };
 
+    let _ = statefs;
     match op {
-        OP_STAGE => handle_stage(state, statefs, frame),
-        OP_SWITCH => handle_switch(state, statefs, frame),
-        OP_HEALTH_OK => handle_health_ok(state, statefs, frame),
-        OP_GET_STATUS => handle_get_status(state),
-        OP_BOOT_ATTEMPT => handle_boot_attempt(state, statefs, frame),
+        OP_STAGE => handle_stage(state, frame),
+        OP_SWITCH => handle_switch(state, frame),
+        OP_HEALTH_OK => handle_health_ok(frame),
+        OP_GET_STATUS => handle_get_status(),
+        OP_BOOT_ATTEMPT => handle_boot_attempt(frame),
         OP_LOG_PROBE => {
             emit_line("updated: log probe");
             rsp(OP_LOG_PROBE, STATUS_OK, &[])
@@ -394,11 +330,7 @@ fn handle_frame(
     }
 }
 
-fn handle_stage(
-    state: &mut UpdatedState,
-    statefs: &mut Option<StatefsClient>,
-    frame: &[u8],
-) -> Vec<u8> {
+fn handle_stage(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
     let payload = match nexus_abi::updated::decode_stage_req(frame) {
         Some(bytes) => bytes,
         None => return rsp(OP_STAGE, STATUS_MALFORMED, &[]),
@@ -422,15 +354,25 @@ fn handle_stage(
         }
     }) {
         Ok(_) => {
-            state.staged = Some(payload.to_vec());
-            let slot = state.boot.stage();
-            state.staged_slot = Some(slot);
-            if let Err(_) = persist_bootctrl_state(&state.boot, statefs) {
-                audit("stage", "fail", Some("persist"));
-                return rsp(OP_STAGE, STATUS_FAILED, &[]);
+            // TASK-0050 PR-2: the slot mutation + persistence live in
+            // bootctld now (ADR-0055); updated keeps verification + the
+            // staged payload, the authority keeps the record.
+            match bootctl_client::call(bootctld::wire::OP_STAGE, None) {
+                Some(reply) if reply.status == bootctld::wire::STATUS_OK => {
+                    state.staged = Some(payload.to_vec());
+                    state.staged_slot = None;
+                    audit("stage", "ok", None);
+                    rsp(OP_STAGE, STATUS_OK, &[])
+                }
+                Some(_) => {
+                    audit("stage", "fail", Some("persist"));
+                    rsp(OP_STAGE, STATUS_FAILED, &[])
+                }
+                None => {
+                    audit("stage", "fail", Some("bootctld-unreachable"));
+                    rsp(OP_STAGE, STATUS_FAILED, &[])
+                }
             }
-            audit("stage", "ok", None);
-            rsp(OP_STAGE, STATUS_OK, &[])
         }
         Err(err) => {
             let (detail, marker) = stage_error_detail(&err);
@@ -461,132 +403,127 @@ fn stage_error_detail(err: &SystemSetError) -> (&'static str, Option<&'static st
     }
 }
 
-fn handle_switch(
-    state: &mut UpdatedState,
-    statefs: &mut Option<StatefsClient>,
-    frame: &[u8],
-) -> Vec<u8> {
+fn handle_switch(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
     let tries_left = match nexus_abi::updated::decode_switch_req(frame) {
         Some(value) => value,
         None => return rsp(OP_SWITCH, STATUS_MALFORMED, &[]),
     };
-    match state.boot.switch(tries_left) {
-        Ok(slot) => {
-            let slot_result = bundlemgrd_set_active_slot(slot);
-            if slot_result.is_ok() {
-                state.staged = None;
-                state.staged_slot = None;
-                if let Err(_) = persist_bootctrl_state(&state.boot, statefs) {
-                    let _ = state.boot.rollback();
-                    let _ = bundlemgrd_set_active_slot(state.boot.active_slot());
-                    audit("switch", "fail", Some("persist"));
+    match bootctl_client::call(bootctld::wire::OP_SWITCH, Some(tries_left)) {
+        Some(reply) if reply.status == bootctld::wire::STATUS_OK => {
+            let slot = match reply.payload.first().copied() {
+                Some(1) => Slot::A,
+                Some(2) => Slot::B,
+                _ => {
+                    audit("switch", "fail", Some("bad-reply"));
                     return rsp(OP_SWITCH, STATUS_FAILED, &[]);
                 }
-                audit(
-                    "switch",
-                    "ok",
-                    Some(match slot {
-                        Slot::A => "slot=a",
-                        Slot::B => "slot=b",
-                    }),
-                );
-                rsp(OP_SWITCH, STATUS_OK, &[])
-            } else {
-                let _ = state.boot.rollback();
-                let reason = slot_result.err().unwrap_or("bundlemgrd");
+            };
+            if let Err(reason) = bundlemgrd_set_active_slot(slot) {
+                // Compensation: the record already switched — roll it back
+                // and restore bundlemgrd's view of the surviving slot.
+                if let Some(back) = bootctl_client::call(bootctld::wire::OP_ROLLBACK, None) {
+                    if back.status == bootctld::wire::STATUS_OK {
+                        if let Some(prev) = match back.payload.first().copied() {
+                            Some(1) => Some(Slot::A),
+                            Some(2) => Some(Slot::B),
+                            _ => None,
+                        } {
+                            let _ = bundlemgrd_set_active_slot(prev);
+                        }
+                    }
+                }
                 audit("switch", "fail", Some(reason));
-                rsp(OP_SWITCH, STATUS_FAILED, &[])
+                return rsp(OP_SWITCH, STATUS_FAILED, &[]);
             }
-        }
-        Err(err) => {
+            state.staged = None;
+            state.staged_slot = None;
             audit(
                 "switch",
-                "fail",
-                Some(match err {
-                    BootCtrlError::NotStaged => "not-staged",
-                    BootCtrlError::AlreadyPending => "already-pending",
-                    BootCtrlError::NotPending => "not-pending",
-                    BootCtrlError::NoRollbackTarget => "no-rollback",
-                }),
-            );
-            rsp(OP_SWITCH, STATUS_FAILED, &[])
-        }
-    }
-}
-
-fn handle_health_ok(
-    state: &mut UpdatedState,
-    statefs: &mut Option<StatefsClient>,
-    frame: &[u8],
-) -> Vec<u8> {
-    if !nexus_abi::updated::decode_health_ok_req(frame) {
-        return rsp(OP_HEALTH_OK, STATUS_MALFORMED, &[]);
-    }
-    match state.boot.commit_health() {
-        Ok(()) => {
-            if let Err(_) = persist_bootctrl_state(&state.boot, statefs) {
-                audit("health_ok", "fail", Some("persist"));
-                return rsp(OP_HEALTH_OK, STATUS_FAILED, &[]);
-            }
-            audit("health_ok", "ok", None);
-            rsp(OP_HEALTH_OK, STATUS_OK, &[])
-        }
-        Err(_) => {
-            audit("health_ok", "fail", Some("not-pending"));
-            rsp(OP_HEALTH_OK, STATUS_FAILED, &[])
-        }
-    }
-}
-
-fn handle_get_status(state: &UpdatedState) -> Vec<u8> {
-    let (active, pending) = (
-        encode_slot(state.boot.active_slot()),
-        state.boot.pending_slot().map(encode_slot).unwrap_or(0),
-    );
-    let tries_left = state.boot.tries_left();
-    let health_ok = if state.boot.health_ok() { 1 } else { 0 };
-    let mut payload = [0u8; 4];
-    payload[0] = active;
-    payload[1] = pending;
-    payload[2] = tries_left;
-    payload[3] = health_ok;
-    rsp(OP_GET_STATUS, STATUS_OK, &payload)
-}
-
-fn handle_boot_attempt(
-    state: &mut UpdatedState,
-    statefs: &mut Option<StatefsClient>,
-    frame: &[u8],
-) -> Vec<u8> {
-    if !nexus_abi::updated::decode_boot_attempt_req(frame) {
-        return rsp(OP_BOOT_ATTEMPT, STATUS_MALFORMED, &[]);
-    }
-    match state.boot.tick_boot_attempt() {
-        Ok(Some(slot)) => {
-            if let Err(_) = persist_bootctrl_state(&state.boot, statefs) {
-                audit("boot_attempt", "fail", Some("persist"));
-                return rsp(OP_BOOT_ATTEMPT, STATUS_FAILED, &[]);
-            }
-            audit(
-                "boot_attempt",
-                "rollback",
+                "ok",
                 Some(match slot {
                     Slot::A => "slot=a",
                     Slot::B => "slot=b",
                 }),
             );
-            rsp(OP_BOOT_ATTEMPT, STATUS_OK, &[encode_slot(slot)])
+            rsp(OP_SWITCH, STATUS_OK, &[])
         }
-        Ok(None) => {
-            if let Err(_) = persist_bootctrl_state(&state.boot, statefs) {
-                audit("boot_attempt", "fail", Some("persist"));
-                return rsp(OP_BOOT_ATTEMPT, STATUS_FAILED, &[]);
+        Some(reply) if reply.status == bootctld::wire::STATUS_FAILED => {
+            audit(
+                "switch",
+                "fail",
+                Some(match reply.payload.first().copied() {
+                    Some(1) => "not-staged",
+                    Some(2) => "already-pending",
+                    Some(3) => "not-pending",
+                    Some(4) => "no-rollback",
+                    _ => "persist",
+                }),
+            );
+            rsp(OP_SWITCH, STATUS_FAILED, &[])
+        }
+        Some(_) | None => {
+            audit("switch", "fail", Some("bootctld-unreachable"));
+            rsp(OP_SWITCH, STATUS_FAILED, &[])
+        }
+    }
+}
+
+fn handle_health_ok(frame: &[u8]) -> Vec<u8> {
+    if !nexus_abi::updated::decode_health_ok_req(frame) {
+        return rsp(OP_HEALTH_OK, STATUS_MALFORMED, &[]);
+    }
+    match bootctl_client::call(bootctld::wire::OP_HEALTH_OK, None) {
+        Some(reply) if reply.status == bootctld::wire::STATUS_OK => {
+            audit("health_ok", "ok", None);
+            rsp(OP_HEALTH_OK, STATUS_OK, &[])
+        }
+        Some(reply) if reply.status == bootctld::wire::STATUS_FAILED => {
+            audit("health_ok", "fail", Some("not-pending"));
+            rsp(OP_HEALTH_OK, STATUS_FAILED, &[])
+        }
+        Some(_) | None => {
+            audit("health_ok", "fail", Some("bootctld-unreachable"));
+            rsp(OP_HEALTH_OK, STATUS_FAILED, &[])
+        }
+    }
+}
+
+fn handle_get_status() -> Vec<u8> {
+    match bootctl_client::call(bootctld::wire::OP_GET_STATUS, None) {
+        Some(reply) if reply.status == bootctld::wire::STATUS_OK && reply.payload_len == 4 => {
+            rsp(OP_GET_STATUS, STATUS_OK, &reply.payload)
+        }
+        _ => rsp(OP_GET_STATUS, STATUS_FAILED, &[]),
+    }
+}
+
+fn handle_boot_attempt(frame: &[u8]) -> Vec<u8> {
+    if !nexus_abi::updated::decode_boot_attempt_req(frame) {
+        return rsp(OP_BOOT_ATTEMPT, STATUS_MALFORMED, &[]);
+    }
+    match bootctl_client::call(bootctld::wire::OP_BOOT_ATTEMPT, None) {
+        Some(reply) if reply.status == bootctld::wire::STATUS_OK => {
+            // Reply payload: [rolled_back_slot|0, next_boot|0xff] — the
+            // rollback byte keeps the legacy U,D reply shape for init;
+            // next_boot consumption moves to init directly in PR-4.
+            let rolled_back = reply.payload.first().copied().unwrap_or(0);
+            if rolled_back != 0 {
+                audit(
+                    "boot_attempt",
+                    "rollback",
+                    Some(if rolled_back == 1 { "slot=a" } else { "slot=b" }),
+                );
+            } else {
+                audit("boot_attempt", "ok", None);
             }
-            audit("boot_attempt", "ok", None);
-            rsp(OP_BOOT_ATTEMPT, STATUS_OK, &[0])
+            rsp(OP_BOOT_ATTEMPT, STATUS_OK, &[rolled_back])
         }
-        Err(_) => {
+        Some(reply) if reply.status == bootctld::wire::STATUS_FAILED => {
             audit("boot_attempt", "fail", Some("no-rollback"));
+            rsp(OP_BOOT_ATTEMPT, STATUS_FAILED, &[])
+        }
+        Some(_) | None => {
+            audit("boot_attempt", "fail", Some("bootctld-unreachable"));
             rsp(OP_BOOT_ATTEMPT, STATUS_FAILED, &[])
         }
     }
@@ -676,84 +613,6 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
         }
         spins = spins.wrapping_add(1);
     }
-}
-
-// Bootctl codec (slots, state bytes, BootCtrl reconstruction) moved cfg-free
-// to `crate::bootctl_state` (TASK-0025 step 4) so the host suite covers it.
-
-fn load_bootctrl_state(client: &mut StatefsClient) -> Result<BootCtrl, StatefsError> {
-    // Accepts both the Integrity envelope (fresh writes) and legacy raw
-    // bytes (pre-migration journals); the seq is re-read at persist time.
-    let bytes = client.get(BOOTCTRL_STATE_KEY)?;
-    let (boot, _seq) = bootctl_state::open_bootctl(&bytes)?;
-    Ok(boot)
-}
-
-fn persist_bootctrl_state(
-    boot: &BootCtrl,
-    statefs: &mut Option<StatefsClient>,
-) -> Result<(), StatefsError> {
-    let client = match statefs.as_mut() {
-        Some(client) => client,
-        None => return Ok(()),
-    };
-    // #region agent log (persist failure detail; rate-limited)
-    static PERSIST_ERR_LOGGED: core::sync::atomic::AtomicBool =
-        core::sync::atomic::AtomicBool::new(false);
-    let log_err = |stage: &'static [u8], e: StatefsError| {
-        if !PERSIST_ERR_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-            emit_bytes(stage);
-            // Diagnostic labels come from the statefs SSOT (covers the
-            // TASK-0025 envelope statuses too).
-            emit_line(e.label());
-        }
-    };
-    // #endregion agent log
-    // TASK-0025 step 4: Integrity-envelope read-modify-write — learn the
-    // stored seq (legacy raw / missing = none -> first write seq 1), seal
-    // with seq = last_seen + 1, put. One bounded retry on a rollback race
-    // (statefsd's replay-fed tracker is authoritative).
-    let mut retried = false;
-    loop {
-        let last_seen = match client.get(BOOTCTRL_STATE_KEY) {
-            Ok(bytes) => match statefs::writer::open_stored(&bytes) {
-                Ok(stored) => stored.seq(),
-                Err(e) => {
-                    log_err(b"updated: bootctl persist read err=", e);
-                    return Err(e);
-                }
-            },
-            Err(StatefsError::NotFound) => None,
-            Err(e) => {
-                log_err(b"updated: bootctl persist read err=", e);
-                return Err(e);
-            }
-        };
-        let seq = statefs::writer::next_seq(last_seen);
-        let ts = nexus_abi::nsec().unwrap_or(0);
-        let sealed = match bootctl_state::seal_bootctl(boot, seq, ts) {
-            Ok(sealed) => sealed,
-            Err(e) => {
-                log_err(b"updated: bootctl persist seal err=", e);
-                return Err(e);
-            }
-        };
-        match client.put(BOOTCTRL_STATE_KEY, &sealed) {
-            Ok(()) => break,
-            Err(StatefsError::RollbackDetected) if !retried => {
-                retried = true;
-            }
-            Err(e) => {
-                log_err(b"updated: bootctl persist put err=", e);
-                return Err(e);
-            }
-        }
-    }
-    if let Err(e) = client.sync() {
-        log_err(b"updated: bootctl persist sync err=", e);
-        return Err(e);
-    }
-    Ok(())
 }
 
 struct KeystoredVerifier;

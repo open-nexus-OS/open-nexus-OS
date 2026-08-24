@@ -38,6 +38,8 @@ pub mod wire;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod persist_os;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub use os_lite::*;
 
 #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]

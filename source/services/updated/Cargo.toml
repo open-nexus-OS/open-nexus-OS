@@ -22,6 +22,8 @@ idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 os-lite = [
     "dep:updates",
     "updates/os-lite",
+    "dep:bootctld",
+    "bootctld/os-lite",
     "dep:nexus-service-entry",
     "dep:nexus-abi",
     "dep:nexus-ipc",
@@ -51,6 +53,9 @@ nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
 ed25519-dalek = { version = "2", default-features = false, features = ["alloc"], optional = true }
 statefs = { path = "../../../userspace/statefs", optional = true, default-features = false }
+# TASK-0050 PR-2 (ADR-0055): the boot-state authority's wire constants —
+# updated delegates every slot mutation to bootctld.
+bootctld = { path = "../bootctld", optional = true, default-features = false }
 
 [[bin]]
 name = "updated"

@@ -417,7 +417,9 @@ proves = "TASK-0026: one bounded compaction cycle completed AND the device readb
 phase = "bringup"
 proves = "TASK-0026 failure signature: a compaction cycle ran (or errored) but the post-cycle reopen-verify did not come back clean — the done marker is withheld"
 
-[marker."updated: ready (statefs)"]
+# TASK-0050 PR-2: updated no longer loads the boot record — it is a
+# bootctld client (ADR-0055 single-writer).
+[marker."updated: ready (bootctl client)"]
 phase = "bringup"
 
 [marker."packagefsd: ready"]

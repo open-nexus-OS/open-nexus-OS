@@ -490,6 +490,8 @@ where
         (None, None)
     };
 
+    let boot_req = nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).ok(); // TASK-0050: init-owned (init calls the early handshake)
+    let boot_rsp = nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).ok();
     let (pinch_req, pinch_rsp) =
         crate::bootstrap::endpoints::mint_pinched_pair(&ctrl_channels, selftest_pid)?;
 
@@ -562,6 +564,8 @@ where
         abil_rsp,
         sett_req,
         sett_rsp,
+        boot_req,
+        boot_rsp,
         pinch_req,
         pinch_rsp,
     };
@@ -900,7 +904,9 @@ where
 
     let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
         nexus_ipc::reqrep::FrameStash::new();
-    match updated_boot_attempt(&mut upd_pending, upd_req, init_reply_send, pol_ctl_route_rsp) {
+    match boot_req.map_or(Ok(None), |b| {
+        bootctld_boot_attempt(&mut upd_pending, b, init_reply_send, pol_ctl_route_rsp)
+    }) {
         Ok(Some(slot)) => {
             let ok = bundlemgrd_set_active_slot(
                 &mut upd_pending,

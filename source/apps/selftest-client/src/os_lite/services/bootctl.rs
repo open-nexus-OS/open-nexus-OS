@@ -105,7 +105,13 @@ pub(crate) fn bootctl_persist_check() -> core::result::Result<(), ()> {
     // unwrap it (legacy raw bytes from pre-migration journals pass through).
     let stored = statefs::writer::open_stored(&bytes).map_err(|_| ())?;
     let payload = stored.payload();
-    if payload.len() != 6 || payload[0] != BOOTCTL_VERSION {
+    // v1 (updated-era, 6 bytes) or v2 (bootctld authority, 9 bytes with
+    // rollback + target axis — TASK-0050). Anything else is corrupt.
+    let valid = matches!(
+        (payload.first().copied(), payload.len()),
+        (Some(BOOTCTL_VERSION), 6) | (Some(2), 9)
+    );
+    if !valid {
         return Err(());
     }
     Ok(())

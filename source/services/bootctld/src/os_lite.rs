@@ -4,20 +4,23 @@
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 #![forbid(unsafe_code)]
 
-//! CONTEXT: bootctld os-lite backend (TASK-0050 PR-1 slice). Boots by
-//! reading the persisted boot record (v2/v1/legacy — the record codec
-//! migrates), announces the target truth
-//! (`bootctld: target=<t> next=<t|none>`), and serves the READ half of
-//! the wire (GET_STATUS / GET_TARGET). All mutating ops answer
-//! UNSUPPORTED in this slice — `updated` remains the record's single
-//! writer until the client conversion flips (one-writer invariant,
-//! ADR-0055; a second writer during the transition would be the exact
-//! authority drift this service exists to end).
+//! CONTEXT: bootctld os-lite backend (TASK-0050 PR-2 — the single WRITER).
+//! Owns the boot record end to end: loads it at bring-up (v2/v1/legacy —
+//! the codec migrates), announces the target truth
+//! (`bootctld: target=<t> next=<t|none>`), and serves the full wire:
+//! reads for anyone, mutations sender-gated on the kernel-attributed id
+//! (OTA ops: `updated` only; boot-attempt: `updated` or init) with
+//! deterministic `STATUS_DENIED` — the deny path has no forgeable probe
+//! surface. Every mutation is both-or-neither: snapshot → mutate →
+//! persist (relocated read-modify-write discipline, `persist_os`); a
+//! failed persist restores the snapshot, so RAM and disk can never tell
+//! different stories (the old updated writer mutated first and persisted
+//! second, leaving RAM ahead of disk on failure).
 //! OWNERS: @reliability @runtime
 //! STATUS: Experimental (bring-up)
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: QEMU ladder (`bootctld: ready`, `bootctld: target=…`);
-//!   machine/record proofs are host tests (tests/record_v2.rs).
+//! TEST_COVERAGE: QEMU OTA ladder (markers unchanged, relocated
+//!   authority) + bringup markers; machine/record proofs host-side.
 //! ADR: docs/adr/0055-bootctld-single-boot-state-authority.md
 
 extern crate alloc;
@@ -28,12 +31,12 @@ use core::fmt;
 use core::time::Duration;
 
 use nexus_abi::yield_;
-use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
 use statefs::client::StatefsClient;
 use statefs::StatefsError;
 
-use crate::machine::{BootCtrl, BootTarget, Slot};
+use crate::machine::{BootCtrl, BootCtrlError, BootTarget, Slot};
+use crate::persist_os::persist_record;
 use crate::record::{self, BOOT_RECORD_KEY};
 use crate::wire;
 
@@ -76,11 +79,21 @@ impl fmt::Display for ServerError {
 /// Schema warmer placeholder for API parity.
 pub fn touch_schemas() {}
 
-/// init-lite control-channel slots (route requests via the responder).
-const CTRL_SEND_SLOT: u32 = 1;
-const CTRL_RECV_SLOT: u32 = 2;
+/// init-lite deterministic slots (bespoke wiring — see the wiring arm):
+/// reply inbox recv/send + the statefsd request SEND clone. Fixed on
+/// purpose: the record load must not depend on the responder (init calls
+/// the boot-attempt handshake before the responder serves).
+const REPLY_RECV_SLOT: u32 = 0x05;
+const REPLY_SEND_SLOT: u32 = 0x06;
+const STATEFS_SEND_SLOT: u32 = 0x07;
 
-/// Main bootctld bring-up service loop (os-lite).
+/// The loaded record + its statefs wire (present once the lazy attach ran).
+struct Authority {
+    boot: BootCtrl,
+    client: StatefsClient,
+}
+
+/// Main bootctld service loop (os-lite).
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     nexus_abi::service_verdict_arm();
     let server = match KernelServer::new_for("bootctld") {
@@ -91,44 +104,56 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     emit("bootctld: ready");
     nexus_abi::service_verdict_flush("bootctld");
 
-    // Boot record: read-only in this slice (updated stays the writer).
-    // Best-effort with bounded retries — statefsd races bring-up; an
-    // unreadable record degrades LOUD to defaults, never a boot failure.
-    let mut boot: Option<BootCtrl> = None;
+    // Eager record load: bounded retries against the fixed wired slots —
+    // statefsd is long up (bootctld spawns last), and init's boot-attempt
+    // handshake arrives right after bring-up.
+
+    // Kernel-attributed caller identities for the mutation gates.
+    let sid_updated = nexus_abi::service_id_from_name(b"updated");
+    let sid_init_lite = nexus_abi::service_id_from_name(b"init-lite");
+    let sid_init = nexus_abi::service_id_from_name(b"nexus-init");
+
+    let mut authority: Option<Authority> = None;
     let mut load_attempts: u8 = 0;
-    let mut announced = false;
 
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     loop {
-        if boot.is_none() && load_attempts < 8 {
+        if authority.is_none() && load_attempts < 8 {
             load_attempts += 1;
-            match load_record() {
-                Some(loaded) => {
-                    announce_target(&loaded);
-                    announced = true;
-                    boot = Some(loaded);
-                }
-                None if load_attempts == 8 => {
-                    emit("bootctld: record unavailable (defaults)");
-                    let fresh = BootCtrl::new(Slot::A);
-                    announce_target(&fresh);
-                    announced = true;
-                    boot = Some(fresh);
-                }
-                None => {}
+            if let Some(loaded) = try_attach() {
+                announce_target(&loaded.boot);
+                authority = Some(loaded);
+            } else if load_attempts == 8 {
+                emit("bootctld: record unavailable (defaults)");
             }
         }
-        let _ = announced;
 
         let mut inbuf = [0u8; 64];
         match server
             .recv_request_with_meta_into(Wait::Timeout(Duration::from_millis(1000)), &mut inbuf)
         {
-            Ok((n, _sender_service_id, reply)) => {
+            Ok((n, sender, reply)) => {
                 breaker.on_success();
+                // A mutation may arrive before the idle loop attached (init's
+                // boot-attempt lands right after bring-up): attach inline,
+                // bounded — the caller is waiting synchronously and the wait
+                // chain is acyclic (statefsd/policyd never wait on bootctld).
+                if authority.is_none() && load_attempts < 8 {
+                    load_attempts += 1;
+                    if let Some(loaded) = try_attach() {
+                        announce_target(&loaded.boot);
+                        authority = Some(loaded);
+                    }
+                }
                 let frame = &inbuf[..n];
                 let mut rsp = [0u8; 32];
-                let len = handle_frame(boot.as_ref(), frame, &mut rsp);
+                let len = handle_frame(
+                    authority.as_mut(),
+                    Gates { sid_updated, sid_init_lite, sid_init },
+                    sender,
+                    frame,
+                    &mut rsp,
+                );
                 if let Some(reply) = reply {
                     if reply.reply_and_close(&rsp[..len]).is_err() {
                         emit("bootctld: reply send fail");
@@ -159,8 +184,32 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct Gates {
+    sid_updated: u64,
+    sid_init_lite: u64,
+    sid_init: u64,
+}
+
+impl Gates {
+    /// OTA slot mutations: only the update fassade.
+    fn ota_allowed(&self, sender: u64) -> bool {
+        sender == self.sid_updated
+    }
+    /// Boot-attempt tick: the update fassade or init itself.
+    fn attempt_allowed(&self, sender: u64) -> bool {
+        sender == self.sid_updated || sender == self.sid_init_lite || sender == self.sid_init
+    }
+}
+
 /// One request → one bounded response; returns the response length.
-fn handle_frame(boot: Option<&BootCtrl>, frame: &[u8], rsp: &mut [u8; 32]) -> usize {
+fn handle_frame(
+    authority: Option<&mut Authority>,
+    gates: Gates,
+    sender: u64,
+    frame: &[u8],
+    rsp: &mut [u8; 32],
+) -> usize {
     let op = frame.get(3).copied().unwrap_or(0);
     if frame.len() < 4
         || frame[0] != wire::MAGIC0
@@ -169,38 +218,138 @@ fn handle_frame(boot: Option<&BootCtrl>, frame: &[u8], rsp: &mut [u8; 32]) -> us
     {
         return encode_status(rsp, op, wire::STATUS_MALFORMED);
     }
-    let Some(boot) = boot else {
+    let Some(auth) = authority else {
         // Record not loaded yet: honest FAILED, never fabricated state.
         return encode_status(rsp, op, wire::STATUS_FAILED);
     };
     match op {
         wire::OP_GET_STATUS => {
             let payload = [
-                record::encode_slot(boot.active_slot()),
-                boot.pending_slot().map(record::encode_slot).unwrap_or(0),
-                boot.tries_left(),
-                if boot.health_ok() { 1 } else { 0 },
+                record::encode_slot(auth.boot.active_slot()),
+                auth.boot.pending_slot().map(record::encode_slot).unwrap_or(0),
+                auth.boot.tries_left(),
+                if auth.boot.health_ok() { 1 } else { 0 },
             ];
             encode_payload(rsp, op, &payload)
         }
         wire::OP_GET_TARGET => {
             let payload = [
-                record::encode_target(boot.boot_target()),
-                boot.next_boot().map(record::encode_target).unwrap_or(wire::TARGET_NONE),
+                record::encode_target(auth.boot.boot_target()),
+                auth.boot.next_boot().map(record::encode_target).unwrap_or(wire::TARGET_NONE),
             ];
             encode_payload(rsp, op, &payload)
         }
-        // Mutating ops arrive with the updated-client conversion (PR-2/4);
-        // answering ok before then would make bootctld a second writer.
-        wire::OP_STAGE
-        | wire::OP_SWITCH
-        | wire::OP_HEALTH_OK
-        | wire::OP_BOOT_ATTEMPT
-        | wire::OP_SET_NEXT_BOOT
-        | wire::OP_SET_TARGET
-        | wire::OP_RESET => encode_status(rsp, op, wire::STATUS_UNSUPPORTED),
+        wire::OP_STAGE => {
+            if !gates.ota_allowed(sender) {
+                return deny(rsp, op, sender);
+            }
+            let snapshot = auth.boot.clone();
+            let _slot = auth.boot.stage();
+            commit(auth, snapshot, rsp, op, &[])
+        }
+        wire::OP_SWITCH => {
+            if !gates.ota_allowed(sender) {
+                return deny(rsp, op, sender);
+            }
+            let Some(&tries) = frame.get(4) else {
+                return encode_status(rsp, op, wire::STATUS_MALFORMED);
+            };
+            let snapshot = auth.boot.clone();
+            match auth.boot.switch(tries) {
+                Ok(slot) => {
+                    let payload = [record::encode_slot(slot)];
+                    commit(auth, snapshot, rsp, op, &payload)
+                }
+                Err(err) => machine_fail(rsp, op, err),
+            }
+        }
+        wire::OP_HEALTH_OK => {
+            if !gates.ota_allowed(sender) {
+                return deny(rsp, op, sender);
+            }
+            let snapshot = auth.boot.clone();
+            match auth.boot.commit_health() {
+                Ok(()) => commit(auth, snapshot, rsp, op, &[]),
+                Err(err) => machine_fail(rsp, op, err),
+            }
+        }
+        wire::OP_ROLLBACK => {
+            if !gates.ota_allowed(sender) {
+                return deny(rsp, op, sender);
+            }
+            let snapshot = auth.boot.clone();
+            match auth.boot.rollback() {
+                Ok(slot) => {
+                    let payload = [record::encode_slot(slot)];
+                    commit(auth, snapshot, rsp, op, &payload)
+                }
+                Err(err) => machine_fail(rsp, op, err),
+            }
+        }
+        wire::OP_BOOT_ATTEMPT => {
+            if !gates.attempt_allowed(sender) {
+                return deny(rsp, op, sender);
+            }
+            let snapshot = auth.boot.clone();
+            match auth.boot.tick_boot_attempt() {
+                Ok(rolled_back) => {
+                    // One-shot next_boot rides the SAME persisted commit as
+                    // the attempt ack (RFC-0087 §4): consumed here, cleared
+                    // on disk atomically with the tick.
+                    let next = auth.boot.take_next_boot();
+                    let payload = [
+                        rolled_back.map(record::encode_slot).unwrap_or(0),
+                        next.map(record::encode_target).unwrap_or(wire::TARGET_NONE),
+                    ];
+                    commit(auth, snapshot, rsp, op, &payload)
+                }
+                Err(err) => machine_fail(rsp, op, err),
+            }
+        }
+        // Target mutations + reset land with PR-3/4 (policy gating + SRST).
+        wire::OP_SET_NEXT_BOOT | wire::OP_SET_TARGET | wire::OP_RESET => {
+            encode_status(rsp, op, wire::STATUS_UNSUPPORTED)
+        }
         _ => encode_status(rsp, op, wire::STATUS_UNSUPPORTED),
     }
+}
+
+/// Persist-or-restore: the record on disk and the machine in RAM commit
+/// together or not at all.
+fn commit(
+    auth: &mut Authority,
+    snapshot: BootCtrl,
+    rsp: &mut [u8; 32],
+    op: u8,
+    payload: &[u8],
+) -> usize {
+    match persist_record(&auth.client, &auth.boot) {
+        Ok(()) => encode_payload(rsp, op, payload),
+        Err(_) => {
+            auth.boot = snapshot;
+            encode_status(rsp, op, wire::STATUS_FAILED)
+        }
+    }
+}
+
+fn machine_fail(rsp: &mut [u8; 32], op: u8, err: BootCtrlError) -> usize {
+    // Deterministic machine rejects map to FAILED with the reason byte so
+    // the client's audit detail stays truthful.
+    let reason = match err {
+        BootCtrlError::NotStaged => 1,
+        BootCtrlError::AlreadyPending => 2,
+        BootCtrlError::NotPending => 3,
+        BootCtrlError::NoRollbackTarget => 4,
+    };
+    let base = encode_status(rsp, op, wire::STATUS_FAILED);
+    rsp[5..7].copy_from_slice(&1u16.to_le_bytes());
+    rsp[base] = reason;
+    base + 1
+}
+
+fn deny(rsp: &mut [u8; 32], op: u8, sender: u64) -> usize {
+    emit_deny(op, sender);
+    encode_status(rsp, op, wire::STATUS_DENIED)
 }
 
 fn encode_status(rsp: &mut [u8; 32], op: u8, status: u8) -> usize {
@@ -222,26 +371,27 @@ fn encode_payload(rsp: &mut [u8; 32], op: u8, payload: &[u8]) -> usize {
     base + len
 }
 
-/// Reads the persisted record via the shared statefs client (@reply inbox
-/// — never the shared response queue). `NotFound` = fresh image: defaults
-/// announced immediately; wire trouble = retry (bounded by the caller).
-fn load_record() -> Option<BootCtrl> {
-    let (state_send, _) = route_blocking(b"statefsd")?;
-    let (reply_send, reply_recv) = route_blocking(b"@reply")?;
-    let client = KernelClient::new_with_slots(state_send, reply_recv).ok()?;
-    let reply = KernelClient::new_with_slots(reply_send, reply_recv).ok();
+/// Load the record via the shared statefs client over the FIXED wired
+/// slots (@reply inbox — never the shared response queue, never the
+/// responder). `NotFound` = fresh image (defaults); corrupt = LOUD +
+/// defaults (fatal in proof boots via the harness guard); wire trouble =
+/// retry (bounded by the caller).
+fn try_attach() -> Option<Authority> {
+    let client = KernelClient::new_with_slots(STATEFS_SEND_SLOT, REPLY_RECV_SLOT).ok()?;
+    let reply = KernelClient::new_with_slots(REPLY_SEND_SLOT, REPLY_RECV_SLOT).ok();
     let statefs = StatefsClient::from_clients(client, reply);
-    match statefs.get(BOOT_RECORD_KEY) {
+    let boot = match statefs.get(BOOT_RECORD_KEY) {
         Ok(bytes) => match record::open_record(&bytes) {
-            Ok((boot, _seq)) => Some(boot),
+            Ok((boot, _seq)) => boot,
             Err(_) => {
                 emit("bootctld: record corrupt (defaults)");
-                Some(BootCtrl::new(Slot::A))
+                BootCtrl::new(Slot::A)
             }
         },
-        Err(StatefsError::NotFound) => Some(BootCtrl::new(Slot::A)),
-        Err(_) => None,
-    }
+        Err(StatefsError::NotFound) => BootCtrl::new(Slot::A),
+        Err(_) => return None,
+    };
+    Some(Authority { boot, client: statefs })
 }
 
 fn announce_target(boot: &BootCtrl) {
@@ -270,16 +420,25 @@ fn target_label(target: BootTarget) -> &'static str {
     }
 }
 
-fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        name,
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
-        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
-        _ => None,
+fn emit_deny(op: u8, sender: u64) {
+    let mut line = [0u8; 64];
+    let mut len = 0usize;
+    let head = b"bootctld: denied op=0x";
+    line[..head.len()].copy_from_slice(head);
+    len += head.len();
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    line[len] = HEX[(op >> 4) as usize];
+    line[len + 1] = HEX[(op & 0xf) as usize];
+    len += 2;
+    let mid = b" sender=0x";
+    line[len..len + mid.len()].copy_from_slice(mid);
+    len += mid.len();
+    for shift in (0..16).rev() {
+        line[len] = HEX[((sender >> (shift * 4)) & 0xf) as usize];
+        len += 1;
+    }
+    if let Ok(msg) = core::str::from_utf8(&line[..len]) {
+        emit(msg);
     }
 }
 

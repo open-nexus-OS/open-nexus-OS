@@ -20,7 +20,7 @@
 //!   supervision_engine host tests (the decision logic underneath).
 //! ADR: docs/adr/0057-service-restart-capability-re-resolve.md
 
-use crate::bootstrap::helpers::{debug_write_byte, debug_write_bytes, debug_write_hex};
+use crate::bootstrap::helpers::debug_write_bytes;
 use crate::bootstrap::CtrlChannel;
 use crate::os_payload::{ServiceImage, ENDPOINT_FACTORY_CAP_SLOT};
 use crate::route_table::{CapSlot, RouteTable};
@@ -92,11 +92,15 @@ impl Respawner {
                 self.engine = Some((id, child));
             }
             EngineDecision::Blocked => {
-                debug_write_bytes(b"init: crash-loop blocked svc=");
-                debug_write_bytes(id.name().as_bytes());
-                debug_write_bytes(b" reason=");
-                debug_write_bytes(reason.label().as_bytes());
-                debug_write_byte(b'\n');
+                crate::bootstrap::diag::emit_marker_atomic(
+                    &[
+                        b"init: crash-loop blocked svc=",
+                        id.name().as_bytes(),
+                        b" reason=",
+                        reason.label().as_bytes(),
+                    ],
+                    None,
+                );
             }
             EngineDecision::Rest => {}
         }
@@ -116,20 +120,20 @@ impl Respawner {
                 child.on_restarted();
                 self.engine = Some((id, child));
                 route_table.clear_stale(id);
-                debug_write_bytes(b"init: service restarted name=");
-                debug_write_bytes(id.name().as_bytes());
-                debug_write_bytes(b" pid=0x");
-                debug_write_hex(pid as usize);
-                debug_write_byte(b'\n');
+                crate::bootstrap::diag::emit_marker_atomic(
+                    &[b"init: service restarted name=", id.name().as_bytes(), b" pid=0x"],
+                    Some(pid as u64),
+                );
             }
             None => {
                 // Ack the schedule so a permanently failing respawn cannot
                 // busy-spin; the paired-marker guard stays the alarm.
                 child.on_restarted();
                 self.engine = Some((id, child));
-                debug_write_bytes(b"init: FAIL service respawn name=");
-                debug_write_bytes(id.name().as_bytes());
-                debug_write_byte(b'\n');
+                crate::bootstrap::diag::emit_marker_atomic(
+                    &[b"init: FAIL service respawn name=", id.name().as_bytes()],
+                    None,
+                );
             }
         }
     }

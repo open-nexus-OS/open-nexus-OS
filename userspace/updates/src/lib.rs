@@ -38,10 +38,24 @@ pub mod system_set_capnp {
     include!(concat!(env!("OUT_DIR"), "/system_set_capnp.rs"));
 }
 
-pub mod bootctrl;
 pub mod system_set;
 
-pub use bootctrl::{BootCtrl, BootCtrlError, Slot};
+/// A/B slot id — kept here for the SystemSet surface; the boot-control
+/// MACHINE relocated to `bootctld` (TASK-0050, ADR-0055).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    A,
+    B,
+}
+
+impl Slot {
+    pub fn other(self) -> Self {
+        match self {
+            Slot::A => Slot::B,
+            Slot::B => Slot::A,
+        }
+    }
+}
 #[cfg(feature = "std")]
 pub use system_set::Ed25519Verifier;
 pub use system_set::{

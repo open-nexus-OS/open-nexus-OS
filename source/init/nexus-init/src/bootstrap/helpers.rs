@@ -450,15 +450,31 @@ pub(crate) fn grant_mmio_cap(
     Ok(Some(true))
 }
 
-pub(crate) fn updated_boot_attempt(
+/// Boot-attempt handshake against bootctld (TASK-0050 PR-2, ADR-0055):
+/// init ticks the attempt counter DIRECTLY at the boot-state authority —
+/// over the pre-minted init-owned request endpoint, because the responder
+/// is not serving yet (a route-resolving path here would deadlock on
+/// ourselves). Reply payload `[rolled_back_slot|0, next_boot|0xff]`; the
+/// one-shot consumption rides the same persisted commit (RFC-0087 §4).
+pub(crate) fn bootctld_boot_attempt(
     pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
-    upd_req: u32,
+    boot_req: u32,
     reply_send: u32,
     reply_recv: u32,
 ) -> Result<Option<u8>> {
-    let mut req = [0u8; 4];
-    let len = nexus_abi::updated::encode_boot_attempt_req(&mut req)
-        .ok_or(InitError::Map("updated boot attempt encode failed"))?;
+    let req = [b'B', b'T', 1u8, 5u8]; // wire v1, OP_BOOT_ATTEMPT
+    let decode = |frame: &[u8]| -> Option<(u8, u8)> {
+        if frame.len() >= 7
+            && frame[0] == b'B'
+            && frame[1] == b'T'
+            && frame[2] == 1
+            && frame[3] == (5 | 0x80)
+        {
+            let rolled_back = frame.get(7).copied().unwrap_or(0);
+            return Some((frame[4], rolled_back));
+        }
+        None
+    };
     let mut attempts = 0u8;
     let max_attempts: u8 = 20;
     loop {
@@ -469,13 +485,13 @@ pub(crate) fn updated_boot_attempt(
             0,
             0,
             nexus_abi::ipc_hdr::CAP_MOVE,
-            len as u32,
+            req.len() as u32,
         );
         let deadline = match nexus_abi::nsec() {
             Ok(now) => now.saturating_add(500_000_000),
             Err(_) => 0,
         };
-        let send = nexus_abi::ipc_send_v1(upd_req, &hdr, &req[..len], 0, deadline);
+        let send = nexus_abi::ipc_send_v1(boot_req, &hdr, &req, 0, deadline);
         if send.is_err() {
             if attempts < max_attempts {
                 let _ = nexus_abi::yield_();
@@ -488,25 +504,16 @@ pub(crate) fn updated_boot_attempt(
         let mut buf = [0u8; 16];
         loop {
             // Deterministic shared-inbox handling: first consume any previously stashed replies.
-            if let Some(n) = pending.take_into_where(&mut buf, |f| {
-                nexus_abi::updated::decode_boot_attempt_rsp(f).is_some()
-            }) {
-                if let Some((status, slot)) = nexus_abi::updated::decode_boot_attempt_rsp(&buf[..n])
-                {
-                    if status != nexus_abi::updated::STATUS_OK {
-                        return Err(InitError::Map("updated boot attempt failed"));
+            if let Some(n) = pending.take_into_where(&mut buf, |f| decode(f).is_some()) {
+                if let Some((status, slot)) = decode(&buf[..n]) {
+                    if status != 0 {
+                        return Err(InitError::Map("bootctld boot attempt failed"));
                     }
-                    if slot == 0 {
-                        return Ok(None);
-                    }
-                    return Ok(Some(slot));
+                    return Ok(if slot == 0 { None } else { Some(slot) });
                 }
             }
             // Soft-real-time boot: BLOCK on the shared reply inbox until a frame arrives or the
-            // deadline — no busy-poll. This FREES the CPU so windowd's first-frame compose (same
-            // Normal QoS) runs UNINTERRUPTED, and lets `updated` itself run to reply sooner. The old
-            // NONBLOCK+yield loop stole ~half the CPU from the compose, non-deterministically doubling
-            // the first-frame time whenever `updated` was slow (measured: handoff 314ms vs 1816ms).
+            // deadline — no busy-poll (see the pre-relocation rationale in git history).
             match nexus_abi::ipc_recv_v1(
                 reply_recv,
                 &mut rh,
@@ -515,19 +522,12 @@ pub(crate) fn updated_boot_attempt(
                 deadline,
             ) {
                 Ok(n) => {
-                    // IPC_SYS_TRUNCATE can return a length larger than our local buffer.
-                    // Never slice past the buffer (would panic and kill init-lite).
                     let n = core::cmp::min(n as usize, buf.len());
-                    if let Some((status, slot)) =
-                        nexus_abi::updated::decode_boot_attempt_rsp(&buf[..n])
-                    {
-                        if status != nexus_abi::updated::STATUS_OK {
-                            return Err(InitError::Map("updated boot attempt failed"));
+                    if let Some((status, slot)) = decode(&buf[..n]) {
+                        if status != 0 {
+                            return Err(InitError::Map("bootctld boot attempt failed"));
                         }
-                        if slot == 0 {
-                            return Ok(None);
-                        }
-                        return Ok(Some(slot));
+                        return Ok(if slot == 0 { None } else { Some(slot) });
                     }
                     // Stash unrelated replies deterministically for the next consumer of this inbox.
                     let _ = pending.push(&buf[..n]);
@@ -541,7 +541,7 @@ pub(crate) fn updated_boot_attempt(
             let _ = nexus_abi::yield_();
             continue;
         }
-        // Updated not ready yet; skip boot attempt for this cycle.
+        // bootctld not ready yet; skip the boot attempt for this cycle.
         return Ok(None);
     }
 }

@@ -60,9 +60,10 @@ impl SupervisionPersist {
         let mut key = KeyBuf::new(svc);
         match self.put_and_sync(key.as_str(), &next.to_le_bytes()) {
             Ok(()) => {
-                debug_write_bytes(b"init: supervision persist restarts=0x");
-                debug_write_hex(next as usize);
-                debug_write_byte(b'\n');
+                crate::bootstrap::diag::emit_marker_atomic(
+                    &[b"init: supervision persist restarts=0x"],
+                    Some(next as u64),
+                );
             }
             Err(step) => {
                 // Loud + located: the step tag names the first wire stage
