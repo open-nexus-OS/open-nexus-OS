@@ -617,6 +617,12 @@ expected_sequence=(
   "crash: dump written"
   "SELFTEST: crash artifact ok"
   "SELFTEST: crash redaction ok"
+  # TASK-0053: .nxra break-glass chain (require -> accept -> replay deny)
+  "SELFTEST: nxra require ok"
+  "bootctld: nxra accept (key=197f6b23 action=slot-switch)"
+  "SELFTEST: nxra accept ok"
+  "bootctld: nxra reject (reason=replay)"
+  "SELFTEST: nxra replay deny ok"
   "SELFTEST: minidump forged metadata rejected"
   "SELFTEST: minidump no-artifact metadata rejected"
   "SELFTEST: minidump mismatched build_id rejected"
@@ -846,6 +852,11 @@ case "${PROFILE:-full}" in
       "crash: dump written"
       "SELFTEST: crash artifact ok"
       "SELFTEST: crash redaction ok"
+      "SELFTEST: nxra require ok"
+      "bootctld: nxra accept (key=197f6b23 action=slot-switch)"
+      "SELFTEST: nxra accept ok"
+      "bootctld: nxra reject (reason=replay)"
+      "SELFTEST: nxra replay deny ok"
       "SELFTEST: minidump forged metadata rejected"
       "SELFTEST: minidump no-artifact metadata rejected"
       "SELFTEST: minidump mismatched build_id rejected"
@@ -1708,7 +1719,10 @@ done
 for m in \
   "crash: container write degraded" \
   "SELFTEST: crash artifact FAIL" \
-  "SELFTEST: crash redaction FAIL"; do
+  "SELFTEST: crash redaction FAIL" \
+  "SELFTEST: nxra require FAIL" \
+  "SELFTEST: nxra accept FAIL" \
+  "SELFTEST: nxra replay deny FAIL"; do
   if grep -aFq "$m" "$UART_LOG"; then
     echo "[error] first_failed_phase=exec missing_marker='$m'" >&2
     echo "[error] crash-evidence-at-rest emitted failure signature: $m" >&2

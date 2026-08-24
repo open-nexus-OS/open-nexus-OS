@@ -301,6 +301,7 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nxra",
  "statefs",
 ]
 
@@ -2843,9 +2844,11 @@ dependencies = [
  "clap",
  "configd",
  "crash",
+ "ed25519-dalek",
  "logd",
  "nexus-config",
  "nxcd",
+ "nxra",
  "nxsym",
  "object",
  "policy",
@@ -2911,6 +2914,21 @@ dependencies = [
  "nexus-vfs-types",
  "nxfs",
  "storage",
+]
+
+[[package]]
+name = "nxra"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+]
+
+[[package]]
+name = "nxra_host"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "nxra",
 ]
 
 [[package]]
@@ -3831,6 +3849,7 @@ dependencies = [
  "nexus-vfs-types",
  "nexus-vmo",
  "nexus-workpool",
+ "nxra",
  "packagefsd",
  "pinched",
  "policy",

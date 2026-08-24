@@ -1,0 +1,16 @@
+[package]
+name = "nxra"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+description = ".nxra signed recovery action tokens (RFC-0088): parse/verify (no_std) + sign (host)"
+
+[features]
+# std is the host default (nx CLI, host tests); the on-device verifiers
+# (bootctld/statefsd) build with `default-features = false`.
+default = ["std"]
+std = ["ed25519-dalek/std"]
+
+[dependencies]
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }

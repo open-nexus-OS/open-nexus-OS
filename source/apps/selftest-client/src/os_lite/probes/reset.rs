@@ -272,7 +272,6 @@ const REPLY_SEND_SLOT: u32 = 0x18;
 /// One bounded request/reply exchange with bootctld; returns
 /// `(status, first-two payload bytes)` (missing bytes read as 0xff).
 fn bootctl_call(op: u8, arg: Option<u8>) -> Option<(u8, [u8; 2])> {
-    let send_slot = route_bootctld()?;
     let mut frame = [b'B', b'T', 1u8, op, 0u8];
     let len = match arg {
         Some(byte) => {
@@ -281,13 +280,24 @@ fn bootctl_call(op: u8, arg: Option<u8>) -> Option<(u8, [u8; 2])> {
         }
         None => 4,
     };
+    bootctl_call_raw(&frame[..len], op)
+}
+
+/// Shared transport for bootctld probes (reset + nxra): send `frame`,
+/// collect the matching reply off the shared CAP_MOVE inbox.
+pub(crate) fn bootctl_call_raw(frame: &[u8], op: u8) -> Option<(u8, [u8; 2])> {
+    let send_slot = route_bootctld()?;
     let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).ok()?;
-    let hdr =
-        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        frame.len() as u32,
+    );
     let deadline = nexus_abi::nsec().ok()?.saturating_add(2_000_000_000);
     loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &frame[..len], nexus_abi::IPC_SYS_NONBLOCK, 0)
-        {
+        match nexus_abi::ipc_send_v1(send_slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
             Ok(_) => break,
             Err(nexus_abi::IpcError::QueueFull) => {
                 if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {

@@ -26,6 +26,8 @@ nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 # Boot record envelope/writer SSOT (Integrity floor, monotonic seq).
 statefs = { path = "../../../userspace/statefs", default-features = false }
+# .nxra break-glass verification (RFC-0088, TASK-0053).
+nxra = { path = "../../../userspace/nxra", default-features = false }
 
 [[bin]]
 name = "bootctld"

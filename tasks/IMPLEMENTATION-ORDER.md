@@ -222,7 +222,7 @@ ADR-0056 (exit reasons in the kernel ABI) · ADR-0057 (restart/capability re-res
 | 4 | ✅ TASK-0050 | System reset (SBI SRST) + boot targets via `bootctld` (rewritten) | Done 2026-08-24 |
 | 5 | ✅ TASK-0051 | Recovery operations surface: fsck op + slot/target ops + `nx diagnose` (rewritten) | Done 2026-08-24 |
 | 6 | ✅ TASK-0051B | Crash evidence at rest: on-device `.nxcd` + retention/GC + redaction | Done 2026-08-24 |
-| 7 | TASK-0053 | `.nxra` signed recovery actions (rewritten: enforcement on the 0051 ops surface) | Draft |
+| 7 | ✅ TASK-0053 | `.nxra` signed recovery actions (rewritten: enforcement on the 0051 ops surface) | Done 2026-08-24 — **Reliability Spine complete** |
 | — | TASK-0050B | Recovery bringup console — **Deferred by decision** (no shell in the consumer end state) | Deferred |
 
 ⤳ `0178` **Superseded 2026-08-18** (absorbed by 0050/ADR-0055). Rebased against this

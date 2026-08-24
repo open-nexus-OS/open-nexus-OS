@@ -1,0 +1,22 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# .nxra trust anchor (RFC-0088, TASK-0053). Baked at BUILD TIME into the
+# `nxra` crate (build.rs codegen) and linked by the verifiers
+# (bootctld/statefsd) — the anchor is exactly as strong as image
+# integrity; the hardware root lands with TASK-0289. policyd stays the
+# authority for STANDING capabilities; this list only names who may sign
+# break-glass tokens and which actions each key may authorize.
+#
+# Format (parsed by userspace/nxra/build.rs — keep it exactly this shape):
+#   [[key]]
+#   pubkey  = "<64 lowercase hex chars>"   # Ed25519 verifying key
+#   actions = ["slot-switch", "target-set", "fsck-repair", "reset"]
+
+# PROOF-ONLY key: deterministic Ed25519 seed [42u8; 32] — the private half
+# is public by construction. It exists so the selftest can mint tokens
+# in-guest for the marker chain. A production image REPLACES this list
+# (and the harness key must never appear there).
+[[key]]
+pubkey = "197f6b23e16c8532c6abc838facd5ea789be0c76b2920334039bfa8b3d368d61"
+actions = ["slot-switch", "target-set", "fsck-repair", "reset"]

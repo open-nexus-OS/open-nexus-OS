@@ -35,9 +35,11 @@ use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
 use statefs::client::StatefsClient;
 use statefs::StatefsError;
 
-use crate::machine::{BootCtrl, BootCtrlError, BootTarget, Slot};
-use crate::persist_os::persist_record;
+use crate::machine::{BootCtrl, BootTarget, Slot};
 use crate::record::{self, BOOT_RECORD_KEY};
+use crate::reply::{
+    commit, commit_marked, deny, encode_payload, encode_status, machine_fail, policy_allows,
+};
 use crate::wire;
 
 /// Result alias surfaced by the lite backend.
@@ -83,15 +85,15 @@ pub fn touch_schemas() {}
 /// reply inbox recv/send + the statefsd request SEND clone. Fixed on
 /// purpose: the record load must not depend on the responder (init calls
 /// the boot-attempt handshake before the responder serves).
-const REPLY_RECV_SLOT: u32 = 0x05;
-const REPLY_SEND_SLOT: u32 = 0x06;
+pub(crate) const REPLY_RECV_SLOT: u32 = 0x05;
+pub(crate) const REPLY_SEND_SLOT: u32 = 0x06;
 const STATEFS_SEND_SLOT: u32 = 0x07;
-const POLICYD_SEND_SLOT: u32 = 0x08;
+pub(crate) const POLICYD_SEND_SLOT: u32 = 0x08;
 
 /// The loaded record + its statefs wire (present once the lazy attach ran).
-struct Authority {
-    boot: BootCtrl,
-    client: StatefsClient,
+pub(crate) struct Authority {
+    pub(crate) boot: BootCtrl,
+    pub(crate) client: StatefsClient,
     /// The graph THIS session runs on: the one-shot target bootctld handed
     /// to init with the boot-attempt ack (the record clears it, so the
     /// persistent field cannot answer "are we in recovery right now").
@@ -134,7 +136,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             }
         }
 
-        let mut inbuf = [0u8; 64];
+        // TASK-0053: mutating ops may carry an inline 136-byte .nxra token
+        // after the arg byte ([B,T,1,op,arg,token…] = 141 bytes).
+        let mut inbuf = [0u8; 192];
         match server
             .recv_request_with_meta_into(Wait::Timeout(Duration::from_millis(1000)), &mut inbuf)
         {
@@ -281,12 +285,21 @@ fn handle_frame(
                 emit("bootctld: commit blocked (target=recovery)");
                 return encode_status(rsp, op, wire::STATUS_COMMIT_BLOCKED);
             }
-            if !gates.ota_allowed(sender) {
-                return deny(rsp, op, sender);
-            }
             let Some(&tries) = frame.get(4) else {
                 return encode_status(rsp, op, wire::STATUS_MALFORMED);
             };
+            // Standing gate first; a valid .nxra token is the additive
+            // break-glass path (RFC-0088 — never weakens updated's path).
+            if !gates.ota_allowed(sender)
+                && crate::nxra_gate::authorize(
+                    &auth.client,
+                    frame,
+                    nxra::Action::SlotSwitch,
+                    tries as u64,
+                ) != crate::nxra_gate::Gate::Authorized
+            {
+                return deny(rsp, op, sender);
+            }
             let snapshot = auth.boot.clone();
             match auth.boot.switch(tries) {
                 Ok(slot) => {
@@ -363,16 +376,25 @@ fn handle_frame(
             }
         }
         wire::OP_RESET => {
-            // Defense in depth: kernel-attributed sender gate AND the
-            // delegated `boot.reset` capability (deny-by-default).
-            if !gates.reset_allowed(sender) || !policy_allows(sender, b"boot.reset") {
-                return deny(rsp, op, sender);
-            }
-            let kind = match frame.get(4).copied() {
+            let raw = frame.get(4).copied();
+            let kind = match raw {
                 Some(0) => nexus_abi::ResetKind::Reboot,
                 Some(1) => nexus_abi::ResetKind::Poweroff,
                 _ => return encode_status(rsp, op, wire::STATUS_MALFORMED),
             };
+            // Defense in depth: kernel-attributed sender gate AND the
+            // delegated `boot.reset` capability (deny-by-default); a valid
+            // .nxra token is the additive break-glass path (RFC-0088).
+            if (!gates.reset_allowed(sender) || !policy_allows(sender, b"boot.reset"))
+                && crate::nxra_gate::authorize(
+                    &auth.client,
+                    frame,
+                    nxra::Action::Reset,
+                    raw.unwrap_or(0) as u64,
+                ) != crate::nxra_gate::Gate::Authorized
+            {
+                return deny(rsp, op, sender);
+            }
             emit(match kind {
                 nexus_abi::ResetKind::Reboot => "bootctld: reset (reboot)",
                 nexus_abi::ResetKind::Poweroff => "bootctld: reset (poweroff)",
@@ -384,120 +406,49 @@ fn handle_frame(
             encode_status(rsp, op, wire::STATUS_FAILED)
         }
         wire::OP_SET_NEXT_BOOT => {
-            if !policy_allows(sender, b"boot.target") {
-                return deny(rsp, op, sender);
-            }
-            let Some(target) = frame.get(4).copied().and_then(|b| record::decode_target(b).ok())
-            else {
+            let Some(raw) = frame.get(4).copied() else {
                 return encode_status(rsp, op, wire::STATUS_MALFORMED);
             };
+            let Ok(target) = record::decode_target(raw) else {
+                return encode_status(rsp, op, wire::STATUS_MALFORMED);
+            };
+            if !policy_allows(sender, b"boot.target")
+                && crate::nxra_gate::authorize(
+                    &auth.client,
+                    frame,
+                    nxra::Action::TargetSet,
+                    raw as u64,
+                ) != crate::nxra_gate::Gate::Authorized
+            {
+                return deny(rsp, op, sender);
+            }
             let snapshot = auth.boot.clone();
             auth.boot.set_next_boot(target);
             commit(auth, snapshot, rsp, op, &[])
         }
         wire::OP_SET_TARGET => {
-            if !policy_allows(sender, b"boot.target") {
-                return deny(rsp, op, sender);
-            }
-            let Some(target) = frame.get(4).copied().and_then(|b| record::decode_target(b).ok())
-            else {
+            let Some(raw) = frame.get(4).copied() else {
                 return encode_status(rsp, op, wire::STATUS_MALFORMED);
             };
+            let Ok(target) = record::decode_target(raw) else {
+                return encode_status(rsp, op, wire::STATUS_MALFORMED);
+            };
+            if !policy_allows(sender, b"boot.target")
+                && crate::nxra_gate::authorize(
+                    &auth.client,
+                    frame,
+                    nxra::Action::TargetSet,
+                    raw as u64,
+                ) != crate::nxra_gate::Gate::Authorized
+            {
+                return deny(rsp, op, sender);
+            }
             let snapshot = auth.boot.clone();
             auth.boot.set_boot_target(target);
             commit(auth, snapshot, rsp, op, &[])
         }
         _ => encode_status(rsp, op, wire::STATUS_UNSUPPORTED),
     }
-}
-
-/// Persist-or-restore: the record on disk and the machine in RAM commit
-/// together or not at all.
-fn commit(
-    auth: &mut Authority,
-    snapshot: BootCtrl,
-    rsp: &mut [u8; 32],
-    op: u8,
-    payload: &[u8],
-) -> usize {
-    commit_marked(auth, snapshot, rsp, op, payload, None)
-}
-
-/// `commit` that emits `marker` ONLY after the record persisted — a
-/// scheduled-switch claim before the disk commit would be fake green.
-fn commit_marked(
-    auth: &mut Authority,
-    snapshot: BootCtrl,
-    rsp: &mut [u8; 32],
-    op: u8,
-    payload: &[u8],
-    marker: Option<&str>,
-) -> usize {
-    match persist_record(&auth.client, &auth.boot) {
-        Ok(()) => {
-            if let Some(line) = marker {
-                emit(line);
-            }
-            encode_payload(rsp, op, payload)
-        }
-        Err(_) => {
-            auth.boot = snapshot;
-            encode_status(rsp, op, wire::STATUS_FAILED)
-        }
-    }
-}
-
-fn machine_fail(rsp: &mut [u8; 32], op: u8, err: BootCtrlError) -> usize {
-    // Deterministic machine rejects map to FAILED with the reason byte so
-    // the client's audit detail stays truthful.
-    let reason = match err {
-        BootCtrlError::NotStaged => 1,
-        BootCtrlError::AlreadyPending => 2,
-        BootCtrlError::NotPending => 3,
-        BootCtrlError::NoRollbackTarget => 4,
-    };
-    let base = encode_status(rsp, op, wire::STATUS_FAILED);
-    rsp[5..7].copy_from_slice(&1u16.to_le_bytes());
-    rsp[base] = reason;
-    base + 1
-}
-
-/// Delegated capability check (deny-by-default; Unreachable = deny).
-fn policy_allows(sender: u64, cap: &[u8]) -> bool {
-    matches!(
-        nexus_ipc::policyd::check_cap_on(
-            POLICYD_SEND_SLOT,
-            REPLY_SEND_SLOT,
-            REPLY_RECV_SLOT,
-            sender,
-            cap,
-        ),
-        nexus_ipc::policyd::CapDecision::Allow
-    )
-}
-
-fn deny(rsp: &mut [u8; 32], op: u8, sender: u64) -> usize {
-    emit_deny(op, sender);
-    encode_status(rsp, op, wire::STATUS_DENIED)
-}
-
-fn encode_status(rsp: &mut [u8; 32], op: u8, status: u8) -> usize {
-    rsp[0] = wire::MAGIC0;
-    rsp[1] = wire::MAGIC1;
-    rsp[2] = wire::VERSION;
-    rsp[3] = op | 0x80;
-    rsp[4] = status;
-    rsp[5] = 0;
-    rsp[6] = 0;
-    7
-}
-
-fn encode_payload(rsp: &mut [u8; 32], op: u8, payload: &[u8]) -> usize {
-    let base = encode_status(rsp, op, wire::STATUS_OK);
-    let len = payload.len().min(rsp.len() - base);
-    rsp[5..7].copy_from_slice(&(len as u16).to_le_bytes());
-    rsp[base..base + len].copy_from_slice(&payload[..len]);
-    base + len
 }
 
 /// Load the record via the shared statefs client over the FIXED wired
@@ -553,28 +504,6 @@ fn target_label(target: BootTarget) -> &'static str {
     }
 }
 
-fn emit_deny(op: u8, sender: u64) {
-    let mut line = [0u8; 64];
-    let mut len = 0usize;
-    let head = b"bootctld: denied op=0x";
-    line[..head.len()].copy_from_slice(head);
-    len += head.len();
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    line[len] = HEX[(op >> 4) as usize];
-    line[len + 1] = HEX[(op & 0xf) as usize];
-    len += 2;
-    let mid = b" sender=0x";
-    line[len..len + mid.len()].copy_from_slice(mid);
-    len += mid.len();
-    for shift in (0..16).rev() {
-        line[len] = HEX[((sender >> (shift * 4)) & 0xf) as usize];
-        len += 1;
-    }
-    if let Ok(msg) = core::str::from_utf8(&line[..len]) {
-        emit(msg);
-    }
-}
-
-fn emit(message: &str) {
+pub(crate) fn emit(message: &str) {
     let _ = nexus_abi::debug_println(message);
 }

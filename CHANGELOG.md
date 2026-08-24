@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-24 (TASK-0053: .nxra signed recovery action tokens — break-glass on the ops surface)
+
+- **RFC-0088 seeded and shipped v1**: one fixed 136-byte Ed25519 token
+  authorizes exactly ONE mutating recovery action (slot-switch /
+  target-set / fsck-repair / reset) for a sender standing policy would
+  deny — additive break-glass; updated's OTA ladder and admin subjects
+  run untouched. Deliberately NOT CBOR (repo wire-format line; bounded
+  fixed layout, no new parser dependency).
+- **Trust = image-baked anchor**: `policies/nxra-trust.toml` bakes into
+  `nxra::BAKED_TRUST` at build time (narrow parser, violations fail the
+  build); honest label — as strong as image integrity, hardware root
+  lands with TASK-0289. The proof key ships for proof images only.
+- **Replay = per-(verifier, key) monotone high-water mark** — bounded by
+  construction, no nonce GC; persisted as an Integrity ENVELOPE at
+  `/state/boot/nxra.hwm.<keyid8>` BEFORE the action executes
+  (consume-before-act; a burned token is re-mintable, never a brick).
+  Time windows are optional and reject `no-clock` fail-closed (the
+  recovery graph runs no timed).
+- **bootctld enforcement + proof chain every boot**: standing gates run
+  first; the token path answers with stable reject labels verbatim.
+  Required markers: `SELFTEST: nxra require ok` →
+  `bootctld: nxra accept (key=… action=slot-switch)` →
+  `SELFTEST: nxra accept ok` (state-neutral: the authorized switch dies
+  `NotStaged` at the machine) → `bootctld: nxra reject (reason=replay)`
+  → `SELFTEST: nxra replay deny ok`. The statefsd fsck-repair gate is a
+  recorded recut (dead code until a token-carrying client exists).
+- **DevX**: `nx recovery token-make/-show` (deterministic signer; verdict
+  against the baked anchor is data, nx exit classes stay the contract).
+  Docs: `docs/reliability/nxra.md`.
+
 ### Added - 2026-08-24 (TASK-0051B: crash evidence at rest — on-device .nxcd writer + retention + redaction)
 
 - **The canonical crash artifact now exists AT REST on the device**: after a

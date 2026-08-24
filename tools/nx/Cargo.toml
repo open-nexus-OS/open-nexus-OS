@@ -20,6 +20,8 @@ statefs = { path = "../../userspace/statefs" }
 storage = { path = "../../userspace/storage" }
 logd = { path = "../../source/services/logd" }
 bootctld = { path = "../../source/services/bootctld" }
+nxra = { path = "../../userspace/nxra" }
+ed25519-dalek = "2"
 
 [dev-dependencies]
 object = "0.36"

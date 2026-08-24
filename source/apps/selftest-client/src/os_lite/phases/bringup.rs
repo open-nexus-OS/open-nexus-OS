@@ -40,6 +40,12 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         }
     }
 
+    // TASK-0053: .nxra break-glass chain (require → accept → replay deny),
+    // every proof boot — state-neutral by construction (unstaged switch).
+    if let Ok(statefsd) = crate::os_lite::ipc::routing::route_with_retry("statefsd") {
+        crate::os_lite::probes::nxra::nxra_proof(&statefsd);
+    }
+
     // keystored v1 (routing + put/get/del + negative cases)
     let keystored = match services::keystored::resolve_keystored_client() {
         Ok(client) => client,

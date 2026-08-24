@@ -1,0 +1,11 @@
+[package]
+name = "nxra_host"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+description = "Host DoD matrix for .nxra recovery action tokens (TASK-0053)"
+
+[dependencies]
+nxra = { path = "../../userspace/nxra" }
+ed25519-dalek = "2"

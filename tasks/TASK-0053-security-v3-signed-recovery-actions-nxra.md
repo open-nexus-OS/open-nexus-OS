@@ -1,9 +1,10 @@
 ---
 title: TASK-0053 Security v3 (Recovery): signed Recovery Action tokens (.nxra) + replay protection — enforced on the recovery ops surface
-status: Draft
+status: Done
 owner: @security
 created: 2025-12-23
-updated: 2026-08-18
+updated: 2026-08-24
+completed: 2026-08-24
 depends-on:
   - TASK-0008B # keystored / device keys (Done — satisfied)
   - TASK-0009 # statefs / /state (Done — satisfied)
@@ -35,6 +36,22 @@ The 2026-08-14 metadata correction stands (deps satisfied; `userspace/nxra/`;
   console verbs are clients of the same gated ops — no second enforcement.
 - Marker prefix follows the ops owners (`statefsd:`/`bootctld:`), not a
   `recovery:` pseudo-service.
+
+## RFC seed landed 2026-08-24 (RFC-0088) — format decisions recorded there
+
+- **Fixed 136-byte layout, NOT CBOR** (repo wire-format line; a CBOR dep is
+  parser surface for nothing at this size).
+- **Replay = per-(verifier, key) monotone high-water mark**, not a nonce
+  index — bounded by construction, no GC, consume-before-act (a burned
+  token is re-mintable, never a brick). The `/state/recovery/nonce.idx`
+  wording below is superseded.
+- **Trust anchor = build-time-baked `policies/nxra-trust.toml`** (image
+  integrity is the honest bring-up root; TASK-0289 upgrades it). policyd
+  keeps standing-capability authority — the paths compose.
+- **Authorization model: standing capability OR valid token** — additive
+  break-glass; the OTA ladder and admin subjects run untouched.
+- **Time windows optional; `no-clock` = fail-closed reject** (recovery
+  graph runs no timed).
 
 ## Context
 
@@ -89,6 +106,25 @@ Host-first (format, sign/verify crate, `nx recovery token` helpers, host tests
 
 ## Stop conditions (Definition of Done)
 
+### Execution recuts (2026-08-24, Option C)
+
+- **Enforcement point v1 = bootctld only.** A statefsd fsck-repair token
+  gate would be dead code today: the only fsck client (selftest) holds
+  `statefs.admin` and standing always wins; no token-carrying client path
+  exists. The shared `nxra` pipeline (incl. the fsck-repair action) is
+  host-proven; the statefsd seam joins with the first real client
+  (0050B console / nx device channel). `statefsd: nxra required` markers
+  go with it.
+- **No separate `nxra required` marker**: "required" IS the standing deny
+  (`SELFTEST: nxra require ok` proves it end to end); an extra bootctld
+  line would re-state the deny as noise.
+- **Accept marker names the KEY, not a subject**: the token has no subject
+  field (authorization data is the key + action; the audit subject is the
+  kernel-attributed sender) — `bootctld: nxra accept (key=<id8>
+  action=<label>)`.
+- Format/replay/trust recuts (no CBOR; hwm instead of nonce index; baked
+  trust) are recorded in the RFC-seed note above.
+
 ### Proof (Host) — required
 
 `tests/nxra_host/`:
@@ -96,15 +132,26 @@ Host-first (format, sign/verify crate, `nx recovery token` helpers, host tests
 - sign/verify happy path; tamper detection; expiry/not-before enforcement;
   replay detection (simulated nonce store); `test_reject_*` for malformed CBOR,
   oversized token, unknown version, untrusted key, action-not-allowed.
+  ✅ 2026-08-24 — 8 pipeline tests (simulated hwm store, consume-before-act
+  crash semantics, per-verifier/per-key isolation, baked-anchor roundtrip)
+  + 5 nxra unit tests (reject-order pins, window edges, keyid) +
+  `nx recovery` CLI contract (4 tests). "malformed CBOR" reads
+  "malformed fixed-layout" per the RFC recut.
 
 ### Proof (OS/QEMU) — gated on 0050/0051
 
-- `bootctld: nxra required (op=slot-switch)` / `statefsd: nxra required (op=fsck-repair)`
-- `bootctld: nxra accept (subject=<s> actions=<a>)`
-- `bootctld: nxra reject (reason=<r>)` (stable reasons: expired, replay,
-  untrusted-key, action-denied, malformed)
+- `bootctld: nxra accept (key=<id8> action=<label>)` ✅ (required marker)
+- `bootctld: nxra reject (reason=<r>)` — stable reasons: malformed,
+  unknown-version, untrusted-key, bad-signature, action-denied, replay,
+  expired, not-yet-valid, no-clock. ✅ replay proven in-lane (required);
+  the label set is pinned by host tests.
 - `SELFTEST: nxra require ok` / `SELFTEST: nxra accept ok` /
-  `SELFTEST: nxra replay deny ok`
+  `SELFTEST: nxra replay deny ok` ✅ every proof boot (headless/full/smp1
+  + reset boot 3), state-neutral by construction (authorized OP_SWITCH
+  dies NotStaged at the machine); FAIL variants are fatal signatures.
+  The hwm record is an Integrity envelope (`/state/boot/` floor);
+  the probe derives its seq from the persisted hwm — monotone across
+  keep-blk boots with no wall clock.
 
 ## Touched paths (allowlist)
 

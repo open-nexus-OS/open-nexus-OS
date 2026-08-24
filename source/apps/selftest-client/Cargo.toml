@@ -95,6 +95,8 @@ exec-payloads = { path = "../../../userspace/exec-payloads", optional = true }
 demo-exit0 = { path = "../../../userspace/apps/demo-exit0", optional = true }
 updates = { path = "../../../userspace/updates", default-features = false, optional = true }
 ed25519-dalek = { version = "2", default-features = false, features = ["alloc"], optional = true }
+# .nxra break-glass proof (RFC-0088, TASK-0053): mints proof tokens in-guest.
+nxra = { path = "../../../userspace/nxra", default-features = false }
 sha2 = { version = "0.10", default-features = false, optional = true }
 net-virtio = { path = "../../drivers/net/virtio", optional = true }
 nexus-noise-xk = { path = "../../libs/nexus-noise-xk", optional = true }

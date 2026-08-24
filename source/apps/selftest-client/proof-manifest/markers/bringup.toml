@@ -1238,6 +1238,30 @@ phase = "bringup"
 [marker."bootctld: commit blocked (target=recovery)"]
 phase = "bringup"
 
+[marker."SELFTEST: nxra require ok"]
+phase = "bringup"
+
+[marker."SELFTEST: nxra require FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: nxra accept ok"]
+phase = "bringup"
+
+[marker."SELFTEST: nxra accept FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: nxra replay deny ok"]
+phase = "bringup"
+
+[marker."SELFTEST: nxra replay deny FAIL"]
+phase = "bringup"
+
+[marker."bootctld: nxra accept (key=197f6b23 action=slot-switch)"]
+phase = "bringup"
+
+[marker."bootctld: nxra reject (reason=replay)"]
+phase = "bringup"
+
 [marker."bootctld: switch scheduled (to=a)"]
 phase = "bringup"
 
