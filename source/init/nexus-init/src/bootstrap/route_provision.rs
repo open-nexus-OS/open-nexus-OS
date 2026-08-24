@@ -475,6 +475,22 @@ pub(crate) fn provision_execd_named_routes(
             debug_write_bytes(b"init: execd route->statefsd FAIL\n");
         }
     }
+    // TASK-0051B: execd's policyd route — the crash writer's attach-level
+    // gate (`crash.attach.*`) resolves "policyd" + "@reply" dynamically
+    // (nexus_ipc::policyd::check_cap_delegated). CLONE — the pre-minted
+    // policyd request endpoint also serves the generic arm. ARM END on
+    // purpose: transfers here must never shift earlier positional slots.
+    if let Some((pol_req, _)) = eps.server_pair(ServiceId::Policyd) {
+        if let Ok(clone) = nexus_abi::cap_clone(pol_req) {
+            if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
+                chan.set_send(ServiceId::Policyd, s);
+                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
+                if iw(init_wire, init_fold, "init:execd") {
+                    debug_write_bytes(b"init: execd route->policyd ok\n");
+                }
+            }
+        }
+    }
 }
 
 /// TASK-0050 PR-2 (ADR-0055): bootctld's bespoke FIXED slots — it must

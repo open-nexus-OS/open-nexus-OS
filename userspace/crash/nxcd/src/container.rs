@@ -10,14 +10,16 @@
 //! TEST_COVERAGE: Roundtrip + reject unit tests below; integration in `tests/crashdump_v2_host`
 //! ADR: tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
 
+use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
+
 use crate::NxcdError;
-use std::collections::BTreeMap;
 
 const MAGIC: [u8; 4] = *b"NXCD";
 const VERSION: u16 = 1;
 const HEADER_LEN: usize = 16;
 const ENTRY_LEN: usize = 12;
-const SECTION_KIND_COUNT: usize = 6;
+const SECTION_KIND_COUNT: usize = 8;
 
 /// Hard cap for a whole `.nxcd` container (bounds untrusted parsing).
 pub const MAX_TOTAL_NXCD: usize = 1024 * 1024;
@@ -37,6 +39,11 @@ pub enum SectionKind {
     Spans,
     /// `regs.bin` — bounded raw register snapshot (optional).
     Regs,
+    /// `stack.bin` — bounded raw stack preview (optional; TASK-0051B, the
+    /// NMD1 preview must not be lost when the intermediate is deleted).
+    Stack,
+    /// `code.bin` — bounded raw code-bytes preview (optional; TASK-0051B).
+    Code,
 }
 
 impl SectionKind {
@@ -48,6 +55,8 @@ impl SectionKind {
         SectionKind::Logs,
         SectionKind::Spans,
         SectionKind::Regs,
+        SectionKind::Stack,
+        SectionKind::Code,
     ];
 
     fn from_u8(raw: u8) -> Result<Self, NxcdError> {
@@ -58,6 +67,8 @@ impl SectionKind {
             3 => Ok(Self::Logs),
             4 => Ok(Self::Spans),
             5 => Ok(Self::Regs),
+            6 => Ok(Self::Stack),
+            7 => Ok(Self::Code),
             _ => Err(NxcdError::UnknownSection),
         }
     }
@@ -70,6 +81,8 @@ impl SectionKind {
             Self::Logs => 3,
             Self::Spans => 4,
             Self::Regs => 5,
+            Self::Stack => 6,
+            Self::Code => 7,
         }
     }
 
@@ -82,6 +95,8 @@ impl SectionKind {
             Self::Logs => "logs.jsonl",
             Self::Spans => "spans.jsonl",
             Self::Regs => "regs.bin",
+            Self::Stack => "stack.bin",
+            Self::Code => "code.bin",
         }
     }
 
@@ -94,6 +109,9 @@ impl SectionKind {
             Self::Logs => 256 * 1024,
             Self::Spans => 256 * 1024,
             Self::Regs => 4 * 1024,
+            // Mirrors crash::MAX_STACK_PREVIEW / MAX_CODE_PREVIEW.
+            Self::Stack => 4 * 1024,
+            Self::Code => 256,
         }
     }
 
@@ -300,6 +318,21 @@ mod tests {
             NxcdContainer::decode(&bytes[..bytes.len() - 1]),
             Err(NxcdError::LengthMismatch)
         );
+    }
+
+    /// TASK-0051B: preview sections roundtrip and stay optional (a
+    /// container without them still encodes; caps mirror the NMD1 bounds).
+    #[test]
+    fn test_preview_sections_roundtrip_and_bounds() {
+        let mut c = sample();
+        c.insert(SectionKind::Stack, vec![0xAA; 4096]).expect("stack at cap");
+        c.insert(SectionKind::Code, vec![0xCC; 256]).expect("code at cap");
+        let bytes = c.encode().expect("encode");
+        let got = NxcdContainer::decode(&bytes).expect("decode");
+        assert_eq!(got.get(SectionKind::Stack).map(<[u8]>::len), Some(4096));
+        assert_eq!(got.get(SectionKind::Code).map(<[u8]>::len), Some(256));
+        assert_eq!(c.insert(SectionKind::Stack, vec![0u8; 4097]), Err(NxcdError::OversizeSection));
+        assert_eq!(c.insert(SectionKind::Code, vec![0u8; 257]), Err(NxcdError::OversizeSection));
     }
 
     #[test]

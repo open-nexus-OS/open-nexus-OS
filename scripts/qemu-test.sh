@@ -612,6 +612,11 @@ expected_sequence=(
   "execd: minidump written"
   "SELFTEST: crash report ok"
   "SELFTEST: minidump ok"
+  # TASK-0051B: canonical at-rest artifact (.nxcd) + retention pass
+  "crash: retention gc on (budget=256KiB)"
+  "crash: dump written"
+  "SELFTEST: crash artifact ok"
+  "SELFTEST: crash redaction ok"
   "SELFTEST: minidump forged metadata rejected"
   "SELFTEST: minidump no-artifact metadata rejected"
   "SELFTEST: minidump mismatched build_id rejected"
@@ -837,6 +842,10 @@ case "${PROFILE:-full}" in
       "execd: minidump written"
       "SELFTEST: crash report ok"
       "SELFTEST: minidump ok"
+      "crash: retention gc on (budget=256KiB)"
+      "crash: dump written"
+      "SELFTEST: crash artifact ok"
+      "SELFTEST: crash redaction ok"
       "SELFTEST: minidump forged metadata rejected"
       "SELFTEST: minidump no-artifact metadata rejected"
       "SELFTEST: minidump mismatched build_id rejected"
@@ -1688,6 +1697,22 @@ for m in \
     echo "[error] first_failed_phase=end missing_marker='$m'" >&2
     echo "[error] supervision restart/persistence emitted failure signature: $m" >&2
     grep -a "init: service exit name=\|init: service restarted name=\|init: supervision persist\|SELFTEST: crash-loop\|SELFTEST: service restart" "$UART_LOG" | head -n 12 >&2
+    exit 1
+  fi
+done
+# TASK-0051B guards: a degraded container write in a proof boot means the
+# canonical at-rest artifact path is broken (the .nmd fallback kept the
+# evidence, but the claim ".nxcd is THE artifact" would be fake green); a
+# crash-artifact FAIL means the .nxcd never landed or the intermediate
+# survived its deletion.
+for m in \
+  "crash: container write degraded" \
+  "SELFTEST: crash artifact FAIL" \
+  "SELFTEST: crash redaction FAIL"; do
+  if grep -aFq "$m" "$UART_LOG"; then
+    echo "[error] first_failed_phase=exec missing_marker='$m'" >&2
+    echo "[error] crash-evidence-at-rest emitted failure signature: $m" >&2
+    grep -a "crash: \|SELFTEST: crash artifact\|execd: minidump written" "$UART_LOG" | head -n 12 >&2
     exit 1
   fi
 done

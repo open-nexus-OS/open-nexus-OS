@@ -10,6 +10,9 @@
 //! TEST_COVERAGE: Unit tests below; integration in `tests/crashdump_v2_host`
 //! ADR: tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
 
+use alloc::string::String;
+use alloc::vec::Vec;
+
 /// One dump candidate as seen by the planner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GcEntry {

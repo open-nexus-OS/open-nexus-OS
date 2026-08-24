@@ -7,13 +7,17 @@ authors = ["Open Nexus OS Contributors"]
 description = "Crashdump v2 .nxcd container format (host-first)"
 
 [features]
-default = []
+# std stays the host default; the execd (os-lite) writer builds with
+# `default-features = false` (TASK-0051B) — the container/GC/conversion core
+# is no_std + alloc.
+default = ["std"]
+std = ["crash/std", "serde/std", "serde_json/std"]
 # Optional zstd wrapper (.nxcd.zst). Host-tool-only: never enable this feature
 # from an OS-graph crate (RFC-0009 dependency hygiene).
-zst = ["dep:zstd"]
+zst = ["std", "dep:zstd"]
 
 [dependencies]
-crash = { path = ".." }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
+crash = { path = "..", default-features = false }
+serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0.145", default-features = false, features = ["alloc"] }
 zstd = { version = "0.13", optional = true }

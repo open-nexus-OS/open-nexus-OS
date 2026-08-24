@@ -3,7 +3,12 @@ samgrd = ["ipc.core", "time.read"]
 bundlemgrd = ["fs.read", "fs.verify", "ipc.core"]
 keystored = ["crypto.sign", "crypto.verify", "ipc.core", "rng.entropy", "device.keygen", "policy.delegate", "statefs.keystore"]
 statefsd = ["ipc.core", "policy.delegate", "device.mmio.blk"]
-execd = ["proc.spawn", "ipc.core", "fs.read"]
+# TASK-0051B: `crash.attach.stack` = conservative default attachment level
+# for at-rest crash artifacts (bounded stack/code previews). `crash.attach.full`
+# is intentionally NOT granted — the deny is the redaction proof.
+# `statefs.crash` = the /state/crash/ prefix capability (artifact writer +
+# retention GC) — NOT the generic `statefs.write`.
+execd = ["proc.spawn", "ipc.core", "fs.read", "crash.attach.stack", "statefs.crash"]
 "packagefsd" = ["ipc.core", "fs.read"]
 "vfsd" = ["ipc.core", "device.mmio.blk"]
 # TASK-0049B PR-B3c: init persists supervision restart counters at
@@ -62,7 +67,10 @@ pinched = ["ipc.core"]
 # label "statefs.envelope.v1" (rule: statefs::derive::device_sign_allowed).
 # Deliberately NOT `crypto.sign`: generic device-signing power stays denied
 # (the `keystored sign denied` selftest guards exactly that).
-"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.boot", "statefs.admin", "boot.target", "boot.reset"]
+# `statefs.crash` (TASK-0051B): the demo.minidump child's PUT maps to this
+# subject (canonical_policy_subject_for_statefs) and the artifact probe GETs
+# `/state/crash/` — the prefix now has its own capability.
+"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset"]
 "demo.testsvc" = []
 
 [abi_profile."selftest-client"]

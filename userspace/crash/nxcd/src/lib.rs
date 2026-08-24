@@ -11,6 +11,9 @@
 //! ADR: tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
 
 #![forbid(unsafe_code)]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
 
 pub mod container;
 pub mod gc;
@@ -20,7 +23,9 @@ pub mod zst;
 
 pub use container::{NxcdContainer, SectionKind, MAX_TOTAL_NXCD};
 pub use gc::{plan_purge, GcBudget, GcEntry};
-pub use sections::{from_minidump, CrashHeader, FrameRecord, FramesSection, MapsSection};
+pub use sections::{
+    from_minidump, from_minidump_with_reason, CrashHeader, FrameRecord, FramesSection, MapsSection,
+};
 #[cfg(feature = "zst")]
 pub use zst::{compress_nxcd, decompress_nxcd};
 
@@ -77,4 +82,5 @@ impl core::fmt::Display for NxcdError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for NxcdError {}

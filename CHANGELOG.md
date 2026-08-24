@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-24 (TASK-0051B: crash evidence at rest — on-device .nxcd writer + retention + redaction)
+
+- **The canonical crash artifact now exists AT REST on the device**: after a
+  crash reap, execd converts the bounded NMD1 frame into the ONE `.nxcd`
+  container (0048 conversion SSOT — `nxcd` went no_std for it; plain
+  `.nxcd` on device, the zstd wrapper stays host-tool-only per RFC-0009)
+  and deletes the `.nmd` intermediate. The ADR-0056 exit reason rides
+  `header.json`; the NMD1 stack/code previews survive as new bounded
+  container sections (`stack.bin`/`code.bin`) instead of dying with the
+  intermediate. Conversion failure degrades loudly and keeps the raw NMD1
+  (`crash: container write degraded` is fatal in proof boots).
+- **Redaction is policy, not code**: attachment level resolves from policyd
+  once per boot, deny-by-default (`crash.attach.full` →
+  `crash.attach.stack` → none); the granted conservative default is
+  stack-only, `crash.attach.full` is deliberately NOT granted.
+- **Retention is a budget, not hope**: once per boot `nxcd::plan_purge`
+  runs over `/state/crash/` (8 artifacts / 256 KiB, newest-first, `.nmd`
+  leftovers included), deletions are marked and audited as evidence-class
+  records (`execd.audit` → 0049C ring). Placement decision recorded:
+  statefs KV records (bounded ≤ 32 KiB per artifact); bulk captures move
+  to `/data` with TASK-0317.
+- Proofs: `crash: dump written` + `crash: retention gc on` +
+  `SELFTEST: crash artifact ok` (container magic + intermediate gone)
+  required in the ladder; host contracts in
+  `execd/tests/crash_store_contract.rs` + extended `nxcd` matrix.
+
 ### Added - 2026-08-24 (TASK-0051: recovery operations surface — fsck op, bootctld ops, nx diagnose)
 
 - **fsck is now an OS operation on the mounted store**: statefs wire ops

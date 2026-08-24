@@ -256,13 +256,70 @@ pub(crate) fn statefs_persist(client: &KernelClient) -> core::result::Result<(),
     Ok(())
 }
 
-// Wired again since the TASK-0049 reanimation (2026-08-19).
+// TASK-0051B: the at-rest truth is the canonical `.nxcd` container — this
+// is what "dump present" means since the NMD1 seam closed.
 pub(crate) fn statefs_has_crash_dump(client: &KernelClient) -> core::result::Result<bool, ()> {
-    const CHILD_DUMP_PATH: &str = "/state/crash/child.demo.minidump.nmd";
-    let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_DUMP_PATH)
+    const CHILD_ARTIFACT_PATH: &str = "/state/crash/child.demo.minidump.nxcd";
+    let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_ARTIFACT_PATH)
         .map_err(|_| ())?;
     let rsp = statefs_send_recv(client, &get)?;
     Ok(statefs_proto::decode_get_response(&rsp).is_ok())
+}
+
+/// TASK-0051B artifact proof: the `.nxcd` container exists WITH its magic,
+/// and the `.nmd` intermediate is gone (conversion deleted it).
+pub(crate) fn statefs_crash_artifact_ok(client: &KernelClient) -> core::result::Result<bool, ()> {
+    const CHILD_ARTIFACT_PATH: &str = "/state/crash/child.demo.minidump.nxcd";
+    const CHILD_DUMP_PATH: &str = "/state/crash/child.demo.minidump.nmd";
+    let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_ARTIFACT_PATH)
+        .map_err(|_| ())?;
+    let rsp = statefs_send_recv(client, &get)?;
+    let Ok(bytes) = statefs_proto::decode_get_response(&rsp) else {
+        return Ok(false);
+    };
+    // `.nxcd` container magic (userspace/crash/nxcd container.rs contract).
+    let magic_ok = bytes.len() >= 4 && &bytes[..4] == b"NXCD";
+    let get_nmd = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_DUMP_PATH)
+        .map_err(|_| ())?;
+    let rsp = statefs_send_recv(client, &get_nmd)?;
+    let nmd_gone =
+        matches!(statefs_proto::decode_get_response(&rsp), Err(statefs::StatefsError::NotFound));
+    Ok(magic_ok && nmd_gone)
+}
+
+/// TASK-0051B redaction proof over the at-rest container's section table
+/// (`.nxcd` layout: count u16le at [6], 12-byte entries from [16], kind =
+/// entry[0]): only header/frames/maps (0/1/2) + the redaction-gated
+/// previews stack/code (6/7) may exist, and the stack preview must be
+/// present exactly when the source frame carried one (level stack-only is
+/// the granted default; `crash.attach.full` stays denied).
+pub(crate) fn statefs_crash_redaction_ok(
+    client: &KernelClient,
+    expect_stack: bool,
+) -> core::result::Result<bool, ()> {
+    const CHILD_ARTIFACT_PATH: &str = "/state/crash/child.demo.minidump.nxcd";
+    let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, CHILD_ARTIFACT_PATH)
+        .map_err(|_| ())?;
+    let rsp = statefs_send_recv(client, &get)?;
+    let Ok(bytes) = statefs_proto::decode_get_response(&rsp) else {
+        return Ok(false);
+    };
+    if bytes.len() < 16 || &bytes[..4] != b"NXCD" {
+        return Ok(false);
+    }
+    let count = u16::from_le_bytes([bytes[6], bytes[7]]) as usize;
+    let mut has_stack = false;
+    for i in 0..count {
+        let Some(&kind) = bytes.get(16 + i * 12) else { return Ok(false) };
+        match kind {
+            0 | 1 | 2 | 7 => {}
+            6 => has_stack = true,
+            // Anything else at rest (logs/spans/regs/unknown) violates the
+            // redaction contract for this producer.
+            _ => return Ok(false),
+        }
+    }
+    Ok(has_stack == expect_stack)
 }
 
 // TASK-0049 reanimation (2026-08-19): the former `grant_statefs_caps_to_child`

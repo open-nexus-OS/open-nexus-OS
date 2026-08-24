@@ -51,20 +51,25 @@ pub(crate) fn handle_diagnose(args: DiagnoseArgs) -> ExecResult {
     let (fsck_report, _) = statefs::fsck(load_device(&bytes), false);
     let store = read_store_sections(load_device(&bytes));
 
-    let entries: Vec<(&str, Vec<u8>)> = vec![
-        ("diagnose/boot-record.json", pretty(&store.boot_record)),
-        ("diagnose/evidence.jsonl", store.evidence_jsonl),
-        ("diagnose/fsck-report.json", pretty(&fsck_json(&fsck_report))),
+    let mut entries: Vec<(String, Vec<u8>)> = vec![
+        ("diagnose/boot-record.json".to_string(), pretty(&store.boot_record)),
+        ("diagnose/evidence.jsonl".to_string(), store.evidence_jsonl),
+        ("diagnose/fsck-report.json".to_string(), pretty(&fsck_json(&fsck_report))),
         (
-            "diagnose/meta.json",
+            "diagnose/meta.json".to_string(),
             pretty(&json!({
                 "bundle_version": BUNDLE_VERSION,
                 "tool": "nx diagnose",
                 "image_blocks": bytes.len() / statefs::FSCK_BLOCK_SIZE,
-                "sections": ["boot-record", "evidence", "fsck-report"],
+                "sections": ["boot-record", "evidence", "fsck-report", "crash"],
             })),
         ),
     ];
+    // TASK-0051B: at-rest crash artifacts ride the bundle verbatim — after
+    // `tar -x`, `nx crash ls/show` symbolizes them host-side.
+    for (name, artifact) in &store.crash_artifacts {
+        entries.push((format!("crash/{name}"), artifact.clone()));
+    }
     let archive = ustar_archive(&entries);
     std::fs::write(&args.out, &archive).map_err(|err| {
         NxError::new(ExitClass::Internal, format!("diagnose: write {}: {err}", args.out.display()))
@@ -76,6 +81,7 @@ pub(crate) fn handle_diagnose(args: DiagnoseArgs) -> ExecResult {
         "fsck_outcome": outcome_label(fsck_report.outcome),
         "evidence_records": store.evidence_count,
         "boot_record_present": store.boot_record_present,
+        "crash_artifacts": store.crash_artifacts.len(),
     });
     Ok((
         ExitClass::Success,
@@ -100,6 +106,9 @@ struct StoreSections {
     boot_record_present: bool,
     evidence_jsonl: Vec<u8>,
     evidence_count: usize,
+    /// At-rest crash artifacts (`.nxcd`/degraded `.nmd`), basename → bytes,
+    /// key-sorted for deterministic bundle order.
+    crash_artifacts: Vec<(String, Vec<u8>)>,
 }
 
 /// Reads the boot record + evidence ring through the SSOT decoders. A store
@@ -111,6 +120,7 @@ fn read_store_sections(device: MemBlockDevice) -> StoreSections {
         boot_record_present: false,
         evidence_jsonl: Vec::new(),
         evidence_count: 0,
+        crash_artifacts: Vec::new(),
     };
     let Ok(engine) = statefs::JournalEngine::open(device) else {
         return absent;
@@ -147,7 +157,25 @@ fn read_store_sections(device: MemBlockDevice) -> StoreSections {
         }
     }
 
-    StoreSections { boot_record, boot_record_present, evidence_jsonl: lines, evidence_count: count }
+    // Crash artifacts at rest (TASK-0051B): bounded LIST, key order is the
+    // bundle order (statefs list is prefix-sorted; sort defensively).
+    let mut crash_artifacts = Vec::new();
+    if let Ok(mut keys) = engine.list("/state/crash/", 64) {
+        keys.sort();
+        for key in keys {
+            let Ok(bytes) = engine.get(&key) else { continue };
+            let name = key.rsplit('/').next().unwrap_or(&key).to_string();
+            crash_artifacts.push((name, bytes));
+        }
+    }
+
+    StoreSections {
+        boot_record,
+        boot_record_present,
+        evidence_jsonl: lines,
+        evidence_count: count,
+        crash_artifacts,
+    }
 }
 
 fn evidence_line(record: &logd::spill::SpilledRecord) -> String {
@@ -250,7 +278,7 @@ fn u64_le(bytes: &[u8]) -> u64 {
 
 /// Serializes `entries` (already in fixed bundle order) as a ustar archive:
 /// mode 0644, uid/gid 0, mtime 0 — byte-identical for identical inputs.
-fn ustar_archive(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
+fn ustar_archive(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
     let mut out = Vec::new();
     for (name, data) in entries {
         out.extend_from_slice(&ustar_header(name, data.len() as u64));

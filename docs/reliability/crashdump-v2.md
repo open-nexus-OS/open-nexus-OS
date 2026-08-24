@@ -3,7 +3,7 @@
 
 # Crashdump v2 (host-first pipeline)
 
-Status: v2a shipped (host); OS-side ingestion (`crashd`) is deferred to `TASK-0049`.
+Status: v2a shipped (host); v2b at-rest writer shipped (TASK-0051B — execd-side, NO `crashd` daemon).
 
 ## CONTEXT
 
@@ -120,10 +120,52 @@ All dump inputs are treated as untrusted: reads are size-bounded before
 parsing and every malformed input maps to a deterministic reject
 (exit class `3`, `validation_reject`).
 
-## Deferred (v2b / TASK-0049)
+## On-device writer (v2b, TASK-0051B)
 
-- OS-side ingestion (`crashd`), VMO artifacts, retention policy, redaction.
-- Log/trace correlation (`logs.jsonl` / `spans.jsonl` producers).
+The at-rest artifact is the canonical **plain `.nxcd`** container (the zstd
+wrapper stays host-tool-only per RFC-0009 dependency hygiene; `nx crash
+export` produces `.nxcd.zst`). The writer is an execd-side library call —
+there is no `crashd` daemon (authority registry decision).
+
+- **Flow**: crash reap → bounded NMD1 frame → `nxcd::from_minidump_with_reason`
+  (the ADR-0056 exit reason rides `header.json`) → preview sections per the
+  redaction level → PUT `/state/crash/<ts>.<pid>.<name>.nxcd` → the `.nmd`
+  intermediate is deleted. Conversion failure degrades LOUD
+  (`crash: container write degraded (reason=…)` — fatal in proof boots) and
+  keeps the raw NMD1 so evidence is never lost.
+- **Redaction** (policyd, deny-by-default): `crash.attach.full` →
+  `crash.attach.stack` → none; the conservative granted default is
+  stack-only (`stack.bin` ≤ 4 KiB + `code.bin` ≤ 256 B — exactly the NMD1
+  preview bounds; NMD1 carries no full-memory section). Resolved once per
+  boot; policyd unreachable = attach nothing.
+- **Placement**: statefs KV records under `/state/crash/` — per-artifact cap
+  32 KiB (a legal frame converts to ~12 KiB), ADR-0043-shaped. Bulk-scale
+  captures move to `/data` with TASK-0317.
+- **Retention**: once per boot, before the first publish —
+  `crash: retention gc on (budget=256KiB)`; `nxcd::plan_purge` over
+  `/state/crash/` (max 8 artifacts / 256 KiB total, `.nmd` leftovers
+  included), deletions marked (`crash: retention gc deleted (n=…)`) and
+  audited as an evidence-class record (`execd.audit` scope, 0049C ring).
+- **Markers**: `crash: dump written (id=… bytes=…)` (required),
+  `SELFTEST: crash artifact ok` (container magic verified + intermediate
+  gone), `SELFTEST: crash redaction ok` (allowed sections only, previews
+  exactly per level).
+- **Host round trip** (documented check): after a QEMU run,
+
+  ```bash
+  nx diagnose --image build/data.img --out bundle.tar   # bundles crash/<id>.nxcd verbatim
+  tar -xf bundle.tar
+  nx crash ls --dir crash/                              # finds the artifacts
+  nx crash show crash/<id>.nxcd --sym symbols.nxsym     # symbolizes (0048 pipeline)
+  ```
+
+## Deferred
+
+- VMO artifacts (filebuffer path only until a consumer proves the need).
+- Log/trace correlation (`logs.jsonl` / `spans.jsonl` producers) — evidence
+  records already survive at rest (0049C) and `nx diagnose` correlates
+  host-side, so they are deliberately NOT copied into every container.
+- Export/notification surface (TASK-0141) + Problem Reporter UI (TASK-0142).
 - Packaging integration (embedding symbol indices into `.nxb`/`.nxs`) — gated
   on packaging-format stability; v2a deliberately does not touch the packers.
 - Exact line-table symbolization.

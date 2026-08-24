@@ -1010,6 +1010,8 @@ dependencies = [
  "nexus-sdk-routes",
  "nexus-service-entry",
  "nexus-text-baked",
+ "nxcd",
+ "statefs",
  "thiserror",
 ]
 

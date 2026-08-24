@@ -142,6 +142,10 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     let crash_status = services::execd::wait_for_pid(&execd_client, crash_pid).unwrap_or(-1);
     services::execd::emit_line_with_pid_status(crash_pid, crash_status);
     let mut dump_written = false;
+    // TASK-0051B: the redaction expectation derives from the SOURCE frame —
+    // the container must carry a stack preview exactly when the capture had
+    // one (stack-only is the granted level).
+    let mut source_had_stack = false;
     if let Some(statefsd) = statefsd.as_ref() {
         if let Ok((build_id, dump_path, dump_bytes)) = services::statefs::locate_minidump_for_crash(
             statefsd,
@@ -149,6 +153,9 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             crash_status,
             "demo.minidump",
         ) {
+            source_had_stack = crash::MinidumpFrame::decode(dump_bytes.as_slice())
+                .map(|frame| !frame.stack_preview.is_empty())
+                .unwrap_or(false);
             if services::execd::execd_report_exit_with_dump(
                 &execd_client,
                 crash_pid,
@@ -213,6 +220,30 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_MINIDUMP_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_MINIDUMP_FAIL);
+    }
+    // TASK-0051B: at-rest artifact truth — canonical `.nxcd` with magic,
+    // `.nmd` intermediate deleted by the conversion.
+    let artifact_ok = route_with_retry("statefsd")
+        .ok()
+        .and_then(|statefsd| services::statefs::statefs_crash_artifact_ok(&statefsd).ok())
+        .unwrap_or(false);
+    if artifact_ok {
+        emit_line(crate::markers::M_SELFTEST_CRASH_ARTIFACT_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_CRASH_ARTIFACT_FAIL);
+    }
+    // Redaction contract at rest: allowed sections only, previews present
+    // exactly per the granted stack-only level.
+    let redaction_ok = route_with_retry("statefsd")
+        .ok()
+        .and_then(|statefsd| {
+            services::statefs::statefs_crash_redaction_ok(&statefsd, source_had_stack).ok()
+        })
+        .unwrap_or(false);
+    if redaction_ok {
+        emit_line(crate::markers::M_SELFTEST_CRASH_REDACTION_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_CRASH_REDACTION_FAIL);
     }
 
     // Negative Soll-Verhalten: forged metadata publish must be rejected fail-closed.

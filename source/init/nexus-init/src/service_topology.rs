@@ -210,6 +210,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Execd, ServiceId::Settingsd),  // svc.settings.* (DSL settings app)
     (ServiceId::Execd, ServiceId::Vfsd),       // svc.files.* (filemanager, RFC-0073/TASK-0291)
     (ServiceId::Execd, ServiceId::Statefsd),   // minidump child grant + own dump writes (TASK-0049)
+    (ServiceId::Execd, ServiceId::Policyd),    // crash attach-level gate (TASK-0051B, RFC-0087 §5)
     (ServiceId::Windowd, ServiceId::Bundlemgrd), // dynamic Apps menu (OP_LIST_APPS)
     (ServiceId::Windowd, ServiceId::Sessiond), // greeter/login relay (TASK-0065B)
     (ServiceId::Windowd, ServiceId::Settingsd), // theme GET/SET persistence (TASK-0072 P10)

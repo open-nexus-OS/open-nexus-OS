@@ -10,9 +10,14 @@
 //! TEST_COVERAGE: Unit tests below; integration in `tests/crashdump_v2_host`
 //! ADR: tasks/TASK-0048-crashdump-v2a-host-pipeline-nxsym-nx-crash.md
 
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
+
+use serde::{Deserialize, Serialize};
+
 use crate::container::{NxcdContainer, SectionKind};
 use crate::NxcdError;
-use serde::{Deserialize, Serialize};
 
 /// `header.json` — stable key order is the struct field order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +29,10 @@ pub struct CrashHeader {
     pub code: i32,
     pub name: String,
     pub build_id: String,
+    /// Kernel-attributed exit reason (ADR-0056; TASK-0051B). Optional so
+    /// pre-0051B headers keep decoding and their JSON stays byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// One entry of `frames.json`; `function`/`file`/`line` stay `null` until a
@@ -88,6 +97,15 @@ impl MapsSection {
 /// and the `maps.json` module list — symbolizers key on it, so it must never
 /// be re-derived on the host.
 pub fn from_minidump(frame: &crash::MinidumpFrame) -> Result<NxcdContainer, NxcdError> {
+    from_minidump_with_reason(frame, None)
+}
+
+/// `from_minidump` with the kernel-attributed exit reason attached to
+/// `header.json` (the on-device writer's entry point, TASK-0051B).
+pub fn from_minidump_with_reason(
+    frame: &crash::MinidumpFrame,
+    reason: Option<&str>,
+) -> Result<NxcdContainer, NxcdError> {
     frame.validate().map_err(|_| NxcdError::JsonEncode)?;
     let header = CrashHeader {
         format: String::from("nxcd"),
@@ -97,6 +115,7 @@ pub fn from_minidump(frame: &crash::MinidumpFrame) -> Result<NxcdContainer, Nxcd
         code: frame.code,
         name: frame.name.clone(),
         build_id: frame.build_id.clone(),
+        reason: reason.map(String::from),
     };
     let frames = FramesSection {
         frames: frame
@@ -175,5 +194,22 @@ mod tests {
         let mut container = from_minidump(&sample_minidump()).expect("convert");
         container.insert(SectionKind::Header, b"not json".to_vec()).expect("insert");
         assert_eq!(CrashHeader::from_section(&container), Err(NxcdError::JsonDecode));
+    }
+
+    /// TASK-0051B: the reason rides header.json; without one the JSON stays
+    /// byte-identical to pre-0051B output (skip_serializing_if) and old
+    /// headers keep decoding (serde default).
+    #[test]
+    fn test_reason_roundtrip_and_absent_compatibility() {
+        let dump = sample_minidump();
+        let with = from_minidump_with_reason(&dump, Some("fault(load-page)")).expect("convert");
+        let header = CrashHeader::from_section(&with).expect("header");
+        assert_eq!(header.reason.as_deref(), Some("fault(load-page)"));
+
+        let without = from_minidump(&dump).expect("convert");
+        let plain = CrashHeader::from_section(&without).expect("header");
+        assert_eq!(plain.reason, None);
+        let json = without.get(SectionKind::Header).expect("section");
+        assert!(!String::from_utf8_lossy(json).contains("reason"));
     }
 }

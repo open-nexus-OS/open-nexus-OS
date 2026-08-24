@@ -105,8 +105,8 @@ This exists to remove “warnings” by making the architecture **decided** and 
   (TASK-0050), the console idea is parked as TASK-0050B (Deferred, thin client
   of the ops surface only).
 - **Crash artifact writer**: the execd-side crash path (library, TASK-0051B) —
-  there is NO `crashd` daemon by default; `.nxcd.zst` stays the only at-rest
-  format (see artifact registry below).
+  there is NO `crashd` daemon by default; the `.nxcd` container stays the only
+  at-rest format (see artifact registry below).
 - **Recovery operations**: policy-gated IPC ops on their owners — fsck on
   `statefsd` (engine SSOT `userspace/statefs/src/fsck.rs`), slot/target on
   `bootctld` — driven by `nx` verbs; ONE diag bundle: `nx diagnose`
@@ -126,7 +126,10 @@ This exists to remove “warnings” by making the architecture **decided** and 
 - **App bundle**: `.nxb` with `manifest.nxb` as the canonical manifest (JSON only as derived view)
 - **Policy snapshot**: `policy.bin` as a derived artifact (authority remains `policyd`)
 - **Recovery action token**: `.nxra` (signed, replay-protected)
-- **Crash artifacts**: `.nxcd.zst` (existing direction; no parallel dump formats without decision)
+- **Crash artifacts**: `.nxcd` container — ONE schema; ON DEVICE stored
+  uncompressed (`.nxcd`; the zstd wrapper is host-tool-only per RFC-0009
+  dependency hygiene), EXPORTED canonical form is `.nxcd.zst` (`nx crash
+  export`). No parallel dump formats without decision (TASK-0051B 2026-08-24).
 
 ## CLI naming (hard)
 

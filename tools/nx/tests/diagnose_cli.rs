@@ -38,6 +38,23 @@ fn fixture_image(dir: &Path) -> std::path::PathBuf {
     let sealed = bootctld::record::seal_record(&boot, 1, 42).expect("seal boot record");
     engine.put(bootctld::record::BOOT_RECORD_KEY, &sealed).expect("put boot record");
 
+    // TASK-0051B: one at-rest crash artifact rides the bundle verbatim.
+    let dump = crash::MinidumpFrame {
+        timestamp_nsec: 77,
+        pid: 5,
+        code: -22,
+        name: String::from("demo.fault"),
+        build_id: crash::deterministic_build_id("demo.fault"),
+        pcs: vec![0x10],
+        stack_preview: vec![0xAA; 8],
+        code_preview: vec![0xCC; 4],
+    };
+    let artifact = nxcd::from_minidump_with_reason(&dump, Some("fault"))
+        .expect("convert")
+        .encode()
+        .expect("encode");
+    engine.put("/state/crash/77.5.demo.fault.nxcd", &artifact).expect("put artifact");
+
     let mut journal = Journal::new(8, 8192);
     let mut spill = SpillEngine::new(0);
     for (msg, fields) in [
@@ -109,6 +126,7 @@ fn diagnose_bundle_is_deterministic_with_expected_sections() {
             "diagnose/evidence.jsonl".to_string(),
             "diagnose/fsck-report.json".to_string(),
             "diagnose/meta.json".to_string(),
+            "crash/77.5.demo.fault.nxcd".to_string(),
         ]
     );
 
@@ -121,6 +139,34 @@ fn diagnose_bundle_is_deterministic_with_expected_sections() {
     assert_eq!(envelope["data"]["fsck_outcome"], "clean");
     assert_eq!(envelope["data"]["evidence_records"], 2);
     assert_eq!(envelope["data"]["boot_record_present"], true);
+    assert_eq!(envelope["data"]["crash_artifacts"], 1);
+
+    // The bundled artifact is the verbatim at-rest container: decodable,
+    // reason intact — `nx crash show` works on the extracted file.
+    let artifact = tar_entry(&a, "crash/77.5.demo.fault.nxcd").expect("artifact entry");
+    let container = nxcd::NxcdContainer::decode(&artifact).expect("decode container");
+    let header = nxcd::CrashHeader::from_section(&container).expect("header");
+    assert_eq!(header.reason.as_deref(), Some("fault"));
+}
+
+/// Payload of the named entry (ustar walk mirroring `tar_entry_names`).
+fn tar_entry(archive: &[u8], want: &str) -> Option<Vec<u8>> {
+    let mut off = 0usize;
+    while off + 512 <= archive.len() {
+        let header = &archive[off..off + 512];
+        if header.iter().all(|&b| b == 0) {
+            break;
+        }
+        let name_end = header.iter().position(|&b| b == 0).unwrap_or(100).min(100);
+        let name = String::from_utf8_lossy(&header[..name_end]).into_owned();
+        let size_field = std::str::from_utf8(&header[124..135]).ok()?;
+        let size = usize::from_str_radix(size_field, 8).ok()?;
+        if name == want {
+            return archive.get(off + 512..off + 512 + size).map(<[u8]>::to_vec);
+        }
+        off += 512 + size.div_ceil(512) * 512;
+    }
+    None
 }
 
 #[test]

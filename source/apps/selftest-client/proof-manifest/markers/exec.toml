@@ -78,6 +78,30 @@ phase = "exec"
 [marker."SELFTEST: minidump ok"]
 phase = "exec"
 
+[marker."crash: dump written"]
+phase = "exec"
+
+[marker."crash: retention gc on (budget=256KiB)"]
+phase = "exec"
+
+[marker."crash: retention gc deleted"]
+phase = "exec"
+
+[marker."crash: container write degraded"]
+phase = "exec"
+
+[marker."SELFTEST: crash artifact ok"]
+phase = "exec"
+
+[marker."SELFTEST: crash artifact FAIL"]
+phase = "exec"
+
+[marker."SELFTEST: crash redaction ok"]
+phase = "exec"
+
+[marker."SELFTEST: crash redaction FAIL"]
+phase = "exec"
+
 [marker."SELFTEST: minidump forged metadata rejected"]
 phase = "exec"
 

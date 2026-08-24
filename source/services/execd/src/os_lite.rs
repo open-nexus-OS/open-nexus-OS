@@ -339,7 +339,7 @@ impl State {
             // OP_REPORT_EXIT so dump metadata can be validated before markers.
             if name != "demo.minidump" {
                 let build_id = deterministic_build_id(name);
-                let dump_path = write_minidump_artifact(pid, code, name, &build_id);
+                let dump_path = write_minidump_artifact(pid, code, name, &build_id, reason.label());
                 emit_crash_marker(pid, code, name);
                 self.log_crash_via_nexus_log(
                     pid,
@@ -522,7 +522,13 @@ fn ipc_error_label(err: nexus_abi::IpcError) -> &'static str {
     }
 }
 
-fn write_minidump_artifact(pid: u32, code: i32, name: &str, build_id: &str) -> Option<String> {
+fn write_minidump_artifact(
+    pid: u32,
+    code: i32,
+    name: &str,
+    build_id: &str,
+    reason_label: &str,
+) -> Option<String> {
     let ts = nsec().ok().unwrap_or(0);
     let path = normalize_dump_path(ts, pid, name).ok()?;
     let frame = MinidumpFrame {
@@ -536,6 +542,17 @@ fn write_minidump_artifact(pid: u32, code: i32, name: &str, build_id: &str) -> O
         code_preview: Vec::new(),
     };
     let bytes = frame.encode().ok()?;
+    // TASK-0051B: the canonical at-rest artifact is the `.nxcd` container —
+    // written directly (this frame only ever existed in RAM, no
+    // intermediate). On degrade the raw NMD1 is persisted instead so crash
+    // evidence is never lost (the degrade marker already fired).
+    if let Some(key) = crate::crash_store::container_key(path.as_str()) {
+        if let Some(published) =
+            crate::crash_os::publish_container(&key, &bytes, None, reason_label)
+        {
+            return Some(published);
+        }
+    }
     if write_dump_to_statefs(path.as_str(), &bytes).is_err() {
         return None;
     }
@@ -696,6 +713,14 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         if let Some(img) = image_id {
             if code != 0 {
                 let name = State::child_name(img);
+                // ADR-0056 reason as recorded at reap time (voluntary
+                // non-zero exits report as "error" when unobserved).
+                let reason_label = state
+                    .children
+                    .iter()
+                    .find(|c| c.pid == pid)
+                    .and_then(|c| c.exit.map(|(_, r)| r.label()))
+                    .unwrap_or("error");
                 let (build_id, dump_path) = if let Some((build_id, dump_path, dump_bytes)) =
                     reported_meta
                 {
@@ -703,13 +728,26 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
                         return rsp(op, STATUS_FAILED, pid).to_vec();
                     }
                     emit_minidump_written(dump_path);
-                    (String::from(build_id), Some(String::from(dump_path)))
+                    // TASK-0051B: close the NMD1 seam — the verified child
+                    // dump converts to the canonical container and the
+                    // intermediate is deleted; crash.v1 carries the
+                    // artifact that actually remains at rest.
+                    let published = crate::crash_store::container_key(dump_path).and_then(|key| {
+                        crate::crash_os::publish_container(
+                            &key,
+                            dump_bytes,
+                            Some(dump_path),
+                            reason_label,
+                        )
+                    });
+                    (String::from(build_id), published.or(Some(String::from(dump_path))))
                 } else if name == "demo.minidump" {
                     // v1 minidump flow requires explicit metadata handoff for managed payloads.
                     return rsp(op, STATUS_FAILED, pid).to_vec();
                 } else {
                     let build_id = deterministic_build_id(name);
-                    let dump_path = write_minidump_artifact(pid, code, name, &build_id);
+                    let dump_path =
+                        write_minidump_artifact(pid, code, name, &build_id, reason_label);
                     (build_id, dump_path)
                 };
                 emit_crash_marker(pid, code, name);
@@ -1378,7 +1416,7 @@ pub fn exec_elf(
     Err(ExecError::Unsupported)
 }
 
-fn emit_line(message: &str) {
+pub(crate) fn emit_line(message: &str) {
     // Verdict folding: pre-`ready` markers tally into `execd N/N`; post-`ready` runtime lines fold
     // into recall-only detail (`NEXUS_LOG_EXPAND=execd`). Failures & proof boots print live & raw.
     // One atomic `debug_write` (via `debug_println`, which also owns the verdict

@@ -26,8 +26,8 @@ os-lite = [
     "nexus-metrics/os-lite",
     "dep:exec-payloads",
     "dep:demo-exit0",
-    "dep:crash",
     "dep:nexus-text-baked",
+    "dep:statefs",
 ]
 
 [lib]
@@ -52,7 +52,11 @@ nexus-loader = { path = "../../../userspace/nexus-loader", optional = true }
 capnp = { version = "0.24", optional = true }
 thiserror = { version = "2", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
-crash = { path = "../../../userspace/crash", optional = true, default-features = false, features = ["os-lite"] }
+# TASK-0051B: non-optional — the cfg-free crash_store core is host-tested;
+# the os-lite IO helpers stay gated inside the crash crate itself.
+crash = { path = "../../../userspace/crash", default-features = false, features = ["os-lite"] }
+nxcd = { path = "../../../userspace/crash/nxcd", default-features = false }
+statefs = { path = "../../../userspace/statefs", optional = true, default-features = false, features = ["os-lite", "ipc-client"] }
 # RFC-0080 Phase 1: execd embeds the atlas ONCE to fill the shared RO VMO it
 # grants (read-only) to every app-host; only execd links the blob here.
 nexus-text-baked = { path = "../../../userspace/ui/text-baked", optional = true, default-features = false, features = ["embedded-atlas"] }

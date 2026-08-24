@@ -84,6 +84,8 @@ const CAP_READ: &str = "statefs.read";
 pub(crate) const CAP_WRITE: &str = "statefs.write";
 const CAP_KEYSTORE: &str = "statefs.keystore";
 pub(crate) const CAP_BOOT: &str = "statefs.boot";
+/// TASK-0051B: `/state/crash/` prefix capability (crash-artifact writer).
+const CAP_CRASH: &str = "statefs.crash";
 
 pub(crate) enum Backend {
     Virtio(VirtioBlkDevice),
@@ -510,10 +512,12 @@ fn handle_frame(
         }
         Request::Sync => {
             // Sync is a durability boundary for all writers. Allow if the caller has either:
-            // - boot authority (`statefs.boot`) or
-            // - generic state writer (`statefs.write`)
+            // - boot authority (`statefs.boot`),
+            // - generic state writer (`statefs.write`), or
+            // - the crash-artifact writer (`statefs.crash`, TASK-0051B).
             let allowed = policyd_allows(sender_service_id, CAP_BOOT.as_bytes())
-                || policyd_allows(sender_service_id, CAP_WRITE.as_bytes());
+                || policyd_allows(sender_service_id, CAP_WRITE.as_bytes())
+                || policyd_allows(sender_service_id, CAP_CRASH.as_bytes());
             if !allowed {
                 emit_access_denied("/state", sender_service_id);
                 return proto::encode_status_response_with_nonce(
@@ -583,6 +587,10 @@ fn required_cap(op: u8, path: &str) -> &'static str {
         CAP_KEYSTORE
     } else if path.starts_with("/state/boot/") {
         CAP_BOOT
+    } else if path.starts_with("/state/crash/") {
+        // TASK-0051B: the crash-artifact prefix has its own capability so
+        // the writer (execd) never needs the generic state-writer grant.
+        CAP_CRASH
     } else if crate::enc_svc::is_admin_key(path) && matches!(op, proto::OP_PUT | proto::OP_DEL) {
         crate::enc_svc::CAP_ADMIN
     } else if matches!(op, proto::OP_PUT | proto::OP_DEL | proto::OP_SYNC | proto::OP_REOPEN) {
