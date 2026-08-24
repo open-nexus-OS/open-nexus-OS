@@ -18,8 +18,11 @@
 use crate::bootstrap::diag::il;
 use crate::os_payload::*;
 
-/// Runs the handshake and applies its outcome; returns nothing — every
-/// path announces itself (markers are the contract).
+/// Runs the handshake, applies its outcome and returns the RESOLVED boot
+/// graph (the consumed one-shot target, RFC-0087 §4). Fail-open to
+/// `Normal` on any handshake trouble — a broken handshake must never
+/// brick the normal boot; a reduced graph is only ever entered on a
+/// successfully committed consumption.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn boot_attempt_handshake(
     pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
@@ -29,22 +32,19 @@ pub(crate) fn boot_attempt_handshake(
     bnd_req: u32,
     init_misc: &mut nexus_event::SpanTally,
     init_fold: bool,
-) {
+) -> crate::boot_graph::BootGraph {
+    let mut graph = crate::boot_graph::BootGraph::Normal;
     match boot_req
         .map_or(Ok((None, None)), |b| bootctld_boot_attempt(pending, b, reply_send, reply_recv))
     {
         Ok((rolled_back, next_boot)) => {
             // One-shot target consumed WITH the attempt ack (RFC-0087 §4).
             if let Some(target) = next_boot {
+                if let Some(resolved) = crate::boot_graph::BootGraph::from_wire(target) {
+                    graph = resolved;
+                }
                 crate::bootstrap::diag::emit_marker_atomic(
-                    &[
-                        b"init: next boot target=",
-                        match target {
-                            1 => b"recovery".as_slice(),
-                            2 => b"safe".as_slice(),
-                            _ => b"normal".as_slice(),
-                        },
-                    ],
+                    &[b"init: next boot target=", graph.label().as_bytes()],
                     None,
                 );
             }
@@ -61,6 +61,7 @@ pub(crate) fn boot_attempt_handshake(
             debug_write_byte(b'\n');
         }
     }
+    graph
 }
 
 /// Boot-attempt handshake against bootctld (TASK-0050 PR-2, ADR-0055):

@@ -232,7 +232,10 @@ where
     debug_write_bytes(b"!init-lite ready\n");
     // Resume all spawned services (except the device drivers) now so policyd can
     // handle MMIO policy checks during the grant phase. IPC wiring happens after grants.
-    crate::bootstrap::resume::resume_non_drivers(&ctrl_channels);
+    // Wave 1 (TASK-0050 PR-5): only the always-on CORE graph — the boot
+    // target is unknown until the bootctld handshake below; the core is
+    // exactly what that handshake (and any recovery boot) needs.
+    crate::bootstrap::resume::resume_core(&ctrl_channels);
     // Yield once so resumed services can bind their servers before init
     // starts sending IPC (grants need policyd, routes need samgrd, etc.).
     let _ = nexus_abi::yield_();
@@ -887,7 +890,26 @@ where
     let wiring_done_ms = boot_span.elapsed_ms();
 
     // Resume display + input device-driver services after MMIO grants and route wiring.
-    crate::bootstrap::resume::resume_drivers(&ctrl_channels, init_fold, &mut init_misc);
+    // Resolve the boot target FIRST (bootctld runs since wave 1): the
+    // one-shot next_boot decides which of the fully provisioned services
+    // wave 2 + the display/input drivers actually resume (RFC-0087 §4).
+    let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
+        nexus_ipc::reqrep::FrameStash::new();
+    let boot_graph = crate::bootstrap::handshake::boot_attempt_handshake(
+        &mut upd_pending,
+        boot_req,
+        init_reply_send,
+        pol_ctl_route_rsp,
+        bnd_req,
+        &mut init_misc,
+        init_fold,
+    );
+    crate::bootstrap::resume::materialize_graph(
+        &ctrl_channels,
+        boot_graph,
+        init_fold,
+        &mut init_misc,
+    );
 
     // Yield after cap distribution so services observe a consistent slot layout.
     let _ = nexus_abi::yield_();
@@ -901,18 +923,6 @@ where
         debug_write_str("stage: display-ready");
         debug_write_byte(b'\n');
     }
-
-    let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
-        nexus_ipc::reqrep::FrameStash::new();
-    crate::bootstrap::handshake::boot_attempt_handshake(
-        &mut upd_pending,
-        boot_req,
-        init_reply_send,
-        pol_ctl_route_rsp,
-        bnd_req,
-        &mut init_misc,
-        init_fold,
-    );
 
     let route_table = route_builder::build_route_table(&ctrl_channels);
     route_builder::populate_samgrd_registry(init_sam_send, init_sam_recv, &route_table);

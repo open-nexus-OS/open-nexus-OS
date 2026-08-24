@@ -27,7 +27,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Accounts, Ability & Sessions | 2 / 9 | 22% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. Spine done (0065 lifecycle broker + 0065B session authority); continuation open (KILL/backoff → 0234/0235, lock/multi-user → 0109/0110/0223/0224, delegation → 0126B). |
 | Security, Policy & Identity | 8 / 35 | 23% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
 | Storage, PackageFS & Content | 12 / 29 | 41% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done. |
-| Updates, Packaging & Recovery | 1 / 24 | 4% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
+| Updates, Packaging & Recovery | 2 / 24 | 8% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
 | Bringup, Hardware & Drivers | 1 / 13 | 8% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
 | Windowing, UI & Graphics | 31 / 85 | 36% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
 | Text, IME, I18N & Accessibility | 4 / 7 | 57% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
@@ -146,9 +146,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Updates, Packaging & Recovery
 
-- Progress: `1 / 24` done (`4%`)
+- Progress: `2 / 24` done (`8%`)
 - Kernel-touch tasks: `TASK-0289`
 - Tasks: `TASK-0007`, `TASK-0034`..`TASK-0037`, `TASK-0050`, `TASK-0050B`, `TASK-0051`, `TASK-0053`, `TASK-0089`..`TASK-0090`, `TASK-0129`, `TASK-0131`, `TASK-0140`, `TASK-0174`, `TASK-0178`..`TASK-0180`, `TASK-0197`..`TASK-0198`, `TASK-0239`, `TASK-0260`..`TASK-0261`, `TASK-0289`
+- Notes (2026-08-24): `TASK-0050` Done — bootctld is the single boot-state authority end to end: the RFC-0012 machine relocated (record v2 kills the replay-reconstruction hack), `updated` is a client (OTA ladder unchanged through the move), `SYSCALL_SYSTEM_RESET` (SBI SRST, identity-bound to bootctld), policy-gated targets (`boot.target`/`boot.reset`), and targets materialize as RESUME SETS over the fully provisioned topology (zero slot-layout shift). The reset lane proves a THREE-boot cycle in one uart stream: normal → recovery graph (drivers provably suspended) → normal, `ci-os-reset` in test-all. Escalation edge recut to the respawnable() widening (dead code until then). Next in lane: `TASK-0051`.
 - Notes (2026-08-18, reliability-lane recut): recovery architecture recut per RFC-0087 + ADR-0055 — `TASK-0050` rewritten (system reset via SBI SRST + boot targets; `bootctld` = single boot-state authority, relocating the proven `bootctrl.rs` machine; `updated` becomes client), `TASK-0051` rewritten (recovery ops surface: statefsd fsck op over the shipped 0026 engine + bootctld slot/target ops + ONE diag bundle `nx diagnose`; joined from Storage group), `TASK-0053` rewritten (`.nxra` enforcement on the ops surface; joined from Security group), new `TASK-0050B` (recovery console, **Deferred** by decision — consumer end state needs no shell), `TASK-0178` **Superseded** (absorbed by TASK-0050/ADR-0055). `TASK-0036` amendment: `bootargd`/`healthd` dead, soft-reboot simulation superseded by the real reset proof. `TASK-0261`: `rebootd`/initrd/`nx-diag` dropped per alignment note.
 
 ### Bringup, Hardware & Drivers
@@ -239,6 +240,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0049 | Fault & exhaustion truth + crash-proof reanimation | Done | Kernel-attributed exit reasons (ADR-0056) through wait/execd, exhaustion events (statefsd/gpud), exec/crash/minidump chain reanimated with 16/16 markers |
 | ✅ TASK-0049B | Service supervision v1: tiers + restart/backoff/crash-loop + re-resolve | Done | Death observation + restart engine + staleness (STATUS_STALE) + real pinched restart E2E + persisted restart counters with keep-blk double-boot replay; statefsd reply path hardened along the way |
 | ✅ TASK-0049C | Persistent evidence journal: bounded logd spill to statefs | Done | Evidence ring (32×512B, one txn per spill) + persisted query scope + keep-blk replay proof; fixed the RFC-0011 pagination record-loss bug, the cross-service wait triangle, metricsd consumer-less replies, the txn-gate deny-audit loop, and statefsd heap death |
+| ✅ TASK-0050 | System reset (SBI SRST) + boot targets via bootctld | Done | Single boot-state authority (record v2 + client conversion), identity-bound SRST syscall, policy-gated targets, targets as resume sets; three-boot recovery cycle proven in one uart stream (ci-os-reset) |
 | ✅ TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots | Done | Host-first renderer/snapshot proof floor complete; no OS/QEMU present marker claim |
 | ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync | Done | Headless state-machine, generated IDL roundtrip, marker, postflight, and reject proofs complete |
 | ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap | Done | Visible QEMU `ramfb` bootstrap path proven with marker-honesty hardening and full closure gates green |

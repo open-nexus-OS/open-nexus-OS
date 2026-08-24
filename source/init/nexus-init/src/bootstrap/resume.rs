@@ -50,9 +50,50 @@ pub(crate) fn affinity_summary() {
     debug_write_byte(b'\n');
 }
 
-pub(crate) fn resume_non_drivers(ctrls: &[CtrlChannel]) {
+/// Wave 1 (TASK-0050 PR-5): resume only the always-on CORE graph — the
+/// boot target is unknown until the boot-attempt handshake, and the core
+/// is exactly what that handshake needs (plus the recovery floor).
+pub(crate) fn resume_core(ctrls: &[CtrlChannel]) {
+    resume_non_drivers_where(ctrls, |name| crate::boot_graph::in_core(name));
+}
+
+/// Materializes the resolved boot graph (TASK-0050 PR-5): announces the
+/// target truth, resumes wave 2, and resumes the display/input drivers
+/// only when the graph includes them (recovery keeps them suspended).
+pub(crate) fn materialize_graph(
+    ctrls: &[CtrlChannel],
+    graph: crate::boot_graph::BootGraph,
+    init_fold: bool,
+    init_misc: &mut nexus_event::SpanTally,
+) {
+    crate::bootstrap::diag::emit_marker_atomic(
+        &[b"init: stage graph target=", graph.label().as_bytes()],
+        None,
+    );
+    resume_wave2(ctrls, graph);
+    if crate::boot_graph::includes(graph, "windowd") {
+        resume_drivers(ctrls, init_fold, init_misc);
+    } else {
+        crate::bootstrap::diag::emit_marker_atomic(
+            &[b"init: stage graph drivers skipped (", graph.label().as_bytes(), b")"],
+            None,
+        );
+    }
+}
+
+/// Wave 2: resume the remaining non-drivers the resolved target includes.
+pub(crate) fn resume_wave2(ctrls: &[CtrlChannel], graph: crate::boot_graph::BootGraph) {
+    resume_non_drivers_where(ctrls, |name| {
+        !crate::boot_graph::in_core(name) && crate::boot_graph::includes(graph, name)
+    });
+}
+
+fn resume_non_drivers_where(ctrls: &[CtrlChannel], pred: impl Fn(&str) -> bool) {
     for chan in ctrls {
         if matches!(chan.svc_name, "gpud" | "windowd" | "inputd" | "hidrawd") {
+            continue;
+        }
+        if !pred(chan.svc_name) {
             continue;
         }
         apply_affinity(chan.svc_name, chan.pid);

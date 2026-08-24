@@ -1706,13 +1706,14 @@ done
 # TASK-0050 PR-3 reset-lane guards: the proof is a REAL reboot — two boots
 # in one uart stream, request on boot 1, ok strictly on boot 2 (sentinel).
 if [[ "${REQUIRE_RESET_PROOF:-0}" == "1" ]]; then
-  # Substring count on purpose: UART lines may carry CR endings, which a
-  # `$` anchor silently refuses to match.
+  # TASK-0050 PR-5: the lane is a THREE-boot cycle now
+  # (normal → recovery graph → normal). Substring counts on purpose: UART
+  # lines may carry CR endings, which a `$` anchor silently refuses.
   ready_count=$(grep -ac "init: ready" "$UART_LOG" || true)
-  if [[ "${ready_count:-0}" -lt 2 ]]; then
-    echo "[error] first_failed_phase=bringup missing_marker='init: ready (second boot)'" >&2
-    echo "[error] reset lane: expected TWO boots in one uart stream, saw $ready_count" >&2
-    grep -a "SELFTEST: reset\|bootctld: reset" "$UART_LOG" | head -n 6 >&2
+  if [[ "${ready_count:-0}" -lt 3 ]]; then
+    echo "[error] first_failed_phase=bringup missing_marker='init: ready (three boots)'" >&2
+    echo "[error] reset lane: expected THREE boots in one uart stream, saw $ready_count" >&2
+    grep -a "SELFTEST: reset\|bootctld: reset\|stage graph" "$UART_LOG" | head -n 8 >&2
     exit 1
   fi
   for m in \
@@ -1721,14 +1722,29 @@ if [[ "${REQUIRE_RESET_PROOF:-0}" == "1" ]]; then
     "SELFTEST: reset ok" \
     "bootctld: target=normal next=recovery" \
     "init: next boot target=recovery" \
-    "SELFTEST: boot target roundtrip ok"; do
+    "init: stage graph target=recovery" \
+    "init: stage graph drivers skipped (recovery)" \
+    "SELFTEST: recovery graph reached" \
+    "SELFTEST: boot target roundtrip ok" \
+    "SELFTEST: recovery cycle ok"; do
     if ! grep -aFq "$m" "$UART_LOG"; then
       echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
-      echo "[error] reset lane: reset chain marker missing" >&2
-      grep -a "SELFTEST: reset\|bootctld: reset" "$UART_LOG" | head -n 6 >&2
+      echo "[error] reset lane: cycle chain marker missing" >&2
+      grep -a "SELFTEST: reset\|SELFTEST: recovery\|bootctld: reset\|stage graph" "$UART_LOG" | head -n 8 >&2
       exit 1
     fi
   done
+  # The recovery boot must NOT have resumed the display stack. Segment
+  # check (counting is fragile — a full boot prints windowd: ready twice):
+  # boot 2 spans the 2nd..3rd `init: ready`; no windowd line may fall there.
+  r2=$(grep -an "init: ready" "$UART_LOG" | sed -n 2p | cut -d: -f1)
+  r3=$(grep -an "init: ready" "$UART_LOG" | sed -n 3p | cut -d: -f1)
+  if [[ -n "$r2" && -n "$r3" ]] \
+     && sed -n "${r2},${r3}p" "$UART_LOG" | grep -aq "windowd: ready"; then
+    echo "[error] first_failed_phase=bringup missing_marker='drivers suspended in recovery'" >&2
+    echo "[error] reset lane: windowd came up INSIDE the recovery boot segment" >&2
+    exit 1
+  fi
 fi
 for m in \
   "SELFTEST: reset request FAIL" \

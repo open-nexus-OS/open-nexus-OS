@@ -1,16 +1,18 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Real system-reset proof (TASK-0050 PR-3). Reset-lane only
-//! (`fw_cfg selftest-profile=reset`, read RAW — proof boots keep the full
-//! phase scope). Sentinel discipline over statefs, mirroring the cold-boot
-//! probe: boot 1 finds no sentinel → writes it (PUT+SYNC) → asks bootctld
-//! for an SBI cold reboot — QEMU restarts the SAME machine, the UART log
-//! continues into a second boot (the launcher runs without `-no-reboot`).
-//! Boot 2 finds the sentinel → deletes it → `SELFTEST: reset ok` — the
-//! honest "we are the boot AFTER the reset" proof; never a simulated
-//! "would have rebooted" print. Runs EARLY (bringup, right after the
-//! statefs probes) so both boots fit one harness window.
+//! CONTEXT: Real system-reset + boot-target cycle proof (TASK-0050
+//! PR-3..5). Reset-lane only (`fw_cfg selftest-profile=reset`, read RAW).
+//! THREE boots in one uart stream, phased by a statefs sentinel VALUE:
+//! boot 1 (normal) arms `next_boot=recovery` + sentinel `p1` → SBI
+//! reboot; boot 2 comes up on the RECOVERY graph (core-only resume set —
+//! `SELFTEST: recovery graph reached`), stamps `p2` → reboots again;
+//! boot 3 (normal, one-shot long consumed) deletes the sentinel →
+//! `SELFTEST: reset ok` + target roundtrip + `SELFTEST: recovery cycle
+//! ok`, then the full ladder runs. Runs FIRST in bringup: a recovery
+//! boot must never reach the full-graph probes (timed/imed are
+//! suspended there), and the early exit keeps all three boots inside one
+//! harness window.
 //! OWNERS: @runtime @reliability
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -28,67 +30,81 @@ use crate::markers::emit_line;
 use crate::os_lite::services::statefs::statefs_send_recv;
 
 const SENTINEL_KEY: &str = "/state/app/selftest/reset.proof";
-const SENTINEL_VAL: &[u8] = b"reset-proof-v1";
 
-/// Runs the reset proof; call only on the reset lane.
+/// Runs the phased reset/target cycle; call only on the reset lane.
+/// Phases 0 and 1 END IN A REBOOT (they never return); phase 2 returns
+/// and the normal ladder continues.
 pub(crate) fn reset_proof(statefsd: &KernelClient) {
-    match sentinel_present(statefsd) {
-        Some(true) => {
-            // We are the boot AFTER the reset: consume the sentinel so a
-            // third boot (if any) never re-arms, then announce the proof.
-            let _ = del_sentinel(statefsd);
-            emit_line(crate::markers::M_SELFTEST_RESET_OK);
-            // PR-4 target roundtrip: boot 1 armed next_boot=recovery; init
-            // consumed it with the attempt ack (one-shot rides the same
-            // persisted commit), so the authority must now read
-            // (target=normal, next=none) — set → reset → consumed → clear.
-            match bootctl_call(wire_op::GET_TARGET, None) {
-                Some((0, payload)) if payload == [0, 0xff] => {
-                    emit_line(crate::markers::M_SELFTEST_BOOT_TARGET_ROUNDTRIP_OK);
-                }
-                _ => emit_line(crate::markers::M_SELFTEST_BOOT_TARGET_ROUNDTRIP_FAIL),
-            }
-        }
-        Some(false) => {
-            if write_sentinel(statefsd).is_err() {
-                emit_line(crate::markers::M_SELFTEST_RESET_REQUEST_FAIL);
-                return;
-            }
-            // PR-4: arm the one-shot target BEFORE the reset (policy-gated
-            // SET; the wire reject probe pins the malformed edge).
+    match sentinel_phase(statefsd) {
+        // Boot 1 (normal): arm the one-shot recovery target + phase stamp.
+        Some(0) => {
+            // Wire reject probe pins the malformed edge; then arm recovery.
             let malformed_rejected =
                 matches!(bootctl_call(wire_op::SET_NEXT_BOOT, Some(0x07)), Some((1, _)));
             let armed = matches!(bootctl_call(wire_op::SET_NEXT_BOOT, Some(1)), Some((0, _)));
             if !(malformed_rejected && armed) {
                 emit_line(crate::markers::M_SELFTEST_BOOT_TARGET_ROUNDTRIP_FAIL);
             }
-            emit_line(crate::markers::M_SELFTEST_RESET_REQUEST);
-            request_reset();
-            // A successful reset never returns — reaching the timeout means
-            // the machine did NOT restart.
-            let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(5_000_000_000);
-            while nexus_abi::nsec().unwrap_or(u64::MAX) < deadline {
-                let _ = nexus_abi::yield_();
-            }
-            emit_line(crate::markers::M_SELFTEST_RESET_REQUEST_FAIL);
+            reboot_with_stamp(statefsd, b"p1");
         }
-        None => emit_line(crate::markers::M_SELFTEST_RESET_REQUEST_FAIL),
+        // Boot 2: the RECOVERY graph (core-only resume set). Prove we got
+        // here, stamp phase 2, go back to normal (next_boot was one-shot —
+        // already consumed, so a plain reboot lands on `normal`).
+        Some(1) => {
+            emit_line(crate::markers::M_SELFTEST_RECOVERY_GRAPH_REACHED);
+            reboot_with_stamp(statefsd, b"p2");
+        }
+        // Boot 3 (normal again): the cycle closed — consume the sentinel,
+        // prove the roundtrip cleared, continue with the full ladder.
+        Some(2) => {
+            let _ = del_sentinel(statefsd);
+            emit_line(crate::markers::M_SELFTEST_RESET_OK);
+            match bootctl_call(wire_op::GET_TARGET, None) {
+                Some((0, payload)) if payload == [0, 0xff] => {
+                    emit_line(crate::markers::M_SELFTEST_BOOT_TARGET_ROUNDTRIP_OK);
+                }
+                _ => emit_line(crate::markers::M_SELFTEST_BOOT_TARGET_ROUNDTRIP_FAIL),
+            }
+            emit_line(crate::markers::M_SELFTEST_RECOVERY_CYCLE_OK);
+        }
+        _ => emit_line(crate::markers::M_SELFTEST_RESET_REQUEST_FAIL),
     }
 }
 
-/// `Some(true)` sentinel present, `Some(false)` absent, `None` wire trouble.
-fn sentinel_present(statefsd: &KernelClient) -> Option<bool> {
+/// Stamp the phase sentinel durably, request the reboot, and fail LOUD if
+/// the machine is still alive after the budget (a successful SBI reset
+/// never returns).
+fn reboot_with_stamp(statefsd: &KernelClient, stamp: &[u8]) {
+    if write_sentinel(statefsd, stamp).is_err() {
+        emit_line(crate::markers::M_SELFTEST_RESET_REQUEST_FAIL);
+        return;
+    }
+    emit_line(crate::markers::M_SELFTEST_RESET_REQUEST);
+    request_reset();
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(5_000_000_000);
+    while nexus_abi::nsec().unwrap_or(u64::MAX) < deadline {
+        let _ = nexus_abi::yield_();
+    }
+    emit_line(crate::markers::M_SELFTEST_RESET_REQUEST_FAIL);
+}
+
+/// Phase from the sentinel VALUE: `Some(0)` absent, `Some(1)` = `p1`,
+/// `Some(2)` = `p2`; `None` = wire trouble or an unknown stamp (fail
+/// loud, never guess a phase).
+fn sentinel_phase(statefsd: &KernelClient) -> Option<u8> {
     let req = proto::encode_key_only_request(proto::OP_GET, SENTINEL_KEY).ok()?;
     let rsp = statefs_send_recv(statefsd, &req).ok()?;
     match proto::decode_get_response(&rsp) {
-        Ok(_) => Some(true),
-        Err(statefs::StatefsError::NotFound) => Some(false),
+        Ok(value) if value == b"p1" => Some(1),
+        Ok(value) if value == b"p2" => Some(2),
+        Ok(_) => None,
+        Err(statefs::StatefsError::NotFound) => Some(0),
         Err(_) => None,
     }
 }
 
-fn write_sentinel(statefsd: &KernelClient) -> Result<(), ()> {
-    let put = proto::encode_put_request(SENTINEL_KEY, SENTINEL_VAL).map_err(|_| ())?;
+fn write_sentinel(statefsd: &KernelClient, stamp: &[u8]) -> Result<(), ()> {
+    let put = proto::encode_put_request(SENTINEL_KEY, stamp).map_err(|_| ())?;
     let rsp = statefs_send_recv(statefsd, &put)?;
     if proto::decode_status_response(proto::OP_PUT, &rsp) != Ok(proto::STATUS_OK) {
         return Err(());

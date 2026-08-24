@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-24 (TASK-0050 PR-5: boot targets materialize — the recovery cycle is real; 0050 closed)
+
+- **A boot target now selects what actually RUNS**: init always spawns
+  and wires the complete topology (identical slot layout — the positional
+  contracts never shift), then materializes the resolved target as a
+  RESUME SET (`boot_graph` SSOT: core ⊆ safe ⊆ normal, host-tested with
+  the critical-boot floor pinned). Wave 1 resumes only the core; the
+  bootctld handshake resolves the one-shot target (fail-open to normal);
+  wave 2 + the display/input drivers resume per graph — recovery keeps
+  them suspended. The reset lane proves the FULL cycle in one uart
+  stream: normal (arm recovery) → the recovery graph
+  (`SELFTEST: recovery graph reached`; a segment gate proves windowd
+  never came up inside boot 2) → normal again
+  (`SELFTEST: recovery cycle ok`, roundtrip cleared, full ladder).
+  Escalation-to-safe is recut to the respawnable() widening (it would be
+  dead code until critical-boot services flow through the restart
+  engine); the safe graph itself is defined and reachable via
+  SET_TARGET. TASK-0050 is closed — the reliability spine's boot-state
+  chapter (0049 → 0049B → 0049C → 0050) is complete.
+
 ### Added - 2026-08-24 (TASK-0050 PR-4: boot targets — set, reset, consumed exactly once)
 
 - **The one-shot boot target works end to end, proven across a real

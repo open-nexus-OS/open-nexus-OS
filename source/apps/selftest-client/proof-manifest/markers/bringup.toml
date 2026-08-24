@@ -1189,3 +1189,20 @@ phase = "bringup"
 
 [marker."bootctld: target=normal next=recovery"]
 phase = "bringup"
+
+# TASK-0050 PR-5: recovery-graph cycle (normal -> recovery -> normal in one
+# uart stream; boot 2 runs on the core-only resume set).
+[marker."SELFTEST: recovery graph reached"]
+phase = "bringup"
+
+[marker."SELFTEST: recovery cycle ok"]
+phase = "bringup"
+
+[marker."init: stage graph target=normal"]
+phase = "bringup"
+
+[marker."init: stage graph target=recovery"]
+phase = "bringup"
+
+[marker."init: stage graph drivers skipped (recovery)"]
+phase = "bringup"

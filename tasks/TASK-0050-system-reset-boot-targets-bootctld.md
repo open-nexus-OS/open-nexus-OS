@@ -1,6 +1,6 @@
 ---
 title: TASK-0050 Reliability v1d: system reset (SBI SRST) + boot targets — bootctld as the single boot-state authority
-status: Draft
+status: Done (2026-08-24 — PR-1..5 QEMU-proven: relocated authority, real SBI reset, policy-gated targets, three-boot recovery cycle; test-all green incl. ci-os-reset; see DoD reconciliation)
 owner: @reliability @runtime
 created: 2025-12-23
 updated: 2026-08-18
@@ -255,5 +255,47 @@ RFC-0087 Phase 3. Two verified holes:
    the deterministic `STATUS_DENIED` path + kernel-attributed identity +
    the wire-MALFORMED probe; a true unprivileged-caller deny run arrives
    with TASK-0051's ops surface (nx CLI as the ungranted caller).
-5. Init stage-graph selection + recovery/safe graphs + full proofs;
-   `just test-all`.
+5. ✅ **PR-5 (2026-08-24) — targets materialize as RESUME SETS; the full
+   recovery cycle is proven**: init always spawns and wires the COMPLETE
+   topology (identical mints, identical slot layout — the positional
+   contracts never shift), then materializes the resolved target as a
+   resume set (`boot_graph.rs` SSOT: core ⊆ safe ⊆ normal, host-tested
+   incl. the critical-boot floor). Wave 1 resumes only the core (== the
+   recovery graph) — the target is unknown until the bootctld handshake;
+   the handshake moved BEFORE the driver resume and returns the resolved
+   graph (fail-open to `normal`: a broken handshake must never brick a
+   normal boot; reduced graphs are only entered on a committed
+   consumption). Wave 2 + display/input drivers resume per graph;
+   recovery keeps them SUSPENDED (`init: stage graph target=<t>` +
+   `drivers skipped` markers, atomic). Suspended services cost their
+   provisioned memory but never run — the explicit trade against
+   per-target slot-layout re-derivation.
+   The reset lane is now a THREE-boot cycle in one uart stream:
+   normal (arm recovery) → the RECOVERY GRAPH
+   (`SELFTEST: recovery graph reached`; segment gate proves windowd never
+   came up inside boot 2) → normal again (`SELFTEST: recovery cycle ok`,
+   roundtrip cleared, full ladder to Completed). Safe graph is defined in
+   the SSOT (normal minus netstackd/dsoftbusd/metricsd/pinched) and
+   reachable over the same mechanism.
+
+## DoD reconciliation (documented recuts)
+
+- "Safe-mode edge reachable via escalation knob" → **recut**: the
+  escalation edge (crash-loop-exhausted critical-boot ⇒ next_boot=safe +
+  reset) would be DEAD CODE today — `respawnable()` still covers only the
+  pinched pilot, so no critical-boot service ever reaches the engine's
+  Blocked decision. The edge lands WITH the respawnable() widening
+  (recorded 0049B follow-up, gated on TASK-0304 Part 2); the safe graph
+  itself is defined, host-tested and reachable via SET_TARGET now.
+- "`SELFTEST: reset ok` — reset syscall observed as real QEMU restart" →
+  delivered as the REAL variant (RED resolved): three boots in one uart
+  stream, no keep-blk composition needed.
+- Host "record roundtrip incl. migration + one-shot txn semantics" →
+  delivered in PR-1 (13 tests); "`test_reject_target_change_denied`" →
+  recut in PR-4 (no host seam for the delegated policyd gate; deny path =
+  deterministic STATUS_DENIED + kernel-attributed identity + the
+  wire-MALFORMED probe; the unprivileged-caller run arrives with
+  TASK-0051's nx surface).
+
+Follow-ups: escalation edge (above); TASK-0051 consumes the target/ops
+surface; TASK-0289 anchors the record's trust floor.

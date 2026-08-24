@@ -49,6 +49,7 @@ pub mod supervision_engine;
 /// stale/lookup logic is host-proven, only the bootstrap wiring that FILLS
 /// it is OS-only. (This settles the RFC-0066 "route_table host-testability
 /// is Phase 2" debt.)
+pub mod boot_graph;
 pub mod route_table;
 
 /// Bootstrap subsystem — split from os_payload.rs per RFC-0061.

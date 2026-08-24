@@ -27,6 +27,19 @@ use crate::os_lite::ipc::routing::{route_with_retry, routing_v1_get};
 use crate::os_lite::{ime_ranking, imed, imed_osk, probes, services, settings_watch, timed};
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
+    // TASK-0050 PR-3..5: reset/target cycle — reset lane ONLY (raw fw_cfg
+    // trigger). FIRST in bringup: phases 0/1 end in a reboot before any
+    // full-graph probe runs (a recovery boot has timed/imed suspended and
+    // must never walk into their probes), phase 2 falls through to the
+    // normal ladder.
+    if crate::os_lite::boot_cfg::runtime_profile_with_retry()
+        == Some(crate::runtime_mode::RuntimeProfile::Reset)
+    {
+        if let Ok(statefsd) = crate::os_lite::ipc::routing::route_with_retry("statefsd") {
+            crate::os_lite::probes::reset::reset_proof(&statefsd);
+        }
+    }
+
     // keystored v1 (routing + put/get/del + negative cases)
     let keystored = match services::keystored::resolve_keystored_client() {
         Ok(client) => client,
@@ -192,14 +205,6 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             emit_line(crate::markers::M_SELFTEST_STATEFS_ENC_ROUNDTRIP_OK);
         } else {
             emit_line(crate::markers::M_SELFTEST_STATEFS_ENC_ROUNDTRIP_FAIL);
-        }
-        // TASK-0050 PR-3: real reset proof — reset lane ONLY (raw fw_cfg
-        // trigger; proof boots keep the full phase scope). Early on purpose:
-        // both boots must fit one harness window.
-        if crate::os_lite::boot_cfg::runtime_profile_with_retry()
-            == Some(crate::runtime_mode::RuntimeProfile::Reset)
-        {
-            crate::os_lite::probes::reset::reset_proof(&statefsd);
         }
     } else {
         emit_line(crate::markers::M_SELFTEST_STATEFS_PUT_FAIL);
