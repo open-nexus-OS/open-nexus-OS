@@ -35,7 +35,7 @@
 - **Phase 1 (device trust anchor + verifier verdict authority)**: ✅ 2026-08-25 (TASK-0198 Phase 1 — baked anchor + verdict finality + OS deny lane, test-all green)
 - **Phase 2 (health-commit v2: record v3 + quorum + deadline)**: ✅ 2026-08-25 (TASK-0036-A — private commit behind the mask, deadline armed at switch, 22 host tests + gated quorum chain)
 - **Phase 3 (block substrate: virtio-blk v2 + single GPT disk)**: 🟨 (TASK-0314 ✅ 2026-08-25 — request ring + 16 KiB runs + IRQ machinery; TASK-0315 open — GPT topology + IRQ endpoint provisioning)
-- **Phase 4 (host image builder `nx image`)**: ⬜ (TASK-0260)
+- **Phase 4 (host image builder `nx image`)**: ✅ 2026-08-25 (TASK-0260 image scope — build/verify/patch/ota, deterministic, 6 integration tests; shared layout/GPT/codec authorities in `storage::layout` + `bootfmt`)
 - **Phase 5 (`nxboot` loader + boot flip + measured handoff)**: ⬜ (TASK-0289-A)
 - **Phase 6 (BSB runtime projection)**: ⬜ (TASK-0036-B)
 - **Phase 7 (apply engine v2 + offline feed + crown proof)**: ⬜ (TASK-0179)
@@ -174,6 +174,11 @@ table in `userspace/storage` (shared by `nx image`, `virtioblkd`, `nxboot`):
 | name | type | size (v1) | content |
 |---|---|---|---|
 | `bsb` | `NEXUS-BSB-v1` | 1 MiB | BSB double block (§6) |
+
+(Amendment 2026-08-25, TASK-0260: the disk is GPT-only — `storage::gpt`
+deliberately writes no protective MBR; nothing boots via MBR and `nxboot`
+parses GPT directly. The concrete table below is realized verbatim in
+`userspace/storage/src/layout.rs`, the ONE shared layout authority.)
 | `boot-a` | `NEXUS-BOOT-v1` | 56 MiB | NXBD @ sector 0, boot image from sector 8 |
 | `boot-b` | `NEXUS-BOOT-v1` | 56 MiB | same layout; zeroed NXBD = invalid slot |
 | `system-a` | `NEXUS-SYS-v1` | 32 MiB | **reserved** (Phase B system volume) |
@@ -545,7 +550,7 @@ Marker SSOT stays `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` +
 - [x] **Phase 1**: device trust anchor + verdict authority — proof: `cargo test -p updates_host` (`test_reject_untrusted_publisher`, `test_accept_baked_publisher`) + `SELFTEST: updates trust reject ok` gated in headless/smp1/reset (2026-08-25)
 - [x] **Phase 2**: record v3 + quorum + deadline — proof: 22 bootctld host tests + `bootctld: health quorum ok (2/2)` + `SELFTEST: bootctl quorum ok` gated every proof boot (2026-08-25)
 - [ ] **Phase 3**: virtio-blk v2 + single GPT disk — proof: `SELFTEST: blk cross-partition deny ok` + keep-blk double boot
-- [ ] **Phase 4**: `nx image build/verify/patch` — proof: determinism + round-trip host tests
+- [x] **Phase 4**: `nx image build/verify/patch/ota` — proof: 6 integration tests (determinism double-build, verify round-trip via the shared parser, tamper/wrong-key rejects, patch preservation, slot-budget reject, `.nxs` v2 decode with bound NXBD) (2026-08-25)
 - [ ] **Phase 5**: `nxboot` + boot flip + handoff — proof: `nxboot: verify ok` leading the headless ladder; `KSELFTEST: boot handoff ok (measured)`
 - [ ] **Phase 6**: BSB projection — proof: `bootctld: bsb sync ...` + `SELFTEST: bootctl bsb ok`
 - [ ] **Phase 7**: apply engine v2 + crown proof — proof: `just test-os ota` (`SELFTEST: ota flip ok`)

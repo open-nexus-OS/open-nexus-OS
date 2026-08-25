@@ -141,5 +141,9 @@ pub mod pkgimg;
 /// Bounded read-only GPT parsing + `PartitionView` (ADR-0044).
 pub mod gpt;
 
+/// THE RFC-0089 §2 disk-layout authority (shared by nx image, virtioblkd,
+/// nxboot — one table, zero drift).
+pub mod layout;
+
 /// Partition-scoped block IPC protocol codec (ADR-0044).
 pub mod blockproto;

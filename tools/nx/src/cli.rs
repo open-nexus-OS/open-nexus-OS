@@ -9,6 +9,10 @@
 //! ADR: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+
+pub(crate) use crate::cli_image::{
+    ImageAction, ImageArgs, ImageBuildArgs, ImageOtaArgs, ImagePatchArgs, ImageVerifyArgs,
+};
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -76,6 +80,12 @@ impl Cli {
                 RecoveryTokenAction::Make(a) => a.json,
                 RecoveryTokenAction::Show(a) => a.json,
             },
+            Commands::Image(args) => match &args.action {
+                ImageAction::Build(a) => a.json,
+                ImageAction::Verify(a) => a.json,
+                ImageAction::Patch(a) => a.json,
+                ImageAction::Ota(a) => a.json,
+            },
         }
     }
 }
@@ -94,6 +104,7 @@ pub(crate) enum Commands {
     Crash(CrashArgs),
     Diagnose(DiagnoseArgs),
     Recovery(RecoveryArgs),
+    Image(ImageArgs),
 }
 
 /// `nx recovery token …` — `.nxra` break-glass tokens (RFC-0088).

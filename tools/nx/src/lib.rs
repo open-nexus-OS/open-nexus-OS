@@ -9,6 +9,7 @@
 //! ADR: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 
 mod cli;
+mod cli_image;
 mod commands;
 mod error;
 mod output;

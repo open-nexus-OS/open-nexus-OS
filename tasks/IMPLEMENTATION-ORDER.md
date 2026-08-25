@@ -294,7 +294,7 @@ Contracts: RFC-0089 (OTA v2 end-to-end; supersedes RFC-0012 in part) · ADR-0058
 | 1 | ✅ TASK-0198 P1 | Device publisher trust anchor + verifier verdict authority (closes the self-key hole) | Delivered 2026-08-25 (test-all green; task stays Draft for P2+) |
 | 2 | ✅ TASK-0036-A | Health-commit v2 in bootctld: record v3 + quorum + wall-clock deadline | Delivered 2026-08-25 (test-all green; 0036-B waits on 0315) |
 | 3 | ✅ TASK-0314 | virtio-blk driver v2 (multisector/queue/IRQ) — request ring + 16 KiB runs + IRQ machinery (endpoint provisioning → 0315) | Delivered 2026-08-25 (test-all green) |
-| 4 | TASK-0260 | `nx image build/verify/patch/ota` — deterministic GPT assembler + NXBD signer + factory BSB (rewritten) | Draft |
+| 4 | ✅ TASK-0260 | `nx image build/verify/patch/ota` — deterministic GPT assembler + NXBD signer + factory BSB (rewritten) | Image scope delivered 2026-08-25 (test-all green; ledger In Progress for the flasher/factory-reset residual) |
 | 5 | TASK-0315 | Single GPT disk: virtioblkd sole owner + OTA partitions (bsb/boot-a/b/system-a/b) — boot still direct | Draft |
 | 6 | TASK-0289-A | `nxboot` first-stage loader + boot flip + measured handoff (flag-day; kernel-touch) | Draft |
 | 7 | TASK-0036-B | bootctld BSB projection (record first, BSB second, idempotent resync) | Draft |

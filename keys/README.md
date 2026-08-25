@@ -82,3 +82,17 @@ tools/gen-bringup-key.sh
   versa). Key labels are baked into the signature byte stream
   (`KeyLabel::Ci` vs `KeyLabel::Bringup`); mixing them defeats the
   policy gate.
+
+## Dev signing seeds (TASK-0260, RFC-0089 — NOT production custody)
+
+- `dev-os-image.ed25519.seed` — deterministic dev seed (`0b` × 32) signing
+  NXBD boot descriptors in dev images (`nx image build/patch --sign`). The
+  nxboot trust anchor (`policies/os-trust.toml`, TASK-0289) bakes its
+  verifying key for proof boots; production images replace both at
+  provisioning.
+- `dev-publisher.ed25519.seed` — deterministic dev seed (`07` × 32) signing
+  `.nxs` containers (`nx image ota --sign-publisher`). Matches the selftest
+  fixture publisher already anchored in `policies/update-trust.toml`.
+
+Seeds are 64 lowercase hex chars; deliberately public (proof-key doctrine,
+same as the `.nxra` proof key). Never log or reuse them outside dev images.

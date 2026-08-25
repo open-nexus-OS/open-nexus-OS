@@ -1,6 +1,7 @@
 ---
 title: TASK-0260 Provisioning v1.0a (host-first): nx image — deterministic GPT disk assembler + NXBD signer + factory BSB + OTA-container emission (flasher/factory-reset = residual)
-status: Draft
+status: In Progress
+note: image-builder scope (the OTA-lane package) DELIVERED 2026-08-25; the ledger stays open for the residual flasher protocol + factory reset (executes with TASK-0261)
 owner: @reliability
 created: 2025-12-29
 updated: 2026-08-25
@@ -16,6 +17,45 @@ links:
   - Signing primitives baseline: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Testing contract: scripts/qemu-test.sh
 ---
+
+## Image-builder scope DELIVERED 2026-08-25 (test-all green; OTA-lane package 4)
+
+Evidence (`cargo test -p nx --test image_cli` — 6 integration tests;
+`just test-all` EXIT=0; flasher/factory-reset stay residual, see below):
+
+- **`nx image build`**: full RFC-0089 §2 GPT disk (`build/nexus.img`,
+  384 MiB sparse) via the SHARED authorities — layout from
+  `storage::layout::NEXUS_DISK_LAYOUT` (new module, THE table for nx image
+  / virtioblkd / nxboot), GPT bytes from `storage::gpt::write_gpt`, NXBD/
+  BSB from the new `userspace/bootfmt` crate (no_std codecs + host `sign`
+  feature; 6 unit tests: goldens, tamper, torn-block pick rule, zeroed-
+  sector-invalid). Factory BSB block 0 (seq 1, active A, committed);
+  boot-a written NXBD-LAST (zero descriptor → padded body → signed
+  descriptor); boot-b zeroed = invalid; optional state/data seeding;
+  per-slot budget enforced (57 MiB kernel ⇒ deterministic build reject).
+  Determinism proven: build twice ⇒ byte-identical images.
+- **`nx image verify`**: re-parse through the SAME `storage::gpt` parser
+  the OS uses, BSB pick rule, NXBD signature (pubkey or seed-derived) +
+  streamed payload sha256; tamper and wrong-key rejects proven.
+- **`nx image patch --part boot-a|boot-b`**: refreshes ONE slot (NXBD-last)
+  — bsb/state/data proven byte-identical before/after. This is the
+  keep-blk dev flow after the boot flip AND the flasher's write shape.
+- **`nx image ota`**: `.nxs` v2 container (RFC-0089 §3) — capnp
+  `ComponentManifest` (schema SSOT extended in
+  `tools/nexus-idl/schemas/system-set.capnp`: schemaVersion 2, typed
+  components, kinds 2..5 reserved), deterministic tar (mode 644, uid/gid 0,
+  mtime 0), publisher signature over `manifest.nxo`. Layout decision
+  recorded: the signed NXBD rides in the boot-image component's `kindData`
+  (bounded 512 B) — the publisher signature transitively binds it, and the
+  descriptor itself carries the OS-image signature (two-layer trust,
+  RFC-0089 §4/§5). Fixture keys: `keys/dev-os-image.ed25519.seed`
+  (`0b`×32) + `keys/dev-publisher.ed25519.seed` (`07`×32 — the anchored
+  fixture publisher); rollback-index/build-id variants via flags for
+  TASK-0179's crown/downgrade lanes.
+- Recut note: `write_gpt` deliberately writes NO protective MBR (the
+  shared gpt.rs doctrine — nothing boots via MBR; nxboot parses GPT
+  directly), so RFC-0089 §2's "protective MBR" line is amended by this
+  ledger: the GPT-only form IS the contract.
 
 ## REWRITE 2026-08-25 (RFC-0089 lane recut — supersedes the pre-rewrite image-builder scope)
 

@@ -306,6 +306,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bootfmt"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+]
+
+[[package]]
 name = "borrow-or-share"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2841,6 +2848,8 @@ name = "nx"
 version = "0.1.0"
 dependencies = [
  "bootctld",
+ "bootfmt",
+ "capnp",
  "clap",
  "configd",
  "crash",
@@ -2857,8 +2866,10 @@ dependencies = [
  "sha2",
  "statefs",
  "storage",
+ "tar",
  "tempfile",
  "tokio",
+ "updates",
 ]
 
 [[package]]

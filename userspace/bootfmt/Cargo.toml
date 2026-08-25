@@ -1,0 +1,19 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "bootfmt"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "NXBD boot descriptors + BSB boot selection blocks (RFC-0089 §5/§6) — fixed-layout codecs shared by nx image, updated, bootctld and nxboot"
+
+[features]
+default = ["std", "sign"]
+std = []
+# Host-side signing (nx image build); verification is always available
+# (no_std, pure — the nxboot loader depends on it).
+sign = []
+
+[dependencies]
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }

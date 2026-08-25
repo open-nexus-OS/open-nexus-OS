@@ -19,6 +19,16 @@ use crate::{BlockDevice, BlockError};
 pub const GUID_NEXUS_STATE: [u8; 16] = *b"NEXUS-STATE-v1\0\0";
 /// GPT partition-type GUID for the nexus `data` partition (nxfs container).
 pub const GUID_NEXUS_DATA: [u8; 16] = *b"NEXUS-DATA-v1\0\0\0";
+/// GPT partition-type GUID for the boot-selection-block partition
+/// (RFC-0089 §6; write matrix ADR-0058).
+pub const GUID_NEXUS_BSB: [u8; 16] = *b"NEXUS-BSB-v1\0\0\0\0";
+/// GPT partition-type GUID for a boot-image slot (`boot-a`/`boot-b`,
+/// RFC-0089 §2/§5 — NXBD at sector 0, image from sector 8; the NAME
+/// distinguishes the slots, the type is shared).
+pub const GUID_NEXUS_BOOT: [u8; 16] = *b"NEXUS-BOOT-v1\0\0\0";
+/// GPT partition-type GUID for a reserved system volume (`system-a`/`-b`,
+/// RFC-0089 §12 Phase B — empty until the bundle-set phase).
+pub const GUID_NEXUS_SYS: [u8; 16] = *b"NEXUS-SYS-v1\0\0\0\0";
 
 const GPT_SIGNATURE: &[u8; 8] = b"EFI PART";
 const HEADER_LBA: u64 = 1;
@@ -125,6 +135,16 @@ pub fn parse_gpt<D: BlockDevice>(device: &D) -> Result<Vec<Partition>, GptError>
 }
 
 /// Finds the partition with `type_guid`.
+/// Finds a partition by type GUID AND name — required where one type is
+/// shared by several partitions (`boot-a`/`boot-b`, `system-a`/`-b`).
+pub fn find_partition_named(
+    partitions: &[Partition],
+    type_guid: &[u8; 16],
+    name: &str,
+) -> Option<Partition> {
+    partitions.iter().find(|p| &p.type_guid == type_guid && p.name == name).cloned()
+}
+
 pub fn find_partition(partitions: &[Partition], type_guid: &[u8; 16]) -> Option<Partition> {
     partitions.iter().find(|p| &p.type_guid == type_guid).cloned()
 }

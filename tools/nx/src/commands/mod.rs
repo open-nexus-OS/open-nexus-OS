@@ -14,6 +14,7 @@ pub(crate) mod diagnose;
 pub(crate) mod doctor;
 pub(crate) mod dsl;
 pub(crate) mod idl;
+pub(crate) mod image;
 pub(crate) mod input;
 pub(crate) mod inspect;
 pub(crate) mod new;
@@ -66,5 +67,6 @@ pub(crate) fn execute(cli: Cli, cfg: &RuntimeConfig) -> ExecResult {
         Commands::Crash(args) => crash::handle_crash(args),
         Commands::Diagnose(args) => diagnose::handle_diagnose(args),
         Commands::Recovery(args) => recovery::handle_recovery(args),
+        Commands::Image(args) => image::handle_image(args),
     }
 }

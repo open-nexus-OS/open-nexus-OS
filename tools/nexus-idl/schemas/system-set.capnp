@@ -31,3 +31,31 @@ struct BundleEntry {
   payloadSha256 @3 :Data;      # 32 bytes
   payloadSize @4 :UInt64;
 }
+
+# .nxs v2 — signed COMPONENT manifest (RFC-0089 §3, `manifest.nxo`).
+#
+# The v2 container evolves the update unit from a bundles-only set to typed
+# components: v1 ships exactly ONE kind (`boot-image` = 1); `bundle` (2),
+# `boot-image-delta` (3), `bundle-delta` (4) and `rotation-record` (5) are
+# RESERVED — an unknown kind is a deterministic reject, never a skip.
+# Verification order is normative: manifest signature against the DEVICE
+# anchor (the publisherKeyId is a lookup hint, never a trust input) →
+# rollbackIndex >= persisted floor → streamed per-component sha256 →
+# kind-specific checks. Produced by `nx image ota`; consumed by `updated`.
+
+struct ComponentManifest {
+  schemaVersion @0 :UInt8 = 2;
+  publisherKeyId @1 :Data;     # 8 bytes — anchor lookup hint
+  buildId @2 :Text;            # deterministic build identifier
+  rollbackIndex @3 :UInt32;    # monotonic anti-downgrade index (§10)
+  components @4 :List(Component);
+}
+
+struct Component {
+  kind @0 :UInt8;              # 1 = boot-image (v1); 2..5 reserved
+  name @1 :Text;
+  size @2 :UInt64;
+  sha256 @3 :Data;             # 32 bytes over the payload entry bytes
+  payloadPath @4 :Text;        # tar entry path
+  kindData @5 :Data;           # kind-specific, bounded; empty for boot-image
+}

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-25 (TASK-0260 image scope: `nx image` — deterministic GPT disk + NXBD signer + factory BSB + `.nxs` v2 emission)
+
+- **`nx image build/verify/patch/ota`**: the host-side RFC-0089 artifact
+  authority. The 384 MiB GPT disk (`bsb | boot-a/b | system-a/b | state |
+  data`) realizes `storage::layout::NEXUS_DISK_LAYOUT` — a new shared table
+  consumed by nx image now and by virtioblkd (TASK-0315) and nxboot
+  (TASK-0289) next, so the three can never drift. Boot slots are written
+  NXBD-LAST (descriptor zeroed → padded body → signed descriptor): an
+  interrupted write leaves an invalid slot, never a half-bootable one.
+- **`userspace/bootfmt`** (new crate): NXBD (512-byte signed boot
+  descriptor) and BSB (512-byte selection double block, CRC + pick rule)
+  codecs — no_std, panic-free on untrusted bytes; verification is pure
+  Ed25519 (the nxboot trust root links exactly this), signing is a host
+  feature. Goldens, tamper, torn-block and zeroed-slot-invalid proofs.
+- **`.nxs` v2 schema landed** in the SSOT
+  (`tools/nexus-idl/schemas/system-set.capnp`): `ComponentManifest`
+  (schemaVersion 2, typed components, kinds 2–5 reserved). `nx image ota`
+  emits deterministic containers; the signed NXBD rides in the boot-image
+  component's `kindData`, so the publisher signature transitively binds
+  the descriptor that itself carries the OS-image signature.
+- Determinism proven end to end: build twice ⇒ byte-identical images;
+  no wall clock in any written byte. Dev signing seeds documented under
+  `keys/` (proof-key doctrine; production provisioning replaces them).
+
 ### Added - 2026-08-25 (TASK-0314: virtio-blk driver v2 — request ring, multi-sector runs, IRQ machinery)
 
 - **Request ring** (`storage-virtio-blk/src/ring.rs`, host-proven): descriptor
