@@ -217,7 +217,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0009 | Persistence v1: virtio-blk + statefs | Done | State persistence baseline complete |
 | ✅ TASK-0010 | Device MMIO access model | Done | Capability-gated device access complete |
 | ✅ TASK-0011 | Kernel simplification phase A | Done | Simplification baseline complete |
-| ✅ TASK-0011B | Kernel Rust idioms pre-SMP | Superseded | Pre-SMP prep obsolete — SMP v1/v1b/v2 (`TASK-0012`/`0012B`/`0042`) shipped; residual idiom debt owned by current kernel tasks (ledger closed 2026-08-18) |
+| ⤳ TASK-0011B | Kernel Rust idioms pre-SMP | Superseded | Pre-SMP prep obsolete — SMP v1/v1b/v2 (`TASK-0012`/`0012B`/`0042`) shipped; residual idiom debt owned by current kernel tasks (ledger closed 2026-08-18) |
 | ✅ TASK-0012 | Kernel SMP v1 | Done | Baseline complete |
 | ✅ TASK-0012B | Kernel SMP v1b hardening bridge | Done | Hardening complete |
 | ✅ TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | Done | QoS/timing contract complete |
@@ -300,6 +300,24 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0119 | SystemUI→DSL Phase 1a: Launcher + Control-Center DSL pages | Done | Reconciled 2026-07-19; dsl_apps_conformance (desktop-shell); re-arch path |
 | ✅ TASK-0120 | SystemUI→DSL Phase 1b: OS wiring | Done | Reconciled 2026-07-19; `systemui: dsl shell on` boot-proven |
 | ✅ TASK-0121 | SystemUI→DSL Phase 2a: Settings + Notifications Center surface | Done | Reconciled 2026-07-19; settings host-tested; real notif delivery folded → 0123–0125 |
+| ✅ TASK-0146 | IME v2 Part 1a: ime-core dead/compose + focused-field model | Done | Host-first engine + wire codecs |
+| ✅ TASK-0147 | IME v2 Part 1b: imed service + typing lands in apps | Done | Live-proven with OSK wiring |
+| ✅ TASK-0149 | IME v2 Part 2a: JP/KR/ZH engines in ime-core | Done | Bounded user dictionaries |
+| ✅ TASK-0150 | IME v2 Part 2b: candidate strip + CJK OSK layouts | Done | ime-ui integration |
+| ✅ TASK-0203 | IME v2.1a: deterministic adaptive ranking | Done | Q8.8 freq/recency engine |
+| ✅ TASK-0204 | IME v2.1b: personalization store on statefsd | Done | state:/ime persistence, live-proven |
+| ✅ TASK-0240 | i18n v2a: locale-pack compiler in nx build | Done | PackLocaleSource |
+| ✅ TASK-0241 | i18n v2b: runtime locale switch | Done | OP_SURFACE_REGION push |
+| ✅ TASK-0247 | RISC-V bring-up v1.1b: SMP + per-hart timers + virtioblkd + packagefs | Done | SBI HSM/IPI |
+| ✅ TASK-0285 | QEMU harness phased failure output + early-exit (RFC-0014 P2) | Done | first_failed_phase reporting |
+| ✅ TASK-0296 | nexus-wire declarative frame codec + nexus-abi identity split | Done | nexus-abi 4103→183 LOC (ADR-0051) |
+| ✅ TASK-0297 | Time v1: goldfish rtcd + timed walltime + tz-lite | Done | Live clock end to end |
+| ✅ TASK-0298 | Settings spine: region/keymap/time keys + OP_WATCH push | Done | Push propagation |
+| ✅ TASK-0301 | IPC last-sender EOF + app self-exit on window close | Done | RFC-0079 PeerClosed signal |
+| ✅ TASK-0302 | Shared glyph-atlas RO VMO | Done | RFC-0080; ONE shared RO VMO, app-host ELF 5.9→1.66 MB |
+| ✅ TASK-0303 | Process reaper: service-driven zombie reclaim | Done | RFC-0081; boot-proven 2026-07-24 |
+| ✅ TASK-0307 | Settings distribution v2: single authority + versioned snapshots | Done | RFC-0083; reemit instead of remount |
+| ✅ TASK-0310 | Kernel-owned VA allocation (vm_map/vm_unmap/mmio_map_auto) | Done | RFC-0085; syscalls 4+27 retired |
 | ⤳ TASK-0076B | DSL v0.1c: visible OS mount + first DSL frame | Superseded | Superseded by TASK-0080C (own demo retired; capability lives in 0080C) |
 
 `TASK-0065` / UI v6b app lifecycle + notifications + navigation — **DONE (2026-06-23)**. RFC-0065 + ADR-0036/0037; `bundlemgrd` registry **generated from real `bundles/<app>/manifest.toml`** at build time (no hardcoded list; phantom `notes` removed; `windowd: apps ok (n=2)` chat/search); `abilitymgr` real service + lifecycle broker + **manifest-caps launch authority** (fail-closed `STATUS_DENIED`; `abilitymgr: caps ok app=<id>`); policyd `BundleQuery` gating + greppable `!route-deny`/`!cap-deny`; real `.nxb` bundles + Cap'n Proto manifests; per-app-surface model (ADR-0037); `search-app` (no_std) owns its data, windowd hosts it. 25 abilitymgr + 2 nxb-pack + 126 windowd + 10 search-app tests, riscv-checked. **Descoped to follow-ups:** apps as spawned processes w/ own surfaces → DSL App Runtime **`TASK-0080D`** (execd only runs asm stubs today; needs a userspace app runtime + surface handoff) + `TASK-0234`/`0235` + SystemUI DSL phases.

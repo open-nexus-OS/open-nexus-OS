@@ -121,14 +121,12 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core | 2026-05-04 |
 | ✅ TASK-0253 | Input v1.0b: OS/QEMU hidrawd + touchd + inputd + windowd/IME hooks | 2026-05-11 |
 | ✅ TASK-0056C | UI v2a: present/input perf latency + coalescing + no-damage-skip + idle-cheap | 2026-05-11 |
-| ✅ TASK-0057 | UI v2b: Minimal DisplayServer v0 — Mocu cursor, JPEG wallpaper, Inter text, input targets | 2026-05-15 |
-| ✅ TASK-0058 | UI v3a: layout engine (flex/grid/stack) + text wrapping + host goldens — production-grade windowd integration | 2026-05-17 |
 | ✅ TASK-0059 | UI v3b: clip + scroll + backdrop effects + shadow pipeline + IME + MSDF/SDF rendering | 2026-06-05 |
 | ✅ TASK-0062 | UI v5a: Deterministic Animation + NexusGfx 2D Pipeline + GPU Driver Contract | 2026-06-10 |
 | ✅ TASK-0063 | UI v5b: virtualized list + scene graph + dual-panel GPU blur + virgl pipeline + theme tokens | 2026-06-22 |
 | ✅ TASK-0064 | UI v6a: window management v1 — ShellWindow N-window WM (chat instance + title-bar/X/drag/z-order) | 2026-06-22 |
-| ✅ TASK-0057 | UI v2b: text shaping + font fallback/cache + SVG pipeline | 2026-07-19 (reconciled; ui v2b markers) |
-| ✅ TASK-0058 | UI v3a: layout wrapping + deterministic box model | 2026-07-19 (reconciled; host goldens) |
+| ✅ TASK-0057 | UI v2b: asset pipeline + theme system + SVG/PNG/JPG + text shaping + cursor pipeline | 2026-07-19 (reconciled; first slice 2026-05-15) |
+| ✅ TASK-0058 | UI v3a: deterministic layout engine (flex/grid/stack) + text wrapping + host goldens | 2026-07-19 (reconciled; first slice 2026-05-17) |
 | ✅ TASK-0060 | UI v4a: tiled compositor + clip-stack + atlases + perf | 2026-07-19 (reconciled; ui v4 markers) |
 | ✅ TASK-0060B | UI v4b: glass materials + backdrop-cache + degrade | 2026-07-19 (reconciled) |
 | ✅ TASK-0061 | UI v4b: gestures + a11y semantics (a11y-hardening folded → TASK-0114) | 2026-07-19 (reconciled) |
@@ -152,15 +150,33 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0119 | SystemUI→DSL Phase 1a: Launcher + Control-Center DSL pages | 2026-07-19 (reconciled; dsl_apps_conformance) |
 | ✅ TASK-0120 | SystemUI→DSL Phase 1b: OS wiring | 2026-07-19 (reconciled; `systemui: dsl shell on`) |
 | ✅ TASK-0121 | SystemUI→DSL Phase 2a: Settings + Notifications Center surface (notif delivery → 0123–0125) | 2026-07-19 (reconciled; settings.rs test) |
+| ✅ TASK-0146 | IME v2 Part 1a: ime-core dead/compose engine + DSL focused-field model + wire codecs | 2026-07-21 |
+| ✅ TASK-0147 | IME v2 Part 1b: imed service real + typing lands in apps + OSK wiring | 2026-07-22 |
+| ✅ TASK-0149 | IME v2 Part 2a: JP/KR/ZH engines in ime-core (bounded user dicts) | 2026-07-22 |
+| ✅ TASK-0150 | IME v2 Part 2b: candidate strip in ime-ui + CJK OSK layouts | 2026-07-22 |
+| ✅ TASK-0203 | IME v2.1a: deterministic adaptive ranking (Q8.8 freq/recency) | 2026-07-24 |
+| ✅ TASK-0204 | IME v2.1b: personalization store on statefsd (state:/ime) + live proof | 2026-07-24 |
+| ✅ TASK-0240 | i18n v2a: locale-pack compiler in nx build + PackLocaleSource | 2026-07-21 |
+| ✅ TASK-0241 | i18n v2b: runtime locale switch via OP_SURFACE_REGION push | 2026-07-21 |
+| ✅ TASK-0247 | RISC-V bring-up v1.1b: SMP (SBI HSM/IPI) + per-hart timers + virtioblkd + packagefs | — |
 | ✅ TASK-0276 | Parallelism v1: deterministic threadpools + policy contract | 2026-07-19 (reconciled) |
 | ✅ TASK-0277 | Kernel SMP parallelism policy v1 (deterministic) | 2026-07-19 (reconciled) |
 | ✅ TASK-0283 | Kernel per-CPU ownership wrapper v1 | 2026-07-19 (reconciled) |
+| ✅ TASK-0285 | RFC-0014 Phase 2: QEMU harness phased failure output + phase early-exit | — |
 | ✅ TASK-0288 | Kernel runtime closure v1c: latency budgets + stress proofs | 2026-07-19 (reconciled) |
 | ✅ TASK-0291 | VFS ReadDir + svc.files + filemanager role + stash real listing | 2026-07-15 |
 | ✅ TASK-0292 | nxfs v1 core (host-first): engine + fsck + crash-injection | 2026-07-15 |
 | ✅ TASK-0293 | nxfs /data OS bring-up (2nd blk device + vfsd DataStore) | 2026-07-15 |
 | ✅ TASK-0294 | MIME SSOT: nexus-mime-icons + stash filetype icons | 2026-07-15 |
 | ✅ TASK-0295 | Zero-copy read/write via VMO splice (OP_READ_VMO CAP_MOVE) | 2026-07-15 |
+| ✅ TASK-0296 | nexus-wire: declarative service frame codec + nexus-abi identity split | 2026-07-20 |
+| ✅ TASK-0297 | Time v1: goldfish rtcd + timed walltime + tz-lite + live clock | 2026-07-21 |
+| ✅ TASK-0298 | Settings spine: region/keymap/time keys + OP_WATCH push propagation | 2026-07-21 |
+| ✅ TASK-0301 | IPC last-sender EOF + app self-exit on window close (RFC-0079) | 2026-07-23 |
+| ✅ TASK-0302 | Shared glyph-atlas RO VMO (RFC-0080; app-host ELF 5.9→1.66 MB) | 2026-07-23 |
+| ✅ TASK-0303 | Process reaper: service-driven zombie reclaim (RFC-0081) | 2026-07-24 |
+| ✅ TASK-0307 | Settings distribution v2: single authority + versioned snapshots (RFC-0083) | 2026-07-27 |
+| ✅ TASK-0310 | Kernel-owned VA allocation: vm_map/vm_unmap/mmio_map_auto (RFC-0085) | 2026-07-28 |
 
 ---
 
@@ -434,6 +450,10 @@ Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen.
 > **Sub-80-Umsetzung gestartet 2026-08-14:** alle offenen Tasks < 80 wurden gegen die
 > Repo-Realität triagiert (7× Superseded, Rest rebased) und werden jetzt in Lanes gebaut
 > (Storage/Recovery · OTA · Security · UI/DSL · Networking · Kernel). Ledger = Wahrheit.
+> **Stand 2026-08-24:** Storage-Lane (0025–0027) UND Reliability Spine
+> (0049/0049B/0049C/0050/0051/0051B/0053) sind komplett Done; offen sub-80 sind noch
+> Networking (0024/0030/0038/0040), OTA (0034–0036), Security (0028/0043/0052),
+> UI/DSL (0066–0068/0074/0077B/0077C/0079) und Perf-Einzelstücke (0054C/0055D).
 
 **DSoftBus / Networking:**
 `0024` (rebased 2026-08-14 → QUIC-v2-Reliability; OS-Proof gated auf TRACK-NETWORK-PROOF-LANES),
@@ -452,7 +472,8 @@ ADR-0043/RFC-0071; absorbed by 0316/0317/0318).
 
 **Security / Compliance:**
 `0028`, `0043`, `0052` (ABI filters, sandbox quotas, ingress policy);
-`0053` moved into the Reliability Spine (signed recovery actions on the 0051 ops surface)
+✅ `0053` moved into the Reliability Spine — **Done 2026-08-24** (`.nxra` break-glass on the
+0051 ops surface, RFC-0088)
 
 **OTA / Updates / Supply Chain:**
 `0034` (rebased 2026-08-14: nur noch `.nxdelta` offen), `0035` (unblocked), `0036` (rebased;
@@ -463,17 +484,18 @@ Owner der Slot-State-Machine — 0178/0179 defer);
 **Observability / Debug:**
 `0038` (rebased 2026-08-14: Ziel ist dsoftbusd/mux_v2, Prämisse war invertiert), `0040`
 (rebased: logd/metricsd sind längst Done); ✅ `0048` Done (host pipeline);
-`0049` → **Reliability Spine** (rewritten 2026-08-18: fault/exhaustion truth — der alte
-crashd-Scope lebt in `0051B`);
+✅ `0049` → **Reliability Spine** — **Done 2026-08-20** (fault/exhaustion truth; der alte
+crashd-Scope lebt in `0051B`, ebenfalls **Done 2026-08-24** — `.nxcd` at rest ohne Daemon);
 ⤳ `0041` — **Superseded 2026-08-14** (Motivation von ADR-0049 konsumiert — Kernel-BKL-Budgets
 sind Boot-Gate)
 
 **Recovery:**
-→ **Reliability Spine** (Sektion oben). Entscheidung 2026-08-18 ersetzt die vom
-2026-08-14: Boot-Target-Authority ist `bootctld` (ADR-0055), nicht ein
-`nexus.target`-Parser; `0050`/`0051`/`0053` rewritten, `0050B` neu (Deferred),
-`0178` Superseded; `0051` exponiert die gelieferte fsck-Engine aus 0026 statt sie
-neu zu bauen
+✅ → **Reliability Spine — KOMPLETT Done 2026-08-24** (Sektion oben; RFC-0087 Complete).
+Entscheidung 2026-08-18 ersetzt die vom 2026-08-14: Boot-Target-Authority ist `bootctld`
+(ADR-0055), nicht ein `nexus.target`-Parser; `0050`/`0051`/`0053` rewritten und geliefert,
+`0050B` Deferred (Konsole = dünner Client der Ops-Fläche, falls je aktiviert),
+`0178` Superseded; `0051` exponierte die gelieferte fsck-Engine aus 0026 (Engine bekam
+dabei den Streaming-Scan, `fsck_window.rs`)
 
 **SMP v2 (voll):**
 ✅ `0042` Done (see "Post-0064 — SMP + Filesystem" section above); SMP closure `0281`/`0282`/`0286`/`0287`/`0290` still open.
