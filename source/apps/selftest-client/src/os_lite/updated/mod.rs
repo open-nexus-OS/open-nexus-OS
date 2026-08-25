@@ -33,7 +33,7 @@ mod switch;
 mod types;
 
 pub(crate) use health::init_health_ok;
-pub(crate) use stage::{updated_log_probe, updated_stage};
+pub(crate) use stage::{updated_log_probe, updated_stage, updated_stage_untrusted_deny};
 pub(crate) use status::{updated_boot_attempt, updated_get_status};
 pub(crate) use switch::updated_switch;
 pub(crate) use types::SlotId;

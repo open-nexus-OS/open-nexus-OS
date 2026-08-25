@@ -25,7 +25,13 @@ use exec_payloads::HELLO_MANIFEST_NXB;
 use updates::system_set_capnp::system_set_index;
 
 // SECURITY: bring-up test key for deterministic selftests (NOT production custody).
+// This publisher IS in the device anchor (policies/update-trust.toml).
 const TEST_SIGNING_KEY_SEED: [u8; 32] = [7u8; 32];
+
+// TASK-0198 Phase 1: a second deterministic key that is deliberately NOT in
+// the device anchor — a validly self-signed archive under this key must be
+// rejected `untrusted publisher` (the exact hole the trust anchor closes).
+const UNTRUSTED_SIGNING_KEY_SEED: [u8; 32] = [9u8; 32];
 
 // Keep the selftest `.nxs` small so OTA staging stays fast under QEMU emulation.
 // This payload is NOT executed; it is only hashed and packaged.
@@ -49,8 +55,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-env-changed=SELFTEST_PROFILE");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
-    let nxs_bytes = build_system_test_nxs();
+    let nxs_bytes = build_system_test_nxs_with(&TEST_SIGNING_KEY_SEED);
     fs::write(out_dir.join("system-test.nxs"), nxs_bytes)?;
+    let untrusted_bytes = build_system_test_nxs_with(&UNTRUSTED_SIGNING_KEY_SEED);
+    fs::write(out_dir.join("system-test-untrusted.nxs"), untrusted_bytes)?;
 
     // P4-03 (extended in P5-00): generate `markers_generated.rs` from the
     // proof-manifest. `markers.rs` includes this via
@@ -123,8 +131,8 @@ fn rust_string_literal(s: &str) -> String {
     out
 }
 
-fn build_system_test_nxs() -> Vec<u8> {
-    let signing_key = SigningKey::from_bytes(&TEST_SIGNING_KEY_SEED);
+fn build_system_test_nxs_with(seed: &[u8; 32]) -> Vec<u8> {
+    let signing_key = SigningKey::from_bytes(seed);
     let publisher = signing_key.verifying_key().to_bytes();
 
     let index_bytes = build_index(&publisher, HELLO_MANIFEST_NXB, TEST_PAYLOAD);

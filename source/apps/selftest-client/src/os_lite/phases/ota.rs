@@ -118,6 +118,22 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             }
         }
     }
+    // TASK-0198 Phase 1 deny lane FIRST (state-neutral: a rejected stage
+    // mutates nothing): a validly self-signed archive whose publisher is not
+    // in the device anchor must come back FAILED with the untrusted-publisher
+    // reject — proving the anchor is enforced before the happy path runs.
+    if updated::updated_stage_untrusted_deny(
+        &updated,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+    )
+    .is_ok()
+    {
+        emit_line(crate::markers::M_SELFTEST_UPDATES_TRUST_REJECT_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_UPDATES_TRUST_REJECT_FAIL);
+    }
     if updated::updated_stage(
         &updated,
         ctx.reply_send_slot,

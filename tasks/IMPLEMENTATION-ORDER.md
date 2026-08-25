@@ -290,7 +290,7 @@ Contracts: RFC-0089 (OTA v2 end-to-end; supersedes RFC-0012 in part) · ADR-0058
 
 | # | Task | Title | Status |
 |---|------|-------|--------|
-| 1 | TASK-0198 P1 | Device publisher trust anchor + verifier verdict authority (closes the self-key hole) | Draft |
+| 1 | ✅ TASK-0198 P1 | Device publisher trust anchor + verifier verdict authority (closes the self-key hole) | Delivered 2026-08-25 (test-all green; task stays Draft for P2+) |
 | 2 | TASK-0036-A | Health-commit v2 in bootctld: record v3 + quorum + wall-clock deadline | Draft (parallel to 1) |
 | 3 | TASK-0314 | virtio-blk driver v2 (multisector/queue/IRQ) — as ledgered | Draft |
 | 4 | TASK-0260 | `nx image build/verify/patch/ota` — deterministic GPT assembler + NXBD signer + factory BSB (rewritten) | Draft |

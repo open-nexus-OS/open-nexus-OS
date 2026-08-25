@@ -22,7 +22,7 @@ use nexus_ipc::KernelClient;
 use crate::markers::emit_line;
 
 use super::reply_pump::{updated_expect_status, updated_send_with_reply};
-use super::types::SYSTEM_TEST_NXS;
+use super::types::{SYSTEM_TEST_NXS, SYSTEM_TEST_UNTRUSTED_NXS};
 
 pub(crate) fn updated_stage(
     client: &KernelClient,
@@ -30,20 +30,53 @@ pub(crate) fn updated_stage(
     reply_recv_slot: u32,
     pending: &mut VecDeque<Vec<u8>>,
 ) -> core::result::Result<(), ()> {
-    let mut frame = Vec::with_capacity(8 + SYSTEM_TEST_NXS.len());
-    frame.resize(8 + SYSTEM_TEST_NXS.len(), 0u8);
-    let n = nexus_abi::updated::encode_stage_req(SYSTEM_TEST_NXS, &mut frame).ok_or(())?;
+    let rsp = stage_payload(client, reply_send_slot, reply_recv_slot, pending, SYSTEM_TEST_NXS)?;
+    updated_expect_status(&rsp, nexus_abi::updated::OP_STAGE)?;
+    Ok(())
+}
+
+/// TASK-0198 Phase 1 deny lane: stages a validly self-signed archive whose
+/// publisher is NOT in the device anchor and requires the FAILED status —
+/// an OK here means the trust anchor is not enforced (the pre-fix hole).
+pub(crate) fn updated_stage_untrusted_deny(
+    client: &KernelClient,
+    reply_send_slot: u32,
+    reply_recv_slot: u32,
+    pending: &mut VecDeque<Vec<u8>>,
+) -> core::result::Result<(), ()> {
+    let rsp = stage_payload(
+        client,
+        reply_send_slot,
+        reply_recv_slot,
+        pending,
+        SYSTEM_TEST_UNTRUSTED_NXS,
+    )?;
+    // Response framing: [M0, M1, VER, op|0x80, status, len:u16le, ...]
+    if rsp.len() < 7 || rsp[4] != nexus_abi::updated::STATUS_FAILED {
+        return Err(());
+    }
+    Ok(())
+}
+
+fn stage_payload(
+    client: &KernelClient,
+    reply_send_slot: u32,
+    reply_recv_slot: u32,
+    pending: &mut VecDeque<Vec<u8>>,
+    payload: &[u8],
+) -> core::result::Result<Vec<u8>, ()> {
+    let mut frame = Vec::with_capacity(8 + payload.len());
+    frame.resize(8 + payload.len(), 0u8);
+    let n = nexus_abi::updated::encode_stage_req(payload, &mut frame).ok_or(())?;
     emit_line(crate::markers::M_SELFTEST_UPDATED_STAGE_SEND);
-    let rsp = updated_send_with_reply(
+    updated_send_with_reply(
         client,
         reply_send_slot,
         reply_recv_slot,
         nexus_abi::updated::OP_STAGE,
         &frame[..n],
         pending,
-    )?;
-    updated_expect_status(&rsp, nexus_abi::updated::OP_STAGE)?;
-    Ok(())
+    )
 }
 
 pub(crate) fn updated_log_probe(

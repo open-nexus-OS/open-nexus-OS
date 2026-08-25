@@ -58,7 +58,8 @@ fn test_reject_invalid_signature() {
     let nxs = build_nxs_with_signature(&signing_key, &[bundle], &bad_sig);
 
     let verifier = Ed25519Verifier;
-    let err = SystemSet::parse(&nxs, &verifier).expect_err("signature rejection");
+    let err = SystemSet::parse(&nxs, &verifier, &trust_of(&signing_key))
+        .expect_err("signature rejection");
     assert!(matches!(err, updates::SystemSetError::InvalidSignature(_)));
 }
 
@@ -71,7 +72,8 @@ fn test_reject_mismatched_digest() {
     let nxs = build_nxs_with_index(&signing_key, &[bundle_index], &[bundle_archive]);
 
     let verifier = Ed25519Verifier;
-    let err = SystemSet::parse(&nxs, &verifier).expect_err("digest mismatch");
+    let err =
+        SystemSet::parse(&nxs, &verifier, &trust_of(&signing_key)).expect_err("digest mismatch");
     assert!(matches!(err, updates::SystemSetError::DigestMismatch { .. }));
 }
 
@@ -89,7 +91,8 @@ fn test_reject_missing_signature() {
     let nxs = tar.into_inner().expect("tar bytes");
 
     let verifier = Ed25519Verifier;
-    let err = SystemSet::parse(&nxs, &verifier).expect_err("missing signature");
+    let err =
+        SystemSet::parse(&nxs, &verifier, &trust_of(&signing_key)).expect_err("missing signature");
     assert!(matches!(err, SystemSetError::MissingEntry("system.sig.ed25519")));
 }
 
@@ -99,7 +102,7 @@ fn test_reject_oversized_archive() {
     let nxs = vec![0u8; MAX_NXS_ARCHIVE_BYTES + 1];
 
     let verifier = Ed25519Verifier;
-    let err = SystemSet::parse(&nxs, &verifier).expect_err("oversized archive");
+    let err = SystemSet::parse(&nxs, &verifier, &[]).expect_err("oversized archive");
     assert!(matches!(err, SystemSetError::ArchiveTooLarge { .. }));
 }
 
@@ -119,7 +122,8 @@ fn test_reject_path_traversal_dotdot() {
     let nxs = tar.into_inner().expect("tar bytes");
 
     let verifier = Ed25519Verifier;
-    let err = SystemSet::parse(&nxs, &verifier).expect_err("path traversal");
+    let err =
+        SystemSet::parse(&nxs, &verifier, &trust_of(&signing_key)).expect_err("path traversal");
     assert!(matches!(err, SystemSetError::ArchiveMalformed("unsafe path")));
 }
 
@@ -139,8 +143,61 @@ fn test_reject_absolute_path() {
     let nxs = tar.into_inner().expect("tar bytes");
 
     let verifier = Ed25519Verifier;
-    let err = SystemSet::parse(&nxs, &verifier).expect_err("absolute path");
+    let err =
+        SystemSet::parse(&nxs, &verifier, &trust_of(&signing_key)).expect_err("absolute path");
     assert!(matches!(err, SystemSetError::ArchiveMalformed("unsafe path")));
+}
+
+/// Host-injected trust anchor: exactly the fixture signer (RFC-0089 §4 —
+/// parse has no trust-free variant anymore).
+fn trust_of(signing_key: &SigningKey) -> Vec<[u8; 32]> {
+    vec![signing_key.verifying_key().to_bytes()]
+}
+
+/// A verifier that PANICS when consulted — proves the trust-membership check
+/// runs BEFORE any signature use (the archive-supplied key must never reach
+/// crypto when it is not anchored).
+struct PanicVerifier;
+
+impl updates::SignatureVerifier for PanicVerifier {
+    fn verify_ed25519(
+        &self,
+        _public_key: &[u8; 32],
+        _message: &[u8],
+        _signature: &[u8; 64],
+    ) -> Result<(), updates::VerifyError> {
+        panic!("signature verify reached with an untrusted publisher");
+    }
+}
+
+#[test]
+fn test_reject_untrusted_publisher() {
+    // A perfectly VALID archive, self-signed with a key that is not in the
+    // device anchor — the exact TASK-0198 hole. Must reject before crypto.
+    let untrusted_key = SigningKey::from_bytes(&[9u8; 32]);
+    let trusted_key = SigningKey::from_bytes(&[7u8; 32]);
+    let bundle = fixture_bundle("demo.hello", "1.0.0");
+    let nxs = build_nxs_with_index(&untrusted_key, &[bundle.clone()], &[bundle]);
+
+    let err = SystemSet::parse(&nxs, &PanicVerifier, &trust_of(&trusted_key))
+        .expect_err("untrusted publisher rejection");
+    assert!(matches!(err, SystemSetError::UntrustedPublisher));
+}
+
+#[test]
+fn test_accept_baked_publisher() {
+    // Drift guard: the selftest fixture signer (dev seed [7u8; 32]) must be a
+    // member of the BAKED device anchor, and a valid archive signed by it
+    // must parse against exactly that anchor — otherwise the QEMU OTA ladder
+    // and policies/update-trust.toml have drifted apart.
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let bundle = fixture_bundle("demo.hello", "1.0.0");
+    let nxs = build_nxs_with_index(&signing_key, &[bundle.clone()], &[bundle]);
+
+    assert!(updates::trust::BAKED_PUBLISHERS.contains(&signing_key.verifying_key().to_bytes()));
+    let set = SystemSet::parse(&nxs, &Ed25519Verifier, updates::trust::BAKED_PUBLISHERS)
+        .expect("baked publisher accepted");
+    assert_eq!(set.bundles.len(), 1);
 }
 
 fn fixture_bundle(name: &str, version: &str) -> BundleFixture {

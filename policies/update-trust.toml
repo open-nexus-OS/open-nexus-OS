@@ -1,0 +1,23 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Device trust anchor for UPDATE PUBLISHERS (RFC-0089 §4, TASK-0198 Phase 1).
+# Baked at build time into `updates::trust::BAKED_PUBLISHERS` by
+# userspace/updates/build.rs (same doctrine as policies/nxra-trust.toml /
+# RFC-0088 BAKED_TRUST): the anchor is configuration-shaped SECURITY STATE —
+# runtime-mutable trust without a verified root would be attack surface.
+# Malformed entries FAIL THE BUILD. Rotation extends this set at runtime via
+# signed rotation-record components (RFC-0089 §4 seam; TASK-0197/0198 P2+),
+# it never replaces the mechanism.
+#
+# Format (deliberately narrow): `[[publisher]]` blocks with exactly one
+# `pubkey = "<64 lowercase hex chars>"` (Ed25519 verifying key).
+#
+# PROOF KEY ONLY: the entry below is the selftest fixture publisher
+# (deterministic dev seed [7u8; 32] in source/apps/selftest-client/build.rs).
+# Production images replace this list during provisioning; the hardware
+# root-of-trust seam is TASK-0289.
+
+[[publisher]]
+# selftest fixture publisher (dev seed [7u8; 32])
+pubkey = "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c"

@@ -24,6 +24,10 @@ extern crate alloc;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod bootctl_client;
 
+/// Verifier-verdict policy (RFC-0089 §4) — cfg-free pure decision logic so
+/// the host suite proves the exact mapping the OS verify path executes.
+pub mod verify_policy;
+
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]

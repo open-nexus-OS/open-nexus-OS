@@ -15,6 +15,11 @@
 pub(crate) const SYSTEM_TEST_NXS: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/system-test.nxs"));
 
+// TASK-0198 Phase 1: validly self-signed with a key NOT in the device anchor —
+// staging this MUST be rejected `untrusted publisher` (deny-lane fixture).
+pub(crate) const SYSTEM_TEST_UNTRUSTED_NXS: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/system-test-untrusted.nxs"));
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SlotId {
     A,

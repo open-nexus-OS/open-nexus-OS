@@ -346,7 +346,7 @@ fn handle_stage(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
     // Cooperative-yield throttling: this must yield often enough to avoid starving other
     // services/selftests under the cooperative scheduler (QEMU smoke determinism).
     let mut yield_ticks: u32 = 0;
-    match SystemSet::parse_with_yield(payload, &verifier, || {
+    match SystemSet::parse_with_yield(payload, &verifier, updates::trust::BAKED_PUBLISHERS, || {
         yield_ticks = yield_ticks.wrapping_add(1);
         // Yield every 8 ticks (tuned for QEMU). Too-infrequent yielding can freeze bring-up.
         if (yield_ticks & 0x7) == 0 {
@@ -387,6 +387,9 @@ fn handle_stage(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
 
 fn stage_error_detail(err: &SystemSetError) -> (&'static str, Option<&'static str>) {
     match err {
+        SystemSetError::UntrustedPublisher => {
+            ("untrusted-publisher", Some("updated: stage rejected (untrusted publisher)"))
+        }
         SystemSetError::InvalidSignature(_) => {
             ("signature", Some("updated: stage rejected (signature)"))
         }
@@ -624,11 +627,22 @@ impl SignatureVerifier for KeystoredVerifier {
         message: &[u8],
         signature: &[u8; 64],
     ) -> Result<(), VerifyError> {
-        match keystored_verify(public_key, message, signature) {
-            Ok(true) => Ok(()),
-            Ok(false) => local_verify(public_key, message, signature),
-            Err(VerifyError::Backend(_)) => local_verify(public_key, message, signature),
-            Err(err) => Err(err),
+        // RFC-0089 §4 / TASK-0198 Phase 1: the verdict mapping is the pure
+        // host-proven `verify_policy::decide` — keystored's "invalid" is
+        // FINAL, protocol breakage fails closed, and the local fallback runs
+        // only when keystored is unreachable (loud, same baked anchor).
+        match crate::verify_policy::decide(keystored_verify(public_key, message, signature)) {
+            crate::verify_policy::VerifyDecision::Accept => Ok(()),
+            crate::verify_policy::VerifyDecision::Reject("keystored-invalid") => {
+                Err(VerifyError::InvalidSignature)
+            }
+            crate::verify_policy::VerifyDecision::Reject(detail) => {
+                Err(VerifyError::Backend(detail))
+            }
+            crate::verify_policy::VerifyDecision::FallbackLocal(_) => {
+                emit_line("updated: verify fallback (keystored unavailable)");
+                local_verify(public_key, message, signature)
+            }
         }
     }
 }
@@ -649,11 +663,13 @@ fn keystored_verify(
     public_key: &[u8; 32],
     message: &[u8],
     signature: &[u8; 64],
-) -> Result<bool, VerifyError> {
+) -> crate::verify_policy::KeystoredOutcome {
+    use crate::verify_policy::KeystoredOutcome as Out;
     // init-lite deterministic slots for updated -> keystored:
     // - send=0x07, recv=0x08
-    let client =
-        KernelClient::new_with_slots(0x07, 0x08).map_err(|_| VerifyError::Backend("route"))?;
+    let Ok(client) = KernelClient::new_with_slots(0x07, 0x08) else {
+        return Out::Unavailable("route");
+    };
     let mut frame = Vec::with_capacity(4 + 4 + 32 + 64 + message.len());
     frame.push(KEYSTORE_MAGIC0);
     frame.push(KEYSTORE_MAGIC1);
@@ -664,12 +680,16 @@ fn keystored_verify(
     frame.extend_from_slice(signature);
     frame.extend_from_slice(message);
     let clock = nexus_ipc::budget::OsClock;
-    let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(1))
-        .map_err(|_| VerifyError::Backend("nsec"))?;
-    nexus_ipc::budget::send_until(&clock, &client, &frame, deadline_ns)
-        .map_err(|_| VerifyError::Backend("send-timeout"))?;
+    let Ok(deadline_ns) =
+        nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(1))
+    else {
+        return Out::Unavailable("nsec");
+    };
+    if nexus_ipc::budget::send_until(&clock, &client, &frame, deadline_ns).is_err() {
+        return Out::Unavailable("send-timeout");
+    }
 
-    let rsp = nexus_ipc::budget::retry_ipc_until(&clock, deadline_ns, || {
+    let rsp = match nexus_ipc::budget::retry_ipc_until(&clock, deadline_ns, || {
         match client.recv(Wait::NonBlocking) {
             Ok(v) => {
                 if v.len() < 7
@@ -684,20 +704,26 @@ fn keystored_verify(
             }
             Err(e) => Err(e),
         }
-    })
-    .map_err(|err| match err {
-        nexus_ipc::IpcError::Timeout => VerifyError::Backend("timeout"),
-        _ => VerifyError::Backend("recv"),
-    })?;
+    }) {
+        Ok(v) => v,
+        Err(nexus_ipc::IpcError::Timeout) => return Out::Unavailable("timeout"),
+        Err(_) => return Out::Unavailable("recv"),
+    };
 
+    // From here keystored ANSWERED — protocol breakage fails closed, it is
+    // never grounds for a local re-verify (verify_policy::decide).
     if rsp[4] != KEYSTORE_STATUS_OK {
-        return Err(VerifyError::Backend("status"));
+        return Out::Protocol("status");
     }
     let len = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
     if rsp.len() < 7 + len || len != 1 {
-        return Err(VerifyError::Backend("payload"));
+        return Out::Protocol("payload");
     }
-    Ok(rsp[7] == 1)
+    if rsp[7] == 1 {
+        Out::Valid
+    } else {
+        Out::Invalid
+    }
 }
 
 fn rsp(op: u8, status: u8, payload: &[u8]) -> Vec<u8> {

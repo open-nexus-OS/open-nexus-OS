@@ -568,6 +568,12 @@ expected_sequence=(
   "SELFTEST: bundlemgrd v1 list ok"
   "SELFTEST: bundlemgrd v1 image ok"
   "SELFTEST: bundlemgrd v1 malformed ok"
+  # TASK-0198 Phase 1: device publisher trust anchor — a validly self-signed
+  # archive whose publisher is not in policies/update-trust.toml must be
+  # rejected BEFORE the happy-path stage (the pre-fix hole accepted any key
+  # read from the archive itself).
+  "updated: stage rejected (untrusted publisher)"
+  "SELFTEST: updates trust reject ok"
   # TASK-0007 OTA proof: stage → switch → health gate → rollback (userspace-only, non-persistent)
   "SELFTEST: ota stage ok"
   "bundlemgrd: slot b active"
@@ -794,6 +800,8 @@ case "${PROFILE:-full}" in
       "SELFTEST: bundlemgrd v1 list ok"
       "SELFTEST: bundlemgrd v1 image ok"
       "SELFTEST: bundlemgrd v1 malformed ok"
+      "updated: stage rejected (untrusted publisher)"
+      "SELFTEST: updates trust reject ok"
       "SELFTEST: ota stage ok"
       "bundlemgrd: slot b active"
       "bootctld: switch scheduled (to=b)"
@@ -1736,6 +1744,15 @@ for m in \
     exit 1
   fi
 done
+# TASK-0198 Phase 1 guard: the trust deny lane failing means the device
+# publisher anchor is not enforced — every downstream OTA verify claim would
+# be fake green (the pre-fix hole accepted any archive-supplied key).
+if grep -aFq "SELFTEST: updates trust reject FAIL" "$UART_LOG"; then
+  echo "[error] first_failed_phase=ota missing_marker='SELFTEST: updates trust reject ok'" >&2
+  echo "[error] update trust anchor not enforced (self-signed archive was accepted)" >&2
+  grep -a "updated: stage rejected\|updated: ready\|SELFTEST: updates trust" "$UART_LOG" | head -n 8 >&2
+  exit 1
+fi
 # TASK-0050 PR-1 guards: the boot-state authority must come up against a
 # readable record — "defaults" markers in a proof boot mean statefsd was
 # unreachable (or the record rotted), which would fake-green every

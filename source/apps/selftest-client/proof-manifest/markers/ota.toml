@@ -12,6 +12,15 @@
 # API_STABILITY: Stable; literals are the contract surface (referenced as
 #                `M_<KEY>` constants from `markers_generated.rs`)
 
+# TASK-0198 Phase 1: device trust anchor deny lane — a validly self-signed
+# archive whose publisher is NOT in policies/update-trust.toml must be
+# rejected before the happy-path stage runs.
+[marker."SELFTEST: updates trust reject ok"]
+phase = "ota"
+
+[marker."SELFTEST: updates trust reject FAIL"]
+phase = "ota"
+
 [marker."SELFTEST: ota stage ok"]
 phase = "ota"
 

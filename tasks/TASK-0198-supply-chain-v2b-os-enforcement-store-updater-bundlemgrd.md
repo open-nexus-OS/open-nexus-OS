@@ -16,6 +16,43 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Phase 1 DELIVERED 2026-08-25 (test-all green; lane package 1)
+
+Evidence (uart `build/logs/reset--2026-08-25T13-44-37`, headless
+`build/logs/headless--2026-08-25T13-33-07`, full gate `just test-all` EXIT=0):
+
+- `policies/update-trust.toml` → `updates::trust::BAKED_PUBLISHERS` via the
+  shared narrow parser `userspace/updates/build_trust.rs` (build.rs panics on
+  any Err; the parser's reject cases are host-proven in
+  `tests/updates_host/tests/trust_parse.rs` — 5 tests, incl. empty-anchor,
+  bad-hex, duplicate, stray-line).
+- `SystemSet::parse`/`parse_with_yield` now REQUIRE a trust anchor (no
+  trust-free variant); membership is checked before any signature use —
+  proven order via `PanicVerifier` in `test_reject_untrusted_publisher`
+  (a valid self-signed archive never reaches crypto). Drift guard
+  `test_accept_baked_publisher` pins the fixture signer (seed `[7u8;32]`,
+  pubkey `ea4a6c63…`) into the baked anchor.
+- Verdict authority: `keystored_verify` classifies outcomes
+  (Valid/Invalid/Protocol/Unavailable); the pure mapping
+  `updated::verify_policy::decide` (3 host tests) makes keystored's
+  "invalid" FINAL and reserves the loud local fallback
+  (`updated: verify fallback (keystored unavailable)`) for transport
+  unavailability only — protocol breakage fails closed.
+- OS deny lane every proof boot (headless + smp1 + reset profiles): the
+  selftest stages a validly self-signed fixture (untrusted seed `[9u8;32]`)
+  BEFORE the happy path → required markers
+  `updated: stage rejected (untrusted publisher)` +
+  `SELFTEST: updates trust reject ok`; `SELFTEST: updates trust reject FAIL`
+  is a fatal harness signature.
+- Flake note (recorded, pre-existing): one test-all run failed in
+  `ci-os-reset` on the known keystored-keygen scheduling variance
+  (`SELFTEST: device key pubkey FAIL (pubkey recv)` — 49 historical uarts
+  carry the signature since July); isolated re-run and the full re-gate were
+  green. Not introduced by this package (trust check runs in the ota phase,
+  the flake hits bringup).
+
+Phases 2+ below remain Draft (after TASK-0197).
+
 ## PHASE CUT 2026-08-25 (RFC-0089 lane recut)
 
 This ledger is split into an immediately-executable Phase 1 (the OTA lane's

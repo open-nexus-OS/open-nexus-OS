@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Security - 2026-08-25 (TASK-0198 Phase 1: device publisher trust anchor + verifier verdict authority)
+
+- **Closed a live trust-bypass hole**: `.nxs` system-set signatures were
+  verified against the publisher key READ FROM THE ARCHIVE ITSELF — any
+  self-signed archive passed. `SystemSet::parse` now REQUIRES a publisher
+  trust anchor (no trust-free variant); membership is checked before any
+  signature use (order proven by a panicking verifier in
+  `test_reject_untrusted_publisher`). Device anchor =
+  `policies/update-trust.toml` baked into `updates::trust::BAKED_PUBLISHERS`
+  (nxra BAKED_TRUST pattern; malformed trust file fails the build — reject
+  cases host-proven via the shared parser).
+- **Verifier verdict is final**: updated's KeystoredVerifier no longer
+  re-adjudicates a keystored "signature invalid" with a local verify. The
+  pure mapping `updated::verify_policy::decide` (host-tested) accepts only
+  on Valid, fails closed on protocol breakage, and reserves the loud local
+  fallback (`updated: verify fallback (keystored unavailable)`) for
+  transport unavailability — still bound to the baked anchor.
+- **Deny lane gated every proof boot** (headless/smp1/reset): the selftest
+  stages a validly self-signed fixture (untrusted dev seed) before the happy
+  path; `updated: stage rejected (untrusted publisher)` +
+  `SELFTEST: updates trust reject ok` are required markers, the FAIL twin is
+  a fatal harness signature.
+
 ### Added - 2026-08-25 (Updates/OTA lane seeded: RFC-0089 + ADR-0058/0059 + ledger recuts)
 
 - **RFC-0089 seeded** — the end-to-end OTA contract the repo never had:

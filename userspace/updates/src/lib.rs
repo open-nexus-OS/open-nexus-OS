@@ -40,6 +40,14 @@ pub mod system_set_capnp {
 
 pub mod system_set;
 
+/// Device publisher trust anchor, baked at build time from
+/// `policies/update-trust.toml` (RFC-0089 §4, TASK-0198 Phase 1 — the nxra
+/// `BAKED_TRUST` pattern). Host tests inject their own allowlists; the OS
+/// verification path passes `trust::BAKED_PUBLISHERS`.
+pub mod trust {
+    include!(concat!(env!("OUT_DIR"), "/publishers_baked.rs"));
+}
+
 /// A/B slot id — kept here for the SystemSet surface; the boot-control
 /// MACHINE relocated to `bootctld` (TASK-0050, ADR-0055).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

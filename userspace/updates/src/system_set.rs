@@ -67,14 +67,30 @@ pub struct SystemSet {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SystemSetError {
-    ArchiveTooLarge { actual: usize, max: usize },
+    ArchiveTooLarge {
+        actual: usize,
+        max: usize,
+    },
     ArchiveMalformed(&'static str),
     MissingEntry(&'static str),
-    UnexpectedEntry { name: String },
-    OversizedEntry { name: String, actual: usize, max: usize },
+    UnexpectedEntry {
+        name: String,
+    },
+    OversizedEntry {
+        name: String,
+        actual: usize,
+        max: usize,
+    },
+    /// The index's publisher key is not in the DEVICE trust anchor. Checked
+    /// BEFORE any signature use (RFC-0089 §4): a key read from the archive
+    /// being verified is a lookup hint, never a trust input.
+    UntrustedPublisher,
     InvalidSignature(&'static str),
     InvalidIndex(&'static str),
-    DigestMismatch { name: String, field: &'static str },
+    DigestMismatch {
+        name: String,
+        field: &'static str,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,9 +129,18 @@ impl SignatureVerifier for Ed25519Verifier {
 }
 
 impl SystemSet {
-    pub fn parse(bytes: &[u8], verifier: &dyn SignatureVerifier) -> Result<Self, SystemSetError> {
+    /// Parses and verifies a system-set against the given publisher trust
+    /// anchor. There is deliberately NO trust-free variant: verification
+    /// without an anchor was the TASK-0198 hole (any self-signed archive
+    /// passed). Devices pass `updates::trust::BAKED_PUBLISHERS`; host tests
+    /// inject their own list.
+    pub fn parse(
+        bytes: &[u8],
+        verifier: &dyn SignatureVerifier,
+        trust: &[[u8; 32]],
+    ) -> Result<Self, SystemSetError> {
         let mut noop = || {};
-        Self::parse_inner(bytes, verifier, &mut noop)
+        Self::parse_inner(bytes, verifier, trust, &mut noop)
     }
 
     /// Parses a system-set and calls `yield_hook` periodically during heavy work (e.g. hashing).
@@ -124,14 +149,16 @@ impl SystemSet {
     pub fn parse_with_yield(
         bytes: &[u8],
         verifier: &dyn SignatureVerifier,
+        trust: &[[u8; 32]],
         mut yield_hook: impl FnMut(),
     ) -> Result<Self, SystemSetError> {
-        Self::parse_inner(bytes, verifier, &mut yield_hook)
+        Self::parse_inner(bytes, verifier, trust, &mut yield_hook)
     }
 
     fn parse_inner(
         bytes: &[u8],
         verifier: &dyn SignatureVerifier,
+        trust: &[[u8; 32]],
         yield_hook: &mut impl FnMut(),
     ) -> Result<Self, SystemSetError> {
         if bytes.len() > MAX_NXS_ARCHIVE_BYTES {
@@ -167,6 +194,12 @@ impl SystemSet {
 
         let index = parse_index(&index_entry.data)?;
         let signature = array_64(&sig_entry.data)?;
+        // Trust membership FIRST (RFC-0089 §4): `index.publisher` came out of
+        // the archive under verification — it selects which anchor key to
+        // use, it can never establish trust by itself.
+        if !trust.contains(&index.publisher) {
+            return Err(SystemSetError::UntrustedPublisher);
+        }
         verifier
             .verify_ed25519(&index.publisher, &index_entry.data, &signature)
             .map_err(|_| SystemSetError::InvalidSignature("signature verify failed"))?;
