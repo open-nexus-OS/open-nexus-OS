@@ -8,8 +8,6 @@
 //! STATUS: Experimental (TASK-0292)
 //! TEST_COVERAGE: adapter roundtrip test below
 
-use alloc::vec;
-
 use storage::BlockDevice;
 
 use crate::format::LOGICAL_BLOCK_SIZE;
@@ -45,30 +43,18 @@ impl<D: BlockDevice> Dev<D> {
         if lb >= self.logical_blocks {
             return Err(NxfsError::Io);
         }
-        let sector_len = self.inner.block_size();
-        let mut sector = vec![0u8; sector_len];
-        for i in 0..self.sectors_per_block {
-            self.inner
-                .read_block(lb * self.sectors_per_block + i, &mut sector)
-                .map_err(|_| NxfsError::Io)?;
-            let off = (i as usize) * sector_len;
-            out[off..off + sector_len].copy_from_slice(&sector);
-        }
-        Ok(())
+        // TASK-0314: one RUN request per logical block (was: 8 serialized
+        // sector requests + a per-read heap `vec!` bounce buffer).
+        self.inner.read_blocks(lb * self.sectors_per_block, out).map_err(|_| NxfsError::Io)
     }
 
     pub(crate) fn write(&mut self, lb: u64, data: &[u8; LOGICAL_BLOCK_SIZE]) -> Result<()> {
         if lb >= self.logical_blocks {
             return Err(NxfsError::Io);
         }
-        let sector_len = self.inner.block_size();
-        for i in 0..self.sectors_per_block {
-            let off = (i as usize) * sector_len;
-            self.inner
-                .write_block(lb * self.sectors_per_block + i, &data[off..off + sector_len])
-                .map_err(|_| NxfsError::Io)?;
-        }
-        Ok(())
+        // TASK-0314: one RUN request per logical block (was: 8 serialized
+        // sector writes).
+        self.inner.write_blocks(lb * self.sectors_per_block, data).map_err(|_| NxfsError::Io)
     }
 
     /// Writes an arbitrary byte run starting at `lb` (zero-padded tail).
@@ -127,5 +113,82 @@ mod tests {
             dev.write_bytes(10, &run).expect("write bytes");
             assert_eq!(dev.read_bytes(10, run.len()).expect("read bytes"), run);
         }
+    }
+
+    /// TASK-0314: a run-capable device sees exactly ONE run request per
+    /// logical block (v1 issued 8 serialized sector requests), and the run
+    /// path is byte-identical to the per-sector default.
+    #[test]
+    fn logical_block_uses_one_run_request() {
+        use core::cell::Cell;
+        use storage::{BlockDevice, BlockError};
+
+        struct CountingDev {
+            inner: MemBlockDevice,
+            sector_calls: Cell<u32>,
+            run_calls: Cell<u32>,
+        }
+        impl BlockDevice for CountingDev {
+            fn block_size(&self) -> usize {
+                self.inner.block_size()
+            }
+            fn block_count(&self) -> u64 {
+                self.inner.block_count()
+            }
+            fn read_block(&self, i: u64, b: &mut [u8]) -> core::result::Result<(), BlockError> {
+                self.sector_calls.set(self.sector_calls.get() + 1);
+                self.inner.read_block(i, b)
+            }
+            fn write_block(&mut self, i: u64, b: &[u8]) -> core::result::Result<(), BlockError> {
+                self.sector_calls.set(self.sector_calls.get() + 1);
+                self.inner.write_block(i, b)
+            }
+            fn read_blocks(
+                &self,
+                first: u64,
+                buf: &mut [u8],
+            ) -> core::result::Result<(), BlockError> {
+                self.run_calls.set(self.run_calls.get() + 1);
+                // Delegate to the inner DEFAULT (sector loop) for data truth
+                // without touching our sector counter.
+                self.inner.read_blocks(first, buf)
+            }
+            fn write_blocks(
+                &mut self,
+                first: u64,
+                buf: &[u8],
+            ) -> core::result::Result<(), BlockError> {
+                self.run_calls.set(self.run_calls.get() + 1);
+                self.inner.write_blocks(first, buf)
+            }
+            fn sync(&mut self) -> core::result::Result<(), BlockError> {
+                self.inner.sync()
+            }
+        }
+
+        let mut plain = Dev::new(MemBlockDevice::new(512, 128 * 8)).expect("plain");
+        let mut counting = Dev::new(CountingDev {
+            inner: MemBlockDevice::new(512, 128 * 8),
+            sector_calls: Cell::new(0),
+            run_calls: Cell::new(0),
+        })
+        .expect("counting");
+
+        let mut block = [0u8; LOGICAL_BLOCK_SIZE];
+        for (i, byte) in block.iter_mut().enumerate() {
+            *byte = (i % 251) as u8;
+        }
+        plain.write(5, &block).expect("plain write");
+        counting.write(5, &block).expect("counting write");
+        assert_eq!(counting.inner.run_calls.get(), 1, "one run per logical-block write");
+        assert_eq!(counting.inner.sector_calls.get(), 0, "no per-sector calls on the hot path");
+
+        let mut a = [0u8; LOGICAL_BLOCK_SIZE];
+        let mut b = [0u8; LOGICAL_BLOCK_SIZE];
+        plain.read(5, &mut a).expect("plain read");
+        counting.read(5, &mut b).expect("counting read");
+        assert_eq!(a, b, "run path is byte-identical to the sector loop");
+        assert_eq!(counting.inner.run_calls.get(), 2, "one run per logical-block read");
+        assert_eq!(counting.inner.sector_calls.get(), 0);
     }
 }

@@ -39,6 +39,37 @@ pub trait BlockDevice {
     /// Write a single block from buffer.
     fn write_block(&mut self, block_idx: u64, buf: &[u8]) -> Result<(), BlockError>;
 
+    /// Read a contiguous RUN of blocks (`buf.len()` = n × block_size) —
+    /// default: sector loop; devices with a run-capable transport override
+    /// this with ONE request per run (TASK-0314).
+    fn read_blocks(&self, first_block: u64, buf: &mut [u8]) -> Result<(), BlockError> {
+        let bs = self.block_size();
+        #[allow(unknown_lints, clippy::manual_is_multiple_of)]
+        let misaligned = bs == 0 || buf.len() % bs != 0;
+        if misaligned {
+            return Err(BlockError::OutOfRange);
+        }
+        for (i, chunk) in buf.chunks_mut(bs).enumerate() {
+            self.read_block(first_block + i as u64, chunk)?;
+        }
+        Ok(())
+    }
+
+    /// Write a contiguous RUN of blocks (`buf.len()` = n × block_size) —
+    /// default: sector loop; see `read_blocks`.
+    fn write_blocks(&mut self, first_block: u64, buf: &[u8]) -> Result<(), BlockError> {
+        let bs = self.block_size();
+        #[allow(unknown_lints, clippy::manual_is_multiple_of)]
+        let misaligned = bs == 0 || buf.len() % bs != 0;
+        if misaligned {
+            return Err(BlockError::OutOfRange);
+        }
+        for (i, chunk) in buf.chunks(bs).enumerate() {
+            self.write_block(first_block + i as u64, chunk)?;
+        }
+        Ok(())
+    }
+
     /// Flush all pending writes to durable storage.
     fn sync(&mut self) -> Result<(), BlockError>;
 }

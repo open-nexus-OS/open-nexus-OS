@@ -568,6 +568,11 @@ expected_sequence=(
   "SELFTEST: bundlemgrd v1 list ok"
   "SELFTEST: bundlemgrd v1 image ok"
   "SELFTEST: bundlemgrd v1 malformed ok"
+  # TASK-0314: driver v2 wait path is live — poll fallback is the HONEST
+  # state until the TASK-0315 block server provisions the IRQ notify
+  # endpoint (endpoint creation is init-factory-gated); the marker recuts
+  # to "blk: irq completion on" with 0315.
+  "blk: poll fallback (no irq)"
   # TASK-0198 Phase 1: device publisher trust anchor — a validly self-signed
   # archive whose publisher is not in policies/update-trust.toml must be
   # rejected BEFORE the happy-path stage (the pre-fix hole accepted any key
@@ -805,6 +810,7 @@ case "${PROFILE:-full}" in
       "SELFTEST: bundlemgrd v1 list ok"
       "SELFTEST: bundlemgrd v1 image ok"
       "SELFTEST: bundlemgrd v1 malformed ok"
+      "blk: poll fallback (no irq)"
       "updated: stage rejected (untrusted publisher)"
       "SELFTEST: updates trust reject ok"
       "SELFTEST: ota stage ok"

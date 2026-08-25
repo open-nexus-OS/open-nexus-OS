@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-25 (TASK-0314: virtio-blk driver v2 — request ring, multi-sector runs, IRQ machinery)
+
+- **Request ring** (`storage-virtio-blk/src/ring.rs`, host-proven): descriptor
+  free-list with rollback on partial reservation, per-id in-flight
+  accounting, used-ring reclamation validating device-provided ids. Kills
+  the v1 publish-descriptor-0-and-count design at the root — the TASK-0293
+  long-sequential-read deadlock class is regression-proven with 70 000
+  sequential requests across the u16 index wrap, out-of-order completion
+  and backpressure tests. `QUEUE_LEN` 8 → 64, four bounded request slots.
+- **Multi-sector runs**: one virtio request carries up to 16 KiB;
+  `BlockDevice` gained `read_blocks`/`write_blocks` (default sector loop,
+  run-capable override in the virtio wrapper); `nxfs::Dev` now issues ONE
+  request per 4 KiB logical block instead of eight serialized sector
+  requests with a per-read heap bounce buffer (8 → 1 proven by op
+  counters, not wall clock).
+- **IRQ completion machinery**: PLIC line derived from the granted
+  transport window, blocking endpoint wait with deadline, the
+  drain→ack→`irq_complete` ordering, and a `bind_irq_endpoint` owner API.
+  Endpoint PROVISIONING recuts to TASK-0315's block server (endpoint
+  creation is init-factory-gated; aliasing service ctrl slots would be an
+  interim hack) — until then the honest `blk: poll fallback (no irq)` is a
+  gated required marker. MMIO backend split into `mmio.rs` (ratchet).
+
 ### Added - 2026-08-25 (TASK-0036 Phase A: health-commit v2 — quorum + wall-clock deadline in bootctld)
 
 - **Boot record v3** (22 bytes): the v2 layout extended with the RFC-0089

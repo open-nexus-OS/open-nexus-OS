@@ -34,7 +34,7 @@
 
 - **Phase 1 (device trust anchor + verifier verdict authority)**: ✅ 2026-08-25 (TASK-0198 Phase 1 — baked anchor + verdict finality + OS deny lane, test-all green)
 - **Phase 2 (health-commit v2: record v3 + quorum + deadline)**: ✅ 2026-08-25 (TASK-0036-A — private commit behind the mask, deadline armed at switch, 22 host tests + gated quorum chain)
-- **Phase 3 (block substrate: virtio-blk v2 + single GPT disk)**: ⬜ (TASK-0314, TASK-0315)
+- **Phase 3 (block substrate: virtio-blk v2 + single GPT disk)**: 🟨 (TASK-0314 ✅ 2026-08-25 — request ring + 16 KiB runs + IRQ machinery; TASK-0315 open — GPT topology + IRQ endpoint provisioning)
 - **Phase 4 (host image builder `nx image`)**: ⬜ (TASK-0260)
 - **Phase 5 (`nxboot` loader + boot flip + measured handoff)**: ⬜ (TASK-0289-A)
 - **Phase 6 (BSB runtime projection)**: ⬜ (TASK-0036-B)

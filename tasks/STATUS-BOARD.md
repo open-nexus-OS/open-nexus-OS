@@ -26,7 +26,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Observability, Crash, Perf & Diagnostics | 13 / 36 | 36% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
 | Accounts, Ability & Sessions | 2 / 9 | 22% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. Spine done (0065 lifecycle broker + 0065B session authority); continuation open (KILL/backoff → 0234/0235, lock/multi-user → 0109/0110/0223/0224, delegation → 0126B). |
 | Security, Policy & Identity | 8 / 35 | 23% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
-| Storage, PackageFS & Content | 12 / 29 | 41% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done. |
+| Storage, PackageFS & Content | 13 / 36 | 36% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done; end-state ladder 0314–0320 now counted (0314 Done). |
 | Updates, Packaging & Recovery | 4 / 21 | 19% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. ACTIVE LANE 2026-08-25 (RFC-0089). |
 | Bringup, Hardware & Drivers | 1 / 13 | 8% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
 | Windowing, UI & Graphics | 31 / 87 | 36% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
@@ -134,9 +134,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Storage, PackageFS & Content
 
-- Progress: `12 / 29` done (`41%`)
+- Progress: `13 / 36` done (`36%`)
 - Kernel-touch tasks: `TASK-0031`
-- Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`, `TASK-0291`..`TASK-0295`
+- Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`, `TASK-0291`..`TASK-0295`, `TASK-0314`..`TASK-0320`
+- Notes (2026-08-25): `TASK-0314`..`TASK-0320` (storage end-state ladder, seeded 2026-08-14) added to this group's task list — they were counted nowhere. `TASK-0314` Done (driver v2, delivered inside the OTA lane as its package 3); `TASK-0315` executes next in that lane with the RFC-0089 GPT layout.
 - Notes (2026-08-18, group move): `TASK-0051` moved to Updates/Recovery — the recut ledger is the recovery ops surface; its fsck part only *exposes* the shipped statefs engine.
 - Notes (2026-07-15): `TASK-0025`..`TASK-0027` rebased onto shipped statefs v1; `TASK-0033` superseded by `TASK-0295`; `TASK-0182`/`TASK-0183` superseded by RFC-0071 (nxfs encryption classes); ladder + contracts in `tasks/TRACK-STASH-USER-DATA-FS.md`.
 - Notes (2026-07-21): `TASK-0298` (settingsd region/keymap/time keys + `OP_WATCH` spine, RFC-0078) added to this family next to `TASK-0225` (which keeps only the provider-apply-hook remainder); `TASK-0300` (IME-store encryption-at-rest) seeded, gated on an accepted encryption substrate.
@@ -296,6 +297,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0293 | nxfs /data OS bring-up (2nd blk device + vfsd DataStore) | Done | Write + cold-boot persistence boot-proven (was In Review) |
 | ✅ TASK-0294 | MIME SSOT: nexus-mime-icons + stash filetype icons | Done | 39-icon SSOT boot-proven (was In Review) |
 | ✅ TASK-0295 | Zero-copy read/write via VMO splice (OP_READ_VMO CAP_MOVE) | Done | Boot-proven (was In Review) |
+| ✅ TASK-0314 | Block driver v2: multi-sector runs + real queue depth + IRQ machinery | Done | OTA-lane package 3 (2026-08-25): request ring with free-list/used-reclaim (70k-op wraparound regression proof), 16 KiB runs (nxfs 8→1 requests per logical block, op-counter-proven), honest `blk: poll fallback (no irq)` gated — IRQ endpoint provisioning recut to 0315's block server |
 | ✅ TASK-0070 | UI v8b: WM resize/move/snap/dock | Done | Reconciled 2026-07-19; wm.rs/snap.rs/dock.rs + 23 tests. Shortcuts = Non-Goal (rejected by design); overlays → 0072 |
 | ✅ TASK-0072 | UI v9b: settingsd + settings panel DSL app | Done | Reconciled 2026-07-19; settingsd markers + settings.rs test. prefsd→settingsd; quick-settings dropped |
 | ✅ TASK-0073 | UI v10a: design-system primitives + goldens | Done | Reconciled 2026-07-19; 37 widget crates + 74 goldens + a11y lints |

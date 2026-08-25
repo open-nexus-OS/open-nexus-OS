@@ -169,6 +169,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0293 | nxfs /data OS bring-up (2nd blk device + vfsd DataStore) | 2026-07-15 |
 | ✅ TASK-0294 | MIME SSOT: nexus-mime-icons + stash filetype icons | 2026-07-15 |
 | ✅ TASK-0295 | Zero-copy read/write via VMO splice (OP_READ_VMO CAP_MOVE) | 2026-07-15 |
+| ✅ TASK-0314 | Block driver v2: multi-sector runs + real queue depth + IRQ machinery | 2026-08-25 |
 | ✅ TASK-0296 | nexus-wire: declarative service frame codec + nexus-abi identity split | 2026-07-20 |
 | ✅ TASK-0297 | Time v1: goldfish rtcd + timed walltime + tz-lite + live clock | 2026-07-21 |
 | ✅ TASK-0298 | Settings spine: region/keymap/time keys + OP_WATCH push propagation | 2026-07-21 |
@@ -220,7 +221,7 @@ table: `tasks/TRACK-STASH-USER-DATA-FS.md` (milestones 6–12).
 
 | Task | Title | Status |
 |------|-------|--------|
-| TASK-0314 | Block driver v2: multi-sector + real queue depth + IRQ completion (perf multiplier for statefs AND nxfs) | Draft |
+| ✅ TASK-0314 | Block driver v2: multi-sector + real queue depth + IRQ completion (perf multiplier for statefs AND nxfs) | Done 2026-08-25 (OTA-lane package 3; IRQ endpoint provisioning → 0315) |
 | TASK-0315 | Block topology consolidation: ONE GPT device + virtioblkd sole queue owner (ADR-0044 end state) | Draft |
 | TASK-0316 | nxfs engine v2: format v2 (contracted fields + volume table) + block-granular CoW + group commit + cache | Draft |
 | TASK-0317 | nxfsd process extraction + vfs.capnp v2 write surface + VMO write path (RFC-0072 P2 closed) | Draft |
@@ -292,7 +293,7 @@ Contracts: RFC-0089 (OTA v2 end-to-end; supersedes RFC-0012 in part) · ADR-0058
 |---|------|-------|--------|
 | 1 | ✅ TASK-0198 P1 | Device publisher trust anchor + verifier verdict authority (closes the self-key hole) | Delivered 2026-08-25 (test-all green; task stays Draft for P2+) |
 | 2 | ✅ TASK-0036-A | Health-commit v2 in bootctld: record v3 + quorum + wall-clock deadline | Delivered 2026-08-25 (test-all green; 0036-B waits on 0315) |
-| 3 | TASK-0314 | virtio-blk driver v2 (multisector/queue/IRQ) — as ledgered | Draft |
+| 3 | ✅ TASK-0314 | virtio-blk driver v2 (multisector/queue/IRQ) — request ring + 16 KiB runs + IRQ machinery (endpoint provisioning → 0315) | Delivered 2026-08-25 (test-all green) |
 | 4 | TASK-0260 | `nx image build/verify/patch/ota` — deterministic GPT assembler + NXBD signer + factory BSB (rewritten) | Draft |
 | 5 | TASK-0315 | Single GPT disk: virtioblkd sole owner + OTA partitions (bsb/boot-a/b/system-a/b) — boot still direct | Draft |
 | 6 | TASK-0289-A | `nxboot` first-stage loader + boot flip + measured handoff (flag-day; kernel-touch) | Draft |

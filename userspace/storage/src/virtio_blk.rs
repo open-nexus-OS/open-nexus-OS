@@ -51,6 +51,38 @@ impl BlockDevice for VirtioBlkDevice {
         self.inner.write_block(block_idx, buf).map_err(|_| BlockError::IoError)
     }
 
+    // TASK-0314: run-capable overrides — ONE virtio request per bounded run
+    // instead of the default per-sector loop.
+    fn read_blocks(&self, first_block: u64, buf: &mut [u8]) -> Result<(), BlockError> {
+        let sector = self.inner.sector_size() as usize;
+        #[allow(unknown_lints, clippy::manual_is_multiple_of)]
+        let misaligned = sector == 0 || buf.len() % sector != 0;
+        if misaligned {
+            return Err(BlockError::OutOfRange);
+        }
+        let mut next = first_block;
+        for chunk in buf.chunks_mut(storage_virtio_blk::MAX_RUN_BYTES) {
+            self.inner.read_run(next, chunk).map_err(|_| BlockError::IoError)?;
+            next += (chunk.len() / sector) as u64;
+        }
+        Ok(())
+    }
+
+    fn write_blocks(&mut self, first_block: u64, buf: &[u8]) -> Result<(), BlockError> {
+        let sector = self.inner.sector_size() as usize;
+        #[allow(unknown_lints, clippy::manual_is_multiple_of)]
+        let misaligned = sector == 0 || buf.len() % sector != 0;
+        if misaligned {
+            return Err(BlockError::OutOfRange);
+        }
+        let mut next = first_block;
+        for chunk in buf.chunks(storage_virtio_blk::MAX_RUN_BYTES) {
+            self.inner.write_run(next, chunk).map_err(|_| BlockError::IoError)?;
+            next += (chunk.len() / sector) as u64;
+        }
+        Ok(())
+    }
+
     fn sync(&mut self) -> Result<(), BlockError> {
         self.inner.sync().map_err(|_| BlockError::IoError)
     }
