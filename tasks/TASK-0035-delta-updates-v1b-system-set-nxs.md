@@ -15,6 +15,20 @@ links:
   - Signing policy: docs/security/signing-and-policy.md
 ---
 
+## Rebase note 2026-08-25 (RFC-0089: no aggregate delta container — component kinds instead)
+
+RFC-0089 §3/§11 dissolves this ledger's core artifact: there is no separate
+"system-set delta container". The `.nxs` v2 COMPONENT MANIFEST already carries
+typed components, so a delta update is simply a container whose components are
+`boot-image-delta` (TASK-0034, v1 lane) and — after the Phase-B bundle-set seam
+(RFC-0089 §12) — `bundle-delta` entries with unchanged-bundle reuse from the
+active system volume. The residual scope of THIS task collapses to the
+`updated`-side multi-component delta orchestration for Phase B (apply order,
+per-component resume, reuse index); it executes after TASK-0034's
+`boot-image-delta` kind and the Phase-B seam exist. depends-on unchanged
+(TASK-0034); the 2026-08-14 note below remains accurate about what shipped but
+its "aggregate delta container" framing is superseded.
+
 ## Rebase 2026-08-14 — unblocked (verified repo reality)
 
 All three original blockers are gone; status moves `Blocked` → `Draft` with

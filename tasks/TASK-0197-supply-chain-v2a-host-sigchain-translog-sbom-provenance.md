@@ -17,6 +17,19 @@ links:
   - Packages install authority (consumer): tasks/TASK-0130-packages-v1b-bundlemgrd-install-upgrade-uninstall-trust.md
 ---
 
+## Rebase note 2026-08-25 (RFC-0089 lane)
+
+Two seams moved: (1) the DEVICE trust anchor for update publishers and the
+verifier-verdict-authority fix ship EARLY as TASK-0198 **Phase 1** (RFC-0089 §4;
+baked `BAKED_PUBLISHERS`, nxra pattern) — this task must not re-own them;
+(2) key ROTATION is contracted as `rotation-record` `.nxs` v2 component kinds
+(RFC-0089 §4 seam): the sigchain/rotation design here must extend the baked
+anchor, never replace the mechanism. Also note the repo rule flagged since:
+the sigchain envelope is a new at-rest format and needs its own RFC seed at
+execution. Anti-downgrade decision HELPERS here stay host-pure; the OS-image
+rollback floor is owned by RFC-0089 §10 (TASK-0179/0289), the store-side
+version floor by TASK-0198 Phases 2+.
+
 ## Context
 
 Supply-chain v1 (`TASK-0029`) establishes:

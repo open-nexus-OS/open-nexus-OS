@@ -3,13 +3,20 @@
 
 # Updates v1.0 — A/B skeleton (non-persistent)
 
-**Status**: Stable (v1.0 Complete)  
-**Canonical contract**: `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`  
+> **Historical — superseded in part (2026-08-25).** Two statements below drifted
+> from shipped reality long ago: boot-control state has been PERSISTENT since
+> TASK-0034 Goal 2 (`/state/boot/bootctl.v1`, owner `bootctld` per ADR-0055; the
+> shipped marker is `updated: ready (bootctl client)`, not
+> `updated: ready (non-persistent)`). The end-to-end OTA contract (component
+> manifest, real A/B boot-image partitions, `nxboot` loader, anti-downgrade) is
+> **RFC-0089** — read that first; this page stays as the v1 flow summary only.
+
+**Status**: Historical (v1.0 flow summary; superseded in part by RFC-0089)  
+**Canonical contract**: `docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md` (current) · `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` (v1, superseded in part)  
 **Execution truth**: `tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md`
 
 This document summarizes the v1.0 updates flow: a userspace-only A/B skeleton that is
-testable without kernel or bootloader changes. State is RAM-backed and does not persist
-across real reboots.
+testable without kernel or bootloader changes.
 
 ## Scope (v1.0)
 

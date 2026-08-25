@@ -46,7 +46,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 | Task | Title | Status |
 |------|-------|--------|
-| — | — | — |
+| Updates/OTA-Lane | RFC-0089 end-state lane (0198P1 → 0036 → 0314/0260/0315 → 0289A → 0179 → 0289B → 0140 → 0034/0035) — see lane section below | Seeded 2026-08-25 |
 
 ---
 
@@ -273,6 +273,45 @@ lane (Networking/Ingress, unchanged).
 
 ---
 
+## Updates/OTA Lane (seeded 2026-08-25) — ACTIVE — end-state full-image A/B, bundle-set-ready
+
+User decisions 2026-08-25: production-grade end architecture, no interim solutions;
+target UX = **bundle-set granularity**, built as full-image OTA first with the
+bundle evolution structurally prepared (component manifest from day 1, chain-of-trust
+layering so the loader never needs rework, reserved system-a/b volumes — RFC-0089 §12);
+storage substrate 0314+0315 pulled INTO the lane; existing ledgers REWRITTEN, not
+re-seeded. Ground truth at seeding: the bootctld machine is real and proven, but no
+second system copy exists anywhere (one flat boot image via the VMM kernel option;
+device "slot switch" = an atomic u8 + synthetic build.prop), and `.nxs` signatures
+were verified against a key from the archive itself (live hole; closed by package 1).
+
+Contracts: RFC-0089 (OTA v2 end-to-end; supersedes RFC-0012 in part) · ADR-0058
+(BSB dual-actor write matrix) · ADR-0059 (nxboot boot chain + measured handoff).
+
+| # | Task | Title | Status |
+|---|------|-------|--------|
+| 1 | TASK-0198 P1 | Device publisher trust anchor + verifier verdict authority (closes the self-key hole) | Draft |
+| 2 | TASK-0036-A | Health-commit v2 in bootctld: record v3 + quorum + wall-clock deadline | Draft (parallel to 1) |
+| 3 | TASK-0314 | virtio-blk driver v2 (multisector/queue/IRQ) — as ledgered | Draft |
+| 4 | TASK-0260 | `nx image build/verify/patch/ota` — deterministic GPT assembler + NXBD signer + factory BSB (rewritten) | Draft |
+| 5 | TASK-0315 | Single GPT disk: virtioblkd sole owner + OTA partitions (bsb/boot-a/b/system-a/b) — boot still direct | Draft |
+| 6 | TASK-0289-A | `nxboot` first-stage loader + boot flip + measured handoff (flag-day; kernel-touch) | Draft |
+| 7 | TASK-0036-B | bootctld BSB projection (record first, BSB second, idempotent resync) | Draft |
+| 8 | TASK-0179 | updated apply engine v2 + offline feed — **CROWN PROOF: first real slot flip, new build id visible** (rewritten) | Draft |
+| 9 | TASK-0289-B | Boot trust floor closure: loader backstops (tamper/downgrade/tries-exhausted) + measured surface | Draft |
+| 10 | TASK-0140 | Settings→Updates page + `nx update` CLI over the real engine (rewritten; lands after UI handoff tracks) | Draft |
+| 11 | TASK-0034/0035 | Delta as component kinds (`boot-image-delta`; format RFC at execution) | Draft |
+
+After the lane (contracted, not built): Phase B bundle-set (RFC-0089 §12 — services
+leave the embedded image; `bundle` components + system volumes), network transport
+(after the 2-VM CI repair), `0261` flashd/provisioning (rebased on the GPT layout),
+`0239` per-app A/B, `0197`/`0198` P2+ (sigchain/translog/rotation). Paper hygiene done
+at seeding: `0089`/`0090` → Windowing group, `0174` → Text/IME group (miscounted in
+Updates), `.nxs`/`.nxdelta`/`pkgimg`/NXBD/BSB/`nxboot`/`updated` registered in
+TRACK-AUTHORITY-NAMING, RFC-0012 supersession note, 0178 stale links removed.
+
+---
+
 ## UI Fast Lane — Ziel: 119–122C
 
 Statt aller Tasks 24–118 sequenziell werden nur die für die UI-Kette notwendigen Tasks abgearbeitet.
@@ -452,7 +491,8 @@ Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen.
 > (Storage/Recovery · OTA · Security · UI/DSL · Networking · Kernel). Ledger = Wahrheit.
 > **Stand 2026-08-24:** Storage-Lane (0025–0027) UND Reliability Spine
 > (0049/0049B/0049C/0050/0051/0051B/0053) sind komplett Done; offen sub-80 sind noch
-> Networking (0024/0030/0038/0040), OTA (0034–0036), Security (0028/0043/0052),
+> Networking (0024/0030/0038/0040), OTA (0034–0036 — 🚧 seit 2026-08-25 ACTIVE als
+> Updates/OTA-Lane, RFC-0089), Security (0028/0043/0052),
 > UI/DSL (0066–0068/0074/0077B/0077C/0079) und Perf-Einzelstücke (0054C/0055D).
 
 **DSoftBus / Networking:**
@@ -475,9 +515,11 @@ ADR-0043/RFC-0071; absorbed by 0316/0317/0318).
 ✅ `0053` moved into the Reliability Spine — **Done 2026-08-24** (`.nxra` break-glass on the
 0051 ops surface, RFC-0088)
 
-**OTA / Updates / Supply Chain:**
-`0034` (rebased 2026-08-14: nur noch `.nxdelta` offen), `0035` (unblocked), `0036` (rebased;
-Owner der Slot-State-Machine — 0178/0179 defer);
+**OTA / Updates / Supply Chain** — 🚧 **ACTIVE LANE seit 2026-08-25** (RFC-0089;
+siehe Abschnitt "Updates/OTA Lane" oben): `0034`/`0035` (recut: Delta als
+Komponentenarten, Paket 11), `0036` (rewritten: Health-Commit v2 + BSB-Projektion,
+Pakete 2+7), `0140`/`0179`/`0198`P1/`0260`/`0289` (rewritten, Pakete 1/4/6/8/9/10),
+`0314`/`0315` (Substrat, Pakete 3/5);
 ⤳ `0033` — **Superseded by TASK-0295 (Done)**, seam moved to vfsd;
 ⤳ `0037` — **Superseded 2026-08-14 by TASK-0289** (boot trust floor)
 

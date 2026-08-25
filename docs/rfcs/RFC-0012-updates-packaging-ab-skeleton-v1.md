@@ -3,6 +3,18 @@
 
 # RFC-0012: Updates & Packaging v1.0 — System-Set (.nxs) + userspace-only A/B skeleton (non-persistent)
 
+> **Superseded in part by RFC-0089 (2026-08-25).** RFC-0089 owns the end-to-end OTA
+> contract and replaces: the `.nxs` v1 bundles-only index (→ `.nxs` v2 component
+> manifest), the inline `MAX_STAGE_BYTES` = 8 KiB stage API (→ path-based
+> `OP_STAGE_SOURCE`), the non-persistent state model (reality has been persistent
+> since TASK-0034 Goal 2; record ownership moved to `bootctld` per ADR-0055), and
+> the marker `updated: ready (non-persistent)` (shipped reality:
+> `updated: ready (bootctl client)`). Carried forward by RFC-0089: deterministic
+> tar rules, size-bound doctrine, path safety, digest binding, fail-closed failure
+> model, audit discipline. Untouched: the `.nxb` bundle contract (ADR-0020) and
+> the bundlemgrd publication contract. This document remains the v1 historical
+> contract — do not execute new work against it.
+
 - Status: Complete
 - Owners: @runtime, @tools-team
 - Created: 2026-01-15

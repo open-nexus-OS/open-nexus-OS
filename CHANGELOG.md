@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-25 (Updates/OTA lane seeded: RFC-0089 + ADR-0058/0059 + ledger recuts)
+
+- **RFC-0089 seeded** — the end-to-end OTA contract the repo never had:
+  `.nxs` v2 signed COMPONENT manifest (v1 kind `boot-image`; `bundle`/
+  `*-delta`/`rotation-record` reserved so the bundle-set evolution adds
+  kinds without reworking transport/verify/trust/staging), device trust
+  anchor (build-baked publisher set — closes the live hole where system-set
+  signatures were verified against a key read from the archive itself),
+  path-based staging (replaces the 8 KiB inline stage cap), NXBD 512-byte
+  signed boot descriptors (written LAST — a torn stage can never produce a
+  bootable half-slot), the `nxboot` first-stage loader (verify signature +
+  digest + rollback floor BEFORE any OS code; loud fallback; measured-boot
+  handoff), the BSB boot-selection projection, triple-enforced
+  anti-downgrade, and health-commit v2 (quorum + wall-clock deadline).
+  RFC-0012 is superseded in part and banner-annotated.
+- **ADR-0058** (BSB: derived projection of the bootctld record with a
+  field-level dual-actor write matrix; double-block power-cut atomicity)
+  and **ADR-0059** (first-stage boot chain: `nxboot` position, frozen
+  loader scope, size budget, measured-boot handoff page ABI).
+- **Lane rewrites of existing ledgers** (user rule: change tasks, don't
+  re-seed): 0036 (health-commit v2 + BSB projection), 0140 (UI/CLI over
+  the real engine), 0179 (component apply engine — owner of the crown
+  proof: first real slot flip with a different build id visible on uart),
+  0198 (phase cut: device trust anchor first), 0260 (`nx image` GPT
+  assembler + NXBD signer), 0289 (`nxboot` + boot flip + backstop proofs);
+  rebase notes in 0034/0035/0197/0261/0315. Board hygiene: 0089/0090/0174
+  regrouped out of Updates (24 → 21), `.nxs`/`.nxdelta`/`pkgimg`/NXBD/BSB/
+  `nxboot`/`updated` registered in TRACK-AUTHORITY-NAMING.
+
 ### Added - 2026-08-24 (TASK-0053: .nxra signed recovery action tokens — break-glass on the ops surface)
 
 - **RFC-0088 seeded and shipped v1**: one fixed 136-byte Ed25519 token

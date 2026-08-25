@@ -48,6 +48,19 @@ links:
 > - keeps: `flashd` + virtio-serial + flash protocol (from TASK-0260) + factory
 >   reset — mutating verbs `.nxra`-gated per TASK-0053 once available.
 
+> **Rebase note 2026-08-25 (RFC-0089: out of the OTA lane; targets recut).**
+> This ledger stays OUTSIDE the Updates/OTA lane and executes after it. At
+> execution it rebases on the delivered substrate: `flashd` writes are
+> PARTITION-SCOPED block IO on the single RFC-0089 §2 GPT disk (bsb/boot-a/
+> boot-b/state/data — no `state:/flash/staging.img`, no raw whole-device
+> writes); the host twin is TASK-0260's residual flasher protocol plus the
+> shipped `nx image patch` partition-write flow; factory reset preserves
+> bsb/boot partitions and trust material per the TASK-0260 golden list. The
+> body below (Goal/Plan/DoD with initrd, `rebootd`, `nx-recovery`/`nx-diag`,
+> `state:/boot/next_mode`, `recovery=1`) is historical and superseded by the
+> three notes above — do not execute from it without the rewrite this note
+> mandates.
+
 We need OS/QEMU integration for Provisioning/Recovery v1.0:
 
 - `flashd` service (target side flasher),

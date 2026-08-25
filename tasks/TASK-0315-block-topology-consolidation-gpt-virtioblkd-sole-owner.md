@@ -16,6 +16,23 @@ links:
   - Ladder: tasks/TRACK-STASH-USER-DATA-FS.md
 ---
 
+## Rebase note 2026-08-25 (RFC-0089: pulled into the OTA lane; layout extended)
+
+This task is now an early package of the Updates/OTA lane (user decision
+2026-08-25) and executes the FULL RFC-0089 §2 layout, not just `state`+`data`:
+`bsb | boot-a | boot-b | system-a | system-b | state | data` on ONE GPT disk
+(`build/nexus.img`), produced host-side by `nx image build` (TASK-0260 — the
+launcher consumes it instead of preparing images itself; `NEXUS_KEEP_BLK=1`
+keeps the disk and refreshes boot partitions via `nx image patch`). Additional
+scope riders: per-partition ACCESS policy includes the OTA roles (updated →
+inactive boot slot write only, bootctld → `bsb`, everything else denied —
+`SELFTEST: blk cross-partition deny ok` covers a slot-write deny too); the GUID
+table is exported from `userspace/storage` as the ONE layout authority (shared
+with `nx image` and later `nxboot`). Boot stays via the VMM kernel option in
+this task — the loader flip is TASK-0289-A (separation keeps every package
+green). The two-device blk/data reverse-enumeration swap finding dies here.
+depends-on additions at execution: TASK-0260.
+
 ## Context
 
 ADR-0044's end state is contracted but unowned: **one** virtio-blk device, GPT-partitioned

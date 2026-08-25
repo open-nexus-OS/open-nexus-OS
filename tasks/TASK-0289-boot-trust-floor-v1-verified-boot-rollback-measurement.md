@@ -1,143 +1,159 @@
 ---
-title: TASK-0289 Boot trust floor v1: verified boot anchors + rollback indices + measured boot handoff
+title: TASK-0289 Boot trust floor v1: nxboot first-stage loader + boot flip (Phase A) and backstop proofs + measured surface (Phase B)
 status: Draft
 owner: @security @runtime @updates
 created: 2026-04-13
+updated: 2026-08-25
 depends-on:
-  - TASK-0007
-  - TASK-0009
-  - TASK-0029
-  - TASK-0198
-  - TASK-0260
+  - TASK-0315   # single GPT disk with bsb/boot-a/boot-b (Phase A substrate)
+  - TASK-0260   # nx image writes the factory disk + signed NXBDs
+  - TASK-0179   # Phase B backstop proofs run against the real apply engine
 follow-up-tasks: []
+kernel-touch: yes
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Updates/packaging v1.0: docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md
-  - Supply-chain v1: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - Supply-chain v2b OS enforcement: tasks/TASK-0198-supply-chain-v2b-os-enforcement-store-updater-bundlemgrd.md
-  - Provisioning/recovery: tasks/TASK-0260-provisioning-recovery-v1_0a-host-image-builder-flasher-protocol-deterministic.md
-  - Keystore/attestation OS wiring: tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
+  - Contract: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§5 NXBD, §7 loader, §10 anti-downgrade)
+  - Boot-chain ADR (this task executes it): docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md
+  - BSB actor discipline: docs/adr/0058-boot-selection-block-dual-actor-discipline.md
+  - Authority: docs/adr/0055-bootctld-single-boot-state-authority.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Rebase note 2026-08-18 (ADR-0055: boot-state record owner decided)
+## REWRITE 2026-08-25 (RFC-0089 lane recut — supersedes the whole pre-rewrite body)
 
-The rollback-index / boot-attempt state this task anchors now has ONE owner:
-`bootctld` (ADR-0055, built in TASK-0050 by relocating the proven
-`bootctrl.rs`/`bootctl.v1` machine; `updated` is a client, TASK-0178
-Superseded, `bootargd`/`rebootd` dead). Anchor the verified-boot rollback
-indices in/behind that record instead of introducing a parallel store; the
-`source/services/bootctld/` touched path below is now the real service, not a
-new one. Add TASK-0050 to depends-on at execution.
+The 2026-04-13 body named the goals (verified boot anchors, monotonic rollback,
+measured handoff) without a mechanism. The mechanism is now contracted: a
+first-stage loader (`nxboot`, ADR-0059) verifies a fixed 512-byte signed boot
+descriptor (NXBD) + image digest + rollback floor BEFORE any OS code runs, reads
+slot selection from the BSB projection (ADR-0058), and hands a measured record to
+the kernel. The old depends-on chain (0007/0009/0029/0198) is replaced by the
+lane's real substrate (0315/0260/0179); TASK-0037's bootargs ambition stays
+absorbed here and is satisfied by the loader (no bootargs contract — selection
+lives in the BSB). All prior invariants stand and are now enforceable:
+anti-rollback is anchored in the boot path (not userspace-only), software root
+is labeled `qemu-soft-root`, measurement is additive.
 
 ## Context
 
-The current security root direction explicitly calls for verified boot plus signed packages, but the
-repo still lacks a concrete production-floor task that closes:
-
-- boot-chain verification anchors,
-- anti-rollback state tied to the boot path,
-- and measured-boot handoff to higher-level services.
-
-Without this, "production-grade" remains incomplete even if runtime/services are otherwise solid.
+After TASK-0315 the disk is a single GPT image with real slot partitions, and
+`nx image` (TASK-0260) writes signed NXBDs — but the VMM still loads
+`neuron-boot.bin` directly: nothing selects, verifies, or falls back between
+slots, so every A/B artifact describes state about a swap no code path performs.
+This task builds the missing boot-time component and flips the boot path.
 
 ## Goal
 
-Deliver a boot trust floor that makes the QEMU/bringup path honest and upgradeable:
+**Phase A — `nxboot` + boot flip (the lane's flag-day package):**
 
-- verified boot checks are real,
-- rollback is deterministically rejected using a monotonic boot-chain-backed index,
-- and a measured-boot event log is handed to canonical userland consumers without inflating kernel policy scope.
+- New top-level crate `source/boot/nxboot/` (bare-metal S-mode, no_std, no MMU;
+  `#![forbid(unsafe_code)]` everywhere except ONE bounded early-asm module).
+  Behavior per RFC-0089 §7: BSB read (double-block rule) → slot select with
+  tries-decrement BEFORE load / exhaustion-flip → GPT walk (shared GUID table
+  from `userspace/storage`, alloc-free or bounded arena) → NXBD + image load via
+  its own minimal polling virtio-blk module → Ed25519 verify against build-baked
+  `policies/os-trust.toml` (nxra BAKED_TRUST pattern; malformed file fails the
+  build) → streamed sha256 → `rollback_index >= floor` → measured handoff page
+  (ADR-0059 ABI) → jump with firmware registers restored. Loud fallback to the
+  other slot on any verify failure; both slots bad ⇒ `nxboot: PANIC` + SBI reset
+  (wait-loop doctrine: never hang).
+- Machine logic (BSB codec, NXBD verify, slot-selection table) lives in
+  host-testable modules; only entry/blk/uart are target-only.
+- Kernel consumes the handoff page (probe magic + CRC; assert the page is outside
+  early-managed ranges): present ⇒ expose via bootinfo,
+  `KSELFTEST: boot handoff ok (measured)`; absent ⇒ honest
+  `neuron: boot handoff absent (direct kernel)` (dev direct-kernel boots stay).
+- Build/harness flip: `scripts/build.sh` builds `nxboot.bin` (linker.ld size
+  assert ≤256 KiB + `check-image-budgets.sh` gate); `qemu-launcher.sh` boots
+  `-kernel nxboot.bin` with the single `-drive nexus.img`; stale-disk detection
+  (NXBD build-id vs. built kernel) refuses or patches explicitly. Reset-lane
+  segmentation learns the per-boot nxboot rungs (markers.txt + docs together).
+
+**Phase B — backstop proofs + measured surface (after TASK-0179):**
+
+- Measured-boot userland surface: bootctld exposes the handoff record (decide:
+  reuse caller-less `OP_GET_RECORD` op 11 or a dedicated op — RFC-0089 open
+  question); `nx` debug read; label `measured (qemu-soft-root)` — never a
+  hardware-root claim.
+- Boot-time tamper backstop: fixture disk with corrupted boot-b payload behind a
+  valid-shape NXBD ⇒ `nxboot: verify FAIL (slot=b digest)` → fallback boot A.
+- Downgrade backstop: fixture with NXBD `rollback_index` below the BSB floor ⇒
+  `nxboot: verify FAIL (slot=b rollback <n> < min <m>)` → fallback →
+  `SELFTEST: ota downgrade deny ok` (loader rung; stage-time rung is 0179's).
+- Tries-exhausted auto-fallback (`ota-fallback` profile, multi-boot): stage+switch
+  a fault-fixture image that HONESTLY withholds health
+  (`init: health withheld (fault fixture)`); boots decrement
+  `nxboot: tries 2->1`, `1->0`, then `nxboot: fallback (slot=b exhausted) ->
+  slot=a`; final boot: `bootctld: rollback observed` + `SELFTEST: ota fallback ok`.
 
 ## Non-Goals
 
-- Full hardware TEE / secure-element custody.
-- Remote attestation protocol.
-- Device-specific ROM vendor flows beyond the repo's portable contract.
-- Claiming hardware-rooted security where only bring-up anchors exist.
+- Hardware TEE/secure element, remote attestation, vendor ROM flows.
+- The apply engine (TASK-0179), delta (0034/0035), flashing (0260 residual/0261).
+- Any loader capability beyond the ADR-0059 frozen scope (filesystem, capnp,
+  policy, network, target interpretation — all prohibited there).
 
 ## Constraints / invariants (hard requirements)
 
-- **No security theater**: if a root is software/QEMU-bound, label it clearly.
-- **Boot chain first**: anti-rollback must be anchored in the verified boot path, not bolted on later in userspace.
-- **Measured boot is additive**: measurement handoff must not become a second policy engine.
-- **Deterministic denial**: rollback/signature failures produce stable reasons and no fake-ready markers.
-
-## Red flags / decision points (track explicitly)
-
-- **RED (anchor choice)**:
-  - define the minimal portable trust anchor for QEMU/bringup and its upgrade path to real hardware.
-- **RED (rollback storage)**:
-  - monotonic rollback state must not depend on mutable ordinary userspace files alone.
-- **YELLOW (measurement scope)**:
-  - keep the measured log minimal and stable enough for later attestation, but do not over-design the format now.
-
-## Security considerations
-
-### Threat model
-- Downgrade to vulnerable images/packages.
-- Boot image tampering before userland policy starts.
-- Measurement spoofing or omission.
-
-### Security invariants (MUST hold)
-- Boot verification happens before the system claims a trusted boot state.
-- Rollback index checks are monotonic and tamper-evident within the declared bring-up trust model.
-- Measurement records are append-only for a boot and handed off intact.
-
-### DON'T DO (explicit prohibitions)
-- DON'T implement "userspace-only anti-rollback" and call it production-grade.
-- DON'T emit `ready/ok` markers before verification is complete.
-- DON'T conflate measured boot with remote attestation.
-
-## Contract sources (single source of truth)
-
-- Verified boot / updates skeleton: `RFC-0012`
-- Supply-chain enforcement: `TASK-0029`, `TASK-0198`
-- Provisioning/recovery flows: `TASK-0260`
+- **No security theater**: every marker and doc says `qemu-soft-root`; the
+  hardware-anchor seam stays recorded here for the future.
+- **Boot chain first**: the floor check in the loader is the anti-rollback
+  authority backstop; userspace checks are conveniences, not the guarantee.
+- **Deterministic denial**: stable FAIL reasons
+  (`nxbd | sig | digest | rollback <n> < min <m> | io`), no fake-ready markers.
+- Loader writes exactly the ADR-0058 actuator fields, nothing else, ever.
+- Approval zones touched by Phase A: root `Cargo.toml`, `Makefile`, `scripts/**`,
+  `source/kernel/**`, `config/**` (budgets) — PR series inside the package:
+  crate + host tests first (buildable, unwired), the flip as ONE reviewed change.
 
 ## Stop conditions (Definition of Done)
 
-- **Proof (Host)**:
-  - tests prove:
-    - signature/manifest verification gates boot input as documented,
-    - rollback index comparison rejects downgraded artifacts,
-    - measured-boot record layout is stable.
-- **Proof (OS/QEMU)**:
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=210s ./scripts/qemu-test.sh`
-  - required markers:
-    - `boot: verified ok`
-    - `boot: rollback reject ok`
-    - `SELFTEST: measured boot log ok`
+### Proof (Host) — required
+
+- BSB codec matrix: seq/CRC/pick-newer/torn-block.
+- NXBD vectors: accept, bad-sig, bad-digest, rollback-below-floor, zeroed.
+- Slot-selection state table: trial decrement, exhaustion flip, both-slots-bad.
+- Handoff-page encode/CRC golden; trust-bake build-failure test (malformed toml).
+
+### Proof (OS / QEMU)
+
+- Phase A: headless ladder led by `nxboot: bsb ok (slot=a seq=1)` →
+  `nxboot: verify ok (slot=a build=<id8> rbidx=<n>)` → `nxboot: jump slot=a` →
+  `KSELFTEST: boot handoff ok (measured)` → the ENTIRE existing ladder unchanged;
+  reset three-boot lane green through the loader; keep-blk double boot green;
+  SMP lanes green (loader runs boot-hart-only). Loader-fallback fixture lane:
+  `nxboot: verify FAIL (slot=b nxbd)` → `nxboot: fallback -> slot=a` → full boot.
+- Phase B: the three backstop lanes above + `SELFTEST: measured boot log ok`.
+
+Fatal signatures registered in the harness: `nxboot: PANIC`, unexpected
+`nxboot: verify FAIL` in clean lanes.
 
 ## Touched paths (allowlist)
 
-- `source/kernel/neuron/src/arch/riscv/`
-- `source/kernel/neuron/src/boot/`
-- `source/init/nexus-init/`
-- `source/services/updated/`
-- `source/services/bootctld/`
-- `source/services/keystored/`
-- `source/services/attestd/`
-- `source/libs/nexus-abi/`
-- `docs/security/`
-- `docs/architecture/`
-- `scripts/qemu-test.sh`
+- `source/boot/nxboot/` (new) + root `Cargo.toml` (approval)
+- `source/kernel/neuron/` (handoff consumption — approval)
+- `source/services/bootctld/` (measured surface, Phase B)
+- `userspace/storage/` (shared GUID/GPT exports, no_std audit)
+- `policies/os-trust.toml` (new)
+- `scripts/build.sh`, `scripts/qemu-launcher.sh`, `scripts/qemu-test.sh`,
+  `scripts/check-image-budgets.sh` (approval), `Makefile`/`justfile` (approval)
+- `tools/nx/chains/markers.txt`, `source/apps/selftest-client/proof-manifest/`
+- `docs/security/`, `docs/architecture/06-boot-and-bringup.md`
 
 ## Plan (small PRs)
 
-1. Define the portable verified-boot / rollback floor for QEMU.
-2. Add rollback-index persistence and rejection semantics.
-3. Add measured-boot event log handoff to canonical consumers.
-4. Prove verification, rollback rejection, and measurement markers in QEMU.
+1. **A1**: nxboot crate skeleton + host-tested machine modules (BSB/NXBD/select)
+   + trust bake + linker/size gate — buildable, unwired.
+2. **A2**: bare-metal blk reader + GPT walk + load/verify path; fixture-disk
+   host-side integration test via `nx image`.
+3. **A3**: kernel handoff consumption (approval) + KSELFTEST marker.
+4. **A4**: THE FLIP — build/launcher/harness in one reviewed change; all lanes
+   green; docs + memory-map audit note.
+5. **B1**: measured surface + `SELFTEST: measured boot log ok`.
+6. **B2**: backstop fixture lanes (`ota-fallback` profile, downgrade/tamper) +
+   boards/docs sweep.
 
 ## Acceptance criteria (behavioral)
 
-- Boot trust is no longer implied only by package signing; the boot path itself proves trust decisions.
-- Downgraded or invalid artifacts are rejected with stable reasons.
-- Later attestation work can build on a real measured-boot handoff instead of a placeholder.
-
-## Evidence (to paste into PR)
-
-- QEMU: verification / rollback / measured-boot markers.
-- Tests: exact verification and rollback test summaries.
+- The boot path itself proves trust decisions; downgraded or tampered images are
+  rejected with stable reasons BEFORE any OS code runs, and the system still
+  boots (fallback) or fails loudly (both bad) — never silently boots unverified
+  bytes.

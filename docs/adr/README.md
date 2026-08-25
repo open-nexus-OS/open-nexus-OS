@@ -67,3 +67,5 @@ Note: **ADR-0019 was never filed; the number is retired to keep history stable.*
 - [ADR-0055: `bootctld` is the single boot-state authority; `updated` becomes a client](0055-bootctld-single-boot-state-authority.md) — Accepted
 - [ADR-0056: The kernel records WHY a task exited and exposes it through wait](0056-task-exit-reason-kernel-abi.md) — Accepted
 - [ADR-0057: Restart re-provisions from declared topology only; clients re-resolve via samgrd](0057-service-restart-capability-re-resolve.md) — Accepted
+- [ADR-0058: Boot Selection Block — derived projection with a field-level dual-actor write matrix](0058-boot-selection-block-dual-actor-discipline.md) — Accepted
+- [ADR-0059: First-stage boot chain — `nxboot` loader position, self-relocation, measured-boot handoff ABI](0059-first-stage-boot-chain-nxboot-handoff.md) — Accepted

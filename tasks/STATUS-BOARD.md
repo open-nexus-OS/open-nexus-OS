@@ -27,10 +27,10 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Accounts, Ability & Sessions | 2 / 9 | 22% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. Spine done (0065 lifecycle broker + 0065B session authority); continuation open (KILL/backoff → 0234/0235, lock/multi-user → 0109/0110/0223/0224, delegation → 0126B). |
 | Security, Policy & Identity | 8 / 35 | 23% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
 | Storage, PackageFS & Content | 12 / 29 | 41% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done. |
-| Updates, Packaging & Recovery | 4 / 24 | 17% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. |
+| Updates, Packaging & Recovery | 4 / 21 | 19% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. ACTIVE LANE 2026-08-25 (RFC-0089). |
 | Bringup, Hardware & Drivers | 1 / 13 | 8% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
-| Windowing, UI & Graphics | 31 / 85 | 36% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
-| Text, IME, I18N & Accessibility | 4 / 7 | 57% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
+| Windowing, UI & Graphics | 31 / 87 | 36% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
+| Text, IME, I18N & Accessibility | 4 / 8 | 50% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
 | DSL, App Platform & SDK | 2 / 14 | 14% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
@@ -147,9 +147,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Updates, Packaging & Recovery
 
-- Progress: `4 / 24` done (`17%`)
+- Progress: `4 / 21` done (`19%`)
 - Kernel-touch tasks: `TASK-0289`
-- Tasks: `TASK-0007`, `TASK-0034`..`TASK-0037`, `TASK-0050`, `TASK-0050B`, `TASK-0051`, `TASK-0053`, `TASK-0089`..`TASK-0090`, `TASK-0129`, `TASK-0131`, `TASK-0140`, `TASK-0174`, `TASK-0178`..`TASK-0180`, `TASK-0197`..`TASK-0198`, `TASK-0239`, `TASK-0260`..`TASK-0261`, `TASK-0289`
+- Tasks: `TASK-0007`, `TASK-0034`..`TASK-0037`, `TASK-0050`, `TASK-0050B`, `TASK-0051`, `TASK-0053`, `TASK-0129`, `TASK-0131`, `TASK-0140`, `TASK-0178`..`TASK-0180`, `TASK-0197`..`TASK-0198`, `TASK-0239`, `TASK-0260`..`TASK-0261`, `TASK-0289`
+- Notes (2026-08-25, OTA lane opened — RFC-0089): the end-to-end OTA contract exists (RFC-0089: `.nxs` v2 component manifest, NXBD signed boot descriptors, BSB per ADR-0058, `nxboot` first-stage loader per ADR-0059, triple-enforced anti-downgrade; RFC-0012 superseded in part). Lane order (each package test-all-green): `0198` Phase 1 (device trust anchor — closes the live archive-self-key hole) → `0036`-A (record v3 + quorum + deadline) → `0314`/`0260`/`0315` (block substrate + `nx image` + single GPT disk with slot partitions) → `0289`-A (`nxboot` + boot flip) → `0036`-B (BSB projection) → `0179` (apply engine v2 — CROWN PROOF: first real slot flip with a different build id) → `0289`-B (backstops + measured surface) → `0140` (UI/CLI) → `0034`/`0035` (delta components). Ledger rewrites: 0036/0140/0179/0198/0260/0289; rebase notes: 0034/0035/0197/0261/0315. Group membership fix: `TASK-0089`/`TASK-0090` (app tasks, matched on "recovery"/"image" words) moved to Windowing/UI; `TASK-0174` (i18n, Superseded) moved to Text/IME — 24 → 21 tasks. Bundle-set granularity is the contracted Phase B (RFC-0089 §12) after the lane.
 - Notes (2026-08-24, later): `TASK-0053` Done — **the reliability spine (0049 → 0049B → 0049C → 0050 → 0051 → 0051B → 0053) is complete.** `.nxra` break-glass per RFC-0088: one fixed 136-byte Ed25519 token (deliberately not CBOR) authorizes exactly ONE mutating recovery action for a sender standing policy would deny — additive, never weakening (updated's OTA ladder and admin subjects run untouched). Trust = build-time-baked `policies/nxra-trust.toml` (image-integrity-strong; TASK-0289 upgrades the root); replay = per-(verifier, key) monotone high-water mark persisted as an Integrity envelope BEFORE the action (consume-before-act, no nonce GC); windowed tokens reject `no-clock` fail-closed. bootctld enforcement + a state-neutral proof chain every boot (require → accept → replay deny; the authorized OP_SWITCH dies `NotStaged` at the machine); `nx recovery token-make/-show` host-side. Recorded recut: the statefsd fsck-repair gate joins with the first token-carrying client (dead code today). Docs: `docs/reliability/nxra.md`.
 - Notes (2026-08-24): `TASK-0051` Done — the recovery operations surface is real: statefsd fsck ops (policy-gated, quiesce-rejects-busy, engine swap + re-open) over the 0026/0027 engine — whose scan now STREAMS through a bounded window (`statefs::fsck_window`; the old whole-region slurp was a 64 MiB alloc on statefsd's 1 MiB heap); the REPAIR proof is induced in-lane (boot 1 leaves a txn open across the SBI reset → boot 2 repairs the durable orphan, `fsck repaired (n=1)` required); bootctld ops (`GET_RECORD`, recovery commit block before the sender gate, `switch scheduled` emitted only after persist, required in the OTA ladder); and `nx diagnose` — ONE deterministic ustar bundle over the SSOT decoders (fsck outcome is data, nx exit classes stay the CLI contract). Finding recorded: the statefs journal lands in `build/data.img` (virtio-mmio enumerates in reverse; launcher naming swapped — storage-lane follow-up). Next in lane: `TASK-0051B`.
 - Notes (2026-08-24): `TASK-0050` Done — bootctld is the single boot-state authority end to end: the RFC-0012 machine relocated (record v2 kills the replay-reconstruction hack), `updated` is a client (OTA ladder unchanged through the move), `SYSCALL_SYSTEM_RESET` (SBI SRST, identity-bound to bootctld), policy-gated targets (`boot.target`/`boot.reset`), and targets materialize as RESUME SETS over the fully provisioned topology (zero slot-layout shift). The reset lane proves a THREE-boot cycle in one uart stream: normal → recovery graph (drivers provably suspended) → normal, `ci-os-reset` in test-all. Escalation edge recut to the respawnable() widening (dead code until then). Next in lane: `TASK-0051`.
@@ -164,15 +165,15 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Windowing, UI & Graphics
 
-- Progress: `31 / 85` done (`36%`)
+- Progress: `31 / 87` done (`36%`)
 - Kernel-touch tasks: —
-- Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0088`, `TASK-0091`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`
+- Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`
 
 ### Text, IME, I18N & Accessibility
 
-- Progress: `4 / 7` done (`57%`)
+- Progress: `4 / 8` done (`50%`)
 - Kernel-touch tasks: —
-- Tasks: `TASK-0077`, `TASK-0148`..`TASK-0149`, `TASK-0151`, `TASK-0175`, `TASK-0240`..`TASK-0241`
+- Tasks: `TASK-0077`, `TASK-0148`..`TASK-0149`, `TASK-0151`, `TASK-0174`..`TASK-0175`, `TASK-0240`..`TASK-0241`
 - Notes (2026-07-21): IME v2 + i18n v2 track active — ledgers 0146/0147/0149/0150/0203/0204/0240/0241 rewritten against repo reality (RFC-0075/0077); `TASK-0096`/`TASK-0174`/`TASK-0175` Superseded; `TASK-0148` Deferred (no bidi need for Latin+CJK); 0204 retargeted securefsd → statefsd (`state:/ime`), encryption follow-up seeded as `TASK-0300`.
 
 ### Media & Creative

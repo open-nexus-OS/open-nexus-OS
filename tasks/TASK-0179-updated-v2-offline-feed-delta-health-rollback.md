@@ -1,179 +1,149 @@
 ---
-title: TASK-0179 Updated v2 (offline, deterministic): pkg://updates feed + manifest verify (trust store) + full/delta apply + trial/confirm/rollback + selftests/docs
+title: TASK-0179 updated v2: component apply engine + path-based staging + offline feed — owner of the first real OTA flip (crown proof)
 status: Draft
 owner: @runtime
 created: 2025-12-27
-depends-on: []
-follow-up-tasks: []
+updated: 2026-08-25
+depends-on:
+  - TASK-0198   # Phase 1: device trust anchor + verifier verdict authority
+  - TASK-0289   # Phase A: nxboot loader + boot flip
+  - TASK-0036   # Phase B: BSB projection (and Phase A record v3 fields)
+  - TASK-0260   # nx image emits the OTA container fixtures
+follow-up-tasks:
+  - TASK-0140
+  - TASK-0034
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Updates A/B skeleton baseline (updated v1.1): tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
-  - OTA v2 state machine + health mux: tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
-  - Boot control service stub: tasks/TASK-0178-bootctld-v1-boot-control-stub-service.md
-  - Delta updates format/tooling baseline (.nxdelta): tasks/TASK-0034-delta-updates-v1-bundle-nxdelta.md
-  - Trust store unification (updated consumes trust): tasks/TASK-0160-identity-keystore-v1_1-os-attestd-trust-unification-selftests.md
-  - Persistence (/state slots/history): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Updates UI/CLI (nx update): tasks/TASK-0140-updates-v1-ui-cli-settings-offline.md
-  - Signing policy: docs/security/signing-and-policy.md
+  - Contract: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§3 manifest, §8 updated v2, §9 feed, §10 anti-downgrade)
+  - Authority: docs/adr/0055-bootctld-single-boot-state-authority.md (updated stays a client)
+  - Staging placement: docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md (/data, never /state KV)
+  - Block substrate: tasks/TASK-0315-block-topology-consolidation-gpt-virtioblkd-sole-owner.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Rebase note 2026-08-18 (ADR-0055: bootctld is real)
+## REWRITE 2026-08-25 (RFC-0089 lane recut — supersedes the whole pre-rewrite body)
 
-The "boot control service stub" this ledger references (TASK-0178) is
-Superseded: ADR-0055 makes `bootctld` the single boot-state authority and
-TASK-0050 builds it by relocating the proven slot machine — `updated` becomes a
-CLIENT. Before execution: trial/confirm/rollback and any slot mutation in this
-ledger go through bootctld ops (schedule/commit semantics per TASK-0050/0051);
-`updated` keeps feed/verify/apply. TASK-0036's ownership note stands for
-healthmux/deadline semantics. depends-on: TASK-0050, TASK-0036.
+The 2025-12-27 body predated bootctld and carried `bootctld.setActive`/marker-only
+`reboot()`/"minimal healthd"/soft-reboot-simulation/`state:/slots/<a|b>/root.img`
+— all dead: bootctld is real with real SBI reset (TASK-0050), health quorum +
+deadline live in the bootctld machine (TASK-0036), recovery/boot semantics are
+RFC-0087 §4, slot payloads are GPT partitions (RFC-0089 §2), and bulk bytes never
+land in the `/state` KV (ADR-0043 — the old `state:/slots/` path was a violation
+on paper). The TASK-0178 link is gone: 0178 is Superseded by TASK-0050. The old
+"NUB"/second-payload-format warning is resolved structurally — the ONLY container
+is `.nxs` v2.
 
 ## Context
 
-> **Collision note (2026-08-14):** slot-state-machine ownership was decided on
-> 2026-08-14 — **TASK-0036 owns the healthmux/rollback/deadline evolution of
-> the A/B slot state machine.** A shipped machine already exists
-> (`userspace/updates/src/bootctrl.rs`; persistent state
-> `/state/boot/bootctl.v1` in `source/services/updated/src/os_lite.rs`). This
-> task must NOT re-specify the slot state machine (its trial/confirm/rollback
-> items are TASK-0036's scope); before execution it rebases against
-> TASK-0036's outcome. Stale-claim flag: the Context below says "Updates A/B
-> skeleton exists as a task (`TASK-0007`) but is still draft" — **TASK-0007 is
-> Done**, and `updated` is a shipped, persistent 971-LOC service with a
-> QEMU-gated OTA ladder (`scripts/qemu-test.sh:536-540`).
-
-We want an offline, deterministic updater with:
-
-- A/B slot lifecycle (trial/confirm/rollback),
-- signed manifests verified via the unified trust store,
-- full-image apply and delta apply,
-- a deterministic offline feed under `pkg://updates/`,
-- QEMU proof via markers and a **soft-reboot simulation** (no real reboot).
-
-Repo reality:
-
-- Updates A/B skeleton exists as a task (`TASK-0007`) but is still draft.
-- OTA v2 health/rollback state machine is tracked as `TASK-0036`.
-- Delta tooling exists as a plan (`TASK-0034`) but is bundle-focused; we must not invent a second delta format.
-- Trust store unification for `updated` is tracked in `TASK-0160`.
-
-This task is an integration slice: it wires offline feed + verification + apply + trial/confirm/rollback using existing contracts.
-
-Prompt mapping note (avoid drift from older plans):
-
-- Some older prompts propose a “NUB” (JSON manifest + tar payload + detached signature) and a new `nx-update pack` pipeline.
-- In this repo, `updated` must **not** invent a second payload contract:
-  - verification must align with the canonical packaging direction from `TASK-0007` (bundle/system-set contracts),
-  - trust roots must come from the unified trust store (`TASK-0160`),
-  - and any “pack” tooling belongs to packaging tools (`nxb-pack`/system-set pack), not `nx update`.
+After TASK-0289-A the system boots from disk through `nxboot`, and slots are real
+partitions — but nothing fills them: `updated` still carries the v1 8-KiB inline
+`OP_STAGE` that verifies bytes in RAM and discards them. This task replaces that
+with the end-state apply engine and delivers the lane's crown proof: the first
+update that actually changes what the machine boots.
 
 ## Goal
 
-Deliver `source/services/updated` v2 behavior (service name remains `updated` to avoid drift) with:
+`updated` v2 (service name unchanged; stays a bootctld CLIENT):
 
-1. Offline feed:
-   - `pkg://updates/feeds/stable.nxf` lists manifest URIs deterministically (Cap'n Proto; canonical)
-     - optional authoring/fixture input: `stable.json` compiled to `stable.nxf` at build time
-   - deterministic “current version” reporting
-   - marker: `updates: feed loaded items=<n>`
-2. Manifest verification:
-   - manifest includes `sha256/size` for artifacts and an Ed25519 signature
-   - verify using unified trust store (`TASK-0160`) and deterministic error codes
-   - marker: `update: manifest ok ver=<v> signer=<s>`
-3. Apply to inactive slot:
-   - write artifacts under `state:/slots/<a|b>/root.img` (or a documented slot path)
-   - full apply: deterministic copy with hash verification
-   - delta apply: reuse the existing delta format contract (`.nxdelta` from `TASK-0034`)
-     - do **not** introduce “NBD1” as a new long-term format name
-   - marker: `update: apply ok slot=<a|b> kind=<full|delta>`
-4. Trial switch + soft reboot:
-   - call `bootctld.setActive(inactive, trial=true, tries=3)`
-   - `bootctld.reboot()` is marker-only
-   - selftest must simulate the next “boot cycle” honestly (re-run init-lite or restart key services and re-read slot state)
-   - marker: `update: await confirm`
-5. Health check + rollback:
-   - implement a minimal `healthd` (or selftest-driven health hook) consistent with `TASK-0036`:
-     - check a small, stable quorum of “core ready” markers or RPC probes
-     - if trial and healthy within timeout: confirm
-     - if trial and unhealthy/timeout: rollback to previous slot
-   - markers:
-     - `health: trial ok -> confirm`
-     - `health: fail -> rollback`
-6. History:
-   - append stable JSONL entries to `state:/updater/history.jsonl` (gated on `/state`)
-7. OS selftests:
-   - `SELFTEST: update apply ok`
-   - `SELFTEST: update confirm ok`
-   - `SELFTEST: update rollback ok`
+1. **`.nxs` v2 component-manifest verify** in `userspace/updates` (evolves
+   `system_set.rs`; schema SSOT `tools/nexus-idl/schemas/system-set.capnp`,
+   schemaVersion 2). Verification order per RFC-0089 §3: device-anchor signature
+   (Phase-1 anchor from TASK-0198) → stage-time anti-downgrade → streamed
+   per-component sha256 → kind checks. v1 dispatch table has exactly ONE kind:
+   `boot-image`; unknown kinds reject deterministically.
+2. **Path-based staging**: `OP_STAGE_SOURCE { path }` replaces inline `OP_STAGE`
+   (removed in the same change — no dual API; nexus-abi/wire updates are
+   approval-zone). Streams from `/data/updates/*.nxs` or `pkg://updates/` in
+   64-KiB bounded chunks.
+3. **Apply pipeline** (per component): stream-digest → write to the INACTIVE slot
+   via partition-scoped block IPC (write access: inactive slot only) → readback
+   verify → write NXBD LAST (verbatim from the container — never re-signed) →
+   `bootctld OP_STAGE`; switch on request via `OP_SWITCH(tries=2)`.
+   Idempotent: restage converges; torn stage leaves the slot NXBD-invalid.
+4. **Anti-downgrade, stage-time + commit-time**: reject
+   `manifest.rollbackIndex < floor` at stage; on health commit bootctld raises
+   `rollback_min_index` to the committed NXBD's index and projects to BSB
+   (`bootctld: rollback-min raised (<old>-><new>)`) — the machine-side raise is
+   implemented HERE (the v3 field exists since TASK-0036-A).
+5. **Offline feed v1**: `OP_FEED_LIST`/`OP_CHECK` enumerate `/data/updates/` +
+   `pkg://updates/` fixtures deterministically. Network = later phase per
+   RFC-0089 §9; nothing here changes for it.
+6. **Fixture builds**: `nx image` (TASK-0260) emits `build/ota/os-<buildid>.nxs`
+   for the current build plus a second fixture with a DIFFERENT build id (and one
+   with a lower rollback index for the downgrade lane) so QEMU stages a genuinely
+   different image.
 
 ## Non-Goals
 
-- Kernel/bootloader changes.
-- Real “slot B actually booted” via bootargs/OpenSBI (`TASK-0037`).
-- Online networking feeds (devnet is a separate follow-up once networking is real).
-- UI polish (Settings UX remains `TASK-0140`).
+- Loader/boot-time backstop proofs and the measured surface (TASK-0289-B).
+- Delta kinds (TASK-0034/0035 — the dispatch table is the seam).
+- UI/CLI (TASK-0140). Network transport. Key rotation (TASK-0197/0198 later).
+- Kernel changes beyond the approval-zone wire additions named above.
 
 ## Constraints / invariants (hard requirements)
 
-- Offline & deterministic: `pkg://` only; no system time dependence.
-- No fake success: trial/confirm/rollback markers only after real state transitions and verification happened.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-
-## Red flags / decision points (track explicitly)
-
-- **RED (reboot truth)**:
-  - `bootctld.reboot()` cannot reboot; proof must be a soft-reboot simulation (same as `TASK-0036`).
-
-- **RED (/state gating)**:
-  - slot images and history persistence require `TASK-0009`. Without it:
-    - apply can be demonstrated only as in-RAM placeholder and must not claim persistence across runs.
-
-- **YELLOW (delta scope mismatch)**:
-  - `TASK-0034` is bundle-delta. If we need a system-image delta, we must either:
-    - generalize the `.nxdelta` library to support “raw image” kind, or
-    - define a system-set delta task (`TASK-0035`) and keep v2 using full images only.
-  - This task must pick **one** approach and document it explicitly.
+- Fail-closed with stable reject reasons (RFC-0089 §8):
+  `untrusted publisher | sig | digest | bounds | path | component kind
+  unsupported | downgrade | io | slot-active`; every reason has a
+  `test_reject_*` and an audit record (scope=`updated`, never key material).
+- The active slot is never writable through this path (`slot-active` reject).
+- Bounded memory: streaming only, no whole-container buffering (the bump-
+  allocator services never see multi-MB allocations).
+- Markers only after real behavior; `updated: stage done` requires readback.
 
 ## Stop conditions (Definition of Done)
 
-- **Proof (Host)**:
-  - `cargo test -p updater_v2_host -- --nocapture`
-  - Required tests:
-    - manifest verify ok + tamper fail
-    - apply full + hash verify
-    - delta apply path (only if `.nxdelta` supports raw-image kind; otherwise explicit “not in this step”)
-    - slot switching calls `bootctld.setActive(...trial...)`
-    - stable history JSONL lines
+### Proof (Host) — required
 
-- **Proof (QEMU)**:
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=210s ./scripts/qemu-test.sh`
-  - Required markers:
-    - `bootctld: ready`
-    - `updated: ready`
-    - `SELFTEST: update apply ok`
-    - `SELFTEST: update confirm ok`
-    - `SELFTEST: update rollback ok`
+`tests/updates_host/` extensions (existing negative tests stay green):
+
+- Full apply pipeline against an in-memory blockproto fake:
+  stage → verify → write → readback → NXBD-last → bootctld stage.
+- Power-cut matrix: kill after EACH pipeline step ⇒ restage idempotent, slot
+  never half-valid (NXBD absent until final step).
+- `test_reject_*` for every stable reason incl. downgrade and unknown kind.
+- Feed enumeration determinism; manifest v2 accept/tamper vectors.
+- Floor-raise on commit (machine test, injected clock).
+
+### Proof (OS / QEMU) — new profile `ota` (two boots, ONE uart stream) + keep-blk lane
+
+**Crown proof** (`just test-os ota`): boot 1 —
+`updated: stage begin (source=/data/updates/os-B.nxs)` →
+`updated: component boot-image verified (sha=<8>)` →
+`updated: stage done (slot=b build=B)` → `bootctld: switch scheduled (to=b)` →
+`bootctld: bsb sync (… next=b tries=2)` → `SELFTEST: ota stage ok` → SBI reset.
+Boot 2 — `nxboot: tries 2->1 (slot=b trial)` →
+`nxboot: verify ok (slot=b build=B rbidx=<n>)` → `nxboot: jump slot=b` →
+`init: build-id B` → quorum → `bootctld: commit ok (slot=b)` →
+`bootctld: rollback-min raised (…)` → `SELFTEST: ota flip ok`.
+
+Adversarial lanes owned here:
+
+- Tamper (stage-time): bit-flipped fixture ⇒ `updated: stage rejected (digest)` +
+  `SELFTEST: ota tamper deny ok`.
+- Downgrade (stage-time): low-index fixture ⇒ `updated: stage rejected (downgrade)`
+  + `SELFTEST: ota downgrade deny ok` (stage rung; loader backstop rung is 0289-B).
+- Power-cut-during-stage (keep-blk): run 1 killed at `updated: staging` ⇒ run 2
+  boots slot A, `updated: restage clean`, `SELFTEST: ota stage resume ok`.
+
+Regression signal: headless OTA rungs recut in the same change (old inline-stage
+markers retired from `scripts/qemu-test.sh` + markers.txt + proof-manifest
+together); `ci-os-reset` stays untouched-green; new `just ci-os-ota` recipe.
 
 ## Touched paths (allowlist)
 
-- `source/services/updated/` (new or extend)
-- `source/services/bootctld/` (integration; from `TASK-0178`)
-- `userspace/ota/` (slotstate/healthmux libs, if this task contributes)
-- `tests/updater_v2_host/` (new)
-- `source/apps/selftest-client/` (extend)
-- `pkg://updates/` (fixtures feed/manifests/artifacts; exact repo path to be chosen)
-- `docs/update/` (overview/feed/delta/cli/testing)
-- `scripts/qemu-test.sh`
+- `source/services/updated/` + `userspace/updates/`
+- `source/services/bootctld/` (floor raise on commit)
+- `source/libs/nexus-abi` + `source/libs/nexus-wire` (OP_STAGE_SOURCE — approval)
+- `tools/nexus-idl/schemas/system-set.capnp` + `tools/nx` (fixture emission)
+- `source/apps/selftest-client/` + `proof-manifest/markers/`
+- `tests/updates_host/`, `scripts/qemu-test.sh` + `justfile` (ota profile — approval)
+- `docs/packaging/system-set.md`, `docs/updates/` sweep
 
 ## Plan (small PRs)
 
-1. Define offline feed + manifest schema + verification (trust store)
-2. Full-image apply to inactive slot + slot state + markers
-3. Health check integration + soft-reboot simulation + rollback path
-4. Delta apply decision (generalize `.nxdelta` or defer) + host tests
-5. OS selftests + docs + marker contract update
-
-## Acceptance criteria (behavioral)
-
-- Host tests and QEMU markers prove deterministic offline staging, trial scheduling, confirm, and rollback behavior.
+1. Manifest v2 schema + verifier in `userspace/updates` + host vectors.
+2. `OP_STAGE_SOURCE` wire + streaming reader (vfsd/pkg) + bounds; retire inline
+   OP_STAGE end-to-end.
+3. Apply pipeline vs. block fake + power-cut matrix (host-complete before OS).
+4. OS wiring: partition write route + policy caps; fixture emission via nx image.
+5. `ota` profile + crown proof + adversarial lanes; floor raise; docs + boards.

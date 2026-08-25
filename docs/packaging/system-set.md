@@ -3,8 +3,10 @@
 
 # Nexus System-Set Packaging (`.nxs`)
 
-**Status**: Complete (v1.0 spec)  
-**Canonical source**: `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`
+**Status**: Complete (v1.0 spec) — **`.nxs` v2 (component manifest) is contracted
+in RFC-0089** and supersedes this layout for update containers; v1 remains valid
+for the shipped selftest fixture until TASK-0179 executes.  
+**Canonical source**: `docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md` (v2, current) · `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md` (v1)
 
 This document defines the v1.0 system-set container (`.nxs`). It is the single truth for
 system-set layout and signature binding, and is designed for deterministic, signed updates.

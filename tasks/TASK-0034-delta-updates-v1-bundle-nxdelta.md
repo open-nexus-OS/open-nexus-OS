@@ -25,6 +25,22 @@ links:
   - TASK-0009: Persistence v1 (statefs for bootctl + resume checkpoints)
 ---
 
+## Rebase note 2026-08-25 (RFC-0089: the missing RFC seed exists; target recut)
+
+The RED flag below ("`.nxdelta` requires an RFC seed before implementation") is
+resolved: RFC-0089 §11 reserves the delta seam — deltas are `.nxs` v2 COMPONENT
+KINDS (`boot-image-delta`, `bundle-delta`), not a new container. At execution
+this task writes the normative `.nxdelta` stream-format RFC (next free number)
+and implements the `boot-image-delta` kind first: reconstruct the target boot
+image from the ACTIVE slot bytes + delta stream into the inactive slot, then
+TASK-0179's identical digest/readback/NXBD tail runs — the engine, trust and
+staging paths are untouched (that is the component-model payoff). The
+rollsum+zstd mechanics, determinism, resume-checkpoint and bounded-memory
+requirements below carry over verbatim; the bundlemgrd `bundle-delta` apply path
+moves BEHIND the Phase-B bundle-set seam (RFC-0089 §12) and executes with it.
+depends-on at execution: TASK-0179 (real apply path first). Fixture emission:
+`nx image ota --delta-from <img>` (TASK-0260).
+
 ## Rebase 2026-08-14 — what already shipped (do NOT re-implement)
 
 Verified against the repo on 2026-08-14. Goals 1 and 2 of this ledger are

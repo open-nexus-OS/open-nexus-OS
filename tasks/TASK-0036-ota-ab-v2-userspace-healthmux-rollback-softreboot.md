@@ -1,204 +1,136 @@
 ---
-title: TASK-0036 OTA A/B v2 (userspace): slot state machine + health multiplexer + rollback timer (soft-reboot proof)
+title: TASK-0036 OTA A/B v2: health-commit v2 (record v3 + quorum + deadline) and BSB projection — bootctld machine evolution
 status: Draft
 owner: @runtime
 created: 2025-12-22
-updated: 2026-08-14
-depends-on: []
-follow-up-tasks: []
+updated: 2026-08-25
+depends-on:
+  - TASK-0050
+follow-up-tasks:
+  - TASK-0179
 links:
-  - Vision: docs/architecture/vision.md
-  - Packaging/updates baseline: tasks/TASK-0007-updates-packaging-v1_1-userspace-ab-skeleton.md
-  - Supply-chain baseline: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
-  - Persistence substrate: tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Audit/observability (optional): tasks/TASK-0006-observability-v1-logd-journal-crash-reports.md
+  - Contract: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§6 BSB, §13 record v3)
+  - BSB actor discipline: docs/adr/0058-boot-selection-block-dual-actor-discipline.md
+  - Authority: docs/adr/0055-bootctld-single-boot-state-authority.md
+  - Health vocabulary: docs/rfcs/RFC-0087-reliability-failure-model-v1.md (§2) + docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md (`ready`, never `init: up`)
+  - Substrate for Phase B: tasks/TASK-0315-block-topology-consolidation-gpt-virtioblkd-sole-owner.md
   - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
-## Rebase amendment 2026-08-18 (ADR-0055 + RFC-0087)
+## REWRITE 2026-08-25 (RFC-0089 lane recut — supersedes the whole pre-rewrite body)
 
-Three open points from the 2026-08-14 rebase are now decided:
+This ledger was written 2025-12-22 for a world without bootctld and carried
+`healthd`/`bootargd`/soft-reboot/`/state/boot/slot.nxs` remnants that its own
+2026-08-18 amendment had already declared dead. The rewrite cuts it to the two
+bootctld-machine evolutions RFC-0089 assigns it. Decisions inherited and final:
 
-- **Slot-machine home**: `bootctld` is the single boot-state authority
-  (ADR-0055); TASK-0050 relocates `bootctrl.rs`/`bootctl_state.rs` there and
-  `updated` becomes a client. This task REMAINS owner of the state-machine
-  *evolution* (healthmux quorum, wall-clock deadline) — but implements it in
-  bootctld's machine, through bootctld ops.
-- **`bootargd` decision (open point c)**: dead. Next-boot/target selection is
-  the ADR-0055 record + SBI reset (TASK-0050); TASK-0037 stayed Superseded by
-  TASK-0289.
-- **`healthd` (open point c)**: no new daemon. Health confirmation vocabulary
-  belongs to RFC-0087 (§2 liveness/health contract); the quorum multiplexer
-  lands as a bootctld-side aggregation over existing health-ok reporters, not
-  as a service. Any daemon proposal must enter TRACK-AUTHORITY-NAMING first.
-- **Soft-reboot simulation (open point d)**: superseded by a REAL reset proof —
-  TASK-0050 ships SBI SRST; the "new init cycle uses slot B" proof rides the
-  reset/double-boot lane instead of a simulation.
-
-depends-on at execution: TASK-0050.
-
-## Rebase 2026-08-14 — what already shipped (do NOT re-implement)
-
-Verified against the repo on 2026-08-14.
-
-**Decision (ownership): TASK-0036 is THE owner of the A/B slot-state-machine
-evolution.** TASK-0178 (bootctld stub) and TASK-0179 (updated v2 offline feed)
-overlap with this task; both defer to TASK-0036 for the slot state machine,
-health multiplexing, rollback, and deadline semantics, and must rebase against
-this task's outcome before execution.
-
-**Shipped — the slot/trial/rollback state machine core:**
-
-- `userspace/updates/src/bootctrl.rs` implements the machine this ledger's
-  Plan steps 1 and 3 describe: `stage` (:82), `switch` with `tries_left`
-  (:88), `commit_health` (:102), `tick_boot_attempt` (:113, auto-rollback on
-  exhausted tries), `rollback` (:127). Do NOT re-implement.
-- Persistence is real: `source/services/updated/src/os_lite.rs:53`
-  `BOOTCTRL_STATE_KEY = "/state/boot/bootctl.v1"` (note: the shipped path is
-  `bootctl.v1`, not this ledger's `/state/boot/slot.nxs`), marker
-  `updated: ready (statefs)` gated at `scripts/qemu-test.sh:482`.
-- `updated` service side: `source/services/updated/src/os_lite.rs` (971 LOC)
-  with `handle_stage` :396, `handle_switch` :463, `handle_health_ok` :516,
-  `handle_boot_attempt` :555.
-- Host proof: `tests/updates_host/tests/ota_flow.rs` (11 tests, incl.
-  `rollback_on_health_timeout` :105, `reject_mismatched_digest` :92).
-- QEMU proof: full OTA ladder gated at `scripts/qemu-test.sh:536-540`
-  (`SELFTEST: ota stage/switch/health/rollback ok`) plus negative proofs in
-  `proof-manifest markers/ota.toml:39-54`.
-
-**Honest residual scope (what v2 still adds):**
-
-- (a) **Health multiplexer with quorum** — nothing named healthmux/quorum
-  exists anywhere in the repo (grep: zero hits). Today health confirmation is
-  a single `handle_health_ok` call.
-- (b) **Wall-clock `deadline_ns` alongside tries** — the shipped machine is
-  tries-based only (`tries_left` / `tick_boot_attempt`); there is no
-  wall-clock deadline path.
-- (c) **`healthd`** — does not exist. Also decide whether `bootargd` is still
-  needed at all, given the boot-chain task moved TASK-0037 → TASK-0289.
-- (d) **Soft-reboot simulation proof** — the "new init cycle uses slot B"
-  simulated-boot marker lane is not built.
+- Machine home = bootctld (ADR-0055); this task evolves THAT machine through
+  bootctld ops. `updated` stays a client. No `healthd`, no `bootargd`, no
+  `userspace/ota/` crates, no soft-reboot simulation (real SBI reset since 0050).
+- Shipped and NOT re-implemented: the tries-based machine
+  (`source/services/bootctld/src/machine.rs`), record v2 persistence with
+  snapshot-restore (`record.rs`/`persist_os.rs`, 13 host tests), the gated OTA
+  ladder (`SELFTEST: ota stage/switch/health/rollback ok`), the reset lane.
 
 ## Context
 
-We want robust A/B OTA behavior:
-
-- stage into inactive slot,
-- schedule a trial boot,
-- confirm health via a health multiplexer,
-- auto-rollback on timeout/degradation.
-
-Repo reality (superseded by the Rebase 2026-08-14 section above — kept for
-history):
-
-- `updated` is a persistent 971-LOC service with a QEMU-gated
-  stage/switch/health/rollback ladder (see Rebase section); v2 adds health mux
-  quorum, wall-clock deadline, and soft-reboot proof on top.
-- “Boot slot via SBI/bootargs” cannot be *truly* proven without boot chain/kernel/firmware integration.
-
-This task focuses on the **userspace state machine** and provides **honest proof** via a soft-reboot simulation.
+Health-commit today is ONE unauthenticated-in-substance call: whoever reaches
+`OP_HEALTH_OK` first commits the trial slot. There is no quorum over the services
+that actually prove the boot, and no wall-clock bound — a trial slot that boots
+but never advances can sit pending forever (tries only decrement on reset).
+Additionally, RFC-0089 introduces the loader-readable BSB projection; bootctld —
+the single boot-state authority — is its runtime writer.
 
 ## Goal
 
-Deliver a userspace A/B OTA v2 state machine with:
+Two phases, separately provable:
 
-- durable slot state under `/state/boot/slot.nxs` (Cap'n Proto snapshot; canonical),
-- atomic stage/commit semantics (inactive slot),
-- a health multiplexer (quorum + timeouts),
-- rollback timer (boots-left and/or deadline),
-- deterministic host tests and OS selftest markers using a **soft reboot simulation**.
+**Phase A — health-commit v2 (no storage dependency; lands early):**
+
+- Record v3 per RFC-0089 §13: v2 + `rollback_min_index u32` +
+  `health_quorum_mask u8` + `commit_deadline_ns u64`; versioned decode
+  (v3/v2/v1/legacy), writes always v3, snapshot-restore unchanged. The
+  `rollback_min_index` FIELD lands now (raised by TASK-0179's commit path later)
+  so the record never migrates twice.
+- Quorum multiplexer inside bootctld: a bounded reporter set declared in the
+  init service topology (RFC-0069 ServiceSpec — data, not code); reporters
+  confirm via the existing health op; commit fires only when the mask completes.
+  Duplicate confirmations are idempotent; unknown reporters are rejected.
+- Wall-clock deadline: `commit_deadline_ns` armed at switch (time via the boot-
+  proven `nsec` source, injectable in tests); expiry without quorum ⇒ rollback
+  scheduled through the existing machine semantics (consumed by the next reset —
+  no new transition mechanism).
+
+**Phase B — BSB projection (after TASK-0315 provides the `bsb` partition):**
+
+- bootctld gains a blockproto client to the `bsb` partition (init-provisioned
+  route, deny-by-default elsewhere) and projects the record after EVERY committed
+  mutation per the ADR-0058 write matrix: record commits FIRST, BSB second,
+  `seq+1`, alternate-block write.
+- Startup reconciliation: absorb loader actuator effects (tries decrement,
+  exhaustion flip) into the record via the existing `OP_BOOT_ATTEMPT`/rollback
+  semantics, then re-project idempotently (`bootctld: bsb resync` when differing).
 
 ## Non-Goals
 
-- Real OpenSBI bootargs wiring (separate blocked task).
-- Real `.nxs` system set staging (owned by TASK-0035; tooling and `updated` exist now).
-- Kernel changes.
+- The loader itself and its BSB actuator writes (TASK-0289-A).
+- Staging/apply, floor RAISING on commit, feed (TASK-0179).
+- Any new daemon, any second boot-state store, kernel changes.
 
 ## Constraints / invariants (hard requirements)
 
-- Kernel untouched.
-- No fake success: “booted slot B” is only claimed after the simulated new init cycle uses slot B configuration.
-- Deterministic tests: injectable clock, bounded timeouts, stable markers.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-
-## Red flags / decision points
-
-- **RED**:
-  - Without a boot chain, “bootargs” cannot be validated. Proof is limited to **soft-reboot** simulation.
-- ~~**YELLOW**: health signal sources `execd/metricsd/logd/statefs` are
-  "planned not implemented".~~ **CORRECTED 2026-08-14**: all four services
-  are shipped and marker-gated. The health mux can draw on real sources from
-  day one; the open work is the multiplexer/quorum itself (see Rebase
-  section), not the sources.
-
-## Contract sources (single source of truth)
-
-- Supply-chain verification expectations: TASK-0029
-- Persistence: TASK-0009
-- QEMU marker contract: `scripts/qemu-test.sh`
+- Quorum reporters are identified by kernel-attributed sender ids, never payload
+  strings; the reporter set is declarative topology data.
+- Deadline decisions use injectable time in tests; bounded everything (mask is a
+  u8 — max 8 reporters, deliberate).
+- Projection is a pure function of the record; no BSB-only state. Ordering:
+  record → BSB, crash between healed by resync.
+- No `unwrap/expect` on wire input; markers only after real behavior.
 
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
 
-Note (2026-08-14): the tries-based stage/switch/health/rollback flows are
-already covered by `tests/updates_host/tests/ota_flow.rs` (11 tests) — do not
-duplicate them. New v2 tests cover only the residual scope:
+Extends the existing 13 bootctld machine/record tests (do not duplicate them):
 
-- wall-clock `deadline_ns`: no health confirmation before deadline → rollback scheduled to last_good
-- health-mux quorum: confirmation within grace → promote and clear trial
-- degradation path: repeated “critical restart” events triggers unhealthy decision
-- soft-reboot simulation drives the above deterministically (injectable clock)
+- `test_record_v2_to_v3_migration` (and v1/legacy chain stays green)
+- `test_quorum_partial_no_commit` / `test_quorum_complete_commits`
+- `test_reject_unknown_reporter` / `test_duplicate_reporter_idempotent`
+- `test_deadline_expiry_schedules_rollback` (injected clock)
+- `test_bsb_projection_golden` (record → 512-B block bytes, seq/CRC)
+- `test_bsb_resync_after_crash_window` / `test_actuator_absorption`
+  (tries-decremented/flipped BSB reconciles into the record, then re-projects)
 
 ### Proof (OS / QEMU)
 
-Already shipped and gated (do not re-add): `SELFTEST: ota stage/switch/health/rollback ok`
-at `scripts/qemu-test.sh:536-540` + negatives in `proof-manifest markers/ota.toml:39-54`.
+Shipped ladder stays green untouched. New markers (headless ladder):
 
-New v2 markers (residual scope only):
+- Phase A: `bootctld: health quorum ok (n/n)`, `bootctld: commit deadline armed`,
+  `SELFTEST: bootctl quorum ok`
+- Phase B: `bootctld: bsb sync (seq=<n> active=<s> next=<s|none> tries=<n>)`,
+  `bootctld: bsb resync` (resync lane), `SELFTEST: bootctl bsb ok`
+- Reset profile three-boot lane stays byte-green (regression signal), plus
+  `SELFTEST: bootctl persist ok` unchanged.
 
-- `SELFTEST: ota simulated boot ok (slot=B)`
-- `SELFTEST: ota deadline rollback ok`
-- `SELFTEST: ota health quorum ok`
+Marker doctrine: `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` +
+proof-manifest TOMLs updated together.
 
 ## Touched paths (allowlist)
 
-- `source/services/`:
-  - `bootargd` (only if still needed — decide first, given TASK-0037 → TASK-0289; see Rebase section)
-  - `healthd` (health multiplexer; minimal sources first)
-  - `updated` (exists — extend `source/services/updated/`, do not introduce a parallel orchestrator)
-- `userspace/ota/` (`slotstate`, `healthmux` libs)
-- `source/apps/selftest-client/`
-- `tests/`
-- `docs/updates/ab-ota.md`
+- `source/services/bootctld/` (machine.rs, record.rs, persist_os.rs, os_lite.rs,
+  new bsb.rs)
+- `source/init/nexus-init/` (reporter set in service topology; bsb route)
+- `source/apps/selftest-client/` + `proof-manifest/markers/`
+- `policies/base.toml` (bsb partition capability)
+- `tests/` (bootctld host tests)
 - `scripts/qemu-test.sh` (gated)
+- `docs/` sweep per repo workflow
 
 ## Plan (small PRs)
 
-1. **Slot state model** — ✅ **largely SHIPPED** (Rebase 2026-08-14; do NOT
-   re-implement): `userspace/updates/src/bootctrl.rs` + persistence at
-   `/state/boot/bootctl.v1` (`os_lite.rs:53`). Residual: add the wall-clock
-   `deadline_ns` field alongside the existing tries-based machinery.
-
-2. **Health multiplexer (`healthd`)**
-   - Minimal quorum that can work in early OS:
-     - “core services ready” markers (or direct RPC probes)
-     - statefs read/write probe
-   - Optional sources if available later:
-     - logd (fatal repeats), metrics counters, execd restart counts.
-   - Deterministic clock injection for tests.
-
-3. **Rollback controller** — ✅ **tries-based path SHIPPED** (Rebase
-   2026-08-14; do NOT re-implement): `tick_boot_attempt` (bootctrl.rs:113)
-   decrements tries and auto-rolls-back; `commit_health` (:102) promotes.
-   Residual: the `now>deadline_ns` wall-clock branch.
-
-4. **Soft-reboot proof**
-   - Define a test-only mechanism to simulate a “new init cycle”:
-     - e.g., re-run a minimal “init-lite boot sequence” inside selftest, or restart key services and re-read `slotstate`.
-   - Markers must reflect this truth:
-     - `... simulated boot ok (slot=B)` only after the new cycle uses B.
-
-5. **Docs**
-   - Document this as OTA v2 userspace state machine with “bootchain integration pending”.
+1. **A1**: record v3 codec + migration + host tests.
+2. **A2**: quorum multiplexer + declarative reporter set + deadline arm/expiry;
+   selftest reporter wiring; QEMU markers.
+3. **B1** (after 0315): bsb.rs projection writer + golden tests; init route +
+   policy cap.
+4. **B2**: startup reconciliation + resync lane; QEMU markers; docs sweep.

@@ -1,140 +1,117 @@
 ---
-title: TASK-0260 Provisioning/Recovery v1.0a (host-first): deterministic image builder + flasher protocol + factory reset + deterministic tests
+title: TASK-0260 Provisioning v1.0a (host-first): nx image — deterministic GPT disk assembler + NXBD signer + factory BSB + OTA-container emission (flasher/factory-reset = residual)
 status: Draft
 owner: @reliability
 created: 2025-12-29
+updated: 2026-08-25
 depends-on: []
 follow-up-tasks:
+  - TASK-0315
   - TASK-0289
 links:
-  - Vision: docs/architecture/vision.md
-  - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Recovery baseline: tasks/TASK-0050-system-reset-boot-targets-bootctld.md
-  - Recovery tools: tasks/TASK-0051-recovery-operations-surface.md
-  - NXB format: tasks/TASK-0129-packages-v1a-nxb-format-signing-pkgr-tool.md
-  - Packagefs image builder: tasks/TASK-0246-bringup-rv-virt-v1_1a-host-virtio-blk-image-builder-deterministic.md
+  - Contract: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§2 layout, §5 NXBD, §6 BSB)
+  - BSB factory role: docs/adr/0058-boot-selection-block-dual-actor-discipline.md
+  - Block topology: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md + tasks/TASK-0315-block-topology-consolidation-gpt-virtioblkd-sole-owner.md
+  - GPT/GUID authority (shared, host-tested): userspace/storage/src/gpt.rs
+  - Signing primitives baseline: tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Rebase note 2026-08-18 (ADR-0055 + lane recut)
+## REWRITE 2026-08-25 (RFC-0089 lane recut — supersedes the pre-rewrite image-builder scope)
 
-Recovery baseline changed: boot target/next-boot live in the `bootctld` record
-(ADR-0055, TASK-0050) — no boot-arg contract, no `rebootd`. The host-first
-image-builder/flash-protocol/factory-reset scope here stays valid; anything in
-this ledger that touches next-boot or reset must target bootctld ops.
-depends-on: TASK-0050 (for the boot-state seam only).
+The old segment layout (`[bootloader][kernel][initrd (recovery)][rootfs.squashfs]
+[pkgfs.img][state header]`) is dead: there is no initrd/ramdisk (recovery is a
+declarative stage graph, TASK-0050/0261 notes), no squashfs, and the disk is the
+RFC-0089 §2 GPT layout. `nx flash reboot normal|recovery` is void (next-boot is a
+bootctld op). The flasher protocol and factory reset REMAIN in this ledger as the
+residual section below — they execute later with TASK-0261, unchanged in spirit.
+This task now delivers exactly the host image tooling the OTA lane needs.
 
 ## Context
 
-We need a deterministic provisioning & recovery path:
-
-- deterministic image builder (reproducible OS images),
-- flasher protocol (chunked, CRC'd frames, resume),
-- factory reset (wipe `state:/` except trust & boot).
-
-The prompt proposes an image builder and flasher protocol. `TASK-0050`/`TASK-0051` already plan recovery mode (boot target, minimal shell, safe tools). This task delivers the **host-first core** (image builder, flasher protocol, factory reset) that can be reused by both OS/QEMU integration and host tests.
+The OTA lane needs one host-side authority that produces the disk QEMU boots and
+the artifacts the device verifies: the GPT image with factory BSB, signed NXBDs
+per boot slot, and (for TASK-0179's fixtures) `.nxs` v2 OTA containers. The GPT
+parser/GUID table already lives host-tested in `userspace/storage` — the builder
+REUSES it (one layout authority for `nx image`, `virtioblkd`, and later `nxboot`).
 
 ## Goal
 
-Deliver on host:
+`tools/nx` subcommands (single `nx` entrypoint per TRACK-AUTHORITY-NAMING; no
+separate binaries), all deterministic:
 
-1. **Image builder library** (`nx image ...` as a subcommand of the canonical `nx` tool):
-   - compose image layout (raw file): `[bootloader/OpenSBI]`, `[kernel]`, `[initrd]` (recovery), `[rootfs.squashfs]`, `[pkgfs.img]`, `[state partition header]`
-   - deterministic: fixed segment order, byte alignment, mtimes, owner=0:0
-   - manifest includes SHA-256 per segment + overall image hash; `os.sig` is Ed25519 over manifest
-   - CLI: `nx image build --profile dev|release --rootfs ... --pkgfs ... --out ... --manifest ... --sign ...`, `nx image verify ... --manifest ... --pub ...`
-2. **Flasher protocol library** (`nx flash ...` as a subcommand of the canonical `nx` tool):
-   - frame format: **magic + header + seq + len + payload + crc32**
-   - commands: `HELLO`, `INFO?`, `WRITE seg=<name> off=?`, `DONE`, `ABORT`
-   - resume support via last good seq
-   - CLI: `nx flash send --img ... --manifest ... --port ... --baud 115200 --chunk 65536 --resume`, `nx flash verify --port ...`, `nx flash reboot normal|recovery`
-3. **Factory reset library** (`nx reset ...` as a subcommand of the canonical `nx` tool):
-   - wipe `state:/` (except trust & boot): remove `state:/apps`, `state:/content`, `state:/settings`, preserve `pkg://trust/**`
-   - CLI: `nx reset factory --yes`
-4. **Host tests** proving:
-   - composer: build tiny image with two segments; verify manifest & signature; stable hash across runs
-   - protocol: in-proc loopback of `nx flash` ↔ `flashd` with injected loss (drop every 5th frame) → resume works, final hash matches
-   - factory reset: simulate state tree and ensure preserved paths excluded; output matches golden list
+1. **`nx image build`** — assembles `build/nexus.img` per RFC-0089 §2: protective
+   MBR + GPT (GUID table exported from `userspace/storage`; deterministic GUID
+   derivation from build inputs) + partitions `bsb | boot-a | boot-b | system-a |
+   system-b | state | data`; factory BSB (seq=1, active=a, committed, floor=0);
+   NXBD for boot-a signed with the dev publisher key (`--sign <seed>`; key files
+   under `keys/`, never logged); embeds the boot image into boot-a from sector 8;
+   boot-b NXBD zeroed (= invalid); seeds state/data from the existing image-prep
+   inputs. Per-slot size budget enforced at build time.
+2. **`nx image verify`** — re-parse GPT (via the SAME `userspace/storage` parser),
+   CRC checks, NXBD signature + digest verification, BSB validity; stable exit
+   classes per the nx CLI contract.
+3. **`nx image patch --part boot-a --in <bin>`** — refresh a boot partition
+   (image + re-signed NXBD) WITHOUT touching bsb/state/data. This is end-state
+   provisioning behavior (the same partition-scoped write a flasher performs),
+   and the keep-blk dev flow after the boot flip.
+4. **`nx image ota`** — emit the `.nxs` v2 OTA container for a built image
+   (`build/ota/os-<buildid>.nxs`; manifest + `boot-image` component + embedded
+   `boot.nxbd`), plus fixture variants (`--build-id-suffix`, `--rollback-index`)
+   for TASK-0179's crown/downgrade lanes.
 
-## Non-Goals
+## Non-Goals (now residual, executed with TASK-0261 later)
 
-- OS/QEMU integration (deferred to v1.0b).
-- Real hardware (QEMU/virtio-serial only).
-- Full recovery mode (handled by `TASK-0050`/`TASK-0051`).
+- **Flasher protocol** (`nx flash send|verify` ↔ flashd; framed magic+seq+len+
+  crc32, HELLO/INFO?/WRITE/DONE/ABORT, resume via last-good seq) — unchanged
+  design, re-anchored: no `reboot` verb (bootctld op), writes are partition-
+  scoped per the RFC-0089 layout.
+- **Factory reset** (`nx reset factory --yes`; wipe state except trust & boot,
+  golden preserved-path list).
+- OS/QEMU integration of the image (TASK-0315 wires the launcher; TASK-0289
+  flips the boot).
 
 ## Constraints / invariants (hard requirements)
 
-- **No duplicate image format authority**: This task provides image builder library. `TASK-0129` already plans NXB format for bundles. This task focuses on OS image format (not bundle format). Document the relationship explicitly.
-- **No duplicate manifest authority**: Image manifest should align with existing signing/verification primitives (e.g., `keystored`, `TASK-0029`). Do not create parallel signature semantics.
-- **Determinism**: image builder, flasher protocol, and factory reset must be stable given the same inputs.
-- **Bounded resources**: image building is size-bounded; flasher protocol is chunk-bounded.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-
-## Red flags / decision points
-
-- **RED (image format authority drift)**:
-  - Do not create parallel image formats. This task provides OS image format (bootloader/kernel/initrd/rootfs/pkgfs/state). `TASK-0129` provides NXB bundle format. Document the relationship explicitly.
-- **RED (manifest authority drift)**:
-  - Do not create parallel signature semantics. Image manifest signing should align with existing signing/verification primitives (e.g., `keystored`, `TASK-0029`).
-- **YELLOW (factory reset safety)**:
-  - Factory reset must preserve trust & boot paths. Document preserved paths explicitly.
-
-## Production-grade gate note
-
-This task establishes the **host-first provisioning/recovery floor**, but production-grade device
-recovery still needs the boot trust chain to participate.
-
-- `TASK-0289` closes the verified-boot / anti-rollback / measured-boot side.
-
-Until then, provisioning and flash/recovery flows should be described as deterministic bring-up and service tooling, not as full release-grade secure recovery.
-
-## Contract sources (single source of truth)
-
-- Testing contract: `scripts/qemu-test.sh`
-- Recovery baseline: `TASK-0050`/`TASK-0051` (recovery mode)
-- NXB format: `TASK-0129` (bundle format, not OS image format)
-- Packagefs image builder: `TASK-0246` (packagefs image, not full OS image)
+- **One layout authority**: partition offsets/GUIDs come from the shared
+  `userspace/storage` table; the builder never hardcodes a second copy.
+- **No parallel signature semantics**: NXBD/manifest signing uses the same
+  Ed25519 primitives as the repo baseline (RFC-0039/keystored lineage); seeds
+  from files, never embedded in code, never logged.
+- **Determinism**: build twice ⇒ byte-identical image and container
+  (`SOURCE_DATE_EPOCH` discipline; no wall clock in any signed or hashed bytes).
+- Sparse output (host FS holes) — the 384 MiB raw image must not bloat CI.
+- No `unwrap/expect`; nx exit classes stay the CLI contract.
 
 ## Stop conditions (Definition of Done)
 
-### Proof (Host) — required
+### Proof (Host) — required (new `tests/nx_image_host/` or tool-internal tests)
 
-`cargo test -p provisioning_recovery_v1_0_host` green (new):
+- Determinism: `nx image build` twice ⇒ identical bytes (image + ota container).
+- Round-trip: `nx image verify` green on a fresh build; GPT parsed by
+  `userspace/storage::gpt` in-test (tool and OS parser agree by construction).
+- NXBD vectors: signed descriptor verifies; tampered image ⇒ verify FAIL
+  (digest); tampered descriptor ⇒ FAIL (sig).
+- BSB factory block: valid magic/CRC/seq=1, golden bytes.
+- `patch` preserves bsb/state/data byte-identically; budget-overflow input ⇒
+  deterministic build failure.
+- `ota` fixtures: build-id/rollback-index variants decode + verify correctly.
 
-- composer: build tiny image with two segments; verify manifest & signature; stable hash across runs
-- protocol: in-proc loopback of `nx flash` ↔ `flashd` with injected loss (drop every 5th frame) → resume works, final hash matches
-- factory reset: simulate state tree and ensure preserved paths excluded; output matches golden list
+No QEMU proof in this task (the image is unwired until TASK-0315/0289); the
+regression signal is the host suite plus, later, the lanes that consume the image.
 
 ## Touched paths (allowlist)
 
-- `tools/nx/` (extend: `nx image ...`, `nx flash ...`, `nx reset ...`; no separate `nx-image`/`nx-flash`/`nx-reset` binaries)
-- `tests/provisioning_recovery_v1_0_host/` (new)
-- `docs/provisioning/overview.md` (new, host-first sections)
-- `docs/provisioning/protocol.md` (new)
+- `tools/nx/` (image subcommands) + `tests/` (host suite)
+- `userspace/storage/` (export the GUID/layout table if not yet public)
+- `keys/` (dev publisher key material, documented)
+- `docs/provisioning/` (new: image layout, key handling, patch flow)
+- `Makefile`/`justfile` recipe additions only when TASK-0315 wires the launcher
 
 ## Plan (small PRs)
 
-1. **Image builder**
-   - image layout composer
-   - manifest generation
-   - signing hooks
-   - host tests
-
-2. **Flasher protocol**
-   - frame format + commands
-   - resume support
-   - host tests
-
-3. **Factory reset**
-   - state tree wipe (preserve trust & boot)
-   - host tests
-
-4. **Docs**
-   - host-first docs
-
-## Acceptance criteria (behavioral)
-
-- Image builder produces stable hashes across runs.
-- Flasher protocol is resumable and robust to loss.
-- Factory reset preserves trust & boot paths correctly.
+1. Layout/GUID export from `userspace/storage` + GPT writer + factory BSB +
+   determinism tests.
+2. NXBD encode/sign/verify + boot-a embedding + budgets + verify command.
+3. `patch` + preserved-partition proofs.
+4. `ota` container emission + fixture variants + docs.

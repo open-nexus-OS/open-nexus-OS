@@ -104,6 +104,13 @@ This exists to remove “warnings” by making the architecture **decided** and 
   `recovery-sh`~~ replaced — recovery is a declarative boot-target stage graph
   (TASK-0050), the console idea is parked as TASK-0050B (Deferred, thin client
   of the ops surface only).
+- **Update orchestration** (acquire/verify/stage/apply of `.nxs` v2 containers):
+  `updated` — verify against the baked publisher anchor, component apply into
+  the INACTIVE slot only; all slot/boot mutations go through `bootctld` ops
+  (RFC-0089 §8). No second apply path, no staging outside `/data` (ADR-0043).
+- **First-stage loader**: `nxboot` (`source/boot/nxboot/`, ADR-0059) — boot-time
+  slot select/verify/fallback + measured handoff; frozen scope (no filesystem,
+  no policy, no target interpretation); BSB actuator fields only (ADR-0058).
 - **Crash artifact writer**: the execd-side crash path (library, TASK-0051B) —
   there is NO `crashd` daemon by default; the `.nxcd` container stays the only
   at-rest format (see artifact registry below).
@@ -130,6 +137,23 @@ This exists to remove “warnings” by making the architecture **decided** and 
   uncompressed (`.nxcd`; the zstd wrapper is host-tool-only per RFC-0009
   dependency hygiene), EXPORTED canonical form is `.nxcd.zst` (`nx crash
   export`). No parallel dump formats without decision (TASK-0051B 2026-08-24).
+- **Update container**: `.nxs` v2 — signed COMPONENT manifest (`manifest.nxo`
+  capnp; kinds `boot-image` now, `bundle`/`*-delta`/`rotation-record` reserved);
+  RFC-0089 owns it, supersedes the `.nxs` v1 bundles-only index (registered
+  retroactively 2026-08-25 — v1 had shipped unregistered).
+- **Boot descriptor**: `NXBD` — fixed 512-byte signed slot descriptor at
+  slot-partition sector 0 (RFC-0089 §5); build-time-signed, written verbatim by
+  `updated`, verified by `nxboot`. NXBD-last write discipline.
+- **Boot selection block**: `BSB` — 512-byte double block in the `bsb`
+  partition; DERIVED projection of the bootctld record (authority unchanged,
+  ADR-0055); write matrix per ADR-0058 (bootctld runtime / nxboot actuator /
+  `nx image` factory).
+- **Binary delta**: `.nxdelta` — rollsum+zstd stream carried as `.nxs` v2
+  `*-delta` component kinds; normative format RFC due at TASK-0034 execution
+  (seed: RFC-0089 §11).
+- **Read-only package image**: `pkgimg` (`PKGIMGV2`) — packagefsd's mount
+  format (RFC-0041; registered retroactively 2026-08-25 — had shipped
+  unregistered).
 
 ## CLI naming (hard)
 
