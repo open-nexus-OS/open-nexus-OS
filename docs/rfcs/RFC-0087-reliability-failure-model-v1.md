@@ -1,9 +1,9 @@
 # RFC-0087: Reliability & Failure Model v1 — supervision, exhaustion events, degradation, boot targets
 
-- Status: Draft
+- Status: Complete (all seven lane tasks Done 2026-08-20..24; proof gates green in `just test-all`)
 - Owners: @runtime / @reliability
 - Created: 2026-08-18
-- Last Updated: 2026-08-18
+- Last Updated: 2026-08-24
 - Links:
   - Tasks: `tasks/TASK-0049-fault-exhaustion-truth-proof-reanimation.md`,
     `tasks/TASK-0049B-service-supervision-v1.md`,
@@ -24,11 +24,11 @@
 
 ## Status at a Glance
 
-- **Phase 0 (Detection: exit reasons + exhaustion events)**: ⬜ — TASK-0049
-- **Phase 1 (Supervision: restart/backoff/crash-loop/re-resolve)**: ⬜ — TASK-0049B
-- **Phase 2 (Evidence: persistent journal + crash at rest)**: ⬜ — TASK-0049C, TASK-0051B
-- **Phase 3 (Boot state: reset + targets)**: ⬜ — TASK-0050
-- **Phase 4 (Recovery operations + authorization)**: ⬜ — TASK-0051, TASK-0053
+- **Phase 0 (Detection: exit reasons + exhaustion events)**: ✅ — TASK-0049 (Done 2026-08-20)
+- **Phase 1 (Supervision: restart/backoff/crash-loop/re-resolve)**: ✅ — TASK-0049B (Done 2026-08-20)
+- **Phase 2 (Evidence: persistent journal + crash at rest)**: ✅ — TASK-0049C (Done 2026-08-20), TASK-0051B (Done 2026-08-24)
+- **Phase 3 (Boot state: reset + targets)**: ✅ — TASK-0050 (Done 2026-08-24)
+- **Phase 4 (Recovery operations + authorization)**: ✅ — TASK-0051, TASK-0053 (Done 2026-08-24; `.nxra` contract split into RFC-0088)
 
 Definition: "Complete" means the contract is defined and the proof gates are green.
 
@@ -288,10 +288,13 @@ test.
 
 ## Implementation Checklist
 
-- [ ] **Phase 0**: exit reasons + exhaustion events + proof reanimation — TASK-0049
-- [ ] **Phase 1**: supervision v1 — TASK-0049B
-- [ ] **Phase 2**: evidence journal + crash at rest — TASK-0049C, TASK-0051B
-- [ ] **Phase 3**: reset + boot targets — TASK-0050
-- [ ] **Phase 4**: recovery ops + `.nxra` — TASK-0051, TASK-0053
-- [ ] QEMU markers appear in `scripts/qemu-test.sh` + proof-manifest and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] **Phase 0**: exit reasons + exhaustion events + proof reanimation — TASK-0049
+- [x] **Phase 1**: supervision v1 — TASK-0049B
+- [x] **Phase 2**: evidence journal + crash at rest — TASK-0049C, TASK-0051B
+- [x] **Phase 3**: reset + boot targets — TASK-0050
+- [x] **Phase 4**: recovery ops + `.nxra` — TASK-0051, TASK-0053 (format/trust/replay contract: RFC-0088)
+- [x] QEMU markers appear in `scripts/qemu-test.sh` + proof-manifest and pass
+      (supervision/restart storm, evidence double boot, three-boot reset cycle,
+      fsck busy/repair/clean, crash artifact/redaction, nxra require/accept/replay).
+- [x] Security-relevant negative tests exist (`test_reject_*` across nxra, fsck op,
+      crash store, bootctld gates; deny markers fatal in proof boots).

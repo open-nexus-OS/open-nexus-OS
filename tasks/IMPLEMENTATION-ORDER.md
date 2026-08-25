@@ -76,7 +76,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0009 | Persistence v1 (virtio-blk + statefs) | — |
 | ✅ TASK-0010 | Device MMIO access model | — |
 | ✅ TASK-0011 | Kernel simplification phase A | — |
-| ✅ TASK-0011B | Kernel Rust idioms pre-SMP | — |
+| ⤳ TASK-0011B | Kernel Rust idioms pre-SMP — **Superseded** (idiom scope absorbed by the SMP hardening lane) | — |
 | ✅ TASK-0012 | Kernel SMP v1 (per-CPU runqueues + IPIs) | — |
 | ✅ TASK-0012B | Kernel SMP v1b hardening bridge (scheduler + SMP internals) | — |
 | ✅ TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | — |
@@ -93,13 +93,25 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | — |
 | ✅ TASK-0023 | DSoftBus QUIC v2 OS enablement (session path closure) | — |
 | ✅ TASK-0023B | Selftest-client production-grade deterministic test architecture refactor v1 | 2026-04-20 |
+| ✅ TASK-0025 | StateFS v1b: authenticity envelopes + anti-rollback + write budgets | 2026-08-18 |
+| ✅ TASK-0026 | StateFS v2a: 2PC crash-atomicity + bounded compaction + fsck | 2026-08-18 |
+| ✅ TASK-0027 | StateFS v2b: opt-in record encryption at rest | 2026-08-18 |
 | ✅ TASK-0029 | Supply-Chain v1: SBOM + repro metadata + signature allowlist policy | 2026-04-22 |
 | ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | 2026-04-23 |
 | ✅ TASK-0032 | PackageFS v2: RO image index + fastpath | 2026-04-23 |
 | ✅ TASK-0039 | Sandboxing v1: VFS namespaces + CapFd + manifest permissions | 2026-04-24 |
+| ✅ TASK-0042 | SMP v2: affinity + QoS budgets + kernel ABI | 2026-07-26 (reconciled) |
 | ✅ TASK-0045 | DevX nx-cli v1 | 2026-04-24 |
 | ✅ TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | 2026-04-26 |
 | ✅ TASK-0047 | Policy as Code v1: unified policy engine | 2026-04-26 |
+| ✅ TASK-0048 | Crashdump v2a: host pipeline (.nxcd container + nxsym + nx crash) | 2026-08-14 |
+| ✅ TASK-0049 | Reliability v1a: fault & exhaustion truth + crash-proof reanimation | 2026-08-20 |
+| ✅ TASK-0049B | Reliability v1b: service supervision v1 (tiers/restart/backoff/re-resolve) | 2026-08-20 |
+| ✅ TASK-0049C | Reliability v1c: persistent evidence journal (logd → statefs spill) | 2026-08-20 |
+| ✅ TASK-0050 | Reliability v1d: system reset (SBI SRST) + boot targets via bootctld | 2026-08-24 |
+| ✅ TASK-0051 | Reliability v1e: recovery ops surface (fsck op + bootctld ops + nx diagnose) | 2026-08-24 |
+| ✅ TASK-0051B | Reliability v1f: crash evidence at rest (on-device .nxcd + retention + redaction) | 2026-08-24 |
+| ✅ TASK-0053 | Security v3: .nxra signed recovery action tokens (RFC-0088) | 2026-08-24 |
 | ✅ TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots | 2026-04-27 |
 | ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync | 2026-04-27 |
 | ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap | 2026-04-29 |
@@ -140,6 +152,15 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0119 | SystemUI→DSL Phase 1a: Launcher + Control-Center DSL pages | 2026-07-19 (reconciled; dsl_apps_conformance) |
 | ✅ TASK-0120 | SystemUI→DSL Phase 1b: OS wiring | 2026-07-19 (reconciled; `systemui: dsl shell on`) |
 | ✅ TASK-0121 | SystemUI→DSL Phase 2a: Settings + Notifications Center surface (notif delivery → 0123–0125) | 2026-07-19 (reconciled; settings.rs test) |
+| ✅ TASK-0276 | Parallelism v1: deterministic threadpools + policy contract | 2026-07-19 (reconciled) |
+| ✅ TASK-0277 | Kernel SMP parallelism policy v1 (deterministic) | 2026-07-19 (reconciled) |
+| ✅ TASK-0283 | Kernel per-CPU ownership wrapper v1 | 2026-07-19 (reconciled) |
+| ✅ TASK-0288 | Kernel runtime closure v1c: latency budgets + stress proofs | 2026-07-19 (reconciled) |
+| ✅ TASK-0291 | VFS ReadDir + svc.files + filemanager role + stash real listing | 2026-07-15 |
+| ✅ TASK-0292 | nxfs v1 core (host-first): engine + fsck + crash-injection | 2026-07-15 |
+| ✅ TASK-0293 | nxfs /data OS bring-up (2nd blk device + vfsd DataStore) | 2026-07-15 |
+| ✅ TASK-0294 | MIME SSOT: nexus-mime-icons + stash filetype icons | 2026-07-15 |
+| ✅ TASK-0295 | Zero-copy read/write via VMO splice (OP_READ_VMO CAP_MOVE) | 2026-07-15 |
 
 ---
 
@@ -199,7 +220,7 @@ Superseded by this ladder: `0264`/`0265` (pre-nxfs write-path drafts); `0135` ne
 
 ---
 
-## Reliability Spine (seeded 2026-08-18) — recut sub-80 recovery lane
+## Reliability Spine (seeded 2026-08-18, **delivered 2026-08-24**) — recut sub-80 recovery lane
 
 User decision 2026-08-18: the old `0049 → 0050 → 0051` sequence built forensics and
 operator escape hatches for a system that cannot yet survive a failure (no OS-side
@@ -251,15 +272,15 @@ Minimale Voraussetzungen für den UI-Stack. Alles andere aus dem 24–53 Bereich
 
 | Task | Title | Warum nötig |
 |------|-------|-------------|
-| TASK-0029 | Supply Chain v1: SBOM + repro metadata + signature allowlist | Harte Dep von TASK-0031 (VMOs); host closure + docs sync landed, QEMU supply-chain marker profile verified |
-| TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Kritisch: VMO-backed Surfaces für windowd-Compositor |
-| TASK-0032 | PackageFS v2: RO image index + fastpath | App-Asset-Laden für Launcher |
-| TASK-0039 | Sandboxing v1: VFS namespaces + CapFd + manifest permissions | App-Isolation |
-| TASK-0045 | DevX nx-cli v1 | `nx dsl build/lint/fmt` für DSL-Workflow |
-| TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | UI-Profil-Broker für windowd + input |
-| TASK-0047 | Policy as Code v1: unified policy engine | Asset-Zugriff + Permissions für UI-Services |
+| ✅ TASK-0029 | Supply Chain v1: SBOM + repro metadata + signature allowlist | Harte Dep von TASK-0031 (VMOs); host closure + docs sync landed, QEMU supply-chain marker profile verified |
+| ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Kritisch: VMO-backed Surfaces für windowd-Compositor |
+| ✅ TASK-0032 | PackageFS v2: RO image index + fastpath | App-Asset-Laden für Launcher |
+| ✅ TASK-0039 | Sandboxing v1: VFS namespaces + CapFd + manifest permissions | App-Isolation |
+| ✅ TASK-0045 | DevX nx-cli v1 | `nx dsl build/lint/fmt` für DSL-Workflow |
+| ✅ TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | UI-Profil-Broker für windowd + input |
+| ✅ TASK-0047 | Policy as Code v1: unified policy engine | Asset-Zugriff + Permissions für UI-Services |
 
-**Übersprungen (24–53):** `0024` (DSoftBus UDP sec), ✅ `0025–0027` (StateFS hardening/encryption — **alle Done 2026-08-18**, siehe Defer-Bucket), `0028` (ABI filters v2), `0030` (DSoftBus discovery authz), `0033` (PackageFS VMO-splice — ⤳ superseded by 0295), `0034–0037` (OTA/delta updates), `0038` (Tracing v2), `0040` (Remote observability), `0041` (Lock profiling), `0042` (SMP v2 voll — inzwischen Done; 0054B war der QoS-Slice-Träger und ist Superseded), `0043–0044` (Security sandbox quotas / QUIC tuning — 0044 Superseded 2026-08-14), ✅ `0048` (Crashdump v2a host, Done 2026-08-14), `0049–0051`/`0053` (→ **Reliability Spine**, Sektion oben — rewritten 2026-08-18), `0052` (Ingress, in der Networking-Lane).
+**Übersprungen (24–53):** `0024` (DSoftBus UDP sec), ✅ `0025–0027` (StateFS hardening/encryption — **alle Done 2026-08-18**, siehe Defer-Bucket), `0028` (ABI filters v2), `0030` (DSoftBus discovery authz), `0033` (PackageFS VMO-splice — ⤳ superseded by 0295), `0034–0037` (OTA/delta updates), `0038` (Tracing v2), `0040` (Remote observability), `0041` (Lock profiling), `0042` (SMP v2 voll — inzwischen Done; 0054B war der QoS-Slice-Träger und ist Superseded), `0043–0044` (Security sandbox quotas / QUIC tuning — 0044 Superseded 2026-08-14), ✅ `0048` (Crashdump v2a host, Done 2026-08-14), ✅ `0049–0051B`/`0053` (→ **Reliability Spine**, Sektion oben — **alle 7 Done 2026-08-20..24**), `0052` (Ingress, in der Networking-Lane).
 
 ---
 
@@ -269,14 +290,14 @@ Vom CPU-Renderer bis zum sichtbaren deterministischen Input-Proof und dann direk
 
 | Task | Title |
 |------|-------|
-| TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots (Done; host renderer/snapshot proof floor green) |
-| TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync (Done; headless present + generated IDL roundtrip + reject proofs green) |
-| TASK-0055B | UI v1c: visible QEMU scanout bootstrap (Done; marker-honesty hardening + full closure gates green) |
-| TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU (Done; composed-frame visible-present proof + closure gates green) |
-| TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing (Done; host/reject/QEMU proofs + fmt/clippy/ci-network + make clean/build/test/run green) |
-| TASK-0056B | UI v2a: visible input — cursor + hover + focus + click (Done; deterministic host/reject/QEMU proofs + closure gates green; live device input follows in 0252/0253) |
-| TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core (Done; host-first contract closed with full gate reruns green) |
-| TASK-0253 | Input v1.0b: OS/QEMU hidrawd + touchd + inputd + windowd/IME hooks (Done; live QEMU pointer/keyboard floor, full closure gates green) |
+| ✅ TASK-0054 | UI v1a: BGRA8888 CPU renderer + damage tracking + headless snapshots (Done; host renderer/snapshot proof floor green) |
+| ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync (Done; headless present + generated IDL roundtrip + reject proofs green) |
+| ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap (Done; marker-honesty hardening + full closure gates green) |
+| ✅ TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU (Done; composed-frame visible-present proof + closure gates green) |
+| ✅ TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing (Done; host/reject/QEMU proofs + fmt/clippy/ci-network + make clean/build/test/run green) |
+| ✅ TASK-0056B | UI v2a: visible input — cursor + hover + focus + click (Done; deterministic host/reject/QEMU proofs + closure gates green; live device input follows in 0252/0253) |
+| ✅ TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core (Done; host-first contract closed with full gate reruns green) |
+| ✅ TASK-0253 | Input v1.0b: OS/QEMU hidrawd + touchd + inputd + windowd/IME hooks (Done; live QEMU pointer/keyboard floor, full closure gates green) |
 | ✅ TASK-0056C | UI v2a: embedded reactor/runtime floor + present/input perf latency + coalescing (Done; host-first coalescing + no-damage-skip + idle-cheap proofs green; QEMU marker ladder + diag-os pending downstream) |
 
 **Defer aus diesem Bereich (Stand 2026-08-14):** ⤳ `0054B`/`0054D` Superseded (geliefert via 0042/0277/0283/0288 bzw. 0310/0309/0302); `0054C` (IPC-Fastpath, rebased) und `0055D` (dev display presets, rebased) in der Sub-80-Umsetzung.

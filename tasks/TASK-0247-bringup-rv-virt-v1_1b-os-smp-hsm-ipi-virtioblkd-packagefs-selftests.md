@@ -1,6 +1,6 @@
 ---
 title: TASK-0247 RISC-V Bring-up v1.1b (OS/QEMU): SMP (SBI HSM/IPI) + per-hart timers + virtioblkd + packagefs mount + selftests
-status: done
+status: Done
 owner: @kernel
 created: 2025-12-29
 depends-on: []

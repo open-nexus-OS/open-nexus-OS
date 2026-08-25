@@ -70,3 +70,8 @@ Agent guidance lives at the repo root: `CLAUDE.md` (SSOT) and `AGENTS.md`
 - **Boot-gate guidance**: RFC-0013 defines readiness vs ready, spawn failure
   reasons, and resource/leak sentinels; diagnostics via
   `testing/README.md` and `docs/testing/run-logs.md`.
+- **Reliability & recovery** (RFC-0087, delivered 2026-08-24):
+  `reliability/recovery-operations.md` (fsck ops, bootctld ops,
+  `nx diagnose`), `reliability/crashdump-v2.md` (host pipeline + on-device
+  `.nxcd` at rest), `reliability/nxra.md` (signed break-glass tokens,
+  RFC-0088); supervision reality in `services/lifecycle.md`.

@@ -233,11 +233,14 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0021 | DSoftBus QUIC v1 host-first scaffold | Done | Real host QUIC transport + QUIC/mux payload proof + deterministic OS fallback markers + strict-mode fail-closed closure synced |
 | ✅ TASK-0022 | DSoftBus core refactor: no_std-compatible core + transport abstraction | Done | `dsoftbus-core` no_std crate boundary extracted, required `test_reject_*` + deterministic perf/zero-copy trait evidence green, closure sync complete |
 | ✅ TASK-0023 | DSoftBus QUIC v2 OS enabled (gated) | Done | Real OS QUIC-v2 UDP session path shipped: `transport selected quic` + auth/session markers proven; fallback markers rejected in QUIC-required profile |
+| ✅ TASK-0023B | Selftest-client production-grade deterministic test architecture v1 | Done | Two-axis architecture (ADR-0027), proof-manifest marker SSOT, minimal main |
 | ✅ TASK-0025 | StateFS v1b: authenticity envelopes + anti-rollback + write budgets | Done | `NXEV` envelopes (HMAC via label-scoped HKDF), replay-fed seq tracker, keystored/updated adoption; QEMU `write hardening on` + auth/tamper/rollback markers behind a fake-green guard |
 | ✅ TASK-0026 | StateFS v2a: 2PC crash-atomicity + bounded compaction + fsck | Done | Journal v2 (committed-only replay, A/B checkpoint flip — defuses the `MAX_REPLAY_RECORDS` boot time bomb), statefsd txn wire ops, readback-verified compaction marker, `fsck-statefs`; keep-blk double-boot cold-boot proof |
 | ✅ TASK-0027 | StateFS v2b: opt-in record encryption at rest | Done | XChaCha20-Poly1305 sealing for enrolled non-boot-critical prefixes, deterministic nonces (no getrandom), admin-gated enablement + self-check-gated `encryption on`, decrypt-aware fsck; statefs lane 0025→0026→0027 complete |
 | ✅ TASK-0029 | Supply-Chain v1: SBOM + repro metadata + signature allowlist policy | Done | Host reject-path proofs + OS supply-chain marker gate green; docs and tracking synced |
 | ✅ TASK-0031 | Zero-copy VMOs v1: shared RO buffers + handle transfer | Done | Host-first + OS-gated VMO plumbing closure complete; kernel production-grade dependencies remain explicit follow-up scope |
+| ✅ TASK-0032 | PackageFS v2: RO image index + fastpath | Done | Read-only package image + precomputed O(1) index |
+| ✅ TASK-0039 | Sandboxing v1: VFS namespaces + CapFd + manifest permissions | Done | Per-subject namespaces, deny-by-default app isolation |
 | ✅ TASK-0046 | Config v1: configd + JSON Schema + layering + 2PC reload | Done | Host-first config authority closure complete; `RFC-0044` done, JSON-only authoring enforced, `configd`/`nx config` contract synced |
 | ✅ TASK-0048 | Crashdump v2a: host pipeline (.nxcd container + nxsym + nx crash) | Done | Host-first crash tooling closure; on-device at-rest evidence remains TASK-0051B |
 | ✅ TASK-0049 | Fault & exhaustion truth + crash-proof reanimation | Done | Kernel-attributed exit reasons (ADR-0056) through wait/execd, exhaustion events (statefsd/gpud), exec/crash/minidump chain reanimated with 16/16 markers |
@@ -277,6 +280,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0130 | Packages v1b: bundlemgrd install/upgrade/uninstall + trust policy | Done | Reconciled 2026-07-19; bundlemgrd markers; mimed-handler line deferred (no successor) |
 | ✅ TASK-0269 | Boot gates v1: readiness + spawn-reason + resource sentinel | Done | Reconciled 2026-07-19; kselftest markers |
 | ✅ TASK-0042 | SMP v2: affinity + QoS budgets + kernel ABI | Done | kselftest smp/bkl markers |
+| ✅ TASK-0045 | DevX nx CLI v1 | Done | Scaffold + idl + inspect + postflight + doctor; nx = the canonical host CLI |
+| ✅ TASK-0047 | Policy as Code v1: unified policy engine | Done | Single policy tree + evaluator + explain/dry-run/learn + nx policy |
+| ✅ TASK-0065 | UI v6b: app lifecycle + navigation | Done | Notifications folded into TASK-0123..0125; per-app-surface runtime → TASK-0080D |
+| ✅ TASK-0065B | Session v1: sessiond authority + login greeter + shell selection | Done | Greeter boot-proven; abilitymgr launch gate on active session |
 | ✅ TASK-0276 | Parallelism v1: deterministic threadpools + policy contract | Done | Reconciled 2026-07-19 |
 | ✅ TASK-0277 | Kernel SMP parallelism policy v1 (deterministic) | Done | Reconciled 2026-07-19 |
 | ✅ TASK-0283 | Kernel per-CPU ownership wrapper v1 | Done | Reconciled 2026-07-19 |

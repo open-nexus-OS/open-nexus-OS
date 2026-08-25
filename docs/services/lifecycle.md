@@ -1,16 +1,20 @@
 # Process lifecycle & supervision
 
-> **Reality note (2026-08-18).** The supervision loop described below exists
-> only in execd's **host (std) backend** (`source/services/execd/src/std_server.rs`).
-> On the OS, `exec_elf(…, restart)` ignores the policy and returns
-> `Unsupported` (`os_lite.rs`), and `init: supervise <svc> restart=<policy>` is
-> a printed hint with no enforcement — **no service is restarted on the OS
-> today**. The real supervision contract is RFC-0087
-> (`docs/rfcs/RFC-0087-reliability-failure-model-v1.md`); execution:
-> TASK-0049 (exit reasons), TASK-0049B (restart/backoff/crash-loop +
-> capability re-resolve per ADR-0057). Until those land, read the
-> "execd supervision loop" and "init supervision hints" sections as
-> host-backend behavior and OS *direction*, not shipped OS behavior.
+> **Reality note (updated 2026-08-24 — RFC-0087 delivered).** OS-side
+> supervision is REAL since TASK-0049/0049B: exit reasons are
+> kernel-attributed (ADR-0056, `clean|error|fault|killed` via
+> `wait_*_with_reason`), and the SUPERVISOR IS NEXUS-INIT — services are
+> init's children, so only init can reap them (`bootstrap/supervision.rs`
+> sweep; policy SSOT `service_supervision.rs`: criticality tiers +
+> restart/backoff + persistent crash-loop caps at
+> `/state/init/restarts/<svc>`; respawn strictly from boot-state —
+> no-rights-drift per ADR-0057; staleness + re-resolve at the init
+> resolve authority, `STATUS_STALE`). execd stays spawn/reap/report
+> MECHANICS for its own exec children (crash artifacts per TASK-0051B) —
+> its os-lite `exec_elf(…, restart)` still returns `Unsupported` BY
+> DESIGN: the restart edge belongs to init, not execd. The
+> "execd supervision loop" section below describes the host (std)
+> backend only.
 
 The Neuron kernel models a task's lifetime with explicit `Running → Zombie → Reaped`
 transitions. A task invokes the `exit` syscall to publish its status and transition into the
