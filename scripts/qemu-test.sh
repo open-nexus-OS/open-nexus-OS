@@ -1684,17 +1684,23 @@ if grep -aFq "SELFTEST: statefs enc roundtrip ok" "$UART_LOG" \
   print_uart_excerpt "statefsd: journal v2 mounted (2PC)" "SELFTEST: statefs v2 compact ok"
   exit 1
 fi
-# TASK-0049B supervision guard (PR-B3b form): every announced service death
-# must be PAIRED with a successful supervised restart — an unpaired death
-# means the rest of the ladder ran against a corpse; an unpaired restart
-# line would be fake green. (The restart E2E proof kills pinched once per
-# boot on purpose.)
-svc_exits=$(grep -ac "init: service exit name=" "$UART_LOG" || true)
+# TASK-0049B supervision guard (PR-B3b form): every announced NON-CLEAN
+# service death must be PAIRED with a supervised restart or an announced
+# crash-loop block — an unpaired death means the rest of the ladder ran
+# against a corpse; an unpaired restart line would be fake green. Clean
+# exits rest by policy (RFC-0087 §2, EngineDecision::Rest): run-to-
+# completion fixtures like touchd legitimately exit 0 once a hart has idle
+# time for them (SMP=2 MTTCG), and pairing those would demand restarts the
+# supervision SSOT forbids. (The restart E2E proof kills pinched once per
+# storm round on purpose; the fault-probe injector's cap line is excluded
+# because its deaths are never announced as service-exit lines.)
+svc_deaths=$(grep -aEc "init: service exit name=[^ ]+ reason=(error|fault|killed|unknown)" "$UART_LOG" || true)
 svc_restarts=$(grep -ac "init: service restarted name=" "$UART_LOG" || true)
-if [[ "${svc_exits:-0}" -ne "${svc_restarts:-0}" ]]; then
+svc_blocked=$(grep -a "init: crash-loop blocked svc=" "$UART_LOG" | grep -vc "svc=fault-probe" || true)
+if [[ "${svc_deaths:-0}" -ne $(( ${svc_restarts:-0} + ${svc_blocked:-0} )) ]]; then
   echo "[error] first_failed_phase=bringup missing_marker='init: service restarted name='" >&2
-  echo "[error] service deaths ($svc_exits) != supervised restarts ($svc_restarts) in a proof boot" >&2
-  grep -a "init: service exit name=\|init: service restarted name=\|init: FAIL" "$UART_LOG" | head -n 8 >&2
+  echo "[error] non-clean service deaths ($svc_deaths) != supervised restarts ($svc_restarts) + crash-loop blocks ($svc_blocked) in a proof boot" >&2
+  grep -a "init: service exit name=\|init: service restarted name=\|init: crash-loop blocked svc=\|init: FAIL" "$UART_LOG" | head -n 8 >&2
   exit 1
 fi
 # TASK-0049B PR-B3c: restart-counter truth is fatal in both directions — a
