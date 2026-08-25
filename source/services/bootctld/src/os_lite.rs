@@ -120,6 +120,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let sid_init_lite = nexus_abi::service_id_from_name(b"init-lite");
     let sid_init = nexus_abi::service_id_from_name(b"nexus-init");
     let sid_selftest = nexus_abi::service_id_from_name(b"selftest-client");
+    let mut quorum_sids = [0u64; QUORUM_REPORTERS.len()];
+    for (slot, name) in quorum_sids.iter_mut().zip(QUORUM_REPORTERS) {
+        *slot = nexus_abi::service_id_from_name(name);
+    }
 
     let mut authority: Option<Authority> = None;
     let mut load_attempts: u8 = 0;
@@ -159,7 +163,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 let mut rsp = [0u8; 32];
                 let len = handle_frame(
                     authority.as_mut(),
-                    Gates { sid_updated, sid_init_lite, sid_init, sid_selftest },
+                    Gates { sid_updated, sid_init_lite, sid_init, sid_selftest, quorum_sids },
                     sender,
                     frame,
                     &mut rsp,
@@ -194,12 +198,27 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     }
 }
 
+/// Health-commit v2 quorum window (RFC-0089 §13): armed at switch as
+/// `now + WINDOW`. Generous for QEMU/TCG — the OTA phase confirms within
+/// seconds; expiry semantics are host-proven with injected clocks.
+const COMMIT_DEADLINE_WINDOW_NS: u64 = 120_000_000_000;
+
+/// Declared quorum reporter set (RFC-0089 §13) — data, single authority:
+/// bootctld owns its reporter registry; bit = index, identities are
+/// kernel-attributed sender ids resolved at bring-up. u8 mask ⇒ max 8.
+/// v1 set: `updated` (the OTA facade's pass-through report — init's
+/// health signal arrives through it) + `selftest-client` (the proof
+/// reporter, confirming directly so the quorum is real, not a mask of 1).
+const QUORUM_REPORTERS: &[&[u8]] = &[b"updated", b"selftest-client"];
+
 #[derive(Clone, Copy)]
 struct Gates {
     sid_updated: u64,
     sid_init_lite: u64,
     sid_init: u64,
     sid_selftest: u64,
+    /// Kernel-attributed sender ids of `QUORUM_REPORTERS` (index = bit).
+    quorum_sids: [u64; QUORUM_REPORTERS.len()],
 }
 
 impl Gates {
@@ -216,6 +235,15 @@ impl Gates {
     /// target ops; the sender gate stays as defense in depth.
     fn reset_allowed(&self, sender: u64) -> bool {
         sender == self.sid_init_lite || sender == self.sid_init || sender == self.sid_selftest
+    }
+    /// Quorum membership: the sender's declared reporter bit, or None for
+    /// anyone outside the set (deny — RFC-0089 §13 unknown reporters).
+    fn quorum_bit(&self, sender: u64) -> Option<u8> {
+        self.quorum_sids.iter().position(|&sid| sid == sender).map(|idx| 1u8 << idx)
+    }
+    /// The complete quorum mask commit requires.
+    fn quorum_full_mask(&self) -> u8 {
+        ((1u16 << QUORUM_REPORTERS.len()) - 1) as u8
     }
 }
 
@@ -301,14 +329,23 @@ fn handle_frame(
                 return deny(rsp, op, sender);
             }
             let snapshot = auth.boot.clone();
-            match auth.boot.switch(tries) {
+            // Health-commit v2 (RFC-0089 §13): arm the quorum deadline with
+            // the switch — absolute wall clock, computed here so the
+            // machine stays pure (host tests inject arbitrary clocks).
+            let deadline_ns =
+                nexus_abi::nsec().unwrap_or(0).saturating_add(COMMIT_DEADLINE_WINDOW_NS);
+            match auth.boot.switch(tries, deadline_ns) {
                 Ok(slot) => {
                     let payload = [record::encode_slot(slot)];
                     let marker = match slot {
                         Slot::A => "bootctld: switch scheduled (to=a)",
                         Slot::B => "bootctld: switch scheduled (to=b)",
                     };
-                    commit_marked(auth, snapshot, rsp, op, &payload, Some(marker))
+                    let len = commit_marked(auth, snapshot, rsp, op, &payload, Some(marker));
+                    if rsp[4] == wire::STATUS_OK {
+                        emit("bootctld: commit deadline armed");
+                    }
+                    len
                 }
                 Err(err) => machine_fail(rsp, op, err),
             }
@@ -322,12 +359,22 @@ fn handle_frame(
                 emit("bootctld: commit blocked (target=recovery)");
                 return encode_status(rsp, op, wire::STATUS_COMMIT_BLOCKED);
             }
-            if !gates.ota_allowed(sender) {
+            // Health-commit v2 (RFC-0089 §13): the sender must be a DECLARED
+            // quorum reporter (kernel-attributed identity → bit); anyone
+            // else is denied. Commit fires exactly when the mask completes.
+            let Some(bit) = gates.quorum_bit(sender) else {
                 return deny(rsp, op, sender);
-            }
+            };
             let snapshot = auth.boot.clone();
-            match auth.boot.commit_health() {
-                Ok(()) => commit(auth, snapshot, rsp, op, &[]),
+            match auth.boot.report_health(bit, gates.quorum_full_mask()) {
+                Ok(progress) => {
+                    let payload = [progress.have, progress.need, u8::from(progress.complete)];
+                    let len = commit(auth, snapshot, rsp, op, &payload);
+                    if progress.complete && rsp[4] == wire::STATUS_OK {
+                        emit_quorum_ok(progress.have, progress.need);
+                    }
+                    len
+                }
                 Err(err) => machine_fail(rsp, op, err),
             }
         }
@@ -357,7 +404,7 @@ fn handle_frame(
                 return deny(rsp, op, sender);
             }
             let snapshot = auth.boot.clone();
-            match auth.boot.tick_boot_attempt() {
+            match auth.boot.tick_boot_attempt(nexus_abi::nsec().unwrap_or(0)) {
                 Ok(rolled_back) => {
                     // One-shot next_boot rides the SAME persisted commit as
                     // the attempt ack (RFC-0087 §4): consumed here, cleared
@@ -506,4 +553,20 @@ fn target_label(target: BootTarget) -> &'static str {
 
 pub(crate) fn emit(message: &str) {
     let _ = nexus_abi::debug_println(message);
+}
+
+/// `bootctld: health quorum ok (n/n)` — bounded formatting (n ≤ 8).
+fn emit_quorum_ok(have: u8, need: u8) {
+    let mut line = [0u8; 40];
+    let head = b"bootctld: health quorum ok (";
+    let mut len = head.len();
+    line[..len].copy_from_slice(head);
+    line[len] = b'0' + have.min(8);
+    line[len + 1] = b'/';
+    line[len + 2] = b'0' + need.min(8);
+    line[len + 3] = b')';
+    len += 4;
+    if let Ok(msg) = core::str::from_utf8(&line[..len]) {
+        emit(msg);
+    }
 }

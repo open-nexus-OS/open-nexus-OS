@@ -33,7 +33,7 @@
 ## Status at a Glance
 
 - **Phase 1 (device trust anchor + verifier verdict authority)**: ✅ 2026-08-25 (TASK-0198 Phase 1 — baked anchor + verdict finality + OS deny lane, test-all green)
-- **Phase 2 (health-commit v2: record v3 + quorum + deadline)**: ⬜ (TASK-0036-A)
+- **Phase 2 (health-commit v2: record v3 + quorum + deadline)**: ✅ 2026-08-25 (TASK-0036-A — private commit behind the mask, deadline armed at switch, 22 host tests + gated quorum chain)
 - **Phase 3 (block substrate: virtio-blk v2 + single GPT disk)**: ⬜ (TASK-0314, TASK-0315)
 - **Phase 4 (host image builder `nx image`)**: ⬜ (TASK-0260)
 - **Phase 5 (`nxboot` loader + boot flip + measured handoff)**: ⬜ (TASK-0289-A)
@@ -543,7 +543,7 @@ Marker SSOT stays `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` +
 **This section tracks implementation progress. Update as phases complete.**
 
 - [x] **Phase 1**: device trust anchor + verdict authority — proof: `cargo test -p updates_host` (`test_reject_untrusted_publisher`, `test_accept_baked_publisher`) + `SELFTEST: updates trust reject ok` gated in headless/smp1/reset (2026-08-25)
-- [ ] **Phase 2**: record v3 + quorum + deadline — proof: bootctld host tests + `SELFTEST: bootctl quorum ok`
+- [x] **Phase 2**: record v3 + quorum + deadline — proof: 22 bootctld host tests + `bootctld: health quorum ok (2/2)` + `SELFTEST: bootctl quorum ok` gated every proof boot (2026-08-25)
 - [ ] **Phase 3**: virtio-blk v2 + single GPT disk — proof: `SELFTEST: blk cross-partition deny ok` + keep-blk double boot
 - [ ] **Phase 4**: `nx image build/verify/patch` — proof: determinism + round-trip host tests
 - [ ] **Phase 5**: `nxboot` + boot flip + handoff — proof: `nxboot: verify ok` leading the headless ladder; `KSELFTEST: boot handoff ok (measured)`

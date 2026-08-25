@@ -64,6 +64,7 @@ pub(crate) fn machine_fail(rsp: &mut [u8; 32], op: u8, err: BootCtrlError) -> us
         BootCtrlError::AlreadyPending => 2,
         BootCtrlError::NotPending => 3,
         BootCtrlError::NoRollbackTarget => 4,
+        BootCtrlError::UnknownReporter => 5,
     };
     let base = encode_status(rsp, op, wire::STATUS_FAILED);
     rsp[5..7].copy_from_slice(&1u16.to_le_bytes());

@@ -580,7 +580,12 @@ expected_sequence=(
   # TASK-0051: authority-side proof that the switch persisted before the ack
   "bootctld: switch scheduled (to=b)"
   "SELFTEST: ota switch ok"
+  # TASK-0036-A health-commit v2: the deadline arms with the switch and the
+  # commit fires only on the COMPLETE declared quorum (RFC-0089 §13).
+  "bootctld: commit deadline armed"
   "SELFTEST: ota health ok"
+  "bootctld: health quorum ok (2/2)"
+  "SELFTEST: bootctl quorum ok"
   "SELFTEST: ota rollback ok"
   "SELFTEST: bootctl persist ok"
   "SELFTEST: policy allow ok"
@@ -806,7 +811,10 @@ case "${PROFILE:-full}" in
       "bundlemgrd: slot b active"
       "bootctld: switch scheduled (to=b)"
       "SELFTEST: ota switch ok"
+      "bootctld: commit deadline armed"
       "SELFTEST: ota health ok"
+      "bootctld: health quorum ok (2/2)"
+      "SELFTEST: bootctl quorum ok"
       "SELFTEST: ota rollback ok"
       "SELFTEST: bootctl persist ok"
       "SELFTEST: policy allow ok"
@@ -1744,6 +1752,15 @@ for m in \
     exit 1
   fi
 done
+# TASK-0036-A guard: a quorum FAIL means health-commit v2 never completed
+# (or committed without the full mask) — the OTA health claim would be
+# fake green either way.
+if grep -aFq "SELFTEST: bootctl quorum FAIL" "$UART_LOG"; then
+  echo "[error] first_failed_phase=ota missing_marker='SELFTEST: bootctl quorum ok'" >&2
+  echo "[error] health-commit quorum did not complete (or committed early)" >&2
+  grep -a "bootctld: health quorum\|bootctld: commit deadline\|SELFTEST: ota health\|SELFTEST: bootctl quorum" "$UART_LOG" | head -n 8 >&2
+  exit 1
+fi
 # TASK-0198 Phase 1 guard: the trust deny lane failing means the device
 # publisher anchor is not enforced — every downstream OTA verify claim would
 # be fake green (the pre-fix hole accepted any archive-supplied key).

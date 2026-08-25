@@ -23,11 +23,13 @@ use statefs::writer;
 fn test_stage_switch_health_commit() {
     let mut boot = BootCtrl::new(Slot::A);
     assert_eq!(boot.stage(), Slot::B);
-    assert_eq!(boot.switch(3).expect("switch"), Slot::B);
+    assert_eq!(boot.switch(3, 0).expect("switch"), Slot::B);
     assert_eq!(boot.active_slot(), Slot::B);
     assert_eq!(boot.rollback_slot(), Some(Slot::A));
     assert_eq!(boot.tries_left(), 3);
-    boot.commit_health().expect("health");
+    // Health-commit v2: single-reporter quorum commits on the one report.
+    let progress = boot.report_health(0b01, 0b01).expect("health");
+    assert!(progress.complete);
     assert!(boot.health_ok());
     assert_eq!(boot.pending_slot(), None);
     assert_eq!(boot.rollback_slot(), None);
@@ -37,9 +39,9 @@ fn test_stage_switch_health_commit() {
 fn test_rollback_on_boot_attempts_exhausted() {
     let mut boot = BootCtrl::new(Slot::A);
     boot.stage();
-    boot.switch(2).expect("switch");
-    assert_eq!(boot.tick_boot_attempt().expect("tick"), None);
-    assert_eq!(boot.tick_boot_attempt().expect("tick"), Some(Slot::A));
+    boot.switch(2, 0).expect("switch");
+    assert_eq!(boot.tick_boot_attempt(0).expect("tick"), None);
+    assert_eq!(boot.tick_boot_attempt(0).expect("tick"), Some(Slot::A));
     assert_eq!(boot.active_slot(), Slot::A);
     assert!(!boot.health_ok());
 }
@@ -47,22 +49,22 @@ fn test_rollback_on_boot_attempts_exhausted() {
 #[test]
 fn test_reject_switch_without_stage() {
     let mut boot = BootCtrl::new(Slot::A);
-    assert_eq!(boot.switch(3), Err(BootCtrlError::NotStaged));
+    assert_eq!(boot.switch(3, 0), Err(BootCtrlError::NotStaged));
 }
 
 #[test]
 fn test_reject_double_switch() {
     let mut boot = BootCtrl::new(Slot::A);
     boot.stage();
-    boot.switch(3).expect("switch");
+    boot.switch(3, 0).expect("switch");
     boot.stage();
-    assert_eq!(boot.switch(3), Err(BootCtrlError::AlreadyPending));
+    assert_eq!(boot.switch(3, 0), Err(BootCtrlError::AlreadyPending));
 }
 
 #[test]
 fn test_reject_commit_health_without_switch() {
     let mut boot = BootCtrl::new(Slot::A);
-    assert_eq!(boot.commit_health(), Err(BootCtrlError::NotPending));
+    assert_eq!(boot.report_health(0b01, 0b01), Err(BootCtrlError::NotPending));
 }
 
 // ---- v2 record roundtrip ----------------------------------------------------
@@ -71,7 +73,7 @@ fn test_reject_commit_health_without_switch() {
 fn test_v2_roundtrip_preserves_every_field() {
     let mut boot = BootCtrl::new(Slot::A);
     boot.stage();
-    boot.switch(3).expect("switch");
+    boot.switch(3, 77).expect("switch");
     boot.set_boot_target(BootTarget::Safe);
     boot.set_next_boot(BootTarget::Recovery);
 
@@ -111,8 +113,8 @@ fn test_v1_payload_migrates_with_derived_rollback() {
     assert_eq!(boot.next_boot(), None);
     // Migrated state must behave: exhausting tries rolls back to A.
     let mut boot = boot;
-    boot.tick_boot_attempt().expect("tick");
-    assert_eq!(boot.tick_boot_attempt().expect("tick"), Some(Slot::A));
+    boot.tick_boot_attempt(0).expect("tick");
+    assert_eq!(boot.tick_boot_attempt(0).expect("tick"), Some(Slot::A));
 }
 
 #[test]
@@ -152,6 +154,130 @@ fn test_v2_seal_open_roundtrip_with_seq() {
     let (opened, seq) = open_record(&sealed).expect("open");
     assert_eq!(seq, Some(9));
     assert_eq!(opened, boot);
+}
+
+// ---- health-commit v2: quorum + deadline + floor (RFC-0089 §13) -----------
+
+#[test]
+fn test_quorum_partial_no_commit() {
+    let mut boot = BootCtrl::new(Slot::A);
+    boot.stage();
+    boot.switch(2, 0).expect("switch");
+    let progress = boot.report_health(0b01, 0b11).expect("report");
+    assert!(!progress.complete);
+    assert_eq!((progress.have, progress.need), (1, 2));
+    assert!(!boot.health_ok());
+    assert_eq!(boot.pending_slot(), Some(Slot::B));
+}
+
+#[test]
+fn test_quorum_complete_commits() {
+    let mut boot = BootCtrl::new(Slot::A);
+    boot.stage();
+    boot.switch(2, 500).expect("switch");
+    assert!(!boot.report_health(0b01, 0b11).expect("first").complete);
+    let done = boot.report_health(0b10, 0b11).expect("second");
+    assert!(done.complete);
+    assert_eq!((done.have, done.need), (2, 2));
+    assert!(boot.health_ok());
+    assert_eq!(boot.pending_slot(), None);
+    // Commit disarms the deadline.
+    assert_eq!(boot.commit_deadline_ns(), 0);
+}
+
+#[test]
+fn test_duplicate_reporter_idempotent() {
+    let mut boot = BootCtrl::new(Slot::A);
+    boot.stage();
+    boot.switch(2, 0).expect("switch");
+    assert!(!boot.report_health(0b01, 0b11).expect("first").complete);
+    let again = boot.report_health(0b01, 0b11).expect("duplicate");
+    assert!(!again.complete);
+    assert_eq!((again.have, again.need), (1, 2));
+    assert!(!boot.health_ok());
+}
+
+#[test]
+fn test_reject_unknown_reporter() {
+    let mut boot = BootCtrl::new(Slot::A);
+    boot.stage();
+    boot.switch(2, 0).expect("switch");
+    // Bit outside the declared mask, and non-single-bit reports: rejected.
+    assert_eq!(boot.report_health(0b100, 0b11), Err(BootCtrlError::UnknownReporter));
+    assert_eq!(boot.report_health(0b11, 0b11), Err(BootCtrlError::UnknownReporter));
+    assert_eq!(boot.report_health(0, 0b11), Err(BootCtrlError::UnknownReporter));
+    assert!(!boot.health_ok());
+}
+
+#[test]
+fn test_deadline_expiry_schedules_rollback() {
+    let mut boot = BootCtrl::new(Slot::A);
+    boot.stage();
+    boot.switch(2, 1_000).expect("switch");
+    // Before the deadline: normal tries path (2 -> 1, no rollback).
+    assert_eq!(boot.tick_boot_attempt(999).expect("tick"), None);
+    assert_eq!(boot.tries_left(), 1);
+    // At/after the deadline: rollback regardless of tries left.
+    assert_eq!(boot.tick_boot_attempt(1_000).expect("tick"), Some(Slot::A));
+    assert_eq!(boot.active_slot(), Slot::A);
+    assert!(!boot.health_ok());
+    assert_eq!(boot.commit_deadline_ns(), 0);
+}
+
+#[test]
+fn test_quorum_mask_resets_on_new_switch() {
+    let mut boot = BootCtrl::new(Slot::A);
+    boot.stage();
+    boot.switch(2, 0).expect("switch");
+    boot.report_health(0b01, 0b11).expect("partial");
+    boot.rollback().expect("rollback");
+    assert_eq!(boot.health_mask(), 0);
+    boot.stage();
+    boot.switch(2, 0).expect("switch");
+    // A stale confirmation from the previous trial must not carry over.
+    assert_eq!(boot.health_mask(), 0);
+}
+
+#[test]
+fn test_rollback_min_index_raise_only() {
+    let mut boot = BootCtrl::new(Slot::A);
+    assert!(boot.raise_rollback_min(3));
+    assert!(!boot.raise_rollback_min(3));
+    assert!(!boot.raise_rollback_min(1));
+    assert_eq!(boot.rollback_min_index(), 3);
+    assert!(boot.raise_rollback_min(9));
+    assert_eq!(boot.rollback_min_index(), 9);
+}
+
+#[test]
+fn test_v3_roundtrip_preserves_new_fields() {
+    let mut boot = BootCtrl::new(Slot::A);
+    boot.stage();
+    boot.switch(2, 12_345).expect("switch");
+    boot.report_health(0b01, 0b11).expect("partial");
+    boot.raise_rollback_min(7);
+    let restored = decode_record(&encode_record(&boot)).expect("decode");
+    assert_eq!(restored, boot);
+    assert_eq!(restored.rollback_min_index(), 7);
+    assert_eq!(restored.health_mask(), 0b01);
+    assert_eq!(restored.commit_deadline_ns(), 12_345);
+}
+
+#[test]
+fn test_record_v2_to_v3_migration() {
+    // A TASK-0050-era v2 record (9 bytes) restores with zeroed v3 fields.
+    let v2 = [2u8, 1, 2, 0xff, 2, 0, 1, 0, 0xff];
+    let boot = decode_record(&v2).expect("migrate");
+    assert_eq!(boot.active_slot(), Slot::A);
+    assert_eq!(boot.pending_slot(), Some(Slot::B));
+    assert_eq!(boot.rollback_slot(), Some(Slot::A));
+    assert_eq!(boot.rollback_min_index(), 0);
+    assert_eq!(boot.health_mask(), 0);
+    assert_eq!(boot.commit_deadline_ns(), 0);
+    // Re-encode writes v3 (22 bytes).
+    let encoded = encode_record(&boot);
+    assert_eq!(encoded[0], 3);
+    assert_eq!(encoded.len(), 22);
 }
 
 // ---- rejects -------------------------------------------------------------------

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-25 (TASK-0036 Phase A: health-commit v2 — quorum + wall-clock deadline in bootctld)
+
+- **Boot record v3** (22 bytes): the v2 layout extended with the RFC-0089
+  §13 fields — anti-downgrade floor (`rollback_min_index`, raise-only;
+  the commit-path raise lands with TASK-0179), health quorum mask, and an
+  absolute commit deadline. Versioned decode (v3/v2/v1/legacy), writes
+  always v3, snapshot-restore commit discipline unchanged.
+- **Health-commit is now a QUORUM decision**: the commit is private and
+  reachable only through the completed declared reporter mask
+  (`updated` pass-through + `selftest-client` direct, kernel-attributed
+  identities; duplicates idempotent, unknown reporters rejected). A single
+  health call can no longer commit a trial slot.
+- **Wall-clock deadline**: armed at switch (`now + 120 s`, absolute so the
+  machine stays clock-injectable); a pending trial past its deadline rolls
+  back at the next boot attempt regardless of tries left.
+- Proofs: 22 bootctld host tests; QEMU chain gated every proof boot —
+  `bootctld: commit deadline armed` → `bootctld: health quorum ok (2/2)` →
+  `SELFTEST: bootctl quorum ok`, with the FAIL twin as a fatal signature.
+
 ### Security - 2026-08-25 (TASK-0198 Phase 1: device publisher trust anchor + verifier verdict authority)
 
 - **Closed a live trust-bypass hole**: `.nxs` system-set signatures were

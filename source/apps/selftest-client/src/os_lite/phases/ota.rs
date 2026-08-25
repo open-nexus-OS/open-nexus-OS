@@ -23,7 +23,22 @@ use nexus_abi::yield_;
 use crate::markers::emit_line;
 use crate::os_lite::context::PhaseCtx;
 use crate::os_lite::ipc::routing::route_with_retry;
+use crate::os_lite::probes::reset::bootctl_call_raw;
 use crate::os_lite::{services, updated};
+
+/// bootctld wire op for a quorum health report (RFC-0089 §13).
+const BOOTCTL_OP_HEALTH_OK: u8 = 3;
+const BOOTCTL_STATUS_OK: u8 = 0;
+
+/// Health-commit v2: the selftest is a DECLARED quorum reporter — its
+/// direct confirmation plus updated's pass-through (init_health_ok) form
+/// the full mask; commit fires only when both landed.
+fn selftest_quorum_report() -> core::result::Result<(), ()> {
+    match bootctl_call_raw(&[b'B', b'T', 1, BOOTCTL_OP_HEALTH_OK], BOOTCTL_OP_HEALTH_OK) {
+        Some((BOOTCTL_STATUS_OK, _)) => Ok(()),
+        _ => Err(()),
+    }
+}
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // Fail-closed + LOUD: a silent `map_err(|_| ())` here swallowed a routing
@@ -103,6 +118,8 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
                     2,
                     &mut ctx.updated_pending,
                 );
+                // Quorum v2: both declared reporters must confirm.
+                let _ = selftest_quorum_report();
                 let _ = updated::init_health_ok();
                 if let Ok((a, _p, _t, _h)) = updated::updated_get_status(
                     &updated,
@@ -164,10 +181,30 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_OTA_PUBLISH_B_FAIL);
     }
+    // Health-commit v2 (RFC-0089 §13): the selftest confirms its declared
+    // quorum bit directly at bootctld, then init's signal arrives through
+    // updated — commit fires only when BOTH landed (mask complete).
+    let quorum_direct = selftest_quorum_report();
     if updated::init_health_ok().is_ok() {
         emit_line(crate::markers::M_SELFTEST_OTA_HEALTH_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_OTA_HEALTH_FAIL);
+    }
+    // Verify the commit actually landed (health_ok in the authority's
+    // status) — a quorum that never completes must be LOUD here.
+    let committed = matches!(
+        updated::updated_get_status(
+            &updated,
+            ctx.reply_send_slot,
+            ctx.reply_recv_slot,
+            &mut ctx.updated_pending,
+        ),
+        Ok((_a, None, _t, true))
+    );
+    if quorum_direct.is_ok() && committed {
+        emit_line(crate::markers::M_SELFTEST_BOOTCTL_QUORUM_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_BOOTCTL_QUORUM_FAIL);
     }
     // Second cycle to force rollback (tries_left=1).
     if updated::updated_stage(

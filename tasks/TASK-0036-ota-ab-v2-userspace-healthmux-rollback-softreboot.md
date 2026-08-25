@@ -17,6 +17,39 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## Phase A DELIVERED 2026-08-25 (test-all green; lane package 2)
+
+Evidence (headless + reset uarts 2026-08-25, `just test-all` EXIT=0 incl.
+`ci-os-reset` and SMP lanes):
+
+- **Record v3** (22 bytes): v2 layout + `rollback_min_index u32` +
+  `health_mask u8` + `commit_deadline_ns u64`; versioned decode
+  v3/v2/v1/legacy via a shared `decode_common`, writes always v3;
+  `raise_rollback_min` is monotone (raise-only, TASK-0179 wires the commit
+  raise). Selftest persist probe accepts (3, 22).
+- **Quorum multiplexer**: `BootCtrl::report_health(bit, full_mask)` — commit
+  is PRIVATE (`commit_internal`), reachable only through a completed mask;
+  duplicates idempotent; non-member/non-single-bit reports reject
+  `UnknownReporter` (machine_fail reason 5). Declared set (data, single
+  authority): `bootctld::os_lite::QUORUM_REPORTERS = [updated,
+  selftest-client]`, identities kernel-attributed. Option-C recut recorded:
+  the set lives as a const table IN bootctld rather than the init manifest —
+  pushing topology into bootctld would need a new wire for zero v1 gain;
+  revisit when the reporter set outgrows the proof pair.
+- **Wall-clock deadline**: armed at switch (`now + 120s`, absolute — machine
+  stays pure/injectable); `tick_boot_attempt(now)` rolls back past-deadline
+  trials regardless of tries; commit/rollback disarm it.
+- Proofs: 22 bootctld host tests (partial-no-commit, complete-commits,
+  duplicate-idempotent, unknown-reporter, deadline-expiry, mask-reset,
+  floor-raise-only, v3 roundtrip, v2→v3 migration + all ported flows);
+  QEMU sequence gated every proof boot: `bootctld: commit deadline armed` →
+  `bootctld: health quorum ok (2/2)` → `SELFTEST: bootctl quorum ok`
+  (commit verified via authority status, FAIL twin fatal). Note: `init:
+  health ok (slot …)` now means "report accepted", the COMMIT truth is the
+  quorum marker pair.
+
+Phase B (BSB projection) stays Draft — needs TASK-0315's `bsb` partition.
+
 ## REWRITE 2026-08-25 (RFC-0089 lane recut — supersedes the whole pre-rewrite body)
 
 This ledger was written 2025-12-22 for a world without bootctld and carried

@@ -39,6 +39,15 @@ phase = "ota"
 [marker."SELFTEST: bootctl persist ok"]
 phase = "ota"
 
+# TASK-0036-A health-commit v2 (RFC-0089 §13): the commit requires the FULL
+# declared quorum (updated pass-through + selftest direct report); this
+# marker asserts the commit actually landed in the authority's status.
+[marker."SELFTEST: bootctl quorum ok"]
+phase = "ota"
+
+[marker."SELFTEST: bootctl quorum FAIL"]
+phase = "ota"
+
 [marker."dbg: phase ota skipped"]
 phase = "ota"
 
