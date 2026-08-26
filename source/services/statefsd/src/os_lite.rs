@@ -24,14 +24,13 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 use statefs::envelope::{EnvelopeKey, PolicyClass, SeqTracker, WriteBudget};
 use statefs::protocol::{self as proto, Request};
 use statefs::JournalEngine;
-use storage::virtio_blk::VirtioBlkDevice;
+use storage::remote_blk::RemoteBlockDevice;
 use storage::BlockDevice;
 use storage::MemBlockDevice;
 
 use crate::emit_os::{
-    emit_access_denied, emit_blk_marker, emit_budget_warn, emit_degrade_ram_backed,
-    emit_envelope_denied, emit_envelope_migration, emit_ipc_error, emit_line, emit_op_byte,
-    emit_statefs_error,
+    emit_access_denied, emit_budget_warn, emit_degrade_ram_backed, emit_envelope_denied,
+    emit_envelope_migration, emit_ipc_error, emit_line, emit_op_byte, emit_statefs_error,
 };
 use crate::hardening;
 
@@ -88,42 +87,56 @@ pub(crate) const CAP_BOOT: &str = "statefs.boot";
 const CAP_CRASH: &str = "statefs.crash";
 
 pub(crate) enum Backend {
-    Virtio(VirtioBlkDevice),
+    Remote(RemoteBlockDevice),
     Mem(MemBlockDevice),
 }
 
 impl BlockDevice for Backend {
     fn block_size(&self) -> usize {
         match self {
-            Backend::Virtio(dev) => dev.block_size(),
+            Backend::Remote(dev) => dev.block_size(),
             Backend::Mem(dev) => dev.block_size(),
         }
     }
 
     fn block_count(&self) -> u64 {
         match self {
-            Backend::Virtio(dev) => dev.block_count(),
+            Backend::Remote(dev) => dev.block_count(),
             Backend::Mem(dev) => dev.block_count(),
         }
     }
 
     fn read_block(&self, block_idx: u64, buf: &mut [u8]) -> Result<(), storage::BlockError> {
         match self {
-            Backend::Virtio(dev) => dev.read_block(block_idx, buf),
+            Backend::Remote(dev) => dev.read_block(block_idx, buf),
             Backend::Mem(dev) => dev.read_block(block_idx, buf),
         }
     }
 
     fn write_block(&mut self, block_idx: u64, buf: &[u8]) -> Result<(), storage::BlockError> {
         match self {
-            Backend::Virtio(dev) => dev.write_block(block_idx, buf),
+            Backend::Remote(dev) => dev.write_block(block_idx, buf),
             Backend::Mem(dev) => dev.write_block(block_idx, buf),
+        }
+    }
+
+    fn read_blocks(&self, first_block: u64, buf: &mut [u8]) -> Result<(), storage::BlockError> {
+        match self {
+            Backend::Remote(dev) => dev.read_blocks(first_block, buf),
+            Backend::Mem(dev) => dev.read_blocks(first_block, buf),
+        }
+    }
+
+    fn write_blocks(&mut self, first_block: u64, buf: &[u8]) -> Result<(), storage::BlockError> {
+        match self {
+            Backend::Remote(dev) => dev.write_blocks(first_block, buf),
+            Backend::Mem(dev) => dev.write_blocks(first_block, buf),
         }
     }
 
     fn sync(&mut self) -> Result<(), storage::BlockError> {
         match self {
-            Backend::Virtio(dev) => dev.sync(),
+            Backend::Remote(dev) => dev.sync(),
             Backend::Mem(dev) => dev.sync(),
         }
     }
@@ -227,42 +240,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Ok((frame, sender_service_id, reply)) => {
                 breaker.on_success();
                 if window.wants_upgrade() {
-                    let mut q = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
-                    let mmio_ready = nexus_abi::cap_query(48, &mut q).is_ok() && q.kind_tag == 2;
-                    if mmio_ready {
-                        if let Ok(blk) = VirtioBlkDevice::new(48) {
-                            emit_blk_marker(&blk);
-                            match JournalEngine::open(Backend::Virtio(blk)) {
-                                Ok(new_engine) => {
-                                    engine = new_engine;
-                                    let _ = window.on_open_ok();
-                                    // New backing store: rebuild the
-                                    // anti-rollback state from its replay
-                                    // (the mem engine was still pristine).
-                                    hard.tracker = SeqTracker::new();
-                                    observe_enrolled(&engine, &mut hard.tracker);
-                                    emit_line("statefsd: virtio upgrade ok");
-                                    crate::enc_os::try_enable(&mut engine, false);
-                                }
-                                Err(err) => {
-                                    emit_line("statefsd: journal open failed (virtio)");
-                                    emit_statefs_error(err);
-                                    match window.on_open_failed() {
-                                        crate::upgrade_window::UpgradeAction::AnnounceRetriesExhausted => {
-                                            emit_degrade_ram_backed("virtio retries exhausted");
-                                        }
-                                        _ => {
-                                            // Delay before next retry to let QEMU virtio settle
-                                            emit_line("statefsd: virtio retry scheduled");
-                                            for _ in 0..100 {
-                                                let _ = yield_();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    crate::upgrade_exec::try_upgrade(&mut engine, &mut hard, &mut window);
                 }
                 let rsp = handle_frame(&mut engine, &mut hard, sender_service_id, frame.as_slice());
                 // Once we accept a mutating op, we no longer allow backend

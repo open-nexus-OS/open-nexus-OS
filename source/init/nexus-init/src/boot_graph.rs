@@ -58,6 +58,9 @@ impl BootGraph {
 /// plus the storage/policy floor recovery operations stand on. This set
 /// IS the recovery graph.
 const CORE: &[&str] = &[
+    // TASK-0315: the block plane underneath statefs — recovery ops (fsck,
+    // record persistence) are dead without it.
+    "virtioblkd",
     "statefsd",
     "logd",
     "policyd",

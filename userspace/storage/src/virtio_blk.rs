@@ -32,6 +32,12 @@ impl VirtioBlkDevice {
     pub fn sector_size(&self) -> u32 {
         self.inner.sector_size()
     }
+
+    /// Binds the device's derived PLIC line to an owner-provisioned notify
+    /// endpoint (TASK-0314 machinery; TASK-0315 provisioning).
+    pub fn bind_irq_endpoint(&mut self, ep_slot: u32) -> bool {
+        self.inner.bind_irq_endpoint(ep_slot)
+    }
 }
 
 impl BlockDevice for VirtioBlkDevice {

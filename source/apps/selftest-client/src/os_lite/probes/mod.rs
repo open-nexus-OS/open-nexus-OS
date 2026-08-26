@@ -21,6 +21,7 @@
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
+pub(crate) mod blkgate;
 pub(crate) mod core_service;
 pub(crate) mod device_key;
 pub(crate) mod elf;

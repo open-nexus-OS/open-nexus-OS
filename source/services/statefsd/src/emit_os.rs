@@ -13,7 +13,7 @@
 //! ADR: docs/adr/0023-statefs-persistence-architecture.md
 
 use statefs::StatefsError;
-use storage::virtio_blk::VirtioBlkDevice;
+use storage::BlockDevice;
 
 pub(crate) fn emit_access_denied(path: &str, sender_service_id: u64) {
     let mut buf = [0u8; 160];
@@ -176,9 +176,12 @@ pub(crate) fn emit_ipc_error(err: nexus_ipc::IpcError) {
     emit_line(msg);
 }
 
-pub(crate) fn emit_blk_marker(dev: &VirtioBlkDevice) {
-    let ss = dev.sector_size();
-    let nsec = dev.capacity_sectors();
+pub(crate) fn emit_blk_marker(dev: &impl BlockDevice) {
+    // Since TASK-0315 the virtio-backed store arrives over the partition
+    // IPC plane (virtioblkd owns the queue); the marker string stays the
+    // gated contract — geometry now names the STATE partition window.
+    let ss = dev.block_size() as u32;
+    let nsec = dev.block_count();
     emit_line("blk: virtio-blk up");
     let mut buf = [0u8; 64];
     let mut len = 0usize;

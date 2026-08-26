@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-08-25 (TASK-0315: ONE GPT disk — virtioblkd is the sole block owner, partition-scoped IPC everywhere)
+
+- **The two-device storage topology is gone**: QEMU boots a single
+  `nx image`-built GPT disk (`build/nexus.img`, RFC-0089 §2 layout incl.
+  the A/B slot partitions); `NEXUS_KEEP_BLK=1` keeps state/data and
+  refreshes boot-a via `nx image patch` (the end-state flasher write
+  shape). The blk/data reverse-enumeration swap finding is structurally
+  dead.
+- **virtioblkd is real** (was a 70-line parked stub, not even in the OS
+  image): sole MMIO owner, one CRC-validated GPT parse
+  (`virtioblkd: gpt ok (parts=7)`), blockproto server with
+  kernel-attributed per-partition gates — statefsd → `state`, vfsd →
+  `data`, everyone else DENIED (`SELFTEST: blk cross-partition deny ok`
+  gated; boot/bsb selectors deny until updated/bootctld join in later
+  packages). Zero-allocation serve path (`blockproto` `_into` codec
+  family) — the Vec-per-request first cut died of bump-heap exhaustion
+  mid-ladder, now a recorded trap.
+- **Clients demoted to least privilege**: statefsd's direct-MMIO backend
+  is DELETED — `RemoteBlockDevice` attaches the state partition over IPC
+  inside the unchanged pristine upgrade window (fixed-slot wiring
+  0xF0..0xF2 in the spawn-time distribution pass beats any early mutating
+  op; the first attach blocks bounded like the old inline device init).
+  nxfsd's `/data` store likewise. Double slot-48/49 grants removed.
+- **IRQ completion is LIVE**: init wires a dedicated notify endpoint;
+  `virtioblkd: irq endpoint bound` + `blk: irq completion on` are gated
+  required markers (the TASK-0314 poll-fallback marker recut as planned).
+- Four QEMU-round findings recorded in the ledger (nx host-env leak,
+  cap_query endpoint blindness, selftest slot-number rigidity, bump-heap
+  Vec fatality). Structure-ratchet splits: `blk_plane.rs`, `affinity.rs`,
+  `upgrade_exec.rs`.
+
 ### Added - 2026-08-25 (TASK-0260 image scope: `nx image` — deterministic GPT disk + NXBD signer + factory BSB + `.nxs` v2 emission)
 
 - **`nx image build/verify/patch/ota`**: the host-side RFC-0089 artifact

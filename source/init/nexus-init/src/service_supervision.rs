@@ -76,6 +76,8 @@ pub const DEFAULT_BACKOFF: BackoffSpec =
 pub const SUPERVISION: &[(ServiceId, Criticality, RestartPolicy)] = &[
     // RFC-0087 critical-boot set: statefsd, samgrd, policyd, execd, logd.
     (ServiceId::Statefsd, Criticality::CriticalBoot, RestartPolicy::Always),
+    // TASK-0315: the storage substrate under statefs AND nxfs.
+    (ServiceId::Virtioblkd, Criticality::CriticalBoot, RestartPolicy::Always),
     (ServiceId::Samgrd, Criticality::CriticalBoot, RestartPolicy::Always),
     (ServiceId::Policyd, Criticality::CriticalBoot, RestartPolicy::Always),
     (ServiceId::Execd, Criticality::CriticalBoot, RestartPolicy::Always),

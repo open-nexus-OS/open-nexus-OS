@@ -84,15 +84,19 @@ pub enum ServiceId {
     /// Single boot-state authority (TASK-0050, ADR-0055): A/B slot record +
     /// boot targets + one-shot next_boot; `updated` is a client.
     Bootctld = 28,
+    /// THE virtio-blk owner (ADR-0044 end state, TASK-0315): parses the one
+    /// GPT disk and serves partition-scoped block IO; statefsd/nxfsd are
+    /// its blockproto clients.
+    Virtioblkd = 29,
 }
 
 impl ServiceId {
     /// Number of entries needed to index a per-service array by `id as usize`
-    /// (discriminants are `1..=28`, so the array spans `0..=28`; index 0 is unused).
-    pub const COUNT: usize = 29;
+    /// (discriminants are `1..=29`, so the array spans `0..=29`; index 0 is unused).
+    pub const COUNT: usize = 30;
 
     /// Every service identifier, for iterating a per-service routing array.
-    pub const ALL: [ServiceId; 28] = [
+    pub const ALL: [ServiceId; 29] = [
         Self::Vfsd,
         Self::Packagefsd,
         Self::Policyd,
@@ -121,6 +125,7 @@ impl ServiceId {
         Self::Imed,
         Self::ImedOsk,
         Self::Bootctld,
+        Self::Virtioblkd,
     ];
 
     /// Look up a service by its canonical name. Returns None for unknown names.
@@ -154,6 +159,7 @@ impl ServiceId {
             b"imed" => Self::Imed,
             b"imed-osk" => Self::ImedOsk,
             b"bootctld" => Self::Bootctld,
+            b"virtioblkd" => Self::Virtioblkd,
             _ => return None,
         })
     }
@@ -189,6 +195,7 @@ impl ServiceId {
             Self::Imed => "imed",
             Self::ImedOsk => "imed-osk",
             Self::Bootctld => "bootctld",
+            Self::Virtioblkd => "virtioblkd",
         }
     }
 }
@@ -275,46 +282,7 @@ pub struct ServiceSpec {
     pub announce: bool,
 }
 
-/// Declarative CPU placement SSOT (SMP soft-realtime plan P1). The display +
-/// input chain is pinned to cpu0 (the soft-RT hart: its BKL competitors are
-/// only each other), everything background runs on cpu1-3, so exec/vmo-heavy
-/// bring-up work never steals cpu0 time from the interactive chain. Masks are
-/// clamped by the kernel to ONLINE cpus, so SMP=1 degrades to cpu0 for all.
-pub const fn affinity_for(name: &str) -> u8 {
-    // const-fn string match via bytes (const_str_eq is not stable): compare
-    // against the canonical names.
-    const fn eq(a: &str, b: &str) -> bool {
-        let (a, b) = (a.as_bytes(), b.as_bytes());
-        if a.len() != b.len() {
-            return false;
-        }
-        let mut i = 0;
-        while i < a.len() {
-            if a[i] != b[i] {
-                return false;
-            }
-            i += 1;
-        }
-        true
-    }
-    // Soft-realtime chain -> cpu0.
-    if eq(name, "gpud")
-        || eq(name, "windowd")
-        || eq(name, "inputd")
-        || eq(name, "hidrawd")
-        || eq(name, "touchd")
-        || eq(name, "imed")
-    {
-        return 0b0001;
-    }
-    // init itself + the selftest keep the full mask (the proof ladder tests
-    // cross-cpu behaviour deliberately).
-    if eq(name, "selftest-client") || eq(name, "init-lite") || eq(name, "nexus-init") {
-        return 0b1111;
-    }
-    // Everything else is background -> cpu1-3 (kernel clamps to online).
-    0b1110
-}
+pub use crate::affinity::affinity_for;
 
 /// The declared specs for services that participate in the v6b chain. Grown
 /// incrementally; the host tests keep it consistent with `REQUIRED_ROUTES`.
@@ -400,6 +368,16 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         exposes_server: true,
         reply_inbox: true,
         routes_to: &[Route { to: ServiceId::Policyd, kind: RouteKind::ReplyInbox }],
+        announce: true,
+    },
+    // TASK-0315: the block-plane owner. `reply_inbox` despite empty routes:
+    // the inbox is the driver's IRQ notify endpoint (this service makes no
+    // outbound calls, so the channel is exclusively the interrupt wake).
+    ServiceSpec {
+        id: ServiceId::Virtioblkd,
+        exposes_server: true,
+        reply_inbox: true,
+        routes_to: &[],
         announce: true,
     },
     // Batch 4 (amended by TASK-0049C): logd persists evidence-class records

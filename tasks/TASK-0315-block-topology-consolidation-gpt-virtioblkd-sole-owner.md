@@ -1,6 +1,7 @@
 ---
 title: TASK-0315 Block topology consolidation: one GPT device + virtioblkd as sole queue owner (ADR-0044 end state, staging retired)
-status: Draft
+status: Done
+completed: 2026-08-25
 owner: @runtime
 created: 2026-08-14
 depends-on:
@@ -15,6 +16,59 @@ links:
   - Substrate (built, unwired): userspace/storage/src/gpt.rs + userspace/storage/src/blockproto.rs
   - Ladder: tasks/TRACK-STASH-USER-DATA-FS.md
 ---
+
+## DELIVERED 2026-08-25 (test-all pending final gate; OTA-lane package 5)
+
+Evidence (headless + keep-blk double boot + `ci-os-reset` green; uarts
+2026-08-25T18-28/18-32):
+
+- **ONE GPT disk**: the launcher boots `build/nexus.img` (built/patched by
+  `nx image` — `NEXUS_KEEP_BLK=1` keeps state/data and refreshes boot-a
+  via `nx image patch`, the end-state flasher shape). The two-device
+  blk/data reverse-enumeration swap is structurally dead.
+- **virtioblkd real** (`os_lite.rs` + `route_os.rs`): sole MMIO owner,
+  one RO CRC-validated GPT parse (`virtioblkd: gpt ok (parts=7)`),
+  blockproto server with kernel-attributed per-partition gates
+  (statefsd → `state` rw, vfsd → `data` rw, everything else DENIED —
+  `SELFTEST: blk cross-partition deny ok` gated every boot; boot/bsb/
+  system selectors deny until 0179/0036-B join). ZERO-allocation serve
+  path (fixed buffers — the bump heap never frees; the Vec-per-request
+  first cut died of `alloc-fail` mid-ladder, recorded below).
+- **IRQ completion LIVE**: init wires a dedicated notify endpoint at the
+  fixed slot 0xF1; the TASK-0314 machinery binds it —
+  `virtioblkd: irq endpoint bound` + `blk: irq completion on` are gated
+  required markers now (the 0314 poll-fallback marker recut as planned).
+- **Clients demoted to least privilege**: statefsd's `Backend::Virtio`
+  (direct MMIO, slot 48) is DELETED — `Backend::Remote(RemoteBlockDevice)`
+  attaches the state partition over IPC inside the same pristine upgrade
+  window (`statefsd: virtio upgrade ok`, geometry unchanged: ss=512
+  nsec=131072); nxfsd's DataStore likewise (`/data` = partition). The
+  double slot-48 grant and the vfsd slot-49 grant are gone.
+- **Wiring (the hard-won part)**: blockproto frames carry magic+nonce
+  (shared reply inboxes carry policyd traffic too — replies must be
+  self-identifying); clients get FIXED slots 0xF0..0xF2 transferred in the
+  SPAWN-TIME distribution pass (`init: blk plane wired svc=…`) — a
+  route-get-based attach loses the race against the first mutating
+  statefs op and permanently closes the pristine window; the first attach
+  BLOCKS bounded (8 s) exactly like the old inline device init, so the
+  window can never lose to virtioblkd still bringing the device up.
+- `blockproto` gained the RFC-0089 selectors (bsb/boot-a/b/system-a/b),
+  `STATUS_DENIED`, and a no-alloc `_into` encoder family.
+
+### Findings recorded (each cost one QEMU round)
+
+1. `nx` must be built with a CLEAN env in the launcher — the OS
+   `RUSTFLAGS` (nexus_env=os) on a host target breaks nexus-abi.
+2. Kernel `cap_query` reports only Vmo/DeviceMmio — endpoint-presence
+   gates via `slot_probe::slot_is_ipc_endpoint` are structurally FALSE
+   (nexus-abi's KIND_IPC_ENDPOINT=3 is aspirational); removed.
+3. Inserting transfers mid-arm in the selftest wiring SHIFTS its
+   historically fixed slot numbers (0x11/0x12 keystored, 0x17/0x18 reply)
+   and breaks every hardcoded probe — new selftest routes must be a
+   separate post-wiring pass.
+4. Per-request `Vec`s in an OS service are fatal, not slow (bump heap;
+   `alloc-fail svc=virtioblkd` → service death → cascade) — the
+   documented allocator trap, now enforced by the `_into` codec family.
 
 ## Rebase note 2026-08-25 (RFC-0089: pulled into the OTA lane; layout extended)
 

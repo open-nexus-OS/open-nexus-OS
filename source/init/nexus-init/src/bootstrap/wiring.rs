@@ -65,6 +65,7 @@ pub(crate) fn distribute_server_pairs(ctrls: &mut [CtrlChannel], eps: &Endpoints
             chan.set_send(id, send_slot);
             chan.set_recv(id, recv_slot);
         }
+        crate::bootstrap::blk_plane::wire_blk_plane_for(chan, eps);
     }
 }
 
@@ -1569,7 +1570,7 @@ pub(crate) fn wire_services(
                     // freshly created otherwise. Same lifecycle either way:
                     // transfer RECV+SEND, close the init-side slot.
                     let mut reply_recv_opt: Option<u32> = None;
-                    if !spec.routes_to.is_empty() && spec.reply_inbox {
+                    if spec.reply_inbox {
                         let inbox_ep =
                             own_id.and_then(|id| eps.minted_reply_ep(id)).or_else(|| {
                                 nexus_abi::ipc_endpoint_create_for(

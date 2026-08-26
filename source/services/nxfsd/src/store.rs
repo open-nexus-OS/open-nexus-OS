@@ -20,11 +20,8 @@ use nexus_vfs_types::fileops::{
 };
 use nexus_vfs_types::{FileKind, VfsError};
 use nxfs::{MkfsOptions, Nxfs};
-use storage::virtio_blk::VirtioBlkDevice;
+use storage::remote_blk::RemoteBlockDevice;
 
-/// The device-2 MMIO cap slot init grants for the user-data device (distinct
-/// from statefsd's slot 48 on device 1). ADR-0044: one owner per virtio queue.
-pub const DATA_MMIO_SLOT: u32 = 49;
 /// Fixed container UUID for dev images (the engine takes no RNG).
 const CONTAINER_UUID: [u8; 16] = *b"nexus-data-vol01";
 /// The nxfs container IS the user's home: vfsd routes every non-`pkg:/` path
@@ -49,7 +46,7 @@ fn mark(line: &str) {
 
 /// The mounted user-data store.
 pub struct DataStore {
-    fs: Nxfs<VirtioBlkDevice>,
+    fs: Nxfs<RemoteBlockDevice>,
 }
 
 impl DataStore {
@@ -57,28 +54,18 @@ impl DataStore {
     /// `None` if the MMIO cap is not yet granted or the device is unusable —
     /// the caller retries (the grant may land after the server endpoint).
     pub fn acquire() -> Option<Self> {
-        let mut query = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
-        if nexus_abi::cap_query(DATA_MMIO_SLOT, &mut query).is_err() {
-            mark("nxfsd: no mmio cap at slot 49");
-            return None;
-        }
-        if query.kind_tag != 2 {
-            mark("nxfsd: slot 49 wrong kind (not DeviceMmio)");
-            return None;
-        }
-        mark("nxfsd: mmio cap present, opening device");
-        // The virtio-blk driver maps a FIXED MMIO window, so the device can be
-        // created only ONCE — `open_or_format` peeks the superblock and either
-        // mounts an existing container or formats a blank one, consuming the
-        // device a single time (no silent reformat of a valid container).
-        let device = match VirtioBlkDevice::new(DATA_MMIO_SLOT) {
-            Ok(device) => device,
-            Err(_) => {
-                mark("nxfsd: virtio-blk open FAIL");
+        // TASK-0315: the device left this process — the DATA partition
+        // arrives over the blockproto plane (virtioblkd owns the queue).
+        // A `None` keeps the caller's bounded retry (virtioblkd may still
+        // be attaching).
+        let device = match crate::route_os::attach_data_partition() {
+            Some(device) => device,
+            None => {
+                mark("nxfsd: data partition not attachable yet");
                 return None;
             }
         };
-        mark("nxfsd: device opened, mount/format");
+        mark("nxfsd: data partition attached, mount/format");
         let opts = MkfsOptions { uuid: CONTAINER_UUID, journal_blocks: 64 };
         match Nxfs::open_or_format(device, opts) {
             Ok(fs) => {

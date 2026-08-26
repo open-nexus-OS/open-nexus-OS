@@ -23,9 +23,9 @@
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 extern crate alloc;
 
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod route_os;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod store;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
-pub use store::{
-    readdir_unavailable, stat_unavailable, write_unavailable, DataStore, DATA_MMIO_SLOT,
-};
+pub use store::{readdir_unavailable, stat_unavailable, write_unavailable, DataStore};

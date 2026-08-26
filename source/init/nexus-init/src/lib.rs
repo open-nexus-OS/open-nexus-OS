@@ -37,6 +37,7 @@ extern crate alloc;
 #[cfg(all(feature = "os-payload", nexus_env = "os"))]
 pub mod slot_map;
 
+pub mod affinity;
 /// Declarative service topology — host-compilable SSOT for service identity +
 /// capability routes, decoupled from the OS capability binding (RFC-0066). This is
 /// the `.cml`-equivalent: pure data, validated on the host.

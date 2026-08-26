@@ -7,59 +7,21 @@
     no_main
 )]
 
-//! CONTEXT: virtioblkd (v0) — virtio-blk MMIO owner proof service (TASK-0010 consumer)
+//! CONTEXT: virtioblkd — the single virtio-blk owner serving
+//! partition-scoped block IO over IPC (ADR-0044 end state, TASK-0315).
+//! The v0 proof stub (map window, print marker, park) is replaced by the
+//! real server in `os_lite.rs`.
 //! OWNERS: @runtime
-//! STATUS: Experimental (proof-only)
+//! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: Proven via QEMU markers (scripts/qemu-test.sh)
+//! TEST_COVERAGE: QEMU marker ladder (scripts/qemu-test.sh)
+//! ADR: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
+
+mod os_lite;
+mod route_os;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
-nexus_service_entry::declare_entry!(os_entry);
-
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
-fn os_entry() -> core::result::Result<(), ()> {
-    use nexus_abi::{debug_println, mmio_map_auto, yield_};
-
-    // Deterministic MMIO cap slot owned by init distribution.
-    const MMIO_CAP_SLOT: u32 = 48;
-    // virtio-mmio IDs
-    const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976; // "virt"
-    const VIRTIO_DEVICE_ID_BLK: u32 = 2;
-
-    let _ = debug_println("virtioblkd: ready");
-
-    // Retry briefly in case init distributes after service starts.
-    let start = nexus_abi::nsec().unwrap_or(0);
-    let deadline = start.saturating_add(1_000_000_000);
-    // RFC-0085: kernel-chosen va; map ONCE (a map per retry would leak a
-    // region each round on the bounded retry loop below).
-    let mmio_va = loop {
-        match mmio_map_auto(MMIO_CAP_SLOT, 0, 0x1000) {
-            Ok(va) => break va,
-            Err(_) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    let _ = debug_println("virtioblkd: mmio map FAIL");
-                    loop {
-                        let _ = yield_();
-                    }
-                }
-                let _ = yield_();
-            }
-        }
-    };
-
-    let magic = unsafe { core::ptr::read_volatile((mmio_va + 0x000) as *const u32) };
-    let device_id = unsafe { core::ptr::read_volatile((mmio_va + 0x008) as *const u32) };
-    if magic == VIRTIO_MMIO_MAGIC && device_id == VIRTIO_DEVICE_ID_BLK {
-        let _ = debug_println("virtioblkd: mmio window mapped ok");
-    } else {
-        let _ = debug_println("virtioblkd: mmio window mapped FAIL");
-    }
-
-    loop {
-        let _ = yield_();
-    }
-}
+nexus_service_entry::declare_entry!(crate::os_lite::os_entry);
 
 #[cfg(not(all(
     nexus_env = "os",

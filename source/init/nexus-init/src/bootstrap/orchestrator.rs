@@ -348,6 +348,11 @@ where
     // until the policy-gated MMIO grant is transferred there (statefsd probes MMIO at slot 48).
     let state_req =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
+    // TASK-0315: virtioblkd's blockproto request endpoint (block plane).
+    let vblk_req =
+        nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
+    let vblk_rsp =
+        nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
     let state_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
 
@@ -530,6 +535,8 @@ where
         key_req,
         key_rsp,
         state_req,
+        vblk_req,
+        vblk_rsp,
         state_rsp,
         rng_req,
         rng_rsp,
@@ -843,36 +850,13 @@ where
             DEVICE_MMIO_CAP_SLOT,
         )?;
     }
-    if let Some(statefsd_pid) = find_pid(&ctrl_channels, "statefsd") {
-        let blk_slot = blk_slot.ok_or(InitError::Map("virtio-blk slot not found"))?;
-        grant_mmio_with_wait(
-            statefsd_pid,
-            "statefsd",
-            "device.mmio.blk",
-            blk_slot,
-            DEVICE_MMIO_CAP_SLOT,
-        )?;
-    }
-    // nxfs `/data` device (ADR-0044 / TASK-0293): grant the SECOND virtio-blk
-    // device to vfsd (its in-process DataStore owns it). Best-effort: if only
-    // one blk device is present (no second image), vfsd's `/data` stays
-    // unavailable — honest, not a boot failure.
-    match (find_pid(&ctrl_channels, "vfsd"), data_blk_slot) {
-        (Some(vfsd_pid), Some(data_slot)) => {
-            debug_write_bytes(b"init: nxfs data blk grant vfsd slot=0x");
-            debug_write_hex(data_slot);
-            debug_write_byte(b'\n');
-            grant_mmio_with_wait(
-                vfsd_pid,
-                "vfsd",
-                "device.mmio.blk",
-                data_slot,
-                DATA_DEVICE_MMIO_CAP_SLOT,
-            )?;
-        }
-        (None, _) => debug_write_bytes(b"init: nxfs data blk SKIP (no vfsd pid)\n"),
-        (_, None) => debug_write_bytes(b"init: nxfs data blk SKIP (no 2nd blk slot)\n"),
-    }
+    // TASK-0315: statefsd is a blockproto CLIENT — the double MMIO grant
+    // (the ADR-0044 one-owner violation) is gone; virtioblkd above is the
+    // only holder.
+    // TASK-0315: `/data` is a partition on the ONE disk — vfsd's DataStore
+    // is a blockproto client now; the second-device grant is gone with the
+    // second device itself.
+    let _ = data_blk_slot;
     // Boot elapsed after the MMIO-grant phase (spawn + resume + early wiring
     // + grants); the gap to `total_ms` is the co-run cap-wiring phase.
     let grants_done_ms = boot_span.elapsed_ms();
@@ -881,6 +865,7 @@ where
     // server pairs went out pre-grants — this pass adds reply inboxes,
     // routes and the announce markers.
     crate::bootstrap::wiring::wire_services(&mut ctrl_channels, &eps, init_fold, &mut init_wire)?;
+    crate::bootstrap::blk_plane::wire_blk_deny_probe(&mut ctrl_channels, &eps);
 
     // Cap-table hygiene (RFC-0075/0078): a parked full table broke @mint-pair.
     endpoints::close_wired_eps(&eps);

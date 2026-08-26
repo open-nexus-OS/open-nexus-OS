@@ -135,6 +135,10 @@ impl BlockDevice for MemBlockDevice {
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub mod virtio_blk;
 
+/// Partition-scoped block client over blockproto (ADR-0044/TASK-0315).
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+pub mod remote_blk;
+
 /// Deterministic PackageFS image v2 (`pkgimg`) format helpers.
 pub mod pkgimg;
 

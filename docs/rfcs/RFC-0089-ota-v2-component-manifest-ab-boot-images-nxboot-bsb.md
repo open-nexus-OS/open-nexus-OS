@@ -34,7 +34,7 @@
 
 - **Phase 1 (device trust anchor + verifier verdict authority)**: ✅ 2026-08-25 (TASK-0198 Phase 1 — baked anchor + verdict finality + OS deny lane, test-all green)
 - **Phase 2 (health-commit v2: record v3 + quorum + deadline)**: ✅ 2026-08-25 (TASK-0036-A — private commit behind the mask, deadline armed at switch, 22 host tests + gated quorum chain)
-- **Phase 3 (block substrate: virtio-blk v2 + single GPT disk)**: 🟨 (TASK-0314 ✅ 2026-08-25 — request ring + 16 KiB runs + IRQ machinery; TASK-0315 open — GPT topology + IRQ endpoint provisioning)
+- **Phase 3 (block substrate: virtio-blk v2 + single GPT disk)**: ✅ 2026-08-25 (TASK-0314 request ring/runs + TASK-0315 single GPT disk, virtioblkd sole owner, partition gates, IRQ completion LIVE)
 - **Phase 4 (host image builder `nx image`)**: ✅ 2026-08-25 (TASK-0260 image scope — build/verify/patch/ota, deterministic, 6 integration tests; shared layout/GPT/codec authorities in `storage::layout` + `bootfmt`)
 - **Phase 5 (`nxboot` loader + boot flip + measured handoff)**: ⬜ (TASK-0289-A)
 - **Phase 6 (BSB runtime projection)**: ⬜ (TASK-0036-B)
@@ -549,7 +549,7 @@ Marker SSOT stays `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` +
 
 - [x] **Phase 1**: device trust anchor + verdict authority — proof: `cargo test -p updates_host` (`test_reject_untrusted_publisher`, `test_accept_baked_publisher`) + `SELFTEST: updates trust reject ok` gated in headless/smp1/reset (2026-08-25)
 - [x] **Phase 2**: record v3 + quorum + deadline — proof: 22 bootctld host tests + `bootctld: health quorum ok (2/2)` + `SELFTEST: bootctl quorum ok` gated every proof boot (2026-08-25)
-- [ ] **Phase 3**: virtio-blk v2 + single GPT disk — proof: `SELFTEST: blk cross-partition deny ok` + keep-blk double boot
+- [x] **Phase 3**: virtio-blk v2 + single GPT disk — proof: `virtioblkd: gpt ok (parts=7)` + `blk: irq completion on` + `SELFTEST: blk cross-partition deny ok` gated; keep-blk double boot + reset lane green (2026-08-25)
 - [x] **Phase 4**: `nx image build/verify/patch/ota` — proof: 6 integration tests (determinism double-build, verify round-trip via the shared parser, tamper/wrong-key rejects, patch preservation, slot-budget reject, `.nxs` v2 decode with bound NXBD) (2026-08-25)
 - [ ] **Phase 5**: `nxboot` + boot flip + handoff — proof: `nxboot: verify ok` leading the headless ladder; `KSELFTEST: boot handoff ok (measured)`
 - [ ] **Phase 6**: BSB projection — proof: `bootctld: bsb sync ...` + `SELFTEST: bootctl bsb ok`

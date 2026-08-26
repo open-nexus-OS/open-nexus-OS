@@ -25,7 +25,7 @@ data = json.load(sys.stdin)
 
 # Services that are not yet ready for OS cross-compilation
 # (pull in forbidden crates or fail no_std compilation)
-OS_SKIP = {'identityd', 'debugsvc', 'virtioblkd'}
+OS_SKIP = {'identityd', 'debugsvc'}
 
 svcs = []
 for pkg in data.get('packages', []):

@@ -568,11 +568,14 @@ expected_sequence=(
   "SELFTEST: bundlemgrd v1 list ok"
   "SELFTEST: bundlemgrd v1 image ok"
   "SELFTEST: bundlemgrd v1 malformed ok"
-  # TASK-0314: driver v2 wait path is live — poll fallback is the HONEST
-  # state until the TASK-0315 block server provisions the IRQ notify
-  # endpoint (endpoint creation is init-factory-gated); the marker recuts
-  # to "blk: irq completion on" with 0315.
-  "blk: poll fallback (no irq)"
+  # TASK-0315: virtioblkd owns the ONE GPT disk and serves partition-scoped
+  # block IO; clients attach over IPC and the deny-by-default partition
+  # gate is proven every boot.
+  "virtioblkd: gpt ok (parts=7)"
+  "virtioblkd: irq endpoint bound"
+  "blk: irq completion on"
+  "statefsd: virtio upgrade ok"
+  "SELFTEST: blk cross-partition deny ok"
   # TASK-0198 Phase 1: device publisher trust anchor — a validly self-signed
   # archive whose publisher is not in policies/update-trust.toml must be
   # rejected BEFORE the happy-path stage (the pre-fix hole accepted any key
@@ -810,7 +813,11 @@ case "${PROFILE:-full}" in
       "SELFTEST: bundlemgrd v1 list ok"
       "SELFTEST: bundlemgrd v1 image ok"
       "SELFTEST: bundlemgrd v1 malformed ok"
-      "blk: poll fallback (no irq)"
+      "virtioblkd: gpt ok (parts=7)"
+      "virtioblkd: irq endpoint bound"
+      "blk: irq completion on"
+      "statefsd: virtio upgrade ok"
+      "SELFTEST: blk cross-partition deny ok"
       "updated: stage rejected (untrusted publisher)"
       "SELFTEST: updates trust reject ok"
       "SELFTEST: ota stage ok"
@@ -1758,6 +1765,14 @@ for m in \
     exit 1
   fi
 done
+# TASK-0315 guard: the partition gate failing open (or the probe dying)
+# would silently hand any sender the state partition.
+if grep -aFq "SELFTEST: blk cross-partition deny FAIL" "$UART_LOG"; then
+  echo "[error] first_failed_phase=bringup missing_marker='SELFTEST: blk cross-partition deny ok'" >&2
+  echo "[error] block-plane partition gate not enforced" >&2
+  grep -a "virtioblkd: \|SELFTEST: blk" "$UART_LOG" | head -n 8 >&2
+  exit 1
+fi
 # TASK-0036-A guard: a quorum FAIL means health-commit v2 never completed
 # (or committed without the full mask) — the OTA health claim would be
 # fake green either way.

@@ -6,6 +6,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 
+pub(crate) mod blk_plane;
 pub(crate) mod diag;
 pub(crate) mod endpoints;
 pub(crate) mod handshake;

@@ -344,6 +344,23 @@ impl VirtioBlkMmio {
         self.requests.get()
     }
 
+    /// Binds this device's derived PLIC line to `ep_slot` (an endpoint the
+    /// OWNER provisioned — the TASK-0315 block server's notify slot).
+    /// Completion waits then BLOCK on the interrupt instead of
+    /// yield-polling. Returns false (poll stays in force) when no line
+    /// could be derived or the bind is refused — a wrong IRQ never hangs a
+    /// request, it only forgoes the reactive wake.
+    pub fn bind_irq_endpoint(&mut self, ep_slot: u32) -> bool {
+        if self.irq_num == 0 {
+            return false;
+        }
+        if nexus_abi::irq_bind(self.irq_num, ep_slot).is_err() {
+            return false;
+        }
+        self.irq_ep = ep_slot;
+        true
+    }
+
     /// Reads a bounded multi-sector run (len multiple of 512, ≤ 16 KiB)
     /// in ONE virtio request.
     pub fn read_run(&self, sector: u64, buf: &mut [u8]) -> Result<(), VirtioError> {

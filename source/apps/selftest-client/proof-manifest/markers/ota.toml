@@ -109,3 +109,11 @@ phase = "ota"
 
 [marker."SELFTEST: ota slot-activate FAIL svc=bundlemgrd"]
 phase = "ota"
+
+# TASK-0315: virtioblkd partition gate — an ungranted state write must be
+# DENIED (kernel-attributed sender; deny-by-default block plane).
+[marker."SELFTEST: blk cross-partition deny ok"]
+phase = "ota"
+
+[marker."SELFTEST: blk cross-partition deny FAIL"]
+phase = "ota"

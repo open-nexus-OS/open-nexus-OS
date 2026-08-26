@@ -21,6 +21,10 @@ extern crate alloc;
 mod emit_os;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod os_lite;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod route_os;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod upgrade_exec;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 pub use os_lite::*;
 

@@ -58,6 +58,10 @@ pub(crate) struct Endpoints {
     pub key_rsp: u32,
     /// statefsd server request endpoint (init-owned).
     pub state_req: u32,
+    /// virtioblkd blockproto request endpoint (TASK-0315 block plane).
+    pub vblk_req: u32,
+    /// virtioblkd response endpoint (server pair convention).
+    pub vblk_rsp: u32,
     /// statefsd server response endpoint.
     pub state_rsp: u32,
     /// rngd server request endpoint.
@@ -169,6 +173,7 @@ impl Endpoints {
             ServiceId::Packagefsd => Some((self.pkg_req, self.pkg_rsp)),
             ServiceId::Samgrd => Some((self.sam_req, self.sam_rsp)),
             ServiceId::Statefsd => Some((self.state_req, self.state_rsp)),
+            ServiceId::Virtioblkd => Some((self.vblk_req, self.vblk_rsp)),
             // Optional service: pair exists only when logd is in the image set.
             // (When absent, the generic arm falls back to provisioning a fresh —
             // unused — pair; every current image profile includes logd.)

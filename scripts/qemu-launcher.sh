@@ -104,17 +104,16 @@ QEMU_RNG_OBJECT=${QEMU_RNG_OBJECT:--object rng-random,id=rng0,filename=/dev/uran
 QEMU_RNG_DEVICE=${QEMU_RNG_DEVICE:--device virtio-rng-device,rng=rng0}
 GPU_MODE=${GPU_MODE:-mmio}
 QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk}
-QEMU_BLK_IMG=${QEMU_BLK_IMG:-$ROOT/build/blk.img}
+# TASK-0315 (ADR-0044 end state): ONE GPT disk (bsb|boot-a/b|system-a/b|
+# state|data), built/patched host-side by `nx image` — virtioblkd owns the
+# device and serves partition-scoped block IO to statefsd/nxfsd.
+QEMU_BLK_IMG=${QEMU_BLK_IMG:-$ROOT/build/nexus.img}
 QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id=drvblk}
 QEMU_BLK_DEVICE=${QEMU_BLK_DEVICE:--device virtio-blk-device,drive=drvblk}
 QEMU_BLK_LOCK_FILE=${QEMU_BLK_LOCK_FILE:-"$ROOT/build/.qemu-blk.lock"}
 QEMU_BLK_LOCK_WAIT=${QEMU_BLK_LOCK_WAIT:-180}
 # Second virtio-blk device: the nxfs `/data` user-data volume (ADR-0044 /
-# TASK-0293). statefs owns blk.img (device 1); nxfs owns data.img (device 2).
-QEMU_DATA_IMG=${QEMU_DATA_IMG:-$ROOT/build/data.img}
-QEMU_DATA_DRIVE=${QEMU_DATA_DRIVE:--drive if=none,file=$QEMU_DATA_IMG,format=raw,id=drvdata}
-QEMU_DATA_DEVICE=${QEMU_DATA_DEVICE:--device virtio-blk-device,drive=drvdata}
-# NEXUS_KEEP_BLK=1 preserves both images across launches so cold-boot
+# NEXUS_KEEP_BLK=1 preserves the disk across launches so cold-boot
 # persistence can be proven (default: wipe per boot for deterministic runs).
 NEXUS_KEEP_BLK=${NEXUS_KEEP_BLK:-0}
 
@@ -151,22 +150,34 @@ prepare_kernel_bin() {
   fi
 }
 
-# --- blk image ---
+# --- disk image (TASK-0315: nx image is the ONE assembler) ---
 prepare_blk_image() {
   mkdir -p "$ROOT/build"
   exec 9>"$QEMU_BLK_LOCK_FILE"
   if ! flock -w "$QEMU_BLK_LOCK_WAIT" 9; then
-    echo "[error] Timed out waiting for blk image lock: $QEMU_BLK_LOCK_FILE" >&2
+    echo "[error] Timed out waiting for disk image lock: $QEMU_BLK_LOCK_FILE" >&2
     exit 1
   fi
-  if [[ "$NEXUS_KEEP_BLK" == "1" ]]; then
-    # Cold-boot persistence: keep existing images; create only if missing.
-    [[ -f "$QEMU_BLK_IMG" ]] || truncate -s 64M "$QEMU_BLK_IMG"
-    [[ -f "$QEMU_DATA_IMG" ]] || truncate -s 64M "$QEMU_DATA_IMG"
+  local nx_bin="$TARGET_ROOT/release/nx"
+  if [[ ! -x "$nx_bin" ]]; then
+    echo "[info] building nx (image assembler)" >&2
+    # HOST build: the OS RUSTFLAGS (nexus_env=os) must not leak in — a
+    # host target with the os cfg breaks nexus-abi at the asm seam.
+    (cd "$ROOT" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS \
+      cargo build --release -p nx >/dev/null)
+  fi
+  local build_id
+  build_id="dev-$(sha256sum "$KERNEL_BIN" | cut -c1-8)"
+  local sign_key="$ROOT/keys/dev-os-image.ed25519.seed"
+  if [[ "$NEXUS_KEEP_BLK" == "1" && -f "$QEMU_BLK_IMG" ]]; then
+    # Cold-boot persistence: keep state/data, refresh the boot slot to the
+    # freshly built kernel (the end-state flasher write shape).
+    "$nx_bin" image patch --image "$QEMU_BLK_IMG" --part boot-a \
+      --kernel "$KERNEL_BIN" --sign "$sign_key" --build-id "$build_id" >/dev/null
   else
-    rm -f "$QEMU_BLK_IMG" "$QEMU_DATA_IMG"
-    truncate -s 64M "$QEMU_BLK_IMG"
-    truncate -s 64M "$QEMU_DATA_IMG"
+    rm -f "$QEMU_BLK_IMG"
+    "$nx_bin" image build --kernel "$KERNEL_BIN" --out "$QEMU_BLK_IMG" \
+      --sign "$sign_key" --build-id "$build_id" >/dev/null
   fi
 }
 
@@ -318,7 +329,6 @@ build_qemu_args() {
   # nxfs `/data` device LAST: keep it after the virtio-input devices so their
   # virtio-mmio transport slots stay identical to the single-blk layout (a
   # 2nd device inserted before them shifts input slots and breaks the pointer).
-  args+=(${QEMU_DATA_DRIVE} ${QEMU_DATA_DEVICE})
 
   # Debug/proof hook: extra QEMU arguments (e.g. "-vnc :77" to read back GL
   # scanouts for screendump verification on headless hosts).
@@ -449,8 +459,8 @@ monitor_uart_stream() {
 }
 
 # --- Main ---
-prepare_blk_image
 prepare_kernel_bin
+prepare_blk_image
 rm -f "$QEMU_LOG" "$UART_LOG"
 
 # Hypothesis: host resources pre-launch

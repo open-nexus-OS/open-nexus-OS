@@ -21,3 +21,5 @@ stack_pages = 0
 [target.'cfg(all(target_os = "none", target_arch = "riscv64"))'.dependencies]
 nexus-service-entry = { path = "../../libs/nexus-service-entry" }
 nexus-abi = { path = "../../libs/nexus-abi" }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"] }
+storage = { path = "../../../userspace/storage", default-features = false, features = ["os-lite"] }

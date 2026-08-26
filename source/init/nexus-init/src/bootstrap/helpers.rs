@@ -103,9 +103,6 @@ static GUARD_STR_PROBE_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
 // Deterministic DeviceMmio slot (per-service cap table).
 pub(crate) const DEVICE_MMIO_CAP_SLOT: u32 = 48;
-// nxfs `/data` device MMIO cap slot in vfsd's cap table (ADR-0044 / TASK-0293).
-// Must match `nxfsd::DATA_MMIO_SLOT`.
-pub(crate) const DATA_DEVICE_MMIO_CAP_SLOT: u32 = 49;
 pub(crate) const INPUT_MMIO_CAP_SLOT_BASE: u32 = 50;
 // QEMU `virt` virtio-mmio layout (per-device windows).
 pub(crate) const VIRTIO_MMIO_BASE: usize = 0x1000_1000;
