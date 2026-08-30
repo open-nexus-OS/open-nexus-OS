@@ -1,6 +1,6 @@
 ---
 title: TASK-0289 Boot trust floor v1: nxboot first-stage loader + boot flip (Phase A) and backstop proofs + measured surface (Phase B)
-status: In Progress (A1+A2+A3 delivered 2026-08-30)
+status: In Progress — PHASE A COMPLETE 2026-08-30 (A1-A4; boot flip live in every lane); Phase B (backstops + measured surface) waits on TASK-0179
 owner: @security @runtime @updates
 created: 2026-04-13
 updated: 2026-08-30
@@ -211,8 +211,29 @@ Fatal signatures registered in the harness: `nxboot: PANIC`, unexpected
    host-side integration test via `nx image`. ✅ 2026-08-30 (fixture disks
    assembled with the shared layout/gpt/bootfmt authorities nx image calls)
 3. **A3**: kernel handoff consumption (approval) + KSELFTEST marker. ✅ 2026-08-30
-4. **A4**: THE FLIP — build/launcher/harness in one reviewed change; all lanes
-   green; docs + memory-map audit note.
+4. **A4**: THE FLIP ✅ 2026-08-30 — build/launcher/harness in one change:
+   - `scripts/build.sh` builds nxboot (RUSTFLAGS_OS, artifact-verified);
+     `qemu-launcher.sh` boots `-kernel nxboot.bin` (shared `objcopy_flat`
+     helper; `NEXUS_DIRECT_KERNEL=1` keeps honest direct-kernel dev boots).
+   - `qemu-test.sh`: nxboot rungs + `KSELFTEST: boot handoff ok (measured)`
+     PREPENDED to expected_sequence for every profile (after the SMP
+     splice — the `:0:7` index math must not shift; the handoff marker is
+     emitted at the very top of kmain so strict KSELFTEST ordering holds
+     in SMP lanes too). Fatal guards: `nxboot: PANIC` and `nxboot: verify
+     FAIL` in any clean lane. Proof-manifest bringup.toml carries the four
+     markers (mirror-check).
+   - `check-image-budgets.sh`: nxboot 256 KiB loadable-bytes budget row
+     (text+data; linker.ld asserts the same bound at link time).
+   - Proofs: headless ladder REQUIRED-green through the loader; keep-blk
+     double boot; reset three-boot lane (3× `nxboot: jump` in one uart);
+     fallback fixture disk (BSB next=b onto the zeroed slot) shows
+     `tries 1->0` → `verify FAIL (slot=b nxbd)` → `fallback -> slot=a` →
+     full boot with seq bumped by the actuator write.
+   - ⭐ Observed flake (1×, rerun green): single dropped uart CHARACTER in
+     the reset lane turned `statefsd: fsck repaired` into `tatefsd: …` —
+     marker emitted, byte lost on the wire. If it recurs, suspect the
+     serial monitor pipeline, not the services.
+(A4 delivered above.)
 5. **B1**: measured surface + `SELFTEST: measured boot log ok`.
 6. **B2**: backstop fixture lanes (`ota-fallback` profile, downgrade/tamper) +
    boards/docs sweep.

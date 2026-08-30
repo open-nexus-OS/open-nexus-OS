@@ -62,6 +62,8 @@ TARGET_ROOT=${CARGO_TARGET_DIR:-"$ROOT/target"}
 KERNEL_ELF=$TARGET_ROOT/$TARGET/release/neuron-boot
 KERNEL_BIN=$TARGET_ROOT/$TARGET/release/neuron-boot.bin
 INIT_ELF=$TARGET_ROOT/$TARGET/release/init-lite
+NXBOOT_ELF=$TARGET_ROOT/$TARGET/release/nxboot
+NXBOOT_BIN=$TARGET_ROOT/$TARGET/release/nxboot.bin
 
 # --- Defaults ---
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
@@ -128,26 +130,42 @@ debug_log() {
     "$RUN_ID" "$hypothesis_id" "$location" "$message" "$data" "$ts" >>"$HYPOTHESIS_LOG" 2>/dev/null || true
 }
 
-# --- objcopy kernel ELF to binary ---
-prepare_kernel_bin() {
-  if [[ ! -f "$KERNEL_BIN" || "$KERNEL_BIN" -ot "$KERNEL_ELF" ]]; then
-    local objcopy=""
-    local candidate
-    for candidate in \
-      "$HOME"/.rustup/toolchains/*/lib/rustlib/*/bin/llvm-objcopy \
-      "$HOME"/.rustup/toolchains/*/bin/llvm-objcopy
-    do
-      if [[ -x "$candidate" ]]; then
-        objcopy="$candidate"
-        break
-      fi
-    done
-    if [[ -z "$objcopy" ]]; then
-      echo "[error] llvm-objcopy not found. Install: rustup component add llvm-tools-preview" >&2
-      exit 1
-    fi
-    "$objcopy" -O binary "$KERNEL_ELF" "$KERNEL_BIN"
+# --- objcopy ELF to flat binary (kernel + nxboot share the helper) ---
+objcopy_flat() {
+  local src=$1 dst=$2
+  if [[ -f "$dst" && ! "$dst" -ot "$src" ]]; then
+    return 0
   fi
+  local objcopy=""
+  local candidate
+  for candidate in \
+    "$HOME"/.rustup/toolchains/*/lib/rustlib/*/bin/llvm-objcopy \
+    "$HOME"/.rustup/toolchains/*/bin/llvm-objcopy
+  do
+    if [[ -x "$candidate" ]]; then
+      objcopy="$candidate"
+      break
+    fi
+  done
+  if [[ -z "$objcopy" ]]; then
+    echo "[error] llvm-objcopy not found. Install: rustup component add llvm-tools-preview" >&2
+    exit 1
+  fi
+  "$objcopy" -O binary "$src" "$dst"
+}
+
+prepare_kernel_bin() {
+  objcopy_flat "$KERNEL_ELF" "$KERNEL_BIN"
+}
+
+# TASK-0289 A4: the -kernel payload is the first-stage loader; the kernel
+# image travels inside the GPT disk (boot-a, NXBD-signed by nx image).
+prepare_nxboot_bin() {
+  if [[ ! -f "$NXBOOT_ELF" ]]; then
+    echo "[info] building nxboot (first-stage loader)" >&2
+    (cd "$ROOT" && cargo build -p nxboot --target "$TARGET" --release >/dev/null)
+  fi
+  objcopy_flat "$NXBOOT_ELF" "$NXBOOT_BIN"
 }
 
 # --- disk image (TASK-0315: nx image is the ONE assembler) ---
@@ -226,7 +244,14 @@ build_qemu_args() {
   # OpenSBI 1.7's HSM hart_start via ACLINT-MSWI was observed to LOSE a hart
   # under MTTCG (hart marked STARTED, never reaches the kernel entry).
   args+=(-machine "virt,aclint=${QEMU_ACLINT:-on}" -cpu max -m 320M -smp "${SMP:-4}" -bios default)
-  args+=(-kernel "$KERNEL_BIN")
+  # TASK-0289 A4 boot flip: the loader verifies and chains into the slot
+  # image from the GPT disk (ADR-0059). Direct-kernel boots remain possible
+  # via NEXUS_DIRECT_KERNEL=1 (honest `boot handoff absent` marker).
+  if [[ "${NEXUS_DIRECT_KERNEL:-0}" == "1" ]]; then
+    args+=(-kernel "$KERNEL_BIN")
+  else
+    args+=(-kernel "$NXBOOT_BIN")
+  fi
 
   # Display mode
   if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
@@ -460,6 +485,7 @@ monitor_uart_stream() {
 
 # --- Main ---
 prepare_kernel_bin
+prepare_nxboot_bin
 prepare_blk_image
 rm -f "$QEMU_LOG" "$UART_LOG"
 

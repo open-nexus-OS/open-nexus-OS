@@ -12,6 +12,25 @@
 # API_STABILITY: Stable; literals are the contract surface (referenced as
 #                `M_<KEY>` constants from `markers_generated.rs`)
 
+# TASK-0289 A4: the nxboot first-stage loader precedes the kernel in every
+# boot (ADR-0059). The verify-ok literal is a PREFIX — the build id is
+# launcher-derived (dev-<kernelsha8>) and varies per build.
+[marker."nxboot: bsb ok (slot=a seq=1)"]
+phase = "bringup"
+proves = "loader read a valid BSB double block and selected the factory-active slot (RFC-0089 §6)"
+
+[marker."nxboot: verify ok (slot=a build=dev-"]
+phase = "bringup"
+proves = "loader verified the slot NXBD signature against the baked anchor, the rollback floor and the streamed image digest BEFORE any OS code ran (RFC-0089 §7, qemu-soft-root)"
+
+[marker."nxboot: jump slot=a"]
+phase = "bringup"
+proves = "loader wrote the measured handoff page and chained into the verified image"
+
+[marker."KSELFTEST: boot handoff ok (measured)"]
+phase = "bringup"
+proves = "kernel validated the loader's CRC'd handoff record (ADR-0059 ABI parity across the two implementations; qemu-soft-root measurement, never policy)"
+
 [marker."neuron vers."]
 phase = "bringup"
 proves = "kernel banner reached"

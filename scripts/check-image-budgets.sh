@@ -51,8 +51,9 @@ OTHER_BUDGET=$((2 * 1024 * 1024))
 
 # Not arena-allocated service images — excluded WITH a reason, never silently.
 declare -A NOT_A_SERVICE=(
-    [neuron-boot]="the kernel image itself — loaded by the bootloader, not spawned from the arena"
+    [neuron-boot]="the kernel image itself — loaded by nxboot from the boot slot, not spawned from the arena"
     [recv-wake-probe]="a kernel IPC probe binary, not a service"
+    [nxboot]="the first-stage loader — pre-OS, own 256 KiB budget checked below (ADR-0059)"
 )
 
 # app-host note (TASK-0311 round 3, raised 2026-07-31 for commit 45780c77):
@@ -114,6 +115,26 @@ done
 for name in "${!NOT_A_SERVICE[@]}"; do
     printf '%-14s %10s %10s %6s  (%s)\n' "$name" "-" "-" "n/a" "${NOT_A_SERVICE[$name]}"
 done
+
+# TASK-0289 / ADR-0059: the first-stage loader carries its own HARD budget —
+# 256 KiB of LOADABLE bytes (text+data; bss/stack are RAM-only). The linker
+# script asserts the same bound at link time; this re-check keeps the trend
+# visible next to the service table.
+NXBOOT_ELF="$TARGET_DIR/nxboot"
+NXBOOT_BUDGET=$((256 * 1024))
+if [[ -f "$NXBOOT_ELF" ]]; then
+    read -r ntext ndata < <(size "$NXBOOT_ELF" | awk 'NR==2 {print $1, $2}')
+    nload=$((ntext + ndata))
+    npct=$((nload * 100 / NXBOOT_BUDGET))
+    printf '%-14s %10d %10d %5d%%%s\n' "nxboot(load)" "$nload" "$NXBOOT_BUDGET" "$npct" \
+        "$( ((nload > NXBOOT_BUDGET)) && echo '  OVER' || true)"
+    if ((nload > NXBOOT_BUDGET)); then
+        fail=1
+    fi
+else
+    echo "check-image-budgets: FAIL — nxboot ELF missing (the boot flip loads it before the kernel)" >&2
+    fail=1
+fi
 
 arena=$(grep -oP 'USER_VMO_ARENA_LEN: usize = \K[0-9]+ \* 1024 \* 1024' "$KERNEL_MM" 2>/dev/null | head -1 || true)
 [[ -n "$arena" ]] && echo "  (kernel user VMO arena: ${arena% \* 1024 \* 1024} MB — $KERNEL_MM)"

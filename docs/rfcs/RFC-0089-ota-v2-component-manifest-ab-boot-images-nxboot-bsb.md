@@ -36,7 +36,7 @@
 - **Phase 2 (health-commit v2: record v3 + quorum + deadline)**: ✅ 2026-08-25 (TASK-0036-A — private commit behind the mask, deadline armed at switch, 22 host tests + gated quorum chain)
 - **Phase 3 (block substrate: virtio-blk v2 + single GPT disk)**: ✅ 2026-08-25 (TASK-0314 request ring/runs + TASK-0315 single GPT disk, virtioblkd sole owner, partition gates, IRQ completion LIVE)
 - **Phase 4 (host image builder `nx image`)**: ✅ 2026-08-25 (TASK-0260 image scope — build/verify/patch/ota, deterministic, 6 integration tests; shared layout/GPT/codec authorities in `storage::layout` + `bootfmt`)
-- **Phase 5 (`nxboot` loader + boot flip + measured handoff)**: ⬜ (TASK-0289-A)
+- **Phase 5 (`nxboot` loader + boot flip + measured handoff)**: ✅ 2026-08-30 (TASK-0289-A — loader complete per §7, ADR-0059 addresses frozen post-audit (home 0x9200_0000, handoff 0x9300_0000), boot flip landed: every QEMU lane boots `-kernel nxboot.bin` from the GPT disk; kernel captures the handoff pre-SATP; fallback fixture proven)
 - **Phase 6 (BSB runtime projection)**: ⬜ (TASK-0036-B)
 - **Phase 7 (apply engine v2 + offline feed + crown proof)**: ⬜ (TASK-0179)
 - **Phase 8 (boot trust floor closure: backstop proofs + measured surface)**: ⬜ (TASK-0289-B)
@@ -551,7 +551,7 @@ Marker SSOT stays `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` +
 - [x] **Phase 2**: record v3 + quorum + deadline — proof: 22 bootctld host tests + `bootctld: health quorum ok (2/2)` + `SELFTEST: bootctl quorum ok` gated every proof boot (2026-08-25)
 - [x] **Phase 3**: virtio-blk v2 + single GPT disk — proof: `virtioblkd: gpt ok (parts=7)` + `blk: irq completion on` + `SELFTEST: blk cross-partition deny ok` gated; keep-blk double boot + reset lane green (2026-08-25)
 - [x] **Phase 4**: `nx image build/verify/patch/ota` — proof: 6 integration tests (determinism double-build, verify round-trip via the shared parser, tamper/wrong-key rejects, patch preservation, slot-budget reject, `.nxs` v2 decode with bound NXBD) (2026-08-25)
-- [ ] **Phase 5**: `nxboot` + boot flip + handoff — proof: `nxboot: verify ok` leading the headless ladder; `KSELFTEST: boot handoff ok (measured)`
+- [x] **Phase 5**: `nxboot` + boot flip + handoff — proof: `nxboot: bsb ok`/`verify ok`/`jump slot=a` + `KSELFTEST: boot handoff ok (measured)` REQUIRED in every proof lane; loader-fallback fixture (`verify FAIL (slot=b nxbd)` → `fallback -> slot=a` → full boot); keep-blk + reset three-boot lanes green through the loader; 12 host tests (select table + flow adversarial matrix) (2026-08-30)
 - [ ] **Phase 6**: BSB projection — proof: `bootctld: bsb sync ...` + `SELFTEST: bootctl bsb ok`
 - [ ] **Phase 7**: apply engine v2 + crown proof — proof: `just test-os ota` (`SELFTEST: ota flip ok`)
 - [ ] **Phase 8**: backstop proofs + measured surface — proof: `ota-fallback` profile (`SELFTEST: ota fallback ok`, `SELFTEST: ota downgrade deny ok`)

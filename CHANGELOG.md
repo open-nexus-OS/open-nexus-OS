@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-30 (TASK-0289 Phase A: nxboot first-stage loader + boot flip — verified A/B boot is live)
+
+- **`nxboot`** (`source/boot/nxboot/`, ADR-0059): a ≤256 KiB bare-metal
+  S-mode loader is now the VMM `-kernel` payload in every lane. Per boot it
+  reads the BSB double block, selects the slot (trial decrement BEFORE
+  load, exhaustion fallback — ADR-0058 actuator discipline), walks the GPT
+  via the shared `storage` authority, verifies the slot NXBD signature
+  against the build-baked `policies/os-trust.toml` anchor plus the rollback
+  floor and the streamed image sha256, writes the measured handoff page and
+  chains into the verified image. Failures are stable
+  (`nxboot: verify FAIL (slot=<s> nxbd|sig|digest|rollback…|io)`, fallback
+  to the other slot, both-bad ⇒ loud PANIC + SBI reset) — unverified bytes
+  never boot (qemu-soft-root honesty label).
+- **Kernel measured-boot consumption**: `neuron::boot_handoff` captures the
+  CRC'd record pre-SATP (the page sits above every kernel-managed range —
+  audited, ADR-0059 amended: loader home 0x9200_0000, handoff 0x9300_0000)
+  and reports `KSELFTEST: boot handoff ok (measured)`; direct-kernel dev
+  boots (`NEXUS_DIRECT_KERNEL=1`) stay honest with
+  `neuron: boot handoff absent (direct kernel)`.
+- **Harness**: nxboot rungs + the measured-handoff rung are REQUIRED
+  markers in every proof profile; `nxboot: PANIC`/unexpected `verify FAIL`
+  are fatal signatures; `bootfmt` gained the handoff-page codec;
+  `check-image-budgets.sh` gates the loader's 256 KiB loadable budget.
+  Proofs: headless/keep-blk/reset lanes green through the loader; fallback
+  fixture boots A after rejecting a scheduled broken slot B.
+
 ### Changed - 2026-08-25 (TASK-0315: ONE GPT disk — virtioblkd is the sole block owner, partition-scoped IPC everywhere)
 
 - **The two-device storage topology is gone**: QEMU boots a single

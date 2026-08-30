@@ -21,10 +21,24 @@ This makes QEMU usable in CI and keeps feedback loops tight.
 
 At a high level the stack looks like:
 
+0. **First-stage loader** (`nxboot`, `source/boot/nxboot` — ADR-0059, TASK-0289)
+   - The VMM `-kernel` payload since the A4 boot flip. Self-relocates to
+     0x9200_0000, reads the BSB double block from the GPT disk, selects the
+     boot slot (trial decrement BEFORE load), verifies the slot's NXBD
+     signature against the build-baked `policies/os-trust.toml` anchor plus
+     the rollback floor and the streamed image sha256, writes the measured
+     handoff page at 0x9300_0000 and chains into the verified image.
+   - Markers: `nxboot: bsb ok …` → `nxboot: verify ok …` → `nxboot: jump
+     slot=<s>`; any failure is a stable `nxboot: verify FAIL (…)` /
+     `nxboot: PANIC (…)` + SBI reset — never a silent boot of unverified
+     bytes. Direct-kernel dev boots stay available (`NEXUS_DIRECT_KERNEL=1`)
+     and are honestly labeled `neuron: boot handoff absent (direct kernel)`.
 1. **Kernel boot wrapper** (`neuron-boot`)
    - Provides `_start`, clears `.bss`, installs trap vector, jumps into kernel `kmain`.
 2. **Kernel** (`source/kernel/neuron`)
    - Brings up HAL, memory map, trap handling, syscalls, scheduler, IPC routing, and selftests.
+   - Captures the nxboot handoff page pre-SATP and reports
+     `KSELFTEST: boot handoff ok (measured)` (qemu-soft-root measurement).
 3. **Userspace init** (`source/init/nexus-init`, os-lite backend)
    - Orchestrates starting services and emits ordered `init: …` markers.
 4. **Service daemons** (`source/services/*d`)

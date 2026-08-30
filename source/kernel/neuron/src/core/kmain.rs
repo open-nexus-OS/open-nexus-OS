@@ -322,8 +322,11 @@ pub fn kmain() -> ! {
     // ADR-0059: the measured-boot handoff page sits outside every kernel-
     // managed range, so it is only reachable BEFORE the kernel address
     // space is activated (inside KernelState::new) — capture it first
-    // thing, bare-mode, on the boot hart.
+    // thing, bare-mode, on the boot hart. The verdict marker is emitted
+    // here too so `KSELFTEST: boot handoff ok (measured)` precedes every
+    // other KSELFTEST rung (the harness enforces strict KSELFTEST order).
     unsafe { crate::boot_handoff::capture_early() };
+    crate::boot_handoff::emit_marker();
     #[cfg(feature = "boot_timing")]
     let t0 = crate::arch::riscv::read_time();
     let kernel = unsafe { init_kernel_state() };
@@ -364,8 +367,6 @@ pub fn kmain() -> ! {
     // gate still requires its markers, so CI catches it honestly).
     crate::smp::emit_bringup_gate(expected_online_mask);
     let _ = online_ok;
-    // Measured-boot verdict (captured pre-SATP at the top of kmain).
-    crate::boot_handoff::emit_marker();
     // Touch HAL traits to satisfy imports
     let uart_dev = kernel.hal.uart();
     let _: &dyn crate::hal::Uart = uart_dev;

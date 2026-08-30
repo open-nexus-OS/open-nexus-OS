@@ -941,6 +941,22 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
   )
 fi
 
+# TASK-0289 A4 (boot flip): every profile boots through the nxboot
+# first-stage loader now — the loader rungs precede the kernel banner and
+# the measured-handoff rung precedes every other KSELFTEST line (strict
+# KSELFTEST ordering below relies on that). Factory disks carry BSB seq=1
+# with active slot a; nothing writes the BSB until TASK-0036-B projects
+# it, so these literals are deterministic across keep-blk and reset lanes.
+# The verify-ok build id is launcher-derived (dev-<kernelsha8>) — matched
+# as a prefix.
+expected_sequence=(
+  "nxboot: bsb ok (slot=a seq=1)"
+  "nxboot: verify ok (slot=a build=dev-"
+  "nxboot: jump slot=a"
+  "KSELFTEST: boot handoff ok (measured)"
+  "${expected_sequence[@]}"
+)
+
 # Optional: stop and validate only up to a given phase.
 if [[ -n "$RUN_PHASE" ]]; then
   if [[ -z "${PHASE_END_MARKER[$RUN_PHASE]:-}" ]]; then
@@ -1765,6 +1781,22 @@ for m in \
     exit 1
   fi
 done
+# TASK-0289 A4 guards: loader failure signatures are fatal in EVERY clean
+# lane. A PANIC means the boot chain died (reset loop); a verify FAIL in a
+# lane that stages no broken slot means the trust chain rejected bytes it
+# must accept (or the disk went stale) — both are never survivable noise.
+if grep -aFq "nxboot: PANIC" "$UART_LOG"; then
+  echo "[error] first_failed_phase=bringup missing_marker='nxboot: jump slot=a'" >&2
+  echo "[error] first-stage loader panicked (boot chain dead)" >&2
+  grep -a "nxboot: " "$UART_LOG" | head -n 8 >&2
+  exit 1
+fi
+if grep -aFq "nxboot: verify FAIL" "$UART_LOG"; then
+  echo "[error] first_failed_phase=bringup missing_marker='nxboot: verify ok'" >&2
+  echo "[error] loader rejected a slot in a clean lane (trust chain or stale disk)" >&2
+  grep -a "nxboot: " "$UART_LOG" | head -n 8 >&2
+  exit 1
+fi
 # TASK-0315 guard: the partition gate failing open (or the probe dying)
 # would silently hand any sender the state partition.
 if grep -aFq "SELFTEST: blk cross-partition deny FAIL" "$UART_LOG"; then

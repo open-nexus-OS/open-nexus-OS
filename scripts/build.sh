@@ -33,6 +33,9 @@ export CARGO_TARGET_DIR="$TARGET_ROOT"
 KERNEL_ELF=$TARGET_ROOT/$TARGET/release/neuron-boot
 KERNEL_BIN=$TARGET_ROOT/$TARGET/release/neuron-boot.bin
 INIT_ELF=$TARGET_ROOT/$TARGET/release/init-lite
+# TASK-0289 A4: the VMM -kernel payload is the first-stage loader; the
+# kernel image travels inside the GPT disk (boot-a slot, NXBD-signed).
+NXBOOT_ELF=$TARGET_ROOT/$TARGET/release/nxboot
 RUSTFLAGS_OS=${RUSTFLAGS_OS:---check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"}
 export RUSTFLAGS="$RUSTFLAGS_OS"
 
@@ -254,6 +257,10 @@ build_kernel_and_init() {
     kernel_args+=(--features "$NEURON_BOOT_FEATURES")
   fi
   require_or_build "$KERNEL_ELF" "kernel:neuron-boot" -- env EMBED_INIT_ELF="$INIT_ELF" RUSTFLAGS="$RUSTFLAGS_OS" cargo "${kernel_args[@]}"
+
+  # TASK-0289 A4: first-stage loader (verifies the slot before any OS code
+  # runs; its linker script hard-asserts the 256 KiB budget, ADR-0059).
+  require_or_build "$NXBOOT_ELF" "boot:nxboot" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p nxboot --target "$TARGET" --release
 }
 
 # ---------------------------------------------------------------------------
@@ -270,6 +277,10 @@ build_all() {
   fi
   if [[ ! -f "$INIT_ELF" ]]; then
     echo "[error] build.sh: init-lite ELF not produced: $INIT_ELF" >&2
+    exit 1
+  fi
+  if [[ ! -f "$NXBOOT_ELF" ]]; then
+    echo "[error] build.sh: nxboot ELF not produced: $NXBOOT_ELF" >&2
     exit 1
   fi
   local ksize isize
