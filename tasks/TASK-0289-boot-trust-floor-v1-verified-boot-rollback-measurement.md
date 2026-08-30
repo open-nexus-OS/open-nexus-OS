@@ -1,9 +1,9 @@
 ---
 title: TASK-0289 Boot trust floor v1: nxboot first-stage loader + boot flip (Phase A) and backstop proofs + measured surface (Phase B)
-status: Draft
+status: In Progress (A1 delivered 2026-08-30)
 owner: @security @runtime @updates
 created: 2026-04-13
-updated: 2026-08-25
+updated: 2026-08-30
 depends-on:
   - TASK-0315   # single GPT disk with bsb/boot-a/boot-b (Phase A substrate)
   - TASK-0260   # nx image writes the factory disk + signed NXBDs
@@ -138,10 +138,28 @@ Fatal signatures registered in the harness: `nxboot: PANIC`, unexpected
 - `tools/nx/chains/markers.txt`, `source/apps/selftest-client/proof-manifest/`
 - `docs/security/`, `docs/architecture/06-boot-and-bringup.md`
 
+## Progress
+
+- **A1 DELIVERED 2026-08-30**: `source/boot/nxboot/` (workspace member; lib =
+  host-tested machine half, bin = bare-metal shell). `bootfmt::handoff` codec
+  (ADR-0059 page ABI v1, golden/tamper/prefix-decode tests; crc32 shared with
+  bsb). `select::plan()` — full state table host-tested (trial decrement
+  BEFORE load, exhaustion clears ONLY next_slot per ADR-0058, seq saturates).
+  `policies/os-trust.toml` → build-baked `BAKED_OS_KEYS` via the SHARED narrow
+  parser (`userspace/updates/build_trust.rs`); integration tests prove
+  bake ↔ policy-file ↔ dev-signing-seed coherence + tamper/stranger-key
+  rejects. `linker.ld`: home 0x8E00_0000, 16 KiB stack, HARD ASSERT
+  ≤256 KiB; build.rs self-wires `-T linker.ld` for riscv/none; root profile
+  `opt-level="z"`. Skeleton bin builds (199 B flat) and, if ever executed
+  unwired, prints `nxboot: PANIC (skeleton not wired ...)` + SBI reset —
+  never a fake marker. The ONE unsafe module is `src/arch.rs` (entry asm +
+  uart MMIO + SRST + the `no_mangle` export; `no_mangle` counts as
+  unsafe-code surface, hence it lives there).
+
 ## Plan (small PRs)
 
 1. **A1**: nxboot crate skeleton + host-tested machine modules (BSB/NXBD/select)
-   + trust bake + linker/size gate — buildable, unwired.
+   + trust bake + linker/size gate — buildable, unwired. ✅ 2026-08-30
 2. **A2**: bare-metal blk reader + GPT walk + load/verify path; fixture-disk
    host-side integration test via `nx image`.
 3. **A3**: kernel handoff consumption (approval) + KSELFTEST marker.

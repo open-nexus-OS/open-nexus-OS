@@ -14,7 +14,8 @@
 //! loader links the verify half only (pure Ed25519, no RNG).
 //! OWNERS: @reliability @security @runtime
 //! PUBLIC API: nxbd::{Nxbd, encode/decode/sign/verify}, bsb::{Bsb,
-//!   encode/decode/pick, factory}
+//!   encode/decode/pick, factory}, handoff::{Handoff, encode_page/decode}
+//!   (the ADR-0059 measured-boot page, written by nxboot, probed by neuron)
 //! TEST_COVERAGE: unit tests below (goldens, roundtrips, tamper, torn
 //!   block, pick rule)
 //! ADR: docs/adr/0058-boot-selection-block-dual-actor-discipline.md,
@@ -36,6 +37,22 @@ pub enum FmtError {
     Crc,
     /// Ed25519 signature invalid (nxbd).
     Signature,
+}
+
+pub mod handoff;
+
+/// crc32 (IEEE, table-free) shared by the BSB block and the measured-boot
+/// handoff page — same polynomial as GPT.
+pub(crate) fn crc32_ieee(data: &[u8]) -> u32 {
+    let mut crc: u32 = !0;
+    for &byte in data {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
 }
 
 pub mod nxbd {
@@ -306,17 +323,9 @@ pub mod bsb {
         }
     }
 
-    /// crc32 (IEEE) — table-free, no_std (same polynomial as GPT).
+    /// crc32 (IEEE) — see crate-level `crc32_ieee` (shared with `handoff`).
     fn crc32(data: &[u8]) -> u32 {
-        let mut crc: u32 = !0;
-        for &byte in data {
-            crc ^= u32::from(byte);
-            for _ in 0..8 {
-                let mask = (crc & 1).wrapping_neg();
-                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
-            }
-        }
-        !crc
+        super::crc32_ieee(data)
     }
 }
 

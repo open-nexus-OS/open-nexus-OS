@@ -1,0 +1,20 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: nxboot loader trust anchor (RFC-0089 §7, ADR-0059). The Ed25519
+# verifying keys the first-stage loader accepts NXBD boot-descriptor
+# signatures from. Baked into nxboot at BUILD TIME (source/boot/nxboot/
+# build.rs, RFC-0088 BAKED_TRUST pattern) — a malformed file FAILS THE
+# BUILD; there is no runtime mutation path by design (mutable loader trust
+# without a verified root would be attack surface).
+#
+# Honest label: QEMU-soft-root. This anchor is exactly as strong as the
+# integrity of nxboot.bin itself; the hardware-anchor seam is recorded in
+# tasks/TASK-0289.
+#
+# Format (shared narrow parser, userspace/updates/build_trust.rs):
+# [[publisher]] blocks with exactly one pubkey = "<64 lowercase hex>".
+
+[[publisher]]
+# Dev OS-image signing key (keys/dev-os-image.ed25519.seed; nx image --sign).
+pubkey = "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a"

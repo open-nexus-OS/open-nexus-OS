@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "source/boot/nxboot",
     "source/kernel/neuron-boot",
     "source/kernel/neuron",
     "source/libs/*",
@@ -134,3 +135,8 @@ panic = "abort"
 lto = "fat"
 codegen-units = 1
 strip = "symbols"
+
+# nxboot lives under a hard 256 KiB budget (ADR-0059, asserted in its
+# linker.ld) — optimize the loader for size, not speed.
+[profile.release.package.nxboot]
+opt-level = "z"
