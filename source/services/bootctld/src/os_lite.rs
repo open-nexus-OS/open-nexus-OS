@@ -98,6 +98,13 @@ pub(crate) struct Authority {
     /// to init with the boot-attempt ack (the record clears it, so the
     /// persistent field cannot answer "are we in recovery right now").
     session_graph: BootTarget,
+    /// TASK-0036-B: blockproto client on the `bsb` partition (None = the
+    /// attach failed; the record stays authoritative, projection is off
+    /// and was announced loudly).
+    pub(crate) bsb_dev: Option<storage::remote_blk::RemoteBlockDevice>,
+    /// seq of the last known-good on-disk projection (GET_STATUS surface).
+    pub(crate) bsb_seq: u64,
+    pub(crate) bsb_synced: bool,
 }
 
 /// Main bootctld service loop (os-lite).
@@ -269,12 +276,16 @@ fn handle_frame(
     };
     match op {
         wire::OP_GET_STATUS => {
-            let payload = [
-                record::encode_slot(auth.boot.active_slot()),
-                auth.boot.pending_slot().map(record::encode_slot).unwrap_or(0),
-                auth.boot.tries_left(),
-                if auth.boot.health_ok() { 1 } else { 0 },
-            ];
+            // TASK-0036-B: additive tail — [4] = projection synced flag,
+            // [5..13] = last projected BSB seq (LE). Old clients read the
+            // first 4 bytes unchanged.
+            let mut payload = [0u8; 13];
+            payload[0] = record::encode_slot(auth.boot.active_slot());
+            payload[1] = auth.boot.pending_slot().map(record::encode_slot).unwrap_or(0);
+            payload[2] = auth.boot.tries_left();
+            payload[3] = if auth.boot.health_ok() { 1 } else { 0 };
+            payload[4] = u8::from(auth.bsb_synced);
+            payload[5..13].copy_from_slice(&auth.bsb_seq.to_le_bytes());
             encode_payload(rsp, op, &payload)
         }
         wire::OP_GET_RECORD => {
@@ -522,7 +533,10 @@ fn try_attach() -> Option<Authority> {
     // whatever the armed next_boot says (init WILL consume it) falling
     // back to the persistent target.
     let session_graph = boot.next_boot().unwrap_or(boot.boot_target());
-    Some(Authority { boot, client: statefs, session_graph })
+    // TASK-0036-B: attach the bsb projection client and reconcile the
+    // on-disk pair against the loaded record (bsb_os.rs).
+    let (bsb_dev, bsb_seq, bsb_synced) = crate::bsb_os::attach_and_reconcile(&boot);
+    Some(Authority { boot, client: statefs, session_graph, bsb_dev, bsb_seq, bsb_synced })
 }
 
 fn announce_target(boot: &BootCtrl) {

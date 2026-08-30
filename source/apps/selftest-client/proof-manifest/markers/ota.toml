@@ -45,6 +45,27 @@ phase = "ota"
 [marker."SELFTEST: bootctl quorum ok"]
 phase = "ota"
 
+# TASK-0036-B: runtime BSB projection (ADR-0058 runtime writer row).
+[marker."bootctld: bsb sync (seq="]
+phase = "ota"
+proves = "a committed record mutation projected to the bsb partition (record FIRST, BSB second; seq bumped by the alternate-block write)"
+
+[marker."bootctld: bsb resync"]
+phase = "ota"
+proves = "startup reconciliation found genuine drift (crash window between record commit and projection) and re-projected idempotently"
+
+[marker."bootctld: bsb sync FAIL (io)"]
+phase = "ota"
+proves = "DIAGNOSTIC: projection write failed — the record stays authoritative, the drift heals at the next resync"
+
+[marker."SELFTEST: bootctl bsb ok"]
+phase = "ota"
+proves = "GET_STATUS additive tail reports the projection synced with a runtime seq (>= 2, i.e. beyond the factory block)"
+
+[marker."SELFTEST: bootctl bsb FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: projection not synced or seq still at factory"
+
 [marker."SELFTEST: bootctl quorum FAIL"]
 phase = "ota"
 

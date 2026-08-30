@@ -1,9 +1,9 @@
 ---
 title: TASK-0036 OTA A/B v2: health-commit v2 (record v3 + quorum + deadline) and BSB projection — bootctld machine evolution
-status: Draft
+status: Done — Phase A 2026-08-25, Phase B 2026-08-30 (BSB projection live; full loop loader↔bootctld proven)
 owner: @runtime
 created: 2025-12-22
-updated: 2026-08-25
+updated: 2026-08-30
 depends-on:
   - TASK-0050
 follow-up-tasks:
@@ -48,7 +48,27 @@ Evidence (headless + reset uarts 2026-08-25, `just test-all` EXIT=0 incl.
   health ok (slot …)` now means "report accepted", the COMMIT truth is the
   quorum marker pair.
 
-Phase B (BSB projection) stays Draft — needs TASK-0315's `bsb` partition.
+Phase B DELIVERED 2026-08-30 (after 0315's partition + 0289-A's loader):
+`bootctld::bsb` — pure projection (golden-tested) + blockproto client on the
+`bsb` partition (init-wired fixed slots, sender-gated in virtioblkd).
+⭐ SLOT-MAPPING FINDING: `BootCtrl::switch` flips `active_slot` to the trial
+slot immediately (previous slot goes to `rollback_slot`) while the LOADER
+boots BSB.active on exhaustion — the projection maps BSB.active to the
+standing KNOWN-GOOD slot (rollback target during a trial), never the
+machine's active verbatim. Startup reconciliation classifies drift via
+`resync_verdict` (Equal / ActuatorPending / Drift): loader actuator effects
+(trial decrement, exhaustion clear) are NEVER overwritten — loader and the
+record's boot-attempt tick both decrement once per boot and converge; only
+genuine drift re-projects (`bootctld: bsb resync`). Commit path: record
+persists FIRST, then `project_after_commit` (`bootctld: bsb sync (seq=…)`;
+Io failure is loud, never uncommits). GET_STATUS grew an additive tail
+(synced flag + seq LE) for `SELFTEST: bootctl bsb ok` (requires seq>=2 =
+runtime write). ⭐ The ota selftest now normalizes active→A at phase END
+too — the BSB projects the record and the loader OBEYS it, so leaving the
+record on imageless slot B would push every next boot through fallback.
+Proofs: headless gated (sync marker + selftest), keep-blk boot 2 reads the
+projected seq=8 block cleanly, reset 3-boot lane green, 5 host tests
+(golden/idempotent/actuator/crash-window/fail-closed).
 
 ## REWRITE 2026-08-25 (RFC-0089 lane recut — supersedes the whole pre-rewrite body)
 

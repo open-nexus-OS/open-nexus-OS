@@ -47,6 +47,9 @@ pub(crate) fn commit_marked(
             if let Some(line) = marker {
                 emit(line);
             }
+            // TASK-0036-B (ADR-0058): record committed FIRST, projection
+            // second; a projection failure is loud but never uncommits.
+            crate::bsb_os::project_after_commit(auth);
             encode_payload(rsp, op, payload)
         }
         Err(_) => {

@@ -285,6 +285,66 @@ fn bootctl_call(op: u8, arg: Option<u8>) -> Option<(u8, [u8; 2])> {
 
 /// Shared transport for bootctld probes (reset + nxra): send `frame`,
 /// collect the matching reply off the shared CAP_MOVE inbox.
+/// TASK-0036-B: like `bootctl_call_raw`, but copies the full reply
+/// payload out (GET_STATUS grew an additive tail: synced flag + bsb seq).
+pub(crate) fn bootctl_call_payload(frame: &[u8], op: u8, out: &mut [u8]) -> Option<(u8, usize)> {
+    let send_slot = route_bootctld()?;
+    let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).ok()?;
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        frame.len() as u32,
+    );
+    let deadline = nexus_abi::nsec().ok()?.saturating_add(2_000_000_000);
+    loop {
+        match nexus_abi::ipc_send_v1(send_slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+            Ok(_) => break,
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
+                    let _ = nexus_abi::cap_close(reply_send_clone);
+                    return None;
+                }
+                let _ = nexus_abi::yield_();
+            }
+            Err(_) => {
+                let _ = nexus_abi::cap_close(reply_send_clone);
+                return None;
+            }
+        }
+    }
+    loop {
+        if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
+            return None;
+        }
+        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 32];
+        match nexus_abi::ipc_recv_v1(
+            REPLY_RECV_SLOT,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                if n >= 7 && buf[0] == b'B' && buf[1] == b'T' && buf[3] == (op | 0x80) {
+                    let plen = u16::from_le_bytes([buf[5], buf[6]]) as usize;
+                    let avail = n.saturating_sub(7).min(plen).min(out.len());
+                    out[..avail].copy_from_slice(&buf[7..7 + avail]);
+                    return Some((buf[4], avail));
+                }
+                // Foreign inbox frame (logd/statefs acks): consumed, skipped.
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                let _ = nexus_abi::yield_();
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
 pub(crate) fn bootctl_call_raw(frame: &[u8], op: u8) -> Option<(u8, [u8; 2])> {
     let send_slot = route_bootctld()?;
     let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).ok()?;

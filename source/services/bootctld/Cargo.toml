@@ -15,6 +15,7 @@ os-lite = [
     "nexus-ipc/kernel-ipc",
     "statefs/os-lite",
     "statefs/ipc-client",
+    "storage/os-lite",
 ]
 
 [package.metadata.nexus-service]
@@ -28,6 +29,10 @@ nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 statefs = { path = "../../../userspace/statefs", default-features = false }
 # .nxra break-glass verification (RFC-0088, TASK-0053).
 nxra = { path = "../../../userspace/nxra", default-features = false }
+# TASK-0036-B: BSB codec (projection target) + blockproto client to the
+# bsb partition.
+bootfmt = { path = "../../../userspace/bootfmt", default-features = false }
+storage = { path = "../../../userspace/storage", default-features = false }
 
 [[bin]]
 name = "bootctld"

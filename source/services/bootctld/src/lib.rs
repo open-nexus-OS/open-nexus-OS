@@ -31,10 +31,13 @@
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern crate alloc;
 
+pub mod bsb;
 pub mod machine;
 pub mod record;
 pub mod wire;
 
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod bsb_os;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod nxra_gate;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]

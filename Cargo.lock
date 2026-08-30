@@ -298,11 +298,13 @@ dependencies = [
 name = "bootctld"
 version = "0.1.0"
 dependencies = [
+ "bootfmt",
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
  "nxra",
  "statefs",
+ "storage",
 ]
 
 [[package]]

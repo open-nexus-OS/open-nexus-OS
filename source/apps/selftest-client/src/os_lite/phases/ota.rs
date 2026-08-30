@@ -94,50 +94,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             }
         }
     }
-    if let Ok((active, _pending, _tries_left, _health_ok)) = updated::updated_get_status(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    ) {
-        if active == updated::SlotId::B {
-            // Flip B -> A (bounded) so the following tests always stage/switch to B.
-            // Use the same tries_left as the real flow to avoid corner-cases in BootCtrl.
-            for _ in 0..2 {
-                if updated::updated_stage(
-                    &updated,
-                    ctx.reply_send_slot,
-                    ctx.reply_recv_slot,
-                    &mut ctx.updated_pending,
-                )
-                .is_err()
-                {
-                    break;
-                }
-                let _ = updated::updated_switch(
-                    &updated,
-                    ctx.reply_send_slot,
-                    ctx.reply_recv_slot,
-                    2,
-                    &mut ctx.updated_pending,
-                );
-                // Quorum v2: both declared reporters must confirm.
-                let _ = selftest_quorum_report();
-                let _ = updated::init_health_ok();
-                if let Ok((a, _p, _t, _h)) = updated::updated_get_status(
-                    &updated,
-                    ctx.reply_send_slot,
-                    ctx.reply_recv_slot,
-                    &mut ctx.updated_pending,
-                ) {
-                    if a == updated::SlotId::A {
-                        break;
-                    }
-                }
-                let _ = yield_();
-            }
-        }
-    }
+    normalize_active_to_a(ctx, &updated);
     // TASK-0198 Phase 1 deny lane FIRST (state-neutral: a rejected stage
     // mutates nothing): a validly self-signed archive whose publisher is not
     // in the device anchor must come back FAILED with the untrusted-publisher
@@ -262,6 +219,84 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_BOOTCTL_PERSIST_FAIL);
     }
 
+    // TASK-0036-B: the BSB projection must be live — GET_STATUS carries the
+    // synced flag + last projected seq as an additive tail. seq >= 2 proves
+    // a RUNTIME projection happened this session (factory seeds seq=1), not
+    // just a read of the factory block.
+    {
+        let frame = [b'B', b'T', 1, 4u8]; // OP_GET_STATUS
+        let mut payload = [0u8; 16];
+        let verdict =
+            match crate::os_lite::probes::reset::bootctl_call_payload(&frame, 4, &mut payload) {
+                Some((0, len)) if len >= 13 && payload[4] == 1 => {
+                    let mut seq_bytes = [0u8; 8];
+                    seq_bytes.copy_from_slice(&payload[5..13]);
+                    u64::from_le_bytes(seq_bytes) >= 2
+                }
+                _ => false,
+            };
+        if verdict {
+            emit_line(crate::markers::M_SELFTEST_BOOTCTL_BSB_OK);
+        } else {
+            emit_line(crate::markers::M_SELFTEST_BOOTCTL_BSB_FAIL);
+        }
+    }
+
+    // TASK-0036-B: leave the persisted state (and thus the projected BSB)
+    // on the real bootable slot — see normalize_active_to_a.
+    normalize_active_to_a(ctx, &updated);
+
     let _ = (bundlemgrd, updated);
     Ok(())
+}
+
+/// Flips the persisted slot state back to active-A when a prior cycle (or
+/// this one) left it on B. Called at phase START (stable assertions) and
+/// at phase END (TASK-0036-B: the BSB now PROJECTS this state and the
+/// loader OBEYS it on the next boot — leaving the record on the imageless
+/// slot B would send every subsequent boot through the fallback path).
+fn normalize_active_to_a(ctx: &mut PhaseCtx, updated: &nexus_ipc::KernelClient) {
+    if let Ok((active, _pending, _tries_left, _health_ok)) = updated::updated_get_status(
+        updated,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+    ) {
+        if active == updated::SlotId::B {
+            // Flip B -> A (bounded), same tries as the real flow.
+            for _ in 0..2 {
+                if updated::updated_stage(
+                    updated,
+                    ctx.reply_send_slot,
+                    ctx.reply_recv_slot,
+                    &mut ctx.updated_pending,
+                )
+                .is_err()
+                {
+                    break;
+                }
+                let _ = updated::updated_switch(
+                    updated,
+                    ctx.reply_send_slot,
+                    ctx.reply_recv_slot,
+                    2,
+                    &mut ctx.updated_pending,
+                );
+                // Quorum v2: both declared reporters must confirm.
+                let _ = selftest_quorum_report();
+                let _ = updated::init_health_ok();
+                if let Ok((a, _p, _t, _h)) = updated::updated_get_status(
+                    updated,
+                    ctx.reply_send_slot,
+                    ctx.reply_recv_slot,
+                    &mut ctx.updated_pending,
+                ) {
+                    if a == updated::SlotId::A {
+                        break;
+                    }
+                }
+                let _ = yield_();
+            }
+        }
+    }
 }

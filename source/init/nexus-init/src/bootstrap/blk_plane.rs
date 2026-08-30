@@ -25,7 +25,9 @@ pub(crate) fn wire_blk_plane_for(chan: &CtrlChannel, eps: &Endpoints) {
     use crate::service_topology::ServiceId;
     let Some(id) = ServiceId::from_name(chan.svc_name.as_bytes()) else { return };
     match id {
-        ServiceId::Statefsd | ServiceId::Vfsd => {
+        // TASK-0036-B: bootctld projects the boot record to the `bsb`
+        // partition (ADR-0058 runtime writer) over the same fixed-slot plane.
+        ServiceId::Statefsd | ServiceId::Vfsd | ServiceId::Bootctld => {
             wire_blk_plane_client(chan.pid, chan.svc_name, eps.vblk_req);
         }
         ServiceId::Virtioblkd => {

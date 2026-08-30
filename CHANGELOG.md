@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-30 (TASK-0036-B: bootctld projects the boot record to the BSB — the loader now follows runtime boot state)
+
+- **BSB runtime projection** (`bootctld::bsb`, ADR-0058 runtime-writer row):
+  every committed record mutation projects to the `bsb` partition (record
+  FIRST, BSB second, alternate-block write with seq+1; a crash between the
+  two heals via the idempotent startup resync). The projection maps
+  `BSB.active_slot` to the standing KNOWN-GOOD slot (the machine's rollback
+  target while a trial is pending) so the loader's exhaustion fallback can
+  never boot the slot that just failed its trials.
+- **Actuator discipline enforced at resync**: the startup reconciliation
+  classifies on-disk drift (`Equal` / `ActuatorPending` / `Drift`) and never
+  overwrites a loader trial decrement or exhaustion clear — the loader and
+  the record's boot-attempt tick each decrement once per boot and converge.
+- **Plumbing**: bootctld joins the fixed-slot block plane (init-wired
+  0xF0..0xF2); virtioblkd's partition gate admits ONLY bootctld to the bsb
+  partition; GET_STATUS grew an additive tail (projection-synced flag +
+  seq) proven by `SELFTEST: bootctl bsb ok`; the ota selftest now
+  normalizes back to slot A at phase END (the BSB projects the record and
+  the loader obeys it on the next boot).
+- Proofs: `bootctld: bsb sync (seq=` + `SELFTEST: bootctl bsb ok` gated in
+  headless/smp1; keep-blk boot 2 boots through a bootctld-projected block
+  (`nxboot: bsb ok (slot=a seq=8)`); reset three-boot lane green; 5 host
+  tests (golden, idempotency, actuator-absorption, crash-window,
+  fail-closed masks).
+
 ### Added - 2026-08-30 (TASK-0289 Phase A: nxboot first-stage loader + boot flip — verified A/B boot is live)
 
 - **`nxboot`** (`source/boot/nxboot/`, ADR-0059): a ≤256 KiB bare-metal

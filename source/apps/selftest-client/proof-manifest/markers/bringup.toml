@@ -15,7 +15,7 @@
 # TASK-0289 A4: the nxboot first-stage loader precedes the kernel in every
 # boot (ADR-0059). The verify-ok literal is a PREFIX — the build id is
 # launcher-derived (dev-<kernelsha8>) and varies per build.
-[marker."nxboot: bsb ok (slot=a seq=1)"]
+[marker."nxboot: bsb ok (slot=a"]
 phase = "bringup"
 proves = "loader read a valid BSB double block and selected the factory-active slot (RFC-0089 §6)"
 

@@ -594,6 +594,10 @@ expected_sequence=(
   "SELFTEST: ota health ok"
   "bootctld: health quorum ok (2/2)"
   "SELFTEST: bootctl quorum ok"
+  # TASK-0036-B: runtime BSB projection — the switch commit projects
+  # next=b to the bsb partition and the selftest reads the synced tail.
+  "bootctld: bsb sync (seq="
+  "SELFTEST: bootctl bsb ok"
   "SELFTEST: ota rollback ok"
   "SELFTEST: bootctl persist ok"
   "SELFTEST: policy allow ok"
@@ -828,6 +832,8 @@ case "${PROFILE:-full}" in
       "SELFTEST: ota health ok"
       "bootctld: health quorum ok (2/2)"
       "SELFTEST: bootctl quorum ok"
+      "bootctld: bsb sync (seq="
+      "SELFTEST: bootctl bsb ok"
       "SELFTEST: ota rollback ok"
       "SELFTEST: bootctl persist ok"
       "SELFTEST: policy allow ok"
@@ -944,13 +950,13 @@ fi
 # TASK-0289 A4 (boot flip): every profile boots through the nxboot
 # first-stage loader now — the loader rungs precede the kernel banner and
 # the measured-handoff rung precedes every other KSELFTEST line (strict
-# KSELFTEST ordering below relies on that). Factory disks carry BSB seq=1
-# with active slot a; nothing writes the BSB until TASK-0036-B projects
-# it, so these literals are deterministic across keep-blk and reset lanes.
+# KSELFTEST ordering below relies on that).
 # The verify-ok build id is launcher-derived (dev-<kernelsha8>) — matched
-# as a prefix.
+# as a prefix. The bsb-ok seq is a PREFIX too since TASK-0036-B: bootctld
+# projects the record to the BSB at runtime, so seq grows across boots
+# (keep-blk / reset lanes) — the deterministic part is the selected slot.
 expected_sequence=(
-  "nxboot: bsb ok (slot=a seq=1)"
+  "nxboot: bsb ok (slot=a"
   "nxboot: verify ok (slot=a build=dev-"
   "nxboot: jump slot=a"
   "KSELFTEST: boot handoff ok (measured)"
