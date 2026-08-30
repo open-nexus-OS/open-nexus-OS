@@ -1,6 +1,6 @@
 ---
 title: TASK-0289 Boot trust floor v1: nxboot first-stage loader + boot flip (Phase A) and backstop proofs + measured surface (Phase B)
-status: In Progress (A1 delivered 2026-08-30)
+status: In Progress (A1+A2 delivered 2026-08-30)
 owner: @security @runtime @updates
 created: 2026-04-13
 updated: 2026-08-30
@@ -148,20 +148,53 @@ Fatal signatures registered in the harness: `nxboot: PANIC`, unexpected
   `policies/os-trust.toml` → build-baked `BAKED_OS_KEYS` via the SHARED narrow
   parser (`userspace/updates/build_trust.rs`); integration tests prove
   bake ↔ policy-file ↔ dev-signing-seed coherence + tamper/stranger-key
-  rejects. `linker.ld`: home 0x8E00_0000, 16 KiB stack, HARD ASSERT
-  ≤256 KiB; build.rs self-wires `-T linker.ld` for riscv/none; root profile
-  `opt-level="z"`. Skeleton bin builds (199 B flat) and, if ever executed
-  unwired, prints `nxboot: PANIC (skeleton not wired ...)` + SBI reset —
-  never a fake marker. The ONE unsafe module is `src/arch.rs` (entry asm +
-  uart MMIO + SRST + the `no_mangle` export; `no_mangle` counts as
-  unsafe-code surface, hence it lives there).
+  rejects. `linker.ld`: 16 KiB stack, HARD ASSERT ≤256 KiB; build.rs
+  self-wires `-T linker.ld` for riscv/none; root profile `opt-level="z"`.
+  The ONE unsafe module is `src/arch.rs` (entry asm + uart MMIO + SRST +
+  the `no_mangle` export; `no_mangle` counts as unsafe-code surface, hence
+  it lives there).
+- **A2 DELIVERED 2026-08-30** — the loader is COMPLETE and smoke-proven:
+  - ⭐ **Memory-map audit (ADR-0059 first stop condition) MOVED the
+    constants**: the 2026-08-25 proposals (home 0x8E00_0000, handoff
+    0x8FE0_0000) fell INSIDE the kernel's user VMO arena
+    (0x8380_0000..0x9180_0000, RAM 320 MiB). Frozen values live in the
+    amended ADR: home **0x9200_0000**, handoff **0x9300_0000** — both in
+    the 40 MiB band above the arena that no kernel range manages
+    (`bootfmt::handoff::ADDR` updated).
+  - `flow::run()` — the ENTIRE pipeline generic over `storage::BlockDevice`
+    (BSB double block → select/actuate BEFORE load → GPT walk via the
+    shared authority → NXBD verify → bounds/load_addr → rollback floor →
+    image read → streamed digest → other-slot fallback), host-proven in
+    tests/loader_flow.rs against MemBlockDevice fixture disks assembled
+    with the SAME shared functions `nx image build` calls (layout::plan +
+    write_gpt + factory BSB + NXBD-last): clean boot, 4-boot trial/
+    exhaustion ladder, tamper→digest, downgrade→rollback backstop,
+    stranger-key→sig, zeroed-NXBD→nxbd, wrong load_addr→nxbd, both-bad
+    terminal, torn-BSB-pair→never guess.
+  - Target half: self-relocation asm (PC-relative until the computed
+    absolute jump home), bss/stack bring-up, 192 KiB bounded bump
+    allocator (OOM = loud PANIC + reset), own polling virtio-blk reader
+    (MODERN transport only — force-legacy=off is the harness reality; a
+    legacy window is refused loudly, never half-driven; bounded poll
+    spins), handoff-page write, `fence.i` + jump with a0/a1 restored.
+  - ⭐ **QEMU smoke proof (manual, pre-flip)**: `-kernel nxboot.bin -drive
+    nexus.img` boots the FULL OS through the loader — `nxboot: bsb ok
+    (slot=a seq=1)` → `nxboot: verify ok (slot=a build=dev-a7c6 rbidx=0)`
+    → `nxboot: jump slot=a` → kmain → init service ladder. Loader binary:
+    55 KiB flat (22 % of budget). Failure modes observed live: PANIC+SBI-
+    reset loop is deterministic (1 panic per OpenSBI banner, single-hart
+    entry confirmed — OpenSBI parks secondaries).
+  - TRAP for A4: plain `-machine virt` gives LEGACY virtio-mmio (poll
+    timeout); the launcher's `-global virtio-mmio.force-legacy=off` is
+    what selects modern — any new lane must inherit that flag.
 
 ## Plan (small PRs)
 
 1. **A1**: nxboot crate skeleton + host-tested machine modules (BSB/NXBD/select)
    + trust bake + linker/size gate — buildable, unwired. ✅ 2026-08-30
 2. **A2**: bare-metal blk reader + GPT walk + load/verify path; fixture-disk
-   host-side integration test via `nx image`.
+   host-side integration test via `nx image`. ✅ 2026-08-30 (fixture disks
+   assembled with the shared layout/gpt/bootfmt authorities nx image calls)
 3. **A3**: kernel handoff consumption (approval) + KSELFTEST marker.
 4. **A4**: THE FLIP — build/launcher/harness in one reviewed change; all lanes
    green; docs + memory-map audit note.

@@ -2904,6 +2904,8 @@ version = "0.1.0"
 dependencies = [
  "bootfmt",
  "sbi-rt",
+ "sha2",
+ "storage",
 ]
 
 [[package]]

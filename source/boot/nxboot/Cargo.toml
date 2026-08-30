@@ -13,13 +13,19 @@ build = "build.rs"
 # Verify-only half of the boot-format codecs (no_std; NXBD verify, BSB
 # double-block rule, handoff page). No std/sign features in the loader.
 bootfmt = { path = "../../../userspace/bootfmt", default-features = false }
+# Shared GPT walk + partition GUID table (RFC-0089 §2: ONE authority for
+# nx image, virtioblkd and nxboot) — no_std, bounded-arena alloc.
+storage = { path = "../../../userspace/storage", default-features = false }
+sha2 = { version = "0.10", default-features = false }
 
 [target.'cfg(all(target_arch = "riscv64", target_os = "none"))'.dependencies]
 sbi-rt = { version = "0.0.2", default-features = false }
 
 [dev-dependencies]
-# Host tests sign fixture NXBDs to prove the baked anchor end-to-end.
+# Host tests sign fixture NXBDs to prove the baked anchor end-to-end and
+# assemble fixture disks with the same shared authorities nx image uses.
 bootfmt = { path = "../../../userspace/bootfmt", features = ["std", "sign"] }
+storage = { path = "../../../userspace/storage", features = ["std"] }
 
 [[bin]]
 name = "nxboot"

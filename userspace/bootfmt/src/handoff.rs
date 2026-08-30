@@ -18,10 +18,12 @@ pub const MAGIC: &[u8; 8] = b"NXHO0001";
 pub const VERSION: u16 = 1;
 /// The handoff record occupies one page; bytes [60..4096) are reserved (0).
 pub const PAGE: usize = 4096;
-/// Fixed guest-RAM address of the page (ADR-0059 memory contract — inside
-/// guest RAM, outside the kernel's early-managed ranges; the kernel asserts
-/// this at consumption time).
-pub const ADDR: usize = 0x8FE0_0000;
+/// Fixed guest-RAM address of the page (ADR-0059 memory contract, frozen
+/// after the TASK-0289-A memory-map audit: above EVERY kernel-managed
+/// range — user VMO arena ends 0x9180_0000, RAM ends 0x9400_0000 — so the
+/// record can never be recycled into a user VMO; the kernel asserts this
+/// at consumption time).
+pub const ADDR: usize = 0x9300_0000;
 /// CRC32 covers bytes [0..56); the CRC itself sits at [56..60).
 const CRC_OFF: usize = 56;
 

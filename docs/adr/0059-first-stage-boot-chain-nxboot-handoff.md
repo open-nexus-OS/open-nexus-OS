@@ -28,16 +28,23 @@ arch-gate rules.
   (today's `neuron-boot.bin`, unchanged entry contract). The VMM `-kernel` payload
   becomes `nxboot.bin`; direct-kernel dev boots remain possible (see handoff-absent
   rule).
-- **Memory contract** (constants recorded here; audited against the kernel memory
-  map before freeze — TASK-0289-A's first stop condition):
+- **Memory contract** (constants FROZEN 2026-08-30 after the TASK-0289-A memory-map
+  audit; the 2026-08-25 proposals 0x8E00_0000/0x8FE0_0000 fell INSIDE the kernel's
+  identity-mapped user VMO arena 0x8380_0000..0x9180_0000 and were moved into the
+  40 MiB band above it — machine RAM is 320 MiB (`qemu-launcher -m 320M`), so
+  0x9180_0000..0x9400_0000 is the only region no kernel range manages; the QEMU
+  DTB lands near the top of RAM, which the constants stay clear of):
   - Firmware enters `nxboot` at the standard supervisor entry (0x8020_0000) with
     `a0 = hartid`, `a1 = DTB` — preserved across relocation, restored before jump.
-  - `nxboot` self-relocates to a high home (proposal 0x8E00_0000) so it can load the
-    image to 0x8020_0000 without overlap; position-independent early asm isolated in
-    ONE bounded module (the only `unsafe`-bearing file; everything else
-    `#![forbid(unsafe_code)]`).
-  - Handoff page at 0x8FE0_0000 (inside guest RAM, outside kernel early-managed
-    ranges — kernel asserts this at handoff consumption).
+  - `nxboot` self-relocates to its home **0x9200_0000** (above the arena end
+    0x9180_0000) so it can load the image to 0x8020_0000 without overlap;
+    position-independent early asm isolated in ONE bounded module (the only
+    `unsafe`-bearing file; everything else `#![forbid(unsafe_code)]`). The
+    loader's RAM (home + stack + bss) is dead the instant it jumps — nothing
+    preserves it.
+  - Handoff page at **0x9300_0000** (inside guest RAM, ABOVE every kernel-managed
+    range — user VMO arena, page pool, kernel image — so the record can never be
+    recycled into a user VMO; the kernel asserts this at handoff consumption).
   - Only the boot hart runs `nxboot`; secondary harts stay parked in SBI HSM (the
     kernel starts them exactly as today — the SMP lanes are the regression signal).
 - **Loader scope is frozen** (anti-drift): BSB read/actuate, GPT walk, NXBD+image

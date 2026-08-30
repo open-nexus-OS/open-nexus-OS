@@ -17,5 +17,6 @@
 //! TEST_COVERAGE: select state table + trust bake integration tests
 //! ADR: docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md
 
+pub mod flow;
 pub mod select;
 pub mod trust;

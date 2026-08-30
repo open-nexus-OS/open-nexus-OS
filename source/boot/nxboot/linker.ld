@@ -3,7 +3,7 @@
  *
  * CONTEXT: nxboot bare-metal link script (ADR-0059 memory contract).
  * The firmware loads the -kernel payload at 0x8020_0000; nxboot is LINKED
- * for its high home 0x8E00_0000 and self-relocates there in early asm so
+ * for its high home 0x9200_0000 (ADR-0059, frozen after the memory-map audit) and self-relocates there in early asm so
  * it can later load the verified boot image to 0x8020_0000 without
  * overlapping itself. The 256 KiB budget is a HARD ASSERT here and is
  * additionally gated in scripts/check-image-budgets.sh once the boot flip
@@ -14,7 +14,7 @@ ENTRY(_start)
 
 SECTIONS
 {
-  . = 0x8E000000;
+  . = 0x92000000;
   __image_start = .;
 
   .text ALIGN(16) : {
@@ -35,6 +35,8 @@ SECTIONS
     *(.sdata .sdata.*)
     *(.data .data.*)
   }
+  /* 8-aligned: the relocation loop copies doublewords. */
+  . = ALIGN(8);
   __load_end = .;
 
   . = ALIGN(16);

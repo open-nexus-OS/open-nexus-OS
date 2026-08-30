@@ -5,7 +5,7 @@
 //! loader (`BAKED_OS_KEYS`, RFC-0088 BAKED_TRUST pattern; any parse error
 //! FAILS THE BUILD so a half-parsed trust list can never yield a permissive
 //! anchor) and wires the bare-metal linker script for the riscv/none target
-//! (ADR-0059: link home 0x8E00_0000, ≤256 KiB budget asserted in linker.ld).
+//! (ADR-0059: link home 0x9200_0000, ≤256 KiB budget asserted in linker.ld).
 //! OWNERS: @security @runtime
 //! STATUS: Functional
 //! TEST_COVERAGE: parser rejects covered by tests/trust_bake.rs (shared fn)
