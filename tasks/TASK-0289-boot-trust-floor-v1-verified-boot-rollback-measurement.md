@@ -1,6 +1,6 @@
 ---
 title: TASK-0289 Boot trust floor v1: nxboot first-stage loader + boot flip (Phase A) and backstop proofs + measured surface (Phase B)
-status: In Progress (A1+A2 delivered 2026-08-30)
+status: In Progress (A1+A2+A3 delivered 2026-08-30)
 owner: @security @runtime @updates
 created: 2026-04-13
 updated: 2026-08-30
@@ -187,6 +187,21 @@ Fatal signatures registered in the harness: `nxboot: PANIC`, unexpected
   - TRAP for A4: plain `-machine virt` gives LEGACY virtio-mmio (poll
     timeout); the launcher's `-global virtio-mmio.force-legacy=off` is
     what selects modern — any new lane must inherit that flag.
+- **A3 DELIVERED 2026-08-30** — kernel handoff consumption:
+  `neuron::boot_handoff` (core/boot_handoff.rs): capture runs FIRST THING
+  in kmain, pre-SATP on the boot hart — the page is deliberately outside
+  every kernel-managed range and therefore unreachable after the address
+  space activates (const-asserted above the arena end + inside RAM).
+  Validated copy in a kernel static, `get()` accessor ready for the B1
+  bootctld surface. Three honest verdicts: present ⇒ `KSELFTEST: boot
+  handoff ok (measured)` + `neuron: boot handoff slot=<s> rbidx=<n>
+  seq=<n> (qemu-soft-root)`; magic-without-valid-CRC ⇒ named invalid,
+  treated as absent; absent ⇒ `neuron: boot handoff absent (direct
+  kernel)`. Kernel-side decode is a deliberate 60-byte parity twin of
+  `bootfmt::handoff` (kernel cannot link dalek); the measured rung in the
+  ladder IS the cross-implementation drift gate. PROVEN both ways:
+  headless ladder green with the absent marker (direct kernel), manual
+  nxboot boot against the fresh disk shows the measured pair.
 
 ## Plan (small PRs)
 
@@ -195,7 +210,7 @@ Fatal signatures registered in the harness: `nxboot: PANIC`, unexpected
 2. **A2**: bare-metal blk reader + GPT walk + load/verify path; fixture-disk
    host-side integration test via `nx image`. ✅ 2026-08-30 (fixture disks
    assembled with the shared layout/gpt/bootfmt authorities nx image calls)
-3. **A3**: kernel handoff consumption (approval) + KSELFTEST marker.
+3. **A3**: kernel handoff consumption (approval) + KSELFTEST marker. ✅ 2026-08-30
 4. **A4**: THE FLIP — build/launcher/harness in one reviewed change; all lanes
    green; docs + memory-map audit note.
 5. **B1**: measured surface + `SELFTEST: measured boot log ok`.

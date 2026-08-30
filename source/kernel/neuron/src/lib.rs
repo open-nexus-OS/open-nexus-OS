@@ -308,6 +308,9 @@ mod arch;
 #[cfg(target_os = "none")]
 #[path = "core/boot.rs"]
 mod boot;
+#[cfg(target_os = "none")]
+#[path = "core/boot_handoff.rs"]
+pub mod boot_handoff;
 #[path = "diag/boot_mode.rs"]
 mod boot_mode;
 #[cfg(target_os = "none")]
