@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-31 (TASK-0179: apply engine v2 — the first update that changes what the machine boots)
+
+- **Crown proof** (`just ci-os-ota`, gated in `test-all`): two boots in ONE
+  uart. Boot 1 streams the real ~19 MB container into the inactive slot
+  (verify → digest → readback → NXBD last) and schedules the switch; the
+  SBI reset hands the decision to `nxboot`, which picks the new slot from
+  the projected BSB and prints a DIFFERENT build id (`otaB…` at rollback
+  index 2, above the factory floor); boot 2 proves the machine runs it, the
+  health quorum commits it and the anti-downgrade floor rises 1 → 2.
+- **`.nxs` v2 apply core** (`updates::component_set`): device-anchor
+  signature (the in-archive publisher id is a lookup hint, never a trust
+  input), stage-time anti-downgrade, 64-KiB streaming into a sink that owns
+  the commit point. Stable rejects `untrusted publisher | sig | digest |
+  bounds | path | component kind unsupported | downgrade | io | slot-active`,
+  each with a host test; power-cut matrix proves a torn stage never leaves a
+  bootable half-slot.
+- **Path staging replaces the inline stage** (`OP_STAGE_SOURCE`; the 8-KiB
+  inline `OP_STAGE` is retired, no dual API) plus offline feed ops.
+- `nx image fixtures` emits the container set and SELF-VERIFIES each one
+  against the real device anchor at build time; `nx image build` seeds the
+  factory anti-downgrade floor from the shipped image's index.
+
+### Fixed - 2026-08-31 (defects the OTA lane exposed, each latent before it)
+
+- **nxfs**: 4 MiB file cap with whole-file materialisation on every read and
+  write. Recut to extent streaming (windowed reads, windowed CoW writes,
+  allocation-free `read_into`); cap 64 MiB.
+- **vfsd**: the splice window was allocated PER REQUEST on a bump heap that
+  never frees — one file's worth of arena per read, fatal on a 19 MB
+  container. Now one reusable window per service lifetime.
+- **keystored** advertised a 1 MiB verify payload while the shared receive
+  path truncated at 512 bytes, so every signature over a >408-byte message
+  failed as "malformed". The declared bound is now true and pinned to the
+  kernel's per-message maximum; the 512-byte limit is named at its source.
+- **Verify errors** collapsed to `sig`, blaming publishers for broken
+  transport hops. Split into `sig` / `io` / `untrusted publisher`, with a
+  keystored-vs-local cross-check and a verifier known-answer test.
+- **Harness**: `read -t` leaves a PARTIAL line in the variable on timeout and
+  it was published as a complete one, so slowly-emitted markers were
+  reported missing while the guest had printed them correctly (twice
+  dismissed as flakes). Fragments are accumulated now.
+- **Anti-downgrade was vacuous on fresh devices**: the factory shipped floor
+  0 with an index-0 image, and a fresh bootctl record projected its own 0
+  over any factory value. Floor now equals the shipped index and the record
+  adopts it at genesis.
+- **Additive-tail readers**: three decoders required an EXACT payload length
+  on a field that grows by contract (updated, the selftest, init) — every
+  addition turned into a silent FAILED, and slot normalisation stopped
+  working unnoticed. Readers now require only what they read.
+- **Profile `extends` did not inherit marker expectations**, so every derived
+  lane saw its parent's legitimate markers as "unexpected".
+- **`MemBlockDevice` preallocated the whole device**, so a full-layout
+  fixture cost its size per test instance (OOM-killed with parallel tests).
+  It is sparse now: unwritten blocks read as zero.
+- The launcher rebuilt `nx` only when the binary was absent, shipping a stale
+  image assembler for a whole run.
+
 ### Added - 2026-08-30 (TASK-0036-B: bootctld projects the boot record to the BSB — the loader now follows runtime boot state)
 
 - **BSB runtime projection** (`bootctld::bsb`, ADR-0058 runtime-writer row):

@@ -14,6 +14,9 @@ os-lite = []
 capnp = { version = "0.24", default-features = false, features = ["alloc", "unaligned"] }
 ed25519-dalek = { version = "2", optional = true }
 sha2 = { version = "0.10", default-features = false }
+# TASK-0179: boot-image kind checks decode the embedded NXBD (structural
+# binding to the manifest; the loader verifies its signature).
+bootfmt = { path = "../bootfmt", default-features = false }
 
 [build-dependencies]
 capnpc = "0.24"

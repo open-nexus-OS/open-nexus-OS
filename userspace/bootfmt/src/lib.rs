@@ -245,6 +245,15 @@ pub mod bsb {
 
     impl Bsb {
         /// Factory block (`nx image build`): seq 1, active A, committed.
+        /// `rollback_min_index` is the FLOOR the factory ships at — it must
+        /// equal the shipped image's index, otherwise the anti-downgrade
+        /// gate is vacuous on a fresh device (index 0 vs floor 0 is not a
+        /// downgrade, so the very first update could be a rollback).
+        pub fn factory_with_floor(rollback_min_index: u32) -> Self {
+            Self { rollback_min_index, ..Self::factory() }
+        }
+
+        /// Factory block with a zero floor (tests/legacy callers).
         pub fn factory() -> Self {
             Self {
                 seq: 1,

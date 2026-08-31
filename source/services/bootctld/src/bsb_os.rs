@@ -23,15 +23,28 @@ use crate::os_lite::{emit, Authority};
 /// reconcile the on-disk pair against the loaded record (idempotent;
 /// loader actuator effects are left for the boot-attempt tick to
 /// converge — see `bsb::resync_verdict`).
-pub(crate) fn attach_and_reconcile(boot: &BootCtrl) -> (Option<RemoteBlockDevice>, u64, bool) {
+pub(crate) fn attach_and_reconcile(boot: &mut BootCtrl) -> (Option<RemoteBlockDevice>, u64, bool) {
     let mut bsb_dev = crate::bsb::sync::attach();
     let mut bsb_seq = 0u64;
     let mut bsb_synced = false;
     match bsb_dev.as_mut() {
         None => emit("bootctld: bsb attach FAIL (projection disabled)"),
         Some(dev) => {
-            let desired = crate::bsb::project(boot);
             let current = crate::bsb::sync::read_current(dev);
+            // FLOOR ADOPTION (RFC-0089 §10): the factory can only hand the
+            // anti-downgrade floor over through the BSB, but the RECORD is
+            // the authority — a fresh record starts at 0 and would project
+            // that back over the factory value, silently disarming the
+            // gate on every new device. The floor NEVER decreases, so the
+            // reconciliation is simply: take the higher of the two.
+            if let Some((cur, _)) = current.as_ref() {
+                if cur.rollback_min_index > boot.rollback_min_index() {
+                    let adopted = cur.rollback_min_index;
+                    boot.raise_rollback_min(adopted);
+                    emit("bootctld: rollback-min adopted from factory bsb");
+                }
+            }
+            let desired = crate::bsb::project(boot);
             match crate::bsb::resync_verdict(current.as_ref().map(|(b, _)| b), &desired) {
                 crate::bsb::ResyncVerdict::Equal | crate::bsb::ResyncVerdict::ActuatorPending => {
                     if let Some((cur, _)) = current {

@@ -100,6 +100,21 @@ pub(crate) fn reset_proof(statefsd: &KernelClient) {
 /// Stamp the phase sentinel durably, request the reboot, and fail LOUD if
 /// the machine is still alive after the budget (a successful SBI reset
 /// never returns).
+/// TASK-0179: request the SBI reset and fail LOUD if the machine is still
+/// alive after the budget (shared with the ota-flip crown lane).
+pub(crate) fn reboot_now() -> ! {
+    emit_line(crate::markers::M_SELFTEST_RESET_REQUEST);
+    request_reset();
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(5_000_000_000);
+    while nexus_abi::nsec().unwrap_or(u64::MAX) < deadline {
+        let _ = nexus_abi::yield_();
+    }
+    emit_line(crate::markers::M_SELFTEST_RESET_REQUEST_FAIL);
+    loop {
+        let _ = nexus_abi::yield_();
+    }
+}
+
 fn reboot_with_stamp(statefsd: &KernelClient, stamp: &[u8]) {
     if write_sentinel(statefsd, stamp).is_err() {
         emit_line(crate::markers::M_SELFTEST_RESET_REQUEST_FAIL);

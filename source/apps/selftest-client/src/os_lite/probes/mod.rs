@@ -27,6 +27,7 @@ pub(crate) mod device_key;
 pub(crate) mod elf;
 pub(crate) mod ipc_kernel;
 pub(crate) mod nxra;
+pub(crate) mod otaflip;
 pub(crate) mod pinched;
 pub(crate) mod pinched_restart;
 pub(crate) mod reset;

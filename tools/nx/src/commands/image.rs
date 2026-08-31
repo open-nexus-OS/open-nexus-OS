@@ -45,19 +45,20 @@ pub(crate) fn handle_image(args: ImageArgs) -> ExecResult {
         ImageAction::Verify(a) => handle_verify(a),
         ImageAction::Patch(a) => handle_patch(a),
         ImageAction::Ota(a) => handle_ota(a),
+        ImageAction::Fixtures(a) => crate::commands::image_fixtures::handle_fixtures(a),
     }
 }
 
 // ---------------------------------------------------------------- device --
 
 /// File-backed 512-byte BlockDevice (sparse; bulk run overrides).
-struct FileBlockDevice {
+pub(crate) struct FileBlockDevice {
     file: RefCell<File>,
     sectors: u64,
 }
 
 impl FileBlockDevice {
-    fn create(path: &Path, bytes: u64) -> std::io::Result<Self> {
+    pub(crate) fn create(path: &Path, bytes: u64) -> std::io::Result<Self> {
         let file =
             OpenOptions::new().read(true).write(true).create(true).truncate(true).open(path)?;
         file.set_len(bytes)?;
@@ -120,7 +121,7 @@ impl BlockDevice for FileBlockDevice {
 
 // --------------------------------------------------------------- helpers --
 
-fn read_seed(path: &Path) -> Result<[u8; 32], NxError> {
+pub(crate) fn read_seed(path: &Path) -> Result<[u8; 32], NxError> {
     let text = std::fs::read_to_string(path).map_err(|err| {
         NxError::new(ExitClass::MissingDependency, format!("image: read {}: {err}", path.display()))
     })?;
@@ -140,13 +141,13 @@ fn decode_hex32(hex: &str) -> Option<[u8; 32]> {
     Some(out)
 }
 
-fn sha256(bytes: &[u8]) -> [u8; 32] {
+pub(crate) fn sha256(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hasher.finalize().into()
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     bytes.iter().fold(String::with_capacity(bytes.len() * 2), |mut out, b| {
         let _ = write!(out, "{b:02x}");
@@ -260,11 +261,15 @@ fn handle_build(args: ImageBuildArgs) -> ExecResult {
     write_gpt(&mut dev, &parts)
         .map_err(|e| NxError::new(ExitClass::Internal, format!("image: gpt write ({e:?})")))?;
 
-    // Factory BSB: block 0 = seq 1 (active A, committed); block 1 stays
-    // zeroed (invalid) — the reader rule picks block 0.
+    // Factory BSB: block 0 = seq 1 (active A, committed, floor = the
+    // shipped image's rollback index); block 1 stays zeroed (invalid) —
+    // the reader rule picks block 0.
     let bsb_part = part(&parts, &GUID_NEXUS_BSB, "bsb")?;
-    dev.write_blocks(bsb_part.first_lba, &bootfmt::bsb::encode(&bootfmt::bsb::Bsb::factory()))
-        .map_err(|e| NxError::new(ExitClass::Internal, format!("image: bsb write ({e:?})")))?;
+    dev.write_blocks(
+        bsb_part.first_lba,
+        &bootfmt::bsb::encode(&bootfmt::bsb::Bsb::factory_with_floor(args.rollback_index)),
+    )
+    .map_err(|e| NxError::new(ExitClass::Internal, format!("image: bsb write ({e:?})")))?;
 
     // boot-a: NXBD-last; boot-b stays zeroed (invalid by definition).
     let boot_a = part(&parts, &GUID_NEXUS_BOOT, "boot-a")?;
@@ -493,7 +498,7 @@ fn handle_ota(args: ImageOtaArgs) -> ExecResult {
 
 /// Deterministic tar entry (nxs-pack conventions: mode 644, uid/gid 0,
 /// mtime 0 — no wall clock in any archive byte).
-fn append_tar<W: Write>(
+pub(crate) fn append_tar<W: Write>(
     builder: &mut tar::Builder<W>,
     path: &str,
     bytes: &[u8],

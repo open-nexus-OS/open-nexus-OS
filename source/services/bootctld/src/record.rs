@@ -40,6 +40,8 @@ pub const PURPOSE: &str = "bootctl";
 
 /// Payload version this codec writes (v3: + rollback floor, quorum mask,
 /// commit deadline — RFC-0089 §13).
+/// v4 (TASK-0179): v3 + staged_rollback_index u32le (bytes 22..26).
+pub const RECORD_VERSION_V4: u8 = 4;
 pub const RECORD_VERSION_V3: u8 = 3;
 /// Payload version the TASK-0050 codec wrote; accepted on read.
 pub const RECORD_VERSION_V2: u8 = 2;
@@ -51,6 +53,7 @@ const TARGET_NONE: u8 = 0xff;
 const PAYLOAD_LEN_V1: usize = 6;
 const PAYLOAD_LEN_V2: usize = 9;
 const PAYLOAD_LEN_V3: usize = 22;
+const PAYLOAD_LEN_V4: usize = 26;
 
 /// Wire encoding of a slot id (1 = A, 2 = B) — unchanged from v1.
 pub fn encode_slot(slot: Slot) -> u8 {
@@ -97,12 +100,13 @@ fn decode_next_boot(byte: u8) -> Result<Option<BootTarget>, StatefsError> {
     decode_target(byte).map(Some)
 }
 
-/// Encode the full machine state as the 22-byte v3 payload
-/// (bytes 0..9 keep the exact v2 layout; v3 appends the RFC-0089 §13
-/// fields: rollback_min_index u32le, health_mask u8, deadline u64le).
-pub fn encode_record(boot: &BootCtrl) -> [u8; PAYLOAD_LEN_V3] {
-    let mut out = [0u8; PAYLOAD_LEN_V3];
-    out[0] = RECORD_VERSION_V3;
+/// Encode the full machine state as the 26-byte v4 payload
+/// (bytes 0..22 keep the exact v3 layout; v4 appends the TASK-0179
+/// staged_rollback_index u32le so the commit-time floor raise survives
+/// the reboot between stage and health commit).
+pub fn encode_record(boot: &BootCtrl) -> [u8; PAYLOAD_LEN_V4] {
+    let mut out = [0u8; PAYLOAD_LEN_V4];
+    out[0] = RECORD_VERSION_V4;
     out[1] = encode_slot(boot.active_slot());
     out[2] = boot.pending_slot().map(encode_slot).unwrap_or(SLOT_NONE);
     out[3] = boot.staged_slot().map(encode_slot).unwrap_or(SLOT_NONE);
@@ -114,6 +118,7 @@ pub fn encode_record(boot: &BootCtrl) -> [u8; PAYLOAD_LEN_V3] {
     out[9..13].copy_from_slice(&boot.rollback_min_index().to_le_bytes());
     out[13] = boot.health_mask();
     out[14..22].copy_from_slice(&boot.commit_deadline_ns().to_le_bytes());
+    out[22..26].copy_from_slice(&boot.staged_rollback_index().to_le_bytes());
     out
 }
 
@@ -125,6 +130,18 @@ pub fn encode_record(boot: &BootCtrl) -> [u8; PAYLOAD_LEN_V3] {
 /// never a panic.
 pub fn decode_record(bytes: &[u8]) -> Result<BootCtrl, StatefsError> {
     match (bytes.first().copied(), bytes.len()) {
+        (Some(RECORD_VERSION_V4), PAYLOAD_LEN_V4) => {
+            let (base, mask, deadline) = {
+                let mut floor = [0u8; 4];
+                floor.copy_from_slice(&bytes[9..13]);
+                let mut dl = [0u8; 8];
+                dl.copy_from_slice(&bytes[14..22]);
+                (u32::from_le_bytes(floor), bytes[13], u64::from_le_bytes(dl))
+            };
+            let mut staged_idx = [0u8; 4];
+            staged_idx.copy_from_slice(&bytes[22..26]);
+            decode_common(bytes, base, mask, deadline, u32::from_le_bytes(staged_idx))
+        }
         (Some(RECORD_VERSION_V3), PAYLOAD_LEN_V3) => {
             let (base, mask, deadline) = {
                 let mut floor = [0u8; 4];
@@ -133,9 +150,9 @@ pub fn decode_record(bytes: &[u8]) -> Result<BootCtrl, StatefsError> {
                 dl.copy_from_slice(&bytes[14..22]);
                 (u32::from_le_bytes(floor), bytes[13], u64::from_le_bytes(dl))
             };
-            decode_common(bytes, base, mask, deadline)
+            decode_common(bytes, base, mask, deadline, 0)
         }
-        (Some(RECORD_VERSION_V2), PAYLOAD_LEN_V2) => decode_common(bytes, 0, 0, 0),
+        (Some(RECORD_VERSION_V2), PAYLOAD_LEN_V2) => decode_common(bytes, 0, 0, 0, 0),
         (Some(RECORD_VERSION_V1), PAYLOAD_LEN_V1) => {
             let active = decode_slot(bytes[1])?.ok_or(StatefsError::Corrupted)?;
             let pending = decode_slot(bytes[2])?;
@@ -158,6 +175,7 @@ pub fn decode_record(bytes: &[u8]) -> Result<BootCtrl, StatefsError> {
                 0,
                 0,
                 0,
+                0,
             ))
         }
         _ => Err(StatefsError::Corrupted),
@@ -170,6 +188,7 @@ fn decode_common(
     rollback_min_index: u32,
     health_mask: u8,
     commit_deadline_ns: u64,
+    staged_rollback_index: u32,
 ) -> Result<BootCtrl, StatefsError> {
     let active = decode_slot(bytes[1])?.ok_or(StatefsError::Corrupted)?;
     let pending = decode_slot(bytes[2])?;
@@ -196,6 +215,7 @@ fn decode_common(
         rollback_min_index,
         health_mask,
         commit_deadline_ns,
+        staged_rollback_index,
     ))
 }
 

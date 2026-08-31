@@ -188,9 +188,14 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut logged_capmove = false;
     let mut logged_capmove_req = false;
     let mut pending_replies: ReplyBuffer<16, 512> = ReplyBuffer::new();
+    // ONE request buffer for the service lifetime (bump heap never frees)
+    // sized to the declared contract above — the allocating recv helper
+    // would silently cap every request at 512 bytes.
+    let mut recv_buf = alloc::vec![0u8; MAX_REQUEST_FRAME];
     loop {
-        match server.recv_request_with_meta(Wait::Blocking) {
-            Ok((frame, sender_service_id, reply)) => {
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_buf) {
+            Ok((frame_len, sender_service_id, reply)) => {
+                let frame = &recv_buf[..frame_len];
                 if reply.is_some() && !logged_capmove {
                     emit_line("keystored: capmove seen");
                     logged_capmove = true;
@@ -220,7 +225,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     &mut device_keypair,
                     &mut pending_replies,
                     sender_service_id,
-                    frame.as_slice(),
+                    frame,
                 );
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);
@@ -312,7 +317,18 @@ const STATUS_PRIVATE_EXPORT_DENIED: u8 = 12;
 // MAX_KEY_LEN lives in `crate::store_os` (shared with the statefs key-path
 // builder); the statefs path constants moved to `crate::state_record`.
 const MAX_VAL_LEN: usize = 256;
-const MAX_VERIFY_PAYLOAD: usize = 1 * 1024 * 1024;
+// The inline verify payload bound must be a limit keystored can actually
+// RECEIVE, not an aspiration: the shared allocating recv path truncates at
+// 512 bytes, so the old 1 MiB claim was unreachable by a factor of 2000 and
+// turned every larger request into a bogus "malformed". The service now
+// receives into its own buffer sized to exactly this contract.
+/// Largest request frame keystored accepts. Pinned to the KERNEL's own
+/// per-message bound (`ipc::endpoint` MAX_FRAME_BYTES = 8 KiB): a service
+/// buffer larger than the transport can carry is not "generous", it makes
+/// the receive call itself fail.
+const MAX_REQUEST_FRAME: usize = 8 * 1024;
+/// Verify payload = frame minus the fixed header/key/signature prefix.
+const MAX_VERIFY_PAYLOAD: usize = MAX_REQUEST_FRAME - (4 + 4 + 32 + 64);
 const MAX_SIGN_PAYLOAD: usize = 1 * 1024 * 1024;
 
 fn handle_frame(

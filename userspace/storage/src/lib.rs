@@ -75,21 +75,31 @@ pub trait BlockDevice {
 }
 
 /// In-memory block device for testing.
+/// In-memory block device. SPARSE by construction: only blocks that were
+/// actually written occupy memory, and unwritten blocks read as zero —
+/// exactly like a freshly provisioned device. Dense preallocation made a
+/// full-layout fixture (384 MiB) cost its whole size per test instance,
+/// and eight parallel tests were OOM-killed by it.
 pub struct MemBlockDevice {
     block_size: usize,
-    blocks: Vec<Vec<u8>>,
+    block_count: u64,
+    blocks: alloc::collections::BTreeMap<u64, Vec<u8>>,
 }
 
 impl MemBlockDevice {
     /// Create a new memory block device with given block size and count.
     pub fn new(block_size: usize, block_count: u64) -> Self {
-        let blocks = (0..block_count).map(|_| vec![0u8; block_size]).collect();
-        Self { block_size, blocks }
+        Self { block_size, block_count, blocks: alloc::collections::BTreeMap::new() }
     }
 
-    /// Get raw access to storage (for corruption tests and fixtures).
-    pub fn raw_storage_mut(&mut self) -> &mut [Vec<u8>] {
-        &mut self.blocks
+    /// Mutable access to ONE block, materializing it on demand (corruption
+    /// tests and fixtures). `None` when the index is out of range.
+    pub fn raw_block_mut(&mut self, block_idx: u64) -> Option<&mut Vec<u8>> {
+        if block_idx >= self.block_count {
+            return None;
+        }
+        let size = self.block_size;
+        Some(self.blocks.entry(block_idx).or_insert_with(|| vec![0u8; size]))
     }
 }
 
@@ -99,30 +109,36 @@ impl BlockDevice for MemBlockDevice {
     }
 
     fn block_count(&self) -> u64 {
-        self.blocks.len() as u64
+        self.block_count
     }
 
     fn read_block(&self, block_idx: u64, buf: &mut [u8]) -> Result<(), BlockError> {
-        let idx = block_idx as usize;
-        if idx >= self.blocks.len() {
+        if block_idx >= self.block_count {
             return Err(BlockError::OutOfRange);
         }
         if buf.len() < self.block_size {
             return Err(BlockError::IoError);
         }
-        buf[..self.block_size].copy_from_slice(&self.blocks[idx]);
+        match self.blocks.get(&block_idx) {
+            Some(block) => buf[..self.block_size].copy_from_slice(block),
+            // Never written: reads as zero, like fresh media.
+            None => buf[..self.block_size].fill(0),
+        }
         Ok(())
     }
 
     fn write_block(&mut self, block_idx: u64, buf: &[u8]) -> Result<(), BlockError> {
-        let idx = block_idx as usize;
-        if idx >= self.blocks.len() {
+        if block_idx >= self.block_count {
             return Err(BlockError::OutOfRange);
         }
         if buf.len() < self.block_size {
             return Err(BlockError::IoError);
         }
-        self.blocks[idx].copy_from_slice(&buf[..self.block_size]);
+        let size = self.block_size;
+        self.blocks
+            .entry(block_idx)
+            .or_insert_with(|| vec![0u8; size])
+            .copy_from_slice(&buf[..size]);
         Ok(())
     }
 

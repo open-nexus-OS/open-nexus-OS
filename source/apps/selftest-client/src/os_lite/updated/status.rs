@@ -39,7 +39,10 @@ pub(crate) fn updated_get_status(
         pending,
     )?;
     let payload = updated_expect_status(&rsp, nexus_abi::updated::OP_GET_STATUS)?;
-    if payload.len() != 4 {
+    // Additive tails are CONTRACT, not corruption (bootctld's status grew
+    // twice). Require the prefix this decoder understands and ignore the
+    // rest — an exact-length check here silently disabled every caller.
+    if payload.len() < 4 {
         return Err(());
     }
     let active = match payload[0] {

@@ -181,6 +181,12 @@ impl Profile {
                 RuntimeProfile::Bringup => Profile::Bringup,
                 RuntimeProfile::Quick => Profile::Quick,
                 RuntimeProfile::Ota => Profile::Ota,
+                // TASK-0179 crown lane: bringup + end ONLY. The flip lives
+                // in bringup, and re-running the full ota phase on top of
+                // an already-committed slot exercises the machine cycle a
+                // SECOND time against state it was not written for — the
+                // headless lane owns that cycle; this lane owns the flip.
+                RuntimeProfile::OtaFlip => Profile::Bringup,
                 RuntimeProfile::Net => Profile::Net,
                 RuntimeProfile::None => Profile::None,
                 // Reset lane: the trigger is separate; the phase scope is full.

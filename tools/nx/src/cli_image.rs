@@ -32,6 +32,10 @@ pub(crate) enum ImageAction {
     Patch(ImagePatchArgs),
     /// Emit the `.nxs` v2 OTA container for a boot image.
     Ota(ImageOtaArgs),
+    /// Emit the QEMU fixture set (TASK-0179): trusted/untrusted/tampered/
+    /// downgrade containers + the real-kernel os-B container, packed into
+    /// an nxfs data-partition seed image under `/updates/`.
+    Fixtures(ImageFixturesArgs),
 }
 
 #[derive(Args, Debug)]
@@ -122,6 +126,33 @@ pub(crate) struct ImageOtaArgs {
     /// Anti-downgrade index carried by manifest AND NXBD (must match).
     #[arg(long, default_value_t = 0)]
     pub(crate) rollback_index: u32,
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct ImageFixturesArgs {
+    /// Flat boot image for the REAL os-B container (the crown-proof flip
+    /// boots these bytes — a build-id trailer sector makes them genuinely
+    /// different from the running slot-A image).
+    #[arg(long)]
+    pub(crate) kernel: PathBuf,
+    /// Output nxfs data-partition seed image (consumed by `image build
+    /// --data`).
+    #[arg(long)]
+    pub(crate) data_out: PathBuf,
+    /// Data partition size in MiB (must match the layout SSOT).
+    #[arg(long, default_value_t = 128)]
+    pub(crate) data_mib: u64,
+    /// OS-image signing key seed (NXBDs).
+    #[arg(long)]
+    pub(crate) sign_os: PathBuf,
+    /// Publisher signing key seed (manifests; the device anchor).
+    #[arg(long)]
+    pub(crate) sign_publisher: PathBuf,
+    /// Build id of the RUNNING image (os-B derives `<id>-B`).
+    #[arg(long)]
+    pub(crate) build_id: String,
     #[arg(long)]
     pub(crate) json: bool,
 }

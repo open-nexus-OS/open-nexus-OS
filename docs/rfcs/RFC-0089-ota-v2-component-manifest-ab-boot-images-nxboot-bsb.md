@@ -38,7 +38,7 @@
 - **Phase 4 (host image builder `nx image`)**: ✅ 2026-08-25 (TASK-0260 image scope — build/verify/patch/ota, deterministic, 6 integration tests; shared layout/GPT/codec authorities in `storage::layout` + `bootfmt`)
 - **Phase 5 (`nxboot` loader + boot flip + measured handoff)**: ✅ 2026-08-30 (TASK-0289-A — loader complete per §7, ADR-0059 addresses frozen post-audit (home 0x9200_0000, handoff 0x9300_0000), boot flip landed: every QEMU lane boots `-kernel nxboot.bin` from the GPT disk; kernel captures the handoff pre-SATP; fallback fixture proven)
 - **Phase 6 (BSB runtime projection)**: ✅ 2026-08-30 (TASK-0036-B — record commits FIRST then projects; startup resync never overwrites loader actuator effects; BSB.active maps to the standing known-good slot; full loop proven: keep-blk boot 2 loads through a bootctld-projected block)
-- **Phase 7 (apply engine v2 + offline feed + crown proof)**: ⬜ (TASK-0179)
+- **Phase 7 (apply engine v2 + offline feed + crown proof)**: ✅ 2026-08-31 (TASK-0179 — path staging replaces the inline stage, component apply with NXBD-last, commit-time floor raise; CROWN PROOF green: two boots, one uart, a DIFFERENT build id chosen by the loader)
 - **Phase 8 (boot trust floor closure: backstop proofs + measured surface)**: ⬜ (TASK-0289-B)
 - **Phase 9 (UI/CLI)**: ⬜ (TASK-0140)
 - **Phase 10 (delta components)**: ⬜ (TASK-0034/0035)
@@ -363,7 +363,8 @@ and exposure to bootctld via bootinfo; absent (direct-kernel dev boot) ⇒ hones
 discipline as v1):
 
 - `OP_STAGE_SOURCE { path }` **replaces** inline `OP_STAGE` (removed in the same change —
-  no dual API). `path` is a bounded VFS path (`/data/updates/...` or `pkg://updates/...`).
+  no dual API). `path` is a bounded VFS path (`/updates/...` on the data volume, or
+  `pkg://updates/...`) — see the §9 namespace note.
 - `OP_FEED_LIST` / `OP_CHECK`: offline feed enumeration (§9).
 - `OP_SWITCH / OP_HEALTH_OK / OP_GET_STATUS / OP_BOOT_ATTEMPT`: unchanged pass-throughs.
 
@@ -392,8 +393,11 @@ result, reject reason; never key material.
 
 ### 9. Acquisition: offline feed v1, network later (contract-stable)
 
-- v1: containers appear at `/data/updates/*.nxs` (developer/provisioning drop) or as
-  build-time fixtures under `pkg://updates/`. `OP_FEED_LIST` enumerates deterministically.
+- v1: containers appear in the DATA VOLUME's `updates/` directory (developer/
+  provisioning drop) or as build-time fixtures under `pkg://updates/`.
+  NAMESPACE NOTE (TASK-0179): that volume is mounted at the VFS root — its home
+  layout is `/Bilder`, `/Dokumente`, … — so the wire path is `/updates/<name>.nxs`,
+  NOT `/data/updates/...`. `/data` names the partition, never a VFS prefix. `OP_FEED_LIST` enumerates deterministically.
 - Network phase (later, blocked on the 2-VM CI lane): a downloader lands bytes at the
   SAME staging location, then the identical §8 pipeline runs. The contract is
   transport-agnostic by construction; resumable downloads fall out of path-based staging.
@@ -553,7 +557,7 @@ Marker SSOT stays `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` +
 - [x] **Phase 4**: `nx image build/verify/patch/ota` — proof: 6 integration tests (determinism double-build, verify round-trip via the shared parser, tamper/wrong-key rejects, patch preservation, slot-budget reject, `.nxs` v2 decode with bound NXBD) (2026-08-25)
 - [x] **Phase 5**: `nxboot` + boot flip + handoff — proof: `nxboot: bsb ok`/`verify ok`/`jump slot=a` + `KSELFTEST: boot handoff ok (measured)` REQUIRED in every proof lane; loader-fallback fixture (`verify FAIL (slot=b nxbd)` → `fallback -> slot=a` → full boot); keep-blk + reset three-boot lanes green through the loader; 12 host tests (select table + flow adversarial matrix) (2026-08-30)
 - [x] **Phase 6**: BSB projection — proof: `bootctld: bsb sync (seq=` + `SELFTEST: bootctl bsb ok` gated in headless/smp1; keep-blk boot 2 reads the projected block (`nxboot: bsb ok (slot=a seq=8)`); reset three-boot lane green; 5 host tests incl. actuator-absorption fail-closed matrix (2026-08-30)
-- [ ] **Phase 7**: apply engine v2 + crown proof — proof: `just test-os ota` (`SELFTEST: ota flip ok`)
+- [x] **Phase 7**: apply engine v2 + offline feed + crown proof — proof: `just ci-os-ota` (gated in `test-all`): `updated: stage done (slot=b build=otaB…)` → `nxboot: verify ok (slot=b build=otaB… rbidx=2)` → `nxboot: jump slot=b` → `bootctld: commit ok (slot=b)` → `bootctld: rollback-min raised (1->2)` → `SELFTEST: ota flip ok`; headless deny lanes for untrusted/digest/downgrade; 10 host tests incl. the power-cut matrix (2026-08-31)
 - [ ] **Phase 8**: backstop proofs + measured surface — proof: `ota-fallback` profile (`SELFTEST: ota fallback ok`, `SELFTEST: ota downgrade deny ok`)
 - [ ] **Phase 9**: UI/CLI — proof: `SELFTEST: nx update status ok`
 - [ ] **Phase 10**: delta components — proof: `SELFTEST: ota delta ok`

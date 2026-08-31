@@ -509,7 +509,7 @@ mod tests {
         let mut device = v2_image();
         // Flip the generation and RE-SEAL the CRC: the superblock is valid
         // on its own but disagrees with the checkpoint record.
-        let block = &mut device.raw_storage_mut()[0];
+        let block = device.raw_block_mut((0) as u64).unwrap();
         block[8] ^= 0x01;
         let crc = crate::crc32c(&block[..16]);
         block[16..20].copy_from_slice(&crc.to_le_bytes());
@@ -523,7 +523,7 @@ mod tests {
     #[test]
     fn test_reject_superblock_entry_count_mismatch() {
         let mut device = v2_image();
-        let block = &mut device.raw_storage_mut()[0];
+        let block = device.raw_block_mut((0) as u64).unwrap();
         block[12] ^= 0x01;
         let crc = crate::crc32c(&block[..16]);
         block[16..20].copy_from_slice(&crc.to_le_bytes());
@@ -537,7 +537,7 @@ mod tests {
     fn test_reject_damaged_superblock_is_unrecoverable() {
         let mut device = v2_image();
         // Damage past the magic WITHOUT re-sealing: superblock CRC fails.
-        device.raw_storage_mut()[0][8] ^= 0x01;
+        device.raw_block_mut((0) as u64).unwrap()[8] ^= 0x01;
         let (report, device) = fsck(device, false);
         assert_eq!(report.outcome, FsckOutcome::Unrecoverable);
         let f = report.fault.expect("fault");

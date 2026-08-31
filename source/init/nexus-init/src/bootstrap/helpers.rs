@@ -718,8 +718,12 @@ fn updated_get_status(
             if buf[4] != nexus_abi::updated::STATUS_OK {
                 return Err(InitError::Map("updated status failed"));
             }
+            // ADDITIVE-TAIL DISCIPLINE: this reader consumes exactly ONE
+            // byte (the active slot), so it must require exactly that.
+            // Demanding the WHOLE declared payload made every additive
+            // growth of bootctld's status a hard failure here.
             let payload_len = u16::from_le_bytes([buf[5], buf[6]]) as usize;
-            if payload_len < 1 || got_n < 7 + payload_len {
+            if payload_len < 1 || got_n < 8 {
                 return Err(InitError::Map("updated status payload missing"));
             }
             let active = buf[7];
@@ -748,7 +752,7 @@ fn updated_get_status(
                         return Err(InitError::Map("updated status failed"));
                     }
                     let payload_len = u16::from_le_bytes([buf[5], buf[6]]) as usize;
-                    if payload_len < 1 || got_n < 7 + payload_len {
+                    if payload_len < 1 || got_n < 8 {
                         return Err(InitError::Map("updated status payload missing"));
                     }
                     let active = buf[7];

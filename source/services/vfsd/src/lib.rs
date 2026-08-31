@@ -21,6 +21,7 @@ extern crate alloc;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
+mod splice_os;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub use os_lite::*;
 

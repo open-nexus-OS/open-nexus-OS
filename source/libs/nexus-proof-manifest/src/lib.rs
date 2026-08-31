@@ -649,12 +649,15 @@ impl Manifest {
         }
     }
 
-    /// Markers expected to appear (in declaration order) under `profile`.
-    /// Honors `emit_when` (declared profile must match) and `emit_when_not`
-    /// (declared profile must NOT match) clauses; profile-unconditional
-    /// markers always pass through.
+    /// Markers expected (in declaration order) under `profile`, honoring
+    /// `emit_when`/`emit_when_not`. Matching walks the `extends` CHAIN:
+    /// exact-name matching made `extends` a lie for expectations (a derived
+    /// lane inherited its parent's ENV but not its marker set, so anything
+    /// the parent legitimately emits read as "unexpected"). Expectations
+    /// only SUPPRESS surprise — the required set lives in the harness.
     pub fn expected_markers<'a>(&'a self, profile: &'a str) -> impl Iterator<Item = &'a Marker> {
-        self.markers.iter().filter(move |m| marker_active(m, profile))
+        let chain = self.profile_chain(profile).unwrap_or_else(|_| vec![profile.to_string()]);
+        self.markers.iter().filter(move |m| marker_active_in_chain(m, &chain))
     }
 
     /// Markers forbidden under `profile` (`forbidden_when.profile` matches).
@@ -665,25 +668,17 @@ impl Manifest {
     }
 }
 
-fn marker_active(marker: &Marker, profile: &str) -> bool {
-    if let Some(g) = &marker.emit_when {
-        if !g.profiles.iter().any(|p| p == profile) {
-            return false;
-        }
-    }
-    if let Some(g) = &marker.emit_when_not {
-        if g.profiles.iter().any(|p| p == profile) {
-            return false;
-        }
-    }
-    // `forbidden_when` markers belong on the deny-list for that profile;
-    // they MUST NOT appear in the expected-ladder for the same profile.
-    if let Some(g) = &marker.forbidden_when {
-        if g.profiles.iter().any(|p| p == profile) {
-            return false;
-        }
-    }
-    true
+/// `chain`: the profile plus its `extends` ancestors (child first). A
+/// positive clause matches anywhere in it; a negative one excludes
+/// anywhere (a child cannot shed a parent's exclusion). `forbidden_when`
+/// markers belong on that profile's deny-list, never its expected ladder.
+fn marker_active_in_chain(marker: &Marker, chain: &[String]) -> bool {
+    let hits = |g: &Option<ProfileGate>| {
+        g.as_ref().is_some_and(|g| g.profiles.iter().any(|p| chain.iter().any(|c| c == p)))
+    };
+    (marker.emit_when.is_none() || hits(&marker.emit_when))
+        && !hits(&marker.emit_when_not)
+        && !hits(&marker.forbidden_when)
 }
 
 fn detect_extends_cycle(profiles: &BTreeMap<String, Profile>) -> Result<(), ParseError> {

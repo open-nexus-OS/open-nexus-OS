@@ -159,7 +159,7 @@ pub(crate) fn updated_send_with_reply(
     {
         let hdr = MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
         let start_ns = nexus_abi::nsec().map_err(|_| ())?;
-        let budget_ns: u64 = if op == nexus_abi::updated::OP_STAGE {
+        let budget_ns: u64 = if op == nexus_abi::updated::OP_STAGE_SOURCE {
             2_000_000_000 // 2s to enqueue a stage request under QEMU
         } else {
             500_000_000 // 0.5s for small ops
@@ -203,8 +203,12 @@ pub(crate) fn updated_send_with_reply(
     // NOTE: Kernel deadline semantics for ipc_recv_v1 have been flaky in bring-up; using an
     // explicit nsec()-bounded loop keeps the QEMU smoke run deterministic and bounded (RFC-0013).
     let start_ns = nexus_abi::nsec().map_err(|_| ())?;
-    let budget_ns: u64 = if op == nexus_abi::updated::OP_STAGE {
-        30_000_000_000 // 30s (stage includes digest + signature verify; allow for QEMU jitter)
+    let budget_ns: u64 = if op == nexus_abi::updated::OP_STAGE_SOURCE {
+        // TASK-0179: path-based staging streams the container from vfsd,
+        // writes the inactive slot and READS IT BACK — the real os-B
+        // container is ~19 MB over the block plane, so the crown lane
+        // needs a far larger budget than the v1 in-RAM verify did.
+        180_000_000_000 // 180s
     } else {
         5_000_000_000 // 5s (switch/health can involve cross-service publication)
     };

@@ -1,9 +1,9 @@
 ---
 title: TASK-0179 updated v2: component apply engine + path-based staging + offline feed — owner of the first real OTA flip (crown proof)
-status: Draft
+status: Done — 2026-08-31 (apply engine v2 + crown proof: the first update that changes what the machine boots)
 owner: @runtime
 created: 2025-12-27
-updated: 2026-08-25
+updated: 2026-08-31
 depends-on:
   - TASK-0198   # Phase 1: device trust anchor + verifier verdict authority
   - TASK-0289   # Phase A: nxboot loader + boot flip
@@ -32,6 +32,78 @@ on paper). The TASK-0178 link is gone: 0178 is Superseded by TASK-0050. The old
 "NUB"/second-payload-format warning is resolved structurally — the ONLY container
 is `.nxs` v2.
 
+## DELIVERED 2026-08-31
+
+**Crown proof green** (`just ci-os-ota`, two boots in ONE uart):
+`nxboot: verify ok (slot=a build=dev-<id> rbidx=1)` → `bootctld: rollback-min
+adopted from factory bsb` → `updated: stage done (slot=b build=otaB<id>)` →
+`SELFTEST: ota flip staged ok` → SBI reset → `nxboot: tries 2->1 (slot=b
+trial)` → `nxboot: verify ok (slot=b build=otaB<id> rbidx=2)` (DIFFERENT
+build, above the floor) → `nxboot: jump slot=b` → `bootctld: health quorum ok
+(2/2)` → `bootctld: commit ok (slot=b)` → `bootctld: rollback-min raised
+(1->2)` → `SELFTEST: ota flip ok`.
+
+Shipped: `.nxs` v2 verify+apply core (`updates::component_set`, 10 host tests
+incl. the power-cut matrix), `OP_STAGE_SOURCE` path staging (inline stage
+RETIRED), the slot sink (stream → digest → readback → NXBD last), record v4
+(`staged_rollback_index`) + commit-time floor raise, `nx image fixtures`
+(5 containers, self-verified against the device anchor at build time),
+partition gates, deny lanes, and the `ota-flip` lane.
+
+### Findings — real defects this package exposed (all fixed)
+
+1. **nxfs could not hold a container**: 4 MiB cap and whole-file
+   materialisation on EVERY read and write. Recut to extent streaming
+   (`nxfs::stream` + `read_into`/`splice_window`, host-tested to 19 MB);
+   cap 64 MiB. This retires the whole-file CoW debt on the read path.
+2. **vfsd died on the first large splice**: the 64-KiB window was allocated
+   PER REQUEST on a bump heap that never frees, i.e. one file's worth of
+   arena. Now one reusable window for the service lifetime; `read_into` is
+   allocation-free end to end.
+3. **keystored advertised 1 MiB verify payload but could receive 512 bytes**
+   (the shared allocating recv path). Every signature over a >408-byte
+   message failed as "malformed". The declared bound is now TRUE and pinned
+   to the kernel's own per-message maximum; the 512-byte trap is named at
+   its source in `nexus-ipc`.
+4. **Verify-error taxonomy collapsed to `sig`**: transport/backend failures
+   were reported as bad signatures — blaming the publisher for a broken
+   hop. Split into `sig` / `io` / `untrusted publisher`, backend detail
+   named, plus a keystored-vs-local cross-check and a verifier known-answer
+   test (a verifier that always rejects would make every deny lane look
+   green).
+5. **The harness split slowly-emitted uart lines**: `read -t` leaves a
+   PARTIAL line in the variable on timeout and it was echoed as a complete
+   one. Two proofs were reported missing while the guest had printed them
+   correctly (`tatefsd:`, `nxboot: verify ok`) — both previously dismissed
+   as flakes. Fragments are now accumulated.
+6. **Anti-downgrade was vacuous on fresh devices**: the factory wrote floor 0
+   while shipping an image at index 0. Floor now equals the shipped index,
+   and the record ADOPTS it at genesis (a fresh record starting at 0 would
+   otherwise project over the factory value).
+7. **`GET_STATUS` used an exact length check** on a payload that grew twice
+   by contract, so it returned FAILED — and because every caller wraps it in
+   `if let Ok(..)`, slot normalisation silently stopped working. Both sides
+   now check a prefix.
+8. **`extends` did not inherit marker expectations** (exact name match), so
+   every derived lane saw its parent's legitimate markers as "unexpected".
+   Expectation matching now walks the chain.
+9. The launcher rebuilt `nx` only when the binary was ABSENT, shipping a
+   stale image assembler for a whole run.
+
+### Deliberate scope notes
+
+- The small verify-path fixtures carry an INVALID NXBD `load_addr`: they land
+  in a real slot partition, so if a lane ever left one selected the loader
+  must refuse it loudly instead of jumping into pattern bytes. Only `os-B`
+  carries the real entry address.
+- The crown lane runs the reduced bringup+end scope. Re-running the full ota
+  phase on an already-committed slot exercises the machine cycle against
+  state it was not written for; the headless lane owns that cycle.
+- The container is mapped as ONE read-only VMO (bounded by an explicit
+  32 MiB cap) rather than copied in chunks: vfsd streams 64-KiB windows INTO
+  it, and the digest/apply loop walks it in 64-KiB units, so no actor holds
+  the container on a heap.
+
 ## Context
 
 After TASK-0289-A the system boots from disk through `nxboot`, and slots are real
@@ -52,8 +124,9 @@ update that actually changes what the machine boots.
    `boot-image`; unknown kinds reject deterministically.
 2. **Path-based staging**: `OP_STAGE_SOURCE { path }` replaces inline `OP_STAGE`
    (removed in the same change — no dual API; nexus-abi/wire updates are
-   approval-zone). Streams from `/data/updates/*.nxs` or `pkg://updates/` in
-   64-KiB bounded chunks.
+   approval-zone). Streams from the data volume's `/updates/*.nxs` (the volume is mounted at
+   the VFS root — `/data` is the PARTITION name, not a path prefix) or
+   `pkg://updates/`, in 64-KiB bounded chunks.
 3. **Apply pipeline** (per component): stream-digest → write to the INACTIVE slot
    via partition-scoped block IPC (write access: inactive slot only) → readback
    verify → write NXBD LAST (verbatim from the container — never re-signed) →
@@ -64,7 +137,7 @@ update that actually changes what the machine boots.
    `rollback_min_index` to the committed NXBD's index and projects to BSB
    (`bootctld: rollback-min raised (<old>-><new>)`) — the machine-side raise is
    implemented HERE (the v3 field exists since TASK-0036-A).
-5. **Offline feed v1**: `OP_FEED_LIST`/`OP_CHECK` enumerate `/data/updates/` +
+5. **Offline feed v1**: `OP_FEED_LIST`/`OP_CHECK` enumerate `/updates/` +
    `pkg://updates/` fixtures deterministically. Network = later phase per
    RFC-0089 §9; nothing here changes for it.
 6. **Fixture builds**: `nx image` (TASK-0260) emits `build/ota/os-<buildid>.nxs`
@@ -107,7 +180,7 @@ update that actually changes what the machine boots.
 ### Proof (OS / QEMU) — new profile `ota` (two boots, ONE uart stream) + keep-blk lane
 
 **Crown proof** (`just test-os ota`): boot 1 —
-`updated: stage begin (source=/data/updates/os-B.nxs)` →
+`updated: stage begin (source=/updates/os-B.nxs)` →
 `updated: component boot-image verified (sha=<8>)` →
 `updated: stage done (slot=b build=B)` → `bootctld: switch scheduled (to=b)` →
 `bootctld: bsb sync (… next=b tries=2)` → `SELFTEST: ota stage ok` → SBI reset.

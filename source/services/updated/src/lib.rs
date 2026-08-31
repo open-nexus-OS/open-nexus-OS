@@ -1,7 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-#![forbid(unsafe_code)]
+// deny (not forbid): the ONE bounded unsafe surface is `mapmem.rs` — the
+// slice view over updated's own live vm_map window (TASK-0179 staging
+// source). Everything else stays unsafe-free.
+#![deny(unsafe_code)]
 #![allow(unexpected_cfgs)]
 #![cfg_attr(
     all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
@@ -29,7 +32,12 @@ mod bootctl_client;
 pub mod verify_policy;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod apply_os;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod mapmem;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
+mod stage_os;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub use os_lite::*;
 

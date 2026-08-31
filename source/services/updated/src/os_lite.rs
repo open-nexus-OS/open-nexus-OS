@@ -23,25 +23,28 @@ use statefs::client::StatefsClient;
 
 use crate::bootctl_client;
 
-use updates::{SignatureVerifier, Slot, SystemSet, SystemSetError, VerifyError};
+use updates::{SignatureVerifier, Slot, VerifyError};
 
 const MAGIC0: u8 = nexus_abi::updated::MAGIC0;
 const MAGIC1: u8 = nexus_abi::updated::MAGIC1;
 const VERSION: u8 = nexus_abi::updated::VERSION;
 
-const OP_STAGE: u8 = nexus_abi::updated::OP_STAGE;
+pub(crate) const OP_STAGE_SOURCE: u8 = nexus_abi::updated::OP_STAGE_SOURCE;
+pub(crate) const OP_FEED_LIST: u8 = nexus_abi::updated::OP_FEED_LIST;
+pub(crate) const OP_CHECK: u8 = nexus_abi::updated::OP_CHECK;
 const OP_SWITCH: u8 = nexus_abi::updated::OP_SWITCH;
 const OP_HEALTH_OK: u8 = nexus_abi::updated::OP_HEALTH_OK;
 const OP_GET_STATUS: u8 = nexus_abi::updated::OP_GET_STATUS;
 const OP_BOOT_ATTEMPT: u8 = nexus_abi::updated::OP_BOOT_ATTEMPT;
 const OP_LOG_PROBE: u8 = 0x7f;
 
-const STATUS_OK: u8 = nexus_abi::updated::STATUS_OK;
-const STATUS_MALFORMED: u8 = nexus_abi::updated::STATUS_MALFORMED;
+pub(crate) const STATUS_OK: u8 = nexus_abi::updated::STATUS_OK;
+pub(crate) const STATUS_MALFORMED: u8 = nexus_abi::updated::STATUS_MALFORMED;
 const STATUS_UNSUPPORTED: u8 = nexus_abi::updated::STATUS_UNSUPPORTED;
-const STATUS_FAILED: u8 = nexus_abi::updated::STATUS_FAILED;
+pub(crate) const STATUS_FAILED: u8 = nexus_abi::updated::STATUS_FAILED;
 
-const MAX_STAGE_FRAME: usize = nexus_abi::updated::MAX_STAGE_BYTES + 8;
+// TASK-0179: staging is path-based; request frames are small and bounded.
+const MAX_REQUEST_FRAME: usize = nexus_abi::updated::MAX_SOURCE_PATH_BYTES + 16;
 
 const KEYSTORE_MAGIC0: u8 = b'K';
 const KEYSTORE_MAGIC1: u8 = b'S';
@@ -85,14 +88,15 @@ impl fmt::Display for ServerError {
     }
 }
 
-struct UpdatedState {
-    staged: Option<Vec<u8>>,
-    staged_slot: Option<Slot>,
+pub(crate) struct UpdatedState {
+    /// build id (8 hex chars) of the last successfully staged container.
+    pub(crate) staged_build: Option<[u8; 8]>,
+    pub(crate) staged_slot: Option<Slot>,
 }
 
 impl UpdatedState {
     fn new() -> Self {
-        Self { staged: None, staged_slot: None }
+        Self { staged_build: None, staged_slot: None }
     }
 }
 
@@ -154,8 +158,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut logged_recv_err = false;
     emit_line("updated: ready (bootctl client)");
     nexus_abi::service_verdict_flush("updated");
-    let mut recv_buf = Vec::with_capacity(MAX_STAGE_FRAME);
-    recv_buf.resize(MAX_STAGE_FRAME, 0);
+    let mut recv_buf = Vec::with_capacity(MAX_REQUEST_FRAME);
+    recv_buf.resize(MAX_REQUEST_FRAME, 0);
     let mut logged_rx = false;
     loop {
         match recv_request_large(recv_slot, Wait::Blocking, &mut recv_buf) {
@@ -312,12 +316,14 @@ fn handle_frame(
 ) -> Vec<u8> {
     let op = match nexus_abi::updated::decode_request_op(frame) {
         Some(op) => op,
-        None => return rsp(OP_STAGE, STATUS_MALFORMED, &[]),
+        None => return rsp(OP_STAGE_SOURCE, STATUS_MALFORMED, &[]),
     };
 
     let _ = statefs;
     match op {
-        OP_STAGE => handle_stage(state, frame),
+        OP_STAGE_SOURCE => crate::stage_os::handle_stage_source(state, frame),
+        OP_FEED_LIST => crate::stage_os::handle_feed_list(frame),
+        OP_CHECK => crate::stage_os::handle_check(frame),
         OP_SWITCH => handle_switch(state, frame),
         OP_HEALTH_OK => handle_health_ok(frame),
         OP_GET_STATUS => handle_get_status(),
@@ -327,82 +333,6 @@ fn handle_frame(
             rsp(OP_LOG_PROBE, STATUS_OK, &[])
         }
         _ => rsp(op, STATUS_UNSUPPORTED, &[]),
-    }
-}
-
-fn handle_stage(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
-    let payload = match nexus_abi::updated::decode_stage_req(frame) {
-        Some(bytes) => bytes,
-        None => return rsp(OP_STAGE, STATUS_MALFORMED, &[]),
-    };
-    // Phase-2 (RFC-0026): keep stage payloads explicitly within bounded inline frame limits.
-    // Larger artifacts must use the existing bulk path contract (not ad-hoc control-plane growth).
-    if payload.len().saturating_add(8) > MAX_STAGE_FRAME {
-        audit("stage", "fail", Some("oversized-inline"));
-        return rsp(OP_STAGE, STATUS_MALFORMED, &[]);
-    }
-
-    let verifier = KeystoredVerifier;
-    // Cooperative-yield throttling: this must yield often enough to avoid starving other
-    // services/selftests under the cooperative scheduler (QEMU smoke determinism).
-    let mut yield_ticks: u32 = 0;
-    match SystemSet::parse_with_yield(payload, &verifier, updates::trust::BAKED_PUBLISHERS, || {
-        yield_ticks = yield_ticks.wrapping_add(1);
-        // Yield every 8 ticks (tuned for QEMU). Too-infrequent yielding can freeze bring-up.
-        if (yield_ticks & 0x7) == 0 {
-            let _ = nexus_abi::yield_();
-        }
-    }) {
-        Ok(_) => {
-            // TASK-0050 PR-2: the slot mutation + persistence live in
-            // bootctld now (ADR-0055); updated keeps verification + the
-            // staged payload, the authority keeps the record.
-            match bootctl_client::call(bootctld::wire::OP_STAGE, None) {
-                Some(reply) if reply.status == bootctld::wire::STATUS_OK => {
-                    state.staged = Some(payload.to_vec());
-                    state.staged_slot = None;
-                    audit("stage", "ok", None);
-                    rsp(OP_STAGE, STATUS_OK, &[])
-                }
-                Some(_) => {
-                    audit("stage", "fail", Some("persist"));
-                    rsp(OP_STAGE, STATUS_FAILED, &[])
-                }
-                None => {
-                    audit("stage", "fail", Some("bootctld-unreachable"));
-                    rsp(OP_STAGE, STATUS_FAILED, &[])
-                }
-            }
-        }
-        Err(err) => {
-            let (detail, marker) = stage_error_detail(&err);
-            if let Some(marker) = marker {
-                emit_line(marker);
-            }
-            audit("stage", "fail", Some(detail));
-            rsp(OP_STAGE, STATUS_FAILED, &[])
-        }
-    }
-}
-
-fn stage_error_detail(err: &SystemSetError) -> (&'static str, Option<&'static str>) {
-    match err {
-        SystemSetError::UntrustedPublisher => {
-            ("untrusted-publisher", Some("updated: stage rejected (untrusted publisher)"))
-        }
-        SystemSetError::InvalidSignature(_) => {
-            ("signature", Some("updated: stage rejected (signature)"))
-        }
-        SystemSetError::DigestMismatch { .. } => {
-            ("digest", Some("updated: stage rejected (digest)"))
-        }
-        SystemSetError::ArchiveTooLarge { .. } | SystemSetError::OversizedEntry { .. } => {
-            ("oversized", None)
-        }
-        SystemSetError::MissingEntry(_) => ("missing-entry", None),
-        SystemSetError::UnexpectedEntry { .. } => ("unexpected-entry", None),
-        SystemSetError::ArchiveMalformed(reason) => (*reason, None),
-        SystemSetError::InvalidIndex(reason) => (*reason, None),
     }
 }
 
@@ -421,6 +351,7 @@ fn handle_switch(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
                     return rsp(OP_SWITCH, STATUS_FAILED, &[]);
                 }
             };
+            state.staged_build = None;
             if let Err(reason) = bundlemgrd_set_active_slot(slot) {
                 // Compensation: the record already switched — roll it back
                 // and restore bundlemgrd's view of the surviving slot.
@@ -438,7 +369,6 @@ fn handle_switch(state: &mut UpdatedState, frame: &[u8]) -> Vec<u8> {
                 audit("switch", "fail", Some(reason));
                 return rsp(OP_SWITCH, STATUS_FAILED, &[]);
             }
-            state.staged = None;
             state.staged_slot = None;
             audit(
                 "switch",
@@ -493,8 +423,14 @@ fn handle_health_ok(frame: &[u8]) -> Vec<u8> {
 
 fn handle_get_status() -> Vec<u8> {
     match bootctl_client::call(bootctld::wire::OP_GET_STATUS, None) {
-        Some(reply) if reply.status == bootctld::wire::STATUS_OK && reply.payload_len == 4 => {
-            rsp(OP_GET_STATUS, STATUS_OK, &reply.payload)
+        // ADDITIVE-TAIL DISCIPLINE: bootctld's status payload GREW twice
+        // (TASK-0036-B projection fields, TASK-0179 floor). An exact
+        // `== 4` length check turned every one of those additions into a
+        // blanket FAILED here — and because every caller wraps this in
+        // `if let Ok(..)`, the breakage was SILENT: slot normalization
+        // simply stopped happening. Read the prefix, forward what came.
+        Some(reply) if reply.status == bootctld::wire::STATUS_OK && reply.payload_len >= 4 => {
+            rsp(OP_GET_STATUS, STATUS_OK, &reply.payload[..reply.payload_len])
         }
         _ => rsp(OP_GET_STATUS, STATUS_FAILED, &[]),
     }
@@ -618,7 +554,7 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
     }
 }
 
-struct KeystoredVerifier;
+pub(crate) struct KeystoredVerifier;
 
 impl SignatureVerifier for KeystoredVerifier {
     fn verify_ed25519(
@@ -634,20 +570,38 @@ impl SignatureVerifier for KeystoredVerifier {
         match crate::verify_policy::decide(keystored_verify(public_key, message, signature)) {
             crate::verify_policy::VerifyDecision::Accept => Ok(()),
             crate::verify_policy::VerifyDecision::Reject("keystored-invalid") => {
+                // ANTI-FAKE CROSS-CHECK: two independent verifiers over the
+                // SAME (key, message, signature) must agree. A disagreement
+                // is never "the publisher is bad" — it means one verifier
+                // hop is broken, and silently trusting the negative would
+                // turn a transport defect into a supply-chain accusation.
+                // keystored's verdict still stands (RFC-0089 §4: it is
+                // FINAL); the disagreement is reported LOUDLY.
+                if local_verify(public_key, message, signature).is_ok() {
+                    emit_line("updated: verifier disagreement (keystored invalid, local ok)");
+                }
                 Err(VerifyError::InvalidSignature)
             }
             crate::verify_policy::VerifyDecision::Reject(detail) => {
+                // The DETAIL is the whole diagnostic value of a backend
+                // reject — an unnamed one reads exactly like a bad
+                // signature and sends the reader hunting the wrong bytes.
+                emit_bytes(b"updated: verify backend reject (");
+                emit_bytes(detail.as_bytes());
+                emit_bytes(b")\n");
                 Err(VerifyError::Backend(detail))
             }
-            crate::verify_policy::VerifyDecision::FallbackLocal(_) => {
-                emit_line("updated: verify fallback (keystored unavailable)");
+            crate::verify_policy::VerifyDecision::FallbackLocal(detail) => {
+                emit_bytes(b"updated: verify fallback (keystored unavailable: ");
+                emit_bytes(detail.as_bytes());
+                emit_bytes(b")\n");
                 local_verify(public_key, message, signature)
             }
         }
     }
 }
 
-fn local_verify(
+pub(crate) fn local_verify(
     public_key: &[u8; 32],
     message: &[u8],
     signature: &[u8; 64],
@@ -726,7 +680,7 @@ fn keystored_verify(
     }
 }
 
-fn rsp(op: u8, status: u8, payload: &[u8]) -> Vec<u8> {
+pub(crate) fn rsp(op: u8, status: u8, payload: &[u8]) -> Vec<u8> {
     // Response: [MAGIC0, MAGIC1, VER, op|0x80, status, len:u16le, payload...]
     let mut out = Vec::with_capacity(7 + payload.len());
     out.push(MAGIC0);
@@ -740,7 +694,7 @@ fn rsp(op: u8, status: u8, payload: &[u8]) -> Vec<u8> {
     out
 }
 
-fn audit(op: &str, status: &str, detail: Option<&str>) {
+pub(crate) fn audit(op: &str, status: &str, detail: Option<&str>) {
     // RFC-0068: updated's audit echoes fold out of the collapsed overview
     // (`NEXUS_LOG_EXPAND=updated` to recall); proof boots (fold off) print them.
     if nexus_abi::service_trace() {
@@ -777,13 +731,13 @@ fn emit_byte(byte: u8) {
     let _ = debug_putc(byte);
 }
 
-fn emit_bytes(bytes: &[u8]) {
+pub(crate) fn emit_bytes(bytes: &[u8]) {
     for &b in bytes {
         emit_byte(b);
     }
 }
 
-fn emit_line(message: &str) {
+pub(crate) fn emit_line(message: &str) {
     // Verdict folding: pre-`ready` markers tally into `updated N/N`; post-`ready` runtime lines fold
     // into recall-only detail (`NEXUS_LOG_EXPAND=updated`). Failures & proof boots print live & raw.
     if nexus_abi::service_line(message.as_bytes()) {

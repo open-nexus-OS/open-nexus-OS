@@ -346,7 +346,7 @@ pub(crate) fn wire_services(
                         debug_write_byte(b'\n');
                     }
 
-                    // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
+                    // Reply inbox for CAP_MOVE reply routing (log sinks).
                     let reply_ep =
                         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
                             .map_err(InitError::Abi)?;
@@ -415,7 +415,7 @@ pub(crate) fn wire_services(
                 let _ = nexus_abi::cap_close(bnd_exe_req);
                 let _ = nexus_abi::cap_close(bnd_exe_rsp);
 
-                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
+                // Reply inbox for CAP_MOVE reply routing (log sinks).
                 let reply_ep =
                     nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
                         .map_err(InitError::Abi)?;
@@ -465,17 +465,12 @@ pub(crate) fn wire_services(
                 }
 
                 let transfer = |cap: u32, rights: Rights, label: &'static str| -> Option<u32> {
-                    match nexus_abi::cap_transfer(pid, cap, rights) {
-                        Ok(slot) => Some(slot),
-                        Err(err) => {
-                            debug_write_bytes(b"init: updated cap transfer fail ");
-                            debug_write_str(label);
-                            debug_write_bytes(b" err=");
-                            debug_write_str(abi_error_label(err.clone()));
-                            debug_write_byte(b'\n');
-                            None
-                        }
-                    }
+                    nexus_abi::cap_transfer(pid, cap, rights).ok().or_else(|| {
+                        debug_write_bytes(b"init: updated cap transfer fail ");
+                        debug_write_str(label);
+                        debug_write_byte(b'\n');
+                        None
+                    })
                 };
 
                 // Allow updated to call bundlemgrd (slot-aware publication).
@@ -506,7 +501,7 @@ pub(crate) fn wire_services(
                     }
                 }
 
-                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
+                // Reply inbox for CAP_MOVE reply routing (log sinks).
                 let reply_ep =
                     nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
                         .map_err(InitError::Abi)?;
@@ -519,21 +514,20 @@ pub(crate) fn wire_services(
                     chan.reply_send_slot = Some(reply_send_slot);
                     chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
                     if iw(init_wire, init_fold, "init:updated") {
-                        debug_write_bytes(b"init: updated reply recv slot=0x");
+                        debug_write_bytes(b"init: updated reply slots recv=0x");
                         debug_write_hex(reply_recv_slot as usize);
-                        debug_write_byte(b'\n');
-                    }
-                    if iw(init_wire, init_fold, "init:updated") {
-                        debug_write_bytes(b"init: updated reply send slot=0x");
+                        debug_write_bytes(b" send=0x");
                         debug_write_hex(reply_send_slot as usize);
                         debug_write_byte(b'\n');
                     }
                 }
                 let _ = nexus_abi::cap_close(reply_ep);
 
-                // TASK-0050 PR-2 (ADR-0055): updated delegates every slot
-                // mutation to bootctld — clone the pre-minted request
-                // endpoint so the responder can answer the named route.
+                crate::bootstrap::blk_plane::wire_updated_vfs_leg(pid, chan, eps, reply_recv_slot);
+
+                // TASK-0050 PR-2 (ADR-0055): slot mutations delegate to
+                // bootctld — clone the pre-minted request endpoint so the
+                // responder can answer the named route.
                 if let Some((boot_req, _)) = eps.server_pair(ServiceId::Bootctld) {
                     if let Ok(clone) = nexus_abi::cap_clone(boot_req) {
                         if let Ok(send_slot) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
@@ -545,7 +539,7 @@ pub(crate) fn wire_services(
                     }
                 }
 
-                // TASK-0006: allow updated to send structured logs to logd via CAP_MOVE (reply inbox).
+                // TASK-0006: structured logs to logd via CAP_MOVE.
                 if let Some(req) = log_req {
                     if let Some(send_slot) = transfer(req, Rights::SEND, "logd send") {
                         chan.set_send(ServiceId::Logd, send_slot);

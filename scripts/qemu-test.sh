@@ -713,6 +713,39 @@ case "${PROFILE:-full}" in
       "init: ready"
     )
     ;;
+  ota-flip)
+    # TASK-0179 CROWN LANE: two boots in ONE uart. The guest runs the
+    # reduced `ota-flip` phase scope, so the headless service ladder does
+    # not apply — this list is the FLIP itself, end to end:
+    #   boot 1  stage the real container -> switch -> reset
+    #   loader  picks the new slot from the projected BSB (DIFFERENT build)
+    #   boot 2  running the new slot -> quorum -> commit -> floor raised
+    # The `slot=a` loader rungs are prepended globally (boot 1); the
+    # `slot=b` rungs below are the proof that the flip happened BEFORE any
+    # OS code ran.
+    expected_sequence=(
+      "neuron vers."
+      "init: start"
+      "init: ready"
+      "updated: stage begin (source=/updates/os-B.nxs)"
+      "updated: component boot-image verified (build=otaB"
+      "updated: stage done (slot=b build=otaB"
+      "bootctld: switch scheduled (to=b)"
+      "bootctld: bsb sync (seq="
+      "SELFTEST: ota flip staged ok"
+      "nxboot: tries 2->1 (slot=b trial)"
+      "nxboot: verify ok (slot=b build=otaB"
+      "nxboot: jump slot=b"
+      "bootctld: health quorum ok (2/2)"
+      "bootctld: commit ok (slot=b)"
+      "bootctld: rollback-min raised ("
+      "SELFTEST: ota flip ok"
+    )
+    # This lane runs the reduced bringup+end scope, so the shared OTA-phase
+    # guards below (quorum/tamper/downgrade) describe a cycle it never
+    # runs — they belong to the headless lane that owns that cycle.
+    OTA_PHASE_GUARDS=0
+    ;;
   headless|smp1|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain)
     # Use a reduced expected sequence for headless — omits display-gated
     # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
@@ -1814,7 +1847,7 @@ fi
 # TASK-0036-A guard: a quorum FAIL means health-commit v2 never completed
 # (or committed without the full mask) — the OTA health claim would be
 # fake green either way.
-if grep -aFq "SELFTEST: bootctl quorum FAIL" "$UART_LOG"; then
+if [[ "${OTA_PHASE_GUARDS:-1}" == "1" ]] && grep -aFq "SELFTEST: bootctl quorum FAIL" "$UART_LOG"; then
   echo "[error] first_failed_phase=ota missing_marker='SELFTEST: bootctl quorum ok'" >&2
   echo "[error] health-commit quorum did not complete (or committed early)" >&2
   grep -a "bootctld: health quorum\|bootctld: commit deadline\|SELFTEST: ota health\|SELFTEST: bootctl quorum" "$UART_LOG" | head -n 8 >&2

@@ -85,7 +85,7 @@ impl<F: FnOnce() + Send> ReadyNotifier<F> {
     }
 }
 
-struct Namespace {
+pub(crate) struct Namespace {
     view: NamespaceView,
 }
 
@@ -127,7 +127,7 @@ impl Namespace {
         Err(Error::InvalidPath)
     }
 
-    fn open(&self, path: &str) -> Result<FileHandle> {
+    pub(crate) fn open(&self, path: &str) -> Result<FileHandle> {
         // Prefer real data from packagefsd for pkg:/ paths.
         let entry = if path.starts_with("pkg:/") {
             self.packagefs_resolve(path)?
@@ -203,9 +203,9 @@ struct Entry {
     bytes: Vec<u8>,
 }
 
-struct FileHandle {
+pub(crate) struct FileHandle {
     owner_service_id: u64,
-    bytes: Vec<u8>,
+    pub(crate) bytes: Vec<u8>,
 }
 
 /// Runs the cooperative vfsd loop and emits a readiness marker once.
@@ -243,7 +243,7 @@ fn targets_home(frame: &[u8]) -> bool {
 }
 
 /// A path belongs to the user home (nxfs) unless it is a read-only package path.
-fn is_home_path(path: &str) -> bool {
+pub(crate) fn is_home_path(path: &str) -> bool {
     !path.starts_with("pkg:")
 }
 
@@ -258,99 +258,12 @@ fn data_unavailable(opcode: u8) -> Vec<u8> {
 
 /// Queries a VMO capability's byte length (RFC-0040 `cap_query`, `kind_tag` 1 =
 /// VMO). `None` when the slot is not a VMO the caller granted.
-fn vmo_len(slot: u32) -> Option<usize> {
+pub(crate) fn vmo_len(slot: u32) -> Option<usize> {
     let mut query = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     if nexus_abi::cap_query(slot, &mut query).is_err() || query.kind_tag != 1 {
         return None;
     }
     Some(query.len as usize)
-}
-
-/// Writes the splice header at VMO offset 0. Call this AFTER the payload write
-/// (release ordering): a client that sees the magic must see complete bytes.
-fn write_splice_header(vmo: u32, status: u16, len: u32) {
-    let hdr = nexus_vfs_types::encode_splice_header(status, len);
-    let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
-}
-
-/// Serves an `OP_READ_VMO` request (RFC-0072 Phase 3): resolve the path to
-/// bytes (nxfs `/data` or read-only `pkg:/`), write them into the caller's
-/// moved VMO payload-first + header-last, then close the moved cap. The header
-/// carries the RFC-0072 status; oversize-for-VMO is `E2BIG`, never truncated.
-#[allow(clippy::too_many_arguments)]
-fn handle_read_vmo(
-    frame: &[u8],
-    vmo_slot: Option<u32>,
-    namespace: &Namespace,
-    data: &mut Option<nxfsd::DataStore>,
-    data_attempts: &mut u8,
-    max_data_attempts: u8,
-    splice_bytes: &mut u64,
-    splice_fallbacks: &mut u64,
-) {
-    let Some(vmo) = vmo_slot else {
-        *splice_fallbacks += 1;
-        debug_print("vfsd: FAIL splice (no vmo cap)\n");
-        return;
-    };
-    let path = match nexus_vfs_types::decode_read_vmo_request(&frame[1..]) {
-        Some(path) => path,
-        None => {
-            write_splice_header(vmo, VfsError::Invalid.code(), 0);
-            let _ = nexus_abi::cap_close(vmo);
-            return;
-        }
-    };
-    // The caller's VMO capacity bounds the payload (minus the header prefix).
-    let max_payload = match vmo_len(vmo) {
-        Some(cap) if cap > nexus_vfs_types::SPLICE_DATA_OFFSET => {
-            cap - nexus_vfs_types::SPLICE_DATA_OFFSET
-        }
-        _ => {
-            *splice_fallbacks += 1;
-            write_splice_header(vmo, VfsError::Io.code(), 0);
-            let _ = nexus_abi::cap_close(vmo);
-            return;
-        }
-    };
-    // Resolve bytes from the owning provider (one surface, two providers).
-    let bytes: core::result::Result<Vec<u8>, VfsError> = if is_home_path(&path) {
-        if data.is_none() && *data_attempts < max_data_attempts {
-            *data_attempts += 1;
-            *data = nxfsd::DataStore::acquire();
-        }
-        match data.as_ref() {
-            Some(store) => store.read_bytes(&path, max_payload),
-            None => Err(VfsError::Io),
-        }
-    } else if path.starts_with("pkg:/") {
-        namespace.open(&path).map(|handle| handle.bytes).map_err(|_| VfsError::NotFound)
-    } else {
-        Err(VfsError::NotFound)
-    };
-    match bytes {
-        Ok(bytes) if bytes.len() <= max_payload => {
-            // Payload FIRST, header LAST — the release fence for the poller.
-            if nexus_abi::vmo_write(vmo, nexus_vfs_types::SPLICE_DATA_OFFSET, &bytes).is_ok() {
-                write_splice_header(vmo, nexus_vfs_types::CODE_OK, bytes.len() as u32);
-                *splice_bytes = splice_bytes.saturating_add(bytes.len() as u64);
-                debug_print(&format!(
-                    "vfsd: vmo splice read ok (bytes={}, fallbacks={})\n",
-                    bytes.len(),
-                    *splice_fallbacks
-                ));
-            } else {
-                *splice_fallbacks += 1;
-                write_splice_header(vmo, VfsError::Io.code(), 0);
-            }
-        }
-        Ok(_) => {
-            // Bytes exceed the caller's VMO — E2BIG, never a partial read.
-            write_splice_header(vmo, VfsError::TooBig.code(), 0);
-        }
-        Err(err) => write_splice_header(vmo, err.code(), 0),
-    }
-    let _ = nexus_abi::cap_close(vmo);
 }
 
 fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
@@ -365,6 +278,10 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     // VMO and the number of reads that could NOT splice (honest fallback count).
     let mut splice_bytes: u64 = 0;
     let mut splice_fallbacks: u64 = 0;
+    // TASK-0179: ONE reusable 64 KiB splice window for the lifetime of the
+    // service. The bump heap never frees, so a per-request window buffer
+    // would leak the size of every file ever spliced.
+    let mut splice_window = alloc::vec![0u8; 64 * 1024];
     loop {
         // CAP_MOVE-aware receive: app-host children move a one-shot reply cap
         // into the request (their private inbox); direct clients (selftest)
@@ -389,7 +306,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                         core::mem::forget(cap);
                         slot
                     });
-                    handle_read_vmo(
+                    crate::splice_os::handle_read_vmo(
                         &frame,
                         vmo_slot,
                         &namespace,
@@ -398,6 +315,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                         MAX_DATA_ATTEMPTS,
                         &mut splice_bytes,
                         &mut splice_fallbacks,
+                        &mut splice_window,
                     );
                     continue;
                 }
@@ -566,7 +484,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     }
 }
 
-fn debug_print(_s: &str) {
+pub(crate) fn debug_print(_s: &str) {
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
     let _ = nexus_abi::debug_write(_s.as_bytes());
 }

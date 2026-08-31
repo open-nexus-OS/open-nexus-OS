@@ -273,6 +273,16 @@ ci-os-smp1:
 ci-os-reset:
     just test-os reset
 
+# TASK-0179 CROWN LANE: the first update that actually changes what the
+# machine boots. Boot 1 stages the real `os-B.nxs` into the inactive slot
+# and schedules the switch; the SBI reset hands the decision to nxboot,
+# which picks the new slot from the projected BSB and prints a DIFFERENT
+# build id; boot 2 proves the machine runs it and the quorum commits it.
+# Both boots land in ONE uart stream (profile owns the topology; the
+# widened timeout lives in qemu-test.sh's ota-flip arm).
+ci-os-ota:
+    just test-os ota-flip
+
 # SMP=2 REAL-PARALLELISM lane (MTTCG, icount impossible — it forces
 # single-threaded round-robin vCPUs and would kill the cpu1/per-hart/IPI
 # proofs). MTTCG + host-scheduling variance make several of its timing proofs
@@ -592,6 +602,7 @@ test-all:
     just lint-kernel
     just ci-os-smp1
     just ci-os-reset
+    just ci-os-ota
     @scripts/hypothesis-log.sh H5 "justfile:test-all:end" "aggregate gate completed"
 
 # -----------------------------------------------------------------------------

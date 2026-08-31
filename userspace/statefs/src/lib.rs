@@ -639,10 +639,11 @@ mod tests {
 
     fn write_bytes_to_device(device: &mut MemBlockDevice, bytes: &[u8]) {
         let block_size = device.block_size();
-        let blocks = device.raw_storage_mut();
-        let capacity = block_size * blocks.len();
+        let block_count = device.block_count() as usize;
+        let capacity = block_size * block_count;
         assert!(bytes.len() <= capacity, "fixture bytes exceed device capacity");
-        for (idx, block) in blocks.iter_mut().enumerate() {
+        for idx in 0..block_count {
+            let Some(block) = device.raw_block_mut(idx as u64) else { break };
             block.fill(0);
             let start = idx * block_size;
             if start >= bytes.len() {
@@ -710,7 +711,7 @@ mod tests {
         let mut device = engine.device;
 
         // Corrupt a byte in the key area
-        device.raw_storage_mut()[0][11] ^= 0xFF;
+        device.raw_block_mut((0) as u64).unwrap()[11] ^= 0xFF;
 
         // Reopen should stop at corrupted record
         let engine = JournalEngine::open(device).unwrap();
@@ -749,11 +750,11 @@ mod tests {
     fn test_reject_malformed_record() {
         // Create device with garbage data that looks like a valid magic but has invalid opcode
         let mut device = MemBlockDevice::new(512, 10);
-        let block = device.raw_storage_mut();
+        let block = device.raw_block_mut(0).unwrap();
         // Write magic
-        block[0][0..4].copy_from_slice(&JOURNAL_MAGIC.to_le_bytes());
+        block[0..4].copy_from_slice(&JOURNAL_MAGIC.to_le_bytes());
         // Invalid opcode
-        block[0][4] = 0xFF;
+        block[4] = 0xFF;
 
         // Should stop at invalid record
         let engine = JournalEngine::open(device).unwrap();

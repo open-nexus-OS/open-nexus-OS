@@ -88,6 +88,21 @@ runner = "scripts/qemu-test.sh"
 extends = "headless"
 env = { NEXUS_SELFTEST_PROFILE = "reset", REQUIRE_RESET_PROOF = "1" }
 
+# TASK-0179 CROWN LANE: the two-boot OTA flip. Boot 1 stages the real
+# `os-B.nxs` into the inactive slot and schedules the switch, then SBI-
+# resets; the LOADER picks the new slot from the projected BSB and boot 2
+# proves the machine is running it (different build id in the same uart)
+# before the quorum commits it. Reduced phase scope (`ota-flip` runtime
+# profile) keeps the lane about the flip and nothing else.
+# Phase scope comes from the GUEST side (`RuntimeProfile::OtaFlip` maps to
+# the same reduced `Profile::Ota` set) — the name lives in ONE catalog, so
+# it is declared here and never mirrored in runtime.toml (profile names
+# share a single namespace across both files).
+[profile.ota-flip]
+runner = "scripts/qemu-test.sh"
+extends = "headless"
+env = { NEXUS_SELFTEST_PROFILE = "ota-flip", REQUIRE_OTA_FLIP = "1" }
+
 [profile.dhcp]
 runner = "scripts/qemu-test.sh"
 extends = "headless"

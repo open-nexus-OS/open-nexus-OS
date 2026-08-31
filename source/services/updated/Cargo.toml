@@ -34,6 +34,10 @@ os-lite = [
     "dep:statefs",
     "statefs/ipc-client",
     "statefs/os-lite",
+    "dep:storage",
+    "storage/os-lite",
+    "dep:nexus-vfs-types",
+    "dep:sha2",
 ]
 
 [lib]
@@ -56,6 +60,10 @@ statefs = { path = "../../../userspace/statefs", optional = true, default-featur
 # TASK-0050 PR-2 (ADR-0055): the boot-state authority's wire constants —
 # updated delegates every slot mutation to bootctld.
 bootctld = { path = "../bootctld", optional = true, default-features = false }
+# TASK-0179: partition-scoped slot writes + the vfsd splice data plane.
+storage = { path = "../../../userspace/storage", optional = true, default-features = false }
+nexus-vfs-types = { path = "../../../userspace/vfs-types", optional = true, default-features = false }
+sha2 = { version = "0.10", optional = true, default-features = false }
 
 [[bin]]
 name = "updated"

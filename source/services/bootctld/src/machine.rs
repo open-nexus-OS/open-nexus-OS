@@ -64,6 +64,11 @@ pub struct QuorumProgress {
     pub need: u8,
     /// True exactly when this report completed the quorum (commit fired).
     pub complete: bool,
+    /// Slot the commit blessed (set only when `complete`).
+    pub committed_slot: Option<Slot>,
+    /// TASK-0179 (§10 commit rung): `(old, new)` when the commit raised
+    /// the anti-downgrade floor to the staged index.
+    pub floor_raised: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,8 +82,12 @@ pub struct BootCtrl {
     boot_target: BootTarget,
     next_boot: Option<BootTarget>,
     /// Anti-downgrade floor (RFC-0089 §10). Field lands with record v3;
-    /// RAISING it on commit is TASK-0179's apply-engine scope.
+    /// the commit-time RAISE (TASK-0179) pulls from `staged_rollback_index`.
     rollback_min_index: u32,
+    /// Rollback index of the last staged container (record v4; updated
+    /// declares it at OP_STAGE after the device-anchor verify). Consumed
+    /// by the health commit to raise the floor. 0 = nothing staged.
+    staged_rollback_index: u32,
     /// Health-commit v2 quorum: confirmed reporter bits since the last
     /// switch (RFC-0089 §13). Cleared when a switch arms a new trial.
     health_mask: u8,
@@ -98,6 +107,7 @@ impl BootCtrl {
             health_ok: false,
             boot_target: BootTarget::Normal,
             next_boot: None,
+            staged_rollback_index: 0,
             rollback_min_index: 0,
             health_mask: 0,
             commit_deadline_ns: 0,
@@ -119,6 +129,7 @@ impl BootCtrl {
         rollback_min_index: u32,
         health_mask: u8,
         commit_deadline_ns: u64,
+        staged_rollback_index: u32,
     ) -> Self {
         Self {
             active_slot,
@@ -129,6 +140,7 @@ impl BootCtrl {
             health_ok,
             boot_target,
             next_boot,
+            staged_rollback_index,
             rollback_min_index,
             health_mask,
             commit_deadline_ns,
@@ -187,6 +199,16 @@ impl BootCtrl {
     }
 
     /// Anti-downgrade floor (RFC-0089 §10).
+    pub fn staged_rollback_index(&self) -> u32 {
+        self.staged_rollback_index
+    }
+
+    /// TASK-0179: updated declares the verified container's rollback index
+    /// with the stage op; the commit raise consumes it.
+    pub fn set_staged_rollback_index(&mut self, index: u32) {
+        self.staged_rollback_index = index;
+    }
+
     pub fn rollback_min_index(&self) -> u32 {
         self.rollback_min_index
     }
@@ -256,24 +278,37 @@ impl BootCtrl {
         self.health_mask |= bit;
         let confirmed = self.health_mask & full_mask;
         let complete = confirmed == full_mask;
+        let mut committed_slot = None;
+        let mut floor_raised = None;
         if complete {
-            self.commit_internal();
+            committed_slot = Some(self.active_slot);
+            floor_raised = self.commit_internal();
         }
         Ok(QuorumProgress {
             have: confirmed.count_ones() as u8,
             need: full_mask.count_ones() as u8,
             complete,
+            committed_slot,
+            floor_raised,
         })
     }
 
     /// The commit itself — reachable only through a completed quorum
     /// (`report_health`); kept private so no path can bypass the mask.
-    fn commit_internal(&mut self) {
+    /// Returns `(old, new)` when the anti-downgrade floor raised
+    /// (RFC-0089 §10: the floor NEVER decreases).
+    fn commit_internal(&mut self) -> Option<(u32, u32)> {
         self.pending_slot = None;
         self.rollback_slot = None;
         self.tries_left = 0;
         self.health_ok = true;
         self.commit_deadline_ns = 0;
+        if self.staged_rollback_index > self.rollback_min_index {
+            let old = self.rollback_min_index;
+            self.rollback_min_index = self.staged_rollback_index;
+            return Some((old, self.rollback_min_index));
+        }
+        None
     }
 
     /// One boot attempt at wall-clock `now_ns`: a pending trial past its

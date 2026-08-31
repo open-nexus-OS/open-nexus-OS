@@ -1,10 +1,23 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Stage / log-probe helpers for the `updated` submodule —
-//!     * `updated_stage`     -- send `OP_STAGE` with the bring-up test bundle.
-//!     * `updated_log_probe` -- send the unsupported-op probe (0x7f) used by
-//!       the routing phase to confirm `updated` is wired and replying.
+//! CONTEXT: Stage / log-probe helpers for the `updated` submodule.
+//! TASK-0179 recut: staging is PATH-BASED (`OP_STAGE_SOURCE`) — the
+//! inline 8-KiB stage is gone, so these helpers name a container in
+//! `/updates/` on the data volume that `nx image fixtures` shipped at
+//! factory time (`/data` is the PARTITION name; the volume mounts at the
+//! VFS root):
+//!   * `updated_stage`          -- happy path, small VERIFY-only fixture.
+//!   * `updated_stage_real`     -- the real os-B container (crown lane).
+//!   * `updated_stage_deny`     -- deny lanes, asserting the reject code.
+//!   * `updated_log_probe`      -- unsupported-op probe (0x7f).
+//!
+//! WHY TWO CONTAINERS: the small fixture keeps the headless ladder fast
+//! (256 KiB instead of ~19 MB per stage) and is deliberately UNBOOTABLE
+//! (invalid NXBD `load_addr`) because it lands in a real slot partition —
+//! if a lane ever left it selected, the loader must refuse it loudly
+//! rather than jump into pattern bytes. Only the `ota` crown lane stages
+//! the real image, and that lane's whole point is booting it.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -22,7 +35,21 @@ use nexus_ipc::KernelClient;
 use crate::markers::emit_line;
 
 use super::reply_pump::{updated_expect_status, updated_send_with_reply};
-use super::types::{SYSTEM_TEST_NXS, SYSTEM_TEST_UNTRUSTED_NXS};
+
+/// Small verify-only container (fast, deliberately unbootable).
+pub(crate) const FIXTURE_PATH: &str = "/updates/os-fixture-b.nxs";
+/// The real os-B image the crown lane flips to.
+pub(crate) const REAL_PATH: &str = "/updates/os-B.nxs";
+/// Deny-lane containers (RFC-0089 §8 reject vocabulary).
+pub(crate) const UNTRUSTED_PATH: &str = "/updates/os-fixture-untrusted.nxs";
+pub(crate) const TAMPERED_PATH: &str = "/updates/os-fixture-tampered.nxs";
+pub(crate) const DOWNGRADE_PATH: &str = "/updates/os-fixture-downgrade.nxs";
+
+/// Reject codes echoed in the FAILED reply payload (updated's
+/// `reject_code`, mirroring `component_set::RejectReason`).
+pub(crate) const REJECT_UNTRUSTED_PUBLISHER: u8 = 1;
+pub(crate) const REJECT_DIGEST: u8 = 3;
+pub(crate) const REJECT_DOWNGRADE: u8 = 7;
 
 pub(crate) fn updated_stage(
     client: &KernelClient,
@@ -30,50 +57,77 @@ pub(crate) fn updated_stage(
     reply_recv_slot: u32,
     pending: &mut VecDeque<Vec<u8>>,
 ) -> core::result::Result<(), ()> {
-    let rsp = stage_payload(client, reply_send_slot, reply_recv_slot, pending, SYSTEM_TEST_NXS)?;
-    updated_expect_status(&rsp, nexus_abi::updated::OP_STAGE)?;
+    let rsp = stage_source(client, reply_send_slot, reply_recv_slot, pending, FIXTURE_PATH)?;
+    updated_expect_status(&rsp, nexus_abi::updated::OP_STAGE_SOURCE)?;
     Ok(())
 }
 
-/// TASK-0198 Phase 1 deny lane: stages a validly self-signed archive whose
-/// publisher is NOT in the device anchor and requires the FAILED status —
-/// an OK here means the trust anchor is not enforced (the pre-fix hole).
+/// Crown lane (TASK-0179): stage the REAL os-B container — the bytes the
+/// next boot actually runs.
+pub(crate) fn updated_stage_real(
+    client: &KernelClient,
+    reply_send_slot: u32,
+    reply_recv_slot: u32,
+    pending: &mut VecDeque<Vec<u8>>,
+) -> core::result::Result<(), ()> {
+    let rsp = stage_source(client, reply_send_slot, reply_recv_slot, pending, REAL_PATH)?;
+    updated_expect_status(&rsp, nexus_abi::updated::OP_STAGE_SOURCE)?;
+    Ok(())
+}
+
+/// Deny lane: the stage MUST come back FAILED with the expected stable
+/// reject code. An OK here means a verification gate is not enforced.
+pub(crate) fn updated_stage_deny(
+    client: &KernelClient,
+    reply_send_slot: u32,
+    reply_recv_slot: u32,
+    pending: &mut VecDeque<Vec<u8>>,
+    path: &str,
+    expect_code: u8,
+) -> core::result::Result<(), ()> {
+    let rsp = stage_source(client, reply_send_slot, reply_recv_slot, pending, path)?;
+    // Response framing: [M0, M1, VER, op|0x80, status, len:u16le, code...]
+    if rsp.len() < 8 || rsp[4] != nexus_abi::updated::STATUS_FAILED || rsp[7] != expect_code {
+        return Err(());
+    }
+    Ok(())
+}
+
+/// TASK-0198 Phase 1 deny lane (kept as a named helper: the untrusted
+/// publisher reject is its own proof rung).
 pub(crate) fn updated_stage_untrusted_deny(
     client: &KernelClient,
     reply_send_slot: u32,
     reply_recv_slot: u32,
     pending: &mut VecDeque<Vec<u8>>,
 ) -> core::result::Result<(), ()> {
-    let rsp = stage_payload(
+    updated_stage_deny(
         client,
         reply_send_slot,
         reply_recv_slot,
         pending,
-        SYSTEM_TEST_UNTRUSTED_NXS,
-    )?;
-    // Response framing: [M0, M1, VER, op|0x80, status, len:u16le, ...]
-    if rsp.len() < 7 || rsp[4] != nexus_abi::updated::STATUS_FAILED {
-        return Err(());
-    }
-    Ok(())
+        UNTRUSTED_PATH,
+        REJECT_UNTRUSTED_PUBLISHER,
+    )
 }
 
-fn stage_payload(
+fn stage_source(
     client: &KernelClient,
     reply_send_slot: u32,
     reply_recv_slot: u32,
     pending: &mut VecDeque<Vec<u8>>,
-    payload: &[u8],
+    path: &str,
 ) -> core::result::Result<Vec<u8>, ()> {
-    let mut frame = Vec::with_capacity(8 + payload.len());
-    frame.resize(8 + payload.len(), 0u8);
-    let n = nexus_abi::updated::encode_stage_req(payload, &mut frame).ok_or(())?;
+    let bytes = path.as_bytes();
+    let mut frame = Vec::with_capacity(8 + bytes.len());
+    frame.resize(8 + bytes.len(), 0u8);
+    let n = nexus_abi::updated::encode_stage_source_req(bytes, &mut frame).ok_or(())?;
     emit_line(crate::markers::M_SELFTEST_UPDATED_STAGE_SEND);
     updated_send_with_reply(
         client,
         reply_send_slot,
         reply_recv_slot,
-        nexus_abi::updated::OP_STAGE,
+        nexus_abi::updated::OP_STAGE_SOURCE,
         &frame[..n],
         pending,
     )

@@ -234,7 +234,7 @@ fn test_reject_corrupted_crc_mid_journal() {
     let r1 = encode_record(JournalOpCode::Put, "/state/test/first", b"one");
     let corrupt_at = r1.len() + 15 + 2; // header(15) + 2 bytes into the key
     let block = corrupt_at / BLOCK_SIZE;
-    device.raw_storage_mut()[block][corrupt_at % BLOCK_SIZE] ^= 0xFF;
+    device.raw_block_mut((block) as u64).unwrap()[corrupt_at % BLOCK_SIZE] ^= 0xFF;
 
     let (report, device) = fsck(device, false);
     assert_eq!(report.outcome, FsckOutcome::Unrecoverable);
@@ -249,7 +249,7 @@ fn test_reject_corrupted_crc_mid_journal() {
     engine.put("/state/test/first", b"one").expect("put");
     engine.put("/state/test/second", b"two").expect("put");
     let mut device2 = engine.into_device();
-    device2.raw_storage_mut()[0][17] ^= 0xFF;
+    device2.raw_block_mut((0) as u64).unwrap()[17] ^= 0xFF;
     let (report, _) = fsck(device2, true);
     assert_eq!(report.outcome, FsckOutcome::Unrecoverable);
     assert!(!report.repaired);
@@ -266,7 +266,8 @@ fn corrupted_record_at_tail_is_discarded_residue_not_fatal() {
     let mut device = engine.into_device();
     let r1 = encode_record(JournalOpCode::Put, "/state/test/keep", b"stable content");
     let corrupt_at = r1.len() + 15 + 2; // 2 bytes into the LAST record's key
-    device.raw_storage_mut()[corrupt_at / BLOCK_SIZE][corrupt_at % BLOCK_SIZE] ^= 0xFF;
+    device.raw_block_mut((corrupt_at / BLOCK_SIZE) as u64).unwrap()[corrupt_at % BLOCK_SIZE] ^=
+        0xFF;
     let (report, _) = fsck(device, false);
     assert_eq!(report.outcome, FsckOutcome::Clean);
     assert!(report.tail_dirty);
@@ -279,7 +280,7 @@ fn test_reject_truncated_superblock() {
     let mut device = v2_image();
     // Keep the NXS2 magic, wipe the rest of the superblock (truncation-style
     // damage): the superblock no longer validates.
-    for byte in device.raw_storage_mut()[0][4..20].iter_mut() {
+    for byte in device.raw_block_mut((0) as u64).unwrap()[4..20].iter_mut() {
         *byte = 0;
     }
     let (report, device) = fsck(device, false);
@@ -296,7 +297,7 @@ fn test_reject_missing_checkpoint_at_snapshot_start() {
     // First compaction of a legacy journal activates region B; with 64
     // blocks the geometry is region_blocks=31, A=1..31, B=32..62.
     let region_first = 32usize;
-    device.raw_storage_mut()[region_first].fill(0);
+    device.raw_block_mut((region_first) as u64).unwrap().fill(0);
     let (report, _) = fsck(device, false);
     assert_eq!(report.outcome, FsckOutcome::Unrecoverable);
     let f = report.fault.expect("fault");

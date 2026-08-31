@@ -472,6 +472,13 @@ impl KernelServer {
         let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut sid: u64 = 0;
+        // ⚠ HARD 512-BYTE REQUEST BOUND. Frames above this are TRUNCATED
+        // (IPC_SYS_TRUNCATE), which a length-checking protocol then reports
+        // as "malformed" — a service can therefore advertise a large
+        // payload limit and still be structurally unable to receive it
+        // (that mismatch masked a real OTA failure as a bad signature).
+        // Any protocol whose requests can exceed 512 bytes MUST use
+        // `recv_request_with_meta_into` with a buffer it sizes itself.
         let mut buf = [0u8; 512];
         let n = nexus_abi::ipc_recv_v2(
             self.recv_slot,

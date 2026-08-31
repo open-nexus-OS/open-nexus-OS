@@ -38,6 +38,7 @@ pub mod system_set_capnp {
     include!(concat!(env!("OUT_DIR"), "/system_set_capnp.rs"));
 }
 
+pub mod component_set;
 pub mod system_set;
 
 /// Device publisher trust anchor, baked at build time from

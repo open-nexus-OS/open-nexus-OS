@@ -105,13 +105,16 @@ pub(crate) fn bootctl_persist_check() -> core::result::Result<(), ()> {
     // unwrap it (legacy raw bytes from pre-migration journals pass through).
     let stored = statefs::writer::open_stored(&bytes).map_err(|_| ())?;
     let payload = stored.payload();
-    // v1 (updated-era, 6 bytes), v2 (bootctld authority, 9 bytes with
-    // rollback + target axis — TASK-0050) or v3 (22 bytes with the
-    // RFC-0089 §13 quorum/deadline/floor fields — TASK-0036-A). Anything
-    // else is corrupt.
+    // Known record shapes: v1 (updated-era, 6 bytes), v2 (bootctld
+    // authority, 9 bytes with the rollback + target axis — TASK-0050),
+    // v3 (22 bytes, RFC-0089 §13 quorum/deadline/floor — TASK-0036-A) and
+    // v4 (26 bytes, + staged rollback index — TASK-0179). Anything else is
+    // corrupt. NOTE: every record version bump must land here too; the
+    // probe deliberately pins EXACT shapes, because a persisted record of
+    // an unknown length is the one thing this proof exists to catch.
     let valid = matches!(
         (payload.first().copied(), payload.len()),
-        (Some(BOOTCTL_VERSION), 6) | (Some(2), 9) | (Some(3), 22)
+        (Some(BOOTCTL_VERSION), 6) | (Some(2), 9) | (Some(3), 22) | (Some(4), 26)
     );
     if !valid {
         return Err(());

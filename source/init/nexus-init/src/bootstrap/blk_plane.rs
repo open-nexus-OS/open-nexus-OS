@@ -26,8 +26,10 @@ pub(crate) fn wire_blk_plane_for(chan: &CtrlChannel, eps: &Endpoints) {
     let Some(id) = ServiceId::from_name(chan.svc_name.as_bytes()) else { return };
     match id {
         // TASK-0036-B: bootctld projects the boot record to the `bsb`
-        // partition (ADR-0058 runtime writer) over the same fixed-slot plane.
-        ServiceId::Statefsd | ServiceId::Vfsd | ServiceId::Bootctld => {
+        // partition (ADR-0058 runtime writer) over the same fixed-slot
+        // plane. TASK-0179: updated writes the INACTIVE boot slot through
+        // it (the partition gate in virtioblkd scopes each sender).
+        ServiceId::Statefsd | ServiceId::Vfsd | ServiceId::Bootctld | ServiceId::Updated => {
             wire_blk_plane_client(chan.pid, chan.svc_name, eps.vblk_req);
         }
         ServiceId::Virtioblkd => {
@@ -88,6 +90,28 @@ pub(crate) fn wire_blk_deny_probe(ctrls: &mut [CtrlChannel], eps: &Endpoints) {
         ) {
             chan.set_send(crate::service_topology::ServiceId::Virtioblkd, bs);
             chan.set_recv(crate::service_topology::ServiceId::Virtioblkd, br);
+        }
+    }
+}
+
+/// TASK-0179: updated streams staging containers from the vfsd splice
+/// plane — clone the pre-minted vfsd request endpoint so the responder can
+/// answer the named route (replies ride the VMO header, not a response
+/// queue). Lives here with the rest of the storage-plane wiring rather
+/// than growing the bespoke arm in `wiring.rs`.
+pub(crate) fn wire_updated_vfs_leg(
+    pid: u32,
+    chan: &mut CtrlChannel,
+    eps: &Endpoints,
+    reply_recv_slot: Option<u32>,
+) {
+    use crate::service_topology::ServiceId;
+    let Some((vfs_req, _)) = eps.server_pair(ServiceId::Vfsd) else { return };
+    let Ok(clone) = nexus_abi::cap_clone(vfs_req) else { return };
+    if let Ok(send_slot) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
+        chan.set_send(ServiceId::Vfsd, send_slot);
+        if let Some(reply_recv_slot) = reply_recv_slot {
+            chan.set_recv(ServiceId::Vfsd, reply_recv_slot);
         }
     }
 }

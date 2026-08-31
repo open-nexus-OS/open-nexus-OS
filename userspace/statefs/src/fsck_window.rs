@@ -129,11 +129,12 @@ mod tests {
     /// Raw legacy-v1 image: records written back-to-back from block 0.
     fn raw_v1_image(blocks: u64, records: &[Vec<u8>]) -> MemBlockDevice {
         let mut device = MemBlockDevice::new(512, blocks);
-        let storage = device.raw_storage_mut();
         let mut pos = 0usize;
         for record in records {
             for &b in record.iter() {
-                storage[pos / 512][pos % 512] = b;
+                if let Some(block) = device.raw_block_mut((pos / 512) as u64) {
+                    block[pos % 512] = b;
+                }
                 pos += 1;
             }
         }
@@ -172,7 +173,9 @@ mod tests {
         let mut device = raw_v1_image(1024, &records);
         // Flip a byte inside record 50: its CRC breaks, records 51.. stay valid.
         let p = corrupt_at + 20;
-        device.raw_storage_mut()[p / 512][p % 512] ^= 0xFF;
+        if let Some(block) = device.raw_block_mut((p / 512) as u64) {
+            block[p % 512] ^= 0xFF;
+        }
         let (report, device) = fsck(device, false);
         assert_eq!(report.outcome, FsckOutcome::Unrecoverable);
         let f = report.fault.expect("fault");

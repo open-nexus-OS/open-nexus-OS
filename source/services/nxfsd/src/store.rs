@@ -191,10 +191,28 @@ impl DataStore {
         }
     }
 
-    /// Reads a whole file's bytes (bounded by `max`) for the VMO-splice data
-    /// plane (TASK-0295). Mount-relative path; errors map to `VfsError`.
-    pub fn read_bytes(&self, path: &str, max: usize) -> core::result::Result<Vec<u8>, VfsError> {
-        self.fs.read(&to_nxfs_path(path), 0, max).map_err(|err| err.to_vfs())
+    /// File size for the splice bounds check (TASK-0179 streaming plane).
+    pub fn stat_size(&self, path: &str) -> core::result::Result<u64, VfsError> {
+        let (kind, size) = self.fs.stat(&to_nxfs_path(path)).map_err(|err| err.to_vfs())?;
+        if kind != nexus_vfs_types::FileKind::File {
+            return Err(VfsError::IsDir);
+        }
+        Ok(size)
+    }
+
+    /// One bounded window of file bytes into a CALLER-OWNED buffer
+    /// (TASK-0179). Allocation-free by contract: the nxfs engine walks only
+    /// the touched extents and copies straight into `buf`. A per-window
+    /// `Vec` here would leak the whole file into the never-freeing service
+    /// bump heap (a 19 MB container = 290 windows) — that exact shape
+    /// killed vfsd once; do not reintroduce it.
+    pub fn read_window(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> core::result::Result<usize, VfsError> {
+        self.fs.read_into(&to_nxfs_path(path), offset, buf).map_err(|err| err.to_vfs())
     }
 
     fn handle_read(&self, payload: &[u8]) -> Vec<u8> {

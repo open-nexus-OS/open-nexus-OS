@@ -274,10 +274,45 @@ fn test_record_v2_to_v3_migration() {
     assert_eq!(boot.rollback_min_index(), 0);
     assert_eq!(boot.health_mask(), 0);
     assert_eq!(boot.commit_deadline_ns(), 0);
-    // Re-encode writes v3 (22 bytes).
+    // Re-encode writes v4 (26 bytes — TASK-0179 staged index appended).
     let encoded = encode_record(&boot);
-    assert_eq!(encoded[0], 3);
-    assert_eq!(encoded.len(), 22);
+    assert_eq!(encoded[0], 4);
+    assert_eq!(encoded.len(), 26);
+    assert_eq!(&encoded[22..26], &0u32.to_le_bytes(), "migrated staged index is zero");
+}
+
+#[test]
+fn test_record_v4_staged_index_roundtrip_and_commit_raise() {
+    // TASK-0179: the staged rollback index survives the encode/decode
+    // cycle (stage happens the boot BEFORE the commit) and the completed
+    // quorum raises the floor to it — never lowers it.
+    let mut boot = BootCtrl::new(Slot::A);
+    boot.stage();
+    boot.switch(2, 0).expect("switch");
+    boot.set_staged_rollback_index(3);
+    let encoded = encode_record(&boot);
+    assert_eq!(encoded[0], 4);
+    let restored = decode_record(&encoded).expect("roundtrip");
+    assert_eq!(restored.staged_rollback_index(), 3);
+
+    let mut rebooted = restored;
+    let p1 = rebooted.report_health(0b01, 0b11).expect("report 1");
+    assert!(!p1.complete);
+    assert_eq!(p1.floor_raised, None);
+    let p2 = rebooted.report_health(0b10, 0b11).expect("report 2");
+    assert!(p2.complete);
+    assert_eq!(p2.committed_slot, Some(Slot::B));
+    assert_eq!(p2.floor_raised, Some((0, 3)));
+    assert_eq!(rebooted.rollback_min_index(), 3);
+
+    // A second cycle staging a LOWER index never lowers the floor.
+    rebooted.stage();
+    rebooted.switch(2, 0).expect("switch 2");
+    rebooted.set_staged_rollback_index(1);
+    let p3 = rebooted.report_health(0b01, 0b01).expect("commit 2");
+    assert!(p3.complete);
+    assert_eq!(p3.floor_raised, None, "floor never decreases");
+    assert_eq!(rebooted.rollback_min_index(), 3);
 }
 
 // ---- rejects -------------------------------------------------------------------

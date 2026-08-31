@@ -177,25 +177,37 @@ prepare_blk_image() {
     exit 1
   fi
   local nx_bin="$TARGET_ROOT/release/nx"
-  if [[ ! -x "$nx_bin" ]]; then
-    echo "[info] building nx (image assembler)" >&2
-    # HOST build: the OS RUSTFLAGS (nexus_env=os) must not leak in — a
-    # host target with the os cfg breaks nexus-abi at the asm seam.
-    (cd "$ROOT" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS \
-      cargo build --release -p nx >/dev/null)
-  fi
+  # ALWAYS build (cargo no-ops when fresh): an `-x` existence check shipped
+  # a STALE assembler for a whole run once a new subcommand landed — the
+  # disk is only as current as the tool that writes it.
+  # HOST build: the OS RUSTFLAGS (nexus_env=os) must not leak in — a host
+  # target with the os cfg breaks nexus-abi at the asm seam.
+  (cd "$ROOT" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS \
+    cargo build --release -p nx >/dev/null)
   local build_id
   build_id="dev-$(sha256sum "$KERNEL_BIN" | cut -c1-8)"
   local sign_key="$ROOT/keys/dev-os-image.ed25519.seed"
+  local publisher_key="$ROOT/keys/dev-publisher.ed25519.seed"
   if [[ "$NEXUS_KEEP_BLK" == "1" && -f "$QEMU_BLK_IMG" ]]; then
     # Cold-boot persistence: keep state/data, refresh the boot slot to the
     # freshly built kernel (the end-state flasher write shape).
     "$nx_bin" image patch --image "$QEMU_BLK_IMG" --part boot-a \
-      --kernel "$KERNEL_BIN" --sign "$sign_key" --build-id "$build_id" >/dev/null
+      --kernel "$KERNEL_BIN" --sign "$sign_key" --build-id "$build_id" \
+      --rollback-index 1 >/dev/null
   else
+    # TASK-0179: factory data partition ships the OTA fixture set under
+    # /updates/ (trusted/untrusted/tampered/downgrade + the real os-B
+    # container the crown lane flips to).
+    "$nx_bin" image fixtures --kernel "$KERNEL_BIN" --data-out "$ROOT/build/data-seed.img" \
+      --sign-os "$sign_key" --sign-publisher "$publisher_key" \
+      --build-id "$build_id" >/dev/null
     rm -f "$QEMU_BLK_IMG"
+    # rollback-index 1 (not 0): the factory floor equals the shipped
+    # image's index, so a container at index 0 is a REAL downgrade and the
+    # anti-downgrade gate is testable on a fresh device.
     "$nx_bin" image build --kernel "$KERNEL_BIN" --out "$QEMU_BLK_IMG" \
-      --sign "$sign_key" --build-id "$build_id" >/dev/null
+      --sign "$sign_key" --build-id "$build_id" --rollback-index 1 \
+      --data "$ROOT/build/data-seed.img" >/dev/null
   fi
 }
 
@@ -459,6 +471,16 @@ monitor_uart_stream() {
       # used to waste up to ~85s per run; the fixed window stays as the
       # fallback when the ladder never finishes).
       local ladder_done_at=0
+      # PARTIAL-LINE ACCUMULATOR. `read -t` leaves whatever arrived so far in
+      # the variable and returns non-zero on timeout; echoing that as if it
+      # were a finished line SPLITS markers mid-token. Slow producers hit
+      # this constantly — the pre-OS loader writes byte-at-a-time over a
+      # polled uart, so a 100 ms gap inside one line is normal under TCG.
+      # Two real proofs were reported missing this way while the guest had
+      # printed them correctly ("n" + "xboot: verify ok …", "tatefsd:").
+      # Only a SUCCESSFUL read is a complete line; a timeout is a fragment
+      # that must wait for its tail.
+      local pending=""
       while true; do
         local now
         now=$(date +%s 2>/dev/null || echo 0)
@@ -467,15 +489,21 @@ monitor_uart_stream() {
           echo "[info] ladder end marker seen – early stop" >&2
           break
         fi
-        # Read as fast as lines arrive (max 100ms silence = buffer empty)
-        IFS= read -r -t 0.1 line 2>/dev/null || true
-        if [[ -n "$line" ]]; then
+        line=""
+        if IFS= read -r -t 0.1 line 2>/dev/null; then
+          line="$pending$line"
+          pending=""
           echo "$line"
           case "$line" in
             *"SELFTEST: ui resize ok"*|*"SELFTEST: Completed"*) ladder_done_at=$now ;;
           esac
+        else
+          # Timeout or EOF: keep the fragment, do NOT publish it.
+          pending="$pending$line"
         fi
       done
+      # Flush a trailing unterminated fragment so nothing is silently lost.
+      [[ -n "$pending" ]] && echo "$pending"
       echo "[info] init: ready seen, grace period done – stopping QEMU" >&2
       pkill -f qemu-system-riscv64 >/dev/null 2>&1 || true
       break

@@ -19,16 +19,21 @@ use storage::BlockDevice;
 use crate::checkpoint;
 use crate::dev::Dev;
 use crate::format::{
-    validate_name, CheckpointSlot, Superblock, Uuid, KIND_DIR, KIND_FILE, LOGICAL_BLOCK_SIZE,
-    MAX_DEPTH, ROOT_OBJECT,
+    validate_name, CheckpointSlot, Superblock, Uuid, KIND_DIR, LOGICAL_BLOCK_SIZE, MAX_DEPTH,
+    ROOT_OBJECT,
 };
 use crate::journal::{self, Op};
 use crate::state::{Extent, State};
-use crate::{DirEntry, FileKind, NxfsError, ReadDirPage, Result};
+use crate::{FileKind, NxfsError, Result};
 
 /// Bounded whole-file materialization for the offset-write path (Phase 1;
 /// the VMO bulk plane raises this seam in TASK-0295).
-pub const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
+/// Raised 4 MiB -> 64 MiB with the TASK-0179 streaming recut: reads walk
+/// extent windows and writes CoW only the touched block range, so no path
+/// materializes a whole file any more. The bound now tracks the boot-slot
+/// budget (56 MiB) with headroom — staging containers are the largest
+/// legitimate residents of this volume.
+pub const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// mkfs parameters. The UUID is injected (no RNG in the engine).
 #[derive(Debug, Clone, Copy)]
@@ -51,9 +56,9 @@ fn checkpoint_blocks(total_blocks: u64) -> u64 {
 
 /// The mounted filesystem.
 pub struct Nxfs<D: BlockDevice> {
-    dev: Dev<D>,
+    pub(crate) dev: Dev<D>,
     sb: Superblock,
-    state: State,
+    pub(crate) state: State,
     cp_blocks: u64,
     journal_head: usize,
     next_txn: u64,
@@ -229,118 +234,18 @@ impl<D: BlockDevice> Nxfs<D> {
         if object.kind == KIND_DIR {
             return Err(NxfsError::IsDir);
         }
-        let content = self.materialize(&object.extents, object.size)?;
-        let start = (offset.min(object.size)) as usize;
-        let end = start.saturating_add(len).min(content.len());
-        Ok(content[start..end].to_vec())
-    }
-
-    /// One bounded readdir page in canonical (byte) order.
-    pub fn read_dir(&self, path: &str, cursor: u32, limit: u16) -> Result<ReadDirPage> {
-        let id = self.resolve(path)?;
-        let object = self.state.objects.get(&id).ok_or(NxfsError::NotFound)?;
-        if object.kind != KIND_DIR {
-            return Err(NxfsError::NotDir);
+        // Streaming window read (TASK-0179): touch ONLY the blocks under
+        // the requested window — memory is bounded by the caller's `len`,
+        // never by the file size.
+        let start = offset.min(object.size);
+        let end = offset.saturating_add(len as u64).min(object.size);
+        if end <= start {
+            return Ok(Vec::new());
         }
-        let table = self.state.dirs.get(&id).ok_or(NxfsError::Integrity)?;
-        let entries: Vec<DirEntry> = table
-            .iter()
-            .map(|(name, (child, kind))| DirEntry {
-                name: name.clone(),
-                kind: if *kind == KIND_DIR { FileKind::Dir } else { FileKind::File },
-                size: self.state.objects.get(child).map_or(0, |o| o.size),
-            })
-            .collect();
-        let limit = limit.clamp(1, nexus_vfs_types::MAX_ENTRIES_PER_PAGE) as usize;
-        let start = (cursor as usize).min(entries.len());
-        let take = (entries.len() - start).min(limit);
-        let eof = start + take >= entries.len();
-        Ok(ReadDirPage {
-            entries: entries[start..start + take].to_vec(),
-            next_cursor: (start + take) as u32,
-            eof,
-        })
-    }
-
-    // ---- write surface (one txn per op) ------------------------------------
-
-    /// Creates an empty file (exclusive).
-    pub fn create(&mut self, path: &str) -> Result<()> {
-        self.mknode(path, KIND_FILE)
-    }
-
-    /// Creates a directory (exclusive).
-    pub fn mkdir(&mut self, path: &str) -> Result<()> {
-        self.mknode(path, KIND_DIR)
-    }
-
-    fn mknode(&mut self, path: &str, kind: u8) -> Result<()> {
-        let (parent, name) = self.resolve_parent(path)?;
-        validate_name(&name)?;
-        let table = self.state.dirs.get(&parent).ok_or(NxfsError::NotDir)?;
-        if table.contains_key(&name) {
-            return Err(NxfsError::Exists);
-        }
-        let id = self.state.next_object;
-        let ops = alloc::vec![Op::MkNode { parent, id, kind, name }];
-        self.run_txn(ops, &[])
-    }
-
-    /// Writes `data` at `offset`, extending the file as needed (bounded by
-    /// [`MAX_FILE_BYTES`]). Whole-content copy-on-write: fresh extents carry
-    /// the new content; old blocks free on commit.
-    pub fn write(&mut self, path: &str, offset: u64, data: &[u8]) -> Result<()> {
-        let id = self.resolve(path)?;
-        let object = self.state.objects.get(&id).ok_or(NxfsError::NotFound)?;
-        if object.kind == KIND_DIR {
-            return Err(NxfsError::IsDir);
-        }
-        let new_size = core::cmp::max(object.size, offset.saturating_add(data.len() as u64));
-        if new_size > MAX_FILE_BYTES {
-            return Err(NxfsError::TooBig);
-        }
-        let mut content = self.materialize(&object.extents, object.size)?;
-        content.resize(new_size as usize, 0);
-        content[offset as usize..offset as usize + data.len()].copy_from_slice(data);
-        self.rewrite(id, &content)
-    }
-
-    /// Truncates (or zero-extends) the file to `size`.
-    pub fn truncate(&mut self, path: &str, size: u64) -> Result<()> {
-        let id = self.resolve(path)?;
-        let object = self.state.objects.get(&id).ok_or(NxfsError::NotFound)?;
-        if object.kind == KIND_DIR {
-            return Err(NxfsError::IsDir);
-        }
-        if size > MAX_FILE_BYTES {
-            return Err(NxfsError::TooBig);
-        }
-        let mut content = self.materialize(&object.extents, object.size)?;
-        content.resize(size as usize, 0);
-        self.rewrite(id, &content)
-    }
-
-    fn rewrite(&mut self, id: u64, content: &[u8]) -> Result<()> {
-        let blocks = (content.len().div_ceil(LOGICAL_BLOCK_SIZE)) as u64;
-        let extents = self.state.alloc_blocks(blocks)?;
-        if extents.len() > journal::MAX_EXTENTS_PER_WRITE {
-            self.state.free_extents(&extents);
-            return Err(NxfsError::NoSpace);
-        }
-        // Data first (unreferenced until commit), then the journaled commit.
-        let mut written = 0usize;
-        for extent in &extents {
-            let extent_bytes = (extent.blocks as usize) * LOGICAL_BLOCK_SIZE;
-            let end = (written + extent_bytes).min(content.len());
-            if self.dev.write_bytes(extent.lb, &content[written..end]).is_err() {
-                self.state.free_extents(&extents);
-                return Err(NxfsError::Io);
-            }
-            written = end;
-        }
-        let ops =
-            alloc::vec![Op::Write { id, size: content.len() as u64, extents: extents.clone() }];
-        self.run_txn(ops, &extents)
+        let mut out = alloc::vec![0u8; (end - start) as usize];
+        let filled = self.read_into(path, offset, &mut out)?;
+        out.truncate(filled);
+        Ok(out)
     }
 
     /// Removes a file or an EMPTY directory (`Busy` otherwise).
@@ -389,7 +294,7 @@ impl<D: BlockDevice> Nxfs<D> {
 
     // ---- transaction machinery ---------------------------------------------
 
-    fn run_txn(&mut self, ops: Vec<Op>, rollback_extents: &[Extent]) -> Result<()> {
+    pub(crate) fn run_txn(&mut self, ops: Vec<Op>, rollback_extents: &[Extent]) -> Result<()> {
         let bytes = match journal::encode_txn(self.next_txn, &ops) {
             Ok(bytes) => bytes,
             Err(err) => {
@@ -494,7 +399,7 @@ impl<D: BlockDevice> Nxfs<D> {
         Ok(parts)
     }
 
-    fn resolve(&self, path: &str) -> Result<u64> {
+    pub(crate) fn resolve(&self, path: &str) -> Result<u64> {
         let mut current = ROOT_OBJECT;
         for segment in Self::split(path)? {
             let table = self.state.dirs.get(&current).ok_or(NxfsError::NotDir)?;
@@ -504,7 +409,7 @@ impl<D: BlockDevice> Nxfs<D> {
         Ok(current)
     }
 
-    fn resolve_parent(&self, path: &str) -> Result<(u64, String)> {
+    pub(crate) fn resolve_parent(&self, path: &str) -> Result<(u64, String)> {
         let parts = Self::split(path)?;
         let (name, dirs) = parts.split_last().ok_or(NxfsError::Invalid)?;
         let mut current = ROOT_OBJECT;
@@ -518,26 +423,6 @@ impl<D: BlockDevice> Nxfs<D> {
         }
         Ok((current, name.to_string()))
     }
-
-    fn materialize(&self, extents: &[Extent], size: u64) -> Result<Vec<u8>> {
-        if size > MAX_FILE_BYTES {
-            return Err(NxfsError::TooBig);
-        }
-        let mut out = Vec::with_capacity(size as usize);
-        for extent in extents {
-            let extent_bytes = (extent.blocks as usize) * LOGICAL_BLOCK_SIZE;
-            let remaining = (size as usize).saturating_sub(out.len());
-            if remaining == 0 {
-                break;
-            }
-            let take = remaining.min(extent_bytes);
-            out.extend_from_slice(&self.dev.read_bytes(extent.lb, take)?);
-        }
-        if out.len() != size as usize {
-            return Err(NxfsError::Integrity);
-        }
-        Ok(out)
-    }
 }
 
 #[cfg(test)]
@@ -548,6 +433,84 @@ mod tests {
     fn fresh() -> Nxfs<MemBlockDevice> {
         let device = MemBlockDevice::new(LOGICAL_BLOCK_SIZE, 4096);
         Nxfs::mkfs(device, MkfsOptions::default()).expect("mkfs")
+    }
+
+    /// TASK-0179 streaming recut: a container-sized file (past the old
+    /// 4 MiB materialize cap) round-trips through windowed CoW writes and
+    /// window reads; interior overwrites, sparse extension, truncate
+    /// shrink/grow and the stale-tail-zero rule all hold.
+    #[test]
+    fn streaming_large_file_windows() {
+        // 19 MB file on a 24k-block (94 MB) volume.
+        let device = MemBlockDevice::new(LOGICAL_BLOCK_SIZE, 24 * 1024);
+        let mut fs = Nxfs::mkfs(device, MkfsOptions::default()).expect("mkfs");
+        fs.create("/big.bin").expect("create");
+        let total: usize = 19 * 1024 * 1024 + 137; // deliberately unaligned
+        let pattern = |i: usize| (i % 251) as u8;
+
+        // Sequential 64 KiB append stream (the staging shape).
+        let chunk = 64 * 1024;
+        let mut buf = alloc::vec![0u8; chunk];
+        let mut off = 0usize;
+        while off < total {
+            let take = chunk.min(total - off);
+            for (j, slot) in buf[..take].iter_mut().enumerate() {
+                *slot = pattern(off + j);
+            }
+            fs.write("/big.bin", off as u64, &buf[..take]).expect("append");
+            off += take;
+        }
+        let (_kind, size) = fs.stat("/big.bin").expect("stat");
+        assert_eq!(size, total as u64);
+
+        // Window reads at unaligned interior offsets.
+        for (read_off, read_len) in
+            [(0usize, 4096usize), (5 * 1024 * 1024 + 13, 100_000), (total - 137, 137)]
+        {
+            let bytes = fs.read("/big.bin", read_off as u64, read_len).expect("window read");
+            assert_eq!(bytes.len(), read_len.min(total - read_off));
+            assert!(
+                bytes.iter().enumerate().all(|(j, b)| *b == pattern(read_off + j)),
+                "window {read_off}+{read_len} content"
+            );
+        }
+
+        // Interior overwrite (unaligned, crossing block edges) touches
+        // ONLY its window.
+        let overwrite_off = 7 * 1024 * 1024 + 777;
+        fs.write("/big.bin", overwrite_off as u64, &[0xEE; 10_000]).expect("overwrite");
+        let bytes = fs.read("/big.bin", overwrite_off as u64 - 8, 10_016).expect("read back");
+        assert!(bytes[..8].iter().enumerate().all(|(j, b)| *b == pattern(overwrite_off - 8 + j)));
+        assert!(bytes[8..10_008].iter().all(|b| *b == 0xEE));
+        assert!(bytes[10_008..]
+            .iter()
+            .enumerate()
+            .all(|(j, b)| *b == pattern(overwrite_off + 10_000 + j)));
+
+        // Truncate shrink to an unaligned size, then grow: the stale tail
+        // beyond the shrink point must read back as ZERO (old resize
+        // semantics preserved by the tail-block CoW).
+        let shrink_to = 3 * 1024 * 1024 + 55;
+        fs.truncate("/big.bin", shrink_to as u64).expect("shrink");
+        fs.truncate("/big.bin", (shrink_to + 9_000) as u64).expect("grow");
+        let tail = fs.read("/big.bin", shrink_to as u64 - 5, 9_005).expect("tail read");
+        assert!(tail[..5].iter().enumerate().all(|(j, b)| *b == pattern(shrink_to - 5 + j)));
+        assert!(tail[5..].iter().all(|b| *b == 0), "grown region must be zero");
+
+        // Sparse extension: a write past EOF zero-fills the gap.
+        fs.create("/sparse.bin").expect("create sparse");
+        fs.write("/sparse.bin", 0, b"head").expect("head");
+        fs.write("/sparse.bin", 10_000, b"tail").expect("sparse write");
+        let gap = fs.read("/sparse.bin", 4, 9_996).expect("gap read");
+        assert!(gap.iter().all(|b| *b == 0), "gap reads zero");
+        assert_eq!(fs.read("/sparse.bin", 10_000, 4).expect("tail"), b"tail");
+
+        // Remount: the spliced extent lists survive the checkpoint cycle.
+        fs.write_checkpoint().expect("checkpoint");
+        let device = fs.into_device();
+        let fs = Nxfs::mount(device).expect("remount");
+        let bytes = fs.read("/big.bin", 0, 64).expect("post-mount read");
+        assert!(bytes.iter().enumerate().all(|(j, b)| *b == pattern(j)));
     }
 
     #[test]

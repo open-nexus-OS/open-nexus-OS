@@ -20,11 +20,13 @@ extern crate alloc;
 
 mod checkpoint;
 mod dev;
+mod fileio;
 mod format;
 mod fs;
 mod fsck;
 mod journal;
 mod state;
+mod stream;
 
 /// Diagnostic mount-step tracer (feature `trace`); a no-op otherwise.
 macro_rules! nxfs_trace {

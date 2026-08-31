@@ -68,7 +68,27 @@ impl<D: BlockDevice> Dev<D> {
         Ok(())
     }
 
-    /// Reads `len` bytes starting at `lb`.
+    /// Fills `buf` from block `lb` onward — ALLOCATION-FREE (the caller
+    /// owns the buffer). The streaming read/CoW paths use this; a
+    /// per-window `Vec` would be fatal on the never-freeing service bump
+    /// heaps (a 19 MB container = 290 windows = 19 MB of leaked arena).
+    pub(crate) fn read_into(&self, lb: u64, buf: &mut [u8]) -> Result<()> {
+        let mut block = [0u8; LOGICAL_BLOCK_SIZE];
+        let mut done = 0usize;
+        let mut idx = 0u64;
+        while done < buf.len() {
+            self.read(lb + idx, &mut block)?;
+            let take = (buf.len() - done).min(LOGICAL_BLOCK_SIZE);
+            buf[done..done + take].copy_from_slice(&block[..take]);
+            done += take;
+            idx += 1;
+        }
+        Ok(())
+    }
+
+    /// Reads `len` bytes starting at `lb`. Allocating — reserved for the
+    /// BOUNDED mount-time paths (checkpoint blob, journal replay); every
+    /// per-request path uses `read_into`.
     pub(crate) fn read_bytes(&self, lb: u64, len: usize) -> Result<alloc::vec::Vec<u8>> {
         let mut out = alloc::vec::Vec::with_capacity(len);
         let mut block = [0u8; LOGICAL_BLOCK_SIZE];

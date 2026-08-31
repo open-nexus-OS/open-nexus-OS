@@ -279,13 +279,15 @@ fn handle_frame(
             // TASK-0036-B: additive tail — [4] = projection synced flag,
             // [5..13] = last projected BSB seq (LE). Old clients read the
             // first 4 bytes unchanged.
-            let mut payload = [0u8; 13];
+            let mut payload = [0u8; 17];
             payload[0] = record::encode_slot(auth.boot.active_slot());
             payload[1] = auth.boot.pending_slot().map(record::encode_slot).unwrap_or(0);
             payload[2] = auth.boot.tries_left();
             payload[3] = if auth.boot.health_ok() { 1 } else { 0 };
             payload[4] = u8::from(auth.bsb_synced);
             payload[5..13].copy_from_slice(&auth.bsb_seq.to_le_bytes());
+            // TASK-0179: anti-downgrade floor (stage-time check input).
+            payload[13..17].copy_from_slice(&auth.boot.rollback_min_index().to_le_bytes());
             encode_payload(rsp, op, &payload)
         }
         wire::OP_GET_RECORD => {
@@ -313,6 +315,12 @@ fn handle_frame(
             }
             let snapshot = auth.boot.clone();
             let _slot = auth.boot.stage();
+            // TASK-0179: the stage declares the verified container's
+            // rollback index ([4..8) LE, absent = 0) — consumed by the
+            // commit-time floor raise (§10).
+            let staged_idx =
+                frame.get(4..8).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).unwrap_or(0);
+            auth.boot.set_staged_rollback_index(staged_idx);
             commit(auth, snapshot, rsp, op, &[])
         }
         wire::OP_SWITCH => {
@@ -382,7 +390,26 @@ fn handle_frame(
                     let payload = [progress.have, progress.need, u8::from(progress.complete)];
                     let len = commit(auth, snapshot, rsp, op, &payload);
                     if progress.complete && rsp[4] == wire::STATUS_OK {
-                        emit_quorum_ok(progress.have, progress.need);
+                        crate::emit_os::emit_quorum_ok(progress.have, progress.need);
+                        // TASK-0179 crown rungs: the commit itself + the
+                        // §10 floor raise, ONLY after the record persisted.
+                        match progress.committed_slot {
+                            Some(Slot::A) => emit("bootctld: commit ok (slot=a)"),
+                            Some(Slot::B) => emit("bootctld: commit ok (slot=b)"),
+                            None => {}
+                        }
+                        match progress.floor_raised {
+                            Some((old, new)) => crate::emit_os::emit_floor_raised(old, new),
+                            // A commit that does NOT raise the floor is a
+                            // legitimate outcome (nothing staged, or the
+                            // staged index is not higher) — but a SILENT
+                            // one is indistinguishable from a broken
+                            // anti-downgrade path, so say the numbers.
+                            None => crate::emit_os::emit_floor_held(
+                                auth.boot.rollback_min_index(),
+                                auth.boot.staged_rollback_index(),
+                            ),
+                        }
                     }
                     len
                 }
@@ -535,7 +562,8 @@ fn try_attach() -> Option<Authority> {
     let session_graph = boot.next_boot().unwrap_or(boot.boot_target());
     // TASK-0036-B: attach the bsb projection client and reconcile the
     // on-disk pair against the loaded record (bsb_os.rs).
-    let (bsb_dev, bsb_seq, bsb_synced) = crate::bsb_os::attach_and_reconcile(&boot);
+    let mut boot = boot;
+    let (bsb_dev, bsb_seq, bsb_synced) = crate::bsb_os::attach_and_reconcile(&mut boot);
     Some(Authority { boot, client: statefs, session_graph, bsb_dev, bsb_seq, bsb_synced })
 }
 
@@ -567,20 +595,4 @@ fn target_label(target: BootTarget) -> &'static str {
 
 pub(crate) fn emit(message: &str) {
     let _ = nexus_abi::debug_println(message);
-}
-
-/// `bootctld: health quorum ok (n/n)` — bounded formatting (n ≤ 8).
-fn emit_quorum_ok(have: u8, need: u8) {
-    let mut line = [0u8; 40];
-    let head = b"bootctld: health quorum ok (";
-    let mut len = head.len();
-    line[..len].copy_from_slice(head);
-    line[len] = b'0' + have.min(8);
-    line[len + 1] = b'/';
-    line[len + 2] = b'0' + need.min(8);
-    line[len + 3] = b')';
-    len += 4;
-    if let Ok(msg) = core::str::from_utf8(&line[..len]) {
-        emit(msg);
-    }
 }

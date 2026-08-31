@@ -58,6 +58,7 @@ struct Gates {
     sid_statefsd: u64,
     sid_vfsd: u64,
     sid_bootctld: u64,
+    sid_updated: u64,
 }
 
 impl Gates {
@@ -69,6 +70,10 @@ impl Gates {
             // bootctld (ADR-0058; the loader writes pre-OS, nx image at
             // the factory).
             blockproto::PART_BSB => sender == self.sid_bootctld,
+            // TASK-0179 (RFC-0089 §2): slot partitions are written only by
+            // updated (the engine itself refuses the ACTIVE slot; this
+            // gate scopes the sender, the engine scopes the slot).
+            blockproto::PART_BOOT_A | blockproto::PART_BOOT_B => sender == self.sid_updated,
             // boot-a/b + bsb + system volumes: no standing holder yet —
             // `updated` (TASK-0179) and `bootctld` (TASK-0036-B) join with
             // their packages. Deny-by-default until then.
@@ -239,6 +244,7 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
         sid_statefsd: nexus_abi::service_id_from_name(b"statefsd"),
         sid_vfsd: nexus_abi::service_id_from_name(b"vfsd"),
         sid_bootctld: nexus_abi::service_id_from_name(b"bootctld"),
+        sid_updated: nexus_abi::service_id_from_name(b"updated"),
     };
 
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);

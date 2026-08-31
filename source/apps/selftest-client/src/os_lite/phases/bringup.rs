@@ -39,6 +39,17 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             crate::os_lite::probes::reset::reset_proof(&statefsd);
         }
     }
+    // TASK-0179 crown lane: the two-boot OTA flip. Boot 1 stages the real
+    // container + switches and ENDS IN A REBOOT; boot 2 proves the loader
+    // chose the new slot and drives the commit. Same placement rationale
+    // as the reset lane (before any full-graph probe).
+    if crate::os_lite::boot_cfg::runtime_profile_with_retry()
+        == Some(crate::runtime_mode::RuntimeProfile::OtaFlip)
+    {
+        if let Ok(statefsd) = crate::os_lite::ipc::routing::route_with_retry("statefsd") {
+            crate::os_lite::probes::otaflip::ota_flip_proof(&statefsd);
+        }
+    }
 
     // TASK-0053: .nxra break-glass chain (require → accept → replay deny),
     // every proof boot — state-neutral by construction (unstaged switch).

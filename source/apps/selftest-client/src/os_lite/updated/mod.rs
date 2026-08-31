@@ -11,7 +11,7 @@
 //! TEST_COVERAGE: QEMU marker ladder (just test-os) — ota phase.
 //!
 //! Sub-split landed in TASK-0023B Cut P2-14:
-//!   * [`types`]      -- shared constants (`SYSTEM_TEST_NXS`) and `SlotId`.
+//!   * [`types`]      -- the A/B `SlotId` enum.
 //!   * [`reply_pump`] -- shared `updated_send_with_reply` / `updated_expect_status`.
 //!   * [`stage`]      -- `updated_stage` + `updated_log_probe`.
 //!   * [`switch`]     -- `updated_switch`.
@@ -33,7 +33,10 @@ mod switch;
 mod types;
 
 pub(crate) use health::init_health_ok;
-pub(crate) use stage::{updated_log_probe, updated_stage, updated_stage_untrusted_deny};
+pub(crate) use stage::{
+    updated_log_probe, updated_stage, updated_stage_deny, updated_stage_real,
+    updated_stage_untrusted_deny, DOWNGRADE_PATH, REJECT_DIGEST, REJECT_DOWNGRADE, TAMPERED_PATH,
+};
 pub(crate) use status::{updated_boot_attempt, updated_get_status};
 pub(crate) use switch::updated_switch;
 pub(crate) use types::SlotId;

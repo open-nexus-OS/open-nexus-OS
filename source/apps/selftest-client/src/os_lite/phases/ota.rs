@@ -111,6 +111,36 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_UPDATES_TRUST_REJECT_FAIL);
     }
+    // TASK-0179 deny lanes (state-neutral: a rejected stage mutates
+    // nothing) — each proves ONE stable reject reason of the apply engine.
+    if updated::updated_stage_deny(
+        &updated,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+        updated::TAMPERED_PATH,
+        updated::REJECT_DIGEST,
+    )
+    .is_ok()
+    {
+        emit_line(crate::markers::M_SELFTEST_OTA_TAMPER_DENY_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_OTA_TAMPER_DENY_FAIL);
+    }
+    if updated::updated_stage_deny(
+        &updated,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+        updated::DOWNGRADE_PATH,
+        updated::REJECT_DOWNGRADE,
+    )
+    .is_ok()
+    {
+        emit_line(crate::markers::M_SELFTEST_OTA_DOWNGRADE_DENY_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_OTA_DOWNGRADE_DENY_FAIL);
+    }
     if updated::updated_stage(
         &updated,
         ctx.reply_send_slot,

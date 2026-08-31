@@ -58,6 +58,91 @@ proves = "startup reconciliation found genuine drift (crash window between recor
 phase = "ota"
 proves = "DIAGNOSTIC: projection write failed — the record stays authoritative, the drift heals at the next resync"
 
+# TASK-0179 CROWN PROOF (profile `ota-flip`, two boots one uart): the
+# first update that actually changes what the machine boots.
+[marker."SELFTEST: ota flip staged ok"]
+phase = "bringup"
+emit_when = { profile = "ota-flip" }
+proves = "boot 1: the REAL os-B container streamed into the inactive slot (NXBD last) and bootctld scheduled the switch — the reset that follows hands the decision to the loader"
+
+[marker."SELFTEST: ota flip ok"]
+phase = "bringup"
+emit_when = { profile = "ota-flip" }
+proves = "boot 2: the machine is RUNNING the newly staged slot (loader-chosen), the health quorum completed and bootctld committed it — end-to-end OTA flip"
+
+[marker."updated-flip: wrong slot after reset (expected b)"]
+phase = "ota"
+proves = "DIAGNOSTIC: the reset did not land on the staged slot"
+
+[marker."updated-flip: status unavailable after reset"]
+phase = "ota"
+proves = "DIAGNOSTIC: the boot-state authority was unreachable right after the flip reset"
+
+[marker."updated-flip: rungs selftest="]
+phase = "ota"
+proves = "DIAGNOSTIC: which of the three flip rungs (selftest report / updated report / commit observed) failed"
+
+[marker."bootctld: rollback-min adopted from factory bsb"]
+phase = "ota"
+proves = "record genesis took the anti-downgrade floor the factory shipped in the BSB — a fresh record starting at 0 would otherwise project over it and disarm the gate on every new device"
+
+[marker."bootctld: rollback-min held (floor="]
+phase = "ota"
+proves = "DIAGNOSTIC: a commit that did not raise the anti-downgrade floor, with both numbers — distinguishes a legitimate hold from a broken raise path"
+
+[marker."SELFTEST: ota flip stage FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: boot 1 could not stage or switch the real container"
+
+[marker."SELFTEST: ota flip FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: the flip did not complete (wrong slot, missing quorum, or uncommitted)"
+
+[marker."bootctld: commit ok (slot=a)"]
+phase = "ota"
+proves = "the completed health quorum committed slot a (record persisted first)"
+
+[marker."bootctld: commit ok (slot=b)"]
+phase = "ota"
+proves = "the completed health quorum committed slot b (record persisted first)"
+
+[marker."bootctld: rollback-min raised ("]
+phase = "ota"
+proves = "RFC-0089 §10 commit rung: the anti-downgrade floor rose to the committed container's rollback index — it never decreases"
+
+# TASK-0179 apply-engine v2 deny lanes (RFC-0089 §8 stable rejects).
+[marker."SELFTEST: ota tamper deny ok"]
+phase = "ota"
+proves = "a container whose payload was bit-flipped AFTER signing is rejected `digest` at stage time — the manifest signature does not cover payload bytes, the streamed per-component digest does"
+
+[marker."SELFTEST: ota tamper deny FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: the streamed digest gate did not reject a tampered payload"
+
+[marker."SELFTEST: ota downgrade deny ok"]
+phase = "ota"
+proves = "a container whose rollbackIndex is below the persisted floor is rejected `downgrade` BEFORE any byte moves (RFC-0089 §10 stage rung)"
+
+[marker."SELFTEST: ota downgrade deny FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: stage-time anti-downgrade did not reject a below-floor container"
+
+[marker."updated: stage begin (source="]
+phase = "ota"
+proves = "path-based staging started from the named VFS source (RFC-0089 §8; the v1 inline 8-KiB stage is retired)"
+
+[marker."updated: component boot-image verified (build="]
+phase = "ota"
+proves = "the boot-image component streamed, digested and readback-verified into the INACTIVE slot"
+
+[marker."updated: stage done (slot="]
+phase = "ota"
+proves = "the signed NXBD landed LAST — the slot only becomes bootable after the full readback matched"
+
+[marker."updated: stage rejected ("]
+phase = "ota"
+proves = "DIAGNOSTIC: an apply-engine reject with its stable RFC-0089 §8 reason"
+
 [marker."SELFTEST: bootctl bsb ok"]
 phase = "ota"
 proves = "GET_STATUS additive tail reports the projection synced with a runtime seq (>= 2, i.e. beyond the factory block)"

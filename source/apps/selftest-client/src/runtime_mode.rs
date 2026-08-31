@@ -27,6 +27,10 @@ pub(crate) enum RuntimeProfile {
     /// bringup (sentinel discipline; the trigger is read RAW from fw_cfg —
     /// proof boots keep the full phase scope regardless).
     Reset,
+    /// TASK-0179 crown lane: the two-boot OTA flip (stage the real os-B,
+    /// switch, reset; boot 2 proves the loader chose the new slot and the
+    /// quorum commits it). Same reduced phase scope as `Ota`.
+    OtaFlip,
 }
 
 #[must_use]
@@ -46,6 +50,7 @@ pub(crate) fn parse_runtime_profile(bytes: &[u8]) -> Option<RuntimeProfile> {
         b"bringup" => Some(RuntimeProfile::Bringup),
         b"quick" => Some(RuntimeProfile::Quick),
         b"ota" => Some(RuntimeProfile::Ota),
+        b"ota-flip" => Some(RuntimeProfile::OtaFlip),
         b"net" => Some(RuntimeProfile::Net),
         b"none" => Some(RuntimeProfile::None),
         b"reset" => Some(RuntimeProfile::Reset),
@@ -92,6 +97,7 @@ mod tests {
         assert_eq!(parse_runtime_profile(b"bringup\r\n"), Some(RuntimeProfile::Bringup));
         assert_eq!(parse_runtime_profile(b"quick"), Some(RuntimeProfile::Quick));
         assert_eq!(parse_runtime_profile(b"ota"), Some(RuntimeProfile::Ota));
+        assert_eq!(parse_runtime_profile(b"ota-flip"), Some(RuntimeProfile::OtaFlip));
         assert_eq!(parse_runtime_profile(b"net"), Some(RuntimeProfile::Net));
         assert_eq!(parse_runtime_profile(b"none"), Some(RuntimeProfile::None));
         assert_eq!(parse_runtime_profile(b"bogus"), None);

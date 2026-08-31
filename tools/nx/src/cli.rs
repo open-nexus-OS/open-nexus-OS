@@ -83,6 +83,7 @@ impl Cli {
             Commands::Image(args) => match &args.action {
                 ImageAction::Build(a) => a.json,
                 ImageAction::Verify(a) => a.json,
+                ImageAction::Fixtures(a) => a.json,
                 ImageAction::Patch(a) => a.json,
                 ImageAction::Ota(a) => a.json,
             },

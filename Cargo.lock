@@ -2859,6 +2859,7 @@ dependencies = [
  "logd",
  "nexus-config",
  "nxcd",
+ "nxfs",
  "nxra",
  "nxsym",
  "object",
@@ -4669,7 +4670,10 @@ dependencies = [
  "nexus-ipc",
  "nexus-log",
  "nexus-service-entry",
+ "nexus-vfs-types",
+ "sha2",
  "statefs",
+ "storage",
  "thiserror",
  "updates",
 ]
@@ -4678,6 +4682,7 @@ dependencies = [
 name = "updates"
 version = "0.1.0"
 dependencies = [
+ "bootfmt",
  "capnp",
  "capnpc",
  "ed25519-dalek",
@@ -4688,6 +4693,7 @@ dependencies = [
 name = "updates_host"
 version = "0.1.0"
 dependencies = [
+ "bootfmt",
  "capnp",
  "ed25519-dalek",
  "nexus-idl-runtime",

@@ -38,6 +38,7 @@ pub mod wire;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod bsb_os;
+mod emit_os;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod nxra_gate;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]

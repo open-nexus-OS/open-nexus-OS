@@ -10,8 +10,14 @@ pub const MAGIC1: u8 = b'D';
 /// Protocol version.
 pub const VERSION: u8 = 1;
 
-/// Stage system-set request opcode.
-pub const OP_STAGE: u8 = 1;
+/// RETIRED (TASK-0179): opcode 1 was the v1 inline stage (8 KiB cap, bytes
+/// verified in RAM and discarded). Path-based staging replaced it — there
+/// is deliberately no dual API and opcode 1 is never reused.
+///
+/// Stage-from-source request opcode (RFC-0089 §8): the payload is a
+/// bounded VFS path (`/updates/...` on the data volume), the engine streams the
+/// container from there.
+pub const OP_STAGE_SOURCE: u8 = 6;
 /// Switch to staged slot opcode.
 pub const OP_SWITCH: u8 = 2;
 /// Commit health for pending slot opcode.
@@ -20,6 +26,11 @@ pub const OP_HEALTH_OK: u8 = 3;
 pub const OP_GET_STATUS: u8 = 4;
 /// Record a boot attempt (decrement tries / trigger rollback).
 pub const OP_BOOT_ATTEMPT: u8 = 5;
+/// Offline feed enumeration (RFC-0089 §9): deterministic listing of
+/// staged-source candidates.
+pub const OP_FEED_LIST: u8 = 7;
+/// Feed check: is a stageable candidate present?
+pub const OP_CHECK: u8 = 8;
 
 /// Status: operation succeeded.
 pub const STATUS_OK: u8 = 0;
@@ -30,16 +41,21 @@ pub const STATUS_UNSUPPORTED: u8 = 2;
 /// Status: operation failed.
 pub const STATUS_FAILED: u8 = 3;
 
-/// Maximum inline system-set bytes for stage requests.
-pub const MAX_STAGE_BYTES: usize = 8 * 1024;
+/// Maximum staging-source path bytes (RFC-0089 §8 bounded path).
+pub const MAX_SOURCE_PATH_BYTES: usize = 200;
 
 crate::frames! {
     protocol(magic0 = MAGIC0, magic1 = MAGIC1, version = VERSION);
 
-    /// Stage request: `[U, D, ver, OP_STAGE, len:u32le, bytes...]`.
-    request encode_stage_req / decode_stage_req (op = OP_STAGE) {
-        bytes: bytes32(min = 1, max = MAX_STAGE_BYTES),
+    /// Stage-from-source request:
+    /// `[U, D, ver, OP_STAGE_SOURCE, len:u32le, path...]`.
+    request encode_stage_source_req / decode_stage_source_req (op = OP_STAGE_SOURCE) {
+        path: bytes32(min = 1, max = MAX_SOURCE_PATH_BYTES),
     }
+    /// Feed-list request: `[U, D, ver, OP_FEED_LIST]`.
+    request encode encode_feed_list_req (op = OP_FEED_LIST) {}
+    /// Feed-check request: `[U, D, ver, OP_CHECK]`.
+    request encode encode_check_req (op = OP_CHECK) {}
     /// Switch request: `[U, D, ver, OP_SWITCH, tries_left:u8]` (non-zero).
     request encode_switch_req / decode_switch_req (op = OP_SWITCH) {
         tries_left: nz_u8,
@@ -83,14 +99,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stage_roundtrip_and_bounds() {
-        let mut buf = [0u8; 64];
-        let n = encode_stage_req(b"system-set", &mut buf).unwrap();
-        assert_eq!(&buf[..8], &[b'U', b'D', 1, OP_STAGE, 10, 0, 0, 0]);
-        assert_eq!(decode_stage_req(&buf[..n]), Some(&b"system-set"[..]));
-        assert_eq!(encode_stage_req(b"", &mut buf), None);
+    fn stage_source_roundtrip_and_bounds() {
+        // TASK-0179: the v1 inline stage is retired; staging names a
+        // bounded VFS path and the engine streams the container from it.
+        let mut buf = [0u8; 256];
+        let path = b"/updates/os-B.nxs";
+        let n = encode_stage_source_req(path, &mut buf).unwrap();
+        assert_eq!(&buf[..8], &[b'U', b'D', 1, OP_STAGE_SOURCE, 17, 0, 0, 0]);
+        assert_eq!(decode_stage_source_req(&buf[..n]), Some(&path[..]));
+        assert_eq!(encode_stage_source_req(b"", &mut buf), None);
+        // Above the path bound: refused, never truncated.
+        let oversized = [b'x'; MAX_SOURCE_PATH_BYTES + 1];
+        assert_eq!(encode_stage_source_req(&oversized, &mut buf), None);
         crate::codec::testing::assert_reject_matrix(&buf[..n], 4, &|f| {
-            decode_stage_req(f).is_some()
+            decode_stage_source_req(f).is_some()
         });
     }
 
