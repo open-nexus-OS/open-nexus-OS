@@ -16,7 +16,10 @@ execd = ["proc.spawn", "ipc.core", "fs.read", "crash.attach.stack", "statefs.cra
 # read-back). No statefs.boot/admin — init is a regular record client here.
 "init-lite" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate", "statefs.read", "statefs.write", "boot.target", "boot.reset"]
 "nexus-init" = ["proc.spawn", "ipc.core", "fs.read", "policy.delegate", "statefs.read", "statefs.write", "boot.target", "boot.reset"]
-updated = ["crypto.verify", "ipc.core", "statefs.boot"]
+# TASK-0140: `policy.delegate` makes updated an authorized enforcement
+# point — it asks policyd whether the SENDER holds `updates.manage`
+# before any mutating op (the bootctld/statefsd pattern).
+updated = ["crypto.verify", "ipc.core", "statefs.boot", "policy.delegate"]
 # TASK-0050 (ADR-0055): the single boot-state authority — /state/boot/* is
 # gated on statefs.boot for BOTH reads and writes (prefix rule).
 bootctld = ["ipc.core", "statefs.boot", "policy.delegate"]
@@ -70,7 +73,7 @@ pinched = ["ipc.core"]
 # `statefs.crash` (TASK-0051B): the demo.minidump child's PUT maps to this
 # subject (canonical_policy_subject_for_statefs) and the artifact probe GETs
 # `/state/crash/` — the prefix now has its own capability.
-"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset"]
+"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset", "updates.manage"]
 "demo.testsvc" = []
 
 [abi_profile."selftest-client"]

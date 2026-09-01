@@ -1,0 +1,148 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// UPDATES domain (TASK-0140, RFC-0089 §8/§9) — the Info section's system-
+// update sub-page. Every field is service truth: `svc.updates.status`
+// returns ONE UpdateStat record (slot/pending/tries/committed/synced/
+// floor/staged, read from updated → bootctld — never derived here), and
+// the feed/count come from the offline §9 feed. This store holds NO
+// update logic; the buttons only ASK, `updated` decides.
+//
+// HONEST DENY: mutating verbs (stage/switch/rollback) are policy-gated on
+// `updates.manage` (deny-by-default, system-only). A deny arrives as
+// effect error code 4 (ERR_SVC_DENIED) and renders as its own state —
+// never a fake success, never a generic failure.
+//
+// The chain UpdRefresh → status → feed → check loads sequentially (one
+// effect per case — effects cannot branch), and every completed action
+// re-enters the chain so the page always rests on fresh service truth.
+
+Store UpdatesStore {
+    // ONE UpdateStat record from svc.updates.status ([] until loaded /
+    // when the engine is unreachable).
+    updStatus: List<UpdateStat> = [],
+    // Offline feed candidates (`/updates/*.nxs`, at most 8 names).
+    updFeed: List<Str> = [],
+    // Candidate count from svc.updates.check (-1 = not asked yet).
+    updCount: Int = -1,
+    // Which verb is in flight: "" | status | stage | switch | rollback.
+    updBusy: Str = "",
+    // 1 = the last action was refused by policy (updates.manage).
+    updDenied: Int = 0,
+    // Non-zero effect error code when a call failed in transport.
+    updError: Int = 0,
+}
+
+Event UpdatesEvent {
+    UpdRefresh,
+    UpdStatusLoaded(List<UpdateStat>),
+    UpdFeedLoaded(List<Str>),
+    UpdChecked(Int),
+    UpdStage(Str),
+    UpdSwitch,
+    UpdRollback,
+    UpdActionDone(Bool),
+    UpdFailed(Int),
+}
+
+reduce UpdatesEvent {
+    UpdRefresh => {
+        state.updBusy = "status";
+        state.updError = 0;
+    },
+    UpdStatusLoaded(rows) => {
+        state.updStatus = rows;
+        state.updBusy = "";
+    },
+    UpdFeedLoaded(names) => state.updFeed = names,
+    UpdChecked(n) => state.updCount = n,
+    UpdStage(name) => {
+        state.updBusy = "stage";
+        state.updDenied = 0;
+        state.updError = 0;
+    },
+    UpdSwitch => {
+        state.updBusy = "switch";
+        state.updDenied = 0;
+        state.updError = 0;
+    },
+    UpdRollback => {
+        state.updBusy = "rollback";
+        state.updDenied = 0;
+        state.updError = 0;
+    },
+    // ok=false = the engine refused (machine reject, e.g. nothing staged):
+    // surface it as an error, never as quiet success.
+    UpdActionDone(ok) => {
+        state.updBusy = "";
+        if ok {
+            state.updError = 0;
+        } else {
+            state.updError = 1;
+        }
+    },
+    UpdFailed(code) => {
+        state.updBusy = "";
+        if code == 4 {
+            state.updDenied = 1;
+        } else {
+            state.updError = code;
+        }
+    },
+}
+
+// Auto-load on sub-page entry (cross-domain listen, the `WinNav` pattern):
+// effects cannot branch, so this fires for EVERY OpenSub — the appearance
+// page pays one spurious status round trip; the updates page always opens
+// on fresh truth. The chain terminates (no cycle back into OpenSub).
+@effect on OpenSub(id) {
+    dispatch(UpdRefresh);
+}
+
+@effect on UpdRefresh {
+    match svc.updates.status(timeoutMs: 400) {
+        Ok(rows) => dispatch(UpdStatusLoaded(rows)),
+        Err(e) => dispatch(UpdFailed(e)),
+    }
+}
+
+@effect on UpdStatusLoaded(rows) {
+    match svc.updates.feed(timeoutMs: 400) {
+        Ok(names) => dispatch(UpdFeedLoaded(names)),
+        Err(e) => dispatch(UpdFailed(e)),
+    }
+}
+
+@effect on UpdFeedLoaded(names) {
+    match svc.updates.check(timeoutMs: 400) {
+        Ok(n) => dispatch(UpdChecked(n)),
+        Err(e) => dispatch(UpdFailed(e)),
+    }
+}
+
+@effect on UpdStage(name) {
+    match svc.updates.stage(name, timeoutMs: 3000) {
+        Ok(ok) => dispatch(UpdActionDone(ok)),
+        Err(e) => dispatch(UpdFailed(e)),
+    }
+}
+
+@effect on UpdSwitch {
+    match svc.updates.switch(timeoutMs: 1000) {
+        Ok(ok) => dispatch(UpdActionDone(ok)),
+        Err(e) => dispatch(UpdFailed(e)),
+    }
+}
+
+@effect on UpdRollback {
+    match svc.updates.rollback(timeoutMs: 1000) {
+        Ok(ok) => dispatch(UpdActionDone(ok)),
+        Err(e) => dispatch(UpdFailed(e)),
+    }
+}
+
+// A completed action re-reads the truth (the machine may have switched
+// slots, raised the floor, or cleared a trial — the page never guesses).
+@effect on UpdActionDone(ok) {
+    dispatch(UpdRefresh);
+}

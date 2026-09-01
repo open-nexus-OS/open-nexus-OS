@@ -73,6 +73,8 @@ Page SettingsPage {
                         CrumbBar { section: @t("sec.privacy"), sub: "" }
                     } else if $state.section == "power" {
                         CrumbBar { section: @t("sec.power"), sub: "" }
+                    } else if $state.subPage == "updates" {
+                        CrumbBar { section: @t("sec.info"), sub: @t("inf.update") }
                     } else {
                         CrumbBar { section: @t("sec.info"), sub: "" }
                     }

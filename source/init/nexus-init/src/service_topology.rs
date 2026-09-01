@@ -235,6 +235,8 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     // serves, so it never goes through route resolution.
     (ServiceId::Updated, ServiceId::Bootctld), // slot mutations delegate (PR-2)
     (ServiceId::Updated, ServiceId::Vfsd),     // staging-source splice reads (TASK-0179)
+    (ServiceId::Updated, ServiceId::Policyd),  // updates.manage gate on mutating ops (TASK-0140)
+    (ServiceId::Execd, ServiceId::Updated), // svc.updates.* (DSL settings Updates page, TASK-0140)
     (ServiceId::SelftestClient, ServiceId::Bootctld), // reset-lane proof (PR-3)
 ];
 // NOTE: imed's routes (windowd/settingsd/statefsd) are provisioned IMPERATIVELY

@@ -24,9 +24,15 @@ Component SecInfo {
         }
         SetGroup { label: @t("inf.gSystem"), note: "" } {
             rows {
-                SetRow { title: @t("inf.update"), subtitle: "", icon: "arrow.clockwise", showChevron: false } {
-                    trailing { SetValue { value: @t("inf.updateV") } }
+                // TASK-0140: the one live row on this screen — pushes the
+                // System-update sub-page (appearance pattern: OpenSub swaps
+                // the row list for UpdatesView).
+                Stack {
+                    SetRow { title: @t("inf.update"), subtitle: @t("inf.updateSub"), icon: "arrow.clockwise", showChevron: true } {
+                        trailing { }
+                    }
                 }
+                on Tap -> dispatch(OpenSub("updates"))
                 SetHairline { }
                 SetRow { title: @t("inf.legal"), subtitle: "", icon: "doc.text", showChevron: false } {
                     trailing { SetValue { value: @t("inf.legalV") } }

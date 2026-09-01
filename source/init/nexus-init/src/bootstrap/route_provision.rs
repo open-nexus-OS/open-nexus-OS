@@ -399,6 +399,26 @@ pub(crate) fn provision_selftest_imed_osk(
 /// response — so this must stay AFTER the positional probe/windowd/bundle
 /// blocks in the execd arm.
 #[allow(clippy::too_many_arguments)]
+/// TASK-0140: updated → policyd (the `updates.manage` gate). CLONE of the
+/// pre-minted policyd request endpoint (the original serves the fixed-slot
+/// arms); the named route resolves at updated's first mutating op; replies
+/// ride updated's CAP_MOVE inbox.
+pub(crate) fn updated_policyd_leg(
+    pid: u32,
+    pol_req: u32,
+    reply_recv_slot: Option<u32>,
+    chan: &mut CtrlChannel,
+) {
+    if let Ok(clone) = nexus_abi::cap_clone(pol_req) {
+        if let Ok(send_slot) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
+            chan.set_send(ServiceId::Policyd, send_slot);
+            if let Some(reply_recv_slot) = reply_recv_slot {
+                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
+            }
+        }
+    }
+}
+
 pub(crate) fn provision_execd_named_routes(
     pid: u32,
     eps: &Endpoints,
@@ -446,6 +466,22 @@ pub(crate) fn provision_execd_named_routes(
                 chan.set_recv(ServiceId::Vfsd, reply_recv_slot);
                 if iw(init_wire, init_fold, "init:execd") {
                     debug_write_bytes(b"init: execd route->vfsd ok\n");
+                }
+            }
+        }
+    }
+    // svc.updates.* (settings Updates page, TASK-0140): CLONE of the
+    // pre-minted updated request endpoint — the bespoke updated arm
+    // transfers the original to updated itself. Named route, replies
+    // ride the child's CAP_MOVE inbox (updated is ReplyCap-aware);
+    // mutating ops stay gated in updated on `updates.manage`.
+    if let Some((upd_req, _)) = eps.server_pair(ServiceId::Updated) {
+        if let Ok(clone) = nexus_abi::cap_clone(upd_req) {
+            if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
+                chan.set_send(ServiceId::Updated, s);
+                chan.set_recv(ServiceId::Updated, reply_recv_slot);
+                if iw(init_wire, init_fold, "init:execd") {
+                    debug_write_bytes(b"init: execd route->updated ok\n");
                 }
             }
         }

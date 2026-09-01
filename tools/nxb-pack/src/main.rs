@@ -374,6 +374,10 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
             }
             "nexus.permission.FILES" => Some(("filemanager", mf::BundleType::Filemanager)),
             "nexus.permission.IME" => Some(("ime", mf::BundleType::Ime)),
+            // UPDATES (TASK-0140): the Settings Updates page reads OTA truth
+            // through `updated`; settings-type only — and mutation stays
+            // policy-gated inside updated even for the holder.
+            "nexus.permission.UPDATES" => Some(("settings", mf::BundleType::Settings)),
             _ => None,
         };
         if let Some((role, needed)) = required {

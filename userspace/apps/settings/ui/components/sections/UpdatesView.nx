@@ -1,0 +1,109 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// System update (TASK-0140) — the Info section's sub-page, mirrored on the
+// appearance pattern (`Info › System update` swaps the row list for this
+// view; `SectionView` owns the swap, `NavStore.subPage` carries it).
+//
+// Every value on screen is SERVICE TRUTH from `svc.updates.status` (updated
+// → bootctld): active slot, pending trial, tries left, health commit, BSB
+// projection, anti-downgrade floor, staged build. The action rows only ASK
+// — stage/switch/rollback are policy-gated (`updates.manage`, deny-by-
+// default, system-only), and a deny renders as its own honest state.
+//
+// The status group loops `updStatus` (one record, or none): a `List` over
+// zero rows renders nothing, so the not-loaded state is the refresh row
+// plus the group note — no placeholder values that could read as truth.
+
+Component UpdatesView {
+    Stack {
+        SetGroup { label: @t("upd.gStatus"), note: @t("upd.statusNote") } {
+            rows {
+                Stack {
+                    SetRow { title: @t("upd.refresh"), subtitle: @t("upd.refreshSub"), icon: "arrow.clockwise", showChevron: false } {
+                        trailing { SetValue { value: $state.updBusy } }
+                    }
+                }
+                on Tap -> dispatch(UpdRefresh)
+                List($state.updStatus) { s in
+                    Stack {
+                        SetHairline { }
+                        SetRow { title: @t("upd.slot"), subtitle: "", icon: "internaldrive", showChevron: false } {
+                            trailing { SetValue { value: s.slot } }
+                        }
+                        SetHairline { }
+                        SetRow { title: @t("upd.pending"), subtitle: "", icon: "arrow.clockwise", showChevron: false } {
+                            trailing { SetValue { value: s.pending } }
+                        }
+                        SetHairline { }
+                        SetRow { title: @t("upd.tries"), subtitle: "", icon: "clock", showChevron: false } {
+                            trailing { SetValue { value: s.tries } }
+                        }
+                        SetHairline { }
+                        SetRow { title: @t("upd.committed"), subtitle: "", icon: "shield", showChevron: false } {
+                            trailing { SetValue { value: s.committed } }
+                        }
+                        SetHairline { }
+                        SetRow { title: @t("upd.floor"), subtitle: @t("upd.floorSub"), icon: "shield", showChevron: false } {
+                            trailing { SetValue { value: s.floor } }
+                        }
+                        SetHairline { }
+                        SetRow { title: @t("upd.staged"), subtitle: "", icon: "square.grid", showChevron: false } {
+                            trailing { SetValue { value: s.staged } }
+                        }
+                    }
+                    .key("updstat")
+                    .gap(0)
+                }
+            }
+        }
+        SetGroup { label: @t("upd.gFeed"), note: @t("upd.feedNote") } {
+            rows {
+                List($state.updFeed) { name in
+                    Stack {
+                        SetRow { title: name, subtitle: @t("upd.stageSub"), icon: "square.grid", showChevron: false } {
+                            trailing { }
+                        }
+                    }
+                    .key(name)
+                    on Tap -> dispatch(UpdStage(name))
+                }
+            }
+        }
+        SetGroup { label: @t("upd.gActions"), note: @t("upd.actionsNote") } {
+            rows {
+                Stack {
+                    SetRow { title: @t("upd.switch"), subtitle: @t("upd.switchSub"), icon: "arrow.clockwise", showChevron: false } {
+                        trailing { }
+                    }
+                }
+                on Tap -> dispatch(UpdSwitch)
+                SetHairline { }
+                Stack {
+                    SetRow { title: @t("upd.rollback"), subtitle: @t("upd.rollbackSub"), icon: "arrow.clockwise", showChevron: false } {
+                        trailing { }
+                    }
+                }
+                on Tap -> dispatch(UpdRollback)
+            }
+        }
+        if $state.updDenied == 1 {
+            SetGroup { label: @t("upd.gVerdict"), note: @t("upd.deniedNote") } {
+                rows {
+                    SetRow { title: @t("upd.denied"), subtitle: @t("upd.deniedSub"), icon: "shield", showChevron: false } {
+                        trailing { }
+                    }
+                }
+            }
+        } else if $state.updError != 0 {
+            SetGroup { label: @t("upd.gVerdict"), note: "" } {
+                rows {
+                    SetRow { title: @t("upd.error"), subtitle: @t("upd.errorSub"), icon: "info.circle", showChevron: false } {
+                        trailing { }
+                    }
+                }
+            }
+        }
+    }
+    .gap(3)
+}

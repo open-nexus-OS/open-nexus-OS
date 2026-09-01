@@ -539,6 +539,10 @@ pub(crate) fn wire_services(
                     }
                 }
 
+                // TASK-0140: updated → policyd leg (`updates.manage` gate).
+                let rp = reply_recv_slot;
+                crate::bootstrap::route_provision::updated_policyd_leg(pid, pol_req, rp, chan);
+
                 // TASK-0006: structured logs to logd via CAP_MOVE.
                 if let Some(req) = log_req {
                     if let Some(send_slot) = transfer(req, Rights::SEND, "logd send") {

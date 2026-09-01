@@ -31,6 +31,10 @@ pub const OP_BOOT_ATTEMPT: u8 = 5;
 pub const OP_FEED_LIST: u8 = 7;
 /// Feed check: is a stageable candidate present?
 pub const OP_CHECK: u8 = 8;
+/// Rollback request (TASK-0140): pass-through to bootctld OP_ROLLBACK —
+/// clears a pending trial back to the standing slot. Gated like the other
+/// mutating ops.
+pub const OP_ROLLBACK: u8 = 9;
 
 /// Status: operation succeeded.
 pub const STATUS_OK: u8 = 0;
@@ -40,6 +44,9 @@ pub const STATUS_MALFORMED: u8 = 1;
 pub const STATUS_UNSUPPORTED: u8 = 2;
 /// Status: operation failed.
 pub const STATUS_FAILED: u8 = 3;
+/// Status: sender lacks the `updates.manage` grant (TASK-0140). Distinct
+/// from FAILED so a policy deny is never mistaken for a machine reject.
+pub const STATUS_DENIED: u8 = 4;
 
 /// Maximum staging-source path bytes (RFC-0089 §8 bounded path).
 pub const MAX_SOURCE_PATH_BYTES: usize = 200;
@@ -66,6 +73,8 @@ crate::frames! {
     request encode encode_get_status_req (op = OP_GET_STATUS) {}
     /// Boot-attempt request: `[U, D, ver, OP_BOOT_ATTEMPT]`.
     request encode encode_boot_attempt_req (op = OP_BOOT_ATTEMPT) {}
+    /// Rollback request: `[U, D, ver, OP_ROLLBACK]`.
+    request encode encode_rollback_req (op = OP_ROLLBACK) {}
     /// Boot-attempt response → `(status, slot)` (two reserved trailing bytes).
     reply decode decode_boot_attempt_rsp (op = OP_BOOT_ATTEMPT) {
         status: u8,
@@ -87,6 +96,11 @@ pub fn decode_get_status_req(frame: &[u8]) -> bool {
 /// Decodes a boot-attempt request frame.
 pub fn decode_boot_attempt_req(frame: &[u8]) -> bool {
     frame.len() == 4 && decode_request_op(frame) == Some(OP_BOOT_ATTEMPT)
+}
+
+/// Decodes a rollback request frame.
+pub fn decode_rollback_req(frame: &[u8]) -> bool {
+    frame.len() == 4 && decode_request_op(frame) == Some(OP_ROLLBACK)
 }
 
 /// Decodes the opcode from a request frame.
@@ -139,6 +153,11 @@ mod tests {
         let n = encode_boot_attempt_req(&mut buf).unwrap();
         assert!(decode_boot_attempt_req(&buf[..n]));
         assert!(!decode_get_status_req(&buf[..n])); // wrong op
+
+        let n = encode_rollback_req(&mut buf).unwrap();
+        assert_eq!(&buf[..n], &[b'U', b'D', 1, OP_ROLLBACK]);
+        assert!(decode_rollback_req(&buf[..n]));
+        assert!(!decode_rollback_req(&buf[..n - 1]));
     }
 
     #[test]

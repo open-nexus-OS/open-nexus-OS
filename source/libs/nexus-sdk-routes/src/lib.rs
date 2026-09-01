@@ -103,6 +103,17 @@ pub const SERVICE_ROUTES: &[ServiceRoute] = &[
         permission: "nexus.permission.IME",
         child_slot: 18,
     },
+    // OTA status/actions (RFC-0089 §8, TASK-0140): routed to `updated` —
+    // reads (status/feed/check) are open, mutating ops are gated INSIDE
+    // updated on the policyd `updates.manage` grant (deny-by-default;
+    // holding this route is deliberately NOT mutation authority). UPDATES
+    // is ceiling-gated to the `settings` bundle type at pack time.
+    ServiceRoute {
+        svc: "updates",
+        route: "updated",
+        permission: "nexus.permission.UPDATES",
+        child_slot: 19,
+    },
 ];
 
 /// The route for a DSL service namespace, if the platform backs it.

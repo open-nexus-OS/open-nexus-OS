@@ -14,6 +14,8 @@
 Component SectionView {
     if $state.section == "personal" && $state.subPage == "appearance" {
         AppearanceView { }
+    } else if $state.section == "info" && $state.subPage == "updates" {
+        UpdatesView { }
     } else if $state.section == "connections" {
         SecConnections { }
     } else if $state.section == "devices" {
