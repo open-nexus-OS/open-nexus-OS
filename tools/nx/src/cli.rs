@@ -5,7 +5,7 @@
 //! OWNERS: @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: 27 unit tests and 11 integration tests in the `nx` crate.
+//! TEST_COVERAGE: Unit tests in `lib.rs` plus the process-boundary suites under `tests/`.
 //! ADR: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -13,6 +13,10 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 pub(crate) use crate::cli_image::{
     ImageAction, ImageArgs, ImageBackstopArgs, ImageBuildArgs, ImageOtaArgs, ImagePatchArgs,
     ImageVerifyArgs,
+};
+pub(crate) use crate::cli_update::{
+    UpdateAction, UpdateArgs, UpdateCheckArgs, UpdateRollbackArgs, UpdateStageArgs,
+    UpdateStatusArgs, UpdateSwitchArgs,
 };
 use serde::Serialize;
 use std::path::PathBuf;
@@ -89,6 +93,13 @@ impl Cli {
                 ImageAction::Ota(a) => a.json,
                 ImageAction::Backstop(a) => a.json,
             },
+            Commands::Update(args) => match &args.action {
+                UpdateAction::Check(a) => a.json,
+                UpdateAction::Stage(a) => a.json,
+                UpdateAction::Switch(a) => a.json,
+                UpdateAction::Status(a) => a.json,
+                UpdateAction::Rollback(a) => a.json,
+            },
         }
     }
 }
@@ -108,6 +119,7 @@ pub(crate) enum Commands {
     Diagnose(DiagnoseArgs),
     Recovery(RecoveryArgs),
     Image(ImageArgs),
+    Update(UpdateArgs),
 }
 
 /// `nx recovery token …` — `.nxra` break-glass tokens (RFC-0088).

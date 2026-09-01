@@ -86,5 +86,17 @@ const dslSurface :List(DslMethod) = [
   (service = "ime", method = "cycle", args = ["Str"], result = "Bool"),
   (service = "stats", method = "count", args = ["Str"], result = "Int"),
   (service = "todos", method = "list", args = [], result = "List<Str>"),
+  # -- OTA surfaces (RFC-0089 §8/§9, TASK-0140): thin verbs over `updated` —
+  # no update logic in the DSL layer. Reads are open; stage/switch/rollback
+  # are policy-gated (`updates.manage`) inside updated, deny-by-default —
+  # the page shows the honest DENIED state instead of pretending.
+  # `status` returns ONE UpdateStat record in a list (empty = unavailable):
+  # slot/pending/tries/committed/synced/floor/staged, all Str.
+  (service = "updates", method = "check", args = [], result = "Int"),
+  (service = "updates", method = "feed", args = [], result = "List<Str>"),
+  (service = "updates", method = "rollback", args = [], result = "Bool"),
+  (service = "updates", method = "stage", args = ["Str"], result = "Bool"),
+  (service = "updates", method = "status", args = [], result = "List<UpdateStat>"),
+  (service = "updates", method = "switch", args = [], result = "Bool"),
   (service = "users", method = "list", args = [], result = "List<User>"),
 ];

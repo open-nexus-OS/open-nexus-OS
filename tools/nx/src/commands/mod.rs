@@ -23,6 +23,8 @@ pub(crate) mod new;
 pub(crate) mod policy;
 pub(crate) mod postflight;
 pub(crate) mod recovery;
+pub(crate) mod update;
+pub(crate) mod update_feed;
 
 use crate::cli::{Cli, Commands};
 use crate::error::ExecResult;
@@ -70,5 +72,6 @@ pub(crate) fn execute(cli: Cli, cfg: &RuntimeConfig) -> ExecResult {
         Commands::Diagnose(args) => diagnose::handle_diagnose(args),
         Commands::Recovery(args) => recovery::handle_recovery(args),
         Commands::Image(args) => image::handle_image(args),
+        Commands::Update(args) => update::handle_update(args),
     }
 }
