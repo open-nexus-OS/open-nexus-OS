@@ -36,12 +36,14 @@ const OP_SWITCH: u8 = nexus_abi::updated::OP_SWITCH;
 const OP_HEALTH_OK: u8 = nexus_abi::updated::OP_HEALTH_OK;
 const OP_GET_STATUS: u8 = nexus_abi::updated::OP_GET_STATUS;
 const OP_BOOT_ATTEMPT: u8 = nexus_abi::updated::OP_BOOT_ATTEMPT;
+const OP_ROLLBACK: u8 = nexus_abi::updated::OP_ROLLBACK;
 const OP_LOG_PROBE: u8 = 0x7f;
 
 pub(crate) const STATUS_OK: u8 = nexus_abi::updated::STATUS_OK;
 pub(crate) const STATUS_MALFORMED: u8 = nexus_abi::updated::STATUS_MALFORMED;
 const STATUS_UNSUPPORTED: u8 = nexus_abi::updated::STATUS_UNSUPPORTED;
 pub(crate) const STATUS_FAILED: u8 = nexus_abi::updated::STATUS_FAILED;
+const STATUS_DENIED: u8 = nexus_abi::updated::STATUS_DENIED;
 
 // TASK-0179: staging is path-based; request frames are small and bounded.
 const MAX_REQUEST_FRAME: usize = nexus_abi::updated::MAX_SOURCE_PATH_BYTES + 16;
@@ -158,12 +160,15 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut logged_recv_err = false;
     emit_line("updated: ready (bootctl client)");
     nexus_abi::service_verdict_flush("updated");
+    let _ = recv_slot;
     let mut recv_buf = Vec::with_capacity(MAX_REQUEST_FRAME);
     recv_buf.resize(MAX_REQUEST_FRAME, 0);
     let mut logged_rx = false;
     loop {
-        match recv_request_large(recv_slot, Wait::Blocking, &mut recv_buf) {
-            Ok((frame_len, reply_cap)) => {
+        // TASK-0140: meta recv — the kernel-attributed sender id feeds the
+        // `updates.manage` gate (identity is NEVER a payload string).
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_buf) {
+            Ok((frame_len, sender, reply_cap)) => {
                 let frame = &recv_buf[..frame_len];
                 if !logged_rx {
                     logged_rx = true;
@@ -199,40 +204,44 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 if reply_cap.is_some() && !nexus_abi::service_trace() {
                     emit_line("updated: capmove");
                 }
-                let rsp = handle_frame(&mut state, &mut statefs, frame);
+                // TASK-0140 gate: mutating ops require the policyd-granted
+                // `updates.manage` on the kernel-attributed sender; a deny
+                // answers STATUS_DENIED plus the greppable audit line —
+                // never FAILED (a policy deny is not a machine reject).
+                let rsp = match nexus_abi::updated::decode_request_op(frame) {
+                    Some(op)
+                        if crate::manage_gate::is_mutating(op)
+                            && !crate::manage_gate::allows(
+                                op,
+                                crate::policy_client::manage_answer(sender),
+                            ) =>
+                    {
+                        emit_deny(op, sender);
+                        rsp(op, STATUS_DENIED, &[])
+                    }
+                    _ => handle_frame(&mut state, &mut statefs, frame),
+                };
                 if let Some(cap) = reply_cap {
                     if rsp.len() >= 4 && !nexus_abi::service_trace() {
                         emit_bytes(b"updated: tx op ");
                         emit_hex_u8(rsp[3]);
                         emit_byte(b'\n');
                     }
-                    // Debug: prove what reply-cap slot the kernel returned (CAP_MOVE recv path).
-                    // This should match the allocated-slot observed in the kernel trace ring.
-                    if !nexus_abi::service_trace() {
-                        emit_bytes(b"updated: replycap slot=0x");
-                        emit_hex_u8((cap >> 24) as u8);
-                        emit_hex_u8((cap >> 16) as u8);
-                        emit_hex_u8((cap >> 8) as u8);
-                        emit_hex_u8(cap as u8);
-                        emit_byte(b'\n');
-                    }
-                    if send_bounded_nonblock(cap, &rsp, 1_000_000_000).is_err() {
+                    if cap.reply_and_close(&rsp).is_err() {
                         emit_line("updated: send cap fail");
                     }
-                    let _ = nexus_abi::cap_close(cap);
                 } else {
                     if send_bounded_nonblock(send_slot, &rsp, 1_000_000_000).is_err() {
                         emit_line("updated: send fail");
                     }
                 }
             }
-            Err(nexus_abi::IpcError::QueueEmpty) | Err(nexus_abi::IpcError::TimedOut) => {
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 let _ = yield_();
             }
-            Err(err) => {
+            Err(_) => {
                 if !logged_recv_err {
-                    emit_bytes(b"updated: recv err kernel=");
-                    emit_line(ipc_error_label(err));
+                    emit_line("updated: recv err (continuing)");
                     logged_recv_err = true;
                 }
                 let _ = yield_();
@@ -241,17 +250,16 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     }
 }
 
-fn ipc_error_label(err: nexus_abi::IpcError) -> &'static str {
-    match err {
-        nexus_abi::IpcError::TimedOut => "TimedOut",
-        nexus_abi::IpcError::QueueEmpty => "QueueEmpty",
-        nexus_abi::IpcError::QueueFull => "QueueFull",
-        nexus_abi::IpcError::NoSpace => "NoSpace",
-        nexus_abi::IpcError::NoSuchEndpoint => "NoSuchEndpoint",
-        nexus_abi::IpcError::PermissionDenied => "PermissionDenied",
-        nexus_abi::IpcError::PeerClosed => "PeerClosed",
-        nexus_abi::IpcError::Unsupported => "Unsupported",
+/// Greppable audit line for a policy deny (the bootctld shape).
+fn emit_deny(op: u8, sender: u64) {
+    emit_bytes(b"updated: denied op=0x");
+    emit_hex_u8(op);
+    emit_bytes(b" sender=0x");
+    for shift in (0..8).rev() {
+        emit_hex_u8((sender >> (shift * 8)) as u8);
     }
+    emit_byte(b'\n');
+    audit("gate", "denied", None);
 }
 
 /// Best-effort bounded IPC send that never blocks indefinitely.
@@ -278,20 +286,6 @@ fn send_bounded_nonblock(slot: u32, frame: &[u8], budget_ns: u64) -> Result<(), 
         }
         i = i.wrapping_add(1);
     }
-}
-
-fn recv_request_large(
-    recv_slot: u32,
-    wait: Wait,
-    buf: &mut [u8],
-) -> Result<(usize, Option<u32>), nexus_abi::IpcError> {
-    let (flags, deadline_ns) = wait_to_sys(wait).unwrap_or((0, 0));
-    let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
-    let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
-    let n = nexus_abi::ipc_recv_v1(recv_slot, &mut hdr, buf, sys_flags, deadline_ns)?;
-    let reply_cap =
-        if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 { Some(hdr.src) } else { None };
-    Ok((n as usize, reply_cap))
 }
 
 fn wait_to_sys(wait: Wait) -> Option<(u32, u64)> {
@@ -326,8 +320,9 @@ fn handle_frame(
         OP_CHECK => crate::stage_os::handle_check(frame),
         OP_SWITCH => handle_switch(state, frame),
         OP_HEALTH_OK => handle_health_ok(frame),
-        OP_GET_STATUS => handle_get_status(),
+        OP_GET_STATUS => handle_get_status(state),
         OP_BOOT_ATTEMPT => handle_boot_attempt(frame),
+        OP_ROLLBACK => handle_rollback(frame),
         OP_LOG_PROBE => {
             emit_line("updated: log probe");
             rsp(OP_LOG_PROBE, STATUS_OK, &[])
@@ -421,7 +416,7 @@ fn handle_health_ok(frame: &[u8]) -> Vec<u8> {
     }
 }
 
-fn handle_get_status() -> Vec<u8> {
+fn handle_get_status(state: &UpdatedState) -> Vec<u8> {
     match bootctl_client::call(bootctld::wire::OP_GET_STATUS, None) {
         // ADDITIVE-TAIL DISCIPLINE: bootctld's status payload GREW twice
         // (TASK-0036-B projection fields, TASK-0179 floor). An exact
@@ -430,9 +425,51 @@ fn handle_get_status() -> Vec<u8> {
         // `if let Ok(..)`, the breakage was SILENT: slot normalization
         // simply stopped happening. Read the prefix, forward what came.
         Some(reply) if reply.status == bootctld::wire::STATUS_OK && reply.payload_len >= 4 => {
-            rsp(OP_GET_STATUS, STATUS_OK, &reply.payload[..reply.payload_len])
+            // TASK-0140 additive tail: updated's status is updated's OWN
+            // contract now — the bootctld prefix is PINNED at 17 bytes
+            // (zero-padded if bootctld sent less), then 8 bytes staged
+            // build id (zeros = nothing staged). Pinning keeps the tail's
+            // offset stable even if bootctld's payload grows again; a new
+            // bootctld field is re-exposed here deliberately, never by
+            // accident. Prefix readers stay untouched.
+            let mut payload = [0u8; 25];
+            let n = reply.payload_len.min(17);
+            payload[..n].copy_from_slice(&reply.payload[..n]);
+            payload[17..25].copy_from_slice(&state.staged_build.unwrap_or([0u8; 8]));
+            rsp(OP_GET_STATUS, STATUS_OK, &payload)
         }
         _ => rsp(OP_GET_STATUS, STATUS_FAILED, &[]),
+    }
+}
+
+/// Rollback pass-through (TASK-0140): bootctld clears the pending trial
+/// back to the standing slot; bundlemgrd's active-slot view follows —
+/// the same compensation pairing `handle_switch` uses.
+fn handle_rollback(frame: &[u8]) -> Vec<u8> {
+    if !nexus_abi::updated::decode_rollback_req(frame) {
+        return rsp(OP_ROLLBACK, STATUS_MALFORMED, &[]);
+    }
+    match bootctl_client::call(bootctld::wire::OP_ROLLBACK, None) {
+        Some(reply) if reply.status == bootctld::wire::STATUS_OK => {
+            let slot_byte = reply.payload.first().copied().unwrap_or(0);
+            if let Some(slot) = match slot_byte {
+                1 => Some(Slot::A),
+                2 => Some(Slot::B),
+                _ => None,
+            } {
+                let _ = bundlemgrd_set_active_slot(slot);
+            }
+            audit("rollback", "ok", Some(if slot_byte == 2 { "slot=b" } else { "slot=a" }));
+            rsp(OP_ROLLBACK, STATUS_OK, &[slot_byte])
+        }
+        Some(reply) if reply.status == bootctld::wire::STATUS_FAILED => {
+            audit("rollback", "fail", Some("not-pending"));
+            rsp(OP_ROLLBACK, STATUS_FAILED, &[])
+        }
+        Some(_) | None => {
+            audit("rollback", "fail", Some("bootctld-unreachable"));
+            rsp(OP_ROLLBACK, STATUS_FAILED, &[])
+        }
     }
 }
 

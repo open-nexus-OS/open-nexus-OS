@@ -60,6 +60,9 @@ statefs = { path = "../../../userspace/statefs", optional = true, default-featur
 # TASK-0050 PR-2 (ADR-0055): the boot-state authority's wire constants —
 # updated delegates every slot mutation to bootctld.
 bootctld = { path = "../bootctld", optional = true, default-features = false }
+# TASK-0140: wire SSOT for the cfg-free `updates.manage` gate (host tests
+# prove the exact op classification the OS loop executes).
+nexus-wire = { path = "../../libs/nexus-wire" }
 # TASK-0179: partition-scoped slot writes + the vfsd splice data plane.
 storage = { path = "../../../userspace/storage", optional = true, default-features = false }
 nexus-vfs-types = { path = "../../../userspace/vfs-types", optional = true, default-features = false }

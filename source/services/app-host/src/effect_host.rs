@@ -38,6 +38,9 @@ use nexus_sdk_routes::route_for_svc;
 pub(crate) const ERR_SVC_UNAVAILABLE: u32 = 1;
 pub(crate) const ERR_SVC_UNKNOWN: u32 = 2;
 pub(crate) const ERR_SVC_SHAPE: u32 = 3;
+/// The service refused by POLICY (`updates.manage` deny, TASK-0140) —
+/// distinct from a failure so a page can render the honest denied state.
+pub(crate) const ERR_SVC_DENIED: u32 = 4;
 
 /// Per-call budget: the fixed slots are populated before resume, but the
 /// backing service may still be finishing bring-up. Time-bounded (not
@@ -127,6 +130,15 @@ pub(crate) struct AppEffectHost {
     pub(crate) running_sym: Option<u32>,
     pub(crate) minimized_sym: Option<u32>,
     pub(crate) focused_sym: Option<u32>,
+    /// `UpdateStat` record symbols (svc.updates.status, TASK-0140) —
+    /// interned only when a page reads them (the `icon_sym` pattern).
+    pub(crate) slot_sym: Option<u32>,
+    pub(crate) pending_sym: Option<u32>,
+    pub(crate) tries_sym: Option<u32>,
+    pub(crate) committed_sym: Option<u32>,
+    pub(crate) synced_sym: Option<u32>,
+    pub(crate) floor_sym: Option<u32>,
+    pub(crate) staged_sym: Option<u32>,
     /// `svc.shell.scrollToPage(i)` request, parked here during the dispatch
     /// (the effect runs under `&mut host` while the probe owns the pager
     /// physics) and drained by the probe right after — an in-process seam,
@@ -163,6 +175,13 @@ impl AppEffectHost {
             running_sym: symbols.iter().position(|s| s == "running").map(|i| i as u32),
             minimized_sym: symbols.iter().position(|s| s == "minimized").map(|i| i as u32),
             focused_sym: symbols.iter().position(|s| s == "focused").map(|i| i as u32),
+            slot_sym: symbols.iter().position(|s| s == "slot").map(|i| i as u32),
+            pending_sym: symbols.iter().position(|s| s == "pending").map(|i| i as u32),
+            tries_sym: symbols.iter().position(|s| s == "tries").map(|i| i as u32),
+            committed_sym: symbols.iter().position(|s| s == "committed").map(|i| i as u32),
+            synced_sym: symbols.iter().position(|s| s == "synced").map(|i| i as u32),
+            floor_sym: symbols.iter().position(|s| s == "floor").map(|i| i as u32),
+            staged_sym: symbols.iter().position(|s| s == "staged").map(|i| i as u32),
             pending_scroll_page: None,
             surface_id: 0,
             budget_ns: SVC_DEADLINE_NS,
@@ -697,6 +716,15 @@ impl EffectHost for AppEffectHost {
                 let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
                 self.files_stat(path)
             }
+            ("updates", "status") => self.updates_status(),
+            ("updates", "feed") => self.updates_feed(),
+            ("updates", "check") => self.updates_check(),
+            ("updates", "stage") => {
+                let name = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                self.updates_stage(name)
+            }
+            ("updates", "switch") => self.updates_switch(),
+            ("updates", "rollback") => self.updates_rollback(),
             _ => Err(ERR_SVC_UNKNOWN),
         }
     }

@@ -31,6 +31,13 @@ mod bootctl_client;
 /// the host suite proves the exact mapping the OS verify path executes.
 pub mod verify_policy;
 
+/// `updates.manage` gate (TASK-0140) — cfg-free pure decision logic so the
+/// host suite proves the exact op classification the OS loop executes.
+pub mod manage_gate;
+
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod policy_client;
+
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod apply_os;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]

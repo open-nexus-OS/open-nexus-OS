@@ -59,6 +59,11 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
     // Inject OSK keys via imed's dedicated osk endpoint (RFC-0075 Phase 2)
     // — ime-type bundles only (privilege ceiling in nxb-pack).
     "nexus.permission.IME",
+    // Reach `updated` for the Settings Updates page (svc.updates.*,
+    // TASK-0140) — settings-type only (privilege ceiling in nxb-pack);
+    // mutating ops additionally require the policyd `updates.manage`
+    // grant inside updated (deny-by-default).
+    "nexus.permission.UPDATES",
 ];
 
 /// `true` if `cap` is a recognized platform permission — OR an app-owned

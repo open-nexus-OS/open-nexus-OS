@@ -586,6 +586,10 @@ expected_sequence=(
   # archive whose publisher is not in policies/update-trust.toml must be
   # rejected BEFORE the happy-path stage (the pre-fix hole accepted any key
   # read from the archive itself).
+  # TASK-0140: the Settings Updates page's READ surface — updated's
+  # status/feed/check answer coherently against the boot authority
+  # (state-neutral, probed before the deny lanes and the OTA cycle).
+  "SELFTEST: updates surface ok"
   "updated: stage rejected (untrusted publisher)"
   "SELFTEST: updates trust reject ok"
   # TASK-0007 OTA proof: stage → switch → health gate → rollback (userspace-only, non-persistent)
@@ -891,6 +895,7 @@ case "${PROFILE:-full}" in
       "blk: irq completion on"
       "statefsd: virtio upgrade ok"
       "SELFTEST: blk cross-partition deny ok"
+      "SELFTEST: updates surface ok"
       "updated: stage rejected (untrusted publisher)"
       "SELFTEST: updates trust reject ok"
       "SELFTEST: ota stage ok"
@@ -2435,6 +2440,32 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
     echo "[error] SMP per-hart timer proof missing: KSELFTEST: smp per-hart ticks ok" >&2
     exit 1
   fi
+fi
+
+# TASK-0140: the host CLI against the LIVE-produced disk truth — after the
+# flip lane the commit raised the anti-downgrade floor (1->2) and left the
+# committed standing slot at B; `nx update status` (the same bootfmt codecs
+# the loader links) must decode exactly that story from the disk the run
+# just wrote. This is the honest "CLI status vs live services" seam: no
+# host↔guest transport exists, so the disk the machinery produced IS the
+# meeting point.
+if [[ "${PROFILE:-full}" == "ota-flip" ]]; then
+  nxupdate_bin="$ROOT/target/release/nx"
+  nxupdate_img="${QEMU_BLK_IMG:-$ROOT/build/nexus.img}"
+  if ! nxupdate_out=$("$nxupdate_bin" update status --image "$nxupdate_img" 2>&1); then
+    echo "[error] verify-nxupdate: nx update status failed on the flip-lane disk" >&2
+    echo "$nxupdate_out" >&2
+    exit 1
+  fi
+  if ! grep -q "update: bsb active=b" <<<"$nxupdate_out" \
+    || ! grep -q "committed=yes" <<<"$nxupdate_out" \
+    || ! grep -q "floor=2" <<<"$nxupdate_out" \
+    || ! grep -q "update: slot-b build=otaB" <<<"$nxupdate_out"; then
+    echo "[error] verify-nxupdate: CLI status disagrees with the flip lane's end state" >&2
+    echo "$nxupdate_out" >&2
+    exit 1
+  fi
+  echo "[info] verify-nxupdate: ok (active=b committed floor=2 build=otaB from $nxupdate_img)"
 fi
 
 # Chain-marker contract reconciliation (tools/nx/chains/markers.txt): the

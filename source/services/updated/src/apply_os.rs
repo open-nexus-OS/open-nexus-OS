@@ -337,7 +337,11 @@ pub(crate) fn feed_list() -> Result<Vec<String>, RejectReason> {
         let _ = nexus_abi::cap_close(reply_clone);
         return Err(RejectReason::Io);
     }
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(2_000_000_000);
+    // TASK-0140: the FIRST feed call is what mounts the data partition
+    // (nxfsd attach + journal replay over the 512B/QD1 block plane) — a 2s
+    // reply budget failed honestly on exactly that cold path once the op
+    // gained its first live caller. Bounded, but sized for the cold mount.
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(15_000_000_000);
     loop {
         if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
             return Err(RejectReason::Io);
@@ -353,10 +357,20 @@ pub(crate) fn feed_list() -> Result<Vec<String>, RejectReason> {
         ) {
             Ok(n) => {
                 let n = core::cmp::min(n as usize, buf.len());
-                // READDIR replies open with the opcode echo byte.
-                if n >= 1 && buf[0] == nexus_vfs_types::fileops::OP_READDIR {
-                    let page = nexus_vfs_types::decode_readdir_response(&buf[1..n])
-                        .map_err(|_| RejectReason::Path)?;
+                // TASK-0140 (first live caller of this op): the home-mount
+                // data plane replies with the RAW readdir page — NO opcode
+                // echo (`DataStore::handle` returns the encoded page
+                // directly; only the /packages namespace arm echoes). The
+                // original echo-byte match skipped every real reply until
+                // the deadline. Accept both shapes; a frame that decodes
+                // as neither is foreign inbox traffic (statefs/logd acks)
+                // and is skipped, bounded by the deadline.
+                let body = if n >= 1 && buf[0] == nexus_vfs_types::fileops::OP_READDIR {
+                    &buf[1..n]
+                } else {
+                    &buf[..n]
+                };
+                if let Ok(page) = nexus_vfs_types::decode_readdir_response(body) {
                     let mut names: Vec<String> = page
                         .entries
                         .iter()
@@ -366,7 +380,6 @@ pub(crate) fn feed_list() -> Result<Vec<String>, RejectReason> {
                     names.sort();
                     return Ok(names);
                 }
-                // Foreign inbox frame (statefs/logd acks): skipped.
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {
                 let _ = nexus_abi::yield_();

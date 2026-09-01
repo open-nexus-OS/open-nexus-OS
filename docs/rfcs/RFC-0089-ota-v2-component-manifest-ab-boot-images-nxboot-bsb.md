@@ -378,6 +378,24 @@ discipline as v1):
   `pkg://updates/...`) — see the §9 namespace note.
 - `OP_FEED_LIST` / `OP_CHECK`: offline feed enumeration (§9).
 - `OP_SWITCH / OP_HEALTH_OK / OP_GET_STATUS / OP_BOOT_ATTEMPT`: unchanged pass-throughs.
+- `OP_ROLLBACK` (TASK-0140): pass-through to bootctld's rollback — clears a pending
+  trial back to the standing slot (bundlemgrd's active-slot view follows, the
+  switch-compensation pairing).
+
+**Access control (TASK-0140, normative)**: the mutating ops — `OP_STAGE_SOURCE`,
+`OP_SWITCH`, `OP_ROLLBACK` — require the policyd-granted `updates.manage` capability
+on the KERNEL-ATTRIBUTED sender (`updated` holds `policy.delegate` as the enforcement
+point; deny-by-default, an unreachable policyd denies). A deny answers the dedicated
+`STATUS_DENIED` (4) — never `FAILED`, a policy deny is not a machine reject — plus the
+audit line `updated: denied op=0x.. sender=0x..`. Reads (`OP_GET_STATUS`,
+`OP_FEED_LIST`, `OP_CHECK`) and the boot-spine pass-throughs (`OP_HEALTH_OK`,
+`OP_BOOT_ATTEMPT` — quorum/allowlist-gated in bootctld) stay open, the bootctld
+"reads for anyone" rule.
+
+**Status shape (TASK-0140)**: `OP_GET_STATUS` answers updated's OWN contract — the
+bootctld status PINNED at 17 bytes (zero-padded), then an 8-byte staged-build-id tail
+(zeros = nothing staged). Pinning keeps the tail's offset stable if bootctld's payload
+grows again; a new bootctld field is re-exposed here deliberately, never by accident.
 
 Apply pipeline (normative, component-dispatched, per §3 verification order):
 
@@ -405,7 +423,9 @@ result, reject reason; never key material.
 ### 9. Acquisition: offline feed v1, network later (contract-stable)
 
 - v1: containers appear in the DATA VOLUME's `updates/` directory (developer/
-  provisioning drop) or as build-time fixtures under `pkg://updates/`.
+  provisioning drop — `nx update stage` is the host-side drop tool: it verifies
+  through the SAME device engine against the baked anchor and the disk's floor
+  BEFORE writing, TASK-0140) or as build-time fixtures under `pkg://updates/`.
   NAMESPACE NOTE (TASK-0179): that volume is mounted at the VFS root — its home
   layout is `/Bilder`, `/Dokumente`, … — so the wire path is `/updates/<name>.nxs`,
   NOT `/data/updates/...`. `/data` names the partition, never a VFS prefix. `OP_FEED_LIST` enumerates deterministically.

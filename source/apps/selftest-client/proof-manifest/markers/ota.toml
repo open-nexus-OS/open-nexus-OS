@@ -12,6 +12,15 @@
 # API_STABILITY: Stable; literals are the contract surface (referenced as
 #                `M_<KEY>` constants from `markers_generated.rs`)
 
+# TASK-0140: the Settings Updates page's READ surface, live — updated's
+# status/feed/check answer coherently and the forwarded active slot
+# matches a direct authority read (state-neutral, before the OTA cycle).
+[marker."SELFTEST: updates surface ok"]
+phase = "ota"
+
+[marker."SELFTEST: updates surface FAIL"]
+phase = "ota"
+
 # TASK-0198 Phase 1: device trust anchor deny lane — a validly self-signed
 # archive whose publisher is NOT in policies/update-trust.toml must be
 # rejected before the happy-path stage runs.

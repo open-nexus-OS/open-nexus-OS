@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-01 (TASK-0140: Updates v1 UI/CLI over the real OTA engine)
+
+- **`nx update` CLI** (canonical `nx`, no new binary): offline surfaces over
+  built artifacts — `status` decodes BSB + slot NXBDs through the same
+  `bootfmt` codecs the loader links, `check` enumerates `/updates/*.nxs`
+  and verifies every candidate through the REAL device engine (baked
+  anchor + disk floor), `stage` is the RFC-0089 §9 provisioning drop
+  (verify FIRST, stable reject vocabulary, then write), and
+  `switch`/`rollback` are honest preflights (`applied=false` — the live
+  transitions belong to the device). Process-boundary tests lock output,
+  rejects and exit classes; the `ota-flip` harness now runs
+  `nx update status` against the disk the LIVE machinery just wrote
+  (`verify-nxupdate`) — the honest CLI↔live-services seam, since no
+  host↔guest transport exists.
+- **Settings → Info → System update** (DSL sub-page, appearance pattern):
+  every field is service truth from `svc.updates.status/feed/check`
+  (updated forwards bootctld's status pinned at 17 bytes + an 8-byte
+  staged-build tail); action rows ask the engine and render success, the
+  machine's reject, or the policy DENIED state — no control that lies.
+  Page logic host-proven in the settings conformance suite; the live read
+  surface gated as `SELFTEST: updates surface ok` (status/feed/check
+  coherence against the boot authority) in headless + smp1.
+- **`updates.manage` gate** (deny-by-default): `updated` is now an
+  enforcement point (`policy.delegate`) — mutating ops (stage/switch and
+  the new `OP_ROLLBACK` pass-through) require the policyd-granted
+  `updates.manage` on the kernel-attributed sender; a deny answers the
+  dedicated `STATUS_DENIED` plus a greppable audit line. Reads stay open.
+  Gate decision host-proven (`test_reject_*` in `updated::manage_gate`);
+  the granted path is exercised by the whole OTA ladder (selftest-client
+  holds the grant). The declarative app route (`svc.updates` → updated,
+  `nexus.permission.UPDATES`, settings-only pack ceiling, child slot 19)
+  deliberately does NOT confer mutation authority.
+
 ### Added - 2026-08-31 (TASK-0289-B: the boot trust floor closed — backstops + measured boot)
 
 - **Measured-boot surface** (`qemu-soft-root`, never a hardware claim): the

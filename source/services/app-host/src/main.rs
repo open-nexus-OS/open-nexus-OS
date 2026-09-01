@@ -52,6 +52,7 @@ mod effect_parse;
 mod effect_ime;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_query;
+mod effect_updates;
 // RFC-0086 shell window state: the sid↔app-id join + `svc.shell.activate`.
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_windows;

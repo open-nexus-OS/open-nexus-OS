@@ -134,6 +134,15 @@ Current live-input topic:
     and `inputd`
   - does not replace the broader closure gates; those remain task-controlled
 
+- `nx update status|check|stage|switch|rollback` (TASK-0140, RFC-0089 §8/§9)
+  - offline surfaces over BUILT artifacts (no host↔guest transport exists):
+    `status` decodes BSB + slot NXBDs from a disk image, `check` enumerates
+    and engine-verifies `/updates/*.nxs` on the data volume, `stage` is the
+    §9 provisioning drop (verify against the baked anchor + disk floor,
+    THEN write), `switch`/`rollback` are preflights (`applied=false`)
+  - the `ota-flip` QEMU lane gates `nx update status` against the disk the
+    live machinery produced (`verify-nxupdate`); workflow: `docs/updates/`
+
 ## Subcommand extension contract
 
 Future topics (`nx sdk`, `nx diagnose`, `nx sec`) must extend `tools/nx` as subcommands. Do not introduce separate `nx-*` binaries. `nx crash` (TASK-0048) follows this contract; `nxsym` is a separate binary because it is a symbol indexer, not an `nx` topic shim.

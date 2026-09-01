@@ -59,6 +59,49 @@ pub(crate) fn updated_get_status(
     Ok((active, pending_slot, payload[2], payload[3] != 0))
 }
 
+/// Feed enumeration (RFC-0089 §9, TASK-0140): the candidate COUNT from
+/// OP_FEED_LIST's `[count, (len,name)*]` payload.
+pub(crate) fn updated_feed_count(
+    client: &KernelClient,
+    reply_send_slot: u32,
+    reply_recv_slot: u32,
+    pending: &mut VecDeque<Vec<u8>>,
+) -> core::result::Result<u8, ()> {
+    let mut frame = [0u8; 4];
+    let n = nexus_abi::updated::encode_feed_list_req(&mut frame).ok_or(())?;
+    let rsp = updated_send_with_reply(
+        client,
+        reply_send_slot,
+        reply_recv_slot,
+        nexus_abi::updated::OP_FEED_LIST,
+        &frame[..n],
+        pending,
+    )?;
+    let payload = updated_expect_status(&rsp, nexus_abi::updated::OP_FEED_LIST)?;
+    payload.first().copied().ok_or(())
+}
+
+/// Feed check (RFC-0089 §9, TASK-0140): OP_CHECK's `[count, available]`.
+pub(crate) fn updated_check_count(
+    client: &KernelClient,
+    reply_send_slot: u32,
+    reply_recv_slot: u32,
+    pending: &mut VecDeque<Vec<u8>>,
+) -> core::result::Result<u8, ()> {
+    let mut frame = [0u8; 4];
+    let n = nexus_abi::updated::encode_check_req(&mut frame).ok_or(())?;
+    let rsp = updated_send_with_reply(
+        client,
+        reply_send_slot,
+        reply_recv_slot,
+        nexus_abi::updated::OP_CHECK,
+        &frame[..n],
+        pending,
+    )?;
+    let payload = updated_expect_status(&rsp, nexus_abi::updated::OP_CHECK)?;
+    payload.first().copied().ok_or(())
+}
+
 pub(crate) fn updated_boot_attempt(
     client: &KernelClient,
     reply_send_slot: u32,

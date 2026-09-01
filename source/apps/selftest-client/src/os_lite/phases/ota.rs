@@ -40,6 +40,51 @@ fn selftest_quorum_report() -> core::result::Result<(), ()> {
     }
 }
 
+/// TASK-0140: the page's read surface — status/feed/check answer, the
+/// seeded feed is non-empty, and updated's forwarded active slot matches
+/// a DIRECT authority read (both wires encode a=1/b=2). State-neutral.
+fn updates_surface_verdict(ctx: &mut PhaseCtx, updated_client: &nexus_ipc::KernelClient) -> bool {
+    let Ok((active, _pending, _tries, _healthy)) = updated::updated_get_status(
+        updated_client,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+    ) else {
+        return false;
+    };
+    let Ok(feed) = updated::updated_feed_count(
+        updated_client,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+    ) else {
+        return false;
+    };
+    let Ok(check) = updated::updated_check_count(
+        updated_client,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+    ) else {
+        return false;
+    };
+    if feed == 0 || check == 0 {
+        return false;
+    }
+    let frame = [b'B', b'T', 1, 4u8]; // bootctld OP_GET_STATUS
+    let mut status = [0u8; 4];
+    match crate::os_lite::probes::reset::bootctl_call_payload(&frame, 4, &mut status) {
+        Some((0, n)) if n >= 1 => {
+            let forwarded = match active {
+                updated::SlotId::A => 1,
+                updated::SlotId::B => 2,
+            };
+            status[0] == forwarded
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // TASK-0289 B1: the measured-boot surface — probed FIRST, before this
     // phase mutates the authority: the cross-check (measured slot ==
@@ -99,6 +144,21 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     let updated = route_with_retry("updated").map_err(|_| {
         emit_line(crate::markers::M_SELFTEST_OTA_ROUTE_FAIL_SVC_UPDATED);
     })?;
+
+    // TASK-0140: the Settings Updates page's READ surface, live and
+    // state-neutral (before this phase mutates anything): status, feed and
+    // check answer, the seeded feed is non-empty, and updated's active
+    // slot equals the boot authority's own — the page renders exactly
+    // this surface, so its coherence is the honest "page truth" proof the
+    // headless ladder can give without input injection.
+    {
+        let verdict = updates_surface_verdict(ctx, &updated);
+        if verdict {
+            emit_line(crate::markers::M_SELFTEST_UPDATES_SURFACE_OK);
+        } else {
+            emit_line(crate::markers::M_SELFTEST_UPDATES_SURFACE_FAIL);
+        }
+    }
 
     // TASK-0007: updated stage/switch/rollback (non-persistent A/B skeleton).
     // Fail-closed + LOUD: this activation emits `bundlemgrd: slot a active` (the

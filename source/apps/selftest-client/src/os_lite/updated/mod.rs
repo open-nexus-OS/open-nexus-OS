@@ -37,6 +37,8 @@ pub(crate) use stage::{
     updated_log_probe, updated_stage, updated_stage_deny, updated_stage_real,
     updated_stage_untrusted_deny, DOWNGRADE_PATH, REJECT_DIGEST, REJECT_DOWNGRADE, TAMPERED_PATH,
 };
-pub(crate) use status::{updated_boot_attempt, updated_get_status};
+pub(crate) use status::{
+    updated_boot_attempt, updated_check_count, updated_feed_count, updated_get_status,
+};
 pub(crate) use switch::updated_switch;
 pub(crate) use types::SlotId;

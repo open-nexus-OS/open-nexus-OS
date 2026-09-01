@@ -209,6 +209,11 @@ pub(crate) fn updated_send_with_reply(
         // container is ~19 MB over the block plane, so the crown lane
         // needs a far larger budget than the v1 in-RAM verify did.
         180_000_000_000 // 180s
+    } else if op == nexus_abi::updated::OP_FEED_LIST || op == nexus_abi::updated::OP_CHECK {
+        // TASK-0140: the first feed call cold-mounts the data partition in
+        // nxfsd (journal replay over the block plane) — give it the same
+        // patience the stage path gets for its first disk touch.
+        30_000_000_000 // 30s
     } else {
         5_000_000_000 // 5s (switch/health can involve cross-service publication)
     };
