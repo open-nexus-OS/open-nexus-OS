@@ -334,7 +334,10 @@ pub(crate) fn bootctl_call_payload(frame: &[u8], op: u8, out: &mut [u8]) -> Opti
             return None;
         }
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
+        // Sized for the largest bootctld reply (OP_GET_MEASURED: 7 + 61)
+        // with additive-tail headroom — TRUNCATE on a short buffer would
+        // starve a payload reader's prefix check silently.
+        let mut buf = [0u8; 96];
         match nexus_abi::ipc_recv_v1(
             REPLY_RECV_SLOT,
             &mut rh,
@@ -392,7 +395,10 @@ pub(crate) fn bootctl_call_raw(frame: &[u8], op: u8) -> Option<(u8, [u8; 2])> {
             return None;
         }
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
+        // Sized for the largest bootctld reply (OP_GET_MEASURED: 7 + 61)
+        // with additive-tail headroom — TRUNCATE on a short buffer would
+        // starve a payload reader's prefix check silently.
+        let mut buf = [0u8; 96];
         match nexus_abi::ipc_recv_v1(
             REPLY_RECV_SLOT,
             &mut rh,

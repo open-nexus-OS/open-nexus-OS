@@ -37,6 +37,8 @@ pub mod record;
 pub mod wire;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod attach_os;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod bsb_os;
 mod emit_os;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]

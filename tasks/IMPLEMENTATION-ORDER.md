@@ -300,7 +300,7 @@ Contracts: RFC-0089 (OTA v2 end-to-end; supersedes RFC-0012 in part) · ADR-0058
 | 6 | TASK-0289-A | `nxboot` first-stage loader + boot flip + measured handoff (flag-day; kernel-touch) | ✅ Phase A complete 2026-08-30 — flip LIVE in every lane |
 | 7 | ✅ TASK-0036-B | bootctld BSB projection (record first, BSB second, idempotent resync) | Delivered 2026-08-30 — full loader↔bootctld loop proven |
 | 8 | ✅ TASK-0179 | updated apply engine v2 + offline feed — **CROWN PROOF: first real slot flip, new build id visible** (rewritten) | Delivered 2026-08-31 — crown proof green, gated in test-all |
-| 9 | TASK-0289-B | Boot trust floor closure: loader backstops (tamper/downgrade/tries-exhausted) + measured surface | Draft |
+| 9 | ✅ TASK-0289-B | Boot trust floor closure: loader backstops (tamper/downgrade/tries-exhausted) + measured surface | Delivered 2026-08-31 — three lanes green + gated (`ci-os-ota-backstops`), measured cross-check required in every proof lane |
 | 10 | TASK-0140 | Settings→Updates page + `nx update` CLI over the real engine (rewritten; lands after UI handoff tracks) | Draft |
 | 11 | TASK-0034/0035 | Delta as component kinds (`boot-image-delta`; format RFC at execution) | Draft |
 

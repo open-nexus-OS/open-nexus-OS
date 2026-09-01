@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-08-31 (TASK-0289-B: the boot trust floor closed — backstops + measured boot)
+
+- **Measured-boot surface** (`qemu-soft-root`, never a hardware claim): the
+  loader's validated handoff record crosses into userland read-only —
+  `SYSCALL_BOOT_HANDOFF` (57) copies the raw kernel-validated bytes,
+  bootctld serves them verbatim via the dedicated `OP_GET_MEASURED` (12),
+  and every proof lane REQUIRES `SELFTEST: measured boot log ok`: the
+  measured slot cross-checked against the boot-state authority. Probed at
+  OTA-phase START on purpose — probed after the phase's stage/switch it
+  honestly failed, because boot-time evidence must be checked before the
+  state machine moves.
+- **Three loader-backstop lanes, gated in `test-all`** — the trust
+  decisions proven at the only layer that still works when userspace is
+  gone: `nx image backstop` arms boot-b with a tampered payload behind a
+  VALID descriptor (loader rejects `digest`; stage-time verification never
+  saw those bytes) or a validly-signed downgrade under the factory floor
+  (loader rejects `rollback 0 < min 1`); both fall back loudly and the
+  full ladder still passes. The tries-exhaustion lane runs FOUR boots in
+  one uart: the real container staged and switched, two trial boots
+  honestly bricked (init parks before any service — a live userspace
+  would roll back in software and shadow the loader), the harness plays
+  the power-cycle role via QMP, and the loader alone walks
+  `2->1`, `1->0`, `fallback (slot=b exhausted) -> slot=a`.
+- **Rollback observation**: bootctld now recognizes the actuator's
+  exhaustion shape on disk against a still-pending record and rolls the
+  RECORD back instead of re-projecting (which would hand the broken image
+  its tries back); the uncommitted-block discriminator keeps the
+  commit→projection crash window on its old re-project path. Normative in
+  RFC-0089 §6, host-tested as a shape matrix.
+- Shared bounded fw_cfg reader in `nexus-abi` (`fwcfg::read_named_file`);
+  bootctld's fixed reply buffer sized for the largest payload with the
+  silent-truncation trap documented (the P8 additive-tail family).
+
 ### Added - 2026-08-31 (TASK-0179: apply engine v2 — the first update that changes what the machine boots)
 
 - **Crown proof** (`just ci-os-ota`, gated in `test-all`): two boots in ONE

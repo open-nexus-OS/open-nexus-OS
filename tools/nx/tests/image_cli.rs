@@ -248,3 +248,67 @@ fn ota_container_decodes_with_bound_nxbd() {
     assert_eq!(desc.image_sha256, digest);
     assert_eq!(desc.build_id_str(), "dev-B");
 }
+
+#[test]
+fn backstop_arms_the_alternate_bsb_block_and_keeps_the_floor() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    setup(dir.path());
+    // Factory floor 1 (the shipped image's index) — the downgrade backstop
+    // plants rollback index 0 below it.
+    assert!(run_nx(
+        &[
+            "image",
+            "build",
+            "--kernel",
+            "kernel.bin",
+            "--out",
+            "bs.img",
+            "--sign",
+            "os.seed",
+            "--build-id",
+            "dev-A",
+            "--rollback-index",
+            "1",
+        ],
+        dir.path(),
+    )
+    .status
+    .success());
+    for (kind, want_idx) in [("tamper", 2u64), ("downgrade", 0u64)] {
+        let out = run_nx(
+            &[
+                "image",
+                "backstop",
+                "--image",
+                "bs.img",
+                "--kind",
+                kind,
+                "--kernel",
+                "kernel.bin",
+                "--sign",
+                "os.seed",
+                "--build-id",
+                "trialB01",
+                "--json",
+            ],
+            dir.path(),
+        );
+        assert!(out.status.success(), "backstop {kind}: {out:?}");
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+        assert_eq!(v["data"]["nxbd_rollback_index"], want_idx, "{kind}");
+        // The floor travels from the factory block into the armed block —
+        // losing it would disarm the very check the downgrade lane proves.
+        assert_eq!(v["data"]["bsb_floor"], 1, "{kind}");
+    }
+    // Two arms = two alternate-block writes; the reader must see the
+    // newest (seq 3) with the trial pending and the floor intact.
+    let bytes = std::fs::read(dir.path().join("bs.img")).expect("img");
+    let bsb_off = 1024 * 1024; // first partition (layout SSOT: bsb at 1 MiB)
+    let (bsb, _) =
+        bootfmt::bsb::pick(&bytes[bsb_off..bsb_off + 512], &bytes[bsb_off + 512..bsb_off + 1024])
+            .expect("armed bsb must decode");
+    assert_eq!(bsb.seq, 3);
+    assert_eq!(bsb.next_slot, Some(bootfmt::bsb::Slot::B));
+    assert_eq!(bsb.tries_left, 2);
+    assert_eq!(bsb.rollback_min_index, 1);
+}

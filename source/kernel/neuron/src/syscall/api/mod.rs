@@ -340,6 +340,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_BOOT_MODE, sys_boot_mode);
     table.register(crate::syscall::SYSCALL_SYSTEM_RESET, sys_system_reset);
     table.register(SYSCALL_BOOT_DISPLAY_MODE, sys_boot_display_mode);
+    table.register(crate::syscall::SYSCALL_BOOT_HANDOFF, sys_boot_handoff);
     // RFC-0068: fold this per-process syscall-table install echo into the `syscalls` verdict
     // (NEXUS_LOG_EXPAND=syscalls to see them raw). One tally per install event.
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -455,6 +456,27 @@ fn sys_system_reset(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // SBI SRST does not return on success; reaching here means the SEE
     // refused the reset — surface it instead of pretending.
     Err(crate::syscall::Error::Ipc(crate::ipc::IpcError::PermissionDenied))
+}
+
+/// `SYSCALL_BOOT_HANDOFF` (57): copies the validated measured-boot record
+/// (raw ADR-0059 bytes, captured pre-SATP from the loader's handoff page)
+/// into the caller's buffer. Args: (ptr, len). Requires `len >= RECORD_LEN`
+/// so a short read can never masquerade as the full record; returns the
+/// bytes written, or 0 for an honest direct-kernel boot (absent/invalid
+/// capture — the kernel never surfaces a corrupt page as measurement).
+fn sys_boot_handoff(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let Some(raw) = crate::boot_handoff::raw() else {
+        return Ok(0);
+    };
+    let (ptr, len) = (args.get(0), args.get(1));
+    if len < crate::boot_handoff::RECORD_LEN {
+        return Err(crate::syscall::Error::AddressSpace(crate::mm::AddressSpaceError::InvalidArgs));
+    }
+    vmo::ensure_user_slice(ptr, raw.len())?;
+    unsafe {
+        core::ptr::copy_nonoverlapping(raw.as_ptr(), ptr as *mut u8, raw.len());
+    }
+    Ok(raw.len())
 }
 
 /// `SYSCALL_BOOT_DISPLAY_MODE` (50): the fw_cfg-configured display mode packed as

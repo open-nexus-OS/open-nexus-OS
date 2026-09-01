@@ -18,6 +18,12 @@ if [[ -z "${RUN_TIMEOUT:-}" && "${PROFILE:-}" == "reset" ]]; then
   RUN_TIMEOUT=360s
   export QEMU_READY_GRACE_SECS="${QEMU_READY_GRACE_SECS:-330}"
 fi
+# TASK-0289-B ota-fallback: FOUR boots in one uart (stage + two bricked
+# trials the watcher power-cycles + the loader's exhaustion flip).
+if [[ -z "${RUN_TIMEOUT:-}" && "${PROFILE:-}" == "ota-fallback" ]]; then
+  RUN_TIMEOUT=600s
+  export QEMU_READY_GRACE_SECS="${QEMU_READY_GRACE_SECS:-570}"
+fi
 # Re-measured 2026-08-20: the reliability-spine proofs grew the ladder's END
 # phase (3-cycle restart storm with real backoffs, evidence journal proofs,
 # bootctld bring-up) past the old 90s wall-clock cap — the outer timeout cut
@@ -600,6 +606,9 @@ expected_sequence=(
   "SELFTEST: bootctl bsb ok"
   "SELFTEST: ota rollback ok"
   "SELFTEST: bootctl persist ok"
+  # TASK-0289 B1: the loader's measured record surfaced via bootctld and
+  # cross-checked against the authority's active slot (qemu-soft-root).
+  "SELFTEST: measured boot log ok"
   "SELFTEST: policy allow ok"
   "SELFTEST: policy deny ok"
   "abi-filter: deny (subject=selftest-client syscall=statefs.put)"
@@ -746,7 +755,34 @@ case "${PROFILE:-full}" in
     # runs — they belong to the headless lane that owns that cycle.
     OTA_PHASE_GUARDS=0
     ;;
-  headless|smp1|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain)
+  ota-fallback)
+    # TASK-0289-B: the loader's tries-exhaustion backstop — FOUR boots in
+    # ONE uart, and the point is that boots 2/3 are DEAD userspace:
+    #   boot 1  stage real os-B -> switch -> reset (same arming as flip)
+    #   boots 2/3  trial slot b; init parks (fault fixture) — the QMP
+    #              watcher power-cycles; the loader decrements 2->1, 1->0
+    #   boot 4  loader reads tries=0 -> exhaustion flip back to slot a;
+    #           bootctld OBSERVES the rollback at attach; verdict marker.
+    expected_sequence=(
+      "neuron vers."
+      "init: start"
+      "init: ready"
+      "updated: stage done (slot=b build=otaB"
+      "bootctld: switch scheduled (to=b)"
+      "bootctld: bsb sync (seq="
+      "SELFTEST: ota fallback staged ok"
+      "nxboot: tries 2->1 (slot=b trial)"
+      "init: health withheld (fault fixture)"
+      "nxboot: tries 1->0 (slot=b trial)"
+      "nxboot: fallback (slot=b exhausted) -> slot=a"
+      "nxboot: verify ok (slot=a build=dev-"
+      "nxboot: jump slot=a"
+      "bootctld: rollback observed (trial exhausted)"
+      "SELFTEST: ota fallback ok"
+    )
+    OTA_PHASE_GUARDS=0
+    ;;
+  headless|smp1|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade)
     # Use a reduced expected sequence for headless — omits display-gated
     # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
     # minidump chain is NOT display-gated: it is appended for headless/smp1
@@ -869,6 +905,7 @@ case "${PROFILE:-full}" in
       "SELFTEST: bootctl bsb ok"
       "SELFTEST: ota rollback ok"
       "SELFTEST: bootctl persist ok"
+      "SELFTEST: measured boot log ok"
       "SELFTEST: policy allow ok"
       "SELFTEST: policy deny ok"
       "SELFTEST: abi filter deny ok"
@@ -988,13 +1025,37 @@ fi
 # as a prefix. The bsb-ok seq is a PREFIX too since TASK-0036-B: bootctld
 # projects the record to the BSB at runtime, so seq grows across boots
 # (keep-blk / reset lanes) — the deterministic part is the selected slot.
-expected_sequence=(
-  "nxboot: bsb ok (slot=a"
-  "nxboot: verify ok (slot=a build=dev-"
-  "nxboot: jump slot=a"
-  "KSELFTEST: boot handoff ok (measured)"
-  "${expected_sequence[@]}"
-)
+case "${PROFILE:-full}" in
+  ota-tamper|ota-downgrade)
+    # TASK-0289-B: the armed BSB points at the planted boot-b trial; the
+    # LOADER must reject it with the stable reason and fall back — only
+    # then does the ordinary slot-a ladder (already in the list) begin.
+    if [[ "${PROFILE}" == "ota-tamper" ]]; then
+      nxboot_fail_reason="nxboot: verify FAIL (slot=b digest)"
+    else
+      nxboot_fail_reason="nxboot: verify FAIL (slot=b rollback 0 < min 1)"
+    fi
+    expected_sequence=(
+      "nxboot: bsb ok (slot=b"
+      "nxboot: tries 2->1 (slot=b trial)"
+      "$nxboot_fail_reason"
+      "nxboot: fallback -> slot=a"
+      "nxboot: verify ok (slot=a build=dev-"
+      "nxboot: jump slot=a"
+      "KSELFTEST: boot handoff ok (measured)"
+      "${expected_sequence[@]}"
+    )
+    ;;
+  *)
+    expected_sequence=(
+      "nxboot: bsb ok (slot=a"
+      "nxboot: verify ok (slot=a build=dev-"
+      "nxboot: jump slot=a"
+      "KSELFTEST: boot handoff ok (measured)"
+      "${expected_sequence[@]}"
+    )
+    ;;
+esac
 
 # Optional: stop and validate only up to a given phase.
 if [[ -n "$RUN_PHASE" ]]; then
@@ -1830,7 +1891,16 @@ if grep -aFq "nxboot: PANIC" "$UART_LOG"; then
   grep -a "nxboot: " "$UART_LOG" | head -n 8 >&2
   exit 1
 fi
-if grep -aFq "nxboot: verify FAIL" "$UART_LOG"; then
+if [[ "${PROFILE:-full}" == "ota-tamper" || "${PROFILE:-full}" == "ota-downgrade" ]]; then
+  # Backstop lanes expect EXACTLY the slot-b reject in their sequence; a
+  # slot-a FAIL still means the trust chain broke and stays fatal.
+  if grep -aFq "nxboot: verify FAIL (slot=a" "$UART_LOG"; then
+    echo "[error] first_failed_phase=bringup missing_marker='nxboot: verify ok'" >&2
+    echo "[error] loader rejected the CLEAN slot in a backstop lane" >&2
+    grep -a "nxboot: " "$UART_LOG" | head -n 8 >&2
+    exit 1
+  fi
+elif grep -aFq "nxboot: verify FAIL" "$UART_LOG"; then
   echo "[error] first_failed_phase=bringup missing_marker='nxboot: verify ok'" >&2
   echo "[error] loader rejected a slot in a clean lane (trust chain or stale disk)" >&2
   grep -a "nxboot: " "$UART_LOG" | head -n 8 >&2

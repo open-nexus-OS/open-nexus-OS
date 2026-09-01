@@ -35,7 +35,7 @@ use storage::gpt::{
 use storage::layout::{plan, NEXUS_DISK_BYTES};
 use storage::{BlockDevice, BlockError};
 
-const SECTOR: usize = 512;
+pub(crate) const SECTOR: usize = 512;
 /// Boot image payload starts at slot-partition sector 8 (RFC-0089 §5).
 const IMAGE_START_SECTOR: u64 = 8;
 
@@ -46,6 +46,7 @@ pub(crate) fn handle_image(args: ImageArgs) -> ExecResult {
         ImageAction::Patch(a) => handle_patch(a),
         ImageAction::Ota(a) => handle_ota(a),
         ImageAction::Fixtures(a) => crate::commands::image_fixtures::handle_fixtures(a),
+        ImageAction::Backstop(a) => crate::commands::image_backstop::handle_backstop(a),
     }
 }
 
@@ -65,7 +66,7 @@ impl FileBlockDevice {
         Ok(Self { file: RefCell::new(file), sectors: bytes / SECTOR as u64 })
     }
 
-    fn open_rw(path: &Path) -> std::io::Result<Self> {
+    pub(crate) fn open_rw(path: &Path) -> std::io::Result<Self> {
         let file = OpenOptions::new().read(true).write(true).open(path)?;
         let bytes = file.metadata()?.len();
         Ok(Self { file: RefCell::new(file), sectors: bytes / SECTOR as u64 })
@@ -155,7 +156,7 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     })
 }
 
-fn read_kernel(path: &Path) -> Result<Vec<u8>, NxError> {
+pub(crate) fn read_kernel(path: &Path) -> Result<Vec<u8>, NxError> {
     let bytes = std::fs::read(path).map_err(|err| {
         NxError::new(ExitClass::MissingDependency, format!("image: read {}: {err}", path.display()))
     })?;
@@ -165,7 +166,7 @@ fn read_kernel(path: &Path) -> Result<Vec<u8>, NxError> {
     Ok(bytes)
 }
 
-fn part(parts: &[Partition], guid: &[u8; 16], name: &str) -> Result<Partition, NxError> {
+pub(crate) fn part(parts: &[Partition], guid: &[u8; 16], name: &str) -> Result<Partition, NxError> {
     find_partition_named(parts, guid, name).ok_or_else(|| {
         NxError::new(ExitClass::ValidationReject, format!("image: partition `{name}` missing"))
     })
@@ -175,7 +176,7 @@ fn slot_budget_sectors(p: &Partition) -> u64 {
     (p.last_lba - p.first_lba + 1).saturating_sub(IMAGE_START_SECTOR)
 }
 
-fn make_nxbd(
+pub(crate) fn make_nxbd(
     kernel: &[u8],
     build_id: &str,
     rollback_index: u32,
@@ -201,7 +202,7 @@ fn make_nxbd(
 
 /// Writes a boot slot with the NXBD-LAST discipline: zero the descriptor,
 /// write the padded image body, THEN the signed descriptor.
-fn write_boot_slot(
+pub(crate) fn write_boot_slot(
     dev: &mut FileBlockDevice,
     slot: &Partition,
     kernel: &[u8],

@@ -39,7 +39,7 @@
 - **Phase 5 (`nxboot` loader + boot flip + measured handoff)**: ✅ 2026-08-30 (TASK-0289-A — loader complete per §7, ADR-0059 addresses frozen post-audit (home 0x9200_0000, handoff 0x9300_0000), boot flip landed: every QEMU lane boots `-kernel nxboot.bin` from the GPT disk; kernel captures the handoff pre-SATP; fallback fixture proven)
 - **Phase 6 (BSB runtime projection)**: ✅ 2026-08-30 (TASK-0036-B — record commits FIRST then projects; startup resync never overwrites loader actuator effects; BSB.active maps to the standing known-good slot; full loop proven: keep-blk boot 2 loads through a bootctld-projected block)
 - **Phase 7 (apply engine v2 + offline feed + crown proof)**: ✅ 2026-08-31 (TASK-0179 — path staging replaces the inline stage, component apply with NXBD-last, commit-time floor raise; CROWN PROOF green: two boots, one uart, a DIFFERENT build id chosen by the loader)
-- **Phase 8 (boot trust floor closure: backstop proofs + measured surface)**: ⬜ (TASK-0289-B)
+- **Phase 8 (boot trust floor closure: backstop proofs + measured surface)**: ✅ 2026-08-31 (TASK-0289-B — measured surface: `SYSCALL_BOOT_HANDOFF` 57 + bootctld `OP_GET_MEASURED` 12, cross-checked in every proof lane; three loader-backstop lanes gated: tamper→digest, downgrade→`rollback 0 < min 1`, tries-exhaustion with DEAD userspace → loader flip + record rollback observation)
 - **Phase 9 (UI/CLI)**: ⬜ (TASK-0140)
 - **Phase 10 (delta components)**: ⬜ (TASK-0034/0035)
 - **Phase B (bundle-set granularity)**: contracted here, executed by a follow-on task family (§12)
@@ -327,6 +327,17 @@ may only decrement `tries_left` and, on exhaustion, flip `active_slot`/clear `ne
 **`nx image`** = factory initialization. The BSB is a derived artifact — bootctld’s
 statefs record stays the single boot-state authority (ADR-0055).
 
+**Rollback observation (TASK-0289-B, normative)**: when bootctld attaches and the
+on-disk pair shows the ACTUATOR exhausted a trial the record still carries
+(`next_slot` cleared, `tries_left == 0`, `health_committed == false` — the shape only
+the loader's exhaustion write produces) it does NOT re-project the pending trial (that
+would hand a broken image its tries back); it rolls the RECORD back to the recorded
+rollback slot, persists, and announces `bootctld: rollback observed (trial exhausted)`.
+The `health_committed` bit separates this from the crash window between record commit
+and projection: that crash leaves the PRE-switch block, a committed steady state, and
+re-projects the trial as before. This is a record-side rule — the ADR-0058 write matrix
+is unchanged.
+
 ### 7. `nxboot` first-stage loader (normative behavior; placement per ADR-0059)
 
 `nxboot` is a minimal bare-metal S-mode loader (`source/boot/nxboot/`), entered by the
@@ -542,8 +553,11 @@ Marker SSOT stays `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` +
 
 - `system-a/b` volume format for Phase B: pkgimg v2 lineage vs. nxfs-RO — decide with the
   Phase B RFC (the §12 seam is format-agnostic by design).
-- Whether `OP_GET_RECORD` (bootctld op 11, currently caller-less) becomes the measured
-  surface read path or a dedicated op is added — decide in TASK-0289-B.
+- ~~Whether `OP_GET_RECORD` (bootctld op 11) becomes the measured surface read path or a
+  dedicated op is added~~ — RESOLVED 2026-08-31 (TASK-0289-B): dedicated `OP_GET_MEASURED`
+  (op 12) serving the kernel-validated raw handoff record behind a present flag;
+  `OP_GET_RECORD` stays the persisted-record snapshot (different authority, different
+  payload). Kernel surface: `SYSCALL_BOOT_HANDOFF` (57), read-only — ADR-0059 amendment.
 
 ---
 
@@ -558,7 +572,7 @@ Marker SSOT stays `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` +
 - [x] **Phase 5**: `nxboot` + boot flip + handoff — proof: `nxboot: bsb ok`/`verify ok`/`jump slot=a` + `KSELFTEST: boot handoff ok (measured)` REQUIRED in every proof lane; loader-fallback fixture (`verify FAIL (slot=b nxbd)` → `fallback -> slot=a` → full boot); keep-blk + reset three-boot lanes green through the loader; 12 host tests (select table + flow adversarial matrix) (2026-08-30)
 - [x] **Phase 6**: BSB projection — proof: `bootctld: bsb sync (seq=` + `SELFTEST: bootctl bsb ok` gated in headless/smp1; keep-blk boot 2 reads the projected block (`nxboot: bsb ok (slot=a seq=8)`); reset three-boot lane green; 5 host tests incl. actuator-absorption fail-closed matrix (2026-08-30)
 - [x] **Phase 7**: apply engine v2 + offline feed + crown proof — proof: `just ci-os-ota` (gated in `test-all`): `updated: stage done (slot=b build=otaB…)` → `nxboot: verify ok (slot=b build=otaB… rbidx=2)` → `nxboot: jump slot=b` → `bootctld: commit ok (slot=b)` → `bootctld: rollback-min raised (1->2)` → `SELFTEST: ota flip ok`; headless deny lanes for untrusted/digest/downgrade; 10 host tests incl. the power-cut matrix (2026-08-31)
-- [ ] **Phase 8**: backstop proofs + measured surface — proof: `ota-fallback` profile (`SELFTEST: ota fallback ok`, `SELFTEST: ota downgrade deny ok`)
+- [x] **Phase 8**: backstop proofs + measured surface — proof: `SELFTEST: measured boot log ok` REQUIRED in the headless/smp1 ladders (slot cross-check against the authority); `just ci-os-ota-backstops` (gated in `test-all`): `ota-tamper` (`nxboot: verify FAIL (slot=b digest)` → fallback → full ladder), `ota-downgrade` (`nxboot: verify FAIL (slot=b rollback 0 < min 1)` → fallback), `ota-fallback` (four boots one uart: staged real os-B, bricked trials via `init: health withheld (fault fixture)` + QMP power-cycles, `nxboot: fallback (slot=b exhausted) -> slot=a`, `bootctld: rollback observed (trial exhausted)`, `SELFTEST: ota fallback ok`); host: exhaustion-observed shape matrix + backstop-arm CLI test (2026-08-31)
 - [ ] **Phase 9**: UI/CLI — proof: `SELFTEST: nx update status ok`
 - [ ] **Phase 10**: delta components — proof: `SELFTEST: ota delta ok`
 - [ ] Tasks linked with stop conditions + proof commands (lane table in `tasks/IMPLEMENTATION-ORDER.md`).

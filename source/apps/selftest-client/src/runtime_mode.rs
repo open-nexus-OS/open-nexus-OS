@@ -31,6 +31,11 @@ pub(crate) enum RuntimeProfile {
     /// switch, reset; boot 2 proves the loader chose the new slot and the
     /// quorum commits it). Same reduced phase scope as `Ota`.
     OtaFlip,
+    /// TASK-0289-B loader backstop: the four-boot tries-exhaustion lane
+    /// (stage + switch, two bricked trial boots — init parks —, loader
+    /// exhaustion flip back to slot a, rollback observation). Reduced
+    /// phase scope like `OtaFlip`.
+    OtaFallback,
 }
 
 #[must_use]
@@ -51,6 +56,7 @@ pub(crate) fn parse_runtime_profile(bytes: &[u8]) -> Option<RuntimeProfile> {
         b"quick" => Some(RuntimeProfile::Quick),
         b"ota" => Some(RuntimeProfile::Ota),
         b"ota-flip" => Some(RuntimeProfile::OtaFlip),
+        b"ota-fallback" => Some(RuntimeProfile::OtaFallback),
         b"net" => Some(RuntimeProfile::Net),
         b"none" => Some(RuntimeProfile::None),
         b"reset" => Some(RuntimeProfile::Reset),
@@ -98,6 +104,7 @@ mod tests {
         assert_eq!(parse_runtime_profile(b"quick"), Some(RuntimeProfile::Quick));
         assert_eq!(parse_runtime_profile(b"ota"), Some(RuntimeProfile::Ota));
         assert_eq!(parse_runtime_profile(b"ota-flip"), Some(RuntimeProfile::OtaFlip));
+        assert_eq!(parse_runtime_profile(b"ota-fallback"), Some(RuntimeProfile::OtaFallback));
         assert_eq!(parse_runtime_profile(b"net"), Some(RuntimeProfile::Net));
         assert_eq!(parse_runtime_profile(b"none"), Some(RuntimeProfile::None));
         assert_eq!(parse_runtime_profile(b"bogus"), None);

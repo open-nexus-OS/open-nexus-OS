@@ -31,12 +31,11 @@ use core::fmt;
 use core::time::Duration;
 
 use nexus_abi::yield_;
-use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
+use nexus_ipc::{KernelServer, Server as _, Wait};
 use statefs::client::StatefsClient;
-use statefs::StatefsError;
 
 use crate::machine::{BootCtrl, BootTarget, Slot};
-use crate::record::{self, BOOT_RECORD_KEY};
+use crate::record;
 use crate::reply::{
     commit, commit_marked, deny, encode_payload, encode_status, machine_fail, policy_allows,
 };
@@ -87,7 +86,7 @@ pub fn touch_schemas() {}
 /// the boot-attempt handshake before the responder serves).
 pub(crate) const REPLY_RECV_SLOT: u32 = 0x05;
 pub(crate) const REPLY_SEND_SLOT: u32 = 0x06;
-const STATEFS_SEND_SLOT: u32 = 0x07;
+pub(crate) const STATEFS_SEND_SLOT: u32 = 0x07;
 pub(crate) const POLICYD_SEND_SLOT: u32 = 0x08;
 
 /// The loaded record + its statefs wire (present once the lazy attach ran).
@@ -97,7 +96,7 @@ pub(crate) struct Authority {
     /// The graph THIS session runs on: the one-shot target bootctld handed
     /// to init with the boot-attempt ack (the record clears it, so the
     /// persistent field cannot answer "are we in recovery right now").
-    session_graph: BootTarget,
+    pub(crate) session_graph: BootTarget,
     /// TASK-0036-B: blockproto client on the `bsb` partition (None = the
     /// attach failed; the record stays authoritative, projection is off
     /// and was announced loudly).
@@ -105,6 +104,10 @@ pub(crate) struct Authority {
     /// seq of the last known-good on-disk projection (GET_STATUS surface).
     pub(crate) bsb_seq: u64,
     pub(crate) bsb_synced: bool,
+    /// TASK-0289 B1: the loader's measured-boot record, read ONCE from the
+    /// kernel at attach (`None` = direct-kernel dev boot). Served verbatim
+    /// via `OP_GET_MEASURED` — bootctld is the surface, never the parser.
+    pub(crate) measured: Option<[u8; 60]>,
 }
 
 /// Main bootctld service loop (os-lite).
@@ -139,8 +142,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     loop {
         if authority.is_none() && load_attempts < 8 {
             load_attempts += 1;
-            if let Some(loaded) = try_attach() {
-                announce_target(&loaded.boot);
+            if let Some(loaded) = crate::attach_os::try_attach() {
+                crate::attach_os::announce_target(&loaded.boot);
                 authority = Some(loaded);
             } else if load_attempts == 8 {
                 emit("bootctld: record unavailable (defaults)");
@@ -161,13 +164,13 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 // chain is acyclic (statefsd/policyd never wait on bootctld).
                 if authority.is_none() && load_attempts < 8 {
                     load_attempts += 1;
-                    if let Some(loaded) = try_attach() {
-                        announce_target(&loaded.boot);
+                    if let Some(loaded) = crate::attach_os::try_attach() {
+                        crate::attach_os::announce_target(&loaded.boot);
                         authority = Some(loaded);
                     }
                 }
                 let frame = &inbuf[..n];
-                let mut rsp = [0u8; 32];
+                let mut rsp = [0u8; crate::reply::RSP_LEN];
                 let len = handle_frame(
                     authority.as_mut(),
                     Gates { sid_updated, sid_init_lite, sid_init, sid_selftest, quorum_sids },
@@ -260,7 +263,7 @@ fn handle_frame(
     gates: Gates,
     sender: u64,
     frame: &[u8],
-    rsp: &mut [u8; 32],
+    rsp: &mut [u8; crate::reply::RSP_LEN],
 ) -> usize {
     let op = frame.get(3).copied().unwrap_or(0);
     if frame.len() < 4
@@ -292,6 +295,17 @@ fn handle_frame(
         }
         wire::OP_GET_RECORD => {
             let payload = record::encode_record(&auth.boot);
+            encode_payload(rsp, op, &payload)
+        }
+        wire::OP_GET_MEASURED => {
+            // TASK-0289 B1: `[present]` + the raw validated handoff record.
+            // Absent (direct-kernel dev boot) is an honest present=0 reply,
+            // never a fabricated record.
+            let mut payload = [0u8; 61];
+            if let Some(raw) = auth.measured.as_ref() {
+                payload[0] = 1;
+                payload[1..61].copy_from_slice(raw);
+            }
             encode_payload(rsp, op, &payload)
         }
         wire::OP_GET_TARGET => {
@@ -533,63 +547,6 @@ fn handle_frame(
             commit(auth, snapshot, rsp, op, &[])
         }
         _ => encode_status(rsp, op, wire::STATUS_UNSUPPORTED),
-    }
-}
-
-/// Load the record via the shared statefs client over the FIXED wired
-/// slots (@reply inbox — never the shared response queue, never the
-/// responder). `NotFound` = fresh image (defaults); corrupt = LOUD +
-/// defaults (fatal in proof boots via the harness guard); wire trouble =
-/// retry (bounded by the caller).
-fn try_attach() -> Option<Authority> {
-    let client = KernelClient::new_with_slots(STATEFS_SEND_SLOT, REPLY_RECV_SLOT).ok()?;
-    let reply = KernelClient::new_with_slots(REPLY_SEND_SLOT, REPLY_RECV_SLOT).ok();
-    let statefs = StatefsClient::from_clients(client, reply);
-    let boot = match statefs.get(BOOT_RECORD_KEY) {
-        Ok(bytes) => match record::open_record(&bytes) {
-            Ok((boot, _seq)) => boot,
-            Err(_) => {
-                emit("bootctld: record corrupt (defaults)");
-                BootCtrl::new(Slot::A)
-            }
-        },
-        Err(StatefsError::NotFound) => BootCtrl::new(Slot::A),
-        Err(_) => return None,
-    };
-    // Until the boot-attempt consumes a one-shot, this session's graph is
-    // whatever the armed next_boot says (init WILL consume it) falling
-    // back to the persistent target.
-    let session_graph = boot.next_boot().unwrap_or(boot.boot_target());
-    // TASK-0036-B: attach the bsb projection client and reconcile the
-    // on-disk pair against the loaded record (bsb_os.rs).
-    let mut boot = boot;
-    let (bsb_dev, bsb_seq, bsb_synced) = crate::bsb_os::attach_and_reconcile(&mut boot);
-    Some(Authority { boot, client: statefs, session_graph, bsb_dev, bsb_seq, bsb_synced })
-}
-
-fn announce_target(boot: &BootCtrl) {
-    let target = target_label(boot.boot_target());
-    let next = boot.next_boot().map(target_label).unwrap_or("none");
-    let mut line = [0u8; 48];
-    let mut len = 0usize;
-    for part in ["bootctld: target=", target, " next=", next] {
-        let bytes = part.as_bytes();
-        if len + bytes.len() > line.len() {
-            return;
-        }
-        line[len..len + bytes.len()].copy_from_slice(bytes);
-        len += bytes.len();
-    }
-    if let Ok(msg) = core::str::from_utf8(&line[..len]) {
-        emit(msg);
-    }
-}
-
-fn target_label(target: BootTarget) -> &'static str {
-    match target {
-        BootTarget::Normal => "normal",
-        BootTarget::Recovery => "recovery",
-        BootTarget::Safe => "safe",
     }
 }
 

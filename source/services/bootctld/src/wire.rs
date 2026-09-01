@@ -44,6 +44,11 @@ pub const OP_ROLLBACK: u8 = 10;
 /// Full boot-record snapshot (read; TASK-0051 — `nx diagnose` + the
 /// recovery ops surface): the 9-byte record payload v2.
 pub const OP_GET_RECORD: u8 = 11;
+/// Measured-boot record read (TASK-0289 B1, ADR-0059): payload =
+/// `[present u8]` + the raw 60-byte validated handoff record when present.
+/// `present=0` names an honest direct-kernel dev boot (no loader ran).
+/// Read-only; label is always `qemu-soft-root` — never a hardware claim.
+pub const OP_GET_MEASURED: u8 = 12;
 
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_MALFORMED: u8 = 1;

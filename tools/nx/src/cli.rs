@@ -11,7 +11,8 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 pub(crate) use crate::cli_image::{
-    ImageAction, ImageArgs, ImageBuildArgs, ImageOtaArgs, ImagePatchArgs, ImageVerifyArgs,
+    ImageAction, ImageArgs, ImageBackstopArgs, ImageBuildArgs, ImageOtaArgs, ImagePatchArgs,
+    ImageVerifyArgs,
 };
 use serde::Serialize;
 use std::path::PathBuf;
@@ -86,6 +87,7 @@ impl Cli {
                 ImageAction::Fixtures(a) => a.json,
                 ImageAction::Patch(a) => a.json,
                 ImageAction::Ota(a) => a.json,
+                ImageAction::Backstop(a) => a.json,
             },
         }
     }

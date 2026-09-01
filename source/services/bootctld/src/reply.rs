@@ -16,6 +16,13 @@
 //! ADR: docs/adr/0055-bootctld-single-boot-state-authority.md
 
 use crate::machine::{BootCtrl, BootCtrlError};
+
+/// Reply frame capacity. Sized by the LARGEST payload (OP_GET_MEASURED:
+/// 61 + 7 header = 68) with headroom for additive tails — `encode_payload`
+/// clamps to this, so an outgrown payload truncates; every payload bump
+/// must keep `largest + 7 <= RSP_LEN` or the client's prefix check starves
+/// silently (the exact P8 additive-tail failure family).
+pub(crate) const RSP_LEN: usize = 96;
 use crate::os_lite::{emit, Authority, POLICYD_SEND_SLOT, REPLY_RECV_SLOT, REPLY_SEND_SLOT};
 use crate::persist_os::persist_record;
 use crate::wire;
@@ -25,7 +32,7 @@ use crate::wire;
 pub(crate) fn commit(
     auth: &mut Authority,
     snapshot: BootCtrl,
-    rsp: &mut [u8; 32],
+    rsp: &mut [u8; RSP_LEN],
     op: u8,
     payload: &[u8],
 ) -> usize {
@@ -37,7 +44,7 @@ pub(crate) fn commit(
 pub(crate) fn commit_marked(
     auth: &mut Authority,
     snapshot: BootCtrl,
-    rsp: &mut [u8; 32],
+    rsp: &mut [u8; RSP_LEN],
     op: u8,
     payload: &[u8],
     marker: Option<&str>,
@@ -59,7 +66,7 @@ pub(crate) fn commit_marked(
     }
 }
 
-pub(crate) fn machine_fail(rsp: &mut [u8; 32], op: u8, err: BootCtrlError) -> usize {
+pub(crate) fn machine_fail(rsp: &mut [u8; RSP_LEN], op: u8, err: BootCtrlError) -> usize {
     // Deterministic machine rejects map to FAILED with the reason byte so
     // the client's audit detail stays truthful.
     let reason = match err {
@@ -89,12 +96,12 @@ pub(crate) fn policy_allows(sender: u64, cap: &[u8]) -> bool {
     )
 }
 
-pub(crate) fn deny(rsp: &mut [u8; 32], op: u8, sender: u64) -> usize {
+pub(crate) fn deny(rsp: &mut [u8; RSP_LEN], op: u8, sender: u64) -> usize {
     emit_deny(op, sender);
     encode_status(rsp, op, wire::STATUS_DENIED)
 }
 
-pub(crate) fn encode_status(rsp: &mut [u8; 32], op: u8, status: u8) -> usize {
+pub(crate) fn encode_status(rsp: &mut [u8; RSP_LEN], op: u8, status: u8) -> usize {
     rsp[0] = wire::MAGIC0;
     rsp[1] = wire::MAGIC1;
     rsp[2] = wire::VERSION;
@@ -105,7 +112,7 @@ pub(crate) fn encode_status(rsp: &mut [u8; 32], op: u8, status: u8) -> usize {
     7
 }
 
-pub(crate) fn encode_payload(rsp: &mut [u8; 32], op: u8, payload: &[u8]) -> usize {
+pub(crate) fn encode_payload(rsp: &mut [u8; RSP_LEN], op: u8, payload: &[u8]) -> usize {
     let base = encode_status(rsp, op, wire::STATUS_OK);
     let len = payload.len().min(rsp.len() - base);
     rsp[5..7].copy_from_slice(&(len as u16).to_le_bytes());

@@ -83,6 +83,18 @@ pub enum ResyncVerdict {
     Drift,
 }
 
+/// TASK-0289-B: does the on-disk block show the LOADER exhausted a trial
+/// the record still carries? Only the actuator's exhaustion write
+/// produces this shape — `next_slot` cleared with the tries at zero on an
+/// UNCOMMITTED block. `health_committed` is the discriminator against the
+/// other pending-record drift (crash between record commit and
+/// projection): that crash leaves the PRE-switch block, a committed
+/// steady state, which must RE-PROJECT the trial instead. The caller
+/// rolls the record back (never re-projects) when this returns true.
+pub fn exhaustion_observed(cur: &Bsb, record_has_pending: bool) -> bool {
+    record_has_pending && cur.next_slot.is_none() && cur.tries_left == 0 && !cur.health_committed
+}
+
 /// Classifies the on-disk pair against the record's projection. `current`
 /// is `None` when both blocks are invalid (always a re-seed).
 pub fn resync_verdict(current: Option<&Bsb>, desired: &Bsb) -> ResyncVerdict {

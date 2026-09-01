@@ -187,6 +187,9 @@ impl Profile {
                 // SECOND time against state it was not written for — the
                 // headless lane owns that cycle; this lane owns the flip.
                 RuntimeProfile::OtaFlip => Profile::Bringup,
+                // TASK-0289-B: same reduction — the lane owns the
+                // exhaustion flip, the headless lane owns the ota cycle.
+                RuntimeProfile::OtaFallback => Profile::Bringup,
                 RuntimeProfile::Net => Profile::Net,
                 RuntimeProfile::None => Profile::None,
                 // Reset lane: the trigger is separate; the phase scope is full.

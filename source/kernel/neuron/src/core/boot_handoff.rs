@@ -23,7 +23,9 @@ pub const HANDOFF_ADDR: usize = 0x9300_0000;
 const MAGIC: &[u8; 8] = b"NXHO0001";
 const VERSION: u16 = 1;
 /// CRC32 covers bytes [0..56); the CRC itself sits at [56..60).
-const RECORD_LEN: usize = 60;
+/// Public: the measured-surface syscall (TASK-0289 B1) copies exactly
+/// this many bytes out, and userspace decodes them with `bootfmt`.
+pub const RECORD_LEN: usize = 60;
 const CRC_OFF: usize = 56;
 
 // ADR-0059 assertion: the page lies outside EVERY kernel-managed range —
@@ -57,7 +59,10 @@ enum Capture {
     /// Magic present but CRC/version/fields invalid — corrupt, never
     /// surfaced as a measured claim.
     Invalid,
-    Present(BootHandoff),
+    /// Validated record + the raw page bytes it decoded from (kept
+    /// verbatim so the userland surface re-decodes with the SAME
+    /// host-tested `bootfmt` codec instead of a third parity twin).
+    Present(BootHandoff, [u8; RECORD_LEN]),
 }
 
 static mut CAPTURED: Capture = Capture::Absent;
@@ -93,19 +98,32 @@ fn decode(raw: &[u8; RECORD_LEN]) -> Capture {
     sha.copy_from_slice(&raw[16..48]);
     let mut seq = [0u8; 8];
     seq.copy_from_slice(&raw[48..56]);
-    Capture::Present(BootHandoff {
-        boot_slot: raw[10],
-        tries_decremented: raw[11] == 1,
-        rollback_index: u32::from_le_bytes([raw[12], raw[13], raw[14], raw[15]]),
-        image_sha256: sha,
-        bsb_seq: u64::from_le_bytes(seq),
-    })
+    Capture::Present(
+        BootHandoff {
+            boot_slot: raw[10],
+            tries_decremented: raw[11] == 1,
+            rollback_index: u32::from_le_bytes([raw[12], raw[13], raw[14], raw[15]]),
+            image_sha256: sha,
+            bsb_seq: u64::from_le_bytes(seq),
+        },
+        *raw,
+    )
 }
 
 /// Read access for the userland surface (TASK-0289 B1: bootctld exposure).
 pub fn get() -> Option<BootHandoff> {
     match unsafe { &*core::ptr::addr_of!(CAPTURED) } {
-        Capture::Present(record) => Some(*record),
+        Capture::Present(record, _) => Some(*record),
+        _ => None,
+    }
+}
+
+/// The validated raw record bytes for `SYSCALL_BOOT_HANDOFF` (TASK-0289
+/// B1). `None` for absent AND invalid captures — a corrupt page is never
+/// surfaced as measurement.
+pub fn raw() -> Option<[u8; RECORD_LEN]> {
+    match unsafe { &*core::ptr::addr_of!(CAPTURED) } {
+        Capture::Present(_, raw) => Some(*raw),
         _ => None,
     }
 }
@@ -115,7 +133,7 @@ pub fn get() -> Option<BootHandoff> {
 /// corrupt record is named too and NEVER surfaced as measured.
 pub fn emit_marker() {
     match unsafe { &*core::ptr::addr_of!(CAPTURED) } {
-        Capture::Present(record) => {
+        Capture::Present(record, _) => {
             log_info!(target: "selftest", "KSELFTEST: boot handoff ok (measured)");
             log_info!(
                 target: "boot",

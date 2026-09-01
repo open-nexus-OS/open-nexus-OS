@@ -39,6 +39,10 @@ where
     log_str_ptr("init-msg", "init: start");
     debug_write_str("init: start");
     debug_write_byte(b'\n');
+    // TASK-0289-B: an armed fault-fixture TRIAL boot parks here — before
+    // any service spawns — so the loader's tries-exhaustion backstop is
+    // what recovers the device, not userspace (see fault_fixture.rs).
+    crate::bootstrap::fault_fixture::park_if_armed();
     if probes_enabled() {
         debug_write_bytes(b"!images\n");
     }

@@ -36,6 +36,10 @@ pub(crate) enum ImageAction {
     /// downgrade containers + the real-kernel os-B container, packed into
     /// an nxfs data-partition seed image under `/updates/`.
     Fixtures(ImageFixturesArgs),
+    /// Arm a loader-backstop trial on a built disk (TASK-0289-B): write a
+    /// boot-b image `nxboot` MUST reject (tampered payload behind a valid
+    /// NXBD, or a validly-signed downgrade) and point the BSB at it.
+    Backstop(ImageBackstopArgs),
 }
 
 #[derive(Args, Debug)]
@@ -151,6 +155,31 @@ pub(crate) struct ImageFixturesArgs {
     #[arg(long)]
     pub(crate) sign_publisher: PathBuf,
     /// Build id of the RUNNING image (os-B derives `<id>-B`).
+    #[arg(long)]
+    pub(crate) build_id: String,
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct ImageBackstopArgs {
+    /// Built disk image to arm in place.
+    #[arg(long, default_value = "build/nexus.img")]
+    pub(crate) image: PathBuf,
+    /// Backstop kind: `tamper` (valid NXBD, one payload byte flipped AFTER
+    /// the descriptor landed → loader rejects `digest`) or `downgrade`
+    /// (fully valid slot at rollback index 0, below the factory floor →
+    /// loader rejects `rollback 0 < min <floor>`).
+    #[arg(long)]
+    pub(crate) kind: String,
+    /// Flat boot image to plant in boot-b.
+    #[arg(long)]
+    pub(crate) kernel: PathBuf,
+    /// OS-image signing key: 64 hex chars (Ed25519 seed).
+    #[arg(long)]
+    pub(crate) sign: PathBuf,
+    /// Build id for the planted NXBD (distinct from the boot-a id so the
+    /// uart names which image the loader rejected).
     #[arg(long)]
     pub(crate) build_id: String,
     #[arg(long)]

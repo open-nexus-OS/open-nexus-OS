@@ -22,11 +22,18 @@ use crate::os_lite::{emit, Authority};
 /// Startup: attach the blockproto client on the bsb partition and
 /// reconcile the on-disk pair against the loaded record (idempotent;
 /// loader actuator effects are left for the boot-attempt tick to
-/// converge — see `bsb::resync_verdict`).
-pub(crate) fn attach_and_reconcile(boot: &mut BootCtrl) -> (Option<RemoteBlockDevice>, u64, bool) {
+/// converge — see `bsb::resync_verdict`). The 4th return names a LOADER
+/// ROLLBACK OBSERVATION (TASK-0289-B): the on-disk pair shows the
+/// actuator exhausted our pending trial (next cleared, tries zero) while
+/// the record still carries it — the record is rolled back HERE, in RAM;
+/// the caller persists and announces it (both-or-neither discipline).
+pub(crate) fn attach_and_reconcile(
+    boot: &mut BootCtrl,
+) -> (Option<RemoteBlockDevice>, u64, bool, bool) {
     let mut bsb_dev = crate::bsb::sync::attach();
     let mut bsb_seq = 0u64;
     let mut bsb_synced = false;
+    let mut rollback_observed = false;
     match bsb_dev.as_mut() {
         None => emit("bootctld: bsb attach FAIL (projection disabled)"),
         Some(dev) => {
@@ -42,6 +49,21 @@ pub(crate) fn attach_and_reconcile(boot: &mut BootCtrl) -> (Option<RemoteBlockDe
                     let adopted = cur.rollback_min_index;
                     boot.raise_rollback_min(adopted);
                     emit("bootctld: rollback-min adopted from factory bsb");
+                }
+            }
+            // TASK-0289-B rollback observation: the record still carries a
+            // pending trial but the disk shows the loader EXHAUSTED it
+            // (next cleared, tries zero — the ADR-0058 actuator's only
+            // other write). Re-projecting would hand the broken image its
+            // tries back; instead the record follows the actuator: roll
+            // back to the recorded rollback slot. Ordinary trial
+            // decrements (next still set) stay untouched — the
+            // boot-attempt tick owns that convergence.
+            if let Some((cur, _)) = current.as_ref() {
+                if crate::bsb::exhaustion_observed(cur, boot.pending_slot().is_some())
+                    && boot.rollback().is_ok()
+                {
+                    rollback_observed = true;
                 }
             }
             let desired = crate::bsb::project(boot);
@@ -69,7 +91,7 @@ pub(crate) fn attach_and_reconcile(boot: &mut BootCtrl) -> (Option<RemoteBlockDe
             }
         }
     }
-    (bsb_dev, bsb_seq, bsb_synced)
+    (bsb_dev, bsb_seq, bsb_synced, rollback_observed)
 }
 
 /// TASK-0036-B: project the record to the bsb partition after a COMMITTED

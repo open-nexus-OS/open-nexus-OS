@@ -102,3 +102,29 @@ fn actuator_masks_never_hide_other_field_drift() {
     let mixed = Bsb { seq: 2, next_slot: None, tries_left: 0, active_slot: BsbSlot::B, ..desired };
     assert_eq!(bsb::resync_verdict(Some(&mixed), &desired), ResyncVerdict::Drift);
 }
+
+#[test]
+fn test_exhaustion_observation_rolls_back_not_reprojects() {
+    // TASK-0289-B: the loader exhausted a trial with userspace dead — the
+    // shape is next=None + tries=0 on an UNCOMMITTED block.
+    let boot = switched_record();
+    let desired = bsb::project(&boot); // pending trial: next=b tries=2
+    let exhausted = Bsb { seq: 4, next_slot: None, tries_left: 0, ..desired };
+    assert!(!exhausted.health_committed, "trial projection is uncommitted by construction");
+    assert!(bsb::exhaustion_observed(&exhausted, true));
+
+    // Without a pending record there is nothing to observe (fresh boot on
+    // a prepared/backstop disk clears via the ordinary drift arm).
+    assert!(!bsb::exhaustion_observed(&exhausted, false));
+
+    // A mid-trial decrement is the boot-attempt tick's business.
+    let decremented = Bsb { seq: 2, tries_left: 1, ..desired };
+    assert!(!bsb::exhaustion_observed(&decremented, true));
+
+    // The crash window between record commit and projection leaves the
+    // PRE-switch block: a committed steady state. That must RE-PROJECT
+    // the trial (Drift), never roll back a healthy staged update.
+    let pre_switch = Bsb { health_committed: true, next_slot: None, tries_left: 0, ..desired };
+    assert!(!bsb::exhaustion_observed(&pre_switch, true));
+    assert_eq!(bsb::resync_verdict(Some(&pre_switch), &desired), ResyncVerdict::Drift);
+}

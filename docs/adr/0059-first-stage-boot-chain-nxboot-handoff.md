@@ -92,6 +92,29 @@ arch-gate rules.
   backstop proofs), harness segmentation for nxboot rungs, memory-map audit note in
   the kernel docs.
 
+## Amendment 2026-08-31 (TASK-0289 B1): the userland measured surface
+
+The handoff record crosses into userland through TWO read-only hops, both
+serving the bytes the kernel VALIDATED (CRC + version), never a re-parse:
+
+- **`SYSCALL_BOOT_HANDOFF` (57)**: copies the raw 60-byte record into a
+  caller buffer (`len >= 60` enforced — a short read can never masquerade
+  as the record). Returns 0 for an honest direct-kernel boot; a corrupt
+  page is surfaced as absent, never as measurement. No capability gate:
+  the record is public boot evidence (the kernel prints the same fields on
+  the uart at every boot), and gating a read of already-printed data would
+  be security theater.
+- **bootctld `OP_GET_MEASURED` (12)**: bootctld reads the syscall once at
+  attach and serves `[present u8] + raw record` verbatim — bootctld is the
+  SURFACE (single boot-state authority, ADR-0055), never the parser. The
+  dedicated op resolves RFC-0089's open question: `OP_GET_RECORD` (11)
+  stays the persisted-record snapshot — different authority (statefs
+  record vs. loader evidence), different lifetime, different payload.
+
+Labels stay `qemu-soft-root` end to end; the selftest cross-checks the
+measured slot against the authority's active slot before emitting
+`SELFTEST: measured boot log ok`.
+
 ## Alternatives considered
 
 - **Kernel self-verifies (no loader)**: rejected — the artifact being verified would

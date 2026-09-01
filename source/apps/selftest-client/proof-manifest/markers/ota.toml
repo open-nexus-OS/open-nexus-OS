@@ -82,6 +82,39 @@ proves = "DIAGNOSTIC: the boot-state authority was unreachable right after the f
 phase = "ota"
 proves = "DIAGNOSTIC: which of the three flip rungs (selftest report / updated report / commit observed) failed"
 
+# TASK-0289-B loader-backstop lanes.
+[marker."SELFTEST: ota fallback staged ok"]
+phase = "bringup"
+emit_when = { profile = "ota-fallback" }
+proves = "boot 1: the real container staged + switch armed — the trial boots that follow are honestly bricked (init fault-fixture park), so only the LOADER can recover"
+
+[marker."SELFTEST: ota fallback ok"]
+phase = "bringup"
+emit_when = { profile = "ota-fallback" }
+proves = "final boot: the loader exhausted the trial (2->1->0->flip) with userspace dead, bootctld observed the rollback at attach, and the measured record names slot a — the boot-time trust floor recovered the device alone"
+
+[marker."SELFTEST: ota fallback stage FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: boot 1 could not stage or switch the real container"
+
+[marker."SELFTEST: ota fallback FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: the fallback lane did not settle (pending trial survived, wrong slot, or the measured record disagreed)"
+
+[marker."init: health withheld (fault fixture)"]
+phase = "bringup"
+emit_when = { profile = "ota-fallback" }
+proves = "a TRIAL boot of the armed fault fixture parked before any service spawned — the honest brick that hands recovery to the loader"
+
+[marker."bootctld: rollback observed (trial exhausted)"]
+phase = "bringup"
+emit_when = { profile = "ota-fallback" }
+proves = "bootctld found the actuator's exhaustion shape on disk (next cleared, tries 0, uncommitted) against a pending record and rolled the record back instead of re-arming the broken image"
+
+[marker."bootctld: rollback observed (persist FAIL)"]
+phase = "ota"
+proves = "DIAGNOSTIC: the observation could not persist — RAM is rolled back, disk heals at the next mutation"
+
 [marker."bootctld: rollback-min adopted from factory bsb"]
 phase = "ota"
 proves = "record genesis took the anti-downgrade floor the factory shipped in the BSB — a fresh record starting at 0 would otherwise project over it and disarm the gate on every new device"
@@ -150,6 +183,22 @@ proves = "GET_STATUS additive tail reports the projection synced with a runtime 
 [marker."SELFTEST: bootctl bsb FAIL"]
 phase = "ota"
 proves = "DIAGNOSTIC: projection not synced or seq still at factory"
+
+[marker."SELFTEST: measured boot log ok"]
+phase = "ota"
+proves = "the loader's measured-boot record travelled nxboot -> handoff page -> kernel capture -> bootctld OP_GET_MEASURED, and its slot matches the record's active slot (qemu-soft-root, TASK-0289 B1)"
+
+[marker."SELFTEST: measured boot log absent (direct kernel)"]
+phase = "ota"
+proves = "DIAGNOSTIC: honest absence — no loader ran (NEXUS_DIRECT_KERNEL dev boot); never emitted on the nxboot path"
+
+[marker."measured-dbg: rs="]
+phase = "ota"
+proves = "DIAGNOSTIC: which hop of the measured surface broke (reply status / length / present / slot pair)"
+
+[marker."SELFTEST: measured boot log FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: the measured record disagreed with the boot-state authority (or the surface broke)"
 
 [marker."SELFTEST: bootctl quorum FAIL"]
 phase = "ota"

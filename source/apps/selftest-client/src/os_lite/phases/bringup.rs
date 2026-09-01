@@ -50,6 +50,17 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             crate::os_lite::probes::otaflip::ota_flip_proof(&statefsd);
         }
     }
+    // TASK-0289-B backstop lane: the four-boot tries-exhaustion proof.
+    // Boot 1 stages + switches and ENDS IN A REBOOT; the bricked trial
+    // boots never reach this code (init parks); the final boot verifies
+    // the loader flipped back and bootctld observed the rollback.
+    if crate::os_lite::boot_cfg::runtime_profile_with_retry()
+        == Some(crate::runtime_mode::RuntimeProfile::OtaFallback)
+    {
+        if let Ok(statefsd) = crate::os_lite::ipc::routing::route_with_retry("statefsd") {
+            crate::os_lite::probes::otafallback::ota_fallback_proof(&statefsd);
+        }
+    }
 
     // TASK-0053: .nxra break-glass chain (require → accept → replay deny),
     // every proof boot — state-neutral by construction (unstaged switch).

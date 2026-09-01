@@ -1,9 +1,9 @@
 ---
 title: TASK-0289 Boot trust floor v1: nxboot first-stage loader + boot flip (Phase A) and backstop proofs + measured surface (Phase B)
-status: In Progress — PHASE A COMPLETE 2026-08-30 (A1-A4; boot flip live in every lane); Phase B (backstops + measured surface) waits on TASK-0179
+status: Done 2026-08-31 — Phase A (loader + flip) 2026-08-30, Phase B (measured surface + three backstop lanes) 2026-08-31; all gated in test-all
 owner: @security @runtime @updates
 created: 2026-04-13
-updated: 2026-08-30
+updated: 2026-08-31
 depends-on:
   - TASK-0315   # single GPT disk with bsb/boot-a/boot-b (Phase A substrate)
   - TASK-0260   # nx image writes the factory disk + signed NXBDs
@@ -203,6 +203,84 @@ Fatal signatures registered in the harness: `nxboot: PANIC`, unexpected
   headless ladder green with the absent marker (direct kernel), manual
   nxboot boot against the fresh disk shows the measured pair.
 
+- **B1 DELIVERED 2026-08-31** — the measured surface, headless-proven
+  (`SELFTEST: measured boot log ok` REQUIRED in the ladder):
+  - Kernel `SYSCALL_BOOT_HANDOFF` (57): copies the RAW validated 60-byte
+    record into a caller buffer (`len >= 60` enforced; absent/corrupt ⇒ 0
+    — measurement is never fabricated). The kernel keeps the raw page
+    bytes alongside the decoded copy so userland re-decodes with the SAME
+    host-tested `bootfmt` codec instead of a third parity twin.
+  - bootctld `OP_GET_MEASURED` (12) — resolves the RFC-0089 open question
+    with a DEDICATED op (`OP_GET_RECORD` stays the persisted-record
+    snapshot: different authority, lifetime, payload). Payload =
+    `[present u8] + raw record`; read once at attach; served verbatim.
+    Reply plumbing hardened on the way: bootctld's reply buffer was a
+    silent-truncating `[u8; 32]` (the P8 additive-tail family — a 61-byte
+    payload would have starved every prefix check); now `RSP_LEN = 96`
+    with the trap documented at `encode_payload`.
+  - Selftest cross-check probed at OTA-PHASE START: measured slot ==
+    authority active slot. ⭐ FOUND BY THE PROBE ITSELF: probed at phase
+    END it compared boot evidence against post-OTA state (the phase's
+    stage/switch legitimately moves the active slot without a reboot) and
+    failed honestly — boot-time claims must be checked before the state
+    machine moves. Diagnostic `SELFTEST: measured dbg …` line kept.
+  - ADR-0059 amendment documents the two-hop surface + the no-capability
+    rationale (public boot evidence, printed on the uart anyway).
+
+- **B2 DELIVERED 2026-08-31 — the three backstop lanes, all green and
+  gated (`just ci-os-ota-backstops` in `test-all`)**:
+  - **`nx image backstop --kind tamper|downgrade`** arms a built disk:
+    plants boot-b behind a fully VALID signed NXBD (tamper flips ONE
+    payload byte AFTER the descriptor landed; downgrade is fully valid at
+    rollback index 0 under the factory floor 1) and arms the BSB
+    `next=b tries=2` via the alternate-block writer rule (CLI test proves
+    the arm + floor survival; the rejects themselves are host-proven in
+    nxboot tests/loader_flow.rs since A2).
+  - **`ota-tamper` lane**: `bsb ok (slot=b)` → `tries 2->1` →
+    `verify FAIL (slot=b digest)` → `fallback -> slot=a` → the FULL
+    headless ladder incl. `bootctld: bsb resync` (the record authority
+    clears the planted trial) and the measured cross-check.
+  - **`ota-downgrade` lane**: same shape,
+    `verify FAIL (slot=b rollback 0 < min 1)` — the loader floor check as
+    the anti-downgrade backstop, before any OS code runs.
+  - **`ota-fallback` lane (four boots, ONE uart)** — the crown of Phase B:
+    boot 1 stages the REAL os-B + switch (record and BSB agree, same
+    arming as the flip lane); boots 2/3 are HONESTLY dead — init parks at
+    `init: health withheld (fault fixture)` BEFORE any service spawns
+    (nexus-init `fault_fixture.rs`: trial detection from the loader's own
+    measured record, the knob from fw_cfg `selftest-profile`), because a
+    live userspace would shadow the proof (the boot-attempt tick exhausts
+    the RECORD first and bootctld rolls back in software). The harness
+    plays the power-cycle role (`tools/qmp_reset_on_marker.py`, one QMP
+    system_reset per NEW withheld marker, bounded). The loader alone
+    walks `tries 2->1`, `1->0`, then
+    `nxboot: fallback (slot=b exhausted) -> slot=a` (BSB seq 3→4→5, all
+    actuator writes); boot 4: `bootctld: rollback observed (trial
+    exhausted)` + `SELFTEST: ota fallback ok`.
+  - **Rollback observation (bootctld)**: at attach, an on-disk pair
+    showing the actuator's exhaustion shape (`next=None`, `tries=0`,
+    `health_committed=false`) against a still-pending record rolls the
+    RECORD back (persist + loud marker) instead of re-projecting — which
+    would hand the broken image its tries back. `health_committed` is the
+    discriminator against the commit→projection crash window (that block
+    is a committed steady state and re-projects as before); predicate
+    `bsb::exhaustion_observed` + the four-shape host test in
+    tests/bsb_projection.rs. Normative in RFC-0089 §6.
+  - **Shared fw_cfg reader** `nexus_abi::fwcfg` (bounded file-dir walk;
+    parity source: selftest boot_cfg.rs — dedup of the selftest copy
+    deferred, noted here).
+  - **Deliberate scope**: the ledger's `nx` debug read of the measured
+    record is covered by the uart line (`neuron: boot handoff …
+    qemu-soft-root`) + `OP_GET_MEASURED`; a host-side read path would
+    need a guest transport that does not exist — revisit with TASK-0140's
+    CLI if wanted.
+  - ⭐ Session traps worth keeping: TWO cfg-attribute thefts (a `mod` line
+    inserted between `#[cfg(...)]` and its module steals the attribute —
+    broke nexus-abi host builds and bootctld host tests, found both
+    times by gates); NEVER edit a harness/launcher shell script while a
+    lane executes it (bash reads incrementally — the downgrade lane died
+    on a mid-run rewrite at a stale byte offset).
+
 ## Plan (small PRs)
 
 1. **A1**: nxboot crate skeleton + host-tested machine modules (BSB/NXBD/select)
@@ -234,9 +312,9 @@ Fatal signatures registered in the harness: `nxboot: PANIC`, unexpected
      marker emitted, byte lost on the wire. If it recurs, suspect the
      serial monitor pipeline, not the services.
 (A4 delivered above.)
-5. **B1**: measured surface + `SELFTEST: measured boot log ok`.
+5. **B1**: measured surface + `SELFTEST: measured boot log ok`. ✅ 2026-08-31
 6. **B2**: backstop fixture lanes (`ota-fallback` profile, downgrade/tamper) +
-   boards/docs sweep.
+   boards/docs sweep. ✅ 2026-08-31
 
 ## Acceptance criteria (behavioral)
 

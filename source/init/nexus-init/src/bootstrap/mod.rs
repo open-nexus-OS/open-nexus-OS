@@ -9,6 +9,7 @@
 pub(crate) mod blk_plane;
 pub(crate) mod diag;
 pub(crate) mod endpoints;
+pub(crate) mod fault_fixture;
 pub(crate) mod handshake;
 pub(crate) mod helpers;
 pub(crate) mod labels;

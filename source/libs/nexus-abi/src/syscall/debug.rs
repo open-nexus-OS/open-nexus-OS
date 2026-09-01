@@ -25,6 +25,25 @@ pub fn boot_should_fold_verdicts() -> bool {
     }
 }
 
+/// Reads the loader's measured-boot record (TASK-0289 B1, ADR-0059): the raw validated
+/// `bootfmt::handoff` bytes the kernel captured pre-SATP, or `None` for a direct-kernel dev
+/// boot (no loader ran — measurement is never fabricated) and on host. Decode with
+/// `bootfmt::handoff::decode` — the kernel only surfaces records whose CRC it validated.
+#[must_use]
+pub fn boot_measured_read() -> Option<[u8; 60]> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_BOOT_HANDOFF: usize = 57;
+        let mut buf = [0u8; 60];
+        let raw = unsafe { ecall2(SYSCALL_BOOT_HANDOFF, buf.as_mut_ptr() as usize, buf.len()) };
+        decode_syscall(raw).map(|n| n == buf.len()).unwrap_or(false).then_some(buf)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        None
+    }
+}
+
 /// The fw_cfg-configured display mode (RFC-0074 / ADR-0050) as `(w, h)`, or `None` when
 /// unknown/absent/host. The display server treats this as the AUTHORITATIVE mode it commands
 /// onto the scanout — kernel-derived, so QEMU's transient GTK window size never latches wrong.

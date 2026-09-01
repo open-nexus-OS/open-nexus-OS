@@ -103,6 +103,33 @@ runner = "scripts/qemu-test.sh"
 extends = "headless"
 env = { NEXUS_SELFTEST_PROFILE = "ota-flip", REQUIRE_OTA_FLIP = "1" }
 
+# TASK-0289-B loader backstops: the launcher arms boot-b with an image the
+# LOADER must reject (nx image backstop) — tampered payload behind a valid
+# NXBD (digest reject) or a validly-signed downgrade below the factory
+# floor (rollback reject). The guest side is the ordinary headless ladder:
+# after the loud fallback the system boots slot A normally, so every
+# service proof (incl. the measured-boot cross-check) runs unchanged.
+# TASK-0289-B tries-exhaustion lane: FOUR boots in one uart. Boot 1 stages
+# + switches (real machinery, record and BSB agree); the trial boots park
+# in init (fault fixture — see nexus-init fault_fixture.rs) and the
+# HARNESS power-cycles them via QMP each time the withheld marker appears;
+# the loader exhausts the tries and flips back; the final boot proves the
+# observation. The reduced guest scope mirrors ota-flip.
+[profile.ota-fallback]
+runner = "scripts/qemu-test.sh"
+extends = "headless"
+env = { NEXUS_SELFTEST_PROFILE = "ota-fallback", NEXUS_RESET_ON_MARKER = "init: health withheld (fault fixture)", NEXUS_RESET_ON_MARKER_COUNT = "2" }
+
+[profile.ota-tamper]
+runner = "scripts/qemu-test.sh"
+extends = "headless"
+env = { NEXUS_OTA_BACKSTOP = "tamper" }
+
+[profile.ota-downgrade]
+runner = "scripts/qemu-test.sh"
+extends = "headless"
+env = { NEXUS_OTA_BACKSTOP = "downgrade" }
+
 [profile.dhcp]
 runner = "scripts/qemu-test.sh"
 extends = "headless"

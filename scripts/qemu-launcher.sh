@@ -27,6 +27,9 @@
 #   QEMU_BLK_IMG            – QEMU block image path
 #   QEMU_INPUT_AUTOINJECT   – when "1", enable QMP for visible input injection
 #   QEMU_QMP_SOCKET         – QMP unix socket path
+#   NEXUS_OTA_BACKSTOP      – tamper|downgrade: arm boot-b via nx image backstop (TASK-0289-B)
+#   NEXUS_RESET_ON_MARKER   – marker string: QMP system_reset per NEW occurrence (power-cycle actor)
+#   NEXUS_RESET_ON_MARKER_COUNT – resets to fire (default 2)
 #   QEMU_PROOF_POINTER_SOURCE – mouse | tablet | keyboard | mixed
 #   QEMU_ICOUNT_ARGS        – icount args (default: 1,sleep=on)
 #   QEMU_NO_ICOUNT          – when "1", disable icount
@@ -208,6 +211,14 @@ prepare_blk_image() {
     "$nx_bin" image build --kernel "$KERNEL_BIN" --out "$QEMU_BLK_IMG" \
       --sign "$sign_key" --build-id "$build_id" --rollback-index 1 \
       --data "$ROOT/build/data-seed.img" >/dev/null
+    # TASK-0289-B: arm a loader-backstop trial (boot-b image nxboot MUST
+    # reject + BSB next=b). Fresh-build path only — the armed BSB is the
+    # lane's precondition, a kept disk would carry stale runtime state.
+    if [[ -n "${NEXUS_OTA_BACKSTOP:-}" ]]; then
+      "$nx_bin" image backstop --image "$QEMU_BLK_IMG" \
+        --kind "$NEXUS_OTA_BACKSTOP" --kernel "$KERNEL_BIN" \
+        --sign "$sign_key" --build-id "otaTRIAL" >/dev/null
+    fi
   fi
 }
 
@@ -228,7 +239,7 @@ cleanup_input_injector() {
   fi
 }
 
-trap 'cleanup_input_injector; cleanup_qmp; cleanup_blk_lock' EXIT
+trap 'cleanup_input_injector; cleanup_marker_reset_watcher; cleanup_qmp; cleanup_blk_lock' EXIT
 
 # --- trim log tail ---
 trim_log() {
@@ -327,8 +338,9 @@ build_qemu_args() {
     fi
   fi
 
-  # QMP for visible input injection
-  if [[ "$QEMU_INPUT_AUTOINJECT" == "1" ]]; then
+  # QMP for visible input injection and/or the marker-reset watcher
+  # (TASK-0289-B ota-fallback: the harness plays the power-cycle role).
+  if [[ "$QEMU_INPUT_AUTOINJECT" == "1" || -n "${NEXUS_RESET_ON_MARKER:-}" ]]; then
     rm -f "$QEMU_QMP_SOCKET"
     args+=(-qmp "unix:$QEMU_QMP_SOCKET,server=on,wait=off")
   fi
@@ -375,6 +387,27 @@ build_qemu_args() {
   fi
 
   printf '%s\n' "${args[@]}"
+}
+
+# TASK-0289-B: one QMP system_reset per NEW occurrence of the marker, up
+# to the count — the external power-cycle for boots that park on purpose
+# (init fault-fixture brick). Bounded: the tool exits at count/deadline.
+start_marker_reset_watcher() {
+  if [[ -z "${NEXUS_RESET_ON_MARKER:-}" ]]; then
+    return 0
+  fi
+  python3 "$ROOT/tools/qmp_reset_on_marker.py" "$QEMU_QMP_SOCKET" "$UART_LOG" \
+    "$NEXUS_RESET_ON_MARKER" "${NEXUS_RESET_ON_MARKER_COUNT:-2}" \
+    "${NEXUS_RESET_ON_MARKER_TIMEOUT:-540}" >>"$QEMU_LOG" 2>&1 &
+  MARKER_RESET_PID=$!
+}
+
+cleanup_marker_reset_watcher() {
+  if [[ -n "${MARKER_RESET_PID:-}" ]]; then
+    kill "$MARKER_RESET_PID" >/dev/null 2>&1 || true
+    wait "$MARKER_RESET_PID" >/dev/null 2>&1 || true
+    MARKER_RESET_PID=""
+  fi
 }
 
 start_visible_input_injector() {
@@ -531,6 +564,7 @@ echo "[info] QEMU args: ${QEMU_ARGS[*]}" >&2
 
 # Launch QEMU
 start_visible_input_injector
+start_marker_reset_watcher
 if [[ "$RUN_TIMEOUT" == "0" ]]; then
   stdbuf -oL -eL qemu-system-riscv64 "${QEMU_ARGS[@]}" > >(monitor_uart_stream | tee "$UART_LOG") 2>"$QEMU_LOG"
   qemu_status=$?

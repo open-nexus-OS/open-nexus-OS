@@ -283,6 +283,15 @@ ci-os-reset:
 ci-os-ota:
     just test-os ota-flip
 
+# TASK-0289-B loader backstops: boot-time tamper + downgrade rejects
+# (armed disk, single boot each) and the tries-exhaustion fallback (FOUR
+# boots, bricked trials power-cycled via QMP) — the boot trust floor
+# proven with userspace dead.
+ci-os-ota-backstops:
+    just test-os ota-tamper
+    just test-os ota-downgrade
+    just test-os ota-fallback
+
 # SMP=2 REAL-PARALLELISM lane (MTTCG, icount impossible — it forces
 # single-threaded round-robin vCPUs and would kill the cpu1/per-hart/IPI
 # proofs). MTTCG + host-scheduling variance make several of its timing proofs
@@ -603,6 +612,7 @@ test-all:
     just ci-os-smp1
     just ci-os-reset
     just ci-os-ota
+    just ci-os-ota-backstops
     @scripts/hypothesis-log.sh H5 "justfile:test-all:end" "aggregate gate completed"
 
 # -----------------------------------------------------------------------------

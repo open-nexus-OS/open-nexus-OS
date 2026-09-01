@@ -41,6 +41,51 @@ fn selftest_quorum_report() -> core::result::Result<(), ()> {
 }
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
+    // TASK-0289 B1: the measured-boot surface — probed FIRST, before this
+    // phase mutates the authority: the cross-check (measured slot ==
+    // active slot) is a statement about THIS BOOT, and the stage/switch
+    // cycle below legitimately moves the active slot without a reboot
+    // (probing after it compared boot evidence against post-OTA state
+    // and failed honestly). The record travelled
+    // nxboot -> handoff page -> kernel capture -> bootctld; the probe
+    // CROSS-CHECKS it against the authority's own status (active slot)
+    // instead of merely proving the plumbing echoes bytes. Absent is an
+    // honest verdict of its own (direct-kernel dev boots have no loader)
+    // and is never accepted silently on the nxboot path — the harness
+    // requires the ok marker in proof lanes.
+    {
+        let frame = [b'B', b'T', 1, 12u8]; // OP_GET_MEASURED
+        let mut measured = [0u8; 61];
+        let mut status = [0u8; 4];
+        let first = crate::os_lite::probes::reset::bootctl_call_payload(&frame, 12, &mut measured);
+        let verdict = match first {
+            Some((0, len)) if len >= 61 && measured[0] == 1 => {
+                // Raw handoff layout (ADR-0059, +1 for the present byte):
+                // slot at [11], validated by the kernel's CRC check.
+                let status_frame = [b'B', b'T', 1, 4u8]; // OP_GET_STATUS
+                match crate::os_lite::probes::reset::bootctl_call_payload(
+                    &status_frame,
+                    4,
+                    &mut status,
+                ) {
+                    // Status encodes a=1/b=2; the handoff encodes a=0/b=1.
+                    Some((0, slen)) if slen >= 1 => Some(status[0] == measured[11] + 1),
+                    _ => Some(false),
+                }
+            }
+            Some((0, len)) if len >= 1 && measured[0] == 0 => None,
+            _ => Some(false),
+        };
+        match verdict {
+            Some(true) => emit_line(crate::markers::M_SELFTEST_MEASURED_BOOT_LOG_OK),
+            Some(false) => {
+                emit_measured_dbg(first, &measured, &status);
+                emit_line(crate::markers::M_SELFTEST_MEASURED_BOOT_LOG_FAIL)
+            }
+            None => emit_line(crate::markers::M_SELFTEST_MEASURED_BOOT_LOG_ABSENT_DIRECT_KERNEL),
+        }
+    }
+
     // TASK-0315: cross-partition deny (state write without a grant) —
     // late in the ladder so virtioblkd is long serving.
     crate::os_lite::probes::blkgate::blk_cross_partition_deny_proof();
@@ -328,5 +373,24 @@ fn normalize_active_to_a(ctx: &mut PhaseCtx, updated: &nexus_ipc::KernelClient) 
                 let _ = yield_();
             }
         }
+    }
+}
+
+/// Diagnostic companion of the measured-boot FAIL verdict (TASK-0289 B1):
+/// one line naming which hop broke — transport (`rs=9`), reply status,
+/// payload length, present flag, and the slot pair the cross-check saw.
+/// Fixed-buffer render, single digits (lengths clamp at 9).
+fn emit_measured_dbg(first: Option<(u8, usize)>, measured: &[u8; 61], status: &[u8; 4]) {
+    let mut line = *b"measured-dbg: rs=9 len=9 pr=9 sl=9 ac=9";
+    let digit = |v: usize| b'0' + (v.min(9) as u8);
+    if let Some((st, len)) = first {
+        line[17] = digit(st as usize);
+        line[23] = digit(len / 10);
+        line[28] = digit(measured[0] as usize);
+        line[33] = digit(measured[11] as usize);
+        line[38] = digit(status[0] as usize);
+    }
+    if let Ok(msg) = core::str::from_utf8(&line[..]) {
+        emit_line(msg);
     }
 }

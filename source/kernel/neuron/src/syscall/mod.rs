@@ -111,6 +111,13 @@ pub const SYSCALL_MMIO_MAP_AUTO: usize = 55;
 /// it is identity-bound to bootctld, the single boot-state authority —
 /// every other caller gets EPERM. Does not return on success.
 pub const SYSCALL_SYSTEM_RESET: usize = 56;
+/// TASK-0289 B1 (ADR-0059): copies the loader's validated measured-boot
+/// record (raw `bootfmt::handoff` bytes, 60) into a caller buffer. Args:
+/// (ptr, len >= 60). Returns bytes written, or 0 when the boot was a
+/// direct-kernel dev boot (no loader ran) — measurement is never
+/// fabricated. Read-only; the record is public boot evidence (the kernel
+/// prints the same fields on the uart), so no capability gate.
+pub const SYSCALL_BOOT_HANDOFF: usize = 57;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).

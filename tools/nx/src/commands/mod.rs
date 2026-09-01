@@ -15,6 +15,7 @@ pub(crate) mod doctor;
 pub(crate) mod dsl;
 pub(crate) mod idl;
 pub(crate) mod image;
+pub(crate) mod image_backstop;
 pub(crate) mod image_fixtures;
 pub(crate) mod input;
 pub(crate) mod inspect;
