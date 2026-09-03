@@ -30,6 +30,11 @@ extern crate alloc;
 mod app_sender;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
+// TASK-0321 (RFC-0089 §12.3): the verified system volume (verifier + reader).
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod payload_ops;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod volume;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub use os_lite::*;
 

@@ -8,6 +8,7 @@
 
 pub(crate) mod blk_plane;
 pub(crate) mod diag;
+pub(crate) mod distribute;
 pub(crate) mod endpoints;
 pub(crate) mod fault_fixture;
 pub(crate) mod handshake;
@@ -24,6 +25,7 @@ pub(crate) mod route_provision;
 pub(crate) mod spawn;
 pub(crate) mod supervision;
 pub(crate) mod types;
+pub(crate) mod volume_spawn;
 pub(crate) mod wiring;
 
 pub(crate) use types::{BootstrapState, CtrlChannel};

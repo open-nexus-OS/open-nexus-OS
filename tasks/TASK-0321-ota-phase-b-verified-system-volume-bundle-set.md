@@ -82,7 +82,63 @@ commit_set, §12.5 gates, §12.6 idempotency, §12.7 markers/rejects, §12.8 mig
   Budget row: `system-a(vol) 82342 / 33550336 (0%)`, init-lite unchanged (metricsd still
   embedded until P2).
 
-Next: P2 (OS verifier + loader + pilot).
+**P2 DELIVERED 2026-09-03 (OS verifier + loader + pilot; honest recuts stated)**:
+- **Wire** (`source/libs/nexus-wire/src/bundlemgrd.rs`): `OP_QUERY_BUNDLE` (7 → size,
+  stack_pages, gp, sha8, version), `OP_GET_BUNDLE_ELF` (8, destination VMO CAP_MOVEd, payload
+  header written LAST, `PAYLOAD_STATUS_DIGEST` on a mismatch), `OP_VOLUME_STATUS` (9);
+  `STATUS_NOT_FOUND`/`STATUS_UNAVAILABLE`; declarative `frames!` codecs + roundtrip test.
+- **virtioblkd**: op-aware `Gates::allowed(sender, part, op)` — `system-a/b` READ/INFO for
+  bundlemgrd + updated, WRITE/SYNC for updated only; init wires bundlemgrd onto the fixed-slot
+  block plane (`blk_plane.rs`).
+- **bundlemgrd `volume.rs`**: lazy attach of the system slot PAIRED with the measured boot slot
+  (`nexus_abi::boot_measured_read`, no new route), NXSV verify against `BAKED_OS_KEYS`
+  (`policies/os-trust.toml` baked in `build.rs` through the shared `build_trust.rs` parser —
+  the loader's anchor), pairing `boot_image_sha256 == measured` + `rollback_index ==` the
+  booted image's line (the loader already enforced that line ≥ floor — no bootctld route
+  needed), bounded index read (≤ 256 KiB) + `parse_index`, `payload.elf` streamed into the
+  caller's VMO through the 6 KiB block plane while hashing against the entry digest. Sticky
+  `Failed(reason)` for the boot; markers `bundlemgrd: system volume verified (slot=a build=…
+  bundles=N)` / `… FAIL (pair=unbound|io|sig|pair|digest|bounds)` / `bundle served (name=…)`.
+  Sender gate: `GET_BUNDLE_ELF` only for the kernel-attributed init id; QUERY/STATUS for init
+  + the boot-safe allowlist.
+- **init**: `service_source.rs` (SSOT = `include_str!` of `scripts/system-volume-services.txt`
+  — build and init cannot drift; host tests `core_services_never_on_volume`, list parse),
+  `bootstrap/volume_spawn.rs` (second spawn pass after the MMIO grants and before
+  `wire_services`: QUERY → VMO → GET_BUNDLE_ELF → header-last poll → `vm_map` RO → `exec_v2`
+  on the mapped slice — no kernel change; mapping kept for the process lifetime),
+  `spawn::attach_ctrl_channel` + `wiring::distribute_server_pair_for` extracted so a
+  volume-spawned service gets the identical ctrl channel (slots 1/2) and server pair; metricsd's
+  optional endpoints minted after its spawn; `NEXUS_VOLUME_SPAWN=1` is the build default
+  (metricsd leaves init-lite's table). Markers `init: spawn from volume svc=metricsd
+  bundle=metricsd@1.0.0 sha=<16 hex>`, `init: volume spawn FAIL svc=… reason=…` (honest absence).
+- **Selftest**: `SELFTEST: blk system volume deny ok` (ungranted READ of system-a → `STATUS_DENIED`)
+  via a generalized deny probe; proof-manifest + ladder (headless/smp1) gate it together with
+  `bundlemgrd: system volume verified (slot=` and `init: spawn from volume svc=metricsd`.
+  The ordered `init: start/up metricsd` rungs moved after `init: ready` (second pass).
+- Recuts: the respawn arm keyed on the volume source (ADR-0057) lands with P4 (metricsd is not a
+  respawn pilot; its mapping is kept so P4 is a re-exec, not a re-request). After an OTA flip to
+  a slot without a paired volume (boot-b today) the volume reports `FAIL (sig)` and metricsd is
+  honestly absent — the bundle-set fixture (P3) is what makes a flipped boot carry its volume.
+- FINDING (fixed here): updated's `emit_line` wrote markers BYTE BY BYTE (one `debug_putc`
+  syscall per character) — any preemption tears the line, and the ladder reads a torn marker as
+  missing. The volume pass shifted init's tail under icount so `updated: ready (bootctl cl` +
+  `abilitymgr: ready` + `ient)` reproduced deterministically in `ci-os-smp1` (1 historic tear in
+  170 logs before). Fix: marker + newline in ONE `debug_write` (bounded stack copy).
+- FINDING (fixed here): init's `debug_write_bytes` was ALSO a `putc`-per-byte loop — every init
+  line (incl. its single-fragment `SELFTEST: …` markers) could be interleaved by any concurrently
+  printing service; the ota-fallback lane then read `SELFTEST: crash-loop apphost: start` and the
+  evidence assembler failed on the unknown marker (1 of 7 fallback logs). Fix: one `debug_write`
+  per fragment (chunked at the kernel's 1 KiB cap, putc fallback on error). Multi-fragment init
+  lines (`init: affinity FAIL svc=… mask=…`) remain fragment-atomic only; a line-buffered writer is
+  a follow-up, not a P2 blocker (no gated marker is multi-fragment).
+- Proof (2026-09-03): OS builds for init/bundlemgrd/virtioblkd/selftest-client warning-free;
+  `just test-os headless` green: `bundlemgrd: system volume verified (slot=a build=dev-dcba
+  bundles=1)` → `bundlemgrd: bundle served (name=metricsd)` → `init: spawn from volume
+  svc=metricsd bundle=metricsd@1.0.0 sha=d06fabcb89c62f93` → `metricsd: ready` → `SELFTEST: blk
+  system volume deny ok`; `just check` green; `just test-all` GREEN end to end (headless,
+  smp1, reset, ota-flip, ota-tamper/downgrade/fallback) after the two marker-atomicity fixes.
+
+Next: P3 (OS apply of kinds 2/6 + two-boot bundle-set proof).
 
 Planned against verified repo reality (Explore + Plan 2026-09-03). Principle: every package is a
 direct step to the production system — no interim volume format, no second bundle registry, no

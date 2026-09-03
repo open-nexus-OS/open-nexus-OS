@@ -146,9 +146,98 @@ pub fn decode_payload_header(hdr: &[u8]) -> Option<(u8, u32)> {
     Some((hdr[4], u32::from_le_bytes([hdr[8], hdr[9], hdr[10], hdr[11]])))
 }
 
+// ---------------------------------------------------------------------------
+// TASK-0321 P2 (RFC-0089 §12.3, ADR-0060): the verified SYSTEM VOLUME.
+// bundlemgrd verifies the NXSV + index of the system slot paired with the
+// measured boot slot and serves bundle ELFs out of it to init (the sole
+// spawner) over the same header-last VMO discipline as GET_PAYLOAD.
+// ---------------------------------------------------------------------------
+
+/// QUERY_BUNDLE request `[B, N, ver, OP_QUERY_BUNDLE, name_len:u8, name…]`
+/// → reply `[…|0x80, status, size:u32le, stack_pages:u32le, gp:u64le,
+/// sha8_len:u8, sha8[..8], ver_len:u8, version…]` — the bundle's
+/// `payload.elf` size, the launch params from the bundle table, the first
+/// 8 bytes of its window digest and its version string.
+pub const OP_QUERY_BUNDLE: u8 = 7;
+/// GET_BUNDLE_ELF request `[B, N, ver, OP_GET_BUNDLE_ELF, name_len:u8,
+/// name…]` with the destination VMO capability MOVED alongside; bundlemgrd
+/// writes the bundle's `payload.elf` bytes at [`PAYLOAD_DATA_OFFSET`] after
+/// verifying their index digest, then the payload header LAST.
+pub const OP_GET_BUNDLE_ELF: u8 = 8;
+/// VOLUME_STATUS request `[B, N, ver, OP_VOLUME_STATUS]` → reply
+/// `[…|0x80, status, slot:u8, verified:u8, bundles:u16le, build8_len:u8, build8[..8]]`.
+pub const OP_VOLUME_STATUS: u8 = 9;
+
+/// Volume-op status: the bundle is not in the (verified) index.
+pub const STATUS_NOT_FOUND: u8 = 4;
+/// Volume-op status: the system volume is not verified (absent, unpaired,
+/// signature/digest failure, block plane down) — deterministic, never a
+/// half answer.
+pub const STATUS_UNAVAILABLE: u8 = 5;
+/// Header status (GET_BUNDLE_ELF): the payload bytes did not hash to the
+/// index digest — nothing usable was written.
+pub const PAYLOAD_STATUS_DIGEST: u8 = 4;
+
+crate::frames! {
+    protocol(magic0 = MAGIC0, magic1 = MAGIC1, version = VERSION);
+
+    /// QUERY_BUNDLE request.
+    request encode_query_bundle / decode_query_bundle (op = OP_QUERY_BUNDLE) {
+        name: bytes8(min = 1, max = 48),
+    }
+    /// QUERY_BUNDLE reply → `(status, size, stack_pages, global_pointer, sha8, version)`.
+    reply encode_query_bundle_rsp / decode_query_bundle_rsp (op = OP_QUERY_BUNDLE) {
+        status: u8,
+        size: u32le,
+        stack_pages: u32le,
+        global_pointer: u64le,
+        sha8: bytes8(min = 0, max = 8),
+        version: bytes8(min = 0, max = 32),
+    }
+    /// GET_BUNDLE_ELF request (VMO moved alongside).
+    request encode_get_bundle_elf / decode_get_bundle_elf (op = OP_GET_BUNDLE_ELF) {
+        name: bytes8(min = 1, max = 48),
+    }
+    /// VOLUME_STATUS request.
+    request encode_volume_status / decode_volume_status (op = OP_VOLUME_STATUS) {}
+    /// VOLUME_STATUS reply → `(status, slot, verified, bundles, build8)`.
+    reply encode_volume_status_rsp / decode_volume_status_rsp (op = OP_VOLUME_STATUS) {
+        status: u8,
+        slot: u8,
+        verified: u8,
+        bundles: u16le,
+        build8: bytes8(min = 0, max = 8),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn volume_ops_round_trip() {
+        // TASK-0321: QUERY_BUNDLE reply carries launch params + sha8 + version.
+        let mut buf = [0u8; 96];
+        let n =
+            encode_query_bundle_rsp(STATUS_OK, 81_760, 1, 0x22368, &[0xd0; 8], b"1.0.0", &mut buf)
+                .expect("encode");
+        let (status, size, stack_pages, gp, sha8, version) =
+            decode_query_bundle_rsp(&buf[..n]).expect("decode");
+        assert_eq!((status, size, stack_pages, gp), (STATUS_OK, 81_760, 1, 0x22368));
+        assert_eq!(sha8, &[0xd0; 8]);
+        assert_eq!(version, b"1.0.0");
+        let mut req = [0u8; 64];
+        let n = encode_get_bundle_elf(b"metricsd", &mut req).expect("encode req");
+        assert_eq!(decode_request_op(&req[..n]), Some(OP_GET_BUNDLE_ELF));
+        assert_eq!(decode_get_bundle_elf(&req[..n]), Some(&b"metricsd"[..]));
+        let n = encode_volume_status_rsp(STATUS_OK, b'a', 1, 3, b"dev-6569", &mut buf).expect("st");
+        assert_eq!(
+            decode_volume_status_rsp(&buf[..n]),
+            Some((STATUS_OK, b'a', 1, 3, &b"dev-6569"[..]))
+        );
+        // A truncated reply never decodes half a record.
+        assert!(decode_volume_status_rsp(&buf[..n - 3]).is_none());
+    }
 
     #[test]
     fn get_payload_round_trip() {

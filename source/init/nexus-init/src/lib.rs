@@ -52,6 +52,8 @@ pub mod supervision_engine;
 /// is Phase 2" debt.)
 pub mod boot_graph;
 pub mod route_table;
+/// TASK-0321: embedded vs system-volume service sources (SSOT = the build's list).
+pub mod service_source;
 
 /// Bootstrap subsystem — split from os_payload.rs per RFC-0061.
 #[cfg(all(feature = "os-payload", nexus_env = "os"))]

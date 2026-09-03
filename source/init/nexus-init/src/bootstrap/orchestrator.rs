@@ -116,35 +116,10 @@ where
         }
         match crate::bootstrap::spawn::spawn_service_with_probe(image, probes_enabled()) {
             Ok(pid) => {
-                // Create private control endpoints (REQ/RSP) for this service and transfer them first.
-                // This ensures a deterministic slot assignment in the child (slots 1 and 2).
-                //
-                // IMPORTANT: These endpoints must remain usable by init-lite for the routing responder
-                // loop. Creating them as init-owned endpoints avoids needing `cap_clone` (which adds
-                // extra syscalls and increases preemption windows during bring-up).
-                let ctrl_req_parent_slot =
-                    nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, CTRL_EP_DEPTH)
-                        .map_err(InitError::Abi)?;
-                let ctrl_rsp_parent_slot =
-                    nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, CTRL_EP_DEPTH)
-                        .map_err(InitError::Abi)?;
-                // IMPORTANT: The kernel IPC backend assumes the per-service routing control
-                // channels live in deterministic slots (userspace `nexus-ipc` uses 1/2).
-                // Use cap_transfer_to_slot to avoid slot drift when we add new capabilities.
-                let child_send_slot = nexus_abi::cap_transfer_to_slot(
-                    pid,
-                    ctrl_req_parent_slot,
-                    Rights::SEND,
-                    CTRL_CHILD_SEND_SLOT,
-                )
-                .map_err(InitError::Abi)?;
-                let child_recv_slot = nexus_abi::cap_transfer_to_slot(
-                    pid,
-                    ctrl_rsp_parent_slot,
-                    Rights::RECV,
-                    CTRL_CHILD_RECV_SLOT,
-                )
-                .map_err(InitError::Abi)?;
+                // Private control endpoints (REQ/RSP) at the child's slots 1/2 —
+                // shared with the volume spawn pass (TASK-0321).
+                let (ctrl, child_send_slot, child_recv_slot) =
+                    crate::bootstrap::spawn::attach_ctrl_channel(image.name, pid)?;
                 if image.name == "updated" && iw(&mut init_wire, init_fold, "init:updated") {
                     debug_write_bytes(b"init: updated ctrl slots send=0x");
                     debug_write_hex(child_send_slot as usize);
@@ -153,22 +128,15 @@ where
                     debug_write_byte(b'\n');
                 }
                 if probes_enabled()
-                    && (child_send_slot != CTRL_CHILD_SEND_SLOT
-                        || child_recv_slot != CTRL_CHILD_RECV_SLOT)
+                    && (child_send_slot != crate::bootstrap::spawn::CTRL_CHILD_SEND_SLOT
+                        || child_recv_slot != crate::bootstrap::spawn::CTRL_CHILD_RECV_SLOT)
                 {
                     debug_write_bytes(b"!route-warn ctrl-child-slots send=0x");
                     debug_write_hex(child_send_slot as usize);
                     debug_write_bytes(b" recv=0x");
                     debug_write_hex(child_recv_slot as usize);
-                    debug_write_bytes(b" expected send=0x");
-                    debug_write_hex(CTRL_CHILD_SEND_SLOT as usize);
-                    debug_write_bytes(b" recv=0x");
-                    debug_write_hex(CTRL_CHILD_RECV_SLOT as usize);
                     debug_write_byte(b'\n');
                 }
-
-                let ctrl =
-                    CtrlChannel::new(image.name, pid, ctrl_req_parent_slot, ctrl_rsp_parent_slot);
                 ctrl_channels.push(ctrl);
                 if probes_enabled() {
                     debug_write_bytes(b"!spawn ok pid=0x");
@@ -517,7 +485,7 @@ where
     // then wired caps into dead PIDs (the `capability-denied` abort).
     // `wire_services` (after grants) still owns the reply inboxes, routes and
     // the announce markers — byte-identical boot logs.
-    let eps = crate::bootstrap::endpoints::Endpoints {
+    let mut eps = crate::bootstrap::endpoints::Endpoints {
         vfs_req,
         vfs_rsp,
         pkg_req,
@@ -583,7 +551,7 @@ where
         pinch_req,
         pinch_rsp,
     };
-    crate::bootstrap::wiring::distribute_server_pairs(&mut ctrl_channels, &eps);
+    crate::bootstrap::distribute::distribute_server_pairs(&mut ctrl_channels, &eps);
 
     // Private init-lite <-> policyd channels: request endpoints are owned by policyd (it receives queries).
     let pol_ctl_route_req =
@@ -865,6 +833,36 @@ where
     // + grants); the gap to `total_ms` is the co-run cap-wiring phase.
     let grants_done_ms = boot_span.elapsed_ms();
 
+    // TASK-0321 (RFC-0089 §12.3, ADR-0060): the SECOND spawn pass — services
+    // on the verified system volume. The block plane is live (virtioblkd
+    // granted above), bundlemgrd has run since wave 1; each spawned service
+    // gets its control channel + server pair here so `wire_services` and the
+    // wave-2 resume below treat it exactly like an embedded one.
+    let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
+        nexus_ipc::reqrep::FrameStash::new();
+    let volume_spawned = crate::bootstrap::volume_spawn::spawn_volume_services(
+        &mut ctrl_channels,
+        &mut upd_pending,
+        bnd_req,
+        init_reply_send,
+        pol_ctl_route_rsp,
+        init_fold,
+    )?;
+    for v in &volume_spawned {
+        if v.name == "metricsd" && eps.metrics_req.is_none() {
+            let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, v.pid, 8)
+                .map_err(InitError::Abi)?;
+            let rsp =
+                nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
+                    .map_err(InitError::Abi)?;
+            eps.metrics_req = Some(req);
+            eps.metrics_rsp = Some(rsp);
+        }
+        if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.pid == v.pid) {
+            crate::bootstrap::distribute::distribute_server_pair_for(chan, &eps);
+        }
+    }
+
     // Per-service cap-distribution (bespoke `match` + declarative arm);
     // server pairs went out pre-grants — this pass adds reply inboxes,
     // routes and the announce markers.
@@ -882,8 +880,6 @@ where
     // Resolve the boot target FIRST (bootctld runs since wave 1): the
     // one-shot next_boot decides which of the fully provisioned services
     // wave 2 + the display/input drivers actually resume (RFC-0087 §4).
-    let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
-        nexus_ipc::reqrep::FrameStash::new();
     let boot_graph = crate::bootstrap::handshake::boot_attempt_handshake(
         &mut upd_pending,
         boot_req,

@@ -299,3 +299,13 @@ phase = "ota"
 
 [marker."SELFTEST: blk cross-partition deny FAIL"]
 phase = "ota"
+
+# TASK-0321 (RFC-0089 §12.5): the system volume is READ by bundlemgrd and
+# updated only — the selftest (no grant) reading `system-a` must be DENIED
+# by the op-aware partition gate.
+[marker."SELFTEST: blk system volume deny ok"]
+phase = "ota"
+proves = "TASK-0321: an ungranted READ of system-a is denied by virtioblkd's op-aware, kernel-attributed partition gate (deny-by-default block plane extends to the system volumes)"
+
+[marker."SELFTEST: blk system volume deny FAIL"]
+phase = "ota"

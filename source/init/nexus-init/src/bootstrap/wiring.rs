@@ -16,59 +16,6 @@ use crate::bootstrap::CtrlChannel;
 use crate::os_payload::*;
 use crate::service_topology::ServiceId;
 
-/// Distribute capabilities to every spawned service (the bespoke per-service
-/// `match` + the declarative generic arm). Mutates each `CtrlChannel`'s slot
-/// fields in place; the caller builds the route table from them afterward.
-/// RFC-0069 phase semantics (task #123 fix): distribute each declared service's
-/// PRE-MINTED server endpoint pair IMMEDIATELY after endpoint creation — before
-/// the policy-gated MMIO grant phase. The services' deterministic fallback
-/// slots (3/4) then exist no matter how long policyd takes to answer grants;
-/// previously a slow policyd delayed `wire_services` past the services'
-/// route-probe fallback, their first recv hit an EMPTY slot, and the whole
-/// early fleet died (init then aborted wiring caps into dead PIDs). Silent and
-/// best-effort; `wire_services` keeps the announce prints + fold tally at the
-/// historical log position and skips the pair once set.
-pub(crate) fn distribute_server_pairs(ctrls: &mut [CtrlChannel], eps: &Endpoints) {
-    for chan in ctrls.iter_mut() {
-        let name = chan.svc_name;
-        // Authority = the minted-pair table itself (covers declared AND
-        // still-bespoke services; returns None for drivers/dsoftbusd).
-        let Some(id) = crate::service_topology::ServiceId::from_name(name.as_bytes()) else {
-            continue;
-        };
-        if chan.send(id).is_some() && chan.recv(id).is_some() {
-            continue;
-        }
-        let Some((req, rsp)) = eps.server_pair(id) else {
-            // No minted pair: spec-declared plain servers (abilitymgr,
-            // sessiond) are provisioned fresh HERE — same pre-grant
-            // hardening. Silent; `wire_services` prints the slots at the
-            // historical log position from the recorded values.
-            if crate::service_topology::exposes_server(name.as_bytes()) && !is_bespoke_wired(name) {
-                if let Ok(ep) =
-                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, chan.pid, 8)
-                {
-                    let recv = nexus_abi::cap_transfer(chan.pid, ep, Rights::RECV);
-                    let send = nexus_abi::cap_transfer(chan.pid, ep, Rights::SEND);
-                    let _ = nexus_abi::cap_close(ep);
-                    if let (Ok(recv_slot), Ok(send_slot)) = (recv, send) {
-                        chan.set_send(id, send_slot);
-                        chan.set_recv(id, recv_slot);
-                    }
-                }
-            }
-            continue;
-        };
-        let recv = nexus_abi::cap_transfer(chan.pid, req, Rights::RECV);
-        let send = nexus_abi::cap_transfer(chan.pid, rsp, Rights::SEND);
-        if let (Ok(recv_slot), Ok(send_slot)) = (recv, send) {
-            chan.set_send(id, send_slot);
-            chan.set_recv(id, recv_slot);
-        }
-        crate::bootstrap::blk_plane::wire_blk_plane_for(chan, eps);
-    }
-}
-
 pub(crate) fn wire_services(
     ctrls: &mut [CtrlChannel],
     eps: &Endpoints,
@@ -1727,7 +1674,7 @@ fn try_transfer(pid: u32, cap: u32, rights: Rights, svc: &str, label: &str) -> O
 /// whose `ServiceSpec.exposes_server` is true are provisioned generically from the
 /// declarative topology instead of a hand-written arm. As bespoke services are
 /// migrated to `ServiceSpec`, they are removed from this set.
-fn is_bespoke_wired(name: &str) -> bool {
+pub(crate) fn is_bespoke_wired(name: &str) -> bool {
     matches!(
         name,
         "netstackd"

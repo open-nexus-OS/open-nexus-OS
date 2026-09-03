@@ -29,7 +29,14 @@ pub(crate) fn wire_blk_plane_for(chan: &CtrlChannel, eps: &Endpoints) {
         // partition (ADR-0058 runtime writer) over the same fixed-slot
         // plane. TASK-0179: updated writes the INACTIVE boot slot through
         // it (the partition gate in virtioblkd scopes each sender).
-        ServiceId::Statefsd | ServiceId::Vfsd | ServiceId::Bootctld | ServiceId::Updated => {
+        // TASK-0321 (RFC-0089 §12.3/§12.5): bundlemgrd READS the system
+        // volume (NXSV + index + bundle windows) over the same fixed-slot
+        // plane; the op-aware gate in virtioblkd denies it every write.
+        ServiceId::Statefsd
+        | ServiceId::Vfsd
+        | ServiceId::Bootctld
+        | ServiceId::Updated
+        | ServiceId::Bundlemgrd => {
             wire_blk_plane_client(chan.pid, chan.svc_name, eps.vblk_req);
         }
         ServiceId::Virtioblkd => {

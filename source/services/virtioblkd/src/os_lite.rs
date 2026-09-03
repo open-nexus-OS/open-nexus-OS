@@ -59,10 +59,16 @@ struct Gates {
     sid_vfsd: u64,
     sid_bootctld: u64,
     sid_updated: u64,
+    /// TASK-0321 (RFC-0089 §12.5): the system-volume verifier/reader.
+    sid_bundlemgrd: u64,
 }
 
 impl Gates {
-    fn allowed(&self, sender: u64, part: u8) -> bool {
+    /// Op-aware matrix (RFC-0089 §12.5): READ/INFO vs WRITE/SYNC can have
+    /// different holders — the system volumes are read by bundlemgrd (and
+    /// updated, for unchanged-bundle reuse) but written only by updated.
+    fn allowed(&self, sender: u64, part: u8, op: u8) -> bool {
+        let read_only = matches!(op, blockproto::OP_READ | blockproto::OP_INFO);
         match part {
             blockproto::PART_STATE => sender == self.sid_statefsd,
             blockproto::PART_DATA => sender == self.sid_vfsd,
@@ -74,9 +80,13 @@ impl Gates {
             // updated (the engine itself refuses the ACTIVE slot; this
             // gate scopes the sender, the engine scopes the slot).
             blockproto::PART_BOOT_A | blockproto::PART_BOOT_B => sender == self.sid_updated,
-            // boot-a/b + bsb + system volumes: no standing holder yet —
-            // `updated` (TASK-0179) and `bootctld` (TASK-0036-B) join with
-            // their packages. Deny-by-default until then.
+            // TASK-0321 (RFC-0089 §12.5): system volumes — bundlemgrd verifies
+            // + serves (READ), updated assembles the INACTIVE one (WRITE; the
+            // engine scopes the slot) and reads the ACTIVE one for reuse.
+            blockproto::PART_SYSTEM_A | blockproto::PART_SYSTEM_B => {
+                sender == self.sid_updated || (read_only && sender == self.sid_bundlemgrd)
+            }
+            // Anything else: deny-by-default.
             _ => false,
         }
     }
@@ -155,7 +165,7 @@ fn serve(served: &mut Served, gates: &Gates, sender: u64, frame: &[u8], out: &mu
     let Some(window) = served.window(part) else {
         return blockproto::write_rsp_header(out, op, nonce, blockproto::STATUS_UNKNOWN_PART);
     };
-    if !gates.allowed(sender, part) {
+    if !gates.allowed(sender, part, op) {
         emit("virtioblkd: denied (partition gate)");
         return blockproto::write_rsp_header(out, op, nonce, blockproto::STATUS_DENIED);
     }
@@ -245,6 +255,7 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
         sid_vfsd: nexus_abi::service_id_from_name(b"vfsd"),
         sid_bootctld: nexus_abi::service_id_from_name(b"bootctld"),
         sid_updated: nexus_abi::service_id_from_name(b"updated"),
+        sid_bundlemgrd: nexus_abi::service_id_from_name(b"bundlemgrd"),
     };
 
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);

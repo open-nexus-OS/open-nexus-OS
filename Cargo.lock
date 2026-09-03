@@ -341,6 +341,7 @@ dependencies = [
 name = "bundlemgrd"
 version = "0.1.0"
 dependencies = [
+ "bootfmt",
  "bundlemgr",
  "capnp",
  "hex",
@@ -358,6 +359,7 @@ dependencies = [
  "repro",
  "sbom",
  "sha2",
+ "storage",
 ]
 
 [[package]]

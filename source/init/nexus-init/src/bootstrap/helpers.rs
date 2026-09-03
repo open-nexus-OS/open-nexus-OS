@@ -187,9 +187,21 @@ pub(crate) fn debug_write_byte(byte: u8) {
     let _ = nexus_abi::debug_putc(byte);
 }
 
+/// ONE `debug_write` per fragment (chunked at the kernel's 1 KiB cap), never
+/// a `putc` per byte: the kernel serializes a whole write under the UART
+/// lock, so a single-fragment marker (`SELFTEST: crash-loop cap ok\n`) can
+/// never be interleaved with another task's output. The per-byte loop tore
+/// init lines whenever a service printed concurrently — deterministic under
+/// icount once the TASK-0321 volume spawn pass shifted init's tail, and the
+/// evidence assembler reads a torn `SELFTEST:` line as an unknown marker.
 pub(crate) fn debug_write_bytes(bytes: &[u8]) {
-    for &b in bytes {
-        debug_write_byte(b);
+    const CHUNK: usize = 1024;
+    for chunk in bytes.chunks(CHUNK) {
+        if nexus_abi::debug_write(chunk).is_err() {
+            for &b in chunk {
+                debug_write_byte(b);
+            }
+        }
     }
 }
 

@@ -31,6 +31,12 @@ os-lite = [
     "nexus-metrics/os-lite",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
+    # TASK-0321 (RFC-0089 §12.3): system-volume verifier — block-plane
+    # client + pkgimg v3 index + NXSV verify (no_std, verify-only bootfmt).
+    "dep:storage",
+    "storage/os-lite",
+    "dep:bootfmt",
+    "dep:sha2",
 ]
 
 [package.metadata.nexus-service]
@@ -43,7 +49,7 @@ capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 keystored = { path = "../keystored", features = ["idl-capnp"], optional = true }
 memchr = { version = "2", optional = true }
-sha2 = { version = "0.10", optional = true }
+sha2 = { version = "0.10", optional = true, default-features = false }
 hex = { version = "0.4", optional = true }
 repro = { path = "../../../tools/repro", optional = true }
 sbom = { path = "../../../tools/sbom", optional = true }
@@ -53,6 +59,8 @@ nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
 nexus-metrics = { path = "../../../userspace/nexus-metrics", optional = true, default-features = false }
+storage = { path = "../../../userspace/storage", optional = true, default-features = false }
+bootfmt = { path = "../../../userspace/bootfmt", optional = true, default-features = false }
 
 [build-dependencies]
 # GET_PAYLOAD source (TASK-0080D): compile ui-program bundle payloads to

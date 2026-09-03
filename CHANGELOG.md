@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-03 (TASK-0321 P2: system-volume verifier + init volume spawn — metricsd boots from the volume)
+
+- bundlemgrd verifies the system volume paired with the MEASURED boot slot
+  (`bundlemgrd/src/volume.rs`): NXSV against the baked OS anchor
+  (`policies/os-trust.toml`, same parser as nxboot), pairing on the booted
+  image digest + rollback line, bounded index (≤ 256 KiB); serves a bundle's
+  `payload.elf` into the caller's VMO hashed against the index entry digest,
+  header last. Wire ops `QUERY_BUNDLE` / `GET_BUNDLE_ELF` / `VOLUME_STATUS`.
+- init spawns volume services in a second pass after the MMIO grants
+  (`bootstrap/volume_spawn.rs`: VMO → RO `vm_map` → `exec_v2`, no kernel
+  change); `service_source.rs` includes `scripts/system-volume-services.txt`
+  at compile time (single SSOT); `NEXUS_VOLUME_SPAWN=1` is the build default.
+- virtioblkd partition gates are op-aware: system-a/b READ for bundlemgrd +
+  updated, WRITE for updated only; `SELFTEST: blk system volume deny ok`.
+- Markers gated in headless/smp1: `bundlemgrd: system volume verified (slot=`,
+  `init: spawn from volume svc=metricsd`, `SELFTEST: blk system volume deny ok`.
+- Fixed (latent, surfaced by the shifted init tail): `updated`'s marker
+  writer and init's `debug_write_bytes` wrote UART lines byte-by-byte
+  (`putc` per character), so any concurrent service output could tear a
+  marker (`updated: ready (bootctl cl` + `abilitymgr: ready`,
+  `SELFTEST: crash-loop apphost: start`) and the ladder/evidence assembler
+  read it as missing/unknown. Both now write one fragment per `debug_write`
+  (kernel-serialized under the UART lock).
+
 ### Added - 2026-09-03 (TASK-0321 P1: system-volume formats + builder)
 
 - `storage::pkgimg_bundles`: pkgimg v3 (`PKGIMGV3`) — per-entry sha256,

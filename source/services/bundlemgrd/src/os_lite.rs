@@ -73,7 +73,7 @@ const MAGIC0: u8 = nexus_abi::bundlemgrd::MAGIC0;
 const MAGIC1: u8 = nexus_abi::bundlemgrd::MAGIC1;
 const VERSION: u8 = nexus_abi::bundlemgrd::VERSION;
 
-const OP_LIST: u8 = nexus_abi::bundlemgrd::OP_LIST;
+pub(crate) const OP_LIST: u8 = nexus_abi::bundlemgrd::OP_LIST;
 const OP_ROUTE_STATUS: u8 = nexus_abi::bundlemgrd::OP_ROUTE_STATUS;
 const OP_FETCH_IMAGE: u8 = nexus_abi::bundlemgrd::OP_FETCH_IMAGE;
 const OP_SET_ACTIVE_SLOT: u8 = nexus_abi::bundlemgrd::OP_SET_ACTIVE_SLOT;
@@ -129,9 +129,9 @@ fn build_list_apps_response() -> alloc::vec::Vec<u8> {
     out
 }
 
-const STATUS_OK: u8 = nexus_abi::bundlemgrd::STATUS_OK;
-const STATUS_MALFORMED: u8 = nexus_abi::bundlemgrd::STATUS_MALFORMED;
-const STATUS_UNSUPPORTED: u8 = nexus_abi::bundlemgrd::STATUS_UNSUPPORTED;
+pub(crate) const STATUS_OK: u8 = nexus_abi::bundlemgrd::STATUS_OK;
+pub(crate) const STATUS_MALFORMED: u8 = nexus_abi::bundlemgrd::STATUS_MALFORMED;
+pub(crate) const STATUS_UNSUPPORTED: u8 = nexus_abi::bundlemgrd::STATUS_UNSUPPORTED;
 
 const SLOT_A: u8 = 1;
 const SLOT_B: u8 = 2;
@@ -170,6 +170,9 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     // Emit on first request (not at process start) so init-lite has time to provision logd/@reply routes.
     let mut probe_emitted = false;
     let mut logged_capmove = false;
+    // TASK-0321: the system volume attaches + verifies lazily on the first
+    // volume op (the block plane is only live after init's MMIO grant).
+    let mut volume = crate::volume::VolumeState::new();
     nexus_abi::service_verdict_flush("bundlemgrd");
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
@@ -183,6 +186,25 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                         line.text("core service log probe: bundlemgrd");
                     });
                 }
+                // TASK-0321 (RFC-0089 §12.3): system-volume ops. GET_BUNDLE_ELF
+                // carries the destination VMO as its single moved cap (the
+                // GET_PAYLOAD pattern); QUERY/STATUS answer on the reply path.
+                let vop = nexus_abi::bundlemgrd::decode_request_op(frame.as_slice());
+                if matches!(
+                    vop,
+                    Some(nexus_abi::bundlemgrd::OP_QUERY_BUNDLE)
+                        | Some(nexus_abi::bundlemgrd::OP_GET_BUNDLE_ELF)
+                        | Some(nexus_abi::bundlemgrd::OP_VOLUME_STATUS)
+                ) {
+                    crate::payload_ops::handle_volume_op(
+                        &mut volume,
+                        frame.as_slice(),
+                        sender_service_id,
+                        reply,
+                        &server,
+                    );
+                    continue;
+                }
                 // GET_PAYLOAD (TASK-0080D): the message's single moved cap IS
                 // the payload VMO (not a reply cap — ADR-0042 SURFACE_CREATE
                 // pattern), so the header written into the VMO is the reply.
@@ -195,7 +217,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                         slot
                     });
                     if is_allowed_sender(sender_service_id) {
-                        handle_get_payload(frame.as_slice(), vmo_slot);
+                        crate::payload_ops::handle_get_payload(frame.as_slice(), vmo_slot);
                     } else {
                         emit_sender_denied(sender_service_id);
                         if let Some(slot) = vmo_slot {
@@ -338,45 +360,6 @@ fn route_status(target: &str) -> Option<u8> {
     }
 }
 
-/// Serves one GET_PAYLOAD request: looks the app id up in the build-time
-/// payload table and writes `payload bytes @ PAYLOAD_DATA_OFFSET`, then the
-/// 16-byte header LAST (header-last = release ordering — the consumer polls
-/// the header, so a visible header guarantees complete payload bytes). The
-/// moved VMO capability is closed on every path; a failed payload write is
-/// downgraded to a TOO_LARGE header (the caller's VMO decides the budget).
-fn handle_get_payload(frame: &[u8], vmo_slot: Option<u32>) {
-    use nexus_abi::bundlemgrd as wire;
-    let Some(vmo) = vmo_slot else {
-        emit_line("bundlemgrd: FAIL get_payload (no vmo cap)");
-        return;
-    };
-    let outcome = (|| -> (u8, u32) {
-        let Some(app_id) = wire::decode_get_payload(frame) else {
-            return (wire::STATUS_MALFORMED, 0);
-        };
-        let Some(payload) =
-            APP_PAYLOADS.iter().find(|(id, _)| id.as_bytes() == app_id).map(|(_, bytes)| *bytes)
-        else {
-            return (wire::PAYLOAD_STATUS_UNKNOWN, 0);
-        };
-        if nexus_abi::vmo_write(vmo, wire::PAYLOAD_DATA_OFFSET, payload).is_err() {
-            return (wire::PAYLOAD_STATUS_TOO_LARGE, 0);
-        }
-        (wire::PAYLOAD_STATUS_OK, payload.len() as u32)
-    })();
-    let (status, len) = outcome;
-    let hdr = wire::encode_payload_header(status, len);
-    let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
-    let _ = nexus_abi::cap_close(vmo);
-    if status == wire::PAYLOAD_STATUS_OK {
-        metrics_counter_inc_best_effort("bundlemgrd.get_payload.ok");
-        emit_line("bundlemgrd: payload served");
-    } else {
-        metrics_counter_inc_best_effort("bundlemgrd.get_payload.fail");
-        emit_line("bundlemgrd: FAIL get_payload (status)");
-    }
-}
-
 fn handle_frame(frame: &[u8]) -> [u8; 8] {
     // LIST request: [B, N, ver, OP_LIST]
     // LIST response: [B, N, ver, OP_LIST|0x80, status:u8, count:u16le, _reserved:u8]
@@ -514,7 +497,7 @@ fn handle_frame_vec(frame: &[u8]) -> alloc::vec::Vec<u8> {
     out
 }
 
-fn rsp(op: u8, status: u8, count: u16) -> [u8; 8] {
+pub(crate) fn rsp(op: u8, status: u8, count: u16) -> [u8; 8] {
     let mut out = [0u8; 8];
     out[0] = MAGIC0;
     out[1] = MAGIC1;
@@ -544,7 +527,7 @@ fn rsp2(op: u8, status: u8, route_status: u8) -> [u8; 8] {
 /// boot-safe fast path — the known core services always pass even before policyd
 /// is configured, so enabling policy never regresses a working boot. As policyd's
 /// rules mature, the allowlist shrinks toward policyd being the sole authority.
-fn is_allowed_sender(sender_service_id: u64) -> bool {
+pub(crate) fn is_allowed_sender(sender_service_id: u64) -> bool {
     if static_sender_allowlist(sender_service_id) {
         return true;
     }
@@ -686,7 +669,7 @@ fn append_probe_to_logd() -> bool {
     }
 }
 
-fn emit_line(message: &str) {
+pub(crate) fn emit_line(message: &str) {
     // RFC-0068: fold routine markers into recall (interactive); failures & proof print raw.
     // One atomic `debug_write` (via `debug_println`, which also owns the verdict
     // folding): the per-byte `debug_putc` fallback tears mid-line against the
@@ -698,14 +681,14 @@ fn emit_line(message: &str) {
 /// Denial marker WITH the denied sender id (DoD: loud with values — a bare
 /// "sender denied" cannot be diagnosed). Bounded (8) so a hostile flood cannot
 /// leak the non-freeing bump heap through the `format!`.
-fn emit_sender_denied(sender_service_id: u64) {
+pub(crate) fn emit_sender_denied(sender_service_id: u64) {
     static DENIED_LOGGED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
     if DENIED_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
         emit_line(&alloc::format!("bundlemgrd: sender denied id=0x{sender_service_id:016x}"));
     }
 }
 
-fn metrics_counter_inc_best_effort(name: &str) {
+pub(crate) fn metrics_counter_inc_best_effort(name: &str) {
     let Ok(client) = KernelClient::new_for("metricsd") else {
         return;
     };

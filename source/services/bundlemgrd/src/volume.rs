@@ -1,0 +1,303 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+#![cfg(all(nexus_env = "os", feature = "os-lite"))]
+
+//! CONTEXT: The verified **system volume** (RFC-0089 §12.3, ADR-0060,
+//! TASK-0321 P2). bundlemgrd — a CORE service inside the loader-verified
+//! boot image — is the volume's VERIFIER and READER: it attaches the system
+//! slot paired with the MEASURED boot slot over the fixed-slot block plane,
+//! verifies the NXSV against the build-baked OS keys (`BAKED_OS_KEYS`, the
+//! same anchor `nxboot` holds), binds it to the measured image
+//! (`boot_image_sha256`, same `rollback_index` line) and to the bounded
+//! pkgimg v3 index (≤ 256 KiB, index digest), and serves a bundle's
+//! `payload.elf` to init (the sole spawner) into a caller-provided VMO —
+//! header LAST, only after the bytes hashed to the index entry digest.
+//! Boot cost is O(NXSV + index); bundle digests are lazy per served bundle.
+//! Fail-closed on every path: a direct-kernel boot (no measured record),
+//! an unpaired volume, a bad signature or digest, a block plane that is not
+//! up — all leave the volume UNTRUSTED (`STATUS_UNAVAILABLE`), and the
+//! marker says why. Nothing here ever prints `verified` without the real
+//! chain having run.
+//! OWNERS: @runtime @security @reliability
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU ladder (`bundlemgrd: system volume verified …`,
+//!   `init: spawn from volume svc=metricsd …`); codec/verify units live in
+//!   `storage::pkgimg_bundles` + `bootfmt::nxsv`.
+//! ADR: docs/adr/0060-verified-system-volume-bundlemgrd-verifier-init-spawner.md
+
+use alloc::vec::Vec;
+
+use bootfmt::handoff::Handoff;
+use sha2::{Digest, Sha256};
+use storage::blockproto;
+use storage::pkgimg::PkgImgCaps;
+use storage::pkgimg_bundles::{parse_index, VolumeEntry, VolumeIndex, MAX_INDEX_BYTES_V3};
+use storage::remote_blk::RemoteBlockDevice;
+use storage::BlockDevice;
+
+include!(concat!(env!("OUT_DIR"), "/os_trust_baked.rs"));
+
+/// Volume payload starts at system-partition sector 8 (RFC-0089 §12.2).
+const VOLUME_START_SECTOR: u64 = 8;
+/// One block-plane request worth of bytes (12 sectors) — the streaming unit.
+const CHUNK: usize = blockproto::MAX_BLOCKS_PER_REQ as usize * blockproto::SECTOR_SIZE;
+/// Bounded attach window: virtioblkd may still be bringing the device up
+/// when init asks for the first bundle (its MMIO grant lands late).
+const ATTACH_DEADLINE_NS: u64 = 2_000_000_000;
+
+/// Why the volume is not trusted — the marker vocabulary (RFC-0089 §12.7).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum VolumeFail {
+    /// No measured boot record (direct-kernel dev boot): pairing impossible.
+    PairUnbound,
+    /// Block plane / partition not reachable.
+    Io,
+    /// NXSV signature invalid (or zeroed / malformed descriptor).
+    Sig,
+    /// NXSV does not pair with the measured boot image or rollback line.
+    Pair,
+    /// Index length/digest or bundle-table bounds failed.
+    Digest,
+    Bounds,
+}
+
+impl VolumeFail {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::PairUnbound => "pair=unbound",
+            Self::Io => "io",
+            Self::Sig => "sig",
+            Self::Pair => "pair",
+            Self::Digest => "digest",
+            Self::Bounds => "bounds",
+        }
+    }
+}
+
+/// The attached, verified volume.
+pub(crate) struct Volume {
+    dev: RemoteBlockDevice,
+    pub(crate) slot: u8,
+    pub(crate) build_id: [u8; 32],
+    pub(crate) index: VolumeIndex,
+}
+
+/// Verification state — attached lazily on the first volume op, then kept.
+pub(crate) enum VolumeState {
+    Unattached,
+    Verified(Volume),
+    Failed(VolumeFail),
+}
+
+impl VolumeState {
+    pub(crate) const fn new() -> Self {
+        Self::Unattached
+    }
+
+    /// Attaches + verifies once; later calls answer from the kept result.
+    /// `Failed` is sticky for this boot — a volume that failed to verify
+    /// never becomes trusted by retrying (the reason was printed once).
+    pub(crate) fn ensure(&mut self) -> Result<&mut Volume, VolumeFail> {
+        if matches!(self, Self::Unattached) {
+            *self = match attach_and_verify() {
+                Ok(v) => {
+                    emit_verified(&v);
+                    Self::Verified(v)
+                }
+                Err(fail) => {
+                    emit_fail(fail);
+                    Self::Failed(fail)
+                }
+            };
+        }
+        match self {
+            Self::Verified(v) => Ok(v),
+            Self::Failed(f) => Err(*f),
+            Self::Unattached => Err(VolumeFail::Io),
+        }
+    }
+}
+
+fn measured() -> Result<Handoff, VolumeFail> {
+    let raw = nexus_abi::boot_measured_read().ok_or(VolumeFail::PairUnbound)?;
+    bootfmt::handoff::decode(&raw).map_err(|_| VolumeFail::PairUnbound)
+}
+
+fn attach_and_verify() -> Result<Volume, VolumeFail> {
+    let handoff = measured()?;
+    let (part, slot) = match handoff.boot_slot {
+        bootfmt::bsb::Slot::A => (blockproto::PART_SYSTEM_A, b'a'),
+        bootfmt::bsb::Slot::B => (blockproto::PART_SYSTEM_B, b'b'),
+    };
+    let dev = RemoteBlockDevice::open_with_deadline(
+        blockproto::CLIENT_REQ_SLOT,
+        blockproto::CLIENT_REPLY_SEND_SLOT,
+        blockproto::CLIENT_REPLY_RECV_SLOT,
+        part,
+        ATTACH_DEADLINE_NS,
+    )
+    .ok_or(VolumeFail::Io)?;
+
+    // NXSV: sector 0, verified against the baked OS anchor (fail closed).
+    let mut sector = [0u8; blockproto::SECTOR_SIZE];
+    dev.read_blocks(0, &mut sector).map_err(|_| VolumeFail::Io)?;
+    let mut desc = None;
+    for key in BAKED_OS_KEYS {
+        if let Ok(d) = bootfmt::nxsv::verify(&sector, key) {
+            desc = Some(d);
+            break;
+        }
+    }
+    let desc = desc.ok_or(VolumeFail::Sig)?;
+
+    // Pairing: system-X belongs to the measured boot image on the same
+    // rollback line (the loader already enforced that line ≥ the floor).
+    if desc.boot_image_sha256 != handoff.image_sha256
+        || desc.rollback_index != handoff.rollback_index
+    {
+        return Err(VolumeFail::Pair);
+    }
+
+    // Bounded index read: superblock + index only (the boot-time read).
+    let index_len = desc.index_len as usize;
+    if index_len == 0 || index_len > MAX_INDEX_BYTES_V3 || desc.volume_size < desc.index_len as u64
+    {
+        return Err(VolumeFail::Bounds);
+    }
+    let padded = index_len.div_ceil(blockproto::SECTOR_SIZE) * blockproto::SECTOR_SIZE;
+    let budget =
+        dev.block_count().saturating_sub(VOLUME_START_SECTOR) * blockproto::SECTOR_SIZE as u64;
+    if padded as u64 > budget || desc.volume_size > budget {
+        return Err(VolumeFail::Bounds);
+    }
+    let mut head = Vec::new();
+    head.resize(padded, 0);
+    dev.read_blocks(VOLUME_START_SECTOR, &mut head).map_err(|_| VolumeFail::Io)?;
+    head.truncate(index_len);
+    if Sha256::digest(&head).as_slice() != desc.index_sha256 {
+        return Err(VolumeFail::Digest);
+    }
+    let index = parse_index(&head, &PkgImgCaps::default()).map_err(|_| VolumeFail::Digest)?;
+    if index.superblock.index_end() != index_len {
+        return Err(VolumeFail::Digest);
+    }
+    Ok(Volume { dev, slot, build_id: desc.build_id, index })
+}
+
+impl Volume {
+    /// The bundle-table row + its `payload.elf` entry for `name` (latest
+    /// row by sorted order = deterministic; the volume carries one version
+    /// per bundle by construction of the builder).
+    pub(crate) fn lookup(
+        &self,
+        name: &[u8],
+    ) -> Option<(&storage::pkgimg_bundles::VolumeBundle, &VolumeEntry)> {
+        let row = self.index.bundles.iter().find(|b| b.bundle.as_bytes() == name)?;
+        let entry = self.index.entries.iter().find(|e| {
+            e.bundle == row.bundle && e.version == row.version && e.path == "payload.elf"
+        })?;
+        Some((row, entry))
+    }
+
+    /// Streams `entry`'s bytes into `vmo` at `data_offset` while hashing;
+    /// returns `Ok(len)` only if the bytes hashed to the index digest. The
+    /// caller writes the header afterwards (header-last discipline).
+    pub(crate) fn stream_entry_into_vmo(
+        &self,
+        entry: &VolumeEntry,
+        vmo: u32,
+        data_offset: usize,
+    ) -> Result<u32, VolumeFail> {
+        let start = self.index.superblock.data_offset as u64 + entry.data_offset;
+        let total = entry.data_len as usize;
+        let mut hasher = Sha256::new();
+        let mut buf = [0u8; CHUNK];
+        let mut done = 0usize;
+        while done < total {
+            // Sector-aligned window covering the next chunk of the entry.
+            let abs = start + done as u64;
+            let lba = VOLUME_START_SECTOR + abs / blockproto::SECTOR_SIZE as u64;
+            let skew = (abs % blockproto::SECTOR_SIZE as u64) as usize;
+            let want = core::cmp::min(total - done, CHUNK - skew);
+            let sectors = (skew + want).div_ceil(blockproto::SECTOR_SIZE);
+            let read_len = sectors * blockproto::SECTOR_SIZE;
+            self.dev.read_blocks(lba, &mut buf[..read_len]).map_err(|_| VolumeFail::Io)?;
+            let bytes = &buf[skew..skew + want];
+            hasher.update(bytes);
+            nexus_abi::vmo_write(vmo, data_offset + done, bytes).map_err(|_| VolumeFail::Bounds)?;
+            done += want;
+        }
+        let digest: [u8; 32] = hasher.finalize().into();
+        if digest != entry.sha256 {
+            return Err(VolumeFail::Digest);
+        }
+        Ok(total as u32)
+    }
+}
+
+fn emit_verified(v: &Volume) {
+    // `bundlemgrd: system volume verified (slot=a build=<id8> bundles=N)`
+    let mut line = [0u8; 96];
+    let mut n = 0;
+    for b in b"bundlemgrd: system volume verified (slot=" {
+        line[n] = *b;
+        n += 1;
+    }
+    line[n] = v.slot;
+    n += 1;
+    for b in b" build=" {
+        line[n] = *b;
+        n += 1;
+    }
+    for b in v.build_id.iter().take(8) {
+        if *b == 0 {
+            break;
+        }
+        line[n] = *b;
+        n += 1;
+    }
+    for b in b" bundles=" {
+        line[n] = *b;
+        n += 1;
+    }
+    let count = v.index.bundles.len().min(999);
+    let mut digits = [0u8; 3];
+    let mut d = 0;
+    let mut rest = count;
+    loop {
+        digits[d] = b'0' + (rest % 10) as u8;
+        d += 1;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    while d > 0 {
+        d -= 1;
+        line[n] = digits[d];
+        n += 1;
+    }
+    line[n] = b')';
+    n += 1;
+    if let Ok(s) = core::str::from_utf8(&line[..n]) {
+        crate::os_lite::emit_line(s);
+    }
+}
+
+fn emit_fail(fail: VolumeFail) {
+    // `bundlemgrd: system volume FAIL (<reason>)` — bounded, label ≤ 12 B.
+    let mut line = [0u8; 64];
+    let prefix = b"bundlemgrd: system volume FAIL (";
+    line[..prefix.len()].copy_from_slice(prefix);
+    let mut n = prefix.len();
+    for b in fail.label().bytes() {
+        line[n] = b;
+        n += 1;
+    }
+    line[n] = b')';
+    n += 1;
+    if let Ok(s) = core::str::from_utf8(&line[..n]) {
+        crate::os_lite::emit_line(s);
+    }
+}

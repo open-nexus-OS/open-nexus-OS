@@ -10,8 +10,7 @@
 # appear here — recovery/safe boots must not depend on a volume
 # (`boot_graph::CORE`; a nexus-init host test mirrors this list).
 #
-# P1 (2026-09-03): bundles are EMITTED and shipped on the volume while the
-# same services stay embedded in init-lite; P2 flips the spawn source
-# (`NEXUS_VOLUME_SPAWN=1` removes them from INIT_LITE_SERVICE_LIST once
-# init spawns from the volume). Pilot = metricsd (non-CORE, SAFE_EXCLUDED).
+# P2 (2026-09-03): init spawns these from the volume (`NEXUS_VOLUME_SPAWN=1`
+# default removes them from INIT_LITE_SERVICE_LIST; `=0` keeps them embedded
+# too — bring-up escape only). Pilot = metricsd (non-CORE, SAFE_EXCLUDED).
 metricsd

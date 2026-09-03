@@ -462,8 +462,6 @@ expected_sequence=(
   "init: up policyd"
   "init: start logd"
   "init: up logd"
-  "init: start metricsd"
-  "init: up metricsd"
   "init: start samgrd"
   "init: up samgrd"
   "init: start bundlemgrd"
@@ -493,6 +491,11 @@ expected_sequence=(
   "init: start bootctld"
   "init: up bootctld"
   "init: ready"
+  # TASK-0321 (ADR-0060): metricsd is the system-volume pilot — spawned in
+  # the SECOND pass after the MMIO grants (block plane live), so its
+  # start/up ladder rungs land after `init: ready`, not in the embedded loop.
+  "init: start metricsd"
+  "init: up metricsd"
   # Service readiness markers are emitted asynchronously by the spawned processes.
   # With the kernel `exec` loader path, init emits spawn markers first, then yields;
   # services report `*: ready` after `init: ready`.
@@ -587,6 +590,13 @@ expected_sequence=(
   "blk: irq completion on"
   "statefsd: virtio upgrade ok"
   "SELFTEST: blk cross-partition deny ok"
+  # TASK-0321 (RFC-0089 §12, ADR-0060): the verified system volume —
+  # bundlemgrd verifies the NXSV paired with the measured boot slot, init
+  # spawns the pilot (metricsd) from it, and the selftest's ungranted READ
+  # of system-a is denied by the op-aware gate.
+  "bundlemgrd: system volume verified (slot="
+  "init: spawn from volume svc=metricsd"
+  "SELFTEST: blk system volume deny ok"
   # TASK-0198 Phase 1: device publisher trust anchor — a validly self-signed
   # archive whose publisher is not in policies/update-trust.toml must be
   # rejected BEFORE the happy-path stage (the pre-fix hole accepted any key
@@ -830,8 +840,6 @@ case "${PROFILE:-full}" in
       "init: up policyd"
       "init: start logd"
       "init: up logd"
-      "init: start metricsd"
-      "init: up metricsd"
       "init: start samgrd"
       "init: up samgrd"
       "init: start bundlemgrd"
@@ -859,6 +867,11 @@ case "${PROFILE:-full}" in
       "init: start imed"
       "init: up imed"
       "init: ready"
+      # TASK-0321 (ADR-0060): metricsd is the system-volume pilot — spawned in
+      # the SECOND pass after the MMIO grants (block plane live), so its
+      # start/up ladder rungs land after `init: ready`, not in the embedded loop.
+      "init: start metricsd"
+      "init: up metricsd"
       "keystored: ready"
       "rngd: ready"
       "policyd: ready"
@@ -907,6 +920,9 @@ case "${PROFILE:-full}" in
       "blk: irq completion on"
       "statefsd: virtio upgrade ok"
       "SELFTEST: blk cross-partition deny ok"
+      "bundlemgrd: system volume verified (slot="
+      "init: spawn from volume svc=metricsd"
+      "SELFTEST: blk system volume deny ok"
       "SELFTEST: updates surface ok"
       "updated: stage rejected (untrusted publisher)"
       "SELFTEST: updates trust reject ok"

@@ -134,6 +134,8 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // TASK-0315: cross-partition deny (state write without a grant) —
     // late in the ladder so virtioblkd is long serving.
     crate::os_lite::probes::blkgate::blk_cross_partition_deny_proof();
+    // TASK-0321: the system volume is read-gated to bundlemgrd/updated.
+    crate::os_lite::probes::blkgate::blk_system_volume_deny_proof();
     // Fail-closed + LOUD: a silent `map_err(|_| ())` here swallowed a routing
     // failure and made the whole OTA phase vanish with no marker (the ladder saw
     // a missing `bundlemgrd: slot a active` with no cause). Name the failing route

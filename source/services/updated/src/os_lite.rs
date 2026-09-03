@@ -769,9 +769,11 @@ fn emit_byte(byte: u8) {
 }
 
 pub(crate) fn emit_bytes(bytes: &[u8]) {
-    for &b in bytes {
-        emit_byte(b);
-    }
+    // ONE debug_write per fragment (never per byte): a per-byte loop is
+    // torn by any preemption and a torn marker is a missing marker to the
+    // ladder — TASK-0321 P2 made that deterministic under icount once the
+    // init tail shifted (`updated: ready (bootctl cl` + `abilitymgr: ready`).
+    let _ = nexus_abi::debug_write(bytes);
 }
 
 pub(crate) fn emit_line(message: &str) {
@@ -780,8 +782,19 @@ pub(crate) fn emit_line(message: &str) {
     if nexus_abi::service_line(message.as_bytes()) {
         return;
     }
-    emit_bytes(message.as_bytes());
-    emit_byte(b'\n');
+    // Marker + newline in ONE write so the line can never be interleaved
+    // with another service's output (bounded stack copy; longer lines fall
+    // back to two writes — the marker text itself still lands intact).
+    let bytes = message.as_bytes();
+    if bytes.len() < 255 {
+        let mut line = [0u8; 256];
+        line[..bytes.len()].copy_from_slice(bytes);
+        line[bytes.len()] = b'\n';
+        let _ = nexus_abi::debug_write(&line[..bytes.len() + 1]);
+    } else {
+        emit_bytes(bytes);
+        emit_byte(b'\n');
+    }
 }
 
 fn emit_hex_u8(value: u8) {

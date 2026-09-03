@@ -193,10 +193,12 @@ prepare_service_payloads() {
     export INIT_LITE_SERVICE_LIST
   fi
 
-  # TASK-0321 (RFC-0089 §12): services listed in scripts/system-volume-services.txt
-  # ALSO ship as bundles on the verified system volume. With NEXUS_VOLUME_SPAWN=1
-  # (P2: init spawns them from the volume) they leave the embedded table.
-  if [[ "${NEXUS_VOLUME_SPAWN:-0}" == "1" ]]; then
+  # TASK-0321 (RFC-0089 §12, ADR-0060): services listed in
+  # scripts/system-volume-services.txt ship as bundles on the verified system
+  # volume and — NEXUS_VOLUME_SPAWN=1, the P2 default — leave the embedded
+  # init-lite table (init spawns them from the volume after the MMIO grants).
+  # NEXUS_VOLUME_SPAWN=0 keeps them embedded as well (bring-up escape only).
+  if [[ "${NEXUS_VOLUME_SPAWN:-1}" == "1" ]]; then
     local keep=()
     IFS=',' read -r -a _all <<<"$INIT_LITE_SERVICE_LIST"
     for raw in "${_all[@]}"; do
