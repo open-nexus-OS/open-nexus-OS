@@ -16,6 +16,61 @@ links:
   - Signing policy: docs/security/signing-and-policy.md
 ---
 
+## End-state rewrite 2026-09-03 (binding; executes on TASK-0321 P3)
+
+### Goal (end state)
+
+updated-side orchestration of multi-component bundle sets on the TASK-0321 seam: the normative
+apply order, a stage journal (`NXSJ`, inactive system-slot sector 1) that makes restage resume
+per bundle, a host reuse index that ships only changed bundles, and `bundle-delta` (kind 4)
+reconstructed from the active volume through the unchanged RFC-0090 delta adapter.
+
+### Non-goals
+
+New container or format families; changes to the volume format, verifier, gates or the loader;
+network resume (falls out of path staging); anything the 2026-08-14 note already struck
+(`.nxs` packing/parsing, persistent `updated`, boot-chain proof).
+
+### Invariants
+
+Resume never skips verification — the engine streams and hashes every component every time; the
+journal only avoids rewrites. A journal is bound to the manifest digest and zeroed at commit.
+Base binding for kind 4 is by bundle digest present in the ACTIVE index, rejected `delta-base`
+before any write. The assembled volume stays byte-identical to the host build regardless of
+which components were shipped, reused or delta-reconstructed.
+
+### Packages
+
+- **P1 — Apply order + per-component resume**: `NXSJ` stage journal `{magic, manifest_sha256,
+  completed bitmap[32], crc32}` at inactive system sector 1, written by `VolumeSink` after each
+  bundle's readback, zeroed at set begin on manifest mismatch and after the NXSV commit. On restage
+  with a matching manifest, completed bundles are readback-verified, not rewritten. Marker
+  `updated: restage resume (bundles=k/N)`. Host: journal codec `test_reject_journal_crc`,
+  `test_reject_journal_manifest`, matrix „cut at every bundle boundary → resume converges“. QEMU
+  keep-blk lane `ota-bundle-resume` (kill at `updated: component bundle verified`, boot 2 shows
+  `updated: restage clean` / `restage resume` + `SELFTEST: ota stage resume ok`).
+- **P2 — Reuse index (host)**: `nx image ota --bundle-set --reuse-from <active.img>` diffs bundle
+  digests, ships only changed bundles, prints a JSON reuse manifest; test
+  `bundle_set_ships_only_changed_bundles`; the device already reuses (0321 P3) — the lane asserts
+  the `updated: bundle reused` count.
+- **P3 — `bundle-delta` kind 4**: `nx image ota --delta-from-volume` emits one `.nxdelta`
+  (`nxdelta::make`, RFC-0090) per changed bundle with base = the old bundle window; engine
+  `check_bundle_delta_binding` (kind_data = base sha256, present in the active index, else
+  `delta-base`); `DeltaAdapter<VolumeBase, BundleWriter>` where `VolumeSink` exposes a
+  `BundleWriter: ComponentSink` for one bundle window so the adapter is reused verbatim. Host
+  `component_set_bundle_delta.rs` (accept + `test_reject_delta_base_bundle`); QEMU lane
+  `ota-bundle-delta` (`SELFTEST: ota bundle delta ok`).
+- **P4 — Close**: RFC-0089 Phase 10 row ✅, `docs/updates/delta.md`, CHANGELOG, board rows.
+
+### Stop conditions (Definition of Done — replaces the seed DoD)
+
+Host: journal codec rejects + cut-at-every-boundary matrix; `bundle_set_ships_only_changed_bundles`;
+`component_set_bundle_delta` accept + `test_reject_delta_base_bundle`. OS: keep-blk lane
+`ota-bundle-resume` (`updated: restage resume`, `SELFTEST: ota stage resume ok`) and lane
+`ota-bundle-delta` (`SELFTEST: ota bundle delta ok`), both in `test-all`; RFC-0089 Phase 10 ✅;
+docs + CHANGELOG + board updated.
+
+
 ## Parked 2026-09-03 — executes after TASK-0321 (Phase B seam)
 
 The Phase-B seam this task's residual scope sits on now has a ledger:

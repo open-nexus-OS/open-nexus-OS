@@ -26,6 +26,193 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## End-state rewrite 2026-09-03 (binding; supersedes the seed text below where they differ)
+
+Planned against verified repo reality (Explore + Plan 2026-09-03). Principle: every package is a
+direct step to the production system — no interim volume format, no second bundle registry, no
+placeholder verifier.
+
+### Decisions (D1–D8)
+
+- **D1 Volume format** — pkgimg **v3** payload + a signed **NXSV** root descriptor at volume
+  sector 0 (NXBD shape, own magic `NXSV0001`, Ed25519 sig @448; binds `volume_sha256`,
+  `index_sha256`, `boot_image_sha256`, `build_id`, `rollback_index`). Resolves RFC-0089's open
+  question (system volume format). No nxfs-RO, no new format: pkgimg already has the deterministic
+  builder + bounded no_std parser (`userspace/storage/src/pkgimg.rs`).
+- **D2 Digest levels** — NXSV binds volume + index; the index binds per-**bundle** sha256 and
+  per-**file** sha256. Boot verification is O(descriptor + index); bundle digests are checked when
+  a bundle is served; the per-bundle digest is TASK-0035's reuse unit.
+- **D3 Verifier + reader = bundlemgrd; init stays the ONLY spawner.** bundlemgrd is CORE, lives in
+  the loader-verified boot image ("verified by the boot image" holds literally), already owns the
+  payload-VMO discipline (`bundlemgrd/src/os_lite.rs:346-378`) and is the one bundle authority.
+  init cannot be a block client (kernel-loaded task has service id 0, `task/mod.rs:364`; gates key
+  on kernel sid). init receives the bundle ELF as an RO VMO mapping and passes the slice to
+  `exec_v2` (kernel `ensure_user_slice` accepts mapped memory — **no kernel change**).
+- **D4 Spawn order** — a second spawn pass after the MMIO grants (`orchestrator.rs:847-856`) and
+  before `wire_services` (:871). **Pilot = metricsd**: non-CORE, `SAFE_EXCLUDED`, endpoints already
+  `Option`, ~0.5 MB; recovery/safe boots never depend on the volume.
+- **D5 Engine shape** — `ComponentSink::commit_set(&mut self)` (default no-op) + the ordering
+  contract `[boot-image | boot-image-delta]?, system-volume (kind 6, index first),
+  (bundle | bundle-delta)*`. SlotSink and every TASK-0179 test stay untouched (§12 invariant:
+  container rules, staging pipeline, NXBD, BSB, nxboot unchanged).
+- **D6 Reuse + gates** — `VolumeBase` (active system slot, read-only) paired with `VolumeSink`
+  (inactive), the RemoteBase/SlotSink pattern from RFC-0090. virtioblkd gate becomes op-aware
+  `Gates::allowed(sender, part, op)`: system READ ← bundlemgrd, updated; WRITE/SYNC ← updated
+  (inactive only, engine scopes the slot). Every reused bundle is hashed while copied against the
+  NEW (signature-bound) index — updated needs no OS-key anchor.
+- **D7 Budgets** — `scripts/check-image-budgets.sh` gets a `system-a` row (pkgimg bytes vs
+  32 MiB − 4 KiB) and an `init-lite(embedded) / system-a(volume)` split BEFORE any migration, so
+  bytes move visibly instead of vanishing.
+- **D8 One bundle model, one activation authority** — bundlemgrd's registry gains
+  `BundleSource::{SystemVolume(slot), State}`; the active volume slot = the measured boot slot
+  (bootctld `OP_GET_MEASURED`); init's `bundlemgrd_set_active_slot` becomes an assertion (mismatch
+  is loud). TASK-0239 per-app A/B lives entirely under `State`. `.nxb` stays the ONE artifact
+  (ADR-0020) — no second registry, no second format.
+- Launch parameters (`stack_pages`, `global_pointer`) are pkgimg-v3 bundle-table fields computed
+  by `nx image` with the same `object` logic as `source/apps/init-lite/build.rs:137-170`; init
+  never parses ELF at runtime. Respawn (ADR-0057) reuses the kept mapping — the VMO arena never
+  frees, so init never re-requests. `updated: restage clean` (contracted in RFC-0089 §8, never
+  implemented) becomes real in P3.
+
+### Goal (end state)
+
+The system volume is a first-class, loader-independent trust tier: pkgimg v3 payload + signed
+NXSV on `system-a/b`, verified by bundlemgrd against the baked OS key, the persisted rollback
+floor and the measured boot image; every boot service outside CORE is spawned by init from a
+bundle served out of that verified volume; `.nxs` sets carry `[boot-image(-delta),
+system-volume, bundle…]`; updated assembles the inactive volume deterministically (byte-identical
+to `nx image build`), reusing unchanged bundles from the active volume, and lands the NXSV last at
+set commit. Two boots in one uart prove that a one-bundle update runs the new bundle from the
+flipped volume.
+
+### Non-goals
+
+Kernel changes; nxboot / NXBD / BSB / trust-anchor / `.nxs` container-rule changes; CORE
+(wave-1) services on the volume; per-app A/B for `State`-sourced bundles (TASK-0239); network
+transport; `bundle-delta`, stage journal / resume, host reuse index (TASK-0035).
+
+### Invariants
+
+Chain extends downward only (loader → boot image → bundlemgrd → volume → bundle). system-X pairs
+with boot-X: `NXSV.boot_image_sha256 == measured image sha256` (direct-kernel dev boots report
+`pair=unbound`, never `ok`). Deny-by-default op-aware partition gates on kernel sid. No fake
+success: `system volume verified`, `spawn from volume`, `ota bundle-set ok` only after a real
+verify + a real spawn. Bounded before parse (NXSV 512 B, index ≤ 256 KiB, bundle ≤ partition).
+Determinism: volume, container and device-assembled volume are byte-identical for identical
+inputs. One bundle authority (bundlemgrd). init remains the sole spawner and capability
+distributor; fixed ctrl-plane slots never shift. `ComponentSink` grows only `commit_set`.
+
+### Packages (each test-all green before the next)
+
+- **P0 — Contract** (approval zone `docs/rfcs`): RFC-0089 §12 amendment — NXSV layout (NXBD field
+  positions reused: rollback_index@12, volume_size@16, volume_sha256@24, build_id@56,
+  pubkey_id@96; new: `boot_image_sha256`@104, `index_len` u32@136, `index_sha256`@140; sig@448),
+  geometry (sector 0 NXSV, sectors 1–7 reserved — sector 1 = TASK-0035 stage journal, payload from
+  sector 8 = `IMAGE_START_SECTOR`), kind 6 `system-volume` (payload = pkgimg superblock + index,
+  ≤ 256 KiB, kind_data = NXSV), kind 2 payload = the bundle's data-region slice (component sha256
+  == index bundle sha256), kind 4 kind_data = `base_sha256[32]`, ordering rule + `commit_set`,
+  pairing rule, verifier = bundlemgrd, gate matrix, §3 table rows 2/4/6, Status-at-a-Glance rows
+  (Phase 9 ✅, Phase 10 ✅ for 0034, Phase B 🚧). **ADR-0060** „verified system volume:
+  bundlemgrd verifier, init spawner“ (boundary boot image ↔ system volume; CORE-never-on-volume;
+  VMO payload discipline; OS-key baked into bundlemgrd via the shared `build_trust.rs` parser).
+- **P1 — Host formats + builder**: `userspace/storage/src/pkgimg.rs` `VERSION_V3` (bundle table
+  `{bundle, version, sha256, data_off, data_len, stack_pages u32, global_pointer u64}`, per-entry
+  sha256; v2 still parsed until P5; `ParsedPkgImg::bundles()`, `bundle_window()`);
+  `userspace/bootfmt` `pub mod nxsv` (clone of `nxbd`: encode/decode/verify/sign + goldens);
+  `tools/nx` `image build --system-bundles <dir>` (`<dir>/<name>/` = `.nxb` directory per
+  `docs/packaging/nxb.md`) → `build_system_volume()` written NXSV-last via a generalized
+  `write_slot(dev, part, body, descriptor)` shared with `write_boot_slot`; `image verify` checks
+  NXSV sig + index + every bundle digest + pairing with boot-a; `image ota --bundle-set <dir>
+  [--reuse-from <img>]` emits `[boot-image(-delta), system-volume, bundle…]`; `image_fixtures`
+  adds `bundle-set.nxs` (metricsd@1.0.1). `scripts/build.sh`: `prepare_service_payloads` emits
+  `build/system-bundles/<svc>/{manifest.nxb,payload.elf,meta/}` for services listed in
+  `scripts/system-volume-services.txt` and removes them from `INIT_LITE_SERVICE_LIST`;
+  budgets row (D7). Tests: `test_reject_pkgimg_v3_entry_digest_mismatch`,
+  `test_reject_pkgimg_v3_bundle_digest_mismatch`, `test_reject_pkgimg_v3_bundle_table_out_of_bounds`,
+  `pkgimg_v3_determinism`, `test_reject_nxsv_sig`, `test_reject_nxsv_magic`,
+  `test_reject_nxsv_reserved`, `system_volume_build_is_deterministic`,
+  `verify_rejects_tampered_system_volume`, `verify_rejects_unpaired_volume`,
+  `bundle_set_container_decodes_kinds_2_and_6`.
+- **P2 — OS verifier + loader + pilot** (approval zone `source/libs` for the bundlemgrd wire
+  ops): virtioblkd `Gates { …, sid_bundlemgrd }` + `allowed(sender, part, op)`;
+  `bootstrap/blk_plane.rs` adds the bundlemgrd client slot; wire ops `OP_QUERY_BUNDLE {name} →
+  {status, size, sha8, stack_pages, gp, version}`, `OP_GET_BUNDLE_ELF {name}` (caller-created VMO,
+  CAP_MOVE, header written LAST after digest match), `OP_VOLUME_STATUS → {slot, verified, build8}`;
+  `source/services/bundlemgrd/src/volume.rs` (≤ 600 LOC: attach measured slot via
+  `RemoteBlockDevice` on `PART_SYSTEM_{A,B}`, NXSV verify against `BAKED_OS_KEYS` from
+  `policies/os-trust.toml`, `rollback_index ≥ floor`, pairing, bounded index read, v3 parse,
+  `serve_bundle_elf()` streams sectors → sha256 → VMO); `BundleSource` in the registry; init
+  `os_payload.rs` `ServiceImage { name, source: ServiceSource::{Embedded{elf,stack_pages,gp},
+  Volume{bundle}} }`, new `bootstrap/volume_spawn.rs` (query → `vmo_create` → `OP_GET_BUNDLE_ELF`
+  → poll header → `vm_map` RO → `exec_v2` → extracted `attach_ctrl_channel()` +
+  `distribute_server_pair_for()`), `src/mapmem.rs` (mirror of updated's), `respawn.rs` keyed on
+  `ServiceSource`, `service_source.rs` `VOLUME_SERVICES` SSOT + host tests
+  `core_services_never_on_volume`, `volume_list_matches_script`. Markers: `bundlemgrd: system
+  volume verified (slot=a build=<8> bundles=N)`, `bundlemgrd: system volume FAIL (<sig|digest|
+  floor|pair|bounds|io>)`, `bundlemgrd: bundle served (name=… sha=<8>)`, `init: spawn from volume
+  svc=metricsd bundle=metricsd@1.0.0 sha=<8>`, `init: volume spawn FAIL svc=… reason=…`,
+  `SELFTEST: blk system volume deny ok` (selftest READ of system-a → `STATUS_DENIED`).
+  Proof: headless/smp1 gated; `metricsd: ready` unchanged; `ci-os-reset` green. Measure the
+  boot-time cost of Ed25519 + index read before the pilot spawn.
+- **P3 — OS apply + two-boot proof** (approval zones `scripts/qemu-test.sh`, `justfile`):
+  `component_set.rs` `KIND_BUNDLE=2`, `KIND_SYSTEM_VOLUME=6`, `check_system_volume_binding`
+  (NXSV decode, build_id/rollback_index match, `index_sha256 == meta.sha256`, `index_len ==
+  meta.size`), `check_bundle_binding`, ordering → `RejectReason::Order` (label `order`),
+  `commit_set()` after the loop; `source/services/updated/src/volume_os.rs` `VolumeSink`
+  (attach inactive system part; `begin(kind 6)` zeroes sector 0, writes index at sector 8,
+  parses it; `begin(kind 2)` locates the bundle window by sha256/size; shared `SectorWriter`
+  with SlotSink; `finish` readback-hashes the window; `commit_set` copies every not-yet-populated
+  index bundle from `VolumeBase` with digest check → `updated: bundle reused (name=… sha=<8>)`,
+  readback `volume_sha256`, NXSV LAST, sync); `delta_os.rs` `State::Volume`; `stage_os.rs`
+  markers `updated: component system-volume verified (build=<8> bundles=N)`, `updated: component
+  bundle verified (name=…)`, `updated: restage clean` probe. Host
+  `tests/updates_host/tests/component_set_volume.rs`: accept (index + 2 bundles + reuse),
+  `test_reject_order`, `test_reject_bundle_not_in_index`, `test_reject_volume_digest`,
+  `test_reject_volume_binding`, power-cut matrix (after index / mid-bundle / before NXSV → slot
+  never NXSV-valid; restage converges byte-identical to `nx image build`). Lane `ota-bundle`
+  (two boots, one uart, crown pattern): `updated: stage begin (source=/updates/bundle-set.nxs)`
+  → `component boot-image-delta verified` → `component system-volume verified (build=otaS` →
+  `component bundle verified (name=metricsd` → `bundle reused (` → `stage done (slot=b
+  build=otaS` → `bootctld: switch scheduled (to=b)` → `SELFTEST: ota bundle-set staged ok` →
+  reset → `nxboot: verify ok (slot=b build=otaS` → `bundlemgrd: system volume verified (slot=b
+  build=otaS` → `init: spawn from volume svc=metricsd bundle=metricsd@1.0.1` → `bootctld: commit
+  ok (slot=b)` → `SELFTEST: ota bundle-set ok`. `just ci-os-ota-bundle` in `test-all`; marker
+  three-way SSOT (`scripts/qemu-test.sh`, `tools/nx/chains/markers.txt`, proof-manifest
+  `markers/ota.toml`).
+- **P4 — Migration + dedup accounting**: pinched (extends the ADR-0057 respawn pilot: keep
+  mapping) → imed → timed → touchd/hidrawd → netstackd → dsoftbusd → abilitymgr → settingsd →
+  sessiond → inputd → gpud → windowd; CORE (`boot_graph.rs:59-78`) + execd's embedded app-host
+  stay embedded; each step behind the budget gate + green ladder; `SELFTEST: service restart ok`
+  stays green with pinched on the volume; the `ota-bundle` lane asserts `updated: bundle reused`
+  count ≥ N−1.
+- **P5 — Boot-image floor**: `APP_PAYLOADS` and the `FETCH_IMAGE` pkgimg move into the volume as
+  `SystemVolume` bundles; packagefsd mounts via `OP_GET_FILE_VMO` (per-file digest from the v3
+  index) instead of RAM bytes (`packagefsd: mounted (system volume slot=a)`); pkgimg v2 transcode
+  retired; docs `docs/architecture/09-nexus-init.md`, `15-bundlemgrd.md`,
+  `docs/packaging/system-set.md`, `docs/updates/*` swept.
+
+### Stop conditions (Definition of Done — replaces the seed DoD)
+
+- Host: pkgimg v3 + nxsv + engine reject suites green; `nx image verify` fails on a tampered or
+  unpaired volume; power-cut matrix converges; determinism cross-check (device-assembled volume ==
+  host build).
+- OS/QEMU: headless/smp1 gate `bundlemgrd: system volume verified`, `init: spawn from volume
+  svc=metricsd`, `SELFTEST: blk system volume deny ok`; `just ci-os-ota-bundle` ends in
+  `SELFTEST: ota bundle-set ok`; `ci-os-reset`, `ci-os-ota`, `ci-os-ota-backstops` untouched-green;
+  budgets script has the `system-a` row and every migrated service moved its bytes visibly.
+- Docs: RFC-0089 §12 amendment + ADR-0060 merged, Phase B ✅ row, board rows, TASK-0035 unparked.
+
+### Risks (tracked)
+
+Boot-time cost of Ed25519 + index read before the pilot spawn (measure in P2; index ≤ 256 KiB
+over the 6 KiB/req block plane ≈ 45 requests). init cap-table pressure (one VMO handle per
+volume service, bounded by `VOLUME_SERVICES`). VMO arena never frees (`apply_os.rs:54-57`) — init
+must never re-request on respawn. `eps` becoming mutable for late metricsd mints must not shift
+any fixed slot (guard with the slot-shift probes). Kind-6 index bound vs real bundle counts after
+P4/P5 — raise via RFC amendment, never silently. pkgimg v2/v3 coexistence until P5. Direct-kernel
+dev boots have no measured image — the pairing rung stays honest (`pair=unbound`).
+
+
 ## Why this ledger exists (seeded 2026-09-03)
 
 The Updates/OTA lane (RFC-0089, packages 0–11) shipped full-image A/B with a

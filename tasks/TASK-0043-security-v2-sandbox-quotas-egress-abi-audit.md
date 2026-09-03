@@ -25,6 +25,89 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## End-state rewrite 2026-09-03 (binding; supersedes older sections where they differ)
+
+Verified repo reality (Explore 2026-09-03): zero quota/`EDQUOTA` code anywhere; the only
+„budget“ in statefsd is a latency budget (`WriteBudget`, not bytes); `/tmp` does not exist —
+`validate_namespace_path` accepts only `pkg:/`; statefs status codes end at 11
+(`userspace/statefs/src/protocol.rs`), `VfsError` at 13 (RFC-0072 table, TASK-0132 reserves
+`EDQUOTA`); netstackd `handlers/connect.rs` performs no authorization, the facade receives the
+kernel `sid` and drops it (`FacadeContext` has no sender), `wire.rs` has no `STATUS_DENY`;
+`NetBind` matches port ranges only, `NetConnect` does not exist; metrics counter substrate exists,
+no `*_denies_total`; policyd `AuditReason` has one variant; `userspace/security/` and
+`recipes/security/` do not exist. RED (real): `policies/base.toml` grants `selftest-client`
+`device.mmio.net` and it runs its own network stack on the NIC — any such grant bypasses
+netstackd enforcement; the grant distribution IS the boundary and is documented as such.
+
+### Goal (end state)
+
+Per-subject resource and network policy enforced at the real seams and audited with one deny
+taxonomy: byte quotas on the app-writable state store (soft warn / hard deny with a stable
+`EDQUOTA`), per-subject egress policy (CIDR/port allow-lists, default deny) decided by policyd at
+the netstackd facade with kernel-attributed identity, structured deny reasons + bounded counters
+for every deny.
+
+### Non-goals
+
+Kernel changes; traffic shaping; inbound firewalling (TASK-0052); a `/tmp` provider (app-private
+scratch namespaces are TASK-0189 `vfs` territory); `/data` (nxfs) quotas before TASK-0317 — seeded
+on the same model afterwards (TASK-0133 lineage), never a second model.
+
+### Decisions
+
+- **Quota model = TASK-0133 model, enforcement point = statefsd.** Per-subject soft + hard bytes,
+  deterministic bounded accounting, hard limit ⇒ `EDQUOTA`, soft limit ⇒ one warn marker per
+  subject per window. statefsd already holds the policyd check (`policy_allows`) and the subject
+  canonicalization; a vfsd namespace quota would be a second model. TASK-0133 is marked „executed
+  by TASK-0043 for `/state`“; its `/data` half stays with the storage ladder.
+- **Wire**: statefs `STATUS_QUOTA_EXCEEDED = 12`, `VfsError::QuotaExceeded = 14` via an RFC-0072
+  amendment (TASK-0132 reservation honoured). Markers `statefs: quota warn subject=<id> used=…
+  soft=…`, `statefs: quota deny subject=<id> used=… hard=…`.
+- **Shared network prerequisite (P2 = TASK-0052 P1)**: netstackd facade gets the sender (`sid` →
+  `FacadeContext`), a `STATUS_DENY` wire code, and the `nexus_ipc::policyd::authorize` pattern
+  (greppable `!cap-deny` marker) at connect / listen / udp-bind — ONE identity model in netstackd.
+- **Egress rules** = the `net.connect` section of the TASK-0028 profile schema v2 (CIDR + port),
+  evaluated by policyd; default deny for every subject without rules.
+- **Audit taxonomy**: `AuditReason` += `QuotaExceeded`, `EgressDenied`, `IngressDenied`,
+  `AbiRuleDenied{class}`; counters `quota_denies_total{subject}`, `egress_denies_total{subject}`
+  (cardinality-capped under metricsd `max_series_total`); deny audits inherit logd's persisted
+  evidence class (loop hazard respected).
+
+### Packages
+
+- **P0 — Contract**: RFC-0072 amendment (`EDQUOTA` codes) + the schema v2 share of TASK-0028 P0
+  (approval zones `docs/rfcs`, `source/libs`).
+- **P1 — statefs quotas**: accounting in `userspace/statefs` (host-testable), enforcement in
+  statefsd at the put seam, quota declaration in `policies/*.toml` (`[quota.<subject>]` soft/hard);
+  host `tests/state_quota_host/` (from TASK-0133: deterministic accounting, deny-on-exceed with
+  stable code, soft warn once per window); OS `SELFTEST: quota deny ok`.
+- **P2 — netstackd identity + deny status** (shared with TASK-0052): `sid` on `FacadeContext`,
+  `STATUS_DENY`, policyd authorize at connect/listen/bind, `test_reject_unattributed_connect`.
+- **P3 — Egress policy**: profile evaluation at connect, host `tests/security_v2_host/`
+  (`test_reject_egress_cidr`, `test_reject_egress_port`, allowed CIDR/port passes, learn mode
+  records the attempt), OS `net-egress: enforced`, `SELFTEST: egress deny ok`, `SELFTEST: egress
+  allow ok` (loopback + QEMU user-net targets, single-VM profile).
+- **P4 — Audit taxonomy + counters + docs**: `AuditReason` variants, counters,
+  `docs/security/network-egress.md` (new), `sandboxing.md` boundary paragraph (`device.mmio.net`
+  grant = bypass), `abi-filters.md`, CHANGELOG, board.
+
+### Touched paths (corrected)
+
+`userspace/statefs/`, `source/services/statefsd/`, `userspace/vfs-types/` (VfsError, RFC-0072),
+`source/services/netstackd/`, `userspace/policy/`, `source/services/policyd/`,
+`source/libs/nexus-abi/` (via 0028 P0, approval), `policies/`, `tests/state_quota_host/`,
+`tests/security_v2_host/`, `source/apps/selftest-client/`, `docs/security/`,
+`scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` (approval, markers).
+
+### Stop conditions (Definition of Done — replaces older DoD)
+
+Host: `test_reject_write_over_hard_quota`, `test_reject_egress_cidr`, `test_reject_egress_port`,
+`test_reject_unattributed_connect`, `test_reject_audit_reason_unknown` green; soft-warn-once
+proven. OS: `statefs: quota deny`, `SELFTEST: quota deny ok`, `net-egress: enforced`,
+`SELFTEST: egress deny ok`, `SELFTEST: egress allow ok` gated in headless/smp1; counters visible
+via metricsd. Docs + CHANGELOG + board; TASK-0133 cross-referenced.
+
+
 ## Rebase 2026-08-14 (prerequisites landed; quotas/egress genuinely unbuilt)
 
 Verified against the repo on 2026-08-14. The old "Repo reality today" claims below were false and are

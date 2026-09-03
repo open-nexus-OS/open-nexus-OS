@@ -19,6 +19,72 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## End-state rewrite 2026-09-03 (binding; supersedes older sections where they differ)
+
+Verified repo reality (Explore 2026-09-03): `ingressd` does not exist; every bind in the system
+goes through the netstackd facade (`handlers/listen.rs`, `handlers/udp/bind.rs`), which already
+distinguishes loopback from real binds structurally but authorizes nothing and knows no sender;
+`NetBind` matches port ranges only (address dimension missing — `source/libs/nexus-abi` is an
+approval zone, covered by TASK-0028 P0); TLS in `no_std` userland is not viable early. The task
+therefore splits into two layers with different prerequisites.
+
+### Goal (end state)
+
+Inbound is default-deny: no service binds a non-loopback address without a policy-checked
+exposure intent, and every exposed port is fronted by ONE userspace ingress gateway (`ingressd`)
+that enforces CIDR allow-lists and rate limits per exposure and forwards to loopback backends.
+The TLS/mTLS termination seam is fixed in the contract and delivered when the network track
+resumes — never a stub that prints `ok`.
+
+### Non-goals
+
+Kernel changes; raw-NIC subjects (documented boundary, same as TASK-0043); TLS/mTLS
+implementation in this task (contract slot only); outbound policy (TASK-0043).
+
+### Decisions
+
+- **Layer A — policy + bind gate, no new service**: `ingress` domain in Policy-as-Code (default
+  deny), `net.bind` profile with an address class (`loopback` default, `any` only with an exposure
+  intent), evaluated by policyd at the netstackd facade using the identity plumbing from
+  TASK-0043 P2. Deny ⇒ `STATUS_DENY` + `!cap-deny` marker + `AuditReason::IngressDenied`.
+- **Layer B — `ingressd`**: RFC seed „Service Exposure Contract“: `ExposeIntent {service, port,
+  proto, cidr_allow[], rate}` in the capnp IDL SSOT, register/unregister fail-closed against
+  policyd, accept-side CIDR filter, deterministic token-bucket rate limits, forwarding to loopback
+  backends; TLS/mTLS as a named contract slot. Proof runs in the single-VM profile over loopback +
+  QEMU user-net (no peer needed).
+- Identity: exposure intents are attributed by `sender_service_id`; a forged intent for another
+  service is rejected (`test_reject_forged_intent_sender`).
+
+### Packages
+
+- **P0 — Contract** (approval `docs/rfcs`): RFC seed + ADR „Exposure intent instead of free
+  binds“; `ingress` policy domain shape; marker contract.
+- **P1 — Layer A** (after TASK-0043 P2): `net.bind` address class in schema v2, facade evaluation
+  at listen/bind, host `test_reject_nonloopback_bind_without_intent`, OS `SELFTEST: ingress deny
+  ok`.
+- **P2 — `ingressd` host**: new `source/services/ingressd/` (src/ + tests/), `tests/ingress_host/`:
+  allow, `test_reject_intent_policy_denied`, `test_reject_cidr`, `test_reject_rate_exceeded`,
+  `test_reject_forged_intent_sender`.
+- **P3 — `ingressd` OS**: init wiring + policy grants, markers `ingressd: ready`, `ingressd: port
+  open (port=…, proto=…)`, `ingressd: deny (reason=policy|cidr|rate)`, `SELFTEST: ingress allow
+  ok`, `SELFTEST: ingress deny ok`, `SELFTEST: ingress rate ok`; `ingress_denies_total{subject}`.
+
+### Touched paths (corrected)
+
+`source/services/netstackd/`, `source/services/policyd/`, `userspace/policy/`,
+`source/libs/nexus-abi/` (via 0028 P0, approval), `tools/nexus-idl/schemas/` (ExposeIntent),
+`source/services/ingressd/` (new), `source/init/nexus-init/` (wiring), `policies/`,
+`tests/ingress_host/`, `source/apps/selftest-client/`, `docs/security/ingress.md` (new),
+`scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` (approval, markers).
+
+### Stop conditions (Definition of Done — replaces older DoD)
+
+Host: the five `test_reject_*` above green. OS: `SELFTEST: ingress deny ok` (Layer A) and
+`ingressd: ready` / `port open` / `deny` / `SELFTEST: ingress allow|deny|rate ok` (Layer B) gated
+in headless/smp1; a non-loopback bind without intent is denied in the real facade. Docs +
+CHANGELOG + board; TLS slot recorded as open in the RFC.
+
+
 ## Metadata correction 2026-08-14
 
 - `depends-on` was empty; the real prerequisites are configd (TASK-0046) and policyd (TASK-0047) —

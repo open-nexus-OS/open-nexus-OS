@@ -17,6 +17,98 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
+## End-state rewrite 2026-09-03 (binding; supersedes older sections where they differ)
+
+Verified repo reality (Explore 2026-09-03): `source/libs/nexus-abi/src/abi_filter.rs` knows only
+`SyscallClass {StatefsPut, NetBind}`, `AbiRule` has no size/deadline/address fields,
+`encode_profile_v1` can express exactly two optional rules, the wire carries no epoch; `check_*`
+are pure first-match-wins functions whose ONLY caller is the selftest — no service gates a real
+operation on them today. Learn primitives exist capability-grain in `userspace/policy/src/lib.rs`
+(`LearnObservation`, `learn_observations()`, `normalize_learn_log()`) and are never emitted.
+policyd's OS-lite `AuditReason` has one variant. The profile schema is parsed twice
+(`userspace/policy/src/lib.rs:36-48` host, `source/services/policyd/build.rs:23-42` OS build) —
+every v2 field lands in BOTH. TASK-0229 (`policy.bin`) and TASK-0189 (per-process profiles) are
+future consumers of the SAME profile. `userspace/security/` and `tools/abi-gen/` do not exist
+(touched paths below are corrected). `docs/standards/SECURITY_STANDARDS.md:114` forbids runtime
+policy modification — reconciled below.
+
+### Goal (end state)
+
+ONE policy-profile model (schema v2) that every enforcement point in the system evaluates the same
+way: bounded argument matchers (`statefs` path prefix + payload size, `net.bind` port range +
+address class, `net.connect` CIDR + port, `limits {deadline_ms, max_payload}`), longest-prefix-wins
+with deny-beats-allow precedence, an epoch-guarded profile wire, a learn pipeline that records
+would-deny observations to logd without ever bypassing a deny, and a generator that turns learn
+logs into a conservative profile skeleton. The profile is served by policyd (single authority)
+and enforced at the real seams (statefsd, netstackd facade) — not only asserted by the selftest.
+
+### Non-goals
+
+Kernel enforcement of raw `ecall`s (TASK-0188 — the kernel stays untouched); a second profile
+tree for sandbox/process limits (TASK-0189 consumes this schema); a separate `abi-filterd` (policyd
+is the authority, resolved 2026-08-14); full regular expressions (bounded literal sets only).
+
+### Decisions
+
+- **Schema v2** (`policies/*.toml`, `[abi_profile.<subject>]`): sub-tables `statefs`, `net.bind`,
+  `net.connect`, `limits`, plus `epoch` (u32). Same sections become the input of TASK-0229's
+  compiler and TASK-0189's `sys/ipc/vfs/limits` split — field names chosen once.
+- **Precedence**: longest-prefix-wins, deny beats allow on equal length; documented behaviour
+  change from first-match-wins, with `test_reject_first_match_shadowing` proving that a broad allow
+  can no longer shadow a narrower deny.
+- **Wire v2** (`encode_profile_v2`/`decode_profile_v2`, `MAX_PROFILE_BYTES` budget honoured,
+  additive: v1 still decodes): rule records carry class, action, prefix/CIDR, port range, size and
+  deadline bounds; header carries `epoch`. Stale epoch ⇒ deterministic reject.
+- **Enforcement seams**: statefsd `policy_allows` (`os_lite.rs:547-591`) evaluates the subject's
+  profile for `StatefsPut` after the capability check; netstackd facade evaluates `NetBind` /
+  `NetConnect` (identity plumbing delivered by TASK-0043 P2). The selftest keeps its assertions but
+  is no longer the only caller.
+- **Learn pipeline**: profile evaluation in `Learn` mode emits `abi.learn` records to logd
+  (scope `policyd.learn`, sampled + token-bucket bounded; deny-audit loop hazard from
+  `logd/evidence.rs` respected). Generator = `nx policy learn-gen` (nx subcommand, no new tool
+  directory) → conservative TOML skeleton (dedup, rule cap).
+- **Mode switch**: OS-lite policyd op `OP_SET_ABI_MODE` (authenticated by `sender_service_id`,
+  epoch-guarded, audited). Startup is always `Enforce`. `SECURITY_STANDARDS.md` gets the explicit
+  exception „authenticated, epoch-guarded mode transitions through policyd are the ONLY runtime
+  policy change“.
+- **Deny reasons**: policyd `AuditReason` becomes the single deny taxonomy
+  (`AbiRuleDenied{class}` here; quota/egress/ingress variants land with TASK-0043/0052).
+
+### Packages
+
+- **P0 — RFC seed „Policy profile v2: schema + wire“** (approval zones `docs/rfcs`,
+  `source/libs/nexus-abi`, `source/libs/nexus-wire`): ONE approval covering `NetConnect`, the
+  `NetBind` address dimension, size/deadline limits and the epoch — shared with TASK-0043/0052.
+- **P1 — Matcher + codec v2 + reject suite**: `abi_filter.rs` (new classes/fields, precedence,
+  v2 codec, epoch), both parsers, `source/libs/nexus-abi/tests/abi_filter_reject.rs` extended:
+  `test_reject_regex_dos` (bounded literal set), `test_reject_argument_injection`,
+  `test_reject_stale_profile_epoch`, `test_reject_unauthenticated_mode_switch`,
+  `test_reject_first_match_shadowing`, `test_learn_roundtrip`. Command:
+  `cargo test -p nexus-abi -- v2_reject --nocapture`.
+- **P2 — Learn pipeline + generator**: emission in `userspace/policy` + policyd OS-lite (bounded),
+  `nx policy learn-gen` with process-boundary tests (`tools/nx/tests/policy_cli.rs`).
+- **P3 — OS enforcement + markers**: `OP_SET_ABI_MODE`, statefsd/netstackd evaluation, selftest
+  drives learn → generate → enforce; markers `SELFTEST: abi learn collected ok`, `SELFTEST: abi
+  enforce allow ok`, `SELFTEST: abi enforce deny ok`, `SELFTEST: abi mode switch auth ok`,
+  `SELFTEST: abi stale epoch reject ok` gated in headless/smp1 (three-way marker SSOT). Docs:
+  `docs/security/abi-filters.md` (lifecycle section), `docs/security/capabilities.md` (path
+  `recipes/policy/` → `policies/`), `docs/standards/SECURITY_STANDARDS.md` exception.
+
+### Touched paths (corrected)
+
+`source/libs/nexus-abi/` (approval), `source/libs/nexus-wire/` (approval), `userspace/policy/`,
+`source/services/policyd/`, `source/services/statefsd/` (evaluation call), `source/services/
+netstackd/` (evaluation call, after 0043 P2), `tools/nx/` (`policy learn-gen`),
+`source/apps/selftest-client/`, `policies/`, `docs/security/`, `docs/standards/`,
+`scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` (approval, markers).
+
+### Stop conditions (Definition of Done — replaces older DoD)
+
+Host: the reject suite above green in both parsers; `nx policy learn-gen` produces a deterministic
+skeleton from a fixture learn log. OS: the five `SELFTEST: abi …` markers in headless/smp1 with a
+real deny observed at statefsd (and at netstackd once 0043 P2 landed). Docs + CHANGELOG + board.
+
+
 ## Rebase 2026-08-14 (heavy de-scope — most of this ledger already shipped)
 
 Verified against the repo on 2026-08-14. **Do NOT re-implement** the following; it exists and is tested:

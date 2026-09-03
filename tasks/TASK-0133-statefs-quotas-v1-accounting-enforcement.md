@@ -15,6 +15,12 @@ links:
   - Storage error contract: tasks/TASK-0132-storage-errors-vfs-semantic-contract.md
 ---
 
+> **Execution note 2026-09-03:** the `/state` half of this model is executed by
+> **TASK-0043 P1** (Phase 1 of the sub-80 lane; enforcement point statefsd,
+> `EDQUOTA` codes via RFC-0072 amendment, markers `statefs: quota warn/deny`).
+> This ledger stays the model authority and the home of the `/data` (nxfs)
+> half after TASK-0317. Do not fork a second quota model.
+
 ## Context
 
 Your StateFS v3 prompt asks for per-app quotas with soft/hard limits and predictable errors.

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-03 (Sub-80 tracking + end-state ledger rewrites for Phase 1)
+
+- `tasks/IMPLEMENTATION-ORDER.md`: the Defer-Bucket became the **Sub-80 Tracking**
+  section — package rows for Phase 1 (sub-54 without networking, order
+  0321 → 0035 → 0028 → 0043 → 0052), a HOLD table for the dsoftbus family
+  (joint review pending), the Phase 2 table (0054–0079).
+- Ledgers TASK-0321, 0035, 0028, 0043, 0052 gained a binding „End-state
+  rewrite 2026-09-03“ section (decisions, packages, `test_reject_*`,
+  markers, corrected touched paths, DoD) — production-grade end system,
+  no interim implementations. Phase B decisions: pkgimg v3 + signed NXSV,
+  bundlemgrd = verifier, init = sole spawner, pilot metricsd,
+  `ComponentSink::commit_set`, op-aware partition gates, one bundle
+  authority. Security: one policy-profile schema v2 (0028) shared by
+  0043/0052/0189/0229; quota model = TASK-0133 at statefsd; egress +
+  ingress share the netstackd identity/deny prerequisite.
+
 ### Added - 2026-09-03 (TASK-0055D: dev-mode display/profile presets for QEMU)
 
 - SystemUI manifest registry gains **presets**

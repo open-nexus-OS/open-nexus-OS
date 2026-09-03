@@ -47,6 +47,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | Task | Title | Status |
 |------|-------|--------|
 | Updates/OTA-Lane | RFC-0089 end-state lane (0198P1 → 0036 → 0314/0260/0315 → 0289A → 0179 → 0289B → 0140 → 0034 → Phase B 0321 → 0035) — see lane section below | Packages 0–11 delivered 2026-09-01; Phase B seeded 2026-09-03 |
+| Sub-80 Phase 1 (ohne Netz) | 0321 → 0035 → 0028 → 0043 → 0052 — see „Sub-80 Tracking“ | Started 2026-09-03 (Ledger auf End-State umgeschrieben); Netz-Familie HOLD |
 
 ---
 
@@ -488,81 +489,86 @@ Vollständige DSL-Kette: Lexer → Interpreter → AOT → State/Nav → Bootstr
 
 ---
 
-## Defer-Bucket (nach 122C ergänzen)
+## Sub-80 Tracking (Defer-Bucket, umgebaut 2026-09-03) — HIER Fortschritt mitverfolgen
 
-Tasks die für den UI-Fast-Lane-Pfad nicht nötig sind, aber danach folgen.
+Regeln (User-Entscheidung 2026-09-03): **Phase 1 = alle offenen Tasks < 0054 OHNE
+Netzwerk-Bezug**, danach **Phase 2 = 0054–0079**. Voraussetzungs-Tasks gehören in die Lane
+(0321 → 0035). Die Netz-Familie (dsoftbus + Proof-Lane-Reparatur) steht auf **HOLD** bis zur
+gemeinsamen Besprechung. Jeder Task ist erst fertig, wenn sein Ledger `Done` ist; jedes Paket
+wird production-grade auf das End-System gebaut (keine Interimslösung — Ledger-Sektion
+„End-state rewrite 2026-09-03“ ist die Scope-Wahrheit). Zähler werden mechanisch aus den
+Ledgern nachgeführt, nie geschätzt. Vokabular: ✅ delivered · ⤳ superseded · `Draft` /
+`In Progress` / `Done <date>` / `Delivered <date> (test-all green)`.
 
-> **Sub-80-Umsetzung gestartet 2026-08-14:** alle offenen Tasks < 80 wurden gegen die
-> Repo-Realität triagiert (7× Superseded, Rest rebased) und werden jetzt in Lanes gebaut
-> (Storage/Recovery · OTA · Security · UI/DSL · Networking · Kernel). Ledger = Wahrheit.
-> **Stand 2026-08-24:** Storage-Lane (0025–0027) UND Reliability Spine
-> (0049/0049B/0049C/0050/0051/0051B/0053) sind komplett Done; offen sub-80 sind noch
-> Networking (0024/0030/0038/0040), OTA (0034–0036 — 🚧 seit 2026-08-25 ACTIVE als
-> Updates/OTA-Lane, RFC-0089), Security (0028/0043/0052),
-> UI/DSL (0066–0068/0074/0077B/0077C/0079) und Perf-Einzelstücke (0054C/0055D).
+### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 0/21 delivered · Tasks 0/5 Done
 
-**DSoftBus / Networking:**
-`0024` (rebased 2026-08-14 → QUIC-v2-Reliability; OS-Proof gated auf TRACK-NETWORK-PROOF-LANES),
-`0030` (rebased → NXSB-Realität statt mDNS); ⤳ `0044` Superseded (Prioritäten via 0020 geliefert;
-Pacing-Residual → 0024)
+Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 
-**StateFS / Storage** — ✅ **lane complete 2026-08-18** (`0025`, `0026`, `0027` all Done):
-authenticity envelopes + anti-rollback (0025), journal v2 with 2PC + bounded compaction +
-`fsck-statefs` (0026, defused the `MAX_REPLAY_RECORDS` boot time bomb), opt-in record AEAD
-for enrolled non-boot-critical prefixes (0027). All QEMU-proven via the keep-blk double boot
-(`NEXUS_KEEP_BLK=1 REQUIRE_STATEFS_COLD_BOOT=1`, unblocked by 0293). statefs stays a separate
-boot-critical store (ADR-0043) — not covered by nxfs. The nxfs/storage **end-state ladder** is
-seeded as `0314`–`0320` — see "Storage End-State Ladder" section below.
-⤳ `0264`/`0265` (pre-nxfs write-path drafts) Superseded 2026-08-14 (conflict with
-ADR-0043/RFC-0071; absorbed by 0316/0317/0318).
+| # | Task / Paket | Inhalt (End-State) | Status |
+|---|---|---|---|
+| 1 | TASK-0321 P0 | RFC-0089 §12-Amendment (NXSV, Kind 6 `system-volume`, Ordnung + `commit_set`, Pairing, Gate-Matrix) + ADR-0060 (bundlemgrd = Verifier, init = Spawner) | Draft |
+| 2 | TASK-0321 P1 | Host: pkgimg v3 (Bundle-Tabelle, per-Entry/Bundle-Digests, Launch-Params) + `bootfmt::nxsv` + `nx image build --system-bundles / verify / ota --bundle-set` + `scripts/build.sh` System-Bundles + Budget-Zeile `system-a` | Draft |
+| 3 | TASK-0321 P2 | OS: op-aware virtioblkd-Gates, bundlemgrd `volume.rs` (NXSV-Verify, Bundle-ELF über VMO), init `ServiceSource::Volume` + zweiter Spawn-Pass, Pilot **metricsd** vom Volume | Draft |
+| 4 | TASK-0321 P3 | OS: Kinds 2/6 Apply (`VolumeSink`/`VolumeBase`, Reuse, NXSV LAST, `restage clean`), Lane `ota-bundle` (zwei Boots, ein uart → `SELFTEST: ota bundle-set ok`) | Draft |
+| 5 | TASK-0321 P4 | Migration pinched → imed → timed → touchd/hidrawd → netstackd → dsoftbusd → abilitymgr → settingsd → sessiond → inputd → gpud → windowd (CORE bleibt eingebettet); Respawn keyed on `ServiceSource`; Budgets sinken sichtbar | Draft |
+| 6 | TASK-0321 P5 | Boot-Image-Floor: App-Payloads + packagefsd-Image ins Volume (`OP_GET_FILE_VMO`), pkgimg-v2-Transcode retired, Docs-Sweep | Draft |
+| 7 | TASK-0035 P1 | Stage-Journal `NXSJ` + per-Bundle-Resume (`updated: restage resume`), keep-blk-Lane `ota-bundle-resume` | Draft (hinter 0321 P3) |
+| 8 | TASK-0035 P2 | Host-Reuse-Index (`nx image ota --bundle-set --reuse-from`, nur geänderte Bundles) | Draft |
+| 9 | TASK-0035 P3 | `bundle-delta` Kind 4 über den unveränderten RFC-0090-Adapter, Lane `ota-bundle-delta` | Draft |
+| 10 | TASK-0035 P4 | Close: RFC-0089 Phase 10 ✅, docs/updates, CHANGELOG | Draft |
+| 11 | TASK-0028 P0 | RFC-Seed „Policy-Profil v2“ (Schema: statefs / net.bind+Adresse / net.connect / limits / epoch; longest-prefix, deny-beats-allow) — EIN nexus-abi-Approval für 0028/0043/0052 | Draft |
+| 12 | TASK-0028 P1 | Matcher + Codec v2 in BEIDEN Parsern + Reject-Suite (`test_reject_regex_dos`, `_argument_injection`, `_stale_profile_epoch`, `_unauthenticated_mode_switch`, `test_learn_roundtrip`) | Draft |
+| 13 | TASK-0028 P2 | Learn-Pipeline (`policyd.learn` → logd, Sampling/Token-Bucket) + `nx policy learn-gen` | Draft |
+| 14 | TASK-0028 P3 | OS: `SetAbiMode` (auth + epoch), echte Enforcement-Aufrufe in statefsd/netstackd, Marker `SELFTEST: abi …` | Draft |
+| 15 | TASK-0043 P0 | RFC-0072-Amendment `EDQUOTA` (statefs 12 / VfsError 14); Quota-Modell = TASK-0133 (soft/hard), Enforcement statefsd | Draft |
+| 16 | TASK-0043 P1 | statefs-Quota-Accounting host (`tests/state_quota_host/`) + OS (`statefs: quota deny`, `SELFTEST: quota deny ok`) | Draft |
+| 17 | TASK-0043 P2 | netstackd-Identität (`sid` → Facade) + `STATUS_DENY` + policyd-Authorize an connect/listen/bind — gemeinsamer Vorbau mit 0052 | Draft |
+| 18 | TASK-0043 P3 | Egress-Policy (`net.connect` CIDR/Port) host + OS (`net-egress: enforced`, `SELFTEST: egress deny/allow ok`) | Draft |
+| 19 | TASK-0043 P4 | Audit-Taxonomie (`AuditReason` += Quota/Egress/Ingress/AbiRule) + Counter + Docs | Draft |
+| 20 | TASK-0052 P0 | RFC-Seed „Service Exposure Contract“ (`ExposeIntent`-IDL) + ADR „Exposure-Intent statt freier Binds“ | Draft |
+| 21 | TASK-0052 P1 | Schicht A: `ingress`-Policy-Domäne + `net.bind`-Adressdimension (loopback-only default) an der Facade, `SELFTEST: ingress deny ok` | Draft |
+| 22 | TASK-0052 P2 | `ingressd` host (`tests/ingress_host/`: allow / cidr deny / rate) | Draft |
+| 23 | TASK-0052 P3 | `ingressd` OS (`ingressd: ready`, `port open`, `deny (reason=…)`, `SELFTEST: ingress allow/deny/rate ok`; Loopback-Beweis im Einzel-VM-Profil; TLS = Contract-Slot, Umsetzung am Netz-Track) | Draft |
 
-**Security / Compliance:**
-`0028`, `0043`, `0052` (ABI filters, sandbox quotas, ingress policy);
-✅ `0053` moved into the Reliability Spine — **Done 2026-08-24** (`.nxra` break-glass on the
-0051 ops surface, RFC-0088)
+Nicht zählende Sub-54-Einträge: TASK-0050B **Deferred by decision** (Aktivierungsgate: reale
+Hardware); TASK-0011 Done. Superseded < 0054: 0011B, 0033 (→0295), 0037 (→0289), 0041
+(→ADR-0049), 0044 (→0024). Done-Lanes: Storage 0025–0027 (2026-08-18), Reliability Spine
+0049/0049B/0049C/0050/0051/0051B/0053 (2026-08-24), OTA-Pakete 0–11 (2026-09-01).
 
-**OTA / Updates / Supply Chain** — 🚧 **ACTIVE LANE seit 2026-08-25** (RFC-0089;
-siehe Abschnitt "Updates/OTA Lane" oben): `0034`/`0035` (recut: Delta als
-Komponentenarten, Paket 11), `0036` (rewritten: Health-Commit v2 + BSB-Projektion,
-Pakete 2+7), `0140`/`0179`/`0198`P1/`0260`/`0289` (rewritten, Pakete 1/4/6/8/9/10),
-`0314`/`0315` (Substrat, Pakete 3/5);
-⤳ `0033` — **Superseded by TASK-0295 (Done)**, seam moved to vfsd;
-⤳ `0037` — **Superseded 2026-08-14 by TASK-0289** (boot trust floor)
+### B — Netz-Familie — HOLD (gemeinsame Besprechung ausstehend, User braucht Änderungen)
 
-**Observability / Debug:**
-`0038` (rebased 2026-08-14: Ziel ist dsoftbusd/mux_v2, Prämisse war invertiert), `0040`
-(rebased: logd/metricsd sind längst Done); ✅ `0048` Done (host pipeline);
-✅ `0049` → **Reliability Spine** — **Done 2026-08-20** (fault/exhaustion truth; der alte
-crashd-Scope lebt in `0051B`, ebenfalls **Done 2026-08-24** — `.nxcd` at rest ohne Daemon);
-⤳ `0041` — **Superseded 2026-08-14** (Motivation von ADR-0049 konsumiert — Kernel-BKL-Budgets
-sind Boot-Gate)
+| Task | Inhalt (Ledger-Stand) | Stand |
+|---|---|---|
+| NET-W1/W2/W3h | TRACK-NETWORK-PROOF-LANES: Cross-Device-Discovery tot (`OS2VM_E_DISCOVERY_TIMEOUT`, A=0 B=0 seit ≥2026-07-24); `quic-required` verlangt Peer im Einzel-VM-Profil; Runner-Härtung; `ci-network` in keinem Gate | 1/5 Exit-Kriterien |
+| TASK-0024 | QUIC-v2-Reliability im OS-Datapath (DATA/ACK, Retransmit, cwnd, Pacing) | Draft, OS-Beweis braucht W1 |
+| TASK-0030 | Discovery-Härtung auf NXSB (TTL/Backoff, Pre-Session-ACL, Rate-Limits) | Draft, OS-Beweis braucht W1 |
+| TASK-0038 | Tracing v2 Cross-Node über mux_v2 (RFC-Seed, u64 TraceId) | Draft, Cross-VM braucht W1 |
+| TASK-0040 | Remote Observability v1 (Collector, greenfield) | Draft, Cross-Node braucht W1 |
 
-**Recovery:**
-✅ → **Reliability Spine — KOMPLETT Done 2026-08-24** (Sektion oben; RFC-0087 Complete).
-Entscheidung 2026-08-18 ersetzt die vom 2026-08-14: Boot-Target-Authority ist `bootctld`
-(ADR-0055), nicht ein `nexus.target`-Parser; `0050`/`0051`/`0053` rewritten und geliefert,
-`0050B` Deferred (Konsole = dünner Client der Ops-Fläche, falls je aktiviert),
-`0178` Superseded; `0051` exponierte die gelieferte fsck-Engine aus 0026 (Engine bekam
-dabei den Streaming-Scan, `fsck_window.rs`)
+### C — Phase 2: 0054–0079 (nach Phase 1)
 
-**SMP v2 (voll):**
-✅ `0042` Done (see "Post-0064 — SMP + Filesystem" section above); SMP closure `0281`/`0282`/`0286`/`0287`/`0290` still open.
+Reihenfolge: **0067 → 0067B → 0068 → 0074 → 0066 → 0077B → 0077C → 0079 → 0054C**.
 
-**UI Perf-Polish:**
-`0054C` (rebased 2026-08-14 auf phased/lockfree-Baseline; Kernel-Approval-Zone), `0055D`
-(rebased: Preset-Katalog auf existierender Profile-/settingsd-Mechanik);
-⤳ `0054B`/`0054D` — **Superseded 2026-08-14** (geliefert via 0042/0277/0283/0288 bzw.
-0310/0309/0302; Residuen → 0290); ✅ `0060`, `0060B`, `0062B` now Done.
+| # | Task | Inhalt (rebased) | Größe | Status | Voraussetzung / Blocker |
+|---|---|---|---|---|---|
+| 1 | TASK-0067 | DnD-Controller (typed offers) + clipboardd-Service (MIME, History, Policy) — Boundary: Widget-UI, nicht windowd | M | Draft | keine |
+| 2 | TASK-0067B | Clipboard-History-Overlay/App (DSL) + Share-Hooks | S | Draft | 0067 |
+| 3 | TASK-0068 | Screenshot `screencapd` (capture-only Rebase) + Share-Sheet-Broker + Privacy-Guards | M | Draft | 0067 |
+| 4 | TASK-0074 | App-Shell-Adoption + Modal-Manager + Toast-Vereinheitlichung (reduziertes Residual) | M | Draft | 0073 Done; Design-Handoff-Tracks 0305–0313 |
+| 5 | TASK-0066 | WM Split/Snap Residual: Thirds, Zone-Map, Reflow, `list()`, Policy | M | Draft | ⚠ Snap-Release→Fullscreen-Wedge zuerst triagieren |
+| 6 | TASK-0077B | DSL DevX: lokales `$state`, Two-Way-Bindings, Async-Recipes (~60–70 % geliefert) | S | Draft | keine |
+| 7 | TASK-0077C | DSL Pro-Primitive: VirtualTable/Grid, Timeline, NativeWidget (demand-gated) | L | Draft | 0077B; Bedarf |
+| 8 | TASK-0079 | DSL AOT Rust-Codegen + inkrementelle Builds + Asset-Embedding | L | Draft | 0078/0080D Done |
+| 9 | TASK-0054C | Kernel-IPC-Fastpath auf phased/lockfree-Baseline | M | Draft | Design-Pass + Kernel-Approval; nur mit Mikrobench-Evidenz nach ADR-0049 |
 
-**Advanced UI Features:**
-`0066` (rebased: Residual Thirds/Zone-Map/Reflow/list()/Policy — 0070 lieferte den Rest),
-`0067` (rebased: clipboardd-Service + DnD-Routing, Boundary-konform), `0068` (rebased:
-capture-only), `0077B` (rebased: Spine = keyed per-instance state);
-⤳ `0069` → 0123–0125, ⤳ `0071` → 0151–0154 (beide Superseded 2026-08-14);
-✅ `0080` now Done (2026-08-14: AOT-Demo-Anteil war fälschlich mit-claimt — re-owned von 0079).
+Done/Superseded 0054–0079 (Referenz): ✅ 0055D (2026-09-03, Presets — Guest-Ingestion → 0322),
+✅ 0060/0060B/0062B/0080; ⤳ 0054B/0054D, 0069 (→0123–0125), 0071 (→0151–0154), 0076B.
 
-**Apps + Plattform (81–118):**
-`0081–0118` (MIME registry, browser, kamera, office apps etc. — nach DSL App Platform 0122B/C)
+### Nach 80 (Referenz)
+
+0081–0118 Apps + Plattform (nach DSL App Platform 0122B/C); SMP-Closure 0281/0282/0286/0287/0290;
+Storage-Leiter 0316–0320; 0198 P2+ / 0260-Residual / 0239 / 0261 (OTA-Umfeld); Netz-Transport
+für OTA nach NET-W1.
 
 ---
 
