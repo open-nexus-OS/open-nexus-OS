@@ -134,6 +134,12 @@ Current live-input topic:
     and `inputd`
   - does not replace the broader closure gates; those remain task-controlled
 
+- `nx image ota --delta-from <base>` (TASK-0034, RFC-0090)
+  - emits a `boot-image-delta` container: the payload is the deterministic
+    `.nxdelta` stream base → `--kernel`; the base must be the image the
+    device is RUNNING (the stream binds to the active NXBD's digest);
+    workflow: `docs/updates/delta.md`
+
 - `nx update status|check|stage|switch|rollback` (TASK-0140, RFC-0089 §8/§9)
   - offline surfaces over BUILT artifacts (no host↔guest transport exists):
     `status` decodes BSB + slot NXBDs from a disk image, `check` enumerates

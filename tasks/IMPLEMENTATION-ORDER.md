@@ -302,7 +302,7 @@ Contracts: RFC-0089 (OTA v2 end-to-end; supersedes RFC-0012 in part) · ADR-0058
 | 8 | ✅ TASK-0179 | updated apply engine v2 + offline feed — **CROWN PROOF: first real slot flip, new build id visible** (rewritten) | Delivered 2026-08-31 — crown proof green, gated in test-all |
 | 9 | ✅ TASK-0289-B | Boot trust floor closure: loader backstops (tamper/downgrade/tries-exhausted) + measured surface | Delivered 2026-08-31 — three lanes green + gated (`ci-os-ota-backstops`), measured cross-check required in every proof lane |
 | 10 | TASK-0140 | Settings→Updates page + `nx update` CLI over the real engine (rewritten; lands after UI handoff tracks) | ✅ Done 2026-09-01 |
-| 11 | TASK-0034/0035 | Delta as component kinds (`boot-image-delta`; format RFC at execution) | Draft |
+| 11 | TASK-0034/0035 | Delta as component kinds (`boot-image-delta`; format RFC at execution) | 0034 ✅ Done 2026-09-01 (RFC-0090); 0035 Draft (hinter Phase B) |
 
 After the lane (contracted, not built): Phase B bundle-set (RFC-0089 §12 — services
 leave the embedded image; `bundle` components + system volumes), network transport

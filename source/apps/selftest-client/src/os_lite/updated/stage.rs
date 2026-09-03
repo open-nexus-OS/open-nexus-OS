@@ -44,12 +44,18 @@ pub(crate) const REAL_PATH: &str = "/updates/os-B.nxs";
 pub(crate) const UNTRUSTED_PATH: &str = "/updates/os-fixture-untrusted.nxs";
 pub(crate) const TAMPERED_PATH: &str = "/updates/os-fixture-tampered.nxs";
 pub(crate) const DOWNGRADE_PATH: &str = "/updates/os-fixture-downgrade.nxs";
+/// TASK-0034 (RFC-0090) delta lane: a real reconstruction from the ACTIVE
+/// slot (one COPY window + a literal tail, small and unbootable) and the
+/// base-binding deny (a stream made from bytes the device is NOT running).
+pub(crate) const DELTA_PATH: &str = "/updates/os-fixture-delta.nxs";
+pub(crate) const DELTABASE_PATH: &str = "/updates/os-fixture-deltabase.nxs";
 
 /// Reject codes echoed in the FAILED reply payload (updated's
 /// `reject_code`, mirroring `component_set::RejectReason`).
 pub(crate) const REJECT_UNTRUSTED_PUBLISHER: u8 = 1;
 pub(crate) const REJECT_DIGEST: u8 = 3;
 pub(crate) const REJECT_DOWNGRADE: u8 = 7;
+pub(crate) const REJECT_DELTA_BASE: u8 = 11;
 
 pub(crate) fn updated_stage(
     client: &KernelClient,
@@ -58,6 +64,20 @@ pub(crate) fn updated_stage(
     pending: &mut VecDeque<Vec<u8>>,
 ) -> core::result::Result<(), ()> {
     let rsp = stage_source(client, reply_send_slot, reply_recv_slot, pending, FIXTURE_PATH)?;
+    updated_expect_status(&rsp, nexus_abi::updated::OP_STAGE_SOURCE)?;
+    Ok(())
+}
+
+/// TASK-0034 (RFC-0090): stage the delta fixture — `updated` reconstructs
+/// the target from the ACTIVE slot's bytes through the full engine
+/// (base binding, COPY reads, readback digest, NXBD-last).
+pub(crate) fn updated_stage_delta(
+    client: &KernelClient,
+    reply_send_slot: u32,
+    reply_recv_slot: u32,
+    pending: &mut VecDeque<Vec<u8>>,
+) -> core::result::Result<(), ()> {
+    let rsp = stage_source(client, reply_send_slot, reply_recv_slot, pending, DELTA_PATH)?;
     updated_expect_status(&rsp, nexus_abi::updated::OP_STAGE_SOURCE)?;
     Ok(())
 }

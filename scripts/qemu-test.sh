@@ -29,7 +29,12 @@ fi
 # bootctld bring-up) past the old 90s wall-clock cap — the outer timeout cut
 # the storm's third cycle deterministically. 180s outer cap pairs with the
 # launcher's 150s ready-grace (early-stop still ends green runs promptly).
-RUN_TIMEOUT=${RUN_TIMEOUT:-180s}
+# 180s carried the service ladder until TASK-0140/0034 added the updates
+# read-surface probe (cold data-volume mount) and the delta lane (base
+# deny + a real reconstruction with COPY readback) — honest new work, the
+# ladder now finishes at ~180-200s under TCG+icount and two runs died at
+# DIFFERENT late phases purely on the clock.
+RUN_TIMEOUT=${RUN_TIMEOUT:-240s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
 RUN_PHASE=${RUN_PHASE:-}
 NEXUS_FORCE_WORKSPACE_TARGET=${NEXUS_FORCE_WORKSPACE_TARGET:-1}
@@ -592,6 +597,13 @@ expected_sequence=(
   "SELFTEST: updates surface ok"
   "updated: stage rejected (untrusted publisher)"
   "SELFTEST: updates trust reject ok"
+  # TASK-0034 (RFC-0090) delta lane: the wrong-base stream rejects
+  # `delta-base` BEFORE any write, then the real delta reconstructs from
+  # the ACTIVE slot through the unchanged readback/NXBD-last tail.
+  "updated: stage rejected (delta-base)"
+  "SELFTEST: ota delta base deny ok"
+  "updated: component boot-image-delta verified (build=fixt-dl"
+  "SELFTEST: ota delta stage ok"
   # TASK-0007 OTA proof: stage → switch → health gate → rollback (userspace-only, non-persistent)
   "SELFTEST: ota stage ok"
   "bundlemgrd: slot b active"
@@ -898,6 +910,10 @@ case "${PROFILE:-full}" in
       "SELFTEST: updates surface ok"
       "updated: stage rejected (untrusted publisher)"
       "SELFTEST: updates trust reject ok"
+      "updated: stage rejected (delta-base)"
+      "SELFTEST: ota delta base deny ok"
+      "updated: component boot-image-delta verified (build=fixt-dl"
+      "SELFTEST: ota delta stage ok"
       "SELFTEST: ota stage ok"
       "bundlemgrd: slot b active"
       "bootctld: switch scheduled (to=b)"

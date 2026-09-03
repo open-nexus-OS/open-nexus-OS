@@ -148,9 +148,11 @@ This exists to remove “warnings” by making the architecture **decided** and 
   partition; DERIVED projection of the bootctld record (authority unchanged,
   ADR-0055); write matrix per ADR-0058 (bootctld runtime / nxboot actuator /
   `nx image` factory).
-- **Binary delta**: `.nxdelta` — rollsum+zstd stream carried as `.nxs` v2
-  `*-delta` component kinds; normative format RFC due at TASK-0034 execution
-  (seed: RFC-0089 §11).
+- **Binary delta**: `.nxdelta` — rollsum stream (stored ADDs; zstd reserved
+  behind RFC-0009 D4) carried as `.nxs` v2 `*-delta` component kinds
+  (kind 3 = `boot-image-delta`); normative format: **RFC-0090** (delivered
+  2026-09-01, TASK-0034). Library `userspace/nxdelta`; emission ONLY
+  `nx image ota --delta-from` (no separate binary).
 - **Read-only package image**: `pkgimg` (`PKGIMGV2`) — packagefsd's mount
   format (RFC-0041; registered retroactively 2026-08-25 — had shipped
   unregistered).

@@ -30,6 +30,24 @@ phase = "ota"
 [marker."SELFTEST: updates trust reject FAIL"]
 phase = "ota"
 
+# TASK-0034 (RFC-0090) delta lane: base-binding deny (a stream made from
+# bytes the device is NOT running rejects `delta-base` before any write)
+# and the real reconstruction from the ACTIVE slot through the unchanged
+# readback/NXBD-last tail.
+[marker."SELFTEST: ota delta base deny ok"]
+phase = "ota"
+
+[marker."SELFTEST: ota delta base deny FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: the RFC-0090 base binding did not reject a wrong-base delta"
+
+[marker."SELFTEST: ota delta stage ok"]
+phase = "ota"
+
+[marker."SELFTEST: ota delta stage FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: the delta reconstruction from the active slot did not complete"
+
 [marker."SELFTEST: ota stage ok"]
 phase = "ota"
 

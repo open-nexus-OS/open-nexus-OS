@@ -246,6 +246,39 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_OTA_DOWNGRADE_DENY_FAIL);
     }
+    // TASK-0034 (RFC-0090) delta lane. Deny FIRST (state-neutral: the
+    // base binding rejects before any write): a stream made from bytes
+    // the device is NOT running must come back `delta-base`. Then the
+    // real reconstruction — updated COPY-reads the ACTIVE slot, rebuilds
+    // the target into the inactive one, and the unchanged readback gate
+    // plus NXBD-last discipline prove the bytes; the cycle below re-stages
+    // over it, so the staged state stays the cycle's own.
+    if updated::updated_stage_deny(
+        &updated,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+        updated::DELTABASE_PATH,
+        updated::REJECT_DELTA_BASE,
+    )
+    .is_ok()
+    {
+        emit_line(crate::markers::M_SELFTEST_OTA_DELTA_BASE_DENY_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_OTA_DELTA_BASE_DENY_FAIL);
+    }
+    if updated::updated_stage_delta(
+        &updated,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+        &mut ctx.updated_pending,
+    )
+    .is_ok()
+    {
+        emit_line(crate::markers::M_SELFTEST_OTA_DELTA_STAGE_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_OTA_DELTA_STAGE_FAIL);
+    }
     if updated::updated_stage(
         &updated,
         ctx.reply_send_slot,

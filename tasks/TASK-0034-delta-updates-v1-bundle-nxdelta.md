@@ -1,10 +1,10 @@
 ---
 
 title: TASK-0034 Delta updates v1: nxdelta (rollsum+zstd) + bundlemgrd delta apply (digest/bootctl goals shipped)
-status: Draft
+status: Done
 owner: @runtime
 created: 2025-12-22
-updated: 2026-08-14
+updated: 2026-09-01
 size: M  # was L; Goals 1+2 shipped (see Rebase 2026-08-14), residual scope is the .nxdelta lane only
 depends-on: []
 follow-up-tasks: []
@@ -24,6 +24,40 @@ links:
   - TASK-0007: Updates v1.0 (manifest.nxb unification, non-persistent A/B skeleton)
   - TASK-0009: Persistence v1 (statefs for bootctl + resume checkpoints)
 ---
+
+## DELIVERED 2026-09-01 (RFC-0090; honest recuts stated)
+
+Shipped in three packages (P1 format RFC + `userspace/nxdelta` · P2 engine
+kind 3 + device adapter + `nx image ota --delta-from` + fixtures · P3
+selftest lane + docs), test-all green. Ground-truth recuts vs. the plan
+below — each an honesty or authority-rule fix:
+
+1. **No `tools/nxdelta/` binary and no `nxdelta make/apply` CLI** —
+   TRACK-AUTHORITY-NAMING forbids a second entrypoint; emission is
+   `nx image ota --delta-from <base>`, the library is `userspace/nxdelta`
+   (no_std streaming decoder + std deterministic emitter, RFC-0090).
+2. **Kind number is 3** (RFC-0089 §3 reserves 2 = `bundle` for Phase B).
+3. **No checkpoint files**: for a boot image, RFC-0089 §8 idempotent
+   restage IS the resume story (host-proven: power-cut restage converges;
+   torn stage leaves the slot NXBD-invalid). The checkpoint DoD below was
+   written for BUNDLE deltas — those live behind the Phase-B seam with
+   TASK-0035, where per-component checkpointing returns if the economics
+   demand it.
+4. **No zstd in v1** (`algo` 0 = stored ADDs; 1 reserved): admitting a
+   decompressor into a no_std update-trust path is an RFC-0009 D4
+   allowlist decision, not a format side effect. COPY coverage carries
+   the bandwidth win (append-shaped 2 MB change ⇒ ~10 KB container).
+5. **`bundlemgrd` delta apply**: moved behind Phase B with `bundle-delta`
+   (per the 2026-08-25 rebase note) — the OS markers below
+   (`bundlemgrd: delta *`, `SELFTEST: delta bundle *`) go with it. The
+   shipped OS proof is the boot-image lane: `updated: stage rejected
+   (delta-base)` -> `SELFTEST: ota delta base deny ok` -> `updated:
+   component boot-image-delta verified` -> `SELFTEST: ota delta stage ok`
+   (headless + smp1 gated; the reconstruction COPY-reads the ACTIVE slot).
+6. Trust shape delivered stronger than planned: the manifest signature
+   covers the DELTA STREAM (component sha256 = stream digest), so the
+   decoder never parses unsigned bytes; the base binds O(1) against the
+   loader-verified active NXBD instead of a full base hash.
 
 ## Rebase note 2026-08-25 (RFC-0089: the missing RFC seed exists; target recut)
 

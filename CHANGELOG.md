@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-01 (TASK-0034: `.nxdelta` boot-image deltas — RFC-0090)
+
+- **`.nxdelta` v1 stream format** (RFC-0090, the normative execution of
+  RFC-0089 §11's reserved seam): deltas are `.nxs` v2 COMPONENT KINDS
+  (kind 3 `boot-image-delta`), never a new container. The component's
+  `size`/`sha256` describe the DELTA STREAM — the manifest signature binds
+  the payload before any decoder runs; target truth rides the verbatim
+  signed NXBD in `kindData`. Base substitution closes in O(1): the
+  stream's `base_sha256` must equal the loader-verified ACTIVE NXBD's
+  digest (reject `delta-base` before any write); malformed streams reject
+  `delta-format`; reconstruction flows through the UNCHANGED readback/
+  NXBD-last tail. New crate `userspace/nxdelta`: bounded no_std streaming
+  decoder (header-sized carry, no per-record allocation) + deterministic
+  host emitter (rollsum index, greedy scan, COPY coalescing — emit twice
+  ⇒ identical bytes). Stored ADDs in v1; zstd reserved behind an
+  RFC-0009 D4 decision. Resume = RFC-0089 §8 idempotent restage (no
+  checkpoint files).
+- **Emission**: `nx image ota --delta-from <base>` (an append-shaped 2 MB
+  change deltas to ~10 KB); `nx image fixtures` ships two new factory
+  fixtures (a real reconstruction with a COPY window over the running
+  image + the wrong-base deny).
+- **Proofs**: `tests/nxdelta_host` (format floor) +
+  `component_set_delta.rs` (REAL engine × REAL adapter: byte-identity,
+  deny-before-write, truncation, power-cut restage) on the host; in QEMU
+  the headless/smp1 ladders gate `updated: stage rejected (delta-base)` →
+  `SELFTEST: ota delta base deny ok` → `updated: component
+  boot-image-delta verified` → `SELFTEST: ota delta stage ok`.
+
 ### Added - 2026-09-01 (TASK-0140: Updates v1 UI/CLI over the real OTA engine)
 
 - **`nx update` CLI** (canonical `nx`, no new binary): offline surfaces over
