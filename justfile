@@ -185,6 +185,24 @@ start-vnc *args:
     @echo "[VNC] real GPU compositor up — connect now:  vncviewer localhost:5979   (or  krdc vnc://localhost:5979)"
     NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=virgl QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=egl-headless QEMU_EXTRA_ARGS="-vnc 127.0.0.1:79" QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
 
+# TASK-0055D: launch the interactive OS under a dev display/profile PRESET.
+# `source/services/systemui/manifests/presets/<name>/preset.toml` is the SSOT
+# (registered profile + shell, w×h@hz, orientation, emulated input);
+# `nx ui preset env` validates + resolves it into the env `just start`
+# already honours — QEMU_GPU_XRES/YRES (→ fw_cfg display-mode, RFC-0074) and
+# QEMU_PROOF_POINTER_SOURCE (→ input injector). `just preset-list` shows the
+# catalog; an unknown/invalid preset stops BEFORE any build/launch.
+#   just start-preset tablet-portrait      # 600×800 touch, tablet shell
+#   just start-preset laptop               # 1280×800 mouse+kbd, desktop shell
+start-preset preset *args:
+    cargo +{{toolchain}} build -p nx
+    mkdir -p build && target/debug/nx ui preset env {{preset}} > build/preset.env
+    set -a && . build/preset.env && set +a && just start {{args}}
+
+preset-list:
+    cargo +{{toolchain}} build -p nx
+    @target/debug/nx ui preset list
+
 # TASK-0023B P4-06: `test-os` now accepts an optional PROFILE arg that
 # `scripts/qemu-test.sh` forwards to the manifest CLI (`nexus-proof-manifest
 # list-env --profile=…`). Default `headless` runs without display.

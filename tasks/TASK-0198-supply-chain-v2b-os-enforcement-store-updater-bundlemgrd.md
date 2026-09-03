@@ -1,9 +1,9 @@
 ---
 title: TASK-0198 Supply-Chain hardening v2b (OS): Phase 1 device trust anchor + verifier verdict authority (lane-critical); Phase 2+ sigchain/translog/provenance enforcement + rotation
-status: Draft
+status: In Progress (Phase 1 delivered 2026-08-25 as OTA-lane package 1; Phases 2+ open behind TASK-0197)
 owner: @security
 created: 2025-12-27
-updated: 2026-08-25
+updated: 2026-09-03
 depends-on: []
 follow-up-tasks:
   - TASK-0289

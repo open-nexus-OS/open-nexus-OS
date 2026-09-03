@@ -111,6 +111,21 @@ already systemui-declared `desktop` over virgl WITHOUT booting the service. The 
   shared lib). The production trigger (settings / convertible event → systemui → windowd over IPC)
   replaces the dev corner-hotspot later.
 
+## Amendment 2026-09-03 — dev-mode presets (TASK-0055D)
+
+The registry gains a fourth manifest kind, **presets**
+(`manifests/presets/<id>/preset.toml`, `systemui::PRESETS`): a named display mode +
+orientation + dpi class + emulated input set over a registered profile/shell pairing.
+Presets are resolved by the same registry (`resolve_preset` → validated profile + shell +
+`DeviceEnvironment`) and switched by the same rules (`switch_preset_shell` mirrors
+`switch_shell`). They are a HOST-side dev authority consumed by `nx ui preset` /
+`just start-preset`: the display mode feeds the fw_cfg `display-mode` key (ADR-0050), the
+input set feeds the launcher's injector. They do not add a second shell-mode source — on
+the device the shell still follows the product and settingsd's `ui.shell.mode`; guest-side
+preset ingestion is TASK-0322. The former Python profile→QEMU-device helper
+(`tools/systemui_profile_qemu_devices.py`, no callers) is retired in favour of the
+registry-backed `nx` command.
+
 ## Verification
 
 - Host: `cargo test -p systemui` (manifest resolve/switch/lockdown, 13 tests),

@@ -141,6 +141,32 @@ This slice still does not prove input, cursor/focus/click, display-service
 integration, dev display/profile presets, frame-budget smoothness, or
 kernel/core production-grade display closure.
 
+## TASK-0055D dev display/profile presets (host authority)
+
+The QEMU display mode is fw_cfg-driven (RFC-0074 / ADR-0050): the launcher
+writes `opt/org.open-nexus/display-mode` from `QEMU_GPU_XRES/YRES`, gpud
+resolves it (clamped to the 1280×800 layout maximum), windowd queries gpud
+before sizing and prints `windowd: ready (w=<w>, h=<h>, hz=120)` for the mode
+it actually got. TASK-0055D puts a validated catalog in front of those knobs:
+
+```bash
+cargo test -p systemui            # catalog resolve + test_reject_* + convertible switch
+cargo test -p nx --test ui_preset_cli   # process boundary: list/env, exit-3 reject
+just preset-list                  # the registered presets
+just start-preset tablet-portrait # 600×800 touch boot (visible, gtk)
+QEMU_DISPLAY_BACKEND=egl-headless RUN_TIMEOUT=150 just start-preset tablet-portrait
+```
+
+Proof profiles (`just test-os …`) stay on the baseline preset
+(`tablet-landscape` = 1280×800@120) — the ladder asserts that literal. A
+preset boot is a developer lane, not a proof lane: its regression signal is
+the `windowd: display mode <w>x<h>` line followed by the matching
+`windowd: ready (w=<w>, h=<h>, hz=120)` and `display: mode <w>x<h> argb8888`
+in `build/logs/<run>/uart.log` (interactive boots fold windowd's markers into
+one verdict line — add `NEXUS_LOG_EXPAND=windowd` to see them raw).
+Guest-side ingestion of the preset's profile/shell (a `systemui: profile …`
+marker and `SELFTEST: ui preset boot ok`) is TASK-0322, not this slice.
+
 ## TASK-0056 v2a present scheduler + input routing
 
 TASK-0056 adds the first functional v2a real-time baseline inside the existing

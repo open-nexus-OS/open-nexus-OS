@@ -26,6 +26,9 @@ bootfmt = { path = "../../userspace/bootfmt" }
 updates = { path = "../../userspace/updates" }
 nxdelta = { path = "../../userspace/nxdelta" }
 nxfs = { path = "../../userspace/nxfs" }
+# TASK-0055D: dev display/profile preset resolver (`nx ui preset`) — the
+# SystemUI manifest registry is the ONE authority; host build, no os-lite.
+systemui = { path = "../../source/services/systemui" }
 capnp = { version = "0.24", default-features = false, features = ["alloc", "unaligned"] }
 tar = "0.4"
 

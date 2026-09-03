@@ -172,57 +172,96 @@ Fork workflow:
 
 ## Dev-mode display/profile presets
 
-For QEMU and host fixtures, prefer a deterministic preset catalog over ad-hoc local resolutions.
+> **Implementation status (2026-09-03, TASK-0055D).** The preset catalog is SHIPPED as
+> declarative manifests: `source/services/systemui/manifests/presets/<id>/preset.toml`, one
+> file per preset, registered in `systemui::PRESETS` and resolved by `systemui::resolve_preset`.
+> Selection: `just start-preset <id>` (catalog: `just preset-list`, or `nx ui preset list`).
+> Presets resolve INTO the existing authorities and never add one: profile/shell ids must be
+> registered manifests with a valid pairing; the display mode becomes `QEMU_GPU_XRES/YRES`,
+> i.e. the fw_cfg `display-mode` key the compositor already follows (RFC-0074 / ADR-0050);
+> the emulated input set becomes `QEMU_PROOF_POINTER_SOURCE` for the launcher's injector.
+> Host proof: `cargo test -p systemui` (catalog resolve, `test_reject_*` suite, convertible
+> switch) + `cargo test -p nx --test ui_preset_cli` (process boundary, exit-3 reject).
 
-TASK-0055 uses a deliberately tiny headless proof profile before the richer
-dev-preset catalog exists: `profile=desktop`, `64x48`, `60Hz`. This is a
-behavior proof for surface/layer/present sequencing only. It is not a visible
-display preset and must not be used as a consumer display or scanout claim.
+For QEMU and host fixtures, prefer the deterministic preset catalog over ad-hoc local
+resolutions (`QEMU_GPU_XRES=… just start` still works, but it bypasses validation).
 
-Recommended starter presets:
+Preset manifest shape (bounded TOML subset — the same parser as the profile manifests):
 
-- `phone-portrait`
-- `phone-landscape`
-- `tablet-portrait`
-- `tablet-landscape`
-- `laptop`
-- `laptop-pro`
-- `convertible`
+```toml
+id = "tablet-portrait"
+label = "Tablet (portrait)"
+profile = "tablet"      # registered profile id (manifests/profiles/<id>)
+shell = "tablet"        # registered shell id, allowed by the profile
 
-Each preset should define:
+[display]
+width = 600
+height = 800
+hz = 120                # only pace-able rates (systemui::SUPPORTED_DISPLAY_HZ)
+orientation = "portrait"
+dpi_class = "high"
 
-- profile
-- shell ID
-- orientation
-- shell mode
-- width / height
-- refresh rate (`Hz`)
-- scale / dpi class
-- input flags
+[input]
+touch = true
+mouse = false
+kbd = false
+remote = false
+rotary = false
+```
 
-These presets are for bring-up, testing, and performance work. They are not the same thing as a production end-user
-display picker.
+Validation (deterministic rejects, host-tested): unknown preset/profile/shell id
+(`ManifestNotFound`), a shell the profile does not allow or that does not support the
+profile (`UnsupportedShell`/`IncompatibleShell`), a mode outside
+`[320, 1280×800]` or one contradicting its orientation (`InvalidDisplayMode`), a refresh
+rate the pacer cannot deliver (`UnsupportedRefreshRate`), unknown orientation/dpi
+vocabulary or a missing field (`InvalidManifest`/`MissingField`).
 
-## Recommended starter preset values
+Resolved environment: `device.profile`/`device.shellMode`/`device.shellKind` from the
+registered manifests, `device.orientation`/`device.dpiClass`/`device.input` from the preset,
+`device.sizeClass` from the preset width via the runtime's own tiers (compact < 640 ≤ regular
+< 1024 ≤ wide) — so the preset predicts what the DSL will see.
 
-These are recommended **development presets** chosen to align with the HiDPI/2.0x “golden path” from
-`docs/dev/ui/foundations/layout/display-scaling.md`.
+`convertible`: a hardware/device preset (tablet profile with `allowed_shells = [tablet,
+desktop, kiosk]`). `systemui::switch_preset_shell` toggles the shell posture within the SAME
+device identity (preset, profile, mode unchanged; environment re-resolved), reversibly. On
+the device the same toggle is the Control Center Desktop/Tablet switch (settingsd
+`ui.shell.mode`, the shell-mode authority).
 
-| Preset | Profile | Shell mode | Orientation | Resolution | Hz | Scale | dpiClass | sizeClass | Input |
-|---|---|---|---|---|---:|---:|---|---|---|
-| `phone-portrait` | `phone` | `phone` | `portrait` | `1080×2340` | 60 | `2.0x` | `high` | `compact` | `touch` |
-| `phone-landscape` | `phone` | `phone` | `landscape` | `2340×1080` | 60 | `2.0x` | `high` | `regular` | `touch` |
-| `tablet-portrait` | `tablet` | `tablet` | `portrait` | `2048×2732` | 120 | `2.0x` | `high` | `regular` | `touch` |
-| `tablet-landscape` | `tablet` | `tablet` | `landscape` | `2732×2048` | 120 | `2.0x` | `high` | `wide` | `touch`, `kbd` |
-| `laptop` | `desktop` | `desktop` | `landscape` | `2560×1600` | 120 | `2.0x` | `high` | `wide` | `mouse`, `kbd`, `touch` |
-| `laptop-pro` | `desktop` | `desktop` | `landscape` | `3024×1964` | 120 | `2.0x` | `high` | `wide` | `mouse`, `kbd`, `touch` |
-| `convertible` | `convertible` | `desktop` (default) | `landscape` | `2560×1600` | 120 | `2.0x` | `high` | `wide` | `mouse`, `kbd`, `touch` |
+These presets are for bring-up, testing, and performance work. They are not a production
+end-user display picker.
 
-Convertible note:
+## Shipped preset catalog (v1)
 
-- `convertible` is a hardware/device profile.
-- It should expose a **runtime shell toggle** between at least `desktop` and `tablet`.
-- The toggle changes shell posture and affordances, not the underlying device identity.
+| Preset | Profile | Shell | Orientation | Mode | Hz | dpiClass | sizeClass | Pointer source |
+|---|---|---|---|---|---:|---|---|---|
+| `phone-portrait` | `tablet` | `tablet` | `portrait` | `480×800` | 120 | `high` | `compact` | `tablet` (touch) |
+| `phone-landscape` | `tablet` | `tablet` | `landscape` | `800×480` | 120 | `high` | `regular` | `tablet` (touch) |
+| `tablet-portrait` | `tablet` | `tablet` | `portrait` | `600×800` | 120 | `high` | `compact` | `tablet` (touch) |
+| `tablet-landscape` | `tablet` | `tablet` | `landscape` | `1280×800` | 120 | `normal` | `wide` | `tablet` (touch) — **baseline** |
+| `laptop` | `desktop` | `desktop` | `landscape` | `1280×800` | 120 | `normal` | `wide` | `mouse` (+kbd) |
+| `laptop-pro` | `desktop` | `desktop` | `landscape` | `1280×800` | 120 | `high` | `wide` | `mixed` (touch+mouse+kbd) |
+| `convertible` | `tablet` | `tablet` (toggle → `desktop`) | `landscape` | `1280×800` | 120 | `normal` | `wide` | `mixed` |
+
+`tablet-landscape` is the canonical baseline every default QEMU proof boots
+(`systemui::BASELINE_PRESET_ID`); the marker ladder asserts its literal
+`windowd: ready (w=1280, h=800, hz=120)`. Other presets print the same marker with their real
+mode (`windowd: ready (w=600, h=800, hz=120)`), so a preset boot never claims the baseline.
+
+Honest limits of v1 (recorded in the TASK-0055D ledger, follow-up TASK-0322):
+
+- **Mode ceiling 1280×800**: the compositor's shared atlas/VMO layout is sized to it and gpud
+  clamps any larger fw_cfg mode, so larger presets are rejected instead of silently shrunk.
+  The HiDPI 2.0× "golden path" resolutions from `display-scaling.md` stay a target, not a
+  preset value.
+- **Hz = 120 only**: windowd paces every mode at 120 Hz (`PACER_INTERVAL_NS`); a preset naming
+  60 Hz would promise pacing the guest cannot deliver and is rejected.
+- **Guest profile/shell follow the product/settings, not the preset**: the boot product
+  (tablet) and the settingsd `ui.shell.mode` key select the shell on the device; the preset's
+  `profile`/`shell` are validated + exported (`NEXUS_UI_PRESET_*`) but not yet ingested by the
+  guest. Guest ingestion (fw_cfg key → settingsd default overlay → `systemui: profile …`
+  marker + `SELFTEST: ui preset boot ok`) is TASK-0322.
+- `phone`/`laptop` are not guest profiles yet: phone presets use the `tablet` profile (touch
+  posture, compact width), laptop presets the `desktop` profile.
 
 ## Upstream vs fork stance
 

@@ -17,6 +17,8 @@
 //!   - `resolve_default()` / `resolve_product(id)` → `ResolvedConfig`; `shell_config_default()` /
 //!     `shell_config_next(current)` → `ShellConfig` (the compositor-facing config).
 //!   - `available_shells()` / `switch_shell()` / `next_product_id()` — runtime shell switching.
+//!   - `resolve_preset(id)` / `switch_preset_shell()` — dev-mode display/profile presets
+//!     (TASK-0055D; `PRESETS` catalog, `nx ui preset`).
 //!   - `compose_first_frame()` — the deterministic SystemUI seed frame.
 //!   - `service_boot()` (os-lite, dormant) — the would-be boot-service entry.
 //!
@@ -35,6 +37,7 @@ use alloc::vec::Vec;
 mod frame;
 mod greeter;
 mod ime_overlay;
+mod preset;
 mod product;
 mod profile;
 mod registry;
@@ -46,15 +49,20 @@ pub use frame::{
 };
 pub use greeter::{greeter_config, parse_greeter_manifest, validate_greeter, GreeterConfig};
 pub use ime_overlay::ImeOverlayState;
+pub use preset::{
+    parse_preset_manifest, size_class_for_width, validate_display_mode, validate_preset,
+    PresetManifest, PRESET_LAYOUT_MAX, PRESET_MIN_EDGE, SUPPORTED_DISPLAY_HZ,
+};
 pub use product::{parse_product_manifest, validate_product, ProductManifest, SessionMode};
 pub use profile::{
     desktop_profile, parse_profile_manifest, validate_profile, DeviceInput, DisplayDefaults,
     ProfileManifest, SystemUiError, KNOWN_DPI_CLASSES, KNOWN_ORIENTATIONS, KNOWN_SIZE_CLASSES,
 };
 pub use registry::{
-    available_shells, next_product_id, product_by_id, profile_by_id, resolve_default,
-    resolve_product, shell_by_id, shell_config_default, shell_config_for, shell_config_next,
-    summary, switch_shell, DeviceEnvironment, ResolvedConfig, ShellConfig, DEFAULT_PRODUCT_ID,
+    available_shells, next_product_id, preset_by_id, product_by_id, profile_by_id, resolve_default,
+    resolve_preset, resolve_product, shell_by_id, shell_config_default, shell_config_for,
+    shell_config_next, summary, switch_preset_shell, switch_shell, DeviceEnvironment,
+    ResolvedConfig, ResolvedPreset, ShellConfig, BASELINE_PRESET_ID, DEFAULT_PRODUCT_ID, PRESETS,
     PRODUCTS, PROFILES, SHELLS,
 };
 pub use shell::{
@@ -153,6 +161,78 @@ mod tests {
     #[test]
     fn help_flag() {
         assert!(execute(&["--help"]).contains("systemui"));
+    }
+
+    #[test]
+    fn every_registered_preset_resolves_to_registered_profile_and_shell() {
+        for entry in super::PRESETS {
+            let r = super::resolve_preset(entry.id).expect("registered preset resolves");
+            assert_eq!(r.preset.id, entry.id);
+            assert_eq!(r.env.profile, r.profile.id);
+            assert_eq!(r.env.shell_mode, r.shell.id);
+            assert!(r.profile.allowed_shells.contains(&r.shell.id));
+        }
+        let baseline = super::resolve_preset(super::BASELINE_PRESET_ID).expect("baseline");
+        assert_eq!(
+            (baseline.preset.width, baseline.preset.height, baseline.preset.hz),
+            (1280, 800, 120)
+        );
+        assert_eq!(baseline.env.size_class, "wide");
+        let phone = super::resolve_preset("phone-portrait").expect("phone");
+        assert_eq!(
+            (phone.env.orientation.as_str(), phone.env.size_class.as_str()),
+            ("portrait", "compact")
+        );
+    }
+
+    #[test]
+    fn test_reject_unknown_preset() {
+        assert_eq!(super::resolve_preset("phablet").unwrap_err(), SystemUiError::ManifestNotFound);
+        assert_eq!(super::resolve_preset("").unwrap_err(), SystemUiError::ManifestNotFound);
+    }
+
+    #[test]
+    fn test_reject_preset_naming_unregistered_profile() {
+        // Shape-valid, registry-invalid: `phone` is not a registered profile.
+        let toml = super::PRESETS[0].toml.replace("profile = \"tablet\"", "profile = \"phone\"");
+        let preset = super::parse_preset_manifest(&toml).expect("shape is fine");
+        assert_eq!(
+            super::profile_by_id(&preset.profile).unwrap_err(),
+            SystemUiError::ManifestNotFound
+        );
+    }
+
+    #[test]
+    fn test_reject_preset_shell_not_allowed_by_profile() {
+        // desktop profile allows only the desktop shell.
+        let toml = super::PRESETS[0]
+            .toml
+            .replace("profile = \"tablet\"", "profile = \"desktop\"")
+            .replace("shell = \"tablet\"", "shell = \"kiosk\"");
+        let preset = super::parse_preset_manifest(&toml).expect("shape is fine");
+        let profile = super::profile_by_id(&preset.profile).expect("desktop");
+        let shell = super::shell_by_id(&preset.shell).expect("kiosk");
+        assert_eq!(validate_profile_shell(&profile, &shell), Err(SystemUiError::UnsupportedShell));
+    }
+
+    #[test]
+    fn convertible_shell_switch_keeps_device_identity() {
+        let cur = super::resolve_preset("convertible").expect("convertible");
+        assert_eq!(cur.env.shell_mode, "tablet");
+        let desk = super::switch_preset_shell(&cur, "desktop").expect("tablet→desktop allowed");
+        assert_eq!(desk.env.shell_mode, "desktop");
+        assert_eq!(desk.env.profile, cur.env.profile, "same device class");
+        assert_eq!(desk.preset, cur.preset, "same preset identity + display mode");
+        assert_eq!(
+            (&desk.env.orientation, &desk.env.size_class),
+            (&cur.env.orientation, &cur.env.size_class)
+        );
+        let back = super::switch_preset_shell(&desk, "tablet").expect("reversible");
+        assert_eq!(back.env, cur.env);
+        assert_eq!(
+            super::switch_preset_shell(&cur, "phone").unwrap_err(),
+            SystemUiError::UnsupportedShell
+        );
     }
 
     #[test]

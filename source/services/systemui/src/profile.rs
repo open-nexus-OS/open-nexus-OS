@@ -25,6 +25,12 @@ pub enum SystemUiError {
     /// A referenced profile/shell/product id is not present in the manifest
     /// registry (deterministic reject for unknown ids — see [`crate::registry`]).
     ManifestNotFound,
+    /// A preset display mode is outside the compositor's layout bounds or
+    /// contradicts its declared orientation (see [`crate::preset`]).
+    InvalidDisplayMode,
+    /// A preset names a refresh rate the compositor cannot pace
+    /// ([`crate::preset::SUPPORTED_DISPLAY_HZ`]).
+    UnsupportedRefreshRate,
 }
 
 /// Well-known value domains for profile display defaults. IDs themselves are NOT

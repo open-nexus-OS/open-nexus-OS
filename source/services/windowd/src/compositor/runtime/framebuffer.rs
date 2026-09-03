@@ -149,7 +149,7 @@ impl DisplayServerRuntime {
             let _ = debug_println(LAYOUT_ENGINE_ON_MARKER);
             let _ = debug_println(TEXT_WRAPPING_ON_MARKER);
             let _ = debug_println(DISPLAY_BOOTSTRAP_MARKER);
-            let _ = debug_println(DISPLAY_MODE_MARKER);
+            let _ = debug_println(&display_mode_marker(self.mode.width, self.mode.height));
             let _ = debug_println(VISIBLE_BACKEND_MARKER);
             let _ = debug_println(COMPOSE_READY_MARKER);
             let _ = debug_println(PRESENT_QUEUED_MARKER);

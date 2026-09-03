@@ -81,7 +81,7 @@ use nexus_abi::vmo_create;
 use nexus_abi::{debug_println, debug_trace, nsec, yield_};
 use nexus_ipc::{IpcError, KernelServer, Wait};
 
-use crate::markers::{READY_MARKER, WALLPAPER_FAIL};
+use crate::markers::{ready_marker, WALLPAPER_FAIL};
 
 use crate::telemetry::WindowdDisplayTelemetryReport;
 
@@ -493,7 +493,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let (visible_w, visible_h) = query_gpud_display_mode();
     let mut runtime = match DisplayServerRuntime::new_with_mode(visible_w, visible_h) {
         Ok(rt) => {
-            let _ = debug_println(READY_MARKER);
+            let _ = debug_println(&ready_marker(visible_w, visible_h));
             rt
         }
         Err(_) => {

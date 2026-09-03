@@ -236,6 +236,14 @@ mod tests {
     }
 
     #[test]
+    fn ready_marker_at_baseline_is_the_ladder_literal() {
+        assert_eq!(markers::ready_marker(1280, 800), READY_MARKER);
+        assert_eq!(markers::ready_marker(600, 800), "windowd: ready (w=600, h=800, hz=120)");
+        assert_eq!(markers::display_mode_marker(1280, 800), DISPLAY_MODE_MARKER);
+        assert_eq!(markers::display_mode_marker(600, 800), "display: mode 600x800 argb8888");
+    }
+
+    #[test]
     fn smoke_markers_require_real_present() {
         let lines = execute(&[]);
         assert_eq!(lines[0], READY_MARKER);

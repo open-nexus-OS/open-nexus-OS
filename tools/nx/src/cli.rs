@@ -10,6 +10,8 @@
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+pub(crate) use crate::cli_ui::{UiAction, UiArgs, UiPresetAction};
+
 pub(crate) use crate::cli_image::{
     ImageAction, ImageArgs, ImageBackstopArgs, ImageBuildArgs, ImageOtaArgs, ImagePatchArgs,
     ImageVerifyArgs,
@@ -100,6 +102,12 @@ impl Cli {
                 UpdateAction::Status(a) => a.json,
                 UpdateAction::Rollback(a) => a.json,
             },
+            Commands::Ui(args) => match &args.action {
+                UiAction::Preset(p) => match &p.action {
+                    UiPresetAction::List(a) => a.json,
+                    UiPresetAction::Env(a) => a.json,
+                },
+            },
         }
     }
 }
@@ -120,6 +128,8 @@ pub(crate) enum Commands {
     Recovery(RecoveryArgs),
     Image(ImageArgs),
     Update(UpdateArgs),
+    /// Host-side UI developer tooling (dev display/profile presets).
+    Ui(UiArgs),
 }
 
 /// `nx recovery token …` — `.nxra` break-glass tokens (RFC-0088).

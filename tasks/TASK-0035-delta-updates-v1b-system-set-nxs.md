@@ -3,9 +3,10 @@ title: TASK-0035 Delta updates v1b (system sets): nxs delta container + updated 
 status: Draft
 owner: @runtime
 created: 2025-12-22
-updated: 2026-08-14
+updated: 2026-09-03
 depends-on:
   - TASK-0034
+  - TASK-0321
 follow-up-tasks: []
 links:
   - Vision: docs/architecture/vision.md
@@ -14,6 +15,14 @@ links:
   - Depends-on (supply-chain policy): tasks/TASK-0029-supply-chain-v1-sbom-repro-sign-policy.md
   - Signing policy: docs/security/signing-and-policy.md
 ---
+
+## Parked 2026-09-03 — executes after TASK-0321 (Phase B seam)
+
+The Phase-B seam this task's residual scope sits on now has a ledger:
+`tasks/TASK-0321-ota-phase-b-verified-system-volume-bundle-set.md` (system
+volume + `bundle` components + reuse index). This task starts when 0321 P3
+(`bundle` apply) is green; until then nothing here is buildable without
+faking the bundle population.
 
 ## Rebase note 2026-08-25 (RFC-0089: no aggregate delta container — component kinds instead)
 

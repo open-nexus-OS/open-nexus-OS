@@ -21,6 +21,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::preset::{parse_preset_manifest, size_class_for_width, PresetManifest};
 use crate::product::{parse_product_manifest, ProductManifest};
 use crate::profile::{parse_profile_manifest, DeviceInput, ProfileManifest, Result, SystemUiError};
 use crate::shell::{parse_shell_manifest, validate_profile_shell, ShellManifest};
@@ -64,6 +65,41 @@ pub const PRODUCTS: &[ManifestEntry] = &[
     ManifestEntry { id: "kiosk", toml: include_str!("../manifests/products/kiosk/product.toml") },
 ];
 
+/// Registered **dev-mode preset** manifests (TASK-0055D): display mode +
+/// orientation + emulated input over a registered profile/shell pairing.
+/// Consumed by `nx ui preset` → `just start-preset <id>`.
+pub const PRESETS: &[ManifestEntry] = &[
+    ManifestEntry {
+        id: "phone-portrait",
+        toml: include_str!("../manifests/presets/phone-portrait/preset.toml"),
+    },
+    ManifestEntry {
+        id: "phone-landscape",
+        toml: include_str!("../manifests/presets/phone-landscape/preset.toml"),
+    },
+    ManifestEntry {
+        id: "tablet-portrait",
+        toml: include_str!("../manifests/presets/tablet-portrait/preset.toml"),
+    },
+    ManifestEntry {
+        id: "tablet-landscape",
+        toml: include_str!("../manifests/presets/tablet-landscape/preset.toml"),
+    },
+    ManifestEntry { id: "laptop", toml: include_str!("../manifests/presets/laptop/preset.toml") },
+    ManifestEntry {
+        id: "laptop-pro",
+        toml: include_str!("../manifests/presets/laptop-pro/preset.toml"),
+    },
+    ManifestEntry {
+        id: "convertible",
+        toml: include_str!("../manifests/presets/convertible/preset.toml"),
+    },
+];
+
+/// The preset every default QEMU proof boots (1280×800 landscape, tablet
+/// product): the canonical baseline the marker ladder asserts.
+pub const BASELINE_PRESET_ID: &str = "tablet-landscape";
+
 fn lookup<'a>(catalog: &'a [ManifestEntry], id: &str) -> Result<&'a str> {
     catalog.iter().find(|e| e.id == id).map(|e| e.toml).ok_or(SystemUiError::ManifestNotFound)
 }
@@ -81,6 +117,67 @@ pub fn shell_by_id(id: &str) -> Result<ShellManifest> {
 /// Parse a registered product by id.
 pub fn product_by_id(id: &str) -> Result<ProductManifest> {
     parse_product_manifest(lookup(PRODUCTS, id)?)
+}
+
+/// Parse a registered preset by id (deterministic `ManifestNotFound` for unknown).
+pub fn preset_by_id(id: &str) -> Result<PresetManifest> {
+    parse_preset_manifest(lookup(PRESETS, id)?)
+}
+
+/// A fully resolved preset: the manifest, the registered profile + shell it
+/// names (pairing validated), and the device environment the shell will see.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedPreset {
+    pub preset: PresetManifest,
+    pub profile: ProfileManifest,
+    pub shell: ShellManifest,
+    pub env: DeviceEnvironment,
+}
+
+/// The environment a preset predicts: profile/shell identity from the
+/// registered manifests, orientation/dpi/input from the preset (it IS the
+/// device the developer asked for), size class from the preset's width via
+/// the runtime's own tiers.
+fn preset_environment(
+    preset: &PresetManifest,
+    profile: &ProfileManifest,
+    shell: &ShellManifest,
+) -> DeviceEnvironment {
+    DeviceEnvironment {
+        profile: profile.id.clone(),
+        shell_mode: shell.id.clone(),
+        shell_kind: shell.kind.clone(),
+        orientation: preset.orientation.clone(),
+        size_class: String::from(size_class_for_width(preset.width)),
+        dpi_class: preset.dpi_class.clone(),
+        input: preset.input.clone(),
+    }
+}
+
+/// Resolve a preset id → validated preset + registered profile + shell +
+/// environment. Unknown preset/profile/shell ids and a shell the profile does
+/// not allow (or that does not support the profile) reject deterministically.
+pub fn resolve_preset(preset_id: &str) -> Result<ResolvedPreset> {
+    let preset = preset_by_id(preset_id)?;
+    let profile = profile_by_id(&preset.profile)?;
+    let shell = shell_by_id(&preset.shell)?;
+    validate_profile_shell(&profile, &shell)?;
+    let env = preset_environment(&preset, &profile, &shell);
+    Ok(ResolvedPreset { preset, profile, shell, env })
+}
+
+/// Switch a resolved preset's shell posture within the SAME device identity
+/// (the `convertible` desktop↔tablet toggle): preset + profile + display mode
+/// stay, only shell + environment re-resolve. Same reject rules as
+/// [`switch_shell`]; the caller's preset is untouched on error.
+pub fn switch_preset_shell(cur: &ResolvedPreset, new_shell: &str) -> Result<ResolvedPreset> {
+    if !cur.profile.allowed_shells.iter().any(|s| s == new_shell) {
+        return Err(SystemUiError::UnsupportedShell);
+    }
+    let shell = shell_by_id(new_shell)?;
+    validate_profile_shell(&cur.profile, &shell)?;
+    let env = preset_environment(&cur.preset, &cur.profile, &shell);
+    Ok(ResolvedPreset { preset: cur.preset.clone(), profile: cur.profile.clone(), shell, env })
 }
 
 /// The stable device environment the shell renders against — the deterministic

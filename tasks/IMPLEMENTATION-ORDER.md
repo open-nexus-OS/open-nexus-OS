@@ -46,7 +46,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 | Task | Title | Status |
 |------|-------|--------|
-| Updates/OTA-Lane | RFC-0089 end-state lane (0198P1 → 0036 → 0314/0260/0315 → 0289A → 0179 → 0289B → 0140 → 0034/0035) — see lane section below | Seeded 2026-08-25 |
+| Updates/OTA-Lane | RFC-0089 end-state lane (0198P1 → 0036 → 0314/0260/0315 → 0289A → 0179 → 0289B → 0140 → 0034 → Phase B 0321 → 0035) — see lane section below | Packages 0–11 delivered 2026-09-01; Phase B seeded 2026-09-03 |
 
 ---
 
@@ -116,6 +116,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync | 2026-04-27 |
 | ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap | 2026-04-29 |
 | ✅ TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU | 2026-04-30 |
+| ✅ TASK-0055D | UI v1e: dev display/profile presets for QEMU (manifest catalog + `nx ui preset` + `just start-preset`; guest ingestion → 0322) | 2026-09-03 |
 | ✅ TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing | 2026-04-30 |
 | ✅ TASK-0056B | UI v2a: visible input — cursor + hover + focus + click | 2026-05-03 |
 | ✅ TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core | 2026-05-04 |
@@ -223,7 +224,7 @@ table: `tasks/TRACK-STASH-USER-DATA-FS.md` (milestones 6–12).
 | Task | Title | Status |
 |------|-------|--------|
 | ✅ TASK-0314 | Block driver v2: multi-sector + real queue depth + IRQ completion (perf multiplier for statefs AND nxfs) | Done 2026-08-25 (OTA-lane package 3; IRQ endpoint provisioning → 0315) |
-| TASK-0315 | Block topology consolidation: ONE GPT device + virtioblkd sole queue owner (ADR-0044 end state) | Draft |
+| ✅ TASK-0315 | Block topology consolidation: ONE GPT device + virtioblkd sole queue owner (ADR-0044 end state) | Done 2026-08-25 (OTA-lane package 5) |
 | TASK-0316 | nxfs engine v2: format v2 (contracted fields + volume table) + block-granular CoW + group commit + cache | Draft |
 | TASK-0317 | nxfsd process extraction + vfs.capnp v2 write surface + VMO write path (RFC-0072 P2 closed) | Draft |
 | TASK-0318 | Storage performance contract + benchmark gate (RFC-0071 perf amendment, real-number markers, regression gates) | Draft |
@@ -292,7 +293,7 @@ Contracts: RFC-0089 (OTA v2 end-to-end; supersedes RFC-0012 in part) · ADR-0058
 
 | # | Task | Title | Status |
 |---|------|-------|--------|
-| 1 | ✅ TASK-0198 P1 | Device publisher trust anchor + verifier verdict authority (closes the self-key hole) | Delivered 2026-08-25 (test-all green; task stays Draft for P2+) |
+| 1 | ✅ TASK-0198 P1 | Device publisher trust anchor + verifier verdict authority (closes the self-key hole) | Delivered 2026-08-25 (test-all green; ledger In Progress for P2+ sigchain/translog/rotation) |
 | 2 | ✅ TASK-0036-A | Health-commit v2 in bootctld: record v3 + quorum + wall-clock deadline | Delivered 2026-08-25 (test-all green) |
 | 3 | ✅ TASK-0314 | virtio-blk driver v2 (multisector/queue/IRQ) — request ring + 16 KiB runs + IRQ machinery (endpoint provisioning → 0315) | Delivered 2026-08-25 (test-all green) |
 | 4 | ✅ TASK-0260 | `nx image build/verify/patch/ota` — deterministic GPT assembler + NXBD signer + factory BSB (rewritten) | Image scope delivered 2026-08-25 (test-all green; ledger In Progress for the flasher/factory-reset residual) |
@@ -303,9 +304,10 @@ Contracts: RFC-0089 (OTA v2 end-to-end; supersedes RFC-0012 in part) · ADR-0058
 | 9 | ✅ TASK-0289-B | Boot trust floor closure: loader backstops (tamper/downgrade/tries-exhausted) + measured surface | Delivered 2026-08-31 — three lanes green + gated (`ci-os-ota-backstops`), measured cross-check required in every proof lane |
 | 10 | TASK-0140 | Settings→Updates page + `nx update` CLI over the real engine (rewritten; lands after UI handoff tracks) | ✅ Done 2026-09-01 |
 | 11 | TASK-0034/0035 | Delta as component kinds (`boot-image-delta`; format RFC at execution) | 0034 ✅ Done 2026-09-01 (RFC-0090); 0035 Draft (hinter Phase B) |
+| 12 | TASK-0321 | Phase B: verified system volume (`system-a/b`) + service migration out of the boot image + `bundle` components with unchanged-bundle reuse (RFC-0089 §12) | Seeded 2026-09-03 (paper; unparks 0035) |
 
-After the lane (contracted, not built): Phase B bundle-set (RFC-0089 §12 — services
-leave the embedded image; `bundle` components + system volumes), network transport
+After the lane (contracted, not built): Phase B bundle-set = row 12 / TASK-0321 (RFC-0089 §12 — services
+leave the embedded image; `bundle` components + system volumes; seeded 2026-09-03), network transport
 (after the 2-VM CI repair), `0261` flashd/provisioning (rebased on the GPT layout),
 `0239` per-app A/B, `0197`/`0198` P2+ (sigchain/translog/rotation). Paper hygiene done
 at seeding: `0089`/`0090` → Windowing group, `0174` → Text/IME group (miscounted in
@@ -351,6 +353,8 @@ Vom CPU-Renderer bis zum sichtbaren deterministischen Input-Proof und dann direk
 | ✅ TASK-0055 | UI v1b: windowd compositor + surfaces/layers IPC + VMO buffers + vsync (Done; headless present + generated IDL roundtrip + reject proofs green) |
 | ✅ TASK-0055B | UI v1c: visible QEMU scanout bootstrap (Done; marker-honesty hardening + full closure gates green) |
 | ✅ TASK-0055C | UI v1d: windowd visible present + SystemUI first frame in QEMU (Done; composed-frame visible-present proof + closure gates green) |
+| ✅ TASK-0055D | UI v1e: dev display/profile presets (Done 2026-09-03; 7 preset manifests + registry resolver + `test_reject_*` suite + `nx ui preset` + `just start-preset`; honest recuts Hz=120/mode≤1280×800/guest profile → TASK-0322) |
+| TASK-0322 | UI dev presets guest side: fw_cfg `ui-preset` → settingsd default overlay → `systemui: profile …` + `SELFTEST: ui preset boot ok` (+ optional mode-driven pacer Hz) | Draft (seeded 2026-09-03) |
 | ✅ TASK-0056 | UI v2a: double-buffered surfaces + present scheduler + input routing (Done; host/reject/QEMU proofs + fmt/clippy/ci-network + make clean/build/test/run green) |
 | ✅ TASK-0056B | UI v2a: visible input — cursor + hover + focus + click (Done; deterministic host/reject/QEMU proofs + closure gates green; live device input follows in 0252/0253) |
 | ✅ TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core (Done; host-first contract closed with full gate reruns green) |

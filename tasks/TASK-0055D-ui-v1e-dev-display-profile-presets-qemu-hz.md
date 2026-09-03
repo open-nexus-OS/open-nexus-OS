@@ -1,10 +1,12 @@
 ---
 title: TASK-0055D UI v1e (dev-mode): deterministic display/profile presets for QEMU (`phone/tablet/laptop/laptop-pro/convertible` + orientation + shell mode + Hz)
-status: Draft
+status: Done
+updated: 2026-09-03
 owner: @ui @runtime
 created: 2026-03-29
 depends-on: []
-follow-up-tasks: []
+follow-up-tasks:
+  - TASK-0322
 links:
   - Vision: docs/architecture/vision.md
   - Playbook: CLAUDE.md
@@ -17,7 +19,64 @@ links:
   - Settings/config bridge note: tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
   - UI profiles guidance: docs/dev/ui/foundations/layout/profiles.md
   - Testing contract: scripts/qemu-test.sh
+  - Guest-side ingestion follow-up: tasks/TASK-0322-ui-dev-preset-guest-ingestion-fwcfg-settingsd-overlay.md
 ---
+
+## DELIVERED 2026-09-03 (host authority + launcher plumbing; honest recuts stated)
+
+**Shipped (test-all green):**
+
+- **Preset catalog as manifests** — `source/services/systemui/manifests/presets/<id>/preset.toml`
+  ×7 (`phone-portrait`, `phone-landscape`, `tablet-portrait`, `tablet-landscape`, `laptop`,
+  `laptop-pro`, `convertible`), registered in `systemui::PRESETS` next to profiles/shells/
+  products (ADR-0035 amendment). Shape: registered `profile` + `shell`, `[display]`
+  width/height/hz/orientation/dpi_class, `[input]` touch/mouse/kbd/remote/rotary.
+- **Resolver + bounded validation** — `systemui::preset` (parse via the profile manifests'
+  TOML subset) + `registry::resolve_preset` / `switch_preset_shell`: unknown preset/profile/
+  shell → `ManifestNotFound`; disallowed pairing → `UnsupportedShell`/`IncompatibleShell`;
+  mode outside `[320, 1280×800]` or contradicting orientation → `InvalidDisplayMode`;
+  non-pace-able Hz → `UnsupportedRefreshRate`. `device.sizeClass` derived from the preset
+  width with the runtime's tiers. 13 host tests incl. `test_reject_*` ×7 and the
+  convertible tablet↔desktop switch (same preset/profile/mode, reversible).
+- **Developer selection path** — `nx ui preset list|env <id>` (new `tools/nx` subcommand,
+  `systemui` as host dependency = ONE parser) renders the launcher env `just start` already
+  honours: `QEMU_GPU_XRES/YRES` (→ fw_cfg `display-mode`, RFC-0074/ADR-0050 — followed
+  end-to-end by gpud + windowd), `QEMU_PROOF_POINTER_SOURCE`, `NEXUS_PROFILE_INPUT_*`,
+  `NEXUS_UI_PRESET_*`. `just start-preset <id>` / `just preset-list`. Unknown preset =
+  `validation_reject` (exit 3) naming the valid ids, BEFORE any build/launch. 4
+  process-boundary tests (`tools/nx/tests/ui_preset_cli.rs`).
+- **windowd reports the real mode** — `markers::ready_marker(w, h)` /
+  `display_mode_marker(w, h)` print `windowd: ready (w=<w>, h=<h>, hz=120)` and
+  `display: mode <w>x<h> argb8888` for the gpud-resolved mode (both were literals that
+  claimed 1280×800 in every boot); byte-identical to the ladder literals at the baseline
+  (host test), `w=600, h=800` / `600x800` on the tablet-portrait boot.
+- Retired `tools/systemui_profile_qemu_devices.py` (zero callers; parallel parser).
+
+**Honest recuts (→ TASK-0322):**
+
+- Hz is host-validated only: windowd paces every mode at 120 Hz (`PACER_INTERVAL_NS`), so
+  `SUPPORTED_DISPLAY_HZ = [120]` and a 60 Hz preset is REJECTED rather than faked.
+- Mode ceiling 1280×800 (shared atlas/VMO layout max; gpud clamps larger fw_cfg modes).
+- The guest's profile/shell still follow the boot product + settingsd `ui.shell.mode`
+  (only selftest-client/kernel read fw_cfg; settingsd has no cap). The OS markers this
+  ledger listed (`windowd: preset on`, `systemui: profile …`, `systemui: shell mode ->`,
+  `SELFTEST: ui preset boot ok`) are therefore NOT emitted — they move to TASK-0322 with
+  the fw_cfg `ui-preset` key + settingsd default overlay.
+- `phone`/`laptop` guest profiles do not exist; phone presets use the `tablet` profile,
+  laptop presets `desktop`.
+
+**Proof:** `cargo test -p systemui` (31), `cargo test -p windowd` (169 + ready-marker
+test), `cargo test -p nx --test ui_preset_cli` (4); `just check` green; preset boot
+`NEXUS_LOG_EXPAND=windowd QEMU_DISPLAY_BACKEND=egl-headless RUN_TIMEOUT=100 just start-preset
+tablet-portrait` (uart, 2026-09-03): `windowd: display mode 600x800` → `windowd: shell config
+product=tablet profile=tablet shell=tablet` → `windowd: ready (w=600, h=800, hz=120)` →
+`display: mode 600x800 argb8888` → `inputd: display mode 600x800`; `SELFTEST: ui visible present
+ok` on the 600×800 scanout. (`SELFTEST: qos FAIL` in that interactive headless-GL boot is a
+pre-existing pattern — present in 215 earlier logs — unrelated to the mode.) `just test-all`:
+all gates green through `ci-os-reset`; `ci-os-ota` (ota-flip) hit the known multi-boot
+`SELFTEST: statefs enc roundtrip FAIL` variance once (10 historical uarts, all reset/flip
+lanes) and passed on isolated re-run (`verify-uart ok`, `verify-nxupdate ok`);
+`ci-os-ota-backstops` green (tamper/downgrade/fallback). Baseline ladder literal unchanged.
 
 ## Rebase (2026-08-14)
 

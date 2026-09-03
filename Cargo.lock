@@ -2870,6 +2870,7 @@ dependencies = [
  "sha2",
  "statefs",
  "storage",
+ "systemui",
  "tar",
  "tempfile",
  "tokio",

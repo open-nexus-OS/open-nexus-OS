@@ -1,0 +1,33 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Dev-mode display/profile preset `phone-landscape` (TASK-0055D). A preset is a
+# named bundle that resolves INTO the existing authorities — a registered
+# SystemUI profile + shell (manifests/profiles, manifests/shells) and the
+# fw_cfg display mode (RFC-0074 / ADR-0050) — never a second profile store.
+# Consumed by `nx ui preset env` → `just start-preset phone-landscape`.
+# OWNERS: @ui
+# STATUS: Experimental
+
+id = "phone-landscape"
+label = "Phone (landscape)"
+profile = "tablet"
+shell = "tablet"
+
+[display]
+width = 800
+height = 480
+# Refresh rate the compositor paces at. Only the rates windowd can actually
+# pace are accepted (see systemui::SUPPORTED_DISPLAY_HZ).
+hz = 120
+orientation = "landscape"
+dpi_class = "high"
+
+[input]
+# Emulated QEMU input sources for this preset (touch → tablet device,
+# mouse → relative pointer, kbd → keyboard).
+touch = true
+mouse = false
+kbd = false
+remote = false
+rotary = false

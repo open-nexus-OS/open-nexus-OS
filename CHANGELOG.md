@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-03 (TASK-0055D: dev-mode display/profile presets for QEMU)
+
+- SystemUI manifest registry gains **presets**
+  (`source/services/systemui/manifests/presets/<id>/preset.toml`, 7 shipped:
+  `phone-portrait/-landscape`, `tablet-portrait/-landscape`, `laptop`,
+  `laptop-pro`, `convertible`): registered profile + shell pairing, w×h@hz,
+  orientation, dpi class, emulated input. `systemui::resolve_preset` /
+  `switch_preset_shell` validate deterministically (unknown ids, disallowed
+  shell, mode outside `[320, 1280×800]` or contradicting orientation,
+  non-pace-able Hz); 13 new host tests incl. the `test_reject_*` suite and
+  the convertible tablet↔desktop switch preserving device identity.
+- `nx ui preset list|env <id>`: resolves a preset into the launcher env
+  `just start` already honours (`QEMU_GPU_XRES/YRES` → fw_cfg display-mode,
+  `QEMU_PROOF_POINTER_SOURCE`, `NEXUS_PROFILE_INPUT_*`, `NEXUS_UI_PRESET_*`);
+  unknown preset = `validation_reject` (exit 3) listing the valid ids.
+  `just start-preset <id>` / `just preset-list` recipes.
+- windowd prints `windowd: ready (w=<w>, h=<h>, hz=120)` and
+  `display: mode <w>x<h> argb8888` for the mode it actually resolved
+  (byte-identical to the ladder literals at the 1280×800 baseline); a
+  600×800 preset boot now reports `w=600` / `600x800` instead of the
+  baseline literals (boot-proven: `windowd: display mode 600x800` →
+  `windowd: ready (w=600, h=800, hz=120)`).
+- Retired `tools/systemui_profile_qemu_devices.py` (no callers; superseded by
+  the registry-backed `nx` command).
+- Honest recut: Hz stays 120 (pacer SSOT), mode ceiling 1280×800 (layout
+  max), guest profile/shell still follow product + `ui.shell.mode` —
+  guest-side preset ingestion seeded as TASK-0322.
+
+### Changed - 2026-09-03 (OTA lane reconciliation: Phase B ledger seeded)
+
+- `tasks/TASK-0321` seeded: RFC-0089 §12 Phase B (verified `system-a/b`
+  volume, service migration out of the boot image, `bundle` components with
+  unchanged-bundle reuse) had no execution ledger although TASK-0035 was
+  parked behind it. Board lane row 12; 0035 now depends on 0321.
+- Ledger hygiene: TASK-0198 `Draft` → `In Progress` (Phase 1 delivered
+  2026-08-25 as lane package 1); stale TASK-0315 `Draft` board row → Done.
+
 ### Added - 2026-09-01 (TASK-0034: `.nxdelta` boot-image deltas — RFC-0090)
 
 - **`.nxdelta` v1 stream format** (RFC-0090, the normative execution of

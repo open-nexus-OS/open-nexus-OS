@@ -10,6 +10,7 @@
 
 mod cli;
 mod cli_image;
+mod cli_ui;
 mod cli_update;
 mod commands;
 mod error;

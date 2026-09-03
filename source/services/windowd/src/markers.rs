@@ -23,7 +23,20 @@ pub mod animation_markers;
 #[allow(unused_imports)]
 pub use animation_markers::*;
 
+/// The ready marker at the canonical 1280×800@120 baseline — the literal the
+/// proof ladder asserts (`scripts/qemu-test.sh`). The OS boot prints
+/// [`ready_marker`] for the mode it actually resolved; at the baseline the two
+/// are byte-identical.
 pub const READY_MARKER: &str = "windowd: ready (w=1280, h=800, hz=120)";
+
+/// The ready marker for the RESOLVED visible mode (RFC-0074: the fw_cfg
+/// display mode gpud reported), so a dev preset boot (TASK-0055D) reports its
+/// real w/h instead of the baseline literal. The refresh rate is the pacer's
+/// single constant (`VISIBLE_BOOTSTRAP_HZ` — windowd paces at 120 Hz for
+/// every mode; presets naming another rate are rejected host-side).
+pub fn ready_marker(w: u32, h: u32) -> alloc::string::String {
+    alloc::format!("windowd: ready (w={w}, h={h}, hz={})", crate::server::VISIBLE_BOOTSTRAP_HZ)
+}
 pub const RUNTIME_INIT_START: &str = "windowd: runtime init start";
 pub const RUNTIME_INIT_OK: &str = "windowd: runtime init ok";
 pub const WALLPAPER_LOADED: &str = "windowd: wallpaper loaded (jpeg)";
@@ -34,7 +47,15 @@ pub const LAUNCHER_MARKER: &str = "launcher: first frame ok";
 pub const SELFTEST_LAUNCHER_PRESENT_MARKER: &str = "SELFTEST: ui launcher present ok";
 pub const SELFTEST_RESIZE_MARKER: &str = "SELFTEST: ui resize ok";
 pub const DISPLAY_BOOTSTRAP_MARKER: &str = "display: bootstrap on";
+/// The display-mode marker at the canonical baseline (ladder literal); the OS
+/// boot prints [`display_mode_marker`] for the resolved mode.
 pub const DISPLAY_MODE_MARKER: &str = "display: mode 1280x800 argb8888";
+
+/// `display: mode <w>x<h> argb8888` for the RESOLVED visible mode (TASK-0055D);
+/// byte-identical to [`DISPLAY_MODE_MARKER`] at 1280×800.
+pub fn display_mode_marker(w: u32, h: u32) -> alloc::string::String {
+    alloc::format!("display: mode {w}x{h} argb8888")
+}
 pub const DISPLAY_FIRST_SCANOUT_MARKER: &str = "display: first scanout ok";
 pub const SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER: &str = "SELFTEST: display bootstrap guest ok";
 pub const VISIBLE_BACKEND_MARKER: &str = "windowd: backend=visible";
