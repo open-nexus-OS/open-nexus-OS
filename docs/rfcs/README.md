@@ -114,10 +114,13 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0074: Display-mode authority seed (compositor OWNS the mode; fw_cfg `display-mode` SSOT + kernel-derived `SYSCALL_BOOT_DISPLAY_MODE`; gpud commands it, GET_DISPLAY_INFO demoted to validated capability — kills the GTK window-realize race)
 - RFC-0088: `.nxra` signed recovery action tokens (Ed25519 break-glass on the recovery ops surface; build-time-baked trust anchor + consume-before-act replay high-water mark + fail-closed no-clock windows; standing-capability-or-token model that never weakens standing paths)
 - RFC-0089: OTA v2 — component manifest (`.nxs` v2) + A/B boot images + `nxboot` first-stage loader + boot selection block (end-to-end OTA contract; supersedes RFC-0012 in part; bundle-set granularity contracted as Phase B without loader/trust/transport rework)
+- RFC-0090: `.nxdelta` v1 boot-image delta stream format (`boot-image-delta` component kind 3; signature-bound delta payload + O(1) base binding to the loader-verified active NXBD + unchanged digest/readback/NXBD-last tail; stored ADDs in v1, zstd reserved behind RFC-0009 D4)
 
 ## Index
 
 - RFC-0001: Kernel Simplification (Logic-Preserving)
+- RFC-0090: `.nxdelta` v1 — boot-image delta stream format: the normative execution of RFC-0089 §11's reserved seam. Deltas are `.nxs` v2 COMPONENT KINDS (kind 3 `boot-image-delta`), never a new container: the component's `size`/`sha256` describe the DELTA STREAM (so the manifest signature binds the payload before any decoder runs), the target truth rides the verbatim signed NXBD in `kindData`, and reconstruction (COPY from the ACTIVE slot's bytes + stored ADD literals) flows through the untouched digest/readback/NXBD-last tail. Base substitution is closed in O(1): the stream's `base_sha256` must equal the loader-verified ACTIVE NXBD's `image_sha256` (reject `delta-base` before any write). Bounded streaming decoder (record caps, offset bounds, output == target_size ⇒ else `delta-format`), deterministic emission (`nx image ota --delta-from`: 4096-byte rollsum index + SHA confirm, greedy scan, COPY coalescing — make twice ⇒ identical bytes), resume = RFC-0089 §8 idempotent restage (no checkpoint files in v1), zstd RESERVED as algo 1 behind an RFC-0009 D4 decision (Implemented — execution TASK-0034)
+  - docs/rfcs/RFC-0090-nxdelta-boot-image-delta-stream-format.md
   - docs/rfcs/RFC-0001-kernel-simplification.md
 - RFC-0002: Process-Per-Service Architecture
   - docs/rfcs/RFC-0002-process-per-service-architecture.md

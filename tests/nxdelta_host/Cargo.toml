@@ -1,0 +1,13 @@
+[package]
+name = "nxdelta_host"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+nxdelta = { path = "../../userspace/nxdelta", features = ["std"] }
+sha2 = "0.10"
+
+[lib]
+path = "src/lib.rs"

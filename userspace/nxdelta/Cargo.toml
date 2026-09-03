@@ -1,0 +1,16 @@
+[package]
+name = "nxdelta"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "RFC-0090 `.nxdelta` v1 boot-image delta stream: no_std bounded streaming decoder (device apply) + deterministic rollsum emitter (host `nx image ota --delta-from`)."
+
+[features]
+# std by default (workspace host tests); OS consumers build
+# `default-features = false` — the decoder is no_std and alloc-free.
+default = ["std"]
+# Host-side emission + whole-buffer apply helper (nx, host tests).
+std = ["dep:sha2"]
+
+[dependencies]
+sha2 = { version = "0.10", optional = true, default-features = false, features = ["std"] }
