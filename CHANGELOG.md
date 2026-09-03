@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-03 (TASK-0321 P0: OTA Phase B contract — verified system volume)
+
+- RFC-0089 §12 is normative: pkgimg v3 system volume + signed `NXSV0001` root
+  descriptor (NXBD shape, own magic; binds volume/index digests, build id,
+  rollback index and the paired boot image's digest), component kinds
+  2 `bundle` / 4 `bundle-delta` / 6 `system-volume`, ordering rule +
+  `ComponentSink::commit_set`, bundlemgrd as verifier paired to the measured
+  boot slot, op-aware partition gates, reuse + restage semantics, marker and
+  reject vocabulary. Open question „volume format“ resolved. Status-at-a-
+  Glance: Phase 9 ✅ (0140), Phase 10 ✅ kind 3 (0034), Phase B 🚧.
+- ADR-0060: system-volume trust tier — `bundlemgrd` verifies and reads,
+  `init` remains the sole spawner (mapped RO VMO → `exec_v2`, no kernel
+  change), CORE never on the volume, one bundle model/registry
+  (`BundleSource`), pilot service metricsd.
+
 ### Changed - 2026-09-03 (Sub-80 tracking + end-state ledger rewrites for Phase 1)
 
 - `tasks/IMPLEMENTATION-ORDER.md`: the Defer-Bucket became the **Sub-80 Tracking**

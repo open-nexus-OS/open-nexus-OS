@@ -6,7 +6,7 @@
 - Status: Draft (contract seed for the Updates/OTA lane)
 - Owners: @runtime @security @tools-team
 - Created: 2026-08-25
-- Last Updated: 2026-08-25
+- Last Updated: 2026-09-03 (Phase B §12 made normative — TASK-0321 P0)
 - Links:
   - Tasks (execution + proof, in lane order):
     - `tasks/TASK-0198-supply-chain-v2b-os-enforcement-store-updater-bundlemgrd.md` (Phase 1: device trust anchor)
@@ -18,9 +18,11 @@
     - `tasks/TASK-0179-updated-v2-offline-feed-delta-health-rollback.md` (apply engine v2 + crown proof)
     - `tasks/TASK-0140-updates-v1-ui-cli-settings-offline.md` (UI/CLI surfaces)
     - `tasks/TASK-0034-delta-updates-v1-bundle-nxdelta.md` + `tasks/TASK-0035-delta-updates-v1b-system-set-nxs.md` (delta components)
+    - `tasks/TASK-0321-ota-phase-b-verified-system-volume-bundle-set.md` (Phase B: verified system volume + bundle sets, §12)
   - ADRs:
     - `docs/adr/0058-boot-selection-block-dual-actor-discipline.md` (BSB write matrix)
     - `docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md` (loader position + measured-boot handoff ABI)
+    - `docs/adr/0060-verified-system-volume-bundlemgrd-verifier-init-spawner.md` (Phase B: system-volume trust tier, verifier + spawner split)
     - `docs/adr/0055-bootctld-single-boot-state-authority.md` (record ownership — unchanged)
     - `docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md` (block topology — executed by TASK-0315)
     - `docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md` (staging must not live in `/state`)
@@ -40,9 +42,9 @@
 - **Phase 6 (BSB runtime projection)**: ✅ 2026-08-30 (TASK-0036-B — record commits FIRST then projects; startup resync never overwrites loader actuator effects; BSB.active maps to the standing known-good slot; full loop proven: keep-blk boot 2 loads through a bootctld-projected block)
 - **Phase 7 (apply engine v2 + offline feed + crown proof)**: ✅ 2026-08-31 (TASK-0179 — path staging replaces the inline stage, component apply with NXBD-last, commit-time floor raise; CROWN PROOF green: two boots, one uart, a DIFFERENT build id chosen by the loader)
 - **Phase 8 (boot trust floor closure: backstop proofs + measured surface)**: ✅ 2026-08-31 (TASK-0289-B — measured surface: `SYSCALL_BOOT_HANDOFF` 57 + bootctld `OP_GET_MEASURED` 12, cross-checked in every proof lane; three loader-backstop lanes gated: tamper→digest, downgrade→`rollback 0 < min 1`, tries-exhaustion with DEAD userspace → loader flip + record rollback observation)
-- **Phase 9 (UI/CLI)**: ⬜ (TASK-0140)
-- **Phase 10 (delta components)**: ⬜ (TASK-0034/0035)
-- **Phase B (bundle-set granularity)**: contracted here, executed by a follow-on task family (§12)
+- **Phase 9 (UI/CLI)**: ✅ 2026-09-01 (TASK-0140 — `nx update status/check/stage/switch/rollback` offline over the real engine, `updates.manage` deny-by-default on the kernel-attributed sender, Settings › System update page; `SELFTEST: updates surface ok` REQUIRED headless/smp1 + `verify-nxupdate` post-pass in `ci-os-ota`)
+- **Phase 10 (delta components)**: ✅ 2026-09-01 for `boot-image-delta` (TASK-0034 — RFC-0090 `.nxdelta` kind 3, O(1) base binding to the active NXBD, `stage rejected (delta-base)` deny lane + `SELFTEST: ota delta stage ok` headless/smp1); `bundle-delta` (kind 4) lands with TASK-0035 on the Phase B seam
+- **Phase B (bundle-set granularity)**: 🚧 contract normative since 2026-09-03 (§12, ADR-0060); execution TASK-0321 (P0 contract ✅ 2026-09-03, P1–P5 open) then TASK-0035
 
 Definition:
 
@@ -227,10 +229,11 @@ components: List(Component)
 | kind | name | v1 | payload |
 |---|---|---|---|
 | 1 | `boot-image` | ✅ built | flat boot image + embedded `boot.nxbd` entry (the signed NXBD, written verbatim to the slot) |
-| 2 | `bundle` | reserved (§12) | `.nxb` bundle for the system volume |
-| 3 | `boot-image-delta` | reserved (§11) | `.nxdelta` stream, base = active slot |
-| 4 | `bundle-delta` | reserved (§11/§12) | per-bundle delta |
+| 2 | `bundle` | Phase B (§12, TASK-0321) | one `.nxb` bundle's data-region slice of the system volume; `kindData` empty |
+| 3 | `boot-image-delta` | ✅ built (RFC-0090, TASK-0034) | `.nxdelta` stream, base = active slot |
+| 4 | `bundle-delta` | Phase B (§12, TASK-0035) | `.nxdelta` stream per bundle, base = the bundle's window in the ACTIVE system volume; `kindData = base_sha256[32]` |
 | 5 | `rotation-record` | reserved (§4) | signed trust-set extension |
+| 6 | `system-volume` | Phase B (§12, TASK-0321) | pkgimg v3 superblock + index of the system volume (≤ 256 KiB); `kindData` = the signed NXSV descriptor (512 B) |
 
 Unknown kind ⇒ deterministic reject (`updated: component kind unsupported`), never skip.
 
@@ -455,23 +458,135 @@ the identical digest/readback/NXBD tail runs. The `.nxdelta` stream format (roll
 zstd, resume checkpoints, determinism) gets its own normative RFC when TASK-0034
 executes — this section is the RFC seed its ledger was blocked on.
 
-### 12. Phase B — bundle-set granularity (contracted, NOT built in this lane)
+### 12. Phase B — bundle-set granularity (normative since 2026-09-03; executed by TASK-0321, then TASK-0035)
 
-Target UX: per-service/app granular updates. The seam, fixed now:
+Target UX: per-service/app granular updates. The seam was reserved on 2026-08-25; this
+amendment (TASK-0321 P0, ADR-0060) makes it normative. **Invariant (unchanged)**: Phase B
+changes component POPULATION and adds a system-volume verifier; it changes NOTHING in the
+`.nxs` v2 container rules (§3), the trust anchor (§4), the staging pipeline (§8), NXBD (§5),
+BSB (§6) or `nxboot` (§7). The loader never learns about system volumes.
 
-- `bundle` components (§3) target a **system volume** (`system-a/b` partitions, reserved
-  in §2), an RO image (pkgimg lineage) whose root descriptor (same 512-byte shape as
-  NXBD, own magic) is listed as a manifest component and verified BY THE BOOT IMAGE
-  after the loader verified the boot image — the chain extends downward, the loader
-  never changes.
-- Services migrate out of the embedded init image into the verified system volume
-  (dynamic loading via the existing execd/bundlemgrd payload discipline); the boot image
-  shrinks to kernel + init + the loader-of-services floor.
-- Updates then ship changed bundles only; unchanged bundles are reused from the active
-  system volume during apply (component-level dedup — the user-facing win).
-- **Invariant (the proof of preparation)**: Phase B changes component POPULATION and the
-  system-volume verifier; it changes NOTHING in `.nxs` v2 container rules, trust anchor,
-  staging pipeline, NXBD, BSB, or `nxboot`.
+#### 12.1 System volume format (resolves the open question)
+
+`system-a`/`system-b` (§2, `NEXUS-SYS-v1`, 32 MiB each) hold a **pkgimg v3** RO image: the
+deterministic, bounded pkgimg lineage (`userspace/storage/src/pkgimg.rs`) evolved additively —
+v3 adds a **bundle table** `{bundle, version, sha256, data_off, data_len, stack_pages u32,
+global_pointer u64}` and a per-file sha256 to the index. Not nxfs-RO (journal/CoW machinery in
+the trust path for nothing the boot chain uses), not a new format (pkgimg already has the
+no_std parser packagefsd consumes). The image is a `.nxb`-bundle container: every entry is the
+`.nxb` directory contract of ADR-0020 — ONE bundle artifact system-wide.
+
+#### 12.2 NXSV — Nexus System Volume descriptor (at-rest, normative)
+
+One 512-byte sector at system-partition sector 0; sectors 1–7 are reserved (sector 1 is the
+TASK-0035 stage journal `NXSJ`); the pkgimg payload begins at sector 8 (the same
+`IMAGE_START_SECTOR` as boot slots). Same shape as NXBD (§5), own magic; little-endian:
+
+```text
+[0..8)     magic "NXSV0001"
+[8..10)    version u16 (=1)
+[10..12)   flags u16 (reserved, must be 0)
+[12..16)   rollback_index u32           (same line as the paired boot image)
+[16..24)   volume_size u64              (pkgimg bytes from sector 8)
+[24..56)   volume_sha256 [32]           (over the pkgimg bytes)
+[56..88)   build_id [32]                (ascii, NUL-padded; equals the paired NXBD build_id)
+[88..96)   reserved u64 (must be 0)     (NXBD's load_addr slot — unused for volumes)
+[96..104)  pubkey_id [8]                (OS-image key: anchor lookup hint, never a trust input)
+[104..136) boot_image_sha256 [32]       (pairing: the NXBD image_sha256 this volume belongs to)
+[136..140) index_len u32                (pkgimg superblock + index bytes, ≤ 256 KiB)
+[140..172) index_sha256 [32]            (over the first index_len payload bytes)
+[172..448) reserved (must be 0)
+[448..512) ed25519_sig over bytes [0..448)
+```
+
+Rules: signed at build time by `nx image build` with the OS-image key (same anchor as NXBD);
+written VERBATIM by `updated`, never re-signed on the device; **NXSV-last**: a volume without
+a valid NXSV is invalid by definition. `bootfmt::nxsv` is the ONE codec (clone of `nxbd`).
+
+#### 12.3 Verifier + pairing (the chain extends downward)
+
+- `bundlemgrd` — a CORE wave-1 service embedded in the loader-verified boot image — is the
+  system-volume **verifier and reader** (ADR-0060). At startup it attaches the system slot
+  that pairs with the MEASURED boot slot (bootctld `OP_GET_MEASURED`, §7/ADR-0059) and accepts
+  it only if: magic/version ok; signature verifies against the **baked OS keys**
+  (`policies/os-trust.toml`, same shared parser as `nxboot`); `rollback_index ≥` the persisted
+  floor; `boot_image_sha256 ==` the measured image digest; `index_len`/`index_sha256` verify
+  over the bounded index. Bundle digests are verified when a bundle is served (index-bound,
+  O(bundle)), so boot verification stays O(descriptor + index).
+- Pairing is system-X ↔ boot-X. Direct-kernel dev boots have no measured image: the pairing
+  rung reports `pair=unbound` and the volume is NOT trusted for spawning — never a fake `ok`.
+- `init` stays the sole spawner and capability distributor. A volume-sourced service is
+  spawned in a second pass after the block plane is live: init queries bundlemgrd
+  (`OP_QUERY_BUNDLE`), receives the bundle ELF in a caller-created VMO
+  (`OP_GET_BUNDLE_ELF`, header written last after the digest matched), maps it read-only and
+  hands the slice to `exec_v2` — no kernel change (`ensure_user_slice` accepts mapped memory).
+  Launch parameters (`stack_pages`, `global_pointer`) come from the bundle table; init never
+  parses ELF at runtime. CORE (wave-1) services and the recovery/safe graphs never depend on
+  a volume.
+
+#### 12.4 Component kinds, ordering, set commit
+
+- Kind 6 `system-volume`: payload = pkgimg superblock + index (`size == index_len`,
+  `sha256 == index_sha256`), `kindData` = NXSV. Binding checks: NXSV decodes, its `build_id`
+  and `rollback_index` equal the manifest's, and `boot_image_sha256` equals the digest of the
+  boot image the same set carries (or, for a volume-only set, the active NXBD's).
+- Kind 2 `bundle`: payload = exactly the bundle's data-region slice of the volume, so the
+  component sha256 IS the index bundle sha256 (one digest definition); `kindData` empty.
+- Kind 4 `bundle-delta`: `.nxdelta` stream (RFC-0090) whose base is the bundle's window in the
+  ACTIVE volume, `kindData = base_sha256[32]`; unknown base ⇒ reject `delta-base` before any
+  write (TASK-0035).
+- **Ordering (normative)**: `[boot-image | boot-image-delta]?`, then `system-volume`, then
+  `(bundle | bundle-delta)*`. Any other order ⇒ reject `order`. The index MUST precede every
+  bundle so the sink can place bundle bytes.
+- **Set commit**: `ComponentSink` gains `commit_set()` (default no-op for boot slots). The
+  volume sink holds state across components and, at `commit_set`, copies every index bundle
+  that the set did not ship from the ACTIVE volume — each hashed against the NEW
+  (signature-bound) index while copied — readback-verifies `volume_sha256`, then writes the
+  NXSV LAST and syncs. Per-component `begin/chunk/finish` semantics (§8) are unchanged.
+- Determinism: the device-assembled volume is byte-identical to `nx image build`'s output for
+  the same bundle set — the same bytes whether shipped, reused or delta-reconstructed.
+
+#### 12.5 Partition gates (deny-by-default, op-aware)
+
+`virtioblkd` gates become `allowed(sender, partition, op)` on the kernel-attributed sender:
+
+| partition | READ | WRITE / SYNC |
+|---|---|---|
+| `system-a/b` | `bundlemgrd`, `updated` | `updated` (engine scopes it to the INACTIVE slot) |
+| `boot-a/b` | unchanged (§2) | unchanged (§2) |
+
+The factory image builder populates `system-a` host-side. Everything else is denied and
+emits `virtioblkd: denied (partition gate)`.
+
+#### 12.6 Idempotency and resume (extends §8)
+
+Staging a bundle set is restartable at any cut point: a torn stage leaves the inactive
+volume without a valid NXSV. `updated: restage clean` is emitted when the inactive slot pair
+holds no valid NXBD/NXSV at stage begin. Per-bundle resume (`NXSJ` journal at sector 1 —
+`{magic, manifest_sha256, completed bitmap, crc32}`; completed bundles are readback-verified
+instead of rewritten; the engine still streams and hashes every component) is TASK-0035.
+
+#### 12.7 Markers and reject reasons (additive to §8)
+
+`bundlemgrd: system volume verified (slot=<s> build=<id8> bundles=<n>)`,
+`bundlemgrd: system volume FAIL (<sig|digest|floor|pair|bounds|io>)`,
+`bundlemgrd: bundle served (name=<n> sha=<8>)`, `init: spawn from volume svc=<n>
+bundle=<n>@<v> sha=<8>`, `init: volume spawn FAIL svc=<n> reason=<r>`,
+`updated: component system-volume verified (build=<id8> bundles=<n>)`,
+`updated: component bundle verified (name=<n>)`, `updated: bundle reused (name=<n> sha=<8>)`,
+`updated: restage resume (bundles=<k>/<n>)` (TASK-0035), `SELFTEST: blk system volume deny ok`,
+`SELFTEST: ota bundle-set staged ok`, `SELFTEST: ota bundle-set ok`,
+`SELFTEST: ota stage resume ok`, `SELFTEST: ota bundle delta ok`.
+New stable reject reasons: `order | volume-binding | bundle-not-in-index | volume-digest |
+delta-base` (the last shared with kind 3).
+
+#### 12.8 Migration and budgets
+
+Services leave the embedded init image one at a time (`scripts/system-volume-services.txt` is
+the SSOT, mirrored by a nexus-init host test); `scripts/check-image-budgets.sh` carries a
+`system-a` row and an `init-lite(embedded) / system-a(volume)` split so bytes move visibly.
+The boot image floor is kernel + init + CORE (§12.3) + execd's embedded app-host; app
+payloads and the packagefs image move into the volume last (TASK-0321 P5).
 
 ### 13. Record v3 (bootctld-internal; ownership per ADR-0055)
 
@@ -571,8 +686,8 @@ Marker SSOT stays `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` +
 
 ## Open questions
 
-- `system-a/b` volume format for Phase B: pkgimg v2 lineage vs. nxfs-RO — decide with the
-  Phase B RFC (the §12 seam is format-agnostic by design).
+- ~~`system-a/b` volume format for Phase B: pkgimg v2 lineage vs. nxfs-RO~~ — RESOLVED
+  2026-09-03 (TASK-0321 P0): pkgimg **v3** payload + signed NXSV root descriptor (§12.1/§12.2).
 - ~~Whether `OP_GET_RECORD` (bootctld op 11) becomes the measured surface read path or a
   dedicated op is added~~ — RESOLVED 2026-08-31 (TASK-0289-B): dedicated `OP_GET_MEASURED`
   (op 12) serving the kernel-validated raw handoff record behind a present flag;
@@ -593,7 +708,10 @@ Marker SSOT stays `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` +
 - [x] **Phase 6**: BSB projection — proof: `bootctld: bsb sync (seq=` + `SELFTEST: bootctl bsb ok` gated in headless/smp1; keep-blk boot 2 reads the projected block (`nxboot: bsb ok (slot=a seq=8)`); reset three-boot lane green; 5 host tests incl. actuator-absorption fail-closed matrix (2026-08-30)
 - [x] **Phase 7**: apply engine v2 + offline feed + crown proof — proof: `just ci-os-ota` (gated in `test-all`): `updated: stage done (slot=b build=otaB…)` → `nxboot: verify ok (slot=b build=otaB… rbidx=2)` → `nxboot: jump slot=b` → `bootctld: commit ok (slot=b)` → `bootctld: rollback-min raised (1->2)` → `SELFTEST: ota flip ok`; headless deny lanes for untrusted/digest/downgrade; 10 host tests incl. the power-cut matrix (2026-08-31)
 - [x] **Phase 8**: backstop proofs + measured surface — proof: `SELFTEST: measured boot log ok` REQUIRED in the headless/smp1 ladders (slot cross-check against the authority); `just ci-os-ota-backstops` (gated in `test-all`): `ota-tamper` (`nxboot: verify FAIL (slot=b digest)` → fallback → full ladder), `ota-downgrade` (`nxboot: verify FAIL (slot=b rollback 0 < min 1)` → fallback), `ota-fallback` (four boots one uart: staged real os-B, bricked trials via `init: health withheld (fault fixture)` + QMP power-cycles, `nxboot: fallback (slot=b exhausted) -> slot=a`, `bootctld: rollback observed (trial exhausted)`, `SELFTEST: ota fallback ok`); host: exhaustion-observed shape matrix + backstop-arm CLI test (2026-08-31)
-- [ ] **Phase 9**: UI/CLI — proof: `SELFTEST: nx update status ok`
-- [ ] **Phase 10**: delta components — proof: `SELFTEST: ota delta ok`
+- [x] **Phase 9**: UI/CLI — proof: `SELFTEST: updates surface ok` REQUIRED headless/smp1 + `verify-nxupdate` post-pass in `ci-os-ota` (2026-09-01)
+- [x] **Phase 10 (kind 3)**: `boot-image-delta` — proof: `stage rejected (delta-base)` deny lane + `SELFTEST: ota delta stage ok` headless/smp1, RFC-0090 (2026-09-01); kind 4 `bundle-delta` → TASK-0035 (`SELFTEST: ota bundle delta ok`)
+- [x] **Phase B P0**: §12 normative + ADR-0060 (2026-09-03)
+- [ ] **Phase B P1–P5** (TASK-0321): pkgimg v3 + nxsv + builder; bundlemgrd verifier + init volume spawn (`bundlemgrd: system volume verified`, `init: spawn from volume svc=metricsd`); `just ci-os-ota-bundle` → `SELFTEST: ota bundle-set ok`; migration; boot-image floor
+- [ ] **TASK-0035**: stage journal/resume (`SELFTEST: ota stage resume ok`), reuse index, kind 4 (`SELFTEST: ota bundle delta ok`)
 - [ ] Tasks linked with stop conditions + proof commands (lane table in `tasks/IMPLEMENTATION-ORDER.md`).
 - [ ] Security-relevant negative tests exist (`test_reject_*`) for every stable reject reason.

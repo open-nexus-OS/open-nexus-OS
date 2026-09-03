@@ -1,6 +1,6 @@
 ---
 title: TASK-0321 OTA Phase B — verified system volume (system-a/b) + service migration out of the boot image + bundle-set updates with unchanged-bundle reuse
-status: Draft
+status: In Progress (P0 started 2026-09-03)
 owner: @runtime @security
 created: 2026-09-03
 updated: 2026-09-03
@@ -27,6 +27,12 @@ links:
 ---
 
 ## End-state rewrite 2026-09-03 (binding; supersedes the seed text below where they differ)
+
+**P0 DELIVERED 2026-09-03**: RFC-0089 §12 rewritten as the normative Phase B contract
+(§12.1 format, §12.2 NXSV layout, §12.3 verifier + pairing + spawner, §12.4 kinds/ordering/
+commit_set, §12.5 gates, §12.6 idempotency, §12.7 markers/rejects, §12.8 migration/budgets;
+§3 kinds table rows 2/4/6; open question resolved; Status-at-a-Glance Phase 9/10/B; checklist)
++ ADR-0060 (Accepted) + ADR index + CHANGELOG. Next: P1 (host formats + builder).
 
 Planned against verified repo reality (Explore + Plan 2026-09-03). Principle: every package is a
 direct step to the production system — no interim volume format, no second bundle registry, no

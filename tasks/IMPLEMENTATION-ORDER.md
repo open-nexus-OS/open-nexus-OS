@@ -500,13 +500,13 @@ wird production-grade auf das End-System gebaut (keine Interimslösung — Ledge
 Ledgern nachgeführt, nie geschätzt. Vokabular: ✅ delivered · ⤳ superseded · `Draft` /
 `In Progress` / `Done <date>` / `Delivered <date> (test-all green)`.
 
-### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 0/21 delivered · Tasks 0/5 Done
+### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 1/23 delivered · Tasks 0/5 Done
 
 Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 
 | # | Task / Paket | Inhalt (End-State) | Status |
 |---|---|---|---|
-| 1 | TASK-0321 P0 | RFC-0089 §12-Amendment (NXSV, Kind 6 `system-volume`, Ordnung + `commit_set`, Pairing, Gate-Matrix) + ADR-0060 (bundlemgrd = Verifier, init = Spawner) | Draft |
+| 1 | ✅ TASK-0321 P0 | RFC-0089 §12-Amendment (NXSV, Kind 6 `system-volume`, Ordnung + `commit_set`, Pairing, Gate-Matrix) + ADR-0060 (bundlemgrd = Verifier, init = Spawner) | Delivered 2026-09-03 (paper) |
 | 2 | TASK-0321 P1 | Host: pkgimg v3 (Bundle-Tabelle, per-Entry/Bundle-Digests, Launch-Params) + `bootfmt::nxsv` + `nx image build --system-bundles / verify / ota --bundle-set` + `scripts/build.sh` System-Bundles + Budget-Zeile `system-a` | Draft |
 | 3 | TASK-0321 P2 | OS: op-aware virtioblkd-Gates, bundlemgrd `volume.rs` (NXSV-Verify, Bundle-ELF über VMO), init `ServiceSource::Volume` + zweiter Spawn-Pass, Pilot **metricsd** vom Volume | Draft |
 | 4 | TASK-0321 P3 | OS: Kinds 2/6 Apply (`VolumeSink`/`VolumeBase`, Reuse, NXSV LAST, `restage clean`), Lane `ota-bundle` (zwei Boots, ein uart → `SELFTEST: ota bundle-set ok`) | Draft |

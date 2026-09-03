@@ -113,7 +113,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0073: App files surface contract seed (FILES permission ceiling-gated to the filemanager role + fail-closed route provisioning + vfsd namespace mediation)
 - RFC-0074: Display-mode authority seed (compositor OWNS the mode; fw_cfg `display-mode` SSOT + kernel-derived `SYSCALL_BOOT_DISPLAY_MODE`; gpud commands it, GET_DISPLAY_INFO demoted to validated capability — kills the GTK window-realize race)
 - RFC-0088: `.nxra` signed recovery action tokens (Ed25519 break-glass on the recovery ops surface; build-time-baked trust anchor + consume-before-act replay high-water mark + fail-closed no-clock windows; standing-capability-or-token model that never weakens standing paths)
-- RFC-0089: OTA v2 — component manifest (`.nxs` v2) + A/B boot images + `nxboot` first-stage loader + boot selection block (end-to-end OTA contract; supersedes RFC-0012 in part; bundle-set granularity contracted as Phase B without loader/trust/transport rework)
+- RFC-0089: OTA v2 — component manifest (`.nxs` v2) + A/B boot images + `nxboot` first-stage loader + boot selection block (end-to-end OTA contract; supersedes RFC-0012 in part; bundle-set granularity = Phase B, normative since 2026-09-03: pkgimg v3 system volume + signed NXSV descriptor verified by bundlemgrd, kinds 2/4/6, `commit_set`, op-aware gates — ADR-0060, execution TASK-0321 → TASK-0035)
 - RFC-0090: `.nxdelta` v1 boot-image delta stream format (`boot-image-delta` component kind 3; signature-bound delta payload + O(1) base binding to the loader-verified active NXBD + unchanged digest/readback/NXBD-last tail; stored ADDs in v1, zstd reserved behind RFC-0009 D4)
 
 ## Index
