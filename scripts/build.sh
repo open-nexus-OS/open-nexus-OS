@@ -193,6 +193,25 @@ prepare_service_payloads() {
     export INIT_LITE_SERVICE_LIST
   fi
 
+  # TASK-0321 (RFC-0089 §12): services listed in scripts/system-volume-services.txt
+  # ALSO ship as bundles on the verified system volume. With NEXUS_VOLUME_SPAWN=1
+  # (P2: init spawns them from the volume) they leave the embedded table.
+  if [[ "${NEXUS_VOLUME_SPAWN:-0}" == "1" ]]; then
+    local keep=()
+    IFS=',' read -r -a _all <<<"$INIT_LITE_SERVICE_LIST"
+    for raw in "${_all[@]}"; do
+      local s=${raw//[[:space:]]/}
+      [[ -z "$s" ]] && continue
+      if grep -qx "$s" <(sed -e 's/#.*//' -e '/^\s*$/d' scripts/system-volume-services.txt); then
+        echo "[build] $s spawns from the system volume (NEXUS_VOLUME_SPAWN=1)" >&2
+        continue
+      fi
+      keep+=("$s")
+    done
+    INIT_LITE_SERVICE_LIST="$(IFS=','; echo "${keep[*]}")"
+    export INIT_LITE_SERVICE_LIST
+  fi
+
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
     SERVICES=()
   else
@@ -246,6 +265,52 @@ prepare_service_payloads() {
 }
 
 # ---------------------------------------------------------------------------
+# prepare_system_bundles — TASK-0321 (RFC-0089 §12, ADR-0060): every service in
+# scripts/system-volume-services.txt becomes a `.nxb` bundle directory under
+# build/system-bundles/<svc>/ (ADR-0020 layout: manifest.nxb via nxb-pack from
+# a generated TOML, payload.elf = the cross-compiled service, meta/launch.json =
+# stack pages; the global pointer is derived from the ELF by `nx image`).
+# The launcher hands the directory to `nx image build --system-bundles`.
+# ---------------------------------------------------------------------------
+prepare_system_bundles() {
+  local list="scripts/system-volume-services.txt"
+  [[ -f "$list" ]] || return 0
+  local out_root="$ROOT/build/system-bundles"
+  rm -rf "$out_root"
+  local -a volume_services=()
+  mapfile -t volume_services < <(sed -e 's/#.*//' -e '/^\s*$/d' "$list")
+  [[ "${#volume_services[@]}" -eq 0 ]] && return 0
+  local nxb_pack="$TARGET_ROOT/release/nxb-pack"
+  (cd "$ROOT" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS \
+    cargo build --release -p nxb-pack >/dev/null)
+  for svc in "${volume_services[@]}"; do
+    local svc_upper
+    svc_upper=$(echo "$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+    local elf_path="$TARGET_ROOT/$TARGET/release/$svc"
+    if [[ ! -f "$elf_path" ]]; then
+      local -a cargo_args=(build -p "$svc" --target "$TARGET" --release --no-default-features --features os-lite)
+      require_or_build "$elf_path" "service:$svc" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}"
+    fi
+    local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
+    local stack_pages="${!stack_var:-8}"
+    local dir="$out_root/$svc"
+    mkdir -p "$dir/meta"
+    cat >"$dir/manifest.toml" <<EOF_TOML
+name = "$svc"
+version = "1.0.0"
+abilities = ["service"]
+caps = []
+min_sdk = "0.1.0"
+bundle_type = "service"
+EOF_TOML
+    "$nxb_pack" --toml "$dir/manifest.toml" "$elf_path" "$dir" >/dev/null
+    rm -f "$dir/manifest.toml"
+    printf '{ "stack_pages": %s }\n' "$stack_pages" >"$dir/meta/launch.json"
+    echo "[build] system bundle $svc -> $dir (stack_pages=$stack_pages)" >&2
+  done
+}
+
+# ---------------------------------------------------------------------------
 # build_kernel_and_init — build kernel + init-lite (with embedded service ELFs)
 # ---------------------------------------------------------------------------
 build_kernel_and_init() {
@@ -269,6 +334,7 @@ build_kernel_and_init() {
 build_all() {
   prepare_build_tmpdir
   prepare_service_payloads
+  prepare_system_bundles
   build_kernel_and_init
   # Post-build artifact verification
   if [[ ! -f "$KERNEL_ELF" ]]; then

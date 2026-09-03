@@ -31,7 +31,11 @@ nxfs = { path = "../../userspace/nxfs" }
 systemui = { path = "../../source/services/systemui" }
 capnp = { version = "0.24", default-features = false, features = ["alloc", "unaligned"] }
 tar = "0.4"
+# TASK-0321: system-volume builder — bundle manifests (ADR-0020) + ELF
+# launch params (same `object` logic as init-lite's build script).
+bundlemgr = { path = "../../userspace/bundlemgr" }
+object = { version = "0.36", features = ["write"] }
 
 [dev-dependencies]
-object = "0.36"
+nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
 tempfile = "3.23.0"

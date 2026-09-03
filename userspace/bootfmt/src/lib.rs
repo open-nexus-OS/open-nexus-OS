@@ -15,7 +15,9 @@
 //! OWNERS: @reliability @security @runtime
 //! PUBLIC API: nxbd::{Nxbd, encode/decode/sign/verify}, bsb::{Bsb,
 //!   encode/decode/pick, factory}, handoff::{Handoff, encode_page/decode}
-//!   (the ADR-0059 measured-boot page, written by nxboot, probed by neuron)
+//!   (the ADR-0059 measured-boot page, written by nxboot, probed by neuron),
+//!   nxsv::{Nxsv, encode/decode/sign/verify} (RFC-0089 §12.2 system-volume
+//!   descriptor — same shape as nxbd, own magic, verified by bundlemgrd)
 //! TEST_COVERAGE: unit tests below (goldens, roundtrips, tamper, torn
 //!   block, pick rule)
 //! ADR: docs/adr/0058-boot-selection-block-dual-actor-discipline.md,
@@ -40,6 +42,7 @@ pub enum FmtError {
 }
 
 pub mod handoff;
+pub mod nxsv;
 
 /// crc32 (IEEE, table-free) shared by the BSB block and the measured-boot
 /// handoff page — same polynomial as GPT.

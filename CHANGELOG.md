@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-03 (TASK-0321 P1: system-volume formats + builder)
+
+- `storage::pkgimg_bundles`: pkgimg v3 (`PKGIMGV3`) — per-entry sha256,
+  bundle table with contiguous 4 KiB-aligned windows, window sha256 (the
+  reuse unit) and launch params (`stack_pages`, `global_pointer`);
+  index-only parse for the boot-time read, lazy bundle/entry verification;
+  7 tests incl. the `test_reject_pkgimg_v3_*` suite.
+- `bootfmt::nxsv`: the RFC-0089 §12.2 system-volume descriptor codec
+  (sign/verify, layout golden, reserved fail-closed).
+- `nx image build --system-bundles <dir>` populates `system-a` (NXSV-last,
+  paired with boot-a) and writes `<out>.system-a.pkgimg`; `nx image verify`
+  verifies signature, pairing, volume/index digests and every bundle/entry
+  digest (`system_a.absent` on a factory-empty slot); `nx image ota
+  --bundle-set <dir>` emits `[boot-image, system-volume, bundle…]`
+  (kinds 6/2 constants in `updates::component_set`; device engine accepts
+  them from P3).
+- Build: `scripts/system-volume-services.txt` (SSOT, pilot metricsd),
+  `scripts/build.sh` emits `.nxb` bundle directories via nxb-pack, the
+  launcher hands them to `nx image build`, `check-image-budgets.sh` gains the
+  `system-a(vol)` row. Services stay embedded until P2 (`NEXUS_VOLUME_SPAWN`).
+- nx structure: `commands/image_ota.rs` split out; `tests/image_volume_cli.rs`.
+
 ### Added - 2026-09-03 (TASK-0321 P0: OTA Phase B contract — verified system volume)
 
 - RFC-0089 §12 is normative: pkgimg v3 system volume + signed `NXSV0001` root

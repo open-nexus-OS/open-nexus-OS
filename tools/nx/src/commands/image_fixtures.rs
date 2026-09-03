@@ -19,7 +19,8 @@ use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
 
 use crate::cli_image::ImageFixturesArgs;
-use crate::commands::image::{append_tar, read_seed, sha256, FileBlockDevice};
+use crate::commands::image::{read_seed, sha256, FileBlockDevice};
+use crate::commands::image_ota::append_tar;
 use crate::error::{ExecResult, ExitClass, NxError};
 
 /// Well-known UNTRUSTED publisher seed (test key, deliberately public —

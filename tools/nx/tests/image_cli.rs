@@ -9,7 +9,7 @@
 //! OWNERS: @reliability @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: 6 integration tests
+//! TEST_COVERAGE: 8 integration tests (system-volume tests: image_volume_cli.rs)
 //! ADR: docs/adr/0058-boot-selection-block-dual-actor-discipline.md
 
 use std::path::Path;
@@ -36,10 +36,20 @@ fn setup(dir: &Path) {
     std::fs::write(dir.join("kernel.bin"), kernel).expect("kernel");
 }
 
+/// Streams the file (384 MiB disk images — never slurped: the suite runs
+/// its tests in parallel and a few whole-image reads at once is an OOM).
 fn file_sha(path: &Path) -> [u8; 32] {
-    let bytes = std::fs::read(path).expect("read");
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).expect("open");
     let mut hasher = Sha256::new();
-    hasher.update(&bytes);
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf).expect("read");
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
     hasher.finalize().into()
 }
 

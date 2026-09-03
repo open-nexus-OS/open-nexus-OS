@@ -136,6 +136,26 @@ else
     fail=1
 fi
 
+# TASK-0321 (RFC-0089 §12.8, ADR-0060 D7): the system volume has its own row —
+# pkgimg v3 bytes vs the `system-a` partition minus the 4 KiB descriptor
+# region (32 MiB − 4 KiB). `nx image build --system-bundles` writes the volume
+# bytes next to the disk image as `nexus.system-a.pkgimg`. Bytes that MOVE
+# from init-lite(embedded) into system-a(volume) must show up here, not vanish
+# — that is the whole point of the row existing before the first migration.
+SYSVOL_FILE="build/nexus.system-a.pkgimg"
+SYSVOL_BUDGET=$((32 * 1024 * 1024 - 4096))
+if [[ -f "$SYSVOL_FILE" ]]; then
+    svsize=$(stat -c %s "$SYSVOL_FILE")
+    svpct=$((svsize * 100 / SYSVOL_BUDGET))
+    printf '%-14s %10d %10d %5d%%%s\n' "system-a(vol)" "$svsize" "$SYSVOL_BUDGET" "$svpct" \
+        "$( ((svsize > SYSVOL_BUDGET)) && echo '  OVER' || true)"
+    if ((svsize > SYSVOL_BUDGET)); then
+        fail=1
+    fi
+else
+    printf '%-14s %10s %10s %6s  (%s)\n' "system-a(vol)" "-" "-" "n/a" "no system volume built yet (build/nexus.system-a.pkgimg)"
+fi
+
 arena=$(grep -oP 'USER_VMO_ARENA_LEN: usize = \K[0-9]+ \* 1024 \* 1024' "$KERNEL_MM" 2>/dev/null | head -1 || true)
 [[ -n "$arena" ]] && echo "  (kernel user VMO arena: ${arena% \* 1024 \* 1024} MB — $KERNEL_MM)"
 

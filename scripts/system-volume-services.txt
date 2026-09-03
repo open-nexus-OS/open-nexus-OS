@@ -1,0 +1,17 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: SSOT of the boot services that ship as `.nxb` bundles on the
+# verified system volume (RFC-0089 §12, ADR-0060, TASK-0321). One service
+# name per line; `#` comments. `scripts/build.sh` emits
+# `build/system-bundles/<svc>/{manifest.nxb,payload.elf,meta/launch.json}`
+# for every entry and `nx image build --system-bundles` assembles them into
+# `system-a`. CORE (wave-1) services and execd's embedded app-host NEVER
+# appear here — recovery/safe boots must not depend on a volume
+# (`boot_graph::CORE`; a nexus-init host test mirrors this list).
+#
+# P1 (2026-09-03): bundles are EMITTED and shipped on the volume while the
+# same services stay embedded in init-lite; P2 flips the spawn source
+# (`NEXUS_VOLUME_SPAWN=1` removes them from INIT_LITE_SERVICE_LIST once
+# init spawns from the volume). Pilot = metricsd (non-CORE, SAFE_EXCLUDED).
+metricsd

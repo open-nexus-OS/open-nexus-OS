@@ -65,6 +65,13 @@ pub(crate) struct ImageBuildArgs {
     /// Optional nxfs seed image (copied into `data`).
     #[arg(long)]
     pub(crate) data: Option<PathBuf>,
+    /// RFC-0089 §12 (TASK-0321): directory of `.nxb` bundle directories
+    /// (`<dir>/<name>/{manifest.nxb,payload.elf,meta/}`) assembled into the
+    /// pkgimg v3 system volume on `system-a` (signed NXSV, paired with
+    /// boot-a). The volume bytes are also written next to `--out` as
+    /// `<out>.system-a.pkgimg` for the image-budget gate.
+    #[arg(long)]
+    pub(crate) system_bundles: Option<PathBuf>,
     #[arg(long)]
     pub(crate) json: bool,
 }
@@ -105,6 +112,12 @@ pub(crate) struct ImagePatchArgs {
     /// Anti-downgrade index for the refreshed NXBD.
     #[arg(long, default_value_t = 0)]
     pub(crate) rollback_index: u32,
+    /// RFC-0089 §12: re-pair the system volume with the refreshed boot
+    /// image (`--part boot-a` ⇒ `system-a`, `boot-b` ⇒ `system-b`) from
+    /// this bundle directory — the keep-blk/flasher write shape, so a
+    /// kept disk never carries a volume the new NXBD digest unpairs.
+    #[arg(long)]
+    pub(crate) system_bundles: Option<PathBuf>,
     #[arg(long)]
     pub(crate) json: bool,
 }
@@ -136,6 +149,12 @@ pub(crate) struct ImageOtaArgs {
     /// Anti-downgrade index carried by manifest AND NXBD (must match).
     #[arg(long, default_value_t = 0)]
     pub(crate) rollback_index: u32,
+    /// RFC-0089 §12 (TASK-0321): bundle-set container — the components
+    /// become `[boot-image(-delta), system-volume, bundle…]`, the volume
+    /// built from this directory of `.nxb` bundle directories and paired
+    /// with `--kernel` through the NXSV.
+    #[arg(long)]
+    pub(crate) bundle_set: Option<PathBuf>,
     #[arg(long)]
     pub(crate) json: bool,
 }

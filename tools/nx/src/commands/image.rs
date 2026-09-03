@@ -23,15 +23,15 @@ use std::path::Path;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use crate::cli::{
-    ImageAction, ImageArgs, ImageBuildArgs, ImageOtaArgs, ImagePatchArgs, ImageVerifyArgs,
-};
+use crate::cli::{ImageAction, ImageArgs, ImageBuildArgs, ImagePatchArgs, ImageVerifyArgs};
 use crate::error::{ExecResult, ExitClass, NxError};
 
 use storage::gpt::{
     find_partition_named, parse_gpt, write_gpt, Partition, GUID_NEXUS_BOOT, GUID_NEXUS_BSB,
-    GUID_NEXUS_DATA, GUID_NEXUS_STATE,
+    GUID_NEXUS_DATA, GUID_NEXUS_STATE, GUID_NEXUS_SYS,
 };
+
+use crate::commands::image_volume as volume;
 use storage::layout::{plan, NEXUS_DISK_BYTES};
 use storage::{BlockDevice, BlockError};
 
@@ -44,7 +44,7 @@ pub(crate) fn handle_image(args: ImageArgs) -> ExecResult {
         ImageAction::Build(a) => handle_build(a),
         ImageAction::Verify(a) => handle_verify(a),
         ImageAction::Patch(a) => handle_patch(a),
-        ImageAction::Ota(a) => handle_ota(a),
+        ImageAction::Ota(a) => crate::commands::image_ota::handle_ota(a),
         ImageAction::Fixtures(a) => crate::commands::image_fixtures::handle_fixtures(a),
         ImageAction::Backstop(a) => crate::commands::image_backstop::handle_backstop(a),
     }
@@ -72,7 +72,7 @@ impl FileBlockDevice {
         Ok(Self { file: RefCell::new(file), sectors: bytes / SECTOR as u64 })
     }
 
-    fn open_ro(path: &Path) -> std::io::Result<Self> {
+    pub(crate) fn open_ro(path: &Path) -> std::io::Result<Self> {
         let file = OpenOptions::new().read(true).open(path)?;
         let bytes = file.metadata()?.len();
         Ok(Self { file: RefCell::new(file), sectors: bytes / SECTOR as u64 })
@@ -277,6 +277,39 @@ fn handle_build(args: ImageBuildArgs) -> ExecResult {
     let nxbd = make_nxbd(&kernel, &args.build_id, args.rollback_index, &os_seed)?;
     write_boot_slot(&mut dev, &boot_a, &kernel, &nxbd)?;
 
+    // RFC-0089 §12 (TASK-0321): system-a = pkgimg v3 volume + NXSV paired
+    // with the boot-a image digest, NXSV-last; system-b stays zeroed.
+    let mut system_a = serde_json::Value::Null;
+    if let Some(dir) = &args.system_bundles {
+        let bundles = volume::load_bundle_dirs(dir)?;
+        let vol = volume::build_volume_bytes(&bundles)?;
+        let index =
+            storage::pkgimg_bundles::parse_index(&vol, &storage::pkgimg::PkgImgCaps::default())
+                .map_err(|e| {
+                    NxError::new(ExitClass::Internal, format!("image: volume index: {e}"))
+                })?;
+        let nxsv = volume::make_nxsv(
+            &vol,
+            &index,
+            sha256(&kernel),
+            &args.build_id,
+            args.rollback_index,
+            &os_seed,
+        )?;
+        let sys_a = part(&parts, &GUID_NEXUS_SYS, "system-a")?;
+        volume::write_volume_slot(&mut dev, &sys_a, &vol, &nxsv)?;
+        let side = args.out.with_extension("system-a.pkgimg");
+        std::fs::write(&side, &vol).map_err(|err| {
+            NxError::new(ExitClass::Internal, format!("image: write {}: {err}", side.display()))
+        })?;
+        system_a = json!({
+            "bundles": index.bundles.iter().map(|b| format!("{}@{}", b.bundle, b.version)).collect::<Vec<_>>(),
+            "volume_bytes": vol.len(),
+            "volume_sha256": hex(&sha256(&vol)),
+            "side_file": side.display().to_string(),
+        });
+    }
+
     let mut seeded = Vec::new();
     if let Some(state) = &args.state {
         let p = part(&parts, &GUID_NEXUS_STATE, "state")?;
@@ -296,6 +329,7 @@ fn handle_build(args: ImageBuildArgs) -> ExecResult {
         "kernel_bytes": kernel.len(),
         "kernel_sha256": hex(&sha256(&kernel)),
         "seeded": seeded,
+        "system_a": system_a,
     });
     Ok((
         ExitClass::Success,
@@ -366,6 +400,11 @@ fn handle_verify(args: ImageVerifyArgs) -> ExecResult {
     if digest != desc.image_sha256 {
         return Err(NxError::new(ExitClass::ValidationReject, "image: boot-a digest mismatch"));
     }
+    // system-a (RFC-0089 §12): absent (factory-empty) or fully verified +
+    // paired with the boot-a digest just streamed.
+    let sys_a = part(&parts, &GUID_NEXUS_SYS, "system-a")?;
+    let system_a = volume::verify_volume_slot(&dev, &sys_a, &pubkey, digest)?
+        .unwrap_or_else(|| json!({ "absent": true }));
 
     let data = json!({
         "image": args.image.display().to_string(),
@@ -385,6 +424,7 @@ fn handle_verify(args: ImageVerifyArgs) -> ExecResult {
             "image_size": desc.image_size,
             "image_sha256": hex(&desc.image_sha256),
         },
+        "system_a": system_a,
     });
     Ok((
         ExitClass::Success,
@@ -414,6 +454,35 @@ fn handle_patch(args: ImagePatchArgs) -> ExecResult {
     let slot = part(&parts, &GUID_NEXUS_BOOT, &args.part)?;
     let nxbd = make_nxbd(&kernel, &args.build_id, args.rollback_index, &os_seed)?;
     write_boot_slot(&mut dev, &slot, &kernel, &nxbd)?;
+    // RFC-0089 §12: the paired system slot follows the boot slot — a kept
+    // disk with a refreshed boot-a must not carry an unpaired system-a.
+    let mut system = serde_json::Value::Null;
+    if let Some(dir) = &args.system_bundles {
+        let sys_name = if args.part == "boot-a" { "system-a" } else { "system-b" };
+        let bundles = volume::load_bundle_dirs(dir)?;
+        let vol = volume::build_volume_bytes(&bundles)?;
+        let index =
+            storage::pkgimg_bundles::parse_index(&vol, &storage::pkgimg::PkgImgCaps::default())
+                .map_err(|e| {
+                    NxError::new(ExitClass::Internal, format!("image: volume index: {e}"))
+                })?;
+        let nxsv = volume::make_nxsv(
+            &vol,
+            &index,
+            sha256(&kernel),
+            &args.build_id,
+            args.rollback_index,
+            &os_seed,
+        )?;
+        let sys = part(&parts, &GUID_NEXUS_SYS, sys_name)?;
+        volume::write_volume_slot(&mut dev, &sys, &vol, &nxsv)?;
+        let side = args.image.with_extension(format!("{sys_name}.pkgimg"));
+        std::fs::write(&side, &vol).map_err(|err| {
+            NxError::new(ExitClass::Internal, format!("image: write {}: {err}", side.display()))
+        })?;
+        system =
+            json!({ "part": sys_name, "volume_bytes": vol.len(), "bundles": index.bundles.len() });
+    }
     dev.sync().map_err(|e| NxError::new(ExitClass::Internal, format!("image: sync ({e:?})")))?;
     Ok((
         ExitClass::Success,
@@ -424,114 +493,7 @@ fn handle_patch(args: ImagePatchArgs) -> ExecResult {
             "part": args.part,
             "build_id": args.build_id,
             "kernel_bytes": kernel.len(),
+            "system": system,
         })),
     ))
-}
-
-// ------------------------------------------------------------------- ota --
-
-fn handle_ota(args: ImageOtaArgs) -> ExecResult {
-    use ed25519_dalek::{Signer, SigningKey};
-
-    let publisher_seed = read_seed(&args.sign_publisher)?;
-    let os_seed = read_seed(&args.sign_os)?;
-    let kernel = read_kernel(&args.kernel)?;
-    let nxbd = make_nxbd(&kernel, &args.build_id, args.rollback_index, &os_seed)?;
-
-    // RFC-0090 delta emission: the payload becomes the deterministic
-    // `.nxdelta` stream base -> kernel; the component's size/sha256
-    // describe the STREAM (signature-bound), the NXBD keeps target truth.
-    let (kind, name, payload_path, payload) = match &args.delta_from {
-        Some(base_path) => {
-            let base = read_kernel(base_path)?;
-            let delta = nxdelta::make::make(&base, &kernel);
-            (
-                updates::component_set::KIND_BOOT_IMAGE_DELTA,
-                "boot-image-delta",
-                "boot.img.nxdelta",
-                delta,
-            )
-        }
-        None => (updates::component_set::KIND_BOOT_IMAGE, "boot-image", "boot.img", kernel.clone()),
-    };
-
-    // manifest.nxo — capnp ComponentManifest (RFC-0089 §3): ONE component;
-    // kindData carries the signed NXBD verbatim, so the publisher
-    // signature transitively binds it.
-    let publisher_key = SigningKey::from_bytes(&publisher_seed);
-    let publisher_pub = publisher_key.verifying_key().to_bytes();
-    let manifest_bytes = {
-        let mut builder = capnp::message::Builder::new_default();
-        let mut root =
-            builder.init_root::<updates::system_set_capnp::component_manifest::Builder>();
-        root.set_schema_version(2);
-        root.set_publisher_key_id(&publisher_pub[..8]);
-        root.set_build_id(&args.build_id);
-        root.set_rollback_index(args.rollback_index);
-        let mut list = root.init_components(1);
-        {
-            let mut c = list.reborrow().get(0);
-            c.set_kind(kind);
-            c.set_name(name);
-            c.set_size(payload.len() as u64);
-            c.set_sha256(&sha256(&payload));
-            c.set_payload_path(payload_path);
-            c.set_kind_data(&nxbd);
-        }
-        let mut out = Vec::new();
-        capnp::serialize::write_message(&mut out, &builder)
-            .map_err(|err| NxError::new(ExitClass::Internal, format!("image: capnp: {err}")))?;
-        out
-    };
-    let signature = publisher_key.sign(&manifest_bytes).to_bytes();
-
-    if let Some(parent) = args.out.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let file = File::create(&args.out).map_err(|err| {
-        NxError::new(ExitClass::Internal, format!("image: create {}: {err}", args.out.display()))
-    })?;
-    let mut tar = tar::Builder::new(file);
-    append_tar(&mut tar, "manifest.nxo", &manifest_bytes)?;
-    append_tar(&mut tar, "manifest.sig.ed25519", &signature)?;
-    append_tar(&mut tar, payload_path, &payload)?;
-    tar.into_inner()
-        .and_then(|f| f.sync_all())
-        .map_err(|err| NxError::new(ExitClass::Internal, format!("image: tar: {err}")))?;
-
-    Ok((
-        ExitClass::Success,
-        format!("image: ota container written to {} ({name})", args.out.display()),
-        args.json,
-        Some(json!({
-            "out": args.out.display().to_string(),
-            "build_id": args.build_id,
-            "rollback_index": args.rollback_index,
-            "publisher": hex(&publisher_pub),
-            "kind": name,
-            "payload_bytes": payload.len(),
-            "kernel_bytes": kernel.len(),
-            "kernel_sha256": hex(&sha256(&kernel)),
-        })),
-    ))
-}
-
-/// Deterministic tar entry (nxs-pack conventions: mode 644, uid/gid 0,
-/// mtime 0 — no wall clock in any archive byte).
-pub(crate) fn append_tar<W: Write>(
-    builder: &mut tar::Builder<W>,
-    path: &str,
-    bytes: &[u8],
-) -> Result<(), NxError> {
-    let mut header = tar::Header::new_gnu();
-    header.set_entry_type(tar::EntryType::Regular);
-    header.set_size(bytes.len() as u64);
-    header.set_mode(0o644);
-    header.set_uid(0);
-    header.set_gid(0);
-    header.set_mtime(0);
-    header.set_cksum();
-    builder
-        .append_data(&mut header, path, bytes)
-        .map_err(|err| NxError::new(ExitClass::Internal, format!("image: tar {path}: {err}")))
 }

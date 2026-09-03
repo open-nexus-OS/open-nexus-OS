@@ -32,7 +32,57 @@ links:
 (§12.1 format, §12.2 NXSV layout, §12.3 verifier + pairing + spawner, §12.4 kinds/ordering/
 commit_set, §12.5 gates, §12.6 idempotency, §12.7 markers/rejects, §12.8 migration/budgets;
 §3 kinds table rows 2/4/6; open question resolved; Status-at-a-Glance Phase 9/10/B; checklist)
-+ ADR-0060 (Accepted) + ADR index + CHANGELOG. Next: P1 (host formats + builder).
++ ADR-0060 (Accepted) + ADR index + CHANGELOG.
+
+**P1 DELIVERED 2026-09-03 (host formats + builder; honest recuts stated)**:
+- `storage::pkgimg_bundles` — pkgimg **v3** (`PKGIMGV3`): per-entry sha256 + bundle table
+  `{bundle, version, window off/len, stack_pages, gp, window sha256}`, deterministic 4 KiB-aligned
+  windows, `parse_superblock` / `parse_index` (superblock + index ONLY — the boot-time read, index
+  ≤ 256 KiB) + lazy `verify_bundle` / `verify_entry`; v2 parser untouched. 7 integration tests
+  (`tests/pkgimg_v3.rs`) incl. `test_reject_pkgimg_v3_{entry,bundle}_digest_mismatch`,
+  `_bundle_table_out_of_bounds`, `_launch_row_without_bundle`, `_parser_on_v2_image`.
+- `bootfmt::nxsv` — NXSV codec (RFC-0089 §12.2 layout golden, sign/verify, reserved fail-closed,
+  NXBD magic rejected): `test_reject_nxsv_{sig_and_wrong_key,reserved_and_magic}`.
+- `nx image build --system-bundles <dir>` (bundle dirs per ADR-0020: `manifest.nxb` gives
+  name/version via `bundlemgr::Manifest`, `meta/launch.json` `{stack_pages}` marks a spawnable
+  service, `global_pointer` from the ELF with init-lite's `object` logic) → volume on `system-a`
+  NXSV-LAST, side file `<out>.system-a.pkgimg` for the budget gate; `nx image verify` walks
+  NXSV sig → pairing with the streamed boot-a digest → volume + index digests → every bundle +
+  entry digest, reports `system_a: {absent}` on a factory-empty slot; `nx image ota --bundle-set
+  <dir>` emits `[boot-image(-delta), system-volume(kind 6, payload = superblock+index, kindData =
+  NXSV), bundle(kind 2, payload = window)…]`. `updates::component_set` gains the kind constants
+  2/4/6 (engine still rejects them as `component kind unsupported` until P3 — never skipped).
+  Tests `tests/image_volume_cli.rs`: `system_volume_build_is_deterministic_and_verifies`,
+  `verify_rejects_tampered_and_unpaired_system_volume`, `bundle_set_container_decodes_kinds_2_and_6`.
+- `scripts/system-volume-services.txt` (SSOT, pilot `metricsd`); `scripts/build.sh`
+  `prepare_system_bundles` (nxb-pack `--toml` manifest, payload.elf, `meta/launch.json` from the
+  service's stack pages) → `build/system-bundles/<svc>/`; launcher passes `--system-bundles`;
+  `scripts/check-image-budgets.sh` row `system-a(vol)` (32 MiB − 4 KiB) from
+  `build/nexus.system-a.pkgimg`.
+- Recuts: the bundle-set QEMU fixture (`bundle-set.nxs` in `image fixtures`) lands with P3 (the
+  fixture set self-verifies through the device engine, which accepts kinds 2/6 only from P3);
+  `--reuse-from` is TASK-0035 P2; in P1 the listed services ship on the volume AND stay embedded —
+  `NEXUS_VOLUME_SPAWN=1` (P2 default) removes them from `INIT_LITE_SERVICE_LIST`.
+- Ratchet splits: `tools/nx/src/commands/image_ota.rs` (ota + tar), tests split into
+  `image_volume_cli.rs`; test hashing streams the 384 MiB images (parallel whole-file reads were an
+  OOM kill on a 16 GB host).
+- `nx image patch --part boot-a --system-bundles <dir>` refreshes the PAIRED system slot with the
+  boot slot (the keep-blk / flasher write shape); the launcher's keep-blk branch uses it. Test:
+  patch without the flag ⇒ verify rejects `pair`, with the flag ⇒ green again.
+- Proof (2026-09-03): `cargo test -p storage -p bootfmt -p nx` green (7 + 12 + 8/3/4);
+  `just check` green (ratchet splits); `just test-os headless` builds the disk with `system-a`
+  populated (`[build] system bundle metricsd -> build/system-bundles/metricsd (stack_pages=1)`)
+  and the baseline ladder is unchanged (`verify-uart ok`; one earlier run on a loaded host —
+  load 9.6 during builds — missed the timing-sensitive `SELFTEST: i18n switch ok`, a known
+  pattern in 27 of 179 headless logs, green on re-run). Fresh image verified paired:
+  `system_a: build fresh-1, paired, volume 82342 B, bundle metricsd@1.0.0 stack_pages=1
+  gp=0x22368`. FINDING: after a headless run the disk is NOT paired any more — the OTA selftest
+  lane stages fixtures, flips to b, commits, stages `fixt-b` back into boot-a; pairing is a
+  fresh-build/flasher property until the bundle-set fixture (P3) ships a volume with every image.
+  Budget row: `system-a(vol) 82342 / 33550336 (0%)`, init-lite unchanged (metricsd still
+  embedded until P2).
+
+Next: P2 (OS verifier + loader + pilot).
 
 Planned against verified repo reality (Explore + Plan 2026-09-03). Principle: every package is a
 direct step to the production system — no interim volume format, no second bundle registry, no

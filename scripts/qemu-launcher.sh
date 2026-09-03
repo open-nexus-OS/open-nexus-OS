@@ -194,9 +194,15 @@ prepare_blk_image() {
   if [[ "$NEXUS_KEEP_BLK" == "1" && -f "$QEMU_BLK_IMG" ]]; then
     # Cold-boot persistence: keep state/data, refresh the boot slot to the
     # freshly built kernel (the end-state flasher write shape).
+    # TASK-0321: the paired system volume follows the refreshed boot slot
+    # (otherwise the new NXBD digest unpairs a kept system-a).
+    local -a sysvol=()
+    if [[ -d "$ROOT/build/system-bundles" ]]; then
+      sysvol=(--system-bundles "$ROOT/build/system-bundles")
+    fi
     "$nx_bin" image patch --image "$QEMU_BLK_IMG" --part boot-a \
       --kernel "$KERNEL_BIN" --sign "$sign_key" --build-id "$build_id" \
-      --rollback-index 1 >/dev/null
+      --rollback-index 1 "${sysvol[@]}" >/dev/null
   else
     # TASK-0179: factory data partition ships the OTA fixture set under
     # /updates/ (trusted/untrusted/tampered/downgrade + the real os-B
@@ -208,9 +214,15 @@ prepare_blk_image() {
     # rollback-index 1 (not 0): the factory floor equals the shipped
     # image's index, so a container at index 0 is a REAL downgrade and the
     # anti-downgrade gate is testable on a fresh device.
+    # TASK-0321 (RFC-0089 §12): the system volume (system-a) from the
+    # bundles build.sh emitted, paired with this boot image via the NXSV.
+    local -a sysvol=()
+    if [[ -d "$ROOT/build/system-bundles" ]]; then
+      sysvol=(--system-bundles "$ROOT/build/system-bundles")
+    fi
     "$nx_bin" image build --kernel "$KERNEL_BIN" --out "$QEMU_BLK_IMG" \
       --sign "$sign_key" --build-id "$build_id" --rollback-index 1 \
-      --data "$ROOT/build/data-seed.img" >/dev/null
+      --data "$ROOT/build/data-seed.img" "${sysvol[@]}" >/dev/null
     # TASK-0289-B: arm a loader-backstop trial (boot-b image nxboot MUST
     # reject + BSB next=b). Fresh-build path only — the armed BSB is the
     # lane's precondition, a kept disk would carry stale runtime state.

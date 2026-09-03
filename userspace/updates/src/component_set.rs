@@ -40,9 +40,17 @@ pub const MAX_COMPONENTS_PER_SET: usize = 256;
 /// Streaming chunk (the pipeline's bounded unit of work).
 pub const APPLY_CHUNK_BYTES: usize = 64 * 1024;
 
-/// Component kinds (RFC-0089 §3). Kind 2 (`bundle`) stays reserved for
-/// Phase B; kind 3 is the RFC-0090 delta.
+/// Component kinds (RFC-0089 §3). Kinds 2/4/6 are the Phase B seam
+/// (§12, TASK-0321/0035): emitted by `nx image ota --bundle-set` since P1,
+/// accepted by the device engine from P3 — until then they reject as
+/// `component kind unsupported` (never skipped).
 pub const KIND_BOOT_IMAGE: u8 = 1;
+/// One bundle's data-region window of the system volume (§12.4).
+pub const KIND_BUNDLE: u8 = 2;
+/// `.nxdelta` per bundle, base = the bundle window in the ACTIVE volume.
+pub const KIND_BUNDLE_DELTA: u8 = 4;
+/// pkgimg v3 superblock + index; `kind_data` = the signed NXSV (§12.2).
+pub const KIND_SYSTEM_VOLUME: u8 = 6;
 /// RFC-0090: target reconstructed from the ACTIVE slot bytes + a
 /// `.nxdelta` stream. The component's `size`/`sha256` describe the DELTA
 /// STREAM (signature-bound payload); target truth rides the NXBD in

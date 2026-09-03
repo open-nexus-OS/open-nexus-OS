@@ -158,6 +158,10 @@ pub mod remote_blk;
 /// Deterministic PackageFS image v2 (`pkgimg`) format helpers.
 pub mod pkgimg;
 
+/// `pkgimg` v3 — system-volume image with bundle table + launch params
+/// (RFC-0089 §12.1, TASK-0321).
+pub mod pkgimg_bundles;
+
 /// Bounded read-only GPT parsing + `PartitionView` (ADR-0044).
 pub mod gpt;
 

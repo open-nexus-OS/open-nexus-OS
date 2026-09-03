@@ -16,10 +16,10 @@ use core::fmt;
 
 use sha2::{Digest, Sha256};
 
-const MAGIC: &[u8; 8] = b"PKGIMGV2";
-const VERSION: u16 = 2;
-const SUPERBLOCK_LEN: usize = 8 + 2 + 2 + 8 + 8 + 8 + 8 + 32;
-const ALIGNMENT: usize = 4096;
+pub(crate) const MAGIC: &[u8; 8] = b"PKGIMGV2";
+pub(crate) const VERSION: u16 = 2;
+pub(crate) const SUPERBLOCK_LEN: usize = 8 + 2 + 2 + 8 + 8 + 8 + 8 + 32;
+pub(crate) const ALIGNMENT: usize = 4096;
 
 /// Hard caps used by parser/builder for deterministic rejection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +151,10 @@ pub enum PkgImgError {
     IndexCapExceeded,
     /// Duplicate `(bundle,version,path)` key.
     DuplicateEntry,
+    /// v3: a bundle window does not hash to its index digest.
+    BundleDigestMismatch,
+    /// v3: a file entry does not hash to its index digest.
+    EntryDigestMismatch,
 }
 
 impl fmt::Display for PkgImgError {
@@ -163,11 +167,13 @@ impl fmt::Display for PkgImgError {
             Self::PathTraversalOrEmptySegment => write!(f, "path traversal or empty segment"),
             Self::IndexCapExceeded => write!(f, "index cap exceeded"),
             Self::DuplicateEntry => write!(f, "duplicate entry"),
+            Self::BundleDigestMismatch => write!(f, "bundle digest mismatch"),
+            Self::EntryDigestMismatch => write!(f, "entry digest mismatch"),
         }
     }
 }
 
-fn align_up(value: usize, alignment: usize) -> usize {
+pub(crate) fn align_up(value: usize, alignment: usize) -> usize {
     if alignment == 0 {
         return value;
     }
@@ -179,7 +185,11 @@ fn align_up(value: usize, alignment: usize) -> usize {
     }
 }
 
-fn sanitize_component(label: &str, value: &str, caps: &PkgImgCaps) -> Result<String, PkgImgError> {
+pub(crate) fn sanitize_component(
+    label: &str,
+    value: &str,
+    caps: &PkgImgCaps,
+) -> Result<String, PkgImgError> {
     let trimmed = value.trim();
     if trimmed.is_empty() || trimmed.len() > caps.max_name_len {
         return Err(PkgImgError::IndexCapExceeded);
@@ -191,7 +201,7 @@ fn sanitize_component(label: &str, value: &str, caps: &PkgImgCaps) -> Result<Str
     Ok(trimmed.to_string())
 }
 
-fn sanitize_path(path: &str, caps: &PkgImgCaps) -> Result<String, PkgImgError> {
+pub(crate) fn sanitize_path(path: &str, caps: &PkgImgCaps) -> Result<String, PkgImgError> {
     let trimmed = path.trim_matches('/');
     if trimmed.is_empty() || trimmed.len() > caps.max_path_len {
         return Err(PkgImgError::IndexCapExceeded);
@@ -206,36 +216,40 @@ fn sanitize_path(path: &str, caps: &PkgImgCaps) -> Result<String, PkgImgError> {
     Ok(clean.join("/"))
 }
 
-fn write_u16(dst: &mut Vec<u8>, value: u16) {
+pub(crate) fn write_u16(dst: &mut Vec<u8>, value: u16) {
     dst.extend_from_slice(&value.to_le_bytes());
 }
 
-fn write_u32(dst: &mut Vec<u8>, value: u32) {
+pub(crate) fn write_u32(dst: &mut Vec<u8>, value: u32) {
     dst.extend_from_slice(&value.to_le_bytes());
 }
 
-fn write_u64(dst: &mut Vec<u8>, value: u64) {
+pub(crate) fn write_u64(dst: &mut Vec<u8>, value: u64) {
     dst.extend_from_slice(&value.to_le_bytes());
 }
 
-fn read_exact<'a>(bytes: &'a [u8], off: &mut usize, len: usize) -> Result<&'a [u8], PkgImgError> {
+pub(crate) fn read_exact<'a>(
+    bytes: &'a [u8],
+    off: &mut usize,
+    len: usize,
+) -> Result<&'a [u8], PkgImgError> {
     let end = off.checked_add(len).ok_or(PkgImgError::Malformed("offset overflow"))?;
     let out = bytes.get(*off..end).ok_or(PkgImgError::Malformed("truncated"))?;
     *off = end;
     Ok(out)
 }
 
-fn read_u16(bytes: &[u8], off: &mut usize) -> Result<u16, PkgImgError> {
+pub(crate) fn read_u16(bytes: &[u8], off: &mut usize) -> Result<u16, PkgImgError> {
     let data = read_exact(bytes, off, 2)?;
     Ok(u16::from_le_bytes([data[0], data[1]]))
 }
 
-fn read_u32(bytes: &[u8], off: &mut usize) -> Result<u32, PkgImgError> {
+pub(crate) fn read_u32(bytes: &[u8], off: &mut usize) -> Result<u32, PkgImgError> {
     let data = read_exact(bytes, off, 4)?;
     Ok(u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
 }
 
-fn read_u64(bytes: &[u8], off: &mut usize) -> Result<u64, PkgImgError> {
+pub(crate) fn read_u64(bytes: &[u8], off: &mut usize) -> Result<u64, PkgImgError> {
     let data = read_exact(bytes, off, 8)?;
     Ok(u64::from_le_bytes([data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]]))
 }
