@@ -60,10 +60,9 @@ pub(crate) fn handle_stage_source(state: &mut UpdatedState, frame: &[u8]) -> Vec
         Ok(source) => source,
         Err(reason) => return stage_reject(reason),
     };
-    let mut sink = match crate::apply_os::SlotSink::attach(inactive) {
-        Ok(sink) => sink,
-        Err(reason) => return stage_reject(reason),
-    };
+    // TASK-0034: per-kind dispatch — kind 1 stays the plain SlotSink,
+    // kind 3 reconstructs from the ACTIVE slot through the delta adapter.
+    let mut sink = crate::delta_os::StageSink::new(active, inactive);
 
     // Transport witness: the digest of the bytes THIS service received.
     // `nx image fixtures` prints the same 8 bytes for every container it
@@ -105,7 +104,15 @@ pub(crate) fn handle_stage_source(state: &mut UpdatedState, frame: &[u8]) -> Vec
     );
     match outcome {
         Ok(manifest) => {
-            emit_bytes(b"updated: component boot-image verified (build=");
+            emit_bytes(b"updated: component ");
+            emit_bytes(
+                if manifest.component_kind == updates::component_set::KIND_BOOT_IMAGE_DELTA {
+                    b"boot-image-delta".as_slice()
+                } else {
+                    b"boot-image".as_slice()
+                },
+            );
+            emit_bytes(b" verified (build=");
             let id8 = build_id8(&manifest.build_id);
             emit_bytes(&id8);
             emit_bytes(b")\n");
@@ -257,6 +264,9 @@ fn reject_code(reason: updates::component_set::RejectReason) -> u8 {
         R::Downgrade => 7,
         R::Io => 8,
         R::SlotActive => 9,
+        // RFC-0090 delta lane (TASK-0034).
+        R::DeltaFormat => 10,
+        R::DeltaBase => 11,
     }
 }
 

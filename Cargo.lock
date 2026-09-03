@@ -2859,6 +2859,7 @@ dependencies = [
  "logd",
  "nexus-config",
  "nxcd",
+ "nxdelta",
  "nxfs",
  "nxra",
  "nxsym",
@@ -2919,6 +2920,21 @@ dependencies = [
  "serde",
  "serde_json",
  "zstd",
+]
+
+[[package]]
+name = "nxdelta"
+version = "0.1.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
+name = "nxdelta_host"
+version = "0.1.0"
+dependencies = [
+ "nxdelta",
+ "sha2",
 ]
 
 [[package]]
@@ -4687,6 +4703,7 @@ dependencies = [
  "capnp",
  "capnpc",
  "ed25519-dalek",
+ "nxdelta",
  "sha2",
 ]
 
@@ -4698,6 +4715,7 @@ dependencies = [
  "capnp",
  "ed25519-dalek",
  "nexus-idl-runtime",
+ "nxdelta",
  "sha2",
  "tar",
  "updates",

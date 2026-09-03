@@ -47,6 +47,12 @@ struct ContainerSpec<'a> {
     /// jumping into 256 KiB of pattern bytes. Only `os-B.nxs` — the real
     /// kernel the crown lane flips to — carries the true entry address.
     load_addr: u64,
+    /// RFC-0090 (TASK-0034): `Some(base)` emits a `boot-image-delta`
+    /// container (kind 3) whose payload is the `.nxdelta` stream
+    /// base -> `payload`; the NXBD still describes the TARGET. The device
+    /// binds the stream to its ACTIVE NXBD, so a base other than the
+    /// RUNNING image is the `delta-base` deny fixture.
+    delta_from: Option<Vec<u8>>,
 }
 
 /// The kernel entry contract (RFC-0089 §5 / ADR-0059).
@@ -72,6 +78,8 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
     // tied to the kernel hash).
     let suffix = args.build_id.strip_prefix("dev-").unwrap_or(&args.build_id);
     let build_b = format!("otaB{}", truncate_id(suffix, 26));
+    // TASK-0034: the delta fixtures bind to the RUNNING image's bytes.
+    let kernel_for_delta = kernel.clone();
     let mut kernel_b = kernel;
     let mut trailer = [0u8; 512];
     trailer[..7].copy_from_slice(b"NXBUILD");
@@ -89,6 +97,7 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             publisher_seed,
             tamper: false,
             load_addr: UNBOOTABLE_LOAD_ADDR,
+            delta_from: None,
         },
         ContainerSpec {
             name: "os-fixture-untrusted.nxs",
@@ -98,6 +107,7 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             publisher_seed: UNTRUSTED_PUBLISHER_SEED,
             tamper: false,
             load_addr: UNBOOTABLE_LOAD_ADDR,
+            delta_from: None,
         },
         ContainerSpec {
             name: "os-fixture-tampered.nxs",
@@ -107,6 +117,7 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             publisher_seed,
             tamper: true,
             load_addr: UNBOOTABLE_LOAD_ADDR,
+            delta_from: None,
         },
         ContainerSpec {
             name: "os-fixture-downgrade.nxs",
@@ -118,6 +129,34 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             publisher_seed,
             tamper: false,
             load_addr: UNBOOTABLE_LOAD_ADDR,
+            delta_from: None,
+        },
+        // TASK-0034 (RFC-0090) delta lane fixtures. The happy-path target
+        // is a 64 KiB prefix of the RUNNING image plus a small literal
+        // tail — one real COPY window read back from the active slot and
+        // one ADD, small enough for the headless time budget; the
+        // unbootable load_addr keeps a stray selection loudly refused.
+        ContainerSpec {
+            name: "os-fixture-delta.nxs",
+            build_id: "fixt-dl".into(),
+            rollback_index: 1,
+            payload: Vec::new(), // filled below (needs the kernel bytes)
+            publisher_seed,
+            tamper: false,
+            load_addr: UNBOOTABLE_LOAD_ADDR,
+            delta_from: None, // filled below
+        },
+        // Deny fixture: a delta whose base is NOT the running image — the
+        // device must reject `delta-base` before any write.
+        ContainerSpec {
+            name: "os-fixture-deltabase.nxs",
+            build_id: "fixt-dbx".into(),
+            rollback_index: 1,
+            payload: Vec::new(), // filled below
+            publisher_seed,
+            tamper: false,
+            load_addr: UNBOOTABLE_LOAD_ADDR,
+            delta_from: None, // filled below
         },
         ContainerSpec {
             name: "os-B.nxs",
@@ -129,8 +168,27 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             publisher_seed,
             tamper: false,
             load_addr: REAL_LOAD_ADDR,
+            delta_from: None,
         },
     ];
+
+    // Fill the delta specs (they need the kernel bytes read above).
+    let mut specs = specs;
+    {
+        let mut delta_target = kernel_for_delta[..kernel_for_delta.len().min(64 * 1024)].to_vec();
+        delta_target.extend_from_slice(&fixture_payload()[..4096]);
+        for spec in specs.iter_mut() {
+            if spec.name == "os-fixture-delta.nxs" {
+                spec.payload = delta_target.clone();
+                spec.delta_from = Some(kernel_for_delta.clone());
+            } else if spec.name == "os-fixture-deltabase.nxs" {
+                spec.payload = delta_target.clone();
+                // Deliberately the WRONG base: the stream binds to these
+                // bytes, the device's active NXBD names the real kernel.
+                spec.delta_from = Some(fixture_payload());
+            }
+        }
+    }
 
     // Assemble the nxfs seed (identical geometry to the mounted data
     // partition: 512-byte sectors, layout-SSOT size).
@@ -277,6 +335,23 @@ fn build_container(spec: &ContainerSpec<'_>, os_seed: &[u8; 32]) -> Result<Vec<u
         os_seed,
     );
 
+    // RFC-0090: a delta spec ships the `.nxdelta` stream as its payload
+    // entry; the NXBD above still describes the TARGET (spec.payload).
+    let (kind, name, payload_path, entry_payload) = match &spec.delta_from {
+        Some(base) => (
+            updates::component_set::KIND_BOOT_IMAGE_DELTA,
+            "boot-image-delta",
+            "boot.img.nxdelta",
+            nxdelta::make::make(base, &spec.payload),
+        ),
+        None => (
+            updates::component_set::KIND_BOOT_IMAGE,
+            "boot-image",
+            "boot.img",
+            spec.payload.clone(),
+        ),
+    };
+
     let publisher_key = SigningKey::from_bytes(&spec.publisher_seed);
     let publisher_pub = publisher_key.verifying_key().to_bytes();
     let manifest_bytes = {
@@ -290,11 +365,11 @@ fn build_container(spec: &ContainerSpec<'_>, os_seed: &[u8; 32]) -> Result<Vec<u
         let mut list = root.init_components(1);
         {
             let mut c = list.reborrow().get(0);
-            c.set_kind(1);
-            c.set_name("boot-image");
-            c.set_size(spec.payload.len() as u64);
-            c.set_sha256(&sha256(&spec.payload));
-            c.set_payload_path("boot.img");
+            c.set_kind(kind);
+            c.set_name(name);
+            c.set_size(entry_payload.len() as u64);
+            c.set_sha256(&sha256(&entry_payload));
+            c.set_payload_path(payload_path);
             c.set_kind_data(&nxbd);
         }
         let mut out = Vec::new();
@@ -304,7 +379,7 @@ fn build_container(spec: &ContainerSpec<'_>, os_seed: &[u8; 32]) -> Result<Vec<u
     };
     let signature = publisher_key.sign(&manifest_bytes).to_bytes();
 
-    let mut payload = spec.payload.clone();
+    let mut payload = entry_payload;
     if spec.tamper {
         // Post-signature flip: signature + manifest stay valid, the
         // streamed digest gate must catch it.
@@ -317,7 +392,7 @@ fn build_container(spec: &ContainerSpec<'_>, os_seed: &[u8; 32]) -> Result<Vec<u
         let mut tar = tar::Builder::new(&mut tar_bytes);
         append_tar(&mut tar, "manifest.nxo", &manifest_bytes)?;
         append_tar(&mut tar, "manifest.sig.ed25519", &signature)?;
-        append_tar(&mut tar, "boot.img", &payload)?;
+        append_tar(&mut tar, payload_path, &payload)?;
         tar.finish()
             .map_err(|err| NxError::new(ExitClass::Internal, format!("fixtures: tar: {err}")))?;
     }

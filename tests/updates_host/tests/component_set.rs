@@ -249,7 +249,7 @@ fn test_reject_component_kind_unsupported() {
         root.set_rollback_index(1);
         let mut list = root.init_components(1);
         let mut c = list.reborrow().get(0);
-        c.set_kind(3); // boot-image-delta: reserved, not built
+        c.set_kind(2); // bundle: reserved for Phase B, not built (3 is the RFC-0090 delta now)
         c.set_name("delta");
         c.set_size(kernel.len() as u64);
         c.set_sha256(&sha256(&kernel));

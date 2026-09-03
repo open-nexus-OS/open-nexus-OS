@@ -24,6 +24,7 @@ nxra = { path = "../../userspace/nxra" }
 ed25519-dalek = "2"
 bootfmt = { path = "../../userspace/bootfmt" }
 updates = { path = "../../userspace/updates" }
+nxdelta = { path = "../../userspace/nxdelta" }
 nxfs = { path = "../../userspace/nxfs" }
 capnp = { version = "0.24", default-features = false, features = ["alloc", "unaligned"] }
 tar = "0.4"

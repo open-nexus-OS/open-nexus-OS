@@ -39,6 +39,7 @@ pub mod system_set_capnp {
 }
 
 pub mod component_set;
+pub mod delta_apply;
 pub mod system_set;
 
 /// Device publisher trust anchor, baked at build time from

@@ -59,8 +59,8 @@ const SOURCE_MAX_BYTES: usize = 56 * 1024 * 1024;
 /// Bounded splice-header poll (yield between attempts).
 const SPLICE_POLL_MAX: u32 = 400_000;
 /// Slot geometry (RFC-0089 §5): NXBD at sector 0, image from sector 8.
-const SECTOR: usize = 512;
-const IMAGE_START_SECTOR: u64 = 8;
+pub(crate) const SECTOR: usize = 512;
+pub(crate) const IMAGE_START_SECTOR: u64 = 8;
 
 /// A mapped staging source (VMO handle + read-only mapping).
 pub(crate) struct MappedSource {

@@ -41,6 +41,8 @@ mod policy_client;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod apply_os;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod delta_os;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod mapmem;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;

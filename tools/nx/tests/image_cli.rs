@@ -312,3 +312,52 @@ fn backstop_arms_the_alternate_bsb_block_and_keeps_the_floor() {
     assert_eq!(bsb.tries_left, 2);
     assert_eq!(bsb.rollback_min_index, 1);
 }
+
+/// TASK-0034 (RFC-0090): `--delta-from` emits a kind-3 container whose
+/// payload is the delta stream — small for an append-shaped change, and
+/// byte-identical on re-emission (determinism is the format's DoD).
+#[test]
+fn ota_delta_emission_is_deterministic_and_small() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    setup(dir.path());
+    let mut kernel2 = std::fs::read(dir.path().join("kernel.bin")).expect("kernel");
+    kernel2.extend_from_slice(&[0xA5u8; 4096]);
+    std::fs::write(dir.path().join("kernel2.bin"), kernel2).expect("kernel2");
+    let emit = |out: &str| {
+        run_nx(
+            &[
+                "image",
+                "ota",
+                "--kernel",
+                "kernel2.bin",
+                "--delta-from",
+                "kernel.bin",
+                "--out",
+                out,
+                "--sign-publisher",
+                "pub.seed",
+                "--sign-os",
+                "os.seed",
+                "--build-id",
+                "dev-D",
+                "--rollback-index",
+                "2",
+                "--json",
+            ],
+            dir.path(),
+        )
+    };
+    let first = emit("d1.nxs");
+    assert!(first.status.success(), "delta ota: {first:?}");
+    let v: serde_json::Value = serde_json::from_slice(&first.stdout).expect("json");
+    assert_eq!(v["data"]["kind"], "boot-image-delta");
+    let payload = v["data"]["payload_bytes"].as_u64().expect("payload");
+    let kernel = v["data"]["kernel_bytes"].as_u64().expect("kernel");
+    assert!(payload * 10 < kernel, "append-shape delta must be tiny: {payload} vs {kernel}");
+    assert!(emit("d2.nxs").status.success());
+    assert_eq!(
+        file_sha(&dir.path().join("d1.nxs")),
+        file_sha(&dir.path().join("d2.nxs")),
+        "emit twice must be byte-identical"
+    );
+}

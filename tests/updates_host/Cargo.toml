@@ -6,6 +6,7 @@ license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
 
 [dependencies]
+nxdelta = { path = "../../userspace/nxdelta" }
 capnp = "0.24"
 ed25519-dalek = "2"
 nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }

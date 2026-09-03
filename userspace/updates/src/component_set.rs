@@ -40,11 +40,17 @@ pub const MAX_COMPONENTS_PER_SET: usize = 256;
 /// Streaming chunk (the pipeline's bounded unit of work).
 pub const APPLY_CHUNK_BYTES: usize = 64 * 1024;
 
-/// Component kinds (RFC-0089 §3). v1 builds exactly `boot-image`.
+/// Component kinds (RFC-0089 §3). Kind 2 (`bundle`) stays reserved for
+/// Phase B; kind 3 is the RFC-0090 delta.
 pub const KIND_BOOT_IMAGE: u8 = 1;
+/// RFC-0090: target reconstructed from the ACTIVE slot bytes + a
+/// `.nxdelta` stream. The component's `size`/`sha256` describe the DELTA
+/// STREAM (signature-bound payload); target truth rides the NXBD in
+/// `kind_data` and is enforced by the sink's readback gate.
+pub const KIND_BOOT_IMAGE_DELTA: u8 = 3;
 
-/// Stable reject vocabulary (RFC-0089 §8) — `label()` is the marker/audit
-/// string, never reworded.
+/// Stable reject vocabulary (RFC-0089 §8 + RFC-0090) — `label()` is the
+/// marker/audit string, never reworded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RejectReason {
     UntrustedPublisher,
@@ -56,6 +62,11 @@ pub enum RejectReason {
     Downgrade,
     Io,
     SlotActive,
+    /// RFC-0090: malformed `.nxdelta` stream (bad header/tag/bounds/END).
+    DeltaFormat,
+    /// RFC-0090: the stream's base binding does not match the ACTIVE
+    /// slot's loader-verified NXBD (digest or size).
+    DeltaBase,
 }
 
 impl RejectReason {
@@ -70,6 +81,8 @@ impl RejectReason {
             Self::Downgrade => "downgrade",
             Self::Io => "io",
             Self::SlotActive => "slot-active",
+            Self::DeltaFormat => "delta-format",
+            Self::DeltaBase => "delta-base",
         }
     }
 }
@@ -80,6 +93,10 @@ pub struct ManifestV2 {
     pub build_id: String,
     pub rollback_index: u32,
     pub component_count: usize,
+    /// Kind of the FIRST component (v1 sets carry exactly one) — lets the
+    /// stage marker name what was actually verified (boot-image vs
+    /// boot-image-delta) instead of assuming.
+    pub component_kind: u8,
 }
 
 /// One component's metadata as the sink sees it.
@@ -214,15 +231,15 @@ pub fn verify_and_apply(
     }
 
     for (entry, comp) in entries[2..].iter().zip(components.iter()) {
-        if comp.meta.kind != KIND_BOOT_IMAGE {
-            return Err(RejectReason::KindUnsupported);
-        }
         if entry.data.len() as u64 != comp.meta.size || comp.meta.size == 0 {
             return Err(RejectReason::Bounds);
         }
-        // boot-image kind checks (§3 step 4): the embedded NXBD binds to
-        // the manifest field-for-field BEFORE any byte moves.
-        check_boot_image_binding(&manifest, &comp.meta)?;
+        // Per-kind binding checks (§3 step 4) BEFORE any byte moves.
+        match comp.meta.kind {
+            KIND_BOOT_IMAGE => check_boot_image_binding(&manifest, &comp.meta)?,
+            KIND_BOOT_IMAGE_DELTA => check_boot_image_delta_binding(&manifest, &comp.meta)?,
+            _ => return Err(RejectReason::KindUnsupported),
+        }
 
         sink.begin(&comp.meta)?;
         let mut hasher = Sha256::new();
@@ -245,6 +262,7 @@ pub fn verify_and_apply(
         build_id: manifest.build_id,
         rollback_index: manifest.rollback_index,
         component_count: components.len(),
+        component_kind: components.first().map_or(0, |c| c.meta.kind),
     })
 }
 
@@ -339,6 +357,25 @@ fn check_boot_image_binding(
         return Err(RejectReason::Digest);
     }
     if nxbd.image_size != meta.size
+        || nxbd.build_id_str() != manifest.build_id
+        || nxbd.rollback_index != manifest.rollback_index
+    {
+        return Err(RejectReason::Bounds);
+    }
+    Ok(())
+}
+
+/// boot-image-delta binding (RFC-0090): the NXBD still binds
+/// build/rollback to the manifest, but `meta.size`/`meta.sha256` describe
+/// the DELTA STREAM — the kind-1 `image_sha256 == sha256` rule does NOT
+/// apply (target and stream digests legitimately differ). Target truth is
+/// enforced downstream by the sink's readback gate against this NXBD.
+fn check_boot_image_delta_binding(
+    manifest: &ManifestHeader,
+    meta: &ComponentMeta,
+) -> Result<(), RejectReason> {
+    let (nxbd, _sig) = bootfmt::nxbd::decode(&meta.kind_data).map_err(|_| RejectReason::Bounds)?;
+    if nxbd.image_size == 0
         || nxbd.build_id_str() != manifest.build_id
         || nxbd.rollback_index != manifest.rollback_index
     {

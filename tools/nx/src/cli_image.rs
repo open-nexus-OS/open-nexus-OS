@@ -114,6 +114,12 @@ pub(crate) struct ImageOtaArgs {
     /// Flat boot image to package.
     #[arg(long)]
     pub(crate) kernel: PathBuf,
+    /// RFC-0090: emit a `boot-image-delta` container (kind 3) whose
+    /// payload is the deterministic `.nxdelta` stream from THIS base
+    /// image to `--kernel`. The base must be the image the device is
+    /// RUNNING (the stream binds to the active NXBD's digest).
+    #[arg(long)]
+    pub(crate) delta_from: Option<PathBuf>,
     /// Output `.nxs` v2 container path.
     #[arg(short, long)]
     pub(crate) out: PathBuf,

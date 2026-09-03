@@ -438,9 +438,26 @@ fn handle_ota(args: ImageOtaArgs) -> ExecResult {
     let kernel = read_kernel(&args.kernel)?;
     let nxbd = make_nxbd(&kernel, &args.build_id, args.rollback_index, &os_seed)?;
 
-    // manifest.nxo — capnp ComponentManifest (RFC-0089 §3): ONE component
-    // of kind boot-image (1); kindData carries the signed NXBD verbatim,
-    // so the publisher signature transitively binds it.
+    // RFC-0090 delta emission: the payload becomes the deterministic
+    // `.nxdelta` stream base -> kernel; the component's size/sha256
+    // describe the STREAM (signature-bound), the NXBD keeps target truth.
+    let (kind, name, payload_path, payload) = match &args.delta_from {
+        Some(base_path) => {
+            let base = read_kernel(base_path)?;
+            let delta = nxdelta::make::make(&base, &kernel);
+            (
+                updates::component_set::KIND_BOOT_IMAGE_DELTA,
+                "boot-image-delta",
+                "boot.img.nxdelta",
+                delta,
+            )
+        }
+        None => (updates::component_set::KIND_BOOT_IMAGE, "boot-image", "boot.img", kernel.clone()),
+    };
+
+    // manifest.nxo — capnp ComponentManifest (RFC-0089 §3): ONE component;
+    // kindData carries the signed NXBD verbatim, so the publisher
+    // signature transitively binds it.
     let publisher_key = SigningKey::from_bytes(&publisher_seed);
     let publisher_pub = publisher_key.verifying_key().to_bytes();
     let manifest_bytes = {
@@ -454,11 +471,11 @@ fn handle_ota(args: ImageOtaArgs) -> ExecResult {
         let mut list = root.init_components(1);
         {
             let mut c = list.reborrow().get(0);
-            c.set_kind(1);
-            c.set_name("boot-image");
-            c.set_size(kernel.len() as u64);
-            c.set_sha256(&sha256(&kernel));
-            c.set_payload_path("boot.img");
+            c.set_kind(kind);
+            c.set_name(name);
+            c.set_size(payload.len() as u64);
+            c.set_sha256(&sha256(&payload));
+            c.set_payload_path(payload_path);
             c.set_kind_data(&nxbd);
         }
         let mut out = Vec::new();
@@ -477,20 +494,22 @@ fn handle_ota(args: ImageOtaArgs) -> ExecResult {
     let mut tar = tar::Builder::new(file);
     append_tar(&mut tar, "manifest.nxo", &manifest_bytes)?;
     append_tar(&mut tar, "manifest.sig.ed25519", &signature)?;
-    append_tar(&mut tar, "boot.img", &kernel)?;
+    append_tar(&mut tar, payload_path, &payload)?;
     tar.into_inner()
         .and_then(|f| f.sync_all())
         .map_err(|err| NxError::new(ExitClass::Internal, format!("image: tar: {err}")))?;
 
     Ok((
         ExitClass::Success,
-        format!("image: ota container written to {}", args.out.display()),
+        format!("image: ota container written to {} ({name})", args.out.display()),
         args.json,
         Some(json!({
             "out": args.out.display().to_string(),
             "build_id": args.build_id,
             "rollback_index": args.rollback_index,
             "publisher": hex(&publisher_pub),
+            "kind": name,
+            "payload_bytes": payload.len(),
             "kernel_bytes": kernel.len(),
             "kernel_sha256": hex(&sha256(&kernel)),
         })),

@@ -52,7 +52,14 @@ nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = 
 capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 thiserror = { version = "2", optional = true }
-nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+# heap-768k (TASK-0034): the v2 engine's per-stage allocations ride a
+# never-freeing bump — the headless ladder now runs EIGHT stages in one
+# service life (trust/tamper/downgrade/delta-base denies, the delta
+# reconstruction, the happy stage and the rollback cycle's re-stages) and
+# 384KiB alloc-failed on the last one. The honest long-run fix is
+# per-stage buffer reuse (the vfsd P8 pattern); the watermark markers
+# keep the remaining ceiling visible.
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true, features = ["heap-768k"] }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }
 ed25519-dalek = { version = "2", default-features = false, features = ["alloc"], optional = true }
