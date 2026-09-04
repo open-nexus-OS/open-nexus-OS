@@ -34,6 +34,9 @@ pub(crate) enum RuntimeProfile {
     /// TASK-0321 P3 bundle-set crown lane (two boots, one uart; bringup +
     /// end scope like `OtaFlip`).
     OtaBundle,
+    /// TASK-0035 P1: the stage-journal resume lane (a power cut mid-stage,
+    /// then a restage that resumes; reduced scope like `OtaFlip`).
+    OtaBundleResume,
     /// TASK-0289-B loader backstop: the four-boot tries-exhaustion lane
     /// (stage + switch, two bricked trial boots — init parks —, loader
     /// exhaustion flip back to slot a, rollback observation). Reduced
@@ -60,6 +63,7 @@ pub(crate) fn parse_runtime_profile(bytes: &[u8]) -> Option<RuntimeProfile> {
         b"ota" => Some(RuntimeProfile::Ota),
         b"ota-flip" => Some(RuntimeProfile::OtaFlip),
         b"ota-bundle" => Some(RuntimeProfile::OtaBundle),
+        b"ota-bundle-resume" => Some(RuntimeProfile::OtaBundleResume),
         b"ota-fallback" => Some(RuntimeProfile::OtaFallback),
         b"net" => Some(RuntimeProfile::Net),
         b"none" => Some(RuntimeProfile::None),

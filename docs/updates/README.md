@@ -84,6 +84,12 @@ paired volume (the NXSV binds the boot digest): ship `system-volume` next to
 the `boot-image` and let the device reuse every unchanged bundle — the set
 then carries the index and zero bundle payloads.
 
+A torn stage resumes: the assembler keeps the `NXSJ` journal at sector 1 of
+the inactive system slot (bound to the target volume's digests) and, on the
+next stage of the same set, readback-verifies every journalled window and
+rewrites only the rest — `updated: restage resume (bundles=k/N)`; a valid
+NXSV zeroes the journal (TASK-0035 P1).
+
 `nx image ota --bundle-set <dir>` builds such a set from bundle
 directories; `nx image fixtures --system-bundles <dir>` emits
 `/updates/bundle-set.nxs` (os-B + the NEXT system volume, `build.sh`

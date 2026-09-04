@@ -3,7 +3,7 @@
 
 //! CONTEXT: The system-volume ASSEMBLER (RFC-0089 §12.4, TASK-0321 P3) —
 //! the [`ComponentSink`] that turns a bundle set (`system-volume` kind 6
-//! + `bundle` kind 2 components) into the INACTIVE system volume, byte-
+//! and `bundle` kind 2 components) into the INACTIVE system volume, byte-
 //! identical to the host build. Generic over a sector device so the EXACT
 //! device logic is host-proven (`tests/updates_host`, the `DeltaAdapter`
 //! pattern): the OS half only supplies the block-plane devices and the
@@ -19,8 +19,8 @@
 //! STATUS: Experimental
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: tests/updates_host/tests/component_set_volume.rs (accept
-//!   + reuse, `test_reject_*` order/membership/digest/binding, power-cut
-//!   matrix, byte-identity with the host build)
+//!   and reuse, `test_reject_*` order/membership/digest/binding, power-cut
+//!   matrix, journal resume, byte-identity with the host build)
 //! ADR: docs/adr/0060-verified-system-volume-bundlemgrd-verifier-init-spawner.md
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
@@ -28,6 +28,7 @@ use alloc::{string::String, vec, vec::Vec};
 #[cfg(feature = "std")]
 use std::{string::String, vec, vec::Vec};
 
+use crate::stage_journal::{Journal, JOURNAL_SECTOR};
 use sha2::{Digest, Sha256};
 use storage::pkgimg::PkgImgCaps;
 use storage::pkgimg_bundles::{parse_index, parse_superblock, VolumeIndex, MAX_INDEX_BYTES_V3};
@@ -61,6 +62,9 @@ pub trait VolumeEvents {
     fn volume_verified(&mut self, build_id: &str, bundles: usize);
     fn bundle_verified(&mut self, bundle: &str, version: &str);
     fn bundle_reused(&mut self, bundle: &str, version: &str, sha8: &[u8; 8]);
+    /// TASK-0035 P1: a restage found `completed` of `total` bundle windows
+    /// journalled AND readback-verified — they will not be rewritten.
+    fn restage_resume(&mut self, _completed: usize, _total: usize) {}
 }
 
 /// The events sink that records nothing.
@@ -79,6 +83,9 @@ struct Current {
     row: Option<usize>,
     /// Absolute volume byte offset of the window / index start.
     start: u64,
+    /// TASK-0035 P1: the window is journalled + readback-verified — the
+    /// component is streamed (the engine hashes it) but not rewritten.
+    skip: bool,
 }
 
 /// See the module doc.
@@ -103,6 +110,8 @@ pub struct VolumeAssembler<D: VolumeDev, A: VolumeDev, E: VolumeEvents> {
     active_index: Option<VolumeIndex>,
     /// One scratch buffer for every streaming loop (allocated once).
     scratch: Vec<u8>,
+    /// TASK-0035 P1: the stage journal for the target being assembled.
+    journal: Option<Journal>,
 }
 
 impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> VolumeAssembler<D, A, E> {
@@ -120,6 +129,7 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> VolumeAssembler<D, A, E> {
             cur: None,
             active_index: None,
             scratch: vec![0u8; SCRATCH],
+            journal: None,
         }
     }
 
@@ -138,6 +148,69 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> VolumeAssembler<D, A, E> {
 
     fn sector_of(byte: u64) -> u64 {
         VOLUME_START_SECTOR + byte / SECTOR as u64
+    }
+
+    /// Persists the journal (sector 1) — after every verified window, so a
+    /// power cut right after loses at most the window in flight.
+    fn persist_journal(&mut self) -> Result<(), RejectReason> {
+        if let Some(j) = &self.journal {
+            let sector = j.encode();
+            self.inactive.write(JOURNAL_SECTOR, &sector)?;
+            self.inactive.sync()?;
+        }
+        Ok(())
+    }
+
+    /// Marks `row` completed in the journal and persists it.
+    fn journal_done(&mut self, row: usize) -> Result<(), RejectReason> {
+        if let Some(j) = &mut self.journal {
+            j.set_done(row, true);
+        }
+        self.persist_journal()
+    }
+
+    /// TASK-0035 P1: reads the journal for THIS target; every journalled
+    /// window is readback-verified against the NEW index before it counts
+    /// (a stale bit is cleared, never trusted). A journal for another target
+    /// (or a corrupt one) is zeroed. Returns the resumed count.
+    fn load_journal(&mut self, desc: &bootfmt::nxsv::Nxsv) -> Result<usize, RejectReason> {
+        let index = self.index.as_ref().ok_or(RejectReason::Io)?;
+        let n = index.bundles.len();
+        let mut sector = [0u8; SECTOR];
+        self.inactive.read(JOURNAL_SECTOR, &mut sector)?;
+        let fresh = Journal::new(desc.volume_sha256, desc.index_sha256, n);
+        let found = Journal::decode(&sector).ok();
+        let mut journal = match (found, fresh) {
+            (Some(j), _) if j.binds(&desc.volume_sha256, &desc.index_sha256, n) => j,
+            (_, Some(f)) => {
+                if sector.iter().any(|&b| b != 0) {
+                    // Another target's (or a torn) journal: zero it first.
+                    self.inactive.write(JOURNAL_SECTOR, &[0u8; SECTOR])?;
+                    self.inactive.sync()?;
+                }
+                f
+            }
+            (_, None) => return Err(RejectReason::Bounds),
+        };
+        let mut resumed = 0;
+        let rows: Vec<(u64, u64, [u8; 32])> = index
+            .bundles
+            .iter()
+            .map(|b| (index.superblock.data_offset as u64 + b.data_offset, b.data_len, b.sha256))
+            .collect();
+        for (row, (start, len, sha)) in rows.into_iter().enumerate() {
+            if !journal.is_done(row) {
+                continue;
+            }
+            if self.hash_range(start, len)? == sha {
+                self.populated[row] = true;
+                resumed += 1;
+            } else {
+                journal.set_done(row, false);
+            }
+        }
+        self.journal = Some(journal);
+        Ok(resumed)
     }
 
     /// Flushes the sector carry, zero-padding up to `pad_to` (absolute
@@ -253,6 +326,9 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> VolumeAssembler<D, A, E> {
         if got != want_sha {
             return Err(RejectReason::VolumeDigest);
         }
+        // Durable BEFORE the marker: a cut right after `bundle reused`
+        // resumes past this window.
+        self.journal_done(row)?;
         let mut sha8 = [0u8; 8];
         sha8.copy_from_slice(&want_sha[..8]);
         self.events.bundle_reused(&name, &version, &sha8);
@@ -302,12 +378,14 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> ComponentSink for VolumeAssemb
                 self.desc = Some(desc);
                 self.index = None;
                 self.populated.clear();
+                self.journal = None;
                 self.cur = Some(Current {
                     kind: KIND_SYSTEM_VOLUME,
                     next_sector: VOLUME_START_SECTOR,
                     written: 0,
                     row: None,
                     start: 0,
+                    skip: false,
                 });
                 Ok(())
             }
@@ -322,12 +400,17 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> ComponentSink for VolumeAssemb
                 if start % SECTOR as u64 != 0 {
                     return Err(RejectReason::Bounds);
                 }
+                // TASK-0035 P1: a journalled + readback-verified window is
+                // streamed (the engine hashes every component) but not
+                // rewritten.
+                let skip = self.populated.get(row).copied().unwrap_or(false);
                 self.cur = Some(Current {
                     kind: KIND_BUNDLE,
                     next_sector: Self::sector_of(start),
                     written: 0,
                     row: Some(row),
                     start,
+                    skip,
                 });
                 Ok(())
             }
@@ -337,6 +420,10 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> ComponentSink for VolumeAssemb
 
     fn chunk(&mut self, _offset: u64, bytes: &[u8]) -> Result<(), RejectReason> {
         let cur = self.cur.as_mut().ok_or(RejectReason::Io)?;
+        if cur.skip {
+            cur.written += bytes.len() as u64;
+            return Ok(());
+        }
         self.partial.extend_from_slice(bytes);
         let full = self.partial.len() / SECTOR * SECTOR;
         if full > 0 {
@@ -349,9 +436,9 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> ComponentSink for VolumeAssemb
     }
 
     fn finish(&mut self, meta: &ComponentMeta) -> Result<(), RejectReason> {
-        let (kind, start, written, row) = {
+        let (kind, start, written, row, skip) = {
             let cur = self.cur.as_ref().ok_or(RejectReason::Io)?;
-            (cur.kind, cur.start, cur.written, cur.row)
+            (cur.kind, cur.start, cur.written, cur.row, cur.skip)
         };
         if written != meta.size {
             return Err(RejectReason::Bounds);
@@ -385,24 +472,39 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> ComponentSink for VolumeAssemb
                         return Err(RejectReason::VolumeBinding);
                     }
                 }
-                self.populated = vec![false; index.bundles.len()];
-                self.events.volume_verified(desc.build_id_str(), index.bundles.len());
+                let total = index.bundles.len();
+                self.populated = vec![false; total];
+                self.events.volume_verified(desc.build_id_str(), total);
                 self.index = Some(index);
                 self.cur = None;
+                // TASK-0035 P1: resume from the stage journal (every journalled
+                // window readback-verified against THIS index first).
+                let resumed = self.load_journal(&desc)?;
+                if resumed > 0 {
+                    self.events.restage_resume(resumed, total);
+                }
                 Ok(())
             }
             KIND_BUNDLE => {
+                let row = row.ok_or(RejectReason::Io)?;
+                if skip {
+                    // Journalled + verified on resume: streamed (the engine
+                    // hashed it), not rewritten. The size still has to match.
+                    self.partial.clear();
+                    self.cur = None;
+                    return Ok(());
+                }
                 let pad_to = (start + written).div_ceil(WINDOW_ALIGN) * WINDOW_ALIGN;
                 self.flush_to(pad_to)?;
                 if self.hash_range(start, written)? != meta.sha256 {
                     return Err(RejectReason::Digest);
                 }
-                let row = row.ok_or(RejectReason::Io)?;
                 self.populated[row] = true;
                 let (name, version) = {
                     let b = &self.index.as_ref().ok_or(RejectReason::Io)?.bundles[row];
                     (b.bundle.clone(), b.version.clone())
                 };
+                self.journal_done(row)?;
                 self.events.bundle_verified(&name, &version);
                 self.cur = None;
                 Ok(())
@@ -432,6 +534,12 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> ComponentSink for VolumeAssemb
         let sector = self.nxsv_sector.clone();
         self.inactive.write(0, &sector)?;
         self.inactive.sync()?;
+        // A valid NXSV supersedes the journal — zero it (a later stage of
+        // another target starts clean; a cut here leaves a harmless stale
+        // journal that will not bind).
+        self.inactive.write(JOURNAL_SECTOR, &[0u8; SECTOR])?;
+        self.inactive.sync()?;
+        self.journal = None;
         Ok(())
     }
 }

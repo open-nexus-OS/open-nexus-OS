@@ -109,6 +109,17 @@ phase = "bringup"
 emit_when = { profile = "ota-bundle" }
 proves = "boot 2: running slot b, bundlemgrd verified system-b (paired with the measured image) and serves metricsd@1.0.1 — the set's bundle — and the quorum committed"
 
+# TASK-0035 P1 resume lane (profile `ota-bundle-resume`): boot 1 is power-cut
+# mid-stage by the harness; boot 2 restages and resumes from the NXSJ journal.
+[marker."SELFTEST: ota stage resume ok"]
+phase = "bringup"
+emit_when = { profile = "ota-bundle-resume" }
+proves = "boot 2: the bundle-set stage completed after a mid-stage power cut — the engine resumed the journalled, readback-verified windows (`updated: restage resume`) instead of rewriting them"
+
+[marker."SELFTEST: ota stage resume FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: the restage after the power cut did not complete"
+
 [marker."SELFTEST: ota bundle-set stage FAIL"]
 phase = "ota"
 proves = "DIAGNOSTIC: boot 1 could not stage or switch the bundle set"

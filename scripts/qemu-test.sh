@@ -831,6 +831,25 @@ case "${PROFILE:-full}" in
     # service must be REUSED from the active volume (count gate below).
     OTA_BUNDLE_REUSE_MIN=$(( $(sed -e 's/#.*//' -e '/^\s*$/d' "$ROOT/scripts/system-volume-services.txt" | wc -l) - 1 ))
     ;;
+  ota-bundle-resume)
+    # TASK-0035 P1 (RFC-0089 §12.2 NXSJ): the stage journal. Boot 1 stages
+    # the bundle set; the launcher power-cuts the machine at the first
+    # `updated: bundle reused` (journal entry durable before the marker).
+    # Boot 2 stages the same set: the engine reads the journal, readback-
+    # verifies every journalled window and only rewrites the rest.
+    expected_sequence=(
+      "neuron vers."
+      "init: start"
+      "init: ready"
+      "updated: stage begin (source=/updates/bundle-set.nxs)"
+      "updated: component bundle verified (name=metricsd@1.0.1)"
+      "updated: bundle reused (name="
+      "updated: restage resume (bundles="
+      "updated: stage done (slot=b build=otaB"
+      "SELFTEST: ota stage resume ok"
+    )
+    OTA_PHASE_GUARDS=0
+    ;;
   ota-fallback)
     # TASK-0289-B: the loader's tries-exhaustion backstop — FOUR boots in
     # ONE uart, and the point is that boots 2/3 are DEAD userspace:

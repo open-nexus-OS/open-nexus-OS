@@ -143,6 +143,16 @@ impl VolumeEvents for VolumeMarkers {
         n = put(&mut line, n, b")\n");
         emit_bytes(&line[..n]);
     }
+    fn restage_resume(&mut self, completed: usize, total: usize) {
+        // `updated: restage resume (bundles=<k>/<n>)`
+        let mut line = [0u8; 64];
+        let mut n = put(&mut line, 0, b"updated: restage resume (bundles=");
+        n = put_dec(&mut line, n, completed);
+        n = put(&mut line, n, b"/");
+        n = put_dec(&mut line, n, total);
+        n = put(&mut line, n, b")\n");
+        emit_bytes(&line[..n]);
+    }
     fn bundle_reused(&mut self, bundle: &str, version: &str, sha8: &[u8; 8]) {
         let mut line = [0u8; 128];
         let mut n = put(&mut line, 0, b"updated: bundle reused (name=");

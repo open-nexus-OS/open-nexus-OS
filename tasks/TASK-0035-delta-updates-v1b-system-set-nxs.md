@@ -1,6 +1,6 @@
 ---
 title: TASK-0035 Delta updates v1b (system sets): nxs delta container + updated orchestration
-status: Draft
+status: In Progress (P1 delivered 2026-09-04)
 owner: @runtime
 created: 2025-12-22
 updated: 2026-09-03
@@ -61,6 +61,39 @@ which components were shipped, reused or delta-reconstructed.
   `component_set_bundle_delta.rs` (accept + `test_reject_delta_base_bundle`); QEMU lane
   `ota-bundle-delta` (`SELFTEST: ota bundle delta ok`).
 - **P4 — Close**: RFC-0089 Phase 10 row ✅, `docs/updates/delta.md`, CHANGELOG, board rows.
+
+### P1 delivered 2026-09-04 — NXSJ stage journal + per-bundle resume
+
+- `userspace/updates/src/stage_journal.rs`: `NXSJ0001` at the inactive system slot's sector 1
+  (RFC-0089 §12.2 reserved): `{volume_sha256, index_sha256, bundles:u16, completed bitmap[32],
+  crc32}` — bound to the TARGET volume's identity (the NXSV digests the assembler sees; the set's
+  manifest digest is not visible below the engine, and the NXSV binds tighter). Codec tests:
+  roundtrip/bits, `test_reject_journal_crc`, `test_reject_journal_magic_and_bounds`.
+- `volume_apply.rs`: after the index is verified on disk the journal is read; a journal that does
+  not bind (other target / corrupt) is zeroed; every journalled window is READBACK-VERIFIED against
+  the new index before it counts (stale bit → cleared) → `restage_resume(k, n)`. A resumed shipped
+  bundle is still streamed and hashed by the engine (verification is never skipped) but not
+  rewritten (`Current::skip`); after every verified or reused window the journal is persisted
+  (write + sync) BEFORE the marker, so a cut right after `bundle reused` resumes past it. The NXSV
+  commit zeroes the journal. Host: `restage_resumes_journalled_windows_and_zeroes_the_journal_at_
+  commit` (cut at every op → resumed ≤ verified+1, ≥ 1 before the commit point, byte-identical,
+  journal zeroed) and `test_reject_journal_manifest_crc_and_tampered_window`.
+- OS: `updated: restage resume (bundles=<k>/<n>)` (VolumeMarkers); lane `ota-bundle-resume`
+  (`[profile.ota-bundle-resume]`: `NEXUS_RESET_ON_MARKER="updated: bundle reused (name="`,
+  count 1 → QMP system_reset mid-stage; boot 2 restages via `RuntimeProfile::OtaBundleResume`,
+  verdict `SELFTEST: ota stage resume ok`), `just ci-os-ota-bundle-resume` in `test-all`.
+- Recut vs. plan: journal bound to the NXSV digests instead of the manifest digest (see above);
+  the power-cut actor is the existing QMP reset watcher (one uart, no keep-blk plumbing needed).
+- FINDING (fixed): the selftest's fw_cfg profile buffer was 16 bytes — `ota-bundle-resume` (17)
+  was silently truncated into the FULL ladder (the first lane run executed every OTA fixture
+  instead of the resume proof). 32 bytes now; any future profile name must fit or fail loudly.
+- FINDING (fixed): the bringup nxra break-glass probe is state-neutral ONLY while nothing is staged
+  — with the resume proof's freshly staged slot b, its token switch became a REAL switch
+  (`SELFTEST: nxra accept FAIL`). The resume proof now runs after the nxra chain.
+- Proof (2026-09-04): `ota-bundle-resume` green — boot 1 cut at the first `bundle reused`, boot 2
+  `updated: restage resume (bundles=2/22)` → `stage done (slot=b …)` → `SELFTEST: ota stage resume
+  ok`, nxra chain still green; 9 host tests; `just check` green; `just test-all` GREEN end to end
+  (headless, smp1, reset, ota-flip, ota-bundle, ota-bundle-resume, ota-tamper/downgrade/fallback).
 
 ### Stop conditions (Definition of Done — replaces the seed DoD)
 

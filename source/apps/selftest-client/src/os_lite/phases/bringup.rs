@@ -76,6 +76,15 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     if let Ok(statefsd) = crate::os_lite::ipc::routing::route_with_retry("statefsd") {
         crate::os_lite::probes::nxra::nxra_proof(&statefsd);
     }
+    // TASK-0035 P1 resume lane: stage the bundle set; the harness power-cuts
+    // boot 1 mid-stage, boot 2 stages again and must RESUME (the journal).
+    // AFTER the nxra chain: that probe is state-neutral only while nothing
+    // is staged (a staged slot turns its token switch into a real switch).
+    if crate::os_lite::boot_cfg::runtime_profile_with_retry()
+        == Some(crate::runtime_mode::RuntimeProfile::OtaBundleResume)
+    {
+        crate::os_lite::probes::otaflip::ota_bundle_resume_proof();
+    }
 
     // keystored v1 (routing + put/get/del + negative cases)
     let keystored = match services::keystored::resolve_keystored_client() {

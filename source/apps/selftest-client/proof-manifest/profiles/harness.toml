@@ -125,6 +125,14 @@ runner = "scripts/qemu-test.sh"
 extends = "headless"
 env = { NEXUS_SELFTEST_PROFILE = "ota-bundle" }
 
+# TASK-0035 P1: a power cut mid-stage (QMP system_reset at the first
+# `updated: bundle reused` — that window's NXSJ journal entry is durable
+# before the marker), then the SAME stage again on boot 2 must resume.
+[profile.ota-bundle-resume]
+runner = "scripts/qemu-test.sh"
+extends = "headless"
+env = { NEXUS_SELFTEST_PROFILE = "ota-bundle-resume", NEXUS_RESET_ON_MARKER = "updated: bundle reused (name=", NEXUS_RESET_ON_MARKER_COUNT = "1" }
+
 [profile.ota-fallback]
 runner = "scripts/qemu-test.sh"
 extends = "headless"

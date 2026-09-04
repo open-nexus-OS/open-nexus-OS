@@ -109,6 +109,32 @@ pub(crate) fn ota_bundle_proof(statefsd: &KernelClient) {
     run_lane(statefsd, Lane::Bundle)
 }
 
+/// TASK-0035 P1: stage the bundle set (no switch). Boot 1 never returns —
+/// the harness power-cuts the machine at the first `updated: bundle reused`
+/// (after that window's journal entry is durable). Boot 2 stages again; the
+/// engine resumes from the journal (`updated: restage resume (bundles=k/N)`)
+/// and a successful stage is the verdict.
+pub(crate) fn ota_bundle_resume_proof() {
+    let mut pending: VecDeque<Vec<u8>> = VecDeque::new();
+    let Ok(updated_client) = route_with_retry("updated") else {
+        emit_line(crate::markers::M_SELFTEST_OTA_STAGE_RESUME_FAIL);
+        return;
+    };
+    let (reply_send_slot, reply_recv_slot) = reply_slots();
+    let staged = updated::updated_stage_path(
+        &updated_client,
+        reply_send_slot,
+        reply_recv_slot,
+        &mut pending,
+        updated::BUNDLE_SET_PATH,
+    );
+    emit_line(if staged.is_ok() {
+        crate::markers::M_SELFTEST_OTA_STAGE_RESUME_OK
+    } else {
+        crate::markers::M_SELFTEST_OTA_STAGE_RESUME_FAIL
+    });
+}
+
 fn run_lane(statefsd: &KernelClient, lane: Lane) {
     match sentinel_phase(statefsd, lane) {
         Some(0) => boot1_stage_and_switch(statefsd, lane),

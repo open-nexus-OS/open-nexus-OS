@@ -308,6 +308,10 @@ ci-os-ota:
 ci-os-ota-bundle:
     just test-os ota-bundle
 
+# TASK-0035 P1: NXSJ stage journal — power cut mid-stage, boot 2 resumes.
+ci-os-ota-bundle-resume:
+    just test-os ota-bundle-resume
+
 # TASK-0289-B loader backstops: boot-time tamper + downgrade rejects
 # (armed disk, single boot each) and the tries-exhaustion fallback (FOUR
 # boots, bricked trials power-cycled via QMP) — the boot trust floor
@@ -638,6 +642,7 @@ test-all:
     just ci-os-reset
     just ci-os-ota
     just ci-os-ota-bundle
+    just ci-os-ota-bundle-resume
     just ci-os-ota-backstops
     @scripts/hypothesis-log.sh H5 "justfile:test-all:end" "aggregate gate completed"
 

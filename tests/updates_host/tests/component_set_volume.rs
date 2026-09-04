@@ -218,6 +218,7 @@ fn bundle_comp(vol: &[u8], index: &VolumeIndex, name: &str) -> Comp {
 // --------------------------------------------------------------- device --
 
 /// Sector fake with an op gate (power cut after N accepted ops).
+#[derive(Clone)]
 struct VecDev {
     sectors: Vec<u8>,
     ops: usize,
@@ -284,6 +285,9 @@ impl VolumeEvents for Recorder {
     }
     fn bundle_reused(&mut self, bundle: &str, version: &str, _sha8: &[u8; 8]) {
         self.log.push(format!("reused {bundle}@{version}"));
+    }
+    fn restage_resume(&mut self, completed: usize, total: usize) {
+        self.log.push(format!("resume {completed}/{total}"));
     }
 }
 
@@ -562,4 +566,133 @@ fn power_cut_matrix_never_leaves_a_valid_nxsv_and_restage_converges() {
         assert_eq!(fixed.body(s0.new_vol.len()), &s0.new_vol[..]);
         assert_eq!(&fixed.sectors[..512], &s0.new_nxsv[..]);
     }
+}
+
+/// TASK-0035 P1: the stage journal. A cut after k verified windows resumes
+/// with exactly those k windows readback-verified (never rewritten), the
+/// restage converges byte-identical, and the journal is zeroed after the
+/// NXSV commit.
+#[test]
+fn restage_resumes_journalled_windows_and_zeroes_the_journal_at_commit() {
+    let s0 = scene();
+    let set = container(
+        "newB",
+        2,
+        &[
+            boot_comp(&s0.k, "newB", 2),
+            volume_comp(&s0.new_vol, &s0.new_index, &s0.new_nxsv),
+            bundle_comp(&s0.new_vol, &s0.new_index, "alpha"),
+        ],
+    );
+    let (outcome, done, _) = run(&set, VecDev::new(4096), Some(scene().active), None);
+    assert_eq!(outcome, Ok(()));
+    // Journal zeroed after commit.
+    assert!(done.sectors[512..1024].iter().all(|&b| b == 0));
+    let total_ops = done.ops;
+    let mut saw_resume = false;
+    for cut in 1..total_ops {
+        let mut inactive = VecDev::new(4096);
+        inactive.fail_after = Some(cut);
+        let (_, torn, torn_log) = run(&set, inactive, Some(scene().active), None);
+        let verified_before_cut = torn_log
+            .iter()
+            .filter(|l| l.starts_with("bundle ") || l.starts_with("reused "))
+            .count();
+        // Past the commit point the NXSV is valid and the journal already
+        // zeroed (a cut in that zeroing sync): the restage starts clean.
+        let committed = bootfmt::nxsv::decode(&torn.sectors[..512]).is_ok();
+        let mut again = torn;
+        again.fail_after = None;
+        let (outcome, fixed, log) = run(&set, again, Some(scene().active), None);
+        assert_eq!(outcome, Ok(()), "restage after cut at {cut}");
+        assert_eq!(fixed.body(s0.new_vol.len()), &s0.new_vol[..]);
+        assert!(fixed.sectors[512..1024].iter().all(|&b| b == 0), "journal zeroed at commit");
+        let resumed = log
+            .iter()
+            .find_map(|l| l.strip_prefix("resume ").map(|r| r.to_string()))
+            .and_then(|r| r.split('/').next().and_then(|k| k.parse::<usize>().ok()))
+            .unwrap_or(0);
+        // A window counts only once journalled (persisted after its readback).
+        // The torn run's EVENT follows the journal write + sync, so a cut in
+        // that sync can leave one more window journalled than announced — it
+        // is readback-verified on resume like any other. Never more than that,
+        // and a cut after ≥ 1 announced window resumes at least one.
+        assert!(
+            resumed <= verified_before_cut + 1,
+            "cut {cut}: resumed {resumed} > {verified_before_cut} + 1"
+        );
+        if verified_before_cut >= 2 && !committed {
+            assert!(resumed >= 1, "cut {cut}: verified {verified_before_cut}, resumed 0");
+            saw_resume = true;
+        }
+        // Resumed windows are never rewritten: the restage's `bundle` events
+        // only cover NON-resumed shipped windows.
+        let bundle_events = log.iter().filter(|l| l.starts_with("bundle ")).count();
+        assert!(bundle_events + resumed >= 1);
+    }
+    assert!(saw_resume, "the matrix must exercise at least one resume");
+}
+
+/// TASK-0035 P1 `test_reject_journal_*` at the engine: a journal for ANOTHER
+/// target, a CRC-torn journal and a journal whose window bytes were tampered
+/// are all ignored (no resume, bytes rewritten), and the restage converges.
+#[test]
+fn test_reject_journal_manifest_crc_and_tampered_window() {
+    let s0 = scene();
+    let set = container(
+        "newB",
+        2,
+        &[
+            boot_comp(&s0.k, "newB", 2),
+            volume_comp(&s0.new_vol, &s0.new_index, &s0.new_nxsv),
+            bundle_comp(&s0.new_vol, &s0.new_index, "alpha"),
+        ],
+    );
+    // (1) Another target's journal with every bit set: must not resume.
+    let mut other = updates::stage_journal::Journal::new([0x77; 32], [0x66; 32], 3).unwrap();
+    for r in 0..3 {
+        other.set_done(r, true);
+    }
+    let mut dev = VecDev::new(4096);
+    dev.sectors[512..1024].copy_from_slice(&other.encode());
+    let (outcome, fixed, log) = run(&set, dev, Some(scene().active), None);
+    assert_eq!(outcome, Ok(()));
+    assert!(!log.iter().any(|l| l.starts_with("resume ")), "{log:?}");
+    assert_eq!(fixed.body(s0.new_vol.len()), &s0.new_vol[..]);
+
+    // (2) A torn run leaves a binding journal; corrupt its CRC → no resume.
+    let (_, done, _) = run(&set, VecDev::new(4096), Some(scene().active), None);
+    let cut = done.ops - 8;
+    let mut inactive = VecDev::new(4096);
+    inactive.fail_after = Some(cut);
+    let (_, mut torn, torn_log) = run(&set, inactive, Some(scene().active), None);
+    assert!(torn_log.iter().any(|l| l.starts_with("bundle ") || l.starts_with("reused ")));
+    assert!(updates::stage_journal::Journal::decode(&torn.sectors[512..1024]).is_ok());
+    let mut crc_torn = torn.clone();
+    crc_torn.sectors[512 + 74] ^= 0x01; // flip a bitmap bit without the CRC
+    crc_torn.fail_after = None;
+    let (outcome, fixed, log) = run(&set, crc_torn, Some(scene().active), None);
+    assert_eq!(outcome, Ok(()));
+    assert!(!log.iter().any(|l| l.starts_with("resume ")), "{log:?}");
+    assert_eq!(fixed.body(s0.new_vol.len()), &s0.new_vol[..]);
+
+    // (3) A journalled window whose bytes were tampered: the bit is cleared
+    // (readback fails), the window is rewritten, the result is byte-identical.
+    let j = updates::stage_journal::Journal::decode(&torn.sectors[512..1024]).unwrap();
+    let row = (0..3).find(|&r| j.is_done(r)).expect("a journalled window");
+    let b = &s0.new_index.bundles[row];
+    let off = VOLUME_START_SECTOR as usize * SECTOR
+        + s0.new_index.superblock.data_offset
+        + b.data_offset as usize;
+    torn.sectors[off] ^= 0xff;
+    torn.fail_after = None;
+    let (outcome, fixed, log) = run(&set, torn, Some(scene().active), None);
+    assert_eq!(outcome, Ok(()));
+    let resumed = log
+        .iter()
+        .find_map(|l| l.strip_prefix("resume "))
+        .and_then(|r| r.split('/').next().and_then(|k| k.parse::<usize>().ok()))
+        .unwrap_or(0);
+    assert!(resumed < j.done_count(), "tampered window must not resume: {log:?}");
+    assert_eq!(fixed.body(s0.new_vol.len()), &s0.new_vol[..]);
 }

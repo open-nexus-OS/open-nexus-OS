@@ -500,7 +500,7 @@ wird production-grade auf das End-System gebaut (keine Interimslösung — Ledge
 Ledgern nachgeführt, nie geschätzt. Vokabular: ✅ delivered · ⤳ superseded · `Draft` /
 `In Progress` / `Done <date>` / `Delivered <date> (test-all green)`.
 
-### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 7/24 delivered · Tasks 1/5 Done
+### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 8/24 delivered · Tasks 1/5 Done
 
 Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 
@@ -513,7 +513,7 @@ Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 | 5 | ✅ TASK-0321 P4a | Boot-Wellen-Umbau (`core_plane.rs`: Welle 0 = policyd/virtioblkd/bundlemgrd, Volume-Pass VOR allen Mints), 12 Dienste aufs Volume (metricsd…pinched), Respawn aus dem Volume-Mapping, Reuse-Beweis (`--reuse-from`, 11 reused) | Delivered 2026-09-04 (headless/ota-bundle green; FUND: 6-KiB-Block-Plane ≈ 1 ms/Roundtrip → gpud/windowd = +1,3 s Boot → bleiben bis P4b eingebettet) |
 | 5b | ✅ TASK-0321 P4b | Bulk-Volume-Read (`blockproto OP_ARM/READ/RELEASE_VMO`, virtioblkd streamt Geräte-Runs direkt ins VMO, bundlemgrd 1 Read pro Fenster) + Migration gpud/windowd (14 Dienste vom Volume) | Delivered 2026-09-04 (windowd 7 MB: read 38 ms, hash 881 ms unter TCG → Rest = SHA-256-Emulation, Follow-up Zknh/parallel) |
 | 6 | ✅ TASK-0321 P5 | Boot-Image-Floor: Apps als Volume-Bundles (`nx app compile`, `meta/app.properties`, `payload.nxir`), bundlemgrd-Registry + GET_PAYLOAD vom Volume, packagefsd `pkg:/` = Index (`GET_INDEX`) + Dateien on demand (`GET_FILE_VMO`), FETCH_IMAGE/Transcode retired, `system`-Bundle | Delivered 2026-09-04 (FUND: packagefsd→bundlemgrd-Route war nonce-los falsch aufgelöst — der RAM-Seed lief still) → **TASK-0321 Done** |
-| 7 | TASK-0035 P1 | Stage-Journal `NXSJ` + per-Bundle-Resume (`updated: restage resume`), keep-blk-Lane `ota-bundle-resume` | Draft (hinter 0321 P3) |
+| 7 | ✅ TASK-0035 P1 | Stage-Journal `NXSJ` (Sektor 1, an NXSV-Digests gebunden, CRC) + per-Bundle-Resume mit Readback-Verifikation (`updated: restage resume (bundles=k/N)`), Lane `ota-bundle-resume` (QMP-Power-Cut mid-stage) | Delivered 2026-09-04 (Host-Matrix + Lane, siehe CHANGELOG) |
 | 8 | TASK-0035 P2 | Host-Reuse-Index (`nx image ota --bundle-set --reuse-from`, nur geänderte Bundles) | Draft |
 | 9 | TASK-0035 P3 | `bundle-delta` Kind 4 über den unveränderten RFC-0090-Adapter, Lane `ota-bundle-delta` | Draft |
 | 10 | TASK-0035 P4 | Close: RFC-0089 Phase 10 ✅, docs/updates, CHANGELOG | Draft |

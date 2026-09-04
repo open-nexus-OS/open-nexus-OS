@@ -67,7 +67,9 @@ pub(crate) fn runtime_mode_with_retry() -> Option<RuntimeMode> {
 
 #[must_use]
 pub(crate) fn runtime_profile() -> Option<RuntimeProfile> {
-    let mut buf = [0u8; 16];
+    // Bounded name buffer: the longest profile (`ota-bundle-resume`, 17) must
+    // fit — a 16-byte buffer silently truncated it into the FULL ladder.
+    let mut buf = [0u8; 32];
     let len = read_named_file(SELFTEST_PROFILE_FILE_NAME, &mut buf)?;
     parse_runtime_profile(&buf[..len])
 }

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-04 (TASK-0035 P1: NXSJ stage journal — a torn bundle-set stage resumes per bundle)
+
+- `updates::stage_journal`: the `NXSJ` sector-1 journal of the inactive
+  system slot (target volume + index digests, bundle bitmap, CRC-32). The
+  assembler persists it after every verified or reused window (before the
+  marker), reads it back on a restage of the same target, readback-verifies
+  every journalled window against the new index (stale bits are cleared)
+  and rewrites only the rest — `updated: restage resume (bundles=k/N)`.
+  Shipped components are still streamed and hashed; verification is never
+  skipped. The NXSV commit zeroes the journal.
+- New QEMU lane `ota-bundle-resume` (`just ci-os-ota-bundle-resume`, in
+  `test-all`): QMP power cut at the first `updated: bundle reused`, boot 2
+  restages and resumes (`SELFTEST: ota stage resume ok`).
+
 ### Changed - 2026-09-04 (TASK-0321 P5: boot-image floor — apps and `pkg:/` come from the system volume; TASK-0321 Done)
 
 - App bundles live on the verified system volume: `nx app compile` emits the

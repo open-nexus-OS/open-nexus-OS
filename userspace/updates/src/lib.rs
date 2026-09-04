@@ -40,8 +40,9 @@ pub mod system_set_capnp {
 
 pub mod component_set;
 pub mod delta_apply;
-pub mod system_set;
 /// RFC-0089 §12.4 system-volume assembler (TASK-0321 P3).
+pub mod stage_journal;
+pub mod system_set;
 pub mod volume_apply;
 
 /// Device publisher trust anchor, baked at build time from
