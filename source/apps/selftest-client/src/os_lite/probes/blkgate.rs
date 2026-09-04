@@ -28,6 +28,7 @@ const MAGIC0: u8 = b'B';
 const MAGIC1: u8 = b'K';
 const VERSION: u8 = 1;
 const OP_READ: u8 = 2;
+const OP_READ_VMO: u8 = 6;
 const OP_WRITE: u8 = 3;
 const PART_STATE: u8 = 0;
 const PART_SYSTEM_A: u8 = 5;
@@ -65,6 +66,19 @@ pub(crate) fn blk_cross_partition_deny_proof() {
 /// updated only — an ungranted READ of `system-a` (lba 0, one sector) must
 /// come back `STATUS_DENIED` from the op-aware gate. State-neutral (a read).
 pub(crate) fn blk_system_volume_deny_proof() {
+    // TASK-0321 P4b: the bulk path is gated exactly like READ — an
+    // unarmed READ_VMO from an ungranted sender must be DENIED (the gate
+    // answers before the driver looks for an armed VMO). Both probes must
+    // be denied for the single marker.
+    let mut vmo_frame = [0u8; 8 + 25];
+    vmo_frame[8] = PART_SYSTEM_A;
+    // byte_off 0, len 512 (u64le at 17..25), vmo_off 0.
+    vmo_frame[17] = 0x00;
+    vmo_frame[18] = 0x02;
+    if !deny_probe_quiet(OP_READ_VMO, &mut vmo_frame, 0x5E1F_5A02) {
+        emit_line(crate::markers::M_SELFTEST_BLK_SYSTEM_VOLUME_DENY_FAIL);
+        return;
+    }
     let mut frame = [0u8; 8 + 11];
     frame[8] = PART_SYSTEM_A;
     // lba 0 (u64le at 9..17), count 1 (u16le at 17..19).
@@ -83,9 +97,19 @@ pub(crate) fn blk_system_volume_deny_proof() {
 /// reply inbox. Any other outcome — route miss, send failure, timeout,
 /// a non-denied status — prints `fail_marker`.
 fn deny_probe(op: u8, frame: &mut [u8], nonce: u32, ok_marker: &str, fail_marker: &str) {
-    let Some(send_slot) = route_virtioblkd() else {
+    if deny_probe_quiet(op, frame, nonce) {
+        emit_line(ok_marker);
+    } else {
         emit_line(fail_marker);
-        return;
+    }
+}
+
+/// The probe itself: `true` iff virtioblkd answered OUR nonce with
+/// `STATUS_DENIED`; every other outcome (route miss, send failure,
+/// timeout, non-denied status) is `false`.
+fn deny_probe_quiet(op: u8, frame: &mut [u8], nonce: u32) -> bool {
+    let Some(send_slot) = route_virtioblkd() else {
+        return false;
     };
     frame[0] = MAGIC0;
     frame[1] = MAGIC1;
@@ -94,8 +118,7 @@ fn deny_probe(op: u8, frame: &mut [u8], nonce: u32, ok_marker: &str, fail_marker
     frame[4..8].copy_from_slice(&nonce.to_le_bytes());
 
     let Ok(reply_clone) = nexus_abi::cap_clone(REPLY_SEND_SLOT) else {
-        emit_line(fail_marker);
-        return;
+        return false;
     };
     let hdr = nexus_abi::MsgHeader::new(
         reply_clone,
@@ -111,15 +134,13 @@ fn deny_probe(op: u8, frame: &mut [u8], nonce: u32, ok_marker: &str, fail_marker
             Err(nexus_abi::IpcError::QueueFull) => {
                 if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
                     let _ = nexus_abi::cap_close(reply_clone);
-                    emit_line(fail_marker);
-                    return;
+                    return false;
                 }
                 let _ = nexus_abi::yield_();
             }
             Err(_) => {
                 let _ = nexus_abi::cap_close(reply_clone);
-                emit_line(fail_marker);
-                return;
+                return false;
             }
         }
     }
@@ -127,8 +148,7 @@ fn deny_probe(op: u8, frame: &mut [u8], nonce: u32, ok_marker: &str, fail_marker
     let mut buf = [0u8; 64];
     loop {
         if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-            emit_line(fail_marker);
-            return;
+            return false;
         }
         match nexus_abi::ipc_recv_v1(
             REPLY_RECV_SLOT,
@@ -147,21 +167,13 @@ fn deny_probe(op: u8, frame: &mut [u8], nonce: u32, ok_marker: &str, fail_marker
                     && buf[3] == (op | 0x80)
                     && buf[4..8] == nonce.to_le_bytes()
                 {
-                    if buf[8] == STATUS_DENIED {
-                        emit_line(ok_marker);
-                    } else {
-                        emit_line(fail_marker);
-                    }
-                    return;
+                    return buf[8] == STATUS_DENIED;
                 }
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {
                 let _ = nexus_abi::yield_();
             }
-            Err(_) => {
-                emit_line(fail_marker);
-                return;
-            }
+            Err(_) => return false,
         }
     }
 }

@@ -183,36 +183,38 @@ fn handle_get_bundle_elf(
         emit_line("bundlemgrd: FAIL get_bundle_elf (no vmo cap)");
         return;
     };
-    let (status, len) = (|| -> (u8, u32) {
+    let (status, len, read_ms, hash_ms) = (|| -> (u8, u32, u32, u32) {
         let Some(name) = wire::decode_get_bundle_elf(frame) else {
-            return (STATUS_MALFORMED, 0);
+            return (STATUS_MALFORMED, 0, 0, 0);
         };
         let vol = match volume.ensure() {
             Ok(v) => v,
-            Err(_) => return (wire::STATUS_UNAVAILABLE, 0),
+            Err(_) => return (wire::STATUS_UNAVAILABLE, 0, 0, 0),
         };
         let Some((_row, entry)) = vol.lookup(name) else {
-            return (wire::PAYLOAD_STATUS_UNKNOWN, 0);
+            return (wire::PAYLOAD_STATUS_UNKNOWN, 0, 0, 0);
         };
         match vol.stream_entry_into_vmo(entry, vmo, wire::PAYLOAD_DATA_OFFSET) {
-            Ok(len) => (wire::PAYLOAD_STATUS_OK, len),
-            Err(crate::volume::VolumeFail::Digest) => (wire::PAYLOAD_STATUS_DIGEST, 0),
-            Err(crate::volume::VolumeFail::Bounds) => (wire::PAYLOAD_STATUS_TOO_LARGE, 0),
-            Err(_) => (wire::STATUS_UNAVAILABLE, 0),
+            Ok((len, read_ms, hash_ms)) => (wire::PAYLOAD_STATUS_OK, len, read_ms, hash_ms),
+            Err(crate::volume::VolumeFail::Digest) => (wire::PAYLOAD_STATUS_DIGEST, 0, 0, 0),
+            Err(crate::volume::VolumeFail::Bounds) => (wire::PAYLOAD_STATUS_TOO_LARGE, 0, 0, 0),
+            Err(_) => (wire::STATUS_UNAVAILABLE, 0, 0, 0),
         }
     })();
     let hdr = wire::encode_payload_header(status, len);
     let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
     let _ = nexus_abi::cap_close(vmo);
     if status == wire::PAYLOAD_STATUS_OK {
-        emit_bundle_served(frame);
+        emit_bundle_served(frame, read_ms, hash_ms);
     } else {
         emit_line("bundlemgrd: FAIL get_bundle_elf (status)");
     }
 }
 
-/// `bundlemgrd: bundle served (name=<n>)` — bounded (name ≤ 48 bytes).
-fn emit_bundle_served(frame: &[u8]) {
+/// `bundlemgrd: bundle served (name=<n> read_ms=<r> hash_ms=<h>)` — bounded
+/// (name ≤ 48 bytes); the two costs locate a slow spawn pass (device path
+/// vs digest) without a profiler.
+fn emit_bundle_served(frame: &[u8], read_ms: u32, hash_ms: u32) {
     use nexus_abi::bundlemgrd as wire;
     let Some(name) = wire::decode_get_bundle_elf(frame) else { return };
     let mut line = [0u8; 96];
@@ -223,9 +225,37 @@ fn emit_bundle_served(frame: &[u8]) {
         line[n] = if b.is_ascii_graphic() { b } else { b'_' };
         n += 1;
     }
+    for (label, value) in [(&b" read_ms="[..], read_ms), (&b" hash_ms="[..], hash_ms)] {
+        line[n..n + label.len()].copy_from_slice(label);
+        n += label.len();
+        n = put_dec(&mut line, n, value);
+    }
     line[n] = b')';
     n += 1;
     if let Ok(s) = core::str::from_utf8(&line[..n]) {
         emit_line(s);
     }
+}
+
+fn put_dec(line: &mut [u8], at: usize, value: u32) -> usize {
+    let mut digits = [0u8; 10];
+    let mut d = 0;
+    let mut v = value;
+    loop {
+        digits[d] = b'0' + (v % 10) as u8;
+        d += 1;
+        v /= 10;
+        if v == 0 {
+            break;
+        }
+    }
+    let mut n = at;
+    while d > 0 {
+        d -= 1;
+        if n < line.len() {
+            line[n] = digits[d];
+            n += 1;
+        }
+    }
+    n
 }

@@ -200,39 +200,49 @@ impl Volume {
         Some((row, entry))
     }
 
-    /// Streams `entry`'s bytes into `vmo` at `data_offset` while hashing;
-    /// returns `Ok(len)` only if the bytes hashed to the index digest. The
+    /// Bulk-reads `entry`'s bytes into `vmo` at `data_offset` (one block-plane
+    /// round trip) and hashes them back out of the VMO; returns `Ok(len)`
+    /// only if the bytes hashed to the index digest — `(len, read_ms, hash_ms)`
+    /// so the serve marker locates the cost (device path vs digest). The
     /// caller writes the header afterwards (header-last discipline).
     pub(crate) fn stream_entry_into_vmo(
         &self,
         entry: &VolumeEntry,
         vmo: u32,
         data_offset: usize,
-    ) -> Result<u32, VolumeFail> {
+    ) -> Result<(u32, u32, u32), VolumeFail> {
         let start = self.index.superblock.data_offset as u64 + entry.data_offset;
         let total = entry.data_len as usize;
+        // TASK-0321 P4b: ONE bulk round trip — virtioblkd streams the entry's
+        // byte range straight into the destination VMO (device runs, no IPC
+        // per 6 KiB); the digest is then taken from the VMO itself (what the
+        // consumer will map), header-last discipline unchanged. The arm is
+        // released on every exit path.
+        let part_byte_off = VOLUME_START_SECTOR * blockproto::SECTOR_SIZE as u64 + start;
+        let t0 = nexus_abi::nsec().unwrap_or(0);
+        self.dev.arm_vmo(vmo).map_err(|_| VolumeFail::Io)?;
+        let bulk = self.dev.read_into_vmo(part_byte_off, total as u64, data_offset as u64);
+        let released = self.dev.release_vmo();
+        bulk.map_err(|_| VolumeFail::Io)?;
+        released.map_err(|_| VolumeFail::Io)?;
+        let t1 = nexus_abi::nsec().unwrap_or(0);
         let mut hasher = Sha256::new();
         let mut buf = [0u8; CHUNK];
         let mut done = 0usize;
         while done < total {
-            // Sector-aligned window covering the next chunk of the entry.
-            let abs = start + done as u64;
-            let lba = VOLUME_START_SECTOR + abs / blockproto::SECTOR_SIZE as u64;
-            let skew = (abs % blockproto::SECTOR_SIZE as u64) as usize;
-            let want = core::cmp::min(total - done, CHUNK - skew);
-            let sectors = (skew + want).div_ceil(blockproto::SECTOR_SIZE);
-            let read_len = sectors * blockproto::SECTOR_SIZE;
-            self.dev.read_blocks(lba, &mut buf[..read_len]).map_err(|_| VolumeFail::Io)?;
-            let bytes = &buf[skew..skew + want];
-            hasher.update(bytes);
-            nexus_abi::vmo_write(vmo, data_offset + done, bytes).map_err(|_| VolumeFail::Bounds)?;
+            let want = core::cmp::min(total - done, CHUNK);
+            nexus_abi::vmo_read(vmo, data_offset + done, &mut buf[..want])
+                .map_err(|_| VolumeFail::Bounds)?;
+            hasher.update(&buf[..want]);
             done += want;
         }
         let digest: [u8; 32] = hasher.finalize().into();
+        let t2 = nexus_abi::nsec().unwrap_or(0);
         if digest != entry.sha256 {
             return Err(VolumeFail::Digest);
         }
-        Ok(total as u32)
+        let ms = |a: u64, b: u64| (b.saturating_sub(a) / 1_000_000) as u32;
+        Ok((total as u32, ms(t0, t1), ms(t1, t2)))
     }
 }
 

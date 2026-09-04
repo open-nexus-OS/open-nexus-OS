@@ -39,6 +39,30 @@ and host-tested (`userspace/storage::gpt` — bounded RO GPT parser + `Partition
 The consolidation task will flip statefs+nxfs onto one GPT device behind those pieces once the
 boot-critical statefs migration can be staged with its own boot-verification cycles.
 
+## Bulk reads into a client VMO (amendment, 2026-09-04 — TASK-0321 P4b)
+
+The blockproto request carries exactly ONE moved cap (the reply SEND clone), and a READ
+returns at most 12 sectors inline — one IPC round trip per 6 KiB. With services served from
+the system volume (RFC-0089 §12) that made the boot-time spawn pass ≈ 1 ms per 6 KiB
+(gpud + windowd = +1.3 s). Three additive, versioned ops fix the shape without touching the
+kernel:
+
+- `OP_ARM_VMO` `[hdr, part]` — the message's moved cap IS the client's VMO (clone); no
+  reply frame. virtioblkd keeps at most one armed VMO per kernel-attributed sender (bounded
+  table, re-arm replaces + closes). Gated exactly like READ; a denied arm closes the cap.
+- `OP_READ_VMO` `[hdr, part, byte_off:u64, len:u64, vmo_off:u64]` — copies the partition
+  byte range straight into the armed VMO (`MAX_RUN_BYTES` device runs into a bounce buffer,
+  byte-exact `vmo_write`s; no IPC per run), replies status. Bounds: `0 < len ≤ 16 MiB`
+  (codec), range within the partition, VMO bounds enforced by the kernel (`vmo_write` →
+  `STATUS_OUT_OF_RANGE`), `STATUS_NO_VMO` without an arm. The queue is FIFO, so ARM →
+  READ ordering is inherent.
+- `OP_RELEASE_VMO` `[hdr, part]` — closes the armed VMO.
+
+Consumers: bundlemgrd `stream_entry_into_vmo` (one round trip per bundle window, digest
+taken from the VMO, header last). The selftest deny probe covers READ_VMO from an
+ungranted sender (`SELFTEST: blk system volume deny ok` requires BOTH READ and READ_VMO
+denied). WRITE_VMO is deliberately absent (staging writes are OTA-time, not boot-time).
+
 ## Context
 
 Today there is exactly one virtio-blk device; statefsd owns it whole-device via MMIO cap slot 48

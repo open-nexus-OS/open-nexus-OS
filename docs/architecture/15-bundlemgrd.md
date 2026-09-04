@@ -35,8 +35,9 @@ and serves service ELFs from it: on the first volume op it attaches the
 partition paired with the MEASURED boot slot over the block plane, verifies
 the NXSV against the baked OS anchor (`policies/os-trust.toml`), pairs it with
 the booted image digest + rollback line, reads the bounded pkgimg v3 index and
-answers `QUERY_BUNDLE` / `GET_BUNDLE_ELF` (payload streamed into the caller's
-VMO, hashed against the index digest, header written LAST) / `VOLUME_STATUS`.
+answers `QUERY_BUNDLE` / `GET_BUNDLE_ELF` (payload bulk-read into the caller's
+VMO in ONE block-plane round trip — ADR-0044 `OP_READ_VMO` — then hashed out of
+the VMO against the index digest, header written LAST) / `VOLUME_STATUS`.
 Markers: `bundlemgrd: system volume verified (slot=<s> build=<id8> bundles=N)`,
 `bundlemgrd: bundle served (name=…)`, `… FAIL (<reason>)`. Only the
 kernel-attributed init id may pull ELFs; the read-only queries are open to the

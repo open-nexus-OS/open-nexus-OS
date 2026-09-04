@@ -500,7 +500,7 @@ wird production-grade auf das End-System gebaut (keine Interimslösung — Ledge
 Ledgern nachgeführt, nie geschätzt. Vokabular: ✅ delivered · ⤳ superseded · `Draft` /
 `In Progress` / `Done <date>` / `Delivered <date> (test-all green)`.
 
-### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 5/24 delivered · Tasks 0/5 Done
+### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 6/24 delivered · Tasks 0/5 Done
 
 Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 
@@ -511,7 +511,7 @@ Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 | 3 | ✅ TASK-0321 P2 | OS: op-aware virtioblkd-Gates, bundlemgrd `volume.rs` (NXSV-Verify, Bundle-ELF über VMO), init `service_source` + zweiter Spawn-Pass, Pilot **metricsd** vom Volume | Delivered 2026-09-03 (headless green: volume verified → bundle served → spawn from volume → metricsd ready → deny probe) |
 | 4 | ✅ TASK-0321 P3 | OS: Kinds 2/6 Apply (generischer `volume_apply::VolumeAssembler` + `updated/volume_os.rs`, Reuse aus aktivem Volume, NXSV LAST, `restage clean`), Fixture `bundle-set.nxs`, Lane `ota-bundle` (zwei Boots, ein uart → `SELFTEST: ota bundle-set ok`) | Delivered 2026-09-03 (test-all green; ota-bundle: Volume verified auf Slot b, metricsd@1.0.1 vom Volume gespawnt) |
 | 5 | ✅ TASK-0321 P4a | Boot-Wellen-Umbau (`core_plane.rs`: Welle 0 = policyd/virtioblkd/bundlemgrd, Volume-Pass VOR allen Mints), 12 Dienste aufs Volume (metricsd…pinched), Respawn aus dem Volume-Mapping, Reuse-Beweis (`--reuse-from`, 11 reused) | Delivered 2026-09-04 (headless/ota-bundle green; FUND: 6-KiB-Block-Plane ≈ 1 ms/Roundtrip → gpud/windowd = +1,3 s Boot → bleiben bis P4b eingebettet) |
-| 5b | TASK-0321 P4b | Bulk-Volume-Read (`blockproto OP_READ_VMO`, virtioblkd streamt Geräte-Runs direkt ins VMO, bundlemgrd 1 Read pro Fenster) + Migration gpud/windowd hinter dem `volume_ms`-Budget | Draft |
+| 5b | ✅ TASK-0321 P4b | Bulk-Volume-Read (`blockproto OP_ARM/READ/RELEASE_VMO`, virtioblkd streamt Geräte-Runs direkt ins VMO, bundlemgrd 1 Read pro Fenster) + Migration gpud/windowd (14 Dienste vom Volume) | Delivered 2026-09-04 (windowd 7 MB: read 38 ms, hash 881 ms unter TCG → Rest = SHA-256-Emulation, Follow-up Zknh/parallel) |
 | 6 | TASK-0321 P5 | Boot-Image-Floor: App-Payloads + packagefsd-Image ins Volume (`OP_GET_FILE_VMO`), pkgimg-v2-Transcode retired, Docs-Sweep | Draft |
 | 7 | TASK-0035 P1 | Stage-Journal `NXSJ` + per-Bundle-Resume (`updated: restage resume`), keep-blk-Lane `ota-bundle-resume` | Draft (hinter 0321 P3) |
 | 8 | TASK-0035 P2 | Host-Reuse-Index (`nx image ota --bundle-set --reuse-from`, nur geänderte Bundles) | Draft |

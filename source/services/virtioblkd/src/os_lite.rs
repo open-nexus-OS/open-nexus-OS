@@ -21,6 +21,8 @@
 //!   double boot, cross-partition deny).
 //! ADR: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
 
+extern crate alloc;
+
 use nexus_ipc::{KernelServer, Server as _, Wait};
 use storage::blockproto::{self, BlockRequest, MAX_BLOCKS_PER_REQ, SECTOR_SIZE};
 use storage::gpt::{self, Partition};
@@ -44,6 +46,90 @@ struct PartWindow {
 struct Served {
     dev: VirtioBlkDevice,
     parts: [Option<PartWindow>; blockproto::PART_COUNT as usize],
+    /// TASK-0321 P4b: one armed VMO per sender `(sid, slot)` — bounded
+    /// table; a re-arm replaces (closes) the previous one.
+    armed: [Option<(u64, u32)>; ARMED_MAX],
+    /// One device run's bounce buffer (heap once; the bump heap never frees).
+    run: alloc::vec::Vec<u8>,
+}
+
+const ARMED_MAX: usize = 4;
+/// READ_VMO bounce buffer: the device driver splits it into MAX_RUN_BYTES
+/// runs; 64 KiB keeps the vmo_write syscall count ≈ 112 for windowd.
+const RUN_BUF: usize = 64 * 1024;
+
+impl Served {
+    fn armed_slot(&self, sender: u64) -> Option<u32> {
+        self.armed.iter().flatten().find(|(sid, _)| *sid == sender).map(|(_, slot)| *slot)
+    }
+
+    /// Arms `slot` for `sender` (replacing an earlier one); `false` if the
+    /// table is full — the cap is closed either way on failure.
+    fn arm(&mut self, sender: u64, slot: u32) -> bool {
+        if let Some(entry) = self.armed.iter_mut().flatten().find(|(sid, _)| *sid == sender) {
+            let _ = nexus_abi::cap_close(entry.1);
+            entry.1 = slot;
+            return true;
+        }
+        if let Some(free) = self.armed.iter_mut().find(|e| e.is_none()) {
+            *free = Some((sender, slot));
+            return true;
+        }
+        let _ = nexus_abi::cap_close(slot);
+        false
+    }
+
+    fn release(&mut self, sender: u64) -> bool {
+        for entry in self.armed.iter_mut() {
+            if let Some((sid, slot)) = *entry {
+                if sid == sender {
+                    let _ = nexus_abi::cap_close(slot);
+                    *entry = None;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Streams `[byte_off, byte_off+len)` of `window` into the armed VMO at
+    /// `vmo_off` in MAX_RUN_BYTES device runs (sector-aligned reads into
+    /// the bounce buffer, byte-exact copies out).
+    fn read_into_vmo(
+        &mut self,
+        window: PartWindow,
+        vmo: u32,
+        byte_off: u64,
+        len: u64,
+        vmo_off: u64,
+    ) -> u8 {
+        let part_bytes = window.sectors.saturating_mul(SECTOR_SIZE as u64);
+        let Some(end) = byte_off.checked_add(len) else { return blockproto::STATUS_OUT_OF_RANGE };
+        if end > part_bytes {
+            return blockproto::STATUS_OUT_OF_RANGE;
+        }
+        let run_cap = self.run.len();
+        let mut done: u64 = 0;
+        while done < len {
+            let abs = byte_off + done;
+            let lba = window.first_lba + abs / SECTOR_SIZE as u64;
+            let skew = (abs % SECTOR_SIZE as u64) as usize;
+            let want = core::cmp::min((len - done) as usize, run_cap - skew);
+            let sectors = (skew + want).div_ceil(SECTOR_SIZE);
+            let read_len = sectors * SECTOR_SIZE;
+            if self.dev.read_blocks(lba, &mut self.run[..read_len]).is_err() {
+                return blockproto::STATUS_IO;
+            }
+            let Ok(dst) = usize::try_from(vmo_off + done) else {
+                return blockproto::STATUS_OUT_OF_RANGE;
+            };
+            if nexus_abi::vmo_write(vmo, dst, &self.run[skew..skew + want]).is_err() {
+                return blockproto::STATUS_OUT_OF_RANGE;
+            }
+            done += want as u64;
+        }
+        blockproto::STATUS_OK
+    }
 }
 
 impl Served {
@@ -68,7 +154,14 @@ impl Gates {
     /// different holders — the system volumes are read by bundlemgrd (and
     /// updated, for unchanged-bundle reuse) but written only by updated.
     fn allowed(&self, sender: u64, part: u8, op: u8) -> bool {
-        let read_only = matches!(op, blockproto::OP_READ | blockproto::OP_INFO);
+        let read_only = matches!(
+            op,
+            blockproto::OP_READ
+                | blockproto::OP_INFO
+                | blockproto::OP_ARM_VMO
+                | blockproto::OP_READ_VMO
+                | blockproto::OP_RELEASE_VMO
+        );
         match part {
             blockproto::PART_STATE => sender == self.sid_statefsd,
             blockproto::PART_DATA => sender == self.sid_vfsd,
@@ -134,7 +227,7 @@ fn attach() -> Option<Served> {
         }
     }
     emit_gpt_ok(found);
-    Some(Served { dev, parts })
+    Some(Served { dev, parts, armed: [None; ARMED_MAX], run: alloc::vec![0u8; RUN_BUF] })
 }
 
 /// `virtioblkd: gpt ok (parts=N)` — bounded formatting (N ≤ 9).
@@ -161,6 +254,9 @@ fn serve(served: &mut Served, gates: &Gates, sender: u64, frame: &[u8], out: &mu
         BlockRequest::Read { part, .. } => (blockproto::OP_READ, *part),
         BlockRequest::Write { part, .. } => (blockproto::OP_WRITE, *part),
         BlockRequest::Sync { part } => (blockproto::OP_SYNC, *part),
+        BlockRequest::ArmVmo { part } => (blockproto::OP_ARM_VMO, *part),
+        BlockRequest::ReadVmo { part, .. } => (blockproto::OP_READ_VMO, *part),
+        BlockRequest::ReleaseVmo { part } => (blockproto::OP_RELEASE_VMO, *part),
     };
     let Some(window) = served.window(part) else {
         return blockproto::write_rsp_header(out, op, nonce, blockproto::STATUS_UNKNOWN_PART);
@@ -208,6 +304,52 @@ fn serve(served: &mut Served, gates: &Gates, sender: u64, frame: &[u8], out: &mu
             Ok(()) => blockproto::write_rsp_header(out, op, nonce, blockproto::STATUS_OK),
             Err(_) => blockproto::write_rsp_header(out, op, nonce, blockproto::STATUS_IO),
         },
+        // ARM_VMO never reaches `serve` (its moved cap is the VMO, handled
+        // in the loop); answering it here would mean the cap was missing.
+        BlockRequest::ArmVmo { .. } => {
+            blockproto::write_rsp_header(out, op, nonce, blockproto::STATUS_MALFORMED)
+        }
+        BlockRequest::ReadVmo { byte_off, len, vmo_off, .. } => {
+            let Some(vmo) = served.armed_slot(sender) else {
+                return blockproto::write_rsp_header(out, op, nonce, blockproto::STATUS_NO_VMO);
+            };
+            let status = served.read_into_vmo(window, vmo, byte_off, len, vmo_off);
+            blockproto::write_rsp_header(out, op, nonce, status)
+        }
+        BlockRequest::ReleaseVmo { .. } => {
+            let status = if served.release(sender) {
+                blockproto::STATUS_OK
+            } else {
+                blockproto::STATUS_NO_VMO
+            };
+            blockproto::write_rsp_header(out, op, nonce, status)
+        }
+    }
+}
+
+/// TASK-0321 P4b: the ARM_VMO leg — the message's moved cap IS the VMO
+/// (no reply frame). Gate first; a denied or unattached arm closes the cap.
+fn arm_vmo(
+    served: Option<&mut Served>,
+    gates: &Gates,
+    sender: u64,
+    part: u8,
+    reply: Option<nexus_ipc::ReplyCap>,
+) {
+    let Some(cap) = reply else { return };
+    let slot = cap.slot();
+    core::mem::forget(cap);
+    let Some(served) = served else {
+        let _ = nexus_abi::cap_close(slot);
+        return;
+    };
+    if served.window(part).is_none() || !gates.allowed(sender, part, blockproto::OP_ARM_VMO) {
+        emit("virtioblkd: denied (partition gate)");
+        let _ = nexus_abi::cap_close(slot);
+        return;
+    }
+    if !served.arm(sender, slot) {
+        emit("virtioblkd: arm table full");
     }
 }
 
@@ -265,6 +407,12 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
         match server.recv_request_with_meta_into(Wait::Blocking, &mut inbuf) {
             Ok((n, sender, reply)) => {
                 breaker.on_success();
+                if let Some((_, BlockRequest::ArmVmo { part })) =
+                    blockproto::decode_request(&inbuf[..n])
+                {
+                    arm_vmo(served.as_mut(), &gates, sender, part, reply);
+                    continue;
+                }
                 let rn = match served.as_mut() {
                     Some(s) => serve(s, &gates, sender, &inbuf[..n], &mut outbuf),
                     None => {
@@ -277,6 +425,9 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
                                     BlockRequest::Read { .. } => blockproto::OP_READ,
                                     BlockRequest::Write { .. } => blockproto::OP_WRITE,
                                     BlockRequest::Sync { .. } => blockproto::OP_SYNC,
+                                    BlockRequest::ArmVmo { .. } => blockproto::OP_ARM_VMO,
+                                    BlockRequest::ReadVmo { .. } => blockproto::OP_READ_VMO,
+                                    BlockRequest::ReleaseVmo { .. } => blockproto::OP_RELEASE_VMO,
                                 };
                                 blockproto::write_rsp_header(
                                     &mut outbuf,

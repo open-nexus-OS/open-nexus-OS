@@ -1,6 +1,6 @@
 ---
 title: TASK-0321 OTA Phase B — verified system volume (system-a/b) + service migration out of the boot image + bundle-set updates with unchanged-bundle reuse
-status: In Progress (P0–P3 + P4a delivered 2026-09-04; P4b bulk volume read next)
+status: In Progress (P0–P4 delivered 2026-09-04; P5 boot-image floor next)
 owner: @runtime @security
 created: 2026-09-03
 updated: 2026-09-03
@@ -248,7 +248,43 @@ commit_set, §12.5 gates, §12.6 idempotency, §12.7 markers/rejects, §12.8 mig
   volume_ms` (target: all 14 services ≤ 2× the 12-service pass); then gpud + windowd migrate with
   the ladder rungs (`init: start/up gpud|windowd` after `init: ready`).
 
-Next: P4b, then P5 (boot-image floor).
+### P4b delivered 2026-09-04 — bulk volume read + gpud/windowd on the volume
+
+- **blockproto (ADR-0044 amendment)**: `OP_ARM_VMO` (the message's moved cap IS the client's VMO
+  clone; no reply; one armed VMO per kernel-attributed sender, bounded table of 4, re-arm
+  replaces + closes), `OP_READ_VMO {part, byte_off, len, vmo_off}` (partition byte range straight
+  into the armed VMO: `MAX_RUN_BYTES` device runs into a 64 KiB bounce buffer, byte-exact
+  `vmo_write`s, no IPC per run; `0 < len ≤ 16 MiB` at the codec, partition bounds, kernel VMO
+  bounds → `STATUS_OUT_OF_RANGE`, `STATUS_NO_VMO` without an arm), `OP_RELEASE_VMO`. Same READ
+  gate; `RemoteBlockDevice::{arm_vmo, read_into_vmo, release_vmo}` (deadline scales 1 s/MiB).
+  Host test `vmo_ops_roundtrip_and_reject_bounds` (cap, zero, short body). The selftest deny
+  probe now requires BOTH READ and READ_VMO denied for `SELFTEST: blk system volume deny ok`.
+- **bundlemgrd** `stream_entry_into_vmo`: arm → ONE `read_into_vmo` per window → release → digest
+  taken from the VMO via `vmo_read` → header last. `bundlemgrd: bundle served (name=… read_ms=…
+  hash_ms=…)` locates the cost without a profiler.
+- **Migrated**: gpud + windowd (SSOT list now 14 services; ladder rungs after `touchd`); CORE +
+  `updated` + `bootctld` + execd's embedded app-host stay embedded. init-lite shrinks by ~8.4 MB.
+- **Measured (TCG, headless)**: volume_ms 12 services 362 → 332; with gpud + windowd 1639 → 1339.
+  Split (`bundle served`): windowd **read_ms=38** (7 MB — the device path is solved),
+  **hash_ms=881**; gpud read 3 / hash 58; metricsd hash 7. The residual cost is SHA-256 on the
+  emulated CPU (~8 MB/s; release profile is already opt-level 3 + fat LTO + `+zbb`); on real
+  silicon the same hash is ~50 ms. Boot: init total 559 → 1507 ms under TCG (dev `just start`
+  reveal pays ≈ +0.95 s until the hash is accelerated).
+- FOLLOW-UP (perf, not a blocker — ledger risk): hash acceleration for the verifier: (a) a Zknh
+  (`sha256sum0/1`, `sha256sig0/1`) SHA-256 with runtime detection + soft fallback (test vectors —
+  security-critical code), (b) parallel verification across harts (a hash job on the compute
+  broker, or a bundlemgrd worker), (c) lazy per-page verification needs kernel demand paging
+  (Merkle tree in the index) — RFC territory. None changes the contract shipped here.
+- FINDING (fixed): the first `test-all` killed `updated` (`alloc_error size=0x4000`) on the 13th
+  reused bundle of the ota-bundle set — `reuse_from_active` re-read and re-PARSED the active index
+  per bundle (Strings/Vecs) and allocated a fresh 16 KiB scratch + zero-pad per bundle, on the OS
+  bump heap that never frees (768 KiB). The assembler now caches the active index once per set
+  and streams every loop through ONE scratch buffer (host suite unchanged, 7 green).
+- Proof: headless green (14 services from the volume, deny probe incl. READ_VMO), `just check`
+  green; `just test-all` GREEN end to end 2026-09-04 (headless, smp1, reset, ota-flip, ota-bundle
+  with 13 reused bundles, ota-tamper/downgrade/fallback).
+
+Next: P5 (boot-image floor: app payloads + packagefsd image into the volume, pkgimg v2 retired).
 
 Planned against verified repo reality (Explore + Plan 2026-09-03). Principle: every package is a
 direct step to the production system — no interim volume format, no second bundle registry, no

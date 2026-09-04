@@ -22,6 +22,8 @@ netstackd
 dsoftbusd
 hidrawd
 touchd
+gpud
+windowd
 inputd
 imed
 pinched

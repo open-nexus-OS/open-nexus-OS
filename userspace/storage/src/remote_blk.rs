@@ -166,6 +166,81 @@ impl RemoteBlockDevice {
         }
     }
 
+    /// TASK-0321 P4b: arms a clone of `vmo` at virtioblkd for this sender
+    /// (no reply; the queue is FIFO so the following READ_VMO sees it).
+    /// The caller keeps its own handle.
+    pub fn arm_vmo(&self, vmo: u32) -> Result<(), BlockError> {
+        let moved = nexus_abi::cap_clone(vmo).map_err(|_| BlockError::IoError)?;
+        let mut req = [0u8; 16];
+        let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+        let n = blockproto::encode_arm_vmo_into(&mut req, nonce, self.part);
+        let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
+        let deadline =
+            nexus_abi::nsec().map_err(|_| BlockError::IoError)?.saturating_add(OP_DEADLINE_NS);
+        loop {
+            match nexus_abi::ipc_send_v1(
+                self.send_slot,
+                &hdr,
+                &req[..n],
+                nexus_abi::IPC_SYS_NONBLOCK,
+                0,
+            ) {
+                Ok(_) => return Ok(()),
+                Err(nexus_abi::IpcError::QueueFull) => {
+                    if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
+                        let _ = nexus_abi::cap_close(moved);
+                        return Err(BlockError::IoError);
+                    }
+                    let _ = nexus_abi::yield_();
+                }
+                Err(_) => {
+                    let _ = nexus_abi::cap_close(moved);
+                    return Err(BlockError::IoError);
+                }
+            }
+        }
+    }
+
+    /// TASK-0321 P4b: copies `len` partition bytes from `byte_off` into the
+    /// armed VMO at `vmo_off` — ONE round trip for a whole bundle window
+    /// (the driver streams device runs, no IPC per run). Deadline scales
+    /// with the transfer (1 s per MiB on top of the base budget).
+    pub fn read_into_vmo(&self, byte_off: u64, len: u64, vmo_off: u64) -> Result<(), BlockError> {
+        if len == 0 || len > blockproto::MAX_VMO_READ_BYTES {
+            return Err(BlockError::OutOfRange);
+        }
+        let end = byte_off.checked_add(len).ok_or(BlockError::OutOfRange)?;
+        if end > self.block_count.saturating_mul(SECTOR_SIZE as u64) {
+            return Err(BlockError::OutOfRange);
+        }
+        let mut req = [0u8; 40];
+        let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+        let n =
+            blockproto::encode_read_vmo_into(&mut req, nonce, self.part, byte_off, len, vmo_off);
+        let mut rsp = [0u8; blockproto::HDR_LEN + 1];
+        let budget =
+            OP_DEADLINE_NS.saturating_add(len.div_ceil(1 << 20).saturating_mul(1_000_000_000));
+        let rn = self.round_trip_deadline(&req[..n], &mut rsp, budget)?;
+        match blockproto::decode_status(blockproto::OP_READ_VMO, nonce, &rsp[..rn]) {
+            Some(blockproto::STATUS_OK) => Ok(()),
+            Some(blockproto::STATUS_OUT_OF_RANGE) => Err(BlockError::OutOfRange),
+            _ => Err(BlockError::IoError),
+        }
+    }
+
+    /// TASK-0321 P4b: closes the armed VMO at the driver.
+    pub fn release_vmo(&self) -> Result<(), BlockError> {
+        let mut req = [0u8; 16];
+        let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+        let n = blockproto::encode_release_vmo_into(&mut req, nonce, self.part);
+        let mut rsp = [0u8; blockproto::HDR_LEN + 1];
+        let rn = self.round_trip(&req[..n], &mut rsp)?;
+        match blockproto::decode_status(blockproto::OP_RELEASE_VMO, nonce, &rsp[..rn]) {
+            Some(blockproto::STATUS_OK) => Ok(()),
+            _ => Err(BlockError::IoError),
+        }
+    }
+
     fn io_run(&self, op_write: bool, first: u64, buf_len: usize) -> Result<(), BlockError> {
         #[allow(unknown_lints, clippy::manual_is_multiple_of)]
         let misaligned = buf_len == 0 || buf_len % SECTOR_SIZE != 0;

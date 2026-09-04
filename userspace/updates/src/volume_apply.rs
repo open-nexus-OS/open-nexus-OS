@@ -96,6 +96,13 @@ pub struct VolumeAssembler<D: VolumeDev, A: VolumeDev, E: VolumeEvents> {
     populated: Vec<bool>,
     partial: Vec<u8>,
     cur: Option<Current>,
+    /// The ACTIVE volume's index, read + parsed ONCE per set (a locator
+    /// only — every reused byte is re-hashed). Per-bundle re-reads leaked
+    /// a parsed index each on the OS bump heap (never frees) and killed
+    /// `updated` at the 13th reuse.
+    active_index: Option<VolumeIndex>,
+    /// One scratch buffer for every streaming loop (allocated once).
+    scratch: Vec<u8>,
 }
 
 impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> VolumeAssembler<D, A, E> {
@@ -111,6 +118,8 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> VolumeAssembler<D, A, E> {
             populated: Vec::new(),
             partial: Vec::new(),
             cur: None,
+            active_index: None,
+            scratch: vec![0u8; SCRATCH],
         }
     }
 
@@ -161,15 +170,19 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> VolumeAssembler<D, A, E> {
         if byte % SECTOR as u64 != 0 {
             return Err(RejectReason::Bounds);
         }
-        let mut buf = vec![0u8; SCRATCH];
+        let mut buf = core::mem::take(&mut self.scratch);
         while remaining > 0 {
             let take = remaining.min(buf.len() as u64) as usize;
             let padded = take.div_ceil(SECTOR) * SECTOR;
-            self.inactive.read(lba, &mut buf[..padded])?;
+            if let Err(e) = self.inactive.read(lba, &mut buf[..padded]) {
+                self.scratch = buf;
+                return Err(e);
+            }
             hasher.update(&buf[..take]);
             lba += (padded / SECTOR) as u64;
             remaining -= take as u64;
         }
+        self.scratch = buf;
         let mut out = [0u8; 32];
         out.copy_from_slice(&hasher.finalize());
         Ok(out)
@@ -187,8 +200,11 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> VolumeAssembler<D, A, E> {
         let (name, version) = (target.bundle.clone(), target.version.clone());
         let active = self.active.as_mut().ok_or(RejectReason::BundleNotInIndex)?;
         // Locate the window in the ACTIVE volume by digest (its index is a
-        // locator only; every byte is re-hashed below).
-        let active_index = read_active_index(active)?;
+        // locator only; every byte is re-hashed below). Read once per set.
+        if self.active_index.is_none() {
+            self.active_index = Some(read_active_index(active)?);
+        }
+        let active_index = self.active_index.as_ref().ok_or(RejectReason::Io)?;
         let src = active_index.bundle_by_sha(&want_sha).ok_or(RejectReason::BundleNotInIndex)?;
         if src.data_len != len {
             return Err(RejectReason::BundleNotInIndex);
@@ -198,33 +214,44 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> VolumeAssembler<D, A, E> {
             return Err(RejectReason::Bounds);
         }
         let mut hasher = Sha256::new();
-        let mut buf = vec![0u8; SCRATCH];
+        let mut buf = core::mem::take(&mut self.scratch);
         let mut done = 0u64;
-        while done < len {
-            let take = (len - done).min(buf.len() as u64) as usize;
-            let padded = take.div_ceil(SECTOR) * SECTOR;
-            active.read(Self::sector_of(src_start + done), &mut buf[..padded])?;
-            hasher.update(&buf[..take]);
-            // Zero the tail of the last sector (host padding is zero).
-            for b in &mut buf[take..padded] {
-                *b = 0;
+        let copied = (|| -> Result<(), RejectReason> {
+            while done < len {
+                let take = (len - done).min(buf.len() as u64) as usize;
+                let padded = take.div_ceil(SECTOR) * SECTOR;
+                active.read(Self::sector_of(src_start + done), &mut buf[..padded])?;
+                hasher.update(&buf[..take]);
+                // Zero the tail of the last sector (host padding is zero).
+                for b in &mut buf[take..padded] {
+                    *b = 0;
+                }
+                self.inactive.write(Self::sector_of(new_start + done), &buf[..padded])?;
+                done += take as u64;
             }
-            self.inactive.write(Self::sector_of(new_start + done), &buf[..padded])?;
-            done += take as u64;
-        }
+            Ok(())
+        })();
+        // Zero-pad up to the window's 4 KiB boundary (stale bytes there
+        // would break the whole-volume digest) — from the same buffer.
+        let end = new_start + len;
+        let pad_to = end.div_ceil(WINDOW_ALIGN) * WINDOW_ALIGN;
+        let written_end = end.div_ceil(SECTOR as u64) * SECTOR as u64;
+        let padded_ok = copied.and_then(|()| {
+            if pad_to > written_end {
+                let n = (pad_to - written_end) as usize;
+                for b in &mut buf[..n] {
+                    *b = 0;
+                }
+                self.inactive.write(Self::sector_of(written_end), &buf[..n])?;
+            }
+            Ok(())
+        });
+        self.scratch = buf;
+        padded_ok?;
         let mut got = [0u8; 32];
         got.copy_from_slice(&hasher.finalize());
         if got != want_sha {
             return Err(RejectReason::VolumeDigest);
-        }
-        // Zero-pad up to the window's 4 KiB boundary (stale bytes there
-        // would break the whole-volume digest).
-        let end = new_start + len;
-        let pad_to = end.div_ceil(WINDOW_ALIGN) * WINDOW_ALIGN;
-        let written_end = end.div_ceil(SECTOR as u64) * SECTOR as u64;
-        if pad_to > written_end {
-            let zeros = vec![0u8; (pad_to - written_end) as usize];
-            self.inactive.write(Self::sector_of(written_end), &zeros)?;
         }
         let mut sha8 = [0u8; 8];
         sha8.copy_from_slice(&want_sha[..8]);

@@ -29,6 +29,19 @@ pub const OP_INFO: u8 = 1;
 pub const OP_READ: u8 = 2;
 pub const OP_WRITE: u8 = 3;
 pub const OP_SYNC: u8 = 4;
+/// TASK-0321 P4b (ADR-0044 amendment): bulk reads into a client VMO. The
+/// request's single moved cap is normally the reply SEND clone, so the VMO
+/// travels in its own op: ARM_VMO `[hdr, part]` moves the VMO (no reply —
+/// the queue is FIFO, so the next READ_VMO sees it or answers NO_VMO),
+/// READ_VMO `[hdr, part, byte_off:u64, len:u64, vmo_off:u64]` streams the
+/// partition byte range straight into the armed VMO (device runs, no IPC
+/// per run) and replies status, RELEASE_VMO `[hdr, part]` closes it. One
+/// armed VMO per sender; the partition READ gate applies to all three.
+pub const OP_ARM_VMO: u8 = 5;
+pub const OP_READ_VMO: u8 = 6;
+pub const OP_RELEASE_VMO: u8 = 7;
+/// Hard cap on one READ_VMO transfer (a bundle window; windowd ≈ 7 MiB).
+pub const MAX_VMO_READ_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Partition selectors (stable across the boot; GPT-derived). 0/1 are the
 /// TASK-0293-era selectors; 2..6 joined with the RFC-0089 §2 layout.
@@ -78,6 +91,8 @@ pub const STATUS_MALFORMED: u8 = 3;
 pub const STATUS_UNKNOWN_PART: u8 = 4;
 /// Caller identity holds no grant for this partition/op (deny-by-default).
 pub const STATUS_DENIED: u8 = 5;
+/// READ_VMO/RELEASE_VMO without an armed VMO for this sender.
+pub const STATUS_NO_VMO: u8 = 6;
 
 /// A decoded request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,6 +105,12 @@ pub enum BlockRequest<'a> {
     Write { part: u8, lba: u64, data: &'a [u8] },
     /// Durability barrier.
     Sync { part: u8 },
+    /// Arm the moved VMO for this sender (no reply).
+    ArmVmo { part: u8 },
+    /// Copy `len` bytes from partition byte `byte_off` into the armed VMO at `vmo_off`.
+    ReadVmo { part: u8, byte_off: u64, len: u64, vmo_off: u64 },
+    /// Close the armed VMO.
+    ReleaseVmo { part: u8 },
 }
 
 /// Writes a request header into `buf[0..HDR_LEN]`.
@@ -118,6 +139,37 @@ pub fn encode_write_into(buf: &mut [u8], nonce: u32, part: u8, lba: u64, data: &
     buf[9..17].copy_from_slice(&lba.to_le_bytes());
     buf[17..17 + data.len()].copy_from_slice(data);
     17 + data.len()
+}
+
+/// No-alloc ARM_VMO request encoder (the VMO cap is the message's moved cap).
+pub fn encode_arm_vmo_into(buf: &mut [u8], nonce: u32, part: u8) -> usize {
+    write_req_header(buf, OP_ARM_VMO, nonce);
+    buf[8] = part;
+    9
+}
+
+/// No-alloc READ_VMO request encoder.
+pub fn encode_read_vmo_into(
+    buf: &mut [u8],
+    nonce: u32,
+    part: u8,
+    byte_off: u64,
+    len: u64,
+    vmo_off: u64,
+) -> usize {
+    write_req_header(buf, OP_READ_VMO, nonce);
+    buf[8] = part;
+    buf[9..17].copy_from_slice(&byte_off.to_le_bytes());
+    buf[17..25].copy_from_slice(&len.to_le_bytes());
+    buf[25..33].copy_from_slice(&vmo_off.to_le_bytes());
+    33
+}
+
+/// No-alloc RELEASE_VMO request encoder.
+pub fn encode_release_vmo_into(buf: &mut [u8], nonce: u32, part: u8) -> usize {
+    write_req_header(buf, OP_RELEASE_VMO, nonce);
+    buf[8] = part;
+    9
 }
 
 /// No-alloc INFO request encoder.
@@ -238,6 +290,17 @@ pub fn decode_request(frame: &[u8]) -> Option<(u32, BlockRequest<'_>)> {
             BlockRequest::Write { part: body[0], lba, data }
         }
         OP_SYNC if body.len() == 1 => BlockRequest::Sync { part: body[0] },
+        OP_ARM_VMO if body.len() == 1 => BlockRequest::ArmVmo { part: body[0] },
+        OP_READ_VMO if body.len() == 25 => {
+            let byte_off = u64::from_le_bytes(body[1..9].try_into().ok()?);
+            let len = u64::from_le_bytes(body[9..17].try_into().ok()?);
+            let vmo_off = u64::from_le_bytes(body[17..25].try_into().ok()?);
+            if len == 0 || len > MAX_VMO_READ_BYTES {
+                return None;
+            }
+            BlockRequest::ReadVmo { part: body[0], byte_off, len, vmo_off }
+        }
+        OP_RELEASE_VMO if body.len() == 1 => BlockRequest::ReleaseVmo { part: body[0] },
         _ => return None,
     };
     Some((nonce, req))
@@ -351,6 +414,43 @@ mod tests {
             decode_request(&encode_sync(N, PART_BSB)),
             Some((N, BlockRequest::Sync { part: PART_BSB }))
         );
+    }
+
+    #[test]
+    fn vmo_ops_roundtrip_and_reject_bounds() {
+        // TASK-0321 P4b: ARM / READ_VMO / RELEASE decode; the length cap and
+        // a zero length are rejected at the codec (before any driver work).
+        let mut buf = [0u8; 40];
+        let n = encode_arm_vmo_into(&mut buf, N, PART_SYSTEM_A);
+        assert_eq!(
+            decode_request(&buf[..n]),
+            Some((N, BlockRequest::ArmVmo { part: PART_SYSTEM_A }))
+        );
+        let n = encode_read_vmo_into(&mut buf, N, PART_SYSTEM_B, 4096 + 17, 7_000_001, 16);
+        assert_eq!(
+            decode_request(&buf[..n]),
+            Some((
+                N,
+                BlockRequest::ReadVmo {
+                    part: PART_SYSTEM_B,
+                    byte_off: 4113,
+                    len: 7_000_001,
+                    vmo_off: 16
+                }
+            ))
+        );
+        let n = encode_release_vmo_into(&mut buf, N, PART_SYSTEM_A);
+        assert_eq!(
+            decode_request(&buf[..n]),
+            Some((N, BlockRequest::ReleaseVmo { part: PART_SYSTEM_A }))
+        );
+        // test_reject: over the cap, zero length, short body.
+        let n = encode_read_vmo_into(&mut buf, N, PART_SYSTEM_A, 0, MAX_VMO_READ_BYTES + 1, 0);
+        assert!(decode_request(&buf[..n]).is_none());
+        let n = encode_read_vmo_into(&mut buf, N, PART_SYSTEM_A, 0, 0, 0);
+        assert!(decode_request(&buf[..n]).is_none());
+        let n = encode_read_vmo_into(&mut buf, N, PART_SYSTEM_A, 0, 1, 0);
+        assert!(decode_request(&buf[..n - 1]).is_none());
     }
 
     #[test]

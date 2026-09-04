@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-04 (TASK-0321 P4b: bulk volume read; gpud + windowd boot from the volume)
+
+- blockproto (ADR-0044 amendment): `OP_ARM_VMO` / `OP_READ_VMO` /
+  `OP_RELEASE_VMO` — a client arms a VMO (the message's moved cap) and
+  virtioblkd streams a partition byte range straight into it in device
+  runs (no IPC per 6 KiB). Codec caps a transfer at 16 MiB; one armed VMO
+  per sender; the READ gate applies; `STATUS_NO_VMO` without an arm.
+- bundlemgrd serves a bundle ELF with ONE block-plane round trip and
+  hashes it out of the VMO; `bundlemgrd: bundle served (name=… read_ms=…
+  hash_ms=…)` locates the cost. The selftest deny probe covers READ_VMO.
+- gpud and windowd move to the system volume (14 services now; CORE,
+  updated, bootctld stay embedded). Measured under TCG: windowd 7 MB read
+  in 38 ms, hashed in 881 ms — the residual boot cost is SHA-256 on the
+  emulated CPU (≈ 50 ms on real silicon); hash acceleration (Zknh /
+  parallel verify) is a tracked follow-up, not a contract change.
+- Fixed: the volume assembler re-parsed the active index and allocated
+  scratch per reused bundle — on updated's never-freeing bump heap the 13th
+  reuse OOM'd. One cached index + one scratch buffer per set.
+
 ### Changed - 2026-09-04 (TASK-0321 P4a: 12 services boot from the system volume; boot waves)
 
 - init's boot shape (`bootstrap/core_plane.rs`): wave 0 resumes ONLY
