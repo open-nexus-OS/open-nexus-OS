@@ -14,3 +14,14 @@
 # default removes them from INIT_LITE_SERVICE_LIST; `=0` keeps them embedded
 # too — bring-up escape only). Pilot = metricsd (non-CORE, SAFE_EXCLUDED).
 metricsd
+settingsd
+timed
+abilitymgr
+sessiond
+netstackd
+dsoftbusd
+hidrawd
+touchd
+inputd
+imed
+pinched

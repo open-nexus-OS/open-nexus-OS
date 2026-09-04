@@ -14,7 +14,8 @@
 //! VMO read-only at a kernel-chosen address, and `exec_v2` the mapped
 //! slice — a mapped VMO is a valid ELF source, no kernel change. The
 //! mapping is kept for the process lifetime (the VMO arena never frees; a
-//! respawn re-execs the same bytes, ADR-0057). Failure is honest absence:
+//! respawn re-execs the same bytes, ADR-0057). P4 runs this pass from the
+//! CORE-plane stage (`core_plane.rs`), BEFORE any per-pid endpoint mint. Failure is honest absence:
 //! `init: volume spawn FAIL svc=<n> reason=<r>` and the service is simply
 //! not there (its consumers are best-effort by design — the pilot is
 //! `SAFE_EXCLUDED` metricsd).
@@ -43,12 +44,17 @@ const HEADER_POLL_YIELDS: usize = 200_000;
 const PAGE: usize = 4096;
 
 /// A service spawned from the volume. Its read-only ELF mapping stays
-/// alive for the process lifetime; the respawn arm keyed on this source
-/// (re-exec of the same verified bytes, ADR-0057) lands with the P4
-/// migration — the pilot metricsd is not a respawn pilot.
+/// alive for the process lifetime: the respawn arm (ADR-0057, P4) re-execs
+/// exactly these verified bytes with the same launch parameters — never a
+/// second block-plane round trip, never a re-verify of what the mapping
+/// already proves.
 pub(crate) struct VolumeSpawned {
     pub(crate) name: &'static str,
     pub(crate) pid: u32,
+    /// The mapped `payload.elf` (bundlemgrd-verified, header-last).
+    pub(crate) elf: &'static [u8],
+    pub(crate) stack_pages: u32,
+    pub(crate) global_pointer: u64,
 }
 
 /// Why a volume spawn was skipped — the marker vocabulary.
@@ -264,7 +270,7 @@ fn spawn_one(
     debug_write_bytes(b" sha=");
     debug_write_hex_bytes(&sha8_buf[..sha_len]);
     debug_write_bytes(b"\n");
-    Ok(VolumeSpawned { name, pid })
+    Ok(VolumeSpawned { name, pid, elf, stack_pages, global_pointer })
 }
 
 /// Spawns every volume service (SSOT `service_source::volume_services`),

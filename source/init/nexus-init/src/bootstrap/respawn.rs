@@ -33,6 +33,10 @@ use nexus_abi::{ExitReason, Rights};
 pub struct RespawnContext {
     /// The `'static` boot service images (ELF bytes live forever).
     pub images: &'static [ServiceImage],
+    /// TASK-0321 P4: services spawned from the system volume — their
+    /// read-only ELF mappings (kept for the process lifetime) + launch
+    /// params; a respawn re-execs the mapped bytes.
+    pub volume: alloc::vec::Vec<crate::bootstrap::volume_spawn::VolumeSpawned>,
     /// The pilot client's pid (selftest-client) for SEND re-distribution.
     pub selftest_pid: u32,
     /// init's slot for pinched's RESPONSE endpoint (client-owned, survives).
@@ -60,11 +64,24 @@ impl RespawnContext {
     /// Bundles the boot-held respawn inputs (orchestrator hand-off).
     pub(crate) fn new(
         images: &'static [ServiceImage],
+        volume: alloc::vec::Vec<crate::bootstrap::volume_spawn::VolumeSpawned>,
         selftest_pid: u32,
         pinch_rsp_parent_slot: Option<u32>,
         statefs_slots: Option<(u32, u32)>,
     ) -> Self {
-        Self { images, selftest_pid, pinch_rsp_parent_slot, statefs_slots }
+        Self { images, volume, selftest_pid, pinch_rsp_parent_slot, statefs_slots }
+    }
+
+    /// The bytes + launch params to re-exec `name` from: the embedded table
+    /// or the volume mapping (ServiceSource, ADR-0060) — never both.
+    fn image_for(&self, name: &str) -> Option<(&'static [u8], usize, u64, &'static str)> {
+        if let Some(img) = self.images.iter().find(|img| img.name == name) {
+            return Some((img.elf, img.stack_pages.max(1) as usize, img.global_pointer, img.name));
+        }
+        self.volume
+            .iter()
+            .find(|v| v.name == name)
+            .map(|v| (v.elf, v.stack_pages.max(1) as usize, v.global_pointer, v.name))
     }
 }
 
@@ -150,13 +167,11 @@ fn respawn_pinched(
     channels: &mut [CtrlChannel],
     route_table: &mut RouteTable,
 ) -> Option<u32> {
-    let image = ctx.images.iter().find(|img| img.name == "pinched")?;
+    let (elf, stack_pages, global_pointer, name) = ctx.image_for("pinched")?;
     let rsp_parent = ctx.pinch_rsp_parent_slot?;
     let chan = channels.iter_mut().find(|c| c.svc_name == "pinched")?;
 
-    let pid =
-        nexus_abi::exec_v2(image.elf, image.stack_pages as usize, image.global_pointer, image.name)
-            .ok()?;
+    let pid = nexus_abi::exec_v2(elf, stack_pages, global_pointer, name).ok()?;
 
     // Ctrl plane: same init-owned endpoints, re-transferred to the fixed
     // child slots (1/2) the routing client expects.
@@ -211,7 +226,7 @@ fn respawn_pinched(
     // the restarted instance (strict PUT+SYNC → resume ordering keeps the
     // shared statefs response queue race-free for readers).
     if let Some(persist) = persist {
-        persist.bump_restart_count(image.name);
+        persist.bump_restart_count(name);
     }
 
     if nexus_abi::task_resume(pid).is_err() {

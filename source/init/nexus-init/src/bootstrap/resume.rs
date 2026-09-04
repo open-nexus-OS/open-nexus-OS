@@ -50,11 +50,30 @@ pub(crate) fn affinity_summary() {
     debug_write_byte(b'\n');
 }
 
-/// Wave 1 (TASK-0050 PR-5): resume only the always-on CORE graph — the
-/// boot target is unknown until the boot-attempt handshake, and the core
-/// is exactly what that handshake needs (plus the recovery floor).
+/// Wave 0 (TASK-0321 P4): the CORE plane the volume spawn pass needs —
+/// policy authority, the block device owner and the volume verifier —
+/// and NOTHING else. Every other service stays suspended until its server
+/// pair is distributed: a resumed service without its pair retries its
+/// route probe over init's control channel, and each retry parks a
+/// CAP_MOVEd reply cap in init's 256-slot table (8 per service, the ctrl
+/// queue depth) — with the whole core running through a ~100 ms pass that
+/// exhausted the table (`abi:no-space`, blk-plane wiring FAIL).
+const PLANE: &[&str] = &["policyd", "virtioblkd", "bundlemgrd"];
+
+pub(crate) fn in_plane(name: &str) -> bool {
+    PLANE.contains(&name)
+}
+
+pub(crate) fn resume_plane(ctrls: &[CtrlChannel]) {
+    resume_non_drivers_where(ctrls, in_plane);
+}
+
+/// Wave 1 (TASK-0050 PR-5): resume the rest of the always-on CORE graph —
+/// the boot target is unknown until the boot-attempt handshake, and the
+/// core is exactly what that handshake needs (plus the recovery floor).
+/// Runs AFTER the bulk server-pair distribution (see `PLANE`).
 pub(crate) fn resume_core(ctrls: &[CtrlChannel]) {
-    resume_non_drivers_where(ctrls, |name| crate::boot_graph::in_core(name));
+    resume_non_drivers_where(ctrls, |name| crate::boot_graph::in_core(name) && !in_plane(name));
 }
 
 /// Materializes the resolved boot graph (TASK-0050 PR-5): announces the

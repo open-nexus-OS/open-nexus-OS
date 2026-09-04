@@ -34,8 +34,7 @@ where
     // emitted as a compact table at the end so boot bottlenecks (e.g. services waiting on policyd
     // MMIO grants) are visible without a separate profiler.
     let boot_span = nexus_abi::Span::begin();
-    let grant_wait_ns = core::cell::Cell::new(0u64);
-    let grant_count = core::cell::Cell::new(0u32);
+    let grant_stats = crate::bootstrap::core_plane::GrantStats::default();
     log_str_ptr("init-msg", "init: start");
     debug_write_str("init: start");
     debug_write_byte(b'\n');
@@ -202,28 +201,57 @@ where
     debug_write_str("init: ready");
     debug_write_byte(b'\n');
     debug_write_bytes(b"!init-lite ready\n");
-    // Resume all spawned services (except the device drivers) now so policyd can
-    // handle MMIO policy checks during the grant phase. IPC wiring happens after grants.
-    // Wave 1 (TASK-0050 PR-5): only the always-on CORE graph — the boot
-    // target is unknown until the bootctld handshake below; the core is
-    // exactly what that handshake (and any recovery boot) needs.
-    crate::bootstrap::resume::resume_core(&ctrl_channels);
-    // Yield once so resumed services can bind their servers before init
-    // starts sending IPC (grants need policyd, routes need samgrd, etc.).
-    let _ = nexus_abi::yield_();
+    // Wave 0 (policyd/virtioblkd/bundlemgrd) is resumed INSIDE the CORE-plane
+    // stage below, right after its server pairs exist; the rest of the
+    // always-on core (wave 1) resumes after the bulk server-pair
+    // distribution — see `resume::PLANE` for why nothing runs earlier.
 
     // Second pass: create request endpoints owned by the target service PID and distribute caps.
     fn find_pid(ctrls: &[CtrlChannel], name: &str) -> Option<u32> {
         ctrls.iter().find(|c| c.svc_name == name).map(|c| c.pid)
     }
-
     let selftest_pid = find_pid(&ctrl_channels, "selftest-client").ok_or(InitError::MissingElf)?;
+    let policyd_pid = find_pid(&ctrl_channels, "policyd").ok_or(InitError::MissingElf)?;
+    let bundlemgrd_pid = find_pid(&ctrl_channels, "bundlemgrd").ok_or(InitError::MissingElf)?;
+
+    // TASK-0321 P4: the CORE control plane + block plane stage, then the
+    // volume spawn pass — BEFORE any per-pid endpoint mint below, so a
+    // service on the volume is wired exactly like an embedded one.
+    let crate::bootstrap::core_plane::CorePlane {
+        pol_req,
+        pol_rsp,
+        bnd_req,
+        bnd_rsp,
+        vblk_req,
+        vblk_rsp,
+        pol_ctl_route_req,
+        pol_ctl_exec_req,
+        net_slot,
+        rng_slot,
+        blk_slots,
+        gpu_slot,
+        input_slots,
+        volume: volume_spawned,
+        volume_ms,
+        pending: upd_pending,
+    } = crate::bootstrap::core_plane::bring_up(
+        &mut ctrl_channels,
+        selftest_pid,
+        policyd_pid,
+        bundlemgrd_pid,
+        pol_ctl_route_rsp,
+        pol_ctl_exec_rsp,
+        init_reply_send,
+        &grant_stats,
+        init_fold,
+        &mut init_wire,
+    )?;
+    let pol_route = (pol_ctl_route_req, pol_ctl_route_rsp);
+    let mut upd_pending = upd_pending;
     let vfsd_pid = find_pid(&ctrl_channels, "vfsd").ok_or(InitError::MissingElf)?;
     let packagefsd_pid = find_pid(&ctrl_channels, "packagefsd").ok_or(InitError::MissingElf)?;
-    let policyd_pid = find_pid(&ctrl_channels, "policyd").ok_or(InitError::MissingElf)?;
     let netstackd_pid = find_pid(&ctrl_channels, "netstackd").ok_or(InitError::MissingElf)?;
     let dsoftbusd_pid = find_pid(&ctrl_channels, "dsoftbusd").ok_or(InitError::MissingElf)?;
-    let bundlemgrd_pid = find_pid(&ctrl_channels, "bundlemgrd").ok_or(InitError::MissingElf)?;
     let updated_pid = find_pid(&ctrl_channels, "updated").ok_or(InitError::MissingElf)?;
     let samgrd_pid = find_pid(&ctrl_channels, "samgrd").ok_or(InitError::MissingElf)?;
     let execd_pid = find_pid(&ctrl_channels, "execd").ok_or(InitError::MissingElf)?;
@@ -249,10 +277,6 @@ where
     let vfs_rsp = mint(selftest_pid, 8)?;
     let pkg_req = mint(packagefsd_pid, 8)?;
     let pkg_rsp = mint(selftest_pid, 8)?;
-    let pol_req = mint(policyd_pid, 8)?;
-    let pol_rsp = mint(selftest_pid, 8)?;
-    let bnd_req = mint(bundlemgrd_pid, 8)?;
-    let bnd_rsp = mint(selftest_pid, 8)?;
     let bnd_rsp_updated = mint(updated_pid, 8)?;
     let upd_req = mint(updated_pid, 8)?;
     let upd_rsp = mint(selftest_pid, 8)?;
@@ -319,11 +343,6 @@ where
     // NOTE: keep this endpoint init-owned so statefsd's cap table stays clear at slot 0x30
     // until the policy-gated MMIO grant is transferred there (statefsd probes MMIO at slot 48).
     let state_req =
-        nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
-    // TASK-0315: virtioblkd's blockproto request endpoint (block plane).
-    let vblk_req =
-        nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
-    let vblk_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
     let state_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
@@ -485,7 +504,7 @@ where
     // then wired caps into dead PIDs (the `capability-denied` abort).
     // `wire_services` (after grants) still owns the reply inboxes, routes and
     // the announce markers — byte-identical boot logs.
-    let mut eps = crate::bootstrap::endpoints::Endpoints {
+    let eps = crate::bootstrap::endpoints::Endpoints {
         vfs_req,
         vfs_rsp,
         pkg_req,
@@ -552,72 +571,14 @@ where
         pinch_rsp,
     };
     crate::bootstrap::distribute::distribute_server_pairs(&mut ctrl_channels, &eps);
-
-    // Private init-lite <-> policyd channels: request endpoints are owned by policyd (it receives queries).
-    let pol_ctl_route_req =
-        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, policyd_pid, 8)
-            .map_err(InitError::Abi)?;
-    let pol_ctl_exec_req =
-        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, policyd_pid, 8)
-            .map_err(InitError::Abi)?;
-
-    // Ensure policyd control channels are live before policy-gated grants.
-    // These must be pinned to fixed child slots; `policyd` reads route/exec control on 5/6 and 7/8.
-    const POLICYD_CTL_ROUTE_RECV_SLOT: u32 = 5;
-    const POLICYD_CTL_ROUTE_SEND_SLOT: u32 = 6;
-    const POLICYD_CTL_EXEC_RECV_SLOT: u32 = 7;
-    const POLICYD_CTL_EXEC_SEND_SLOT: u32 = 8;
-    let _ = nexus_abi::cap_transfer_to_slot(
-        policyd_pid,
-        pol_ctl_route_req,
-        Rights::RECV,
-        POLICYD_CTL_ROUTE_RECV_SLOT,
-    )
-    .map_err(InitError::Abi)?;
-    let _ = nexus_abi::cap_transfer_to_slot(
-        policyd_pid,
-        pol_ctl_route_rsp,
-        Rights::SEND,
-        POLICYD_CTL_ROUTE_SEND_SLOT,
-    )
-    .map_err(InitError::Abi)?;
-    let _ = nexus_abi::cap_transfer_to_slot(
-        policyd_pid,
-        pol_ctl_exec_req,
-        Rights::RECV,
-        POLICYD_CTL_EXEC_RECV_SLOT,
-    )
-    .map_err(InitError::Abi)?;
-    let _ = nexus_abi::cap_transfer_to_slot(
-        policyd_pid,
-        pol_ctl_exec_rsp,
-        Rights::SEND,
-        POLICYD_CTL_EXEC_SEND_SLOT,
-    )
-    .map_err(InitError::Abi)?;
-
-    // Priority-wire policyd BEFORE MMIO grants so policy checks complete in microseconds.
-    // Clone caps so the originals stay available for other services that need SEND rights.
-    {
-        let pol_req_clone = nexus_abi::cap_clone(pol_req).map_err(InitError::Abi)?;
-        let pol_rsp_clone = nexus_abi::cap_clone(pol_rsp).map_err(InitError::Abi)?;
-        if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "policyd") {
-            let pid = chan.pid;
-            chan.set_recv(
-                ServiceId::Policyd,
-                nexus_abi::cap_transfer(pid, pol_req_clone, Rights::RECV)
-                    .map_err(InitError::Abi)?,
-            );
-            chan.set_send(
-                ServiceId::Policyd,
-                nexus_abi::cap_transfer(pid, pol_rsp_clone, Rights::SEND)
-                    .map_err(InitError::Abi)?,
-            );
-            if iw(&mut init_wire, init_fold, "init:policyd") {
-                debug_write_bytes(b"init: policyd priority-wired\n");
-            }
-        }
-    }
+    // Wave 1 (TASK-0050 PR-5): the rest of the always-on CORE graph — the
+    // boot target is unknown until the bootctld handshake below; the core is
+    // exactly what that handshake (and any recovery boot) needs. Every
+    // service now holds its server pair, so nothing retries a route probe.
+    crate::bootstrap::resume::resume_core(&ctrl_channels);
+    // Yield once so resumed services can bind their servers before init
+    // starts sending IPC (grants need policyd, routes need samgrd, etc.).
+    let _ = nexus_abi::yield_();
 
     // Priority-wire windowd + inputd using clones.
     {
@@ -664,102 +625,43 @@ where
         }
     }
 
-    // Policy-gated DeviceMmio grants (per-device windows) before other cap transfers.
-    let grant_mmio_with_wait =
-        |pid: u32, svc_name: &str, cap_name: &str, slot: usize, cap_slot: u32| -> Result<()> {
-            let (mmio_base, mmio_len) = virtio_mmio_window(slot);
-            let grant_span = nexus_abi::Span::begin();
-            let deadline = match nexus_abi::nsec() {
-                Ok(now) => now.saturating_add(1_000_000_000),
-                Err(_) => 0,
-            };
-            loop {
-                match grant_mmio_cap(
-                    pid,
-                    svc_name,
-                    cap_name,
-                    mmio_base,
-                    mmio_len,
-                    pol_ctl_route_req,
-                    pol_ctl_route_rsp,
-                    cap_slot,
-                )? {
-                    Some(_) => break,
-                    None => {
-                        let now = match nexus_abi::nsec() {
-                            Ok(value) => value,
-                            Err(_) => 0,
-                        };
-                        if now >= deadline {
-                            return Err(InitError::Map("mmio policy timeout"));
-                        }
-                        let _ = nexus_abi::yield_();
-                    }
-                }
-            }
-            grant_wait_ns.set(grant_wait_ns.get().saturating_add(grant_span.elapsed_ns()));
-            grant_count.set(grant_count.get().saturating_add(1));
-            Ok(())
-        };
-
-    // Policy negative proof: deny-by-default for a non-matching MMIO capability.
-    //
-    // Today we use a stable, always-present subject (`netstackd`) and a capability that must not
-    // be granted to it (`device.mmio.blk`). This is independent of device enumeration and proves:
-    // - init consults policyd (no local allowlist)
-    // - policyd denies by default for a capability not in policy
-    // - a deterministic UART marker is emitted only on real denial
-    let deny_deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(1_000_000_000),
-        Err(_) => 0,
-    };
-    loop {
-        let subject_id = nexus_abi::service_id_from_name(b"netstackd");
-        match policyd_cap_allowed(
-            pol_ctl_route_req,
-            pol_ctl_route_rsp,
-            subject_id,
-            b"device.mmio.blk",
-        ) {
-            Some(false) => {
-                debug_write_str("init: mmio policy deny ok");
-                debug_write_byte(b'\n');
-                break;
-            }
-            Some(true) => {
-                return Err(InitError::Map("mmio policy deny unexpectedly allowed"));
-            }
-            None => {
-                let now = match nexus_abi::nsec() {
-                    Ok(value) => value,
-                    Err(_) => 0,
-                };
-                if now >= deny_deadline {
-                    return Err(InitError::Map("mmio policy deny timeout"));
-                }
-                let _ = nexus_abi::yield_();
-            }
-        }
-    }
-
-    let (net_slot, rng_slot, blk_slots, gpu_slot, input_slots) = probe_virtio_mmio_slots()?;
-    // ADR-0044: blk_slots[0] = statefs `/state` device, blk_slots[1] = nxfs
-    // `/data` device (owned by vfsd's in-process DataStore, TASK-0293).
-    let blk_slot = blk_slots[0];
+    // ADR-0044: blk_slots[0] = the ONE disk (granted to virtioblkd in the
+    // CORE-plane stage); blk_slots[1] = the retired second device (TASK-0315:
+    // `/data` is a partition on the one disk).
     let data_blk_slot = blk_slots[1];
-    grant_mmio_with_wait(
+    crate::bootstrap::core_plane::grant_mmio_with_wait(
+        &grant_stats,
+        pol_route,
         netstackd_pid,
         "netstackd",
         "device.mmio.net",
         net_slot,
         DEVICE_MMIO_CAP_SLOT,
     )?;
-    grant_mmio_with_wait(rngd_pid, "rngd", "device.mmio.rng", rng_slot, DEVICE_MMIO_CAP_SLOT)?;
+    crate::bootstrap::core_plane::grant_mmio_with_wait(
+        &grant_stats,
+        pol_route,
+        rngd_pid,
+        "rngd",
+        "device.mmio.rng",
+        rng_slot,
+        DEVICE_MMIO_CAP_SLOT,
+    )?;
     // RFC-0076: RTC window → timed (own anchor read; no rtcd). Best-effort.
     grant_rtc_mmio_to_timed(timed_pid, pol_ctl_route_req, pol_ctl_route_rsp)?;
     let gpu_slot = gpu_slot.ok_or(InitError::Map("virtio-gpu slot not found"))?;
-    grant_mmio_with_wait(gpud_pid, "gpud", "device.mmio.gpu", gpu_slot, DEVICE_MMIO_CAP_SLOT)?;
-    grant_mmio_with_wait(
+    crate::bootstrap::core_plane::grant_mmio_with_wait(
+        &grant_stats,
+        pol_route,
+        gpud_pid,
+        "gpud",
+        "device.mmio.gpu",
+        gpu_slot,
+        DEVICE_MMIO_CAP_SLOT,
+    )?;
+    crate::bootstrap::core_plane::grant_mmio_with_wait(
+        &grant_stats,
+        pol_route,
         selftest_pid,
         "selftest-client",
         "device.mmio.net",
@@ -802,7 +704,9 @@ where
 
     for (idx, input_slot) in input_slots.iter().copied().enumerate() {
         if let Some(input_slot) = input_slot {
-            grant_mmio_with_wait(
+            crate::bootstrap::core_plane::grant_mmio_with_wait(
+                &grant_stats,
+                pol_route,
                 hidrawd_pid,
                 "hidrawd",
                 "device.mmio.input",
@@ -812,16 +716,6 @@ where
         }
     }
 
-    if let Some(virtioblkd_pid) = find_pid(&ctrl_channels, "virtioblkd") {
-        let blk_slot = blk_slot.ok_or(InitError::Map("virtio-blk slot not found"))?;
-        grant_mmio_with_wait(
-            virtioblkd_pid,
-            "virtioblkd",
-            "device.mmio.blk",
-            blk_slot,
-            DEVICE_MMIO_CAP_SLOT,
-        )?;
-    }
     // TASK-0315: statefsd is a blockproto CLIENT — the double MMIO grant
     // (the ADR-0044 one-owner violation) is gone; virtioblkd above is the
     // only holder.
@@ -832,36 +726,6 @@ where
     // Boot elapsed after the MMIO-grant phase (spawn + resume + early wiring
     // + grants); the gap to `total_ms` is the co-run cap-wiring phase.
     let grants_done_ms = boot_span.elapsed_ms();
-
-    // TASK-0321 (RFC-0089 §12.3, ADR-0060): the SECOND spawn pass — services
-    // on the verified system volume. The block plane is live (virtioblkd
-    // granted above), bundlemgrd has run since wave 1; each spawned service
-    // gets its control channel + server pair here so `wire_services` and the
-    // wave-2 resume below treat it exactly like an embedded one.
-    let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
-        nexus_ipc::reqrep::FrameStash::new();
-    let volume_spawned = crate::bootstrap::volume_spawn::spawn_volume_services(
-        &mut ctrl_channels,
-        &mut upd_pending,
-        bnd_req,
-        init_reply_send,
-        pol_ctl_route_rsp,
-        init_fold,
-    )?;
-    for v in &volume_spawned {
-        if v.name == "metricsd" && eps.metrics_req.is_none() {
-            let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, v.pid, 8)
-                .map_err(InitError::Abi)?;
-            let rsp =
-                nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-                    .map_err(InitError::Abi)?;
-            eps.metrics_req = Some(req);
-            eps.metrics_rsp = Some(rsp);
-        }
-        if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.pid == v.pid) {
-            crate::bootstrap::distribute::distribute_server_pair_for(chan, &eps);
-        }
-    }
 
     // Per-service cap-distribution (bespoke `match` + declarative arm);
     // server pairs went out pre-grants — this pass adds reply inboxes,
@@ -924,13 +788,14 @@ where
     // is the time spent yielding for policyd MMIO grants — the prime "services waiting" suspect.
     let total_ms = boot_span.elapsed_ms();
     let timing = alloc::format!(
-        "init: timing spawn_ms={} grants_at_ms={} wiring_at_ms={} total_ms={} (grant_wait_ms={} grants={} wiring_ms={} tail_ms={})",
+        "init: timing spawn_ms={} volume_ms={} grants_at_ms={} wiring_at_ms={} total_ms={} (grant_wait_ms={} grants={} wiring_ms={} tail_ms={})",
         spawn_ms,
+        volume_ms,
         grants_done_ms,
         wiring_done_ms,
         total_ms,
-        grant_wait_ns.get() / 1_000_000,
-        grant_count.get(),
+        grant_stats.wait_ns.get() / 1_000_000,
+        grant_stats.count.get(),
         wiring_done_ms.saturating_sub(grants_done_ms),
         total_ms.saturating_sub(wiring_done_ms)
     );
@@ -968,6 +833,7 @@ where
     Ok(BootstrapState {
         respawn: crate::bootstrap::respawn::RespawnContext::new(
             images,
+            volume_spawned,
             selftest_pid,
             pinch_rsp,
             eps.server_pair(crate::service_topology::ServiceId::Statefsd),

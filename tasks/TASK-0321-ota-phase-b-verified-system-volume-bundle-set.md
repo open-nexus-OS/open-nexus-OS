@@ -1,6 +1,6 @@
 ---
 title: TASK-0321 OTA Phase B — verified system volume (system-a/b) + service migration out of the boot image + bundle-set updates with unchanged-bundle reuse
-status: In Progress (P0–P3 delivered 2026-09-03; P4 next)
+status: In Progress (P0–P3 + P4a delivered 2026-09-04; P4b bulk volume read next)
 owner: @runtime @security
 created: 2026-09-03
 updated: 2026-09-03
@@ -193,7 +193,62 @@ commit_set, §12.5 gates, §12.6 idempotency, §12.7 markers/rejects, §12.8 mig
   `updated: bundle reused` needs a set that ships FEWER bundles than the index — with one volume
   service that is P4's lane assertion (host-proven now).
 
-Next: P4 (migration pinched → … → windowd, respawn keyed on `ServiceSource`, reuse count).
+### P4a delivered 2026-09-04 — migration of 12 services + boot-wave restructure
+
+- **Boot shape** (`bootstrap/core_plane.rs`, orchestrator 986 → 849 LOC): the volume spawn pass
+  now runs BEFORE any per-pid endpoint mint, so a volume service is wired exactly like an embedded
+  one (bulk `distribute_server_pairs`, priority wiring, driver grants, `wire_services`, resume —
+  all unchanged). Wave 0 = policyd + virtioblkd + bundlemgrd only (server pairs + control
+  channels first, then resume), the disk MMIO grant, the volume pass; then mints + bulk pair
+  distribution; then wave 1 (rest of CORE). `init: timing` gained `volume_ms=`.
+- **Migrated** (SSOT `scripts/system-volume-services.txt`, embedded relative order kept):
+  metricsd, settingsd, timed, abilitymgr, sessiond, netstackd, dsoftbusd, hidrawd, touchd, inputd,
+  imed, pinched — 12 services, init-lite loses ~0.9 MB; `system-a(vol)` 8.9 MB / 32 MiB (26 %).
+  **Respawn keyed on source**: `RespawnContext::image_for` re-execs pinched from its kept RO volume
+  mapping (`VolumeSpawned { elf, stack_pages, global_pointer }`); `SELFTEST: service restart ok`
+  green with pinched on the volume. Stack pages come from the same `INIT_LITE_SERVICE_*_STACK_PAGES`
+  env both sides (parity).
+- **Reuse proof**: `build.sh` NEXT set = factory set with ONLY metricsd bumped (1.0.1);
+  `nx image fixtures --reuse-from <factory dir>` ships only bundles whose window digest changed
+  (`image_volume::bundle_set_components_reusing`, JSON `bundle_set.shipped/reused`, host test);
+  `ota-bundle` lane gates `updated: bundle reused (name=` and a count ≥ N−1 from the SSOT list
+  (`OTA_BUNDLE_REUSE_MIN`). Proof: set = boot-image + system-volume(12) + metricsd@1.0.1 → **11
+  bundles reused** → flip → `bundlemgrd: system volume verified (slot=b … bundles=12)` → all 12
+  spawned from system-b → commit → `SELFTEST: ota bundle-set ok`; headless/ota-bundle green,
+  `just check` green, `just test-all` GREEN end to end 2026-09-04 (headless, smp1, reset, ota-flip
+  with the paired os-B, ota-bundle, ota-tamper/downgrade/fallback).
+- FINDING (fixed): the first cut resumed the whole CORE before the pass — every resumed service
+  without its server pair retries its route probe over init's ctrl channel and each retry parks a
+  CAP_MOVEd reply cap in init's 256-slot table (8 per service = ctrl queue depth); the ~100 ms
+  pass exhausted it (`init: blk plane wire FAIL svc=vfsd`, `abi:no-space` fatal). Hence wave 0.
+- FINDING (contract, fixed): with services on the volume a boot-image-ONLY update is an incomplete
+  set — the `ota-flip` lane (os-B.nxs = boot image alone) flipped to slot b with a blank system-b,
+  `bundlemgrd: system volume FAIL (sig)`, all 12 services honestly absent, init fatal
+  `missing-elf`, no quorum. RFC-0089 §12 already says it: the NXSV binds the boot digest, so a
+  boot-image update carries its PAIRED volume. `nx image fixtures` now builds os-B as
+  `[boot-image, system-volume(factory set paired with os-B)]` with ZERO bundle components (every
+  window unchanged → all reused on the device); the flip lane gates `component system-volume
+  verified`, `bundle reused (name=metricsd@1.0.0`, `bundlemgrd: system volume verified (slot=b`
+  and `init: spawn from volume svc=metricsd` on boot 2. Open (P5/P4b): init's reaction to a
+  missing NON-optional volume service is a fatal `missing-elf` (loud, loader fallback recovers
+  via tries) — a graceful degraded graph is a boot-graph decision, not a spawn-pass one.
+- FINDING (measured, decides P4b): the pass costs ~1 ms per 6 KiB block-plane round trip
+  (`MAX_BLOCKS_PER_REQ` = 12 sectors): volume_ms = 205 (metricsd alone, mostly the serialized
+  virtioblkd bring-up + first-request logd probe + NXSV verify) → 362 (12 services, ~0.9 MB) →
+  **1639 with gpud + windowd** (7.5 MB; init total 327 → 1807 ms). Functionally green, but a
+  1.3 s boot regression is not production-grade — gpud/windowd stay embedded until P4b.
+
+- **P4b — bulk volume read + gpud/windowd** (next): blockproto `OP_READ_VMO` (partition, lba,
+  sector count ≤ cap, VMO moved + offset; virtioblkd streams `MAX_RUN_BYTES` device runs straight
+  into the VMO via `vmo_write`, same read gate, cap closed after; `RemoteBlockDevice::
+  read_blocks_into_vmo`); bundlemgrd `serve_bundle_elf` = one bulk read per window + hash from the
+  VMO + header last (IPC round trips 1280 → ~8 for windowd); `updated`'s active-volume reuse copy
+  on the same op; ADR-0044 amendment (additive op, versioned), host tests
+  `test_reject_read_vmo_{count_cap,offset_bounds,write_gate}` + throughput proof in `init: timing
+  volume_ms` (target: all 14 services ≤ 2× the 12-service pass); then gpud + windowd migrate with
+  the ladder rungs (`init: start/up gpud|windowd` after `init: ready`).
+
+Next: P4b, then P5 (boot-image floor).
 
 Planned against verified repo reality (Explore + Plan 2026-09-03). Principle: every package is a
 direct step to the production system — no interim volume format, no second bundle registry, no

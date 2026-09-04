@@ -12,7 +12,10 @@
 //! `image build --data` ships them at factory time. With
 //! `--system-bundles <dir>` (TASK-0321 P3) it also emits `bundle-set.nxs`:
 //! os-B + the system volume built from that directory + one `bundle`
-//! component per window — the ota-bundle lane's crown set.
+//! component per changed window (`--reuse-from` = the factory set) — the
+//! ota-bundle lane's crown set. os-B itself carries the factory volume
+//! paired with its digest (P4): a boot-image update on a volume-based
+//! system is only complete WITH its volume.
 //! OWNERS: @tools-team @runtime
 //! STATUS: Experimental (TASK-0179)
 //! TEST_COVERAGE: tests/image_cli.rs fixtures roundtrip; QEMU ota lanes
@@ -190,6 +193,29 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
 
     // Fill the delta specs (they need the kernel bytes read above).
     let mut specs: Vec<ContainerSpec<'_>> = specs.into();
+    let mut bundle_set = serde_json::Value::Null;
+    // TASK-0321 P4: on a volume-based system a boot-image update MUST carry
+    // its paired system volume (the NXSV binds the boot digest — slot b with
+    // a blank system-b boots a machine without services). os-B ships the
+    // FACTORY set's volume paired with os-B and, every window being
+    // unchanged, ZERO bundle components: the device reuses them all.
+    let mut os_b = serde_json::Value::Null;
+    if let Some(dir) = args.reuse_from.as_ref().or(args.system_bundles.as_ref()) {
+        let bundles = volume::load_bundle_dirs(dir)?;
+        let vol = volume::build_volume_bytes(&bundles)?;
+        let index =
+            storage::pkgimg_bundles::parse_index(&vol, &storage::pkgimg::PkgImgCaps::default())
+                .map_err(|e| {
+                    NxError::new(ExitClass::Internal, format!("fixtures: os-B index: {e}"))
+                })?;
+        let nxsv = volume::make_nxsv(&vol, &index, sha256(&kernel_b), &build_b, 2, &os_seed)?;
+        let (extra, reused) =
+            volume::bundle_set_components_reusing(&vol, &index, &nxsv, Some(&index));
+        os_b = json!({ "volume_bundles": index.bundles.len(), "reused": reused.len() });
+        if let Some(spec) = specs.iter_mut().find(|s| s.name == "os-B.nxs") {
+            spec.extra = extra;
+        }
+    }
     // TASK-0321 P3: the bundle-set fixture — os-B's boot image PLUS the
     // system volume built from `--system-bundles` (the NEXT bundle set),
     // NXSV paired with os-B's digest, same build id + rollback index so
@@ -203,6 +229,30 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
                     NxError::new(ExitClass::Internal, format!("fixtures: volume index: {e}"))
                 })?;
         let nxsv = volume::make_nxsv(&vol, &index, sha256(&kernel_b), &build_b, 2, &os_seed)?;
+        // `--reuse-from`: the factory volume's index decides which bundles
+        // the set need not ship (unchanged window digest → device reuse).
+        let base_index = match &args.reuse_from {
+            Some(base_dir) => {
+                let base = volume::build_volume_bytes(&volume::load_bundle_dirs(base_dir)?)?;
+                Some(
+                    storage::pkgimg_bundles::parse_index(
+                        &base,
+                        &storage::pkgimg::PkgImgCaps::default(),
+                    )
+                    .map_err(|e| {
+                        NxError::new(ExitClass::Internal, format!("fixtures: base index: {e}"))
+                    })?,
+                )
+            }
+            None => None,
+        };
+        let (extra, reused) =
+            volume::bundle_set_components_reusing(&vol, &index, &nxsv, base_index.as_ref());
+        bundle_set = json!({
+            "bundles": index.bundles.iter().map(|b| format!("{}@{}", b.bundle, b.version)).collect::<Vec<_>>(),
+            "shipped": extra.iter().skip(1).map(|c| c.name.clone()).collect::<Vec<_>>(),
+            "reused": reused,
+        });
         specs.push(ContainerSpec {
             name: "bundle-set.nxs",
             build_id: build_b.clone(),
@@ -212,7 +262,7 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             tamper: false,
             load_addr: REAL_LOAD_ADDR,
             delta_from: None,
-            extra: volume::bundle_set_components(&vol, &index, &nxsv),
+            extra,
         });
     }
     {
@@ -323,6 +373,8 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
         Some(json!({
             "data_out": args.data_out.display().to_string(),
             "build_b": build_b,
+            "bundle_set": bundle_set,
+            "os_b": os_b,
             "containers": emitted,
         })),
     ))

@@ -321,7 +321,22 @@ pub(crate) fn bundle_set_components(
     index: &VolumeIndex,
     nxsv: &[u8; SECTOR],
 ) -> Vec<Component> {
+    bundle_set_components_reusing(volume, index, nxsv, None).0
+}
+
+/// The same set, shipping ONLY the bundles the device cannot reuse: a
+/// bundle whose window digest is already on `base` (the volume the device
+/// runs) is left out — the device's `commit_set` copies it from the active
+/// slot against the new index (RFC-0089 §12.5 `updated: bundle reused`).
+/// Returns the components and the names of the reused bundles.
+pub(crate) fn bundle_set_components_reusing(
+    volume: &[u8],
+    index: &VolumeIndex,
+    nxsv: &[u8; SECTOR],
+    base: Option<&VolumeIndex>,
+) -> (Vec<Component>, Vec<String>) {
     let index_len = index.superblock.index_end();
+    let mut reused = Vec::new();
     let mut out = vec![Component {
         kind: updates::component_set::KIND_SYSTEM_VOLUME,
         name: "system-volume".to_string(),
@@ -330,6 +345,10 @@ pub(crate) fn bundle_set_components(
         kind_data: nxsv.to_vec(),
     }];
     for b in &index.bundles {
+        if base.is_some_and(|bi| bi.bundles.iter().any(|x| x.sha256 == b.sha256)) {
+            reused.push(format!("{}@{}", b.bundle, b.version));
+            continue;
+        }
         let begin = index.superblock.data_offset + b.data_offset as usize;
         let window = &volume[begin..begin + b.data_len as usize];
         debug_assert_eq!(Sha256::digest(window).as_slice(), b.sha256);
@@ -341,5 +360,5 @@ pub(crate) fn bundle_set_components(
             kind_data: Vec::new(),
         });
     }
-    out
+    (out, reused)
 }

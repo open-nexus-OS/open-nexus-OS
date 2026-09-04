@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-04 (TASK-0321 P4a: 12 services boot from the system volume; boot waves)
+
+- init's boot shape (`bootstrap/core_plane.rs`): wave 0 resumes ONLY
+  policyd, virtioblkd and bundlemgrd (server pairs + control channels
+  first), grants the disk, runs the volume spawn pass, and only then mints
+  endpoints, distributes every server pair and resumes the rest of the
+  core — a volume-spawned service is wired exactly like an embedded one.
+  `init: timing` gained `volume_ms=`.
+- On the volume now (SSOT `scripts/system-volume-services.txt`): metricsd,
+  settingsd, timed, abilitymgr, sessiond, netstackd, dsoftbusd, hidrawd,
+  touchd, inputd, imed, pinched. The respawn arm re-execs a volume service
+  from its kept read-only mapping (`RespawnContext::image_for`); the
+  `SELFTEST: service restart ok` pilot (pinched) runs from the volume.
+- `nx image fixtures --reuse-from <factory dir>` ships only changed bundles;
+  `build.sh` bumps only metricsd in the NEXT set, so the `ota-bundle` lane
+  proves device-side reuse (`updated: bundle reused`, count gate ≥ N−1:
+  11 reused, 1 shipped) before the flipped volume serves all 12.
+- Finding: a resumed service without its server pair retries its route
+  probe and each retry parks a moved reply cap in init's 256-slot table —
+  resuming the whole core before the ~100 ms pass exhausted it. Finding
+  (measured): the 6 KiB block plane costs ~1 ms per round trip; gpud +
+  windowd (7.5 MB) would add 1.3 s of boot, so they stay embedded until
+  P4b (bulk `OP_READ_VMO` volume read).
+- Contract consequence: a boot-image update on a volume-based system
+  carries its PAIRED volume. `nx image fixtures` builds `os-B.nxs` as
+  boot-image + system-volume (factory set paired with os-B, zero bundle
+  components — all reused); the `ota-flip` lane gates the volume rungs on
+  both boots. Before this the flipped slot booted without services.
+
 ### Added - 2026-09-03 (TASK-0321 P3: bundle-set apply — the system volume travels with the flip)
 
 - The device engine accepts RFC-0089 §12 bundle sets: `system-volume`

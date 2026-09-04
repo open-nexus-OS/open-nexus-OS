@@ -187,6 +187,11 @@ pub(crate) struct ImageFixturesArgs {
     /// os-B + system-volume + bundles (RFC-0089 §12.4).
     #[arg(long)]
     pub(crate) system_bundles: Option<PathBuf>,
+    /// TASK-0321 P4: the FACTORY bundle directories (the volume the device
+    /// runs); bundles whose window digest is unchanged are left out of
+    /// `bundle-set.nxs` so the device reuses them from its active volume.
+    #[arg(long, requires = "system_bundles")]
+    pub(crate) reuse_from: Option<PathBuf>,
     #[arg(long)]
     pub(crate) json: bool,
 }

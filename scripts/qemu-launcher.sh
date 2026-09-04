@@ -211,7 +211,8 @@ prepare_blk_image() {
     # os-B + the system volume built from the NEXT bundle set (v1.0.1).
     local -a bundleset=()
     if [[ -d "$ROOT/build/system-bundles-next" ]]; then
-      bundleset=(--system-bundles "$ROOT/build/system-bundles-next")
+      bundleset=(--system-bundles "$ROOT/build/system-bundles-next"
+        --reuse-from "$ROOT/build/system-bundles")
     fi
     "$nx_bin" image fixtures --kernel "$KERNEL_BIN" --data-out "$ROOT/build/data-seed.img" \
       --sign-os "$sign_key" --sign-publisher "$publisher_key" \

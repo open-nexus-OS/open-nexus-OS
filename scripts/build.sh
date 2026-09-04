@@ -278,9 +278,11 @@ prepare_system_bundles() {
   local list="scripts/system-volume-services.txt"
   [[ -f "$list" ]] || return 0
   local out_root="$ROOT/build/system-bundles"
-  # TASK-0321 P3: the same services at version 1.0.1 — the `bundle-set.nxs`
-  # fixture (ota-bundle lane) ships THIS set so boot 2 spawns a genuinely
-  # different bundle from the flipped volume.
+  # TASK-0321 P3/P4: the NEXT set = the factory set with ONE bundle bumped
+  # (metricsd@1.0.1). The `bundle-set.nxs` fixture (ota-bundle lane) is
+  # built from it with `--reuse-from` the factory set, so it ships only the
+  # changed bundle and boot 2 must REUSE every other one from the active
+  # volume (`updated: bundle reused`) before spawning metricsd@1.0.1.
   local next_root="$ROOT/build/system-bundles-next"
   rm -rf "$out_root" "$next_root"
   local -a volume_services=()
@@ -302,7 +304,7 @@ prepare_system_bundles() {
     local root ver
     for root in "$out_root" "$next_root"; do
       ver="1.0.0"
-      [[ "$root" == "$next_root" ]] && ver="1.0.1"
+      [[ "$root" == "$next_root" && "$svc" == "metricsd" ]] && ver="1.0.1"
       local dir="$root/$svc"
       mkdir -p "$dir/meta"
       cat >"$dir/manifest.toml" <<EOF_TOML

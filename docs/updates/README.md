@@ -74,6 +74,11 @@ against `volume_sha256`, and the NXSV **last** — a valid NXSV exists only
 over a complete, byte-identical volume (power-cut matrix). New reject
 vocabulary: `order | volume-binding | bundle-not-in-index | volume-digest`.
 
+A boot-image update on a volume-based system is only complete WITH its
+paired volume (the NXSV binds the boot digest): ship `system-volume` next to
+the `boot-image` and let the device reuse every unchanged bundle — the set
+then carries the index and zero bundle payloads.
+
 `nx image ota --bundle-set <dir>` builds such a set from bundle
 directories; `nx image fixtures --system-bundles <dir>` emits
 `/updates/bundle-set.nxs` (os-B + the NEXT system volume, `build.sh`

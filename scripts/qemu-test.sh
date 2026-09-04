@@ -472,22 +472,10 @@ expected_sequence=(
   "init: up vfsd"
   "init: start execd"
   "init: up execd"
-  "init: start netstackd"
-  "init: up netstackd"
-  "init: start dsoftbusd"
-  "init: up dsoftbusd"
-  "init: start hidrawd"
-  "init: up hidrawd"
-  "init: start touchd"
-  "init: up touchd"
   "init: start gpud"
   "init: up gpud"
   "init: start windowd"
   "init: up windowd"
-  "init: start inputd"
-  "init: up inputd"
-  "init: start imed"
-  "init: up imed"
   "init: start bootctld"
   "init: up bootctld"
   "init: ready"
@@ -496,6 +484,18 @@ expected_sequence=(
   # start/up ladder rungs land after `init: ready`, not in the embedded loop.
   "init: start metricsd"
   "init: up metricsd"
+  "init: start netstackd"
+  "init: up netstackd"
+  "init: start dsoftbusd"
+  "init: up dsoftbusd"
+  "init: start hidrawd"
+  "init: up hidrawd"
+  "init: start touchd"
+  "init: up touchd"
+  "init: start inputd"
+  "init: up inputd"
+  "init: start imed"
+  "init: up imed"
   # Service readiness markers are emitted asynchronously by the spawned processes.
   # With the kernel `exec` loader path, init emits spawn markers first, then yields;
   # services report `*: ready` after `init: ready`.
@@ -763,6 +763,10 @@ case "${PROFILE:-full}" in
       "init: start"
       "init: ready"
       "updated: stage begin (source=/updates/os-B.nxs)"
+      # TASK-0321 P4: a boot-image update carries its PAIRED volume — every
+      # window unchanged, so the device reuses all of them from system-a.
+      "updated: component system-volume verified (build=otaB"
+      "updated: bundle reused (name=metricsd@1.0.0"
       "updated: component boot-image verified (build=otaB"
       "updated: stage done (slot=b build=otaB"
       "bootctld: switch scheduled (to=b)"
@@ -771,6 +775,8 @@ case "${PROFILE:-full}" in
       "nxboot: tries 2->1 (slot=b trial)"
       "nxboot: verify ok (slot=b build=otaB"
       "nxboot: jump slot=b"
+      "bundlemgrd: system volume verified (slot=b build=otaB"
+      "init: spawn from volume svc=metricsd bundle=metricsd@1.0.0"
       "bootctld: health quorum ok (2/2)"
       "bootctld: commit ok (slot=b)"
       "bootctld: rollback-min raised ("
@@ -804,6 +810,7 @@ case "${PROFILE:-full}" in
       "updated: stage begin (source=/updates/bundle-set.nxs)"
       "updated: component system-volume verified (build=otaB"
       "updated: component bundle verified (name=metricsd@1.0.1)"
+      "updated: bundle reused (name="
       "updated: component boot-image verified (build=otaB"
       "updated: stage done (slot=b build=otaB"
       "bootctld: switch scheduled (to=b)"
@@ -817,6 +824,9 @@ case "${PROFILE:-full}" in
       "SELFTEST: ota bundle-set ok"
     )
     OTA_PHASE_GUARDS=0
+    # TASK-0321 P4: the set ships ONE changed bundle; every other volume
+    # service must be REUSED from the active volume (count gate below).
+    OTA_BUNDLE_REUSE_MIN=$(( $(sed -e 's/#.*//' -e '/^\s*$/d' "$ROOT/scripts/system-volume-services.txt" | wc -l) - 1 ))
     ;;
   ota-fallback)
     # TASK-0289-B: the loader's tries-exhaustion backstop — FOUR boots in
@@ -887,6 +897,16 @@ case "${PROFILE:-full}" in
       "init: up vfsd"
       "init: start execd"
       "init: up execd"
+      "init: start gpud"
+      "init: up gpud"
+      "init: start windowd"
+      "init: up windowd"
+      "init: ready"
+      # TASK-0321 (ADR-0060): metricsd is the system-volume pilot — spawned in
+      # the SECOND pass after the MMIO grants (block plane live), so its
+      # start/up ladder rungs land after `init: ready`, not in the embedded loop.
+      "init: start metricsd"
+      "init: up metricsd"
       "init: start netstackd"
       "init: up netstackd"
       "init: start dsoftbusd"
@@ -895,20 +915,10 @@ case "${PROFILE:-full}" in
       "init: up hidrawd"
       "init: start touchd"
       "init: up touchd"
-      "init: start gpud"
-      "init: up gpud"
-      "init: start windowd"
-      "init: up windowd"
       "init: start inputd"
       "init: up inputd"
       "init: start imed"
       "init: up imed"
-      "init: ready"
-      # TASK-0321 (ADR-0060): metricsd is the system-volume pilot — spawned in
-      # the SECOND pass after the MMIO grants (block plane live), so its
-      # start/up ladder rungs land after `init: ready`, not in the embedded loop.
-      "init: start metricsd"
-      "init: up metricsd"
       "keystored: ready"
       "rngd: ready"
       "policyd: ready"
@@ -2518,6 +2528,14 @@ fi
 # just wrote. This is the honest "CLI status vs live services" seam: no
 # host↔guest transport exists, so the disk the machinery produced IS the
 # meeting point.
+if [[ "${PROFILE:-full}" == "ota-bundle" ]]; then
+  reused_count=$(grep -ac "updated: bundle reused (name=" "$UART_LOG" || true)
+  if [[ "$reused_count" -lt "${OTA_BUNDLE_REUSE_MIN:-1}" ]]; then
+    echo "[error] ota-bundle: expected >= ${OTA_BUNDLE_REUSE_MIN:-1} reused bundles, uart shows $reused_count" >&2
+    exit 1
+  fi
+  echo "[info] ota-bundle: $reused_count bundles reused from the active volume (min ${OTA_BUNDLE_REUSE_MIN:-1})"
+fi
 if [[ "${PROFILE:-full}" == "ota-flip" || "${PROFILE:-full}" == "ota-bundle" ]]; then
   nxupdate_bin="$ROOT/target/release/nx"
   nxupdate_img="${QEMU_BLK_IMG:-$ROOT/build/nexus.img}"

@@ -445,6 +445,44 @@ fn fixtures_emit_a_self_verified_bundle_set() {
     assert!(names.contains(&"os-B.nxs"), "{names:?}");
     assert!(names.contains(&"bundle-set.nxs"), "{names:?}");
     assert_eq!(json["data"]["build_b"].as_str().expect("build_b"), "otaBabcdef");
+    // TASK-0321 P4: with the factory set as `--reuse-from`, only the bundle
+    // whose window changed ships; the unchanged one is a device reuse.
+    let base = dir.path().join("base");
+    make_bundle(&base, "metricsd", "1.0.0", true, &tiny_elf(0x8004_0000));
+    make_bundle(&base, "timed", "1.0.0", true, &tiny_elf(0x8008_0000));
+    make_bundle(&root, "timed", "1.0.0", true, &tiny_elf(0x8008_0000));
+    let out = run_nx(
+        &[
+            "image",
+            "fixtures",
+            "--kernel",
+            "kernel.bin",
+            "--data-out",
+            "data-seed3.img",
+            "--data-mib",
+            "32",
+            "--sign-os",
+            "os.seed",
+            "--sign-publisher",
+            publisher.to_str().expect("utf8 path"),
+            "--build-id",
+            "dev-abcdef",
+            "--system-bundles",
+            "bundles",
+            "--reuse-from",
+            "base",
+            "--json",
+        ],
+        dir.path(),
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "fixtures: {stdout}");
+    let json: serde_json::Value = serde_json::from_str(stdout.trim()).expect("json");
+    assert_eq!(json["data"]["bundle_set"]["shipped"], serde_json::json!(["metricsd@1.0.1"]));
+    assert_eq!(json["data"]["bundle_set"]["reused"], serde_json::json!(["timed@1.0.0"]));
+    // os-B carries the FACTORY volume paired with itself: 2 bundles, both reused.
+    assert_eq!(json["data"]["os_b"]["volume_bundles"], 2);
+    assert_eq!(json["data"]["os_b"]["reused"], 2);
     // Without the bundle directory no bundle set is emitted (the lane
     // that stages it must fail loudly, never silently stage os-B).
     let out = run_nx(

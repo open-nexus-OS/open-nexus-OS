@@ -33,9 +33,9 @@ pub(crate) use crate::bootstrap::helpers::{
     debug_write_bytes, debug_write_hex, debug_write_str, decode_init_health_ok_req,
     decode_init_health_ok_req_with_optional_nonce, encode_init_health_ok_rsp,
     encode_init_health_ok_rsp_with_optional_nonce, fatal, grant_mmio_cap, ipc_error_label,
-    log_str_ptr, probe_debug_write_words, probe_virtio_mmio_slots, probes_enabled, raw_probe_str,
-    updated_health_ok, virtio_mmio_window, watchdog_limit_ticks, ServiceNameGuard,
-    DEVICE_MMIO_CAP_SLOT, INPUT_MMIO_CAP_SLOT_BASE, POLICY_NONCE,
+    log_str_ptr, probe_debug_write_words, probes_enabled, raw_probe_str, updated_health_ok,
+    watchdog_limit_ticks, ServiceNameGuard, DEVICE_MMIO_CAP_SLOT, INPUT_MMIO_CAP_SLOT_BASE,
+    POLICY_NONCE,
 };
 pub(crate) use crate::bootstrap::policyd::policyd_cap_allowed;
 pub(crate) use nexus_abi::Rights;

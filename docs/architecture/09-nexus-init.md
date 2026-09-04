@@ -27,8 +27,40 @@ source/init/nexus-init/src/
 │   ├── route_builder.rs   ← build_route_table, populate_samgrd_registry
 │   ├── responder.rs       ← run_responder_loop (route-get, health-ok, exec-check)
 │   ├── helpers.rs         ← MMIO probing, OTA, health checks, debug helpers
+│   ├── core_plane.rs      ← wave 0: policyd/virtioblkd/bundlemgrd + the volume spawn pass
+│   ├── volume_spawn.rs    ← QUERY → VMO → GET_BUNDLE_ELF → RO map → exec_v2 (per volume service)
+│   ├── service_source.rs  ← SSOT: which services live on the system volume
 │   └── orchestrator.rs    ← run_bootstrap (spawn + endpoints + wiring)
 ```
+
+## Boot waves and the system volume (RFC-0089 §12, ADR-0060, TASK-0321)
+
+Since Phase B most non-core services are not embedded in init's image: they
+ship as `.nxb` bundles on the verified system volume (`system-a/b`, SSOT
+`scripts/system-volume-services.txt`) and init spawns them from an ELF that
+bundlemgrd verified against the volume index. That fixes the boot shape:
+
+1. **Embedded spawn** — every service still in init's table is `exec_v2`'d
+   suspended (`init: start/up <svc>`), then `init: ready`.
+2. **Wave 0 — the CORE plane** (`core_plane.rs`): policyd, virtioblkd and
+   bundlemgrd get their server pairs + control channels and are the ONLY
+   services resumed; the disk MMIO grant (policy-gated) brings the block
+   plane up; bundlemgrd verifies the volume paired with the measured boot
+   slot; the **volume spawn pass** runs (`init: spawn from volume svc=… bundle=…@…`).
+   Nothing else runs yet on purpose: a resumed service without its server
+   pair retries its route probe over init's control channel, and every retry
+   parks a moved reply cap in init's 256-slot table (8 per service) — the
+   ~100 ms pass with the whole core running exhausted it (`abi:no-space`).
+3. **Endpoint mints + bulk server-pair distribution** for ALL services
+   (embedded and volume-spawned alike — a volume service is wired exactly
+   like an embedded one), then **wave 1** (the rest of the always-on core).
+4. Driver MMIO grants, `wire_services`, the boot-attempt handshake, wave 2
+   + the display drivers per the resolved boot graph.
+
+CORE (`boot_graph::CORE`), `updated` and `bootctld` never move to the volume:
+recovery and repair boots must not depend on it. `init: timing … volume_ms=`
+is the pass's wall cost; the respawn arm re-execs a volume service from its
+kept read-only mapping (`RespawnContext::image_for`), never a second read.
 
 ## Responsibilities (what `nexus-init` owns)
 

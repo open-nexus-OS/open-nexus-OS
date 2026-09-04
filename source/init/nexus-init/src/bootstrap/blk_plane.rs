@@ -22,6 +22,12 @@ use nexus_abi::Rights;
 /// (statefsd/vfsd) get the fixed 0xF0..0xF2 wiring; the owner gets its
 /// dedicated IRQ notify endpoint at the fixed slot 0xF1.
 pub(crate) fn wire_blk_plane_for(chan: &CtrlChannel, eps: &Endpoints) {
+    wire_blk_plane_for_with(chan, eps.vblk_req);
+}
+
+/// The same dispatch from the bare request endpoint — the CORE-plane stage
+/// (TASK-0321 P4) wires bundlemgrd/virtioblkd before `Endpoints` exists.
+pub(crate) fn wire_blk_plane_for_with(chan: &CtrlChannel, vblk_req: u32) {
     use crate::service_topology::ServiceId;
     let Some(id) = ServiceId::from_name(chan.svc_name.as_bytes()) else { return };
     match id {
@@ -37,7 +43,7 @@ pub(crate) fn wire_blk_plane_for(chan: &CtrlChannel, eps: &Endpoints) {
         | ServiceId::Bootctld
         | ServiceId::Updated
         | ServiceId::Bundlemgrd => {
-            wire_blk_plane_client(chan.pid, chan.svc_name, eps.vblk_req);
+            wire_blk_plane_client(chan.pid, chan.svc_name, vblk_req);
         }
         ServiceId::Virtioblkd => {
             if let Ok(irq_ep) =

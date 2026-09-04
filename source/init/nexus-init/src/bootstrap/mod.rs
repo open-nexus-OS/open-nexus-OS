@@ -7,6 +7,7 @@
 //! API_STABILITY: Unstable
 
 pub(crate) mod blk_plane;
+pub(crate) mod core_plane;
 pub(crate) mod diag;
 pub(crate) mod distribute;
 pub(crate) mod endpoints;
