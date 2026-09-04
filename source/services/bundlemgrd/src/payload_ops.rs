@@ -19,16 +19,22 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::os_lite::{
     emit_line, emit_sender_denied, is_allowed_sender, metrics_counter_inc_best_effort, rsp,
-    APP_PAYLOADS, STATUS_MALFORMED, STATUS_OK, STATUS_UNSUPPORTED,
+    STATUS_MALFORMED, STATUS_OK, STATUS_UNSUPPORTED,
 };
 
-/// Serves one GET_PAYLOAD request: looks the app id up in the build-time
-/// payload table and writes `payload bytes @ PAYLOAD_DATA_OFFSET`, then the
-/// 16-byte header LAST (header-last = release ordering — the consumer polls
-/// the header, so a visible header guarantees complete payload bytes). The
-/// moved VMO capability is closed on every path; a failed payload write is
-/// downgraded to a TOO_LARGE header (the caller's VMO decides the budget).
-pub(crate) fn handle_get_payload(frame: &[u8], vmo_slot: Option<u32>) {
+/// Serves one GET_PAYLOAD request (TASK-0321 P5: from the system volume):
+/// the app id must be an APP bundle of the verified volume (its
+/// `meta/app.properties` sidecar is what makes it one — a service's ELF is
+/// never served as a ui-program); its `payload.nxir` entry is bulk-read
+/// into the moved VMO, hashed against the index digest, and the 16-byte
+/// header is written LAST (header-last = release ordering — the consumer
+/// polls the header, so a visible header guarantees complete, verified
+/// payload bytes). The moved VMO capability is closed on every path.
+pub(crate) fn handle_get_payload(
+    volume: &mut crate::volume::VolumeState,
+    frame: &[u8],
+    vmo_slot: Option<u32>,
+) {
     use nexus_abi::bundlemgrd as wire;
     let Some(vmo) = vmo_slot else {
         emit_line("bundlemgrd: FAIL get_payload (no vmo cap)");
@@ -38,15 +44,24 @@ pub(crate) fn handle_get_payload(frame: &[u8], vmo_slot: Option<u32>) {
         let Some(app_id) = wire::decode_get_payload(frame) else {
             return (wire::STATUS_MALFORMED, 0);
         };
-        let Some(payload) =
-            APP_PAYLOADS.iter().find(|(id, _)| id.as_bytes() == app_id).map(|(_, bytes)| *bytes)
-        else {
+        let vol = match volume.ensure() {
+            Ok(v) => v,
+            Err(_) => return (wire::STATUS_UNAVAILABLE, 0),
+        };
+        if vol.app(app_id).is_none() {
+            return (wire::PAYLOAD_STATUS_UNKNOWN, 0);
+        }
+        // ui-program bundles carry `payload.nxir` (nxb-pack names the payload by
+        // kind); a service ELF is never served here.
+        let Some(entry) = vol.lookup_entry(app_id, b"payload.nxir") else {
             return (wire::PAYLOAD_STATUS_UNKNOWN, 0);
         };
-        if nexus_abi::vmo_write(vmo, wire::PAYLOAD_DATA_OFFSET, payload).is_err() {
-            return (wire::PAYLOAD_STATUS_TOO_LARGE, 0);
+        match vol.stream_entry_into_vmo(entry, vmo, wire::PAYLOAD_DATA_OFFSET) {
+            Ok((len, _, _)) => (wire::PAYLOAD_STATUS_OK, len),
+            Err(crate::volume::VolumeFail::Digest) => (wire::PAYLOAD_STATUS_DIGEST, 0),
+            Err(crate::volume::VolumeFail::Bounds) => (wire::PAYLOAD_STATUS_TOO_LARGE, 0),
+            Err(_) => (wire::STATUS_UNAVAILABLE, 0),
         }
-        (wire::PAYLOAD_STATUS_OK, payload.len() as u32)
     })();
     let (status, len) = outcome;
     let hdr = wire::encode_payload_header(status, len);
@@ -79,20 +94,28 @@ pub(crate) fn handle_volume_op(
     use nexus_abi::bundlemgrd as wire;
     let op = wire::decode_request_op(frame).unwrap_or(0);
     let mut reply = reply;
-    if op == wire::OP_GET_BUNDLE_ELF {
+    if matches!(op, wire::OP_GET_BUNDLE_ELF | wire::OP_GET_INDEX | wire::OP_GET_FILE_VMO) {
         let vmo_slot = reply.take().map(|cap| {
             let slot = cap.slot();
             core::mem::forget(cap);
             slot
         });
-        if !is_init_sender(sender_service_id) {
+        // ELFs go only to the spawner; the index + file reads (TASK-0321
+        // P5) also to packagefsd and the boot-safe allowlist.
+        let allowed = is_init_sender(sender_service_id)
+            || (op != wire::OP_GET_BUNDLE_ELF && is_allowed_sender(sender_service_id));
+        if !allowed {
             emit_sender_denied(sender_service_id);
             if let Some(slot) = vmo_slot {
                 let _ = nexus_abi::cap_close(slot);
             }
             return;
         }
-        handle_get_bundle_elf(volume, frame, vmo_slot);
+        match op {
+            wire::OP_GET_BUNDLE_ELF => handle_get_bundle_elf(volume, frame, vmo_slot),
+            wire::OP_GET_INDEX => handle_get_index(volume, vmo_slot),
+            _ => handle_get_file_vmo(volume, frame, vmo_slot),
+        }
         return;
     }
     let allowed = is_init_sender(sender_service_id) || is_allowed_sender(sender_service_id);
@@ -105,7 +128,9 @@ pub(crate) fn handle_volume_op(
     } else if op == wire::OP_QUERY_BUNDLE {
         handle_query_bundle(volume, frame, &mut out)
     } else {
-        handle_volume_status(volume, &mut out)
+        let n = handle_volume_status(volume, &mut out);
+        emit_line("bundlemgrd: volume status served");
+        n
     };
     if let Some(reply) = reply {
         let _ = reply.reply_and_close_wait(&out[..n], Wait::Blocking);
@@ -208,6 +233,72 @@ fn handle_get_bundle_elf(
         emit_bundle_served(frame, read_ms, hash_ms);
     } else {
         emit_line("bundlemgrd: FAIL get_bundle_elf (status)");
+    }
+}
+
+/// GET_INDEX (TASK-0321 P5): the NXSV-verified index bytes into the moved
+/// VMO at `PAYLOAD_DATA_OFFSET`, header LAST. packagefsd derives `pkg:/`
+/// from exactly what bundlemgrd verified.
+fn handle_get_index(volume: &mut crate::volume::VolumeState, vmo_slot: Option<u32>) {
+    use nexus_abi::bundlemgrd as wire;
+    let Some(vmo) = vmo_slot else {
+        emit_line("bundlemgrd: FAIL get_index (no vmo cap)");
+        return;
+    };
+    let (status, len) = match volume.ensure() {
+        Ok(v) => {
+            if nexus_abi::vmo_write(vmo, wire::PAYLOAD_DATA_OFFSET, &v.index_bytes).is_err() {
+                (wire::PAYLOAD_STATUS_TOO_LARGE, 0)
+            } else {
+                (wire::PAYLOAD_STATUS_OK, v.index_bytes.len() as u32)
+            }
+        }
+        Err(_) => (wire::STATUS_UNAVAILABLE, 0),
+    };
+    let hdr = wire::encode_payload_header(status, len);
+    let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
+    let _ = nexus_abi::cap_close(vmo);
+    if status != wire::PAYLOAD_STATUS_OK {
+        emit_line("bundlemgrd: FAIL get_index (status)");
+    }
+}
+
+/// GET_FILE_VMO (TASK-0321 P5): one entry's bytes (any bundle, any path)
+/// bulk-read into the moved VMO, hashed against its index digest, header
+/// LAST — the `pkg:/` read path.
+fn handle_get_file_vmo(
+    volume: &mut crate::volume::VolumeState,
+    frame: &[u8],
+    vmo_slot: Option<u32>,
+) {
+    use nexus_abi::bundlemgrd as wire;
+    let Some(vmo) = vmo_slot else {
+        emit_line("bundlemgrd: FAIL get_file (no vmo cap)");
+        return;
+    };
+    let (status, len) = (|| -> (u8, u32) {
+        let Some((bundle, path)) = wire::decode_get_file_vmo(frame) else {
+            return (STATUS_MALFORMED, 0);
+        };
+        let vol = match volume.ensure() {
+            Ok(v) => v,
+            Err(_) => return (wire::STATUS_UNAVAILABLE, 0),
+        };
+        let Some(entry) = vol.lookup_entry(bundle, path) else {
+            return (wire::PAYLOAD_STATUS_UNKNOWN, 0);
+        };
+        match vol.stream_entry_into_vmo(entry, vmo, wire::PAYLOAD_DATA_OFFSET) {
+            Ok((len, _, _)) => (wire::PAYLOAD_STATUS_OK, len),
+            Err(crate::volume::VolumeFail::Digest) => (wire::PAYLOAD_STATUS_DIGEST, 0),
+            Err(crate::volume::VolumeFail::Bounds) => (wire::PAYLOAD_STATUS_TOO_LARGE, 0),
+            Err(_) => (wire::STATUS_UNAVAILABLE, 0),
+        }
+    })();
+    let hdr = wire::encode_payload_header(status, len);
+    let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
+    let _ = nexus_abi::cap_close(vmo);
+    if status != wire::PAYLOAD_STATUS_OK {
+        emit_line("bundlemgrd: FAIL get_file (status)");
     }
 }
 

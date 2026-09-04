@@ -514,8 +514,14 @@ monitor_uart_stream() {
       # storm's third cycle mid-flight. 150s covers the full ladder with
       # margin; the early-stop below still ends green runs ~2s after their
       # final marker, so only hanging runs pay the wider window.
+      # Re-measured 2026-09-04 (TASK-0321 P5, services + apps + pkg:/ from
+      # the system volume): `init: ready` at ~36 s, the ladder's final marker
+      # ~123 s later under TCG, and host-load variance of +30 s cut the
+      # ota-downgrade lane at 150 s. 200 s keeps the measured ladder plus
+      # that variance; the early stop still ends green runs ~2 s after the
+      # final marker (RUN_TIMEOUT in qemu-test.sh bounds the whole run).
       # `QEMU_READY_GRACE_SECS` still overrides for ad-hoc runs.
-      local grace_secs="${QEMU_READY_GRACE_SECS:-150}"
+      local grace_secs="${QEMU_READY_GRACE_SECS:-200}"
       local start_nsec
       start_nsec=$(date +%s 2>/dev/null || echo 0)
       # Early exit: the moment the ladder's FINAL marker flushes, stop after a

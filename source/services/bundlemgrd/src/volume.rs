@@ -81,6 +81,54 @@ pub(crate) struct Volume {
     pub(crate) slot: u8,
     pub(crate) build_id: [u8; 32],
     pub(crate) index: VolumeIndex,
+    /// The NXSV-verified index bytes (superblock + index) — served verbatim
+    /// to packagefsd (`GET_INDEX`), so every `pkg:/` view derives from the
+    /// same digest-bound bytes bundlemgrd verified (one bundle authority).
+    pub(crate) index_bytes: Vec<u8>,
+    /// TASK-0321 P5: the installed-app registry, read from each bundle's
+    /// `meta/app.properties` on the volume (label/icon/bundle_type) — the
+    /// launcher list + the GET_PAYLOAD gate (only app bundles serve a
+    /// ui-program payload).
+    pub(crate) apps: Vec<AppInfo>,
+}
+
+/// One launchable-or-not app bundle on the volume (`meta/app.properties`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AppInfo {
+    pub(crate) id: alloc::string::String,
+    pub(crate) label: alloc::string::String,
+    pub(crate) bundle_type: alloc::string::String,
+    pub(crate) icon: alloc::string::String,
+}
+
+/// Largest `meta/app.properties` the registry reads (bounded input).
+const APP_PROPERTIES_MAX: usize = 1024;
+
+/// Parses `key=value` lines (`label`, `icon`, `bundle_type`) — the sidecar
+/// `nx app compile --meta` writes. Missing keys fall back to the id / empty
+/// / `app`; unknown keys are ignored (forward-compatible).
+pub(crate) fn parse_app_properties(id: &str, text: &[u8]) -> AppInfo {
+    use alloc::string::{String, ToString};
+    let mut label: Option<String> = None;
+    let mut icon = String::new();
+    let mut bundle_type = "app".to_string();
+    for line in text.split(|&b| b == b'\n') {
+        let Ok(line) = core::str::from_utf8(line) else { continue };
+        let line = line.trim();
+        let Some((k, v)) = line.split_once('=') else { continue };
+        match k.trim() {
+            "label" => label = Some(v.trim().to_string()),
+            "icon" => icon = v.trim().to_string(),
+            "bundle_type" => bundle_type = v.trim().to_string(),
+            _ => {}
+        }
+    }
+    AppInfo {
+        id: id.to_string(),
+        label: label.unwrap_or_else(|| id.to_string()),
+        bundle_type,
+        icon,
+    }
 }
 
 /// Verification state — attached lazily on the first volume op, then kept.
@@ -93,6 +141,15 @@ pub(crate) enum VolumeState {
 impl VolumeState {
     pub(crate) const fn new() -> Self {
         Self::Unattached
+    }
+
+    /// The app registry (empty when the volume is not verified — recovery
+    /// and direct-kernel boots launch nothing).
+    pub(crate) fn apps(&self) -> &[AppInfo] {
+        match self {
+            Self::Verified(v) => &v.apps,
+            _ => &[],
+        }
     }
 
     /// Attaches + verifies once; later calls answer from the kept result.
@@ -182,7 +239,10 @@ fn attach_and_verify() -> Result<Volume, VolumeFail> {
     if index.superblock.index_end() != index_len {
         return Err(VolumeFail::Digest);
     }
-    Ok(Volume { dev, slot, build_id: desc.build_id, index })
+    let mut volume =
+        Volume { dev, slot, build_id: desc.build_id, index, index_bytes: head, apps: Vec::new() };
+    volume.build_app_registry()?;
+    Ok(volume)
 }
 
 impl Volume {
@@ -194,10 +254,62 @@ impl Volume {
         name: &[u8],
     ) -> Option<(&storage::pkgimg_bundles::VolumeBundle, &VolumeEntry)> {
         let row = self.index.bundles.iter().find(|b| b.bundle.as_bytes() == name)?;
-        let entry = self.index.entries.iter().find(|e| {
-            e.bundle == row.bundle && e.version == row.version && e.path == "payload.elf"
-        })?;
+        let entry = self.lookup_entry(name, b"payload.elf")?;
         Some((row, entry))
+    }
+
+    /// Any entry of the bundle's active (only) version by relative path.
+    pub(crate) fn lookup_entry(&self, bundle: &[u8], path: &[u8]) -> Option<&VolumeEntry> {
+        let row = self.index.bundles.iter().find(|b| b.bundle.as_bytes() == bundle)?;
+        self.index.entries.iter().find(|e| {
+            e.bundle == row.bundle && e.version == row.version && e.path.as_bytes() == path
+        })
+    }
+
+    /// The app registry entry for `id`, if the bundle is an app bundle.
+    pub(crate) fn app(&self, id: &[u8]) -> Option<&AppInfo> {
+        self.apps.iter().find(|a| a.id.as_bytes() == id)
+    }
+
+    /// Reads one SMALL entry (≤ `max` bytes) through the block plane and
+    /// checks it against the index digest — the registry sidecars.
+    fn read_entry_small(&self, entry: &VolumeEntry, max: usize) -> Result<Vec<u8>, VolumeFail> {
+        let len = entry.data_len as usize;
+        if len > max {
+            return Err(VolumeFail::Bounds);
+        }
+        let start = self.index.superblock.data_offset as u64 + entry.data_offset;
+        let lba = VOLUME_START_SECTOR + start / blockproto::SECTOR_SIZE as u64;
+        let skew = (start % blockproto::SECTOR_SIZE as u64) as usize;
+        let sectors = (skew + len).div_ceil(blockproto::SECTOR_SIZE);
+        let mut buf = Vec::new();
+        buf.resize(sectors * blockproto::SECTOR_SIZE, 0);
+        self.dev.read_blocks(lba, &mut buf).map_err(|_| VolumeFail::Io)?;
+        let bytes = buf[skew..skew + len].to_vec();
+        if Sha256::digest(&bytes).as_slice() != entry.sha256 {
+            return Err(VolumeFail::Digest);
+        }
+        Ok(bytes)
+    }
+
+    /// Builds the app registry from every bundle carrying
+    /// `meta/app.properties`; a sidecar that fails its digest makes the
+    /// whole volume untrusted (the index bound it).
+    fn build_app_registry(&mut self) -> Result<(), VolumeFail> {
+        let mut apps = Vec::new();
+        for row in &self.index.bundles {
+            let Some(entry) = self.index.entries.iter().find(|e| {
+                e.bundle == row.bundle
+                    && e.version == row.version
+                    && e.path == "meta/app.properties"
+            }) else {
+                continue;
+            };
+            let text = self.read_entry_small(entry, APP_PROPERTIES_MAX)?;
+            apps.push(parse_app_properties(&row.bundle, &text));
+        }
+        self.apps = apps;
+        Ok(())
     }
 
     /// Bulk-reads `entry`'s bytes into `vmo` at `data_offset` (one block-plane
@@ -309,5 +421,28 @@ fn emit_fail(fail: VolumeFail) {
     n += 1;
     if let Ok(s) = core::str::from_utf8(&line[..n]) {
         crate::os_lite::emit_line(s);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_properties_parse_and_defaults() {
+        let a = parse_app_properties(
+            "calculator",
+            b"label=Calculator\nicon=calculator|#3d4757|#1a202c\nbundle_type=app\nunknown=x\n",
+        );
+        assert_eq!(a.id, "calculator");
+        assert_eq!(a.label, "Calculator");
+        assert_eq!(a.icon, "calculator|#3d4757|#1a202c");
+        assert_eq!(a.bundle_type, "app");
+        // Missing keys: label = id, icon empty, type app. Garbage lines ignored.
+        let b = parse_app_properties("stash", b"\xff\xfe\nnot a pair\n");
+        assert_eq!(
+            (b.label.as_str(), b.icon.as_str(), b.bundle_type.as_str()),
+            ("stash", "", "app")
+        );
     }
 }

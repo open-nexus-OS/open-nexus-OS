@@ -9,6 +9,7 @@
 //! ADR: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 
 mod cli;
+mod cli_app;
 mod cli_image;
 mod cli_ui;
 mod cli_update;

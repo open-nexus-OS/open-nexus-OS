@@ -3,6 +3,11 @@
 
 # RFC-0012: Updates & Packaging v1.0 — System-Set (.nxs) + userspace-only A/B skeleton (non-persistent)
 
+> **Retired pieces (2026-09-04, TASK-0321 P5):** the `FETCH_IMAGE` bundle image and its
+> `bundleimg` → pkgimg transcode in packagefsd are gone — `pkg:/` and the launcher registry
+> derive from the RFC-0089 §12 verified system volume; `OP_SET_ACTIVE_SLOT` remains a
+> notification only (no re-publication).
+>
 > **Superseded in part by RFC-0089 (2026-08-25).** RFC-0089 owns the end-to-end OTA
 > contract and replaces: the `.nxs` v1 bundles-only index (→ `.nxs` v2 component
 > manifest), the inline `MAX_STAGE_BYTES` = 8 KiB stage API (→ path-based

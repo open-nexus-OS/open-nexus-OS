@@ -34,7 +34,9 @@ fi
 # deny + a real reconstruction with COPY readback) — honest new work, the
 # ladder now finishes at ~180-200s under TCG+icount and two runs died at
 # DIFFERENT late phases purely on the clock.
-RUN_TIMEOUT=${RUN_TIMEOUT:-240s}
+# 2026-09-04: boot (~36 s) + the launcher's 200 s ready-grace must fit; the
+# early stop ends green runs long before this bound.
+RUN_TIMEOUT=${RUN_TIMEOUT:-300s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
 RUN_PHASE=${RUN_PHASE:-}
 NEXUS_FORCE_WORKSPACE_TARGET=${NEXUS_FORCE_WORKSPACE_TARGET:-1}
@@ -514,6 +516,7 @@ expected_sequence=(
   "statefsd: write hardening on (auth-envelope)"
   "updated: ready (bootctl client)"
   "packagefsd: ready"
+  "packagefsd: mounted (system volume slot="
   "vfsd: ready"
   "vfsd: namespace ready"
   "execd: ready"
@@ -580,7 +583,7 @@ expected_sequence=(
   "SELFTEST: ipc routing bundlemgrd ok"
   "SELFTEST: ipc routing updated ok"
   "SELFTEST: bundlemgrd v1 list ok"
-  "SELFTEST: bundlemgrd v1 image ok"
+  "SELFTEST: bundlemgrd volume ok"
   "SELFTEST: bundlemgrd v1 malformed ok"
   # TASK-0315: virtioblkd owns the ONE GPT disk and serves partition-scoped
   # block IO; clients attach over IPC and the deny-by-default partition
@@ -929,6 +932,7 @@ case "${PROFILE:-full}" in
       "statefsd: ready"
       "updated: ready (bootctl client)"
       "packagefsd: ready"
+      "packagefsd: mounted (system volume slot="
       "vfsd: ready"
       "execd: ready"
       "netstackd: ready"
@@ -960,7 +964,7 @@ case "${PROFILE:-full}" in
       "SELFTEST: ipc routing bundlemgrd ok"
       "SELFTEST: ipc routing updated ok"
       "SELFTEST: bundlemgrd v1 list ok"
-      "SELFTEST: bundlemgrd v1 image ok"
+      "SELFTEST: bundlemgrd volume ok"
       "SELFTEST: bundlemgrd v1 malformed ok"
       "virtioblkd: gpt ok (parts=7)"
       "virtioblkd: irq endpoint bound"

@@ -5,7 +5,7 @@ Storage follows **one authority per store**, with `vfsd` as the single client-fa
 
 | namespace | authority | nature |
 |---|---|---|
-| `/packages` | `packagefsd` | read-only bundle content (pkgimg v2) |
+| `/packages` | `packagefsd` | read-only bundle content — the verified system volume (pkgimg v3 index via bundlemgrd) |
 | `/state` | `statefsd` | boot-critical service-state KV (NOT files) — `docs/storage/statefs.md` |
 | `/data` | `nxfsd` (planned, contract seeded) | writable user-data filesystem — `docs/storage/nxfs.md` |
 
@@ -80,8 +80,14 @@ When you change path semantics, aliasing, or error behavior:
 Current runtime path ownership:
 
 - Host path (`packagefsd` std mode) can mount a v2 image from `PACKAGEFSD_PKGIMG_PATH`.
-- OS-lite path continues to fetch image bytes from `bundlemgrd.fetch_image`; the decode contract is now
-  `pkgimg` v2 (not legacy `bundleimg`).
+- OS-lite path (TASK-0321 P5, RFC-0089 §12): `pkg:/` is the VERIFIED SYSTEM VOLUME.
+  packagefsd asks bundlemgrd for the NXSV-bound pkgimg v3 index (`GET_INDEX`, ≤ 256 KiB into a
+  VMO, header-last) and builds its registry from it (bundle@version, paths, sizes); file bytes
+  stay on the volume until a `pkg:/` resolve fetches them (`GET_FILE_VMO` through ONE reusable
+  VMO — bundlemgrd hashes every entry against the index before the header becomes visible).
+  Marker: `packagefsd: mounted (system volume slot=<s> bundles=N files=M)`. The RFC-0012
+  `fetch_image` RAM image and the `bundleimg` → pkgimg v2 transcode are retired; without a
+  verified volume (recovery / direct-kernel boots) the seed registry mounts as `Legacy`.
 - VMO splice/zero-copy read data path stays explicitly out-of-scope here; it is tracked in
   `TASK-0295` (RFC-0072 Phase 3 — the seam moved to the vfsd surface so packagefs and nxfs share
   it; the older `TASK-0033` is superseded).

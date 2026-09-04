@@ -17,11 +17,14 @@
 
 /// Whether `sender_service_id` is the app-host of one of `app_ids`.
 /// Deny-by-default: sid 0 (an unnamed spawn) is never an app host.
-pub(crate) fn is_registered_app_host(sender_service_id: u64, app_ids: &[&str]) -> bool {
+pub(crate) fn is_registered_app_host<'a>(
+    sender_service_id: u64,
+    mut app_ids: impl Iterator<Item = &'a str>,
+) -> bool {
     if sender_service_id == 0 {
         return false;
     }
-    app_ids.iter().any(|id| app_service_id(id) == sender_service_id)
+    app_ids.any(|id| app_service_id(id) == sender_service_id)
 }
 
 /// `service_id_from_name("app:" + id)` without alloc — the same derivation
@@ -55,7 +58,7 @@ mod tests {
 
     #[test]
     fn accepts_a_registered_app_host() {
-        assert!(is_registered_app_host(sid_of(b"app:chat"), &APPS));
+        assert!(is_registered_app_host(sid_of(b"app:chat"), APPS.iter().copied()));
     }
 
     #[test]
@@ -70,15 +73,15 @@ mod tests {
     #[test]
     fn test_reject_unnamed_sender() {
         // The pre-RFC-0086 hole: sid 0 was ANY unnamed task.
-        assert!(!is_registered_app_host(0, &APPS));
+        assert!(!is_registered_app_host(0, APPS.iter().copied()));
     }
 
     #[test]
     fn test_reject_unregistered_and_unprefixed_senders() {
-        assert!(!is_registered_app_host(sid_of(b"app:not-installed"), &APPS));
+        assert!(!is_registered_app_host(sid_of(b"app:not-installed"), APPS.iter().copied()));
         // A BARE service name (no `app:` prefix) must not pass as an app
         // host — the prefix is what keeps bundle ids out of the service
         // namespace.
-        assert!(!is_registered_app_host(sid_of(b"chat"), &APPS));
+        assert!(!is_registered_app_host(sid_of(b"chat"), APPS.iter().copied()));
     }
 }

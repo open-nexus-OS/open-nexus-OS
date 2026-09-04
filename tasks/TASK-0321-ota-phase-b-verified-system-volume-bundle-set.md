@@ -1,6 +1,6 @@
 ---
 title: TASK-0321 OTA Phase B — verified system volume (system-a/b) + service migration out of the boot image + bundle-set updates with unchanged-bundle reuse
-status: In Progress (P0–P4 delivered 2026-09-04; P5 boot-image floor next)
+status: Done (P0–P5 delivered 2026-09-04)
 owner: @runtime @security
 created: 2026-09-03
 updated: 2026-09-03
@@ -284,7 +284,55 @@ commit_set, §12.5 gates, §12.6 idempotency, §12.7 markers/rejects, §12.8 mig
   green; `just test-all` GREEN end to end 2026-09-04 (headless, smp1, reset, ota-flip, ota-bundle
   with 13 reused bundles, ota-tamper/downgrade/fallback).
 
-Next: P5 (boot-image floor: app payloads + packagefsd image into the volume, pkgimg v2 retired).
+### P5 delivered 2026-09-04 — boot-image floor: apps + `pkg:/` on the volume
+
+- **Build**: `nx app compile --app <dir> --out … --meta …` (the byte-deterministic ui-program
+  compile that used to run in bundlemgrd's build.rs; host test on the real calculator project,
+  determinism + non-ui-program reject); `scripts/build.sh prepare_app_bundles` packs every
+  `payload_kind = "ui-program"` project as a NON-spawnable bundle (`manifest.nxb` via nxb-pack,
+  `payload.nxir`, `meta/app.properties` = label/icon/bundle_type) plus the `system` data bundle
+  (`pkg:/system/build.prop`) into both bundle roots (identical windows → reused on OTA). Volume:
+  22 bundles (14 services + 7 apps + system), ~9.6 MB.
+- **bundlemgrd**: the app registry (`LIST_APPS`) is read from each bundle's digest-bound
+  `meta/app.properties` at volume attach (`volume::parse_app_properties`, host test); `GET_PAYLOAD`
+  bulk-reads the app's `payload.nxir` from the volume (only registered app bundles — a service ELF
+  is never served as a ui-program). New wire ops `OP_GET_INDEX` (the NXSV-verified index bytes into
+  a moved VMO, header-last) and `OP_GET_FILE_VMO {bundle, path}` (any entry, digest-checked) for
+  packagefsd + the boot-safe allowlist (init keeps `GET_BUNDLE_ELF`). `APP_REGISTRY`/`APP_PAYLOADS`
+  baking and the `nexus-dsl-core` build-dep are gone (bundlemgrd −0.7 MB); `FETCH_IMAGE` answers
+  UNSUPPORTED; `OP_SET_ACTIVE_SLOT` stays a notification.
+- **packagefsd**: `pkg:/` = the verified volume — `VOLUME_STATUS` + `GET_INDEX` → registry with
+  sizes/kinds; file bytes fetched on RESOLVE through `GET_FILE_VMO` over ONE reusable VMO (sized
+  for the largest entry; the arena never frees); `MountMode::SystemVolume`, marker
+  `packagefsd: mounted (system volume slot=<s> bundles=N files=M)`, honest
+  `packagefsd: volume mount FAIL (<step>)` + seed registry as `Legacy` otherwise. The bundleimg →
+  pkgimg v2 transcode and the seed-pkgimg mode are retired.
+- **Selftest/ladders**: `SELFTEST: bundlemgrd volume ok` (VOLUME_STATUS verified, ≥ 1 bundle)
+  replaces the fetch-image probe; the RFC-0012 `ota publish b` re-read is retired; headless/smp1
+  gate the packagefsd mount marker. Docs: nxb.md layout (payload.nxir, app.properties, launch.json),
+  12-storage-vfs-packagefs, 15-bundlemgrd, 09-nexus-init, updates README, RFC-0012 note.
+- FINDING (fixed): packagefsd's registry load NEVER reached bundlemgrd — `KernelClient::new_for`
+  is nonce-less, and the reply to packagefsd's own server route query (queued at start, answered by
+  init only after bootstrap) was consumed as the answer to "bundlemgrd": packagefsd got its OWN
+  server pair (4,3) and the real bundlemgrd route landed on the next query. The pre-P5 code hid
+  this behind `or_else(seed pkgimg)` printing the same `v2 mounted` marker. Now: nonce-correlated
+  `route_with_nonce_budgeted` for both routes, and a step-named FAIL marker instead of silence.
+- FINDING (contract): `bundlemgr::Manifest::parse_nxb` requires ≥ 1 ability — the `system` data
+  bundle declares `system.BuildInfo`; nxb-pack names a ui-program payload `payload.nxir`.
+- FINDING (harness, fixed): the launcher's fixed 150 s ready-grace cut the ota-downgrade lane
+  (`pinched: selftest crash requested` missing) — measured 2026-09-04: `init: ready` at ~36 s,
+  the ladder's final marker 123 s later under TCG, host-load variance +30 s. Grace 150 → 200 s,
+  `RUN_TIMEOUT` 240 → 300 s (early stop unchanged: green runs end ~2 s after the final marker).
+- Proof (2026-09-04): headless `packagefsd: mounted (system volume slot=a bundles=22 files=110)`,
+  `SELFTEST: bundlemgrd volume ok`, the whole `pkg:/` VFS proof (stat/read/real data/readdir/
+  splice) over the volume, `bundlemgrd: payload served` for the shell launch; `just check` green;
+  `just test-all` GREEN end to end (headless, smp1, reset, ota-flip, ota-bundle with 21 reused
+  bundles, ota-tamper/downgrade/fallback).
+
+Task DoD: the whole Phase B ladder is real — volume verified + paired, 14 services + 7 apps +
+`system` spawned/served from it, bundle-set OTA with reuse, boot-image update carrying its volume,
+`pkg:/` from the verified index. Open follow-ups live in TASK-0035 (journal/resume, reuse index,
+bundle-delta) and the perf note above (hash acceleration).
 
 Planned against verified repo reality (Explore + Plan 2026-09-03). Principle: every package is a
 direct step to the production system — no interim volume format, no second bundle registry, no

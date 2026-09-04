@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-04 (TASK-0321 P5: boot-image floor — apps and `pkg:/` come from the system volume; TASK-0321 Done)
+
+- App bundles live on the verified system volume: `nx app compile` emits the
+  ui-program payload + `meta/app.properties`; `scripts/build.sh` packs every
+  ui-program project (and the `system` data bundle) next to the services.
+  bundlemgrd reads the launcher registry from the volume and serves
+  `GET_PAYLOAD` from it; the baked `APP_REGISTRY`/`APP_PAYLOADS` tables are gone.
+- New bundlemgrd ops `GET_INDEX` (NXSV-verified index bytes) and
+  `GET_FILE_VMO` (any entry, digest-checked, header-last). packagefsd mounts
+  `pkg:/` from that index and reads files on demand through one reusable
+  VMO — `packagefsd: mounted (system volume slot=… bundles=N files=M)`;
+  the RFC-0012 `FETCH_IMAGE` RAM image and the pkgimg v2 transcode are
+  retired (`FETCH_IMAGE` → UNSUPPORTED; `SELFTEST: bundlemgrd volume ok`
+  replaces the fetch-image probe; the `ota publish b` re-read is gone).
+- Fixed: packagefsd's bundlemgrd route was resolved by a nonce-less query
+  that consumed the reply to its own server route (its own server pair
+  came back) — the registry load never reached bundlemgrd and silently
+  fell back to the seed image. Routes are nonce-correlated now and a
+  failed mount names its step.
+- Harness: the launcher's ready-grace is 200 s (measured ladder 123 s after
+  `init: ready` under TCG plus host-load variance) and `RUN_TIMEOUT` 300 s;
+  the early stop on the final marker is unchanged.
+
 ### Added - 2026-09-04 (TASK-0321 P4b: bulk volume read; gpud + windowd boot from the volume)
 
 - blockproto (ADR-0044 amendment): `OP_ARM_VMO` / `OP_READ_VMO` /

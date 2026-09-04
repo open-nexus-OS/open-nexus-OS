@@ -97,48 +97,24 @@ pub(crate) fn bundlemgrd_v1_list(client: &KernelClient) -> core::result::Result<
     Err(())
 }
 
-pub(crate) fn bundlemgrd_v1_fetch_image(client: &KernelClient) -> core::result::Result<(), ()> {
-    bundlemgrd_v1_fetch_image_slot(client, None)
-}
-
-pub(crate) fn bundlemgrd_v1_fetch_image_slot(
-    client: &KernelClient,
-    expected_slot: Option<u8>,
-) -> core::result::Result<(), ()> {
-    let mut req = [0u8; 4];
-    nexus_abi::bundlemgrd::encode_fetch_image(&mut req);
+/// TASK-0321 P5: the volume probe that replaced the RFC-0012 fetch image —
+/// `VOLUME_STATUS` must report a VERIFIED volume with ≥ 1 bundle (the
+/// registry `pkg:/` and the launcher derive from it).
+pub(crate) fn bundlemgrd_volume_status(client: &KernelClient) -> core::result::Result<u16, ()> {
+    use nexus_abi::bundlemgrd as wire;
+    let mut req = [0u8; 8];
+    let n = wire::encode_volume_status(&mut req).ok_or(())?;
     let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(&clock, client, &req, core::time::Duration::from_secs(1))
+    nexus_ipc::budget::send_budgeted(&clock, client, &req[..n], core::time::Duration::from_secs(1))
         .map_err(|_| ())?;
-    let rsp = nexus_ipc::budget::recv_budgeted(&clock, client, core::time::Duration::from_secs(1))
+    let rsp = nexus_ipc::budget::recv_budgeted(&clock, client, core::time::Duration::from_secs(5))
         .map_err(|_| ())?;
-    let (st, img) = nexus_abi::bundlemgrd::decode_fetch_image_rsp(&rsp).ok_or(())?;
-    if st != nexus_abi::bundlemgrd::STATUS_OK {
+    let (status, _slot, verified, bundles, _build8) =
+        wire::decode_volume_status_rsp(&rsp).ok_or(())?;
+    if status != wire::STATUS_OK || verified != 1 || bundles == 0 {
         return Err(());
     }
-    let (count, mut off) = nexus_abi::bundleimg::decode_header(img).ok_or(())?;
-    if count == 0 {
-        return Err(());
-    }
-    let mut slot_ok = expected_slot.is_none();
-    for _ in 0..count {
-        let entry = nexus_abi::bundleimg::decode_next(img, &mut off).ok_or(())?;
-        if entry.path == b"build.prop" {
-            if let Some(slot) = expected_slot {
-                let mut needle = Vec::with_capacity(15);
-                needle.extend_from_slice(b"ro.nexus.slot=");
-                needle.push(slot);
-                needle.push(b'\n');
-                if entry.data.windows(needle.len()).any(|w| w == needle.as_slice()) {
-                    slot_ok = true;
-                }
-            }
-        }
-    }
-    if !slot_ok {
-        return Err(());
-    }
-    Ok(())
+    Ok(bundles)
 }
 
 pub(crate) fn bundlemgrd_v1_set_active_slot(

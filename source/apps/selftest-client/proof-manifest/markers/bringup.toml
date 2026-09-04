@@ -444,8 +444,9 @@ phase = "bringup"
 [marker."packagefsd: ready"]
 phase = "bringup"
 
-[marker."packagefsd: v2 mounted (pkgimg)"]
+[marker."packagefsd: mounted (system volume slot="]
 phase = "bringup"
+proves = "pkg:/ is the verified system volume: index from bundlemgrd (GET_INDEX), files on demand (GET_FILE_VMO) — no RAM image, no pkgimg transcode (TASK-0321 P5)"
 
 [marker."vfsd: ready"]
 phase = "bringup"

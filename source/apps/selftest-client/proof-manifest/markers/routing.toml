@@ -126,8 +126,9 @@ phase = "routing"
 [marker."SELFTEST: bundlemgrd v1 list ok"]
 phase = "routing"
 
-[marker."SELFTEST: bundlemgrd v1 image ok"]
+[marker."SELFTEST: bundlemgrd volume ok"]
 phase = "routing"
+proves = "the registry truth: VOLUME_STATUS reports a verified system volume with >= 1 bundle (TASK-0321 P5 — replaces the RFC-0012 fetch-image probe)"
 
 [marker."SELFTEST: bundlemgrd v1 malformed ok"]
 phase = "routing"
@@ -138,7 +139,7 @@ phase = "routing"
 [marker."SELFTEST: bundlemgrd slots "]
 phase = "routing"
 
-[marker."SELFTEST: bundlemgrd v1 image FAIL"]
+[marker."SELFTEST: bundlemgrd volume FAIL"]
 phase = "routing"
 
 [marker."SELFTEST: bundlemgrd v1 list FAIL"]

@@ -321,6 +321,62 @@ EOF_TOML
       echo "[build] system bundle $svc@$ver -> $dir (stack_pages=$stack_pages)" >&2
     done
   done
+  prepare_app_bundles "$out_root" "$next_root"
+}
+
+# prepare_app_bundles — TASK-0321 P5: every ui-program app project under
+# userspace/apps/ becomes a NON-spawnable bundle on the system volume:
+# manifest.nxb (nxb-pack from the app's manifest.toml), payload.elf = the
+# canonical ui-program bytes (`nx app compile`), meta/app.properties = the
+# registry sidecar (label/icon/bundle_type) bundlemgrd reads. Plus the
+# `system` data bundle (pkg:/system/build.prop). Nothing app-related is
+# baked into the boot image any more. Identical content in both roots.
+prepare_app_bundles() {
+  local out_root="$1" next_root="$2"
+  local nxb_pack="$TARGET_ROOT/release/nxb-pack"
+  local nx_bin="$TARGET_ROOT/release/nx"
+  (cd "$ROOT" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS \
+    cargo build --release -p nx >/dev/null)
+  local tmp="$ROOT/build/app-bundles.tmp"
+  rm -rf "$tmp"; mkdir -p "$tmp"
+  local app_dir name
+  for app_dir in "$ROOT"/userspace/apps/*/; do
+    [[ -f "$app_dir/manifest.toml" ]] || continue
+    grep -qE '^payload_kind *= *"ui-program"' "$app_dir/manifest.toml" || continue
+    name=$(sed -nE 's/^name *= *"([^"]+)".*/\1/p' "$app_dir/manifest.toml" | head -1)
+    [[ -n "$name" ]] || continue
+    "$nx_bin" app compile --app "$app_dir" --out "$tmp/$name.payload" \
+      --meta "$tmp/$name.properties" >/dev/null
+    local root
+    for root in "$out_root" "$next_root"; do
+      local dir="$root/$name"
+      mkdir -p "$dir/meta"
+      "$nxb_pack" --toml "$app_dir/manifest.toml" "$tmp/$name.payload" "$dir" >/dev/null
+      cp "$tmp/$name.properties" "$dir/meta/app.properties"
+    done
+    echo "[build] app bundle $name -> $out_root/$name" >&2
+  done
+  # `system`: the build.prop data bundle (pkg:/system/build.prop); its payload
+  # IS build.prop (nxb-pack demands a payload; nothing executes it).
+  printf 'ro.nexus.build=dev\n' >"$tmp/build.prop"
+  cat >"$tmp/system.toml" <<EOF_TOML
+name = "system"
+version = "1.0.0"
+# The manifest contract needs at least one ability; this bundle publishes build info.
+abilities = ["system.BuildInfo"]
+caps = []
+min_sdk = "0.1.0"
+bundle_type = "library"
+EOF_TOML
+  local root
+  for root in "$out_root" "$next_root"; do
+    local dir="$root/system"
+    mkdir -p "$dir"
+    "$nxb_pack" --toml "$tmp/system.toml" "$tmp/build.prop" "$dir" >/dev/null
+    cp "$tmp/build.prop" "$dir/build.prop"
+  done
+  echo "[build] system bundle system@1.0.0 -> $out_root/system (build.prop)" >&2
+  rm -rf "$tmp"
 }
 
 # ---------------------------------------------------------------------------

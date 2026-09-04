@@ -34,6 +34,9 @@ tar = "0.4"
 # TASK-0321: system-volume builder — bundle manifests (ADR-0020) + ELF
 # launch params (same `object` logic as init-lite's build script).
 bundlemgr = { path = "../../userspace/bundlemgr" }
+# TASK-0321 P5: `nx app compile` — the ui-program payload compile that used
+# to live in bundlemgrd's build.rs (byte-deterministic).
+nexus-dsl-core = { path = "../../userspace/dsl/core" }
 object = { version = "0.36", features = ["write"] }
 
 [dev-dependencies]

@@ -1,7 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: OS-lite packagefs daemon path using bundlemgr authority + pkgimg v2 validation.
+//! CONTEXT: OS-lite packagefs daemon path — `pkg:/` is the VERIFIED SYSTEM
+//! VOLUME (TASK-0321 P5, RFC-0089 §12, ADR-0060): the bundle index comes
+//! from bundlemgrd (`GET_INDEX`, the NXSV-bound bytes it verified) and file
+//! bytes are fetched on demand (`GET_FILE_VMO`, digest-checked by the
+//! authority, header-last) through ONE reusable VMO. No RAM image, no
+//! pkgimg v2 transcode. Without a verified volume (recovery / direct-kernel
+//! boots) the seed registry mounts as `Legacy`.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -20,7 +26,8 @@ use alloc::vec::Vec;
 use nexus_ipc::Server;
 use nexus_ipc::{Client, IpcError, KernelClient, KernelServer, Wait};
 use nexus_vfs_types::{DirEntry, VfsError};
-use storage::pkgimg::{build_pkgimg, parse_pkgimg, PkgImgCaps, PkgImgFileSpec};
+use storage::pkgimg::PkgImgCaps;
+use storage::pkgimg_bundles::parse_index;
 
 use crate::listing;
 
@@ -38,10 +45,15 @@ const DEMO_EXIT_PAYLOAD: &[u8] = b"EXIT0";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MountMode {
     Legacy = 0,
-    PkgImgNative = 1,
-    PkgImgTranscoded = 2,
-    PkgImgSeed = 3,
+    /// TASK-0321 P5: `pkg:/` = the verified system volume (index from
+    /// bundlemgrd, files on demand). The pkgimg RAM modes (1..3) are retired.
+    SystemVolume = 4,
 }
+
+/// Bounded index handoff (RFC-0089 §12.2: index ≤ 256 KiB).
+const INDEX_VMO_BYTES: usize = nexus_abi::bundlemgrd::PAYLOAD_DATA_OFFSET + 256 * 1024;
+/// Header-last poll budget for a bundlemgrd VMO reply.
+const HEADER_POLL_YIELDS: usize = 200_000;
 
 /// Result type used by the os-lite backend.
 pub type LiteResult<T> = core::result::Result<T, LiteError>;
@@ -138,17 +150,89 @@ impl BundleRegistry {
 struct Entry {
     size: u64,
     kind: u16,
-    bytes: Vec<u8>,
+    source: Source,
+}
+
+/// Where an entry's bytes live: inline (seed registry) or on the system
+/// volume, fetched on demand through bundlemgrd (digest-checked there).
+#[derive(Clone)]
+enum Source {
+    Inline(Vec<u8>),
+    Volume { bundle: String, path: String },
 }
 
 impl Entry {
     fn directory() -> Self {
-        Self { size: 0, kind: KIND_DIRECTORY, bytes: Vec::new() }
+        Self { size: 0, kind: KIND_DIRECTORY, source: Source::Inline(Vec::new()) }
     }
 
     fn file(bytes: &[u8]) -> Self {
-        Self { size: bytes.len() as u64, kind: KIND_FILE, bytes: bytes.to_vec() }
+        Self { size: bytes.len() as u64, kind: KIND_FILE, source: Source::Inline(bytes.to_vec()) }
     }
+
+    fn volume_file(size: u64, bundle: &str, path: &str) -> Self {
+        Self {
+            size,
+            kind: KIND_FILE,
+            source: Source::Volume { bundle: bundle.to_string(), path: path.to_string() },
+        }
+    }
+}
+
+/// The on-demand file reader: bundlemgrd client + ONE reusable VMO sized
+/// for the largest entry on the volume (the VMO arena never frees, so a
+/// per-request VMO would leak).
+struct VolumeReader {
+    bundle: KernelClient,
+    vmo: u32,
+    vmo_len: usize,
+}
+
+impl VolumeReader {
+    /// Fetches one entry's bytes through `GET_FILE_VMO` (header-last poll).
+    fn fetch(&self, bundle: &str, path: &str, size: u64) -> Option<Vec<u8>> {
+        use nexus_abi::bundlemgrd as wire;
+        let size = usize::try_from(size).ok()?;
+        if wire::PAYLOAD_DATA_OFFSET + size > self.vmo_len {
+            return None;
+        }
+        // Clear the header so a stale OK from the previous fetch can never
+        // be mistaken for this one.
+        let zero = [0u8; wire::PAYLOAD_DATA_OFFSET];
+        nexus_abi::vmo_write(self.vmo, 0, &zero).ok()?;
+        let mut req = [0u8; 160];
+        let n = wire::encode_get_file_vmo(bundle.as_bytes(), path.as_bytes(), &mut req)?;
+        let moved = nexus_abi::cap_clone(self.vmo).ok()?;
+        self.bundle
+            .send_with_cap_move_wait(
+                &req[..n],
+                moved,
+                Wait::Timeout(core::time::Duration::from_secs(2)),
+            )
+            .ok()?;
+        let len = poll_payload_header(self.vmo, size)?;
+        let mut bytes = vec![0u8; len];
+        nexus_abi::vmo_read(self.vmo, wire::PAYLOAD_DATA_OFFSET, &mut bytes).ok()?;
+        Some(bytes)
+    }
+}
+
+/// Polls the header bundlemgrd writes LAST; `Some(len)` only for an OK
+/// header whose length matches the index (bounded, self-terminating).
+fn poll_payload_header(vmo: u32, expect: usize) -> Option<usize> {
+    use nexus_abi::bundlemgrd as wire;
+    let mut hdr = [0u8; wire::PAYLOAD_DATA_OFFSET];
+    for _ in 0..HEADER_POLL_YIELDS {
+        nexus_abi::vmo_read(vmo, 0, &mut hdr).ok()?;
+        if let Some((status, len)) = wire::decode_payload_header(&hdr) {
+            return match status {
+                wire::PAYLOAD_STATUS_OK if len as usize == expect => Some(len as usize),
+                _ => None,
+            };
+        }
+        let _ = nexus_abi::yield_();
+    }
+    None
 }
 
 /// Runs the minimal packagefs daemon, emitting a readiness marker once.
@@ -162,16 +246,21 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Lite
         Ok(server) => server,
         Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| LiteError::Transport)?,
     };
-    let (registry, mount_mode) = load_registry_from_bundlemgrd()
-        .or_else(load_registry_from_seed_pkgimg)
-        .unwrap_or_else(seed_registry);
-    run_loop(&server, &registry, mount_mode)
+    let (registry, mount_mode, reader) = match load_registry_from_volume() {
+        Some((registry, reader)) => (registry, MountMode::SystemVolume, Some(reader)),
+        None => {
+            let (registry, mode) = seed_registry();
+            (registry, mode, None)
+        }
+    };
+    run_loop(&server, &registry, mount_mode, reader.as_ref())
 }
 
 fn run_loop(
     server: &KernelServer,
     registry: &BundleRegistry,
     mount_mode: MountMode,
+    reader: Option<&VolumeReader>,
 ) -> LiteResult<()> {
     let mut response = Vec::with_capacity(256);
     loop {
@@ -186,12 +275,21 @@ fn run_loop(
                             Ok(rel) => registry.resolve(rel),
                             Err(_) => None,
                         };
+                        // Volume-backed bytes are fetched on demand; a fetch
+                        // that fails (digest, transport) is a NotFound — never
+                        // partial bytes.
+                        let resolved = entry.and_then(|entry| match &entry.source {
+                            Source::Inline(bytes) => Some((entry.size, entry.kind, bytes.clone())),
+                            Source::Volume { bundle, path } => reader
+                                .and_then(|r| r.fetch(bundle, path, entry.size))
+                                .map(|bytes| (entry.size, entry.kind, bytes)),
+                        });
                         response.clear();
-                        if let Some(entry) = entry {
+                        if let Some((size, kind, bytes)) = resolved {
                             response.push(1);
-                            response.extend_from_slice(&entry.size.to_le_bytes());
-                            response.extend_from_slice(&entry.kind.to_le_bytes());
-                            response.extend_from_slice(&entry.bytes);
+                            response.extend_from_slice(&size.to_le_bytes());
+                            response.extend_from_slice(&kind.to_le_bytes());
+                            response.extend_from_slice(&bytes);
                         } else {
                             response.push(0);
                             response.extend_from_slice(&0u64.to_le_bytes());
@@ -269,127 +367,124 @@ fn seed_registry() -> (BundleRegistry, MountMode) {
     (registry, MountMode::Legacy)
 }
 
-fn load_registry_from_seed_pkgimg() -> Option<(BundleRegistry, MountMode)> {
-    let specs = vec![
-        PkgImgFileSpec::new("system", "1.0.0", "build.prop", b"ro.nexus.build=dev\n"),
-        PkgImgFileSpec::new("demo.hello", "1.0.0", "manifest.nxb", DEMO_HELLO_MANIFEST_NXB),
-        PkgImgFileSpec::new("demo.hello", "1.0.0", "payload.elf", DEMO_HELLO_PAYLOAD),
-        PkgImgFileSpec::new("demo.exit0", "1.0.0", "manifest.nxb", DEMO_EXIT_MANIFEST_NXB),
-        PkgImgFileSpec::new("demo.exit0", "1.0.0", "payload.elf", DEMO_EXIT_PAYLOAD),
-    ];
-    let caps = PkgImgCaps::default();
-    let img = build_pkgimg(&specs, caps).ok()?;
-    let parsed = parse_pkgimg(&img, caps).ok()?;
+/// TASK-0321 P5: `pkg:/` from the verified system volume. VOLUME_STATUS
+/// (slot + bundle count for the marker), then GET_INDEX into a bounded VMO
+/// (the NXSV-bound index bytes bundlemgrd verified) → registry with file
+/// sizes + kinds; bytes stay on the volume until resolved.
+fn load_registry_from_volume() -> Option<(BundleRegistry, VolumeReader)> {
+    let outcome = load_registry_from_volume_inner();
+    if let Err(step) = &outcome {
+        // Honest fallback reason (the seed registry mounts as Legacy next).
+        let line = format!("packagefsd: volume mount FAIL ({step})\n");
+        debug_print(&line);
+    }
+    outcome.ok()
+}
+
+fn load_registry_from_volume_inner() -> Result<(BundleRegistry, VolumeReader), &'static str> {
+    use nexus_abi::bundlemgrd as wire;
+    // Nonce-correlated route queries: this service's own server route
+    // query (issued at start, answered by init only after bootstrap) leaves
+    // a reply in the ctrl queue that a nonce-less `new_for` consumed as the
+    // answer to "bundlemgrd" — handing us OUR OWN server pair (4,3). The
+    // pre-P5 registry load silently fell back to the seed image that way.
+    let route = |name: &[u8]| -> Result<(u32, u32), &'static str> {
+        match nexus_ipc::budget::route_with_nonce_budgeted(
+            name,
+            1,
+            2,
+            core::time::Duration::from_secs(8),
+            nexus_ipc::budget::NonceMismatchBudget::new(64),
+        ) {
+            nexus_ipc::budget::RouteRetryOutcome::Success { send_slot, recv_slot } => {
+                Ok((send_slot, recv_slot))
+            }
+            _ => Err("route"),
+        }
+    };
+    let (bnd_send, bnd_recv) = route(b"bundlemgrd").map_err(|_| "route bundlemgrd")?;
+    let (reply_send_slot, reply_recv_slot) = route(b"@reply").map_err(|_| "route @reply")?;
+    let bundle = KernelClient::new_with_slots(bnd_send, bnd_recv).map_err(|_| "client")?;
+    let reply =
+        KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).map_err(|_| "client")?;
+    let wait = Wait::Timeout(core::time::Duration::from_secs(2));
+
+    // VOLUME_STATUS on the reply path: the moved cap is a SEND clone of our
+    // reply inbox, so the answer arrives on the inbox's RECV side.
+    let reply_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| "reply clone")?;
+    let mut req = [0u8; 8];
+    let n = wire::encode_volume_status(&mut req).ok_or("encode status")?;
+    bundle.send_with_cap_move_wait(&req[..n], reply_clone, wait).map_err(|_| "send status")?;
+    let rsp =
+        reply.recv(Wait::Timeout(core::time::Duration::from_secs(5))).map_err(|_| "recv status")?;
+    let (status, slot, verified, bundles, _build8) =
+        wire::decode_volume_status_rsp(&rsp).ok_or("decode status")?;
+    if status != wire::STATUS_OK || verified != 1 {
+        return Err("volume unverified");
+    }
+
+    // GET_INDEX: the moved cap IS the VMO; the header written last is the reply.
+    let index_vmo = nexus_abi::vmo_create(INDEX_VMO_BYTES).map_err(|_| "index vmo")?;
+    let moved = nexus_abi::cap_clone(index_vmo).map_err(|_| "index vmo clone")?;
+    let n = wire::encode_get_index(&mut req).ok_or("encode index")?;
+    bundle.send_with_cap_move_wait(&req[..n], moved, wait).map_err(|_| "send index")?;
+    let mut hdr = [0u8; wire::PAYLOAD_DATA_OFFSET];
+    let mut index_len = None;
+    for _ in 0..HEADER_POLL_YIELDS {
+        nexus_abi::vmo_read(index_vmo, 0, &mut hdr).map_err(|_| "index header read")?;
+        if let Some((status, len)) = wire::decode_payload_header(&hdr) {
+            if status == wire::PAYLOAD_STATUS_OK
+                && (len as usize) <= INDEX_VMO_BYTES - wire::PAYLOAD_DATA_OFFSET
+            {
+                index_len = Some(len as usize);
+            }
+            break;
+        }
+        let _ = nexus_abi::yield_();
+    }
+    let index_len = index_len.ok_or("index header")?;
+    let mut head = vec![0u8; index_len];
+    nexus_abi::vmo_read(index_vmo, wire::PAYLOAD_DATA_OFFSET, &mut head)
+        .map_err(|_| "index read")?;
+    let index = parse_index(&head, &PkgImgCaps::default()).map_err(|_| "index parse")?;
+
+    let mut registry = BundleRegistry::default();
     let mut groups: BTreeMap<String, Vec<(String, Entry)>> = BTreeMap::new();
     let mut versions: BTreeMap<String, String> = BTreeMap::new();
-    for e in parsed.entries() {
-        let payload = parsed.read(&e.bundle, &e.version, &e.path)?;
+    let mut largest = 0u64;
+    let mut files = 0usize;
+    for e in &index.entries {
+        largest = largest.max(e.data_len);
+        files += 1;
         let key = format!("{}@{}", e.bundle, e.version);
         groups
             .entry(key)
             .or_insert_with(|| vec![(".".to_string(), Entry::directory())])
-            .push((e.path.clone(), Entry::file(payload)));
+            .push((e.path.clone(), Entry::volume_file(e.data_len, &e.bundle, &e.path)));
         versions.insert(e.bundle.clone(), e.version.clone());
     }
-    let mut registry = BundleRegistry::default();
     for (canonical, entries) in groups {
-        let (bundle, version) = canonical.split_once('@')?;
+        let (bundle, version) = canonical.split_once('@').ok_or("index key")?;
         registry.publish(bundle, version, &entries);
     }
     for (b, v) in versions {
         registry.active.insert(b, v);
     }
-    debug_print("packagefsd: v2 mounted (pkgimg)\n");
-    Some((registry, MountMode::PkgImgSeed))
+    // ONE reusable file VMO sized for the largest entry (page-rounded).
+    let largest = usize::try_from(largest).map_err(|_| "entry size")?;
+    let vmo_len = (wire::PAYLOAD_DATA_OFFSET + largest).div_ceil(4096) * 4096;
+    let vmo = nexus_abi::vmo_create(vmo_len).map_err(|_| "file vmo")?;
+    emit_mounted(slot, bundles as usize, files);
+    Ok((registry, VolumeReader { bundle, vmo, vmo_len }))
 }
 
-fn load_registry_from_bundlemgrd() -> Option<(BundleRegistry, MountMode)> {
-    // NOTE: This is a bring-up path to replace embedded bytes with a read-only bundle image.
-    // packagefsd talks to bundlemgrd using CAP_MOVE replies via its reply inbox (@reply).
-    let bundle = KernelClient::new_for("bundlemgrd").ok()?;
-    let reply = KernelClient::new_for("@reply").ok()?;
-    let (reply_send_slot, _reply_recv_slot) = reply.slots();
-    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).ok()?;
-
-    // Best-effort LIST proof: ensure bundlemgrd reports exactly one bundle in bring-up.
-    // Use CAP_MOVE reply caps to avoid polluting other clients' response endpoints.
-    let reply_send_clone2 = nexus_abi::cap_clone(reply_send_slot).ok()?;
-    let mut list = [0u8; 4];
-    nexus_abi::bundlemgrd::encode_list(&mut list);
-    bundle
-        .send_with_cap_move_wait(
-            &list,
-            reply_send_clone2,
-            Wait::Timeout(core::time::Duration::from_secs(1)),
-        )
-        .ok()?;
-    let rsp = bundle.recv(Wait::Timeout(core::time::Duration::from_secs(1))).ok()?;
-    let (_st, _count) = nexus_abi::bundlemgrd::decode_list_rsp(&rsp)?;
-
-    // Fetch the read-only image.
-    let mut req = [0u8; 4];
-    nexus_abi::bundlemgrd::encode_fetch_image(&mut req);
-    bundle
-        .send_with_cap_move_wait(
-            &req,
-            reply_send_clone,
-            Wait::Timeout(core::time::Duration::from_secs(1)),
-        )
-        .ok()?;
-    let rsp = bundle.recv(Wait::Timeout(core::time::Duration::from_secs(1))).ok()?;
-    let (status, img) = nexus_abi::bundlemgrd::decode_fetch_image_rsp(&rsp)?;
-    if status != nexus_abi::bundlemgrd::STATUS_OK {
-        return None;
-    }
-
-    let caps = PkgImgCaps::default();
-    let (parsed, mount_mode) = match parse_pkgimg(img, caps) {
-        Ok(parsed) => (parsed, MountMode::PkgImgNative),
-        Err(_) => {
-            // Transitional compatibility: legacy fetch_image payloads may still be bundleimg.
-            // Convert deterministically into pkgimg bytes, then validate using the v2 parser.
-            let (count, mut off) = nexus_abi::bundleimg::decode_header(img)?;
-            let mut specs = Vec::new();
-            for _ in 0..count {
-                let e = nexus_abi::bundleimg::decode_next(img, &mut off)?;
-                if e.kind != nexus_abi::bundleimg::KIND_FILE {
-                    continue;
-                }
-                let bundle_name = core::str::from_utf8(e.bundle).ok()?;
-                let version = core::str::from_utf8(e.version).ok()?;
-                let path = core::str::from_utf8(e.path).ok()?;
-                specs.push(PkgImgFileSpec::new(bundle_name, version, path, e.data));
-            }
-            let converted = build_pkgimg(&specs, caps).ok()?;
-            (parse_pkgimg(&converted, caps).ok()?, MountMode::PkgImgTranscoded)
-        }
-    };
-    let mut groups: BTreeMap<String, Vec<(String, Entry)>> = BTreeMap::new();
-    let mut versions: BTreeMap<String, String> = BTreeMap::new();
-    for e in parsed.entries() {
-        let bundle_name = e.bundle.clone();
-        let version = e.version.clone();
-        let path = e.path.clone();
-        let payload = parsed.read(&bundle_name, &version, &path)?;
-        let key = format!("{bundle_name}@{version}");
-        groups
-            .entry(key)
-            .or_insert_with(|| vec![(".".to_string(), Entry::directory())])
-            .push((path, Entry::file(payload)));
-        versions.insert(bundle_name, version);
-    }
-
-    let mut registry = BundleRegistry::default();
-    for (canonical, entries) in groups {
-        let (bundle, version) = canonical.split_once('@')?;
-        registry.publish(bundle, version, &entries);
-    }
-    // Ensure active versions are set even if a bundle had only the "." directory synthesized.
-    for (b, v) in versions {
-        registry.active.insert(b, v);
-    }
-    debug_print("packagefsd: v2 mounted (pkgimg)\n");
-    Some((registry, mount_mode))
+/// `packagefsd: mounted (system volume slot=<s> bundles=N files=M)`.
+fn emit_mounted(slot: u8, bundles: usize, files: usize) {
+    let line = format!(
+        "packagefsd: mounted (system volume slot={} bundles={} files={})\n",
+        slot as char, bundles, files
+    );
+    debug_print(&line);
 }
 
 fn debug_print(_s: &str) {

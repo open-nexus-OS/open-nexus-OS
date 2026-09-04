@@ -20,13 +20,13 @@ Related docs:
 - Publish installed bundles to the storage view used by `packagefsd`/`vfsd`.
 - Serve payload bytes/manifests to other authorities (notably `execd`) via a stable RPC contract (as tasks define it).
 
-## Updates v1 slot publication
+## Updates v1 slot publication (residual)
 
-`bundlemgrd` participates in the v1.0 update flow by supporting a soft switch:
-
-- `OP_SET_ACTIVE_SLOT` re-publishes bundles from `/system/<slot>/`.
-- The marker `bundlemgrd: slot <a|b> active` is emitted only after republication completes.
-- The contract and markers are defined in `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`.
+`OP_SET_ACTIVE_SLOT` still answers and emits `bundlemgrd: slot <a|b> active` (the
+RFC-0012 soft-switch notification updated sends on a switch), but it no longer
+re-publishes anything: the served registry is the MEASURED boot slot's volume
+until the reboot the RFC-0089 flip lanes prove. The `FETCH_IMAGE` RAM image is
+retired (TASK-0321 P5).
 
 ## System-volume verifier and reader (RFC-0089 §12, ADR-0060, TASK-0321)
 
@@ -38,6 +38,12 @@ the booted image digest + rollback line, reads the bounded pkgimg v3 index and
 answers `QUERY_BUNDLE` / `GET_BUNDLE_ELF` (payload bulk-read into the caller's
 VMO in ONE block-plane round trip — ADR-0044 `OP_READ_VMO` — then hashed out of
 the VMO against the index digest, header written LAST) / `VOLUME_STATUS`.
+Since TASK-0321 P5 the installed-app REGISTRY (`LIST_APPS`, the launcher grid) and
+the ui-program payloads (`GET_PAYLOAD`) come from the volume as well: every app
+bundle carries `meta/app.properties` (label/icon/bundle_type, digest-bound like
+any entry) and `payload.nxir`; nothing is baked into bundlemgrd's binary. packagefsd
+derives `pkg:/` from the same verified index (`GET_INDEX`) and reads files on
+demand (`GET_FILE_VMO`). The RFC-0012 `FETCH_IMAGE` answers UNSUPPORTED.
 Markers: `bundlemgrd: system volume verified (slot=<s> build=<id8> bundles=N)`,
 `bundlemgrd: bundle served (name=…)`, `… FAIL (<reason>)`. Only the
 kernel-attributed init id may pull ELFs; the read-only queries are open to the

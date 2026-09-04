@@ -62,11 +62,6 @@ nexus-metrics = { path = "../../../userspace/nexus-metrics", optional = true, de
 storage = { path = "../../../userspace/storage", optional = true, default-features = false }
 bootfmt = { path = "../../../userspace/bootfmt", optional = true, default-features = false }
 
-[build-dependencies]
-# GET_PAYLOAD source (TASK-0080D): compile ui-program bundle payloads to
-# canonical `.nxir` at build time (byte-deterministic; served, never parsed).
-nexus-dsl-core = { path = "../../../userspace/dsl/core" }
-
 [lib]
 path = "src/lib.rs"
 doctest = false

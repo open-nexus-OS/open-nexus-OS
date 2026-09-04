@@ -57,7 +57,9 @@ bundlemgrd verified against the volume index. That fixes the boot shape:
 4. Driver MMIO grants, `wire_services`, the boot-attempt handshake, wave 2
    + the display drivers per the resolved boot graph.
 
-Every non-core service — including gpud and windowd — lives on the volume;
+Every non-core service — including gpud and windowd — lives on the volume, and so
+do the app bundles + the `system` data bundle (P5: the boot image is down to the
+kernel, init and the CORE/recovery set);
 CORE (`boot_graph::CORE`), `updated` and `bootctld` never move to it:
 recovery and repair boots must not depend on it. `init: timing … volume_ms=`
 is the pass's wall cost; the respawn arm re-execs a volume service from its

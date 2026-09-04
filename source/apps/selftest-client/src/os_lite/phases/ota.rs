@@ -306,11 +306,10 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_OTA_SWITCH_FAIL);
     }
-    if services::bundlemgrd::bundlemgrd_v1_fetch_image_slot(&bundlemgrd, Some(b'b')).is_ok() {
-        emit_line(crate::markers::M_SELFTEST_OTA_PUBLISH_B_OK);
-    } else {
-        emit_line(crate::markers::M_SELFTEST_OTA_PUBLISH_B_FAIL);
-    }
+    // TASK-0321 P5: the RFC-0012 "publish b" re-read of a slot-labelled RAM
+    // image is retired — the soft switch is observed through the gated
+    // `bundlemgrd: slot b active` marker; the served registry stays the
+    // MEASURED volume until the reboot the flip lanes prove.
     // Health-commit v2 (RFC-0089 §13): the selftest confirms its declared
     // quorum bit directly at bootctld, then init's signal arrives through
     // updated — commit fires only when BOTH landed (mask complete).

@@ -177,6 +177,18 @@ pub const STATUS_UNAVAILABLE: u8 = 5;
 /// Header status (GET_BUNDLE_ELF): the payload bytes did not hash to the
 /// index digest — nothing usable was written.
 pub const PAYLOAD_STATUS_DIGEST: u8 = 4;
+/// TASK-0321 P5: GET_INDEX request `[B, N, ver, OP_GET_INDEX]` with the
+/// destination VMO MOVED alongside; bundlemgrd writes the NXSV-verified
+/// volume index bytes (superblock + index, ≤ 256 KiB) at
+/// [`PAYLOAD_DATA_OFFSET`], then the payload header LAST. packagefsd builds
+/// its `pkg:/` view from exactly these bytes (one bundle authority).
+pub const OP_GET_INDEX: u8 = 10;
+/// TASK-0321 P5: GET_FILE_VMO request `[B, N, ver, OP_GET_FILE_VMO,
+/// bundle_len:u8, bundle…, path_len:u8, path…]` with the destination VMO
+/// MOVED alongside; bundlemgrd streams the entry's bytes from the volume
+/// hashed against its index digest, header LAST (`PAYLOAD_STATUS_DIGEST`
+/// on mismatch — never an OK header over unverified bytes).
+pub const OP_GET_FILE_VMO: u8 = 11;
 
 crate::frames! {
     protocol(magic0 = MAGIC0, magic1 = MAGIC1, version = VERSION);
@@ -200,6 +212,13 @@ crate::frames! {
     }
     /// VOLUME_STATUS request.
     request encode_volume_status / decode_volume_status (op = OP_VOLUME_STATUS) {}
+    /// GET_INDEX request (VMO moved alongside).
+    request encode_get_index / decode_get_index (op = OP_GET_INDEX) {}
+    /// GET_FILE_VMO request (VMO moved alongside) → `(bundle, path)`.
+    request encode_get_file_vmo / decode_get_file_vmo (op = OP_GET_FILE_VMO) {
+        bundle: bytes8(min = 1, max = 48),
+        path: bytes8(min = 1, max = 96),
+    }
     /// VOLUME_STATUS reply → `(status, slot, verified, bundles, build8)`.
     reply encode_volume_status_rsp / decode_volume_status_rsp (op = OP_VOLUME_STATUS) {
         status: u8,
@@ -237,6 +256,20 @@ mod tests {
         );
         // A truncated reply never decodes half a record.
         assert!(decode_volume_status_rsp(&buf[..n - 3]).is_none());
+    }
+
+    #[test]
+    fn file_ops_round_trip() {
+        // TASK-0321 P5: GET_INDEX carries no body; GET_FILE_VMO names the
+        // bundle + entry path; a truncated frame never half-decodes.
+        let mut req = [0u8; 4];
+        let n = encode_get_index(&mut req).expect("encode");
+        assert_eq!(decode_request_op(&req[..n]), Some(OP_GET_INDEX));
+        let mut req = [0u8; 160];
+        let n = encode_get_file_vmo(b"calculator", b"payload.elf", &mut req).expect("encode");
+        assert_eq!(decode_get_file_vmo(&req[..n]), Some((&b"calculator"[..], &b"payload.elf"[..])));
+        assert!(decode_get_file_vmo(&req[..n - 1]).is_none());
+        assert!(encode_get_file_vmo(b"", b"x", &mut req).is_none());
     }
 
     #[test]

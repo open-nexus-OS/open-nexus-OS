@@ -8,6 +8,7 @@
 //! TEST_COVERAGE: Covered by `nx` command tests.
 //! ADR: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 
+pub(crate) mod app;
 pub(crate) mod config;
 pub(crate) mod crash;
 pub(crate) mod diagnose;
@@ -77,5 +78,6 @@ pub(crate) fn execute(cli: Cli, cfg: &RuntimeConfig) -> ExecResult {
         Commands::Image(args) => image::handle_image(args),
         Commands::Update(args) => update::handle_update(args),
         Commands::Ui(args) => ui::handle_ui(args),
+        Commands::App(args) => app::handle_app(args),
     }
 }

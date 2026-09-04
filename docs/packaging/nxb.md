@@ -15,11 +15,21 @@ An `.nxb` directory contains canonical contract bytes plus interop metadata:
 ```text
 <bundle>.nxb/
 ├── manifest.nxb
-├── payload.elf
+├── payload.elf            (native service/app ELF)  — or —
+├── payload.nxir           (ui-program bundles: the compiled DSL program)
 └── meta/
     ├── sbom.json
-    └── repro.env.json
+    ├── repro.env.json
+    ├── launch.json        (services on the system volume: { "stack_pages": N })
+    └── app.properties     (app bundles: label= / icon= / bundle_type= / payload_kind=)
 ```
+
+On the verified system volume (RFC-0089 §12, TASK-0321) these directories are
+packed verbatim: `meta/launch.json` marks a spawnable service bundle (init
+spawns it from the volume), `meta/app.properties` marks an app bundle
+(bundlemgrd's launcher registry + `GET_PAYLOAD` read it; written by
+`nx app compile --meta`). `payload.nxir` is what `nxb-pack` names the payload
+of a `payload_kind = "ui-program"` manifest.
 
 - **`manifest.nxb`**: Canonical, deterministic bundle manifest (Cap'n Proto binary).
   - **Format**: Cap'n Proto (`tools/nexus-idl/schemas/manifest.capnp`)
@@ -79,10 +89,18 @@ sig = "0000000000000000000000000000000000000000000000000000000000000000000000000
 
 **Output `manifest.nxb`**: Binary Cap'n Proto encoding (deterministic, signable)
 
-## Building PackageFS v2 images (`pkgimg`)
+## Building the system volume (pkgimg v3) and host pkgimg images
 
-For PackageFS v2 host workflows, one or more `.nxb` directories can be packed into
-a deterministic read-only `pkgimg` image and then validated before use.
+On the device `pkg:/` IS the verified system volume: `nx image build
+--system-bundles <dir>` packs every bundle directory under `<dir>` into the
+pkgimg v3 volume (`scripts/build.sh` emits `build/system-bundles/<name>/` for
+services via `nxb-pack --toml`, for apps via `nx app compile` + `nxb-pack`,
+plus the `system` data bundle). packagefsd mounts the NXSV-verified index
+bundlemgrd serves (`GET_INDEX`) and reads files on demand (`GET_FILE_VMO`,
+digest-checked) — no RAM image, no transcode (TASK-0321 P5).
+
+For PackageFS v2 HOST workflows, one or more `.nxb` directories can still be
+packed into a deterministic read-only `pkgimg` image and validated before use.
 
 ```bash
 # Build pkgimg v2 from one or more <bundle>@<version>.nxb directories

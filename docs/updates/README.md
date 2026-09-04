@@ -74,6 +74,11 @@ against `volume_sha256`, and the NXSV **last** — a valid NXSV exists only
 over a complete, byte-identical volume (power-cut matrix). New reject
 vocabulary: `order | volume-binding | bundle-not-in-index | volume-digest`.
 
+Since TASK-0321 P5 the volume also carries the app bundles (`payload.nxir` +
+`meta/app.properties`) and the `system` data bundle: `pkg:/`, the launcher grid
+and `GET_PAYLOAD` all derive from the same NXSV-verified index — an app update is
+a bundle-set update like any other.
+
 A boot-image update on a volume-based system is only complete WITH its
 paired volume (the NXSV binds the boot digest): ship `system-volume` next to
 the `boot-image` and let the device reuse every unchanged bundle — the set

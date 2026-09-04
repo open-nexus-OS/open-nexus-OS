@@ -70,10 +70,12 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_LIST_FAIL);
     }
-    if services::bundlemgrd::bundlemgrd_v1_fetch_image(&bundlemgrd).is_ok() {
-        emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_IMAGE_OK);
+    // TASK-0321 P5: the fetch image is retired; the registry truth is the
+    // verified system volume (`pkg:/` + the launcher list derive from it).
+    if services::bundlemgrd::bundlemgrd_volume_status(&bundlemgrd).is_ok() {
+        emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_VOLUME_OK);
     } else {
-        emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_IMAGE_FAIL);
+        emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_VOLUME_FAIL);
     }
     bundlemgrd
         .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))

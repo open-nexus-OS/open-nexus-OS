@@ -259,12 +259,6 @@ phase = "ota"
 [marker."SELFTEST: ota health FAIL"]
 phase = "ota"
 
-[marker."SELFTEST: ota publish b FAIL"]
-phase = "ota"
-
-[marker."SELFTEST: ota publish b ok"]
-phase = "ota"
-
 [marker."SELFTEST: ota rollback FAIL"]
 phase = "ota"
 
