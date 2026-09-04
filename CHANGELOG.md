@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-03 (TASK-0321 P3: bundle-set apply — the system volume travels with the flip)
+
+- The device engine accepts RFC-0089 §12 bundle sets: `system-volume`
+  (kind 6, index + signed NXSV paired with the set's boot image) and
+  `bundle` (kind 2, one index window each) behind the ordering contract
+  `[boot-image|delta]?, system-volume, (bundle)*` and the new rejects
+  `order | volume-binding | bundle-not-in-index | volume-digest`;
+  `ComponentSink::commit_set` closes a set atomically.
+- `updates::volume_apply::VolumeAssembler` (generic, host-proven) writes
+  the inactive system slot: index first, bundle windows readback-verified,
+  unshipped bundles copied from the ACTIVE volume against the new index
+  (`updated: bundle reused`), whole-volume readback, NXSV LAST — a valid
+  NXSV exists only over a complete byte-identical volume (power-cut
+  matrix). `updated/volume_os.rs` is the block-plane device + markers;
+  `updated: restage clean` is real.
+- `nx image fixtures --system-bundles <dir>` emits `/updates/bundle-set.nxs`
+  (os-B + the NEXT volume from `build/system-bundles-next`, metricsd@1.0.1),
+  self-verified through the device engine at factory time.
+- New QEMU lane `ota-bundle` (`just ci-os-ota-bundle`, in `test-all`; two
+  boots, one uart): stage the set → switch → reset → `bundlemgrd: system
+  volume verified (slot=b …)` → `init: spawn from volume svc=metricsd
+  bundle=metricsd@1.0.1` → commit → `SELFTEST: ota bundle-set ok`; the
+  selftest cross-checks bundlemgrd `VOLUME_STATUS` + `QUERY_BUNDLE` on
+  boot 2 and `verify-nxupdate` gates the disk.
+- `storage` / `storage-virtio-blk` declare the `nexus_env` cfg via
+  `[lints.rust] unexpected_cfgs.check-cfg`: compiled for the HOST as a
+  build-dependency (selftest-client → `updates` → `storage`) they no longer
+  raise `unexpected_cfgs` under the warning gate.
+
 ### Added - 2026-09-03 (TASK-0321 P2: system-volume verifier + init volume spawn — metricsd boots from the volume)
 
 - bundlemgrd verifies the system volume paired with the MEASURED boot slot

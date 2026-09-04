@@ -278,7 +278,11 @@ prepare_system_bundles() {
   local list="scripts/system-volume-services.txt"
   [[ -f "$list" ]] || return 0
   local out_root="$ROOT/build/system-bundles"
-  rm -rf "$out_root"
+  # TASK-0321 P3: the same services at version 1.0.1 — the `bundle-set.nxs`
+  # fixture (ota-bundle lane) ships THIS set so boot 2 spawns a genuinely
+  # different bundle from the flipped volume.
+  local next_root="$ROOT/build/system-bundles-next"
+  rm -rf "$out_root" "$next_root"
   local -a volume_services=()
   mapfile -t volume_services < <(sed -e 's/#.*//' -e '/^\s*$/d' "$list")
   [[ "${#volume_services[@]}" -eq 0 ]] && return 0
@@ -295,20 +299,25 @@ prepare_system_bundles() {
     fi
     local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
     local stack_pages="${!stack_var:-8}"
-    local dir="$out_root/$svc"
-    mkdir -p "$dir/meta"
-    cat >"$dir/manifest.toml" <<EOF_TOML
+    local root ver
+    for root in "$out_root" "$next_root"; do
+      ver="1.0.0"
+      [[ "$root" == "$next_root" ]] && ver="1.0.1"
+      local dir="$root/$svc"
+      mkdir -p "$dir/meta"
+      cat >"$dir/manifest.toml" <<EOF_TOML
 name = "$svc"
-version = "1.0.0"
+version = "$ver"
 abilities = ["service"]
 caps = []
 min_sdk = "0.1.0"
 bundle_type = "service"
 EOF_TOML
-    "$nxb_pack" --toml "$dir/manifest.toml" "$elf_path" "$dir" >/dev/null
-    rm -f "$dir/manifest.toml"
-    printf '{ "stack_pages": %s }\n' "$stack_pages" >"$dir/meta/launch.json"
-    echo "[build] system bundle $svc -> $dir (stack_pages=$stack_pages)" >&2
+      "$nxb_pack" --toml "$dir/manifest.toml" "$elf_path" "$dir" >/dev/null
+      rm -f "$dir/manifest.toml"
+      printf '{ "stack_pages": %s }\n' "$stack_pages" >"$dir/meta/launch.json"
+      echo "[build] system bundle $svc@$ver -> $dir (stack_pages=$stack_pages)" >&2
+    done
   done
 }
 

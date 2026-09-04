@@ -36,6 +36,7 @@ os-lite = [
     "statefs/os-lite",
     "dep:storage",
     "storage/os-lite",
+    "dep:bootfmt",
     "dep:nexus-vfs-types",
     "dep:sha2",
 ]
@@ -72,6 +73,8 @@ bootctld = { path = "../bootctld", optional = true, default-features = false }
 nexus-wire = { path = "../../libs/nexus-wire" }
 # TASK-0179: partition-scoped slot writes + the vfsd splice data plane.
 storage = { path = "../../../userspace/storage", optional = true, default-features = false }
+# TASK-0321 P3: NXBD/NXSV decode for the restage probe + volume pairing.
+bootfmt = { path = "../../../userspace/bootfmt", optional = true, default-features = false }
 nexus-vfs-types = { path = "../../../userspace/vfs-types", optional = true, default-features = false }
 sha2 = { version = "0.10", optional = true, default-features = false }
 

@@ -28,11 +28,18 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use storage::{blockproto, remote_blk::RemoteBlockDevice, BlockDevice};
-use updates::component_set::{ComponentMeta, ComponentSink, RejectReason, KIND_BOOT_IMAGE};
+use updates::component_set::{
+    ComponentMeta, ComponentSink, RejectReason, KIND_BOOT_IMAGE, KIND_BOOT_IMAGE_DELTA,
+    KIND_BUNDLE, KIND_SYSTEM_VOLUME,
+};
 use updates::delta_apply::{BaseIdentity, BaseRead, DeltaAdapter};
+use updates::volume_apply::VolumeAssembler;
 use updates::Slot;
 
 use crate::apply_os::{SlotSink, IMAGE_START_SECTOR, SECTOR};
+use crate::volume_os::{BlockVolumeDev, VolumeMarkers};
+
+type Volume = VolumeAssembler<BlockVolumeDev, BlockVolumeDev, VolumeMarkers>;
 
 /// Byte-addressed reader over the ACTIVE slot's image body.
 pub(crate) struct RemoteBase {
@@ -86,22 +93,31 @@ impl BaseRead for RemoteBase {
     }
 }
 
-/// The engine-facing per-kind dispatch (v1: kinds 1 and 3).
+/// The engine-facing per-kind dispatch: kinds 1/3 = boot slot (per
+/// component), kinds 6/2 = the system-volume assembler (RFC-0089 §12.4,
+/// TASK-0321 P3) which lives ACROSS components and commits at
+/// `commit_set` (NXSV last).
 pub(crate) struct StageSink {
     active: Slot,
     inactive: Slot,
     state: State,
+    /// The set's boot-image digest (from its NXBD) — the volume's pairing
+    /// target; a volume-only set pairs with the ACTIVE NXBD instead.
+    boot_digest: Option<[u8; 32]>,
+    volume: Option<Volume>,
 }
 
 enum State {
     Idle,
     Full(SlotSink),
     Delta(DeltaAdapter<RemoteBase, SlotSink>),
+    /// Kinds 6/2 — the assembler in `StageSink::volume`.
+    Volume,
 }
 
 impl StageSink {
     pub(crate) fn new(active: Slot, inactive: Slot) -> Self {
-        Self { active, inactive, state: State::Idle }
+        Self { active, inactive, state: State::Idle, boot_digest: None, volume: None }
     }
 }
 
@@ -114,14 +130,41 @@ impl ComponentSink for StageSink {
             let mut sink = SlotSink::attach(self.inactive)?;
             sink.begin(meta)?;
             self.state = State::Full(sink);
+            self.boot_digest = Some(meta.sha256);
             return Ok(());
         }
-        // The engine's kind dispatch already rejected anything but 1/3.
+        if meta.kind == KIND_SYSTEM_VOLUME {
+            // TASK-0321 P3: the assembler over the INACTIVE system slot,
+            // reusing unchanged bundles from the ACTIVE one; pairing target
+            // = this set's boot image, else the loader-verified active NXBD.
+            let pair =
+                self.boot_digest.or_else(|| crate::volume_os::active_nxbd_digest(self.active));
+            if pair.is_none() {
+                return Err(RejectReason::VolumeBinding);
+            }
+            let inactive = BlockVolumeDev::attach(self.inactive)?;
+            let active = BlockVolumeDev::attach(self.active).ok();
+            let mut assembler = VolumeAssembler::new(inactive, active, pair, VolumeMarkers);
+            assembler.begin(meta)?;
+            self.volume = Some(assembler);
+            self.state = State::Volume;
+            return Ok(());
+        }
+        if meta.kind == KIND_BUNDLE {
+            let assembler = self.volume.as_mut().ok_or(RejectReason::Order)?;
+            assembler.begin(meta)?;
+            self.state = State::Volume;
+            return Ok(());
+        }
+        if meta.kind != KIND_BOOT_IMAGE_DELTA {
+            return Err(RejectReason::KindUnsupported);
+        }
         let (base, identity) = RemoteBase::attach(self.active)?;
         let inner = SlotSink::attach(self.inactive)?;
         let mut adapter = DeltaAdapter::new(base, inner, identity);
         adapter.begin(meta)?;
         self.state = State::Delta(adapter);
+        self.boot_digest = bootfmt::nxbd::decode(&meta.kind_data).ok().map(|(d, _)| d.image_sha256);
         Ok(())
     }
 
@@ -129,6 +172,7 @@ impl ComponentSink for StageSink {
         match &mut self.state {
             State::Full(sink) => sink.chunk(offset, bytes),
             State::Delta(adapter) => adapter.chunk(offset, bytes),
+            State::Volume => self.volume.as_mut().ok_or(RejectReason::Io)?.chunk(offset, bytes),
             State::Idle => Err(RejectReason::Io),
         }
     }
@@ -137,7 +181,15 @@ impl ComponentSink for StageSink {
         match &mut self.state {
             State::Full(sink) => sink.finish(meta),
             State::Delta(adapter) => adapter.finish(meta),
+            State::Volume => self.volume.as_mut().ok_or(RejectReason::Io)?.finish(meta),
             State::Idle => Err(RejectReason::Io),
+        }
+    }
+
+    fn commit_set(&mut self) -> Result<(), RejectReason> {
+        match self.volume.as_mut() {
+            Some(assembler) => assembler.commit_set(),
+            None => Ok(()),
         }
     }
 }

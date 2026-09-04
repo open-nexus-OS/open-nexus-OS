@@ -376,16 +376,21 @@ pub fn build_volume(
     }
 
     let index_hash = Sha256::digest(&index);
-    let mut out = Vec::with_capacity(SUPERBLOCK_LEN + index.len() + data.len());
+    // The data section starts 4 KiB-aligned (v3 rule): every bundle window
+    // is then sector-aligned in the VOLUME, so the device assembler writes
+    // windows as whole sectors and reuse copies never straddle a boundary.
+    let data_offset = align_up(SUPERBLOCK_LEN + index.len(), ALIGNMENT);
+    let mut out = Vec::with_capacity(data_offset + data.len());
     out.extend_from_slice(MAGIC_V3);
     write_u16(&mut out, VERSION_V3);
     write_u16(&mut out, 0);
     write_u64(&mut out, SUPERBLOCK_LEN as u64);
     write_u64(&mut out, index.len() as u64);
-    write_u64(&mut out, (SUPERBLOCK_LEN + index.len()) as u64);
+    write_u64(&mut out, data_offset as u64);
     write_u64(&mut out, data.len() as u64);
     out.extend_from_slice(&index_hash);
     out.extend_from_slice(&index);
+    out.resize(data_offset, 0);
     out.extend_from_slice(&data);
     if out.len() > caps.max_image_bytes {
         return Err(PkgImgError::IndexCapExceeded);

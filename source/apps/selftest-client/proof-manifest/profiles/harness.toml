@@ -115,6 +115,16 @@ env = { NEXUS_SELFTEST_PROFILE = "ota-flip", REQUIRE_OTA_FLIP = "1" }
 # HARNESS power-cycles them via QMP each time the withheld marker appears;
 # the loader exhausts the tries and flips back; the final boot proves the
 # observation. The reduced guest scope mirrors ota-flip.
+# TASK-0321 P3 bundle-set lane: two boots one uart — boot 1 stages
+# `/updates/bundle-set.nxs` (os-B + system volume + metricsd@1.0.1) into the
+# inactive slot PAIR and switches; boot 2 runs slot b with the volume the
+# set carried: bundlemgrd verifies system-b, init spawns metricsd@1.0.1 from
+# it, the quorum commits.
+[profile.ota-bundle]
+runner = "scripts/qemu-test.sh"
+extends = "headless"
+env = { NEXUS_SELFTEST_PROFILE = "ota-bundle" }
+
 [profile.ota-fallback]
 runner = "scripts/qemu-test.sh"
 extends = "headless"

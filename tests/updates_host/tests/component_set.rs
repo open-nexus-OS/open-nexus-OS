@@ -249,7 +249,10 @@ fn test_reject_component_kind_unsupported() {
         root.set_rollback_index(1);
         let mut list = root.init_components(1);
         let mut c = list.reborrow().get(0);
-        c.set_kind(2); // bundle: reserved for Phase B, not built (3 is the RFC-0090 delta now)
+        // Kind 5 (`rotation-record`) is reserved (§4) and has no dispatch:
+        // kinds 2/4/6 are the Phase B seam (TASK-0321 P3, see
+        // component_set_volume.rs), 3 the RFC-0090 delta.
+        c.set_kind(5);
         c.set_name("delta");
         c.set_size(kernel.len() as u64);
         c.set_sha256(&sha256(&kernel));

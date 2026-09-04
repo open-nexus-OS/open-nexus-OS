@@ -9,7 +9,10 @@
 //! crown-proof flip boots it; a build-id trailer sector makes the bytes
 //! genuinely different from the running image), then packs everything
 //! into an nxfs data-partition seed under `/updates/` so
-//! `image build --data` ships them at factory time.
+//! `image build --data` ships them at factory time. With
+//! `--system-bundles <dir>` (TASK-0321 P3) it also emits `bundle-set.nxs`:
+//! os-B + the system volume built from that directory + one `bundle`
+//! component per window — the ota-bundle lane's crown set.
 //! OWNERS: @tools-team @runtime
 //! STATUS: Experimental (TASK-0179)
 //! TEST_COVERAGE: tests/image_cli.rs fixtures roundtrip; QEMU ota lanes
@@ -21,6 +24,7 @@ use serde_json::json;
 use crate::cli_image::ImageFixturesArgs;
 use crate::commands::image::{read_seed, sha256, FileBlockDevice};
 use crate::commands::image_ota::append_tar;
+use crate::commands::image_volume as volume;
 use crate::error::{ExecResult, ExitClass, NxError};
 
 /// Well-known UNTRUSTED publisher seed (test key, deliberately public —
@@ -54,6 +58,10 @@ struct ContainerSpec<'a> {
     /// binds the stream to its ACTIVE NXBD, so a base other than the
     /// RUNNING image is the `delta-base` deny fixture.
     delta_from: Option<Vec<u8>>,
+    /// RFC-0089 §12.4 (TASK-0321): the bundle-set components that follow
+    /// the boot image — `system-volume` (index + NXSV paired with THIS
+    /// spec's payload digest) and one `bundle` per window.
+    extra: Vec<volume::Component>,
 }
 
 /// The kernel entry contract (RFC-0089 §5 / ADR-0059).
@@ -99,6 +107,7 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             tamper: false,
             load_addr: UNBOOTABLE_LOAD_ADDR,
             delta_from: None,
+            extra: Vec::new(),
         },
         ContainerSpec {
             name: "os-fixture-untrusted.nxs",
@@ -109,6 +118,7 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             tamper: false,
             load_addr: UNBOOTABLE_LOAD_ADDR,
             delta_from: None,
+            extra: Vec::new(),
         },
         ContainerSpec {
             name: "os-fixture-tampered.nxs",
@@ -119,6 +129,7 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             tamper: true,
             load_addr: UNBOOTABLE_LOAD_ADDR,
             delta_from: None,
+            extra: Vec::new(),
         },
         ContainerSpec {
             name: "os-fixture-downgrade.nxs",
@@ -131,6 +142,7 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             tamper: false,
             load_addr: UNBOOTABLE_LOAD_ADDR,
             delta_from: None,
+            extra: Vec::new(),
         },
         // TASK-0034 (RFC-0090) delta lane fixtures. The happy-path target
         // is a 64 KiB prefix of the RUNNING image plus a small literal
@@ -146,6 +158,7 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             tamper: false,
             load_addr: UNBOOTABLE_LOAD_ADDR,
             delta_from: None, // filled below
+            extra: Vec::new(),
         },
         // Deny fixture: a delta whose base is NOT the running image — the
         // device must reject `delta-base` before any write.
@@ -158,6 +171,7 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             tamper: false,
             load_addr: UNBOOTABLE_LOAD_ADDR,
             delta_from: None, // filled below
+            extra: Vec::new(),
         },
         ContainerSpec {
             name: "os-B.nxs",
@@ -165,16 +179,42 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             // ABOVE the factory floor so the crown lane's health commit
             // RAISES it (RFC-0089 §10 commit rung).
             rollback_index: 2,
-            payload: kernel_b,
+            payload: kernel_b.clone(),
             publisher_seed,
             tamper: false,
             load_addr: REAL_LOAD_ADDR,
             delta_from: None,
+            extra: Vec::new(),
         },
     ];
 
     // Fill the delta specs (they need the kernel bytes read above).
-    let mut specs = specs;
+    let mut specs: Vec<ContainerSpec<'_>> = specs.into();
+    // TASK-0321 P3: the bundle-set fixture — os-B's boot image PLUS the
+    // system volume built from `--system-bundles` (the NEXT bundle set),
+    // NXSV paired with os-B's digest, same build id + rollback index so
+    // the set is one coherent version (RFC-0089 §12.4).
+    if let Some(dir) = &args.system_bundles {
+        let bundles = volume::load_bundle_dirs(dir)?;
+        let vol = volume::build_volume_bytes(&bundles)?;
+        let index =
+            storage::pkgimg_bundles::parse_index(&vol, &storage::pkgimg::PkgImgCaps::default())
+                .map_err(|e| {
+                    NxError::new(ExitClass::Internal, format!("fixtures: volume index: {e}"))
+                })?;
+        let nxsv = volume::make_nxsv(&vol, &index, sha256(&kernel_b), &build_b, 2, &os_seed)?;
+        specs.push(ContainerSpec {
+            name: "bundle-set.nxs",
+            build_id: build_b.clone(),
+            rollback_index: 2,
+            payload: kernel_b.clone(),
+            publisher_seed,
+            tamper: false,
+            load_addr: REAL_LOAD_ADDR,
+            delta_from: None,
+            extra: volume::bundle_set_components(&vol, &index, &nxsv),
+        });
+    }
     {
         let mut delta_target = kernel_for_delta[..kernel_for_delta.len().min(64 * 1024)].to_vec();
         delta_target.extend_from_slice(&fixture_payload()[..4096]);
@@ -274,7 +314,11 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
 
     Ok((
         ExitClass::Success,
-        format!("image: fixtures packed into {} (5 containers)", args.data_out.display()),
+        format!(
+            "image: fixtures packed into {} ({} containers)",
+            args.data_out.display(),
+            emitted.len()
+        ),
         args.json,
         Some(json!({
             "data_out": args.data_out.display().to_string(),
@@ -363,7 +407,7 @@ fn build_container(spec: &ContainerSpec<'_>, os_seed: &[u8; 32]) -> Result<Vec<u
         root.set_publisher_key_id(&publisher_pub[..8]);
         root.set_build_id(&spec.build_id);
         root.set_rollback_index(spec.rollback_index);
-        let mut list = root.init_components(1);
+        let mut list = root.init_components(1 + spec.extra.len() as u32);
         {
             let mut c = list.reborrow().get(0);
             c.set_kind(kind);
@@ -372,6 +416,15 @@ fn build_container(spec: &ContainerSpec<'_>, os_seed: &[u8; 32]) -> Result<Vec<u
             c.set_sha256(&sha256(&entry_payload));
             c.set_payload_path(payload_path);
             c.set_kind_data(&nxbd);
+        }
+        for (i, comp) in spec.extra.iter().enumerate() {
+            let mut c = list.reborrow().get(1 + i as u32);
+            c.set_kind(comp.kind);
+            c.set_name(&comp.name);
+            c.set_size(comp.payload.len() as u64);
+            c.set_sha256(&sha256(&comp.payload));
+            c.set_payload_path(&comp.payload_path);
+            c.set_kind_data(&comp.kind_data);
         }
         let mut out = Vec::new();
         capnp::serialize::write_message(&mut out, &builder)
@@ -394,6 +447,9 @@ fn build_container(spec: &ContainerSpec<'_>, os_seed: &[u8; 32]) -> Result<Vec<u
         append_tar(&mut tar, "manifest.nxo", &manifest_bytes)?;
         append_tar(&mut tar, "manifest.sig.ed25519", &signature)?;
         append_tar(&mut tar, payload_path, &payload)?;
+        for comp in &spec.extra {
+            append_tar(&mut tar, &comp.payload_path, &comp.payload)?;
+        }
         tar.finish()
             .map_err(|err| NxError::new(ExitClass::Internal, format!("fixtures: tar: {err}")))?;
     }

@@ -97,6 +97,26 @@ phase = "bringup"
 emit_when = { profile = "ota-flip" }
 proves = "boot 2: the machine is RUNNING the newly staged slot (loader-chosen), the health quorum completed and bootctld committed it — end-to-end OTA flip"
 
+# TASK-0321 P3 bundle-set crown proof (profile `ota-bundle`): the volume
+# travels with the flip — os-B + system volume + metricsd@1.0.1 as ONE set.
+[marker."SELFTEST: ota bundle-set staged ok"]
+phase = "bringup"
+emit_when = { profile = "ota-bundle" }
+proves = "boot 1: the bundle set (boot-image + system-volume + bundle) assembled the inactive slot PAIR — index + shipped bundles + reused bundles readback-verified, NXSV last — and bootctld scheduled the switch"
+
+[marker."SELFTEST: ota bundle-set ok"]
+phase = "bringup"
+emit_when = { profile = "ota-bundle" }
+proves = "boot 2: running slot b, bundlemgrd verified system-b (paired with the measured image) and serves metricsd@1.0.1 — the set's bundle — and the quorum committed"
+
+[marker."SELFTEST: ota bundle-set stage FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: boot 1 could not stage or switch the bundle set"
+
+[marker."SELFTEST: ota bundle-set FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: the bundle-set flip did not complete (wrong slot, volume unverified, wrong bundle version, or uncommitted)"
+
 [marker."updated-flip: wrong slot after reset (expected b)"]
 phase = "ota"
 proves = "DIAGNOSTIC: the reset did not land on the staged slot"

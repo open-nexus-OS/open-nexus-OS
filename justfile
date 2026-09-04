@@ -301,6 +301,13 @@ ci-os-reset:
 ci-os-ota:
     just test-os ota-flip
 
+# TASK-0321 P3 (RFC-0089 §12): the bundle-set crown proof — two boots, one
+# uart: boot 1 stages os-B + the system volume + metricsd@1.0.1 as ONE set
+# into the inactive slot pair and switches; boot 2 runs slot b, bundlemgrd
+# verifies system-b, init spawns metricsd@1.0.1 FROM the flipped volume.
+ci-os-ota-bundle:
+    just test-os ota-bundle
+
 # TASK-0289-B loader backstops: boot-time tamper + downgrade rejects
 # (armed disk, single boot each) and the tries-exhaustion fallback (FOUR
 # boots, bricked trials power-cycled via QMP) — the boot trust floor
@@ -630,6 +637,7 @@ test-all:
     just ci-os-smp1
     just ci-os-reset
     just ci-os-ota
+    just ci-os-ota-bundle
     just ci-os-ota-backstops
     @scripts/hypothesis-log.sh H5 "justfile:test-all:end" "aggregate gate completed"
 

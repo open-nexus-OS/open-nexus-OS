@@ -13,4 +13,5 @@ nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
 sha2 = "0.10"
 tar = { version = "0.4", default-features = false }
 updates = { path = "../../userspace/updates" }
+storage = { path = "../../userspace/storage" }
 bootfmt = { path = "../../userspace/bootfmt", features = ["std", "sign"] }

@@ -207,9 +207,15 @@ prepare_blk_image() {
     # TASK-0179: factory data partition ships the OTA fixture set under
     # /updates/ (trusted/untrusted/tampered/downgrade + the real os-B
     # container the crown lane flips to).
+    # TASK-0321 P3: the bundle-set fixture (`/updates/bundle-set.nxs`) ships
+    # os-B + the system volume built from the NEXT bundle set (v1.0.1).
+    local -a bundleset=()
+    if [[ -d "$ROOT/build/system-bundles-next" ]]; then
+      bundleset=(--system-bundles "$ROOT/build/system-bundles-next")
+    fi
     "$nx_bin" image fixtures --kernel "$KERNEL_BIN" --data-out "$ROOT/build/data-seed.img" \
       --sign-os "$sign_key" --sign-publisher "$publisher_key" \
-      --build-id "$build_id" >/dev/null
+      --build-id "$build_id" "${bundleset[@]}" >/dev/null
     rm -f "$QEMU_BLK_IMG"
     # rollback-index 1 (not 0): the factory floor equals the shipped
     # image's index, so a container at index 0 is a REAL downgrade and the

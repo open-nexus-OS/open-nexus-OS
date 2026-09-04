@@ -50,6 +50,15 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             crate::os_lite::probes::otaflip::ota_flip_proof(&statefsd);
         }
     }
+    // TASK-0321 P3 bundle-set lane: os-B + the system volume + metricsd@1.0.1
+    // staged as ONE set; boot 2 must run metricsd FROM the flipped volume.
+    if crate::os_lite::boot_cfg::runtime_profile_with_retry()
+        == Some(crate::runtime_mode::RuntimeProfile::OtaBundle)
+    {
+        if let Ok(statefsd) = crate::os_lite::ipc::routing::route_with_retry("statefsd") {
+            crate::os_lite::probes::otaflip::ota_bundle_proof(&statefsd);
+        }
+    }
     // TASK-0289-B backstop lane: the four-boot tries-exhaustion proof.
     // Boot 1 stages + switches and ENDS IN A REBOOT; the bricked trial
     // boots never reach this code (init parks); the final boot verifies

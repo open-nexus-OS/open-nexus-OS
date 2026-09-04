@@ -40,6 +40,8 @@ use super::reply_pump::{updated_expect_status, updated_send_with_reply};
 pub(crate) const FIXTURE_PATH: &str = "/updates/os-fixture-b.nxs";
 /// The real os-B image the crown lane flips to.
 pub(crate) const REAL_PATH: &str = "/updates/os-B.nxs";
+/// TASK-0321 P3: os-B + the system volume + metricsd@1.0.1 as ONE set.
+pub(crate) const BUNDLE_SET_PATH: &str = "/updates/bundle-set.nxs";
 /// Deny-lane containers (RFC-0089 §8 reject vocabulary).
 pub(crate) const UNTRUSTED_PATH: &str = "/updates/os-fixture-untrusted.nxs";
 pub(crate) const TAMPERED_PATH: &str = "/updates/os-fixture-tampered.nxs";
@@ -90,7 +92,18 @@ pub(crate) fn updated_stage_real(
     reply_recv_slot: u32,
     pending: &mut VecDeque<Vec<u8>>,
 ) -> core::result::Result<(), ()> {
-    let rsp = stage_source(client, reply_send_slot, reply_recv_slot, pending, REAL_PATH)?;
+    updated_stage_path(client, reply_send_slot, reply_recv_slot, pending, REAL_PATH)
+}
+
+/// Happy-path stage of ANY container by path (the crown lanes pick theirs).
+pub(crate) fn updated_stage_path(
+    client: &KernelClient,
+    reply_send_slot: u32,
+    reply_recv_slot: u32,
+    pending: &mut VecDeque<Vec<u8>>,
+    path: &str,
+) -> core::result::Result<(), ()> {
+    let rsp = stage_source(client, reply_send_slot, reply_recv_slot, pending, path)?;
     updated_expect_status(&rsp, nexus_abi::updated::OP_STAGE_SOURCE)?;
     Ok(())
 }

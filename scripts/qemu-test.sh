@@ -781,6 +781,43 @@ case "${PROFILE:-full}" in
     # runs — they belong to the headless lane that owns that cycle.
     OTA_PHASE_GUARDS=0
     ;;
+  ota-bundle)
+    # TASK-0321 P3 BUNDLE-SET LANE (RFC-0089 §12, ADR-0060): the ota-flip
+    # shape, but the set carries the SYSTEM VOLUME with the boot image:
+    #   boot 1  stage bundle-set.nxs = boot-image(otaB) + system-volume +
+    #           metricsd@1.0.1 into the inactive slot PAIR (index +
+    #           bundle windows readback-verified, NXSV LAST) -> switch -> reset
+    #   loader  picks slot b (different build id)
+    #   boot 2  bundlemgrd verifies system-b PAIRED with the measured image,
+    #           init spawns metricsd@1.0.1 FROM that volume, quorum commits.
+    # The factory volume ships metricsd@1.0.0, so the version in the spawn
+    # line is the proof the volume travelled with the flip.
+    # Marker order = uart order: the volume/bundle lines print as each
+    # component finishes; the boot-image line is the SET summary after the
+    # whole verify (stage_os), so it follows them.
+    expected_sequence=(
+      "neuron vers."
+      "init: start"
+      "bundlemgrd: system volume verified (slot=a"
+      "init: spawn from volume svc=metricsd bundle=metricsd@1.0.0"
+      "init: ready"
+      "updated: stage begin (source=/updates/bundle-set.nxs)"
+      "updated: component system-volume verified (build=otaB"
+      "updated: component bundle verified (name=metricsd@1.0.1)"
+      "updated: component boot-image verified (build=otaB"
+      "updated: stage done (slot=b build=otaB"
+      "bootctld: switch scheduled (to=b)"
+      "SELFTEST: ota bundle-set staged ok"
+      "nxboot: verify ok (slot=b build=otaB"
+      "nxboot: jump slot=b"
+      "bundlemgrd: system volume verified (slot=b build=otaB"
+      "init: spawn from volume svc=metricsd bundle=metricsd@1.0.1"
+      "bootctld: health quorum ok (2/2)"
+      "bootctld: commit ok (slot=b)"
+      "SELFTEST: ota bundle-set ok"
+    )
+    OTA_PHASE_GUARDS=0
+    ;;
   ota-fallback)
     # TASK-0289-B: the loader's tries-exhaustion backstop — FOUR boots in
     # ONE uart, and the point is that boots 2/3 are DEAD userspace:
@@ -2481,7 +2518,7 @@ fi
 # just wrote. This is the honest "CLI status vs live services" seam: no
 # host↔guest transport exists, so the disk the machinery produced IS the
 # meeting point.
-if [[ "${PROFILE:-full}" == "ota-flip" ]]; then
+if [[ "${PROFILE:-full}" == "ota-flip" || "${PROFILE:-full}" == "ota-bundle" ]]; then
   nxupdate_bin="$ROOT/target/release/nx"
   nxupdate_img="${QEMU_BLK_IMG:-$ROOT/build/nexus.img}"
   if ! nxupdate_out=$("$nxupdate_bin" update status --image "$nxupdate_img" 2>&1); then

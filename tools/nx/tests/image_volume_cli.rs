@@ -393,3 +393,81 @@ fn bundle_set_container_decodes_kinds_2_and_6() {
         assert_eq!(c.get_size(), row.data_len);
     }
 }
+
+/// TASK-0321 P3: `image fixtures --system-bundles` emits `bundle-set.nxs`
+/// (os-B + system-volume + bundles) and SELF-VERIFIES it through the real
+/// device engine against the baked publisher anchor — so the pairing of
+/// the NXSV with os-B's digest and the §12.4 ordering are proven at
+/// factory time, not first in QEMU.
+#[test]
+fn fixtures_emit_a_self_verified_bundle_set() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    setup(dir.path());
+    let root = dir.path().join("bundles");
+    make_bundle(&root, "metricsd", "1.0.1", true, &tiny_elf(0x8004_0000));
+    // The device anchor is the repo's dev publisher key (policies/update-
+    // trust.toml) — fixtures must verify against exactly that.
+    let publisher = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../keys/dev-publisher.ed25519.seed")
+        .canonicalize()
+        .expect("dev publisher seed");
+    let out = run_nx(
+        &[
+            "image",
+            "fixtures",
+            "--kernel",
+            "kernel.bin",
+            "--data-out",
+            "data-seed.img",
+            "--data-mib",
+            "32",
+            "--sign-os",
+            "os.seed",
+            "--sign-publisher",
+            publisher.to_str().expect("utf8 path"),
+            "--build-id",
+            "dev-abcdef",
+            "--system-bundles",
+            "bundles",
+            "--json",
+        ],
+        dir.path(),
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "fixtures: {stdout}");
+    let json: serde_json::Value = serde_json::from_str(stdout.trim()).expect("json");
+    let names: Vec<&str> = json["data"]["containers"]
+        .as_array()
+        .expect("containers")
+        .iter()
+        .map(|c| c["name"].as_str().expect("name"))
+        .collect();
+    assert!(names.contains(&"os-B.nxs"), "{names:?}");
+    assert!(names.contains(&"bundle-set.nxs"), "{names:?}");
+    assert_eq!(json["data"]["build_b"].as_str().expect("build_b"), "otaBabcdef");
+    // Without the bundle directory no bundle set is emitted (the lane
+    // that stages it must fail loudly, never silently stage os-B).
+    let out = run_nx(
+        &[
+            "image",
+            "fixtures",
+            "--kernel",
+            "kernel.bin",
+            "--data-out",
+            "data-seed2.img",
+            "--data-mib",
+            "32",
+            "--sign-os",
+            "os.seed",
+            "--sign-publisher",
+            publisher.to_str().expect("utf8 path"),
+            "--build-id",
+            "dev-abcdef",
+            "--json",
+        ],
+        dir.path(),
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "fixtures: {stdout}");
+    assert!(!stdout.contains("bundle-set.nxs"));
+}

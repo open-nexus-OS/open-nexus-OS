@@ -6,7 +6,7 @@
 - Status: Draft (contract seed for the Updates/OTA lane)
 - Owners: @runtime @security @tools-team
 - Created: 2026-08-25
-- Last Updated: 2026-09-03 (Phase B §12 made normative — TASK-0321 P0)
+- Last Updated: 2026-09-03 (Phase B §12 normative; TASK-0321 P0–P3 delivered)
 - Links:
   - Tasks (execution + proof, in lane order):
     - `tasks/TASK-0198-supply-chain-v2b-os-enforcement-store-updater-bundlemgrd.md` (Phase 1: device trust anchor)
@@ -44,7 +44,7 @@
 - **Phase 8 (boot trust floor closure: backstop proofs + measured surface)**: ✅ 2026-08-31 (TASK-0289-B — measured surface: `SYSCALL_BOOT_HANDOFF` 57 + bootctld `OP_GET_MEASURED` 12, cross-checked in every proof lane; three loader-backstop lanes gated: tamper→digest, downgrade→`rollback 0 < min 1`, tries-exhaustion with DEAD userspace → loader flip + record rollback observation)
 - **Phase 9 (UI/CLI)**: ✅ 2026-09-01 (TASK-0140 — `nx update status/check/stage/switch/rollback` offline over the real engine, `updates.manage` deny-by-default on the kernel-attributed sender, Settings › System update page; `SELFTEST: updates surface ok` REQUIRED headless/smp1 + `verify-nxupdate` post-pass in `ci-os-ota`)
 - **Phase 10 (delta components)**: ✅ 2026-09-01 for `boot-image-delta` (TASK-0034 — RFC-0090 `.nxdelta` kind 3, O(1) base binding to the active NXBD, `stage rejected (delta-base)` deny lane + `SELFTEST: ota delta stage ok` headless/smp1); `bundle-delta` (kind 4) lands with TASK-0035 on the Phase B seam
-- **Phase B (bundle-set granularity)**: 🚧 contract normative since 2026-09-03 (§12, ADR-0060); execution TASK-0321 (P0 contract ✅ 2026-09-03, P1–P5 open) then TASK-0035
+- **Phase B (bundle-set granularity)**: 🚧 contract normative since 2026-09-03 (§12, ADR-0060); execution TASK-0321 (P0 contract ✅, P1 host formats ✅, P2 verifier+spawner ✅, P3 bundle-set apply + `ota-bundle` lane ✅ — all 2026-09-03; P4 migration / P5 boot-image floor open) then TASK-0035
 
 Definition:
 

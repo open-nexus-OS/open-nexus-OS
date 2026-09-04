@@ -182,6 +182,11 @@ pub(crate) struct ImageFixturesArgs {
     /// Build id of the RUNNING image (os-B derives `<id>-B`).
     #[arg(long)]
     pub(crate) build_id: String,
+    /// TASK-0321 P3: bundle directories (`<dir>/<svc>/bundle.toml` +
+    /// payloads) of the NEXT system volume; emits `bundle-set.nxs` =
+    /// os-B + system-volume + bundles (RFC-0089 §12.4).
+    #[arg(long)]
+    pub(crate) system_bundles: Option<PathBuf>,
     #[arg(long)]
     pub(crate) json: bool,
 }

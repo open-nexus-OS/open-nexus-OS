@@ -47,6 +47,8 @@ mod mapmem;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
 mod stage_os;
+/// TASK-0321 P3: the OS half of bundle-set staging (system volume).
+mod volume_os;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub use os_lite::*;
 

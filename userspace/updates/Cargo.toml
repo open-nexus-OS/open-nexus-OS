@@ -7,7 +7,7 @@ authors = ["Open Nexus OS Contributors"]
 
 [features]
 default = ["std"]
-std = ["dep:ed25519-dalek"]
+std = ["dep:ed25519-dalek", "storage/std"]
 os-lite = []
 
 [dependencies]
@@ -17,6 +17,8 @@ sha2 = { version = "0.10", default-features = false }
 # TASK-0179: boot-image kind checks decode the embedded NXBD (structural
 # binding to the manifest; the loader verifies its signature).
 bootfmt = { path = "../bootfmt", default-features = false }
+# TASK-0321 P3: the volume assembler parses the pkgimg v3 index it lands.
+storage = { path = "../storage", default-features = false }
 # TASK-0034 (RFC-0090): the `.nxdelta` streaming decoder behind the
 # boot-image-delta kind (no_std, alloc-free per record).
 nxdelta = { path = "../nxdelta", default-features = false }

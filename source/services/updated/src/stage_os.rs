@@ -55,6 +55,9 @@ pub(crate) fn handle_stage_source(state: &mut UpdatedState, frame: &[u8]) -> Vec
         return rsp(OP_STAGE_SOURCE, STATUS_FAILED, &[]);
     };
     let inactive = active.other();
+    // RFC-0089 §8/§12.6: a torn or blank inactive pair is named before the
+    // engine converges from it.
+    crate::volume_os::restage_clean(inactive);
 
     let source = match crate::apply_os::read_source(path) {
         Ok(source) => source,
@@ -267,6 +270,11 @@ fn reject_code(reason: updates::component_set::RejectReason) -> u8 {
         // RFC-0090 delta lane (TASK-0034).
         R::DeltaFormat => 10,
         R::DeltaBase => 11,
+        // RFC-0089 §12.4 bundle sets (TASK-0321 P3).
+        R::Order => 12,
+        R::VolumeBinding => 13,
+        R::BundleNotInIndex => 14,
+        R::VolumeDigest => 15,
     }
 }
 

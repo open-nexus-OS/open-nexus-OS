@@ -16,3 +16,9 @@ nexus-abi = { path = "../../source/libs/nexus-abi" }
 storage-virtio-blk = { path = "../../source/drivers/storage/virtio-blk" }
 nexus-hal = { path = "../../source/libs/nexus-hal" }
 sha2 = { version = "0.10", default-features = false }
+
+# The `nexus_env` cfg is declared here so a HOST compile without the
+# workspace RUSTFLAGS (e.g. as a build-dependency of an OS service) stays
+# warning-free under the hard warning gate.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nexus_env, values("host", "os"))'] }

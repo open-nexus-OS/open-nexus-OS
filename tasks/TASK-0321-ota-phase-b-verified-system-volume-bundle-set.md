@@ -1,6 +1,6 @@
 ---
 title: TASK-0321 OTA Phase B — verified system volume (system-a/b) + service migration out of the boot image + bundle-set updates with unchanged-bundle reuse
-status: In Progress (P0 started 2026-09-03)
+status: In Progress (P0–P3 delivered 2026-09-03; P4 next)
 owner: @runtime @security
 created: 2026-09-03
 updated: 2026-09-03
@@ -138,7 +138,62 @@ commit_set, §12.5 gates, §12.6 idempotency, §12.7 markers/rejects, §12.8 mig
   system volume deny ok`; `just check` green; `just test-all` GREEN end to end (headless,
   smp1, reset, ota-flip, ota-tamper/downgrade/fallback) after the two marker-atomicity fixes.
 
-Next: P3 (OS apply of kinds 2/6 + two-boot bundle-set proof).
+### P3 delivered 2026-09-03 — OS apply of kinds 2/6 + two-boot bundle-set proof
+
+- **Engine** (`userspace/updates`): `component_set.rs` accepts `KIND_BUNDLE=2` / `KIND_SYSTEM_VOLUME=6`;
+  `check_order` (RFC-0089 §12.4 `[boot-image|delta]?, system-volume, (bundle)*`),
+  `check_system_volume_binding` (NXSV decode, `index_len == size`, `index_sha256 == sha256`,
+  `volume_size ≥ index_len`, build/rollback match, pairing with the set's boot digest),
+  `check_bundle_binding`; new rejects `order | volume-binding | bundle-not-in-index |
+  volume-digest`; `ComponentSink::commit_set()` (default no-op — SlotSink/TASK-0179 unchanged).
+  New generic assembler `volume_apply.rs` (`VolumeDev` sector trait + `VolumeEvents`):
+  `begin(6)` invalidates sector 0 and checks pairing/bounds, chunks stream to sectors, `finish(6)`
+  pads to 4 KiB and readback-hashes + parses the index from DISK; `begin/finish(2)` locate the
+  window by sha256+len and readback-verify; `commit_set` copies every unshipped index bundle from
+  the ACTIVE volume against the NEW index (`bundle_reused`), reads the whole volume back against
+  `volume_sha256`, writes the NXSV **last**, syncs. pkgimg v3 data section is 4 KiB-aligned
+  (sector-aligned windows). Host `tests/updates_host/tests/component_set_volume.rs` (7 green):
+  full set byte-identical + reuse, `test_reject_order`, `test_reject_bundle_not_in_index`,
+  `test_reject_volume_digest_on_tampered_active_bytes`, `test_reject_volume_binding`,
+  volume-only set pairs with the active NXBD, power-cut matrix (a valid NXSV exists only over a
+  complete byte-identical volume; restage converges).
+- **OS glue** (`updated`): `volume_os.rs` (`BlockVolumeDev` over the partition-scoped
+  `RemoteBlockDevice`, `active_nxbd_digest`, `restage_clean` probe → `updated: restage clean`,
+  `VolumeMarkers`); `delta_os.rs` `StageSink` holds the assembler (pair = set boot digest or the
+  active NXBD), forwards `commit_set`; reject codes 12–15.
+- **Fixture + lane**: `scripts/build.sh` emits `build/system-bundles-next/<svc>` (v1.0.1) beside
+  the factory set; `nx image fixtures --system-bundles <dir>` emits `/updates/bundle-set.nxs`
+  (os-B + NEXT volume, NXSV paired with os-B, self-verified through the device engine; host test
+  `fixtures_emit_a_self_verified_bundle_set`); selftest `RuntimeProfile::OtaBundle` reuses the
+  crown probe (`Lane::{Flip,Bundle}`, own sentinel) and on boot 2 additionally queries bundlemgrd
+  `OP_VOLUME_STATUS` (slot b verified) + `OP_QUERY_BUNDLE` (metricsd version == `1.0.1`);
+  harness `[profile.ota-bundle]`, `just ci-os-ota-bundle` in `test-all`, `verify-nxupdate` gates
+  the bundle lane's disk too; markers `SELFTEST: ota bundle-set staged ok / ok / stage FAIL /
+  FAIL` in `markers/ota.toml`.
+- **Proof (2026-09-03, `just test-os ota-bundle` green first run)**: boot 1 `updated: stage begin
+  (source=/updates/bundle-set.nxs)` → `updated: restage clean` (blank slot-b pair) →
+  `component system-volume verified (build=otaB4f12 bundles=1)` → `component bundle verified
+  (name=metricsd@1.0.1)` → `component boot-image verified (build=otaB4f12)` (set summary) →
+  `stage done (slot=b …)` → `bootctld: switch scheduled (to=b)` → `SELFTEST: ota bundle-set
+  staged ok` → reset → `nxboot: verify ok (slot=b build=otaB4f12 rbidx=2)` → `bundlemgrd: system
+  volume verified (slot=b build=otaB4f12 bundles=1)` → `init: spawn from volume svc=metricsd
+  bundle=metricsd@1.0.1 sha=35e041feed338036` → `bootctld: health quorum ok (2/2)` → `commit ok
+  (slot=b)` → `SELFTEST: ota bundle-set ok`; `verify-nxupdate: ok (active=b committed floor=2
+  build=otaB)`. `just check` green; `just test-all` GREEN end to end (headless, smp1, reset, ota-flip,
+  ota-bundle, ota-tamper/downgrade/fallback) after the cfg-lint fix below.
+- FINDING (fixed here): `updates` now depends on `storage` (no_std, for the v3 index parser), and
+  selftest-client links `updates` as a BUILD-dependency — so `storage` + `storage-virtio-blk` get
+  compiled for the HOST inside the OS build without the workspace `--check-cfg` RUSTFLAGS, and
+  their `cfg(nexus_env = …)` gates raised `unexpected_cfgs` (6 warnings → hard gate red). Fix:
+  both crates declare the cfg in `[lints.rust] unexpected_cfgs.check-cfg` (the canonical,
+  context-independent way) — no `allow`.
+- Recut vs. the P3 plan text: the assembler is a generic `updates::volume_apply` (host-proven)
+  with a thin OS device, not a `VolumeSink`/`VolumeBase` pair inside updated; the bundle-set
+  fixture carries a full `boot-image` (not a delta) so the lane stays independent of RFC-0090;
+  `updated: bundle reused` needs a set that ships FEWER bundles than the index — with one volume
+  service that is P4's lane assertion (host-proven now).
+
+Next: P4 (migration pinched → … → windowd, respawn keyed on `ServiceSource`, reuse count).
 
 Planned against verified repo reality (Explore + Plan 2026-09-03). Principle: every package is a
 direct step to the production system — no interim volume format, no second bundle registry, no

@@ -56,6 +56,33 @@ nx update rollback [--image build/nexus.img]
 After a QEMU OTA lane, `nx update status --image build/nexus.img` decodes
 the state the LIVE machinery produced; the `ota-flip` harness gates on it.
 
+## Bundle sets — the system volume travels with the flip (TASK-0321 P3)
+
+RFC-0089 §12 (Phase B) makes a component set carry the verified system
+volume alongside the boot image: `[boot-image | boot-image-delta]?,
+system-volume, (bundle)*`. The `system-volume` component (kind 6) ships the
+pkgimg v3 superblock + index with the signed NXSV as `kindData` — paired
+with the set's boot image digest, so a volume can never be staged against
+a different kernel; each `bundle` component (kind 2) ships exactly one
+index window (its sha256 IS the index bundle digest). The device engine
+(`updates::volume_apply::VolumeAssembler`, host-proven in
+`tests/updates_host/tests/component_set_volume.rs`) writes the inactive
+system slot: index first, bundle windows readback-verified, bundles the
+set did NOT ship copied from the ACTIVE volume against the new index
+(`updated: bundle reused (name=…@… sha=…)`), the whole volume read back
+against `volume_sha256`, and the NXSV **last** — a valid NXSV exists only
+over a complete, byte-identical volume (power-cut matrix). New reject
+vocabulary: `order | volume-binding | bundle-not-in-index | volume-digest`.
+
+`nx image ota --bundle-set <dir>` builds such a set from bundle
+directories; `nx image fixtures --system-bundles <dir>` emits
+`/updates/bundle-set.nxs` (os-B + the NEXT system volume, `build.sh`
+ships it as `build/system-bundles-next`, metricsd@1.0.1). The
+`ota-bundle` QEMU lane (`just ci-os-ota-bundle`, two boots one uart)
+stages it, flips, and proves on boot 2 that bundlemgrd verified system-b
+paired with the measured image and init spawned metricsd@1.0.1 FROM that
+volume (`SELFTEST: ota bundle-set ok`).
+
 ## Settings → Info → System update (live)
 
 The page reads `svc.updates.status` (updated forwards bootctld's status

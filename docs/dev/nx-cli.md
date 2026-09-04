@@ -140,6 +140,15 @@ Current live-input topic:
     device is RUNNING (the stream binds to the active NXBD's digest);
     workflow: `docs/updates/delta.md`
 
+- `nx image ota --bundle-set <dir>` / `nx image fixtures --system-bundles <dir>`
+  (TASK-0321, RFC-0089 §12)
+  - `ota --bundle-set` appends `system-volume` (kind 6: index + signed NXSV
+    paired with the boot image) and one `bundle` (kind 2) per index window
+    after the boot-image component; `fixtures --system-bundles` emits the
+    QEMU crown set `/updates/bundle-set.nxs` (os-B + the NEXT volume) and
+    self-verifies it through the device engine; workflow:
+    `docs/updates/README.md` § Bundle sets
+
 - `nx update status|check|stage|switch|rollback` (TASK-0140, RFC-0089 §8/§9)
   - offline surfaces over BUILT artifacts (no host↔guest transport exists):
     `status` decodes BSB + slot NXBDs from a disk image, `check` enumerates

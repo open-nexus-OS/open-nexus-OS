@@ -75,6 +75,19 @@ pub enum RejectReason {
     /// RFC-0090: the stream's base binding does not match the ACTIVE
     /// slot's loader-verified NXBD (digest or size).
     DeltaBase,
+    /// RFC-0089 §12.4: component ordering violated (`[boot-image|delta]?,
+    /// system-volume, (bundle|bundle-delta)*`; one volume per set).
+    Order,
+    /// RFC-0089 §12.4: the system-volume component does not bind (NXSV
+    /// malformed, index size/digest mismatch, build/rollback mismatch, or
+    /// the volume is not paired with the set's boot image).
+    VolumeBinding,
+    /// RFC-0089 §12.4: a `bundle` component is not a window of the verified
+    /// index (digest/size), or a reused bundle is missing from the ACTIVE volume.
+    BundleNotInIndex,
+    /// RFC-0089 §12.4: the assembled volume (or a reused window) does not
+    /// hash to the NXSV/index digest at the set commit.
+    VolumeDigest,
 }
 
 impl RejectReason {
@@ -91,6 +104,10 @@ impl RejectReason {
             Self::SlotActive => "slot-active",
             Self::DeltaFormat => "delta-format",
             Self::DeltaBase => "delta-base",
+            Self::Order => "order",
+            Self::VolumeBinding => "volume-binding",
+            Self::BundleNotInIndex => "bundle-not-in-index",
+            Self::VolumeDigest => "volume-digest",
         }
     }
 }
@@ -131,6 +148,14 @@ pub trait ComponentSink {
     /// Digest verified — perform readback verification and write the
     /// descriptor LAST.
     fn finish(&mut self, meta: &ComponentMeta) -> Result<(), RejectReason>;
+    /// RFC-0089 §12.4 set commit: called ONCE after every component
+    /// finished. A volume sink copies the index bundles the set did not
+    /// ship from the ACTIVE volume (digest-checked), readback-verifies the
+    /// whole volume and lands the NXSV LAST. Default: nothing to commit
+    /// (boot slots commit per component).
+    fn commit_set(&mut self) -> Result<(), RejectReason> {
+        Ok(())
+    }
 }
 
 struct TarView<'a> {
@@ -238,14 +263,26 @@ pub fn verify_and_apply(
         }
     }
 
+    // §12.4 ordering (checked over the WHOLE set before any byte moves).
+    check_order(components.iter().map(|c| c.meta.kind))?;
+    // The set's boot-image digest (from its NXBD) pairs the system volume.
+    let mut boot_digest: Option<[u8; 32]> = None;
     for (entry, comp) in entries[2..].iter().zip(components.iter()) {
         if entry.data.len() as u64 != comp.meta.size || comp.meta.size == 0 {
             return Err(RejectReason::Bounds);
         }
         // Per-kind binding checks (§3 step 4) BEFORE any byte moves.
         match comp.meta.kind {
-            KIND_BOOT_IMAGE => check_boot_image_binding(&manifest, &comp.meta)?,
-            KIND_BOOT_IMAGE_DELTA => check_boot_image_delta_binding(&manifest, &comp.meta)?,
+            KIND_BOOT_IMAGE => {
+                check_boot_image_binding(&manifest, &comp.meta)?;
+                boot_digest = Some(comp.meta.sha256);
+            }
+            KIND_BOOT_IMAGE_DELTA => {
+                check_boot_image_delta_binding(&manifest, &comp.meta)?;
+                boot_digest = nxbd_image_digest(&comp.meta);
+            }
+            KIND_SYSTEM_VOLUME => check_system_volume_binding(&manifest, &comp.meta, boot_digest)?,
+            KIND_BUNDLE => check_bundle_binding(&comp.meta)?,
             _ => return Err(RejectReason::KindUnsupported),
         }
 
@@ -265,6 +302,8 @@ pub fn verify_and_apply(
         }
         sink.finish(&comp.meta)?;
     }
+    // §12.4 set commit (volume sinks: reuse + readback + NXSV last).
+    sink.commit_set()?;
 
     Ok(ManifestV2 {
         build_id: manifest.build_id,
@@ -387,6 +426,85 @@ fn check_boot_image_delta_binding(
         || nxbd.build_id_str() != manifest.build_id
         || nxbd.rollback_index != manifest.rollback_index
     {
+        return Err(RejectReason::Bounds);
+    }
+    Ok(())
+}
+
+/// §12.4 ordering: `[boot-image | boot-image-delta]?` then at most ONE
+/// `system-volume`, then `(bundle | bundle-delta)*`; a bundle without a
+/// preceding volume, a second volume, or a boot image after the volume
+/// is `order`. Unknown kinds fall through to the per-kind dispatch.
+fn check_order(kinds: impl Iterator<Item = u8>) -> Result<(), RejectReason> {
+    let mut seen_boot = false;
+    let mut seen_volume = false;
+    let mut seen_bundle = false;
+    for kind in kinds {
+        match kind {
+            KIND_BOOT_IMAGE | KIND_BOOT_IMAGE_DELTA => {
+                if seen_boot || seen_volume || seen_bundle {
+                    return Err(RejectReason::Order);
+                }
+                seen_boot = true;
+            }
+            KIND_SYSTEM_VOLUME => {
+                if seen_volume || seen_bundle {
+                    return Err(RejectReason::Order);
+                }
+                seen_volume = true;
+            }
+            KIND_BUNDLE | KIND_BUNDLE_DELTA => {
+                if !seen_volume {
+                    return Err(RejectReason::Order);
+                }
+                seen_bundle = true;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn nxbd_image_digest(meta: &ComponentMeta) -> Option<[u8; 32]> {
+    bootfmt::nxbd::decode(&meta.kind_data).ok().map(|(d, _)| d.image_sha256)
+}
+
+/// system-volume binding (§12.4): `kind_data` is a well-FORMED NXSV whose
+/// `index_len`/`index_sha256` describe THIS component (the superblock +
+/// index payload), whose build/rollback match the manifest, and whose
+/// `boot_image_sha256` pairs with the boot image the SAME set carries.
+/// A volume-only set (no boot image in the set) leaves pairing to the
+/// sink, which checks it against the ACTIVE NXBD. The NXSV signature is
+/// bundlemgrd's to verify at boot (OS-key anchor).
+fn check_system_volume_binding(
+    manifest: &ManifestHeader,
+    meta: &ComponentMeta,
+    boot_digest: Option<[u8; 32]>,
+) -> Result<(), RejectReason> {
+    let (nxsv, _sig) =
+        bootfmt::nxsv::decode(&meta.kind_data).map_err(|_| RejectReason::VolumeBinding)?;
+    if u64::from(nxsv.index_len) != meta.size || nxsv.index_sha256 != meta.sha256 {
+        return Err(RejectReason::VolumeBinding);
+    }
+    if nxsv.volume_size < u64::from(nxsv.index_len)
+        || nxsv.build_id_str() != manifest.build_id
+        || nxsv.rollback_index != manifest.rollback_index
+    {
+        return Err(RejectReason::VolumeBinding);
+    }
+    if let Some(boot) = boot_digest {
+        if nxsv.boot_image_sha256 != boot {
+            return Err(RejectReason::VolumeBinding);
+        }
+    }
+    Ok(())
+}
+
+/// bundle binding (§12.4): the payload IS a bundle window (its digest is
+/// the index bundle sha256 — membership is the sink's check against the
+/// verified index); no kind data, a bounded non-empty name.
+fn check_bundle_binding(meta: &ComponentMeta) -> Result<(), RejectReason> {
+    if !meta.kind_data.is_empty() || meta.name.is_empty() || meta.name.len() > 96 {
         return Err(RejectReason::Bounds);
     }
     Ok(())

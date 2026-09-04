@@ -4687,6 +4687,7 @@ name = "updated"
 version = "0.1.0"
 dependencies = [
  "bootctld",
+ "bootfmt",
  "capnp",
  "ed25519-dalek",
  "nexus-abi",
@@ -4713,6 +4714,7 @@ dependencies = [
  "ed25519-dalek",
  "nxdelta",
  "sha2",
+ "storage",
 ]
 
 [[package]]
@@ -4725,6 +4727,7 @@ dependencies = [
  "nexus-idl-runtime",
  "nxdelta",
  "sha2",
+ "storage",
  "tar",
  "updates",
 ]

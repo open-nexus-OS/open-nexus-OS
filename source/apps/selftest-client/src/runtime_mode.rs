@@ -31,6 +31,9 @@ pub(crate) enum RuntimeProfile {
     /// switch, reset; boot 2 proves the loader chose the new slot and the
     /// quorum commits it). Same reduced phase scope as `Ota`.
     OtaFlip,
+    /// TASK-0321 P3 bundle-set crown lane (two boots, one uart; bringup +
+    /// end scope like `OtaFlip`).
+    OtaBundle,
     /// TASK-0289-B loader backstop: the four-boot tries-exhaustion lane
     /// (stage + switch, two bricked trial boots — init parks —, loader
     /// exhaustion flip back to slot a, rollback observation). Reduced
@@ -56,6 +59,7 @@ pub(crate) fn parse_runtime_profile(bytes: &[u8]) -> Option<RuntimeProfile> {
         b"quick" => Some(RuntimeProfile::Quick),
         b"ota" => Some(RuntimeProfile::Ota),
         b"ota-flip" => Some(RuntimeProfile::OtaFlip),
+        b"ota-bundle" => Some(RuntimeProfile::OtaBundle),
         b"ota-fallback" => Some(RuntimeProfile::OtaFallback),
         b"net" => Some(RuntimeProfile::Net),
         b"none" => Some(RuntimeProfile::None),
