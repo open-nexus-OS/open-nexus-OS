@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-05 (TASK-0035 P4: close — the RFC-0089 OTA lane is complete)
+
+- RFC-0089 status: Phase 10 kind 4 ✅, Phase B orchestration ✅ (journal
+  resume, reuse index, bundle-delta); the §12.6 journal text matches the
+  delivered NXSJ (bound to the target's NXSV digests). TASK-0035 Done —
+  with TASK-0321 the whole RFC-0089 lane (boot images, verified system
+  volume, bundle sets, reuse, deltas, journal resume) is proven in
+  `test-all`.
+
 ### Added - 2026-09-05 (TASK-0035 P3: `bundle-delta` — a changed bundle ships as an RFC-0090 delta against the active volume)
 
 - Engine: kind 4 `bundle-delta` (`kind_data` = base window sha256). The

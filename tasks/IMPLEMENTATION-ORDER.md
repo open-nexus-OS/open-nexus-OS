@@ -46,7 +46,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 | Task | Title | Status |
 |------|-------|--------|
-| Updates/OTA-Lane | RFC-0089 end-state lane (0198P1 → 0036 → 0314/0260/0315 → 0289A → 0179 → 0289B → 0140 → 0034 → Phase B 0321 → 0035) — see lane section below | Packages 0–11 delivered 2026-09-01; Phase B seeded 2026-09-03 |
+| Updates/OTA-Lane | RFC-0089 end-state lane (0198P1 → 0036 → 0314/0260/0315 → 0289A → 0179 → 0289B → 0140 → 0034 → Phase B 0321 → 0035) — see lane section below | Packages 0–11 delivered 2026-09-01; Phase B (0321) Done 2026-09-04, 0035 Done 2026-09-05 — **OTA lane complete** |
 | Sub-80 Phase 1 (ohne Netz) | 0321 → 0035 → 0028 → 0043 → 0052 — see „Sub-80 Tracking“ | Started 2026-09-03 (Ledger auf End-State umgeschrieben); Netz-Familie HOLD |
 
 ---
@@ -500,7 +500,7 @@ wird production-grade auf das End-System gebaut (keine Interimslösung — Ledge
 Ledgern nachgeführt, nie geschätzt. Vokabular: ✅ delivered · ⤳ superseded · `Draft` /
 `In Progress` / `Done <date>` / `Delivered <date> (test-all green)`.
 
-### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 10/24 delivered · Tasks 1/5 Done
+### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 11/24 delivered · Tasks 2/5 Done
 
 Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 
@@ -516,7 +516,7 @@ Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 | 7 | ✅ TASK-0035 P1 | Stage-Journal `NXSJ` (Sektor 1, an NXSV-Digests gebunden, CRC) + per-Bundle-Resume mit Readback-Verifikation (`updated: restage resume (bundles=k/N)`), Lane `ota-bundle-resume` (QMP-Power-Cut mid-stage) | Delivered 2026-09-04 (Host-Matrix + Lane, siehe CHANGELOG) |
 | 8 | ✅ TASK-0035 P2 | Host-Reuse-Index (`nx image ota --bundle-set --reuse-from <active.img|dir>`, nur geänderte Bundles, JSON-Reuse-Manifest) | Delivered 2026-09-04 (Host-Test gegen Disk-Image + Verzeichnis) |
 | 9 | ✅ TASK-0035 P3 | `bundle-delta` Kind 4 (DeltaAdapter-Bundle-Modus, `SetSink`, `VolumeBase`, `delta-base` vor jedem Write), `nx image ota --delta-from-volume`, Lane `ota-bundle-delta` | Delivered 2026-09-05 (3 Host-Tests + Lane, siehe CHANGELOG) |
-| 10 | TASK-0035 P4 | Close: RFC-0089 Phase 10 ✅, docs/updates, CHANGELOG | Draft |
+| 10 | ✅ TASK-0035 P4 | Close: RFC-0089 Phase 10 Kind 4 ✅ + Phase-B-Checkliste, docs/updates/delta.md, CHANGELOG, DoD-Abgleich | Delivered 2026-09-05 → **TASK-0035 Done** |
 | 11 | TASK-0028 P0 | RFC-Seed „Policy-Profil v2“ (Schema: statefs / net.bind+Adresse / net.connect / limits / epoch; longest-prefix, deny-beats-allow) — EIN nexus-abi-Approval für 0028/0043/0052 | Draft |
 | 12 | TASK-0028 P1 | Matcher + Codec v2 in BEIDEN Parsern + Reject-Suite (`test_reject_regex_dos`, `_argument_injection`, `_stale_profile_epoch`, `_unauthenticated_mode_switch`, `test_learn_roundtrip`) | Draft |
 | 13 | TASK-0028 P2 | Learn-Pipeline (`policyd.learn` → logd, Sampling/Token-Bucket) + `nx policy learn-gen` | Draft |

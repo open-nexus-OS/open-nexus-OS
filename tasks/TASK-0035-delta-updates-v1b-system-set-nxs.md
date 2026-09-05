@@ -1,6 +1,6 @@
 ---
 title: TASK-0035 Delta updates v1b (system sets): nxs delta container + updated orchestration
-status: In Progress (P1–P3 delivered 2026-09-05; P4 close next)
+status: Done (P1–P4 delivered 2026-09-05)
 owner: @runtime
 created: 2025-12-22
 updated: 2026-09-03
@@ -146,6 +146,17 @@ which components were shipped, reused or delta-reconstructed.
   `init: spawn from volume svc=metricsd bundle=metricsd@1.0.1` → `SELFTEST: ota bundle delta ok`,
   `verify-nxupdate` ok); 12 host tests across the engine suites + 3 nx tests; `just check` green;
   `just test-all` GREEN end to end (nine lanes).
+
+### P4 delivered 2026-09-05 — close
+
+- RFC-0089: Phase 10 kind 4 ✅, §12.6 journal text aligned with the delivered NXSJ (NXSV-digest
+  binding), checklist rows for Phase B orchestration ✅; `docs/updates/delta.md` „Bundle deltas“;
+  CHANGELOG; board rows 7–10 + counters. DoD check against the stop conditions below: host —
+  journal codec rejects + cut-at-every-op matrix ✅, `bundle_set_ships_only_changed_bundles` ✅,
+  `component_set_bundle_delta` accept + `test_reject_delta_base_bundle` ✅; OS — `ota-bundle-resume`
+  (`updated: restage resume`, `SELFTEST: ota stage resume ok`) ✅ and `ota-bundle-delta`
+  (`SELFTEST: ota bundle delta ok`) ✅, both in `test-all` ✅; RFC-0089 Phase 10 ✅; docs + CHANGELOG +
+  board ✅. **TASK-0035 Done.**
 
 ### Stop conditions (Definition of Done — replaces the seed DoD)
 

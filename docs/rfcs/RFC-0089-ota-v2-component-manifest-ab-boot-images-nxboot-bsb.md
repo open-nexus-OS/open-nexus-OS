@@ -6,7 +6,7 @@
 - Status: Draft (contract seed for the Updates/OTA lane)
 - Owners: @runtime @security @tools-team
 - Created: 2026-08-25
-- Last Updated: 2026-09-03 (Phase B §12 normative; TASK-0321 P0–P3 delivered)
+- Last Updated: 2026-09-05 (Phase B executed: TASK-0321 Done, TASK-0035 Done — kind 4, NXSJ resume, reuse index)
 - Links:
   - Tasks (execution + proof, in lane order):
     - `tasks/TASK-0198-supply-chain-v2b-os-enforcement-store-updater-bundlemgrd.md` (Phase 1: device trust anchor)
@@ -43,8 +43,8 @@
 - **Phase 7 (apply engine v2 + offline feed + crown proof)**: ✅ 2026-08-31 (TASK-0179 — path staging replaces the inline stage, component apply with NXBD-last, commit-time floor raise; CROWN PROOF green: two boots, one uart, a DIFFERENT build id chosen by the loader)
 - **Phase 8 (boot trust floor closure: backstop proofs + measured surface)**: ✅ 2026-08-31 (TASK-0289-B — measured surface: `SYSCALL_BOOT_HANDOFF` 57 + bootctld `OP_GET_MEASURED` 12, cross-checked in every proof lane; three loader-backstop lanes gated: tamper→digest, downgrade→`rollback 0 < min 1`, tries-exhaustion with DEAD userspace → loader flip + record rollback observation)
 - **Phase 9 (UI/CLI)**: ✅ 2026-09-01 (TASK-0140 — `nx update status/check/stage/switch/rollback` offline over the real engine, `updates.manage` deny-by-default on the kernel-attributed sender, Settings › System update page; `SELFTEST: updates surface ok` REQUIRED headless/smp1 + `verify-nxupdate` post-pass in `ci-os-ota`)
-- **Phase 10 (delta components)**: ✅ 2026-09-01 for `boot-image-delta` (TASK-0034 — RFC-0090 `.nxdelta` kind 3, O(1) base binding to the active NXBD, `stage rejected (delta-base)` deny lane + `SELFTEST: ota delta stage ok` headless/smp1); `bundle-delta` (kind 4) lands with TASK-0035 on the Phase B seam
-- **Phase B (bundle-set granularity)**: 🚧 contract normative since 2026-09-03 (§12, ADR-0060); execution TASK-0321 (P0 contract ✅, P1 host formats ✅, P2 verifier+spawner ✅, P3 bundle-set apply + `ota-bundle` lane ✅ — all 2026-09-03; P4a 12 services on the volume + boot waves ✅ 2026-09-04; P4b bulk volume read + gpud/windowd ✅ 2026-09-04; P5 boot-image floor — apps + pkg:/ from the volume ✅ 2026-09-04; TASK-0321 Done) then TASK-0035
+- **Phase 10 (delta components)**: ✅ 2026-09-01 for `boot-image-delta` (TASK-0034 — RFC-0090 `.nxdelta` kind 3, O(1) base binding to the active NXBD, `stage rejected (delta-base)` deny lane + `SELFTEST: ota delta stage ok` headless/smp1); ✅ 2026-09-05 for `bundle-delta` (kind 4, TASK-0035 P3 — base = the ACTIVE volume window named by `kindData`, `delta-base` before any write, target bound to the NEW index; lane `ota-bundle-delta` → `SELFTEST: ota bundle delta ok`)
+- **Phase B (bundle-set granularity)**: 🚧 contract normative since 2026-09-03 (§12, ADR-0060); execution TASK-0321 (P0 contract ✅, P1 host formats ✅, P2 verifier+spawner ✅, P3 bundle-set apply + `ota-bundle` lane ✅ — all 2026-09-03; P4a 12 services on the volume + boot waves ✅ 2026-09-04; P4b bulk volume read + gpud/windowd ✅ 2026-09-04; P5 boot-image floor — apps + pkg:/ from the volume ✅ 2026-09-04; TASK-0321 Done); TASK-0035 Done 2026-09-05 (P1 NXSJ journal + per-bundle resume `ota-bundle-resume`, P2 host reuse index `--reuse-from`, P3 kind 4 `ota-bundle-delta`)
 
 Definition:
 
@@ -563,8 +563,10 @@ emits `virtioblkd: denied (partition gate)`.
 Staging a bundle set is restartable at any cut point: a torn stage leaves the inactive
 volume without a valid NXSV. `updated: restage clean` is emitted when the inactive slot pair
 holds no valid NXBD/NXSV at stage begin. Per-bundle resume (`NXSJ` journal at sector 1 —
-`{magic, manifest_sha256, completed bitmap, crc32}`; completed bundles are readback-verified
-instead of rewritten; the engine still streams and hashes every component) is TASK-0035.
+`{magic, volume_sha256, index_sha256, bundles, completed bitmap, crc32}`, bound to the TARGET
+volume's NXSV digests; completed bundles are readback-verified instead of rewritten; the engine
+still streams and hashes every component; a valid NXSV zeroes the journal) — delivered by
+TASK-0035 P1 (`updated: restage resume (bundles=<k>/<n>)`, lane `ota-bundle-resume`).
 
 #### 12.7 Markers and reject reasons (additive to §8)
 
@@ -709,9 +711,11 @@ Marker SSOT stays `scripts/qemu-test.sh` + `tools/nx/chains/markers.txt` +
 - [x] **Phase 7**: apply engine v2 + offline feed + crown proof — proof: `just ci-os-ota` (gated in `test-all`): `updated: stage done (slot=b build=otaB…)` → `nxboot: verify ok (slot=b build=otaB… rbidx=2)` → `nxboot: jump slot=b` → `bootctld: commit ok (slot=b)` → `bootctld: rollback-min raised (1->2)` → `SELFTEST: ota flip ok`; headless deny lanes for untrusted/digest/downgrade; 10 host tests incl. the power-cut matrix (2026-08-31)
 - [x] **Phase 8**: backstop proofs + measured surface — proof: `SELFTEST: measured boot log ok` REQUIRED in the headless/smp1 ladders (slot cross-check against the authority); `just ci-os-ota-backstops` (gated in `test-all`): `ota-tamper` (`nxboot: verify FAIL (slot=b digest)` → fallback → full ladder), `ota-downgrade` (`nxboot: verify FAIL (slot=b rollback 0 < min 1)` → fallback), `ota-fallback` (four boots one uart: staged real os-B, bricked trials via `init: health withheld (fault fixture)` + QMP power-cycles, `nxboot: fallback (slot=b exhausted) -> slot=a`, `bootctld: rollback observed (trial exhausted)`, `SELFTEST: ota fallback ok`); host: exhaustion-observed shape matrix + backstop-arm CLI test (2026-08-31)
 - [x] **Phase 9**: UI/CLI — proof: `SELFTEST: updates surface ok` REQUIRED headless/smp1 + `verify-nxupdate` post-pass in `ci-os-ota` (2026-09-01)
-- [x] **Phase 10 (kind 3)**: `boot-image-delta` — proof: `stage rejected (delta-base)` deny lane + `SELFTEST: ota delta stage ok` headless/smp1, RFC-0090 (2026-09-01); kind 4 `bundle-delta` → TASK-0035 (`SELFTEST: ota bundle delta ok`)
+- [x] **Phase 10 (kind 3)**: `boot-image-delta` — proof: `stage rejected (delta-base)` deny lane + `SELFTEST: ota delta stage ok` headless/smp1, RFC-0090 (2026-09-01)
+- [x] **Phase 10 (kind 4)**: `bundle-delta` — proof: host `component_set_bundle_delta.rs` (accept, `test_reject_delta_base_bundle`, target-not-in-index) + lane `ota-bundle-delta` → `SELFTEST: ota bundle delta ok` (TASK-0035 P3, 2026-09-05)
 - [x] **Phase B P0**: §12 normative + ADR-0060 (2026-09-03)
-- [ ] **Phase B P1–P5** (TASK-0321): pkgimg v3 + nxsv + builder; bundlemgrd verifier + init volume spawn (`bundlemgrd: system volume verified`, `init: spawn from volume svc=metricsd`); `just ci-os-ota-bundle` → `SELFTEST: ota bundle-set ok`; migration; boot-image floor
+- [x] **Phase B P1–P5** (TASK-0321, Done 2026-09-04): pkgimg v3 + nxsv + builder; bundlemgrd verifier + init volume spawn; `just ci-os-ota-bundle` → `SELFTEST: ota bundle-set ok`; 14 services + apps + `pkg:/` from the volume; boot-image floor
+- [x] **Phase B orchestration** (TASK-0035, Done 2026-09-05): NXSJ journal + per-bundle resume (`ota-bundle-resume`), host reuse index (`--reuse-from`), kind 4 (`ota-bundle-delta`)
 - [ ] **TASK-0035**: stage journal/resume (`SELFTEST: ota stage resume ok`), reuse index, kind 4 (`SELFTEST: ota bundle delta ok`)
 - [ ] Tasks linked with stop conditions + proof commands (lane table in `tasks/IMPLEMENTATION-ORDER.md`).
 - [ ] Security-relevant negative tests exist (`test_reject_*`) for every stable reject reason.
