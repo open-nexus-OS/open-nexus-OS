@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-05 (TASK-0035 P3: `bundle-delta` — a changed bundle ships as an RFC-0090 delta against the active volume)
+
+- Engine: kind 4 `bundle-delta` (`kind_data` = base window sha256). The
+  RFC-0090 `DeltaAdapter` gained a bundle mode whose target comes from the
+  stream header and is bound by the assembler to the NEW index;
+  `updates::bundle_delta` adds `VolumeBase` (one active window, byte-
+  addressed) and `SetSink` (kinds 6/2/4). The base window is located on the
+  ACTIVE volume before any write (`delta-base`); the reconstructed window
+  takes the normal readback-verified path — `updated: component
+  bundle-delta reconstructed (name=…)`.
+- `nx image ota --bundle-set --delta-from-volume <active.img | dir>` emits
+  changed bundles as `.nxdelta` streams (unchanged reused, new in full;
+  JSON `bundle_set.delta`); `image fixtures --reuse-from` also emits
+  `bundle-delta.nxs`.
+- New QEMU lane `ota-bundle-delta` (`just ci-os-ota-bundle-delta`, in
+  `test-all`): the crown flip with the changed bundle as a delta —
+  `SELFTEST: ota bundle delta ok`.
+
 ### Added - 2026-09-04 (TASK-0035 P2: host reuse index)
 
 - `nx image ota --bundle-set <dir> --reuse-from <active.img | dir>` ships

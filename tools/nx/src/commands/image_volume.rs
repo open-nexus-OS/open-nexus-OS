@@ -242,6 +242,75 @@ fn read_volume(dev: &FileBlockDevice, slot: &Partition, size: u64) -> Result<Vec
     Ok(buf)
 }
 
+/// TASK-0035 P3: the ACTIVE volume's BYTES + index (delta bases need the
+/// window bytes) — from a bundle directory (rebuilt) or a built disk image.
+pub(crate) fn active_volume_from(path: &Path) -> Result<(Vec<u8>, VolumeIndex), NxError> {
+    if path.is_dir() {
+        let vol = build_volume_bytes(&load_bundle_dirs(path)?)?;
+        let index = parse_index(&vol, &PkgImgCaps::default())
+            .map_err(|e| NxError::new(ExitClass::Internal, format!("image: base index: {e}")))?;
+        return Ok((vol, index));
+    }
+    let dev = FileBlockDevice::open_ro(path).map_err(|err| {
+        NxError::new(ExitClass::MissingDependency, format!("image: open {}: {err}", path.display()))
+    })?;
+    let parts = storage::gpt::parse_gpt(&dev).map_err(|e| {
+        NxError::new(ExitClass::ValidationReject, format!("image: gpt parse failed ({e:?})"))
+    })?;
+    let slot = crate::commands::image::part(&parts, &storage::gpt::GUID_NEXUS_SYS, "system-a")?;
+    let mut sector = [0u8; SECTOR];
+    dev.read_blocks(slot.first_lba, &mut sector)
+        .map_err(|e| NxError::new(ExitClass::Internal, format!("image: nxsv read ({e:?})")))?;
+    let (desc, _sig) = bootfmt::nxsv::decode(&sector)
+        .map_err(|_| reject("image: base image carries no system-a volume".into()))?;
+    let vol = read_volume(&dev, &slot, desc.volume_size)?;
+    if sha256(&vol) != desc.volume_sha256 {
+        return Err(reject("image: base volume digest mismatch".into()));
+    }
+    let index = parse_index(&vol, &PkgImgCaps::default())
+        .map_err(|e| reject(format!("image: base index: {e}")))?;
+    Ok((vol, index))
+}
+
+/// TASK-0035 P3: the bundle-set components with every CHANGED bundle that
+/// has a same-named predecessor on `base` emitted as a kind-4 `bundle-delta`
+/// (`.nxdelta` base window → new window, `kind_data` = base window sha256);
+/// unchanged windows are reused, bundles new to the volume ship in full.
+/// Returns `(components, reused, delta_names)`.
+pub(crate) fn bundle_set_components_delta(
+    volume: &[u8],
+    index: &VolumeIndex,
+    nxsv: &[u8; SECTOR],
+    base_vol: &[u8],
+    base_index: &VolumeIndex,
+) -> (Vec<Component>, Vec<String>, Vec<String>) {
+    let (full, reused) = bundle_set_components_reusing(volume, index, nxsv, Some(base_index));
+    let mut out = Vec::with_capacity(full.len());
+    let mut deltas = Vec::new();
+    for comp in full {
+        if comp.kind != updates::component_set::KIND_BUNDLE {
+            out.push(comp);
+            continue;
+        }
+        let bundle = comp.name.split('@').next().unwrap_or("");
+        let Some(old) = base_index.bundles.iter().find(|b| b.bundle == bundle) else {
+            out.push(comp);
+            continue;
+        };
+        let begin = base_index.superblock.data_offset + old.data_offset as usize;
+        let base_window = &base_vol[begin..begin + old.data_len as usize];
+        deltas.push(comp.name.clone());
+        out.push(Component {
+            kind: updates::component_set::KIND_BUNDLE_DELTA,
+            name: comp.name.clone(),
+            payload_path: format!("bundles/{}.nxdelta", comp.name),
+            payload: nxdelta::make::make(base_window, &comp.payload),
+            kind_data: old.sha256.to_vec(),
+        });
+    }
+    (out, reused, deltas)
+}
+
 /// TASK-0035 P2: the ACTIVE volume's index as a reuse locator — from a
 /// bundle directory (rebuilt deterministically) or from a built disk image
 /// (`system-a`'s NXSV names the index; the digests are what the reuse diff

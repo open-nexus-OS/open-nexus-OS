@@ -283,6 +283,7 @@ pub fn verify_and_apply(
             }
             KIND_SYSTEM_VOLUME => check_system_volume_binding(&manifest, &comp.meta, boot_digest)?,
             KIND_BUNDLE => check_bundle_binding(&comp.meta)?,
+            KIND_BUNDLE_DELTA => check_bundle_delta_binding(&comp.meta)?,
             _ => return Err(RejectReason::KindUnsupported),
         }
 
@@ -505,6 +506,16 @@ fn check_system_volume_binding(
 /// verified index); no kind data, a bounded non-empty name.
 fn check_bundle_binding(meta: &ComponentMeta) -> Result<(), RejectReason> {
     if !meta.kind_data.is_empty() || meta.name.is_empty() || meta.name.len() > 96 {
+        return Err(RejectReason::Bounds);
+    }
+    Ok(())
+}
+
+/// bundle-delta binding (§12.4 kind 4, TASK-0035 P3): `kind_data` names the
+/// BASE window by sha256 (32 bytes); whether that window exists on the
+/// ACTIVE volume is the sink's `delta-base` check before any write.
+fn check_bundle_delta_binding(meta: &ComponentMeta) -> Result<(), RejectReason> {
+    if meta.kind_data.len() != 32 || meta.name.is_empty() || meta.name.len() > 96 {
         return Err(RejectReason::Bounds);
     }
     Ok(())

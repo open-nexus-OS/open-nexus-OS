@@ -42,6 +42,8 @@ pub(crate) const FIXTURE_PATH: &str = "/updates/os-fixture-b.nxs";
 pub(crate) const REAL_PATH: &str = "/updates/os-B.nxs";
 /// TASK-0321 P3: os-B + the system volume + metricsd@1.0.1 as ONE set.
 pub(crate) const BUNDLE_SET_PATH: &str = "/updates/bundle-set.nxs";
+/// TASK-0035 P3: the same set with the changed bundle as a `bundle-delta`.
+pub(crate) const BUNDLE_DELTA_PATH: &str = "/updates/bundle-delta.nxs";
 /// Deny-lane containers (RFC-0089 §8 reject vocabulary).
 pub(crate) const UNTRUSTED_PATH: &str = "/updates/os-fixture-untrusted.nxs";
 pub(crate) const TAMPERED_PATH: &str = "/updates/os-fixture-tampered.nxs";

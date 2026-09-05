@@ -253,6 +253,26 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
             "shipped": extra.iter().skip(1).map(|c| c.name.clone()).collect::<Vec<_>>(),
             "reused": reused,
         });
+        // TASK-0035 P3: the same set with the changed bundle as a kind-4
+        // `bundle-delta` against the factory window (the ota-bundle-delta
+        // lane's set) — only with a factory base to diff against.
+        if let Some(base_dir) = &args.reuse_from {
+            let (base_vol, base_index) = volume::active_volume_from(base_dir)?;
+            let (delta_extra, _reused, deltas) =
+                volume::bundle_set_components_delta(&vol, &index, &nxsv, &base_vol, &base_index);
+            bundle_set["delta"] = json!(deltas);
+            specs.push(ContainerSpec {
+                name: "bundle-delta.nxs",
+                build_id: build_b.clone(),
+                rollback_index: 2,
+                payload: kernel_b.clone(),
+                publisher_seed,
+                tamper: false,
+                load_addr: REAL_LOAD_ADDR,
+                delta_from: None,
+                extra: delta_extra,
+            });
+        }
         specs.push(ContainerSpec {
             name: "bundle-set.nxs",
             build_id: build_b.clone(),

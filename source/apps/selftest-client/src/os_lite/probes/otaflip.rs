@@ -48,6 +48,7 @@ use super::reset::{bootctl_call_raw, reboot_now};
 
 const SENTINEL_KEY: &str = "/state/app/selftest/otaflip.proof";
 const BUNDLE_SENTINEL_KEY: &str = "/state/app/selftest/otabundle.proof";
+const DELTA_SENTINEL_KEY: &str = "/state/app/selftest/otadelta.proof";
 
 /// Which crown lane runs: the boot-image flip (TASK-0179) or the
 /// bundle-set flip (TASK-0321 P3).
@@ -55,6 +56,8 @@ const BUNDLE_SENTINEL_KEY: &str = "/state/app/selftest/otabundle.proof";
 pub(crate) enum Lane {
     Flip,
     Bundle,
+    /// TASK-0035 P3: the bundle set with its changed bundle as a kind-4 delta.
+    Delta,
 }
 
 impl Lane {
@@ -62,36 +65,42 @@ impl Lane {
         match self {
             Lane::Flip => SENTINEL_KEY,
             Lane::Bundle => BUNDLE_SENTINEL_KEY,
+            Lane::Delta => DELTA_SENTINEL_KEY,
         }
     }
     fn path(self) -> &'static str {
         match self {
             Lane::Flip => updated::REAL_PATH,
             Lane::Bundle => updated::BUNDLE_SET_PATH,
+            Lane::Delta => updated::BUNDLE_DELTA_PATH,
         }
     }
     fn staged_ok(self) -> &'static str {
         match self {
             Lane::Flip => crate::markers::M_SELFTEST_OTA_FLIP_STAGED_OK,
             Lane::Bundle => crate::markers::M_SELFTEST_OTA_BUNDLE_SET_STAGED_OK,
+            Lane::Delta => crate::markers::M_SELFTEST_OTA_BUNDLE_DELTA_STAGED_OK,
         }
     }
     fn stage_fail(self) -> &'static str {
         match self {
             Lane::Flip => crate::markers::M_SELFTEST_OTA_FLIP_STAGE_FAIL,
             Lane::Bundle => crate::markers::M_SELFTEST_OTA_BUNDLE_SET_STAGE_FAIL,
+            Lane::Delta => crate::markers::M_SELFTEST_OTA_BUNDLE_DELTA_STAGE_FAIL,
         }
     }
     fn ok(self) -> &'static str {
         match self {
             Lane::Flip => crate::markers::M_SELFTEST_OTA_FLIP_OK,
             Lane::Bundle => crate::markers::M_SELFTEST_OTA_BUNDLE_SET_OK,
+            Lane::Delta => crate::markers::M_SELFTEST_OTA_BUNDLE_DELTA_OK,
         }
     }
     fn fail(self) -> &'static str {
         match self {
             Lane::Flip => crate::markers::M_SELFTEST_OTA_FLIP_FAIL,
             Lane::Bundle => crate::markers::M_SELFTEST_OTA_BUNDLE_SET_FAIL,
+            Lane::Delta => crate::markers::M_SELFTEST_OTA_BUNDLE_DELTA_FAIL,
         }
     }
 }
@@ -107,6 +116,11 @@ pub(crate) fn ota_flip_proof(statefsd: &KernelClient) {
 /// TASK-0321 P3: the bundle-set crown proof (same two-boot shape).
 pub(crate) fn ota_bundle_proof(statefsd: &KernelClient) {
     run_lane(statefsd, Lane::Bundle)
+}
+
+/// TASK-0035 P3: the bundle set whose changed bundle is a kind-4 delta.
+pub(crate) fn ota_bundle_delta_proof(statefsd: &KernelClient) {
+    run_lane(statefsd, Lane::Delta)
 }
 
 /// TASK-0035 P1: stage the bundle set (no switch). Boot 1 never returns —
@@ -258,7 +272,7 @@ fn boot2_prove_flip(statefsd: &KernelClient, lane: Lane) {
     // TASK-0321 P3: the bundle lane additionally proves the VOLUME travelled
     // with the flip — bundlemgrd verified system-b and serves metricsd@1.0.1
     // (the version the set carried, not the factory one).
-    let bundle_ok = lane != Lane::Bundle || bundle_set_proof();
+    let bundle_ok = !matches!(lane, Lane::Bundle | Lane::Delta) || bundle_set_proof();
     // The VERDICT is the machine's own committed state, not the transport
     // acks of the individual health reports: `committed` is strictly
     // stronger evidence than "both reporter calls returned Ok" (a lost ack

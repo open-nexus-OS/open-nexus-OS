@@ -238,3 +238,80 @@ fn bundle_set_ships_only_changed_bundles() {
     );
     assert!(!ota.status.success());
 }
+
+/// TASK-0035 P3: `--delta-from-volume` ships the changed bundle as a kind-4
+/// `.nxdelta` against the device's window (base = same-named row on the
+/// active volume), unchanged ones reused; the fixture set carries the same
+/// shape as `bundle-delta.nxs`.
+#[test]
+fn bundle_set_ships_deltas_for_changed_bundles() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    setup(dir.path());
+    setup_bundles(dir.path());
+    let out = build_with_volume(dir.path(), "nexus.img", "dev-A");
+    assert!(out.status.success(), "build: {}", String::from_utf8_lossy(&out.stdout));
+    let next = dir.path().join("next");
+    // metricsd changed (its ELF grew a different .sdata address), timed/apps unchanged.
+    make_bundle(&next, "metricsd", "1.0.1", true, &tiny_elf(0x8005_0000));
+    make_bundle(&next, "timed", "1.0.0", true, &tiny_elf(0x8008_0000));
+    make_bundle(&next, "apps", "1.0.0", false, b"ui-program-bytes");
+    let ota = run_nx(
+        &[
+            "image",
+            "ota",
+            "--kernel",
+            "kernel.bin",
+            "--out",
+            "set.nxs",
+            "--sign-publisher",
+            "pub.seed",
+            "--sign-os",
+            "os.seed",
+            "--build-id",
+            "dev-S",
+            "--rollback-index",
+            "2",
+            "--bundle-set",
+            "next",
+            "--delta-from-volume",
+            "nexus.img",
+            "--json",
+        ],
+        dir.path(),
+    );
+    let stdout = String::from_utf8_lossy(&ota.stdout);
+    assert!(ota.status.success(), "ota: {stdout}");
+    let json: serde_json::Value = serde_json::from_str(stdout.trim()).expect("json");
+    assert_eq!(json["data"]["bundle_set"]["delta"], serde_json::json!(["metricsd@1.0.1"]));
+    assert_eq!(
+        json["data"]["bundle_set"]["reused"],
+        serde_json::json!(["apps@1.0.0", "timed@1.0.0"])
+    );
+    let bytes = std::fs::read(dir.path().join("set.nxs")).expect("read nxs");
+    let mut archive = tar::Archive::new(&bytes[..]);
+    let names: Vec<String> = archive
+        .entries()
+        .expect("entries")
+        .map(|e| e.expect("entry").path().expect("path").display().to_string())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            "manifest.nxo",
+            "manifest.sig.ed25519",
+            "boot.img",
+            "system.idx",
+            "bundles/metricsd@1.0.1.nxdelta",
+        ]
+    );
+    // The stream is a real RFC-0090 delta (magic), not a full window.
+    let mut archive = tar::Archive::new(&bytes[..]);
+    for entry in archive.entries().expect("entries") {
+        let mut entry = entry.expect("entry");
+        if entry.path().expect("path").display().to_string().ends_with(".nxdelta") {
+            let mut head = [0u8; 8];
+            std::io::Read::read_exact(&mut entry, &mut head).expect("stream head");
+            assert_eq!(&head, nxdelta::MAGIC);
+        }
+    }
+}

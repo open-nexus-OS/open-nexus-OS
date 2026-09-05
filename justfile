@@ -312,6 +312,10 @@ ci-os-ota-bundle:
 ci-os-ota-bundle-resume:
     just test-os ota-bundle-resume
 
+# TASK-0035 P3: bundle-delta (kind 4) reconstructed from the active volume.
+ci-os-ota-bundle-delta:
+    just test-os ota-bundle-delta
+
 # TASK-0289-B loader backstops: boot-time tamper + downgrade rejects
 # (armed disk, single boot each) and the tries-exhaustion fallback (FOUR
 # boots, bricked trials power-cycled via QMP) — the boot trust floor
@@ -643,6 +647,7 @@ test-all:
     just ci-os-ota
     just ci-os-ota-bundle
     just ci-os-ota-bundle-resume
+    just ci-os-ota-bundle-delta
     just ci-os-ota-backstops
     @scripts/hypothesis-log.sh H5 "justfile:test-all:end" "aggregate gate completed"
 

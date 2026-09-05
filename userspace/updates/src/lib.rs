@@ -38,9 +38,10 @@ pub mod system_set_capnp {
     include!(concat!(env!("OUT_DIR"), "/system_set_capnp.rs"));
 }
 
+/// RFC-0089 §12.4 system-volume assembler (TASK-0321 P3).
+pub mod bundle_delta;
 pub mod component_set;
 pub mod delta_apply;
-/// RFC-0089 §12.4 system-volume assembler (TASK-0321 P3).
 pub mod stage_journal;
 pub mod system_set;
 pub mod volume_apply;

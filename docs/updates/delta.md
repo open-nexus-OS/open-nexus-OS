@@ -42,6 +42,23 @@ component's NXBD) and NXBD-last commit discipline. Malformed streams
 reject **`delta-format`**; a tampered stream fails the signed digest as
 `digest`, exactly like a tampered full image.
 
+## Bundle deltas (kind 4, TASK-0035 P3)
+
+On the system-volume seam (RFC-0089 §12) the same `.nxdelta` stream carries
+ONE changed bundle: `nx image ota --bundle-set <dir> --delta-from-volume
+<active.img | dir>` emits, for every bundle whose window changed and that has a
+same-named predecessor on the device's volume, a `bundle-delta` component
+(`bundles/<name>@<ver>.nxdelta`, `kindData` = the base window's sha256);
+unchanged bundles are reused, bundles new to the volume ship in full. On the
+device the base is looked up in the ACTIVE volume's index BEFORE any write
+(`delta-base` otherwise), the stream header's target is bound by the
+assembler to the NEW index (`bundle-not-in-index` otherwise), and the
+reconstructed window takes the ordinary readback-verified, journalled path —
+`updated: component bundle-delta reconstructed (name=…)` followed by
+`component bundle verified`. The `ota-bundle-delta` lane proves the flip with
+metricsd shipped as a delta (`SELFTEST: ota bundle delta ok`); host:
+`tests/updates_host/tests/component_set_bundle_delta.rs`.
+
 ## Honest boundaries
 
 - **Resume = idempotent restage** (RFC-0089 §8): a torn apply leaves the
@@ -50,8 +67,10 @@ reject **`delta-format`**; a tampered stream fails the signed digest as
 - **ADD payloads are stored** (`algo` 0). zstd is reserved (`algo` 1)
   behind an RFC-0009 D4 decision — the COPY coverage is where the
   bandwidth win lives.
-- `bundle-delta` and multi-component orchestration live behind the
-  Phase-B seam (RFC-0089 §12, TASK-0035).
+- `bundle-delta` (kind 4) and the bundle-set orchestration are live on the
+  Phase-B seam (RFC-0089 §12, TASK-0035) — see „Bundle deltas“ above; for
+  bundles the NXSJ journal (TASK-0035 P1) makes a torn stage resume per
+  window, boot images keep the idempotent-restage story.
 
 ## Proof surfaces
 

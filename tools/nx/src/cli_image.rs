@@ -160,6 +160,12 @@ pub(crate) struct ImageOtaArgs {
     /// digest is unchanged are left out of the set; the device reuses them.
     #[arg(long, requires = "bundle_set")]
     pub(crate) reuse_from: Option<PathBuf>,
+    /// TASK-0035 P3: emit every CHANGED bundle as a `bundle-delta` (kind 4,
+    /// RFC-0090 `.nxdelta` against the ACTIVE volume's window of the same
+    /// bundle) instead of a full window; implies `--reuse-from` for the
+    /// unchanged ones. Bundles new to the volume still ship in full.
+    #[arg(long, requires = "bundle_set")]
+    pub(crate) delta_from_volume: Option<PathBuf>,
     #[arg(long)]
     pub(crate) json: bool,
 }

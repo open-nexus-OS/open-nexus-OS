@@ -59,6 +59,15 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             crate::os_lite::probes::otaflip::ota_bundle_proof(&statefsd);
         }
     }
+    // TASK-0035 P3 bundle-delta lane: the set's changed bundle is a kind-4
+    // delta reconstructed from the ACTIVE volume's window.
+    if crate::os_lite::boot_cfg::runtime_profile_with_retry()
+        == Some(crate::runtime_mode::RuntimeProfile::OtaBundleDelta)
+    {
+        if let Ok(statefsd) = crate::os_lite::ipc::routing::route_with_retry("statefsd") {
+            crate::os_lite::probes::otaflip::ota_bundle_delta_proof(&statefsd);
+        }
+    }
     // TASK-0289-B backstop lane: the four-boot tries-exhaustion proof.
     // Boot 1 stages + switches and ENDS IN A REBOOT; the bricked trial
     // boots never reach this code (init parks); the final boot verifies

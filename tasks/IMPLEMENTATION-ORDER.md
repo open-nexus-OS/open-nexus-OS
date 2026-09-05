@@ -500,7 +500,7 @@ wird production-grade auf das End-System gebaut (keine Interimslösung — Ledge
 Ledgern nachgeführt, nie geschätzt. Vokabular: ✅ delivered · ⤳ superseded · `Draft` /
 `In Progress` / `Done <date>` / `Delivered <date> (test-all green)`.
 
-### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 9/24 delivered · Tasks 1/5 Done
+### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 10/24 delivered · Tasks 1/5 Done
 
 Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 
@@ -515,7 +515,7 @@ Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 | 6 | ✅ TASK-0321 P5 | Boot-Image-Floor: Apps als Volume-Bundles (`nx app compile`, `meta/app.properties`, `payload.nxir`), bundlemgrd-Registry + GET_PAYLOAD vom Volume, packagefsd `pkg:/` = Index (`GET_INDEX`) + Dateien on demand (`GET_FILE_VMO`), FETCH_IMAGE/Transcode retired, `system`-Bundle | Delivered 2026-09-04 (FUND: packagefsd→bundlemgrd-Route war nonce-los falsch aufgelöst — der RAM-Seed lief still) → **TASK-0321 Done** |
 | 7 | ✅ TASK-0035 P1 | Stage-Journal `NXSJ` (Sektor 1, an NXSV-Digests gebunden, CRC) + per-Bundle-Resume mit Readback-Verifikation (`updated: restage resume (bundles=k/N)`), Lane `ota-bundle-resume` (QMP-Power-Cut mid-stage) | Delivered 2026-09-04 (Host-Matrix + Lane, siehe CHANGELOG) |
 | 8 | ✅ TASK-0035 P2 | Host-Reuse-Index (`nx image ota --bundle-set --reuse-from <active.img|dir>`, nur geänderte Bundles, JSON-Reuse-Manifest) | Delivered 2026-09-04 (Host-Test gegen Disk-Image + Verzeichnis) |
-| 9 | TASK-0035 P3 | `bundle-delta` Kind 4 über den unveränderten RFC-0090-Adapter, Lane `ota-bundle-delta` | Draft |
+| 9 | ✅ TASK-0035 P3 | `bundle-delta` Kind 4 (DeltaAdapter-Bundle-Modus, `SetSink`, `VolumeBase`, `delta-base` vor jedem Write), `nx image ota --delta-from-volume`, Lane `ota-bundle-delta` | Delivered 2026-09-05 (3 Host-Tests + Lane, siehe CHANGELOG) |
 | 10 | TASK-0035 P4 | Close: RFC-0089 Phase 10 ✅, docs/updates, CHANGELOG | Draft |
 | 11 | TASK-0028 P0 | RFC-Seed „Policy-Profil v2“ (Schema: statefs / net.bind+Adresse / net.connect / limits / epoch; longest-prefix, deny-beats-allow) — EIN nexus-abi-Approval für 0028/0043/0052 | Draft |
 | 12 | TASK-0028 P1 | Matcher + Codec v2 in BEIDEN Parsern + Reject-Suite (`test_reject_regex_dos`, `_argument_injection`, `_stale_profile_epoch`, `_unauthenticated_mode_switch`, `test_learn_roundtrip`) | Draft |

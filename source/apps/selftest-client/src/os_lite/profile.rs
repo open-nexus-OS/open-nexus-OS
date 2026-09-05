@@ -190,6 +190,7 @@ impl Profile {
                 // TASK-0321 P3: same reduction as the flip lane.
                 RuntimeProfile::OtaBundle => Profile::Bringup,
                 RuntimeProfile::OtaBundleResume => Profile::Bringup,
+                RuntimeProfile::OtaBundleDelta => Profile::Bringup,
                 // TASK-0289-B: same reduction — the lane owns the
                 // exhaustion flip, the headless lane owns the ota cycle.
                 RuntimeProfile::OtaFallback => Profile::Bringup,

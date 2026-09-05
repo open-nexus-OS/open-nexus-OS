@@ -831,6 +831,33 @@ case "${PROFILE:-full}" in
     # service must be REUSED from the active volume (count gate below).
     OTA_BUNDLE_REUSE_MIN=$(( $(sed -e 's/#.*//' -e '/^\s*$/d' "$ROOT/scripts/system-volume-services.txt" | wc -l) - 1 ))
     ;;
+  ota-bundle-delta)
+    # TASK-0035 P3 (RFC-0089 §12.4 kind 4): the ota-bundle shape, but the
+    # changed bundle ships as an RFC-0090 `.nxdelta` against the ACTIVE
+    # volume's window (`delta-base` bound); the engine reconstructs it
+    # through the assembler's verified window path, every other bundle is
+    # reused, boot 2 serves the reconstructed metricsd@1.0.1 from system-b.
+    expected_sequence=(
+      "neuron vers."
+      "init: start"
+      "init: ready"
+      "updated: stage begin (source=/updates/bundle-delta.nxs)"
+      "updated: component system-volume verified (build=otaB"
+      "updated: component bundle verified (name=metricsd@1.0.1)"
+      "updated: component bundle-delta reconstructed (name=metricsd@1.0.1)"
+      "updated: bundle reused (name="
+      "updated: component boot-image verified (build=otaB"
+      "updated: stage done (slot=b build=otaB"
+      "bootctld: switch scheduled (to=b)"
+      "SELFTEST: ota bundle delta staged ok"
+      "nxboot: verify ok (slot=b build=otaB"
+      "bundlemgrd: system volume verified (slot=b build=otaB"
+      "init: spawn from volume svc=metricsd bundle=metricsd@1.0.1"
+      "bootctld: commit ok (slot=b)"
+      "SELFTEST: ota bundle delta ok"
+    )
+    OTA_PHASE_GUARDS=0
+    ;;
   ota-bundle-resume)
     # TASK-0035 P1 (RFC-0089 §12.2 NXSJ): the stage journal. Boot 1 stages
     # the bundle set; the launcher power-cuts the machine at the first
@@ -2559,7 +2586,7 @@ if [[ "${PROFILE:-full}" == "ota-bundle" ]]; then
   fi
   echo "[info] ota-bundle: $reused_count bundles reused from the active volume (min ${OTA_BUNDLE_REUSE_MIN:-1})"
 fi
-if [[ "${PROFILE:-full}" == "ota-flip" || "${PROFILE:-full}" == "ota-bundle" ]]; then
+if [[ "${PROFILE:-full}" == "ota-flip" || "${PROFILE:-full}" == "ota-bundle" || "${PROFILE:-full}" == "ota-bundle-delta" ]]; then
   nxupdate_bin="$ROOT/target/release/nx"
   nxupdate_img="${QEMU_BLK_IMG:-$ROOT/build/nexus.img}"
   if ! nxupdate_out=$("$nxupdate_bin" update status --image "$nxupdate_img" 2>&1); then

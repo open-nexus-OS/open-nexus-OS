@@ -1,6 +1,6 @@
 ---
 title: TASK-0035 Delta updates v1b (system sets): nxs delta container + updated orchestration
-status: In Progress (P1–P2 delivered 2026-09-04)
+status: In Progress (P1–P3 delivered 2026-09-05; P4 close next)
 owner: @runtime
 created: 2025-12-22
 updated: 2026-09-03
@@ -110,6 +110,42 @@ which components were shipped, reused or delta-reconstructed.
   already proven by the `ota-bundle` lane (21 reused of 22).
 - Proof (2026-09-04): host tests green (image_reuse_cli.rs; the volume test file split into
   `tests/common/volume_fixture.rs` for the 600-LOC ratchet); `just check` + `just test-all` GREEN.
+
+### P3 delivered 2026-09-05 — `bundle-delta` (kind 4)
+
+- **Engine**: `check_bundle_delta_binding` (kind_data = the BASE window sha256, 32 bytes); the
+  RFC-0090 `DeltaAdapter` gained a bundle mode (`for_bundle`): the TARGET identity comes from the
+  stream header, the inner sink's `begin` is deferred to that header — the assembler then binds the
+  target to the signature-bound NEW index (`bundle-not-in-index` for an unknown target). New
+  `updates::bundle_delta`: `VolumeBase` (byte-addressed reads of one ACTIVE window) and `SetSink`
+  (kinds 6/2/4 dispatcher: a kind-4 component wraps the assembler in the adapter over a fresh
+  active-volume handle and takes it back at `finish`; the base window is located via
+  `VolumeAssembler::active_window` BEFORE any write → `delta-base`). The reconstructed bytes take
+  the assembler's normal window path (readback-verified, journalled), so the volume stays
+  byte-identical. Event `bundle_reconstructed` → `updated: component bundle-delta reconstructed
+  (name=…)`.
+- **Host**: `tests/updates_host/tests/component_set_bundle_delta.rs` (accept + byte-identity,
+  `test_reject_delta_base_bundle` — nothing written past the index, no NXSV —,
+  `test_reject_delta_target_not_in_index`); the engine scene moved to
+  `tests/common/volume_scene.rs` (shared with the volume/journal tests).
+- **nx**: `image ota --bundle-set <dir> --delta-from-volume <active.img | dir>` emits every changed
+  bundle with a same-named predecessor as a kind-4 stream (`nxdelta::make` base window → new
+  window), reuses unchanged ones, ships new bundles in full; JSON `bundle_set.delta`. `image
+  fixtures --reuse-from` additionally emits `bundle-delta.nxs`. Host test
+  `bundle_set_ships_deltas_for_changed_bundles`.
+- **OS**: `updated`'s `StageSink` runs kinds 6/2/4 through `SetSink` (base handles = fresh
+  partition clients on the ACTIVE system slot). Lane `ota-bundle-delta` (`RuntimeProfile::
+  OtaBundleDelta`, `Lane::Delta`, `SELFTEST: ota bundle delta staged ok / ok`), `just
+  ci-os-ota-bundle-delta` in `test-all`, `verify-nxupdate` gates the disk.
+- FLAKE (historic, not ours): the first lane run had `SELFTEST: statefs auth put FAIL` on boot 2
+  while every delta rung was green (`bundle-delta reconstructed` → `stage done` → flip → `ota
+  bundle delta ok`) — the boot-2 statefs-envelope flake already logged for the flip lane; the rerun
+  was fully green.
+- Proof (2026-09-05): `ota-bundle-delta` green (`component bundle verified (name=metricsd@1.0.1)`
+  → `component bundle-delta reconstructed (name=metricsd@1.0.1)` → 21 reused → flip →
+  `init: spawn from volume svc=metricsd bundle=metricsd@1.0.1` → `SELFTEST: ota bundle delta ok`,
+  `verify-nxupdate` ok); 12 host tests across the engine suites + 3 nx tests; `just check` green;
+  `just test-all` GREEN end to end (nine lanes).
 
 ### Stop conditions (Definition of Done — replaces the seed DoD)
 

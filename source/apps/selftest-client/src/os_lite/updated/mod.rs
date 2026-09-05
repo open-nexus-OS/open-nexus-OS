@@ -35,8 +35,9 @@ mod types;
 pub(crate) use health::init_health_ok;
 pub(crate) use stage::{
     updated_log_probe, updated_stage, updated_stage_delta, updated_stage_deny, updated_stage_path,
-    updated_stage_real, updated_stage_untrusted_deny, BUNDLE_SET_PATH, DELTABASE_PATH,
-    DOWNGRADE_PATH, REAL_PATH, REJECT_DELTA_BASE, REJECT_DIGEST, REJECT_DOWNGRADE, TAMPERED_PATH,
+    updated_stage_real, updated_stage_untrusted_deny, BUNDLE_DELTA_PATH, BUNDLE_SET_PATH,
+    DELTABASE_PATH, DOWNGRADE_PATH, REAL_PATH, REJECT_DELTA_BASE, REJECT_DIGEST, REJECT_DOWNGRADE,
+    TAMPERED_PATH,
 };
 pub(crate) use status::{
     updated_boot_attempt, updated_check_count, updated_feed_count, updated_get_status,

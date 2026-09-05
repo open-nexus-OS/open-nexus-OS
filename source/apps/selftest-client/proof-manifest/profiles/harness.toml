@@ -133,6 +133,13 @@ runner = "scripts/qemu-test.sh"
 extends = "headless"
 env = { NEXUS_SELFTEST_PROFILE = "ota-bundle-resume", NEXUS_RESET_ON_MARKER = "updated: bundle reused (name=", NEXUS_RESET_ON_MARKER_COUNT = "1" }
 
+# TASK-0035 P3: the bundle set with its changed bundle as a kind-4 delta
+# (`bundle-delta.nxs`, base = the factory window of the same bundle).
+[profile.ota-bundle-delta]
+runner = "scripts/qemu-test.sh"
+extends = "headless"
+env = { NEXUS_SELFTEST_PROFILE = "ota-bundle-delta" }
+
 [profile.ota-fallback]
 runner = "scripts/qemu-test.sh"
 extends = "headless"

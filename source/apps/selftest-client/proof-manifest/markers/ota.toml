@@ -109,6 +109,26 @@ phase = "bringup"
 emit_when = { profile = "ota-bundle" }
 proves = "boot 2: running slot b, bundlemgrd verified system-b (paired with the measured image) and serves metricsd@1.0.1 — the set's bundle — and the quorum committed"
 
+# TASK-0035 P3 bundle-delta crown proof (profile `ota-bundle-delta`): the
+# changed bundle ships as a kind-4 `.nxdelta` against the active volume's window.
+[marker."SELFTEST: ota bundle delta staged ok"]
+phase = "bringup"
+emit_when = { profile = "ota-bundle-delta" }
+proves = "boot 1: the bundle set whose changed bundle is a bundle-delta reconstructed from the ACTIVE volume (delta-base bound), readback-verified, assembled and switched"
+
+[marker."SELFTEST: ota bundle delta ok"]
+phase = "bringup"
+emit_when = { profile = "ota-bundle-delta" }
+proves = "boot 2: slot b runs with system-b verified and the reconstructed bundle served (metricsd@1.0.1) — the delta produced the byte-identical window"
+
+[marker."SELFTEST: ota bundle delta stage FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: boot 1 could not stage or switch the bundle-delta set"
+
+[marker."SELFTEST: ota bundle delta FAIL"]
+phase = "ota"
+proves = "DIAGNOSTIC: the bundle-delta flip did not complete"
+
 # TASK-0035 P1 resume lane (profile `ota-bundle-resume`): boot 1 is power-cut
 # mid-stage by the harness; boot 2 restages and resumes from the NXSJ journal.
 [marker."SELFTEST: ota stage resume ok"]

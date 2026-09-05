@@ -25,7 +25,9 @@ use std::vec::Vec;
 
 use nxdelta::decode::{Decoder, Event, PushError};
 
-use crate::component_set::{ComponentMeta, ComponentSink, RejectReason, KIND_BOOT_IMAGE};
+use crate::component_set::{
+    ComponentMeta, ComponentSink, RejectReason, KIND_BOOT_IMAGE, KIND_BUNDLE,
+};
 
 /// Bounded read window for COPY records (one reused buffer, no per-record
 /// allocation — os-service bump-heap discipline).
@@ -59,6 +61,13 @@ pub struct DeltaAdapter<B: BaseRead, S: ComponentSink> {
     base: B,
     inner: S,
     base_id: BaseIdentity,
+    /// TASK-0035 P3 (kind 4 `bundle-delta`): the TARGET identity comes
+    /// from the stream header, not an NXBD — the inner sink's `begin` is
+    /// deferred to that header (the assembler then binds the target to
+    /// the signature-bound NEW index: an unknown target is
+    /// `bundle-not-in-index`).
+    target_from_header: bool,
+    pending_meta: Option<ComponentMeta>,
     inner_meta: Option<ComponentMeta>,
     dec: Decoder,
     out_off: u64,
@@ -71,11 +80,23 @@ impl<B: BaseRead, S: ComponentSink> DeltaAdapter<B, S> {
             base,
             inner,
             base_id,
+            target_from_header: false,
+            pending_meta: None,
             inner_meta: None,
             dec: Decoder::new(),
             out_off: 0,
             window: Vec::new(),
         }
+    }
+
+    /// A `bundle-delta` adapter (RFC-0089 §12.4 kind 4, TASK-0035 P3): the
+    /// base identity is the ACTIVE volume window named by the component's
+    /// `kind_data` (its sha256 + length); the target is what the stream
+    /// header declares and what the inner sink binds to the NEW index.
+    pub fn for_bundle(base: B, inner: S, base_id: BaseIdentity) -> Self {
+        let mut adapter = Self::new(base, inner, base_id);
+        adapter.target_from_header = true;
+        adapter
     }
 
     /// The inner sink (for callers that need it back after finish).
@@ -86,6 +107,16 @@ impl<B: BaseRead, S: ComponentSink> DeltaAdapter<B, S> {
 
 impl<B: BaseRead, S: ComponentSink> ComponentSink for DeltaAdapter<B, S> {
     fn begin(&mut self, meta: &ComponentMeta) -> Result<(), RejectReason> {
+        self.dec = Decoder::new();
+        self.out_off = 0;
+        self.window.clear();
+        self.window.resize(COPY_WINDOW, 0);
+        if self.target_from_header {
+            // Kind 4: the inner `begin` waits for the stream header.
+            self.pending_meta = Some(meta.clone());
+            self.inner_meta = None;
+            return Ok(());
+        }
         // Target-shaped meta from the component's NXBD: the inner sink
         // sees exactly what a full-image stage would hand it.
         let (nxbd, _sig) =
@@ -99,17 +130,19 @@ impl<B: BaseRead, S: ComponentSink> ComponentSink for DeltaAdapter<B, S> {
         };
         self.inner.begin(&inner_meta)?;
         self.inner_meta = Some(inner_meta);
-        self.dec = Decoder::new();
-        self.out_off = 0;
-        self.window.clear();
-        self.window.resize(COPY_WINDOW, 0);
         Ok(())
     }
 
     fn chunk(&mut self, _offset: u64, bytes: &[u8]) -> Result<(), RejectReason> {
-        let inner_meta = self.inner_meta.as_ref().ok_or(RejectReason::Io)?;
-        let target_size = inner_meta.size;
-        let target_sha = inner_meta.sha256;
+        // Target truth: the NXBD (kind 3) — or, for kind 4, whatever the
+        // header declares, which the inner sink's `begin` then binds to
+        // the signature-bound index.
+        let known_target = self.inner_meta.as_ref().map(|m| (m.size, m.sha256));
+        if known_target.is_none() && !self.target_from_header {
+            return Err(RejectReason::Io);
+        }
+        let pending = &mut self.pending_meta;
+        let inner_meta_slot = &mut self.inner_meta;
         let base_id = self.base_id;
         let base = &mut self.base;
         let inner = &mut self.inner;
@@ -119,12 +152,29 @@ impl<B: BaseRead, S: ComponentSink> ComponentSink for DeltaAdapter<B, S> {
             match ev {
                 Event::Header(h) => {
                     // Base binding FIRST (O(1) against the loader-verified
-                    // active NXBD), then stream/NXBD agreement.
+                    // active NXBD / the active index window), then
+                    // stream/target agreement.
                     if h.base_sha256 != base_id.image_sha256 || h.base_size != base_id.image_size {
                         return Err(RejectReason::DeltaBase);
                     }
-                    if h.target_size != target_size || h.target_sha256 != target_sha {
-                        return Err(RejectReason::DeltaFormat);
+                    match known_target {
+                        Some((size, sha)) => {
+                            if h.target_size != size || h.target_sha256 != sha {
+                                return Err(RejectReason::DeltaFormat);
+                            }
+                        }
+                        None => {
+                            let meta = pending.take().ok_or(RejectReason::Io)?;
+                            let inner_meta = ComponentMeta {
+                                kind: KIND_BUNDLE,
+                                name: meta.name,
+                                size: h.target_size,
+                                sha256: h.target_sha256,
+                                kind_data: Vec::new(),
+                            };
+                            inner.begin(&inner_meta)?;
+                            *inner_meta_slot = Some(inner_meta);
+                        }
                     }
                     Ok(())
                 }

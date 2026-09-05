@@ -28,9 +28,10 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use storage::{blockproto, remote_blk::RemoteBlockDevice, BlockDevice};
+use updates::bundle_delta::SetSink;
 use updates::component_set::{
     ComponentMeta, ComponentSink, RejectReason, KIND_BOOT_IMAGE, KIND_BOOT_IMAGE_DELTA,
-    KIND_BUNDLE, KIND_SYSTEM_VOLUME,
+    KIND_BUNDLE, KIND_BUNDLE_DELTA, KIND_SYSTEM_VOLUME,
 };
 use updates::delta_apply::{BaseIdentity, BaseRead, DeltaAdapter};
 use updates::volume_apply::VolumeAssembler;
@@ -38,8 +39,6 @@ use updates::Slot;
 
 use crate::apply_os::{SlotSink, IMAGE_START_SECTOR, SECTOR};
 use crate::volume_os::{BlockVolumeDev, VolumeMarkers};
-
-type Volume = VolumeAssembler<BlockVolumeDev, BlockVolumeDev, VolumeMarkers>;
 
 /// Byte-addressed reader over the ACTIVE slot's image body.
 pub(crate) struct RemoteBase {
@@ -104,8 +103,18 @@ pub(crate) struct StageSink {
     /// The set's boot-image digest (from its NXBD) — the volume's pairing
     /// target; a volume-only set pairs with the ACTIVE NXBD instead.
     boot_digest: Option<[u8; 32]>,
-    volume: Option<Volume>,
+    /// Kinds 6/2/4 — the assembler behind the kind-4 dispatcher
+    /// (TASK-0035 P3: `bundle-delta` bases are fresh read handles on the
+    /// ACTIVE system partition).
+    volume: Option<VolumeSet>,
 }
+
+type VolumeSet = SetSink<
+    BlockVolumeDev,
+    BlockVolumeDev,
+    VolumeMarkers,
+    alloc::boxed::Box<dyn FnMut() -> Option<BlockVolumeDev>>,
+>;
 
 enum State {
     Idle,
@@ -144,15 +153,19 @@ impl ComponentSink for StageSink {
             }
             let inactive = BlockVolumeDev::attach(self.inactive)?;
             let active = BlockVolumeDev::attach(self.active).ok();
-            let mut assembler = VolumeAssembler::new(inactive, active, pair, VolumeMarkers);
-            assembler.begin(meta)?;
-            self.volume = Some(assembler);
+            let assembler = VolumeAssembler::new(inactive, active, pair, VolumeMarkers);
+            let active_slot = self.active;
+            let base_factory: alloc::boxed::Box<dyn FnMut() -> Option<BlockVolumeDev>> =
+                alloc::boxed::Box::new(move || BlockVolumeDev::attach(active_slot).ok());
+            let mut set = SetSink::new(assembler, base_factory);
+            set.begin(meta)?;
+            self.volume = Some(set);
             self.state = State::Volume;
             return Ok(());
         }
-        if meta.kind == KIND_BUNDLE {
-            let assembler = self.volume.as_mut().ok_or(RejectReason::Order)?;
-            assembler.begin(meta)?;
+        if meta.kind == KIND_BUNDLE || meta.kind == KIND_BUNDLE_DELTA {
+            let set = self.volume.as_mut().ok_or(RejectReason::Order)?;
+            set.begin(meta)?;
             self.state = State::Volume;
             return Ok(());
         }
@@ -188,7 +201,7 @@ impl ComponentSink for StageSink {
 
     fn commit_set(&mut self) -> Result<(), RejectReason> {
         match self.volume.as_mut() {
-            Some(assembler) => assembler.commit_set(),
+            Some(set) => set.commit_set(),
             None => Ok(()),
         }
     }

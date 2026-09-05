@@ -65,6 +65,10 @@ pub trait VolumeEvents {
     /// TASK-0035 P1: a restage found `completed` of `total` bundle windows
     /// journalled AND readback-verified — they will not be rewritten.
     fn restage_resume(&mut self, _completed: usize, _total: usize) {}
+    /// TASK-0035 P3: a `bundle-delta` component reconstructed `bundle` from
+    /// the active volume's window (the window itself was then verified like
+    /// any shipped one — `bundle_verified` follows).
+    fn bundle_reconstructed(&mut self, _bundle: &str) {}
 }
 
 /// The events sink that records nothing.
@@ -137,9 +141,26 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> VolumeAssembler<D, A, E> {
         &self.events
     }
 
+    pub fn events_mut(&mut self) -> &mut E {
+        &mut self.events
+    }
+
     /// Hands the inactive device back (tests inspect the assembled bytes).
     pub fn into_inactive(self) -> D {
         self.inactive
+    }
+
+    /// TASK-0035 P3: the ACTIVE volume window with digest `sha` as
+    /// `(volume byte offset, length)` — the `bundle-delta` base locator.
+    /// Absent → `delta-base` (before any write).
+    pub fn active_window(&mut self, sha: &[u8; 32]) -> Result<(u64, u64), RejectReason> {
+        let active = self.active.as_mut().ok_or(RejectReason::DeltaBase)?;
+        if self.active_index.is_none() {
+            self.active_index = Some(read_active_index(active)?);
+        }
+        let index = self.active_index.as_ref().ok_or(RejectReason::Io)?;
+        let b = index.bundle_by_sha(sha).ok_or(RejectReason::DeltaBase)?;
+        Ok((index.superblock.data_offset as u64 + b.data_offset, b.data_len))
     }
 
     fn body_budget(&self) -> u64 {
@@ -337,7 +358,7 @@ impl<D: VolumeDev, A: VolumeDev, E: VolumeEvents> VolumeAssembler<D, A, E> {
 }
 
 /// Reads and parses the ACTIVE volume's superblock + index (bounded).
-fn read_active_index<A: VolumeDev>(active: &mut A) -> Result<VolumeIndex, RejectReason> {
+pub fn read_active_index<A: VolumeDev>(active: &mut A) -> Result<VolumeIndex, RejectReason> {
     let mut first = [0u8; SECTOR];
     active.read(VOLUME_START_SECTOR, &mut first)?;
     let sb = parse_superblock(&first, &PkgImgCaps::default())

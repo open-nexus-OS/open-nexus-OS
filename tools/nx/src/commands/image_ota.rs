@@ -79,16 +79,25 @@ pub(crate) fn handle_ota(args: ImageOtaArgs) -> ExecResult {
         // TASK-0035 P2: with `--reuse-from` only CHANGED windows ship; the
         // reuse manifest names both halves (what the device copies from its
         // active volume is exactly `reused`).
-        let base_index = match &args.reuse_from {
-            Some(base) => Some(volume::active_index_from(base)?),
-            None => None,
+        // TASK-0035 P3: `--delta-from-volume` turns every changed bundle with a
+        // same-named predecessor into a kind-4 stream against that window.
+        let (set, reused, deltas) = if let Some(base) = &args.delta_from_volume {
+            let (base_vol, base_index) = volume::active_volume_from(base)?;
+            volume::bundle_set_components_delta(&vol, &index, &nxsv, &base_vol, &base_index)
+        } else {
+            let base_index = match &args.reuse_from {
+                Some(base) => Some(volume::active_index_from(base)?),
+                None => None,
+            };
+            let (set, reused) =
+                volume::bundle_set_components_reusing(&vol, &index, &nxsv, base_index.as_ref());
+            (set, reused, Vec::new())
         };
-        let (set, reused) =
-            volume::bundle_set_components_reusing(&vol, &index, &nxsv, base_index.as_ref());
         bundle_set = json!({
             "bundles": index.bundles.iter().map(|b| format!("{}@{}", b.bundle, b.version)).collect::<Vec<_>>(),
             "shipped": set.iter().skip(1).map(|c| c.name.clone()).collect::<Vec<_>>(),
             "reused": reused,
+            "delta": deltas,
             "volume_bytes": vol.len(),
             "volume_sha256": hex(&sha256(&vol)),
         });
