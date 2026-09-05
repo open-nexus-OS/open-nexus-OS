@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-05 (TASK-0028 P0: RFC-0091 policy profile v2 seed)
+
+- RFC-0091 fixes ONE policy-profile schema for ABI argument filters,
+  egress and ingress: bounded literal matchers (statefs prefix + payload,
+  `net.bind` ports + address class, `net.connect` CIDR + ports, `limits`),
+  longest-specific-match with deny-beats-allow precedence (replacing v1's
+  first-match-wins), an additive wire v2 with a monotone per-subject epoch,
+  bounded learn records + `nx policy learn-gen`, and `OP_SET_ABI_MODE` as
+  the single authenticated, epoch-guarded runtime transition. Execution
+  TASK-0028 P1–P3; the netstackd seams follow in TASK-0043/0052.
+
 ### Changed - 2026-09-05 (TASK-0035 P4: close — the RFC-0089 OTA lane is complete)
 
 - RFC-0089 status: Phase 10 kind 4 ✅, Phase B orchestration ✅ (journal

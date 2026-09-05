@@ -1,6 +1,6 @@
 ---
 title: TASK-0028 ABI filters v2: argument matchers + learn→enforce + policy generator (host-first, OS-gated)
-status: Draft
+status: In Progress (P0 delivered 2026-09-05)
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -73,6 +73,22 @@ is the authority, resolved 2026-08-14); full regular expressions (bounded litera
   policy change“.
 - **Deny reasons**: policyd `AuditReason` becomes the single deny taxonomy
   (`AbiRuleDenied{class}` here; quota/egress/ingress variants land with TASK-0043/0052).
+
+### P0 delivered 2026-09-05 — RFC-0091 seed
+
+- `docs/rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md`: schema v2 (`epoch`,
+  `limits`, `[[…statefs]]`, `[[…net.bind]]` with `address`, `[[…net.connect]]` with `cidr` +
+  `ports`; v1 keys transcoded, mixed profiles rejected), precedence (longest specific match, deny
+  beats allow, deny by default, limits after allow), wire v2 (20-byte header with epoch + flags,
+  16-byte rule records + port ranges + prefix, `MAX_RULES` 24, `MAX_PROFILE_BYTES` 1024 — the
+  policyd reply already carries `profile_len:u16le`; v1 keeps decoding), epoch (monotone per
+  subject, `STATUS_STALE = 4`), learn record format + bounds, `OP_SET_ABI_MODE = 7` as the ONE
+  runtime transition, seams, reject vocabulary, the `test_reject_*` names and the marker set. RFC
+  index entry; ledgers 0043/0052 already reference „the TASK-0028 schema v2“.
+- Recut vs. the plan text: `MAX_RULES` 16 → 24 and `MAX_PROFILE_BYTES` 512 → 1024 (24 rule
+  records × 16 B + ports + prefixes do not fit 512); `STATUS_STALE` is a policyd status (additive
+  `4`), not a new op; IPv6 CIDRs reserved (`af = 6` rejects) until netstackd has v6 sockets.
+- Next: P1 (matcher + codec v2 + both parsers + reject suite).
 
 ### Packages
 
