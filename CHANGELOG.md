@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-04 (TASK-0035 P2: host reuse index)
+
+- `nx image ota --bundle-set <dir> --reuse-from <active.img | dir>` ships
+  only the bundles whose window digest changed against the device's
+  `system-a` (read from a built disk image, or rebuilt from the factory
+  bundle directory) and prints the reuse manifest (`bundle_set.shipped` /
+  `.reused`); the device copies every reused window from its active volume
+  while re-hashing it against the new index.
+
 ### Added - 2026-09-04 (TASK-0035 P1: NXSJ stage journal — a torn bundle-set stage resumes per bundle)
 
 - `updates::stage_journal`: the `NXSJ` sector-1 journal of the inactive

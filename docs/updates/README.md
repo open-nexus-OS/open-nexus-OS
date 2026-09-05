@@ -90,7 +90,10 @@ next stage of the same set, readback-verifies every journalled window and
 rewrites only the rest — `updated: restage resume (bundles=k/N)`; a valid
 NXSV zeroes the journal (TASK-0035 P1).
 
-`nx image ota --bundle-set <dir>` builds such a set from bundle
+`nx image ota --bundle-set <dir> --reuse-from <active.img>` ships only the
+bundles whose window digest changed against the device's `system-a` (JSON
+`bundle_set.shipped` / `.reused` = the reuse manifest, TASK-0035 P2);
+`nx image ota --bundle-set <dir>` alone builds the full set from bundle
 directories; `nx image fixtures --system-bundles <dir>` emits
 `/updates/bundle-set.nxs` (os-B + the NEXT system volume, `build.sh`
 ships it as `build/system-bundles-next`, metricsd@1.0.1). The

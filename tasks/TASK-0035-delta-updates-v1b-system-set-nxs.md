@@ -1,6 +1,6 @@
 ---
 title: TASK-0035 Delta updates v1b (system sets): nxs delta container + updated orchestration
-status: In Progress (P1 delivered 2026-09-04)
+status: In Progress (P1–P2 delivered 2026-09-04)
 owner: @runtime
 created: 2025-12-22
 updated: 2026-09-03
@@ -94,6 +94,22 @@ which components were shipped, reused or delta-reconstructed.
   `updated: restage resume (bundles=2/22)` → `stage done (slot=b …)` → `SELFTEST: ota stage resume
   ok`, nxra chain still green; 9 host tests; `just check` green; `just test-all` GREEN end to end
   (headless, smp1, reset, ota-flip, ota-bundle, ota-bundle-resume, ota-tamper/downgrade/fallback).
+
+### P2 delivered 2026-09-04 — host reuse index
+
+- `nx image ota --bundle-set <dir> --reuse-from <active.img | dir>`: `image_volume::active_index_from`
+  reads the device's `system-a` index straight from a built disk image (NXSV names the index; the
+  index digest is checked; no signature needed — a reuse locator carries no trust, the device
+  re-hashes every reused window against the NEW index) or rebuilds it from the factory bundle
+  directory; `bundle_set_components_reusing` (from 0321 P4a) ships only changed windows. JSON
+  reuse manifest `bundle_set.shipped` / `bundle_set.reused`. A base without a volume is a loud
+  reject.
+- Host test `bundle_set_ships_only_changed_bundles`: v1 disk built with `--system-bundles`, NEXT
+  set bumps metricsd → the container carries boot.img + system.idx + `metricsd@1.0.1` only, both
+  against the disk image and against the directory; blank image rejected. The device side was
+  already proven by the `ota-bundle` lane (21 reused of 22).
+- Proof (2026-09-04): host tests green (image_reuse_cli.rs; the volume test file split into
+  `tests/common/volume_fixture.rs` for the 600-LOC ratchet); `just check` + `just test-all` GREEN.
 
 ### Stop conditions (Definition of Done — replaces the seed DoD)
 

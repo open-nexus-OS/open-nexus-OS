@@ -155,6 +155,11 @@ pub(crate) struct ImageOtaArgs {
     /// with `--kernel` through the NXSV.
     #[arg(long)]
     pub(crate) bundle_set: Option<PathBuf>,
+    /// TASK-0035 P2: the ACTIVE volume (a bundle directory or a built disk
+    /// image whose `system-a` is the device's volume) — bundles whose window
+    /// digest is unchanged are left out of the set; the device reuses them.
+    #[arg(long, requires = "bundle_set")]
+    pub(crate) reuse_from: Option<PathBuf>,
     #[arg(long)]
     pub(crate) json: bool,
 }

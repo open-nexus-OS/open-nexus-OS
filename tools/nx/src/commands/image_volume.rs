@@ -242,6 +242,45 @@ fn read_volume(dev: &FileBlockDevice, slot: &Partition, size: u64) -> Result<Vec
     Ok(buf)
 }
 
+/// TASK-0035 P2: the ACTIVE volume's index as a reuse locator — from a
+/// bundle directory (rebuilt deterministically) or from a built disk image
+/// (`system-a`'s NXSV names the index; the digests are what the reuse diff
+/// compares — the device re-hashes every reused window against the NEW
+/// index, so this locator carries no trust).
+pub(crate) fn active_index_from(path: &Path) -> Result<VolumeIndex, NxError> {
+    if path.is_dir() {
+        let vol = build_volume_bytes(&load_bundle_dirs(path)?)?;
+        return parse_index(&vol, &PkgImgCaps::default())
+            .map_err(|e| NxError::new(ExitClass::Internal, format!("image: reuse index: {e}")));
+    }
+    let dev = FileBlockDevice::open_ro(path).map_err(|err| {
+        NxError::new(ExitClass::MissingDependency, format!("image: open {}: {err}", path.display()))
+    })?;
+    let parts = storage::gpt::parse_gpt(&dev).map_err(|e| {
+        NxError::new(ExitClass::ValidationReject, format!("image: gpt parse failed ({e:?})"))
+    })?;
+    let slot = crate::commands::image::part(&parts, &storage::gpt::GUID_NEXUS_SYS, "system-a")?;
+    let mut sector = [0u8; SECTOR];
+    dev.read_blocks(slot.first_lba, &mut sector)
+        .map_err(|e| NxError::new(ExitClass::Internal, format!("image: nxsv read ({e:?})")))?;
+    let (desc, _sig) = bootfmt::nxsv::decode(&sector)
+        .map_err(|_| reject("image: --reuse-from image carries no system-a volume".into()))?;
+    let index_len = desc.index_len as usize;
+    if index_len == 0 || index_len > storage::pkgimg_bundles::MAX_INDEX_BYTES_V3 {
+        return Err(reject("image: --reuse-from index length out of bounds".into()));
+    }
+    let padded = index_len.div_ceil(SECTOR) * SECTOR;
+    let mut head = vec![0u8; padded];
+    dev.read_blocks(slot.first_lba + VOLUME_START_SECTOR, &mut head)
+        .map_err(|e| NxError::new(ExitClass::Internal, format!("image: index read ({e:?})")))?;
+    head.truncate(index_len);
+    if Sha256::digest(&head).as_slice() != desc.index_sha256 {
+        return Err(reject("image: --reuse-from index digest mismatch".into()));
+    }
+    parse_index(&head, &PkgImgCaps::default())
+        .map_err(|e| reject(format!("image: --reuse-from index: {e}")))
+}
+
 /// Verifies a system slot: `Ok(None)` for a factory-empty slot (zeroed
 /// descriptor), else every check bundlemgrd performs at boot PLUS the lazy
 /// per-bundle/per-entry digests (the host has all the bytes).
@@ -315,16 +354,8 @@ pub(crate) struct Component {
 /// The bundle-set components (RFC-0089 §12.4 ordering: `system-volume`
 /// first — its payload is the superblock + index, `kindData` the NXSV —
 /// then one `bundle` per bundle-table row whose payload is exactly the
-/// bundle's window, so the component sha256 IS the index bundle sha256).
-pub(crate) fn bundle_set_components(
-    volume: &[u8],
-    index: &VolumeIndex,
-    nxsv: &[u8; SECTOR],
-) -> Vec<Component> {
-    bundle_set_components_reusing(volume, index, nxsv, None).0
-}
-
-/// The same set, shipping ONLY the bundles the device cannot reuse: a
+/// bundle's window). With `base` (the device's ACTIVE index) it ships ONLY
+/// the bundles the device cannot reuse: a
 /// bundle whose window digest is already on `base` (the volume the device
 /// runs) is left out — the device's `commit_set` copies it from the active
 /// slot against the new index (RFC-0089 §12.5 `updated: bundle reused`).

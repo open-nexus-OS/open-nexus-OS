@@ -76,9 +76,19 @@ pub(crate) fn handle_ota(args: ImageOtaArgs) -> ExecResult {
             args.rollback_index,
             &os_seed,
         )?;
-        let set = volume::bundle_set_components(&vol, &index, &nxsv);
+        // TASK-0035 P2: with `--reuse-from` only CHANGED windows ship; the
+        // reuse manifest names both halves (what the device copies from its
+        // active volume is exactly `reused`).
+        let base_index = match &args.reuse_from {
+            Some(base) => Some(volume::active_index_from(base)?),
+            None => None,
+        };
+        let (set, reused) =
+            volume::bundle_set_components_reusing(&vol, &index, &nxsv, base_index.as_ref());
         bundle_set = json!({
             "bundles": index.bundles.iter().map(|b| format!("{}@{}", b.bundle, b.version)).collect::<Vec<_>>(),
+            "shipped": set.iter().skip(1).map(|c| c.name.clone()).collect::<Vec<_>>(),
+            "reused": reused,
             "volume_bytes": vol.len(),
             "volume_sha256": hex(&sha256(&vol)),
         });

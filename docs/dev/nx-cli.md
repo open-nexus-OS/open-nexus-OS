@@ -140,8 +140,13 @@ Current live-input topic:
     device is RUNNING (the stream binds to the active NXBD's digest);
     workflow: `docs/updates/delta.md`
 
-- `nx image ota --bundle-set <dir>` / `nx image fixtures --system-bundles <dir>`
-  (TASK-0321, RFC-0089 §12)
+- `nx image ota --bundle-set <dir> [--reuse-from <active.img | dir>]` /
+  `nx image fixtures --system-bundles <dir> [--reuse-from <dir>]` (TASK-0321, TASK-0035 P2)
+  - `--reuse-from` diffs the NEXT set's bundle window digests against the device's
+    ACTIVE volume (a built disk image's `system-a`, or the factory bundle directory) and
+    ships only the changed bundles; the JSON `bundle_set.shipped` / `.reused` is the
+    reuse manifest — the device copies every `reused` window from its active volume
+    while re-hashing it against the new index (`updated: bundle reused`)
   - `ota --bundle-set` appends `system-volume` (kind 6: index + signed NXSV
     paired with the boot image) and one `bundle` (kind 2) per index window
     after the boot-image component; `fixtures --system-bundles` emits the
