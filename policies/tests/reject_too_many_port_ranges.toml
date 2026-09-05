@@ -1,0 +1,7 @@
+# expect: TooManyPortRanges
+[abi_profile."demo.ranges"]
+epoch = 1
+
+[[abi_profile."demo.ranges".net.bind]]
+action = "allow"
+ports = ["1", "2", "3", "4", "5"]

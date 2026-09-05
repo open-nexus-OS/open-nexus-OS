@@ -1,0 +1,7 @@
+# expect: UnknownAction
+[abi_profile."demo.action"]
+epoch = 1
+
+[[abi_profile."demo.action".statefs]]
+action = "permit"
+prefix = "/state/app/demo/"

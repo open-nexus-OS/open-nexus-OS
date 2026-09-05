@@ -1,0 +1,8 @@
+# expect: BadCidr
+[abi_profile."demo.cidr"]
+epoch = 1
+
+[[abi_profile."demo.cidr".net.connect]]
+action = "allow"
+cidr = "10.0.2.1/24"
+ports = ["80"]

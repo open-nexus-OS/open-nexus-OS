@@ -1,0 +1,7 @@
+# expect: PrefixNotCanonical
+[abi_profile."demo.dotdot"]
+epoch = 1
+
+[[abi_profile."demo.dotdot".statefs]]
+action = "allow"
+prefix = "/state/app/demo/../"

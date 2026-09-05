@@ -24,6 +24,8 @@ mod os_lite;
 pub use os_lite::*;
 
 #[cfg(any(test, feature = "os-lite"))]
+pub mod abi_profile;
+#[cfg(any(test, feature = "os-lite"))]
 pub mod lite_protocol;
 
 pub mod supply_chain;

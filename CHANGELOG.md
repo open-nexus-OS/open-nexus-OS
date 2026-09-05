@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-05 (TASK-0028 P1: RFC-0091 matcher, codec v2, one policy parser)
+
+- `nexus-abi` `abi_filter`: `net.connect` class, bind address class, port
+  ranges, `limits`, epoch, and the RFC-0091 precedence engine (most specific
+  rule wins, deny beats allow, no rule ⇒ deny, allow then limits) replacing
+  first-match-wins; canonical-path gate before matching; wire v2 codec with
+  v1 still decoding (`abi_filter/wire.rs`). `nexus-wire` policyd:
+  `MAX_PROFILE_BYTES` 1024, `STATUS_STALE`, `OP_SET_ABI_MODE` frame.
+- ONE `abi_profile` schema parser: `userspace/policy/src/schema.rs`, included
+  by path in policyd's `build.rs`, which now emits a structured v2 table
+  served through `policyd/src/abi_profile.rs`. Shared fixture corpus
+  `policies/tests/` (`ok_*` / `reject_*`), `policies/base.toml` migrated to
+  schema v2, `nx policy validate --write-manifest` regenerates the manifest.
+- Reject suite `cargo test -p nexus-abi -- v2_reject` (shadowing, argument
+  injection, regex DoS, stale epoch, unknown class, oversize) plus the parser
+  corpus (`test_reject_regex_dos` at the grammar).
+
 ### Added - 2026-09-05 (TASK-0028 P0: RFC-0091 policy profile v2 seed)
 
 - RFC-0091 fixes ONE policy-profile schema for ABI argument filters,

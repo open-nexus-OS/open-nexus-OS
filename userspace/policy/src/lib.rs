@@ -29,6 +29,8 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 
+pub mod schema;
+
 pub const MAX_POLICY_FILE_BYTES: usize = 64 * 1024;
 pub const MAX_POLICY_INCLUDES: usize = 128;
 pub const DEFAULT_EXPLAIN_TRACE_LIMIT: usize = 32;
@@ -40,13 +42,8 @@ pub struct PolicyDoc {
     abi_profile: BTreeMap<String, AbiProfile>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub struct AbiProfile {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    statefs_put_allow_prefix: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    net_bind_min_port: Option<u16>,
-}
+/// RFC-0091 compiled subject profile (schema SSOT: `schema.rs`).
+pub use schema::Profile as AbiProfile;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PolicyVersion(String);
@@ -163,6 +160,13 @@ pub enum Error {
     Oversize { path: PathBuf, len: usize, max: usize },
     #[error("unknown policy section in {path}: {section}")]
     UnknownSection { path: PathBuf, section: String },
+    #[error("invalid abi_profile for {subject} in {path}: {source}")]
+    Schema {
+        path: PathBuf,
+        subject: String,
+        #[source]
+        source: schema::SchemaError,
+    },
     #[error("failed to canonicalize policy tree: {0}")]
     Canonical(String),
     #[error("policy explain trace over budget: required={required} max={max}")]
@@ -182,6 +186,7 @@ impl Error {
             Self::IncludeTraversal { .. } => "policy.include_traversal",
             Self::Oversize { .. } => "policy.oversize",
             Self::UnknownSection { .. } => "policy.unknown_section",
+            Self::Schema { .. } => "policy.schema",
             Self::Canonical(_) => "policy.canonical",
             Self::TraceBudgetExceeded { .. } => "policy.explain_trace_over_budget",
             Self::ManifestMismatch { .. } => "policy.manifest_mismatch",
@@ -304,12 +309,12 @@ impl PolicyDoc {
                 .map_err(|source| Error::Read { path: path.clone(), source })?;
             let parsed: RawPolicy = toml::from_str(&data)
                 .map_err(|source| Error::Parse { path: path.clone(), source })?;
-            doc.merge(parsed);
+            doc.merge(&path, parsed)?;
         }
         Ok(doc)
     }
 
-    fn merge(&mut self, raw: RawPolicy) {
+    fn merge(&mut self, path: &Path, raw: RawPolicy) -> Result<(), Error> {
         for (service, caps) in raw.allow {
             let service_key = canonical(&service);
             let mut set = BTreeSet::new();
@@ -318,16 +323,20 @@ impl PolicyDoc {
             }
             self.allow.insert(service_key, set);
         }
-        for (service, mut profile) in raw.abi_profile {
-            let service_key = canonical(&service);
-            profile.statefs_put_allow_prefix = profile
-                .statefs_put_allow_prefix
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .map(ToString::to_string);
-            self.abi_profile.insert(service_key, profile);
+        for (service, raw_profile) in raw.abi_profile {
+            let profile = schema::compile(&raw_profile).map_err(|source| Error::Schema {
+                path: path.to_path_buf(),
+                subject: service.clone(),
+                source,
+            })?;
+            self.abi_profile.insert(canonical(&service), profile);
         }
+        Ok(())
+    }
+
+    /// The compiled RFC-0091 profile of `subject`, when authored.
+    pub fn abi_profile(&self, subject: &str) -> Option<&AbiProfile> {
+        self.abi_profile.get(&canonical(subject))
     }
 }
 
@@ -374,7 +383,7 @@ impl PolicyTree {
             reject_unknown_policy_sections(&include_path, &data)?;
             let parsed: RawPolicy = toml::from_str(&data)
                 .map_err(|source| Error::Parse { path: include_path.clone(), source })?;
-            policy.merge(parsed);
+            policy.merge(&include_path, parsed)?;
         }
         let version = policy_version(&policy)?;
         Ok(Self { version, policy })
@@ -434,7 +443,7 @@ struct RawPolicy {
     #[serde(default)]
     allow: BTreeMap<String, Vec<String>>,
     #[serde(default)]
-    abi_profile: BTreeMap<String, AbiProfile>,
+    abi_profile: BTreeMap<String, schema::RawAbiProfile>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -508,304 +517,4 @@ fn has_toml_files(dir: &Path) -> Result<bool, Error> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-    use tempfile::TempDir;
-
-    #[test]
-    fn check_allows_and_denies() {
-        let mut doc = PolicyDoc::default();
-        doc.merge(RawPolicy {
-            allow: BTreeMap::from([(
-                "Example".to_string(),
-                vec!["IPC.Core".to_string(), "time.read".to_string()],
-            )]),
-            abi_profile: BTreeMap::new(),
-        });
-
-        assert!(doc.check(&["ipc.core"], "EXAMPLE").is_ok());
-        let err = doc.check(&["fs.write"], "example").unwrap_err();
-        assert_eq!(err.missing, vec!["fs.write".to_string()]);
-    }
-
-    #[test]
-    fn load_dir_merges_files_with_override() {
-        let temp = TempDir::new().unwrap();
-        let path = temp.path();
-        let mut file_a = std::fs::File::create(path.join("a.toml")).unwrap();
-        writeln!(file_a, "[allow]\nfoo = ['cap.a']\nbar = ['cap.b']").unwrap();
-        let mut file_b = std::fs::File::create(path.join("b.toml")).unwrap();
-        writeln!(file_b, "[allow]\nbar = ['cap.c']").unwrap();
-
-        let doc = PolicyDoc::load_dir(path).unwrap();
-        assert!(doc.check(&["cap.a"], "foo").is_ok());
-        let err = doc.check(&["cap.b"], "bar").unwrap_err();
-        assert_eq!(err.missing, vec!["cap.b".to_string()]);
-        assert!(doc.check(&["cap.c"], "bar").is_ok());
-    }
-
-    #[test]
-    fn policy_tree_version_is_deterministic_for_same_inputs() {
-        let temp = TempDir::new().unwrap();
-        let policies = temp.path().join("policies");
-        fs::create_dir_all(&policies).unwrap();
-        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
-            .unwrap();
-        fs::write(policies.join("base.toml"), "[allow]\nExample = ['IPC.Core', 'time.read']\n")
-            .unwrap();
-
-        let first = PolicyTree::load_root(&policies).unwrap();
-        let second = PolicyTree::load_root(&policies).unwrap();
-
-        assert_eq!(first.version(), second.version());
-        assert!(first.policy().check(&["ipc.core"], "example").is_ok());
-    }
-
-    #[test]
-    fn test_reject_invalid_policy_tree() {
-        let temp = TempDir::new().unwrap();
-        let policies = temp.path().join("policies");
-        fs::create_dir_all(&policies).unwrap();
-        fs::write(policies.join("nexus.policy.toml"), "version = 2\ninclude = ['base.toml']\n")
-            .unwrap();
-        fs::write(policies.join("base.toml"), "[allow]\nsvc = ['ipc.core']\n").unwrap();
-
-        let err = PolicyTree::load_root(&policies).unwrap_err();
-        assert_eq!(err.code(), "policy.invalid_root");
-    }
-
-    #[test]
-    fn test_reject_oversize_policy_tree() {
-        let temp = TempDir::new().unwrap();
-        let policies = temp.path().join("policies");
-        fs::create_dir_all(&policies).unwrap();
-        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
-            .unwrap();
-        fs::write(policies.join("base.toml"), "x".repeat(MAX_POLICY_FILE_BYTES + 1)).unwrap();
-
-        let err = PolicyTree::load_root(&policies).unwrap_err();
-        assert_eq!(err.code(), "policy.oversize");
-    }
-
-    #[test]
-    fn test_reject_policy_include_traversal() {
-        let temp = TempDir::new().unwrap();
-        let policies = temp.path().join("policies");
-        fs::create_dir_all(&policies).unwrap();
-        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['../base.toml']\n")
-            .unwrap();
-
-        let err = PolicyTree::load_root(&policies).unwrap_err();
-        assert_eq!(err.code(), "policy.include_traversal");
-    }
-
-    #[test]
-    fn test_reject_ambiguous_policy_root() {
-        let temp = TempDir::new().unwrap();
-        fs::create_dir_all(temp.path().join("policies")).unwrap();
-        fs::create_dir_all(temp.path().join("recipes/policy")).unwrap();
-        fs::write(temp.path().join("recipes/policy/base.toml"), "[allow]\nsvc = ['ipc.core']\n")
-            .unwrap();
-
-        let err = PolicyTree::load_single_authority(temp.path()).unwrap_err();
-        assert_eq!(err.code(), "policy.ambiguous_root");
-    }
-
-    #[test]
-    fn test_reject_unknown_policy_section() {
-        let temp = TempDir::new().unwrap();
-        let policies = temp.path().join("policies");
-        fs::create_dir_all(&policies).unwrap();
-        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
-            .unwrap();
-        fs::write(policies.join("base.toml"), "[unknown]\nsvc = true\n").unwrap();
-
-        let err = PolicyTree::load_root(&policies).unwrap_err();
-        assert_eq!(err.code(), "policy.unknown_section");
-    }
-
-    #[test]
-    fn evaluator_returns_bounded_explain_trace_and_stable_reason() {
-        let mut doc = PolicyDoc::default();
-        doc.merge(RawPolicy {
-            allow: BTreeMap::from([(
-                "Example".to_string(),
-                vec!["IPC.Core".to_string(), "time.read".to_string()],
-            )]),
-            abi_profile: BTreeMap::new(),
-        });
-
-        let decision = doc
-            .evaluate(&["ipc.core", "time.read"], "EXAMPLE", PolicyMode::Enforce)
-            .expect("evaluation");
-
-        assert!(decision.allow);
-        assert!(!decision.would_deny);
-        assert_eq!(decision.reason_code.as_str(), "explicit_allow");
-        assert_eq!(decision.trace.len(), 2);
-        assert!(decision.trace.iter().all(|step| step.matched));
-    }
-
-    #[test]
-    fn evaluator_is_deny_by_default_with_stable_missing_reason() {
-        let doc = PolicyDoc::default();
-        let decision =
-            doc.evaluate(&["fs.write"], "unknown", PolicyMode::Enforce).expect("evaluation");
-
-        assert!(!decision.allow);
-        assert!(decision.would_deny);
-        assert_eq!(decision.reason_code.as_str(), "missing_capabilities");
-        assert_eq!(decision.trace[0].capability, "fs.write");
-        assert!(!decision.trace[0].matched);
-    }
-
-    #[test]
-    fn dry_run_and_learn_do_not_bypass_enforce_denies() {
-        let doc = PolicyDoc::default();
-
-        for mode in [PolicyMode::DryRun, PolicyMode::Learn] {
-            let decision = doc.evaluate(&["crypto.sign"], "demo", mode).expect("evaluation");
-            assert!(!decision.allow);
-            assert!(decision.would_deny);
-            assert_eq!(decision.reason_code, ReasonCode::MissingCapabilities);
-            assert_eq!(decision.mode, mode);
-        }
-    }
-
-    #[test]
-    fn test_reject_unbounded_explain_trace() {
-        let doc = PolicyDoc::default();
-        let err = doc
-            .evaluate_with_trace_limit(&["cap.a", "cap.b"], "demo", PolicyMode::Enforce, 1)
-            .unwrap_err();
-
-        assert_eq!(err.code(), "policy.explain_trace_over_budget");
-    }
-
-    #[test]
-    fn evaluator_covers_abi_egress_and_signing_domain_shapes() {
-        let mut doc = PolicyDoc::default();
-        doc.merge(RawPolicy {
-            allow: BTreeMap::from([
-                ("selftest-client".to_string(), vec!["abi.statefs.put".to_string()]),
-                ("netstackd".to_string(), vec!["net.egress".to_string()]),
-                ("keystored".to_string(), vec!["crypto.sign".to_string()]),
-            ]),
-            abi_profile: BTreeMap::new(),
-        });
-
-        assert!(
-            doc.evaluate(&["abi.statefs.put"], "selftest-client", PolicyMode::Enforce)
-                .expect("abi")
-                .allow
-        );
-        assert!(
-            doc.evaluate(&["net.egress"], "netstackd", PolicyMode::Enforce).expect("egress").allow
-        );
-        assert!(
-            doc.evaluate(&["crypto.sign"], "keystored", PolicyMode::Enforce)
-                .expect("signing")
-                .allow
-        );
-    }
-
-    #[test]
-    fn learn_log_normalization_is_deterministic() {
-        let doc = PolicyDoc::default();
-        let decision = doc
-            .evaluate(&["net.egress", "crypto.sign"], "demo", PolicyMode::Learn)
-            .expect("learn eval");
-        let observations = PolicyDoc::learn_observations(&decision);
-        let mut reversed = observations.clone();
-        reversed.reverse();
-
-        assert_eq!(
-            PolicyDoc::normalize_learn_log(observations),
-            PolicyDoc::normalize_learn_log(reversed)
-        );
-    }
-
-    #[test]
-    fn policy_manifest_is_deterministic_and_validates_tree_hash() {
-        let temp = TempDir::new().unwrap();
-        let policies = temp.path().join("policies");
-        fs::create_dir_all(&policies).unwrap();
-        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
-            .unwrap();
-        fs::write(policies.join("base.toml"), "[allow]\ndemo = ['ipc.core']\n").unwrap();
-        let tree = PolicyTree::load_root(&policies).unwrap();
-
-        tree.write_manifest(&policies).unwrap();
-
-        let manifest = fs::read_to_string(policies.join("manifest.json")).unwrap();
-        assert!(manifest.contains("\"version\": 1"));
-        assert!(manifest.contains("\"generated_at_ns\": 0"));
-        assert!(manifest.contains(tree.version().as_str()));
-        tree.validate_manifest(&policies).unwrap();
-    }
-
-    #[test]
-    fn test_reject_policy_manifest_mismatch() {
-        let temp = TempDir::new().unwrap();
-        let policies = temp.path().join("policies");
-        fs::create_dir_all(&policies).unwrap();
-        fs::write(policies.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
-            .unwrap();
-        fs::write(policies.join("base.toml"), "[allow]\ndemo = ['ipc.core']\n").unwrap();
-        fs::write(
-            policies.join("manifest.json"),
-            r#"{"version":1,"tree_sha256":"bad","generated_at_ns":0}"#,
-        )
-        .unwrap();
-        let tree = PolicyTree::load_root(&policies).unwrap();
-
-        let err = tree.validate_manifest(&policies).unwrap_err();
-
-        assert_eq!(err.code(), "policy.manifest_mismatch");
-    }
-
-    #[test]
-    fn adapter_parity_signing_capability_matches_legacy_check() {
-        let mut doc = PolicyDoc::default();
-        doc.merge(RawPolicy {
-            allow: BTreeMap::from([("keystored".to_string(), vec!["crypto.sign".to_string()])]),
-            abi_profile: BTreeMap::new(),
-        });
-
-        let legacy_allow = doc.check(&["crypto.sign"], "keystored").is_ok();
-        let unified_allow = doc
-            .evaluate(&["crypto.sign"], "keystored", PolicyMode::Enforce)
-            .expect("unified eval")
-            .allow;
-        let legacy_deny = doc.check(&["crypto.verify"], "keystored").is_err();
-        let unified_deny = !doc
-            .evaluate(&["crypto.verify"], "keystored", PolicyMode::Enforce)
-            .expect("unified eval")
-            .allow;
-
-        assert_eq!(unified_allow, legacy_allow);
-        assert_eq!(unified_deny, legacy_deny);
-    }
-
-    #[test]
-    fn adapter_parity_exec_capability_matches_legacy_check() {
-        let mut doc = PolicyDoc::default();
-        doc.merge(RawPolicy {
-            allow: BTreeMap::from([("execd".to_string(), vec!["proc.spawn".to_string()])]),
-            abi_profile: BTreeMap::new(),
-        });
-
-        let legacy_allow = doc.check(&["proc.spawn"], "execd").is_ok();
-        let unified_allow = doc
-            .evaluate(&["proc.spawn"], "execd", PolicyMode::Enforce)
-            .expect("unified eval")
-            .allow;
-        let legacy_deny = doc.check(&["fs.write"], "execd").is_err();
-        let unified_deny =
-            !doc.evaluate(&["fs.write"], "execd", PolicyMode::Enforce).expect("unified eval").allow;
-
-        assert_eq!(unified_allow, legacy_allow);
-        assert_eq!(unified_deny, legacy_deny);
-    }
-}
+mod tests;

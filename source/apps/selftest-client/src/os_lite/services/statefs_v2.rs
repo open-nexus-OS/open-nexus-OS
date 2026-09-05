@@ -24,8 +24,8 @@ use statefs::StatefsError;
 use super::statefs::statefs_send_recv;
 
 // All probe keys live under the allowlisted selftest write prefix
-// (`abi_profile."selftest-client".statefs_put_allow_prefix` in
-// policies/base.toml).
+// (the `abi_profile."selftest-client".statefs` allow rule in
+// policies/base.toml, RFC-0091 schema v2).
 const TXN_KEY_A: &str = "/state/app/selftest/txn/a";
 const TXN_KEY_B: &str = "/state/app/selftest/txn/b";
 const TXN_VAL_A: &[u8] = b"txn-alpha-v1";

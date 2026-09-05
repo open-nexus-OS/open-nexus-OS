@@ -1,0 +1,8 @@
+# expect: UnknownAddress
+[abi_profile."demo.addr"]
+epoch = 1
+
+[[abi_profile."demo.addr".net.bind]]
+action = "allow"
+ports = ["80"]
+address = "wan"

@@ -30,6 +30,11 @@ pub(crate) fn handle_policy(args: PolicyArgs, cfg: &RuntimeConfig) -> ExecResult
 fn handle_policy_validate(args: PolicyValidateArgs, cfg: &RuntimeConfig) -> ExecResult {
     let root = policy_root(cfg, args.root);
     let tree = load_tree(&root)?;
+    if args.write_manifest {
+        tree.write_manifest(&root).map_err(|err| {
+            NxError::new(ExitClass::ValidationReject, format!("{}: {err}", err.code()))
+        })?;
+    }
     tree.validate_manifest(&root).map_err(|err| {
         NxError::new(ExitClass::ValidationReject, format!("{}: {err}", err.code()))
     })?;

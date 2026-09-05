@@ -1,0 +1,5 @@
+# expect: ok
+# v1 keys transcode to: statefs allow prefix + loopback-only bind 1024-65535, epoch 0.
+[abi_profile."demo.legacy"]
+statefs_put_allow_prefix = "/state/app/legacy/"
+net_bind_min_port = 1024

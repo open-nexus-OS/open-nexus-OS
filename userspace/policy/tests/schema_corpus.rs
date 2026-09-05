@@ -1,0 +1,166 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: RFC-0091 shared schema corpus — every `policies/tests/*.toml`
+//! fixture is parsed through the ONE `schema.rs` grammar (the same file
+//! policyd's build.rs includes) and must match its `# expect:` verdict.
+//! Positive fixtures additionally pin the transcode/compile semantics.
+//! OWNERS: @runtime @security
+//! STATUS: Experimental
+//! TEST_COVERAGE: TASK-0028 P1 (`test_reject_regex_dos` at the parser)
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use nexus_policy::schema::{
+    compile, Action, AddressClass, PortRange, Profile, RawAbiProfile, Rule, SchemaError,
+};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Fixture {
+    #[serde(default)]
+    abi_profile: BTreeMap<String, RawAbiProfile>,
+}
+
+fn corpus_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../policies/tests")
+}
+
+fn expectation(data: &str) -> String {
+    data.lines()
+        .find_map(|l| l.strip_prefix("# expect:"))
+        .map(|v| v.trim().to_string())
+        .unwrap_or_else(|| panic!("fixture without `# expect:` line"))
+}
+
+fn variant_name(err: &SchemaError) -> &'static str {
+    match err {
+        SchemaError::MixedVersions => "MixedVersions",
+        SchemaError::EmptyPrefix => "EmptyPrefix",
+        SchemaError::PrefixNotAbsolute(_) => "PrefixNotAbsolute",
+        SchemaError::PrefixNotCanonical(_) => "PrefixNotCanonical",
+        SchemaError::PrefixTooLong { .. } => "PrefixTooLong",
+        SchemaError::PrefixPatternSyntax { .. } => "PrefixPatternSyntax",
+        SchemaError::UnknownAction(_) => "UnknownAction",
+        SchemaError::UnknownAddress(_) => "UnknownAddress",
+        SchemaError::BadPort(_) => "BadPort",
+        SchemaError::NoPortRanges => "NoPortRanges",
+        SchemaError::TooManyPortRanges { .. } => "TooManyPortRanges",
+        SchemaError::BadCidr(_) => "BadCidr",
+        SchemaError::TooManyRules { .. } => "TooManyRules",
+        SchemaError::RuleLimitAboveProfile { .. } => "RuleLimitAboveProfile",
+    }
+}
+
+/// Parses one fixture the way both parsers do: TOML → raw → compile.
+fn run(path: &Path) -> Result<BTreeMap<String, Profile>, String> {
+    let data = fs::read_to_string(path).unwrap();
+    let fixture: Fixture = toml::from_str(&data).map_err(|_| "parse".to_string())?;
+    let mut out = BTreeMap::new();
+    for (subject, raw) in fixture.abi_profile {
+        let profile = compile(&raw).map_err(|e| variant_name(&e).to_string())?;
+        out.insert(subject, profile);
+    }
+    Ok(out)
+}
+
+#[test]
+fn corpus_verdicts_match_expectations() {
+    let mut files: Vec<PathBuf> = fs::read_dir(corpus_dir())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("toml"))
+        .collect();
+    files.sort();
+    assert!(files.len() >= 15, "corpus too small: {}", files.len());
+    let mut seen_ok = 0;
+    let mut seen_reject = 0;
+    for path in files {
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        let expect = expectation(&fs::read_to_string(&path).unwrap());
+        let verdict = match run(&path) {
+            Ok(_) => "ok".to_string(),
+            Err(e) => e,
+        };
+        assert_eq!(verdict, expect, "fixture {name}");
+        if name.starts_with("ok_") {
+            assert_eq!(expect, "ok", "fixture {name} is named ok_ but expects a reject");
+            seen_ok += 1;
+        } else {
+            assert!(name.starts_with("reject_"), "fixture {name} must be ok_* or reject_*");
+            assert_ne!(expect, "ok", "fixture {name} is named reject_ but expects ok");
+            seen_reject += 1;
+        }
+    }
+    assert!(seen_ok >= 3 && seen_reject >= 12, "ok={seen_ok} reject={seen_reject}");
+}
+
+#[test]
+fn test_reject_regex_dos() {
+    // The parser is where pattern syntax dies: no matcher ever sees it.
+    let verdict = run(&corpus_dir().join("reject_regex_prefix.toml")).unwrap_err();
+    assert_eq!(verdict, "PrefixPatternSyntax");
+    for bad in
+        ["/state/a*", "/state/a?", "/state/[ab]/", "/state/(a)/", "/state/a|b/", "/state/a\\b"]
+    {
+        let raw = RawAbiProfile {
+            epoch: Some(1),
+            statefs: vec![nexus_policy::schema::RawStatefsRule {
+                action: "allow".into(),
+                prefix: bad.into(),
+                max_payload: None,
+            }],
+            ..Default::default()
+        };
+        assert!(
+            matches!(compile(&raw), Err(SchemaError::PrefixPatternSyntax { .. })),
+            "{bad} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn v1_legacy_transcodes_to_v2_rules() {
+    let profiles = run(&corpus_dir().join("ok_v1_legacy.toml")).unwrap();
+    let p = &profiles["demo.legacy"];
+    assert_eq!(p.epoch, 0);
+    assert_eq!(p.limits, None);
+    assert_eq!(
+        p.rules,
+        vec![
+            Rule::Statefs {
+                action: Action::Allow,
+                prefix: "/state/app/legacy/".into(),
+                max_payload: 0
+            },
+            Rule::NetBind {
+                action: Action::Allow,
+                address: AddressClass::Loopback,
+                ports: vec![PortRange { min: 1024, max: 65535 }],
+            },
+        ]
+    );
+}
+
+#[test]
+fn v2_full_compiles_canonically() {
+    let profiles = run(&corpus_dir().join("ok_v2_full.toml")).unwrap();
+    let p = &profiles["demo.full"];
+    assert_eq!(p.epoch, 7);
+    assert_eq!(p.limits.map(|l| (l.deadline_ms, l.max_payload)), Some((2000, 4096)));
+    assert_eq!(p.rules.len(), 6);
+    assert!(matches!(&p.rules[0], Rule::Statefs { max_payload: 2048, .. }));
+    assert!(matches!(
+        &p.rules[3],
+        Rule::NetBind { action: Action::Deny, address: AddressClass::Any, .. }
+    ));
+    assert!(matches!(&p.rules[5], Rule::NetConnect { cidr: [0, 0, 0, 0], cidr_len: 0, .. }));
+    // The root loader compiles the shipped base.toml through the same path.
+    let tree = nexus_policy::PolicyTree::load_root(&corpus_dir().join("..")).unwrap();
+    let live = tree.policy().abi_profile("selftest-client").expect("selftest profile");
+    assert!(live.epoch >= 1);
+    assert!(live.rules.iter().any(|r| matches!(r, Rule::NetConnect { .. })));
+}

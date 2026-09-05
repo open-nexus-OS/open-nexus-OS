@@ -12,14 +12,14 @@ This page is a **catalog and naming guide**, not the single enforcement source o
 
 Use these sources together:
 
-- current baseline allowlist: `recipes/policy/base.toml`
+- current baseline allowlist: `policies/base.toml`
 - policy authority and evaluation model: `docs/architecture/11-policyd-and-policy-flow.md`
 - signing/install/policy flow: `docs/security/signing-and-policy.md`
 - capability-driven track contracts: for example `tasks/TRACK-NEXUSNET-SDK.md` and `tasks/TASK-0136-policy-v1-capability-matrix-foreground-adapters-audit.md`
 
 ## Current baseline capabilities (enforced today)
 
-These names appear in the current baseline policy file under `recipes/policy/base.toml`.
+These names appear in the current baseline policy file under `policies/base.toml`.
 
 ### Core routing and process
 

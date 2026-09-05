@@ -1,0 +1,103 @@
+# expect: TooManyRules
+[abi_profile."demo.many"]
+epoch = 1
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/0/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/1/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/2/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/3/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/4/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/5/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/6/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/7/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/8/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/9/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/10/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/11/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/12/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/13/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/14/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/15/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/16/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/17/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/18/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/19/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/20/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/21/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/22/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/23/"
+
+[[abi_profile."demo.many".statefs]]
+action = "allow"
+prefix = "/state/app/many/24/"

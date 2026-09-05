@@ -1,0 +1,6 @@
+# expect: parse
+[abi_profile."demo.class"]
+epoch = 1
+
+[[abi_profile."demo.class".net.raw]]
+action = "allow"

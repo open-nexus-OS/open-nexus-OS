@@ -76,6 +76,31 @@ pinched = ["ipc.core"]
 "selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset", "updates.manage"]
 "demo.testsvc" = []
 
+# RFC-0091 profile v2 (schema SSOT: userspace/policy/src/schema.rs; both
+# parsers compile the same rules). Precedence: most specific rule wins,
+# deny beats allow, no rule = deny. `epoch` is monotone per subject —
+# bump it with every behavioural change (mode switches are epoch-guarded).
 [abi_profile."selftest-client"]
-statefs_put_allow_prefix = "/state/app/selftest/"
-net_bind_min_port = 1024
+epoch = 1
+
+[abi_profile."selftest-client".limits]
+deadline_ms = 2000
+max_payload = 4096
+
+[[abi_profile."selftest-client".statefs]]
+action = "allow"
+prefix = "/state/app/selftest/"
+
+[[abi_profile."selftest-client".statefs]]
+action = "deny"
+prefix = "/state/app/selftest/secrets/"
+
+[[abi_profile."selftest-client".net.bind]]
+action = "allow"
+ports = ["1024-65535"]
+address = "loopback"
+
+[[abi_profile."selftest-client".net.connect]]
+action = "allow"
+cidr = "10.0.2.0/24"
+ports = ["53", "80", "443"]

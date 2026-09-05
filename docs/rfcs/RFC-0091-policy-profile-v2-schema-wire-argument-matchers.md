@@ -246,7 +246,7 @@ cd /home/jenning/open-nexus-OS && just test-os headless   # and smp1
 ## Implementation Checklist
 
 - [x] **Phase 0**: contract seed (this RFC), RFC index, ledgers 0028/0043/0052 point here — proof: `just check` docs gates (2026-09-05)
-- [ ] **Phase 1**: matcher + codec v2 + parsers + reject suite — proof: `cargo test -p nexus-abi -- v2_reject`
+- [x] **Phase 1**: matcher + codec v2 + ONE shared parser (`userspace/policy/src/schema.rs`, included by policyd build.rs) + corpus `policies/tests/` + reject suite — proof: `cargo test -p nexus-abi -- v2_reject` 9/9 (2026-09-05)
 - [ ] **Phase 2**: learn + `nx policy learn-gen` — proof: `cargo test -p nx --test policy_cli`, `test_learn_roundtrip`
 - [ ] **Phase 3**: seams + mode switch + markers — proof: headless/smp1 markers above
 - [ ] Task(s) linked with stop conditions + proof commands (TASK-0028, TASK-0043, TASK-0052).

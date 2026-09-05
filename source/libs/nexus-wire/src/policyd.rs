@@ -28,6 +28,8 @@ pub const OP_EXEC: u8 = 3;
 pub const OP_CHECK_CAP: u8 = 4;
 /// ABI syscall profile fetch opcode (nonce-correlated, v2).
 pub const OP_ABI_PROFILE_GET: u8 = 6;
+/// RFC-0091 §6: authenticated, epoch-guarded per-subject ABI mode switch.
+pub const OP_SET_ABI_MODE: u8 = 7;
 
 /// Status: allowed.
 pub const STATUS_ALLOW: u8 = 0;
@@ -37,10 +39,19 @@ pub const STATUS_DENY: u8 = 1;
 pub const STATUS_MALFORMED: u8 = 2;
 /// Status: unsupported op/version.
 pub const STATUS_UNSUPPORTED: u8 = 3;
+/// RFC-0091 §4: the request named an epoch that is not the subject's current one.
+pub const STATUS_STALE: u8 = 4;
+
+/// RFC-0091 §6 ABI modes.
+/// Enforce (default every boot): decisions apply, nothing is learned.
+pub const ABI_MODE_ENFORCE: u8 = 0;
+/// Learn: decisions apply unchanged, would-deny evaluations emit learn records.
+pub const ABI_MODE_LEARN: u8 = 1;
 
 /// Maximum encoded ABI-profile bytes carried in an ABI_PROFILE_GET response —
 /// the wire bound (`nexus-abi`'s `abi_filter` decoder re-sources this value).
-pub const MAX_PROFILE_BYTES: usize = 512;
+/// RFC-0091 §3: v2 profiles (24 rules, port ranges, CIDRs) need the larger bound.
+pub const MAX_PROFILE_BYTES: usize = 1024;
 
 /// Nonce used to correlate requests and responses (v2).
 pub type Nonce = u32;
@@ -82,6 +93,15 @@ crate::frames! {
     request encode_abi_profile_get_v2 / decode_abi_profile_get_v2 (op = OP_ABI_PROFILE_GET) {
         nonce: u32le,
         subject_id: u64le,
+    }
+    /// v2 ABI mode switch request (RFC-0091 §6):
+    /// `[P,O,ver=2,OP_SET_ABI_MODE, nonce:u32le, subject_id:u64le, mode:u8, epoch:u32le]`.
+    /// Reply is the generic `encode_rsp_v2` with `STATUS_ALLOW|DENY|STALE|UNSUPPORTED`.
+    request encode_set_abi_mode_v2 / decode_set_abi_mode_v2 (op = OP_SET_ABI_MODE) {
+        nonce: u32le,
+        subject_id: u64le,
+        mode: u8,
+        epoch: u32le,
     }
     /// v2 ABI profile fetch response:
     /// `[P,O,ver=2,OP_ABI_PROFILE_GET|0x80,nonce:u32le,status:u8,_reserved:u8,profile_len:u16le,profile...]`.
@@ -226,6 +246,19 @@ mod tests {
         assert_eq!(status, STATUS_DENY);
         // A v3 frame is not a v2 frame.
         assert_eq!(decode_rsp_v2(&encode_rsp_v3(OP_ROUTE, 1, STATUS_ALLOW)), None);
+    }
+
+    #[test]
+    fn set_abi_mode_v2_roundtrip() {
+        let mut req = [0u8; 32];
+        let n =
+            encode_set_abi_mode_v2(7, 0x0102_0304_0506_0708, ABI_MODE_LEARN, 3, &mut req).unwrap();
+        let (nonce, subject_id, mode, epoch) = decode_set_abi_mode_v2(&req[..n]).unwrap();
+        assert_eq!((nonce, subject_id, mode, epoch), (7, 0x0102_0304_0506_0708, ABI_MODE_LEARN, 3));
+        assert_eq!(decode_set_abi_mode_v2(&req[..n - 1]), None);
+        let mut truncated = req;
+        truncated[3] = OP_ABI_PROFILE_GET;
+        assert_eq!(decode_set_abi_mode_v2(&truncated[..n]), None);
     }
 
     #[test]

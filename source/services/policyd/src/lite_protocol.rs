@@ -82,20 +82,6 @@ fn normalize_delegate_sender_id(sender_id: u64, cap: &str) -> u64 {
     }
 }
 
-fn encode_subject_profile_v1(subject_id: u64, out: &mut [u8]) -> Option<usize> {
-    let mut i = 0usize;
-    while i < policy_table::ABI_PROFILE_ENTRIES.len() {
-        let entry = &policy_table::ABI_PROFILE_ENTRIES[i];
-        if entry.0 == subject_id {
-            let prefix = entry.1.map(|v| v.as_bytes());
-            return nexus_abi::abi_filter::encode_profile_v1(subject_id, prefix, entry.2, out).ok();
-        }
-        i += 1;
-    }
-    // Default profile for non-migrated subjects is empty deny-by-default.
-    nexus_abi::abi_filter::encode_profile_v1(subject_id, None, None, out).ok()
-}
-
 #[must_use = "frame outputs must be inspected and sent to preserve fail-closed behavior"]
 #[derive(Clone, Copy, Debug)]
 pub struct FrameOut {
@@ -236,7 +222,10 @@ pub fn handle_frame(
                 return out;
             }
             let mut profile = [0u8; nexus_abi::abi_filter::MAX_PROFILE_BYTES];
-            let profile_len = match encode_subject_profile_v1(requested_subject_id, &mut profile) {
+            let profile_len = match crate::abi_profile::encode_subject_profile(
+                requested_subject_id,
+                &mut profile,
+            ) {
                 Some(n) => n,
                 None => {
                     let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
@@ -670,7 +659,9 @@ mod tests {
             nexus_abi::policyd::decode_abi_profile_rsp_v2(out.as_slice()).unwrap();
         assert_eq!(nonce, 0xAABB_CCDD);
         assert_eq!(status, STATUS_ALLOW);
-        let profile = nexus_abi::abi_filter::decode_profile_v1(profile_bytes).unwrap();
+        // RFC-0091: served as wire v2; rule semantics are pinned in abi_profile.rs.
+        assert_eq!(profile_bytes[2], nexus_abi::abi_filter::PROFILE_VERSION_V2);
+        let profile = nexus_abi::abi_filter::decode_profile(profile_bytes).unwrap();
         assert_eq!(profile.subject_service_id(), selftest);
         assert_eq!(
             profile.check_statefs_put(b"/state/app/selftest/token", 4),
@@ -680,7 +671,6 @@ mod tests {
             profile.check_statefs_put(b"/state/forbidden/token", 4),
             nexus_abi::abi_filter::RuleAction::Deny
         );
-        assert_eq!(profile.check_net_bind(80), nexus_abi::abi_filter::RuleAction::Deny);
     }
 
     #[test]
@@ -709,7 +699,7 @@ mod tests {
             nexus_abi::policyd::decode_abi_profile_rsp_v2(out.as_slice()).unwrap();
         assert_eq!(nonce, 0x1122_3344);
         assert_eq!(status, STATUS_ALLOW);
-        let profile = nexus_abi::abi_filter::decode_profile_v1(profile_bytes).unwrap();
+        let profile = nexus_abi::abi_filter::decode_profile(profile_bytes).unwrap();
         assert_eq!(profile.subject_service_id(), selftest);
     }
 }

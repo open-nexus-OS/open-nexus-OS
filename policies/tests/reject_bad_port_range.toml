@@ -1,0 +1,7 @@
+# expect: BadPort
+[abi_profile."demo.port"]
+epoch = 1
+
+[[abi_profile."demo.port".net.bind]]
+action = "allow"
+ports = ["2048-1024"]

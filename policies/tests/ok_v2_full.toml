@@ -1,0 +1,35 @@
+# expect: ok
+[abi_profile."demo.full"]
+epoch = 7
+
+[abi_profile."demo.full".limits]
+deadline_ms = 2000
+max_payload = 4096
+
+[[abi_profile."demo.full".statefs]]
+action = "allow"
+prefix = "/state/app/demo/"
+max_payload = 2048
+
+[[abi_profile."demo.full".statefs]]
+action = "deny"
+prefix = "/state/app/demo/secrets/"
+
+[[abi_profile."demo.full".net.bind]]
+action = "allow"
+ports = ["1024-65535", "443"]
+
+[[abi_profile."demo.full".net.bind]]
+action = "deny"
+ports = ["8080"]
+address = "any"
+
+[[abi_profile."demo.full".net.connect]]
+action = "allow"
+cidr = "10.0.2.0/24"
+ports = ["80", "443", "1024-2048"]
+
+[[abi_profile."demo.full".net.connect]]
+action = "deny"
+cidr = "0.0.0.0/0"
+ports = ["1-65535"]

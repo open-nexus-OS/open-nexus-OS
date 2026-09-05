@@ -449,6 +449,10 @@ pub(crate) struct PolicyValidateArgs {
     pub(crate) root: Option<PathBuf>,
     #[arg(long)]
     pub(crate) json: bool,
+    /// Rewrite `<root>/manifest.json` from the loaded tree before validating
+    /// (the authoring step after a policy edit; commit the result).
+    #[arg(long)]
+    pub(crate) write_manifest: bool,
 }
 
 #[derive(Args, Debug)]

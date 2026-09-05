@@ -1,6 +1,6 @@
 ---
 title: TASK-0028 ABI filters v2: argument matchers + learn→enforce + policy generator (host-first, OS-gated)
-status: In Progress (P0 delivered 2026-09-05)
+status: In Progress (P0+P1 delivered 2026-09-05)
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -88,7 +88,53 @@ is the authority, resolved 2026-08-14); full regular expressions (bounded litera
 - Recut vs. the plan text: `MAX_RULES` 16 → 24 and `MAX_PROFILE_BYTES` 512 → 1024 (24 rule
   records × 16 B + ports + prefixes do not fit 512); `STATUS_STALE` is a policyd status (additive
   `4`), not a new op; IPv6 CIDRs reserved (`af = 6` rejects) until netstackd has v6 sockets.
-- Next: P1 (matcher + codec v2 + both parsers + reject suite).
+- Next: P1 (matcher + codec v2 + both parsers + reject suite). ✅ see below.
+
+### P1 delivered 2026-09-05 — matcher + codec v2 + ONE parser + reject suite
+
+- `source/libs/nexus-abi/src/abi_filter.rs` (types, matchers, precedence) + `abi_filter/wire.rs`
+  (v1 legacy codec, v2 codec, `decode_profile` dispatch, `ingest_distributed_profile`):
+  `SyscallClass::NetConnect`, `AddrClass`, `PortRange` (≤ 4/rule), `AbiLimits`, `AbiRule`
+  builders (`statefs`/`net_bind`/`net_connect`, CIDR canonical-bits check), `AbiProfile` with
+  `epoch`/`limits`/`check_replaces_epoch`, RFC-0091 §2 precedence (`resolve`: most specific,
+  deny beats allow, none ⇒ deny, allow then `limits`), `check_net_bind(port, AddrClass)`,
+  `check_net_connect(addr, port)`, `check_deadline`, `statefs_path_is_canonical` (the
+  argument-injection gate: absolute, ≤ 128 B, no NUL, no `.`/`..`/empty segment).
+  `MAX_RULES` 24; `nexus_wire::policyd::MAX_PROFILE_BYTES` 1024, `STATUS_STALE = 4`,
+  `OP_SET_ABI_MODE = 7` + `encode/decode_set_abi_mode_v2` (P3 uses them; roundtrip test now).
+- **One parser instead of two**: `userspace/policy/src/schema.rs` (serde-only raw shapes +
+  `compile` → canonical `Profile`; v1 keys transcode to `statefs allow` + loopback-only
+  `net.bind allow` with `epoch 0`; mixed v1/v2 ⇒ `MixedVersions`; prefixes are literals — pattern
+  bytes/control/relative/`..` rejected; ports `"n"`/`"a-b"` 1..=65535; CIDR host bits must be
+  zero; per-rule `max_payload ≤ limits.max_payload`; unknown keys/sections fail closed).
+  policyd's `build.rs` includes that file by `#[path]` and emits a structured
+  `ABI_PROFILE_ENTRIES: &[AbiProfileEntry]` (epoch, limits, `AbiRuleEntry` list);
+  `source/services/policyd/src/abi_profile.rs` builds the `AbiProfile` and serves wire v2
+  (`encode_subject_profile`, `subject_epoch` for P3); un-profiled subjects get the deny-all
+  profile, epoch 0. `lite_protocol.rs` shrank (703 LOC), policy `lib.rs` split (`tests.rs`).
+- Shared corpus `policies/tests/` (3 `ok_*`, 13 `reject_*`, `# expect:` verdicts) run by
+  `userspace/policy/tests/schema_corpus.rs`; `policies/base.toml` migrated to v2 (`epoch = 1`,
+  limits 2000 ms / 4096 B, allow `/state/app/selftest/`, deny `…/secrets/`, bind 1024-65535
+  loopback, connect `10.0.2.0/24` 53/80/443) — the selftest's three ABI markers keep their
+  semantics (`check_net_bind(80, Loopback)` deny). `nx policy validate --write-manifest`
+  (new flag) regenerated `policies/manifest.json` (the tree hash covers compiled profiles).
+- Reject suite `source/libs/nexus-abi/tests/abi_filter_v2_reject.rs` (`mod v2_reject`, 9 tests):
+  `test_reject_first_match_shadowing`, `test_reject_argument_injection`, `test_reject_regex_dos`
+  (matcher; parser twin in `schema_corpus.rs`), `test_reject_stale_profile_epoch`,
+  `test_reject_unknown_class_fails_closed`, `test_reject_oversized_profile_v2`, roundtrip/v1
+  transcode, bind/connect precedence + limits. The v1 suite (8) stays green on v2 precedence.
+  `test_reject_unauthenticated_mode_switch` → P3 (policyd authenticates the op),
+  `test_learn_roundtrip` → P2 (generator) — both named in the RFC, moved with their packages.
+- Docs: `docs/security/abi-filters.md` rewritten (schema, precedence, wire, lifecycle, proofs),
+  `recipes/policy/README.md` schema block, `docs/security/capabilities.md` path fix.
+- Proof: `cargo test -p nexus-abi -- v2_reject` 9/9, `abi_filter_reject` 8/8, `policy` 18 +
+  corpus 4, `policyd` 27, `nexus-wire` policyd 9; `just check` green; `just test-all` green
+  2026-09-05 (all nine QEMU lanes, `exit=0`). Observed, not ladder-gated, pre-existing icount
+  flake in smp1 + ota-fallback boot 2: `statefsd: write budget exceeded (ns=358…691 ms)` →
+  keystored's key persist fails → `SELFTEST: device key pubkey FAIL (keygen status=2)`; the same
+  signature exists in 5 of the 21 smp1 logs before this package (statefs write latency under
+  icount, outside this task).
+- Next: P2 (learn pipeline + `nx policy learn-gen`).
 
 ### Packages
 

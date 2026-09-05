@@ -1,0 +1,7 @@
+# expect: PrefixPatternSyntax
+[abi_profile."demo.regex"]
+epoch = 1
+
+[[abi_profile."demo.regex".statefs]]
+action = "allow"
+prefix = "/state/app/(a|aa)+*/"

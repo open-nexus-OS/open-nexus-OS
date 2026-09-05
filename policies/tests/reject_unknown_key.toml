@@ -1,0 +1,5 @@
+# expect: parse
+# Unknown keys in any section are a parse error (fail closed), never ignored.
+[abi_profile."demo.unknown"]
+epoch = 1
+regex = "/state/.*"

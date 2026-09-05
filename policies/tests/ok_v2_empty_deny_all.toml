@@ -1,0 +1,4 @@
+# expect: ok
+# An epoch with no rules is the explicit deny-everything profile.
+[abi_profile."demo.empty"]
+epoch = 1

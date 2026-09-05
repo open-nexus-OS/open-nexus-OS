@@ -1,154 +1,162 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
-//
-//! CONTEXT: Deterministic userspace ABI syscall guardrail profile format and matcher.
+
+//! CONTEXT: RFC-0091 policy profile v2 — the argument matchers and the
+//! precedence engine every enforcement seam (statefsd `put`, netstackd
+//! bind/connect) evaluates. Identity is `sender_service_id` from kernel
+//! IPC; the matchers are bounded literals (prefix bytes, numeric port
+//! ranges, IPv4 CIDRs) — never patterns — so evaluation is
+//! O(rules × bytes) and injection-free. Precedence (§2): most specific
+//! accepting rule wins, deny beats allow on ties, no rule ⇒ deny, an
+//! allow is then checked against `limits`. The wire codecs (v1 legacy +
+//! v2) live in `wire.rs` and are re-exported here for API stability.
 //! OWNERS: @runtime @security
 //! STATUS: Experimental
-//! API_STABILITY: Unstable
-//! TEST_COVERAGE: Host unit tests (`cargo test -p nexus-abi -- reject --nocapture`)
-//! INVARIANTS:
-//! - bounded profile decode and bounded matcher cost
-//! - deny-by-default if no rule matches
-//! - profile distribution must be authority-authenticated and subject-bound
+//! API_STABILITY: Internal
+//! TEST_COVERAGE: tests/abi_filter_reject.rs, tests/abi_filter_v2_reject.rs
+//! RFC: docs/rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md
 
-/// First profile magic byte.
-pub const PROFILE_MAGIC0: u8 = b'A';
-/// Second profile magic byte.
-pub const PROFILE_MAGIC1: u8 = b'F';
-/// Profile wire version.
-pub const PROFILE_VERSION: u8 = 1;
+pub mod wire;
 
-/// Maximum encoded profile bytes accepted by the decoder — single definition
-/// lives at the wire bound (`nexus_wire::policyd`, ADR-0051).
+pub use wire::{
+    decode_profile, decode_profile_v1, decode_profile_v2, encode_profile_v1, encode_profile_v2,
+    ingest_distributed_profile, ingest_distributed_profile_v1, ingest_distributed_profile_v1_typed,
+    PROFILE_MAGIC0, PROFILE_MAGIC1, PROFILE_VERSION, PROFILE_VERSION_V2,
+};
+
 pub use nexus_wire::policyd::MAX_PROFILE_BYTES;
-/// Maximum number of rules accepted by the decoder.
-pub const MAX_RULES: usize = 16;
-/// Maximum bytes for a statefs path-prefix rule matcher.
+
+/// Upper bound of rules per subject (RFC-0091: 24, raised from v1's 16).
+pub const MAX_RULES: usize = 24;
+/// Longest statefs path prefix a rule may carry.
 pub const MAX_PATH_PREFIX_BYTES: usize = 64;
-/// Maximum accepted statefs key bytes for guardrail matching.
+/// Longest statefs path the matcher accepts (longer ⇒ deny, never truncate).
 pub const MAX_STATEFS_PATH_BYTES: usize = 128;
-/// Maximum accepted statefs write payload bytes for guardrail matching.
+/// Default statefs `put` payload ceiling when no `limits` narrows it.
 pub const MAX_STATEFS_PUT_BYTES: usize = 4096;
+/// Port ranges per `net.bind` / `net.connect` rule.
+pub const MAX_PORT_RANGES_PER_RULE: usize = 4;
 
-/// Stable syscall operation label used by marker/log surfaces.
-pub const SYSCALL_OP_STATEFS_PUT: &str = "statefs.put";
-/// Stable syscall operation label used by marker/log surfaces.
-pub const SYSCALL_OP_NET_BIND: &str = "net.bind";
-
-/// Errors returned by profile distribution, decode, and matching helpers.
+/// Reject vocabulary shared by codec, ingest and the reject suite.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AbiFilterError {
-    /// Profile payload exceeds [`MAX_PROFILE_BYTES`].
+    /// Encoded size exceeds `MAX_PROFILE_BYTES`.
     OversizedProfile,
-    /// Profile payload is malformed.
+    /// Bad magic/version, reserved bits, lengths or trailing bytes.
     MalformedProfile,
-    /// Encoded rule count exceeds [`MAX_RULES`].
+    /// More than `MAX_RULES` rules.
     RuleCountOverflow,
-    /// Encoded path prefix exceeds [`MAX_PATH_PREFIX_BYTES`].
+    /// Empty or longer-than-`MAX_PATH_PREFIX_BYTES` statefs prefix.
     PathPrefixOverflow,
-    /// Encoded syscall class is unknown.
+    /// Zero, more than `MAX_PORT_RANGES_PER_RULE`, or inverted port ranges.
+    PortRangeOverflow,
+    /// Unknown class byte (fails closed).
     InvalidSyscallClass,
-    /// Encoded rule action is unknown.
+    /// Unknown action byte.
     InvalidRuleAction,
-    /// Profile sender does not match the expected authority identity.
+    /// Unknown address class byte.
+    InvalidAddrClass,
+    /// CIDR length > 32 or host bits set.
+    InvalidCidr,
+    /// A profile whose epoch is older than the one the consumer holds.
+    StaleEpoch,
+    /// Profile arrived from a sender other than the authority.
     UnauthenticatedProfileDistribution,
-    /// Profile subject identity does not match the expected subject.
+    /// Profile names a subject other than the expected one.
     SubjectIdentityMismatch,
 }
 
-/// Sender identity derived from kernel IPC metadata (`sender_service_id`).
+/// Kernel-attributed sender of an IPC frame (never a payload string).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SenderServiceId(u64);
 
 impl SenderServiceId {
     /// Constructs a sender identity wrapper.
-    pub const fn new(raw: u64) -> Self {
-        Self(raw)
+    pub const fn new(id: u64) -> Self {
+        Self(id)
     }
-
-    /// Returns the raw kernel-derived service identity.
-    #[must_use]
-    pub const fn raw(self) -> u64 {
+    /// Raw identity value.
+    pub const fn get(self) -> u64 {
         self.0
     }
 }
 
-/// Profile authority identity (typically `policyd`) used for authentication checks.
+/// The service allowed to distribute profiles (policyd).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AuthorityServiceId(u64);
 
 impl AuthorityServiceId {
     /// Constructs an authority identity wrapper.
-    pub const fn new(raw: u64) -> Self {
-        Self(raw)
+    pub const fn new(id: u64) -> Self {
+        Self(id)
     }
-
-    /// Returns the raw authority service identity.
-    #[must_use]
-    pub const fn raw(self) -> u64 {
+    /// Raw identity value.
+    pub const fn get(self) -> u64 {
         self.0
     }
 }
 
-/// Expected subject identity for which the profile is applied.
+/// The subject a profile governs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SubjectServiceId(u64);
 
 impl SubjectServiceId {
     /// Constructs a subject identity wrapper.
-    pub const fn new(raw: u64) -> Self {
-        Self(raw)
+    pub const fn new(id: u64) -> Self {
+        Self(id)
     }
-
-    /// Returns the raw subject service identity.
-    #[must_use]
-    pub const fn raw(self) -> u64 {
+    /// Raw identity value.
+    pub const fn get(self) -> u64 {
         self.0
     }
 }
 
-/// Supported syscall classes for v1 userspace ABI filtering.
+/// Governed syscall classes (wire `class` byte).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SyscallClass {
-    /// Statefs `put`-style write operation.
+    /// `statefs.put` (path prefix + payload ceiling).
     StatefsPut = 1,
-    /// Network bind operation.
+    /// `net.bind` / listen / udp-bind (port ranges + address class).
     NetBind = 2,
+    /// `net.connect` (IPv4 CIDR + port ranges).
+    NetConnect = 3,
 }
 
 impl SyscallClass {
-    fn from_u8(raw: u8) -> Option<Self> {
-        match raw {
+    /// Decodes the wire class byte; unknown classes fail closed.
+    pub const fn from_u8(v: u8) -> Option<Self> {
+        match v {
             1 => Some(Self::StatefsPut),
             2 => Some(Self::NetBind),
+            3 => Some(Self::NetConnect),
             _ => None,
         }
     }
-
-    /// Returns the stable operation label used for markers/logs.
+    /// Human-readable operation name for markers/audit lines.
     pub const fn op_name(self) -> &'static str {
         match self {
-            Self::StatefsPut => SYSCALL_OP_STATEFS_PUT,
-            Self::NetBind => SYSCALL_OP_NET_BIND,
+            Self::StatefsPut => "statefs.put",
+            Self::NetBind => "net.bind",
+            Self::NetConnect => "net.connect",
         }
     }
 }
 
-/// Rule decision action.
-#[must_use = "use the filter decision to enforce allow/deny behavior"]
+/// Rule verdict.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum RuleAction {
-    /// Deny the operation.
+    /// Refuse the operation.
     Deny = 0,
-    /// Allow the operation.
+    /// Permit the operation (subject to `limits`).
     Allow = 1,
 }
 
 impl RuleAction {
-    fn from_u8(raw: u8) -> Option<Self> {
-        match raw {
+    /// Decodes the wire action byte.
+    pub const fn from_u8(v: u8) -> Option<Self> {
+        match v {
             0 => Some(Self::Deny),
             1 => Some(Self::Allow),
             _ => None,
@@ -156,301 +164,388 @@ impl RuleAction {
     }
 }
 
-/// One bounded v1 filter rule.
+/// Bind address class (`net.bind`): loopback-only or any interface.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum AddrClass {
+    /// Loopback interface only.
+    Loopback = 0,
+    /// Any interface (TASK-0052: needs an exposure intent).
+    Any = 1,
+}
+
+impl AddrClass {
+    /// Decodes the wire address class byte.
+    pub const fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Loopback),
+            1 => Some(Self::Any),
+            _ => None,
+        }
+    }
+}
+
+/// Inclusive port range.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PortRange {
+    /// Lowest port (inclusive).
+    pub min: u16,
+    /// Highest port (inclusive).
+    pub max: u16,
+}
+
+impl PortRange {
+    /// Number of ports covered (the specificity measure; fewer = narrower).
+    const fn width(self) -> u32 {
+        self.max as u32 - self.min as u32 + 1
+    }
+    const fn contains(self, port: u16) -> bool {
+        self.min <= port && port <= self.max
+    }
+}
+
+/// Subject-wide ceilings (`[abi_profile.<s>.limits]`); `0` = unset.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AbiLimits {
+    /// Payload ceiling for `statefs.put` (bytes).
+    pub max_payload: u32,
+    /// Per-request deadline ceiling the seam enforces (ms).
+    pub deadline_ms: u32,
+}
+
+/// One matcher rule. Fields outside the rule's class are zero.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AbiRule {
-    /// Syscall class selector.
+    /// Governed class.
     pub syscall: SyscallClass,
-    /// Rule decision.
+    /// Verdict when the matcher accepts.
     pub action: RuleAction,
-    /// Prefix bytes used for statefs path matching.
+    /// Literal statefs path prefix bytes.
     pub path_prefix: [u8; MAX_PATH_PREFIX_BYTES],
-    /// Number of valid bytes in [`Self::path_prefix`].
+    /// Used length of `path_prefix`.
     pub path_prefix_len: u8,
-    /// Inclusive lower port bound for net-bind matching.
-    pub port_min: u16,
-    /// Inclusive upper port bound for net-bind matching.
-    pub port_max: u16,
+    /// `net.bind` address class.
+    pub addr_class: AddrClass,
+    /// `net.connect` IPv4 network (big-endian bytes).
+    pub cidr: [u8; 4],
+    /// `net.connect` prefix length (0..=32).
+    pub cidr_len: u8,
+    /// Port ranges (net classes).
+    pub ports: [PortRange; MAX_PORT_RANGES_PER_RULE],
+    /// Used length of `ports`.
+    pub port_count: u8,
+    /// Per-rule payload ceiling; `0` = inherit the profile limit.
+    pub max_payload: u32,
 }
 
 impl AbiRule {
-    /// Returns an empty deny rule placeholder.
+    /// A neutral rule (statefs deny with an empty prefix — accepts nothing).
     pub const fn empty() -> Self {
         Self {
             syscall: SyscallClass::StatefsPut,
             action: RuleAction::Deny,
             path_prefix: [0u8; MAX_PATH_PREFIX_BYTES],
             path_prefix_len: 0,
-            port_min: 0,
-            port_max: 0,
+            addr_class: AddrClass::Loopback,
+            cidr: [0u8; 4],
+            cidr_len: 0,
+            ports: [PortRange { min: 0, max: 0 }; MAX_PORT_RANGES_PER_RULE],
+            port_count: 0,
+            max_payload: 0,
         }
     }
 
-    fn matches_statefs_put(&self, path: &[u8], payload_len: usize) -> bool {
-        if self.syscall != SyscallClass::StatefsPut {
-            return false;
+    /// A `statefs` rule over a literal path prefix (1..=64 bytes).
+    pub fn statefs(action: RuleAction, prefix: &[u8]) -> Result<Self, AbiFilterError> {
+        if prefix.is_empty() || prefix.len() > MAX_PATH_PREFIX_BYTES {
+            return Err(AbiFilterError::PathPrefixOverflow);
         }
-        if path.len() > MAX_STATEFS_PATH_BYTES || payload_len > MAX_STATEFS_PUT_BYTES {
-            return false;
-        }
-        let prefix_len = self.path_prefix_len as usize;
-        if prefix_len == 0 || prefix_len > path.len() {
-            return false;
-        }
-        self.path_prefix[..prefix_len] == path[..prefix_len]
+        let mut rule = Self::empty();
+        rule.action = action;
+        rule.path_prefix[..prefix.len()].copy_from_slice(prefix);
+        rule.path_prefix_len = prefix.len() as u8;
+        Ok(rule)
     }
 
-    fn matches_net_bind(&self, port: u16) -> bool {
-        if self.syscall != SyscallClass::NetBind {
-            return false;
+    /// A `net.bind` rule over 1..=4 port ranges and an address class.
+    pub fn net_bind(
+        action: RuleAction,
+        addr_class: AddrClass,
+        ports: &[PortRange],
+    ) -> Result<Self, AbiFilterError> {
+        let mut rule = Self::empty();
+        rule.syscall = SyscallClass::NetBind;
+        rule.action = action;
+        rule.addr_class = addr_class;
+        rule.set_ports(ports)?;
+        Ok(rule)
+    }
+
+    /// A `net.connect` rule over an IPv4 CIDR and 1..=4 port ranges.
+    pub fn net_connect(
+        action: RuleAction,
+        cidr: [u8; 4],
+        cidr_len: u8,
+        ports: &[PortRange],
+    ) -> Result<Self, AbiFilterError> {
+        if cidr_len > 32 || !cidr_host_bits_clear(cidr, cidr_len) {
+            return Err(AbiFilterError::InvalidCidr);
         }
-        port >= self.port_min && port <= self.port_max
+        let mut rule = Self::empty();
+        rule.syscall = SyscallClass::NetConnect;
+        rule.action = action;
+        rule.cidr = cidr;
+        rule.cidr_len = cidr_len;
+        rule.set_ports(ports)?;
+        Ok(rule)
+    }
+
+    /// Sets the per-rule payload ceiling (`0` = inherit).
+    pub const fn with_max_payload(mut self, max_payload: u32) -> Self {
+        self.max_payload = max_payload;
+        self
+    }
+
+    fn set_ports(&mut self, ports: &[PortRange]) -> Result<(), AbiFilterError> {
+        if ports.is_empty() || ports.len() > MAX_PORT_RANGES_PER_RULE {
+            return Err(AbiFilterError::PortRangeOverflow);
+        }
+        for (i, r) in ports.iter().enumerate() {
+            if r.min > r.max {
+                return Err(AbiFilterError::PortRangeOverflow);
+            }
+            self.ports[i] = *r;
+        }
+        self.port_count = ports.len() as u8;
+        Ok(())
+    }
+
+    fn prefix(&self) -> &[u8] {
+        &self.path_prefix[..(self.path_prefix_len as usize).min(MAX_PATH_PREFIX_BYTES)]
+    }
+
+    fn port_ranges(&self) -> &[PortRange] {
+        &self.ports[..(self.port_count as usize).min(MAX_PORT_RANGES_PER_RULE)]
+    }
+
+    /// Narrowest accepting range width, or `None` when no range contains `port`.
+    fn narrowest_port_match(&self, port: u16) -> Option<u32> {
+        self.port_ranges().iter().filter(|r| r.contains(port)).map(|r| r.width()).min()
     }
 }
 
-/// Parsed ABI filter profile.
+/// `true` when the bits beyond `cidr_len` are zero (a canonical network).
+pub const fn cidr_host_bits_clear(cidr: [u8; 4], cidr_len: u8) -> bool {
+    let addr = u32::from_be_bytes(cidr);
+    let mask = if cidr_len == 0 { 0 } else { u32::MAX << (32 - cidr_len as u32) };
+    addr & !mask == 0
+}
+
+/// A decoded per-subject profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AbiProfile {
     subject_service_id: u64,
+    epoch: u32,
+    limits: Option<AbiLimits>,
     rule_count: u8,
     rules: [AbiRule; MAX_RULES],
 }
 
+/// Specificity of an accepting rule: higher wins; equal ⇒ deny beats allow.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Specificity(u32, u32);
+
 impl AbiProfile {
-    /// Creates an empty deny-by-default profile for `subject_service_id`.
+    /// The deny-everything profile (no rules, no limits, epoch 0).
     pub const fn empty(subject_service_id: u64) -> Self {
-        Self { subject_service_id, rule_count: 0, rules: [AbiRule::empty(); MAX_RULES] }
+        Self {
+            subject_service_id,
+            epoch: 0,
+            limits: None,
+            rule_count: 0,
+            rules: [AbiRule::empty(); MAX_RULES],
+        }
     }
 
-    /// Returns the kernel-derived subject identity bound to this profile.
+    /// Sets the authored epoch.
+    pub const fn with_epoch(mut self, epoch: u32) -> Self {
+        self.epoch = epoch;
+        self
+    }
+
+    /// Sets the subject-wide limits record.
+    pub const fn with_limits(mut self, limits: AbiLimits) -> Self {
+        self.limits = Some(limits);
+        self
+    }
+
+    /// Governed subject.
     pub const fn subject_service_id(&self) -> u64 {
         self.subject_service_id
     }
 
-    /// Returns the number of encoded rules.
+    /// Authored epoch (0 for v1 profiles).
+    pub const fn epoch(&self) -> u32 {
+        self.epoch
+    }
+
+    /// Subject-wide limits, when authored.
+    pub const fn limits(&self) -> Option<AbiLimits> {
+        self.limits
+    }
+
+    /// Number of rules.
     pub const fn rule_count(&self) -> usize {
         self.rule_count as usize
     }
 
-    /// Returns the rule at `index`, if present.
-    pub fn rule(&self, index: usize) -> Option<&AbiRule> {
-        if index < self.rule_count as usize {
-            Some(&self.rules[index])
+    /// Rule at `idx`, when present.
+    pub fn rule(&self, idx: usize) -> Option<&AbiRule> {
+        if idx < self.rule_count() {
+            Some(&self.rules[idx])
         } else {
             None
         }
     }
 
-    /// Evaluates a statefs put operation against this profile.
-    ///
-    /// The matcher is first-match-wins and deny-by-default.
-    #[must_use = "filter decisions must be checked before issuing syscall wrappers"]
-    pub fn check_statefs_put(&self, path: &[u8], payload_len: usize) -> RuleAction {
-        let mut i = 0usize;
-        while i < self.rule_count as usize {
-            let rule = &self.rules[i];
-            if rule.matches_statefs_put(path, payload_len) {
-                return rule.action;
-            }
-            i += 1;
-        }
-        RuleAction::Deny
-    }
-
-    /// Evaluates a net bind operation against this profile.
-    ///
-    /// The matcher is first-match-wins and deny-by-default.
-    #[must_use = "filter decisions must be checked before issuing syscall wrappers"]
-    pub fn check_net_bind(&self, port: u16) -> RuleAction {
-        let mut i = 0usize;
-        while i < self.rule_count as usize {
-            let rule = &self.rules[i];
-            if rule.matches_net_bind(port) {
-                return rule.action;
-            }
-            i += 1;
-        }
-        RuleAction::Deny
-    }
-
-    fn push_rule(&mut self, rule: AbiRule) -> core::result::Result<(), AbiFilterError> {
+    /// Appends a rule; the count bound is the only reject.
+    pub fn push_rule(&mut self, rule: AbiRule) -> Result<(), AbiFilterError> {
         let idx = self.rule_count as usize;
         if idx >= MAX_RULES {
             return Err(AbiFilterError::RuleCountOverflow);
         }
         self.rules[idx] = rule;
-        self.rule_count = self.rule_count.saturating_add(1);
+        self.rule_count += 1;
         Ok(())
     }
-}
 
-/// Encodes a bounded v1 profile into `out`.
-///
-/// The encoded profile is deny-by-default; only explicitly encoded allow rules are accepted.
-pub fn encode_profile_v1(
-    subject_service_id: u64,
-    statefs_put_allow_prefix: Option<&[u8]>,
-    net_bind_min_port: Option<u16>,
-    out: &mut [u8],
-) -> core::result::Result<usize, AbiFilterError> {
-    let mut rule_count = 0usize;
-    let mut path_len = 0usize;
-    if let Some(prefix) = statefs_put_allow_prefix {
-        if prefix.is_empty() {
-            return Err(AbiFilterError::MalformedProfile);
+    fn rules(&self) -> &[AbiRule] {
+        &self.rules[..self.rule_count()]
+    }
+
+    /// Consumer-side monotone check: a profile older than the cached
+    /// epoch is stale and must not replace the cached one.
+    pub const fn check_replaces_epoch(&self, cached_epoch: u32) -> Result<(), AbiFilterError> {
+        if self.epoch < cached_epoch {
+            Err(AbiFilterError::StaleEpoch)
+        } else {
+            Ok(())
         }
-        if prefix.len() > MAX_PATH_PREFIX_BYTES {
-            return Err(AbiFilterError::PathPrefixOverflow);
-        }
-        path_len = prefix.len();
-        rule_count += 1;
-    }
-    if net_bind_min_port.is_some() {
-        rule_count += 1;
-    }
-    if rule_count > MAX_RULES {
-        return Err(AbiFilterError::RuleCountOverflow);
-    }
-    let required = 12 + (8 * rule_count) + path_len;
-    if required > MAX_PROFILE_BYTES || required > out.len() {
-        return Err(AbiFilterError::OversizedProfile);
     }
 
-    out[0] = PROFILE_MAGIC0;
-    out[1] = PROFILE_MAGIC1;
-    out[2] = PROFILE_VERSION;
-    out[3] = rule_count as u8;
-    out[4..12].copy_from_slice(&subject_service_id.to_le_bytes());
-    let mut off = 12usize;
-
-    if let Some(prefix) = statefs_put_allow_prefix {
-        out[off] = SyscallClass::StatefsPut as u8;
-        out[off + 1] = RuleAction::Allow as u8;
-        out[off + 2] = prefix.len() as u8;
-        out[off + 3] = 0;
-        out[off + 4..off + 6].copy_from_slice(&0u16.to_le_bytes());
-        out[off + 6..off + 8].copy_from_slice(&0u16.to_le_bytes());
-        off += 8;
-        out[off..off + prefix.len()].copy_from_slice(prefix);
-        off += prefix.len();
-    }
-
-    if let Some(min_port) = net_bind_min_port {
-        out[off] = SyscallClass::NetBind as u8;
-        out[off + 1] = RuleAction::Allow as u8;
-        out[off + 2] = 0;
-        out[off + 3] = 0;
-        out[off + 4..off + 6].copy_from_slice(&min_port.to_le_bytes());
-        out[off + 6..off + 8].copy_from_slice(&u16::MAX.to_le_bytes());
-        off += 8;
-    }
-
-    Ok(off)
-}
-
-/// Decodes a bounded v1 profile payload.
-pub fn decode_profile_v1(profile_bytes: &[u8]) -> core::result::Result<AbiProfile, AbiFilterError> {
-    if profile_bytes.len() > MAX_PROFILE_BYTES {
-        return Err(AbiFilterError::OversizedProfile);
-    }
-    if profile_bytes.len() < 12 {
-        return Err(AbiFilterError::MalformedProfile);
-    }
-    if profile_bytes[0] != PROFILE_MAGIC0
-        || profile_bytes[1] != PROFILE_MAGIC1
-        || profile_bytes[2] != PROFILE_VERSION
+    /// Precedence resolution over the accepting rules of one evaluation.
+    fn resolve<F>(&self, class: SyscallClass, accept: F) -> Option<(RuleAction, u32)>
+    where
+        F: Fn(&AbiRule) -> Option<Specificity>,
     {
-        return Err(AbiFilterError::MalformedProfile);
+        let mut best: Option<(Specificity, RuleAction, u32)> = None;
+        for rule in self.rules().iter().filter(|r| r.syscall == class) {
+            let Some(spec) = accept(rule) else { continue };
+            best = Some(match best {
+                None => (spec, rule.action, rule.max_payload),
+                Some((cur, action, limit)) => {
+                    if spec > cur {
+                        (spec, rule.action, rule.max_payload)
+                    } else if spec == cur && rule.action == RuleAction::Deny {
+                        (cur, RuleAction::Deny, rule.max_payload)
+                    } else {
+                        (cur, action, limit)
+                    }
+                }
+            });
+        }
+        best.map(|(_, action, limit)| (action, limit))
     }
 
-    let rule_count = profile_bytes[3] as usize;
-    if rule_count > MAX_RULES {
-        return Err(AbiFilterError::RuleCountOverflow);
-    }
-    let subject_service_id = u64::from_le_bytes([
-        profile_bytes[4],
-        profile_bytes[5],
-        profile_bytes[6],
-        profile_bytes[7],
-        profile_bytes[8],
-        profile_bytes[9],
-        profile_bytes[10],
-        profile_bytes[11],
-    ]);
-
-    let mut profile = AbiProfile::empty(subject_service_id);
-    let mut off = 12usize;
-    let mut i = 0usize;
-    while i < rule_count {
-        if off + 8 > profile_bytes.len() {
-            return Err(AbiFilterError::MalformedProfile);
+    /// Effective payload ceiling: rule limit, else profile limit, else default.
+    fn payload_ceiling(&self, rule_limit: u32) -> usize {
+        if rule_limit != 0 {
+            return rule_limit as usize;
         }
-        let syscall =
-            SyscallClass::from_u8(profile_bytes[off]).ok_or(AbiFilterError::InvalidSyscallClass)?;
-        let action =
-            RuleAction::from_u8(profile_bytes[off + 1]).ok_or(AbiFilterError::InvalidRuleAction)?;
-        let prefix_len = profile_bytes[off + 2] as usize;
-        if prefix_len > MAX_PATH_PREFIX_BYTES {
-            return Err(AbiFilterError::PathPrefixOverflow);
+        match self.limits {
+            Some(l) if l.max_payload != 0 => l.max_payload as usize,
+            _ => MAX_STATEFS_PUT_BYTES,
         }
-        let port_min = u16::from_le_bytes([profile_bytes[off + 4], profile_bytes[off + 5]]);
-        let port_max = u16::from_le_bytes([profile_bytes[off + 6], profile_bytes[off + 7]]);
-        off += 8;
-        if off + prefix_len > profile_bytes.len() {
-            return Err(AbiFilterError::MalformedProfile);
-        }
-        let mut rule = AbiRule::empty();
-        rule.syscall = syscall;
-        rule.action = action;
-        rule.path_prefix_len = prefix_len as u8;
-        rule.port_min = port_min;
-        rule.port_max = port_max;
-        if prefix_len != 0 {
-            rule.path_prefix[..prefix_len].copy_from_slice(&profile_bytes[off..off + prefix_len]);
-        }
-        off += prefix_len;
-        profile.push_rule(rule)?;
-        i += 1;
     }
 
-    if off != profile_bytes.len() {
-        return Err(AbiFilterError::MalformedProfile);
+    /// `statefs.put(path, payload_len)` decision.
+    pub fn check_statefs_put(&self, path: &[u8], payload_len: usize) -> RuleAction {
+        if !statefs_path_is_canonical(path) {
+            return RuleAction::Deny;
+        }
+        let decision = self.resolve(SyscallClass::StatefsPut, |rule| {
+            let prefix = rule.prefix();
+            (!prefix.is_empty() && path.starts_with(prefix))
+                .then_some(Specificity(prefix.len() as u32, 0))
+        });
+        match decision {
+            Some((RuleAction::Allow, limit)) if payload_len <= self.payload_ceiling(limit) => {
+                RuleAction::Allow
+            }
+            _ => RuleAction::Deny,
+        }
     }
-    Ok(profile)
+
+    /// `net.bind(port, address class)` decision. A loopback-only rule
+    /// never accepts an `Any` bind; an `Any` rule accepts both.
+    pub fn check_net_bind(&self, port: u16, addr: AddrClass) -> RuleAction {
+        let decision = self.resolve(SyscallClass::NetBind, |rule| {
+            if rule.addr_class == AddrClass::Loopback && addr == AddrClass::Any {
+                return None;
+            }
+            let width = rule.narrowest_port_match(port)?;
+            let addr_rank = if rule.addr_class == AddrClass::Loopback { 1 } else { 0 };
+            Some(Specificity(u32::MAX - width, addr_rank))
+        });
+        match decision {
+            Some((RuleAction::Allow, _)) => RuleAction::Allow,
+            _ => RuleAction::Deny,
+        }
+    }
+
+    /// `net.connect(addr, port)` decision (IPv4).
+    pub fn check_net_connect(&self, addr: [u8; 4], port: u16) -> RuleAction {
+        let decision = self.resolve(SyscallClass::NetConnect, |rule| {
+            if !cidr_contains(rule.cidr, rule.cidr_len, addr) {
+                return None;
+            }
+            let width = rule.narrowest_port_match(port)?;
+            Some(Specificity(rule.cidr_len as u32, u32::MAX - width))
+        });
+        match decision {
+            Some((RuleAction::Allow, _)) => RuleAction::Allow,
+            _ => RuleAction::Deny,
+        }
+    }
+
+    /// `limits.deadline_ms` check: a request asking for more than the
+    /// ceiling is denied (reason `limit`); no ceiling ⇒ allow.
+    pub const fn check_deadline(&self, deadline_ms: u32) -> RuleAction {
+        match self.limits {
+            Some(l) if l.deadline_ms != 0 && deadline_ms > l.deadline_ms => RuleAction::Deny,
+            _ => RuleAction::Allow,
+        }
+    }
 }
 
-/// Validates and decodes a distributed profile payload.
-///
-/// Security checks:
-/// - sender identity must match the authenticated authority (`sender_service_id`)
-/// - decoded profile subject must match the expected local subject identity
-pub fn ingest_distributed_profile_v1(
-    profile_bytes: &[u8],
-    sender_service_id: u64,
-    authority_service_id: u64,
-    expected_subject_service_id: u64,
-) -> core::result::Result<AbiProfile, AbiFilterError> {
-    ingest_distributed_profile_v1_typed(
-        profile_bytes,
-        SenderServiceId::new(sender_service_id),
-        AuthorityServiceId::new(authority_service_id),
-        SubjectServiceId::new(expected_subject_service_id),
-    )
+/// `true` when `addr` lies inside `cidr/cidr_len`.
+pub const fn cidr_contains(cidr: [u8; 4], cidr_len: u8, addr: [u8; 4]) -> bool {
+    if cidr_len > 32 {
+        return false;
+    }
+    let mask = if cidr_len == 0 { 0 } else { u32::MAX << (32 - cidr_len as u32) };
+    (u32::from_be_bytes(cidr) ^ u32::from_be_bytes(addr)) & mask == 0
 }
 
-/// Typed variant of [`ingest_distributed_profile_v1`] to avoid identity mix-ups at call-sites.
-pub fn ingest_distributed_profile_v1_typed(
-    profile_bytes: &[u8],
-    sender_service_id: SenderServiceId,
-    authority_service_id: AuthorityServiceId,
-    expected_subject_service_id: SubjectServiceId,
-) -> core::result::Result<AbiProfile, AbiFilterError> {
-    if sender_service_id.raw() != authority_service_id.raw() {
-        return Err(AbiFilterError::UnauthenticatedProfileDistribution);
+/// Canonical statefs path: bounded, absolute, no NUL, no empty or `.`/`..`
+/// segments — the injection surface `test_reject_argument_injection`
+/// closes (statefsd canonicalizes too; the matcher never trusts that).
+pub fn statefs_path_is_canonical(path: &[u8]) -> bool {
+    if path.is_empty() || path.len() > MAX_STATEFS_PATH_BYTES || path[0] != b'/' {
+        return false;
     }
-    let profile = decode_profile_v1(profile_bytes)?;
-    if profile.subject_service_id() != expected_subject_service_id.raw() {
-        return Err(AbiFilterError::SubjectIdentityMismatch);
+    if path.contains(&0) {
+        return false;
     }
-    Ok(profile)
+    path[1..].split(|b| *b == b'/').all(|seg| !seg.is_empty() && seg != b"." && seg != b"..")
 }

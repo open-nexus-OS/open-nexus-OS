@@ -1,0 +1,11 @@
+# expect: RuleLimitAboveProfile
+[abi_profile."demo.limit"]
+epoch = 1
+
+[abi_profile."demo.limit".limits]
+max_payload = 1024
+
+[[abi_profile."demo.limit".statefs]]
+action = "allow"
+prefix = "/state/app/demo/"
+max_payload = 4096

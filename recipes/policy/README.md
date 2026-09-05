@@ -15,8 +15,16 @@ structure:
 "service-name" = ["capability.one", "capability.two"]
 
 [abi_profile."service-name"]
-statefs_put_allow_prefix = "/state/app/service-name/"
-net_bind_min_port = 1024
+epoch = 1
+
+[[abi_profile."service-name".statefs]]
+action = "allow"
+prefix = "/state/app/service-name/"
+
+[[abi_profile."service-name".net.bind]]
+action = "allow"
+ports = ["1024-65535"]
+address = "loopback"
 ```
 
 Files are merged in lexical order and later files override earlier entries for
@@ -34,14 +42,16 @@ before evaluation.
 Unknown services default to an empty allowlist, so any non-empty capability
 request will be denied unless explicitly permitted.
 
-## ABI profile section (TASK-0019)
+## ABI profile section (RFC-0091 schema v2)
 
-`[abi_profile."<service>"]` configures static boot/startup ABI syscall guardrail
-profiles served by `policyd`:
+`[abi_profile."<service>"]` configures the per-subject ABI guardrail profile
+served by `policyd`: `epoch`, an optional `limits` table (`deadline_ms`,
+`max_payload`), and rule arrays `statefs`, `net.bind`, `net.connect`. The
+full grammar, precedence (most specific wins, deny beats allow) and bounds are
+documented in `docs/security/abi-filters.md`; the single parser is
+`userspace/policy/src/schema.rs` with fixtures under `policies/tests/`.
+Legacy v1 keys (`statefs_put_allow_prefix`, `net_bind_min_port`) still parse
+(transcoded, `epoch = 0`) but must not be mixed with v2 sections.
 
-- `statefs_put_allow_prefix`: optional bounded path prefix for `statefs.put`
-  allow-rules. Unset means deny-by-default.
-- `net_bind_min_port`: optional inclusive lower bound for `net.bind` allow-rules
-  (`port >= min_port`). Unset means deny-by-default.
-
-Profiles remain static in this task slice (no runtime hot reload / mode switch).
+Profiles are static per boot; the only runtime transition is the
+authenticated, epoch-guarded mode switch (RFC-0091 §6).

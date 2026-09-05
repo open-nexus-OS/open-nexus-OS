@@ -1,0 +1,4 @@
+# expect: MixedVersions
+[abi_profile."demo.mixed"]
+epoch = 2
+statefs_put_allow_prefix = "/state/app/mixed/"
