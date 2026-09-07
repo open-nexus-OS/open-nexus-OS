@@ -52,6 +52,9 @@ pub const STATUS_INTEGRITY_VIOLATION: u8 = 9;
 pub const STATUS_ROLLBACK_DETECTED: u8 = 10;
 /// TASK-0051: quiesce gate — the store has open transactions; retry later.
 pub const STATUS_BUSY: u8 = 11;
+/// RFC-0072 amendment (TASK-0043): the put would exceed the subject's hard
+/// byte quota — `EDQUOTA` on the VFS surface. Appended, never renumbered.
+pub const STATUS_QUOTA_EXCEEDED: u8 = 12;
 
 pub const MAX_LIST_LIMIT: u16 = 256;
 
@@ -453,6 +456,7 @@ pub fn status_from_error(err: StatefsError) -> u8 {
         StatefsError::ReplayLimitExceeded => STATUS_IO_ERROR,
         StatefsError::IntegrityViolation => STATUS_INTEGRITY_VIOLATION,
         StatefsError::RollbackDetected => STATUS_ROLLBACK_DETECTED,
+        StatefsError::QuotaExceeded => STATUS_QUOTA_EXCEEDED,
     }
 }
 
@@ -467,6 +471,7 @@ pub fn error_from_status(status: u8) -> StatefsError {
         STATUS_MALFORMED | STATUS_UNSUPPORTED => StatefsError::Corrupted,
         STATUS_INTEGRITY_VIOLATION => StatefsError::IntegrityViolation,
         STATUS_ROLLBACK_DETECTED => StatefsError::RollbackDetected,
+        STATUS_QUOTA_EXCEEDED => StatefsError::QuotaExceeded,
         _ => StatefsError::Corrupted,
     }
 }

@@ -263,7 +263,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0070-ui-design-system-ssot-convergence.md
 - RFC-0071: nxfs — user-data filesystem (container/volumes, transactional CoW track, integrity, encryption classes) contract seed (Draft 2026-07-15 — the `/data` store; supersedes securefsd TASK-0182/0183; track tasks/TRACK-STASH-USER-DATA-FS.md)
   - docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md
-- RFC-0072: VFS v2 — ReadDir, writable providers, stable storage error SSOT contract seed (Draft 2026-07-15 — absorbs TASK-0132's vfs error slice; execution TASK-0291/0293/0295)
+- RFC-0072: VFS v2 — ReadDir, writable providers, stable storage error SSOT contract seed (Draft 2026-07-15 — absorbs TASK-0132's vfs error slice; execution TASK-0291/0293/0295); amendment 2026-09-07: `EDQUOTA` (statefs 12 / VFS 14) + per-subject `/state` quota contract (TASK-0043 P0/P1, model TASK-0133)
   - docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
 - RFC-0073: App files surface — `svc.files.*`, `nexus.permission.FILES`, filemanager role, mime SSOT contract seed (Draft 2026-07-15 — stash becomes the first filemanager; pickers stay deferred to TASK-0083/0084)
   - docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md

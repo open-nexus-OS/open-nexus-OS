@@ -109,6 +109,7 @@ contract; it folds in here.
 | 11 | `EINVAL` | malformed request (bad name, bad cursor, bad handle) |
 | 12 | `EUNSUPPORTED` | op not supported by this provider/phase |
 | 13 | `EIO` | underlying device error |
+| 14 | `EDQUOTA` | per-subject byte quota exceeded (amendment 2026-09-07, TASK-0043 P0 — the TASK-0132 reservation) |
 
 Rules: providers map internal errors into this table (statefs keeps its wire statuses but the
 vfsd-visible surface uses this table); codes are append-only; every code ≥1 has at least one
@@ -149,6 +150,46 @@ Phase 2 ops or answer `EUNSUPPORTED` per-op deterministically. `Rename` across m
 **Sandbox composition (normative)**: RFC-0042 `NamespaceView` path filtering and CapFd validation
 run identically for ReadDir and all write ops; a namespace that hides a subtree hides it from
 ReadDir output too (entries filtered, not error). Deny → `EACCES` + audit (same sink as today).
+
+### Amendment 2026-09-07 — per-subject byte quotas on `/state` (`EDQUOTA`; TASK-0043 P0, model TASK-0133)
+
+One quota model for the app-writable state store, enforced where the policy check and the
+subject canonicalization already live: **statefsd at the `put` seam** (never a second model in
+vfsd; `/data` (nxfs) adopts the same model after TASK-0317).
+
+- **Codes**: statefs wire `STATUS_QUOTA_EXCEEDED = 12` (`StatefsError::QuotaExceeded`,
+  appended after `STATUS_BUSY = 11`); VFS surface `EDQUOTA = 14` (`VfsError::QuotaExceeded`).
+  `EDQUOTA` is distinct from `ENOSPC` (provider full) and `E2BIG` (one object over a cap);
+  a caller surface that cannot represent it maps to `ENOSPC` explicitly, never silently.
+- **Declaration** (`policies/*.toml`, the policy SSOT, parsed by the shared
+  `userspace/policy/src/schema.rs` grammar like `[abi_profile]`):
+
+  ```toml
+  [quota."selftest-client"]
+  prefixes   = ["/state/app/selftest/", "/state/selftest/"]   # ≤ 8 literal, canonical prefixes
+  soft_bytes = 65536                                         # warn once per window
+  hard_bytes = 131072                                        # deny with EDQUOTA (≥ soft_bytes)
+  ```
+
+  Attribution is **by declared prefix set**, not by writer identity: `used` is the sum of
+  `key_len + value_len` over the live keys under the subject's prefixes, reconstructed
+  deterministically from the journal at replay (no new persisted field, bounded by the
+  journal itself). Who may write under a prefix is the capability + RFC-0091 profile
+  question, already answered before the quota is consulted.
+- **Enforcement**: for a `put` under a quota's prefixes, `next = used − old_len(key) + new_len`;
+  `next > hard_bytes` ⇒ `STATUS_QUOTA_EXCEEDED` **before** the journal append (nothing reaches
+  the medium); `next > soft_bytes` ⇒ the put proceeds and `statefs: quota warn subject=<sid hex>
+  used=<n> soft=<s>` is emitted once per subject per window (window = one boot; re-armed when
+  `used` drops below `soft_bytes`). `del` is never quota-denied (it frees). Unknown subjects /
+  keys outside every declared prefix set are unmetered (quotas are opt-in per subject, like
+  profiles). A deny is audited (`AuditReason::QuotaExceeded`, counter
+  `quota_denies_total{subject}`, TASK-0043 P4).
+- **Markers**: `statefs: quota warn subject=… used=… soft=…`, `statefs: quota deny subject=…
+  used=… hard=…`, `SELFTEST: quota deny ok` (headless/smp1).
+- **Proof**: host `tests/state_quota_host/` (`test_reject_write_over_hard_quota`, deterministic
+  accounting across replay, soft-warn-once, delete frees), `cargo test -p statefs -p
+  nexus-vfs-types` (code mapping, `test_reject_quota_code_is_distinct`).
+- **Phase 4** (`TASK-0043` P0 codes ✅ / P1 enforcement): the quota half of this contract.
 
 ### Phases / milestones (contract-level)
 
@@ -237,6 +278,8 @@ When writing this RFC, ensure:
 - [x] **Phase 1**: ReadDir + err SSOT on RO surface — proof: `cargo test -p vfsd` / `cargo test -p vfs-e2e` + markers `SELFTEST: vfs readdir ok`, `vfsd: readdir ok (mount=/packages entries=3)` (TASK-0291, 2026-07-15). Error-code SSOT crate: `userspace/vfs-types`.
 - [ ] **Phase 2**: write ops + RW provider registration (`/data` via nxfsd) — proof: `vfsd: rw mount ok (/data)` (TASK-0293)
 - [ ] **Phase 3**: VMO bulk IO + inline cap enforcement — proof: TASK-0295 gates
+- [x] **Phase 4a**: `EDQUOTA` codes (statefs 12 / VFS 14) + quota contract amendment — proof: `cargo test -p statefs -p nexus-vfs-types` (TASK-0043 P0, 2026-09-07)
+- [ ] **Phase 4b**: statefs quota accounting + enforcement + markers — proof: `tests/state_quota_host/`, `SELFTEST: quota deny ok` (TASK-0043 P1)
 - [ ] Task(s) linked with stop conditions + proof commands.
 - [ ] QEMU markers appear in `scripts/qemu-test.sh` and pass.
 - [ ] Security-relevant negative tests exist (`test_reject_*` per error code).

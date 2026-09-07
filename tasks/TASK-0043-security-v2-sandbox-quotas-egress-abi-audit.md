@@ -1,6 +1,6 @@
 ---
 title: TASK-0043 Security v2: sandbox quotas (tmp/state) + per-subject network egress rules + tighter ABI policies + audits (host-first, OS-gated)
-status: Draft
+status: In Progress (P0 delivered 2026-09-07)
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -72,6 +72,33 @@ on the same model afterwards (TASK-0133 lineage), never a second model.
   `AbiRuleDenied{class}`; counters `quota_denies_total{subject}`, `egress_denies_total{subject}`
   (cardinality-capped under metricsd `max_series_total`); deny audits inherit logd's persisted
   evidence class (loop hazard respected).
+
+### P0 delivered 2026-09-07 — RFC-0072 amendment: `EDQUOTA` codes + quota contract
+
+- RFC-0072 table row `14 EDQUOTA` (the TASK-0132 reservation) + amendment section „per-subject
+  byte quotas on `/state`“: codes (statefs `STATUS_QUOTA_EXCEEDED = 12` / `StatefsError::
+  QuotaExceeded`, VFS `VfsError::QuotaExceeded = 14`), declaration `[quota."<subject>"]
+  {prefixes ≤ 8, soft_bytes, hard_bytes}` in the policy SSOT (shared grammar), attribution by
+  declared prefix set (deterministic from the journal, no new persisted field), enforcement rule
+  (`next = used − old + new`, hard ⇒ deny before append, soft ⇒ warn once per boot, `del`
+  never denied, opt-in per subject), markers, proof list; checklist Phase 4a ✅ / 4b (P1).
+- Code (userspace, no approval zone): `userspace/statefs` status + error + mappings + envelope
+  test; `userspace/vfs-types` `QuotaExceeded = 14` `EDQUOTA` + `from_code` + roundtrip +
+  `test_reject_quota_code_is_distinct`; consumers `statefsd/emit_os.rs` (`statefsd: err quota`),
+  `keystored/os_stub.rs` (maps to its size-class refusal). Docs: `docs/storage/quotas.md` (new),
+  `docs/storage/statefs.md` appended-status note.
+- ⭐ Harness finding (fixed here, policyd): TASK-0028 P3 started reading v2 replies at the right
+  status offset, so every delegated cap check (one per statefs put) became an audit append —
+  25 → 128 per boot, the per-boot cap exhausted, and each append waited up to 500 ms on logd's
+  full queue (icount), stalling policyd long enough for the seams' 500 ms cap checks to time out
+  into fail-closed denials (`SELFTEST: statefs auth put/tamper deny/rollback deny/v2 crash-atomic
+  FAIL`, lane timeout). Fix: logd append send budget 500 ms → 2 ms (best-effort by contract,
+  deferred stays counted/visible) and hot-path ALLOWs (`OP_CHECK_CAP_DELEGATED`, `OP_ABI_EVAL`)
+  are not audited — every DENY and the mode switch are. smp1 back to 31 audits/boot, probes ok.
+- Proof: `cargo test -p statefs -p nexus-vfs-types` green; `just check` green; `just test-all`
+  green 2026-09-07 (`exit=0`, all nine QEMU lanes, after the policyd audit-path fix).
+- Next: P1 (accounting in `userspace/statefs`, enforcement at statefsd put, `[quota]` in
+  `schema.rs` + policyd table, `tests/state_quota_host/`, `SELFTEST: quota deny ok`).
 
 ### Packages
 

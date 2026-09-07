@@ -82,6 +82,8 @@ pub enum StatefsError {
     IntegrityViolation,
     /// Stale sequence number for a key (anti-rollback)
     RollbackDetected,
+    /// Per-subject byte quota would be exceeded (RFC-0072 `EDQUOTA`, TASK-0043)
+    QuotaExceeded,
 }
 
 impl StatefsError {
@@ -100,6 +102,7 @@ impl StatefsError {
             Self::ReplayLimitExceeded => "ReplayLimitExceeded",
             Self::IntegrityViolation => "IntegrityViolation",
             Self::RollbackDetected => "RollbackDetected",
+            Self::QuotaExceeded => "QuotaExceeded",
         }
     }
 }

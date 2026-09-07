@@ -38,6 +38,10 @@ pub enum VfsError {
     Unsupported = 12,
     /// Underlying device error.
     Io = 13,
+    /// Per-subject byte quota exceeded (RFC-0072 amendment, TASK-0043; the
+    /// TASK-0132 `EDQUOTA` reservation). Distinct from `NoSpace` (the provider
+    /// is full) and `TooBig` (one object over a cap).
+    QuotaExceeded = 14,
 }
 
 /// Wire value for success (no error).
@@ -70,6 +74,8 @@ impl VfsError {
             10 => Some(Self::Busy),
             11 => Some(Self::Invalid),
             12 => Some(Self::Unsupported),
+            13 => Some(Self::Io),
+            14 => Some(Self::QuotaExceeded),
             _ => Some(Self::Io),
         }
     }
@@ -91,6 +97,7 @@ impl VfsError {
             Self::Invalid => "EINVAL",
             Self::Unsupported => "EUNSUPPORTED",
             Self::Io => "EIO",
+            Self::QuotaExceeded => "EDQUOTA",
         }
     }
 }
@@ -121,6 +128,7 @@ mod tests {
             VfsError::Invalid,
             VfsError::Unsupported,
             VfsError::Io,
+            VfsError::QuotaExceeded,
         ] {
             assert_eq!(VfsError::from_code(err.code()), Some(err), "{err}");
         }
@@ -129,6 +137,16 @@ mod tests {
     #[test]
     fn ok_is_no_error() {
         assert_eq!(VfsError::from_code(CODE_OK), None);
+    }
+
+    #[test]
+    fn test_reject_quota_code_is_distinct() {
+        // EDQUOTA is neither ENOSPC nor E2BIG and decodes to itself.
+        assert_eq!(VfsError::QuotaExceeded.code(), 14);
+        assert_eq!(VfsError::from_code(14), Some(VfsError::QuotaExceeded));
+        assert_ne!(VfsError::QuotaExceeded, VfsError::NoSpace);
+        assert_ne!(VfsError::QuotaExceeded, VfsError::TooBig);
+        assert_eq!(VfsError::QuotaExceeded.name(), "EDQUOTA");
     }
 
     #[test]

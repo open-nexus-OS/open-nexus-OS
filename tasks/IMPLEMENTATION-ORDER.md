@@ -500,7 +500,7 @@ wird production-grade auf das End-System gebaut (keine Interimslösung — Ledge
 Ledgern nachgeführt, nie geschätzt. Vokabular: ✅ delivered · ⤳ superseded · `Draft` /
 `In Progress` / `Done <date>` / `Delivered <date> (test-all green)`.
 
-### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 15/24 delivered · Tasks 3/5 Done
+### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 16/24 delivered · Tasks 3/5 Done
 
 Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 
@@ -521,7 +521,7 @@ Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 | 12 | ✅ TASK-0028 P1 | Matcher + Codec v2, EIN Parser (`schema.rs`, per `#[path]` auch in policyd/build.rs) + Korpus `policies/tests/` + Reject-Suite (`test_reject_first_match_shadowing`, `_argument_injection`, `_regex_dos`, `_stale_profile_epoch`, `_unknown_class_fails_closed`, `_oversized_profile_v2`; `_unauthenticated_mode_switch` → P3, `test_learn_roundtrip` → P2) | Delivered 2026-09-05 (test-all green) |
 | 13 | ✅ TASK-0028 P2 | Learn-Pipeline: policyd `OP_ABI_EVAL` (Evaluation + Limits + Mode an EINER Stelle), `ModeTable` + Dedup-Ring 64 + Token-Bucket 8/s·32 + Drop-Zähler, logd-Scope `policyd.learn`, EIN Record-Format `learn_record.rs` (Host-Modul + policyd `#[path]`), `nx policy learn-gen` (Skeleton, `--allow-any`), `test_learn_roundtrip` | Delivered 2026-09-05 (test-all green) |
 | 14 | ✅ TASK-0028 P3 | statefsd-Seam (`OP_ABI_EVAL` über Slots 7/6/5, governed = authored, UNSUPPORTED→capability-only), `OP_SET_ABI_MODE` (Cap `policy.abi_mode` + Epoch-Guard + Audit-Marker), `AuditReason::{AbiRule, AbiMode}`, 5 `SELFTEST: abi …`-Marker dreifach-SSOT, SECURITY_STANDARDS-Ausnahme; netstackd-Seam → 0043 P2 / 0052 P1 — **TASK-0028 Done** | Delivered 2026-09-07 (test-all green) |
-| 15 | TASK-0043 P0 | RFC-0072-Amendment `EDQUOTA` (statefs 12 / VfsError 14); Quota-Modell = TASK-0133 (soft/hard), Enforcement statefsd | Draft |
+| 15 | ✅ TASK-0043 P0 | RFC-0072-Amendment `EDQUOTA` (statefs `STATUS_QUOTA_EXCEEDED=12` / `VfsError::QuotaExceeded=14`), Quota-Vertrag (`[quota."<subject>"]` prefixes/soft/hard, Attribution per Präfix-Set, hard ⇒ deny vor Append, soft ⇒ warn once), `docs/storage/quotas.md` | Delivered 2026-09-07 (check green; paper + codes) |
 | 16 | TASK-0043 P1 | statefs-Quota-Accounting host (`tests/state_quota_host/`) + OS (`statefs: quota deny`, `SELFTEST: quota deny ok`) | Draft |
 | 17 | TASK-0043 P2 | netstackd-Identität (`sid` → Facade) + `STATUS_DENY` + policyd-Authorize an connect/listen/bind — gemeinsamer Vorbau mit 0052 | Draft |
 | 18 | TASK-0043 P3 | Egress-Policy (`net.connect` CIDR/Port) host + OS (`net-egress: enforced`, `SELFTEST: egress deny/allow ok`) | Draft |

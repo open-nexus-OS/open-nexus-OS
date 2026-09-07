@@ -164,6 +164,7 @@ pub(crate) fn emit_statefs_error(err: StatefsError) {
         StatefsError::ReplayLimitExceeded => "statefsd: err replay-limit",
         StatefsError::IntegrityViolation => "statefsd: err integrity",
         StatefsError::RollbackDetected => "statefsd: err rollback",
+        StatefsError::QuotaExceeded => "statefsd: err quota",
     };
     emit_line(msg);
 }

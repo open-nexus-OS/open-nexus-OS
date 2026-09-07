@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-07 (TASK-0043 P0: RFC-0072 `EDQUOTA` amendment + `/state` quota contract)
+
+- Stable quota codes: statefs `STATUS_QUOTA_EXCEEDED = 12`
+  (`StatefsError::QuotaExceeded`) and VFS `EDQUOTA = 14`
+  (`VfsError::QuotaExceeded`), distinct from `ENOSPC`/`E2BIG`, with mapping
+  tests. RFC-0072 amendment fixes the one `/state` quota model (TASK-0133):
+  `[quota."<subject>"]` in the policy SSOT, attribution by declared prefix
+  set, hard ⇒ deny before the journal append, soft ⇒ warn once per boot,
+  `del` never denied; `docs/storage/quotas.md`. Enforcement follows in P1.
+- policyd audit path: the logd append no longer waits up to 500 ms on a full
+  logd queue (2 ms, deferred stays counted) and hot-path ALLOWs (delegated
+  cap checks, argument evaluations) are not audited — every DENY is. Fixes
+  the seams' cap-check timeouts under the icount profile that surfaced once
+  v2 replies were audited correctly (TASK-0028 P3).
+
 ### Added - 2026-09-07 (TASK-0028 P3: statefsd argument-filter seam, authenticated ABI mode switch — TASK-0028 Done)
 
 - statefsd's `put` is the first RFC-0091 enforcement seam: after the

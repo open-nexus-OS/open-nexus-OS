@@ -867,6 +867,8 @@ fn status_from_statefs_error(err: StatefsError) -> u8 {
         StatefsError::IoError | StatefsError::ReplayLimitExceeded => STATUS_UNSUPPORTED,
         // TASK-0025 envelope refusals (integrity/anti-rollback) => deny.
         StatefsError::IntegrityViolation | StatefsError::RollbackDetected => STATUS_DENY,
+        // RFC-0072 EDQUOTA: the store is full for this subject — a size-class refusal.
+        StatefsError::QuotaExceeded => STATUS_TOO_LARGE,
     }
 }
 

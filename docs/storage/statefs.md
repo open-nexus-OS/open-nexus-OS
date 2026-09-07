@@ -207,6 +207,12 @@ is not a device failure). Remaining mapping stays on the existing set: unknown t
 `NOT_FOUND`; chunk/key/byte caps and assembled value > 64 KiB → `VALUE_TOO_LARGE`; journal
 append failure → `IO_ERROR`; malformed frames → `MALFORMED`.
 
+Appended status: `STATUS_QUOTA_EXCEEDED = 12` (RFC-0072 amendment, TASK-0043) —
+the put would exceed the subject's hard byte quota; the VFS surface reports it as
+`EDQUOTA` (14). Distinct from `STATUS_VALUE_TOO_LARGE` (one value over the inline
+cap). Declared per subject in `policies/*.toml` (`[quota."<subject>"]`), enforced
+by statefsd at the put seam (TASK-0043 P1), see `docs/storage/quotas.md`.
+
 **Policy:** `TXN_BEGIN/COMMIT/ABORT` carry no key and mirror `Sync`/`Reopen`
 (`statefs.write` or `statefs.boot`); every `TXN_PUT` key passes the same per-key table as
 `Put` (`/state/keystore/*` → `statefs.keystore`, `/state/boot/*` → `statefs.boot`, else

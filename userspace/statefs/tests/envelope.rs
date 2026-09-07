@@ -238,4 +238,16 @@ fn test_new_status_codes_roundtrip() {
         protocol::error_from_status(protocol::STATUS_ROLLBACK_DETECTED),
         StatefsError::RollbackDetected
     );
+    // RFC-0072 amendment (TASK-0043): EDQUOTA is its own appended status, never
+    // folded into "too large" or "corrupted".
+    assert_eq!(protocol::STATUS_QUOTA_EXCEEDED, 12);
+    assert_eq!(
+        protocol::status_from_error(StatefsError::QuotaExceeded),
+        protocol::STATUS_QUOTA_EXCEEDED
+    );
+    assert_eq!(
+        protocol::error_from_status(protocol::STATUS_QUOTA_EXCEEDED),
+        StatefsError::QuotaExceeded
+    );
+    assert_ne!(protocol::STATUS_QUOTA_EXCEEDED, protocol::STATUS_VALUE_TOO_LARGE);
 }

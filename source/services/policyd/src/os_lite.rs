@@ -260,15 +260,20 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
     };
     let observability_only =
         ver == nexus_abi::policyd::VERSION_V2 && op == nexus_abi::policyd::OP_ABI_LEARN_STATS;
+    // Hot-path allows are not audited: the per-put delegated cap check and
+    // the per-put argument evaluation would exhaust the per-boot audit cap
+    // (`AUDIT_EMIT_LIMIT`) before the interesting phases and flood logd
+    // (TASK-0043 P0 finding: 25 → 128 audits per boot once v2 replies were
+    // read at the right offset). Every DENY is audited; the mode switch too.
+    let hot_path_allow = ver == nexus_abi::policyd::VERSION_V2
+        && matches!(op, OP_CHECK_CAP_DELEGATED | nexus_abi::policyd::OP_ABI_EVAL);
     if out.len > status_at && !observability_only {
         match out.buf[status_at] {
             STATUS_ALLOW => {
                 if matches!(reason, AuditReason::AbiMode) {
                     crate::abi_host_os::emit_abi_mode_marker(frame);
                     emit_audit(op, AuditDecision::Allow, sender_service_id, None, reason);
-                } else if !matches!(reason, AuditReason::AbiRule(_)) {
-                    // Allowed argument evaluations are the hot path (every
-                    // statefs put): not audited, only refusals are.
+                } else if !hot_path_allow {
                     emit_audit(op, AuditDecision::Allow, sender_service_id, None, reason);
                 }
             }
@@ -1063,8 +1068,14 @@ pub(crate) fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
             break;
         }
     }
+    // TASK-0043 P0 harness finding: a 500 ms send budget here stalled policyd
+    // whenever logd's queue was full (icount profile) — long enough for the
+    // seams' 500 ms delegated cap checks to time out into fail-closed denials
+    // (`SELFTEST: statefs auth put FAIL`). The append is best-effort by
+    // contract (deferred = counted, never hidden): bound the wait to 2 ms so
+    // policyd's hot path never waits on logd.
     let clock = OsClock;
-    let deadline = match deadline_after(&clock, Duration::from_millis(500)) {
+    let deadline = match deadline_after(&clock, Duration::from_millis(2)) {
         Ok(v) => v,
         Err(_) => return false,
     };
