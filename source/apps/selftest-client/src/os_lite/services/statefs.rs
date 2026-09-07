@@ -161,6 +161,48 @@ pub(crate) fn statefs_put_status(
     statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp).map_err(|_| ())
 }
 
+/// RFC-0072 quota proof against the shipped `[quota."selftest-client"]`
+/// (prefix `/state/app/selftest/quota/`, soft 256, hard 512): two puts fit
+/// (the second crosses soft), the third is refused `STATUS_QUOTA_EXCEEDED`
+/// before it reaches the journal, a delete frees room and the same put then
+/// succeeds. Returns the refusing status when the sequence does not hold.
+pub(crate) fn statefs_quota_probe(client: &KernelClient) -> core::result::Result<(), u8> {
+    const A: &str = "/state/app/selftest/quota/a";
+    const B: &str = "/state/app/selftest/quota/b";
+    const C: &str = "/state/app/selftest/quota/c";
+    let value = [b'q'; 180]; // 180 + 27-byte key = 207 per entry
+    let put = |key: &str| statefs_put_status(client, key, &value).map_err(|_| 0xffu8);
+    // Fresh tree (a keep-blk boot may carry the previous run's entries).
+    for key in [A, B, C] {
+        let del = statefs_proto::encode_key_only_request(statefs_proto::OP_DEL, key)
+            .map_err(|_| 0xfeu8)?;
+        let _ = statefs_send_recv(client, &del);
+    }
+    if put(A)? != statefs_proto::STATUS_OK {
+        return Err(1);
+    }
+    if put(B)? != statefs_proto::STATUS_OK {
+        return Err(2);
+    }
+    // 414 used + 207 = 621 > 512 ⇒ EDQUOTA.
+    match put(C)? {
+        statefs_proto::STATUS_QUOTA_EXCEEDED => {}
+        other => return Err(other),
+    }
+    let del =
+        statefs_proto::encode_key_only_request(statefs_proto::OP_DEL, A).map_err(|_| 0xfdu8)?;
+    let rsp = statefs_send_recv(client, &del).map_err(|_| 0xfcu8)?;
+    if statefs_proto::decode_status_response(statefs_proto::OP_DEL, &rsp)
+        != Ok(statefs_proto::STATUS_OK)
+    {
+        return Err(3);
+    }
+    if put(C)? != statefs_proto::STATUS_OK {
+        return Err(4);
+    }
+    Ok(())
+}
+
 pub(crate) fn statefs_unauthorized_access(client: &KernelClient) -> core::result::Result<(), ()> {
     let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, "/state/keystore/deny")
         .map_err(|_| ())?;

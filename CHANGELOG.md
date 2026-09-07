@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-07 (TASK-0043 P1: `/state` byte quotas enforced at statefsd)
+
+- `statefs::quota` (rule, `check_put`, once-per-window warn latch) with
+  usage recomputed from the replayed journal map (`used_under`), the
+  `[quota."<subject>"]` declaration in the shared policy grammar
+  (disjoint prefix sets, corpus fixtures), statefsd's build-time
+  `QUOTA_ENTRIES` table and the put-seam gate: over the hard limit ⇒
+  `STATUS_QUOTA_EXCEEDED` before the journal append (`statefs: quota deny …`,
+  audited), over soft ⇒ `statefs: quota warn …` once per boot, `del` never
+  denied. Host proofs `tests/state_quota_host/`; QEMU `SELFTEST: quota deny ok`.
+
 ### Added - 2026-09-07 (TASK-0043 P0: RFC-0072 `EDQUOTA` amendment + `/state` quota contract)
 
 - Stable quota codes: statefs `STATUS_QUOTA_EXCEEDED = 12`

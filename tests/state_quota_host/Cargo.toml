@@ -1,0 +1,14 @@
+[package]
+name = "state_quota_host"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+
+[dependencies]
+statefs = { path = "../../userspace/statefs" }
+storage = { path = "../../userspace/storage" }
+nexus_policy = { package = "policy", path = "../../userspace/policy" }
+
+[lib]
+path = "src/lib.rs"

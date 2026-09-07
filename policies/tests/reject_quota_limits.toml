@@ -1,0 +1,5 @@
+# expect: QuotaLimits
+[quota."demo.app"]
+prefixes = ["/state/app/demo/"]
+soft_bytes = 4096
+hard_bytes = 1024

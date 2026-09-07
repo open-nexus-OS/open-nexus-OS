@@ -1,0 +1,10 @@
+# expect: ok
+[quota."demo.app"]
+prefixes = ["/state/app/demo/", "/state/demo/"]
+soft_bytes = 65536
+hard_bytes = 131072
+
+[quota."demo.other"]
+prefixes = ["/state/app/other/"]
+soft_bytes = 1024
+hard_bytes = 1024

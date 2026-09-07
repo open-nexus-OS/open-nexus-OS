@@ -190,6 +190,15 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         } else {
             emit_line(crate::markers::M_SELFTEST_STATEFS_PERSIST_FAIL);
         }
+        // RFC-0072 amendment (TASK-0043): the /state byte quota at statefsd's put seam.
+        match services::statefs::statefs_quota_probe(&statefsd) {
+            Ok(()) => emit_line(crate::markers::M_SELFTEST_QUOTA_DENY_OK),
+            Err(status) => {
+                emit_bytes(crate::markers::M_SELFTEST_QUOTA_DENY_FAIL_STATUS_0X.as_bytes());
+                emit_hex_u64(status as u64);
+                emit_line(")");
+            }
+        }
         // TASK-0025 write hardening: derive the envelope MAC key through
         // keystored's sign oracle, then prove verify-on-put (accept),
         // tamper denial (status 9) and rollback denial (status 10).

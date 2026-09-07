@@ -96,6 +96,13 @@ proves = "statefsd authority enforcement"
 [marker."SELFTEST: statefs persist ok"]
 phase = "routing"
 
+[marker."SELFTEST: quota deny ok"]
+phase = "routing"
+proves = "statefsd refused the put over the hard byte quota with STATUS_QUOTA_EXCEEDED before the journal append; a delete freed room (RFC-0072 amendment)"
+
+[marker."SELFTEST: quota deny FAIL (status=0x"]
+phase = "routing"
+
 [marker."SELFTEST: device key persist ok"]
 phase = "routing"
 

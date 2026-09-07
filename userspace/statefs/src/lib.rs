@@ -122,6 +122,7 @@ pub mod envelope;
 pub mod fsck;
 mod fsck_window;
 pub mod journal_v2;
+pub mod quota;
 pub mod record;
 pub mod writer;
 
@@ -562,6 +563,23 @@ impl<B: BlockDevice> JournalEngine<B> {
             }
         }
         Ok(value.clone())
+    }
+
+    /// Stored byte length of a live key (sealed values count as stored),
+    /// `None` when absent — the quota `old_len` input (RFC-0072 amendment).
+    pub fn stored_len(&self, key: &str) -> Option<usize> {
+        self.kv.get(key).map(Vec::len)
+    }
+
+    /// Bytes accounted to `prefixes`: Σ `key_len + stored_len` over the live
+    /// keys under any of them — recomputed from the replayed map, so it is
+    /// deterministic across reopen/upgrade/compaction (TASK-0043 quotas).
+    pub fn used_under(&self, prefixes: &[&str]) -> u64 {
+        self.kv
+            .iter()
+            .filter(|(k, _)| prefixes.iter().any(|p| k.starts_with(p)))
+            .map(|(k, v)| quota::entry_bytes(k.len(), v.len()))
+            .fold(0u64, u64::saturating_add)
     }
 
     /// Delete a key.

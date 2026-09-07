@@ -14,7 +14,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use nexus_policy::schema::{
-    compile, Action, AddressClass, PortRange, Profile, RawAbiProfile, Rule, SchemaError,
+    check_quotas_disjoint, compile, compile_quota, Action, AddressClass, PortRange, Profile, Quota,
+    RawAbiProfile, RawQuota, Rule, SchemaError,
 };
 use serde::Deserialize;
 
@@ -23,6 +24,8 @@ use serde::Deserialize;
 struct Fixture {
     #[serde(default)]
     abi_profile: BTreeMap<String, RawAbiProfile>,
+    #[serde(default)]
+    quota: BTreeMap<String, RawQuota>,
 }
 
 fn corpus_dir() -> PathBuf {
@@ -52,6 +55,11 @@ fn variant_name(err: &SchemaError) -> &'static str {
         SchemaError::BadCidr(_) => "BadCidr",
         SchemaError::TooManyRules { .. } => "TooManyRules",
         SchemaError::RuleLimitAboveProfile { .. } => "RuleLimitAboveProfile",
+        SchemaError::QuotaNoPrefixes => "QuotaNoPrefixes",
+        SchemaError::QuotaTooManyPrefixes { .. } => "QuotaTooManyPrefixes",
+        SchemaError::QuotaLimits { .. } => "QuotaLimits",
+        SchemaError::QuotaOverlap { .. } => "QuotaOverlap",
+        SchemaError::TooManyQuotas { .. } => "TooManyQuotas",
     }
 }
 
@@ -64,6 +72,13 @@ fn run(path: &Path) -> Result<BTreeMap<String, Profile>, String> {
         let profile = compile(&raw).map_err(|e| variant_name(&e).to_string())?;
         out.insert(subject, profile);
     }
+    let mut quotas: BTreeMap<String, Quota> = BTreeMap::new();
+    for (subject, raw) in fixture.quota {
+        let q = compile_quota(&raw).map_err(|e| variant_name(&e).to_string())?;
+        quotas.insert(subject, q);
+    }
+    check_quotas_disjoint(quotas.iter().map(|(k, v)| (k.as_str(), v)))
+        .map_err(|e| variant_name(&e).to_string())?;
     Ok(out)
 }
 
@@ -163,4 +178,20 @@ fn v2_full_compiles_canonically() {
     let live = tree.policy().abi_profile("selftest-client").expect("selftest profile");
     assert!(live.epoch >= 1);
     assert!(live.rules.iter().any(|r| matches!(r, Rule::NetConnect { .. })));
+}
+
+#[test]
+fn quota_declarations_compile_and_reject() {
+    let ok = RawQuota {
+        prefixes: vec!["/state/app/demo/".into(), "/state/demo/".into()],
+        soft_bytes: 100,
+        hard_bytes: 200,
+    };
+    let q = compile_quota(&ok).unwrap();
+    assert_eq!((q.soft_bytes, q.hard_bytes, q.prefixes.len()), (100, 200, 2));
+    // The shipped base.toml declares the selftest quota through the root loader.
+    let tree = nexus_policy::PolicyTree::load_root(&corpus_dir().join("..")).unwrap();
+    let live = tree.policy().quota("selftest-client").expect("selftest quota");
+    assert!(live.hard_bytes >= live.soft_bytes && live.soft_bytes > 0);
+    assert!(live.prefixes.iter().all(|p| p.starts_with("/state/") && p.ends_with('/')));
 }

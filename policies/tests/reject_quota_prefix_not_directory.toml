@@ -1,0 +1,6 @@
+# expect: PrefixNotCanonical
+# A quota prefix is a directory prefix (trailing slash) — a file-shaped prefix is ambiguous.
+[quota."demo.app"]
+prefixes = ["/state/app/demo"]
+soft_bytes = 1
+hard_bytes = 2

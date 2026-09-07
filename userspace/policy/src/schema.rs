@@ -29,6 +29,11 @@ pub const MAX_PATH_PREFIX_BYTES: usize = 64;
 /// Port ranges per rule (mirrors `MAX_PORT_RANGES_PER_RULE`).
 pub const MAX_PORT_RANGES_PER_RULE: usize = 4;
 
+/// Prefixes per `[quota]` rule (RFC-0072 amendment).
+pub const MAX_QUOTA_PREFIXES: usize = 8;
+/// Quota rules a build carries.
+pub const MAX_QUOTA_RULES: usize = 16;
+
 /// Bytes that would read as pattern syntax; a prefix is a literal.
 const PATTERN_BYTES: &[u8] = b"*?[]{}()|^$+\\";
 
@@ -101,6 +106,23 @@ pub struct RawConnectRule {
     pub ports: Vec<String>,
 }
 
+/// `[quota."<subject>"]` as authored (RFC-0072 amendment, TASK-0043).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawQuota {
+    pub prefixes: Vec<String>,
+    pub soft_bytes: u64,
+    pub hard_bytes: u64,
+}
+
+/// A validated quota declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Quota {
+    pub prefixes: Vec<String>,
+    pub soft_bytes: u64,
+    pub hard_bytes: u64,
+}
+
 /// Rule verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Action {
@@ -162,6 +184,11 @@ pub enum SchemaError {
     BadCidr(String),
     TooManyRules { count: usize, max: usize },
     RuleLimitAboveProfile { rule: u32, profile: u32 },
+    QuotaNoPrefixes,
+    QuotaTooManyPrefixes { count: usize, max: usize },
+    QuotaLimits { soft: u64, hard: u64 },
+    QuotaOverlap { a: String, b: String },
+    TooManyQuotas { count: usize, max: usize },
 }
 
 impl fmt::Display for SchemaError {
@@ -189,6 +216,17 @@ impl fmt::Display for SchemaError {
             Self::RuleLimitAboveProfile { rule, profile } => {
                 write!(f, "rule max_payload {rule} exceeds limits.max_payload {profile}")
             }
+            Self::QuotaNoPrefixes => write!(f, "quota declares no prefixes"),
+            Self::QuotaTooManyPrefixes { count, max } => {
+                write!(f, "quota declares too many prefixes: {count} > {max}")
+            }
+            Self::QuotaLimits { soft, hard } => {
+                write!(f, "quota limits invalid: soft={soft} hard={hard} (need 0 < soft ≤ hard)")
+            }
+            Self::QuotaOverlap { a, b } => {
+                write!(f, "quota prefix sets overlap: {a:?} and {b:?}")
+            }
+            Self::TooManyQuotas { count, max } => write!(f, "too many quotas: {count} > {max}"),
         }
     }
 }
@@ -380,4 +418,56 @@ pub fn compile(raw: &RawAbiProfile) -> Result<Profile, SchemaError> {
         return Err(SchemaError::TooManyRules { count: profile.rules.len(), max: MAX_RULES });
     }
     Ok(profile)
+}
+
+/// Validates one `[quota."<subject>"]` declaration.
+pub fn compile_quota(raw: &RawQuota) -> Result<Quota, SchemaError> {
+    if raw.prefixes.is_empty() {
+        return Err(SchemaError::QuotaNoPrefixes);
+    }
+    if raw.prefixes.len() > MAX_QUOTA_PREFIXES {
+        return Err(SchemaError::QuotaTooManyPrefixes {
+            count: raw.prefixes.len(),
+            max: MAX_QUOTA_PREFIXES,
+        });
+    }
+    if raw.soft_bytes == 0 || raw.hard_bytes < raw.soft_bytes {
+        return Err(SchemaError::QuotaLimits { soft: raw.soft_bytes, hard: raw.hard_bytes });
+    }
+    let mut prefixes = Vec::with_capacity(raw.prefixes.len());
+    for p in &raw.prefixes {
+        let p = validate_prefix(p)?;
+        if !p.ends_with('/') {
+            return Err(SchemaError::PrefixNotCanonical(p));
+        }
+        prefixes.push(p);
+    }
+    Ok(Quota { prefixes, soft_bytes: raw.soft_bytes, hard_bytes: raw.hard_bytes })
+}
+
+/// Rules are authored disjoint: no prefix of one quota may lie under (or
+/// equal) a prefix of another — attribution must be unambiguous.
+pub fn check_quotas_disjoint<'a, I>(quotas: I) -> Result<(), SchemaError>
+where
+    I: IntoIterator<Item = (&'a str, &'a Quota)>,
+{
+    let all: Vec<(&str, &Quota)> = quotas.into_iter().collect();
+    if all.len() > MAX_QUOTA_RULES {
+        return Err(SchemaError::TooManyQuotas { count: all.len(), max: MAX_QUOTA_RULES });
+    }
+    for (i, (name_a, qa)) in all.iter().enumerate() {
+        for (name_b, qb) in all.iter().skip(i + 1) {
+            for pa in &qa.prefixes {
+                for pb in &qb.prefixes {
+                    if pa.starts_with(pb.as_str()) || pb.starts_with(pa.as_str()) {
+                        return Err(SchemaError::QuotaOverlap {
+                            a: format!("{name_a}:{pa}"),
+                            b: format!("{name_b}:{pb}"),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }

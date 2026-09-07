@@ -22,6 +22,7 @@ fn check_allows_and_denies() {
                 vec!["IPC.Core".to_string(), "time.read".to_string()],
             )]),
             abi_profile: BTreeMap::new(),
+            quota: BTreeMap::new(),
         },
     )
     .unwrap();
@@ -138,6 +139,7 @@ fn evaluator_returns_bounded_explain_trace_and_stable_reason() {
                 vec!["IPC.Core".to_string(), "time.read".to_string()],
             )]),
             abi_profile: BTreeMap::new(),
+            quota: BTreeMap::new(),
         },
     )
     .unwrap();
@@ -200,6 +202,7 @@ fn evaluator_covers_abi_egress_and_signing_domain_shapes() {
                 ("keystored".to_string(), vec!["crypto.sign".to_string()]),
             ]),
             abi_profile: BTreeMap::new(),
+            quota: BTreeMap::new(),
         },
     )
     .unwrap();
@@ -278,6 +281,7 @@ fn adapter_parity_signing_capability_matches_legacy_check() {
         RawPolicy {
             allow: BTreeMap::from([("keystored".to_string(), vec!["crypto.sign".to_string()])]),
             abi_profile: BTreeMap::new(),
+            quota: BTreeMap::new(),
         },
     )
     .unwrap();
@@ -305,6 +309,7 @@ fn adapter_parity_exec_capability_matches_legacy_check() {
         RawPolicy {
             allow: BTreeMap::from([("execd".to_string(), vec!["proc.spawn".to_string()])]),
             abi_profile: BTreeMap::new(),
+            quota: BTreeMap::new(),
         },
     )
     .unwrap();

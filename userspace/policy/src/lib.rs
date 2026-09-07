@@ -42,6 +42,8 @@ pub struct PolicyDoc {
     allow: BTreeMap<String, BTreeSet<String>>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     abi_profile: BTreeMap<String, AbiProfile>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    quota: BTreeMap<String, schema::Quota>,
 }
 
 /// RFC-0091 compiled subject profile (schema SSOT: `schema.rs`).
@@ -333,7 +335,23 @@ impl PolicyDoc {
             })?;
             self.abi_profile.insert(canonical(&service), profile);
         }
+        for (service, raw_quota) in raw.quota {
+            let quota = schema::compile_quota(&raw_quota).map_err(|source| Error::Schema {
+                path: path.to_path_buf(),
+                subject: service.clone(),
+                source,
+            })?;
+            self.quota.insert(canonical(&service), quota);
+        }
+        schema::check_quotas_disjoint(self.quota.iter().map(|(k, v)| (k.as_str(), v))).map_err(
+            |source| Error::Schema { path: path.to_path_buf(), subject: "quota".into(), source },
+        )?;
         Ok(())
+    }
+
+    /// The compiled `[quota]` declaration of `subject`, when authored.
+    pub fn quota(&self, subject: &str) -> Option<&schema::Quota> {
+        self.quota.get(&canonical(subject))
     }
 
     /// The compiled RFC-0091 profile of `subject`, when authored.
@@ -446,6 +464,8 @@ struct RawPolicy {
     allow: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     abi_profile: BTreeMap<String, schema::RawAbiProfile>,
+    #[serde(default)]
+    quota: BTreeMap<String, schema::RawQuota>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -486,7 +506,7 @@ fn reject_unknown_policy_sections(path: &Path, data: &str) -> Result<(), Error> 
     let value = data
         .parse::<toml::Value>()
         .map_err(|source| Error::Parse { path: path.to_path_buf(), source })?;
-    let allowed = ["allow", "abi_profile"];
+    let allowed = ["allow", "abi_profile", "quota"];
     if let Some(table) = value.as_table() {
         for key in table.keys() {
             if !allowed.contains(&key.as_str()) {

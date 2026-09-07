@@ -79,6 +79,7 @@ members = [
     "userspace/dsl/cli",
     "userspace/nexus-gfx",
     "tests/crashdump_v2_host",
+    "tests/state_quota_host",
     "tests/nxdelta_host",
     "tests/nxra_host",
     "tests/ui_v4_host",

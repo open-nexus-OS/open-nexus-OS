@@ -129,3 +129,12 @@ address = "loopback"
 action = "allow"
 cidr = "10.0.2.0/24"
 ports = ["53", "80", "443"]
+
+# RFC-0072 amendment (TASK-0043): per-subject byte quota on /state, enforced by
+# statefsd at the put seam. Attribution by prefix set; soft ⇒ warn once per
+# boot, hard ⇒ EDQUOTA before the journal append. The selftest's quota tree is
+# tiny on purpose (the `SELFTEST: quota deny ok` proof fills it in three puts).
+[quota."selftest-client"]
+prefixes = ["/state/app/selftest/quota/"]
+soft_bytes = 256
+hard_bytes = 512

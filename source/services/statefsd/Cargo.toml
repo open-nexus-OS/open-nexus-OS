@@ -40,6 +40,10 @@ nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 storage = { path = "../../../userspace/storage", optional = true, default-features = false }
 
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
 [dev-dependencies]
 # hardening_contract.rs replays a journal on a MemBlockDevice.
 storage = { path = "../../../userspace/storage" }

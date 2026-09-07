@@ -1,0 +1,10 @@
+# expect: QuotaOverlap
+[quota."demo.app"]
+prefixes = ["/state/app/"]
+soft_bytes = 1
+hard_bytes = 2
+
+[quota."demo.other"]
+prefixes = ["/state/app/other/"]
+soft_bytes = 1
+hard_bytes = 2

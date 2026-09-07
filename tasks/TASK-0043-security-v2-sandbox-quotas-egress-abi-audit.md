@@ -1,6 +1,6 @@
 ---
 title: TASK-0043 Security v2: sandbox quotas (tmp/state) + per-subject network egress rules + tighter ABI policies + audits (host-first, OS-gated)
-status: In Progress (P0 delivered 2026-09-07)
+status: In Progress (P0+P1 delivered 2026-09-07)
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -99,6 +99,39 @@ on the same model afterwards (TASK-0133 lineage), never a second model.
   green 2026-09-07 (`exit=0`, all nine QEMU lanes, after the policyd audit-path fix).
 - Next: P1 (accounting in `userspace/statefs`, enforcement at statefsd put, `[quota]` in
   `schema.rs` + policyd table, `tests/state_quota_host/`, `SELFTEST: quota deny ok`).
+
+### P1 delivered 2026-09-07 — statefs quota accounting + enforcement
+
+- **Model** `userspace/statefs/src/quota.rs`: `QuotaRule {subject, prefixes ≤ 8, soft, hard}`,
+  `entry_bytes = key_len + stored_len`, `rule_for` (by prefix), `check_put` (`next = used − old +
+  new`, saturating; `> hard` ⇒ Deny, `> soft` ⇒ Warn), `WarnLatch` (once per window, re-armed
+  below soft). Engine: `JournalEngine::stored_len`, `used_under(prefixes)` — usage is recomputed
+  from the replayed map on every metered put (no cached counter ⇒ nothing drifts across reopen,
+  the virtio upgrade or compaction; O(keys) per metered put, keys are few).
+- **Declaration**: `schema.rs` `RawQuota`/`Quota`, `compile_quota` (1..=8 canonical directory
+  prefixes, `0 < soft ≤ hard`), `check_quotas_disjoint` (no prefix under another subject's —
+  attribution must be unambiguous), errors `QuotaNoPrefixes|QuotaTooManyPrefixes|QuotaLimits|
+  QuotaOverlap|TooManyQuotas`; host `PolicyDoc::quota`, section allowlist; corpus `ok_quota` +
+  5 `reject_quota_*`; policyd build.rs accepts the section (statefsd owns the table).
+- **Table + seam**: statefsd `build.rs` (new; shared grammar + FNV by `#[path]`) → `QUOTA_ENTRIES`;
+  `quota_os.rs` `QuotaState::admit_put` after cap check + RFC-0091 eval, before envelope/journal
+  ⇒ `STATUS_QUOTA_EXCEEDED` + `statefs: quota deny subject=0x<sid> used=<n> hard=<h>` (audited)
+  / `statefs: quota warn … soft=<s>` once per boot; `note_delete` re-arms. `policies/base.toml`
+  `[quota."selftest-client"]` prefix `/state/app/selftest/quota/` soft 256 / hard 512.
+- **Proofs**: `tests/state_quota_host/` (workspace member): `test_reject_write_over_hard_quota`
+  (EDQUOTA = 12, nothing reaches the journal, exact-limit allowed), `accounting_is_deterministic_
+  across_replay` (reopen + fresh engine agree), `soft_warn_once_per_window_and_rearm`,
+  `delete_frees_and_overwrite_counts_delta`, `unmetered_prefixes_are_untouched`,
+  `shipped_selftest_quota_matches_the_os_proof`. Selftest `statefs_quota_probe` (routing phase,
+  after persist): 2 × 207 B fit (second crosses soft), third ⇒ `STATUS_QUOTA_EXCEEDED`, delete
+  frees, same put succeeds ⇒ `SELFTEST: quota deny ok`; ladder gets `statefs: quota warn/deny
+  subject=0x52c6…` + the marker (2-space list; proof-manifest `markers/routing.toml`).
+- Proof: `cargo test -p state_quota_host -p statefs -p policy` green; OS-target strict check
+  statefsd + selftest-client; `just check` green; `just test-all` green 2026-09-07 (`exit=0`, all
+  nine QEMU lanes; `statefs: quota warn used=414 soft=256` / `quota deny used=414 hard=512` /
+  `SELFTEST: quota deny ok` observed in every lane, the second warn after the delete shows the
+  re-armed latch).
+- Next: P2 (netstackd identity + `STATUS_DENY`, shared with TASK-0052 P1).
 
 ### Packages
 

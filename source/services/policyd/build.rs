@@ -41,6 +41,11 @@ struct RawPolicy {
     allow: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     abi_profile: BTreeMap<String, schema::RawAbiProfile>,
+    /// RFC-0072 quotas are statefsd's table (its build.rs); accepted here so
+    /// the two build-time parsers agree on the section vocabulary.
+    #[serde(default)]
+    #[allow(dead_code)]
+    quota: BTreeMap<String, schema::RawQuota>,
 }
 
 #[derive(Debug, Deserialize)]

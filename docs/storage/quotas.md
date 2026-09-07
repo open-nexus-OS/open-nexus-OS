@@ -53,6 +53,21 @@ RFC-0091 profile question, decided before the quota is consulted.
 - `tests/state_quota_host/` — `test_reject_write_over_hard_quota`, deterministic
   accounting across replay, soft-warn-once, delete frees (TASK-0043 P1).
 
-Status: codes + contract delivered (P0); accounting/enforcement/markers follow
-in TASK-0043 P1. This is a storage-surface guardrail; kernel-owned resource
-truth is TASK-0286/0287.
+## Implementation
+
+- Model: `userspace/statefs/src/quota.rs` (`QuotaRule`, `check_put`,
+  `WarnLatch`); usage: `JournalEngine::used_under` / `stored_len` (recomputed
+  from the replayed map — no counter to drift across reopen, the virtio
+  upgrade or compaction).
+- Declaration grammar: `userspace/policy/src/schema.rs` (`compile_quota`,
+  `check_quotas_disjoint`); host loader `PolicyDoc::quota`; fixtures
+  `policies/tests/*quota*`.
+- Table: statefsd's `build.rs` bakes `QUOTA_ENTRIES` from `policies/*.toml`
+  (shared grammar by path); an invalid/overlapping declaration fails the build.
+- Seam: `source/services/statefsd/src/quota_os.rs`, called after the
+  capability check and the RFC-0091 evaluation, before the envelope check.
+
+Status: P0 (codes, contract) and P1 (accounting, enforcement, markers,
+`tests/state_quota_host/`, `SELFTEST: quota deny ok`) delivered 2026-09-07.
+Audit reason + counter follow in TASK-0043 P4. This is a storage-surface
+guardrail; kernel-owned resource truth is TASK-0286/0287.

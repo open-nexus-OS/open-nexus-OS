@@ -18,8 +18,12 @@
 //! RFC: docs/rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md
 
 use nexus_abi::policyd::{ABI_CLASS_STATEFS_PUT, STATUS_ALLOW, STATUS_UNSUPPORTED};
+use statefs::protocol as proto;
+use statefs::JournalEngine;
+use storage::BlockDevice;
 
 use crate::emit_os::emit_abi_denied;
+use crate::quota_os::QuotaState;
 
 const POLICYD_SEND_SLOT: u32 = 0x07;
 const REPLY_SEND_SLOT: u32 = 0x06;
@@ -50,4 +54,23 @@ pub(crate) fn abi_put_allowed(subject_id: u64, path: &str, payload_len: usize) -
             false
         }
     }
+}
+
+/// The put-seam gates in order: RFC-0091 argument filters (policyd), then
+/// the RFC-0072 byte quota. `Some(status)` = refuse with that wire status
+/// (nothing reaches the envelope check or the journal); `None` = proceed.
+pub(crate) fn put_gates<B: BlockDevice>(
+    quota: &mut QuotaState,
+    engine: &JournalEngine<B>,
+    subject_id: u64,
+    key: &str,
+    payload_len: usize,
+) -> Option<u8> {
+    if !abi_put_allowed(subject_id, key, payload_len) {
+        return Some(proto::STATUS_ACCESS_DENIED);
+    }
+    if !quota.admit_put(engine, key, payload_len) {
+        return Some(proto::STATUS_QUOTA_EXCEEDED);
+    }
+    None
 }

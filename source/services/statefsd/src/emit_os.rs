@@ -27,6 +27,57 @@ pub(crate) fn emit_access_denied(path: &str, sender_service_id: u64) {
     append_logd_audit(msg.as_bytes());
 }
 
+/// RFC-0072 quotas: `statefs: quota warn subject=<sid hex> used=<n> soft=<s>`.
+pub(crate) fn emit_quota_warn(subject: u64, used: u64, soft: u64) {
+    emit_quota_line(b"statefs: quota warn subject=0x", subject, used, b" soft=", soft, false);
+}
+
+/// RFC-0072 quotas: `statefs: quota deny subject=<sid hex> used=<n> hard=<h>` (audited).
+pub(crate) fn emit_quota_deny(subject: u64, used: u64, hard: u64) {
+    emit_quota_line(b"statefs: quota deny subject=0x", subject, used, b" hard=", hard, true);
+}
+
+fn emit_quota_line(
+    head: &[u8],
+    subject: u64,
+    used: u64,
+    limit_tag: &[u8],
+    limit: u64,
+    audit: bool,
+) {
+    let mut buf = [0u8; 128];
+    let mut len = 0usize;
+    let _ = push_bytes(&mut buf, &mut len, head);
+    write_hex_u64(&mut buf, &mut len, subject);
+    let _ = push_bytes(&mut buf, &mut len, b" used=");
+    write_dec_u64(&mut buf, &mut len, used);
+    let _ = push_bytes(&mut buf, &mut len, limit_tag);
+    write_dec_u64(&mut buf, &mut len, limit);
+    let msg = core::str::from_utf8(&buf[..len]).unwrap_or("statefs: quota");
+    emit_line(msg);
+    if audit {
+        append_logd_audit(msg.as_bytes());
+    }
+}
+
+fn write_dec_u64(buf: &mut [u8], len: &mut usize, value: u64) {
+    let mut digits = [0u8; 20];
+    let mut n = 0;
+    let mut v = value;
+    loop {
+        digits[n] = b'0' + (v % 10) as u8;
+        n += 1;
+        v /= 10;
+        if v == 0 {
+            break;
+        }
+    }
+    while n > 0 {
+        n -= 1;
+        let _ = push_bytes(buf, len, &digits[n..n + 1]);
+    }
+}
+
 /// RFC-0091: audit an argument-filter refusal of a `put` (path + subject
 /// only — never the payload).
 pub(crate) fn emit_abi_denied(path: &str, subject_id: u64) {

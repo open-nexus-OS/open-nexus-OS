@@ -556,6 +556,11 @@ expected_sequence=(
   "SELFTEST: statefs put ok"
   "SELFTEST: statefs unauthorized access rejected"
   "SELFTEST: statefs persist ok"
+  # RFC-0072 amendment / TASK-0043 P1: statefsd refuses the put over the hard
+  # byte quota (EDQUOTA) before the journal append; a delete frees room.
+  "statefs: quota warn subject=0x52c6c4a34ffb3f69"
+  "statefs: quota deny subject=0x52c6c4a34ffb3f69"
+  "SELFTEST: quota deny ok"
   "SELFTEST: statefs auth put ok"
   "SELFTEST: statefs tamper deny ok"
   "SELFTEST: statefs rollback deny ok"

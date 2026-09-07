@@ -1,0 +1,5 @@
+# expect: QuotaNoPrefixes
+[quota."demo.app"]
+prefixes = []
+soft_bytes = 1
+hard_bytes = 2

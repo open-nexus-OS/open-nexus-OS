@@ -152,11 +152,18 @@ pub(crate) struct Hardening {
     /// Lazily derived envelope MAC key (chicken-egg rule: Integrity-class
     /// prefixes are served before keystored has generated the device key).
     pub(crate) key: Option<EnvelopeKey>,
+    /// RFC-0072 quota warn latches (usage itself is recomputed per put).
+    quota: crate::quota_os::QuotaState,
 }
 
 impl Hardening {
     fn new() -> Self {
-        Self { tracker: SeqTracker::new(), budget: hardening::new_write_budget(), key: None }
+        Self {
+            tracker: SeqTracker::new(),
+            budget: hardening::new_write_budget(),
+            key: None,
+            quota: crate::quota_os::QuotaState::new(),
+        }
     }
 }
 
@@ -356,18 +363,16 @@ fn handle_frame(
                     nonce,
                 );
             }
-            // RFC-0091 §7: argument filters (profile + limits + learn) live in
-            // policyd; the subject is the same canonical one the cap check used.
-            if !crate::abi_seam_os::abi_put_allowed(
+            // RFC-0091 argument filters (policyd) then the RFC-0072 byte quota —
+            // both refuse BEFORE the envelope check and the journal append.
+            if let Some(status) = crate::abi_seam_os::put_gates(
+                &mut hard.quota,
+                engine,
                 policy_subject(sender_service_id, proto::OP_PUT, key),
                 key,
                 value.len(),
             ) {
-                return proto::encode_status_response_with_nonce(
-                    proto::OP_PUT,
-                    proto::STATUS_ACCESS_DENIED,
-                    nonce,
-                );
+                return proto::encode_status_response_with_nonce(proto::OP_PUT, status, nonce);
             }
             // TASK-0025: envelope policy check (fail-closed for enrolled
             // prefixes) BEFORE the journal append; forged/stale values must
@@ -467,6 +472,7 @@ fn handle_frame(
             }
             match engine.delete(key) {
                 Ok(()) => {
+                    hard.quota.note_delete(engine, key);
                     proto::encode_status_response_with_nonce(proto::OP_DEL, proto::STATUS_OK, nonce)
                 }
                 Err(err) => proto::encode_status_response_with_nonce(
