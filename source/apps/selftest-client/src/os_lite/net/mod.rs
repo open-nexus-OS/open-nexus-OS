@@ -11,6 +11,7 @@
 //! TEST_COVERAGE: QEMU marker ladder via `just test-os`.
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md, docs/rfcs/RFC-0038-*.md
 
+pub(crate) mod egress;
 pub(crate) mod icmp_ping;
 pub(crate) mod local_addr;
 #[cfg(feature = "smoltcp-probe")]

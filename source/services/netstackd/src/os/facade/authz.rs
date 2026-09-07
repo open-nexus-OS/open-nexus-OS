@@ -145,7 +145,7 @@ impl Seam {
         if admitted {
             cache.insert(key);
         } else {
-            emit_deny(self.sender, class, port, addr_class);
+            emit_deny(self.sender, class, port, addr_class, addr);
         }
         admitted
     }
@@ -161,10 +161,11 @@ impl Seam {
     }
 }
 
-/// `!cap-deny: enforcer=netstackd class=<c> port=<p> addr=<loopback|any> subject=0x<sid>` —
-/// the greppable refusal line (same shape as `nexus_ipc::policyd::authorize`).
-fn emit_deny(subject: u64, class: u8, port: u16, addr_class: u8) {
-    let mut line = [0u8; 96];
+/// `!cap-deny: enforcer=netstackd class=net.connect dst=<a.b.c.d>:<p> subject=0x<sid>` /
+/// `… class=net.bind port=<p> addr=<loopback|any> subject=0x<sid>` — the greppable
+/// refusal line (same shape as `nexus_ipc::policyd::authorize`).
+fn emit_deny(subject: u64, class: u8, port: u16, addr_class: u8, addr: [u8; 4]) {
+    let mut line = [0u8; 112];
     let mut n = 0usize;
     let mut put = |b: &[u8]| {
         for &c in b {
@@ -174,32 +175,45 @@ fn emit_deny(subject: u64, class: u8, port: u16, addr_class: u8) {
             }
         }
     };
-    put(b"!cap-deny: enforcer=netstackd class=");
-    put(if class == ABI_CLASS_NET_CONNECT { b"net.connect" } else { b"net.bind" });
-    put(b" port=");
-    let mut d = [0u8; 5];
-    let mut k = 0;
-    let mut v = port;
-    loop {
-        d[k] = b'0' + (v % 10) as u8;
-        k += 1;
-        v /= 10;
-        if v == 0 {
-            break;
+    let dec = |v: u32, put: &mut dyn FnMut(&[u8])| {
+        let mut d = [0u8; 10];
+        let mut k = 0;
+        let mut v = v;
+        loop {
+            d[k] = b'0' + (v % 10) as u8;
+            k += 1;
+            v /= 10;
+            if v == 0 {
+                break;
+            }
         }
+        while k > 0 {
+            k -= 1;
+            put(&d[k..k + 1]);
+        }
+    };
+    put(b"!cap-deny: enforcer=netstackd class=");
+    if class == ABI_CLASS_NET_CONNECT {
+        put(b"net.connect dst=");
+        for (i, o) in addr.iter().enumerate() {
+            if i > 0 {
+                put(b".");
+            }
+            dec(*o as u32, &mut put);
+        }
+        put(b":");
+        dec(port as u32, &mut put);
+    } else {
+        put(b"net.bind port=");
+        dec(port as u32, &mut put);
+        put(b" addr=");
+        put(if addr_class == ADDR_ANY { b"any" } else { b"loopback" });
     }
-    while k > 0 {
-        k -= 1;
-        put(&d[k..k + 1]);
-    }
-    put(b" addr=");
-    put(if addr_class == ADDR_ANY { b"any" } else { b"loopback" });
     put(b" subject=0x");
     const HEX: &[u8; 16] = b"0123456789abcdef";
     for i in 0..16 {
         put(&[HEX[((subject >> (60 - 4 * i)) & 0xf) as usize]]);
     }
-    if let Ok(text) = core::str::from_utf8(&line[..n]) {
-        let _ = nexus_abi::debug_println(text);
-    }
+    put(b"\n");
+    let _ = nexus_abi::debug_write(&line[..n]);
 }

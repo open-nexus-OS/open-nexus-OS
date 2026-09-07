@@ -141,7 +141,9 @@ the empty deny-all profile.
   facade's loopback emulation — the QEMU user-net fallback IP / 0.0.0.0 on
   the loopback port set; `any` otherwise). policyd is reached over init-wired
   fixed slots (7 request, 8/9 reply), never routed from the hot loop
-  (`net-egress: enforced (netstackd policy seam on)`); admitted tuples
+  (`net-egress: enforced (netstackd policy seam on)`); the facade parks on a
+  timed recv at the Normal class (a self-demoted Idle facade never ran on the
+  strict-priority scheduler); admitted tuples
   are cached per boot (bounded ring; refusals never); refusal ⇒ wire
   `STATUS_DENY` + `!cap-deny: enforcer=netstackd …`; unattributed
   (`sid == 0`) or policyd unreachable ⇒ refused
@@ -190,7 +192,12 @@ the empty deny-all profile.
 - `init: netstackd policy slots 7/8/9` / `net-egress: enforced (netstackd
   policy seam on)` — init wired policyd's request endpoint + the `@reply`
   pair into netstackd and the facade armed the connect/listen/bind seam
-  (TASK-0043 P2); `!cap-deny: enforcer=netstackd …` marks a refusal.
+  (TASK-0043 P2); `!cap-deny: enforcer=netstackd class=net.connect dst=<ip>:<port>
+  subject=0x<sid>` (or `class=net.bind port=… addr=…`) marks a refusal.
+- `SELFTEST: egress deny ok` / `egress allow ok` / `egress learn collected ok`
+  — connects through the facade against the subject's `net.connect` profile:
+  CIDR/port refusals, an admitted target, a refusal collected under Learn
+  (TASK-0043 P3; host twins in `tests/security_v2_host/`).
 
 ## Required negative host proofs
 

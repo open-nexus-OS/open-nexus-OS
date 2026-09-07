@@ -1,6 +1,6 @@
 ---
 title: TASK-0043 Security v2: sandbox quotas (tmp/state) + per-subject network egress rules + tighter ABI policies + audits (host-first, OS-gated)
-status: In Progress (P0–P2 delivered 2026-09-07)
+status: In Progress (P0–P3 delivered 2026-09-07)
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -187,6 +187,54 @@ on the same model afterwards (TASK-0133 lineage), never a second model.
   `SELFTEST: egress deny/allow ok` are P3, `SELFTEST: ingress deny ok` is TASK-0052 P1.
 - Next: P3 (egress proof: selftest connect to an allowed and a refused target over the facade,
   `net-egress: enforced`, `SELFTEST: egress deny ok` / `allow ok`, learn mode records the attempt).
+
+### P3 delivered 2026-09-07 — egress policy proven through the facade
+
+- **OS proof** `source/apps/selftest-client/src/os_lite/net/egress.rs` (net phase, single-VM):
+  `connect` requests through netstackd against the shipped `net.connect` profile
+  (`10.0.2.0/24` 53/80/443): `192.168.1.1:80` (CIDR) and `10.0.2.2:8080` (port) answer the
+  seam's `STATUS_DENY` (never dialled; `!cap-deny: enforcer=netstackd class=net.connect
+  dst=<a.b.c.d>:<p> subject=0x…` — the deny line now names the destination for connect, port +
+  address class for bind) ⇒ `SELFTEST: egress deny ok`; `10.0.2.2:53` is admitted (any non-deny
+  status — the dial outcome belongs to the network) ⇒ `SELFTEST: egress allow ok`; under Learn
+  mode (`OP_SET_ABI_MODE` by the selftest, epoch-bound) a refused connect is admitted by
+  policyd's collector (`OP_ABI_LEARN_STATS` +1) with the decision unchanged ⇒ `SELFTEST: egress
+  learn collected ok` (refusals are never cached by netstackd, so policyd sees each one). Ladder:
+  the two `!cap-deny` lines + the three markers (2-space list); proof-manifest `markers/net.toml`.
+- **Host proofs** `tests/security_v2_host/` (workspace member): the shipped profile compiled
+  through the shared grammar and evaluated by the real matcher, composed with `seam_admits`:
+  `test_reject_egress_cidr`, `test_reject_egress_port`, `egress_allowed_target_passes`,
+  `test_reject_unattributed_connect`, `default_deny_without_connect_rules`.
+- ⭐⭐ Finding (fixed here, init `wiring.rs`): netstackd's facade serves FIXED slots recv 5 /
+  send 6, but its server pair was delivered at the child's next free slots (3/4 since the
+  volume spawn; the NIC MMIO cap sits at 48). Every facade client's request went into a dead
+  endpoint (`netstackd: ipc recv err` once at facade start) — `SELFTEST: icmp ping FAIL`,
+  `dsoftbus os connect FAIL`, and this package's egress probes, in headless as well as smp1
+  (no log in `build/logs/` ever has `icmp ping ok`). Fix: init transfers the pair with
+  `cap_transfer_to_slot` to 5/6 (deterministic, the dsoftbusd 3/4 pattern), so the facade is
+  reachable again; the egress proofs run BEFORE the ICMP probe (its handler blocks the facade
+  loop for its whole timeout) and wait on a 3 s time budget. ⤳ Follow-ups for the network
+  lane: `SELFTEST: icmp ping ok` / `dsoftbus os connect ok` should now be re-evaluated (they
+  were never ladder-gated in test-all).
+- ⭐⭐ Finding 2 (fixed here, netstackd `main.rs` + `facade/runtime.rs`): after the slot fix the
+  facade still served nobody — raw first-iteration tracing showed `poll` → `recv empty` → never a
+  second iteration. netstackd demoted itself to `QosClass::Idle` after bring-up (commit e549a2e4,
+  to keep the display/input path unstarved); the scheduler is strict-priority, so once any
+  Normal task polled with `yield_()` (the selftest's RPC waits, dsoftbusd's connect retries) the
+  Idle facade never ran again. Fix per RFC-0069's reactive-idle pattern: the facade stays at the
+  Normal class and its recv is a TIMED kernel park (5 ms bound = smoltcp cadence) instead of
+  NONBLOCK + yield — no CPU while idle, no starvation. Diagnostics removed after the fix.
+  ⤳ The two findings together (spawn-time slot + Idle demotion) are why no recorded boot ever
+  had `SELFTEST: icmp ping ok` / `dsoftbus os connect ok`.
+- Proof: `cargo test -p security_v2_host` 5, OS-target strict check netstackd + selftest-client +
+  init-lite, selftest arch gate; smp1 alone: `!cap-deny … dst=192.168.1.1:80` / `dst=10.0.2.2:8080`
+  / `dst=192.168.1.2:443`, `SELFTEST: egress deny ok`, `egress allow ok`, `egress learn collected
+  ok`, and the first recorded `SELFTEST: icmp ping ok` (2026-09-07 17:00); `just check` green,
+  `just test-all` green 2026-09-07 (`exit=0`, all nine QEMU lanes, the three egress markers +
+  `icmp ping ok` in every boot).
+- Next: P4 (audit taxonomy `AuditReason::{QuotaExceeded, EgressDenied, IngressDenied}`, counters
+  `quota_denies_total{subject}` / `egress_denies_total{subject}`, `docs/security/network-egress.md`,
+  `sandboxing.md` boundary paragraph) — closes TASK-0043.
 
 ### Packages
 

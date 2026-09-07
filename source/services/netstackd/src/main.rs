@@ -56,7 +56,14 @@ fn os_entry() -> core::result::Result<(), ()> {
     // Network up → the steady-state facade loop is background: self-lower to Idle
     // now so per-RPC serving can never starve the display/input critical path.
     #[cfg(nexus_env = "os")]
-    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
+    // TASK-0043 P3 finding: the facade used to demote itself to `QosClass::Idle`.
+    // The scheduler is strict-priority (PerfBurst > Interactive > Normal > Idle),
+    // so any Normal task that polls with `yield_()` — the selftest's RPC waits,
+    // dsoftbusd's connect retries — starved the facade after its first yield:
+    // no client request was ever served (`SELFTEST: icmp ping FAIL`, `dsoftbus
+    // os connect FAIL` in every recorded boot). A service with clients runs at
+    // the default Normal class; idle-time work is the kernel's, not ours.
+    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Normal);
     nexus_abi::service_verdict_flush("netstackd");
     crate::os::facade::runtime::run_facade_loop(net);
 }

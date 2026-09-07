@@ -665,6 +665,14 @@ expected_sequence=(
   # init-wired policyd slots (RFC-0091 §7) — the boot witness for egress.
   "init: netstackd policy slots 7/8/9"
   "net-egress: enforced (netstackd policy seam on)"
+  # TASK-0043 P3: egress policy proven through the facade — a connect outside
+  # the subject's net.connect CIDR / on a refused port is refused by policyd
+  # (never dialled), an allowed one admitted, a refusal learned in Learn mode.
+  "!cap-deny: enforcer=netstackd class=net.connect dst=192.168.1.1:80 subject=0x52c6c4a34ffb3f69"
+  "!cap-deny: enforcer=netstackd class=net.connect dst=10.0.2.2:8080 subject=0x52c6c4a34ffb3f69"
+  "SELFTEST: egress deny ok"
+  "SELFTEST: egress allow ok"
+  "SELFTEST: egress learn collected ok"
   "SELFTEST: mmio policy deny ok"
   "SELFTEST: policyd requester spoof denied ok"
   "SELFTEST: policy malformed ok"

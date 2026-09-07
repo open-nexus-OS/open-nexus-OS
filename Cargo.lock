@@ -3861,6 +3861,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "security_v2_host"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-ipc",
+ "policy",
+]
+
+[[package]]
 name = "selftest-client"
 version = "0.1.0"
 dependencies = [

@@ -221,3 +221,24 @@ phase = "net"
 
 [marker."SELFTEST: smoltcp send FAIL"]
 phase = "net"
+
+[marker."SELFTEST: egress deny ok"]
+phase = "net"
+proves = "netstackd's seam refused connects outside the subject's net.connect CIDR and on a refused port with STATUS_DENY (policyd decision, never dialled)"
+
+[marker."SELFTEST: egress allow ok"]
+phase = "net"
+proves = "a connect inside the subject's net.connect profile was admitted by the seam (not DENY)"
+
+[marker."SELFTEST: egress learn collected ok"]
+phase = "net"
+proves = "under Learn mode the refused connect was admitted by policyd's learn collector (+1) while the decision stayed DENY"
+
+[marker."SELFTEST: egress deny FAIL"]
+phase = "net"
+
+[marker."SELFTEST: egress allow FAIL"]
+phase = "net"
+
+[marker."SELFTEST: egress learn collected FAIL"]
+phase = "net"

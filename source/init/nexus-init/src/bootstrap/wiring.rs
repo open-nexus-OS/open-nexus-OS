@@ -89,48 +89,39 @@ pub(crate) fn wire_services(
         }
         match chan.svc_name {
             "netstackd" => {
-                // Provide netstackd its own request/response endpoints (server side).
-                // #region agent log (netstackd cap transfers)
+                // netstackd's facade serves FIXED slots (recv 5 / send 6 — see
+                // `os/facade/runtime.rs`). The server pair distributed at spawn
+                // lands at the child's next free slots (3/4 since the volume
+                // spawn), which is where every facade client's request went to
+                // die (`netstackd: ipc recv err`, `SELFTEST: icmp ping FAIL`,
+                // `dsoftbus os connect FAIL`). Deliver the pair where the
+                // facade listens, deterministically, like dsoftbusd's 3/4.
                 if iw(init_wire, init_fold, "init:netstackd") {
-                    debug_write_bytes(b"init: wire netstackd xfer net_req RECV\n");
+                    debug_write_bytes(b"init: wire netstackd xfer net_req RECV -> 5\n");
                 }
-                // #endregion agent log
-                // Server pair: usually distributed pre-grants (task #123) — the
-                // trace lines stay verbatim (fold-tally parity).
-                let recv_slot = match chan.recv(ServiceId::Netstackd) {
-                    Some(slot) => slot,
-                    None => match nexus_abi::cap_transfer(pid, net_req, Rights::RECV) {
+                let recv_slot =
+                    match nexus_abi::cap_transfer_to_slot(pid, net_req, Rights::RECV, 0x05) {
                         Ok(slot) => slot,
                         Err(e) => {
-                            // #region agent log (netstackd cap transfer error)
                             debug_write_bytes(b"init: wire netstackd xfer net_req err=abi:");
                             debug_write_str(abi_error_label(e.clone()));
                             debug_write_byte(b'\n');
-                            // #endregion agent log
                             return Err(InitError::Abi(e));
                         }
-                    },
-                };
-
-                // #region agent log (netstackd cap transfers)
+                    };
                 if iw(init_wire, init_fold, "init:netstackd") {
-                    debug_write_bytes(b"init: wire netstackd xfer net_rsp SEND\n");
+                    debug_write_bytes(b"init: wire netstackd xfer net_rsp SEND -> 6\n");
                 }
-                // #endregion agent log
-                let send_slot = match chan.send(ServiceId::Netstackd) {
-                    Some(slot) => slot,
-                    None => match nexus_abi::cap_transfer(pid, net_rsp, Rights::SEND) {
+                let send_slot =
+                    match nexus_abi::cap_transfer_to_slot(pid, net_rsp, Rights::SEND, 0x06) {
                         Ok(slot) => slot,
                         Err(e) => {
-                            // #region agent log (netstackd cap transfer error)
                             debug_write_bytes(b"init: wire netstackd xfer net_rsp err=abi:");
                             debug_write_str(abi_error_label(e.clone()));
                             debug_write_byte(b'\n');
-                            // #endregion agent log
                             return Err(InitError::Abi(e));
                         }
-                    },
-                };
+                    };
                 chan.set_send(ServiceId::Netstackd, send_slot);
                 chan.set_recv(ServiceId::Netstackd, recv_slot);
                 if iw(init_wire, init_fold, "init:netstackd") {

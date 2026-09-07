@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-07 (TASK-0043 P3: egress policy proven through netstackd)
+
+- The selftest connects through the facade against its `net.connect`
+  profile: targets outside the CIDR or on a refused port are refused by
+  policyd before any dial (`!cap-deny: enforcer=netstackd class=net.connect
+  dst=…`), an allowed target is admitted, and a refusal under Learn mode is
+  collected — `SELFTEST: egress deny ok` / `egress allow ok` / `egress learn
+  collected ok` in the ladder. Host proofs `tests/security_v2_host/`
+  (`test_reject_egress_cidr`, `test_reject_egress_port`,
+  `test_reject_unattributed_connect`, allowed passes, default deny).
+- Fixed netstackd's facade, which had served no client in any recorded boot:
+  init now delivers its endpoint pair to the facade's fixed slots 5/6 (it
+  landed at 3/4 since the volume spawn), and the facade runs at the Normal
+  class with a timed kernel park instead of demoting itself to Idle (the
+  strict-priority scheduler starved it after its first yield). First
+  recorded `SELFTEST: icmp ping ok`.
+
 ### Added - 2026-09-07 (TASK-0043 P2: netstackd identity seam, `STATUS_DENY`)
 
 - netstackd carries the kernel-attributed sender into every handler and asks

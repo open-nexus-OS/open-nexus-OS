@@ -26,6 +26,13 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     ctx.local_ip = net::local_addr::netstackd_local_addr();
     ctx.os2vm = matches!(ctx.local_ip, Some([10, 42, 0, _]));
 
+    // TASK-0043 P3: egress policy at the facade (RFC-0091 `net.connect`) —
+    // before the ICMP probe, whose handler blocks the facade loop for its
+    // whole timeout.
+    if !ctx.os2vm {
+        net::egress::egress_proofs();
+    }
+
     // TASK-0004: ICMP ping proof via netstackd facade.
     // Under 2-VM socket/mcast backends there is no gateway, so skip deterministically.
     //

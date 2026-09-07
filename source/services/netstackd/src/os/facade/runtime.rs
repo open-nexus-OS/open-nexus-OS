@@ -29,6 +29,8 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
     // Ownership model: this loop is the sole owner of `net` + `state`, and each handler receives
     // temporary exclusive borrows through `FacadeContext` for one request turn.
     const SVC_RECV_SLOT: u32 = 5;
+    /// Park bound per loop turn (smoltcp timers/retransmits keep their cadence).
+    const FACADE_PARK_NS: u64 = 5_000_000;
     let svc_recv_slot = SVC_RECV_SLOT;
     let _svc_send_slot: u32 = 6;
     let _ = nexus_abi::trace_line("netstackd: svc slots 5/6");
@@ -50,14 +52,21 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut sid: u64 = 0;
         let mut buf = [0u8; 512];
-        match nexus_abi::ipc_recv_v2(
+        // RFC-0069 reactive idle (TASK-0043 P3): a TIMED recv — a true kernel park
+        // bounded by the smoltcp poll cadence — instead of NONBLOCK + yield. The
+        // facade runs at the Normal class again (an Idle facade never ran on the
+        // strict-priority scheduler once any Normal task polled), and parking
+        // keeps it from competing with the display/input path while idle.
+        let park_deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(FACADE_PARK_NS);
+        let recv_result = nexus_abi::ipc_recv_v2(
             svc_recv_slot,
             &mut hdr,
             &mut buf,
             &mut sid,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
+            nexus_abi::IPC_SYS_TRUNCATE,
+            park_deadline,
+        );
+        match recv_result {
             Ok(n) => {
                 // Log first IPC receipt to confirm message flow.
                 static FIRST_IPC_LOGGED: core::sync::atomic::AtomicBool =
@@ -102,9 +111,9 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
                     DispatchControl::Handled => {}
                 }
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                // Drive the network stack even when idle so TCP handshakes can complete.
-                let _ = yield_();
+            Err(nexus_abi::IpcError::QueueEmpty) | Err(nexus_abi::IpcError::TimedOut) => {
+                // Park expired without a request: drive the network stack (TCP
+                // handshakes, DHCP) on the next turn.
             }
             Err(_) => {
                 static IPC_RECV_ERR_LOGGED: core::sync::atomic::AtomicBool =

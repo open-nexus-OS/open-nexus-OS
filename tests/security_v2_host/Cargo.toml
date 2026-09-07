@@ -1,0 +1,14 @@
+[package]
+name = "security_v2_host"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+
+[dependencies]
+nexus-abi = { path = "../../source/libs/nexus-abi" }
+nexus-ipc = { path = "../../userspace/nexus-ipc" }
+nexus_policy = { package = "policy", path = "../../userspace/policy" }
+
+[lib]
+path = "src/lib.rs"
