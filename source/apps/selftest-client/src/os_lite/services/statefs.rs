@@ -149,6 +149,18 @@ pub(crate) fn statefs_put_get_list(client: &KernelClient) -> core::result::Resul
     Ok(())
 }
 
+/// One `put` and its wire status (RFC-0091 seam proofs need the status,
+/// not a pass/fail).
+pub(crate) fn statefs_put_status(
+    client: &KernelClient,
+    key: &str,
+    value: &[u8],
+) -> core::result::Result<u8, ()> {
+    let put = statefs_proto::encode_put_request(key, value).map_err(|_| ())?;
+    let rsp = statefs_send_recv(client, &put)?;
+    statefs_proto::decode_status_response(statefs_proto::OP_PUT, &rsp).map_err(|_| ())
+}
+
 pub(crate) fn statefs_unauthorized_access(client: &KernelClient) -> core::result::Result<(), ()> {
     let get = statefs_proto::encode_key_only_request(statefs_proto::OP_GET, "/state/keystore/deny")
         .map_err(|_| ())?;

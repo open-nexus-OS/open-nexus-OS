@@ -1,6 +1,6 @@
 ---
 title: TASK-0028 ABI filters v2: argument matchers + learn→enforce + policy generator (host-first, OS-gated)
-status: In Progress (P0–P2 delivered 2026-09-05)
+status: Done (P0–P3 delivered 2026-09-05..07; follow-ups listed)
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -171,7 +171,68 @@ is the authority, resolved 2026-08-14); full regular expressions (bounded litera
   `nexus_ipc::policyd::abi_eval_on` client helper), `OP_SET_ABI_MODE` authentication + epoch
   guard, `AuditReason::AbiRuleDenied{class}`, the five `SELFTEST: abi …` markers, the
   SECURITY_STANDARDS exception.
-- Next: P3.
+- Next: P3. ✅ see below.
+
+### P3 delivered 2026-09-07 — statefsd seam, mode switch, audit taxonomy, markers
+
+- **Seam**: `source/services/statefsd/src/abi_seam_os.rs` — every `put` (after the capability
+  check) asks policyd `OP_ABI_EVAL` over the init-wired slots 7/6/5 with the same canonical
+  subject; DENY ⇒ `STATUS_ACCESS_DENIED` + `statefsd: abi deny path=<p> subject=0x<sid>` (audit
+  to logd); UNSUPPORTED ⇒ not governed (see below); unreachable/malformed ⇒ refused. Client
+  helper `nexus_ipc::policyd::abi_eval_on` + generic `exchange_status_on`/`decode_status_v2`
+  (the ~90-line CAP_MOVE dance shared with `check_cap_on`).
+- **Governed = authored** (RFC-0091 §7 amendment): `OP_ABI_EVAL` for a subject without an
+  `[abi_profile]` answers `STATUS_UNSUPPORTED`; the seam stays capability-only for it. Flipping
+  un-profiled subjects to deny first would brick boot on the first unauthored prefix.
+  ⤳ Follow-up (not in this task): author profiles for every statefs writer (keystored,
+  settingsd, bootctld, updated, execd, metricsd, sessiond, …) then flip UNSUPPORTED → DENY.
+- **Delegate trust**: a sender holding `policy.delegate` (statefsd, netstackd) may name the
+  subject it serves in `OP_ABI_EVAL` (same trust as the delegated cap check); others only
+  themselves.
+- **Mode switch** `source/services/policyd/src/abi_mode.rs`: `OP_SET_ABI_MODE` authenticated
+  by the kernel-attributed sender holding the NEW capability `policy.abi_mode`
+  (`policies/base.toml`: selftest-client; production: the `nx policy` device channel via
+  TASK-0229) — a privileged proxy does not bypass; epoch-guarded (`abi_profile::subject_epoch`
+  ⇒ `STATUS_STALE`); applied via `EvalHost::set_mode` (table full ⇒ UNSUPPORTED, unchanged);
+  never persisted. Audit: `reason=abi-mode` record + marker `policyd: abi mode
+  subject=<sid hex16> mode=<learn|enforce> epoch=<e>`; refusals `reason=abi-rule:<class>`
+  (`AuditReason::{AbiRule(class), AbiMode}`); allowed evaluations (hot path) not audited.
+- **Selftest** (`phases/policy.rs::abi_enforcement_proofs`): stale switch → `STATUS_STALE`;
+  switch Learn; put `/state/app/selftest/abi/probe` OK; put `/state/app/selftest/secrets/probe`
+  → `STATUS_ACCESS_DENIED` (statefsd seam); logd query `class=statefs
+  arg=/state/app/selftest/secrets/ would=deny`; switch back to Enforce. Markers (proof-manifest
+  `markers/policy.toml` + `scripts/qemu-test.sh` both lists + `docs/security/abi-filters.md`):
+  `SELFTEST: abi stale epoch reject ok`, `abi enforce allow ok`, `abi enforce deny ok`, `abi
+  learn collected ok`, `abi mode switch auth ok`, plus the policyd mode lines and the statefsd
+  deny line. Marker semantics amended in the RFC: a proof boot has ONE authority sender, so the
+  unauthenticated denial is the host reject test, not a marker.
+- **First-caller finds**: (1) a governed subject's profile must be COMPLETE — the first boot
+  refused the selftest's `/state/selftest/…`, `/state/crash/…`, `/state/statefsd/enc.v1` puts;
+  `policies/base.toml` now lists every prefix the selftest writes (epoch 2). (2) ⭐ policyd's
+  logd path is saturated under icount (`smp1`): 128/128 audit emits by mid-boot, mostly
+  `audit emit deferred`, and the selftest's in-phase logd query/stats fail (the baseline
+  `policy allow/deny audit FAIL`, `core log policyd probe/query FAIL` lines are the same
+  symptom). A learn record therefore cannot be proven AT logd deterministically in smp1. Per
+  RFC-0091 §5 delivery is best-effort with counted drops, so the gated proof is the collector:
+  `OP_ABI_LEARN_STATS = 9` (authority-gated, `mode + admitted/emitted/dropped`) — Learn-mode
+  refusal ⇒ `admitted +1`, Enforce-mode refusal ⇒ `+0`; delivery is the separate, non-gated
+  `SELFTEST: abi learn delivered ok|dropped` (+ `policyd: abi learn emitted (class=…)` echo
+  when logd acks). ⤳ Follow-up for the reliability lane: policyd→logd append backpressure
+  under icount (audit cap 128 exhausted, deferred floods).
+- **Docs**: RFC-0091 §6/§7 amendments + checklist complete; `docs/security/abi-filters.md`
+  (seams, lifecycle, markers, proofs); `docs/standards/SECURITY_STANDARDS.md` §4 exception;
+  `docs/security/capabilities.md` (`policy.abi_mode`).
+- Proof: `cargo test -p policyd` 48 (`test_reject_unauthenticated_mode_switch`,
+  `test_reject_stale_mode_switch_epoch`, `authenticated_switch_applies_and_reverts`,
+  `ungoverned_subject_is_unsupported_not_denied`), `nexus-ipc` 7; OS-target strict check of
+  statefsd/policyd/selftest-client (note: statefsd and selftest-client are NOT in
+  `config/os-services.txt`, so `just diag-os` does not cover them — the real OS build does);
+  `just check` green; `just test-all` green 2026-09-07 (`exit=0`, all nine QEMU lanes; the five
+  `SELFTEST: abi …` markers observed in smp1, reset and every OTA lane, `abi learn delivered
+  dropped` in the icount profile as documented).
+- Not in this task (tracked): netstackd seams (TASK-0043 P2 / TASK-0052 P1 over the same op),
+  profile authoring for all statefs writers + UNSUPPORTED→DENY flip, `nx policy` device channel
+  as production mode-switch authority (TASK-0229), TASK-0189 `limits` split.
 
 ### Packages
 

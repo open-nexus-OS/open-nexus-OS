@@ -5,9 +5,10 @@
 //! netstackd) asks policyd to evaluate ONE governed argument tuple for a
 //! subject. policyd owns the profile (build-time table), the mode table
 //! and the learn collector, so the decision, the `limits` check and the
-//! learn emission happen in one place. Identity: a privileged proxy
-//! (the seam, init-wired) names the subject it serves; any other sender
-//! may only evaluate itself (`test_reject_eval_subject_spoof`). The reply
+//! learn emission happen in one place. Identity: a seam (init-privileged
+//! or a holder of `policy.delegate` — checked by the dispatcher) names the
+//! subject it serves; any other sender may only evaluate itself
+//! (`test_reject_eval_subject_spoof`). The reply
 //! is the generic v2 status; in `Learn` mode the decision is unchanged
 //! and a would-deny/limit evaluation additionally emits a bounded learn
 //! record through `EvalHost` (never blocking, never failing the seam).
@@ -163,11 +164,18 @@ pub fn handle_abi_eval(
         return rsp_v2(OP_ABI_EVAL, nonce, STATUS_DENY);
     }
     let Some(class) = SyscallClass::from_u8(class) else {
-        return rsp_v2(OP_ABI_EVAL, nonce, STATUS_UNSUPPORTED);
+        return rsp_v2(OP_ABI_EVAL, nonce, STATUS_MALFORMED);
     };
     let Some(addr_class) = AddrClass::from_u8(addr_class) else {
         return rsp_v2(OP_ABI_EVAL, nonce, STATUS_MALFORMED);
     };
+    // Governed = an authored profile. An un-profiled subject is NOT governed
+    // by the argument filters yet (capability checks still apply at the seam):
+    // `STATUS_UNSUPPORTED` tells the seam so, distinct from a deny. Authoring
+    // every statefs writer and flipping this to deny is the tracked follow-up.
+    if !crate::abi_profile::is_governed(subject_id) {
+        return rsp_v2(OP_ABI_EVAL, nonce, STATUS_UNSUPPORTED);
+    }
     let Some(profile) = crate::abi_profile::subject_profile(subject_id) else {
         return rsp_v2(OP_ABI_EVAL, nonce, STATUS_UNSUPPORTED);
     };
@@ -225,6 +233,10 @@ mod tests {
                 self.lines.push(core::str::from_utf8(record).unwrap().to_string());
             }
             self.deliver
+        }
+        fn set_mode(&mut self, _subject: u64, mode: AbiMode) -> bool {
+            self.mode = mode;
+            true
         }
     }
 
@@ -400,13 +412,14 @@ mod tests {
             STATUS_DENY
         );
         let sid = format!("{s:016x}");
+        let e = crate::abi_profile::subject_epoch(s);
         assert_eq!(
             h.lines,
             vec![
-                format!("abi.learn epoch=1 subject={sid} class=statefs arg=/state/forbidden/ would=deny"),
-                format!("abi.learn epoch=1 subject={sid} class=statefs arg=/state/app/selftest/ would=limit"),
-                format!("abi.learn epoch=1 subject={sid} class=net.bind arg=8080/any would=deny"),
-                format!("abi.learn epoch=1 subject={sid} class=net.connect arg=10.0.3.2:443 would=deny"),
+                format!("abi.learn epoch={e} subject={sid} class=statefs arg=/state/forbidden/ would=deny"),
+                format!("abi.learn epoch={e} subject={sid} class=statefs arg=/state/app/selftest/ would=limit"),
+                format!("abi.learn epoch={e} subject={sid} class=net.bind arg=8080/any would=deny"),
+                format!("abi.learn epoch={e} subject={sid} class=net.connect arg=10.0.3.2:443 would=deny"),
             ]
         );
         assert!(h.lines.iter().all(|l| l.len() <= MAX_LEARN_RECORD_BYTES));
@@ -438,6 +451,18 @@ mod tests {
             STATUS_DENY
         );
         assert_eq!(h.state.dropped(), 11);
+    }
+
+    #[test]
+    fn ungoverned_subject_is_unsupported_not_denied() {
+        let mut h = Recorder::new(AbiMode::Learn);
+        let other = nexus_abi::service_id_from_name(b"demo.testsvc");
+        let z = [0u8; 4];
+        assert_eq!(
+            eval(&mut h, other, false, other, ABI_CLASS_STATEFS_PUT, 0, 0, z, 16, 0, b"/state/x"),
+            STATUS_UNSUPPORTED
+        );
+        assert!(h.lines.is_empty(), "nothing to learn without a profile");
     }
 
     #[test]
@@ -482,7 +507,7 @@ mod tests {
             STATUS_ALLOW
         );
         // Unknown class / address class / malformed frame fail closed.
-        assert_eq!(eval(&mut h, s, false, s, 9, 0, 0, z, 0, 0, b""), STATUS_UNSUPPORTED);
+        assert_eq!(eval(&mut h, s, false, s, 9, 0, 0, z, 0, 0, b""), STATUS_MALFORMED);
         assert_eq!(
             eval(&mut h, s, false, s, ABI_CLASS_NET_BIND, 7, 80, z, 0, 0, b""),
             STATUS_MALFORMED

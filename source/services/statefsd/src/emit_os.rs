@@ -27,6 +27,20 @@ pub(crate) fn emit_access_denied(path: &str, sender_service_id: u64) {
     append_logd_audit(msg.as_bytes());
 }
 
+/// RFC-0091: audit an argument-filter refusal of a `put` (path + subject
+/// only — never the payload).
+pub(crate) fn emit_abi_denied(path: &str, subject_id: u64) {
+    let mut buf = [0u8; 160];
+    let mut len = 0usize;
+    let _ = push_bytes(&mut buf, &mut len, b"statefsd: abi deny path=");
+    let _ = push_bytes(&mut buf, &mut len, path.as_bytes());
+    let _ = push_bytes(&mut buf, &mut len, b" subject=0x");
+    write_hex_u64(&mut buf, &mut len, subject_id);
+    let msg = core::str::from_utf8(&buf[..len]).unwrap_or("statefsd: abi deny");
+    emit_line(msg);
+    append_logd_audit(msg.as_bytes());
+}
+
 /// TASK-0025: audit an envelope-policy denial (never key material, never
 /// payload bytes — path + wire status only).
 pub(crate) fn emit_envelope_denied(path: &str, status: u8) {

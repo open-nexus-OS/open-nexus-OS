@@ -71,11 +71,21 @@ pub fn encode_check_cap_delegated(nonce: u32, subject_id: u64, cap: &[u8]) -> Op
 /// `[P, O, ver=2, OP|0x80, nonce:u32le, status:u8]`. Returns `None` on a malformed
 /// frame or nonce mismatch.
 pub fn decode_decision(frame: &[u8], expected_nonce: u32) -> Option<CapDecision> {
+    match decode_status_v2(frame, OP_CHECK_CAP_DELEGATED, expected_nonce)? {
+        STATUS_ALLOW => Some(CapDecision::Allow),
+        STATUS_DENY => Some(CapDecision::Deny),
+        _ => None,
+    }
+}
+
+/// Decodes a generic policyd v2 reply `[P,O,2,op|0x80, nonce:u32le, status:u8, _]`
+/// for `op`, binding it to `expected_nonce`; returns the status byte.
+pub fn decode_status_v2(frame: &[u8], op: u8, expected_nonce: u32) -> Option<u8> {
     if frame.len() < 10
         || frame[0] != MAGIC0
         || frame[1] != MAGIC1
         || frame[2] != VERSION_V2
-        || frame[3] != (OP_CHECK_CAP_DELEGATED | RESPONSE_BIT)
+        || frame[3] != (op | RESPONSE_BIT)
     {
         return None;
     }
@@ -83,11 +93,7 @@ pub fn decode_decision(frame: &[u8], expected_nonce: u32) -> Option<CapDecision>
     if nonce != expected_nonce {
         return None;
     }
-    Some(match frame[8] {
-        STATUS_ALLOW => CapDecision::Allow,
-        STATUS_DENY => CapDecision::Deny,
-        _ => return None,
-    })
+    Some(frame[8])
 }
 
 /// Performs a bounded delegated capability check against policyd over **explicit
@@ -104,18 +110,92 @@ pub fn check_cap_on(
     subject_id: u64,
     cap: &[u8],
 ) -> CapDecision {
-    static NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
-    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-
+    let nonce = next_nonce();
     let frame = match encode_check_cap_delegated(nonce, subject_id, cap) {
         Some(f) => f,
         None => return CapDecision::Unreachable,
     };
+    match exchange_status_on(
+        send_slot,
+        reply_send_slot,
+        reply_recv_slot,
+        &frame,
+        OP_CHECK_CAP_DELEGATED,
+        nonce,
+    ) {
+        Some(STATUS_ALLOW) => CapDecision::Allow,
+        Some(STATUS_DENY) => CapDecision::Deny,
+        _ => CapDecision::Unreachable,
+    }
+}
 
-    let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
-        Ok(c) => c,
-        Err(_) => return CapDecision::Unreachable,
-    };
+/// RFC-0091 §7: asks policyd to evaluate one governed ABI argument tuple for
+/// `subject_id` over explicit slots (`OP_ABI_EVAL`). The seam names the subject
+/// it serves (it holds `policy.delegate`). `class` / `addr_class` / `port` /
+/// `addr_be` / `payload_len` / `deadline_ms` / `path` are the wire fields of
+/// `nexus_abi::policyd::encode_abi_eval_v2`. Returns the policyd status byte
+/// (`STATUS_ALLOW`, `STATUS_DENY`, `STATUS_UNSUPPORTED` = subject not governed,
+/// `STATUS_MALFORMED`) or `None` when policyd could not be reached — the caller
+/// decides (an enforcement seam fails closed).
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+#[allow(clippy::too_many_arguments)]
+pub fn abi_eval_on(
+    send_slot: u32,
+    reply_send_slot: u32,
+    reply_recv_slot: u32,
+    subject_id: u64,
+    class: u8,
+    addr_class: u8,
+    port: u16,
+    addr_be: u32,
+    payload_len: u32,
+    deadline_ms: u32,
+    path: &[u8],
+) -> Option<u8> {
+    let nonce = next_nonce();
+    let mut frame = [0u8; 48 + nexus_abi::policyd::MAX_ABI_EVAL_PATH_BYTES];
+    let n = nexus_abi::policyd::encode_abi_eval_v2(
+        nonce,
+        subject_id,
+        class,
+        addr_class,
+        port,
+        addr_be,
+        payload_len,
+        deadline_ms,
+        path,
+        &mut frame,
+    )?;
+    exchange_status_on(
+        send_slot,
+        reply_send_slot,
+        reply_recv_slot,
+        &frame[..n],
+        nexus_abi::policyd::OP_ABI_EVAL,
+        nonce,
+    )
+}
+
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+fn next_nonce() -> u32 {
+    static NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
+    NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
+}
+
+/// The bounded CAP_MOVE request/reply dance shared by every policyd v2 op over
+/// explicit slots: send `frame` with the caller's `@reply` send cap moved along,
+/// then poll the reply inbox for the `op|0x80` frame carrying `nonce` (≤ 500 ms).
+/// `None` = not sent / no matching reply in time.
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+fn exchange_status_on(
+    send_slot: u32,
+    reply_send_slot: u32,
+    reply_recv_slot: u32,
+    frame: &[u8],
+    op: u8,
+    nonce: u32,
+) -> Option<u8> {
+    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).ok()?;
     let hdr = nexus_abi::MsgHeader::new(
         reply_send_clone,
         0,
@@ -130,7 +210,7 @@ pub fn check_cap_on(
     let mut sent = false;
     let mut spins: u32 = 0;
     loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+        match nexus_abi::ipc_send_v1(send_slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
             Ok(_) => {
                 sent = true;
                 break;
@@ -147,7 +227,7 @@ pub fn check_cap_on(
     }
     let _ = nexus_abi::cap_close(reply_send_clone);
     if !sent {
-        return CapDecision::Unreachable;
+        return None;
     }
 
     loop {
@@ -162,21 +242,21 @@ pub fn check_cap_on(
         ) {
             Ok(n) => {
                 let n = core::cmp::min(n as usize, buf.len());
-                if let Some(decision) = decode_decision(&buf[..n], nonce) {
-                    return decision;
+                if let Some(status) = decode_status_v2(&buf[..n], op, nonce) {
+                    return Some(status);
                 }
                 if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return CapDecision::Unreachable;
+                    return None;
                 }
                 let _ = nexus_abi::yield_();
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {
                 if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return CapDecision::Unreachable;
+                    return None;
                 }
                 let _ = nexus_abi::yield_();
             }
-            Err(_) => return CapDecision::Unreachable,
+            Err(_) => return None,
         }
     }
 }
@@ -264,6 +344,16 @@ fn emit_cap_error(enforcer: &str, cap: crate::capabilities::Capability, subject_
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decode_status_v2_binds_op_and_nonce() {
+        let rsp = [MAGIC0, MAGIC1, VERSION_V2, 8 | RESPONSE_BIT, 7, 0, 0, 0, 1, 0];
+        assert_eq!(decode_status_v2(&rsp, 8, 7), Some(1));
+        assert_eq!(decode_status_v2(&rsp, 8, 8), None);
+        assert_eq!(decode_status_v2(&rsp, 7, 7), None);
+        assert_eq!(decode_status_v2(&rsp[..9], 8, 7), None);
+        assert_eq!(decode_decision(&rsp, 7), None); // wrong op for the cap decoder
+    }
 
     #[test]
     fn encode_rejects_bad_caps() {

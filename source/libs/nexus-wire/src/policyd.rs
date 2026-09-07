@@ -33,6 +33,8 @@ pub const OP_SET_ABI_MODE: u8 = 7;
 /// RFC-0091 §7: an enforcement seam asks policyd to evaluate one governed
 /// argument tuple for a subject (policyd holds profile, mode and learn state).
 pub const OP_ABI_EVAL: u8 = 8;
+/// RFC-0091 §5: the learn collector's counters for a mode-switch authority.
+pub const OP_ABI_LEARN_STATS: u8 = 9;
 
 /// Status: allowed.
 pub const STATUS_ALLOW: u8 = 0;
@@ -114,6 +116,24 @@ crate::frames! {
         subject_id: u64le,
         mode: u8,
         epoch: u32le,
+    }
+    /// v2 learn-collector stats request (RFC-0091 §5):
+    /// `[P,O,ver=2,OP_ABI_LEARN_STATS, nonce:u32le, subject_id:u64le]`.
+    request encode_abi_learn_stats_v2 / decode_abi_learn_stats_v2 (op = OP_ABI_LEARN_STATS) {
+        nonce: u32le,
+        subject_id: u64le,
+    }
+    /// v2 learn-collector stats reply:
+    /// `[P,O,ver=2,OP_ABI_LEARN_STATS|0x80, nonce:u32le, status:u8, mode:u8,
+    ///   admitted:u32le, emitted:u32le, dropped:u32le]` — `mode` is the subject's
+    /// current mode, the counters are the (process-wide) collector's.
+    reply encode_abi_learn_stats_rsp_v2 / decode_abi_learn_stats_rsp_v2 (op = OP_ABI_LEARN_STATS) {
+        nonce: u32le,
+        status: u8,
+        mode: u8,
+        admitted: u32le,
+        emitted: u32le,
+        dropped: u32le,
     }
     /// v2 ABI evaluation request (RFC-0091 §7), one shape for every class:
     /// `[P,O,ver=2,OP_ABI_EVAL, nonce:u32le, subject_id:u64le, class:u8, addr_class:u8,
@@ -276,6 +296,20 @@ mod tests {
         assert_eq!(status, STATUS_DENY);
         // A v3 frame is not a v2 frame.
         assert_eq!(decode_rsp_v2(&encode_rsp_v3(OP_ROUTE, 1, STATUS_ALLOW)), None);
+    }
+
+    #[test]
+    fn abi_learn_stats_v2_roundtrip() {
+        let mut req = [0u8; 32];
+        let n = encode_abi_learn_stats_v2(3, 0x0102, &mut req).unwrap();
+        assert_eq!(decode_abi_learn_stats_v2(&req[..n]).unwrap(), (3, 0x0102));
+        let mut rsp = [0u8; 32];
+        let m = encode_abi_learn_stats_rsp_v2(3, STATUS_ALLOW, ABI_MODE_LEARN, 5, 4, 1, &mut rsp)
+            .unwrap();
+        assert_eq!(
+            decode_abi_learn_stats_rsp_v2(&rsp[..m]).unwrap(),
+            (3, STATUS_ALLOW, ABI_MODE_LEARN, 5, 4, 1)
+        );
     }
 
     #[test]

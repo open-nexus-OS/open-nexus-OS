@@ -114,6 +114,13 @@ This ensures the compiler **prevents accidental silent failures** in security-cr
 - Allow runtime policy modification
 ```
 
+The ONE exception (RFC-0091 §6): the per-subject ABI **mode** (Enforce ↔
+Learn) may change at runtime through policyd's `OP_SET_ABI_MODE` — and only
+there: authenticated by the kernel-attributed sender holding `policy.abi_mode`,
+epoch-guarded, audited, never persisted (every boot starts in Enforce). The
+profiles themselves never change at runtime; Learn mode never changes a
+decision.
+
 ### 5. Memory and Mapping
 
 ```text

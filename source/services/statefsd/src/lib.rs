@@ -18,6 +18,8 @@
 extern crate alloc;
 
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
+mod abi_seam_os;
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod emit_os;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod os_lite;

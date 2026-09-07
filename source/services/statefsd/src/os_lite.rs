@@ -356,6 +356,19 @@ fn handle_frame(
                     nonce,
                 );
             }
+            // RFC-0091 §7: argument filters (profile + limits + learn) live in
+            // policyd; the subject is the same canonical one the cap check used.
+            if !crate::abi_seam_os::abi_put_allowed(
+                policy_subject(sender_service_id, proto::OP_PUT, key),
+                key,
+                value.len(),
+            ) {
+                return proto::encode_status_response_with_nonce(
+                    proto::OP_PUT,
+                    proto::STATUS_ACCESS_DENIED,
+                    nonce,
+                );
+            }
             // TASK-0025: envelope policy check (fail-closed for enrolled
             // prefixes) BEFORE the journal append; forged/stale values must
             // never reach the medium.
@@ -545,18 +558,19 @@ fn handle_frame(
 }
 
 fn policy_allows(sender_service_id: u64, op: u8, path: &str) -> bool {
-    let cap = required_cap(op, path);
+    policyd_allows(policy_subject(sender_service_id, op, path), required_cap(op, path).as_bytes())
+}
+
+/// The canonical policy subject of a request (bring-up aliases folded).
+fn policy_subject(sender_service_id: u64, op: u8, path: &str) -> u64 {
     let selftest_sid = nexus_abi::service_id_from_name(b"selftest-client");
     let metricsd_sid = nexus_abi::service_id_from_name(b"metricsd");
-    policyd_allows(
-        crate::canonical_policy_subject_for_statefs(
-            sender_service_id,
-            op,
-            path,
-            selftest_sid,
-            metricsd_sid,
-        ),
-        cap.as_bytes(),
+    crate::canonical_policy_subject_for_statefs(
+        sender_service_id,
+        op,
+        path,
+        selftest_sid,
+        metricsd_sid,
     )
 }
 

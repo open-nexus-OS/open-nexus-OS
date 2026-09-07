@@ -62,6 +62,51 @@ phase = "policy"
 [marker."SELFTEST: abi netbind deny ok"]
 phase = "policy"
 
+[marker."SELFTEST: abi stale epoch reject ok"]
+phase = "policy"
+proves = "OP_SET_ABI_MODE against the previous epoch is refused STATUS_STALE (RFC-0091 §4)"
+
+[marker."SELFTEST: abi enforce allow ok"]
+phase = "policy"
+proves = "statefsd put under the allowed prefix passed the policyd argument filter (OP_ABI_EVAL)"
+
+[marker."SELFTEST: abi enforce deny ok"]
+phase = "policy"
+proves = "statefsd put under the narrower deny prefix was refused STATUS_ACCESS_DENIED by the seam"
+
+[marker."SELFTEST: abi learn collected ok"]
+phase = "policy"
+proves = "in Learn mode the refusal was admitted by policyd's learn collector (OP_ABI_LEARN_STATS admitted +1; Enforce refusal +0)"
+
+[marker."SELFTEST: abi learn delivered ok"]
+phase = "policy"
+proves = "the learn record reached logd (append acked or query hit) — best-effort by contract, not ladder-gated"
+
+[marker."SELFTEST: abi learn delivered dropped"]
+phase = "policy"
+
+[marker."SELFTEST: abi mode switch auth ok"]
+phase = "policy"
+proves = "authenticated (policy.abi_mode) epoch-bound switches Learn and back to Enforce applied"
+
+[marker."SELFTEST: abi stale epoch reject FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: abi enforce allow FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: abi enforce deny FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: abi learn collected FAIL"]
+phase = "policy"
+
+[marker."SELFTEST: abi learn records enforce=0x"]
+phase = "policy"
+
+[marker."SELFTEST: abi mode switch auth FAIL"]
+phase = "policy"
+
 [marker."SELFTEST: mmio policy deny ok"]
 phase = "policy"
 

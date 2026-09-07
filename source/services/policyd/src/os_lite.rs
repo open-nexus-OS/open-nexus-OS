@@ -18,12 +18,13 @@ extern crate alloc;
 use alloc::boxed::Box;
 
 use core::fmt;
-use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
 
 use nexus_abi::debug_putc;
 use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_sel::Policy;
+
+use crate::audit_os::{emit_audit, AuditDecision, AuditReason};
 
 /// Result alias used by the lite policyd backend.
 pub type LiteResult<T> = Result<T, ServerError>;
@@ -74,36 +75,20 @@ const MAGIC0: u8 = b'P';
 const MAGIC1: u8 = b'O';
 const VERSION: u8 = 1;
 
-const OP_CHECK: u8 = 1;
-const OP_ROUTE: u8 = 2;
-const OP_EXEC: u8 = 3;
-const OP_CHECK_CAP: u8 = 4;
+pub(crate) const OP_CHECK: u8 = 1;
+pub(crate) const OP_ROUTE: u8 = 2;
+pub(crate) const OP_EXEC: u8 = 3;
+pub(crate) const OP_CHECK_CAP: u8 = 4;
 // Delegated capability check: enforcement points may ask policyd to evaluate a capability
 // for an arbitrary subject service id, provided the enforcement point itself is authorized.
-const OP_CHECK_CAP_DELEGATED: u8 = 5;
+pub(crate) const OP_CHECK_CAP_DELEGATED: u8 = 5;
 
 const STATUS_ALLOW: u8 = 0;
 const STATUS_DENY: u8 = 1;
 const STATUS_MALFORMED: u8 = 2;
 const STATUS_UNSUPPORTED: u8 = 3;
 const OP_LOG_PROBE: u8 = 0x7f;
-
-const AUDIT_SCOPE: &str = "policyd.audit";
-const AUDIT_EMIT_LIMIT: usize = 128;
-static AUDIT_EMIT_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-const MAX_FRAME_BYTES: usize = 12 + nexus_abi::abi_filter::MAX_PROFILE_BYTES;
-
-#[derive(Clone, Copy, Debug)]
-enum AuditReason {
-    Policy,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum AuditDecision {
-    Allow,
-    Deny,
-}
+const MAX_FRAME_BYTES: usize = crate::lite_protocol::MAX_FRAME_BYTES;
 
 /// Minimal kernel-IPC backed policyd loop.
 ///
@@ -262,14 +247,32 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
         &mut crate::abi_host_os::OsEvalHost,
     );
     // Best-effort audit emission (never blocks). Only for allow/deny statuses.
-    if out.len >= 5 {
-        match out.buf[4] {
+    // v2 frames carry the status after the nonce (offset 8), v1 at offset 4.
+    let status_at = if ver == nexus_abi::policyd::VERSION_V2 { 8 } else { 4 };
+    let reason = match (ver, op) {
+        (nexus_abi::policyd::VERSION_V2, nexus_abi::policyd::OP_ABI_EVAL) => {
+            AuditReason::AbiRule(frame.get(16).copied().unwrap_or(0))
+        }
+        (nexus_abi::policyd::VERSION_V2, nexus_abi::policyd::OP_SET_ABI_MODE) => {
+            AuditReason::AbiMode
+        }
+        _ => AuditReason::Policy,
+    };
+    let observability_only =
+        ver == nexus_abi::policyd::VERSION_V2 && op == nexus_abi::policyd::OP_ABI_LEARN_STATS;
+    if out.len > status_at && !observability_only {
+        match out.buf[status_at] {
             STATUS_ALLOW => {
-                emit_audit(op, AuditDecision::Allow, sender_service_id, None, AuditReason::Policy)
+                if matches!(reason, AuditReason::AbiMode) {
+                    crate::abi_host_os::emit_abi_mode_marker(frame);
+                    emit_audit(op, AuditDecision::Allow, sender_service_id, None, reason);
+                } else if !matches!(reason, AuditReason::AbiRule(_)) {
+                    // Allowed argument evaluations are the hot path (every
+                    // statefs put): not audited, only refusals are.
+                    emit_audit(op, AuditDecision::Allow, sender_service_id, None, reason);
+                }
             }
-            STATUS_DENY => {
-                emit_audit(op, AuditDecision::Deny, sender_service_id, None, AuditReason::Policy)
-            }
+            STATUS_DENY => emit_audit(op, AuditDecision::Deny, sender_service_id, None, reason),
             _ => {}
         }
     }
@@ -935,7 +938,7 @@ pub fn run_with_transport_ready<T>(_: &mut T, notifier: ReadyNotifier) -> LiteRe
     Err(ServerError::Unsupported)
 }
 
-fn emit_line(message: &str) {
+pub(crate) fn emit_line(message: &str) {
     // Verdict folding: pre-`ready` markers tally into `policyd N/N`; post-`ready` runtime lines fold
     // into recall-only detail (`NEXUS_LOG_EXPAND=policyd`). Failures & proof boots print live & raw.
     // One atomic `debug_write` (via `debug_println`, which also owns the verdict
@@ -965,70 +968,7 @@ fn expanded_policyd() -> bool {
     }
 }
 
-fn emit_audit(
-    op: u8,
-    decision: AuditDecision,
-    subject_id: u64,
-    target_id: Option<u64>,
-    reason: AuditReason,
-) {
-    if AUDIT_EMIT_COUNT.fetch_add(1, Ordering::Relaxed) >= AUDIT_EMIT_LIMIT {
-        return;
-    }
-    let mut buf = [0u8; 256];
-    let mut len = 0usize;
-    let _ = push_bytes(&mut buf, &mut len, b"audit v1 op=");
-    let _ = push_bytes(&mut buf, &mut len, audit_op_name(op));
-    let _ = push_bytes(&mut buf, &mut len, b" decision=");
-    let _ = push_bytes(&mut buf, &mut len, audit_decision_name(decision));
-    let _ = push_bytes(&mut buf, &mut len, b" subject=0x");
-    write_hex_u64(&mut buf, &mut len, subject_id);
-    if let Some(target) = target_id {
-        let _ = push_bytes(&mut buf, &mut len, b" target=0x");
-        write_hex_u64(&mut buf, &mut len, target);
-    }
-    let _ = push_bytes(&mut buf, &mut len, b" reason=");
-    let _ = push_bytes(&mut buf, &mut len, audit_reason_name(reason));
-    let ok = append_logd_deterministic(AUDIT_SCOPE.as_bytes(), &buf[..len]);
-    if ok {
-        // RFC-0068 P4: the audit RECORD is now in logd's subject journal (rendered as a `policyd`
-        // verdict at quiet), so this success echo is redundant — fold it away in interactive boots.
-        // Proof boots still print it raw (verify-uart); `=policyd` recalls it.
-        if !nexus_abi::boot_should_fold_verdicts() {
-            emit_line("policyd: audit emit ok");
-        }
-    } else {
-        // A DEFERRED append means the audit was NOT recorded (logd queue/readiness) — a real failure,
-        // never hidden: always print live so the lost-audit signal stays visible.
-        emit_line("policyd: audit emit deferred");
-    }
-}
-
-fn audit_op_name(op: u8) -> &'static [u8] {
-    match op {
-        OP_CHECK => b"check",
-        OP_CHECK_CAP => b"check_cap",
-        OP_CHECK_CAP_DELEGATED => b"check_cap_delegated",
-        OP_ROUTE => b"route",
-        OP_EXEC => b"exec",
-        _ => b"unknown",
-    }
-}
-
-fn audit_decision_name(decision: AuditDecision) -> &'static [u8] {
-    match decision {
-        AuditDecision::Allow => b"allow",
-        AuditDecision::Deny => b"deny",
-    }
-}
-
-fn audit_reason_name(reason: AuditReason) -> &'static [u8] {
-    match reason {
-        AuditReason::Policy => b"policy",
-    }
-}
-
-fn push_bytes(buf: &mut [u8], len: &mut usize, bytes: &[u8]) -> bool {
+pub(crate) fn push_bytes(buf: &mut [u8], len: &mut usize, bytes: &[u8]) -> bool {
     let available = buf.len().saturating_sub(*len);
     if bytes.len() > available {
         return false;
@@ -1038,7 +978,7 @@ fn push_bytes(buf: &mut [u8], len: &mut usize, bytes: &[u8]) -> bool {
     true
 }
 
-fn write_hex_u64(buf: &mut [u8], len: &mut usize, value: u64) {
+pub(crate) fn write_hex_u64(buf: &mut [u8], len: &mut usize, value: u64) {
     if buf.len().saturating_sub(*len) < 16 {
         return;
     }

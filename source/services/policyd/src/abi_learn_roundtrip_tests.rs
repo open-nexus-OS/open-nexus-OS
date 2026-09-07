@@ -54,6 +54,9 @@ impl EvalHost for LearnHost {
         self.lines.push(String::from_utf8(record.to_vec()).unwrap());
         true
     }
+    fn set_mode(&mut self, _subject: u64, _mode: AbiMode) -> bool {
+        false
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -163,12 +166,13 @@ fn test_learn_roundtrip() {
         (out.records_for_subject, out.unique_args, out.rules_emitted, out.rules_held),
         (4, 4, 3, 1)
     );
-    assert_eq!(out.epoch, 1);
+    let authored = crate::abi_profile::subject_epoch(subject);
+    assert_eq!(out.epoch, authored);
 
     // Shared grammar parses the skeleton; the matcher now allows exactly the observed arguments.
     let fixture: Fixture = toml::from_str(&out.toml).unwrap();
     let compiled = schema::compile(&fixture.abi_profile["selftest-client"]).unwrap();
-    assert_eq!(compiled.epoch, 2);
+    assert_eq!(compiled.epoch, authored + 1);
     let profile = build_profile(subject, &compiled);
     let mut wire = [0u8; MAX_PROFILE_BYTES];
     assert!(nexus_abi::abi_filter::encode_profile_v2(&profile, &mut wire).is_ok());

@@ -118,12 +118,38 @@ the empty deny-all profile.
   shared schema (`test_learn_roundtrip`: learn → generate → parse → the
   matcher allows exactly the observed arguments).
 
+## Seams (who asks policyd)
+
+- **statefsd `put`** (`source/services/statefsd/src/abi_seam_os.rs`): after the
+  capability check, `OP_ABI_EVAL` over the init-wired policyd slots with the
+  same canonical subject; `STATUS_DENY` ⇒ `STATUS_ACCESS_DENIED` to the caller
+  and the audit line `statefsd: abi deny path=<p> subject=0x<sid>`;
+  `STATUS_UNSUPPORTED` ⇒ the subject has no authored profile (not governed
+  yet, capability-only); unreachable/malformed ⇒ refused (fail closed). A
+  seam holds `policy.delegate`, which is what lets it name the subject it
+  serves.
+- **Governed = authored.** Only subjects with an `[abi_profile]` are
+  argument-filtered today; authoring every statefs writer and flipping
+  un-profiled subjects to deny is the tracked follow-up in TASK-0028. A
+  governed subject's profile must name EVERY prefix it legitimately writes
+  (the selftest's lists its own trees plus `/state/boot/`, `/state/crash/`,
+  `/state/statefsd/`, `/state/shared/selftest/`).
+- **netstackd** bind/connect: TASK-0043 P2 / TASK-0052 P1 add the identity
+  plumbing and call the same op.
+- **policyd audit**: refusals carry `reason=abi-rule:<class>`; allowed
+  evaluations (the hot path) are not audited; every applied mode switch is
+  audited with `reason=abi-mode` and printed as
+  `policyd: abi mode subject=<sid hex16> mode=<learn|enforce> epoch=<e>`.
+
 ## Lifecycle
 
 - Profiles are static per boot: fetched/applied at startup, never hot-reloaded.
-- The ONE runtime transition is the authenticated, epoch-guarded per-subject
-  mode switch `OP_SET_ABI_MODE` (Enforce ↔ Learn; RFC-0091 §6, TASK-0028 P3).
-  Every boot starts in Enforce; the mode table is never persisted.
+- The ONE runtime transition is `OP_SET_ABI_MODE` (Enforce ↔ Learn; RFC-0091
+  §6): authenticated by the kernel-attributed sender holding `policy.abi_mode`
+  (granted in `policies/base.toml`; a privileged proxy does not bypass it),
+  epoch-guarded (`STATUS_STALE` unless the request names the subject's current
+  profile epoch), audited, never persisted — every boot starts in Enforce.
+  Handler: `source/services/policyd/src/abi_mode.rs`.
 
 ## Marker contract
 
@@ -132,7 +158,25 @@ the empty deny-all profile.
 - `SELFTEST: abi filter deny ok`
 - `SELFTEST: abi filter allow ok`
 - `SELFTEST: abi netbind deny ok`
-- TASK-0028 P3 adds the enforcement/learn/mode-switch markers listed in RFC-0091.
+- `SELFTEST: abi stale epoch reject ok` — a switch against the previous epoch
+  answered `STATUS_STALE`.
+- `policyd: abi mode subject=<sid> mode=learn epoch=<e>` /
+  `… mode=enforce …` — the audited transitions.
+- `SELFTEST: abi enforce allow ok` — statefsd `put` under the allowed prefix
+  passed the policyd evaluation.
+- `statefsd: abi deny path=/state/app/selftest/secrets/probe subject=0x<sid>` /
+  `SELFTEST: abi enforce deny ok` — the narrower deny prefix was refused at
+  the seam (same decision in Learn mode).
+- `SELFTEST: abi learn collected ok` — policyd's learn collector admitted one
+  record for the Learn-mode refusal and none for the identical Enforce-mode
+  refusal (`OP_ABI_LEARN_STATS`, authority-gated counters).
+- `policyd: abi learn emitted (class=statefs)` / `SELFTEST: abi learn
+  delivered ok|dropped` — delivery to logd (best-effort by contract): logd
+  acknowledged the append or the query finds the record; a counted drop is
+  the honest answer when logd is saturated (the icount `smp1` profile —
+  see the `policyd: audit emit deferred` baseline). Not ladder-gated.
+- `SELFTEST: abi mode switch auth ok` — both authenticated switches applied
+  (the unauthenticated denial is host-proven: one authority sender per boot).
 
 ## Required negative host proofs
 
@@ -162,7 +206,10 @@ cargo test -p policyd                              # served profile = authored s
   `test_reject_eval_subject_spoof`, `learn_emission_is_rate_limited_and_counts_drops`,
   `cargo test -p nx --test policy_cli` (process boundary), `cargo test -p policy`
   (record format, generator).
-- Pending with its package: `test_reject_unauthenticated_mode_switch` (P3).
+- mode switch + seam (TASK-0028 P3): `test_reject_unauthenticated_mode_switch`,
+  `test_reject_stale_mode_switch_epoch`, `authenticated_switch_applies_and_reverts`,
+  `ungoverned_subject_is_unsupported_not_denied` (policyd),
+  `decode_status_v2_binds_op_and_nonce` (nexus-ipc).
 
 ## Anti-fake-green note
 

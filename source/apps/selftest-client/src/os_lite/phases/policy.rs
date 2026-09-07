@@ -73,6 +73,7 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
 
     // TASK-0019: ABI syscall guardrail profile distribution + deny/allow proofs.
     let selftest_sid = nexus_abi::service_id_from_name(b"selftest-client");
+    let mut profile_epoch: Option<u32> = None;
     match services::policyd::policyd_fetch_abi_profile(&policyd, selftest_sid) {
         Ok(profile) => {
             if profile.subject_service_id() != selftest_sid {
@@ -80,6 +81,7 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
                 emit_line(crate::markers::M_SELFTEST_ABI_FILTER_ALLOW_FAIL);
                 emit_line(crate::markers::M_SELFTEST_ABI_NETBIND_DENY_FAIL);
             } else {
+                profile_epoch = Some(profile.epoch());
                 if profile.check_statefs_put(b"/state/forbidden", 16)
                     == nexus_abi::abi_filter::RuleAction::Deny
                 {
@@ -162,6 +164,8 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_POLICY_DENY_AUDIT_FAIL);
     }
+    abi_enforcement_proofs(&policyd, &logd, selftest_sid, profile_epoch);
+
     let keystored = services::keystored::resolve_keystored_client().map_err(|_| ())?;
     if services::policyd::keystored_sign_denied(&keystored).is_ok() {
         emit_line(crate::markers::M_SELFTEST_KEYSTORED_SIGN_DENIED_OK);
@@ -194,4 +198,128 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
 
     let _ = (bundlemgrd, policyd, logd, keystored);
     Ok(())
+}
+
+/// RFC-0091 §5–§7 (TASK-0028 P3): the real seam. statefsd's `put` asks policyd
+/// (`OP_ABI_EVAL`) — the profile denies `/state/app/selftest/secrets/` under a
+/// broader allow; in Learn mode that refusal produces a learn record at logd;
+/// the mode switch is authenticated (`policy.abi_mode`) and epoch-guarded.
+/// Every marker is emitted only after the observed behaviour.
+fn abi_enforcement_proofs(
+    policyd: &nexus_ipc::KernelClient,
+    logd: &nexus_ipc::KernelClient,
+    selftest_sid: u64,
+    profile_epoch: Option<u32>,
+) {
+    use nexus_abi::policyd::{ABI_MODE_ENFORCE, ABI_MODE_LEARN, STATUS_ALLOW, STATUS_STALE};
+    let Some(epoch) = profile_epoch else {
+        emit_line(crate::markers::M_SELFTEST_ABI_STALE_EPOCH_REJECT_FAIL);
+        emit_line(crate::markers::M_SELFTEST_ABI_MODE_SWITCH_AUTH_FAIL);
+        emit_line(crate::markers::M_SELFTEST_ABI_ENFORCE_ALLOW_FAIL);
+        emit_line(crate::markers::M_SELFTEST_ABI_ENFORCE_DENY_FAIL);
+        emit_line(crate::markers::M_SELFTEST_ABI_LEARN_COLLECTED_FAIL);
+        return;
+    };
+    // Stale epoch: a switch authored against the previous epoch is refused.
+    let stale = services::policyd::policyd_set_abi_mode(
+        policyd,
+        selftest_sid,
+        ABI_MODE_LEARN,
+        epoch.wrapping_sub(1),
+    );
+    if stale == Ok(STATUS_STALE) {
+        emit_line(crate::markers::M_SELFTEST_ABI_STALE_EPOCH_REJECT_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_ABI_STALE_EPOCH_REJECT_FAIL);
+    }
+    let Ok(statefsd) = route_with_retry("statefsd") else {
+        emit_line(crate::markers::M_SELFTEST_ABI_MODE_SWITCH_AUTH_FAIL);
+        emit_line(crate::markers::M_SELFTEST_ABI_ENFORCE_ALLOW_FAIL);
+        emit_line(crate::markers::M_SELFTEST_ABI_ENFORCE_DENY_FAIL);
+        emit_line(crate::markers::M_SELFTEST_ABI_LEARN_COLLECTED_FAIL);
+        return;
+    };
+    let deny_put = |statefsd: &nexus_ipc::KernelClient| {
+        services::statefs::statefs_put_status(
+            statefsd,
+            "/state/app/selftest/secrets/probe",
+            b"rfc-0091",
+        ) == Ok(statefs::protocol::STATUS_ACCESS_DENIED)
+    };
+    let stats = || services::policyd::policyd_abi_learn_stats(policyd, selftest_sid).ok();
+    // Enforce mode: the narrower deny prefix is refused by statefsd's seam and
+    // the collector admits nothing.
+    let s0 = stats();
+    let denied_enforce = deny_put(&statefsd);
+    let s1 = stats();
+    // Authenticated switch to Learn (the selftest holds `policy.abi_mode`).
+    let to_learn =
+        services::policyd::policyd_set_abi_mode(policyd, selftest_sid, ABI_MODE_LEARN, epoch);
+    // The seam under Learn: same decisions — the allowed prefix passes, the
+    // deny prefix is refused — and the collector admits exactly one record.
+    let allow = services::statefs::statefs_put_status(
+        &statefsd,
+        "/state/app/selftest/abi/probe",
+        b"rfc-0091",
+    );
+    if allow == Ok(statefs::protocol::STATUS_OK) {
+        emit_line(crate::markers::M_SELFTEST_ABI_ENFORCE_ALLOW_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_ABI_ENFORCE_ALLOW_FAIL);
+    }
+    let s2 = stats();
+    let denied_learn = deny_put(&statefsd);
+    let s3 = stats();
+    if denied_enforce && denied_learn {
+        emit_line(crate::markers::M_SELFTEST_ABI_ENFORCE_DENY_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_ABI_ENFORCE_DENY_FAIL);
+    }
+    // Learn proof: policyd's collector admitted one record for the Learn-mode
+    // refusal and none for the identical Enforce-mode refusal (mode read
+    // back from policyd). Delivery to logd is best-effort by contract
+    // (RFC-0091 §5) and reported separately below.
+    let collected = match (s0, s1, s2, s3) {
+        (Some(a), Some(b), Some(c), Some(d)) => {
+            a.0 == ABI_MODE_ENFORCE
+                && b.1 == a.1
+                && c.0 == ABI_MODE_LEARN
+                && d.0 == ABI_MODE_LEARN
+                && d.1 == c.1 + 1
+        }
+        _ => false,
+    };
+    if to_learn == Ok(STATUS_ALLOW) && denied_learn && collected {
+        emit_line(crate::markers::M_SELFTEST_ABI_LEARN_COLLECTED_OK);
+    } else {
+        emit_bytes(crate::markers::M_SELFTEST_ABI_LEARN_RECORDS_ENFORCE_0X.as_bytes());
+        emit_hex_u64(s1.map_or(0, |v| v.1 as u64));
+        emit_bytes(b" learn=0x");
+        emit_hex_u64(s3.map_or(0, |v| v.1 as u64));
+        emit_byte(b'\n');
+        emit_line(crate::markers::M_SELFTEST_ABI_LEARN_COLLECTED_FAIL);
+    }
+    // Delivery witness (not ladder-gated): logd acknowledged the append, or
+    // the query finds the record; a counted drop is the contract's honest
+    // answer when logd is saturated (the icount profile's known state).
+    let delivered = matches!((s2, s3), (Some(c), Some(d)) if d.2 == c.2 + 1)
+        || services::logd::logd_query_contains_since_paged(
+            logd,
+            0,
+            b"class=statefs arg=/state/app/selftest/secrets/ would=deny",
+        )
+        .unwrap_or(false);
+    if delivered {
+        emit_line(crate::markers::M_SELFTEST_ABI_LEARN_DELIVERED_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_ABI_LEARN_DELIVERED_DROPPED);
+    }
+    // Back to Enforce; both authenticated switches applied (policyd audits each).
+    let to_enforce =
+        services::policyd::policyd_set_abi_mode(policyd, selftest_sid, ABI_MODE_ENFORCE, epoch);
+    if to_learn == Ok(STATUS_ALLOW) && to_enforce == Ok(STATUS_ALLOW) {
+        emit_line(crate::markers::M_SELFTEST_ABI_MODE_SWITCH_AUTH_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_ABI_MODE_SWITCH_AUTH_FAIL);
+    }
 }

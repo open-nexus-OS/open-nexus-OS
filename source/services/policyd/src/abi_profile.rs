@@ -58,6 +58,11 @@ fn entry_for(subject_id: u64) -> Option<&'static AbiProfileEntry> {
     policy_table::ABI_PROFILE_ENTRIES.iter().find(|e| e.subject_id == subject_id)
 }
 
+/// `true` when a profile is authored for the subject (RFC-0091: governed).
+pub fn is_governed(subject_id: u64) -> bool {
+    entry_for(subject_id).is_some()
+}
+
 /// The subject's current epoch (0 when no profile is authored).
 pub fn subject_epoch(subject_id: u64) -> u32 {
     entry_for(subject_id).map_or(0, |e| e.epoch)

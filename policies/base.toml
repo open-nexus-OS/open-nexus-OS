@@ -73,7 +73,7 @@ pinched = ["ipc.core"]
 # `statefs.crash` (TASK-0051B): the demo.minidump child's PUT maps to this
 # subject (canonical_policy_subject_for_statefs) and the artifact probe GETs
 # `/state/crash/` — the prefix now has its own capability.
-"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset", "updates.manage"]
+"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset", "updates.manage", "policy.abi_mode"]
 "demo.testsvc" = []
 
 # RFC-0091 profile v2 (schema SSOT: userspace/policy/src/schema.rs; both
@@ -81,12 +81,17 @@ pinched = ["ipc.core"]
 # deny beats allow, no rule = deny. `epoch` is monotone per subject —
 # bump it with every behavioural change (mode switches are epoch-guarded).
 [abi_profile."selftest-client"]
-epoch = 1
+epoch = 2
 
 [abi_profile."selftest-client".limits]
 deadline_ms = 2000
 max_payload = 4096
 
+# A governed subject's profile must name EVERY prefix it legitimately
+# writes (the seam refuses everything else): the selftest's own trees, the
+# boot/crash records its probes write, the enc-rotation admin key, and the
+# remote-rw proof key. `secrets/` under the allowed tree is the narrower
+# deny the `SELFTEST: abi enforce deny ok` proof relies on.
 [[abi_profile."selftest-client".statefs]]
 action = "allow"
 prefix = "/state/app/selftest/"
@@ -94,6 +99,26 @@ prefix = "/state/app/selftest/"
 [[abi_profile."selftest-client".statefs]]
 action = "deny"
 prefix = "/state/app/selftest/secrets/"
+
+[[abi_profile."selftest-client".statefs]]
+action = "allow"
+prefix = "/state/selftest/"
+
+[[abi_profile."selftest-client".statefs]]
+action = "allow"
+prefix = "/state/boot/"
+
+[[abi_profile."selftest-client".statefs]]
+action = "allow"
+prefix = "/state/crash/"
+
+[[abi_profile."selftest-client".statefs]]
+action = "allow"
+prefix = "/state/statefsd/"
+
+[[abi_profile."selftest-client".statefs]]
+action = "allow"
+prefix = "/state/shared/selftest/"
 
 [[abi_profile."selftest-client".net.bind]]
 action = "allow"

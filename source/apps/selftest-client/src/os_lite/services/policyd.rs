@@ -284,3 +284,69 @@ pub(crate) fn policyd_fetch_abi_profile(
         recv_tries = recv_tries.wrapping_add(1);
     }
 }
+
+/// RFC-0091 §6: `OP_SET_ABI_MODE` for `subject_id` under `epoch`; returns
+/// policyd's status byte (`STATUS_ALLOW|DENY|STALE|MALFORMED|UNSUPPORTED`).
+pub(crate) fn policyd_set_abi_mode(
+    policyd: &KernelClient,
+    subject_id: u64,
+    mode: u8,
+    epoch: u32,
+) -> core::result::Result<u8, ()> {
+    static NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0x5E7A_0001);
+    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let mut req = [0u8; 32];
+    let n = nexus_abi::policyd::encode_set_abi_mode_v2(nonce, subject_id, mode, epoch, &mut req)
+        .ok_or(())?;
+    policyd
+        .send(&req[..n], IpcWait::Timeout(core::time::Duration::from_millis(500)))
+        .map_err(|_| ())?;
+    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(2_000_000_000);
+    loop {
+        let rsp = policyd
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(500)))
+            .map_err(|_| ())?;
+        if let Some((op, rsp_nonce, status)) = nexus_abi::policyd::decode_rsp_v2(&rsp) {
+            if op == nexus_abi::policyd::OP_SET_ABI_MODE && rsp_nonce == nonce {
+                return Ok(status);
+            }
+        }
+        if nexus_abi::nsec().map_err(|_| ())? >= deadline {
+            return Err(());
+        }
+    }
+}
+
+/// RFC-0091 §5: the learn collector's counters `(mode, admitted, emitted, dropped)`
+/// for `subject_id` (`OP_ABI_LEARN_STATS`, authority-gated like the mode switch).
+pub(crate) fn policyd_abi_learn_stats(
+    policyd: &KernelClient,
+    subject_id: u64,
+) -> core::result::Result<(u8, u32, u32, u32), ()> {
+    static NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0x5E7B_0001);
+    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let mut req = [0u8; 32];
+    let n = nexus_abi::policyd::encode_abi_learn_stats_v2(nonce, subject_id, &mut req).ok_or(())?;
+    policyd
+        .send(&req[..n], IpcWait::Timeout(core::time::Duration::from_millis(500)))
+        .map_err(|_| ())?;
+    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(2_000_000_000);
+    loop {
+        let rsp = policyd
+            .recv(IpcWait::Timeout(core::time::Duration::from_millis(500)))
+            .map_err(|_| ())?;
+        if let Some((rsp_nonce, status, mode, admitted, emitted, dropped)) =
+            nexus_abi::policyd::decode_abi_learn_stats_rsp_v2(&rsp)
+        {
+            if rsp_nonce == nonce {
+                if status != nexus_abi::policyd::STATUS_ALLOW {
+                    return Err(());
+                }
+                return Ok((mode, admitted, emitted, dropped));
+            }
+        }
+        if nexus_abi::nsec().map_err(|_| ())? >= deadline {
+            return Err(());
+        }
+    }
+}

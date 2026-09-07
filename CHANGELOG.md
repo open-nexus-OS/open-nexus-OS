@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-07 (TASK-0028 P3: statefsd argument-filter seam, authenticated ABI mode switch — TASK-0028 Done)
+
+- statefsd's `put` is the first RFC-0091 enforcement seam: after the
+  capability check it asks policyd `OP_ABI_EVAL` (new
+  `nexus_ipc::policyd::abi_eval_on` over the init-wired slots); a refusal
+  returns `STATUS_ACCESS_DENIED` and audits `statefsd: abi deny path=…`.
+  Subjects without an authored profile are not governed yet
+  (`STATUS_UNSUPPORTED` ⇒ capability-only; authoring every writer and
+  flipping to deny is the tracked follow-up).
+- policyd `OP_SET_ABI_MODE`: the one runtime policy transition —
+  authenticated by the sender holding the new `policy.abi_mode` capability,
+  epoch-guarded (`STATUS_STALE`), audited (`policyd: abi mode subject=… mode=…
+  epoch=…`, `reason=abi-mode`), never persisted; refusals audit
+  `reason=abi-rule:<class>`.
+- Five new selftest markers in headless/smp1 (`SELFTEST: abi stale epoch
+  reject ok`, `abi enforce allow ok`, `abi enforce deny ok`, `abi learn
+  collected ok`, `abi mode switch auth ok`) prove the seam, the learn record
+  at logd and the switch end to end. `SECURITY_STANDARDS` §4 names the
+  exception.
+
 ### Added - 2026-09-05 (TASK-0028 P2: RFC-0091 learn pipeline + `nx policy learn-gen`)
 
 - policyd evaluates ABI argument tuples for the seams: `OP_ABI_EVAL`

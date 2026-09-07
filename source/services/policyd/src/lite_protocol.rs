@@ -35,6 +35,8 @@ const OP_CHECK_CAP: u8 = 4;
 const OP_CHECK_CAP_DELEGATED: u8 = 5;
 const OP_ABI_PROFILE_GET: u8 = nexus_abi::policyd::OP_ABI_PROFILE_GET;
 const OP_ABI_EVAL: u8 = nexus_abi::policyd::OP_ABI_EVAL;
+const OP_SET_ABI_MODE: u8 = nexus_abi::policyd::OP_SET_ABI_MODE;
+const OP_ABI_LEARN_STATS: u8 = nexus_abi::policyd::OP_ABI_LEARN_STATS;
 
 const STATUS_ALLOW: u8 = 0;
 const STATUS_DENY: u8 = 1;
@@ -223,7 +225,18 @@ pub fn handle_frame_with(
             crate::abi_profile::handle_profile_get(frame, sender_service_id, privileged_proxy)
         }
         (nexus_abi::policyd::VERSION_V2, OP_ABI_EVAL) => {
-            crate::abi_eval::handle_abi_eval(frame, sender_service_id, privileged_proxy, host)
+            // A seam holding `policy.delegate` (statefsd, netstackd) names the
+            // subject it serves — the same trust as a delegated cap check.
+            let seam = privileged_proxy
+                || policy
+                    .allows(normalize_delegate_sender_id(sender_service_id, ""), "policy.delegate");
+            crate::abi_eval::handle_abi_eval(frame, sender_service_id, seam, host)
+        }
+        (nexus_abi::policyd::VERSION_V2, OP_SET_ABI_MODE) => {
+            crate::abi_mode::handle_set_abi_mode(policy, frame, sender_service_id, host)
+        }
+        (nexus_abi::policyd::VERSION_V2, OP_ABI_LEARN_STATS) => {
+            crate::abi_mode::handle_learn_stats(policy, frame, sender_service_id, host)
         }
         (VERSION, OP_ROUTE) => {
             // [P,O,ver,OP, req_len:u8, req..., tgt_len:u8, tgt...]

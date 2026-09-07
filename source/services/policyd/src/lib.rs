@@ -21,6 +21,8 @@ extern crate alloc;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod abi_host_os;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod audit_os;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub use os_lite::*;
@@ -31,6 +33,8 @@ pub mod abi_eval;
 pub mod abi_learn;
 #[cfg(test)]
 mod abi_learn_roundtrip_tests;
+#[cfg(any(test, feature = "os-lite"))]
+pub mod abi_mode;
 #[cfg(any(test, feature = "os-lite"))]
 pub mod abi_profile;
 #[cfg(test)]

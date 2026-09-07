@@ -26,6 +26,7 @@ These names appear in the current baseline policy file under `policies/base.toml
 - `ipc.core`
 - `proc.spawn`
 - `policy.delegate`
+- `policy.abi_mode` — authority for the RFC-0091 runtime ABI mode switch (`OP_SET_ABI_MODE`); proof boots: `selftest-client`
 - `time.read`
 
 ### Files and package access

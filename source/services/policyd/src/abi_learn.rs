@@ -72,6 +72,7 @@ pub struct LearnState {
     last_refill_ns: AtomicU64,
     dropped: AtomicU32,
     emitted: AtomicU32,
+    admitted: AtomicU32,
 }
 
 impl LearnState {
@@ -84,6 +85,7 @@ impl LearnState {
             last_refill_ns: AtomicU64::new(0),
             dropped: AtomicU32::new(0),
             emitted: AtomicU32::new(0),
+            admitted: AtomicU32::new(0),
         }
     }
 
@@ -117,6 +119,7 @@ impl LearnState {
         self.tokens.store(tokens - 1, Ordering::Relaxed);
         let slot = self.next.fetch_add(1, Ordering::Relaxed) % MAX_LEARN_ENTRIES;
         self.keys[slot].store(key, Ordering::Relaxed);
+        self.admitted.fetch_add(1, Ordering::Relaxed);
         Admission::Admit
     }
 
@@ -133,6 +136,12 @@ impl LearnState {
     /// `abi.learn.dropped` counter.
     pub fn dropped(&self) -> u32 {
         self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// Records the collector admitted (new key + token) — the learn
+    /// pipeline's own witness; delivery to logd is best-effort (`emitted`).
+    pub fn admitted(&self) -> u32 {
+        self.admitted.load(Ordering::Relaxed)
     }
 
     /// Delivered records.
@@ -213,6 +222,9 @@ pub trait EvalHost {
     fn learn_state(&self) -> &LearnState;
     /// Delivers one record line (scope `policyd.learn`); `false` = not recorded.
     fn emit_learn(&mut self, record: &[u8]) -> bool;
+    /// Applies an authenticated, epoch-checked mode switch; `false` = cannot
+    /// (table full or a host without a mode table) — the caller fails closed.
+    fn set_mode(&mut self, subject: u64, mode: AbiMode) -> bool;
 }
 
 /// A host that never learns (Enforce for everyone) — the side-effect-free path.
@@ -231,6 +243,9 @@ impl EvalHost for EnforceOnlyHost {
         &ENFORCE_ONLY_STATE
     }
     fn emit_learn(&mut self, _record: &[u8]) -> bool {
+        false
+    }
+    fn set_mode(&mut self, _subject: u64, _mode: AbiMode) -> bool {
         false
     }
 }

@@ -174,12 +174,14 @@ prefix bytes:   prefix_len bytes (statefs)
 ### 6. Mode switch — the ONE runtime policy transition (normative)
 
 - policyd OS-lite op `OP_SET_ABI_MODE = 7`: request `{nonce:u32le, subject_id:u64le, mode:u8 (0 Enforce, 1 Learn), epoch:u32le}`; reply `{nonce, status}` with `STATUS_ALLOW | STATUS_DENY | STATUS_STALE | STATUS_UNSUPPORTED`.
-- Authentication: the request's `sender_service_id` (kernel-attributed) must be an allowlisted mode-switch authority (proof boots: `selftest-client`; production: the `nx policy` device channel once TASK-0229 lands). Any other sender ⇒ `STATUS_DENY` + audit (`test_reject_unauthenticated_mode_switch`).
+- Authentication (amendment 2026-09-07, TASK-0028 P3): the request's `sender_service_id` (kernel-attributed) must hold the `policy.abi_mode` capability in the compiled policy (deny-by-default; proof boots grant it to `selftest-client`, production grants it to the `nx policy` device channel once TASK-0229 lands) — an allowlist in the policy SSOT, never a name in code; a privileged proxy does NOT bypass it. Any other sender ⇒ `STATUS_DENY` + audit (`test_reject_unauthenticated_mode_switch`, host: policyd `abi_mode.rs`).
 - Epoch-guarded (§4), audited (`policyd: abi mode subject=<sid> mode=<m> epoch=<e>` + logd audit record), never persisted (a reboot returns to `Enforce`).
 - `docs/standards/SECURITY_STANDARDS.md` §4 gets the explicit exception: „authenticated, epoch-guarded mode transitions through policyd are the ONLY runtime policy change; profiles themselves never change at runtime“.
 
 ### 7. Enforcement seams (contract-level)
 
+- Governed subjects (amendment 2026-09-07, TASK-0028 P3): a subject is governed by the argument filters when a profile is authored for it; `OP_ABI_EVAL` for an un-profiled subject answers `STATUS_UNSUPPORTED` and the seam applies capability checks only. Authoring a profile for every statefs writer and then flipping un-profiled to deny is the tracked follow-up (TASK-0028 ledger) — flipping first would brick boot on the first unauthored prefix. Consumers of `OP_ABI_PROFILE_GET` still receive the explicit deny-all profile for un-profiled subjects.
+- The seam holds `policy.delegate` (statefsd, netstackd — the same trust as the delegated capability check): it may name the subject it serves in `OP_ABI_EVAL`; any other sender may only evaluate itself.
 - Evaluation lives in policyd (amendment 2026-09-05, TASK-0028 P2): a seam sends `OP_ABI_EVAL = 8` (`{nonce:u32le, subject_id:u64le, class:u8, addr_class:u8, port:u16le, addr_be:u32le, payload_len:u32le, deadline_ms:u32le, path:bytes8(≤128)}`, reply `STATUS_ALLOW|DENY|MALFORMED|UNSUPPORTED`) and policyd — which already holds the profile table, the mode table and the learn collector — decides, checks `limits` and emits the learn record in one place. A privileged proxy (an init-wired seam) names the subject it serves; any other sender may only evaluate itself. `OP_ABI_PROFILE_GET` stays for consumers that hold a profile (the selftest's assertions, epoch caching).
 - statefsd `put`: after the capability check, evaluate `statefs` for (subject, path, payload_len) and `limits` via `OP_ABI_EVAL`; deny ⇒ `STATUS_DENIED` to the caller + `AuditReason::AbiRuleDenied{class: statefs}`.
 - netstackd facade (identity plumbing by TASK-0043 P2): `net.bind` at bind/listen/udp-bind with (port, address class); `net.connect` at connect with (addr, port). Deny ⇒ `STATUS_DENY` + `AuditReason::AbiRuleDenied{class}` (TASK-0043 adds `EgressDenied`, TASK-0052 `IngressDenied` as the user-facing reasons layered on the same evaluation).
@@ -225,9 +227,9 @@ cd /home/jenning/open-nexus-OS && just test-os headless   # and smp1
 
 ### Deterministic markers
 
-- `SELFTEST: abi learn collected ok` — a real would-deny evaluation produced a learn record at logd.
+- `SELFTEST: abi learn collected ok` — a real would-deny evaluation was admitted by policyd's learn collector (`OP_ABI_LEARN_STATS = 9`, authority-gated: `admitted` +1 for the Learn-mode refusal, +0 for the identical Enforce-mode one). Delivery to logd is best-effort (§5) and witnessed separately by `SELFTEST: abi learn delivered ok|dropped` (not ladder-gated: the icount profile saturates policyd's logd path — the same `policyd: audit emit deferred` baseline).
 - `SELFTEST: abi enforce allow ok` / `SELFTEST: abi enforce deny ok` — statefsd's `put` returned the profile's decision for a governed path.
-- `SELFTEST: abi mode switch auth ok` — an unauthenticated switch was denied AND the authenticated one applied.
+- `SELFTEST: abi mode switch auth ok` — the authenticated, epoch-bound switches (Learn, then back to Enforce) applied and were audited (`policyd: abi mode …`). A proof boot has ONE authority sender, so the unauthenticated denial is the host reject test (`test_reject_unauthenticated_mode_switch`), not a marker.
 - `SELFTEST: abi stale epoch reject ok` — a switch against an old epoch was rejected `STATUS_STALE`.
 - `policyd: abi mode subject=<sid> mode=<m> epoch=<e>` — the audited transition.
 - Network seams (TASK-0043/0052): `SELFTEST: egress deny ok`, `SELFTEST: ingress deny ok` — defined in those ledgers over this schema.
@@ -249,7 +251,7 @@ cd /home/jenning/open-nexus-OS && just test-os headless   # and smp1
 - [x] **Phase 0**: contract seed (this RFC), RFC index, ledgers 0028/0043/0052 point here — proof: `just check` docs gates (2026-09-05)
 - [x] **Phase 1**: matcher + codec v2 + ONE shared parser (`userspace/policy/src/schema.rs`, included by policyd build.rs) + corpus `policies/tests/` + reject suite — proof: `cargo test -p nexus-abi -- v2_reject` 9/9 (2026-09-05)
 - [x] **Phase 2**: learn (policyd `OP_ABI_EVAL` + bounded collector, logd scope `policyd.learn`) + `nx policy learn-gen` — proof: `cargo test -p nx --test policy_cli`, `cargo test -p policyd test_learn_roundtrip` (2026-09-05)
-- [ ] **Phase 3**: seams + mode switch + markers — proof: headless/smp1 markers above
-- [ ] Task(s) linked with stop conditions + proof commands (TASK-0028, TASK-0043, TASK-0052).
-- [ ] QEMU markers appear in `scripts/qemu-test.sh` + proof-manifest and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*` above).
+- [x] **Phase 3**: statefsd seam (`OP_ABI_EVAL`), `OP_SET_ABI_MODE` (cap-authenticated, epoch-guarded, audited), audit reasons, five markers in headless/smp1 (2026-09-07); netstackd seams follow TASK-0043 P2 / TASK-0052 P1
+- [x] Task(s) linked with stop conditions + proof commands (TASK-0028, TASK-0043, TASK-0052).
+- [x] QEMU markers appear in `scripts/qemu-test.sh` + proof-manifest and pass (statefs seam; network seam markers with TASK-0043/0052).
+- [x] Security-relevant negative tests exist (`test_reject_*` above).
