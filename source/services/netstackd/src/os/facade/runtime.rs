@@ -33,6 +33,7 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
     let _svc_send_slot: u32 = 6;
     let _ = nexus_abi::trace_line("netstackd: svc slots 5/6");
     let mut state = FacadeState::new();
+    crate::os::facade::authz::resolve(&mut state.policy);
 
     loop {
         let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
@@ -88,8 +89,14 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
                 }
 
                 let mut reply_fn = reply;
-                let mut ctx =
-                    FacadeContext { net: &mut net, state: &mut state, now_ms, bind_ip, reply_slot };
+                let mut ctx = FacadeContext {
+                    net: &mut net,
+                    state: &mut state,
+                    now_ms,
+                    bind_ip,
+                    reply_slot,
+                    sender_service_id: sid,
+                };
                 match dispatch_op(&mut ctx, req, &mut reply_fn) {
                     DispatchControl::ContinueLoop => continue,
                     DispatchControl::Handled => {}

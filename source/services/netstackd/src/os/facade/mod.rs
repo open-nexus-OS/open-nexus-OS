@@ -9,6 +9,7 @@
 //! ADR: docs/adr/0005-dsoftbus-architecture.md
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+pub(crate) mod authz;
 pub(crate) mod dispatch;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 pub(crate) mod handlers;

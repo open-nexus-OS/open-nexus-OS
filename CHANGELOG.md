@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-07 (TASK-0043 P2: netstackd identity seam, `STATUS_DENY`)
+
+- netstackd carries the kernel-attributed sender into every handler and asks
+  policyd (`OP_ABI_EVAL` over init-wired fixed slots 7/8/9) before `connect`
+  (`net.connect`), `listen` and `udp bind` (`net.bind` with the address
+  class: loopback = 127/8 or the facade's loopback emulation, any otherwise).
+  Refusal ⇒ new wire `STATUS_DENY` + `!cap-deny: enforcer=netstackd …`;
+  unattributed senders and an unreachable policyd fail closed; subjects
+  without an authored profile stay capability-only. `nexus_ipc::policyd::
+  seam_admits` / `resolve_policy_slots` / `PolicySlots`;
+  `test_reject_unattributed_connect`. netstackd gains `policy.delegate`.
+- Fixed `scripts/build.sh`: volume services (netstackd, gpud, windowd,
+  dsoftbusd, …) were only built when their release ELF was missing, so the
+  QEMU image had shipped their first build since 2026-09-03; cargo now
+  always runs for them (incremental). Admitted network tuples are cached per
+  boot in netstackd (bounded ring) so dsoftbusd's connect retries do not cost
+  a policyd roundtrip each.
+
 ### Added - 2026-09-07 (TASK-0043 P1: `/state` byte quotas enforced at statefsd)
 
 - `statefs::quota` (rule, `check_put`, once-per-window warn latch) with

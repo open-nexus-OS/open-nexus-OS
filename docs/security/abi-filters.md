@@ -134,8 +134,18 @@ the empty deny-all profile.
   governed subject's profile must name EVERY prefix it legitimately writes
   (the selftest's lists its own trees plus `/state/boot/`, `/state/crash/`,
   `/state/statefsd/`, `/state/shared/selftest/`).
-- **netstackd** bind/connect: TASK-0043 P2 / TASK-0052 P1 add the identity
-  plumbing and call the same op.
+- **netstackd** connect / listen / udp bind
+  (`source/services/netstackd/src/os/facade/authz.rs`, TASK-0043 P2): the
+  kernel-attributed sender travels on `FacadeContext`; `net.connect` with
+  (addr, port), `net.bind` with the address class (`loopback` = 127/8 or the
+  facade's loopback emulation — the QEMU user-net fallback IP / 0.0.0.0 on
+  the loopback port set; `any` otherwise). policyd is reached over init-wired
+  fixed slots (7 request, 8/9 reply), never routed from the hot loop
+  (`net-egress: enforced (netstackd policy seam on)`); admitted tuples
+  are cached per boot (bounded ring; refusals never); refusal ⇒ wire
+  `STATUS_DENY` + `!cap-deny: enforcer=netstackd …`; unattributed
+  (`sid == 0`) or policyd unreachable ⇒ refused
+  (`nexus_ipc::policyd::seam_admits`, `test_reject_unattributed_connect`).
 - **policyd audit**: refusals carry `reason=abi-rule:<class>`; allowed
   evaluations (the hot path) are not audited; every applied mode switch is
   audited with `reason=abi-mode` and printed as
@@ -177,6 +187,10 @@ the empty deny-all profile.
   see the `policyd: audit emit deferred` baseline). Not ladder-gated.
 - `SELFTEST: abi mode switch auth ok` — both authenticated switches applied
   (the unauthenticated denial is host-proven: one authority sender per boot).
+- `init: netstackd policy slots 7/8/9` / `net-egress: enforced (netstackd
+  policy seam on)` — init wired policyd's request endpoint + the `@reply`
+  pair into netstackd and the facade armed the connect/listen/bind seam
+  (TASK-0043 P2); `!cap-deny: enforcer=netstackd …` marks a refusal.
 
 ## Required negative host proofs
 

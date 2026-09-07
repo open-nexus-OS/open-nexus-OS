@@ -31,3 +31,6 @@ pub(crate) const STATUS_MALFORMED: u8 = 2;
 pub(crate) const STATUS_WOULD_BLOCK: u8 = 3;
 pub(crate) const STATUS_IO: u8 = 4;
 pub(crate) const STATUS_TIMED_OUT: u8 = 5;
+/// RFC-0091 seam (TASK-0043 P2): the kernel-attributed sender is not
+/// allowed to connect/listen/bind this tuple (policyd decision). Appended.
+pub(crate) const STATUS_DENY: u8 = 6;

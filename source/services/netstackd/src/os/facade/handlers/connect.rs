@@ -21,7 +21,7 @@ use crate::os::ipc::handles::StreamId;
 use crate::os::ipc::parse::{parse_ipv4_at, parse_nonce, parse_u16_le};
 use crate::os::ipc::reply::{reply_status_maybe_nonce, reply_u32_status_maybe_nonce, status_frame};
 use crate::os::ipc::wire::{
-    OP_CONNECT, STATUS_IO, STATUS_MALFORMED, STATUS_OK, STATUS_WOULD_BLOCK,
+    OP_CONNECT, STATUS_DENY, STATUS_IO, STATUS_MALFORMED, STATUS_OK, STATUS_WOULD_BLOCK,
 };
 use crate::os::loopback::LoopBuf;
 
@@ -30,6 +30,8 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
     req: &[u8],
     reply: &mut R,
 ) -> DispatchControl {
+    let seam = crate::os::facade::authz::Seam::of(ctx);
+    let admit_cache = &mut ctx.state.admit_cache;
     let now_ms = ctx.now_ms;
     let net = &mut *ctx.net;
     let listeners = &mut ctx.state.listeners;
@@ -54,6 +56,12 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
     let nonce = parse_nonce(req, 10);
     let ip = parse_ipv4_at(req, 4).unwrap_or([0u8; 4]);
     let port = parse_u16_le(req, 8).unwrap_or(0);
+    // RFC-0091 `net.connect` seam: policyd decides for the kernel-attributed sender.
+    if !seam.admit_connect(admit_cache, ip, port) {
+        reply_status_maybe_nonce(reply, OP_CONNECT, STATUS_DENY, nonce);
+        let _ = yield_();
+        return DispatchControl::ContinueLoop;
+    }
     ctx.state.dbg_connect_req_count = ctx.state.dbg_connect_req_count.wrapping_add(1);
     if ctx.state.dbg_connect_req_count == 1 {
         // #region agent log

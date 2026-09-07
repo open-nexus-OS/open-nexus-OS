@@ -85,4 +85,6 @@ fn test_wire_status_constants_contract() {
     assert_eq!(wire::STATUS_WOULD_BLOCK, 3);
     assert_eq!(wire::STATUS_IO, 4);
     assert_eq!(wire::STATUS_TIMED_OUT, 5);
+    // RFC-0091 seam refusal (TASK-0043 P2): appended, never renumbered.
+    assert_eq!(wire::STATUS_DENY, 6);
 }

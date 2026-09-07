@@ -80,6 +80,13 @@ pub(crate) struct FacadeState {
     pub dbg_accept_status_io_logged: bool,
     pub dbg_listen_loopback_logged: bool,
     pub dbg_listen_tcp_logged: bool,
+    /// policyd + `@reply` slots for the RFC-0091 seam (resolved once at
+    /// facade start; `None` = policyd unreachable ⇒ governed ops refuse).
+    pub policy: Option<nexus_ipc::policyd::PolicySlots>,
+    /// Admitted (sender, class, addr_class, port, addr) tuples — profiles are
+    /// static per boot, so an admit never changes; refusals are NOT cached
+    /// (policyd must see every one for audit/learn). Bounded ring.
+    pub admit_cache: crate::os::facade::authz::AdmitCache,
     pub _not_send_sync: PhantomData<*const ()>,
 }
 
@@ -106,6 +113,8 @@ impl FacadeState {
             dbg_accept_status_io_logged: false,
             dbg_listen_loopback_logged: false,
             dbg_listen_tcp_logged: false,
+            policy: None,
+            admit_cache: crate::os::facade::authz::AdmitCache::new(),
             _not_send_sync: PhantomData,
         }
     }

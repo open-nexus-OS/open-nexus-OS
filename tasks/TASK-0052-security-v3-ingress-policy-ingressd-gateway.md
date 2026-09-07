@@ -59,7 +59,7 @@ implementation in this task (contract slot only); outbound policy (TASK-0043).
 
 - **P0 — Contract** (approval `docs/rfcs`): RFC seed + ADR „Exposure intent instead of free
   binds“; `ingress` policy domain shape; marker contract.
-- **P1 — Layer A** (after TASK-0043 P2): `net.bind` address class in schema v2, facade evaluation
+- **P1 — Layer A** (identity plumbing landed with TASK-0043 P2 on 2026-09-07: `FacadeContext.sender_service_id`, `STATUS_DENY`, `authz.rs` seam with the `net.bind` address class, `seam_admits`; this package adds the `ingress` policy domain, the `any`-address gate and its markers): `net.bind` address class in schema v2, facade evaluation
   at listen/bind, host `test_reject_nonloopback_bind_without_intent`, OS `SELFTEST: ingress deny
   ok`.
 - **P2 — `ingressd` host**: new `source/services/ingressd/` (src/ + tests/), `tests/ingress_host/`:

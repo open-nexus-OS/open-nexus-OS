@@ -661,6 +661,10 @@ expected_sequence=(
   "SELFTEST: abi learn collected ok"
   "policyd: abi mode subject=52c6c4a34ffb3f69 mode=enforce epoch="
   "SELFTEST: abi mode switch auth ok"
+  # TASK-0043 P2: netstackd's connect/listen/bind seam is armed over the
+  # init-wired policyd slots (RFC-0091 §7) — the boot witness for egress.
+  "init: netstackd policy slots 7/8/9"
+  "net-egress: enforced (netstackd policy seam on)"
   "SELFTEST: mmio policy deny ok"
   "SELFTEST: policyd requester spoof denied ok"
   "SELFTEST: policy malformed ok"

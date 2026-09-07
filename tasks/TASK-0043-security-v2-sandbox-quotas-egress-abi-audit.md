@@ -1,6 +1,6 @@
 ---
 title: TASK-0043 Security v2: sandbox quotas (tmp/state) + per-subject network egress rules + tighter ABI policies + audits (host-first, OS-gated)
-status: In Progress (P0+P1 delivered 2026-09-07)
+status: In Progress (P0–P2 delivered 2026-09-07)
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -132,6 +132,61 @@ on the same model afterwards (TASK-0133 lineage), never a second model.
   `SELFTEST: quota deny ok` observed in every lane, the second warn after the delete shows the
   re-armed latch).
 - Next: P2 (netstackd identity + `STATUS_DENY`, shared with TASK-0052 P1).
+
+### P2 delivered 2026-09-07 — netstackd identity + `STATUS_DENY` (shared with TASK-0052 P1)
+
+- **Identity**: the facade loop already received the kernel sender (`ipc_recv_v2` → `sid`) and
+  dropped it; `FacadeContext.sender_service_id` now carries it to every handler (never a payload
+  field). `STATUS_DENY = 6` appended to the netstackd wire.
+- **Seam** `source/services/netstackd/src/os/facade/authz.rs`: `Seam::of(ctx)` copies the inputs
+  before a handler's mutable borrows; `admit_connect(ip, port)` ⇒ `OP_ABI_EVAL` `net.connect`,
+  `admit_bind(ip, port)` ⇒ `net.bind` with the address class (`loopback` = 127/8 or the facade's
+  loopback emulation — QEMU user-net fallback IP / 0.0.0.0 on the loopback port set, traffic that
+  never reaches the NIC; `any` otherwise). policyd is reached over init-wired FIXED slots
+  (`wiring.rs` netstackd arm: 7 = policyd request SEND, 8/9 = own `@reply` RECV/SEND —
+  `init: netstackd policy slots 7/8/9`), the statefsd/keystored pattern: an enforcement seam
+  never routes dynamically from its hot loop. (A routed lookup from the facade start wedged
+  netstackd under icount — `route_with_nonce_budgeted(policyd, 1, 2)` never returned although
+  the same call works from abilitymgr; cause not chased, the fixed-slot design is the end state
+  anyway. Tracked as a note for the reliability lane.) Boot witness written raw:
+  `net-egress: enforced (netstackd policy seam on)`. Refusal ⇒ `STATUS_DENY` reply + `!cap-deny: enforcer=netstackd class=…
+  port=… addr=… subject=0x…`. Hooked at connect (before dial), listen and udp bind (before the
+  loopback/NIC split). `policies/base.toml`: netstackd += `policy.delegate` (it names the subject
+  it serves, like statefsd).
+- **Decision** `nexus_ipc::policyd::seam_admits(sender, status)`: unattributed (`sid == 0`) never
+  admitted; `STATUS_ALLOW` and `STATUS_UNSUPPORTED` (governed = authored: no profile ⇒
+  capability-only) admit; deny / unreachable / anything else refuse. `resolve_policy_slots()`
+  (policyd + `@reply` routing) and `PolicySlots` added for services without fixed policyd slots.
+  Host proof `test_reject_unattributed_connect` (nexus-ipc).
+- **Live effect**: dsoftbusd (no profile) keeps working (UNSUPPORTED ⇒ admitted); the selftest's
+  own UDP bind (port 34569 on 0.0.0.0 = loopback emulation, ≥ 1024) is allowed by its RFC-0091
+  profile — the connect-class rules (`10.0.2.0/24` 53/80/443) become enforceable in P3.
+- ⭐⭐ Build finding (fixed here, `scripts/build.sh`): the volume-service loop built a service
+  ONLY when its release ELF was missing (`[[ ! -f "$elf_path" ]]`), so every volume service
+  (metricsd, settingsd, timed, abilitymgr, sessiond, netstackd, dsoftbusd, hidrawd, touchd,
+  gpud, windowd, inputd, imed, pinched) had been shipping its FIRST build since 2026-09-03/04 —
+  the first P2 QEMU run never contained the new netstackd code (its payload had no seam strings).
+  Every OS proof since TASK-0321 P4 ran stale volume services against fresh embedded ones; the
+  additive wire contracts kept them interoperating, which is why nothing was noticed. Fix: cargo
+  always runs for volume services (incremental no-op when unchanged); `NEXUS_SKIP_BUILD=1` stays
+  the explicit escape. ⤳ Follow-up: a build gate that compares each bundle payload's build id
+  against the source tree (TASK-0321 lineage).
+- First-boot finding (before the build fix was known): dsoftbusd's connect retry storm (thousands of loopback connects per
+  boot, folded `dbg:netstackd: connect req count 4096`) now cost one policyd roundtrip each and
+  pushed the icount boot past the 200 s lane budget (`init: supervision persist restarts` missing).
+  Fix: a bounded per-boot admit cache (`AdmitCache`, 16-entry ring of admitted (sender, class,
+  addr_class, port, addr) tuples — profiles are static per boot; refusals are never cached so
+  policyd audits/learns every one). The seam status is written raw (`nexus_abi::debug_write`
+  from a stack buffer) because a service's routine `debug_println` lines fold even in proof
+  boots.
+- Proof: `cargo test -p nexus-ipc` (8 policyd tests), `cargo test -p netstackd` (host: wire
+  vocabulary + deny reply with nonce), OS-target strict check netstackd + dsoftbusd,
+  `just check` green, `just test-all` green 2026-09-07 (`exit=0`, all nine QEMU lanes,
+  `net-egress: enforced (netstackd policy seam on)` in every boot, no `!cap-deny`). Ladder (both `init: netstackd policy slots 7/8/9`
+  and `net-egress: enforced (netstackd policy seam on)`, 2-space list) — the seam's boot witness;
+  `SELFTEST: egress deny/allow ok` are P3, `SELFTEST: ingress deny ok` is TASK-0052 P1.
+- Next: P3 (egress proof: selftest connect to an allowed and a refused target over the facade,
+  `net-egress: enforced`, `SELFTEST: egress deny ok` / `allow ok`, learn mode records the attempt).
 
 ### Packages
 

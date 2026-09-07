@@ -198,7 +198,7 @@ prefix bytes:   prefix_len bytes (statefs)
 
 - **Threat model**: confused deputy (a service asking on behalf of another) — closed by kernel-attributed identity; argument injection (a path/port/CIDR crafted to match an allow while meaning something else) — closed by canonicalization before matching (statefs paths are canonicalized by statefsd, ports/addresses are numeric) and bounded literal matchers (`test_reject_argument_injection`); matcher DoS (pathological patterns) — closed by literal-only matchers with O(rules × bytes) cost (`test_reject_regex_dos` proves the parser rejects any pattern syntax); stale-profile downgrade — closed by the monotone epoch; runtime tampering — closed by the single audited transition.
 - **Mitigations**: deny by default; deny beats allow; bounded everything; learn never bypasses deny; the mode switch is authenticated + epoch-guarded + audited + non-persistent.
-- **Open risks**: the netstackd seams are only as strong as the sender plumbing (TASK-0043 P2); until then egress/ingress rules are contract, not enforcement — the tasks say so in their markers, this RFC does not claim it.
+- **Open risks**: the netstackd seams are only as strong as the sender plumbing — landed 2026-09-07 (TASK-0043 P2: `FacadeContext.sender_service_id` from `ipc_recv_v2`, `STATUS_DENY`, `authz.rs` at connect/listen/udp-bind); the egress/ingress proofs (markers) are TASK-0043 P3 / TASK-0052 P1. Raw-NIC subjects (`device.mmio.net`) bypass the facade by construction — the grant is the boundary.
 
 ## Failure model (normative)
 

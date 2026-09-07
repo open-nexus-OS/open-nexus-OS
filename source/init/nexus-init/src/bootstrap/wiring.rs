@@ -140,6 +140,43 @@ pub(crate) fn wire_services(
                     debug_write_hex(send_slot as usize);
                     debug_write_byte(b'\n');
                 }
+                // RFC-0091 seam (TASK-0043 P2): netstackd evaluates every
+                // connect/listen/bind at policyd. Like statefsd/keystored it
+                // gets policyd's request endpoint + its own @reply pair at
+                // FIXED slots (7 = pol_req SEND, 8 = reply RECV, 9 = reply
+                // SEND) — an enforcement seam never routes dynamically from
+                // its hot loop.
+                let reply_ep =
+                    match nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8) {
+                        Ok(ep) => ep,
+                        Err(e) => {
+                            debug_write_bytes(b"init: wire netstackd create reply_ep err=abi:");
+                            debug_write_str(abi_error_label(e.clone()));
+                            debug_write_byte(b'\n');
+                            return Err(InitError::Abi(e));
+                        }
+                    };
+                let wired = nexus_abi::cap_transfer_to_slot(pid, pol_req, Rights::SEND, 0x07)
+                    .and_then(|_| {
+                        nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::RECV, 0x08)
+                    })
+                    .and_then(|_| {
+                        nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::SEND, 0x09)
+                    });
+                let _ = nexus_abi::cap_close(reply_ep);
+                match wired {
+                    Ok(_) => {
+                        if iw(init_wire, init_fold, "init:netstackd") {
+                            debug_write_bytes(b"init: netstackd policy slots 7/8/9\n");
+                        }
+                    }
+                    Err(e) => {
+                        debug_write_bytes(b"init: wire netstackd policy slots err=abi:");
+                        debug_write_str(abi_error_label(e.clone()));
+                        debug_write_byte(b'\n');
+                        return Err(InitError::Abi(e));
+                    }
+                }
             }
             "dsoftbusd" => {
                 // Allow dsoftbusd to send requests to netstackd (and optionally receive on a dedicated inbox).

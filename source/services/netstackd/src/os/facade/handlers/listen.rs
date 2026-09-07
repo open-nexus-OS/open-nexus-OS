@@ -18,13 +18,15 @@ use crate::os::facade::state::Listener;
 use crate::os::ipc::handles::ListenerId;
 use crate::os::ipc::parse::{parse_ipv4_at, parse_nonce, parse_u16_le};
 use crate::os::ipc::reply::{reply_status_maybe_nonce, reply_u32_status_maybe_nonce, status_frame};
-use crate::os::ipc::wire::{OP_LISTEN, STATUS_IO, STATUS_MALFORMED, STATUS_OK};
+use crate::os::ipc::wire::{OP_LISTEN, STATUS_DENY, STATUS_IO, STATUS_MALFORMED, STATUS_OK};
 
 pub(crate) fn handle<R: FnMut(&[u8])>(
     ctx: &mut FacadeContext<'_>,
     req: &[u8],
     reply: &mut R,
 ) -> DispatchControl {
+    let seam = crate::os::facade::authz::Seam::of(ctx);
+    let admit_cache = &mut ctx.state.admit_cache;
     let bind_ip = ctx.bind_ip;
     let net = &mut *ctx.net;
     let listeners = &mut ctx.state.listeners;
@@ -47,6 +49,12 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
         (bind_ip, port, nonce)
     };
     let _ = nexus_abi::trace_line("netstackd: rpc listen");
+    // RFC-0091 `net.bind` seam (address class from the bind target).
+    if !seam.admit_bind(admit_cache, listen_ip, port) {
+        reply_status_maybe_nonce(reply, OP_LISTEN, STATUS_DENY, nonce);
+        let _ = yield_();
+        return DispatchControl::ContinueLoop;
+    }
     if listen_ip == QEMU_USERNET_FALLBACK_IP && (port == LOOPBACK_PORT || port == LOOPBACK_PORT_B) {
         if !*dbg_listen_loopback_logged {
             *dbg_listen_loopback_logged = true;

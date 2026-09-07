@@ -42,6 +42,10 @@ pub(crate) struct FacadeContext<'a> {
     pub now_ms: u64,
     pub bind_ip: [u8; 4],
     pub reply_slot: Option<ReplyCapSlot>,
+    /// Kernel-attributed sender of this request (RFC-0091 seam identity;
+    /// never taken from the payload). `0` = unattributed ⇒ every governed
+    /// op is refused.
+    pub sender_service_id: u64,
 }
 
 /// Dispatch one decoded request. Returns [`DispatchControl::ContinueLoop`] when the outer IPC loop

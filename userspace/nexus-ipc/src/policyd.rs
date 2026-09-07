@@ -33,6 +33,7 @@ const OP_CHECK_CAP_DELEGATED: u8 = 5;
 const RESPONSE_BIT: u8 = 0x80;
 const STATUS_ALLOW: u8 = 0;
 const STATUS_DENY: u8 = 1;
+const STATUS_UNSUPPORTED: u8 = 3;
 
 /// Maximum capability-name length accepted on the wire.
 pub const MAX_CAP_LEN: usize = 48;
@@ -261,6 +262,55 @@ fn exchange_status_on(
     }
 }
 
+/// RFC-0091 §7 seam decision over a policyd `OP_ABI_EVAL` outcome: the
+/// request must be kernel-attributed (`sender_service_id != 0` — an
+/// unattributed request is never admitted, `test_reject_unattributed_connect`)
+/// and policyd must have answered `STATUS_ALLOW`, or `STATUS_UNSUPPORTED`
+/// (the subject has no authored profile — not governed yet, capability-only
+/// per the governed = authored rule). `None` (unreachable) and every other
+/// status refuse: a seam fails closed.
+#[must_use]
+pub fn seam_admits(sender_service_id: u64, eval_status: Option<u8>) -> bool {
+    if sender_service_id == 0 {
+        return false;
+    }
+    matches!(eval_status, Some(STATUS_ALLOW) | Some(STATUS_UNSUPPORTED))
+}
+
+/// Policyd request slot + the caller's `@reply` inbox, resolved once through
+/// init routing (for services without fixed policyd slots).
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+#[derive(Clone, Copy, Debug)]
+pub struct PolicySlots {
+    /// policyd's request endpoint.
+    pub send: u32,
+    /// The caller's `@reply` send cap (moved along with each request).
+    pub reply_send: u32,
+    /// The caller's `@reply` receive slot.
+    pub reply_recv: u32,
+}
+
+/// Routes `policyd` + `@reply` (bounded) and returns the slots for
+/// [`check_cap_on`] / [`abi_eval_on`]; `None` = routing failed.
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+pub fn resolve_policy_slots() -> Option<PolicySlots> {
+    use crate::budget::{route_with_nonce_budgeted, NonceMismatchBudget, RouteRetryOutcome};
+    use core::time::Duration;
+    let route = |name: &[u8]| match route_with_nonce_budgeted(
+        name,
+        1,
+        2,
+        Duration::from_secs(2),
+        NonceMismatchBudget::new(64),
+    ) {
+        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
+        _ => None,
+    };
+    let (send, _) = route(b"policyd")?;
+    let (reply_send, reply_recv) = route(b"@reply")?;
+    Some(PolicySlots { send, reply_send, reply_recv })
+}
+
 /// Delegated capability check that **routes dynamically** to policyd + `@reply`
 /// (for services without fixed policyd slots), then runs [`check_cap_on`]. Returns
 /// [`CapDecision::Unreachable`] on any routing/IPC failure. OS-only.
@@ -344,6 +394,20 @@ fn emit_cap_error(enforcer: &str, cap: crate::capabilities::Capability, subject_
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_reject_unattributed_connect() {
+        // No kernel identity ⇒ never admitted, whatever policyd said.
+        assert!(!seam_admits(0, Some(STATUS_ALLOW)));
+        assert!(!seam_admits(0, Some(STATUS_UNSUPPORTED)));
+        // Attributed: allow and "not governed" admit; deny/unreachable/other refuse.
+        assert!(seam_admits(7, Some(STATUS_ALLOW)));
+        assert!(seam_admits(7, Some(STATUS_UNSUPPORTED)));
+        assert!(!seam_admits(7, Some(STATUS_DENY)));
+        assert!(!seam_admits(7, None));
+        assert!(!seam_admits(7, Some(2)));
+        assert!(!seam_admits(7, Some(4)));
+    }
 
     #[test]
     fn decode_status_v2_binds_op_and_nonce() {

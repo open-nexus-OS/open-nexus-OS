@@ -41,7 +41,9 @@ imed = ["ipc.core", "statefs.read", "statefs.write"]
 # windowd leg predates name-routing (fixed fallback slots), so the missing
 # grant only surfaced as `!route-deny: inputd -> imed`.
 inputd = ["ipc.core"]
-netstackd = ["device.mmio.net", "ipc.core"]
+# `policy.delegate`: netstackd is an RFC-0091 enforcement seam (TASK-0043 P2) —
+# it names the kernel-attributed subject it serves in OP_ABI_EVAL.
+netstackd = ["device.mmio.net", "ipc.core", "policy.delegate"]
 virtioblkd = ["device.mmio.blk", "ipc.core"]
 rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 "hidrawd" = ["device.mmio.input", "ipc.core"]

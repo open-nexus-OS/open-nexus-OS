@@ -295,10 +295,13 @@ prepare_system_bundles() {
     local svc_upper
     svc_upper=$(echo "$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
     local elf_path="$TARGET_ROOT/$TARGET/release/$svc"
-    if [[ ! -f "$elf_path" ]]; then
-      local -a cargo_args=(build -p "$svc" --target "$TARGET" --release --no-default-features --features os-lite)
-      require_or_build "$elf_path" "service:$svc" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}"
-    fi
+    # Always let cargo decide (incremental — a no-op when nothing changed).
+    # TASK-0043 P2 finding: the former `[[ ! -f "$elf_path" ]]` guard reused the
+    # FIRST build of every volume service forever, so source changes to
+    # netstackd/gpud/windowd/… never reached the QEMU image after 2026-09-03.
+    # `NEXUS_SKIP_BUILD=1` (require_or_build) remains the explicit escape.
+    local -a cargo_args=(build -p "$svc" --target "$TARGET" --release --no-default-features --features os-lite)
+    require_or_build "$elf_path" "service:$svc" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}"
     local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
     local stack_pages="${!stack_var:-8}"
     local root ver

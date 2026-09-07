@@ -101,6 +101,19 @@ fn test_reject_parse_nonce_wrong_len() {
 }
 
 #[test]
+fn test_reject_seam_deny_reply_carries_nonce() {
+    // A policyd refusal at connect/listen/bind answers STATUS_DENY bound to
+    // the request nonce, so a client can never mistake it for another reply.
+    let frame = capture_frame(|sink| {
+        reply::reply_status_maybe_nonce(sink, wire::OP_CONNECT, wire::STATUS_DENY, Some(0x11));
+    });
+    assert_eq!(frame[3], wire::OP_CONNECT | 0x80);
+    assert_eq!(frame[4], wire::STATUS_DENY);
+    assert_eq!(frame.len(), 5 + 8);
+    assert_eq!(u64::from_le_bytes(frame[5..13].try_into().unwrap()), 0x11);
+}
+
+#[test]
 fn test_reply_status_maybe_nonce_without_nonce() {
     let frame = capture_frame(|sink| {
         reply::reply_status_maybe_nonce(sink, wire::OP_READ, wire::STATUS_MALFORMED, None);
