@@ -180,7 +180,8 @@ prefix bytes:   prefix_len bytes (statefs)
 
 ### 7. Enforcement seams (contract-level)
 
-- statefsd `put`: after the capability check, evaluate `statefs` for (subject, path, payload_len) and `limits`; deny ⇒ `STATUS_DENIED` to the caller + `AuditReason::AbiRuleDenied{class: statefs}`.
+- Evaluation lives in policyd (amendment 2026-09-05, TASK-0028 P2): a seam sends `OP_ABI_EVAL = 8` (`{nonce:u32le, subject_id:u64le, class:u8, addr_class:u8, port:u16le, addr_be:u32le, payload_len:u32le, deadline_ms:u32le, path:bytes8(≤128)}`, reply `STATUS_ALLOW|DENY|MALFORMED|UNSUPPORTED`) and policyd — which already holds the profile table, the mode table and the learn collector — decides, checks `limits` and emits the learn record in one place. A privileged proxy (an init-wired seam) names the subject it serves; any other sender may only evaluate itself. `OP_ABI_PROFILE_GET` stays for consumers that hold a profile (the selftest's assertions, epoch caching).
+- statefsd `put`: after the capability check, evaluate `statefs` for (subject, path, payload_len) and `limits` via `OP_ABI_EVAL`; deny ⇒ `STATUS_DENIED` to the caller + `AuditReason::AbiRuleDenied{class: statefs}`.
 - netstackd facade (identity plumbing by TASK-0043 P2): `net.bind` at bind/listen/udp-bind with (port, address class); `net.connect` at connect with (addr, port). Deny ⇒ `STATUS_DENY` + `AuditReason::AbiRuleDenied{class}` (TASK-0043 adds `EgressDenied`, TASK-0052 `IngressDenied` as the user-facing reasons layered on the same evaluation).
 - The selftest remains a caller (assertions), never the only one.
 
@@ -247,7 +248,7 @@ cd /home/jenning/open-nexus-OS && just test-os headless   # and smp1
 
 - [x] **Phase 0**: contract seed (this RFC), RFC index, ledgers 0028/0043/0052 point here — proof: `just check` docs gates (2026-09-05)
 - [x] **Phase 1**: matcher + codec v2 + ONE shared parser (`userspace/policy/src/schema.rs`, included by policyd build.rs) + corpus `policies/tests/` + reject suite — proof: `cargo test -p nexus-abi -- v2_reject` 9/9 (2026-09-05)
-- [ ] **Phase 2**: learn + `nx policy learn-gen` — proof: `cargo test -p nx --test policy_cli`, `test_learn_roundtrip`
+- [x] **Phase 2**: learn (policyd `OP_ABI_EVAL` + bounded collector, logd scope `policyd.learn`) + `nx policy learn-gen` — proof: `cargo test -p nx --test policy_cli`, `cargo test -p policyd test_learn_roundtrip` (2026-09-05)
 - [ ] **Phase 3**: seams + mode switch + markers — proof: headless/smp1 markers above
 - [ ] Task(s) linked with stop conditions + proof commands (TASK-0028, TASK-0043, TASK-0052).
 - [ ] QEMU markers appear in `scripts/qemu-test.sh` + proof-manifest and pass.

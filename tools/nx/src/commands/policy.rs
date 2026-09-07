@@ -9,8 +9,8 @@
 //! ADR: docs/adr/0014-policy-architecture.md
 
 use crate::cli::{
-    PolicyAction, PolicyArgs, PolicyCliMode, PolicyDiffArgs, PolicyExplainArgs, PolicyModeArgs,
-    PolicyValidateArgs,
+    PolicyAction, PolicyArgs, PolicyCliMode, PolicyDiffArgs, PolicyExplainArgs, PolicyLearnGenArgs,
+    PolicyModeArgs, PolicyValidateArgs,
 };
 use crate::error::{ExecResult, ExitClass, NxError};
 use crate::runtime::RuntimeConfig;
@@ -24,6 +24,7 @@ pub(crate) fn handle_policy(args: PolicyArgs, cfg: &RuntimeConfig) -> ExecResult
         PolicyAction::Diff(a) => handle_policy_diff(a),
         PolicyAction::Explain(a) => handle_policy_explain(a, cfg),
         PolicyAction::Mode(a) => handle_policy_mode(a, cfg),
+        PolicyAction::LearnGen(a) => handle_policy_learn_gen(a),
     }
 }
 
@@ -105,6 +106,76 @@ fn handle_policy_mode(args: PolicyModeArgs, cfg: &RuntimeConfig) -> ExecResult {
         "preflight_only": true,
     });
     Ok((ExitClass::Success, "policy mode preflight accepted".to_string(), args.json, Some(data)))
+}
+
+/// Largest learn log the generator reads (a boot's logd dump is kilobytes).
+const MAX_LEARN_LOG_BYTES: u64 = 4 * 1024 * 1024;
+
+fn handle_policy_learn_gen(args: PolicyLearnGenArgs) -> ExecResult {
+    let subject = args.subject.trim();
+    if subject.is_empty() || subject.contains('"') || subject.contains('\n') {
+        return Err(NxError::new(ExitClass::ValidationReject, "learn-gen: invalid --subject"));
+    }
+    let meta = std::fs::metadata(&args.learn_log).map_err(|err| {
+        NxError::new(
+            ExitClass::ValidationReject,
+            format!("learn-gen: cannot read learn log: {err}"),
+        )
+    })?;
+    if meta.len() > MAX_LEARN_LOG_BYTES {
+        return Err(NxError::new(
+            ExitClass::ValidationReject,
+            format!(
+                "learn-gen: learn log too large ({} > {MAX_LEARN_LOG_BYTES} bytes)",
+                meta.len()
+            ),
+        ));
+    }
+    let log = std::fs::read_to_string(&args.learn_log).map_err(|err| {
+        NxError::new(
+            ExitClass::ValidationReject,
+            format!("learn-gen: cannot read learn log: {err}"),
+        )
+    })?;
+    let opts = nexus_policy::learn_gen::GenOptions {
+        subject_name: subject.to_string(),
+        subject_id: nexus_policy::learn_record::service_id_from_name(subject.as_bytes()),
+        allow_any: args.allow_any,
+    };
+    let generated = nexus_policy::learn_gen::generate(log.lines(), &opts);
+    std::fs::write(&args.out, &generated.toml).map_err(|err| {
+        NxError::new(
+            ExitClass::Internal,
+            format!("learn-gen: cannot write {}: {err}", args.out.display()),
+        )
+    })?;
+    let data = json!({
+        "learn_log": args.learn_log,
+        "out": args.out,
+        "subject": subject,
+        "subject_id": format!("{:016x}", opts.subject_id),
+        "epoch_observed": generated.epoch,
+        "records_parsed": generated.records_parsed,
+        "lines_ignored": generated.lines_ignored,
+        "records_for_subject": generated.records_for_subject,
+        "unique_args": generated.unique_args,
+        "rules_emitted": generated.rules_emitted,
+        "rules_held": generated.rules_held,
+        "rules_capped": generated.rules_capped,
+        "allow_any": args.allow_any,
+    });
+    Ok((
+        ExitClass::Success,
+        format!(
+            "policy learn-gen wrote {} ({} rules, {} held, {} capped) — review before enabling",
+            args.out.display(),
+            generated.rules_emitted,
+            generated.rules_held,
+            generated.rules_capped
+        ),
+        args.json,
+        Some(data),
+    ))
 }
 
 fn policy_root(cfg: &RuntimeConfig, root: Option<PathBuf>) -> PathBuf {

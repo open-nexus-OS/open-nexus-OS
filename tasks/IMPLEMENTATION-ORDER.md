@@ -500,7 +500,7 @@ wird production-grade auf das End-System gebaut (keine Interimslösung — Ledge
 Ledgern nachgeführt, nie geschätzt. Vokabular: ✅ delivered · ⤳ superseded · `Draft` /
 `In Progress` / `Done <date>` / `Delivered <date> (test-all green)`.
 
-### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 13/24 delivered · Tasks 2/5 Done
+### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 14/24 delivered · Tasks 2/5 Done
 
 Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 
@@ -519,7 +519,7 @@ Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 | 10 | ✅ TASK-0035 P4 | Close: RFC-0089 Phase 10 Kind 4 ✅ + Phase-B-Checkliste, docs/updates/delta.md, CHANGELOG, DoD-Abgleich | Delivered 2026-09-05 → **TASK-0035 Done** |
 | 11 | ✅ TASK-0028 P0 | RFC-0091 „Policy-Profil v2“ (Schema statefs / net.bind+Adresse / net.connect / limits / epoch; longest-specific-match, deny-beats-allow; Wire v2 + Epoch; Learn; `OP_SET_ABI_MODE`) — EIN nexus-abi-Approval für 0028/0043/0052 | Delivered 2026-09-05 (paper; consumers 0043/0052 point at it) |
 | 12 | ✅ TASK-0028 P1 | Matcher + Codec v2, EIN Parser (`schema.rs`, per `#[path]` auch in policyd/build.rs) + Korpus `policies/tests/` + Reject-Suite (`test_reject_first_match_shadowing`, `_argument_injection`, `_regex_dos`, `_stale_profile_epoch`, `_unknown_class_fails_closed`, `_oversized_profile_v2`; `_unauthenticated_mode_switch` → P3, `test_learn_roundtrip` → P2) | Delivered 2026-09-05 (test-all green) |
-| 13 | TASK-0028 P2 | Learn-Pipeline (`policyd.learn` → logd, Sampling/Token-Bucket) + `nx policy learn-gen` | Draft |
+| 13 | ✅ TASK-0028 P2 | Learn-Pipeline: policyd `OP_ABI_EVAL` (Evaluation + Limits + Mode an EINER Stelle), `ModeTable` + Dedup-Ring 64 + Token-Bucket 8/s·32 + Drop-Zähler, logd-Scope `policyd.learn`, EIN Record-Format `learn_record.rs` (Host-Modul + policyd `#[path]`), `nx policy learn-gen` (Skeleton, `--allow-any`), `test_learn_roundtrip` | Delivered 2026-09-05 (test-all green) |
 | 14 | TASK-0028 P3 | OS: `SetAbiMode` (auth + epoch), echte Enforcement-Aufrufe in statefsd/netstackd, Marker `SELFTEST: abi …` | Draft |
 | 15 | TASK-0043 P0 | RFC-0072-Amendment `EDQUOTA` (statefs 12 / VfsError 14); Quota-Modell = TASK-0133 (soft/hard), Enforcement statefsd | Draft |
 | 16 | TASK-0043 P1 | statefs-Quota-Accounting host (`tests/state_quota_host/`) + OS (`statefs: quota deny`, `SELFTEST: quota deny ok`) | Draft |

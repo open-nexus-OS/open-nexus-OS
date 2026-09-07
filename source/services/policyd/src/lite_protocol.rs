@@ -34,6 +34,7 @@ const OP_EXEC: u8 = 3;
 const OP_CHECK_CAP: u8 = 4;
 const OP_CHECK_CAP_DELEGATED: u8 = 5;
 const OP_ABI_PROFILE_GET: u8 = nexus_abi::policyd::OP_ABI_PROFILE_GET;
+const OP_ABI_EVAL: u8 = nexus_abi::policyd::OP_ABI_EVAL;
 
 const STATUS_ALLOW: u8 = 0;
 const STATUS_DENY: u8 = 1;
@@ -43,9 +44,9 @@ const STATUS_UNSUPPORTED: u8 = 3;
 const CAP_CHECK: &str = "ipc.core";
 const CAP_ROUTE: &str = "ipc.core";
 const CAP_EXEC: &str = "proc.spawn";
-const MAX_FRAME_BYTES: usize = 12 + nexus_abi::abi_filter::MAX_PROFILE_BYTES;
+pub(crate) const MAX_FRAME_BYTES: usize = 12 + nexus_abi::abi_filter::MAX_PROFILE_BYTES;
 
-fn normalize_subject_id(subject_id: u64) -> u64 {
+pub(crate) fn normalize_subject_id(subject_id: u64) -> u64 {
     // Bring-up alias: kernel may report this alternate SID for selftest-client in current mmio boots.
     // Policy evaluation must stay identity-bound, so we canonicalize only this known alias.
     const SID_SELFTEST_CLIENT_ALT: u64 = 0x68c1_66c3_7bcd_7154;
@@ -96,11 +97,30 @@ impl FrameOut {
     }
 }
 
+/// Side-effect-free entry (no learn emission, everyone `Enforce`).
 pub fn handle_frame(
     policy: &Policy<'_>,
     frame: &[u8],
     sender_service_id: u64,
     privileged_proxy: bool,
+) -> FrameOut {
+    handle_frame_with(
+        policy,
+        frame,
+        sender_service_id,
+        privileged_proxy,
+        &mut crate::abi_learn::EnforceOnlyHost,
+    )
+}
+
+/// Full entry: `host` supplies the clock, the mode table and the learn
+/// sink for `OP_ABI_EVAL` (RFC-0091 §5–§7).
+pub fn handle_frame_with(
+    policy: &Policy<'_>,
+    frame: &[u8],
+    sender_service_id: u64,
+    privileged_proxy: bool,
+    host: &mut dyn crate::abi_learn::EvalHost,
 ) -> FrameOut {
     // v1 CHECK request: [P, O, ver=1, OP_CHECK, name_len:u8, name...]
     // v1 ROUTE request: [P, O, ver=1, OP_ROUTE, req_len:u8, req..., tgt_len:u8, tgt...]
@@ -200,73 +220,10 @@ pub fn handle_frame(
             rsp_v2(op, nonce, status)
         }
         (nexus_abi::policyd::VERSION_V2, OP_ABI_PROFILE_GET) => {
-            let (nonce, requested_subject_id) =
-                match nexus_abi::policyd::decode_abi_profile_get_v2(frame) {
-                    Some(v) => v,
-                    None => return rsp_v2(OP_ABI_PROFILE_GET, 0, STATUS_MALFORMED),
-                };
-            let requested_subject_id = normalize_subject_id(requested_subject_id);
-            let caller_subject_id = normalize_subject_id(sender_service_id);
-            if !privileged_proxy && requested_subject_id != caller_subject_id {
-                let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
-                let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
-                    nonce,
-                    STATUS_DENY,
-                    &[],
-                    &mut out.buf,
-                ) {
-                    Some(n) => n,
-                    None => return rsp_v2(OP_ABI_PROFILE_GET, nonce, STATUS_UNSUPPORTED),
-                };
-                out.len = rsp_len;
-                return out;
-            }
-            let mut profile = [0u8; nexus_abi::abi_filter::MAX_PROFILE_BYTES];
-            let profile_len = match crate::abi_profile::encode_subject_profile(
-                requested_subject_id,
-                &mut profile,
-            ) {
-                Some(n) => n,
-                None => {
-                    let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
-                    let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
-                        nonce,
-                        STATUS_UNSUPPORTED,
-                        &[],
-                        &mut out.buf,
-                    ) {
-                        Some(v) => v,
-                        None => return rsp_v2(OP_ABI_PROFILE_GET, nonce, STATUS_UNSUPPORTED),
-                    };
-                    out.len = rsp_len;
-                    return out;
-                }
-            };
-            let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
-            let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
-                nonce,
-                STATUS_ALLOW,
-                &profile[..profile_len],
-                &mut out.buf,
-            ) {
-                Some(n) => n,
-                None => {
-                    let mut fallback = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
-                    let fallback_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
-                        nonce,
-                        STATUS_UNSUPPORTED,
-                        &[],
-                        &mut fallback.buf,
-                    ) {
-                        Some(v) => v,
-                        None => return rsp_v2(OP_ABI_PROFILE_GET, nonce, STATUS_UNSUPPORTED),
-                    };
-                    fallback.len = fallback_len;
-                    return fallback;
-                }
-            };
-            out.len = rsp_len;
-            out
+            crate::abi_profile::handle_profile_get(frame, sender_service_id, privileged_proxy)
+        }
+        (nexus_abi::policyd::VERSION_V2, OP_ABI_EVAL) => {
+            crate::abi_eval::handle_abi_eval(frame, sender_service_id, privileged_proxy, host)
         }
         (VERSION, OP_ROUTE) => {
             // [P,O,ver,OP, req_len:u8, req..., tgt_len:u8, tgt...]
@@ -405,7 +362,7 @@ fn rsp_v1(op: u8, status: u8) -> FrameOut {
     FrameOut { buf, len: 6 }
 }
 
-fn rsp_v2(op: u8, nonce: nexus_abi::policyd::Nonce, status: u8) -> FrameOut {
+pub(crate) fn rsp_v2(op: u8, nonce: nexus_abi::policyd::Nonce, status: u8) -> FrameOut {
     let mut buf = [0u8; MAX_FRAME_BYTES];
     let rsp = nexus_abi::policyd::encode_rsp_v2(op, nonce, status);
     buf[..10].copy_from_slice(&rsp);

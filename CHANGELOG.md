@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-05 (TASK-0028 P2: RFC-0091 learn pipeline + `nx policy learn-gen`)
+
+- policyd evaluates ABI argument tuples for the seams: `OP_ABI_EVAL`
+  (nexus-wire frame) applies the subject's profile, `limits` and mode in
+  one place; in Learn mode a refused evaluation emits ONE bounded learn
+  record to logd scope `policyd.learn` (dedup ring 64, token bucket 8/s
+  burst 32, drop counter) without changing the decision. Mode table and
+  collector live in `policyd/src/abi_learn.rs`, the handler in
+  `abi_eval.rs`; every boot starts in Enforce.
+- One learn-record format (`userspace/policy/src/learn_record.rs`, core-only,
+  included by path in policyd) and the generator
+  `userspace/policy/src/learn_gen.rs` behind `nx policy learn-gen <log>
+  --subject <name> --out <toml> [--allow-any]`: a review-first
+  `[abi_profile]` skeleton (dedup, sorted, capped and reported, any-interface
+  binds held unless `--allow-any`). Proof: `test_learn_roundtrip` (learn →
+  generate → shared schema → matcher), `cargo test -p nx --test policy_cli`.
+
 ### Added - 2026-09-05 (TASK-0028 P1: RFC-0091 matcher, codec v2, one policy parser)
 
 - `nexus-abi` `abi_filter`: `net.connect` class, bind address class, port

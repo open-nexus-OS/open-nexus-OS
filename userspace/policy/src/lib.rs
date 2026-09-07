@@ -29,6 +29,8 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 
+pub mod learn_gen;
+pub mod learn_record;
 pub mod schema;
 
 pub const MAX_POLICY_FILE_BYTES: usize = 64 * 1024;

@@ -20,11 +20,17 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+/// Subject-name hash (FNV-1a) — the same function every policy tool uses.
+#[path = "../../../userspace/policy/src/learn_record.rs"]
+#[allow(dead_code)]
+mod learn_record;
 /// RFC-0091 schema SSOT — the SAME file the host `policy` crate compiles;
 /// included by path so policyd's table can never drift from the host grammar.
 #[path = "../../../userspace/policy/src/schema.rs"]
 #[allow(dead_code)]
 mod schema;
+
+use learn_record::service_id_from_name;
 
 use schema::{Action, AddressClass, Profile, Rule};
 
@@ -213,13 +219,4 @@ fn rule_literal(rule: &Rule) -> String {
 
 fn canonical(input: &str) -> String {
     input.trim().to_ascii_lowercase()
-}
-
-fn service_id_from_name(name: &[u8]) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325u64;
-    for &b in name {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000001b3u64);
-    }
-    h
 }

@@ -88,13 +88,42 @@ the empty deny-all profile.
   with epoch < N as stale and keeps its cached one
   (`test_reject_stale_profile_epoch`).
 
+## Evaluation and learn pipeline (RFC-0091 §5–§7)
+
+- **Where**: policyd evaluates. A seam (statefsd `put`, netstackd
+  bind/connect) sends `OP_ABI_EVAL` with the subject it serves (a privileged,
+  init-wired proxy; any other sender may only evaluate itself,
+  `test_reject_eval_subject_spoof`) and the argument tuple; policyd applies
+  the profile, the `limits` and the mode in one place
+  (`source/services/policyd/src/abi_eval.rs`).
+- **Learn mode** (`source/services/policyd/src/abi_learn.rs`): decisions are
+  unchanged; a refused evaluation additionally emits ONE record to logd scope
+  `policyd.learn`: `abi.learn epoch=<u32> subject=<sid hex16>
+  class=<statefs|net.bind|net.connect> arg=<prefix|port/loopback|port/any|a.b.c.d:port>
+  would=<deny|limit>` (≤ 160 bytes; the statefs argument is the path's
+  directory prefix, ≤ 64 bytes). Bounds: dedup ring of 64 (subject, class,
+  arg) keys, token bucket 8/s burst 32, `abi.learn.dropped` counter; a
+  failed delivery is counted, never raised to the seam.
+- **One format**: `userspace/policy/src/learn_record.rs` is compiled by the
+  host `policy` crate and included by path in policyd, so the writer and
+  the reader cannot drift (it also holds `service_id_from_name`, the one
+  FNV every policy tool uses).
+- **Generator**: `nx policy learn-gen <learn-log> --subject <name> --out <toml>
+  [--allow-any]` turns a logd/UART dump into a review-first
+  `[abi_profile.<name>]` skeleton (`# generated — review before enabling`):
+  dedup, sorted, capped at 24 rules (the cap is reported, never silent),
+  `epoch` = observed + 1, `allow` rules for every refused argument; an
+  any-interface bind is emitted commented-out unless `--allow-any`, a
+  connect rule is always the observed /32. The output compiles through the
+  shared schema (`test_learn_roundtrip`: learn → generate → parse → the
+  matcher allows exactly the observed arguments).
+
 ## Lifecycle
 
 - Profiles are static per boot: fetched/applied at startup, never hot-reloaded.
 - The ONE runtime transition is the authenticated, epoch-guarded per-subject
   mode switch `OP_SET_ABI_MODE` (Enforce ↔ Learn; RFC-0091 §6, TASK-0028 P3).
-  Learn mode never changes a decision; it only emits learn records
-  (TASK-0028 P2).
+  Every boot starts in Enforce; the mode table is never persisted.
 
 ## Marker contract
 
@@ -129,8 +158,11 @@ cargo test -p policyd                              # served profile = authored s
 - policyd frame handling: `test_abi_profile_get_v2_malformed_frame_is_fail_closed`,
   `test_abi_profile_get_v2_allows_privileged_proxy_subject_mismatch`,
   `selftest_profile_is_v2_with_authored_semantics`.
-- Pending with their packages: `test_learn_roundtrip` (P2),
-  `test_reject_unauthenticated_mode_switch` (P3).
+- learn pipeline (TASK-0028 P2): `test_learn_roundtrip` (policyd),
+  `test_reject_eval_subject_spoof`, `learn_emission_is_rate_limited_and_counts_drops`,
+  `cargo test -p nx --test policy_cli` (process boundary), `cargo test -p policy`
+  (record format, generator).
+- Pending with its package: `test_reject_unauthenticated_mode_switch` (P3).
 
 ## Anti-fake-green note
 

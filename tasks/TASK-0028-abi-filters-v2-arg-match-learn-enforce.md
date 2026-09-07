@@ -1,6 +1,6 @@
 ---
 title: TASK-0028 ABI filters v2: argument matchers + learn→enforce + policy generator (host-first, OS-gated)
-status: In Progress (P0+P1 delivered 2026-09-05)
+status: In Progress (P0–P2 delivered 2026-09-05)
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -134,7 +134,44 @@ is the authority, resolved 2026-08-14); full regular expressions (bounded litera
   keystored's key persist fails → `SELFTEST: device key pubkey FAIL (keygen status=2)`; the same
   signature exists in 5 of the 21 smp1 logs before this package (statefs write latency under
   icount, outside this task).
-- Next: P2 (learn pipeline + `nx policy learn-gen`).
+- Next: P2 (learn pipeline + `nx policy learn-gen`). ✅ see below.
+
+### P2 delivered 2026-09-05 — learn pipeline + `nx policy learn-gen`
+
+- **Evaluation moved into policyd** (RFC-0091 §7 amendment): `OP_ABI_EVAL = 8` (nexus-wire
+  frame `encode/decode_abi_eval_v2`, one shape for all classes, path ≤ 128 B) — a seam names
+  the subject it serves (privileged proxy) or evaluates itself; policyd applies profile +
+  `limits` + mode and answers `STATUS_ALLOW|DENY` (`abi_eval.rs`: `evaluate` → `Verdict
+  {Allow, Deny, Limit}`, `learn`, `handle_abi_eval`). `lite_protocol::handle_frame_with(…,
+  host)` carries the `EvalHost` (clock, mode table, learn sink); `handle_frame` stays the
+  side-effect-free entry (`EnforceOnlyHost`). Profile-get handling moved to `abi_profile.rs`
+  (`handle_profile_get`; lite_protocol 662 LOC).
+- **Learn state** `abi_learn.rs` (core, atomics, `forbid(unsafe_code)`): `ModeTable` (16
+  subjects, Enforce default, never persisted; `OP_SET_ABI_MODE` wires it in P3), `LearnState`
+  (dedup ring 64 keys, token bucket 8/s burst 32, `dropped`/`emitted` counters, `Admission`
+  {Admit, Duplicate, RateLimited}), `learn_key` FNV over (subject, class, arg text). OS host
+  in `os_lite.rs` (`OsEvalHost`: `nexus_abi::nsec`, statics, logd scope `policyd.learn` via
+  the audit append path).
+- **One record format**: `userspace/policy/src/learn_record.rs` (core-only; `LearnRecord`
+  `write`/`parse_learn_record`, `statefs_learn_prefix` = directory prefix ≤ 64 B printable,
+  `service_id_from_name` FNV-1a) — host crate module AND policyd `#[path]` include (also
+  replaces policyd build.rs's private FNV copy).
+- **Generator** `userspace/policy/src/learn_gen.rs` (`generate(lines, GenOptions) →
+  Generated {toml, stats}`; non-record lines ignored + counted; dedup, sorted, cap 24 reported;
+  `epoch = observed + 1`; `any` binds held as comments unless `allow_any`; connect = /32) and
+  `nx policy learn-gen <log> --subject <name> --out <toml> [--allow-any] [--json]` (4 MiB log
+  bound, subject-key validation, JSON stats).
+- Proof: `cargo test -p policyd` 44 (incl. `test_learn_roundtrip` = learn via `OP_ABI_EVAL` →
+  generate → shared schema parse → nexus-abi matcher allows exactly the observed arguments;
+  `test_reject_eval_subject_spoof`; rate-limit/drop counting), `cargo test -p policy` 26 + 4,
+  `cargo test -p nx --test policy_cli` 2 (process boundary: generated file loads through the
+  real policy root + `nx policy validate`), `nexus-wire` policyd 10; `just check` green;
+  `just test-all` green 2026-09-06 (`exit=0`, all nine QEMU lanes).
+- Not in P2 (P3): the seam call sites (statefsd/netstackd → `OP_ABI_EVAL`, a
+  `nexus_ipc::policyd::abi_eval_on` client helper), `OP_SET_ABI_MODE` authentication + epoch
+  guard, `AuditReason::AbiRuleDenied{class}`, the five `SELFTEST: abi …` markers, the
+  SECURITY_STANDARDS exception.
+- Next: P3.
 
 ### Packages
 

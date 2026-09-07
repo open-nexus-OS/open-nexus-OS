@@ -91,6 +91,7 @@ const OP_LOG_PROBE: u8 = 0x7f;
 const AUDIT_SCOPE: &str = "policyd.audit";
 const AUDIT_EMIT_LIMIT: usize = 128;
 static AUDIT_EMIT_COUNT: AtomicUsize = AtomicUsize::new(0);
+
 const MAX_FRAME_BYTES: usize = 12 + nexus_abi::abi_filter::MAX_PROFILE_BYTES;
 
 #[derive(Clone, Copy, Debug)]
@@ -253,8 +254,13 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
         return rsp_v1(op, if ok { STATUS_ALLOW } else { STATUS_UNSUPPORTED });
     }
     // Delegate the policy decision to the side-effect-free, host-testable handler.
-    let out =
-        crate::lite_protocol::handle_frame(&POLICY, frame, sender_service_id, privileged_proxy);
+    let out = crate::lite_protocol::handle_frame_with(
+        &POLICY,
+        frame,
+        sender_service_id,
+        privileged_proxy,
+        &mut crate::abi_host_os::OsEvalHost,
+    );
     // Best-effort audit emission (never blocks). Only for allow/deny statuses.
     if out.len >= 5 {
         match out.buf[4] {
@@ -1044,7 +1050,7 @@ fn write_hex_u64(buf: &mut [u8], len: &mut usize, value: u64) {
     }
 }
 
-fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
+pub(crate) fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
     // Deterministic slots distributed by init-lite for policyd:
     // - reply inbox: recv=0x9 send=0xA
     // - logd sink:  send=0xB (responses land on reply inbox when using CAP_MOVE)

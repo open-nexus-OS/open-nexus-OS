@@ -54,6 +54,8 @@ toml = "0.8"
 [dev-dependencies]
 nexus-sel = { path = "../../libs/nexus-sel", default-features = false }
 nexus-abi = { path = "../../libs/nexus-abi" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 nexus-config = { path = "../../../userspace/config" }
 tempfile = "3.27.0"
 

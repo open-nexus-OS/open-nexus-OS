@@ -18,6 +18,11 @@
 use nexus_abi::abi_filter::{
     encode_profile_v2, AbiLimits, AbiProfile, AbiRule, AddrClass, PortRange, RuleAction,
 };
+use nexus_abi::policyd::{
+    OP_ABI_PROFILE_GET, STATUS_ALLOW, STATUS_DENY, STATUS_MALFORMED, STATUS_UNSUPPORTED,
+};
+
+use crate::lite_protocol::{normalize_subject_id, rsp_v2, FrameOut, MAX_FRAME_BYTES};
 
 mod policy_table {
     include!(concat!(env!("OUT_DIR"), "/policy_table.rs"));
@@ -110,6 +115,79 @@ pub fn subject_profile(subject_id: u64) -> Option<AbiProfile> {
 pub fn encode_subject_profile(subject_id: u64, out: &mut [u8]) -> Option<usize> {
     let profile = subject_profile(subject_id)?;
     encode_profile_v2(&profile, out).ok()
+}
+
+/// Handles one `OP_ABI_PROFILE_GET` v2 frame: a non-privileged sender
+/// may only fetch its own profile; a privileged proxy names any subject.
+pub fn handle_profile_get(
+    frame: &[u8],
+    sender_service_id: u64,
+    privileged_proxy: bool,
+) -> FrameOut {
+    let (nonce, requested_subject_id) = match nexus_abi::policyd::decode_abi_profile_get_v2(frame) {
+        Some(v) => v,
+        None => return rsp_v2(OP_ABI_PROFILE_GET, 0, STATUS_MALFORMED),
+    };
+    let requested_subject_id = normalize_subject_id(requested_subject_id);
+    let caller_subject_id = normalize_subject_id(sender_service_id);
+    if !privileged_proxy && requested_subject_id != caller_subject_id {
+        let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
+        let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
+            nonce,
+            STATUS_DENY,
+            &[],
+            &mut out.buf,
+        ) {
+            Some(n) => n,
+            None => return rsp_v2(OP_ABI_PROFILE_GET, nonce, STATUS_UNSUPPORTED),
+        };
+        out.len = rsp_len;
+        return out;
+    }
+    let mut profile = [0u8; nexus_abi::abi_filter::MAX_PROFILE_BYTES];
+    let profile_len =
+        match crate::abi_profile::encode_subject_profile(requested_subject_id, &mut profile) {
+            Some(n) => n,
+            None => {
+                let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
+                let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
+                    nonce,
+                    STATUS_UNSUPPORTED,
+                    &[],
+                    &mut out.buf,
+                ) {
+                    Some(v) => v,
+                    None => return rsp_v2(OP_ABI_PROFILE_GET, nonce, STATUS_UNSUPPORTED),
+                };
+                out.len = rsp_len;
+                return out;
+            }
+        };
+    let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
+    let rsp_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
+        nonce,
+        STATUS_ALLOW,
+        &profile[..profile_len],
+        &mut out.buf,
+    ) {
+        Some(n) => n,
+        None => {
+            let mut fallback = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
+            let fallback_len = match nexus_abi::policyd::encode_abi_profile_rsp_v2(
+                nonce,
+                STATUS_UNSUPPORTED,
+                &[],
+                &mut fallback.buf,
+            ) {
+                Some(v) => v,
+                None => return rsp_v2(OP_ABI_PROFILE_GET, nonce, STATUS_UNSUPPORTED),
+            };
+            fallback.len = fallback_len;
+            return fallback;
+        }
+    };
+    out.len = rsp_len;
+    out
 }
 
 #[cfg(test)]

@@ -75,6 +75,7 @@ impl Cli {
                 PolicyAction::Diff(a) => a.json,
                 PolicyAction::Explain(a) => a.json,
                 PolicyAction::Mode(a) => a.json,
+                PolicyAction::LearnGen(a) => a.json,
             },
             Commands::Crash(args) => match &args.action {
                 CrashAction::Ls(a) => a.json,
@@ -441,6 +442,26 @@ pub(crate) enum PolicyAction {
     Diff(PolicyDiffArgs),
     Explain(PolicyExplainArgs),
     Mode(PolicyModeArgs),
+    /// RFC-0091 §5: turn a learn log (`abi.learn …` records) into a
+    /// review-first `[abi_profile.<subject>]` skeleton.
+    LearnGen(PolicyLearnGenArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct PolicyLearnGenArgs {
+    /// Learn log: a logd/UART dump; non-record lines are ignored and counted.
+    pub(crate) learn_log: PathBuf,
+    /// Subject name (its FNV id selects the records).
+    #[arg(long)]
+    pub(crate) subject: String,
+    /// Output TOML path (overwritten).
+    #[arg(long)]
+    pub(crate) out: PathBuf,
+    /// Emit `address = "any"` bind rules live instead of commented-out.
+    #[arg(long)]
+    pub(crate) allow_any: bool,
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Args, Debug)]

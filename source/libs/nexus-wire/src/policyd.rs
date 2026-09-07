@@ -30,6 +30,9 @@ pub const OP_CHECK_CAP: u8 = 4;
 pub const OP_ABI_PROFILE_GET: u8 = 6;
 /// RFC-0091 §6: authenticated, epoch-guarded per-subject ABI mode switch.
 pub const OP_SET_ABI_MODE: u8 = 7;
+/// RFC-0091 §7: an enforcement seam asks policyd to evaluate one governed
+/// argument tuple for a subject (policyd holds profile, mode and learn state).
+pub const OP_ABI_EVAL: u8 = 8;
 
 /// Status: allowed.
 pub const STATUS_ALLOW: u8 = 0;
@@ -47,6 +50,15 @@ pub const STATUS_STALE: u8 = 4;
 pub const ABI_MODE_ENFORCE: u8 = 0;
 /// Learn: decisions apply unchanged, would-deny evaluations emit learn records.
 pub const ABI_MODE_LEARN: u8 = 1;
+
+/// `OP_ABI_EVAL` class bytes (mirror `nexus_abi::abi_filter::SyscallClass`).
+pub const ABI_CLASS_STATEFS_PUT: u8 = 1;
+/// `net.bind` / listen / udp-bind.
+pub const ABI_CLASS_NET_BIND: u8 = 2;
+/// `net.connect`.
+pub const ABI_CLASS_NET_CONNECT: u8 = 3;
+/// Longest statefs path an eval request carries (mirrors `MAX_STATEFS_PATH_BYTES`).
+pub const MAX_ABI_EVAL_PATH_BYTES: usize = 128;
 
 /// Maximum encoded ABI-profile bytes carried in an ABI_PROFILE_GET response —
 /// the wire bound (`nexus-abi`'s `abi_filter` decoder re-sources this value).
@@ -102,6 +114,24 @@ crate::frames! {
         subject_id: u64le,
         mode: u8,
         epoch: u32le,
+    }
+    /// v2 ABI evaluation request (RFC-0091 §7), one shape for every class:
+    /// `[P,O,ver=2,OP_ABI_EVAL, nonce:u32le, subject_id:u64le, class:u8, addr_class:u8,
+    ///   port:u16le, addr_be:u32le, payload_len:u32le, deadline_ms:u32le, path_len:u8, path...]`.
+    /// `addr_be` is the IPv4 address as big-endian `u32` (`net.connect`), `addr_class`
+    /// 0 loopback / 1 any (`net.bind`), `path` the canonical statefs path (`statefs.put`).
+    /// Reply is the generic `encode_rsp_v2` with `STATUS_ALLOW|DENY|MALFORMED|UNSUPPORTED`.
+    #[allow(clippy::too_many_arguments)]
+    request encode_abi_eval_v2 / decode_abi_eval_v2 (op = OP_ABI_EVAL) {
+        nonce: u32le,
+        subject_id: u64le,
+        class: u8,
+        addr_class: u8,
+        port: u16le,
+        addr_be: u32le,
+        payload_len: u32le,
+        deadline_ms: u32le,
+        path: bytes8(min = 0, max = MAX_ABI_EVAL_PATH_BYTES),
     }
     /// v2 ABI profile fetch response:
     /// `[P,O,ver=2,OP_ABI_PROFILE_GET|0x80,nonce:u32le,status:u8,_reserved:u8,profile_len:u16le,profile...]`.
@@ -246,6 +276,32 @@ mod tests {
         assert_eq!(status, STATUS_DENY);
         // A v3 frame is not a v2 frame.
         assert_eq!(decode_rsp_v2(&encode_rsp_v3(OP_ROUTE, 1, STATUS_ALLOW)), None);
+    }
+
+    #[test]
+    fn abi_eval_v2_roundtrip() {
+        let mut req = [0u8; 192];
+        let n = encode_abi_eval_v2(
+            9,
+            0x0102_0304_0506_0708,
+            ABI_CLASS_STATEFS_PUT,
+            0,
+            0,
+            0,
+            4096,
+            2000,
+            b"/state/app/selftest/token",
+            &mut req,
+        )
+        .unwrap();
+        let (nonce, subject, class, addr_class, port, addr_be, payload, deadline, path) =
+            decode_abi_eval_v2(&req[..n]).unwrap();
+        assert_eq!(nonce, 9);
+        assert_eq!(subject, 0x0102_0304_0506_0708);
+        assert_eq!((class, addr_class, port, addr_be, payload, deadline), (1, 0, 0, 0, 4096, 2000));
+        assert_eq!(path, b"/state/app/selftest/token");
+        let long = [b'a'; MAX_ABI_EVAL_PATH_BYTES + 1];
+        assert!(encode_abi_eval_v2(1, 1, 1, 0, 0, 0, 0, 0, &long, &mut [0u8; 256]).is_none());
     }
 
     #[test]
