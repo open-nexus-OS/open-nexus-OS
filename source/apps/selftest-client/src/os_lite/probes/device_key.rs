@@ -35,6 +35,11 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
     };
 
     let wait = IpcWait::Timeout(core::time::Duration::from_millis(500));
+    /// Bounded re-recv attempts per reply (4 s): the first device keygen and
+    /// its enveloped persistence run while the desktop shell paints; a reply
+    /// that arrives after a single 500 ms budget must still be CONSUMED, or
+    /// it poisons every later probe on this channel.
+    const RECV_ATTEMPTS: u32 = 8;
 
     // 1. Trigger device keygen (OP=10)
     {
@@ -51,7 +56,7 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
         let rsp = loop {
             match client.recv(wait) {
                 Ok(rsp) => break Some(rsp),
-                Err(_) if attempt < 3 => attempt += 1,
+                Err(_) if attempt < RECV_ATTEMPTS => attempt += 1,
                 Err(_) => break None,
             }
         };
@@ -86,7 +91,20 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
             emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_PUBKEY_SEND);
             return None;
         }
-        match client.recv(wait) {
+        // Same bounded re-recv as the keygen reply (keystored may still be
+        // persisting the fresh key when this request lands).
+        let mut attempt = 0u32;
+        let rsp = loop {
+            match client.recv(wait) {
+                Ok(rsp) => break Ok(rsp),
+                Err(e) if attempt < RECV_ATTEMPTS => {
+                    attempt += 1;
+                    let _ = e;
+                }
+                Err(e) => break Err(e),
+            }
+        };
+        match rsp {
             Ok(rsp) => {
                 if rsp.len() < 7 || rsp[0] != b'K' || rsp[1] != b'S' || rsp[2] != 1 {
                     emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PUBKEY_FAIL_PUBKEY_MALFORMED);

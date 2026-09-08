@@ -47,6 +47,12 @@ arch-gate rules.
     recycled into a user VMO; the kernel asserts this at handoff consumption).
   - Only the boot hart runs `nxboot`; secondary harts stay parked in SBI HSM (the
     kernel starts them exactly as today — the SMP lanes are the regression signal).
+  - **Boot-hart normalization (2026-09-08):** the firmware's hart lottery (OpenSBI on
+    `virt` hands the image to a random hart under MTTCG) is settled at the loader entry:
+    a winner other than hart 0 starts hart 0 at `_start` (HSM `hart_start`, DTB as the
+    opaque) and stops itself. The kernel's `cpu0 = hart 0` SMP contract therefore holds
+    on every boot — before, three of four interactive boots ran DEGRADED with the
+    block-plane IRQs on the wrong hart (`volume spawn FAIL reason=header`).
 - **Loader scope is frozen** (anti-drift): BSB read/actuate, GPT walk, NXBD+image
   load/verify, handoff write, jump. NO filesystem, NO capnp, NO policy, NO network,
   NO interpretation of boot targets. Growth beyond this list requires a new ADR.

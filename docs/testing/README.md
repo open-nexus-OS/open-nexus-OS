@@ -97,6 +97,22 @@ The complete just-target catalog (incl. per-TASK proof floors) lives in [os-mark
 - Do not rely on host-only tools — update `scripts/install-deps.sh` **and** `podman/Containerfile` together when new packages are needed.
 - Full detail: [e2e.md](e2e.md) § "Environment parity & prerequisites".
 
+## Gates beyond the ladder
+
+- **No-fake-green FAIL gate** (`scripts/qemu-test.sh`, `FAIL_MARKER_GATE=1` default): the
+  marker ladder is a presence check, so a proof that ALSO printed a `FAIL` marker used to
+  pass unnoticed. Any `SELFTEST:`/`KSELFTEST:` FAIL line in the UART now fails the lane
+  unless it is listed, with its tracking reference, in `config/fail-marker-allow.txt`
+  (today: the two DSoftBus single-VM probes, network family on HOLD).
+- **Boot-hart lottery**: interactive boots (`just start`, SMP=4, MTTCG) receive the image on
+  a random hart; nxboot normalizes to hart 0 (ADR-0059). Symptom before the fix:
+  `KGATE: smp bringup DEGRADED`, 2 s block reads, `init: volume spawn FAIL reason=header`.
+  The deterministic lanes always booted on hart 0, so only `just start` saw it.
+- **Folding (RFC-0068)**: interactive boots fold routine markers into per-service verdict
+  lines and expand only failures; proof boots print everything raw. A raw line in an
+  interactive boot is a bug in the emitter (`debug_write` instead of `debug_println`, or
+  a service that never armed verdict folding), not a harness setting.
+
 ## Test logs
 
 All test/QEMU runs write to `build/logs/<profile>--<timestamp>/` (`latest` symlink can be stale — prefer the newest run directory). See [`docs/testing/run-logs.md`](run-logs.md) for the run-directory layout, the `hypothesis.json` decode grid (H1..H5, H4 = build errors, H4b = build warnings, …), and `just logs-gc [keep]` pruning.

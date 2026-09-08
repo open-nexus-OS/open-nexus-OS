@@ -44,7 +44,9 @@ pub(crate) fn provision_windowd_registry_route(
             chan.set_send(ServiceId::Bundlemgrd, s);
             chan.set_recv(ServiceId::Bundlemgrd, reply_recv);
             // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
-            debug_write_bytes(b"init: windowd route->bundlemgrd ok\n");
+            if crate::bootstrap::diag::raw_or_expanded("windowd") {
+                debug_write_bytes(b"init: windowd route->bundlemgrd ok\\n");
+            }
         }
     }
 }
@@ -64,7 +66,9 @@ pub(crate) fn provision_windowd_session_route(pid: u32, sess_req: u32, chan: &mu
         chan.set_send(ServiceId::Sessiond, s);
         chan.set_recv(ServiceId::Sessiond, reply_recv);
         // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
-        debug_write_bytes(b"init: windowd route->sessiond ok\n");
+        if crate::bootstrap::diag::raw_or_expanded("windowd") {
+            debug_write_bytes(b"init: windowd route->sessiond ok\\n");
+        }
     }
 }
 
@@ -84,7 +88,9 @@ pub(crate) fn provision_windowd_settings_route(
     if let Ok(s) = nexus_abi::cap_transfer(pid, settings_req, Rights::SEND) {
         chan.set_send(ServiceId::Settingsd, s);
         chan.set_recv(ServiceId::Settingsd, reply_recv);
-        debug_write_bytes(b"init: windowd route->settingsd ok\n");
+        if crate::bootstrap::diag::raw_or_expanded("windowd") {
+            debug_write_bytes(b"init: windowd route->settingsd ok\\n");
+        }
     }
 }
 
@@ -103,7 +109,9 @@ pub(crate) fn provision_windowd_imed_route(pid: u32, imed_req: u32, chan: &mut C
         Ok(s) => {
             chan.set_send(ServiceId::Imed, s);
             chan.set_recv(ServiceId::Imed, reply_recv);
-            debug_write_bytes(b"init: windowd route->imed ok\n");
+            if crate::bootstrap::diag::raw_or_expanded("windowd") {
+                debug_write_bytes(b"init: windowd route->imed ok\\n");
+            }
         }
         Err(_) => debug_write_bytes(b"init: windowd route->imed FAIL (xfer)\n"),
     }
@@ -123,7 +131,9 @@ pub(crate) fn provision_inputd_imed_route(pid: u32, eps: &Endpoints, chan: &mut 
         (Ok(s), Ok(r)) => {
             chan.set_send(ServiceId::Imed, s);
             chan.set_recv(ServiceId::Imed, r);
-            debug_write_bytes(b"init: inputd route->imed ok\n");
+            if crate::bootstrap::diag::raw_or_expanded("inputd") {
+                debug_write_bytes(b"init: inputd route->imed ok\\n");
+            }
         }
         _ => debug_write_bytes(b"init: inputd route->imed FAIL (xfer)\n"),
     }
@@ -135,79 +145,9 @@ pub(crate) fn provision_inputd_imed_route(pid: u32, eps: &Endpoints, chan: &mut 
 /// 0x21 = RECV of the minted watch channel (event inbox),
 /// 0x22 = SEND of the minted watch channel (cap-moved to settingsd inside
 /// the OP_WATCH request).
-const INPUTD_SETTINGS_SEND_SLOT: u32 = 0x20;
-const INPUTD_WATCH_RECV_SLOT: u32 = 0x21;
-const INPUTD_WATCH_SEND_SLOT: u32 = 0x22;
-
-/// Provisions inputd's settings-watch channel (RFC-0078): a fresh minted
-/// endpoint (both halves to inputd at FIXED slots — mint→grant→close, zero
-/// init cap-table accumulation) + SEND on settingsd's request endpoint.
-/// Best-effort: without it, live keymap switching stays inert (honest
-/// failure; the boot keymap default applies).
-pub(crate) fn provision_inputd_settings_watch(pid: u32, eps: &Endpoints, chan: &mut CtrlChannel) {
-    let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) else {
-        return;
-    };
-    let ok =
-        nexus_abi::cap_transfer_to_slot(pid, settings_req, Rights::SEND, INPUTD_SETTINGS_SEND_SLOT)
-            .is_ok();
-    // Pre-minted in the orchestrator (init's cap table is at its ceiling by
-    // wiring time — a late mint NoSpace-fails); init's cap closes after wiring.
-    let ep = eps.inputd_watch_ep;
-    let recv_ok =
-        nexus_abi::cap_transfer_to_slot(pid, ep, Rights::RECV, INPUTD_WATCH_RECV_SLOT).is_ok();
-    let send_ok =
-        nexus_abi::cap_transfer_to_slot(pid, ep, Rights::SEND, INPUTD_WATCH_SEND_SLOT).is_ok();
-    if ok && recv_ok && send_ok {
-        chan.set_send(ServiceId::Settingsd, INPUTD_SETTINGS_SEND_SLOT);
-        debug_write_bytes(b"init: inputd settings-watch ok\n");
-    } else {
-        debug_write_bytes(b"init: inputd settings-watch FAIL (xfer)\n");
-    }
-}
-
-/// Fixed windowd slots for its settings-watch channel (RFC-0076/0077 —
-/// windowd relays region data to surfaces). Kept in sync with
-/// `windowd/src/compositor/runtime/region.rs`.
-const WINDOWD_WATCH_RECV_SLOT: u32 = 0x40;
-const WINDOWD_WATCH_SEND_SLOT: u32 = 0x41;
-
-/// Provisions windowd's settings-watch channel (pre-minted; both halves to
-/// fixed slots; windowd's settingsd SEND route already exists via
-/// `provision_windowd_settings_route`). Best-effort.
-pub(crate) fn provision_windowd_settings_watch(pid: u32, eps: &Endpoints, chan: &mut CtrlChannel) {
-    let _ = chan;
-    // RFC-0083 NOTE (measured, kernel follow-up recorded in TASK-0307): the
-    // watch channel stays a DEDICATED side endpoint. Pointing slot 0x41 at
-    // windowd's own service endpoint (so settings events would arrive
-    // in-band and wake an idle compositor) wedges the whole system
-    // deterministically once settingsd starts sending on the moved clones —
-    // the Idle-class selftest ladder starves and never runs (boots
-    // 2026-07-27T11-31-56 / 13-32-13; bisected against 13-38-26). Cloning
-    // windowd's own server slots instead is PermissionDenied (also
-    // measured). Until the kernel semantics of foreign-held send caps on
-    // service-pair endpoints are understood, windowd drains this side
-    // channel per frame + a bounded idle tick.
-    let recv_ok = nexus_abi::cap_transfer_to_slot(
-        pid,
-        eps.windowd_watch_ep,
-        Rights::RECV,
-        WINDOWD_WATCH_RECV_SLOT,
-    )
-    .is_ok();
-    let send_ok = nexus_abi::cap_transfer_to_slot(
-        pid,
-        eps.windowd_watch_ep,
-        Rights::SEND,
-        WINDOWD_WATCH_SEND_SLOT,
-    )
-    .is_ok();
-    if recv_ok && send_ok {
-        debug_write_bytes(b"init: windowd settings-watch ok\n");
-    } else {
-        debug_write_bytes(b"init: windowd settings-watch FAIL (xfer)\n");
-    }
-}
+pub(crate) const INPUTD_SETTINGS_SEND_SLOT: u32 = 0x20;
+pub(crate) const INPUTD_WATCH_RECV_SLOT: u32 = 0x21;
+pub(crate) const INPUTD_WATCH_SEND_SLOT: u32 = 0x22;
 
 /// Provisions windowd's launch route (TASK-0080D): SEND on abilitymgr's
 /// pre-minted request endpoint + RECV on its response endpoint, so the Apps
@@ -228,7 +168,9 @@ pub(crate) fn provision_windowd_ability_route(
         (Ok(s), Ok(r)) => {
             chan.set_send(ServiceId::Abilitymgr, s);
             chan.set_recv(ServiceId::Abilitymgr, r);
-            debug_write_bytes(b"init: windowd route->abilitymgr ok\n");
+            if crate::bootstrap::diag::raw_or_expanded("windowd") {
+                debug_write_bytes(b"init: windowd route->abilitymgr ok\\n");
+            }
         }
         _ => debug_write_bytes(b"init: windowd route->abilitymgr FAIL (xfer)\n"),
     }
@@ -294,7 +236,9 @@ pub(crate) fn provision_imed_legs(
         (Ok(send), Ok(recv)) => {
             chan.set_send(ServiceId::Windowd, send);
             chan.set_recv(ServiceId::Windowd, recv);
-            debug_write_bytes(b"init: imed route->windowd ok\n");
+            if crate::bootstrap::diag::raw_or_expanded("imed") {
+                debug_write_bytes(b"init: imed route->windowd ok\\n");
+            }
         }
         _ => debug_write_bytes(b"init: imed route->windowd FAIL (xfer)\n"),
     }
@@ -321,7 +265,9 @@ pub(crate) fn provision_imed_legs(
             recv.and(send)
         });
         if granted.is_some() && reply.is_some() {
-            debug_write_bytes(b"init: imed route->settingsd ok\n");
+            if crate::bootstrap::diag::raw_or_expanded("imed") {
+                debug_write_bytes(b"init: imed route->settingsd ok\\n");
+            }
         } else {
             debug_write_bytes(b"init: imed route->settingsd FAIL\n");
         }
@@ -349,7 +295,9 @@ pub(crate) fn provision_imed_legs(
             recv.and(send)
         });
         if granted.is_some() && reply.is_some() {
-            debug_write_bytes(b"init: imed route->statefsd ok\n");
+            if crate::bootstrap::diag::raw_or_expanded("imed") {
+                debug_write_bytes(b"init: imed route->statefsd ok\\n");
+            }
         } else {
             debug_write_bytes(b"init: imed route->statefsd FAIL\n");
         }
@@ -369,7 +317,9 @@ pub(crate) fn provision_execd_imed_osk(
     if let Ok(s) = nexus_abi::cap_transfer(pid, imed_osk_execd, Rights::SEND) {
         chan.set_send(ServiceId::ImedOsk, s);
         chan.set_recv(ServiceId::ImedOsk, reply_recv_slot);
-        debug_write_bytes(b"init: execd route->imed-osk ok\n");
+        if crate::bootstrap::diag::raw_or_expanded("execd") {
+            debug_write_bytes(b"init: execd route->imed-osk ok\\n");
+        }
     }
 }
 
@@ -386,7 +336,9 @@ pub(crate) fn provision_selftest_imed_osk(
         Ok(osk_send) => {
             chan.set_send(ServiceId::ImedOsk, osk_send);
             chan.set_recv(ServiceId::ImedOsk, recv_slot);
-            debug_write_bytes(b"init: selftest route->imed-osk ok\n");
+            if crate::bootstrap::diag::raw_or_expanded("selftest") {
+                debug_write_bytes(b"init: selftest route->imed-osk ok\\n");
+            }
         }
         Err(_) => debug_write_bytes(b"init: selftest route->imed-osk FAIL (xfer)\n"),
     }
@@ -438,7 +390,9 @@ pub(crate) fn provision_execd_named_routes(
                 chan.set_send(ServiceId::Settingsd, s);
                 chan.set_recv(ServiceId::Settingsd, reply_recv_slot);
                 if iw(init_wire, init_fold, "init:execd") {
-                    debug_write_bytes(b"init: execd route->settingsd ok\n");
+                    if crate::bootstrap::diag::raw_or_expanded("execd") {
+                        debug_write_bytes(b"init: execd route->settingsd ok\\n");
+                    }
                 }
             }
         }
@@ -451,7 +405,9 @@ pub(crate) fn provision_execd_named_routes(
         chan.set_send(ServiceId::Timed, s);
         chan.set_recv(ServiceId::Timed, reply_recv_slot);
         if iw(init_wire, init_fold, "init:execd") {
-            debug_write_bytes(b"init: execd route->timed ok\n");
+            if crate::bootstrap::diag::raw_or_expanded("execd") {
+                debug_write_bytes(b"init: execd route->timed ok\\n");
+            }
         }
     }
     provision_execd_imed_osk(pid, eps.imed_osk_execd, reply_recv_slot, chan);
@@ -465,7 +421,9 @@ pub(crate) fn provision_execd_named_routes(
                 chan.set_send(ServiceId::Vfsd, s);
                 chan.set_recv(ServiceId::Vfsd, reply_recv_slot);
                 if iw(init_wire, init_fold, "init:execd") {
-                    debug_write_bytes(b"init: execd route->vfsd ok\n");
+                    if crate::bootstrap::diag::raw_or_expanded("execd") {
+                        debug_write_bytes(b"init: execd route->vfsd ok\\n");
+                    }
                 }
             }
         }
@@ -481,7 +439,9 @@ pub(crate) fn provision_execd_named_routes(
                 chan.set_send(ServiceId::Updated, s);
                 chan.set_recv(ServiceId::Updated, reply_recv_slot);
                 if iw(init_wire, init_fold, "init:execd") {
-                    debug_write_bytes(b"init: execd route->updated ok\n");
+                    if crate::bootstrap::diag::raw_or_expanded("execd") {
+                        debug_write_bytes(b"init: execd route->updated ok\\n");
+                    }
                 }
             }
         }
@@ -505,7 +465,9 @@ pub(crate) fn provision_execd_named_routes(
             chan.set_send(ServiceId::Statefsd, s);
             chan.set_recv(ServiceId::Statefsd, r);
             if iw(init_wire, init_fold, "init:execd") {
-                debug_write_bytes(b"init: execd route->statefsd ok\n");
+                if crate::bootstrap::diag::raw_or_expanded("execd") {
+                    debug_write_bytes(b"init: execd route->statefsd ok\\n");
+                }
             }
         } else {
             debug_write_bytes(b"init: execd route->statefsd FAIL\n");
@@ -522,7 +484,9 @@ pub(crate) fn provision_execd_named_routes(
                 chan.set_send(ServiceId::Policyd, s);
                 chan.set_recv(ServiceId::Policyd, reply_recv_slot);
                 if iw(init_wire, init_fold, "init:execd") {
-                    debug_write_bytes(b"init: execd route->policyd ok\n");
+                    if crate::bootstrap::diag::raw_or_expanded("execd") {
+                        debug_write_bytes(b"init: execd route->policyd ok\\n");
+                    }
                 }
             }
         }
@@ -577,6 +541,8 @@ pub(crate) fn provision_bootctld_fixed_slots(
     debug_write_bytes(b" statefs=0x");
     crate::bootstrap::helpers::debug_write_hex(state_send as usize);
     debug_write_bytes(b"\n");
-    debug_write_bytes(b"init: bootctld route->statefsd ok\n");
+    if crate::bootstrap::diag::raw_or_expanded("bootctld") {
+        debug_write_bytes(b"init: bootctld route->statefsd ok\\n");
+    }
     Ok(())
 }

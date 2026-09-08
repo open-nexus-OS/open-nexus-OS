@@ -7,7 +7,9 @@ license = "Apache-2.0"
 [features]
 default = ["std"]
 std = []
-os-lite = ["dep:nexus-ipc", "nexus-ipc/os-lite", "nexus-ipc/kernel-ipc"]
+os-lite = ["dep:nexus-ipc", "nexus-ipc/os-lite", "nexus-ipc/kernel-ipc", "dep:nexus-abi"]
 
 [dependencies]
 nexus-ipc = { path = "../nexus-ipc", optional = true, default-features = false }
+# Private CAP_MOVE reply inbox for the OS client (raw recv with a deadline).
+nexus-abi = { path = "../../source/libs/nexus-abi", optional = true }

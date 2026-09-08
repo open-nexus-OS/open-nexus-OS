@@ -20,6 +20,15 @@ pub(crate) fn expanded(name: &str) -> bool {
     }
 }
 
+/// RFC-0068 for the post-bootstrap helpers that carry no tally: a routine
+/// `init: <subject> …` trace prints raw in proof (non-folding) boots and
+/// when the subject is expanded; in an interactive boot it folds away
+/// (the harness never greps these lines).
+#[inline]
+pub(crate) fn raw_or_expanded(subject: &str) -> bool {
+    !nexus_abi::boot_should_fold_verdicts() || expanded(subject)
+}
+
 /// RFC-0068: fold ONE init cap-wiring DIAGNOSTIC marker into the `init_caps` verdict; return whether
 /// its raw trace still prints — in non-folding (proof) boots, OR when the `init_caps` GROUP is
 /// expanded, OR when this line's SUBJECT (the bare service, `init:` prefix stripped) is expanded.

@@ -869,6 +869,8 @@ fn status_from_statefs_error(err: StatefsError) -> u8 {
         StatefsError::IntegrityViolation | StatefsError::RollbackDetected => STATUS_DENY,
         // RFC-0072 EDQUOTA: the store is full for this subject — a size-class refusal.
         StatefsError::QuotaExceeded => STATUS_TOO_LARGE,
+        // Transient quiesce that outlived the client's retry budget.
+        StatefsError::Busy => STATUS_UNSUPPORTED,
     }
 }
 

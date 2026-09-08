@@ -124,6 +124,8 @@ fn reply(hdr: &MsgHeader, frame: &[u8]) {
 
 /// The gateway loop; returns only when the service cannot come up.
 pub fn service_main_loop() -> Result<(), GatewayError> {
+    // Verdict folding (RFC-0068): routine markers fold in interactive boots.
+    nexus_abi::service_verdict_arm();
     wait_for_slots()?;
     let table = EXPOSE_ENTRIES;
     let mut reg: Registry<'static, MAX_OPEN_EXPOSURES> = Registry::new(table);
@@ -170,7 +172,7 @@ pub fn service_main_loop() -> Result<(), GatewayError> {
                                         .push(b", proto=")
                                         .push_str(proto.label())
                                         .push(b")")
-                                        .emit();
+                                        .emit_raw();
                                     let _ = reg.close(entry.subject_id, port, proto);
                                     if let Ok(req) = decode_request(&buf[..n]) {
                                         reply_len = encode_expose_reply(

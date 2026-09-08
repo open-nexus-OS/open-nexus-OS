@@ -33,7 +33,9 @@ pub(crate) fn provision_selftest_ingress_route(pid: u32, eps: &Endpoints, chan: 
         (Ok(send_slot), Ok(recv_slot)) => {
             chan.set_send(ServiceId::Ingressd, send_slot);
             chan.set_recv(ServiceId::Ingressd, recv_slot);
-            debug_write_bytes(b"init: selftest route->ingressd ok\n");
+            if crate::bootstrap::diag::raw_or_expanded("selftest") {
+                debug_write_bytes(b"init: selftest route->ingressd ok\\n");
+            }
         }
         _ => debug_write_bytes(b"init: selftest route->ingressd FAIL (xfer)\n"),
     }

@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-09-08 (live debugging: `just start`, hidden FAIL markers, UART folding)
+
+- nxboot normalizes the boot hart: OpenSBI on `virt` hands the image to a
+  random hart under MTTCG; every interactive boot on hart ≠ 0 (≈ 3 of 4 since
+  July) ran SMP DEGRADED (the boot hart was "started" as its own secondary),
+  the block-plane IRQs landed on the wrong hart (2 s timeout reads) and the
+  volume spawns failed (`volume spawn FAIL reason=header`). The winner now
+  starts hart 0 at the loader entry and stops itself — every boot is a
+  hart-0 boot, like the deterministic test lanes.
+- init pins policyd's client slots (reply inbox 0x9/0xA, logd 0xB): a
+  redundant clone of the server pair had displaced them, so every policyd
+  audit record and the core-log probe went to a dead slot
+  (`SELFTEST: policy allow audit FAIL`, `core services log FAIL`).
+- init clamps a placement mask that hits no online CPU to any-CPU (counted
+  as `clamped=` in the summary) instead of 22 `affinity FAIL` lines per
+  1-CPU boot.
+- nexus-metrics OS client replies on the caller's private CAP_MOVE inbox,
+  nonce-correlated (metricsd's response endpoint is shared by every client);
+  the selftest's rate-window wait is time-bounded (a spin cap ran out before
+  one virtual second passed, leaving every later metrics/tracing proof
+  `rate_limited`).
+- statefs `STATUS_BUSY` (fsck quiesce window) is a distinct transient
+  `StatefsError::Busy` retried inside the client's bounded op budget — it
+  used to map to `Corrupted`, which keystored reported as MALFORMED and the
+  selftest as `device key pubkey FAIL (keygen status=2)` whenever the
+  selftest's fsck proof overlapped the device-key persist.
+- statefsd's RFC-0091 put seam re-asks policyd up to three times when an
+  eval got no answer within its budget (a busy authority is a transient, a
+  DENY is a verdict); once exhausted it refuses with its own witness
+  `statefsd: abi eval unreachable …` instead of a look-alike `abi deny`
+  (the occasional `SELFTEST: statefs put FAIL` in second boots).
+- Kernel user-fault dumps fold in interactive boots to the one head line
+  (`NEXUS_LOG_EXPAND=trap` or a proof boot prints registers + stack).
+- Egress probe uses port 8090 as the denied example (8080–8082 are the
+  selftest's own exposures, reachable via the RFC-0092 hairpin).
+- RFC-0068 folding restored for interactive boots: app-host arms verdict
+  folding and routes its markers through the folding funnel; init's
+  post-bootstrap route/volume-spawn traces fold unless expanded; ingressd
+  folds routine markers (refusals stay raw).
+
 ### Added - 2026-09-08 (TASK-0052 P3: ingressd OS — inbound gateway end to end; TASK-0052 Done)
 
 - netstackd facade (RFC-0092 §5 prerequisites): generic in-facade loopback and

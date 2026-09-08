@@ -222,8 +222,6 @@ pub fn display_mode() -> u32 {
 
 /// True when the kernel should FOLD its boot markers into the verdict grid (interactive boot).
 /// Proof and unknown both return `false` → raw markers, keeping `verify-uart` deterministic.
-// NOTE: consumed by the diag verdict aggregator (next step); allow until then.
-#[allow(dead_code)]
 #[must_use]
 pub fn fold_verdicts() -> bool {
     BOOT_MODE.load(Ordering::Relaxed) == MODE_INTERACTIVE

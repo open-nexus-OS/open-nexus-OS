@@ -2670,4 +2670,23 @@ if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
   esac
 fi
 
+# No-fake-green (CLAUDE.md): the ladder above is a PRESENCE check — a proof
+# that also printed a FAIL marker used to pass unnoticed (metrics, audit and
+# core-log proofs were red for weeks behind green lanes, 2026-09-08). Any
+# `SELFTEST:`/`KSELFTEST:` FAIL marker in the UART fails the lane unless it
+# is listed — with its tracking reference — in config/fail-marker-allow.txt.
+# FAIL_MARKER_GATE=0 disables (exotic manual profiles only).
+if [[ "${FAIL_MARKER_GATE:-1}" == "1" ]]; then
+  allow_file="$ROOT/config/fail-marker-allow.txt"
+  fail_lines=$(grep -aE "^(K?SELFTEST): .* FAIL" "$UART_LOG" || true)
+  if [[ -n "$fail_lines" && -f "$allow_file" ]]; then
+    fail_lines=$(printf '%s\n' "$fail_lines" | grep -vFf <(grep -v '^#' "$allow_file" | sed '/^[[:space:]]*$/d') || true)
+  fi
+  if [[ -n "$fail_lines" ]]; then
+    echo "[error] FAIL markers present in the UART (not allow-listed in config/fail-marker-allow.txt):" >&2
+    printf '%s\n' "$fail_lines" | sort | uniq -c >&2
+    exit 1
+  fi
+fi
+
 echo "SELFTEST: Completed (markers verified)" >&2

@@ -206,24 +206,17 @@ pub(crate) fn bring_up(
     // Priority-wire policyd BEFORE any policy-gated grant so policy checks
     // complete in microseconds. Clones so the originals stay available for
     // the other services that need SEND rights.
-    {
-        let pol_req_clone = nexus_abi::cap_clone(pol_req).map_err(InitError::Abi)?;
-        let pol_rsp_clone = nexus_abi::cap_clone(pol_rsp).map_err(InitError::Abi)?;
-        if let Some(chan) = ctrls.iter_mut().find(|c| c.svc_name == "policyd") {
-            let pid = chan.pid;
-            chan.set_recv(
-                ServiceId::Policyd,
-                nexus_abi::cap_transfer(pid, pol_req_clone, Rights::RECV)
-                    .map_err(InitError::Abi)?,
-            );
-            chan.set_send(
-                ServiceId::Policyd,
-                nexus_abi::cap_transfer(pid, pol_rsp_clone, Rights::SEND)
-                    .map_err(InitError::Abi)?,
-            );
-            if iw(init_wire, init_fold, "init:policyd") {
-                debug_write_bytes(b"init: policyd priority-wired\n");
-            }
+    // policyd's server pair already sits at its deterministic slots 3/4
+    // (`transfer_server_pair` above). A second clone pair used to be
+    // transferred here — it landed on 9/10 and silently displaced the
+    // reply inbox (0x9/0xA) and the logd send cap (0xB) policyd's
+    // deterministic audit/probe path assumes: every audit record and the
+    // core-log probe went to a dead slot. The wiring arm now PINS those
+    // three slots and fails loudly if they are taken.
+    if let Some(chan) = ctrls.iter_mut().find(|c| c.svc_name == "policyd") {
+        debug_assert!(chan.send(ServiceId::Policyd).is_some());
+        if iw(init_wire, init_fold, "init:policyd") {
+            debug_write_bytes(b"init: policyd priority-wired\n");
         }
     }
 

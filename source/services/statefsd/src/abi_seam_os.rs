@@ -22,38 +22,52 @@ use statefs::protocol as proto;
 use statefs::JournalEngine;
 use storage::BlockDevice;
 
-use crate::emit_os::emit_abi_denied;
+use crate::emit_os::{emit_abi_denied, emit_abi_unreachable};
 use crate::quota_os::QuotaState;
 
 const POLICYD_SEND_SLOT: u32 = 0x07;
 const REPLY_SEND_SLOT: u32 = 0x06;
 const REPLY_RECV_SLOT: u32 = 0x05;
 
+/// Bounded re-asks when policyd did not answer within one eval budget
+/// (its 500 ms): a busy authority (audit flush, a slow boot phase) is a
+/// transient, a DENY is a verdict. Still fail-closed once exhausted.
+const ABI_EVAL_ATTEMPTS: u32 = 3;
+
 /// `true` when the argument filters admit `put(path, payload_len)` for
 /// `subject_id` (or the subject is not governed). Emits the audit line on
-/// a refusal; an unreachable policyd is a refusal.
+/// a refusal; an unreachable policyd (after the bounded re-asks) is a
+/// refusal with its own witness line, never mistaken for a policy deny.
 pub(crate) fn abi_put_allowed(subject_id: u64, path: &str, payload_len: usize) -> bool {
     let payload = u32::try_from(payload_len).unwrap_or(u32::MAX);
-    let status = nexus_ipc::policyd::abi_eval_on(
-        POLICYD_SEND_SLOT,
-        REPLY_SEND_SLOT,
-        REPLY_RECV_SLOT,
-        subject_id,
-        ABI_CLASS_STATEFS_PUT,
-        0,
-        0,
-        0,
-        payload,
-        0,
-        path.as_bytes(),
-    );
-    match status {
-        Some(STATUS_ALLOW) | Some(STATUS_UNSUPPORTED) => true,
-        _ => {
-            emit_abi_denied(path, subject_id);
-            false
+    for attempt in 0..ABI_EVAL_ATTEMPTS {
+        let status = nexus_ipc::policyd::abi_eval_on(
+            POLICYD_SEND_SLOT,
+            REPLY_SEND_SLOT,
+            REPLY_RECV_SLOT,
+            subject_id,
+            ABI_CLASS_STATEFS_PUT,
+            0,
+            0,
+            0,
+            payload,
+            0,
+            path.as_bytes(),
+        );
+        match status {
+            Some(STATUS_ALLOW) | Some(STATUS_UNSUPPORTED) => return true,
+            Some(_) => {
+                emit_abi_denied(path, subject_id);
+                return false;
+            }
+            None if attempt + 1 < ABI_EVAL_ATTEMPTS => {
+                let _ = nexus_abi::yield_();
+            }
+            None => {}
         }
     }
+    emit_abi_unreachable(path, subject_id);
+    false
 }
 
 /// The put-seam gates in order: RFC-0091 argument filters (policyd), then

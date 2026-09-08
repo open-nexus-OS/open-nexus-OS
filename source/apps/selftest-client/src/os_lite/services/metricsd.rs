@@ -102,20 +102,25 @@ pub(crate) fn metricsd_security_reject_probe(
 
 pub(crate) fn wait_rate_limit_window() -> core::result::Result<(), ()> {
     const RATE_WINDOW_NS: u64 = 1_000_000_000;
-    const MAX_SPINS: usize = 1_000_000;
+    /// The wait is bounded by TIME, never by a spin count: a spin cap that
+    /// ran out before one virtual second had passed (fast syscalls under
+    /// icount) returned `Err` while metricsd's window was still open, and
+    /// every metrics/tracing proof after the flood then saw `rate_limited`.
+    const HARD_CAP_NS: u64 = 5 * RATE_WINDOW_NS;
 
     let start = nexus_abi::nsec().map_err(|_| ())?;
     let deadline = start.saturating_add(RATE_WINDOW_NS);
-    for spin in 0..MAX_SPINS {
+    let hard_cap = start.saturating_add(HARD_CAP_NS);
+    loop {
         let now = nexus_abi::nsec().map_err(|_| ())?;
         if now >= deadline {
             return Ok(());
         }
-        if (spin & 0x3ff) == 0 {
-            let _ = yield_();
+        if now >= hard_cap {
+            return Err(());
         }
+        let _ = yield_();
     }
-    Err(())
 }
 
 pub(crate) fn metricsd_semantic_probe(

@@ -61,7 +61,7 @@ impl Gateway {
     /// Records one refusal attributed to `subject` and prints its marker.
     pub(crate) fn deny(&mut self, subject: u64, reason: Reason, now_ns: u64) {
         self.denies.note(subject, now_ns);
-        Line::prefixed("deny (reason=").push_str(reason.label()).push(b")").emit();
+        Line::prefixed("deny (reason=").push_str(reason.label()).push(b")").emit_raw();
     }
 
     pub(crate) fn is_open(&self, idx: usize) -> bool {
@@ -159,7 +159,7 @@ fn admit<const N: usize>(
                     .push(b", backend=")
                     .push_dec(u64::from(entry.backend))
                     .push(b")")
-                    .emit();
+                    .emit_raw();
             }
             Ok(())
         }

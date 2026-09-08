@@ -834,6 +834,12 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 const UART_LSR: usize = 0x5;
                 const LSR_TX_IDLE: u8 = 1 << 5;
 
+                // RFC-0068: an interactive boot keeps the ONE head line per
+                // fault (the error is never hidden) and folds the register/
+                // stack dump — a supervision probe crashing five times used to
+                // cost ~180 raw lines. Proof boots and `NEXUS_LOG_EXPAND=trap`
+                // print the full dump.
+                let expand_dump = !crate::boot_mode::fold_verdicts() || trap_dump_expanded();
                 unsafe {
                     // Helper to write one byte
                     let write_byte = |b: u8| {
@@ -917,158 +923,127 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         }
                     }
 
-                    for &b in b"[USER-PF] regs ra=0x" {
-                        write_byte(b);
-                    }
-                    for shift in (0..16).rev() {
-                        let nibble = ((frame.x[1] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-                        write_byte(ch);
-                    }
-                    for &b in b" sp=0x" {
-                        write_byte(b);
-                    }
-                    for shift in (0..16).rev() {
-                        let nibble = ((frame.x[2] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-                        write_byte(ch);
-                    }
-                    write_byte(b'\n');
-
-                    for &b in b"[USER-PF] regs gp=0x" {
-                        write_byte(b);
-                    }
-                    for shift in (0..16).rev() {
-                        let nibble = ((frame.x[3] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-                        write_byte(ch);
-                    }
-                    write_byte(b'\n');
-
-                    for &b in b"[USER-PF] regs a0=0x" {
-                        write_byte(b);
-                    }
-                    for shift in (0..16).rev() {
-                        let nibble = ((frame.x[10] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-                        write_byte(ch);
-                    }
-                    write_byte(b'\n');
-
-                    for &b in b"[USER-PF] regs a1=0x" {
-                        write_byte(b);
-                    }
-                    for shift in (0..16).rev() {
-                        let nibble = ((frame.x[11] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-                        write_byte(ch);
-                    }
-                    write_byte(b'\n');
-
-                    for &b in b"[USER-PF] regs a2=0x" {
-                        write_byte(b);
-                    }
-                    for shift in (0..16).rev() {
-                        let nibble = ((frame.x[12] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-                        write_byte(ch);
-                    }
-                    write_byte(b'\n');
-
-                    for &b in b"[USER-PF] regs a3=0x" {
-                        write_byte(b);
-                    }
-                    for shift in (0..16).rev() {
-                        let nibble = ((frame.x[13] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-                        write_byte(ch);
-                    }
-                    write_byte(b'\n');
-
-                    // Additional diagnostics to catch stray branch targets.
-                    let regs_to_dump = [
-                        (&b"t0"[..], 5usize),
-                        (&b"t1"[..], 6usize),
-                        (&b"t2"[..], 7usize),
-                        (&b"s0"[..], 8usize),
-                        (&b"s1"[..], 9usize),
-                        (&b"s2"[..], 18usize),
-                        (&b"s3"[..], 19usize),
-                        (&b"s4"[..], 20usize),
-                        (&b"s5"[..], 21usize),
-                        (&b"s6"[..], 22usize),
-                        (&b"s7"[..], 23usize),
-                        (&b"s8"[..], 24usize),
-                        (&b"s9"[..], 25usize),
-                        (&b"s10"[..], 26usize),
-                        (&b"s11"[..], 27usize),
-                        (&b"t3"[..], 28usize),
-                        (&b"t4"[..], 29usize),
-                        (&b"t5"[..], 30usize),
-                        (&b"t6"[..], 31usize),
-                    ];
-                    for &(label, reg_idx) in regs_to_dump.iter() {
-                        for &b in b"[USER-PF] regs " {
+                    if !expand_dump {
+                        for &b in b"[USER-PF] dump folded (NEXUS_LOG_EXPAND=trap)\n" {
                             write_byte(b);
                         }
-                        for &b in label.iter() {
+                    }
+                    if expand_dump {
+                        for &b in b"[USER-PF] regs ra=0x" {
                             write_byte(b);
                         }
-                        for &b in b"=0x" {
-                            write_byte(b);
-                        }
-                        let value = frame.x[reg_idx];
                         for shift in (0..16).rev() {
-                            let nibble = ((value >> (shift * 4)) & 0xf) as u8;
+                            let nibble = ((frame.x[1] >> (shift * 4)) & 0xf) as u8;
+                            let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                            write_byte(ch);
+                        }
+                        for &b in b" sp=0x" {
+                            write_byte(b);
+                        }
+                        for shift in (0..16).rev() {
+                            let nibble = ((frame.x[2] >> (shift * 4)) & 0xf) as u8;
                             let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
                             write_byte(ch);
                         }
                         write_byte(b'\n');
+
+                        for &b in b"[USER-PF] regs gp=0x" {
+                            write_byte(b);
+                        }
+                        for shift in (0..16).rev() {
+                            let nibble = ((frame.x[3] >> (shift * 4)) & 0xf) as u8;
+                            let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                            write_byte(ch);
+                        }
+                        write_byte(b'\n');
+
+                        for &b in b"[USER-PF] regs a0=0x" {
+                            write_byte(b);
+                        }
+                        for shift in (0..16).rev() {
+                            let nibble = ((frame.x[10] >> (shift * 4)) & 0xf) as u8;
+                            let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                            write_byte(ch);
+                        }
+                        write_byte(b'\n');
+
+                        for &b in b"[USER-PF] regs a1=0x" {
+                            write_byte(b);
+                        }
+                        for shift in (0..16).rev() {
+                            let nibble = ((frame.x[11] >> (shift * 4)) & 0xf) as u8;
+                            let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                            write_byte(ch);
+                        }
+                        write_byte(b'\n');
+
+                        for &b in b"[USER-PF] regs a2=0x" {
+                            write_byte(b);
+                        }
+                        for shift in (0..16).rev() {
+                            let nibble = ((frame.x[12] >> (shift * 4)) & 0xf) as u8;
+                            let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                            write_byte(ch);
+                        }
+                        write_byte(b'\n');
+
+                        for &b in b"[USER-PF] regs a3=0x" {
+                            write_byte(b);
+                        }
+                        for shift in (0..16).rev() {
+                            let nibble = ((frame.x[13] >> (shift * 4)) & 0xf) as u8;
+                            let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                            write_byte(ch);
+                        }
+                        write_byte(b'\n');
+
+                        // Additional diagnostics to catch stray branch targets.
+                        let regs_to_dump = [
+                            (&b"t0"[..], 5usize),
+                            (&b"t1"[..], 6usize),
+                            (&b"t2"[..], 7usize),
+                            (&b"s0"[..], 8usize),
+                            (&b"s1"[..], 9usize),
+                            (&b"s2"[..], 18usize),
+                            (&b"s3"[..], 19usize),
+                            (&b"s4"[..], 20usize),
+                            (&b"s5"[..], 21usize),
+                            (&b"s6"[..], 22usize),
+                            (&b"s7"[..], 23usize),
+                            (&b"s8"[..], 24usize),
+                            (&b"s9"[..], 25usize),
+                            (&b"s10"[..], 26usize),
+                            (&b"s11"[..], 27usize),
+                            (&b"t3"[..], 28usize),
+                            (&b"t4"[..], 29usize),
+                            (&b"t5"[..], 30usize),
+                            (&b"t6"[..], 31usize),
+                        ];
+                        for &(label, reg_idx) in regs_to_dump.iter() {
+                            for &b in b"[USER-PF] regs " {
+                                write_byte(b);
+                            }
+                            for &b in label.iter() {
+                                write_byte(b);
+                            }
+                            for &b in b"=0x" {
+                                write_byte(b);
+                            }
+                            let value = frame.x[reg_idx];
+                            for shift in (0..16).rev() {
+                                let nibble = ((value >> (shift * 4)) & 0xf) as u8;
+                                let ch =
+                                    if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                                write_byte(ch);
+                            }
+                            write_byte(b'\n');
+                        }
                     }
                 }
 
-                // Snapshot current task's saved frame for additional diagnostics
-                if let Ok(handles) = runtime_kernel_handles_diagnostic() {
-                    unsafe {
-                        let tasks = handles.tasks.as_ref();
-                        let spaces = handles.spaces.as_ref();
-                        let current_pid = tasks.current_pid();
-                        if let Some(task) = tasks.task(current_pid) {
-                            dump_user_stack_for_task(task, spaces, frame.x[2]);
-                            let tf = task.frame();
-                            let write_field = |label: &[u8], value: usize| {
-                                let write_byte = |b: u8| {
-                                    while core::ptr::read_volatile(
-                                        (UART_BASE + UART_LSR) as *const u8,
-                                    ) & LSR_TX_IDLE
-                                        == 0
-                                    {}
-                                    core::ptr::write_volatile((UART_BASE + UART_TX) as *mut u8, b);
-                                };
-                                for &b in b"[USER-PF] task " {
-                                    write_byte(b);
-                                }
-                                for &b in label {
-                                    write_byte(b);
-                                }
-                                for &b in b"=0x" {
-                                    write_byte(b);
-                                }
-                                for shift in (0..16).rev() {
-                                    let nibble = ((value >> (shift * 4)) & 0xf) as u8;
-                                    let ch = if nibble < 10 {
-                                        b'0' + nibble
-                                    } else {
-                                        b'a' + (nibble - 10)
-                                    };
-                                    write_byte(ch);
-                                }
-                                write_byte(b'\n');
-                            };
-                            write_field(b"sepc", tf.sepc);
-                            write_field(b"sp", tf.x[2]);
-                        }
-                    }
+                // Saved-frame + user-stack snapshot (fault.rs); folded like the registers.
+                if expand_dump {
+                    dump_task_frame_snapshot(frame.x[2]);
                 }
 
                 // Fail-fast: kill the offending user task (leaving it alive = an
@@ -1289,5 +1264,13 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         }
         record(frame);
         panic!("KEXC");
+    }
+}
+
+/// `NEXUS_LOG_EXPAND=trap` reveals the full user-fault dump in interactive boots.
+fn trap_dump_expanded() -> bool {
+    match option_env!("NEXUS_LOG_EXPAND") {
+        Some(list) => list.split(',').any(|g| g.trim() == "trap"),
+        None => false,
     }
 }

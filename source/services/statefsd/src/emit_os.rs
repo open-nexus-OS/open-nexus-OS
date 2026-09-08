@@ -102,6 +102,21 @@ pub(crate) fn emit_abi_denied(path: &str, subject_id: u64) {
     append_logd_audit(msg.as_bytes());
 }
 
+/// The authority did not answer within the bounded re-asks: refused (fail
+/// closed) with its OWN witness — a policyd stall must never read as a
+/// policy verdict in the log or the audit trail.
+pub(crate) fn emit_abi_unreachable(path: &str, subject_id: u64) {
+    let mut buf = [0u8; 160];
+    let mut len = 0usize;
+    let _ = push_bytes(&mut buf, &mut len, b"statefsd: abi eval unreachable path=");
+    let _ = push_bytes(&mut buf, &mut len, path.as_bytes());
+    let _ = push_bytes(&mut buf, &mut len, b" subject=0x");
+    write_hex_u64(&mut buf, &mut len, subject_id);
+    let msg = core::str::from_utf8(&buf[..len]).unwrap_or("statefsd: abi eval unreachable");
+    emit_line(msg);
+    append_logd_audit(msg.as_bytes());
+}
+
 /// TASK-0025: audit an envelope-policy denial (never key material, never
 /// payload bytes — path + wire status only).
 pub(crate) fn emit_envelope_denied(path: &str, status: u8) {
@@ -226,6 +241,7 @@ pub(crate) fn emit_statefs_error(err: StatefsError) {
         StatefsError::IntegrityViolation => "statefsd: err integrity",
         StatefsError::RollbackDetected => "statefsd: err rollback",
         StatefsError::QuotaExceeded => "statefsd: err quota",
+        StatefsError::Busy => "statefsd: err busy",
     };
     emit_line(msg);
 }

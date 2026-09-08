@@ -84,6 +84,9 @@ pub enum StatefsError {
     RollbackDetected,
     /// Per-subject byte quota would be exceeded (RFC-0072 `EDQUOTA`, TASK-0043)
     QuotaExceeded,
+    /// The store is quiesced (fsck in progress, TASK-0051): transient, retry
+    /// after a yield — never a corruption verdict.
+    Busy,
 }
 
 impl StatefsError {
@@ -103,6 +106,7 @@ impl StatefsError {
             Self::IntegrityViolation => "IntegrityViolation",
             Self::RollbackDetected => "RollbackDetected",
             Self::QuotaExceeded => "QuotaExceeded",
+            Self::Busy => "Busy",
         }
     }
 }

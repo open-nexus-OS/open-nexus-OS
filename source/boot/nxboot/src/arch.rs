@@ -18,8 +18,8 @@
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-// Entry: self-relocate to the link home, then bring up gp/sp/bss and enter
-// Rust. Runs position-independent (PC-relative `la` only) until the
+// Entry: normalize the boot hart to hart 0 (lottery), self-relocate to the
+// link home, then bring up gp/sp/bss and enter Rust. Runs position-independent (PC-relative `la` only) until the
 // computed absolute jump to the relocated copy. a0 (hartid) / a1 (DTB) are
 // never touched. `.option norelax` guards the gp setup against linker
 // relaxation rewriting it into a gp-relative bootstrap.
@@ -29,6 +29,27 @@ core::arch::global_asm!(
     .globl _start
     .align 4
 _start:
+    # Boot-hart normalization (hart lottery): OpenSBI on `virt` hands the
+    # image to a random hart. The kernel's SMP contract is `cpu0 = hart 0`
+    # (secondaries 1..N-1 are started via HSM); a foreign boot hart left
+    # bring-up DEGRADED (the boot hart was "started" as its own secondary)
+    # and the PLIC/IRQ plane on the wrong hart. So the winner starts hart 0
+    # at this very entry (a0 = 0, a1 = DTB via the HSM opaque) and stops
+    # itself — hart 0 boots exactly like a hart-0 lottery win. HSM: EID
+    # 0x48534D, FID 0 = hart_start(hartid, addr, opaque), FID 1 = hart_stop.
+    beqz a0, 0f
+    mv   a2, a1
+    la   a1, _start
+    li   a0, 0
+    li   a7, 0x48534D
+    li   a6, 0
+    ecall
+    li   a7, 0x48534D
+    li   a6, 1
+    ecall
+9:  wfi
+    j    9b
+0:
     # PC-relative base (where we actually run) vs. the link home (ADR-0059).
     la   t0, __image_start
     li   t1, 0x92000000

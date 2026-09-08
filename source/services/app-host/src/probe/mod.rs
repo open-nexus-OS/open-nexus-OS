@@ -16,14 +16,8 @@ use nexus_abi::{cap_clone, debug_println, nsec, vmo_create, vmo_write, yield_};
 /// folding for every process it bootstraps, so `debug_println` swallows
 /// non-FAIL lines in interactive boots (recall-only). The R1 proof chain
 /// goes through the raw write syscall instead.
-pub(crate) fn raw_marker(line: &str) {
-    let mut buf = [0u8; 96];
-    let bytes = line.as_bytes();
-    let n = bytes.len().min(buf.len() - 1);
-    buf[..n].copy_from_slice(&bytes[..n]);
-    buf[n] = b'\n';
-    let _ = nexus_abi::debug_write(&buf[..n + 1]);
-}
+mod marker;
+pub(crate) use marker::raw_marker;
 use nexus_display_proto::client_surface as wire;
 
 /// Max packed WebRender band height (header+footer+content, surface rows)
@@ -430,6 +424,8 @@ pub(super) fn run() -> Result<(), &'static str> {
     // union; any full request wins.
     let mut dirty_rows: Option<(i32, i32)> = None;
     raw_marker("APPHOST: event loop armed");
+    // The app is up: fold the bring-up markers into their verdict line.
+    nexus_abi::service_verdict_flush("app-host");
     loop {
         // A rect stashed during an ack wait (`recv_ack`) is replayed here
         // as if it had just been received — same resize path, no drop.

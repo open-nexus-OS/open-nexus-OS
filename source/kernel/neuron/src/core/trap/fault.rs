@@ -107,6 +107,52 @@ const INTERRUPT_FLAG: usize = usize::MAX - (usize::MAX >> 1);
 
 #[inline]
 #[allow(dead_code)]
+/// The saved-frame + user-stack snapshot of the faulting task (moved out of
+/// the handler for the module-size ratchet; folded in interactive boots).
+pub(super) fn dump_task_frame_snapshot(sp: usize) {
+    const UART_BASE: usize = 0x1000_0000;
+    const UART_TX: usize = 0x0;
+    const UART_LSR: usize = 0x5;
+    const LSR_TX_IDLE: u8 = 1 << 5;
+    if let Ok(handles) = runtime_kernel_handles_diagnostic() {
+        unsafe {
+            let tasks = handles.tasks.as_ref();
+            let spaces = handles.spaces.as_ref();
+            let current_pid = tasks.current_pid();
+            if let Some(task) = tasks.task(current_pid) {
+                dump_user_stack_for_task(task, spaces, sp);
+                let tf = task.frame();
+                let write_field = |label: &[u8], value: usize| {
+                    let write_byte = |b: u8| {
+                        while core::ptr::read_volatile((UART_BASE + UART_LSR) as *const u8)
+                            & LSR_TX_IDLE
+                            == 0
+                        {}
+                        core::ptr::write_volatile((UART_BASE + UART_TX) as *mut u8, b);
+                    };
+                    for &b in b"[USER-PF] task " {
+                        write_byte(b);
+                    }
+                    for &b in label {
+                        write_byte(b);
+                    }
+                    for &b in b"=0x" {
+                        write_byte(b);
+                    }
+                    for shift in (0..16).rev() {
+                        let nibble = ((value >> (shift * 4)) & 0xf) as u8;
+                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                        write_byte(ch);
+                    }
+                    write_byte(b'\n');
+                };
+                write_field(b"sepc", tf.sepc);
+                write_field(b"sp", tf.x[2]);
+            }
+        }
+    }
+}
+
 fn is_csr_op(inst: u32) -> bool {
     // SYSTEM opcode (0b1110011), funct3 in {001,010,011} => CSRRW/CSRRS/CSRRC
     (inst & 0x7f) == 0b111_0011 && matches!((inst >> 12) & 0x7, 0b001..=0b011)

@@ -80,7 +80,9 @@ pub(crate) fn egress_proofs() {
     };
     // Outside the allowed CIDR, and inside the CIDR on a refused port.
     let cidr_deny = connect_status(&net, [192, 168, 1, 1], 80);
-    let port_deny = connect_status(&net, [10, 0, 2, 2], 8080);
+    // 8090: inside the allowed CIDR, on no allowed port (8080-8082 are the
+    // selftest's own exposures, reachable via the RFC-0092 hairpin).
+    let port_deny = connect_status(&net, [10, 0, 2, 2], 8090);
     if cidr_deny == Ok(STATUS_DENY) && port_deny == Ok(STATUS_DENY) {
         emit_line(crate::markers::M_SELFTEST_EGRESS_DENY_OK);
     } else {

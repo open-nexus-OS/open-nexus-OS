@@ -13,6 +13,7 @@ use crate::bootstrap::diag::iw;
 use crate::bootstrap::endpoints::Endpoints;
 use crate::bootstrap::gateway_route::provision_selftest_ingress_route;
 use crate::bootstrap::route_provision::*;
+use crate::bootstrap::settings_watch_route::*;
 use crate::bootstrap::CtrlChannel;
 use crate::os_payload::*;
 use crate::service_topology::ServiceId;
@@ -281,32 +282,7 @@ pub(crate) fn wire_services(
                     }
                     // Still need reply inbox and logd caps.
                     let pid = chan.pid;
-                    let reply_ep =
-                        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                            .map_err(|e| {
-                                debug_write_bytes(b"init: policyd reply_ep create FAIL\n");
-                                InitError::Abi(e)
-                            })?;
-                    let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
-                        .map_err(|e| {
-                            debug_write_bytes(b"init: policyd reply_ep xfer RECV FAIL\n");
-                            InitError::Abi(e)
-                        })?;
-                    let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
-                        .map_err(|e| {
-                            debug_write_bytes(b"init: policyd reply_ep xfer SEND FAIL\n");
-                            InitError::Abi(e)
-                        })?;
-                    chan.reply_recv_slot = Some(reply_recv_slot);
-                    chan.reply_send_slot = Some(reply_send_slot);
-                    chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
-                    let _ = nexus_abi::cap_close(reply_ep);
-                    if let Some(req) = log_req {
-                        let send_slot = nexus_abi::cap_transfer(pid, req, Rights::SEND)
-                            .map_err(InitError::Abi)?;
-                        chan.set_send(ServiceId::Logd, send_slot);
-                        chan.set_recv(ServiceId::Logd, reply_recv_slot);
-                    }
+                    crate::bootstrap::policyd_slots::pin_policyd_client_slots(pid, log_req, chan)?;
                 } else {
                     let recv_slot = nexus_abi::cap_transfer(pid, pol_req, Rights::RECV)
                         .map_err(InitError::Abi)?;

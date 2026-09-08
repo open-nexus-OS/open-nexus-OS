@@ -32,6 +32,8 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn os_entry() -> Result<(), &'static str> {
+    // Verdict folding (RFC-0068): routine bring-up markers fold in interactive boots.
+    nexus_abi::service_verdict_arm();
     probe::run()
 }
 

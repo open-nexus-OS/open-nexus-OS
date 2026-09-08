@@ -56,8 +56,16 @@ impl Line {
         self.push(&digits[i..])
     }
 
-    /// Writes the line + `\n` as one UART record.
+    /// Routine marker: folds into the service verdict in interactive boots
+    /// (RFC-0068), prints raw in proof boots.
     pub(crate) fn emit(&mut self) {
+        if let Ok(text) = core::str::from_utf8(&self.buf[..self.len]) {
+            let _ = nexus_abi::debug_println(text);
+        }
+    }
+
+    /// Refusal/failure witness: always one raw UART record (never folded).
+    pub(crate) fn emit_raw(&mut self) {
         self.push(b"\n");
         let _ = nexus_abi::debug_write(&self.buf[..self.len]);
     }

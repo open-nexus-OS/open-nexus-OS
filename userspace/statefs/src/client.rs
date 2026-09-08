@@ -26,6 +26,10 @@ use nexus_ipc::KernelClient;
 use nexus_ipc::Wait;
 
 /// Client for statefsd IPC operations.
+/// How long a client keeps retrying a quiesced store (fsck windows are short).
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+const BUSY_RETRY_BUDGET_NS: u64 = 2_000_000_000;
+
 pub struct StatefsClient {
     client: KernelClient,
     reply: Option<KernelClient>,
@@ -119,12 +123,23 @@ impl StatefsClient {
     }
 
     fn send_and_recv(&self, frame: Vec<u8>, op: u8) -> Result<(), StatefsError> {
-        let rsp = self.send_and_recv_raw(frame, op)?;
-        let status = protocol::decode_status_response(op, &rsp)?;
-        if status == protocol::STATUS_OK {
-            Ok(())
-        } else {
-            Err(protocol::error_from_status(status))
+        // `STATUS_BUSY` = the store is quiesced (fsck window, TASK-0051):
+        // retry the whole exchange with yields inside ONE bounded op budget
+        // instead of surfacing a transient as an error to every writer.
+        #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+        let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(BUSY_RETRY_BUDGET_NS);
+        loop {
+            let rsp = self.send_and_recv_raw(frame.clone(), op)?;
+            let status = protocol::decode_status_response(op, &rsp)?;
+            if status == protocol::STATUS_OK {
+                return Ok(());
+            }
+            #[cfg(all(nexus_env = "os", feature = "os-lite"))]
+            if status == protocol::STATUS_BUSY && nexus_abi::nsec().unwrap_or(u64::MAX) < deadline {
+                let _ = nexus_abi::yield_();
+                continue;
+            }
+            return Err(protocol::error_from_status(status));
         }
     }
 

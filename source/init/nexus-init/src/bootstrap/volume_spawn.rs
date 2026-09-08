@@ -258,18 +258,21 @@ fn spawn_one(
     let pid = nexus_abi::exec_v2(elf, stack_pages as usize, global_pointer, name)
         .map_err(|_| Fail::Exec)?;
 
-    // `init: spawn from volume svc=<n> bundle=<n>@<v> sha=<8>`
-    debug_write_bytes(b"init: spawn from volume svc=");
-    debug_write_str(name);
-    debug_write_bytes(b" bundle=");
-    debug_write_str(name);
-    debug_write_bytes(b"@");
-    if let Ok(v) = core::str::from_utf8(&version_buf[..ver_len]) {
-        debug_write_str(v);
+    // `init: spawn from volume svc=<n> bundle=<n>@<v> sha=<8>` — a proof
+    // witness (ladder); folds in interactive boots (RFC-0068).
+    if crate::bootstrap::diag::raw_or_expanded(name) {
+        debug_write_bytes(b"init: spawn from volume svc=");
+        debug_write_str(name);
+        debug_write_bytes(b" bundle=");
+        debug_write_str(name);
+        debug_write_bytes(b"@");
+        if let Ok(v) = core::str::from_utf8(&version_buf[..ver_len]) {
+            debug_write_str(v);
+        }
+        debug_write_bytes(b" sha=");
+        debug_write_hex_bytes(&sha8_buf[..sha_len]);
+        debug_write_bytes(b"\n");
     }
-    debug_write_bytes(b" sha=");
-    debug_write_hex_bytes(&sha8_buf[..sha_len]);
-    debug_write_bytes(b"\n");
     Ok(VolumeSpawned { name, pid, elf, stack_pages, global_pointer })
 }
 

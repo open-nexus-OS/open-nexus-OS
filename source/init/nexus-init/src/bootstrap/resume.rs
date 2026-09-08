@@ -24,12 +24,22 @@ use crate::os_payload::*;
 /// right before waking the service. Best-effort: a rejected mask (e.g. all
 /// target cpus offline) leaves the inherited mask; the kernel clamps.
 static AFFINITY_APPLIED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static AFFINITY_CLAMPED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 static AFFINITY_FAILED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// "Any CPU" — the placement a mask degrades to when none of its target
+/// CPUs is online (a 1-CPU boot has no cpu1-3 to put background work on).
+const AFFINITY_ANY: usize = 0b1111;
 
 fn apply_affinity(chan_name: &str, pid: u32) {
     let mask = crate::service_topology::affinity_for(chan_name);
     if nexus_abi::sched::set_affinity_for(pid, mask as usize).is_ok() {
         AFFINITY_APPLIED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    } else if nexus_abi::sched::set_affinity_for(pid, AFFINITY_ANY).is_ok() {
+        // The kernel refuses a mask that misses every online CPU (fewer
+        // CPUs than the placement assumes): degrade to any-CPU, counted in
+        // the summary line rather than a per-item FAIL — nothing failed.
+        AFFINITY_CLAMPED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     } else {
         // RFC-0068: per-item lines only for the failure path.
         AFFINITY_FAILED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -45,6 +55,8 @@ fn apply_affinity(chan_name: &str, pid: u32) {
 pub(crate) fn affinity_summary() {
     debug_write_str("init: affinity applied n=0x");
     debug_write_hex(AFFINITY_APPLIED.load(core::sync::atomic::Ordering::Relaxed));
+    debug_write_str(" clamped=0x");
+    debug_write_hex(AFFINITY_CLAMPED.load(core::sync::atomic::Ordering::Relaxed));
     debug_write_str(" fail=0x");
     debug_write_hex(AFFINITY_FAILED.load(core::sync::atomic::Ordering::Relaxed));
     debug_write_byte(b'\n');

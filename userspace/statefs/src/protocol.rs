@@ -457,6 +457,7 @@ pub fn status_from_error(err: StatefsError) -> u8 {
         StatefsError::IntegrityViolation => STATUS_INTEGRITY_VIOLATION,
         StatefsError::RollbackDetected => STATUS_ROLLBACK_DETECTED,
         StatefsError::QuotaExceeded => STATUS_QUOTA_EXCEEDED,
+        StatefsError::Busy => STATUS_BUSY,
     }
 }
 
@@ -472,6 +473,9 @@ pub fn error_from_status(status: u8) -> StatefsError {
         STATUS_INTEGRITY_VIOLATION => StatefsError::IntegrityViolation,
         STATUS_ROLLBACK_DETECTED => StatefsError::RollbackDetected,
         STATUS_QUOTA_EXCEEDED => StatefsError::QuotaExceeded,
+        // Quiesce (fsck): transient — it used to fall into `Corrupted`, which
+        // keystored reported as MALFORMED and the selftest as a keygen FAIL.
+        STATUS_BUSY => StatefsError::Busy,
         _ => StatefsError::Corrupted,
     }
 }
