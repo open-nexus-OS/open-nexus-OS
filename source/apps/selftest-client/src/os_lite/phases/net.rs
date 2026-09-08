@@ -31,6 +31,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // whole timeout.
     if !ctx.os2vm {
         net::egress::egress_proofs();
+        // TASK-0052 P1: inbound default-deny — a non-gateway bind to the NIC-facing
+        // address is refused at the seam (RFC-0092 Layer A).
+        net::ingress::ingress_proofs(ctx.local_ip);
     }
 
     // TASK-0004: ICMP ping proof via netstackd facade.

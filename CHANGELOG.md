@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-08 (TASK-0052 P1: inbound default-deny — only the gateway binds `any`)
+
+- The shared policy grammar refuses `[[net.bind]] action = "allow" address =
+  "any"` for every subject but `ingressd` (`AnyBindNeedsGateway`;
+  `compile_for(subject, …)`), so a non-loopback bind without an exposure
+  intent is refused at netstackd's seam. Host proof
+  `test_reject_nonloopback_bind_without_intent`; QEMU `SELFTEST: ingress
+  deny ok` (the selftest's bind to the NIC-facing address answers
+  `STATUS_DENY`, `!cap-deny … class=net.bind … addr=any`).
+
 ### Added - 2026-09-08 (TASK-0052 P0: RFC-0092 Service Exposure Contract seed + ADR-0061)
 
 - Inbound becomes default-deny by contract: only the `ingressd` gateway may

@@ -242,3 +242,10 @@ phase = "net"
 
 [marker."SELFTEST: egress learn collected FAIL"]
 phase = "net"
+
+[marker."SELFTEST: ingress deny ok"]
+phase = "net"
+proves = "a bind to the NIC-facing address by a non-gateway subject was refused at netstackd's seam with STATUS_DENY (RFC-0092 Layer A, policy decision)"
+
+[marker."SELFTEST: ingress deny FAIL"]
+phase = "net"

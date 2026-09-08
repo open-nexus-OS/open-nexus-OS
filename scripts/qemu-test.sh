@@ -673,6 +673,10 @@ expected_sequence=(
   "SELFTEST: egress deny ok"
   "SELFTEST: egress allow ok"
   "SELFTEST: egress learn collected ok"
+  # TASK-0052 P1 (RFC-0092 Layer A): a non-gateway bind to the NIC-facing
+  # address is refused at the seam — inbound is default-deny.
+  "!cap-deny: enforcer=netstackd class=net.bind port=40000 addr=any subject=0x52c6c4a34ffb3f69"
+  "SELFTEST: ingress deny ok"
   "SELFTEST: mmio policy deny ok"
   "SELFTEST: policyd requester spoof denied ok"
   "SELFTEST: policy malformed ok"

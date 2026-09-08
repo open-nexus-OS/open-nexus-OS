@@ -328,10 +328,8 @@ impl PolicyDoc {
             self.allow.insert(service_key, set);
         }
         for (service, raw_profile) in raw.abi_profile {
-            let profile = schema::compile(&raw_profile).map_err(|source| Error::Schema {
-                path: path.to_path_buf(),
-                subject: service.clone(),
-                source,
+            let profile = schema::compile_for(&service, &raw_profile).map_err(|source| {
+                Error::Schema { path: path.to_path_buf(), subject: service.clone(), source }
             })?;
             self.abi_profile.insert(canonical(&service), profile);
         }

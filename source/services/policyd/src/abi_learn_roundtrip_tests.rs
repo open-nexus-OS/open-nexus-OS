@@ -196,8 +196,17 @@ fn test_learn_roundtrip() {
         &learn_gen::GenOptions { allow_any: true, ..opts },
     );
     let fixture: Fixture = toml::from_str(&out.toml).unwrap();
-    let profile =
-        build_profile(subject, &schema::compile(&fixture.abi_profile["selftest-client"]).unwrap());
+    // RFC-0092 Layer A: an any-address allow is refused for every subject but
+    // the ingress gateway — the skeleton is a review artefact, not policy.
+    assert!(matches!(
+        schema::compile_for("selftest-client", &fixture.abi_profile["selftest-client"]),
+        Err(schema::SchemaError::AnyBindNeedsGateway { .. })
+    ));
+    let profile = build_profile(
+        subject,
+        &schema::compile_for(schema::GATEWAY_SUBJECT, &fixture.abi_profile["selftest-client"])
+            .unwrap(),
+    );
     assert_eq!(profile.check_net_bind(8080, AddrClass::Any), RuleAction::Allow);
     assert_eq!(profile.check_net_bind(8081, AddrClass::Any), RuleAction::Deny);
 }

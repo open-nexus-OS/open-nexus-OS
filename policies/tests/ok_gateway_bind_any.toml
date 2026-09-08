@@ -1,0 +1,9 @@
+# expect: ok
+# The gateway subject is the ONE subject allowed to bind any address.
+[abi_profile."ingressd"]
+epoch = 1
+
+[[abi_profile."ingressd".net.bind]]
+action = "allow"
+ports = ["1024-65535"]
+address = "any"

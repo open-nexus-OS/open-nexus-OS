@@ -118,7 +118,7 @@ fn load_policy_dir(dir: &Path) -> (BTreeMap<String, BTreeSet<String>>, BTreeMap<
             merged.insert(service_key, set);
         }
         for (service, raw_profile) in parsed.abi_profile {
-            let profile = schema::compile(&raw_profile).unwrap_or_else(|err| {
+            let profile = schema::compile_for(&service, &raw_profile).unwrap_or_else(|err| {
                 panic!("invalid abi_profile for {service} in {}: {err}", path.display())
             });
             abi_profiles.insert(canonical(&service), profile);

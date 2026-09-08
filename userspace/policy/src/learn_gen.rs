@@ -257,11 +257,18 @@ mod tests {
         ));
         // Deterministic: same input ⇒ same bytes.
         assert_eq!(generate(lines.iter().map(String::as_str), &opts(false)).toml, out.toml);
-        // --allow-any lifts the hold.
+        // --allow-any lifts the hold — but RFC-0092 reserves an any-address
+        // allow for the ingress gateway: the skeleton compiles for `ingressd`
+        // and is refused for anyone else (they declare an exposure instead).
         let out = generate(lines.iter().map(String::as_str), &opts(true));
         assert_eq!((out.rules_emitted, out.rules_held), (4, 0));
         let fixture: Fixture = toml::from_str(&out.toml).unwrap();
-        let profile = compile(&fixture.abi_profile["demo.learn"]).unwrap();
+        let raw = &fixture.abi_profile["demo.learn"];
+        assert!(matches!(
+            crate::schema::compile_for("demo.learn", raw),
+            Err(crate::schema::SchemaError::AnyBindNeedsGateway { .. })
+        ));
+        let profile = crate::schema::compile_for(crate::schema::GATEWAY_SUBJECT, raw).unwrap();
         assert!(profile
             .rules
             .iter()

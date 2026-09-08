@@ -1,0 +1,9 @@
+# expect: AnyBindNeedsGateway
+# RFC-0092 §2 / ADR-0061: only the ingress gateway may allow a non-loopback bind.
+[abi_profile."demo.web"]
+epoch = 1
+
+[[abi_profile."demo.web".net.bind]]
+action = "allow"
+ports = ["8080"]
+address = "any"

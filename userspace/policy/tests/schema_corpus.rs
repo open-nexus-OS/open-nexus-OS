@@ -14,8 +14,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use nexus_policy::schema::{
-    check_quotas_disjoint, compile, compile_quota, Action, AddressClass, PortRange, Profile, Quota,
-    RawAbiProfile, RawQuota, Rule, SchemaError,
+    check_quotas_disjoint, compile, compile_for, compile_quota, Action, AddressClass, PortRange,
+    Profile, Quota, RawAbiProfile, RawQuota, Rule, SchemaError,
 };
 use serde::Deserialize;
 
@@ -60,6 +60,7 @@ fn variant_name(err: &SchemaError) -> &'static str {
         SchemaError::QuotaLimits { .. } => "QuotaLimits",
         SchemaError::QuotaOverlap { .. } => "QuotaOverlap",
         SchemaError::TooManyQuotas { .. } => "TooManyQuotas",
+        SchemaError::AnyBindNeedsGateway { .. } => "AnyBindNeedsGateway",
     }
 }
 
@@ -69,7 +70,7 @@ fn run(path: &Path) -> Result<BTreeMap<String, Profile>, String> {
     let fixture: Fixture = toml::from_str(&data).map_err(|_| "parse".to_string())?;
     let mut out = BTreeMap::new();
     for (subject, raw) in fixture.abi_profile {
-        let profile = compile(&raw).map_err(|e| variant_name(&e).to_string())?;
+        let profile = compile_for(&subject, &raw).map_err(|e| variant_name(&e).to_string())?;
         out.insert(subject, profile);
     }
     let mut quotas: BTreeMap<String, Quota> = BTreeMap::new();

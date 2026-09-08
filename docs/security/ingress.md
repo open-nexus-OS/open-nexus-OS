@@ -17,5 +17,9 @@ decision: `docs/adr/0061-exposure-intent-instead-of-free-binds.md`.
 - **Boundary**: raw-NIC subjects (`device.mmio.net`) bypass the facade; the
   grant is the boundary (`docs/security/sandboxing.md`).
 
-Status: Phase 0 (contract) delivered 2026-09-08. Layer A (bind gate,
-`SELFTEST: ingress deny ok`) is TASK-0052 P1; the gateway itself is P2/P3.
+Status: Phase 0 (contract) and Layer A (TASK-0052 P1) delivered 2026-09-08:
+the shared grammar refuses `[[net.bind]] action = "allow" address = "any"` for
+every subject but `ingressd` (`SchemaError::AnyBindNeedsGateway`), and the
+selftest's bind to the NIC-facing address is refused at the seam
+(`!cap-deny: enforcer=netstackd class=net.bind port=40000 addr=any …`,
+`SELFTEST: ingress deny ok`). The gateway itself is P2/P3.

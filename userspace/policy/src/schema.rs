@@ -34,6 +34,9 @@ pub const MAX_QUOTA_PREFIXES: usize = 8;
 /// Quota rules a build carries.
 pub const MAX_QUOTA_RULES: usize = 16;
 
+/// RFC-0092 / ADR-0061: the ONE subject that may bind a non-loopback address.
+pub const GATEWAY_SUBJECT: &str = "ingressd";
+
 /// Bytes that would read as pattern syntax; a prefix is a literal.
 const PATTERN_BYTES: &[u8] = b"*?[]{}()|^$+\\";
 
@@ -174,21 +177,53 @@ pub enum SchemaError {
     EmptyPrefix,
     PrefixNotAbsolute(String),
     PrefixNotCanonical(String),
-    PrefixTooLong { len: usize, max: usize },
-    PrefixPatternSyntax { prefix: String, byte: char },
+    PrefixTooLong {
+        len: usize,
+        max: usize,
+    },
+    PrefixPatternSyntax {
+        prefix: String,
+        byte: char,
+    },
     UnknownAction(String),
     UnknownAddress(String),
     BadPort(String),
     NoPortRanges,
-    TooManyPortRanges { count: usize, max: usize },
+    TooManyPortRanges {
+        count: usize,
+        max: usize,
+    },
     BadCidr(String),
-    TooManyRules { count: usize, max: usize },
-    RuleLimitAboveProfile { rule: u32, profile: u32 },
+    TooManyRules {
+        count: usize,
+        max: usize,
+    },
+    RuleLimitAboveProfile {
+        rule: u32,
+        profile: u32,
+    },
     QuotaNoPrefixes,
-    QuotaTooManyPrefixes { count: usize, max: usize },
-    QuotaLimits { soft: u64, hard: u64 },
-    QuotaOverlap { a: String, b: String },
-    TooManyQuotas { count: usize, max: usize },
+    QuotaTooManyPrefixes {
+        count: usize,
+        max: usize,
+    },
+    QuotaLimits {
+        soft: u64,
+        hard: u64,
+    },
+    QuotaOverlap {
+        a: String,
+        b: String,
+    },
+    TooManyQuotas {
+        count: usize,
+        max: usize,
+    },
+    /// `[[net.bind]] action = "allow" address = "any"` for a subject other than
+    /// the gateway (RFC-0092 §2, ADR-0061).
+    AnyBindNeedsGateway {
+        subject: String,
+    },
 }
 
 impl fmt::Display for SchemaError {
@@ -227,6 +262,10 @@ impl fmt::Display for SchemaError {
                 write!(f, "quota prefix sets overlap: {a:?} and {b:?}")
             }
             Self::TooManyQuotas { count, max } => write!(f, "too many quotas: {count} > {max}"),
+            Self::AnyBindNeedsGateway { subject } => write!(
+                f,
+                "net.bind address=\"any\" is reserved for the ingress gateway ({GATEWAY_SUBJECT}); {subject:?} must declare an [[expose]] intent instead"
+            ),
         }
     }
 }
@@ -343,8 +382,17 @@ pub fn validate_prefix(prefix: &str) -> Result<String, SchemaError> {
     Ok(p.to_string())
 }
 
-/// Validates and canonicalizes one authored profile.
+/// Validates and canonicalizes one authored profile without a subject: the
+/// gateway-only `address = "any"` allow is refused (fail closed). Use
+/// [`compile_for`] where the subject is known.
 pub fn compile(raw: &RawAbiProfile) -> Result<Profile, SchemaError> {
+    compile_for("", raw)
+}
+
+/// Validates and canonicalizes one authored profile for `subject`. Only the
+/// ingress gateway ([`GATEWAY_SUBJECT`]) may allow a non-loopback bind
+/// (RFC-0092 §2); every other subject exposes ports through an intent.
+pub fn compile_for(subject: &str, raw: &RawAbiProfile) -> Result<Profile, SchemaError> {
     let has_v1 = raw.statefs_put_allow_prefix.is_some() || raw.net_bind_min_port.is_some();
     let has_v2 =
         raw.epoch.is_some() || raw.limits.is_some() || !raw.statefs.is_empty() || raw.net.is_some();
@@ -398,11 +446,15 @@ pub fn compile(raw: &RawAbiProfile) -> Result<Profile, SchemaError> {
     }
     if let Some(net) = &raw.net {
         for r in &net.bind {
-            profile.rules.push(Rule::NetBind {
-                action: parse_action(&r.action)?,
-                address: parse_address(r.address.as_deref())?,
-                ports: parse_ports(&r.ports)?,
-            });
+            let action = parse_action(&r.action)?;
+            let address = parse_address(r.address.as_deref())?;
+            if action == Action::Allow
+                && address == AddressClass::Any
+                && subject.trim().to_ascii_lowercase() != GATEWAY_SUBJECT
+            {
+                return Err(SchemaError::AnyBindNeedsGateway { subject: subject.to_string() });
+            }
+            profile.rules.push(Rule::NetBind { action, address, ports: parse_ports(&r.ports)? });
         }
         for r in &net.connect {
             let (cidr, cidr_len) = parse_cidr(&r.cidr)?;

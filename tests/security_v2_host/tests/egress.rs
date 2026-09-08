@@ -14,7 +14,10 @@
 use nexus_abi::abi_filter::{AbiLimits, AbiProfile, AbiRule, AddrClass, PortRange, RuleAction};
 use nexus_abi::policyd::{STATUS_ALLOW, STATUS_DENY, STATUS_UNSUPPORTED};
 use nexus_ipc::policyd::seam_admits;
-use nexus_policy::schema::{Action, AddressClass, Profile, Rule};
+use nexus_policy::schema::{
+    compile_for, Action, AddressClass, Profile, RawAbiProfile, RawBindRule, RawNet, Rule,
+    SchemaError, GATEWAY_SUBJECT,
+};
 use nexus_policy::PolicyTree;
 
 fn shipped_profile(subject: &str) -> AbiProfile {
@@ -114,4 +117,44 @@ fn default_deny_without_connect_rules() {
     let p = AbiProfile::empty(sid).with_epoch(1);
     assert_eq!(eval_status(&p, [10, 0, 2, 2], 53), STATUS_DENY);
     assert_eq!(eval_status(&p, [127, 0, 0, 1], 80), STATUS_DENY);
+}
+
+#[test]
+fn test_reject_nonloopback_bind_without_intent() {
+    // Layer A (RFC-0092 §2): the shipped selftest profile allows loopback binds
+    // ≥ 1024 — the same port on any address is refused by the matcher…
+    let p = shipped_profile("selftest-client");
+    let sid = p.subject_service_id();
+    assert_eq!(p.check_net_bind(40_000, AddrClass::Loopback), RuleAction::Allow);
+    assert_eq!(p.check_net_bind(40_000, AddrClass::Any), RuleAction::Deny);
+    assert!(!seam_admits(sid, Some(STATUS_DENY)));
+    // …and the grammar refuses to author such an allow for anyone but the gateway.
+    let raw = RawAbiProfile {
+        epoch: Some(1),
+        net: Some(RawNet {
+            bind: vec![RawBindRule {
+                action: "allow".into(),
+                ports: vec!["8080".into()],
+                address: Some("any".into()),
+            }],
+            connect: vec![],
+        }),
+        ..Default::default()
+    };
+    assert!(matches!(compile_for("demo.web", &raw), Err(SchemaError::AnyBindNeedsGateway { .. })));
+    assert!(compile_for(GATEWAY_SUBJECT, &raw).is_ok());
+    // The shipped policy itself never grants an any-address bind to a non-gateway subject.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../policies");
+    let tree = PolicyTree::load_root(&root).unwrap();
+    for subject in ["selftest-client", "dsoftbusd", "netstackd", "demo.testsvc"] {
+        if let Some(profile) = tree.policy().abi_profile(subject) {
+            assert!(
+                !profile.rules.iter().any(|r| matches!(
+                    r,
+                    Rule::NetBind { action: Action::Allow, address: AddressClass::Any, .. }
+                )),
+                "{subject} must not bind any"
+            );
+        }
+    }
 }

@@ -203,6 +203,10 @@ the empty deny-all profile.
   — connects through the facade against the subject's `net.connect` profile:
   CIDR/port refusals, an admitted target, a refusal collected under Learn
   (TASK-0043 P3; host twins in `tests/security_v2_host/`).
+- `SELFTEST: ingress deny ok` — a bind to the NIC-facing address by a
+  non-gateway subject refused at the seam (RFC-0092 Layer A, TASK-0052 P1;
+  grammar rule `AnyBindNeedsGateway`, host twin
+  `test_reject_nonloopback_bind_without_intent`).
 
 ## Required negative host proofs
 

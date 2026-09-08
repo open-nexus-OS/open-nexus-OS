@@ -1,6 +1,6 @@
 ---
 title: TASK-0052 Security v3 (Ingress): default-deny inbound policy + ingressd userspace gateway + service exposure contract
-status: In Progress (P0 delivered 2026-09-08)
+status: In Progress (P0+P1 delivered 2026-09-08)
 owner: @security
 created: 2025-12-23
 depends-on:
@@ -67,7 +67,35 @@ implementation in this task (contract slot only); outbound policy (TASK-0043).
 - `docs/adr/0061-exposure-intent-instead-of-free-binds.md` (Accepted), `tools/nexus-idl/schemas/
   ingress.capnp` (host SSOT: `ExposeIntent`, `ExposeResponse`), `docs/security/ingress.md`, RFC +
   ADR indexes.
-- Proof: `just check` docs gates. Next: P1 (Layer A).
+- Proof: `just check` docs gates. Next: P1 (Layer A). ✅ see below.
+
+### P1 delivered 2026-09-08 — Layer A: only the gateway binds `any`
+
+- **Grammar** (`userspace/policy/src/schema.rs`): `GATEWAY_SUBJECT = "ingressd"`,
+  `compile_for(subject, raw)` (the subject-aware entry both parsers and the corpus use;
+  `compile(raw)` = subject-less, fails closed) — `[[net.bind]] action = "allow" address = "any"`
+  for any other subject ⇒ `SchemaError::AnyBindNeedsGateway`. Corpus `reject_bind_any_needs_
+  gateway.toml`, `ok_gateway_bind_any.toml`; `learn-gen --allow-any` skeletons now compile only
+  for the gateway (test updated: the same skeleton is refused for `demo.learn`).
+- **Host proof** `tests/security_v2_host/`: `test_reject_nonloopback_bind_without_intent` — the
+  shipped selftest profile allows port 40000 on loopback and refuses it on any; the grammar
+  refuses authoring the allow for `demo.web` and accepts it for the gateway; no shipped subject
+  (selftest-client, dsoftbusd, netstackd, demo.testsvc) carries an any-address allow.
+- **OS proof** `source/apps/selftest-client/src/os_lite/net/ingress.rs` (net phase, after the
+  egress proofs): `udp bind` on the facade's own IP (`ctx.local_ip`, QEMU user-net 10.0.2.15)
+  port 40000 (outside the loopback-emulation set ⇒ `addr=any` at the seam) ⇒ `STATUS_DENY` ⇒
+  `SELFTEST: ingress deny ok`; ladder gets `!cap-deny: enforcer=netstackd class=net.bind
+  port=40000 addr=any subject=0x52c6…` + the marker (2-space list); proof-manifest
+  `markers/net.toml`. Ingress refusals are already audited `reason=ingress-denied` and counted
+  (`ingress_denies_total{subject}`, TASK-0043 P4).
+- Proof: `cargo test -p policy` 26 + corpus 5 (7 quota/bind fixtures), `cargo test -p
+  security_v2_host` 6, OS-target strict check selftest-client + policyd, selftest arch gate,
+  `just check` + `just test-all` green 2026-09-08 (exit=0; all nine QEMU lanes carry
+  `!cap-deny: … class=net.bind port=40000 addr=any` + `SELFTEST: ingress deny ok`;
+  policyd `test_learn_roundtrip` re-cut: the `--allow-any` skeleton is refused for
+  `selftest-client` and compiles only for `GATEWAY_SUBJECT`).
+- Next: P2 (`ingressd` host: `[[expose]]` grammar + tables, `source/services/ingressd/`,
+  `tests/ingress_host/`).
 
 ### Packages
 
