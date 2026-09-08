@@ -12,6 +12,7 @@ pub(crate) mod diag;
 pub(crate) mod distribute;
 pub(crate) mod endpoints;
 pub(crate) mod fault_fixture;
+pub(crate) mod gateway_route;
 pub(crate) mod handshake;
 pub(crate) mod helpers;
 pub(crate) mod labels;

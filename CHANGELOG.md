@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-08 (TASK-0052 P3: ingressd OS — inbound gateway end to end; TASK-0052 Done)
+
+- netstackd facade (RFC-0092 §5 prerequisites): generic in-facade loopback and
+  hairpin — `127/8` listeners never touch the NIC, a connect to `127/8` or to
+  the interface's own address pairs with the local listener of that port
+  (real `0.0.0.0` listeners included) through a bounded pending queue; peer
+  close ⇒ end-of-stream; 512-byte pair buffers; stream slots reused; new
+  additive `OP_PEER_ADDR` (`OsTcpStream::remote_endpoint`).
+- `ingressd` runs: declarative wiring (server 3/4, reply inbox 5/6, policyd 7,
+  netstackd 8), system-volume bundle, `ipc.core` + `policy.delegate`, the one
+  `address = "any"` profile; the gateway binds each registered exposure's
+  NIC-facing port, admits peers by `OP_PEER_ADDR` → CIDR → token bucket,
+  dials the loopback backend and relays within a per-turn budget; refusals
+  print `ingressd: deny (reason=…)` and count `ingress_denies_total{subject}`.
+- Selftest declares three exposures and proves over the real facade:
+  `SELFTEST: ingress allow ok`, `ingress intent deny ok`, `ingress cidr deny
+  ok`, `ingress rate ok` (+ `ingressd: ready|port open|deny` in the ladder).
+  Open items (UDP data plane, listener-close op, TLS slot) → TASK-0323.
+
 ### Added - 2026-09-08 (TASK-0052 P2: ingressd host core + `[[expose]]` grammar)
 
 - `[[expose."<subject>"]]` (RFC-0092 §1) compiles through ONE grammar file

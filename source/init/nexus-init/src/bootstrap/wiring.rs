@@ -11,6 +11,7 @@
 
 use crate::bootstrap::diag::iw;
 use crate::bootstrap::endpoints::Endpoints;
+use crate::bootstrap::gateway_route::provision_selftest_ingress_route;
 use crate::bootstrap::route_provision::*;
 use crate::bootstrap::CtrlChannel;
 use crate::os_payload::*;
@@ -1382,6 +1383,7 @@ pub(crate) fn wire_services(
                         _ => debug_write_bytes(b"init: selftest route->settingsd FAIL (xfer)\n"),
                     }
                 }
+                provision_selftest_ingress_route(pid, eps, chan);
                 // IME authority negative probe (RFC-0075): the selftest sends
                 // a FOREIGN OP_KEY and must see DENIED. AFTER pinched so every
                 // slot above keeps its historical number. Best-effort.
@@ -1617,6 +1619,22 @@ pub(crate) fn wire_services(
                                         {
                                             chan.set_send(ServiceId::Policyd, s);
                                             chan.set_recv(ServiceId::Policyd, reply_recv);
+                                        }
+                                    }
+                                    // Facade client leg (RFC-0092 ingressd):
+                                    // netstackd answers every RPC on the
+                                    // caller's CAP_MOVE inbox.
+                                    ServiceId::Netstackd => {
+                                        if let Ok(s) =
+                                            nexus_abi::cap_transfer(pid, net_req, Rights::SEND)
+                                        {
+                                            chan.set_send(ServiceId::Netstackd, s);
+                                            chan.set_recv(ServiceId::Netstackd, reply_recv);
+                                            if spec.announce {
+                                                debug_write_bytes(b"init: ");
+                                                debug_write_bytes(name.as_bytes());
+                                                debug_write_bytes(b" route->netstackd ok\n");
+                                            }
                                         }
                                     }
                                     // Session authority (TASK-0065B launch gate).

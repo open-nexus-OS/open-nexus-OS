@@ -15,8 +15,8 @@ use crate::os::facade::state::FacadeState;
 use crate::os::ipc::handles::ReplyCapSlot;
 use crate::os::ipc::reply::status_frame;
 use crate::os::ipc::wire::{
-    OP_ACCEPT, OP_CLOSE, OP_CONNECT, OP_ICMP_PING, OP_LISTEN, OP_LOCAL_ADDR, OP_READ, OP_UDP_BIND,
-    OP_UDP_RECV_FROM, OP_UDP_SEND_TO, OP_WAIT_WRITABLE, OP_WRITE, STATUS_MALFORMED,
+    OP_ACCEPT, OP_CLOSE, OP_CONNECT, OP_ICMP_PING, OP_LISTEN, OP_LOCAL_ADDR, OP_PEER_ADDR, OP_READ,
+    OP_UDP_BIND, OP_UDP_RECV_FROM, OP_UDP_SEND_TO, OP_WAIT_WRITABLE, OP_WRITE, STATUS_MALFORMED,
 };
 
 /// Control-flow result for [`dispatch_op`]: whether the facade IPC loop should `continue`
@@ -69,6 +69,7 @@ pub(crate) fn dispatch_op<R: FnMut(&[u8])>(
         OP_CLOSE => handlers::close::handle(ctx, req, reply),
         OP_ICMP_PING => handlers::ping::handle(ctx, req, reply),
         OP_LOCAL_ADDR => handlers::local_addr::handle(ctx, req, reply),
+        OP_PEER_ADDR => handlers::peer_addr::handle(ctx, req, reply),
         _ => {
             reply(&status_frame(op, STATUS_MALFORMED));
             DispatchControl::Handled

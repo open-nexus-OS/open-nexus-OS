@@ -122,3 +122,20 @@ fn test_address_profile_constants_contract() {
     assert_eq!(entry_pure::QEMU_USERNET_DNS_PRIMARY_IP, [10, 0, 2, 3]);
     assert_eq!(entry_pure::OS2VM_NODE_B_IP, [10, 42, 0, 11]);
 }
+
+#[test]
+fn local_target_classifies_loopback_own_ip_and_remote() {
+    use entry_pure::{local_target, loop_remote_for_acceptor, LocalTarget};
+    let own = [10, 0, 2, 15];
+    assert_eq!(local_target([127, 0, 0, 1], own), LocalTarget::Loopback);
+    assert_eq!(local_target([127, 42, 0, 9], own), LocalTarget::Loopback);
+    assert_eq!(local_target(own, own), LocalTarget::OwnIp);
+    assert_eq!(local_target([10, 0, 2, 2], own), LocalTarget::Remote);
+    assert_eq!(local_target([0, 0, 0, 0], own), LocalTarget::Remote);
+    // The acceptor sees the connector's address: loopback stays loopback, a
+    // hairpin reports the interface address; ports are ephemeral (≥ 49152).
+    let (ip, port) = loop_remote_for_acceptor(LocalTarget::Loopback, own, 3);
+    assert_eq!((ip, port), ([127, 0, 0, 1], 49_155));
+    let (ip, port) = loop_remote_for_acceptor(LocalTarget::OwnIp, own, 16_384 + 1);
+    assert_eq!((ip, port), (own, 49_153));
+}

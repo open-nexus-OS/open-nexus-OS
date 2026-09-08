@@ -205,6 +205,10 @@ Inspect in Wireshark/tshark with filters:
 - `arp`
 - `udp.port == 37020`
 - `tcp.port == 34567 || tcp.port == 34568`
+  (in-facade pairs never reach the NIC: since TASK-0052 P3 every connect to
+  `127/8` or to the interface's own address is served inside netstackd —
+  RFC-0092 §5 — so those legs, like the legacy pairing ports, are invisible
+  to a capture)
 
 Correlation rule of thumb:
 

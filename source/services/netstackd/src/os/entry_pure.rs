@@ -43,6 +43,51 @@ pub(crate) fn is_qemu_loopback_target(ip: [u8; 4], port: u16, a: u16, b: u16) ->
     ip == QEMU_USERNET_FALLBACK_IP && (port == a || port == b)
 }
 
+/// Where a `connect`/`listen` target lives (RFC-0092 facade prerequisite:
+/// an in-facade loopback that never touches the NIC).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LocalTarget {
+    /// `127/8`: loopback-only (a listener there is unreachable from the NIC).
+    Loopback,
+    /// The interface's own address: hairpin onto the local listener.
+    OwnIp,
+    /// Anything else goes to the stack.
+    Remote,
+}
+
+#[inline]
+pub(crate) fn is_loopback_ip(ip: [u8; 4]) -> bool {
+    ip[0] == 127
+}
+
+/// Classifies `ip` against the interface address `own_ip`.
+#[inline]
+pub(crate) fn local_target(ip: [u8; 4], own_ip: [u8; 4]) -> LocalTarget {
+    if is_loopback_ip(ip) {
+        LocalTarget::Loopback
+    } else if ip == own_ip {
+        LocalTarget::OwnIp
+    } else {
+        LocalTarget::Remote
+    }
+}
+
+/// The address the accepting side sees for a hairpinned/loopback connect:
+/// the connector's own address (loopback stays loopback) and a synthetic
+/// ephemeral port derived from the connector's stream slot.
+#[inline]
+pub(crate) fn loop_remote_for_acceptor(
+    target: LocalTarget,
+    own_ip: [u8; 4],
+    connector_index: usize,
+) -> ([u8; 4], u16) {
+    let ip = match target {
+        LocalTarget::Loopback => [127, 0, 0, 1],
+        _ => own_ip,
+    };
+    (ip, 49_152u16.wrapping_add((connector_index % 16_384) as u16))
+}
+
 #[inline]
 pub(crate) fn is_dns_probe_response(frame: &[u8], from_port: u16) -> bool {
     frame.len() >= 12

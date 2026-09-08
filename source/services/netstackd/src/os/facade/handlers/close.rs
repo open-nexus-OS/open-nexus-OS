@@ -57,7 +57,13 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
             s.close();
             STATUS_OK
         }
-        Some(Stream::Loop { .. }) => STATUS_OK,
+        Some(Stream::Loop { peer, .. }) => {
+            // The surviving end drains what is buffered, then reads EOF.
+            if let Some(Some(Stream::Loop { peer_closed, .. })) = streams.get_mut(peer.index()) {
+                *peer_closed = true;
+            }
+            STATUS_OK
+        }
         None => STATUS_NOT_FOUND,
     };
     reply_status_maybe_nonce(reply, OP_CLOSE, status, nonce);

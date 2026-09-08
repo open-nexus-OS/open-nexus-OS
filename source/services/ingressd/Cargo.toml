@@ -4,27 +4,47 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
-# RFC-0092 Layer B — the ONE inbound gateway. TASK-0052 P2 ships the pure,
-# host-testable core (exposure table, identity-bound intent registry, CIDR
-# accept filter, deterministic token bucket, bounded forwarding). The OS-lite
-# entry, init wiring and `[package.metadata.nexus-service]` (which makes
-# scripts/discover-services.sh embed the ELF) land with P3 — a service that
-# is not wired must not be discovered.
+# RFC-0092 Layer B — the ONE inbound gateway. The pure core (exposure table,
+# identity-bound intent registry, CIDR accept filter, deterministic token
+# bucket, bounded relays) is host-testable (`tests/ingress_host/`); the
+# OS-lite entry (`src/os_lite/`) drives it over the fixed init-wired slots:
+# server 3/4, CAP_MOVE reply inbox 5/6, policyd 7, netstackd 8.
 
 [features]
 default = ["std"]
 std = []
-os-lite = []
+os-lite = [
+    "dep:nexus-service-entry",
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+    "dep:nexus-metrics",
+    "nexus-metrics/os-lite",
+]
 
 [lib]
 path = "src/lib.rs"
 doctest = false
+
+# Discovered by scripts/discover-services.sh (boot order after netstackd;
+# ships on the system volume — scripts/system-volume-services.txt).
+[package.metadata.nexus-service]
+stack_pages = 0
 
 [[bin]]
 name = "ingressd"
 path = "src/main.rs"
 
 [dependencies]
+# heap-1m: one open exposure's relay table is 16 links × 2 × 4 KiB windows
+# (RFC-0092 bounds) — allocated once per open, never freed (bump allocator).
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true, features = ["heap-1m"] }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+# `ingress_denies_total{subject}` (TASK-0043 P4 shape): the gateway counts its
+# own refusals where they happen (policyd only sees the intent-level ones).
+nexus-metrics = { path = "../../../userspace/nexus-metrics", optional = true, default-features = false }
 
 [build-dependencies]
 serde = { version = "1", features = ["derive"] }

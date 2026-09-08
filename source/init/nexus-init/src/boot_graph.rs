@@ -79,7 +79,7 @@ const CORE: &[&str] = &[
 
 /// Non-essential services withheld from the `safe` graph (session works,
 /// networking/telemetry/compute-batch stay down).
-const SAFE_EXCLUDED: &[&str] = &["netstackd", "dsoftbusd", "metricsd", "pinched"];
+const SAFE_EXCLUDED: &[&str] = &["netstackd", "ingressd", "dsoftbusd", "metricsd", "pinched"];
 
 /// `true` if `service` is in wave 1 (the always-on core).
 pub fn in_core(service: &str) -> bool {

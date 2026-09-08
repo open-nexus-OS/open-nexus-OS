@@ -64,6 +64,7 @@ ORDER = [
     'abilitymgr',
     'sessiond',
     'netstackd',
+    'ingressd',
     'dsoftbusd',
     'hidrawd',
     'touchd',

@@ -24,6 +24,9 @@ pub(crate) const OP_ICMP_PING: u8 = 9;
 pub(crate) const OP_LOCAL_ADDR: u8 = 10;
 pub(crate) const OP_CLOSE: u8 = 11;
 pub(crate) const OP_WAIT_WRITABLE: u8 = 12;
+/// RFC-0092 facade prerequisite (TASK-0052 P3): the remote `(ip, port)` of a
+/// stream — the gateway's accept-side identity for its CIDR filter. Appended.
+pub(crate) const OP_PEER_ADDR: u8 = 13;
 
 pub(crate) const STATUS_OK: u8 = 0;
 pub(crate) const STATUS_NOT_FOUND: u8 = 1;

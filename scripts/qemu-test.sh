@@ -525,6 +525,9 @@ expected_sequence=(
   "timed: walltime anchored"
   "imed: ready"
   "netstackd: ready"
+  # TASK-0052 P3 (RFC-0092 Layer B): the inbound gateway is up once its
+  # init-wired slots (server, reply inbox, policyd, netstackd) answer.
+  "ingressd: ready"
   "net: virtio-net up"
   "SELFTEST: net iface ok"
   "net: smoltcp iface up"
@@ -677,6 +680,20 @@ expected_sequence=(
   # address is refused at the seam — inbound is default-deny.
   "!cap-deny: enforcer=netstackd class=net.bind port=40000 addr=any subject=0x52c6c4a34ffb3f69"
   "SELFTEST: ingress deny ok"
+  # TASK-0052 P3 (RFC-0092 Layer B): declared exposures fronted by ingressd
+  # over the real facade — port open after the NIC-facing bind, bytes cross
+  # the gateway, refusals labelled at the gateway before the selftest sees
+  # the close.
+  "ingressd: port open (port=8080, proto=tcp)"
+  "SELFTEST: ingress allow ok"
+  "ingressd: deny (reason=policy)"
+  "SELFTEST: ingress intent deny ok"
+  "ingressd: port open (port=8081, proto=tcp)"
+  "ingressd: deny (reason=cidr)"
+  "SELFTEST: ingress cidr deny ok"
+  "ingressd: port open (port=8082, proto=tcp)"
+  "ingressd: deny (reason=rate)"
+  "SELFTEST: ingress rate ok"
   "SELFTEST: mmio policy deny ok"
   "SELFTEST: policyd requester spoof denied ok"
   "SELFTEST: policy malformed ok"

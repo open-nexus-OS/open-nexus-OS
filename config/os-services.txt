@@ -3,6 +3,7 @@
 # One name per line; '#' starts a comment.
 dsoftbusd
 netstackd
+ingressd
 keystored
 policyd
 samgrd

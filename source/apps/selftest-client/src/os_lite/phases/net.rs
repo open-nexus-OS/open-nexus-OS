@@ -34,6 +34,10 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         // TASK-0052 P1: inbound default-deny — a non-gateway bind to the NIC-facing
         // address is refused at the seam (RFC-0092 Layer A).
         net::ingress::ingress_proofs(ctx.local_ip);
+        // TASK-0052 P3: Layer B — the gateway fronts the selftest's declared
+        // exposures (allow / intent deny / cidr deny / rate) over the real
+        // facade (hairpin onto the NIC-facing listener, loopback backends).
+        net::ingress_gateway::ingress_gateway_proofs(ctx.local_ip);
     }
 
     // TASK-0004: ICMP ping proof via netstackd facade.

@@ -249,3 +249,31 @@ proves = "a bind to the NIC-facing address by a non-gateway subject was refused 
 
 [marker."SELFTEST: ingress deny FAIL"]
 phase = "net"
+
+[marker."SELFTEST: ingress allow ok"]
+phase = "net"
+proves = "an exposure declared in policy was registered with ingressd by kernel identity, the gateway bound the NIC-facing port, admitted the peer (CIDR + rate) and relayed bytes to the loopback backend and back (RFC-0092 Layer B)"
+
+[marker."SELFTEST: ingress allow FAIL"]
+phase = "net"
+
+[marker."SELFTEST: ingress intent deny ok"]
+phase = "net"
+proves = "an intent for an undeclared (port, proto) was refused by ingressd with STATUS_DENY reason=policy before any bind (RFC-0092 §3)"
+
+[marker."SELFTEST: ingress intent deny FAIL"]
+phase = "net"
+
+[marker."SELFTEST: ingress cidr deny ok"]
+phase = "net"
+proves = "a peer outside the exposure's cidr_allow was accepted and closed by the gateway (observed as end-of-stream), counted as reason=cidr"
+
+[marker."SELFTEST: ingress cidr deny FAIL"]
+phase = "net"
+
+[marker."SELFTEST: ingress rate ok"]
+phase = "net"
+proves = "with burst 2 at 1/s the third connection within the window was refused by the gateway's token bucket (end-of-stream), counted as reason=rate"
+
+[marker."SELFTEST: ingress rate FAIL"]
+phase = "net"

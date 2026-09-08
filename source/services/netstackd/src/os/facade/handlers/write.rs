@@ -91,7 +91,12 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
                 }
             }
         }
-        Stream::Loop { peer, .. } => {
+        Stream::Loop { peer, peer_closed, .. } => {
+            if *peer_closed {
+                reply_status_maybe_nonce(reply, OP_WRITE, STATUS_IO, nonce);
+                let _ = yield_();
+                return DispatchControl::ContinueLoop;
+            }
             let peer0 = peer.index();
             let Some(Some(Stream::Loop { rx, .. })) = streams.get_mut(peer0) else {
                 reply(&status_frame(OP_WRITE, STATUS_IO));

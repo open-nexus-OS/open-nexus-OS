@@ -12,10 +12,13 @@ use nexus_abi::yield_;
 use nexus_net::{NetError, NetSocketAddrV4, NetStack as _};
 
 use crate::os::config::{LOOPBACK_PORT, LOOPBACK_PORT_B, TCP_READY_SPIN_BUDGET, TCP_READY_STEP_MS};
-use crate::os::entry_pure::{is_qemu_loopback_target, QEMU_USERNET_FALLBACK_IP};
+use crate::os::entry_pure::{
+    is_qemu_loopback_target, local_target, loop_remote_for_acceptor, LocalTarget,
+    QEMU_USERNET_FALLBACK_IP,
+};
 use crate::os::facade::dispatch::{DispatchControl, FacadeContext};
 use crate::os::facade::ops;
-use crate::os::facade::state::{Listener, Stream};
+use crate::os::facade::state::{alloc_stream_slot, Stream};
 use crate::os::facade::validation;
 use crate::os::ipc::handles::StreamId;
 use crate::os::ipc::parse::{parse_ipv4_at, parse_nonce, parse_u16_le};
@@ -33,6 +36,7 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
     let seam = crate::os::facade::authz::Seam::of(ctx);
     let admit_cache = &mut ctx.state.admit_cache;
     let now_ms = ctx.now_ms;
+    let own_ip = ctx.bind_ip;
     let net = &mut *ctx.net;
     let listeners = &mut ctx.state.listeners;
     let streams = &mut ctx.state.streams;
@@ -82,17 +86,49 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
     {
         *dbg_connect_target_printed = true;
     }
-    if is_qemu_loopback_target(ip, port, LOOPBACK_PORT, LOOPBACK_PORT_B) {
-        let a = StreamId::from_index(streams.len());
-        let b = StreamId::from_index(streams.len() + 1);
-        streams.push(Some(Stream::Loop { peer: b, rx: LoopBuf::new() }));
-        streams.push(Some(Stream::Loop { peer: a, rx: LoopBuf::new() }));
-        for l in listeners.iter_mut() {
-            if let Some(Listener::Loop { port: listen_port, pending }) = l {
-                if *listen_port == port && pending.is_none() {
-                    *pending = Some(b);
-                    break;
-                }
+    let legacy_pair = is_qemu_loopback_target(ip, port, LOOPBACK_PORT, LOOPBACK_PORT_B);
+    let target = local_target(ip, own_ip);
+    if legacy_pair || target != LocalTarget::Remote {
+        // In-facade pair (RFC-0092 facade prerequisite): `127/8` and the
+        // interface's own address hairpin onto the local listener of that
+        // port without touching the NIC; no listener = connection refused.
+        // The legacy QEMU pairing ports keep their listener-less behaviour.
+        let listener = listeners.iter().position(|l| l.as_ref().is_some_and(|l| l.port() == port));
+        if listener.is_none() && !legacy_pair {
+            reply_status_maybe_nonce(reply, OP_CONNECT, STATUS_IO, nonce);
+            let _ = yield_();
+            return DispatchControl::ContinueLoop;
+        }
+        if let Some(li) = listener {
+            if !listeners[li].as_mut().is_some_and(|l| l.pending_mut().has_room()) {
+                reply_status_maybe_nonce(reply, OP_CONNECT, STATUS_WOULD_BLOCK, nonce);
+                let _ = yield_();
+                return DispatchControl::ContinueLoop;
+            }
+        }
+        let a_slot = alloc_stream_slot(streams);
+        let a = StreamId::from_index(a_slot);
+        streams[a_slot] = Some(Stream::Loop {
+            peer: a,
+            rx: LoopBuf::new(),
+            remote: (ip, port),
+            peer_closed: false,
+        });
+        let b_slot = alloc_stream_slot(streams);
+        let b = StreamId::from_index(b_slot);
+        let target = if legacy_pair { LocalTarget::OwnIp } else { target };
+        streams[b_slot] = Some(Stream::Loop {
+            peer: a,
+            rx: LoopBuf::new(),
+            remote: loop_remote_for_acceptor(target, own_ip, a_slot),
+            peer_closed: false,
+        });
+        if let Some(Stream::Loop { peer, .. }) = streams[a_slot].as_mut() {
+            *peer = b;
+        }
+        if let Some(li) = listener {
+            if let Some(l) = listeners[li].as_mut() {
+                let _ = l.pending_mut().push(b);
             }
         }
         reply_u32_status_maybe_nonce(
@@ -140,8 +176,9 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
                             let _ = yield_();
                             return DispatchControl::ContinueLoop;
                         };
-                        streams.push(Some(Stream::TcpDial(stream)));
-                        let sid = StreamId::to_wire(streams.len() - 1);
+                        let slot = alloc_stream_slot(streams);
+                        streams[slot] = Some(Stream::TcpDial(stream));
+                        let sid = StreamId::to_wire(slot);
                         reply_u32_status_maybe_nonce(reply, OP_CONNECT, STATUS_OK, sid, nonce);
                         let _ = nexus_abi::trace_line("netstackd: rpc connect ok");
                     } else {
@@ -186,8 +223,9 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
                         let _ = nexus_abi::debug_println("dbg:netstackd: connect kick ok");
                         // #endregion
                     }
-                    streams.push(Some(Stream::TcpDial(s)));
-                    let sid = StreamId::to_wire(streams.len() - 1);
+                    let slot = alloc_stream_slot(streams);
+                    streams[slot] = Some(Stream::TcpDial(s));
+                    let sid = StreamId::to_wire(slot);
                     reply_u32_status_maybe_nonce(reply, OP_CONNECT, STATUS_OK, sid, nonce);
                     let _ = nexus_abi::trace_line("netstackd: rpc connect ok");
                 } else {

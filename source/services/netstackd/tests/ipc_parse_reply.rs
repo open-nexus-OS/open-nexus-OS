@@ -477,3 +477,11 @@ fn test_wire_constants_contract_coverage() {
         assert!(status <= wire::STATUS_TIMED_OUT);
     }
 }
+
+#[test]
+fn peer_addr_op_is_appended_after_the_v1_vocabulary() {
+    // RFC-0092 facade prerequisite: additive op, never renumbering.
+    assert_eq!(wire::OP_PEER_ADDR, wire::OP_WAIT_WRITABLE + 1);
+    let frame = reply::status_frame(wire::OP_PEER_ADDR, wire::STATUS_NOT_FOUND);
+    assert_eq!(frame[3], wire::OP_PEER_ADDR | 0x80);
+}

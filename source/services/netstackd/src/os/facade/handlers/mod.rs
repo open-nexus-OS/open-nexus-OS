@@ -13,6 +13,7 @@ pub(crate) mod close;
 pub(crate) mod connect;
 pub(crate) mod listen;
 pub(crate) mod local_addr;
+pub(crate) mod peer_addr;
 pub(crate) mod ping;
 pub(crate) mod read;
 pub(crate) mod udp;

@@ -38,5 +38,23 @@ Proof: `cargo test -p ingress_host` (allow end to end +
 `test_reject_intent_policy_denied`, `test_reject_forged_intent_sender`,
 `test_reject_cidr`, `test_reject_rate_exceeded`, malformed/unsupported frames,
 IDL↔grammar↔wire pin, shipped-table consistency). The OS entry, init
-wiring, grants and markers are P3; until then the crate carries no
-`nexus-service` metadata and is not embedded.
+wiring, grants and markers landed with P3 (below).
+
+Layer B OS (TASK-0052 P3, 2026-09-08): `ingressd` ships on the system
+volume, is wired declaratively (server 3/4, reply inbox 5/6, policyd 7,
+netstackd 8) and is granted `ipc.core` + `policy.delegate`; its RFC-0091
+profile is the one `address = "any"` bind allow plus `net.connect` to
+`127.0.0.0/8`. The facade grew the prerequisites the gateway needs
+(RFC-0092 §5): in-facade loopback (`127/8` listeners never touch the NIC)
+and hairpin (a connect to the interface's own address pairs with the local
+listener of that port, real NIC-facing listeners included), end-of-stream
+on peer close, and `OP_PEER_ADDR` for the accept-side identity. Exposing
+services hold `net.expose`; the selftest declares three exposures
+(`policies/base.toml`) and proves, over the real facade: `SELFTEST: ingress
+allow ok` (bytes cross gateway → loopback backend → back), `ingress intent
+deny ok` (undeclared intent ⇒ `reason=policy`), `ingress cidr deny ok`
+(peer outside `cidr_allow` accepted then closed), `ingress rate ok` (burst
+2 at 1/s, the third connection closed) — each preceded by the gateway's
+own `ingressd: port open (…)` / `ingressd: deny (reason=…)` line; refusals
+are counted as `ingress_denies_total{subject}`. Open (TASK-0323): the UDP
+data plane, a facade listener-close op, TLS/mTLS termination.

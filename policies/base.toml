@@ -44,6 +44,11 @@ inputd = ["ipc.core"]
 # `policy.delegate`: netstackd is an RFC-0091 enforcement seam (TASK-0043 P2) —
 # it names the kernel-attributed subject it serves in OP_ABI_EVAL.
 netstackd = ["device.mmio.net", "ipc.core", "policy.delegate"]
+# RFC-0092 / TASK-0052: the ONE inbound gateway. `policy.delegate` because it
+# asks policyd whether the DECLARED subject of an exposure holds `net.expose`
+# (the sender is already kernel-attributed). Its RFC-0091 profile below is the
+# only one the grammar lets bind `address = "any"`.
+ingressd = ["ipc.core", "policy.delegate"]
 virtioblkd = ["device.mmio.blk", "ipc.core"]
 rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 "hidrawd" = ["device.mmio.input", "ipc.core"]
@@ -75,7 +80,7 @@ pinched = ["ipc.core"]
 # `statefs.crash` (TASK-0051B): the demo.minidump child's PUT maps to this
 # subject (canonical_policy_subject_for_statefs) and the artifact probe GETs
 # `/state/crash/` — the prefix now has its own capability.
-"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset", "updates.manage", "policy.abi_mode"]
+"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset", "updates.manage", "policy.abi_mode", "net.expose"]
 "demo.testsvc" = []
 
 # RFC-0091 profile v2 (schema SSOT: userspace/policy/src/schema.rs; both
@@ -131,6 +136,60 @@ address = "loopback"
 action = "allow"
 cidr = "10.0.2.0/24"
 ports = ["53", "80", "443"]
+
+# RFC-0092 (TASK-0052 P3): the selftest reaches its own exposures through the
+# gateway over the interface address (the facade hairpins onto ingressd's
+# NIC-facing listener) — the exposed ports only.
+[[abi_profile."selftest-client".net.connect]]
+action = "allow"
+cidr = "10.0.2.0/24"
+ports = ["8080-8082"]
+
+# RFC-0092 / ADR-0061: the inbound gateway. The ONLY subject allowed to bind
+# a non-loopback address (`AnyBindNeedsGateway` refuses everyone else); it
+# connects to loopback backends only.
+[abi_profile."ingressd"]
+epoch = 1
+
+[[abi_profile."ingressd".net.bind]]
+action = "allow"
+ports = ["1024-65535"]
+address = "any"
+
+[[abi_profile."ingressd".net.connect]]
+action = "allow"
+cidr = "127.0.0.0/8"
+ports = ["1024-65535"]
+
+# RFC-0092 §1 exposure intents (TASK-0052 P3). The selftest registers each
+# with ingressd by kernel identity and proves, over the real facade:
+#   8080 — allow: bytes cross gateway → loopback backend and back;
+#   8081 — cidr deny: the allow-list excludes the interface address the
+#          selftest connects from (only the user-net gateway may reach it);
+#   8082 — rate: burst 2 at 1/s, the third connection is refused.
+[[expose."selftest-client"]]
+port = 8080
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 100
+burst = 20
+backend = 18080
+
+[[expose."selftest-client"]]
+port = 8081
+proto = "tcp"
+cidr_allow = ["10.0.2.2/32"]
+rate_per_s = 100
+burst = 20
+backend = 18081
+
+[[expose."selftest-client"]]
+port = 8082
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 1
+burst = 2
+backend = 18082
 
 # RFC-0072 amendment (TASK-0043): per-subject byte quota on /state, enforced by
 # statefsd at the put seam. Attribution by prefix set; soft ⇒ warn once per

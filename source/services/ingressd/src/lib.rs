@@ -22,6 +22,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+extern crate alloc;
+
 pub mod cidr;
 pub mod dispatch;
 pub mod forward;
@@ -30,6 +33,10 @@ pub mod rate;
 pub mod table;
 pub mod udp;
 pub mod wire;
+
+/// OS-lite service (TASK-0052 P3): the gateway loop over init's fixed slots.
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+pub mod os_lite;
 
 /// Host tooling: prints the build-time exposure table (one line per
 /// exposure) — what the gateway WOULD front on this policy.

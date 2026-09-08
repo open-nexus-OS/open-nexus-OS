@@ -493,6 +493,19 @@ where
     let boot_rsp = nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).ok();
     let (pinch_req, pinch_rsp) =
         crate::bootstrap::endpoints::mint_pinched_pair(&ctrl_channels, selftest_pid)?;
+    // Inbound gateway (RFC-0092 / TASK-0052 P3): pre-mint ingressd's server
+    // pair — like sessiond's — so the selftest's intent route clones the
+    // SAME endpoints the declarative arm hands the gateway.
+    let ingressd_pid = find_pid(&ctrl_channels, "ingressd");
+    let (ingress_req, ingress_rsp) = if let Some(pid) = ingressd_pid {
+        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+            .map_err(InitError::Abi)?;
+        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+            .map_err(InitError::Abi)?;
+        (Some(req), Some(rsp))
+    } else {
+        (None, None)
+    };
 
     // Bundle the minted endpoint caps NOW — before the policy-gated grant phase —
     // and distribute every declared service's server pair immediately (RFC-0069
@@ -569,6 +582,8 @@ where
         boot_rsp,
         pinch_req,
         pinch_rsp,
+        ingress_req,
+        ingress_rsp,
     };
     crate::bootstrap::distribute::distribute_server_pairs(&mut ctrl_channels, &eps);
     // Wave 1 (TASK-0050 PR-5): the rest of the always-on CORE graph — the

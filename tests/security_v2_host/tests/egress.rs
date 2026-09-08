@@ -84,9 +84,15 @@ fn test_reject_egress_cidr() {
 fn test_reject_egress_port() {
     let p = shipped_profile("selftest-client");
     let sid = p.subject_service_id();
-    for port in [8080u16, 22, 8443, 1024] {
+    for port in [8090u16, 22, 8443, 1024] {
         assert_eq!(eval_status(&p, [10, 0, 2, 2], port), STATUS_DENY, "port {port}");
         assert!(!seam_admits(sid, Some(STATUS_DENY)));
+    }
+    // RFC-0092 (TASK-0052 P3): the selftest's own exposed ports are reachable
+    // only inside the user-net /24 (the facade hairpin) — never elsewhere.
+    for port in [8080u16, 8081, 8082] {
+        assert_eq!(eval_status(&p, [10, 0, 2, 15], port), STATUS_ALLOW, "hairpin {port}");
+        assert_eq!(eval_status(&p, [192, 168, 1, 1], port), STATUS_DENY, "remote {port}");
     }
 }
 

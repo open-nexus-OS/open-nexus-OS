@@ -500,7 +500,7 @@ wird production-grade auf das End-System gebaut (keine Interimslösung — Ledge
 Ledgern nachgeführt, nie geschätzt. Vokabular: ✅ delivered · ⤳ superseded · `Draft` /
 `In Progress` / `Done <date>` / `Delivered <date> (test-all green)`.
 
-### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 23/24 delivered · Tasks 4/5 Done
+### A — Phase 1: Sub-54 ohne Netz — ✅ KOMPLETT 2026-09-08 · Pakete 24/24 delivered · Tasks 5/5 Done
 
 Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 
@@ -529,7 +529,7 @@ Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 | 20 | ✅ TASK-0052 P0 | RFC-0092 „Service Exposure Contract“ + ADR-0061 (Exposure-Intent statt freier Binds): `[[expose]]`-Domäne, `any`-Bind nur für ingressd, ingressd-Wire/Filter/Rate/Forwarding, TLS-Slot, Marker, `ingress.capnp`, docs/security/ingress.md | Delivered 2026-09-08 (paper; check green) |
 | 21 | ✅ TASK-0052 P1 | Layer A: Grammatik-Regel `AnyBindNeedsGateway` (`compile_for(subject)`, any-Allow nur für `ingressd`), Korpus, `test_reject_nonloopback_bind_without_intent`, Selftest-Bind auf NIC-Adresse ⇒ `STATUS_DENY` → `SELFTEST: ingress deny ok` (+ `!cap-deny … addr=any` in der Leiter) | Delivered 2026-09-08 (test-all green) |
 | 22 | ✅ TASK-0052 P2 | `ingressd` host: `[[expose]]`-Grammatik (`expose.rs`, EIN File für policy-Crate + policyd-Build + ingressd-Build), `source/services/ingressd/` (Intent-Registry identitätsgebunden + policyd-Seam fail-closed, CIDR-Filter, Token-Bucket, Relay ≤16/4 KiB, UDP-Peer-Tabelle, Wire `I`,`G` v1), `tests/ingress_host/` (allow + 5 `test_reject_*` + IDL/Wire-Pin + Tabellen-Konsistenz) | Delivered 2026-09-08 (test-all green) |
-| 23 | TASK-0052 P3 | `ingressd` OS (`ingressd: ready`, `port open`, `deny (reason=…)`, `SELFTEST: ingress allow/deny/rate ok`; Loopback-Beweis im Einzel-VM-Profil; TLS = Contract-Slot, Umsetzung am Netz-Track) | Draft |
+| 23 | ✅ TASK-0052 P3 | `ingressd` OS: Facade-Loopback/Hairpin (127/8 + eigene IP auf jeden lokalen Listener, Pending-Queue, EOF-Semantik, `OP_PEER_ADDR`), deklaratives Wiring 3/4·5/6·7·8 + Volume-Bundle, Policy-Grants + 3 Exposures, Gateway-Loop (listen any / accept / CIDR / Rate / Backend-Dial / Relay), Marker `ingressd: ready|port open|deny`, `SELFTEST: ingress allow|intent deny|cidr deny|rate ok` — **TASK-0052 Done** (UDP-Datenebene/Listener-Close/TLS → TASK-0323) | Delivered 2026-09-08 (test-all green) |
 
 Nicht zählende Sub-54-Einträge: TASK-0050B **Deferred by decision** (Aktivierungsgate: reale
 Hardware); TASK-0011 Done. Superseded < 0054: 0011B, 0033 (→0295), 0037 (→0289), 0041

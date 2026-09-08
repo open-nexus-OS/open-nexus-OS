@@ -1,6 +1,6 @@
 ---
 title: TASK-0052 Security v3 (Ingress): default-deny inbound policy + ingressd userspace gateway + service exposure contract
-status: In Progress (P0+P1+P2 delivered 2026-09-08)
+status: Done (2026-09-08 — P0–P3 delivered; follow-ups TASK-0323)
 owner: @security
 created: 2025-12-23
 depends-on:
@@ -121,8 +121,42 @@ implementation in this task (contract slot only); outbound policy (TASK-0043).
   `test_reject_malformed_and_unsupported_frames`, `idl_grammar_and_wire_agree`,
   `shipped_policy_table_is_consistent`), `cargo test -p policy` 26 + corpus 6, clippy strict,
   structure gate; `just check` + `just test-all` green 2026-09-08 (exit=0, all nine QEMU lanes).
-- Next: P3 (`ingressd` OS: os-lite entry over fixed policyd + netstackd slots, init wiring,
-  `net.expose`/`policy.delegate` grants, `[[expose."selftest-client"]]`, markers, ladder).
+- Next: P3 (below).
+
+### P3 note (2026-09-08) — `ingressd` OS + facade prerequisites
+
+- **Facade (netstackd)**: generic in-facade loopback/hairpin (RFC-0092 §5): `Listener::{Tcp{sock,
+  port, pending}, Loop{port, pending}}` with a bounded `PendingQueue` (4) on EVERY listener;
+  `listen` on 127/8 = loopback-only (never a stack socket); `connect` to 127/8 or the interface's
+  own address pairs with the local listener of that port (real `0.0.0.0` listeners included),
+  no listener ⇒ `STATUS_IO`, full queue ⇒ `WOULD_BLOCK`; `accept` serves hairpins first;
+  `Stream::Loop{peer, rx, remote, peer_closed}` — close half-closes the peer, empty read after
+  that = end-of-stream (empty OK frame), write to a gone peer = `STATUS_IO`; `LOOPBUF_CAPACITY`
+  128→512 (one RPC payload); released stream slots are reused (`alloc_stream_slot`) so the
+  bump-allocated table stops doubling; `OP_PEER_ADDR = 13` (`nexus-net-os`
+  `OsTcpStream::remote_endpoint`); legacy 34567/34568 pairing kept verbatim. Pure
+  `entry_pure::{local_target, loop_remote_for_acceptor}` + unit test.
+- **ingressd OS** (`src/os_lite/`): declarative service (`ServiceSpec` routes Policyd + Netstackd
+  ReplyInbox → slots 3/4, 5/6, 7, 8; pre-minted server pair so the selftest routes by name;
+  boot order after netstackd; system-volume bundle; `SAFE_EXCLUDED`; supervision Standard/
+  OnFailure; `heap-1m` for the per-exposure relay tables); `netclient` (CAP_MOVE RPC over fixed
+  slots, foreign frames skipped, bounded deadlines), `stream::NetStream` (relay `Stream`, drop =
+  close), `gateway` (listen `0.0.0.0:<port>` on `Event::Opened`, 20 ms accept cadence,
+  `OP_PEER_ADDR` → `Registry::admit_peer` → backend dial `127.0.0.1:<backend>` → `Relay`
+  link; every refusal = `ingressd: deny (reason=…)` + `ingress_denies_total{subject}`
+  (`DenyCounter`); UDP intents refused honestly → TASK-0323), timed-park loop (5 ms) with
+  `ingressd: ready` after the wired slots answer.
+- **Policy**: `ingressd = ["ipc.core", "policy.delegate"]`, profile any-bind + `net.connect`
+  127/8; selftest `net.expose`, `net.connect` 10.0.2.0/24 8080-8082, three `[[expose."selftest-
+  client"]]` (8080 allow / 8081 cidr 10.0.2.2/32 / 8082 rate 1 burst 2).
+- **Proof**: selftest `net/ingress_gateway.rs` (loopback backends, intents by identity, hairpin
+  connects over the interface address); markers (proof-manifest + ladder): `ingressd: ready`,
+  `ingressd: port open (port=8080|8081|8082, proto=tcp)`, `ingressd: deny (reason=policy|cidr|
+  rate)`, `SELFTEST: ingress allow ok`, `SELFTEST: ingress intent deny ok`, `SELFTEST: ingress
+  cidr deny ok`, `SELFTEST: ingress rate ok` — all observed in the first headless boot
+  (`build/logs/headless--2026-09-08T12-34-16`); `just check` + `just test-all` green 2026-09-08 (exit=0; all nine QEMU lanes carry the four `SELFTEST: ingress …` markers).
+- **Open → TASK-0323**: UDP data plane, facade listener-close op (an unexposed port's listener
+  stays bound), TLS/mTLS slot (network track).
 
 ### Packages
 

@@ -998,50 +998,7 @@ pub struct OsTcpStream {
     handle: SocketHandle,
 }
 
-impl OsTcpStream {
-    pub fn wait_writable_bounded(&mut self, max_polls: u32) -> bool {
-        for _ in 0..=max_polls {
-            let mut inner = self.inner.borrow_mut();
-            let now = inner.now;
-            {
-                let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
-                match sock.state() {
-                    smoltcp::socket::tcp::State::Closed | smoltcp::socket::tcp::State::Listen => {
-                        return false
-                    }
-                    _ => {}
-                }
-                if sock.may_send() {
-                    return true;
-                }
-            }
-            poll_inner_once(&mut inner, now.saturating_add(1));
-        }
-        false
-    }
-
-    /// Close and dispose the underlying socket handle from the shared socket set.
-    ///
-    /// Use this when a connect attempt must be abandoned before the stream is handed out.
-    pub fn close_and_remove(self) {
-        let mut inner = self.inner.borrow_mut();
-        {
-            let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
-            sock.close();
-        }
-        inner.sockets.remove(self.handle);
-    }
-
-    /// Returns true when the stream is no longer in a connect/connected state.
-    pub fn is_closed_or_listen(&self) -> bool {
-        let mut inner = self.inner.borrow_mut();
-        let sock = inner.sockets.get_mut::<smoltcp::socket::tcp::Socket>(self.handle);
-        matches!(
-            sock.state(),
-            smoltcp::socket::tcp::State::Closed | smoltcp::socket::tcp::State::Listen
-        )
-    }
-}
+mod tcp_stream_ext;
 
 impl TcpStream for OsTcpStream {
     fn read(&mut self, deadline: Option<NetInstant>, buf: &mut [u8]) -> Result<usize, NetError> {

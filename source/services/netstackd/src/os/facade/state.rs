@@ -19,10 +19,66 @@ use nexus_net_os::{OsTcpListener, OsTcpStream, OsUdpSocket};
 use crate::os::ipc::handles::StreamId;
 use crate::os::loopback::LoopBuf;
 
-/// Loopback TCP listener slot (in-process pairing).
+/// Hairpinned connections waiting for `accept` on one listener (RFC-0092
+/// facade prerequisite): bounded, FIFO, never grows.
+pub(crate) const LOOP_PENDING_CAPACITY: usize = 4;
+
+/// FIFO of loop-stream ids parked on a listener until the owner accepts.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct PendingQueue {
+    slots: [Option<StreamId>; LOOP_PENDING_CAPACITY],
+}
+
+impl PendingQueue {
+    pub(crate) const fn new() -> Self {
+        Self { slots: [None; LOOP_PENDING_CAPACITY] }
+    }
+
+    pub(crate) fn has_room(&self) -> bool {
+        self.slots.iter().any(Option::is_none)
+    }
+
+    /// `false` when full (the caller refuses the connect).
+    pub(crate) fn push(&mut self, id: StreamId) -> bool {
+        match self.slots.iter_mut().find(|s| s.is_none()) {
+            Some(slot) => {
+                *slot = Some(id);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Oldest first.
+    pub(crate) fn pop(&mut self) -> Option<StreamId> {
+        let first = self.slots.iter().position(Option::is_some)?;
+        let id = self.slots[first].take();
+        self.slots.copy_within(first + 1.., first);
+        self.slots[LOOP_PENDING_CAPACITY - 1] = None;
+        id
+    }
+}
+
+/// A facade listener: a real NIC-facing smoltcp listener (`Tcp`, also the
+/// hairpin target for local connects to the interface address) or a
+/// loopback-only one (`Loop`, `127/8` binds — never reachable from the NIC).
 pub(crate) enum Listener {
-    Tcp(OsTcpListener),
-    Loop { port: u16, pending: Option<StreamId> },
+    Tcp { sock: OsTcpListener, port: u16, pending: PendingQueue },
+    Loop { port: u16, pending: PendingQueue },
+}
+
+impl Listener {
+    pub(crate) fn port(&self) -> u16 {
+        match self {
+            Self::Tcp { port, .. } | Self::Loop { port, .. } => *port,
+        }
+    }
+
+    pub(crate) fn pending_mut(&mut self) -> &mut PendingQueue {
+        match self {
+            Self::Tcp { pending, .. } | Self::Loop { pending, .. } => pending,
+        }
+    }
 }
 
 /// TCP or loopback byte stream tracked by the facade.
@@ -31,10 +87,22 @@ pub(crate) enum Stream {
     TcpDial(OsTcpStream),
     /// Inbound accepted stream (created via OP_ACCEPT on listener socket).
     TcpAccepted(OsTcpStream),
-    Loop {
-        peer: StreamId,
-        rx: LoopBuf,
-    },
+    /// One end of an in-facade pair (loopback / hairpin): bytes written here
+    /// land in the peer's `rx`; `remote` is what `OP_PEER_ADDR` reports;
+    /// `peer_closed` turns an empty read into end-of-stream.
+    Loop { peer: StreamId, rx: LoopBuf, remote: ([u8; 4], u16), peer_closed: bool },
+}
+
+/// Reuses a released stream slot (ids of closed streams are dead) or grows
+/// the table — keeps the bump-allocated table from doubling per boot.
+pub(crate) fn alloc_stream_slot(streams: &mut Vec<Option<Stream>>) -> usize {
+    match streams.iter().position(Option::is_none) {
+        Some(i) => i,
+        None => {
+            streams.push(None);
+            streams.len() - 1
+        }
+    }
 }
 
 /// UDP loopback buffer bound to a port.

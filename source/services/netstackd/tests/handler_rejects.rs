@@ -44,6 +44,7 @@ fn test_reject_all_supported_ops_malformed_status_frame_shape() {
         wire::OP_LOCAL_ADDR,
         wire::OP_CLOSE,
         wire::OP_WAIT_WRITABLE,
+        wire::OP_PEER_ADDR,
     ];
     for op in ops {
         assert_malformed_frame(op);
@@ -60,6 +61,7 @@ fn test_reject_handle_ops_not_found_status_frame_shape() {
         wire::OP_WAIT_WRITABLE,
         wire::OP_UDP_SEND_TO,
         wire::OP_UDP_RECV_FROM,
+        wire::OP_PEER_ADDR,
     ] {
         let frame = status_frame(op, wire::STATUS_NOT_FOUND);
         assert_eq!(frame[3], op | 0x80);

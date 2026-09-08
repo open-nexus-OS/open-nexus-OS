@@ -154,6 +154,12 @@ pub(crate) struct Endpoints {
     pub pinch_req: Option<u32>,
     /// pinched server response endpoint (owned by selftest-client).
     pub pinch_rsp: Option<u32>,
+    /// ingressd server request endpoint (pre-minted so the selftest's intent
+    /// route clones the SAME pair the gateway serves — RFC-0092 / TASK-0052).
+    pub ingress_req: Option<u32>,
+    /// ingressd server response endpoint (nominal: the gateway replies via
+    /// CAP_MOVE; kept so the pair shape matches every other declared server).
+    pub ingress_rsp: Option<u32>,
 }
 
 impl Endpoints {
@@ -202,6 +208,8 @@ impl Endpoints {
             // Compute broker (SMP track Phase D): pre-minted so the selftest
             // client route targets the pair pinched actually serves.
             ServiceId::Pinched => self.pinch_req.zip(self.pinch_rsp),
+            // Inbound gateway (RFC-0092): pre-minted for the selftest route.
+            ServiceId::Ingressd => self.ingress_req.zip(self.ingress_rsp),
             _ => None,
         }
     }

@@ -12,7 +12,7 @@ use nexus_abi::yield_;
 use nexus_net::{NetError, TcpListener as _};
 
 use crate::os::facade::dispatch::{DispatchControl, FacadeContext};
-use crate::os::facade::state::{Listener, Stream};
+use crate::os::facade::state::{alloc_stream_slot, Listener, Stream};
 use crate::os::facade::tcp;
 use crate::os::facade::validation;
 use crate::os::ipc::handles::{ListenerId, StreamId};
@@ -56,8 +56,20 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
         let _ = yield_();
         return DispatchControl::ContinueLoop;
     };
+    // Hairpinned local connects (RFC-0092) are parked on the listener and
+    // handed out before the stack's own backlog.
+    if let Some(sid) = l.pending_mut().pop() {
+        reply_u32_status_maybe_nonce(
+            reply,
+            OP_ACCEPT,
+            STATUS_OK,
+            StreamId::to_wire(sid.index()),
+            nonce,
+        );
+        return DispatchControl::Handled;
+    }
     match l {
-        Listener::Tcp(l) => {
+        Listener::Tcp { sock: l, .. } => {
             let accept_result =
                 tcp::retry_would_block(net, now_ms, |deadline| l.accept(Some(deadline)));
             match accept_result {
@@ -68,8 +80,9 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
                         let _ = nexus_abi::debug_println("dbg:netstackd: accept status ok");
                         // #endregion
                     }
-                    streams.push(Some(Stream::TcpAccepted(s)));
-                    let sid = StreamId::to_wire(streams.len() - 1);
+                    let slot = alloc_stream_slot(streams);
+                    streams[slot] = Some(Stream::TcpAccepted(s));
+                    let sid = StreamId::to_wire(slot);
                     reply_u32_status_maybe_nonce(reply, OP_ACCEPT, STATUS_OK, sid, nonce);
                 }
                 Err(NetError::WouldBlock) => {
@@ -93,18 +106,8 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
                 }
             }
         }
-        Listener::Loop { pending, .. } => {
-            if let Some(sid) = pending.take() {
-                reply_u32_status_maybe_nonce(
-                    reply,
-                    OP_ACCEPT,
-                    STATUS_OK,
-                    StreamId::to_wire(sid.index()),
-                    nonce,
-                );
-            } else {
-                reply_status_maybe_nonce(reply, OP_ACCEPT, STATUS_WOULD_BLOCK, nonce);
-            }
+        Listener::Loop { .. } => {
+            reply_status_maybe_nonce(reply, OP_ACCEPT, STATUS_WOULD_BLOCK, nonce);
         }
     }
     DispatchControl::Handled

@@ -80,12 +80,14 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
                 }
             }
         }
-        Stream::Loop { rx, .. } => {
+        Stream::Loop { rx, peer_closed, .. } => {
             let mut out = [0u8; 480];
             let n = rx.pop(&mut out[..max]);
-            if n == 0 {
+            if n == 0 && !*peer_closed {
                 reply_status_maybe_nonce(reply, OP_READ, STATUS_WOULD_BLOCK, nonce);
             } else {
+                // `n == 0` with the peer gone is end-of-stream (an OK frame
+                // carrying no payload), the same shape a real socket reports.
                 reply_u16_len_payload_status_maybe_nonce(
                     reply,
                     OP_READ,

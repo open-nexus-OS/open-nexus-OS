@@ -102,6 +102,8 @@ pub const SUPERVISION: &[(ServiceId, Criticality, RestartPolicy)] = &[
     (ServiceId::Timed, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Imed, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Netstackd, Criticality::Standard, RestartPolicy::OnFailure),
+    // RFC-0092 / TASK-0052: the inbound gateway follows the stack it fronts.
+    (ServiceId::Ingressd, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Dsoftbusd, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Metricsd, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Hidrawd, Criticality::Standard, RestartPolicy::OnFailure),

@@ -1527,6 +1527,10 @@ dependencies = [
 name = "ingressd"
 version = "0.1.0"
 dependencies = [
+ "nexus-abi",
+ "nexus-ipc",
+ "nexus-metrics",
+ "nexus-service-entry",
  "serde",
  "toml",
 ]

@@ -8,7 +8,9 @@
 //! TEST_COVERAGE: Planned in netstackd host seam tests
 //! ADR: docs/adr/0005-dsoftbus-architecture.md
 
-pub(crate) const LOOPBUF_CAPACITY: usize = 128;
+/// One facade RPC payload (`OP_READ`/`OP_WRITE` carry ≤ 480 bytes) fits
+/// without partial writes — the relay contract (RFC-0092) chunks at 480.
+pub(crate) const LOOPBUF_CAPACITY: usize = 512;
 
 #[derive(Clone, Copy)]
 pub(crate) struct LoopBuf {

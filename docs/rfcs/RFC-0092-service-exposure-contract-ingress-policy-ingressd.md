@@ -19,7 +19,7 @@
 - **Phase 0 (contract seed: exposure schema, bind gate rule, ingressd wire, markers)**: ✅ (2026-09-08, TASK-0052 P0)
 - **Phase 1 (Layer A — bind gate: `any` only for the gateway; `SELFTEST: ingress deny ok`)**: ✅ (2026-09-08, TASK-0052 P1)
 - **Phase 2 (Layer B — `ingressd` host: intents, CIDR accept filter, token bucket, forwarding)**: ✅ 2026-09-08 (TASK-0052 P2 — `expose.rs` grammar shared by policyd/ingressd build tables, `source/services/ingressd/` core, `tests/ingress_host/`)
-- **Phase 3 (Layer B — `ingressd` OS: init wiring, markers, `SELFTEST: ingress allow|deny|rate ok`)**: ⬜ (TASK-0052 P3)
+- **Phase 3 (Layer B — `ingressd` OS: init wiring, markers, `SELFTEST: ingress allow|intent deny|cidr deny|rate ok`)**: ✅ 2026-09-08 (TASK-0052 P3 — facade loopback/hairpin + `OP_PEER_ADDR` prerequisite delivered in netstackd; TCP data plane end to end; UDP data plane → TASK-0323)
 - **TLS / mTLS termination slot**: ⬜ reserved — delivered by the network track (never a stub)
 
 Definition:
@@ -100,6 +100,15 @@ backend    = 18080                   # loopback backend port the subject listens
 - Capabilities: `ingressd` holds `net.bind` (`any`), `policy.delegate` (it names the subject it checks), `ipc.core`; exposing services hold `net.expose`. Deny by default in `policies/base.toml`.
 - IDL (host SSOT, `tools/nexus-idl/schemas/ingress.capnp`): `ExposeIntent {service, port, proto, cidrAllow, ratePerS, burst, tls, backend}` + `ExposeResponse` — the same fields as §1, for `nx` tooling and host tests; the OS wire above is the ADR-0051 `nexus-wire` frame form.
 
+#### 5. Facade prerequisites (netstackd, delivered with P3)
+
+The gateway is a facade client like every other service, so the facade must carry what the gateway needs — nothing NIC-facing lives in ingressd:
+
+- **In-facade loopback and hairpin.** A `listen` on `127/8` is a loopback-only listener (never a stack socket, unreachable from the NIC). A `connect` to `127/8` or to the interface's own address pairs two in-facade streams with the local listener of that port — a real `0.0.0.0:<port>` listener included — parking the accept side on a bounded per-listener queue (`LOOP_PENDING_CAPACITY = 4`); no listener ⇒ `STATUS_IO` (connection refused), a full queue ⇒ `STATUS_WOULD_BLOCK`. Closing one end half-closes the other: buffered bytes drain, then `OP_READ` answers an empty OK frame (end-of-stream). Buffers hold one RPC payload (512 B). The legacy QEMU pairing ports (34567/34568) keep their listener-less behaviour.
+- **`OP_PEER_ADDR = 13`** (additive): `[hdr4][stream_id u32]` → `[hdr5][ip 4][port u16le]` — the remote of a stream (stack sockets: the socket's remote endpoint; pairs: the connector's address, i.e. `127.0.0.1` for loopback, the interface address for a hairpin, with a synthetic ephemeral port). This is the accept-side identity the CIDR filter judges.
+- The gateway's own slots are init's deterministic wiring for a declared service: server 3/4, CAP_MOVE reply inbox 5/6, policyd 7, netstackd 8 (`ServiceSpec` routes; a seam never routes from its hot loop). The selftest reaches the gateway by name (`init: selftest route->ingressd ok`).
+- The gateway's refusals are counted where they happen: `ingress_denies_total{subject}` (nexus-metrics `DenyCounter`, flushed ≤ 1/s) for accept-side and intent-level denies alike.
+
 #### 4. TLS / mTLS slot (contract only)
 
 - `tls = "tls" | "mtls"` selects termination at the gateway with certificates/keys from `configd`/`keystored`; the accept-side filters (§3) run before the handshake. Until the network track delivers it, the grammar rejects the value and the gateway never claims it — no marker, no `ok`.
@@ -141,8 +150,8 @@ cd /home/jenning/open-nexus-OS && just test-os headless   # and smp1
 ### Deterministic markers
 
 - `SELFTEST: ingress deny ok` — a non-loopback bind by a non-gateway subject was refused at the facade (P1).
-- `ingressd: ready`, `ingressd: port open (port=<p>, proto=<tcp|udp>)`, `ingressd: deny (reason=policy|cidr|rate)` (P3).
-- `SELFTEST: ingress allow ok` — bytes crossed the gateway from a NIC-facing address to a loopback backend; `SELFTEST: ingress rate ok` — the token bucket refused the (burst+1)th attempt within the window (P3).
+- `ingressd: ready` (wired slots answer), `ingressd: port open (port=<p>, proto=<tcp|udp>)` (NIC-facing bind done AND intent registered), `ingressd: deny (reason=policy|identity|limit|cidr|rate)` (P3).
+- `SELFTEST: ingress allow ok` — bytes crossed the gateway (selftest → own interface address → gateway → loopback backend → back); `SELFTEST: ingress intent deny ok` — an undeclared intent answered `STATUS_DENY reason=policy`; `SELFTEST: ingress cidr deny ok` — a peer outside `cidr_allow` was accepted and closed (end-of-stream); `SELFTEST: ingress rate ok` — with `burst = 2` the third connection within the window was closed (P3). Single-VM: every leg is the in-facade loopback/hairpin (§5), so the proof needs no peer.
 
 ## Alternatives considered
 
@@ -155,13 +164,14 @@ cd /home/jenning/open-nexus-OS && just test-os headless   # and smp1
 - TLS/mTLS termination (owner: network track; needs a `no_std` TLS that fits the OS graph, RFC-0009 dependency hygiene).
 - IPv6 CIDRs (reserved with RFC-0091).
 - Whether DSoftBus session ports become exposures through this gateway or keep their own authorization (TASK-0030) — decided when the network family resumes.
+- UDP data plane (`proto = "udp"` exposures: the grammar and intent path accept them, the gateway currently binds/relays TCP only — a UDP intent answers `port open FAIL`), a facade listener-close op (an unexposed port's listener stays bound until then) and the hairpin's single-process scope — TASK-0323.
 
 ## Implementation Checklist
 
 - [x] **Phase 0**: contract seed (this RFC), ADR-0061, IDL seed, `docs/security/ingress.md`, RFC/ADR indexes — proof: `just check` docs gates (2026-09-08)
 - [x] **Phase 1**: Layer A bind gate — proof: `test_reject_nonloopback_bind_without_intent`, `SELFTEST: ingress deny ok` (2026-09-08)
 - [x] **Phase 2**: `ingressd` host + `tests/ingress_host/` — proof: the five `test_reject_*` (2026-09-08)
-- [ ] **Phase 3**: `ingressd` OS — proof: markers above in headless/smp1
-- [ ] Task(s) linked with stop conditions + proof commands (TASK-0052).
-- [ ] QEMU markers appear in `scripts/qemu-test.sh` + proof-manifest and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*` above).
+- [x] **Phase 3**: `ingressd` OS — proof: markers above in headless/smp1 (2026-09-08)
+- [x] Task(s) linked with stop conditions + proof commands (TASK-0052; follow-up TASK-0323).
+- [x] QEMU markers appear in `scripts/qemu-test.sh` + proof-manifest and pass (2026-09-08).
+- [x] Security-relevant negative tests exist (`test_reject_*` above).

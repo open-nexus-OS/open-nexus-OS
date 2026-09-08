@@ -12,9 +12,9 @@ use nexus_abi::yield_;
 use nexus_net::{NetSocketAddrV4, NetStack as _};
 
 use crate::os::config::{LOOPBACK_PORT, LOOPBACK_PORT_B};
-use crate::os::entry_pure::QEMU_USERNET_FALLBACK_IP;
+use crate::os::entry_pure::{is_loopback_ip, QEMU_USERNET_FALLBACK_IP};
 use crate::os::facade::dispatch::{DispatchControl, FacadeContext};
-use crate::os::facade::state::Listener;
+use crate::os::facade::state::{Listener, PendingQueue};
 use crate::os::ipc::handles::ListenerId;
 use crate::os::ipc::parse::{parse_ipv4_at, parse_nonce, parse_u16_le};
 use crate::os::ipc::reply::{reply_status_maybe_nonce, reply_u32_status_maybe_nonce, status_frame};
@@ -55,14 +55,19 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
         let _ = yield_();
         return DispatchControl::ContinueLoop;
     }
-    if listen_ip == QEMU_USERNET_FALLBACK_IP && (port == LOOPBACK_PORT || port == LOOPBACK_PORT_B) {
+    // Loopback-only listeners never touch the stack: `127/8` binds (RFC-0092
+    // backends) and the legacy QEMU pairing ports.
+    if is_loopback_ip(listen_ip)
+        || (listen_ip == QEMU_USERNET_FALLBACK_IP
+            && (port == LOOPBACK_PORT || port == LOOPBACK_PORT_B))
+    {
         if !*dbg_listen_loopback_logged {
             *dbg_listen_loopback_logged = true;
             // #region agent log
             let _ = nexus_abi::debug_println("dbg:netstackd: listen mode loopback");
             // #endregion
         }
-        listeners.push(Some(Listener::Loop { port, pending: None }));
+        listeners.push(Some(Listener::Loop { port, pending: PendingQueue::new() }));
         let id = ListenerId::to_wire(listeners.len() - 1);
         reply_u32_status_maybe_nonce(reply, OP_LISTEN, STATUS_OK, id, nonce);
         let _ = nexus_abi::trace_line("netstackd: rpc listen ok");
@@ -76,7 +81,7 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
         let addr = NetSocketAddrV4::new(listen_ip, port);
         match net.tcp_listen(addr, 1) {
             Ok(l) => {
-                listeners.push(Some(Listener::Tcp(l)));
+                listeners.push(Some(Listener::Tcp { sock: l, port, pending: PendingQueue::new() }));
                 let id = ListenerId::to_wire(listeners.len() - 1);
                 reply_u32_status_maybe_nonce(reply, OP_LISTEN, STATUS_OK, id, nonce);
                 let _ = nexus_abi::trace_line("netstackd: rpc listen ok");
