@@ -116,6 +116,8 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0089: OTA v2 — component manifest (`.nxs` v2) + A/B boot images + `nxboot` first-stage loader + boot selection block (end-to-end OTA contract; supersedes RFC-0012 in part; bundle-set granularity = Phase B, normative since 2026-09-03: pkgimg v3 system volume + signed NXSV descriptor verified by bundlemgrd, kinds 2/4/6, `commit_set`, op-aware gates — ADR-0060, execution TASK-0321 → TASK-0035)
 - RFC-0090: `.nxdelta` v1 boot-image delta stream format (`boot-image-delta` component kind 3; signature-bound delta payload + O(1) base binding to the loader-verified active NXBD + unchanged digest/readback/NXBD-last tail; stored ADDs in v1, zstd reserved behind RFC-0009 D4)
 - RFC-0091: Policy profile v2 — ONE schema for ABI argument filters, egress and ingress (`statefs` prefix + payload, `net.bind` port range + address class, `net.connect` CIDR + ports, `limits`), longest-specific-match with deny-beats-allow precedence, additive wire v2 with a monotone per-subject epoch, bounded learn records + `nx policy learn-gen`, and the ONE authenticated epoch-guarded runtime transition (`OP_SET_ABI_MODE`) — execution TASK-0028, consumers TASK-0043/0052/0189/0229
+- RFC-0092: Service Exposure Contract — default-deny inbound: only the `ingressd` gateway binds non-loopback, exposures are declared intents (`[[expose]]`: port/proto/CIDR allow-list/token-bucket rate/TLS slot/loopback backend), identity-bound registration, accept-side CIDR + rate enforcement, forwarding to loopback, TLS/mTLS as a named slot (Draft seed 2026-09-08 — execution TASK-0052 P0–P3, ADR-0061)
+  - docs/rfcs/RFC-0092-service-exposure-contract-ingress-policy-ingressd.md
 
 ## Index
 

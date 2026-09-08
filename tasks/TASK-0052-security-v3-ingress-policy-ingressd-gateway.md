@@ -1,6 +1,6 @@
 ---
 title: TASK-0052 Security v3 (Ingress): default-deny inbound policy + ingressd userspace gateway + service exposure contract
-status: Draft
+status: In Progress (P0 delivered 2026-09-08)
 owner: @security
 created: 2025-12-23
 depends-on:
@@ -54,6 +54,20 @@ implementation in this task (contract slot only); outbound policy (TASK-0043).
   QEMU user-net (no peer needed).
 - Identity: exposure intents are attributed by `sender_service_id`; a forged intent for another
   service is rejected (`test_reject_forged_intent_sender`).
+
+### P0 delivered 2026-09-08 — contract seed
+
+- `docs/rfcs/RFC-0092-service-exposure-contract-ingress-policy-ingressd.md`: `[[expose."<subject>"]]`
+  schema (port/proto, ≤ 8 CIDRs, token-bucket `rate_per_s`/`burst`, `tls` slot, loopback `backend`;
+  duplicates and `tls != none` are parse errors), Layer A rule (`address = "any"` only for the
+  `ingressd` subject — `SchemaError::AnyBindNeedsGateway`), `ingressd` wire (`OP_EXPOSE`/`OP_UNEXPOSE`/
+  `OP_EXPOSE_STATUS`, reasons `policy|identity|limit|tls`), accept-side CIDR + rate + bounded
+  forwarding, capabilities (`net.expose`, gateway `policy.delegate`), failure model, markers, the
+  five `test_reject_*` names, phases P1–P3, TLS/IPv6/DSoftBus open questions.
+- `docs/adr/0061-exposure-intent-instead-of-free-binds.md` (Accepted), `tools/nexus-idl/schemas/
+  ingress.capnp` (host SSOT: `ExposeIntent`, `ExposeResponse`), `docs/security/ingress.md`, RFC +
+  ADR indexes.
+- Proof: `just check` docs gates. Next: P1 (Layer A).
 
 ### Packages
 

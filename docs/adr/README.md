@@ -70,3 +70,4 @@ Note: **ADR-0019 was never filed; the number is retired to keep history stable.*
 - [ADR-0058: Boot Selection Block — derived projection with a field-level dual-actor write matrix](0058-boot-selection-block-dual-actor-discipline.md) — Accepted
 - [ADR-0059: First-stage boot chain — `nxboot` loader position, self-relocation, measured-boot handoff ABI](0059-first-stage-boot-chain-nxboot-handoff.md) — Accepted
 - [ADR-0060: Verified system volume — `bundlemgrd` is the volume verifier and bundle authority, `init` stays the sole spawner](0060-verified-system-volume-bundlemgrd-verifier-init-spawner.md) — Accepted
+- [ADR-0061: Inbound exposure is an intent through ONE gateway — no service binds a non-loopback address itself](0061-exposure-intent-instead-of-free-binds.md) — Accepted

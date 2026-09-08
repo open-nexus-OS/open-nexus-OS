@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-08 (TASK-0052 P0: RFC-0092 Service Exposure Contract seed + ADR-0061)
+
+- Inbound becomes default-deny by contract: only the `ingressd` gateway may
+  bind a non-loopback address; services declare exposures
+  (`[[expose."<subject>"]]`: port/proto, CIDR allow-list, token-bucket rate,
+  TLS slot, loopback backend) and register them by kernel identity; the
+  gateway filters and forwards. ADR-0061, IDL seed `ingress.capnp`,
+  `docs/security/ingress.md`. Execution TASK-0052 P1–P3.
+
 ### Added - 2026-09-08 (TASK-0043 P4: one deny taxonomy + deny counters — TASK-0043 Done)
 
 - `nexus_ipc::audit::DenyReason`: the single vocabulary every enforcer
