@@ -85,6 +85,10 @@ fn audit_op_name(op: u8) -> &'static [u8] {
         OP_CHECK_CAP_DELEGATED => b"check_cap_delegated",
         OP_ROUTE => b"route",
         OP_EXEC => b"exec",
+        nexus_abi::policyd::OP_ABI_PROFILE_GET => b"abi_profile",
+        nexus_abi::policyd::OP_SET_ABI_MODE => b"abi_mode",
+        nexus_abi::policyd::OP_ABI_EVAL => b"abi_eval",
+        nexus_abi::policyd::OP_ABI_LEARN_STATS => b"abi_learn_stats",
         _ => b"unknown",
     }
 }
@@ -96,13 +100,45 @@ fn audit_decision_name(decision: AuditDecision) -> &'static [u8] {
     }
 }
 
+/// The ONE deny taxonomy (`nexus_ipc::audit::DenyReason`): refusals of the
+/// network classes are reported with their user-facing reasons.
 fn audit_reason_name(reason: AuditReason) -> &'static [u8] {
+    use nexus_ipc::audit::{AbiClass, DenyReason};
     match reason {
-        AuditReason::Policy => b"policy",
-        AuditReason::AbiRule(1) => b"abi-rule:statefs",
-        AuditReason::AbiRule(2) => b"abi-rule:net.bind",
-        AuditReason::AbiRule(3) => b"abi-rule:net.connect",
-        AuditReason::AbiRule(_) => b"abi-rule:unknown",
-        AuditReason::AbiMode => b"abi-mode",
+        AuditReason::Policy => DenyReason::Policy.as_str().as_bytes(),
+        AuditReason::AbiRule(class) => match AbiClass::from_wire(class) {
+            Some(c) => DenyReason::for_abi_class(c).as_str().as_bytes(),
+            None => b"abi-rule:unknown",
+        },
+        AuditReason::AbiMode => DenyReason::AbiMode.as_str().as_bytes(),
+    }
+}
+
+/// `egress_denies_total{subject}` / `ingress_denies_total{subject}` (TASK-0043
+/// P4): counted where the decision is made, flushed to metricsd at most once
+/// per second per counter (bounded, best-effort — never in the decision
+/// path's error handling). Owned by the service loop and threaded through
+/// `handle_frame` (policyd forbids `unsafe`, so no `static` cell).
+pub(crate) struct DenyCounters {
+    egress: nexus_metrics::deny_counter::DenyCounter,
+    ingress: nexus_metrics::deny_counter::DenyCounter,
+}
+
+impl DenyCounters {
+    pub(crate) const fn new() -> Self {
+        Self {
+            egress: nexus_metrics::deny_counter::DenyCounter::new("egress_denies_total"),
+            ingress: nexus_metrics::deny_counter::DenyCounter::new("ingress_denies_total"),
+        }
+    }
+
+    /// Counts an `OP_ABI_EVAL` refusal of a network class for `subject`.
+    pub(crate) fn note_abi_deny(&mut self, class: u8, subject: u64) {
+        let now = nexus_abi::nsec().unwrap_or(0);
+        match class {
+            3 => self.egress.note(subject, now),
+            2 => self.ingress.note(subject, now),
+            _ => {}
+        }
     }
 }

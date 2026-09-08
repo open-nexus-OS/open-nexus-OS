@@ -148,10 +148,15 @@ the empty deny-all profile.
   `STATUS_DENY` + `!cap-deny: enforcer=netstackd …`; unattributed
   (`sid == 0`) or policyd unreachable ⇒ refused
   (`nexus_ipc::policyd::seam_admits`, `test_reject_unattributed_connect`).
-- **policyd audit**: refusals carry `reason=abi-rule:<class>`; allowed
-  evaluations (the hot path) are not audited; every applied mode switch is
-  audited with `reason=abi-mode` and printed as
-  `policyd: abi mode subject=<sid hex16> mode=<learn|enforce> epoch=<e>`.
+- **policyd audit** (the ONE deny taxonomy, `nexus_ipc::audit::DenyReason`):
+  refusals carry `reason=abi-rule:statefs` / `ingress-denied` (`net.bind`) /
+  `egress-denied` (`net.connect`); allowed evaluations (the hot path) are not
+  audited; every applied mode switch is audited with `reason=abi-mode` and
+  printed as `policyd: abi mode subject=<sid hex16> mode=<learn|enforce>
+  epoch=<e>`. statefsd's quota refusal carries `reason=quota-exceeded`.
+  Counters `egress_denies_total` / `ingress_denies_total` (policyd) and
+  `quota_denies_total` (statefsd), per subject, flushed to metricsd at most
+  once per second with a 15-subject cardinality cap.
 
 ## Lifecycle
 

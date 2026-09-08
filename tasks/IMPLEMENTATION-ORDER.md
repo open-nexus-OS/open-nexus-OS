@@ -500,7 +500,7 @@ wird production-grade auf das End-System gebaut (keine Interimslösung — Ledge
 Ledgern nachgeführt, nie geschätzt. Vokabular: ✅ delivered · ⤳ superseded · `Draft` /
 `In Progress` / `Done <date>` / `Delivered <date> (test-all green)`.
 
-### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 19/24 delivered · Tasks 3/5 Done
+### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 20/24 delivered · Tasks 4/5 Done
 
 Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 
@@ -525,7 +525,7 @@ Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 | 16 | ✅ TASK-0043 P1 | statefs-Quota: Modell `statefs::quota` (used aus Replay-Map, `check_put`, `WarnLatch`), `[quota]` im gemeinsamen Schema (+ Disjunktheit, Korpus), statefsd `build.rs` → `QUOTA_ENTRIES`, Seam `quota_os.rs` (EDQUOTA vor Append, warn once), `tests/state_quota_host/` (6), `SELFTEST: quota deny ok` + `statefs: quota warn/deny` in der Leiter | Delivered 2026-09-07 (test-all green) |
 | 17 | ✅ TASK-0043 P2 | netstackd-Identität: `sid` → `FacadeContext`, `STATUS_DENY=6`, `authz.rs`-Seam (`OP_ABI_EVAL` net.connect / net.bind mit Adressklasse, policyd einmal geroutet, `!cap-deny`-Zeile), `seam_admits` + `test_reject_unattributed_connect`, netstackd `policy.delegate` — gemeinsam mit 0052 P1 | Delivered 2026-09-07 (test-all green) |
 | 18 | ✅ TASK-0043 P3 | Egress-Beweis durch den Facade: Selftest-Connects gegen das `net.connect`-Profil (CIDR-/Port-Refusal ⇒ `STATUS_DENY` + `!cap-deny … dst=…`, erlaubtes Ziel admitted, Learn-Refusal im Collector +1) → `SELFTEST: egress deny/allow/learn collected ok`; `tests/security_v2_host/` (5) | Delivered 2026-09-07 (test-all green) |
-| 19 | TASK-0043 P4 | Audit-Taxonomie (`AuditReason` += Quota/Egress/Ingress/AbiRule) + Counter + Docs | Draft |
+| 19 | ✅ TASK-0043 P4 | EINE Deny-Taxonomie `nexus_ipc::audit::DenyReason` (policy / abi-rule:statefs / ingress-denied / egress-denied / abi-mode / quota-exceeded) in policyd-Audit + statefsd; Zähler `egress_denies_total`/`ingress_denies_total` (policyd) + `quota_denies_total` (statefsd) via gebundenen `DenyTally` (15 Subjekte + other, 1 Flush/s); `docs/security/network-egress.md`, sandboxing-Grenze — **TASK-0043 Done** | Delivered 2026-09-08 (test-all green) |
 | 20 | TASK-0052 P0 | RFC-Seed „Service Exposure Contract“ (`ExposeIntent`-IDL) + ADR „Exposure-Intent statt freier Binds“ | Draft |
 | 21 | TASK-0052 P1 | Schicht A: `ingress`-Policy-Domäne + `net.bind`-Adressdimension (loopback-only default) an der Facade, `SELFTEST: ingress deny ok` | Draft |
 | 22 | TASK-0052 P2 | `ingressd` host (`tests/ingress_host/`: allow / cidr deny / rate) | Draft |

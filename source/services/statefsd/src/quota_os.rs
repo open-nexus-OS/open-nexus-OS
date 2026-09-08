@@ -27,14 +27,20 @@ mod quota_table {
     include!(concat!(env!("OUT_DIR"), "/quota_table.rs"));
 }
 
-/// Per-boot quota state (the warn latches; usage is never cached).
+/// Per-boot quota state (the warn latches + the deny counter; usage is never cached).
 pub(crate) struct QuotaState {
     latch: WarnLatch,
+    /// `quota_denies_total{subject}` (TASK-0043 P4), flushed to metricsd at
+    /// most once per second — bounded, best-effort.
+    denies: nexus_metrics::deny_counter::DenyCounter,
 }
 
 impl QuotaState {
     pub(crate) const fn new() -> Self {
-        Self { latch: WarnLatch::new() }
+        Self {
+            latch: WarnLatch::new(),
+            denies: nexus_metrics::deny_counter::DenyCounter::new("quota_denies_total"),
+        }
     }
 
     /// The declared rules (build-time table).
@@ -68,6 +74,7 @@ impl QuotaState {
             }
             PutVerdict::Deny { used } => {
                 emit_quota_deny(rule.subject, used, rule.hard_bytes);
+                self.denies.note(rule.subject, nexus_abi::nsec().unwrap_or(0));
                 false
             }
         }

@@ -1,6 +1,6 @@
 ---
 title: TASK-0043 Security v2: sandbox quotas (tmp/state) + per-subject network egress rules + tighter ABI policies + audits (host-first, OS-gated)
-status: In Progress (P0–P3 delivered 2026-09-07)
+status: Done (P0–P4 delivered 2026-09-07..08; network family follow-ups listed)
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -235,6 +235,34 @@ on the same model afterwards (TASK-0133 lineage), never a second model.
 - Next: P4 (audit taxonomy `AuditReason::{QuotaExceeded, EgressDenied, IngressDenied}`, counters
   `quota_denies_total{subject}` / `egress_denies_total{subject}`, `docs/security/network-egress.md`,
   `sandboxing.md` boundary paragraph) — closes TASK-0043.
+
+### P4 delivered 2026-09-08 — deny taxonomy, counters, docs (TASK-0043 Done)
+
+- **One taxonomy** `userspace/nexus-ipc/src/audit.rs`: `DenyReason {Policy, AbiRuleStatefs,
+  IngressDenied, EgressDenied, AbiMode, QuotaExceeded}` with stable tokens, `for_abi_class`
+  (net.connect ⇒ `egress-denied`, net.bind ⇒ `ingress-denied`), `counter_name`, `parse`
+  (`test_reject_audit_reason_unknown`). policyd's audit record uses it (`reason=egress-denied` for
+  an `OP_ABI_EVAL` net.connect refusal; op names `abi_profile|abi_mode|abi_eval|abi_learn_stats`
+  instead of `unknown`); statefsd's `statefs: quota deny … reason=quota-exceeded`.
+- **Counters** `userspace/nexus-metrics/src/deny_tally.rs` (pure, host-tested: ≤ 15 subject
+  series + `subject=0xother`, flush at most once per second) + `deny_counter::DenyCounter` (OS:
+  lazily routed metricsd client, ONE routing attempt — never retried once failed — bounded
+  500 ms sends). `egress_denies_total` / `ingress_denies_total` counted in policyd where the
+  decision is made (`audit_os::DenyCounters`, threaded through `handle_frame` — policyd forbids
+  `unsafe`, so no static cell); `quota_denies_total` in statefsd's `QuotaState`.
+- **Docs**: `docs/security/network-egress.md` (new: model, seam, learn, audit + counters, RED
+  boundary, proofs), `sandboxing.md` network-boundary paragraph (`device.mmio.net` grant =
+  bypass), `abi-filters.md` audit/counter section; TASK-0133 marked executed for `/state`.
+- Proof: `cargo test -p nexus-ipc audit` 3, `-p nexus-metrics deny` 2, `-p policyd` green,
+  OS-target strict check policyd + statefsd, `just check` green, `just test-all` green 2026-09-08
+  (`exit=0`, all nine QEMU lanes). The
+  counters are not OS-gated: the selftest's metricsd probes are a known baseline FAIL in the
+  icount profile (`SELFTEST: metrics counters FAIL`), so their visibility is a follow-up of the
+  observability lane, not a claim here.
+- Follow-ups (not this task): network family on HOLD — `dsoftbus os connect` still FAIL;
+  `SELFTEST: icmp ping ok` now real but not ladder-gated (icount/user-net dependent); TASK-0052
+  P0–P3 (ingress domain, `any`-address gate, ingressd); un-profiled subjects → deny flip after
+  authoring every statefs writer (TASK-0028 note).
 
 ### Packages
 

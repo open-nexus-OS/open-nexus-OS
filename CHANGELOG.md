@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-08 (TASK-0043 P4: one deny taxonomy + deny counters — TASK-0043 Done)
+
+- `nexus_ipc::audit::DenyReason`: the single vocabulary every enforcer
+  names its refusals with (`policy`, `abi-rule:statefs`, `ingress-denied`,
+  `egress-denied`, `abi-mode`, `quota-exceeded`); policyd's audit record
+  and statefsd's quota deny line use it, unknown tokens are rejected on the
+  reader side.
+- Per-subject deny counters flushed to metricsd at most once per second
+  with a cardinality cap (`nexus_metrics::deny_tally`): `egress_denies_total`
+  / `ingress_denies_total` in policyd, `quota_denies_total` in statefsd.
+- `docs/security/network-egress.md` (new) and the network boundary in
+  `sandboxing.md` (`device.mmio.net` grant = bypass).
+
 ### Added - 2026-09-07 (TASK-0043 P3: egress policy proven through netstackd)
 
 - The selftest connects through the facade against its `net.connect`

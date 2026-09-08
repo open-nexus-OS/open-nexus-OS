@@ -133,6 +133,7 @@ pub trait Server {
 }
 
 /// Deterministic, budgeted retry loops for non-blocking IPC.
+pub mod audit;
 pub mod budget;
 
 /// logd OS-lite v1 wire helpers (host-testable parsers).

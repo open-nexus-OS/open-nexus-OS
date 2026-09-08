@@ -1,6 +1,6 @@
 ---
 title: TASK-0133 State quotas v1: per-subject accounting + deterministic enforcement (EDQUOTA/ENOSPC) + tests/markers
-status: Draft
+status: Executed for `/state` by TASK-0043 P1/P4 (2026-09-07); `/data` (nxfs) half open (after TASK-0317)
 owner: @runtime
 created: 2025-12-25
 depends-on: []

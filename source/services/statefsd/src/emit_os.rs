@@ -32,7 +32,9 @@ pub(crate) fn emit_quota_warn(subject: u64, used: u64, soft: u64) {
     emit_quota_line(b"statefs: quota warn subject=0x", subject, used, b" soft=", soft, false);
 }
 
-/// RFC-0072 quotas: `statefs: quota deny subject=<sid hex> used=<n> hard=<h>` (audited).
+/// RFC-0072 quotas: `statefs: quota deny subject=<sid hex> used=<n> hard=<h>
+/// reason=quota-exceeded` (audited; the reason token is the shared
+/// `nexus_ipc::audit::DenyReason` vocabulary).
 pub(crate) fn emit_quota_deny(subject: u64, used: u64, hard: u64) {
     emit_quota_line(b"statefs: quota deny subject=0x", subject, used, b" hard=", hard, true);
 }
@@ -53,6 +55,14 @@ fn emit_quota_line(
     write_dec_u64(&mut buf, &mut len, used);
     let _ = push_bytes(&mut buf, &mut len, limit_tag);
     write_dec_u64(&mut buf, &mut len, limit);
+    if audit {
+        let _ = push_bytes(&mut buf, &mut len, b" reason=");
+        let _ = push_bytes(
+            &mut buf,
+            &mut len,
+            nexus_ipc::audit::DenyReason::QuotaExceeded.as_str().as_bytes(),
+        );
+    }
     let msg = core::str::from_utf8(&buf[..len]).unwrap_or("statefs: quota");
     emit_line(msg);
     if audit {

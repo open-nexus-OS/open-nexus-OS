@@ -126,10 +126,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // server-pair distribution (task #123): the bootstrap fleet no longer races
     // its fallback slots against a policyd-latency-delayed wire_services.
     const SERVER_PARK_NS: u64 = 5_000_000;
+    let mut counters = crate::audit_os::DenyCounters::new();
     loop {
         match recv_with_meta_nonblock(ctl_route_recv_slot, &mut ctl_route_buf) {
             Ok((hdr, sender_service_id, n)) => {
-                let rsp = handle_frame(&ctl_route_buf[..n], sender_service_id, true);
+                let rsp = handle_frame(&ctl_route_buf[..n], sender_service_id, true, &mut counters);
                 let _ = send_reply_nonblock(ctl_route_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {}
@@ -138,7 +139,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
 
         match recv_with_meta_nonblock(ctl_exec_recv_slot, &mut ctl_exec_buf) {
             Ok((hdr, sender_service_id, n)) => {
-                let rsp = handle_frame(&ctl_exec_buf[..n], sender_service_id, true);
+                let rsp = handle_frame(&ctl_exec_buf[..n], sender_service_id, true, &mut counters);
                 let _ = send_reply_nonblock(ctl_exec_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {}
@@ -152,6 +153,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     &server_buf[..n],
                     sender_service_id,
                     sender_service_id == init_lite_id || sender_service_id == init_alt_id,
+                    &mut counters,
                 );
                 let _ = send_reply_nonblock(server_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
@@ -220,7 +222,12 @@ struct FrameOut {
     len: usize,
 }
 
-fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) -> FrameOut {
+fn handle_frame(
+    frame: &[u8],
+    sender_service_id: u64,
+    privileged_proxy: bool,
+    counters: &mut crate::audit_os::DenyCounters,
+) -> FrameOut {
     // v1 CHECK request: [P, O, ver=1, OP_CHECK, name_len:u8, name...]
     // v1 ROUTE request: [P, O, ver=1, OP_ROUTE, req_len:u8, req..., tgt_len:u8, tgt...]
     // v1 EXEC request:  [P, O, ver=1, OP_EXEC, req_len:u8, req..., image_id:u8]
@@ -277,7 +284,17 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
                     emit_audit(op, AuditDecision::Allow, sender_service_id, None, reason);
                 }
             }
-            STATUS_DENY => emit_audit(op, AuditDecision::Deny, sender_service_id, None, reason),
+            STATUS_DENY => {
+                if let AuditReason::AbiRule(class) = reason {
+                    // The evaluated subject (offset 4..12 of the v2 eval frame).
+                    let subject = frame
+                        .get(4..12)
+                        .and_then(|b| b.try_into().ok())
+                        .map_or(0, u64::from_le_bytes);
+                    counters.note_abi_deny(class, subject);
+                }
+                emit_audit(op, AuditDecision::Deny, sender_service_id, None, reason)
+            }
             _ => {}
         }
     }
@@ -838,7 +855,12 @@ mod tests {
         frame.extend_from_slice(target);
 
         let sender_service_id = nexus_abi::service_id_from_name(b"bundlemgrd");
-        let out = handle_frame(&frame, sender_service_id, false);
+        let out = handle_frame(
+            &frame,
+            sender_service_id,
+            false,
+            &mut crate::audit_os::DenyCounters::new(),
+        );
         assert_eq!(rsp_status(out), STATUS_DENY);
     }
 
@@ -855,7 +877,12 @@ mod tests {
 
         // init-lite is a privileged proxy during bring-up (owned by init chain).
         let sender_service_id = nexus_abi::service_id_from_name(b"init-lite");
-        let out = handle_frame(&frame, sender_service_id, true);
+        let out = handle_frame(
+            &frame,
+            sender_service_id,
+            true,
+            &mut crate::audit_os::DenyCounters::new(),
+        );
         // The privileged proxy bypasses the sender-id binding check; policy decision is still
         // evaluated on requester/target (samgrd->execd is allowed in this v1 shim).
         assert_eq!(rsp_status(out), STATUS_ALLOW);
@@ -881,7 +908,12 @@ mod tests {
         frame.extend_from_slice(target);
 
         let sender_service_id = nexus_abi::service_id_from_name(b"bundlemgrd");
-        let out = handle_frame(&frame, sender_service_id, false);
+        let out = handle_frame(
+            &frame,
+            sender_service_id,
+            false,
+            &mut crate::audit_os::DenyCounters::new(),
+        );
         assert_eq!(out.len, 10);
         assert_eq!(out.buf[0], MAGIC0);
         assert_eq!(out.buf[1], MAGIC1);
@@ -901,7 +933,12 @@ mod tests {
         frame.push(0); // image_id
 
         let sender_service_id = nexus_abi::service_id_from_name(b"samgrd");
-        let out = handle_frame(&frame, sender_service_id, false);
+        let out = handle_frame(
+            &frame,
+            sender_service_id,
+            false,
+            &mut crate::audit_os::DenyCounters::new(),
+        );
         assert_eq!(rsp_status(out), STATUS_MALFORMED);
     }
 
@@ -914,7 +951,12 @@ mod tests {
         frame.extend_from_slice(subject);
 
         let sender_service_id = nexus_abi::service_id_from_name(subject);
-        let out = handle_frame(&frame, sender_service_id, false);
+        let out = handle_frame(
+            &frame,
+            sender_service_id,
+            false,
+            &mut crate::audit_os::DenyCounters::new(),
+        );
         assert_eq!(rsp_status(out), STATUS_ALLOW);
     }
 
@@ -927,7 +969,12 @@ mod tests {
         frame.extend_from_slice(subject);
 
         let sender_service_id = nexus_abi::service_id_from_name(subject);
-        let out = handle_frame(&frame, sender_service_id, false);
+        let out = handle_frame(
+            &frame,
+            sender_service_id,
+            false,
+            &mut crate::audit_os::DenyCounters::new(),
+        );
         assert_eq!(rsp_status(out), STATUS_DENY);
     }
 }

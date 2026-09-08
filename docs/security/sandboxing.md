@@ -8,6 +8,13 @@ Sandboxing v1 is a userspace confinement floor. It does not claim kernel-enforce
 - Confinement depends on spawn-time capability distribution (`execd/init` authority).
 - App subjects must not receive direct `packagefsd` or `statefsd` capabilities.
 
+## Network boundary (TASK-0043)
+
+Outbound policy is enforced at netstackd's facade (`docs/security/network-egress.md`)
+and inbound binds at the same seam (TASK-0052). A subject that holds
+`device.mmio.net` drives the NIC itself and bypasses both — the grant is the
+boundary, not the facade: never grant it to a sandboxed app subject.
+
 ## v1 Enforcement Floor
 
 - Namespace path handling is canonicalized and rejects traversal (`..`) deterministically.
