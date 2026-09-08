@@ -1,0 +1,9 @@
+# expect: ExposeNoCidrs
+# "everyone" must be written explicitly as "0.0.0.0/0".
+[[expose."demo.web"]]
+port = 8080
+proto = "tcp"
+cidr_allow = []
+rate_per_s = 100
+burst = 20
+backend = 18080

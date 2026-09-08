@@ -45,6 +45,7 @@ fn handle_policy_validate(args: PolicyValidateArgs, cfg: &RuntimeConfig) -> Exec
         "manifest": true,
         "subjects": tree.policy().subject_count(),
         "capabilities": tree.policy().capability_count(),
+        "exposures": tree.policy().expose_count(),
     });
     Ok((ExitClass::Success, "policy validate passed".to_string(), args.json, Some(data)))
 }

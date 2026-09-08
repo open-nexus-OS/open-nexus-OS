@@ -1,0 +1,31 @@
+[package]
+name = "ingressd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+# RFC-0092 Layer B — the ONE inbound gateway. TASK-0052 P2 ships the pure,
+# host-testable core (exposure table, identity-bound intent registry, CIDR
+# accept filter, deterministic token bucket, bounded forwarding). The OS-lite
+# entry, init wiring and `[package.metadata.nexus-service]` (which makes
+# scripts/discover-services.sh embed the ELF) land with P3 — a service that
+# is not wired must not be discovered.
+
+[features]
+default = ["std"]
+std = []
+os-lite = []
+
+[lib]
+path = "src/lib.rs"
+doctest = false
+
+[[bin]]
+name = "ingressd"
+path = "src/main.rs"
+
+[dependencies]
+
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"

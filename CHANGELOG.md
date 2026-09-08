@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-08 (TASK-0052 P2: ingressd host core + `[[expose]]` grammar)
+
+- `[[expose."<subject>"]]` (RFC-0092 §1) compiles through ONE grammar file
+  (`userspace/policy/src/expose.rs`) used by the host `policy` crate, policyd's
+  build (validation) and the new `ingressd` build (`EXPOSE_ENTRIES`); bounds,
+  `(port, proto)` uniqueness across subjects and the undelivered TLS slot are
+  parse errors. `nx policy validate` reports `exposures`.
+- New `source/services/ingressd/` (host-testable `no_std` core, not yet
+  embedded): identity-bound intent registry with policyd as fail-closed
+  authority, CIDR accept filter, deterministic token bucket, bounded stream
+  relay and UDP peer table, wire `I`,`G` v1 with the `policy|identity|limit|
+  tls|cidr|rate` reason vocabulary. Proof `tests/ingress_host/` (allow end to
+  end + `test_reject_intent_policy_denied`, `_forged_intent_sender`, `_cidr`,
+  `_rate_exceeded`, malformed frames, IDL↔wire pin, shipped-table consistency).
+
 ### Added - 2026-09-08 (TASK-0052 P1: inbound default-deny — only the gateway binds `any`)
 
 - The shared policy grammar refuses `[[net.bind]] action = "allow" address =

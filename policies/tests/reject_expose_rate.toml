@@ -1,0 +1,9 @@
+# expect: ExposeRate
+# rate_per_s is bounded (1..=10000); a bound is a parse error, not a clamp.
+[[expose."demo.web"]]
+port = 8080
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 20000
+burst = 20
+backend = 18080

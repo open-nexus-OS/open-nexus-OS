@@ -18,7 +18,7 @@
 
 - **Phase 0 (contract seed: exposure schema, bind gate rule, ingressd wire, markers)**: ✅ (2026-09-08, TASK-0052 P0)
 - **Phase 1 (Layer A — bind gate: `any` only for the gateway; `SELFTEST: ingress deny ok`)**: ✅ (2026-09-08, TASK-0052 P1)
-- **Phase 2 (Layer B — `ingressd` host: intents, CIDR accept filter, token bucket, forwarding)**: ⬜ (TASK-0052 P2)
+- **Phase 2 (Layer B — `ingressd` host: intents, CIDR accept filter, token bucket, forwarding)**: ✅ 2026-09-08 (TASK-0052 P2 — `expose.rs` grammar shared by policyd/ingressd build tables, `source/services/ingressd/` core, `tests/ingress_host/`)
 - **Phase 3 (Layer B — `ingressd` OS: init wiring, markers, `SELFTEST: ingress allow|deny|rate ok`)**: ⬜ (TASK-0052 P3)
 - **TLS / mTLS termination slot**: ⬜ reserved — delivered by the network track (never a stub)
 
@@ -160,7 +160,7 @@ cd /home/jenning/open-nexus-OS && just test-os headless   # and smp1
 
 - [x] **Phase 0**: contract seed (this RFC), ADR-0061, IDL seed, `docs/security/ingress.md`, RFC/ADR indexes — proof: `just check` docs gates (2026-09-08)
 - [x] **Phase 1**: Layer A bind gate — proof: `test_reject_nonloopback_bind_without_intent`, `SELFTEST: ingress deny ok` (2026-09-08)
-- [ ] **Phase 2**: `ingressd` host + `tests/ingress_host/` — proof: the five `test_reject_*`
+- [x] **Phase 2**: `ingressd` host + `tests/ingress_host/` — proof: the five `test_reject_*` (2026-09-08)
 - [ ] **Phase 3**: `ingressd` OS — proof: markers above in headless/smp1
 - [ ] Task(s) linked with stop conditions + proof commands (TASK-0052).
 - [ ] QEMU markers appear in `scripts/qemu-test.sh` + proof-manifest and pass.

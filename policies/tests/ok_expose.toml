@@ -1,0 +1,27 @@
+# expect: ok
+# RFC-0092 §1: exposures are declared per subject; (port, proto) is unique
+# across subjects, the same port on another proto is a distinct exposure.
+[[expose."demo.web"]]
+port = 8080
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24", "192.168.0.0/16"]
+rate_per_s = 100
+burst = 20
+tls = "none"
+backend = 18080
+
+[[expose."demo.web"]]
+port = 5353
+proto = "udp"
+cidr_allow = ["0.0.0.0/0"]
+rate_per_s = 50
+burst = 10
+backend = 15353
+
+[[expose."demo.api"]]
+port = 8080
+proto = "udp"
+cidr_allow = ["10.0.2.2/32"]
+rate_per_s = 10
+burst = 1
+backend = 18081

@@ -20,6 +20,12 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+/// RFC-0092 `[[expose]]` grammar (same SSOT discipline; ingressd's build.rs
+/// compiles its table from the identical file — policyd validates so an
+/// invalid exposure fails the OS build here as well).
+#[path = "../../../userspace/policy/src/expose.rs"]
+#[allow(dead_code)]
+mod expose;
 /// Subject-name hash (FNV-1a) — the same function every policy tool uses.
 #[path = "../../../userspace/policy/src/learn_record.rs"]
 #[allow(dead_code)]
@@ -46,6 +52,8 @@ struct RawPolicy {
     #[serde(default)]
     #[allow(dead_code)]
     quota: BTreeMap<String, schema::RawQuota>,
+    #[serde(default)]
+    expose: BTreeMap<String, Vec<expose::RawExpose>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,18 +101,22 @@ fn load_policy_dir(dir: &Path) -> (BTreeMap<String, BTreeSet<String>>, BTreeMap<
     }
     files.sort();
     println!("cargo::rerun-if-changed={}", root_path.display());
-    println!(
-        "cargo::rerun-if-changed={}",
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../userspace/policy/src/schema.rs")
-            .display()
-    );
+    for shared in ["schema.rs", "expose.rs"] {
+        println!(
+            "cargo::rerun-if-changed={}",
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../userspace/policy/src")
+                .join(shared)
+                .display()
+        );
+    }
     for file in &files {
         println!("cargo::rerun-if-changed={}", file.display());
     }
 
     let mut merged: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut abi_profiles: BTreeMap<String, Profile> = BTreeMap::new();
+    let mut exposes: BTreeMap<String, Vec<expose::Expose>> = BTreeMap::new();
     for path in files {
         let data = fs::read_to_string(&path).expect("failed to read policy file");
         let parsed: RawPolicy =
@@ -123,7 +135,15 @@ fn load_policy_dir(dir: &Path) -> (BTreeMap<String, BTreeSet<String>>, BTreeMap<
             });
             abi_profiles.insert(canonical(&service), profile);
         }
+        for (service, raw_exposes) in parsed.expose {
+            let compiled = expose::compile_exposes(&service, &raw_exposes).unwrap_or_else(|err| {
+                panic!("invalid expose for {service} in {}: {err}", path.display())
+            });
+            exposes.insert(canonical(&service), compiled);
+        }
     }
+    expose::check_exposes_unique(exposes.iter().map(|(k, v)| (k.as_str(), v.as_slice())))
+        .unwrap_or_else(|err| panic!("invalid expose set: {err}"));
     (merged, abi_profiles)
 }
 

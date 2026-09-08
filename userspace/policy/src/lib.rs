@@ -29,6 +29,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 
+pub mod expose;
 pub mod learn_gen;
 pub mod learn_record;
 pub mod schema;
@@ -44,6 +45,9 @@ pub struct PolicyDoc {
     abi_profile: BTreeMap<String, AbiProfile>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     quota: BTreeMap<String, schema::Quota>,
+    /// RFC-0092 `[[expose."<subject>"]]` declarations (grammar SSOT: `expose.rs`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    expose: BTreeMap<String, Vec<expose::Expose>>,
 }
 
 /// RFC-0091 compiled subject profile (schema SSOT: `schema.rs`).
@@ -344,7 +348,34 @@ impl PolicyDoc {
         schema::check_quotas_disjoint(self.quota.iter().map(|(k, v)| (k.as_str(), v))).map_err(
             |source| Error::Schema { path: path.to_path_buf(), subject: "quota".into(), source },
         )?;
+        for (service, raw_exposes) in raw.expose {
+            let exposes = expose::compile_exposes(&service, &raw_exposes).map_err(|source| {
+                Error::Schema { path: path.to_path_buf(), subject: service.clone(), source }
+            })?;
+            self.expose.insert(canonical(&service), exposes);
+        }
+        expose::check_exposes_unique(self.expose.iter().map(|(k, v)| (k.as_str(), v.as_slice())))
+            .map_err(|source| Error::Schema {
+            path: path.to_path_buf(),
+            subject: "expose".into(),
+            source,
+        })?;
         Ok(())
+    }
+
+    /// The compiled `[[expose]]` declarations of `subject` (empty when none).
+    pub fn expose(&self, subject: &str) -> &[expose::Expose] {
+        self.expose.get(&canonical(subject)).map_or(&[], Vec::as_slice)
+    }
+
+    /// Every `(subject, exposures)` pair, canonical order.
+    pub fn exposes(&self) -> impl Iterator<Item = (&str, &[expose::Expose])> {
+        self.expose.iter().map(|(k, v)| (k.as_str(), v.as_slice()))
+    }
+
+    /// Exposures declared across all subjects.
+    pub fn expose_count(&self) -> usize {
+        self.expose.values().map(Vec::len).sum()
     }
 
     /// The compiled `[quota]` declaration of `subject`, when authored.
@@ -464,6 +495,8 @@ struct RawPolicy {
     abi_profile: BTreeMap<String, schema::RawAbiProfile>,
     #[serde(default)]
     quota: BTreeMap<String, schema::RawQuota>,
+    #[serde(default)]
+    expose: BTreeMap<String, Vec<expose::RawExpose>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -504,7 +537,7 @@ fn reject_unknown_policy_sections(path: &Path, data: &str) -> Result<(), Error> 
     let value = data
         .parse::<toml::Value>()
         .map_err(|source| Error::Parse { path: path.to_path_buf(), source })?;
-    let allowed = ["allow", "abi_profile", "quota"];
+    let allowed = ["allow", "abi_profile", "quota", "expose"];
     if let Some(table) = value.as_table() {
         for key in table.keys() {
             if !allowed.contains(&key.as_str()) {

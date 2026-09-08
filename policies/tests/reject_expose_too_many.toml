@@ -1,0 +1,73 @@
+# expect: ExposeTooMany
+# Nine exposures for one subject exceed MAX_EXPOSURES_PER_SUBJECT = 8.
+[[expose."demo.web"]]
+port = 9000
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 10
+burst = 1
+backend = 19000
+
+[[expose."demo.web"]]
+port = 9001
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 10
+burst = 1
+backend = 19001
+
+[[expose."demo.web"]]
+port = 9002
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 10
+burst = 1
+backend = 19002
+
+[[expose."demo.web"]]
+port = 9003
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 10
+burst = 1
+backend = 19003
+
+[[expose."demo.web"]]
+port = 9004
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 10
+burst = 1
+backend = 19004
+
+[[expose."demo.web"]]
+port = 9005
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 10
+burst = 1
+backend = 19005
+
+[[expose."demo.web"]]
+port = 9006
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 10
+burst = 1
+backend = 19006
+
+[[expose."demo.web"]]
+port = 9007
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 10
+burst = 1
+backend = 19007
+
+[[expose."demo.web"]]
+port = 9008
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 10
+burst = 1
+backend = 19008

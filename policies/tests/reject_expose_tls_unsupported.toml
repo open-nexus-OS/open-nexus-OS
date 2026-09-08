@@ -1,0 +1,10 @@
+# expect: ExposeTlsUnsupported
+# The TLS slot is contracted, not delivered: never a silent downgrade.
+[[expose."demo.web"]]
+port = 8443
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 100
+burst = 20
+tls = "tls"
+backend = 18443

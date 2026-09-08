@@ -500,7 +500,7 @@ wird production-grade auf das End-System gebaut (keine Interimslösung — Ledge
 Ledgern nachgeführt, nie geschätzt. Vokabular: ✅ delivered · ⤳ superseded · `Draft` /
 `In Progress` / `Done <date>` / `Delivered <date> (test-all green)`.
 
-### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 22/24 delivered · Tasks 4/5 Done
+### A — Phase 1: Sub-54 ohne Netz — ACTIVE · Pakete 23/24 delivered · Tasks 4/5 Done
 
 Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 
@@ -528,7 +528,7 @@ Reihenfolge: **0321 → 0035 → 0028 → 0043 → 0052**.
 | 19 | ✅ TASK-0043 P4 | EINE Deny-Taxonomie `nexus_ipc::audit::DenyReason` (policy / abi-rule:statefs / ingress-denied / egress-denied / abi-mode / quota-exceeded) in policyd-Audit + statefsd; Zähler `egress_denies_total`/`ingress_denies_total` (policyd) + `quota_denies_total` (statefsd) via gebundenen `DenyTally` (15 Subjekte + other, 1 Flush/s); `docs/security/network-egress.md`, sandboxing-Grenze — **TASK-0043 Done** | Delivered 2026-09-08 (test-all green) |
 | 20 | ✅ TASK-0052 P0 | RFC-0092 „Service Exposure Contract“ + ADR-0061 (Exposure-Intent statt freier Binds): `[[expose]]`-Domäne, `any`-Bind nur für ingressd, ingressd-Wire/Filter/Rate/Forwarding, TLS-Slot, Marker, `ingress.capnp`, docs/security/ingress.md | Delivered 2026-09-08 (paper; check green) |
 | 21 | ✅ TASK-0052 P1 | Layer A: Grammatik-Regel `AnyBindNeedsGateway` (`compile_for(subject)`, any-Allow nur für `ingressd`), Korpus, `test_reject_nonloopback_bind_without_intent`, Selftest-Bind auf NIC-Adresse ⇒ `STATUS_DENY` → `SELFTEST: ingress deny ok` (+ `!cap-deny … addr=any` in der Leiter) | Delivered 2026-09-08 (test-all green) |
-| 22 | TASK-0052 P2 | `ingressd` host (`tests/ingress_host/`: allow / cidr deny / rate) | Draft |
+| 22 | ✅ TASK-0052 P2 | `ingressd` host: `[[expose]]`-Grammatik (`expose.rs`, EIN File für policy-Crate + policyd-Build + ingressd-Build), `source/services/ingressd/` (Intent-Registry identitätsgebunden + policyd-Seam fail-closed, CIDR-Filter, Token-Bucket, Relay ≤16/4 KiB, UDP-Peer-Tabelle, Wire `I`,`G` v1), `tests/ingress_host/` (allow + 5 `test_reject_*` + IDL/Wire-Pin + Tabellen-Konsistenz) | Delivered 2026-09-08 (test-all green) |
 | 23 | TASK-0052 P3 | `ingressd` OS (`ingressd: ready`, `port open`, `deny (reason=…)`, `SELFTEST: ingress allow/deny/rate ok`; Loopback-Beweis im Einzel-VM-Profil; TLS = Contract-Slot, Umsetzung am Netz-Track) | Draft |
 
 Nicht zählende Sub-54-Einträge: TASK-0050B **Deferred by decision** (Aktivierungsgate: reale

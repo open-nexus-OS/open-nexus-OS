@@ -224,6 +224,37 @@ pub enum SchemaError {
     AnyBindNeedsGateway {
         subject: String,
     },
+    // RFC-0092 §1 `[[expose]]` grammar (`expose.rs`).
+    ExposeUnknownProto(String),
+    ExposeUnknownTls(String),
+    /// `tls = "tls" | "mtls"`: the slot is contracted, not delivered.
+    ExposeTlsUnsupported(String),
+    ExposeBadPort {
+        field: &'static str,
+    },
+    ExposeNoCidrs,
+    ExposeTooManyCidrs {
+        count: usize,
+        max: usize,
+    },
+    ExposeRate {
+        rate_per_s: u32,
+        burst: u32,
+    },
+    ExposeTooMany {
+        subject: String,
+        count: usize,
+        max: usize,
+    },
+    ExposeTooManyTotal {
+        count: usize,
+        max: usize,
+    },
+    /// Two exposures share `(port, proto)` — a port has exactly one owner.
+    ExposeDuplicate {
+        port: u16,
+        proto: &'static str,
+    },
 }
 
 impl fmt::Display for SchemaError {
@@ -266,6 +297,31 @@ impl fmt::Display for SchemaError {
                 f,
                 "net.bind address=\"any\" is reserved for the ingress gateway ({GATEWAY_SUBJECT}); {subject:?} must declare an [[expose]] intent instead"
             ),
+            Self::ExposeUnknownProto(p) => write!(f, "unknown expose proto {p:?} (tcp|udp)"),
+            Self::ExposeUnknownTls(t) => write!(f, "unknown expose tls {t:?} (none|tls|mtls)"),
+            Self::ExposeTlsUnsupported(t) => {
+                write!(f, "expose tls={t:?} is a contract slot not yet delivered (use \"none\")")
+            }
+            Self::ExposeBadPort { field } => write!(f, "expose {field} must be 1..=65535"),
+            Self::ExposeNoCidrs => {
+                write!(f, "expose declares no cidr_allow (write \"0.0.0.0/0\" explicitly)")
+            }
+            Self::ExposeTooManyCidrs { count, max } => {
+                write!(f, "expose declares too many cidr_allow entries: {count} > {max}")
+            }
+            Self::ExposeRate { rate_per_s, burst } => write!(
+                f,
+                "expose rate invalid: rate_per_s={rate_per_s} burst={burst} (1..=10000 / 1..=1000)"
+            ),
+            Self::ExposeTooMany { subject, count, max } => {
+                write!(f, "too many exposures for {subject:?}: {count} > {max}")
+            }
+            Self::ExposeTooManyTotal { count, max } => {
+                write!(f, "too many exposures in total: {count} > {max}")
+            }
+            Self::ExposeDuplicate { port, proto } => {
+                write!(f, "duplicate exposure of {proto}/{port}: a port has exactly one owner")
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 ---
 title: TASK-0052 Security v3 (Ingress): default-deny inbound policy + ingressd userspace gateway + service exposure contract
-status: In Progress (P0+P1 delivered 2026-09-08)
+status: In Progress (P0+P1+P2 delivered 2026-09-08)
 owner: @security
 created: 2025-12-23
 depends-on:
@@ -94,8 +94,35 @@ implementation in this task (contract slot only); outbound policy (TASK-0043).
   `!cap-deny: … class=net.bind port=40000 addr=any` + `SELFTEST: ingress deny ok`;
   policyd `test_learn_roundtrip` re-cut: the `--allow-any` skeleton is refused for
   `selftest-client` and compiles only for `GATEWAY_SUBJECT`).
-- Next: P2 (`ingressd` host: `[[expose]]` grammar + tables, `source/services/ingressd/`,
-  `tests/ingress_host/`).
+- Next: P2 (below).
+
+### P2 note (2026-09-08) — `ingressd` host core
+
+- Grammar: `userspace/policy/src/expose.rs` (`RawExpose` → `Expose`; `compile_exposes(subject)`,
+  `check_exposes_unique`; bounds as parse errors `ExposeTooMany/TooManyCidrs/TooManyTotal/Rate/
+  BadPort/NoCidrs/UnknownProto/UnknownTls`, `ExposeTlsUnsupported` for `tls|mtls`,
+  `ExposeDuplicate` per `(port, proto)` across subjects). `PolicyDoc.expose` + `expose()/exposes()/
+  expose_count()`; `expose` is an allowed root section; `nx policy validate` reports `exposures`.
+  policyd's build.rs validates the section by path (an invalid exposure fails the OS build);
+  ingressd's build.rs compiles `EXPOSE_ENTRIES` from the same file. Corpus: `ok_expose`,
+  `reject_expose_{duplicate,tls_unsupported,rate,no_cidrs,too_many,unknown_field}`.
+- Service `source/services/ingressd/` (src/ + tests/, no_std core, no `nexus-service` metadata
+  until P3): `table` (generated entries, `lookup`), `wire` (`I`,`G` v1: 11-byte request, 10-byte
+  intent reply, 22-byte status reply; reasons `policy|identity|limit|tls|cidr|rate`), `intent`
+  (`Registry` slot per table entry; `open` = declared ∧ sender == subject ∧ `IntentHost::
+  expose_capability` true, `Err` fail-closed; owner-only `close`; authority `status`;
+  `admit_peer` = CIDR then bucket, counters), `dispatch` (`handle_frame` → reply + `Event` for
+  markers), `cidr`, `rate` (`TokenBucket`, integer micro-tokens, monotonic), `forward` (`Link`
+  4 KiB windows + budget, `Relay` ≤ 16), `udp` (`PeerTable` LRU 16).
+- Proof: `cargo test -p ingressd` (7 unit + 4 wire-contract), `cargo test -p ingress_host` 8
+  (`expose_allow_end_to_end`, `test_reject_intent_policy_denied` (cap refused / undeclared /
+  authority unreachable / status without cap), `test_reject_forged_intent_sender`,
+  `test_reject_cidr`, `test_reject_rate_exceeded` (deterministic replay),
+  `test_reject_malformed_and_unsupported_frames`, `idl_grammar_and_wire_agree`,
+  `shipped_policy_table_is_consistent`), `cargo test -p policy` 26 + corpus 6, clippy strict,
+  structure gate; `just check` + `just test-all` green 2026-09-08 (exit=0, all nine QEMU lanes).
+- Next: P3 (`ingressd` OS: os-lite entry over fixed policyd + netstackd slots, init wiring,
+  `net.expose`/`policy.delegate` grants, `[[expose."selftest-client"]]`, markers, ladder).
 
 ### Packages
 

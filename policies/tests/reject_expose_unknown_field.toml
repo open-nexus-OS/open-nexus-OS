@@ -1,0 +1,10 @@
+# expect: parse
+# Unknown keys in an exposure are a parse error (fail closed).
+[[expose."demo.web"]]
+port = 8080
+proto = "tcp"
+cidr_allow = ["10.0.2.0/24"]
+rate_per_s = 100
+burst = 20
+backend = 18080
+listen_any = true

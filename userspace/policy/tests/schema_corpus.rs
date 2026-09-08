@@ -13,6 +13,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use nexus_policy::expose::{
+    check_exposes_unique, compile_exposes, Expose, Proto, RawExpose, TlsSlot,
+};
 use nexus_policy::schema::{
     check_quotas_disjoint, compile, compile_for, compile_quota, Action, AddressClass, PortRange,
     Profile, Quota, RawAbiProfile, RawQuota, Rule, SchemaError,
@@ -26,6 +29,8 @@ struct Fixture {
     abi_profile: BTreeMap<String, RawAbiProfile>,
     #[serde(default)]
     quota: BTreeMap<String, RawQuota>,
+    #[serde(default)]
+    expose: BTreeMap<String, Vec<RawExpose>>,
 }
 
 fn corpus_dir() -> PathBuf {
@@ -61,6 +66,16 @@ fn variant_name(err: &SchemaError) -> &'static str {
         SchemaError::QuotaOverlap { .. } => "QuotaOverlap",
         SchemaError::TooManyQuotas { .. } => "TooManyQuotas",
         SchemaError::AnyBindNeedsGateway { .. } => "AnyBindNeedsGateway",
+        SchemaError::ExposeUnknownProto(_) => "ExposeUnknownProto",
+        SchemaError::ExposeUnknownTls(_) => "ExposeUnknownTls",
+        SchemaError::ExposeTlsUnsupported(_) => "ExposeTlsUnsupported",
+        SchemaError::ExposeBadPort { .. } => "ExposeBadPort",
+        SchemaError::ExposeNoCidrs => "ExposeNoCidrs",
+        SchemaError::ExposeTooManyCidrs { .. } => "ExposeTooManyCidrs",
+        SchemaError::ExposeRate { .. } => "ExposeRate",
+        SchemaError::ExposeTooMany { .. } => "ExposeTooMany",
+        SchemaError::ExposeTooManyTotal { .. } => "ExposeTooManyTotal",
+        SchemaError::ExposeDuplicate { .. } => "ExposeDuplicate",
     }
 }
 
@@ -80,7 +95,29 @@ fn run(path: &Path) -> Result<BTreeMap<String, Profile>, String> {
     }
     check_quotas_disjoint(quotas.iter().map(|(k, v)| (k.as_str(), v)))
         .map_err(|e| variant_name(&e).to_string())?;
+    let mut exposes: BTreeMap<String, Vec<Expose>> = BTreeMap::new();
+    for (subject, raw) in fixture.expose {
+        let e = compile_exposes(&subject, &raw).map_err(|e| variant_name(&e).to_string())?;
+        exposes.insert(subject, e);
+    }
+    check_exposes_unique(exposes.iter().map(|(k, v)| (k.as_str(), v.as_slice())))
+        .map_err(|e| variant_name(&e).to_string())?;
     Ok(out)
+}
+
+/// Compiles only the `[[expose]]` part of a fixture (the runner above
+/// folds every domain into one verdict).
+fn run_expose(path: &Path) -> BTreeMap<String, Vec<Expose>> {
+    let data = fs::read_to_string(path).unwrap();
+    let fixture: Fixture = toml::from_str(&data).unwrap();
+    fixture
+        .expose
+        .into_iter()
+        .map(|(subject, raw)| {
+            let e = compile_exposes(&subject, &raw).unwrap();
+            (subject, e)
+        })
+        .collect()
 }
 
 #[test]
@@ -179,6 +216,28 @@ fn v2_full_compiles_canonically() {
     let live = tree.policy().abi_profile("selftest-client").expect("selftest profile");
     assert!(live.epoch >= 1);
     assert!(live.rules.iter().any(|r| matches!(r, Rule::NetConnect { .. })));
+}
+
+#[test]
+fn expose_declarations_compile_canonically() {
+    let all = run_expose(&corpus_dir().join("ok_expose.toml"));
+    let web = &all["demo.web"];
+    assert_eq!(web.len(), 2);
+    assert_eq!((web[0].port, web[0].proto, web[0].backend), (8080, Proto::Tcp, 18080));
+    assert_eq!(web[0].cidr_allow.len(), 2);
+    assert_eq!((web[0].cidr_allow[0].addr, web[0].cidr_allow[0].len), ([10, 0, 2, 0], 24));
+    assert_eq!((web[0].rate_per_s, web[0].burst, web[0].tls), (100, 20, TlsSlot::None));
+    assert_eq!((web[1].port, web[1].proto), (5353, Proto::Udp));
+    // The same port on a different proto is a distinct exposure.
+    let api = &all["demo.api"];
+    assert_eq!((api[0].port, api[0].proto), (8080, Proto::Udp));
+    // The shipped policy root compiles the domain through the same loader
+    // (no exposure is declared until ingressd runs — TASK-0052 P3).
+    let tree = nexus_policy::PolicyTree::load_root(&corpus_dir().join("..")).unwrap();
+    assert_eq!(
+        tree.policy().expose_count(),
+        tree.policy().exposes().map(|(_, e)| e.len()).sum::<usize>()
+    );
 }
 
 #[test]
