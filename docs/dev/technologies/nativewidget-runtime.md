@@ -8,7 +8,7 @@ inside the platform’s deterministic shell, sizing, and policy model.
 
 ## Primary task anchors
 
-- `tasks/TASK-0077C-dsl-v0_2c-pro-primitives-nativewidget-virtual-tables-timelines.md`
+- `tasks/TASK-0077C-dsl-v0_2c-runtime-long-session-large-data-contract.md`
 - `tasks/TRACK-ZEROCOPY-APP-PLATFORM.md`
 
 ## Good fit

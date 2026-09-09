@@ -1,6 +1,6 @@
 ---
-title: TASK-0067 UI v7b: drag-and-drop controller (typed offers) + clipboard v2 (MIME-aware, history, policy)
-status: Draft
+title: TASK-0067 UI v7b: clipboardd (single content-transfer authority, multi-MIME, history, focus-gated) + `svc.clipboard` binding + windowd DnD routing
+status: Draft (end-state rewrite 2026-09-09 — absorbs TASK-0087 clipboard v3 flavors and the 0122C clipboard bridge; RFC seed required)
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -16,7 +16,120 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Rebase (2026-08-14)
+## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)
+
+**Ground truth 2026-09-09 (verified in code):** `source/services/clipboardd/src/main.rs` is a
+14-line placeholder (`STATUS: Placeholder`, prints `clipboardd: ready`, calls `clipboard::run()`
+— an unregistered marker with no behaviour behind it); `userspace/clipboard/src/lib.rs` is a
+host-only `Mutex<Option<String>>`; no `nexus_wire` clipboard module, no RFC, no init/topology
+route, nothing consumes it. DnD: nothing beyond vendored cursor shapes (`userspace/ui/cursor/
+src/hotspot.rs`). Successors that presume a clipboardd: TASK-0087 (html/rtf/image flavors) and
+TASK-0122C (DSL bridge) — both absorbed here so the service is multi-MIME from day one and
+usable from `.nx` on day one (no second clipboard ledger owns a second shape).
+
+### Goal (end system)
+
+One clipboard authority (`clipboardd`): multi-MIME items, bounded history, reads gated by
+window focus (identity from `sender_service_id`, focus truth pushed by windowd), a
+`svc.clipboard.*` DSL binding; DnD = windowd hit-test/routing + focus semantics ONLY, payload
+bytes move through clipboardd's one-shot transfer items; drag image = a source-owned surface
+windowd positions and never draws.
+
+### Non-goals
+
+Persistence across boots (clipboard is ephemeral, nothing in statefs); cross-device sync;
+format conversion (a consumer picks a flavor, nobody transcodes); clipboard/DnD UI (0067B);
+windowd drawing anything.
+
+### Invariants
+
+- Identity = `sender_service_id`; a read is allowed only for the focused window's owner sid or
+  the desktop owner sid (history surface); `DenyReason::ClipboardFocus` ("clipboard-focus") is
+  audited.
+- Bounds: `FLAVORS_MAX = 8`, `MIME_MAX = 64 B`, `INLINE_MAX = 384 B` (fits os-lite
+  `MAX_FRAME = 512`), `ITEM_BYTES_MAX = 1 MiB` (VMO path), `HISTORY_MAX = 16` ring;
+  deterministic MIME preference = request order; stable deny/status codes.
+- No `unwrap`/`expect` on wire input; `test_reject_*` for every bound.
+
+### Decisions
+
+- **D1 RFC-0094 "Content transfer v1"** seeds both wires. `nexus_wire::clipboardd` (`'C','B'`,
+  v1): `OP_WRITE=1` (inline flavors), `OP_WRITE_VMO=2` (CAP_MOVE VMO, header-last with the ONE
+  payload-VMO header of TASK-0033 D2), `OP_READ=3` (mime prefs → inline or `STATUS_TOO_BIG`),
+  `OP_READ_VMO=4`, `OP_LIST=5` (seq, origin sid, flavor mimes + sizes), `OP_RESTORE=6`,
+  `OP_CLEAR=7`, `OP_WATCH=8` / `OP_EVENT=9` (RFC-0078 push with resync bit), `OP_FOCUS=10`
+  (windowd → clipboardd `{focused_sid, desktop_sid}`, retained latest-wins), `OP_TRANSFER_TAKE=11`
+  (DnD one-shot read by seq + token). Status: `OK, MALFORMED, DENIED, TOO_BIG, EMPTY,
+  UNKNOWN_SEQ, NO_FLAVOR`.
+- **D2 Placeholders DELETED, settingsd shape adopted.** `userspace/clipboard` and the 14-line
+  main go; clipboardd = `src/{lib,main,os_lite,ring,gate,transfer}.rs` + `tests/`,
+  `[package.metadata.nexus-service]` (feature SSOT), volume bundle
+  (`scripts/system-volume-services.txt`), `config/os-services.txt`; no `service-layout.allow`
+  entry (tests/ mandatory). ADR "clipboardd is the single content-transfer authority" (docs/adr,
+  next free). Gate: `userspace/clipboard` removed from the root workspace; a structure test
+  fails if a second clipboard store appears.
+- **D3 Focus truth is pushed, never asked.** windowd sends `OP_FOCUS` on every focus change
+  (the `windows_feed.rs` NONBLOCK + owed discipline); clipboardd never calls windowd.
+- **D4 DSL surface.** `tools/nexus-idl/schemas/dsl_services.capnp` (sorted insert):
+  `clipboard.write(Str mime, Str text) → Bool`, `clipboard.read(Str mime) → Str`,
+  `clipboard.list() → List<ClipEntry>`, `clipboard.restore(Int) → Bool`, `clipboard.clear() →
+  Bool`; app-host `effect_clipboard.rs`; `nexus-sdk-routes` row `{svc: "clipboard", route:
+  "clipboardd", permission: "nexus.permission.CLIPBOARD", child_slot: 20}`;
+  `abilitymgr/src/caps.rs::KNOWN_PERMISSIONS` += `nexus.permission.CLIPBOARD`. Host mock =
+  `TranscriptHost`.
+- **D5 DnD in windowd = routing only.** `OP_SURFACE_DND_START=29` (source: mimes ≤ 8),
+  `OP_SURFACE_DND_TARGET=30` (windowd → app: ENTER/OVER/LEAVE/DROP, surface-local xy),
+  `OP_SURFACE_DND_ACCEPT=31` (target: mime index | reject reason); drag image = a source-owned
+  `Overlay`-role surface with intent flag `INTENT_FLAG_FOLLOW_POINTER` (windowd positions it,
+  never draws it); pointer grab to the source; hit-test over `hit_order`; Escape cancels; no
+  input to non-targets. Bytes: source writes a transfer item (`OP_WRITE` flag `TRANSFER` →
+  seq + token), the accepted target takes it exactly once (`OP_TRANSFER_TAKE`).
+- **D6 Topology only via the TASK-0324 P4 declarative arm** — never a bespoke init arm:
+  `ServiceId::Clipboardd = 31`, `ServiceSpec{exposes_server, reply_inbox, routes_to: [Policyd]}`,
+  `REQUIRED_ROUTES += (Execd→Clipboardd), (Windowd→Clipboardd), (Clipboardd→Policyd)`;
+  `policies/base.toml`: `clipboardd = ["ipc.core", "policy.delegate"]`; background affinity.
+
+### Packages
+
+- **P0** RFC-0094 + ADR + capnp surface (approval zones). Blast: paper.
+- **P1** Wire module + clipboardd core (ring/gate/transfer) + host tests. Blast: `just check`,
+  nexus-wire tests.
+- **P2** os-lite entry + topology/policy/volume entries + markers. Blast: smp1 + visible lanes,
+  volume boot (`bundle served` count), policy lanes.
+- **P3** windowd `OP_FOCUS` push + DnD routing (`compositor/runtime/dnd.rs`,
+  `windowd/tests/dnd_routing.rs`). Blast: input lanes (`input-live`), RFC-0086 consumers.
+- **P4** app-host binding + docs.
+
+### Definition of Done
+
+Host: multi-MIME write/read, deterministic eviction order, focus deny, transfer one-shot,
+`test_reject_oversized_item`, `test_reject_unknown_seq`, `test_reject_foreign_sid`,
+`test_reject_too_many_flavors`; DnD negotiation fixtures (offer `{text/plain, image/png}` →
+target selects → drop; reject reason deterministic). QEMU (registered in `proof-manifest/
+markers/ui.toml` + `end.toml`, `scripts/qemu-test.sh`, `markers.txt` via the windowd contract):
+`clipboardd: ready` (only after the ring + focus gate are live), `clipboardd: write ok
+(flavors=2 bytes=…)`, `clipboardd: read ok (mime=text/plain)`, `clipboardd: read deny
+(reason=clipboard-focus)`, `windowd: dnd start (mimes=2)`, `windowd: dnd drop ok
+(mime=text/plain)`, `SELFTEST: ui v7 clipboard ok`, `SELFTEST: ui v7 dnd ok`. Docs:
+`docs/dev/ui/patterns/transfer-sharing/{clipboard,drag-and-drop}.md` rewritten,
+`docs/dev/dsl/services.md`.
+
+### Touched paths
+
+`source/services/clipboardd/**`, `source/libs/nexus-wire/src/clipboardd.rs`,
+`source/libs/nexus-display-proto/src/surface_dnd.rs`, `source/services/windowd/src/compositor/
+runtime/{dnd.rs,input.rs}`, `source/services/app-host/src/effect_clipboard.rs`,
+`source/libs/nexus-sdk-routes/src/lib.rs`, `source/init/nexus-init/src/service_topology.rs`,
+`policies/base.toml`, `config/os-services.txt`, `scripts/system-volume-services.txt`,
+`tools/nexus-idl/schemas/dsl_services.capnp`, `userspace/clipboard` (deleted).
+
+### Dependencies
+
+TASK-0324 P3/P4 (routing v2 + declarative arm); TASK-0054C (`KernelClient::call` is the
+request/reply API this service is written against); TASK-0033 D2 (payload-VMO header);
+TASK-0066 D3 (feed flag bits precede any drag flags).
+
+## Rebase (2026-08-14) — historical, superseded by the end-state rewrite above
 
 ### Verified reality — the baseline is near zero
 
@@ -63,7 +176,7 @@ live in wire-module libs. Host proofs go to `source/services/clipboardd/tests/`
 (service layout: src/ + tests/) and `source/services/windowd/tests/` for DnD
 routing. Allowlist below updated.
 
-## Context
+## Context — historical, superseded by the end-state rewrite above
 
 To make the system productive, we need interoperable content transfer:
 
@@ -74,7 +187,7 @@ Both must be policy-guarded (focus/foreground constraints) and bounded (budgets)
 
 Screenshot/share is handled separately (v7c).
 
-## Goal
+## Goal — historical, superseded by the end-state rewrite above
 
 Deliver:
 

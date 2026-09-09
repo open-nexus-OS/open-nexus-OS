@@ -15,7 +15,7 @@ links:
   - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
   - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
   - QuerySpec v3 lazy data surfaces: tasks/TASK-0275-ui-v5c-lazy-data-loading-virtual-list-paging-contract.md
-  - DSL v0.3a AOT/codegen: tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
+  - DSL v0.3a AOT/codegen (retired by decision 2026-09-09): tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
   - DSL app runtime + lifecycle/surface contract: tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md
   - UI design system primitives: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
   - Zero-copy app platform (pro workloads): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
@@ -37,8 +37,9 @@ runtime}.md` + expanded `overview/ir/syntax/state`). Decisions fixed by the mast
 3. **IR** = typed **total expression trees** (no bytecode VM); `Int`+`Fx` numerics,
    no floats; canonical capnp `.nxir`, byte-reproducible.
 4. **App runtime v1** = **app-host process** (one runtime ELF, real process per app,
-   `.nxir` payload in `.nxb`, cross-process surface per ADR-0042); AOT = second tier,
-   golden-parity mandatory.
+   `.nxir` payload in `.nxb`, cross-process surface per ADR-0042); ONE tier — the AOT
+   second tier was retired by decision 2026-09-09 (TASK-0079 closed; cost centres are
+   layout/paint/present and emit churn, owned by TASK-0077C).
 5. **QuerySpec engine** = pure-Rust `nexus-query` + `queryd` over statefsd —
    no C SQL engine.
 6. **The DSL also authors the system shell AND the login greeter** (authority stays in
@@ -138,9 +139,9 @@ The shell still follows the shared text-prep/measure/place contract even when a 
 | 4 — stores/nav/i18n/device-env + DevX (+ windowed list core) | `TASK-0077`, `TASK-0077B` (+ list core of `TASK-0077C`) | host |
 | 5 — svc.* adapters + QuerySpec v1 engine | `TASK-0078`, `TASK-0078B` | host |
 | 6 — app runtime (app-host + ADR-0042 surface) → shell+greeter authoring → OS e2e | `TASK-0080D` → `TASK-0080B` → `TASK-0080C` | **boot-verify ×3** |
-| 7 — AOT codegen + incremental + parity | `TASK-0079` | host |
+| 7 — AOT codegen + incremental + parity | `TASK-0079` | retired 2026-09-09 (decision: interpreter = sole tier) |
 | 8 — perf benches + cold-start budgets + CI gates | `TASK-0080` | host + **boot-verify** |
-| later | QuerySpec v2 `TASK-0274`, v3 lazy `TASK-0275`; pro primitives rest of `TASK-0077C` (demand-gated) | — |
+| later | QuerySpec v2 `TASK-0274`, v3 lazy `TASK-0275`; runtime long-session/large-data contract `TASK-0077C` (rewritten 2026-09-09) | — |
 
 ## App-driven capability expansion map
 

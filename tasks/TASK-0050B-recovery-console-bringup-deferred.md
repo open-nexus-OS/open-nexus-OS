@@ -1,6 +1,6 @@
 ---
-title: TASK-0050B Recovery bringup console (recovery-sh) — DEFERRED placeholder
-status: Deferred
+title: TASK-0050B Recovery bringup console (recovery-sh) — resolved by decision: not part of the end system
+status: Done (2026-09-09 — resolved by decision: no recovery console in the consumer end state; nx recovery + bootctld targets are the solution)
 owner: @reliability
 created: 2026-08-18
 depends-on:
@@ -12,14 +12,27 @@ links:
   - Authority registry: tasks/TRACK-AUTHORITY-NAMING.md
 ---
 
-## Status: Deferred by decision (2026-08-18)
+## Closure 2026-09-09 (resolved by decision — Done, nothing to build)
 
-The consumer-grade end state needs no interactive recovery shell: recovery is a
-reduced declarative service graph (TASK-0050), operations run over policy-gated
-IPC ops + `nx` subcommands (TASK-0051), and evidence collection is `nx diagnose`.
-A console is a *bringup tool* for the day a target exists without a host-side
-channel (real hardware bringup). Ledger exists so the idea has one home and
-cannot re-enter other ledgers as scope drift.
+**Goal of this ledger:** give the "recovery shell" idea one home so it cannot re-enter other
+ledgers as scope drift.
+
+**Resolution:** the consumer-grade end system has no interactive recovery console. The
+capability the console would have fronted is fully shipped and policy-gated:
+
+- TASK-0050 Done 2026-08-24 — real SBI reset + boot targets (`source/services/bootctld/src/
+  machine.rs` `BootTarget`, `set_boot_target`/`set_next_boot`), three-boot recovery cycle proven
+  in one uart.
+- TASK-0051 Done — recovery operations surface (statefsd fsck op, bootctld slot/target ops,
+  `nx diagnose` as the ONE evidence bundle; `tools/nx/src/commands/diagnose.rs`).
+- TASK-0053 Done — `.nxra` signed recovery actions (`bootctld/src/nxra_gate.rs`,
+  `nx recovery token make/show`, RFC-0088).
+
+Ground truth 2026-09-09: zero console code anywhere (`recovery-sh`, `line editor`, `recovery
+console` → 0 hits under `source/ userspace/ tools/ scripts/`). Real-hardware bring-up without a
+host channel, should it ever be needed, gets a fresh ledger with a named board — this one is
+closed. The scope sketch below stays as the drift guard: any PR adding console code is drift.
+
 
 ## Scope when (if) activated
 

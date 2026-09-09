@@ -1,6 +1,6 @@
 ---
-title: TASK-0079 DSL v0.3a: AOT Rust codegen (behavior-identical tier) + incremental rebuilds/tree-shaking + asset embedding (host)
-status: Draft
+title: TASK-0079 DSL v0.3a: AOT Rust codegen tier — retired by decision 2026-09-09 (interpreter in app-host = the one execution tier)
+status: Done (2026-09-09 — resolved by decision: the app-host interpreter is the sole execution tier; AOT codegen retired, no code existed)
 owner: @ui @runtime
 created: 2025-12-23
 updated: 2026-07-06
@@ -15,6 +15,33 @@ links:
   - Parity anchor: tests/dsl_conformance/ (corpus from TASK-0076+) + tests/dsl_goldens/
   - SVG safe subset baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
 ---
+
+## Closure 2026-09-09 (resolved by decision — Done, nothing built, dual structure removed)
+
+**Goal of this ledger:** an ahead-of-time codegen tier (`.nxir` → generated Rust crate → own
+ELF) with interpreter parity, tree-shaking, incremental rebuilds and asset embedding.
+
+**Ground truth 2026-09-09:** no codegen existed anywhere — `userspace/dsl/` holds only
+`core, ir, runtime, cli`; no `--aot` verb, no reachability graph, no `userspace/apps/generated/`,
+no parity harness; `docs/dev/dsl/codegen.md` and `incremental.md` were 12-line stubs. TASK-0080
+("Done") had re-owned its AOT bench/parity scope back to this ledger.
+
+**Decision (user, 2026-09-09):** the interpreter running inside the app-host process is the
+ONE execution tier of the end system. Rationale: the measured DSL cost centres are
+layout/paint/present (present median 3–4 ms, full re-layout on resize) and the never-freeing
+emit heap (every structural interaction re-emits scene + layout + texts, ~100–300 KiB per
+click), not expression interpretation. A second tier would double the semantics surface
+("nothing implemented in only one tier") for a cost that has never been shown to matter. If a
+future benchmark proves interpretation dominant, a new decision is taken then — with numbers.
+
+**Dual structure removed in this closure (no second path may be built into):**
+`docs/dev/dsl/codegen.md` + `incremental.md` deleted; AOT tier removed from `overview.md`
+(diagram, "two modes", doc index), `runtime.md`, `cli.md` (`--aot` verbs), `syntax.md`,
+`perf.md`, `testing.md`, `project-layout.md`, `ir.md`; `tasks/TRACK-DSL-V1-DEVX.md` (decision
+4, phase-map row 7); TASK-0080 header note. The DSL performance work that remains real is the
+runtime scale contract — TASK-0077C (emit-generation arena, subtree-scoped re-emit).
+
+The design below is kept as the retired proposal for reference; do not build against it.
 
 ## Context (updated 2026-07-06)
 

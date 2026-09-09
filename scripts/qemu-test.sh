@@ -2346,6 +2346,17 @@ if [[ "${REQUIRE_PIXEL_PROOF:-0}" == "1" ]]; then
   fi
 fi
 
+# TASK-0076B closure (2026-09-09) DSL-mount truth: a non-black desktop is only the DSL
+# shell if app-host actually mounted the program — its post-mount line carries the
+# canonical `.nxir` hash (prefix match; the value varies per build). Gated together
+# with the pixel proof because only the visible lane spawns the shell.
+if [[ "${REQUIRE_PIXEL_PROOF:-0}" == "1" ]]; then
+  if ! grep -aFq "APPHOST: mounted hash=" "$UART_LOG"; then
+    echo "[error] CONTRACT VIOLATION: pixel proof requested but app-host never printed 'APPHOST: mounted hash=' (DSL shell not mounted)" >&2
+    exit 1
+  fi
+fi
+
 # TASK-0056B visible-input fake-green guard: the visible-input marker summarizes
 # routed pointer movement, focus transfer, launcher click, and visible frame state.
 if grep -aFq "SELFTEST: ui visible input ok" "$UART_LOG"; then

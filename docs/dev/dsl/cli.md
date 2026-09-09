@@ -87,7 +87,6 @@ wave lands) pass unless `--deny-warn`.
   `tests/dsl_goldens` today);
 - `add service|test`, `session inspect|clear|export --json` — host-run
   debugging (v0.2b remainder);
-- `build|run|watch --aot` (v0.3a, TASK-0079).
 
 Notes: "session state" is in-memory by default; "durable state" uses typed
 snapshots via the state substrate, never an untyped file.

@@ -1,6 +1,6 @@
 ---
-title: TASK-0068 UI v7c: screenshot (screencapd) + share-sheet broker + privacy/policy guards
-status: Draft
+title: TASK-0068 UI v7c: screencapd over the ONE pixel-readback authority (gpud readback + windowd geometry/secure-surface gate) + consent/caps
+status: Draft (end-state rewrite 2026-09-09; depends on TASK-0324 P6 readback; RFC seed required)
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -18,7 +18,97 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Rebase (2026-08-14) — capture-only
+## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)
+
+**Ground truth 2026-09-09:** zero code — no `screencapd` among the services, no readback
+entry point in windowd, no wire module, no RFC, no consent/caps, no markers; repo-wide
+`screenshot|screencap` hits only host tooling (`tools/rfb_screenshot.py`). TASK-0105 (recorder)
+is blocked on this. **The readback primitive is being built by TASK-0324 P0/P6:** gpud's
+one-shot `scanout_sample()` (P0, `SELFTEST: display nonblack ok`) and P6's "readback off the
+scanout RT with seq acks". Screen capture MUST be a consumer of that ONE readback authority —
+never a second readback path.
+
+### Goal (end system)
+
+One capture facade (`screencapd`: `grabDisplay` / `grabWindow` / `grabRegion` → caller VMO +
+metadata) over ONE pixel-readback authority (gpud's scanout-RT readback from TASK-0324 P6),
+with windowd as the geometry and secure-surface authority; consent + caps fail-closed. The
+share half stays with the existing TASK-0126/0127/0128.
+
+### Non-goals
+
+Encoding (PNG/AVIF), gallery, share sheet, peer share, recording (0105 consumes this);
+per-window re-composition (a window grab = its on-screen rect, occluders included — stated
+honestly in the RFC); capture UI in windowd or screencapd.
+
+### Invariants
+
+- `CAPTURE_PIXELS_MAX = 2_304_000` (1920×1200), `CAPTURE_BYTES_MAX = 16 + pixels × 4`; regions
+  clipped/rejected against the current mode; caller-owned VMO; header-last with the ONE
+  payload-VMO header (TASK-0033 D2).
+- Secure surfaces (`INTENT_FLAG_SECURE`: greeter/password fields) are never captured.
+- Readback is of a REVEALED frame (`seq` from the P6 acks); no readback mid-present.
+- Policy fail-closed: no cap → `DENIED` + audit; `test_reject_*` for every bound.
+
+### Decisions
+
+- **D1 RFC-0095 "Screen capture v1":** `nexus_wire::screencapd` (`'S','C'`): `OP_GRAB=1 {kind:
+  DISPLAY|WINDOW|REGION, target_sid u64, x,y,w,h u16}` + CAP_MOVE VMO → payload header
+  `{status, w, h, stride, format = BGRA8888, seq}`.
+- **D2 Readback primitive = gpud `OP_READBACK = 13`** (`nexus-display-proto`): `{rect, seq}` +
+  CAP_MOVE VMO; on GL it reads the FRONT render target (generalizing P0's `scanout_sample()`),
+  on 2D it copies from windowd's scanout FB VMO. P0's one-shot sampler is REPLACED by this op
+  in the same package: `SELFTEST: display nonblack ok` is re-issued through `OP_READBACK`;
+  gate = `scanout_sample` deleted, the nonblack marker emitted only by the readback op's path.
+- **D3 windowd hook = `OP_SURFACE_CAPTURE = 32`** (screencapd → windowd): resolves
+  `WINDOW`/`REGION` to a display rect, refuses secure surfaces, forwards the moved VMO to gpud
+  `OP_READBACK` — no pixels, no UI in windowd (`docs/dev/ui/windowd-cleanup-map.md`).
+- **D4 Consent = policy.** Services need policyd cap `screencap.grab` (`screencapd = ["ipc.core",
+  "policy.delegate"]`, selftest-client granted); apps need `nexus.permission.SCREENCAP`,
+  ceiling-gated in nxb-pack to shell/settings bundle types; the consent *dialog* is a
+  TASK-0074 modal in the requesting app — never in screencapd.
+- **D5 Topology via the TASK-0324 P4 arm:** `ServiceId::Screencapd = 32`,
+  `ServiceSpec{exposes_server, reply_inbox, routes_to: [Windowd, Policyd]}`, `REQUIRED_ROUTES +=
+  (Screencapd→Windowd), (Screencapd→Policyd), (Execd→Screencapd), (SelftestClient→Screencapd)`,
+  volume-shipped, background affinity.
+
+### Packages
+
+- **P0** RFC-0095 (after TASK-0324 P1's RFC-0093 fixes the readback/seq contract). Blast: paper.
+- **P1** gpud `OP_READBACK` + host fixture (checkerboard RT → rect checksum; oversize / OOB
+  reject) + `scanout_sample` deletion. Blast: display lanes (visible, gpu-pci), `gpud: chain G*`,
+  the nonblack marker.
+- **P2** windowd `OP_SURFACE_CAPTURE` + secure refusal (`windowd/tests/capture_gate.rs`).
+  Blast: windowd host, smp1.
+- **P3** screencapd service + tests + topology/policy + markers. Blast: volume boot, policy
+  lanes, visible lane.
+- **P4** Docs.
+
+### Definition of Done
+
+Host: checksum equality display/window/region; `test_reject_oob`, `test_reject_over_cap`,
+`test_reject_secure`, `test_reject_no_cap`. QEMU (registered in `proof-manifest/markers/
+ui.toml`, `scripts/qemu-test.sh`, `markers.txt` via the gpud/windowd contracts):
+`screencapd: ready`, `screencapd: grab ok (kind=display w=1280 h=800 bytes=…)`, `screencapd:
+grab deny (reason=policy)`, `SELFTEST: ui v7 screencap ok` (selftest grabs the display,
+verifies header + non-black checksum), `SELFTEST: display nonblack ok` retained via the new
+path. Docs: `docs/dev/ui/system-experiences/capture-and-share/screencap-share.md`,
+`docs/testing/os-markers.md`.
+
+### Touched paths
+
+`source/services/screencapd/**`, `source/libs/nexus-wire/src/screencapd.rs`,
+`source/libs/nexus-display-proto/src/{lib.rs,surface_capture.rs}` (approval zone),
+`source/drivers/gpud/src/{service.rs,gl_scanout.rs,backend/present.rs}`,
+`source/services/windowd/src/compositor/runtime/capture.rs`, topology/policy/volume lists,
+markers triple.
+
+### Dependencies
+
+TASK-0324 P6 (readback off the scanout RT, seq acks) — hard; TASK-0074 (consent modal);
+TASK-0033 D2 (payload header); TASK-0054C (`call` API).
+
+## Rebase (2026-08-14) — capture-only — historical, superseded by the end-state rewrite above
 
 ### Verified reality
 
@@ -69,7 +159,7 @@ and `tools/nx/chains/markers.txt` (no-fake-green contract).
 updated; share-broker/export/sheet bullets in the sections that follow are
 superseded by this rebase.
 
-## Context
+## Context — historical, superseded by the end-state rewrite above
 
 Screenshot and sharing are powerful and privacy-sensitive. With kernel unchanged, the capture pipeline
 must be implemented in userspace, most naturally by `windowd` readback of the last composed buffer
@@ -81,7 +171,7 @@ We also need a minimal share-sheet broker to route payloads to:
 - save-to-file under `/state`,
 - (optional) peer via DSoftBus (stubbed by default).
 
-## Goal (rebased 2026-08-14 — capture-only)
+## Goal (rebased 2026-08-14 — capture-only) — historical, superseded by the end-state rewrite above
 
 Deliver:
 

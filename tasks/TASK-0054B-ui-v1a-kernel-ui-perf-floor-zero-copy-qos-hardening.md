@@ -1,6 +1,6 @@
 ---
-title: TASK-0054B UI v1a extension: kernel/UI perf floor (Superseded 2026-08-14 — delivered by 0042/0277/0283/0288; residual → TASK-0290)
-status: Superseded
+title: TASK-0054B UI v1a extension: kernel/UI perf floor (delivered by 0042/0277/0283/0288 + init affinity; counters → TASK-0290)
+status: Done (2026-09-09 — reconciled: perf floor delivered by 0042/0277/0283/0288 + init affinity; counters remain with TASK-0290)
 owner: @kernel-team @runtime @ui
 created: 2026-03-29
 depends-on: []
@@ -20,16 +20,35 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Context
+## Closure 2026-09-09 (reconciliation — Done, delivered by the SMP lane)
 
-> **SUPERSEDED (2026-08-14, sub-80 roadmap).** Every goal landed via newer, finished work:
-> coarse QoS/affinity → TASK-0042 (Done); SMP hot-path carry-ins → TASK-0277 + TASK-0283
-> (Done, `source/kernel/neuron/src/sync/percpu.rs`); budget metrics + microbench floor →
-> TASK-0288 (Done — it emits exactly this ledger's markers: `SELFTEST: ui runtime floor ok`,
-> `KSELFTEST: runtime timer budget ok` / `runtime ipi budget ok`, via the declarative budget
-> module `core/trap/budgets.rs`). The zero-copy-truth residual (VMO seals, reuse counters) is
-> TASK-0290's explicit title. TASK-0290's `depends-on: 0054B/C/D` edge was backwards and has
-> been cut as part of this supersession. Do not execute.
+**Goal of this ledger:** a kernel/UI performance floor — VMO-first bulk stance, coarse
+trusted-service scheduling controls, SMP hot-path hardening, and a budget floor for UI-shaped
+work.
+
+**Actual solution (code ground truth, verified 2026-09-09):**
+
+- QoS/affinity ABI: `source/libs/nexus-abi/src/syscall/task.rs` (`task_qos_get`,
+  `task_qos_set_self`, `sched::set_affinity`, `set_affinity_for`, `task_qos_set_for`) —
+  TASK-0042 Done.
+- Trusted-service placement is declarative and applied by init, not execd:
+  `source/init/nexus-init/src/affinity.rs::affinity_for()` pins gpud/windowd/inputd/hidrawd/
+  touchd/imed to cpu0 and background services to cpu1-3; `bootstrap/resume.rs` applies it and
+  prints `init: affinity applied n=…` / `init: affinity FAIL svc=…`.
+- SMP hot-path hardening: `source/kernel/neuron/src/sync/percpu.rs` (TASK-0283), TASK-0277
+  parallelism policy, TASK-0288 runtime closure (all Done).
+- Budget floor gated every boot: `SELFTEST: ui runtime floor ok`, `SELFTEST: qos affinity ok`,
+  `qos shares ratio ok` (`proof-manifest/markers/bringup.toml`) and the three
+  `KSELFTEST: … budget ok` gates in `scripts/qemu-test.sh`.
+- VMO-first bulk discipline is the RFC-0005 contract (control plane inline, data plane VMO)
+  and is enforced structurally by the payload-VMO paths of TASK-0295/0321.
+
+**Not delivered (honest residual, owned elsewhere since 2026-08-14):** the metric surface
+(service hops / cross-core hops / queue residence per QoS / wakeups per interaction) and the
+`execd: qos set` / `execd: affinity set` markers — TASK-0290 owns the reuse/hop counters.
+Not a gap in the floor itself.
+
+## Context
 
 `TASK-0054` deliberately keeps the first renderer slice host-first and kernel-free. That is still the right
 baseline, but if we want later blur, glass, transitions, and rich windowd scenes to feel as fluid as possible

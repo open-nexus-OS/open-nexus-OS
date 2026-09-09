@@ -26,6 +26,11 @@ links:
 > crate, the runtime is interpreter-only. The AOT bench/demo/parity scope of this ledger is
 > therefore **re-owned by TASK-0079** (which must deliver the bench + parity gate as part of
 > its DoD); this ledger stays Done for the interpreter cold-start/marker work only.
+>
+> **2026-09-09:** TASK-0079 was closed by decision — the interpreter in the app-host process
+> is the sole execution tier, no AOT bench/parity gate will exist. The remaining DSL
+> performance work is the runtime scale contract in TASK-0077C (emit-generation arena,
+> subtree re-emit), not a second tier.
 
 Both execution tiers exist (interpreter app-host from 0080D, AOT ELF from 0079) and
 the launch pipeline is live (0080C). This task makes performance a **measured,

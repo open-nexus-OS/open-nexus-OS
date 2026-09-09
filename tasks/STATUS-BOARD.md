@@ -16,24 +16,26 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 
 > **Reconciliation note (2026-07-19):** The cumulative Done list below was reconciled against real proof markers/tests (post-0064 UI/DSL, SMP core 0042/0276/0277/0283/0288, filesystem 0291–0295, boot-gates 0269, bundlemgr 0130). Treat the Done list + each `TASK-*.md` header as authoritative.
 >
+> **Sub-80 reconciliation (2026-09-09):** every non-Done ledger < 0080 outside the network family was audited against the code. Eight closed with the actual solution recorded (`0011B`, `0037`, `0041`, `0054B`, `0054D`, `0076B` reconciled Done; `0050B`, `0079` Done by decision); `0033` reopened (Draft) and nine ledgers (`0033`, `0054C`, `0066`, `0067`, `0067B`, `0068`, `0074`, `0077B`, `0077C`) rewritten to their end state; `0077C` recut to the runtime long-session/large-data contract (file renamed). Counters below recomputed mechanically from the `status:` header of every task in each group's `Tasks:` list (explicit ids plus numeric ranges; suffixed ids such as `0100B` count only where named; `Done`/`Complete` = done, `Superseded`/`Deferred`/`Draft`/`In Progress` = total only). Execution order: `tasks/IMPLEMENTATION-ORDER.md` (condensed the same day).
+>
 > **Counter recount (2026-08-18):** every `Done / Total` counter — both this table and the per-group sections — was recomputed mechanically from the `status:` header of each task named in that group's `Tasks:` list (`Done`/`Complete` count as done; `Superseded` counts toward the total but not as done). They had drifted by up to 8 tasks per group because they were hand-maintained. Re-run the same way after any status flip rather than nudging a number.
 
 | Group | Done / Total | Progress | Kernel-touch tasks | Notes |
 |------|---------------|----------|--------------------|-------|
-| Kernel Core & Runtime | 14 / 34 | 41% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
-| DSoftBus & Distributed | 14 / 28 | 50% | — | Distributed session, transport, mux, and remote-service stack. |
-| Networking & Transport | 1 / 8 | 12% | — | Netstack, dev networking, ingress, and OS transport services. |
-| Observability, Crash, Perf & Diagnostics | 13 / 36 | 36% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
+| Kernel Core & Runtime | 19 / 33 | 58% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
+| DSoftBus & Distributed | 13 / 27 | 48% | — | Distributed session, transport, mux, and remote-service stack. |
+| Networking & Transport | 2 / 8 | 25% | — | Netstack, dev networking, ingress, and OS transport services. |
+| Observability, Crash, Perf & Diagnostics | 14 / 36 | 39% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
 | Accounts, Ability & Sessions | 2 / 9 | 22% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. Spine done (0065 lifecycle broker + 0065B session authority); continuation open (KILL/backoff → 0234/0235, lock/multi-user → 0109/0110/0223/0224, delegation → 0126B). |
-| Security, Policy & Identity | 8 / 35 | 23% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
+| Security, Policy & Identity | 10 / 35 | 29% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
 | Storage, PackageFS & Content | 14 / 36 | 39% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done; end-state ladder 0314–0320 now counted (0314 Done). |
-| Updates, Packaging & Recovery | 4 / 21 | 19% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. ACTIVE LANE 2026-08-25 (RFC-0089). |
-| Bringup, Hardware & Drivers | 1 / 13 | 8% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
-| Windowing, UI & Graphics | 31 / 87 | 36% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
+| Updates, Packaging & Recovery | 12 / 21 | 57% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. ACTIVE LANE 2026-08-25 (RFC-0089). |
+| Bringup, Hardware & Drivers | 2 / 13 | 15% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
+| Windowing, UI & Graphics | 31 / 80 | 39% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
 | Text, IME, I18N & Accessibility | 4 / 8 | 50% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
-| DSL, App Platform & SDK | 2 / 14 | 14% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
+| DSL, App Platform & SDK | 3 / 14 | 21% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
 | DevX, Config & Tooling | 3 / 9 | 33% | — | CLI/dev tooling, config/schema plumbing, and repo hygiene. |
 
 ---
@@ -93,19 +95,19 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Kernel Core & Runtime
 
-- Progress: `14 / 34` done (`41%`)
-- Kernel-touch tasks: `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054C`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` (2026-08-14: `TASK-0054B`/`TASK-0054D` Superseded → removed)
+- Progress: `19 / 33` done (`58%`)
+- Kernel-touch tasks: `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054C`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` (`TASK-0054B`/`TASK-0054D` closed Done 2026-09-09 by reconciliation — perf floor delivered by 0042/0277/0283/0288 + RFC-0085/0302)
 - Tasks: `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0228`..`TASK-0230`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0267`, `TASK-0269`, `TASK-0276`..`TASK-0277`, `TASK-0281`..`TASK-0290`
 
 ### DSoftBus & Distributed
 
-- Progress: `14 / 28` done (`50%`)
+- Progress: `13 / 27` done (`48%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0003`, `TASK-0003B`, `TASK-0003C`, `TASK-0004`..`TASK-0005`, `TASK-0015`..`TASK-0017`, `TASK-0020`..`TASK-0024`, `TASK-0023B`, `TASK-0030`, `TASK-0038`, `TASK-0040`, `TASK-0044`, `TASK-0157`..`TASK-0158`, `TASK-0195`..`TASK-0196`, `TASK-0211`..`TASK-0212`, `TASK-0219`..`TASK-0220`, `TASK-0231`
 
 ### Networking & Transport
 
-- Progress: `1 / 8` done (`12%`)
+- Progress: `2 / 8` done (`25%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0016B`, `TASK-0052`, `TASK-0177`, `TASK-0193`..`TASK-0194`, `TASK-0206`, `TASK-0248`..`TASK-0249`
 
@@ -127,7 +129,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Security, Policy & Identity
 
-- Progress: `8 / 35` done (`23%`)
+- Progress: `10 / 35` done (`29%`)
 - Kernel-touch tasks: `TASK-0008`, `TASK-0019` (2026-08-14: `TASK-0028`/`TASK-0043` removed — their ledgers state "kernel untouched" as a hard invariant; the board entry was wrong)
 - Tasks: `TASK-0008`, `TASK-0008B`, `TASK-0019`, `TASK-0027`..`TASK-0029`, `TASK-0039`, `TASK-0043`, `TASK-0047`, `TASK-0066`..`TASK-0068`, `TASK-0103`, `TASK-0107`..`TASK-0108`, `TASK-0111`, `TASK-0124`, `TASK-0126`, `TASK-0130`, `TASK-0136`..`TASK-0137`, `TASK-0139`, `TASK-0160`, `TASK-0162`, `TASK-0167`..`TASK-0168`, `TASK-0181`..`TASK-0182`, `TASK-0189`, `TASK-0191`..`TASK-0192`, `TASK-0221`, `TASK-0238`, `TASK-0259`, `TASK-0263`
 - Notes (2026-08-18, group move): `TASK-0053` moved to Updates/Recovery — `.nxra` is part of the recovery-lane closure; enforcement lands on the TASK-0051 ops surface.
@@ -148,7 +150,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Updates, Packaging & Recovery
 
-- Progress: `4 / 21` done (`19%`)
+- Progress: `12 / 21` done (`57%`)
 - Kernel-touch tasks: `TASK-0289`
 - Tasks: `TASK-0007`, `TASK-0034`..`TASK-0037`, `TASK-0050`, `TASK-0050B`, `TASK-0051`, `TASK-0053`, `TASK-0129`, `TASK-0131`, `TASK-0140`, `TASK-0178`..`TASK-0180`, `TASK-0197`..`TASK-0198`, `TASK-0239`, `TASK-0260`..`TASK-0261`, `TASK-0289`
 - Notes (2026-08-25, later): **lane packages 3+5 delivered — the block substrate is the end-state topology**: see the Storage group rows for 0314/0315; the two-device blk/data enumeration swap finding is structurally dead; `nx image` is the ONE disk assembler in the launcher (keep-blk = `nx image patch`). Four QEMU-round findings recorded in the 0315 ledger (nx host-env, cap_query endpoint blindness, selftest slot-shift, bump-heap Vec fatality).
@@ -163,14 +165,14 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Bringup, Hardware & Drivers
 
-- Progress: `1 / 13` done (`8%`)
+- Progress: `2 / 13` done (`15%`)
 - Kernel-touch tasks: `TASK-0244`, `TASK-0251`
 - Tasks: `TASK-0055D`, `TASK-0244`, `TASK-0250`..`TASK-0251`, `TASK-0255`..`TASK-0258`, `TASK-0271`..`TASK-0272`, `TASK-0280`, `TASK-0297`, `TASK-0299`
 - Notes (2026-07-21): `TASK-0297` (goldfish rtcd + timed walltime + tz-lite + live clock, RFC-0076) is part of the active IME/General-management track; `TASK-0299` (SNTP time-syncd) is a seed gated on netstackd UDP readiness.
 
 ### Windowing, UI & Graphics
 
-- Progress: `31 / 87` done (`36%`)
+- Progress: `31 / 80` done (`39%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`
 
@@ -195,7 +197,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### DSL, App Platform & SDK
 
-- Progress: `2 / 14` done (`14%`)
+- Progress: `3 / 14` done (`21%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0077B`, `TASK-0077C`, `TASK-0078`, `TASK-0078B`, `TASK-0079`, `TASK-0122B`, `TASK-0163`..`TASK-0166`, `TASK-0169B`, `TASK-0274`, `TASK-0280B`, `TASK-0284B`
 
@@ -223,7 +225,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0009 | Persistence v1: virtio-blk + statefs | Done | State persistence baseline complete |
 | ✅ TASK-0010 | Device MMIO access model | Done | Capability-gated device access complete |
 | ✅ TASK-0011 | Kernel simplification phase A | Done | Simplification baseline complete |
-| ⤳ TASK-0011B | Kernel Rust idioms pre-SMP | Superseded | Pre-SMP prep obsolete — SMP v1/v1b/v2 (`TASK-0012`/`0012B`/`0042`) shipped; residual idiom debt owned by current kernel tasks (ledger closed 2026-08-18) |
+| ✅ TASK-0011B | Kernel Rust idioms & ownership clarity | Done | Reconciled 2026-09-09: delivered under RFC-0020 (Complete) — newtypes, phantom cap tags, explicit Send/Sync, `SysResult` |
 | ✅ TASK-0012 | Kernel SMP v1 | Done | Baseline complete |
 | ✅ TASK-0012B | Kernel SMP v1b hardening bridge | Done | Hardening complete |
 | ✅ TASK-0013 | Perf/Power v1: QoS ABI + timed coalescing | Done | QoS/timing contract complete |
@@ -326,7 +328,13 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0303 | Process reaper: service-driven zombie reclaim | Done | RFC-0081; boot-proven 2026-07-24 |
 | ✅ TASK-0307 | Settings distribution v2: single authority + versioned snapshots | Done | RFC-0083; reemit instead of remount |
 | ✅ TASK-0310 | Kernel-owned VA allocation (vm_map/vm_unmap/mmio_map_auto) | Done | RFC-0085; syscalls 4+27 retired |
-| ⤳ TASK-0076B | DSL v0.1c: visible OS mount + first DSL frame | Superseded | Superseded by TASK-0080C (own demo retired; capability lives in 0080C) |
+| ✅ TASK-0076B | DSL v0.1c: visible OS mount + first DSL frame | Done | Reconciled 2026-09-09: delivered by the app-host path (0080C/0080D); `APPHOST: mounted hash=` gated in the `visible` lane; execd isolation probe not delivered (not part of the goal) |
+| ✅ TASK-0037 | OTA A/B v2b: real boot slot decided by the boot chain | Done | Reconciled 2026-09-09: TASK-0289 `nxboot` + measured handoff record (`KSELFTEST: boot handoff ok (measured)`), not bootargs |
+| ✅ TASK-0041 | Lock profiling v1 (visibility before SMP optimization) | Done | Reconciled 2026-09-09: kernel lock budgets `core/trap/budgets.rs` + `KSELFTEST: bkl budget ok` (ADR-0049); no userspace profiler in the end system |
+| ✅ TASK-0054B | Kernel/UI perf floor | Done | Reconciled 2026-09-09: QoS/affinity ABI (0042), init affinity placement, `SELFTEST: ui runtime floor ok` + budget gates (0277/0283/0288); hop/queue counters remain with TASK-0290 |
+| ✅ TASK-0054D | Kernel MM perf floor | Done | Reconciled 2026-09-09: RFC-0085 kernel-owned VA (0310) + shared RO atlas VMO (0302); reuse counters remain with TASK-0290 |
+| ✅ TASK-0050B | Recovery bringup console | Done | Resolved by decision 2026-09-09: no console in the end system — `nx recovery` + bootctld targets + `.nxra` (0050/0051/0053) |
+| ✅ TASK-0079 | DSL v0.3a AOT codegen | Done | Retired by decision 2026-09-09: the app-host interpreter is the one execution tier; AOT docs/stubs deleted; runtime scale contract → TASK-0077C |
 
 `TASK-0065` / UI v6b app lifecycle + notifications + navigation — **DONE (2026-06-23)**. RFC-0065 + ADR-0036/0037; `bundlemgrd` registry **generated from real `bundles/<app>/manifest.toml`** at build time (no hardcoded list; phantom `notes` removed; `windowd: apps ok (n=2)` chat/search); `abilitymgr` real service + lifecycle broker + **manifest-caps launch authority** (fail-closed `STATUS_DENIED`; `abilitymgr: caps ok app=<id>`); policyd `BundleQuery` gating + greppable `!route-deny`/`!cap-deny`; real `.nxb` bundles + Cap'n Proto manifests; per-app-surface model (ADR-0037); `search-app` (no_std) owns its data, windowd hosts it. 25 abilitymgr + 2 nxb-pack + 126 windowd + 10 search-app tests, riscv-checked. **Descoped to follow-ups:** apps as spawned processes w/ own surfaces → DSL App Runtime **`TASK-0080D`** (execd only runs asm stubs today; needs a userspace app runtime + surface handoff) + `TASK-0234`/`0235` + SystemUI DSL phases.
 `TASK-0065B` / Session v1: sessiond session authority + login greeter + SystemUI shell selection — **DONE (2026-07-02)**. `sessiond` = the session authority (host-tested `Greeter → Active` state machine, `Locked`/`OP_LOCK` reserved; manifest user registry `users.toml` with optional `auto_login`; wire protocol `nexus_abi::sessiond` GET_STATE/LOGIN, golden-frame-tested). Login greeter in windowd: blurred+dimmed wallpaper baked into Plane 1 (separable box blur, no atlas cost), round SDF avatar + Lucide `circle-user` + name, hover, click → `OP_LOGIN` → session shell via SystemUI `resolve_product` (the user's `product` selects the shell — profiles.md contract; greeter appearance from `manifests/greeter/default/greeter.toml`). Pre-session gating at BOTH layers: windowd suppresses all shell affordances (host-tested `resolve_click_session`) AND `abilitymgr` refuses `OP_LAUNCH` fail-closed via injected `SessionGate` + live sessiond query (`abilitymgr: launch denied (session)`). Never bricks: bounded probe → `windowd: session unavailable (auto shell)` (proven via an OS_SKIP=sessiond boot). Proof injector logs in like a user; ladder + `docs/dev/ui/shell/session.md` shipped; windowd heap → 2MiB (`heap-2m`). Boot-verified over virgl (greeter → click → desktop). Follow-ups: credential auth behind OP_LOGIN, lock/unlock UI, session switching, multi-user avatar grid.
@@ -347,32 +355,23 @@ Service-split note (ADR-0036): the v6b lifecycle broker is **`abilitymgr`** (not
 
 ---
 
-## Planned UI/DSL Insertions
+## Planned UI/DSL Insertions — status 2026-09-09
 
-These draft tasks intentionally create an earlier visible UI/DSL path so app and SystemUI work can be tested in a real
-QEMU window before the later display/system migration tasks fully land.
+The earlier visible-UI/DSL insertion drafts, reconciled against ledger headers (the Done list
+above is the authority; this is a reading aid):
 
-| Task | Purpose |
-|------|---------|
-| TASK-0054B | kernel/UI perf floor (zero-copy + trusted scheduling + SMP hardening carry-ins) |
-| TASK-0054C | kernel IPC fastpath v1 for short control messages |
-| TASK-0054D | kernel MM perf floor for VMO/surface reuse |
-| TASK-0055B | visible QEMU scanout bootstrap |
-| TASK-0055C | `windowd` visible present + SystemUI first frame |
-| TASK-0055D | deterministic QEMU dev display/profile presets (`phone/tablet/laptop/laptop-pro/convertible` + orientation + shell mode + Hz) |
-| TASK-0056B | visible input v0 (cursor/hover/focus/click) |
-| TASK-0056C | present/input perf polish (latency + coalescing + skip paths) |
-| TASK-0060B | glass materials + backdrop cache + deterministic degrade |
-| TASK-0062B | animation frame-budget discipline + canonical perf scenes |
-| TASK-0067B | clipboard history DSL overlay/app |
-| TASK-0076B | visible DSL OS mount + first DSL frame |
-| TASK-0080B | bootstrap SystemUI DSL shell (host-first) |
-| TASK-0080C | bootstrap SystemUI DSL shell (OS/QEMU) |
-| TASK-0100B | Audio Mixer DSL app/SystemUI surface |
-| TASK-0122B | shared DSL app platform |
-| TASK-0122C | shared DSL app integration kit |
-
----
+| Task | Purpose | State |
+|------|---------|-------|
+| TASK-0054B / TASK-0054D | kernel/UI perf floor, MM perf floor | ✅ Done (reconciled 2026-09-09) |
+| TASK-0054C | kernel IPC perf contract + `call` fastpath | Draft — Sub-80 Phase 2 #1 |
+| TASK-0055B / 0055C / 0055D | visible scanout bootstrap, visible present + first frame, dev display presets | ✅ Done (`0322` guest ingestion open) |
+| TASK-0056B / 0056C | visible input v0, present/input perf polish | ✅ Done |
+| TASK-0060B / 0062B | glass materials + backdrop cache, animation frame budget | ✅ Done |
+| TASK-0067B | clipboard history panel (DSL) | Draft — Phase 2 #8 (after 0067) |
+| TASK-0076B | visible DSL OS mount + first DSL frame | ✅ Done (reconciled 2026-09-09; app-host path) |
+| TASK-0080B / 0080C | bootstrap SystemUI DSL shell (host / OS) | ✅ Done |
+| TASK-0100B | Audio Mixer DSL app/SystemUI surface | Draft (> 80) |
+| TASK-0122B / 0122C | shared DSL app platform / integration kit | Draft (> 80; 0122C's clipboard bridge moved into 0067) |
 
 ## RFC Done (Ongoing, Cumulative)
 

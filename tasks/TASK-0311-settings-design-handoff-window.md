@@ -187,8 +187,8 @@ be the round-3 scroll-viewport width leak — fixed, see below.)
   90 %. Node cap: 371/4096 worst mode (9 %). app-host heap 8→16 MiB
   (`heap-16m` feature) + one-time 50/75/90 % `heap-watermark` markers —
   the bump allocator never frees and every structural tap leaks
-  ~100–300 KB; the honest fix (emit-generation arena) stays in the backlog
-  below.
+  ~100–300 KB; the honest fix (emit-generation arena) is OWNED by TASK-0077C since
+  2026-09-09 (end-state rewrite: runtime long-session & large-data contract).
 - **Image-budget follow-up (2026-07-31)**: the 8→16 MiB heap above lands in
   `.bss`, so the app-host IMAGE went 10.0 → 18.8 MB and broke
   `just contract-image-budgets` (14 MB ceiling, 128 %) — commit 45780c77
@@ -197,8 +197,8 @@ be the round-3 scroll-viewport width leak — fixed, see below.)
   `scripts/check-image-budgets.sh` WITH the rationale inline: 16.8 MB of the
   image is the fixed heap and does not grow with code; only the ~2 MB text
   half does. A further heap doubling (32 MiB) trips the gate again by
-  design. The emit-generation arena in the backlog below is still the real
-  fix — this is headroom, not a licence.
+  design. The emit-generation arena (owned by TASK-0077C since 2026-09-09) is still the
+  real fix — this is headroom, not a licence.
 
 ## Proofs
 

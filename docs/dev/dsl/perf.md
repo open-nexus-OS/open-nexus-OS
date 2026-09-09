@@ -5,7 +5,8 @@
 
 This doc captures how to measure and improve DSL performance:
 
-- interpreter vs AOT trade-offs,
+- where the cost actually is (layout/paint/present, emit churn — not expression
+  interpretation; an AOT tier was retired 2026-09-09, TASK-0079),
 - snapshot perf gates,
 - deterministic benchmarks (host-first, QEMU-gated).
 
@@ -18,6 +19,5 @@ At runtime, performance work should follow the retained UI pipeline contract:
 
 See also:
 
-- `docs/dev/dsl/codegen.md`
-- `docs/dev/dsl/incremental.md`
+- `docs/dev/dsl/runtime.md` (the one execution tier and its scale contract, TASK-0077C)
 - `docs/dev/ui/foundations/layout/layout-pipeline.md`

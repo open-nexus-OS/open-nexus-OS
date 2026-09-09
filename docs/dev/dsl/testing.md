@@ -25,4 +25,3 @@ Conventions:
 - parse/format idempotence
 - lowering determinism and diagnostics
 - reducer purity violations are rejected
-- snapshot parity (interpreter vs AOT where applicable)

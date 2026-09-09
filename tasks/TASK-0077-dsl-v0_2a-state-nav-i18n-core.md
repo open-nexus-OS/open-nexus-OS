@@ -8,7 +8,7 @@ depends-on:
   - tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
 follow-up-tasks:
   - tasks/TASK-0077B-dsl-v0_2a-devx-ergonomics-local-state-env-async-recipes.md
-  - tasks/TASK-0077C-dsl-v0_2c-pro-primitives-nativewidget-virtual-tables-timelines.md
+  - tasks/TASK-0077C-dsl-v0_2c-runtime-long-session-large-data-contract.md
   - tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
 links:
   - Track: tasks/TRACK-DSL-V1-DEVX.md

@@ -1,6 +1,6 @@
 ---
 title: TASK-0011B Kernel Rust idioms & ownership clarity (pre-SMP prep)
-status: Superseded
+status: Done (2026-09-09 — reconciled: goal delivered under RFC-0020, Complete)
 owner: @kernel-team
 created: 2026-01-09
 depends-on: []
@@ -16,15 +16,30 @@ links:
   - SMP follow-up: tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md
 ---
 
-## Superseded (2026-08-18)
+## Closure 2026-09-09 (reconciliation — Done, delivered under RFC-0020)
 
-This was a **pre-SMP prep** task, but the SMP work it was preparing for has long shipped
-(`TASK-0012` SMP v1, `TASK-0012B` v1b, `TASK-0042` v2 — all Done). Whatever idiom/ownership
-cleanup the kernel needed happened inside those tasks and the later kernel tracks; keeping a
-"prepare for SMP" draft open after SMP shipped is stale state. STATUS-BOARD already carried
-this row as Done ("Idiom cleanup complete") — this closure removes the board-vs-ledger drift.
-Any *remaining* idiom debt is ordinary kernel hygiene, owned by the current kernel tasks, not
-by a pre-SMP ledger.
+**Goal of this ledger:** make the kernel's ownership, `Send`/`Sync` boundaries, newtypes and
+error envelope explicit before SMP, with zero behavior change.
+
+**Actual solution (code ground truth, verified 2026-09-09):** the goal was delivered by this
+ledger's own seed contract, not by the SMP tasks — the 2026-08-18 supersession note below was
+wrong about the mechanism (outcome unaffected):
+
+- `docs/rfcs/RFC-0020-kernel-ownership-and-rust-idioms-pre-smp-v1.md` — Status **Complete**,
+  Phases 0–5 all ✅.
+- Ownership model documented: `docs/architecture/01-neuron-kernel.md` § "Ownership Model
+  (Rust-Specific, pre-SMP)".
+- Newtypes: `source/kernel/neuron/src/types.rs` (`Pid(u32)`, `CapSlot(u32)`),
+  `mm/address_space.rs` (`AsHandle(NonZeroU32)`); capability phantom tags
+  `cap/mod.rs` (`EndpointCapTag`, `EndpointCapRef`, negative marker `_not_send_sync`).
+- Explicit `Send`/`Sync` with justification: `core/trap/runtime.rs`, `core/smp/mod.rs`.
+- Error envelope: `syscall/mod.rs` `SysResult<T>`; 48 `#[must_use]` sites under
+  `source/kernel/neuron/src/`.
+- SMP v1/v1b/v2 (`TASK-0012`/`0012B`/`0042`, all Done) built on exactly these boundaries.
+
+**Not delivered / not needed:** nothing residual; any further idiom hygiene is ordinary kernel
+maintenance owned by the kernel tasks of the day.
+
 
 ## Context
 

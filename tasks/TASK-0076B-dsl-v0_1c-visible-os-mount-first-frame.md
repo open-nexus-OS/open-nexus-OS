@@ -1,6 +1,6 @@
 ---
-title: TASK-0076B DSL v0.1c (OS-gated): visible in-compositor mount + first DSL frame + execd isolation probe
-status: Superseded
+title: TASK-0076B DSL v0.1c (OS-gated): visible in-compositor mount + first DSL frame (delivered by the app-host path, TASK-0080C/0080D)
+status: Done (2026-09-09 — reconciled: visible mount + first DSL frame delivered by TASK-0080C/0080D app-host; mount marker gated in the visible lane)
 owner: @ui @runtime
 created: 2026-03-28
 updated: 2026-07-06
@@ -19,6 +19,40 @@ links:
   - Spawn path this task probes for Phase 6: source/services/execd (nexus-loader, as_create)
   - Testing contract: scripts/qemu-test.sh
 ---
+
+## Closure 2026-09-09 (reconciliation — Done, delivered by the app-host path)
+
+**Goal of this ledger:** a DSL program mounted and rendered in the live compositor path on a
+real boot, with one visible pointer interaction through the narrow-invalidation path.
+
+**Actual solution (code ground truth, verified 2026-09-09):** this ledger's own demo path
+(`windowd/src/dsl_mount.rs`, `WindowId::DslDemo`) was retired in e8b292fe; the capability lives
+in the app-host process that TASK-0080D/0080C (both Done) made the ONE DSL execution path:
+
+- `source/services/app-host/src/probe/boot.rs::emit_mounted_hash_marker()` prints
+  `APPHOST: mounted hash=<16 hex>` from the canonical `.nxir` program hash after the mount;
+  mount/interaction/paint/presentation live in `app-host/src/probe/{mount,interaction,paint,
+  presentation,state}.rs`, on the shared `LayoutNode → LayoutEngine → SceneGraph → nexus-gfx`
+  path (no separate DSL renderer).
+- Boot chain proven by 0080C: `abilitymgr: launch (app=…)` → `APPHOST: mounted …` →
+  greeter/shell/launcher click end to end; `just start` shows the DSL shell (pixel-proven by
+  the TASK-0324 P0 `visible` lane).
+- The shell config feeding the mount is the existing registry
+  (`source/services/systemui/manifests/shells/*/shell.toml`), as this ledger required.
+
+**Closing package (this reconciliation):** the mount evidence was emitted but NOT gated —
+`APPHOST: mounted hash=` appeared in no proof manifest and no ladder. It is now declared in
+`source/apps/selftest-client/proof-manifest/markers/ui.toml` (`emit_when = { profile =
+"visible" }`) and required by the `visible` lane's display-truth block in
+`scripts/qemu-test.sh` (the lane where app-host runs; headless never spawns the shell). Not
+added to `tools/nx/chains/markers.txt`: the chain-contract simulation has no app-host contract
+(`tools/nx/src/chain/contract/` = gpud/hidrawd/inputd/windowd), and inventing one for a single
+marker would be a fake simulation.
+
+**Not delivered (honest):** goal 3, the execd child-address-space isolation probe
+(`EXECD: isolation probe ok`, `SELFTEST: execd spawn isolation ok`) — never built; the only
+execd proof is ELF load (`M_EXECD_ELF_LOAD_OK`). It was a de-risking probe for 0080D, which
+shipped and is boot-proven; it is not part of the "visible mount" goal and is closed with it.
 
 ## Context (updated 2026-07-06)
 

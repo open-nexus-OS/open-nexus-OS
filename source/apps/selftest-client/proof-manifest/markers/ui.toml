@@ -76,6 +76,14 @@ phase = "end"
 emit_when = { profile = "visible" }
 proves = "gpud read back a non-black centre strip of the live GL render target after the first presented frame"
 
+# TASK-0076B closure (2026-09-09): the DSL shell's mount evidence. app-host prints the
+# canonical `.nxir` program hash after mounting (`probe/boot.rs`); the value varies per
+# build, so the lane matches the prefix. Only the `visible` lane spawns the shell.
+[marker."APPHOST: mounted hash="]
+phase = "end"
+emit_when = { profile = "visible" }
+proves = "the app-host process mounted the DSL shell program on the live compositor path (TASK-0080C/0080D path; TASK-0076B goal)"
+
 [marker."windowd: cursor svg loaded"]
 phase = "end"
 emit_when = { profile = "full" }

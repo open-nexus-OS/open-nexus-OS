@@ -16,8 +16,9 @@ semantics, different sinks:
    process per app**, which loads the app's `.nxir` from its installed bundle, renders
    into its own surface memory, and presents to the compositor over IPC.
 
-An optional third tier (v0.3+): **AOT** — the same IR compiled ahead-of-time to a
-per-app native binary. Behavior-identical to the interpreter by contract (golden-proven).
+There is no third tier: an ahead-of-time codegen tier was retired by decision on
+2026-09-09 (TASK-0079) — the interpreter in the app-host process is the shipped
+execution path, and its scale contract (long sessions, large data) is TASK-0077C.
 
 ## Why apps start fast
 
@@ -80,7 +81,7 @@ the damage class — `Paint` means the existing layout geometry stays valid
 (repaint only), `Layout` means re-layout, `None` means nothing visible changed.
 The scene-golden suite (`tests/dsl_goldens`) renders retained scenes through
 the shared BGRA painter; the conformance corpus (`tests/dsl_conformance`)
-pins `(state, event) → state'` semantics for the later AOT parity gate.
+pins `(state, event) → state'` semantics as the runtime's semantics contract.
 
 ## Presentation changes are reemits, never remounts (RFC-0083)
 

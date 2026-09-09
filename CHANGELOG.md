@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-09 (Sub-80 reconciliation: 8 ledgers closed with their actual solution, 9 rewritten to end state, IMPLEMENTATION-ORDER condensed)
+
+- Every non-Done task ledger < 0080 outside the network family was audited against the
+  code (three ground-truth sweeps). Closed as Done with the delivered solution recorded in a
+  "Closure 2026-09-09" section: TASK-0011B (RFC-0020 Complete), TASK-0037 (TASK-0289 `nxboot`
+  + measured boot handoff), TASK-0041 (kernel lock budgets, ADR-0049), TASK-0054B (QoS/
+  affinity ABI + init placement + `ui runtime floor` gates), TASK-0054D (RFC-0085 kernel-owned
+  VA + shared RO atlas VMO), TASK-0076B (app-host mount path). Closed by decision: TASK-0050B
+  (no recovery console in the end system) and TASK-0079 (the app-host interpreter is the one
+  DSL execution tier — AOT retired).
+- TASK-0076B closing package: `APPHOST: mounted hash=` (app-host's post-mount line) is now
+  declared in `proof-manifest/markers/ui.toml` (`visible` profile) and required by the
+  `visible` lane's display-truth block in `scripts/qemu-test.sh` — the DSL-shell mount was
+  emitted but never gated.
+- TASK-0079 dual structure removed: `docs/dev/dsl/codegen.md` + `incremental.md` deleted;
+  AOT tier removed from `overview.md`, `runtime.md`, `cli.md`, `syntax.md`, `perf.md`,
+  `testing.md`, `project-layout.md`, `ir.md`, `principles.md`, `TRACK-DSL-V1-DEVX.md`;
+  TASK-0080 header note updated.
+- Rewritten to their end state ("End-state rewrite 2026-09-09" sections, decisions incl. what
+  gets deleted + the gate against its return, packages with blast radius, exact marker
+  strings): TASK-0054C (IPC perf contract + `call` fastpath), TASK-0033 (reopened: `pkg:/` VMO
+  pass-through + ONE payload-VMO header codec), TASK-0077B (keyed `$state`, complete binds,
+  async recipes), TASK-0077C (recut to the runtime long-session/large-data contract —
+  emit-generation arena + subtree re-emit; VirtualList/Table/Timeline/NativeWidget retired
+  because paging is already QuerySpec + `tail()`; ledger file renamed; arena ownership moved
+  from the TASK-0311 backlog), TASK-0074 (modal semantics in the DSL runtime), TASK-0066 (WM
+  zones: thirds/occupancy/reflow/feed/policy), TASK-0067 (clipboardd single authority +
+  `svc.clipboard` + DnD routing; absorbs 0087 + the 0122C clipboard bridge), TASK-0067B
+  (clipboard history panel), TASK-0068 (screencapd over the ONE readback authority from
+  TASK-0324 P6).
+- `tasks/IMPLEMENTATION-ORDER.md` condensed 630 → ~205 lines: active lanes, Sub-80 tracking
+  (Phase 1 one row per task, closed-by-reconciliation table, Phase 2 order
+  `0054C → 0033 → 0077B → 0077C → 0074 → 0066 → 0067 → 0067B → 0068`, network HOLD), completed
+  lanes as paragraphs, rules (visible-proof-surface + Orbital-level gate promoted to rules);
+  the duplicate Done table is gone (STATUS-BOARD is the one Done list).
+- `tasks/STATUS-BOARD.md`: rows/notes for the eight closures, the stale "Planned UI/DSL
+  Insertions" table replaced by a status snapshot, group counters recomputed mechanically.
+
 ### Fixed - 2026-09-09 (TASK-0324 P0: build truth + display truth — `just start` was black with every marker green)
 
 - Root cause of the black `just start` window since gpud moved onto the

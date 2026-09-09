@@ -9,13 +9,13 @@ apps, the system shell, and the login greeter on one reactive pipeline:
 ```text
 .nx source ──nx dsl build──▶ .nxir (canonical binary IR)
                                 │
-                ┌───────────────┼──────────────────┐
-                ▼               ▼                  ▼
-          interpreter     app-host process     AOT codegen (v0.3+)
-          (host preview,  (one runtime ELF,    (per-app native binary,
-           shell mount)    per-app process)     behavior-identical)
-                │               │                  │
-                └───────────────┴──────────────────┘
+                ┌───────────────┴──────────────────┐
+                ▼                                  ▼
+          interpreter (host)              app-host process (OS)
+          (preview, goldens,              (one runtime ELF, one process
+           conformance corpus)             per app — the shipped tier)
+                │                                  │
+                └───────────────┬──────────────────┘
                                 ▼
              LayoutNode → LayoutEngine → retained scene → gfx
 ```
@@ -31,8 +31,11 @@ Key properties:
   (see `principles.md` — the theory, enforced so users never have to know it).
 - **Host-first testable**: parse/lint/build/run/snapshot all work on the host; the same
   checker core is `no_std`-capable and later runs in-system.
-- **Two modes**: interpreter for fast iteration and system surfaces; optional AOT for
-  maximum startup/steady-state performance — golden-proven identical.
+- **One execution tier**: the same interpreter runs on the host (preview, goldens,
+  conformance corpus) and inside the app-host process on the OS. An ahead-of-time
+  codegen tier was retired by decision on 2026-09-09 (TASK-0079): the measured cost
+  centres are layout/paint/present and the never-freeing emit heap, not expression
+  interpretation — see `perf.md`.
 
 ## The shape of a program
 
@@ -105,8 +108,6 @@ branches or per-profile file overrides (`ui/platform/<profile>/…`). See `profi
 | `services.md` | `svc.*` adapters and the effect boundary |
 | `db-queries.md` | QuerySpec: typed, bounded, deterministic data access |
 | `ir.md` | the canonical IR (`.nxir`): schema, identity, evolution |
-| `codegen.md` | AOT codegen contract |
-| `incremental.md` | incremental builds |
 | `runtime.md` | app lifecycle, app-host, surfaces, cold start |
 | `perf.md` | performance budgets and gates |
 | `testing.md` | host tests, snapshots, conformance corpus |

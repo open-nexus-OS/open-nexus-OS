@@ -4,9 +4,9 @@
 # The Canonical IR (`.nxir`)
 
 `nx dsl build` lowers `.nx` source into a deterministic, bounded, binary IR. The IR is
-**the contract of the whole system**: the interpreter, the app-host, and the AOT
-codegen all execute the same IR under one written semantics — nothing may be
-implemented in only one tier.
+**the contract of the whole system**: the host interpreter and the app-host process
+execute the same IR under one written semantics — nothing may be implemented in only
+one place.
 
 ## Formats
 
@@ -45,10 +45,10 @@ bytecode. The representation has no back-edges, so **termination holds by
 construction** — no verifier, no fuel counters. Iteration exists only as capped
 collection combinators (`map`, `filter`, `findFirst`, `removeWhere`, `append`-with-cap).
 
-- The interpreter walks the trees directly over Cap'n Proto readers (zero-parse).
-- AOT lowers each tree to straight-line native code.
-- Both implement the same small-step semantics document; a shared conformance corpus
-  (`(state, event) → state'` fixtures) is executed by both and must agree exactly.
+- The interpreter walks the trees directly over Cap'n Proto readers (zero-parse) —
+  the same code on the host and inside the app-host process.
+- It implements the small-step semantics document; the conformance corpus
+  (`(state, event) → state'` fixtures) pins that semantics.
 - Every expression node carries its type; the loader **re-typechecks on mount**
   (fail-closed against tampered bundles).
 
@@ -66,7 +66,7 @@ nodeId = hash64(component symbol ∥ structural path ∥ optional user key)
 Collection items derive ids at runtime from their `.key(expr)` value with the same
 hash. Consequences:
 
-- the retained instance tree, AOT output, golden snapshots, and a11y references all
+- the retained instance tree, golden snapshots, and a11y references all
   agree on identity across rebuilds;
 - equivalent recompilations never change identity because of formatting or file
   traversal order;

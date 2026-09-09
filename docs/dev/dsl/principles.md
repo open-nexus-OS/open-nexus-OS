@@ -85,7 +85,7 @@ direct access.
   plugin zoo. Rare needs go through one blessed escape hatch (`NativeWidget`) with the
   same determinism/boundedness contract.
 - The implementation itself follows the rule: few deep crates
-  (`core`, `ir`, `runtime`, `cli`, `codegen`), each with a small public API.
+  (`core`, `ir`, `runtime`, `cli`), each with a small public API.
 
 ## Derived rules the compiler enforces
 

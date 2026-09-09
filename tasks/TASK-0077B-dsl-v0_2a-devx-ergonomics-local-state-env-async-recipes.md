@@ -1,6 +1,6 @@
 ---
-title: TASK-0077B DSL v0.2a DevX: local `$state` (implicit instance stores) + two-way bindings + async recipes (host)
-status: Draft
+title: TASK-0077B DSL v0.2a DevX: keyed per-instance `$state` + complete two-way bindings + async recipes (host)
+status: Draft (end-state rewrite 2026-09-09; ~2/3 shipped, residual = keyed state spine + 3 bindings + recipes + lint promotion)
 owner: @ui @runtime
 created: 2026-01-26
 updated: 2026-07-06
@@ -13,7 +13,91 @@ links:
   - Principles this task serves: docs/dev/dsl/principles.md (encapsulation without magic)
 ---
 
-## Rebase (2026-08-14) — ~60-70% shipped
+## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)
+
+**Ground truth 2026-09-09 (verified in code):** shipped — local `$state` → implicit store
+`__local_<Component>` (`userspace/dsl/core/src/lower/state.rs`, `docs/dev/dsl/state.md`
+§49-70, corpus `component_local_state_via_state_block_and_binding`); effect cancellation
+latest-wins with generations (`runtime/src/effects.rs`), multi-step `EffectPlan` lowering
+(`core/src/lower/effects.rs`); `timeoutMs` lint NX0409; env fixtures
+(`runtime/src/fixture_env.rs`, profile-matrix goldens); auto-bind for Toggle/Checkbox (Tap)
+and TextField/TextArea (Change) via `Runtime::write_binding`. Missing — the single-use rule is
+still a build error (`lower/mod.rs:240-269`, `lower/symbols.rs:339`, corpus
+`stateful_component_used_twice_is_rejected`); Slider/Select have no bind arm and **Stepper is
+not in the DSL registry at all** (`userspace/ui/widgets/stepper` exists, unreachable from `.nx`);
+`patterns.md` has no async-recipes chapter; NX0407/NX0409 are lints, not errors; the named
+proof home `tests/dsl_v0_2a_devx_host/` was never created.
+
+### Goal (end system)
+
+Per-instance keyed `$state` (a stateful component works inside any keyed collection and keeps
+its state across reorders), two-way bind sugar for all seven value controls, async recipes as
+documented and fixture-proven store shapes, NX0407/NX0409 as build errors, one proof home.
+
+### Non-goals
+
+Generics / type-system growth; IO in reducers or views; new triggers; focus traversal (Tab).
+
+### Invariants
+
+- ONE mutation path: bindings and local state reduce through dispatch → reduce → commit
+  (`write_binding` = the reducer path); visible in IR; no runtime special cases.
+- Bounded: `LOCAL_INSTANCES_MAX = 256` per program; an instance's storage is evicted when its
+  keyed row disappears; zero-alloc steady state unchanged.
+- No fake success: recipe fixtures assert real state transitions.
+
+### Decisions
+
+- **D1 Keyed store family.** The implicit store gains `Store.keyed: Bool` (IR v1.3, append-only;
+  shared schema bump with TASK-0074). Instance key = enclosing ForEach key chain + component
+  ordinal, emitted by lowering as `Widget.stateKey`; runtime `store.rs` keeps
+  `KeyedLocal { map: BTreeMap<InstanceKey, Fields> }`, reconciled on every collection diff.
+- **D2 Single-use rule DELETED.** `lower/mod.rs:240-269` and `count_component_usage`
+  (`lower/symbols.rs:339`) go; gate = the conformance case "two instances rejected" is REPLACED by
+  "two instances + reorder keep their own state" (a lowering that reintroduces the restriction
+  fails that fixture). `state.md` §66-70 restriction text removed.
+- **D3 Bind table complete.** `lower/views.rs:258-268` += `("Slider","value")`,
+  `("Select","value")`, `("Stepper","value")` → `Change`; `Stepper` added to
+  `core/src/registry.rs` and `runtime/src/registry/widgets.rs` (wrapping the existing crate).
+- **D4 Lint promotion.** NX0407 (`UnhandledResult`) and NX0409 (`MissingTimeout`) → `Error`
+  in `diag.rs` + `cli/src/explain.rs` + docs; corpus fixtures updated.
+- **D5 One proof home.** `tests/dsl_v0_2a_devx_host/` created (root `Cargo.toml` member —
+  approval zone) for keyed state, the seven-control binds, async recipes and env variants;
+  cases already in `tests/dsl_conformance` stay there (no duplication).
+- **D6 Async recipes chapter.** `docs/dev/dsl/patterns.md` "Async recipes": Loading / Loaded /
+  Error / Empty store shape, retry, latest-wins cancellation — each backed by a D5 fixture.
+
+### Packages
+
+- **P0** IR v1.3 changelog in `docs/dev/dsl/ir.md` (`Store.keyed`, `Widget.stateKey`;
+  `ViewNode.overlayKind` from 0074 rides the same bump if 0074 is next). Blast: app-host build
+  (IR bump), `dsl_goldens` regenerate.
+- **P1** Keyed lowering + runtime + reorder fixtures. Blast: `dsl_conformance`, `dsl_goldens`,
+  `dsl_apps_conformance` (every app still lowers).
+- **P2** Binds + Stepper. Blast: `ui_v10_goldens`, settings/stash apps that use Slider/Select.
+- **P3** Lint promotion + corpus. Blast: every `.nx` in `userspace/apps` must pass.
+- **P4** Docs + proof crate. Blast: paper + `just check` (workspace member).
+
+### Definition of Done
+
+Host (`tests/dsl_v0_2a_devx_host/` + `tests/dsl_conformance`): IR golden shows the keyed store;
+reorder fixture keeps per-row state; seven-control bind fixtures update state deterministically
+via the narrow-invalidation path; three async-recipe transition goldens (loading→loaded,
+loading→error→retry, cancellation); env-variant snapshots; NX0407/NX0409 error fixtures.
+No new QEMU markers (host-only ledger); the app-host boot lanes (visible, smp1) must stay green
+after the IR bump. Docs: `state.md`, `patterns.md`, `syntax.md`, `ir.md`, `services.md`, `cli.md`.
+
+### Touched paths
+
+`userspace/dsl/{core,ir,runtime}/src/**`, `tools/nexus-idl/schemas/ui_ir.capnp`,
+`userspace/ui/widgets/stepper`, `tests/dsl_v0_2a_devx_host/` (new), `tests/dsl_conformance/`,
+`docs/dev/dsl/{state,patterns,syntax,ir,services,cli}.md`, root `Cargo.toml`.
+
+### Dependencies
+
+None on TASK-0324 (host work). Precedes 0077C and 0074 (both build on the keyed spine / IR v1.3).
+
+## Rebase (2026-08-14) — ~60-70% shipped — historical, superseded by the end-state rewrite above
 
 ### Shipped — do NOT re-implement
 
@@ -53,7 +137,7 @@ links:
 > "`$state` locals" as open although the second DONE increment above it
 > records the landing). This rebase section is the authoritative residual.
 
-## Context (updated 2026-07-06)
+## Context (updated 2026-07-06) — historical, superseded by the end-state rewrite above
 
 The v0.2a core is powerful; this task makes the common cases feel effortless —
 declarative-framework ergonomics — **without hidden magic**. The masterplan pins the
@@ -64,7 +148,7 @@ means local state survives collection reorders (proven in TASK-0076).
 Effects support short **multi-step plans** here (the IR `EffectPlan` step list grows
 beyond single-call): call → dispatch chains with explicit timeouts and cancellation.
 
-## Goal
+## Goal — historical, superseded by the end-state rewrite above
 
 1. **Local state sugar**: component-level `state` field declarations lower to an
    implicit instance store + generated events for built-in mutations; `$state.field`

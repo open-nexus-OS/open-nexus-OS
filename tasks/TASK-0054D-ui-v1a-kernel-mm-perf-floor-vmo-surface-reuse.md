@@ -1,6 +1,6 @@
 ---
-title: TASK-0054D UI v1a extension: kernel MM perf floor (Superseded 2026-08-14 — delivered by 0310/0309/0302; residual counters → TASK-0290)
-status: Superseded
+title: TASK-0054D UI v1a extension: kernel MM perf floor (delivered by RFC-0085 (0310) + shared RO atlas VMO (0302); counters → TASK-0290)
+status: Done (2026-09-09 — reconciled: mapping floor delivered by RFC-0085 (0310) + shared RO atlas VMO (0302); counters remain with TASK-0290)
 owner: @kernel-mm-team @runtime @ui
 created: 2026-03-29
 depends-on: []
@@ -17,16 +17,30 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Context
+## Closure 2026-09-09 (reconciliation — Done, delivered by RFC-0085 + RFC-0080)
 
-> **SUPERSEDED (2026-08-14, sub-80 roadmap).** Substantially delivered by newer, finished
-> kernel work: kernel-owned VA allocation → TASK-0310 (Done 2026-07-28, RFC-0085 Implemented,
-> syscalls 4+27 retired); cheap mapping path → TASK-0309 resolution (RFC-0085 P4 replaced the
-> per-page loop with ONE `vm_map`); the biggest real UI buffer reuse → TASK-0302 (RFC-0080
-> shared glyph-atlas RO VMO — N app windows add ~0 atlas bytes); phased copies exist
-> (`CopyPlan`, `syscall/api/exec.rs:101`). The residual (reuse counters / instrumentation
-> floor) folds into TASK-0290, whose backwards `depends-on: 0054B/C/D` edge has been cut.
-> Do not execute.
+**Goal of this ledger:** reuse-oriented VMO/surface mapping rules, a cheap repeated-use
+mapping path, activation-churn sanity and UI buffer bounds.
+
+**Actual solution (code ground truth, verified 2026-09-09):**
+
+- Kernel-owned VA allocation (RFC-0085, TASK-0310 Done 2026-07-28):
+  `source/kernel/neuron/src/syscall/api/vm_map.rs` (`sys_vm_map` with W^X at the boundary,
+  `sys_vm_unmap`), `va_space.rs` + tests, EBUSY-under-live-mapping in `syscall/api/vmo.rs`;
+  the per-page mapping loop was replaced by ONE `vm_map` (TASK-0309 resolution).
+- The largest real reuse: the shared read-only glyph-atlas VMO (RFC-0080, TASK-0302 Done) —
+  `source/kernel/neuron/src/vmo_ro.rs`, windowd `atlas.rs` / `client_surface.rs`; N app windows
+  add ~0 atlas bytes (app-host ELF 5.9 → 1.66 MB).
+- Address-space churn: ASID recycling documented in `mm/address_space.rs`; process-image
+  arena ranges reclaimed on task exit (3efbc532).
+
+**Not delivered (honest residual, owned elsewhere since 2026-08-14):** the reuse
+instrumentation floor (`map_hit`/`fresh_map`/`activate_churn` counters and the
+`SELFTEST: mm vmo reuse|ui mapping|activate churn ok` markers) — TASK-0290. windowd still links
+its atlas statically instead of mapping the shared RO VMO — recorded in TASK-0305, where it
+belongs (a consumer migration, not a mapping-path gap).
+
+## Context
 
 For early UI work, the most expensive memory-management problems are not “desktop-class VM” features like paging
 policy or swap. The hot path is much narrower:

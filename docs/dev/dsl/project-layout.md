@@ -139,7 +139,7 @@ An app's `manifest.toml` may declare `dependencies = ["<lib>"]` — sibling
 folders under `userspace/apps/` with `bundle_type = "library"`. At BUILD
 time (`compile_project_dir` / `nx dsl build`) every library's
 `ui/components/*.nx` compiles INTO the app's one canonical `.nxir` — there
-is no runtime component loading (one-program-one-hash and AOT parity stay).
+is no runtime component loading (one program, one hash).
 Governance, fail-closed at build: a library file may declare **components
 only** (compositions of system primitives — no pages/stores/events/routes,
 no own modifiers or primitives); a violation or a missing dependency fails

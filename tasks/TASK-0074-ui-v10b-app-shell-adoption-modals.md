@@ -1,6 +1,6 @@
 ---
-title: TASK-0074 UI v10b (OS-gated): overlays wave + modal manager + toast unification + App Shell + SystemUI/app adoption + windowd convergence (W6) + markers
-status: Draft
+title: TASK-0074 UI v10b: modal semantics in the DSL runtime (bounded overlay stack, dismissal contract, focus trap, one windowd routing verb, toast unification)
+status: Draft (end-state rewrite 2026-09-09 — residual of the 2026-08-14 rebase: modal-manager semantics only)
 owner: @ui
 created: 2025-12-23
 updated: 2026-07-05
@@ -18,7 +18,101 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Rebase (2026-08-14) — heavily reduced residual
+## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)
+
+**Ground truth 2026-09-09 (verified in code):** delivered elsewhere — App Shell = `userspace/
+apps/window-kit` (`WinAppWindow.nx`, RFC-0084 slots, TASK-0308; size classes 640/1024 in
+`app-host/src/probe/env.rs`); overlays are app-owned `.overlay()` by design (`userspace/dsl/core/
+src/registry.rs:115`, rule :398-400; `settings/ui/components/chrome/{PickerSheet,MoreMenu}.nx`),
+painted/hit-ordered by app-host (`probe/paint/collect.rs:76-123`); `Toast` widget exists
+(`userspace/ui/widgets/toast`). Missing — no bounded overlay depth, no ESC/backdrop dismissal
+contract (Escape only drops widget focus, `app-host/src/probe/interaction.rs:430`,
+`dsl/runtime/src/focus.rs:136`), no focus trap, no windowd hook, no overlay/modal goldens, no
+notifd→Toast routing (notifd is a placeholder; notifications are TASK-0123-0125 — out of scope),
+`docs/dev/ui/components/inventory.md:97-103` still lists Modal/ActionSheet/Alert as widget
+promotions "new — 0074" (stale).
+
+### Goal (end system)
+
+Modal semantics as a runtime contract on the existing app-owned `.overlay()` primitive: a
+bounded overlay stack, ESC/backdrop dismissal as dispatched events, focus and hit-testing
+confined to the topmost modal, one windowd routing verb for app-modal windows, toasts as
+transient overlays. No new widget crates.
+
+### Non-goals
+
+Overlay widget crates (Modal/Popover/Menu/Tooltip/ActionSheet/Alert/FAB — dead by design);
+notifications/notifd feed (0123-0125); system-modal (cross-app) blocking; windowd rendering of
+anything.
+
+### Invariants
+
+- ONE mutation path: dismissal is `onDismiss` → reducer → state; the runtime never hides an
+  overlay by itself.
+- `MODAL_DEPTH_MAX = 4`; while a modal is open, hit-testing and text focus are confined to the
+  topmost modal subtree; background input never leaks, in-process or across the owner's
+  windows.
+- Deterministic: same inputs ⇒ same stack transitions; goldens light/dark.
+
+### Decisions
+
+- **D1 Overlay kind.** `.overlay(modal|transient)` (registry `ModifierSpec` arg
+  `ModArg::OptToken`), IR v1.3 `ViewNode.overlayKind` (append-only; shared bump with 0077B),
+  runtime `userspace/dsl/runtime/src/overlay.rs::OverlayStack`.
+- **D2 Lint NX0412 `ModalWithoutDismiss` (Error):** a `modal` overlay must declare
+  `onDismiss`.
+- **D3 ESC path replaced, not duplicated.** The "Escape drops widget focus" branch in
+  `app-host/src/probe/interaction.rs:430` is DELETED; ESC → `OverlayStack::dismiss_top(Escape)`
+  → `onDismiss`; focus clearing (`focus.rs`) happens as the consequence, one path. Backdrop tap
+  = reason `Backdrop`. Gate: fixture "ESC with no modal open changes nothing; with a modal open
+  dispatches `onDismiss(Escape)` and does not reach the widget below".
+- **D4 windowd hook = one verb.** `OP_SURFACE_CONTROL` gains `CONTROL_WIN_MODAL{on}` (own-window
+  gate): while set, windowd's input routing refuses presses on OTHER windows of the SAME owner
+  sid (app-modal). No modal rendering, no toast drawing in windowd (boundary SSOT
+  `docs/dev/ui/windowd-cleanup-map.md`).
+- **D5 Toast unification.** `Toast` is a `transient` overlay; auto-dismiss via the existing
+  `svc.time.after(Int) → Bool` route (slot 17) implemented by app-host's timed client — no
+  timers in the DSL; the 5-surface notification routing waits for notifd (0123-0125) and is
+  NOT stubbed here.
+- **D6 Inventory drift fixed.** `docs/dev/ui/components/inventory.md:97-103` → overlays are
+  app-owned `.nx`, verdict "converged (0074 semantics)". ADR "modal semantics live in the DSL
+  runtime; windowd keeps one routing verb" (docs/adr, next free number).
+
+### Packages
+
+- **P0** ADR + IR v1.3 changelog (`docs/dev/dsl/ir.md`). Blast: paper.
+- **P1** core + runtime (`overlay.rs`, NX0412, conformance fixtures: depth cap, trap,
+  ESC/backdrop, nested). Blast: `dsl_conformance`, `dsl_goldens`, `dsl_apps_conformance`.
+- **P2** app-host integration (ESC path replaced, hit-test confinement, `svc.time.after`).
+  Blast: visible + smp1 lanes, `apphost:` markers, settings/stash pickers still work.
+- **P3** windowd verb + `source/services/windowd/tests/modal_routing.rs`. Blast: input lanes
+  (`input-live`), RFC-0086 consumers.
+- **P4** goldens (modal/sheet/toast light+dark in `tests/ui_v10_goldens`) + inventory + docs.
+
+### Definition of Done
+
+Host: goldens; conformance — depth 5 rejected, background tap ignored, ESC dispatches
+`onDismiss`, focus confined, NX0412 fixture. QEMU (registered in `proof-manifest/markers/
+ui.toml` + `end.toml`, `scripts/qemu-test.sh`, `tools/nx/chains/markers.txt` via the windowd
+contract): `apphost: modal open (depth=1)`, `apphost: modal dismiss (reason=escape)`,
+`windowd: win modal on (id=…)`, `SELFTEST: ui v10 dialog ok`, `SELFTEST: ui v10 live modal ok`
+(live pointer + keyboard open/dismiss on the visible surface, background-leak check against a
+visible target). Docs: `docs/dev/ui/patterns/app-shell.md` modal section, `docs/dev/dsl/
+syntax.md`, `inventory.md`.
+
+### Touched paths
+
+`userspace/dsl/core/src/{registry.rs,diag.rs,check/lints.rs,lower/views.rs}`,
+`userspace/dsl/runtime/src/{overlay.rs (new),focus.rs,view.rs}`, `tools/nexus-idl/schemas/
+ui_ir.capnp`, `source/services/app-host/src/probe/{interaction.rs,paint/collect.rs}`,
+`source/services/windowd/src/compositor/runtime/input.rs`, `source/libs/nexus-display-proto/
+src/control.rs` (approval zone), `docs/dev/ui/components/inventory.md`, `docs/adr/`.
+
+### Dependencies
+
+TASK-0077B (keyed state, IR v1.3). TASK-0324 P4a (windowd on the declarative arm) before P3.
+
+## Rebase (2026-08-14) — heavily reduced residual — historical, superseded by the end-state rewrite above
 
 ### Delivered elsewhere — do NOT re-implement
 
@@ -80,7 +174,7 @@ desktop-shell, greeter, ime-ui, settings, stash.
 allowlist except the focus-routing hook; see the corrected allowlist below.
 The STATUS ledger at the bottom (2026-07-06) is superseded by this section.
 
-## Context (updated 2026-07-05)
+## Context (updated 2026-07-05) — historical, superseded by the end-state rewrite above
 
 With the primitive SSOT in place (TASK-0073: W1–W3 + W5-nav/window), this task delivers the
 **overlays wave (W4)**, the **modal manager**, **toast unification**, the **App Shell**, and the
@@ -95,7 +189,7 @@ genuinely interactive through live QEMU input.
 best impl, then delete the bespoke loser — this is where the triple structure finally becomes one),
 `docs/dev/` kept at Human-Interface-Guidelines quality throughout.
 
-## Goal
+## Goal — historical, superseded by the end-state rewrite above
 
 > **Rebased 2026-08-14:** only item 2 (modal manager) survives as residual
 > scope, in the widget/DSL layer + a minimal windowd focus-routing hook.
@@ -192,7 +286,7 @@ best impl, then delete the bespoke loser — this is where the triple structure 
 
 ---
 
-## STATUS / PROGRESS LEDGER (updated 2026-07-06)
+## STATUS / PROGRESS LEDGER (updated 2026-07-06) — historical, superseded by the end-state rewrite above
 
 > **SUPERSEDED by the "Rebase (2026-08-14)" section above** — kept for
 > history only. The W4 overlays wave, the App Shell build, and the W6

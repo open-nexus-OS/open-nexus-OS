@@ -231,7 +231,7 @@ Page FancyChartPage {
 }
 ```
 
-Constraints (interpreter and AOT alike): deterministic rendering for the same inputs,
+Constraints: deterministic rendering for the same inputs,
 bounded resources, no direct IO (services via effects only), a11y contract required.
 No dynamic code loading.
 
