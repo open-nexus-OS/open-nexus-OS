@@ -58,6 +58,9 @@ The full layer reference — including the end-to-end coverage table and the per
    **profile** — the profile declares the topology (harts, icount,
    `REQUIRE_SMP`), and passing a contradicting `SMP=`/`QEMU_NO_ICOUNT=` in the
    environment is a hard error, not a silent override:
+   - `just ci-os-visible` — display truth: the real virgl compositor on
+     egl-headless + VNC with a host-side pixel proof (desktop non-black and
+     ≠ splash), see [os-markers.md](os-markers.md) "Display truth".
    - `just ci-os-smp1` — deterministic gate: `-smp 1` + icount, no
      secondary-hart demands (`[profile.smp1]`).
    - `just ci-os-smp` — real parallelism: `-smp 2`, MTTCG, secondary-hart

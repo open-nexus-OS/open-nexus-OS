@@ -23,7 +23,21 @@ virgl = []
 
 [package.metadata.nexus-service]
 kind = "service"
-stack_pages = 2
+# 8 pages (32 KiB): the virgl attach/warmup path overflowed the 2 pages this
+# used to declare — a value scripts/build.sh never honoured before TASK-0324 P0
+# (every service silently got 8). Now the manifest is the only source.
+stack_pages = 8
+# Build-truth SSOT (TASK-0324 P0): the cargo features EVERY build path uses
+# for this service — the embedded init-lite table and the system-volume bundle
+# alike (`scripts/discover-services.sh --cargo-features gpud`). A missing
+# `features` means `["os-lite"]`. `feature_profiles` adds features when the
+# named environment variable carries the named value: `GPU_MODE=virgl` adds
+# `virgl`, because a GL device (`virtio-gpu-gl`) needs a GL-capable driver —
+# the 2D plane-row scanout is black on every GL display backend.
+features = ["os-lite"]
+
+[package.metadata.nexus-service.feature_profiles]
+gpu_mode = { virgl = ["virgl"] }
 
 [dependencies]
 libm = "0.2"

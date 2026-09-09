@@ -28,6 +28,10 @@
 #   QEMU_INPUT_AUTOINJECT   – when "1", enable QMP for visible input injection
 #   QEMU_QMP_SOCKET         – QMP unix socket path
 #   NEXUS_OTA_BACKSTOP      – tamper|downgrade: arm boot-b via nx image backstop (TASK-0289-B)
+#   QEMU_VNC_DISPLAY        – VNC display number: adds `-vnc 127.0.0.1:<n>` (port 5900+n) so the
+#                              host framebuffer can be read back (tools/rfb_grab.py)
+#   NEXUS_PIXEL_PROOF       – when "1", tools/pixel_proof_on_marker.py snapshots the VNC display
+#                              at the splash + first-frame markers into the run's log dir
 #   NEXUS_RESET_ON_MARKER   – marker string: QMP system_reset per NEW occurrence (power-cycle actor)
 #   NEXUS_RESET_ON_MARKER_COUNT – resets to fire (default 2)
 #   QEMU_PROOF_POINTER_SOURCE – mouse | tablet | keyboard | mixed
@@ -398,8 +402,20 @@ build_qemu_args() {
   # virtio-mmio transport slots stay identical to the single-blk layout (a
   # 2nd device inserted before them shifts input slots and breaks the pointer).
 
-  # Debug/proof hook: extra QEMU arguments (e.g. "-vnc :77" to read back GL
-  # scanouts for screendump verification on headless hosts).
+  # Display truth (TASK-0324 P0): a VNC listener beside any display backend so
+  # the host framebuffer can be grabbed (`just start-vnc`, the `visible` lane).
+  if [[ -n "${QEMU_VNC_DISPLAY:-}" ]]; then
+    # QEMU refuses a VNC listener beside a windowed GL context ("Display vnc
+    # is incompatible with the GL context"): VNC readback pairs with
+    # egl-headless (`just start-vnc`, the `visible` lane), never with gtk,gl=on.
+    if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" && "$GPU_MODE" == "virgl" && "$QEMU_DISPLAY_BACKEND" != egl-headless* ]]; then
+      echo "[error] QEMU_VNC_DISPLAY needs QEMU_DISPLAY_BACKEND=egl-headless under GPU_MODE=virgl (a GL window context cannot share a VNC display)" >&2
+      exit 1
+    fi
+    args+=(-vnc "127.0.0.1:${QEMU_VNC_DISPLAY}")
+  fi
+
+  # Debug/proof hook: extra QEMU arguments.
   if [[ -n "${QEMU_EXTRA_ARGS:-}" ]]; then
     # shellcheck disable=SC2206
     args+=(${QEMU_EXTRA_ARGS})
@@ -419,6 +435,29 @@ start_marker_reset_watcher() {
     "$NEXUS_RESET_ON_MARKER" "${NEXUS_RESET_ON_MARKER_COUNT:-2}" \
     "${NEXUS_RESET_ON_MARKER_TIMEOUT:-540}" >>"$QEMU_LOG" 2>&1 &
   MARKER_RESET_PID=$!
+}
+
+# Display truth (TASK-0324 P0): snapshot the host framebuffer at the splash and
+# first-frame markers; scripts/qemu-test.sh judges display-proof.json after the
+# run (visible lane). Needs QEMU_VNC_DISPLAY.
+start_pixel_proof_watcher() {
+  if [[ "${NEXUS_PIXEL_PROOF:-0}" != "1" ]]; then
+    return 0
+  fi
+  if [[ -z "${QEMU_VNC_DISPLAY:-}" ]]; then
+    echo "[error] NEXUS_PIXEL_PROOF=1 needs QEMU_VNC_DISPLAY (no VNC display to read back)" >&2
+    exit 1
+  fi
+  python3 "$ROOT/tools/pixel_proof_on_marker.py" "$((5900 + QEMU_VNC_DISPLAY))" "$UART_LOG" \
+    "$(dirname "$UART_LOG")" "${NEXUS_PIXEL_PROOF_TIMEOUT:-300}" >>"$QEMU_LOG" 2>&1 &
+  PIXEL_PROOF_PID=$!
+}
+
+cleanup_pixel_proof_watcher() {
+  if [[ -n "${PIXEL_PROOF_PID:-}" ]]; then
+    wait "$PIXEL_PROOF_PID" >/dev/null 2>&1 || true
+    PIXEL_PROOF_PID=""
+  fi
 }
 
 cleanup_marker_reset_watcher() {
@@ -590,6 +629,7 @@ echo "[info] QEMU args: ${QEMU_ARGS[*]}" >&2
 # Launch QEMU
 start_visible_input_injector
 start_marker_reset_watcher
+start_pixel_proof_watcher
 if [[ "$RUN_TIMEOUT" == "0" ]]; then
   stdbuf -oL -eL qemu-system-riscv64 "${QEMU_ARGS[@]}" > >(monitor_uart_stream | tee "$UART_LOG") 2>"$QEMU_LOG"
   qemu_status=$?
@@ -598,6 +638,7 @@ else
     stdbuf -oL -eL qemu-system-riscv64 "${QEMU_ARGS[@]}" > >(monitor_uart_stream | tee "$UART_LOG") 2>"$QEMU_LOG"
   qemu_status=$?
 fi
+cleanup_pixel_proof_watcher
 
 # Post-run cleanup
 trim_log "$QEMU_LOG" "$QEMU_LOG_MAX"

@@ -22,59 +22,14 @@
 # 2 = capture failed (no VNC display / handshake error).
 
 import argparse
-import socket
-import struct
+import os
 import sys
 
-
-def recvn(sock: socket.socket, n: int) -> bytes:
-    buf = b""
-    while len(buf) < n:
-        chunk = sock.recv(n - len(buf))
-        if not chunk:
-            raise ConnectionError("VNC peer closed mid-message")
-        buf += chunk
-    return buf
-
-
-def grab_frame(host: str, port: int):
-    """RFB 3.8 handshake (security None) + one full Raw framebuffer update.
-
-    Returns (width, height, BGRX bytes).
-    """
-    s = socket.create_connection((host, port), timeout=20)
-    recvn(s, 12)  # server version
-    s.sendall(b"RFB 003.008\n")
-    ntypes = recvn(s, 1)[0]
-    types = recvn(s, ntypes)
-    if 1 not in types:
-        raise ConnectionError(f"VNC auth types {list(types)} (need None)")
-    s.sendall(bytes([1]))
-    if struct.unpack(">I", recvn(s, 4))[0] != 0:
-        raise ConnectionError("VNC security handshake failed")
-    s.sendall(bytes([1]))  # ClientInit (shared)
-    width, height = struct.unpack(">HH", recvn(s, 4))
-    recvn(s, 16)  # server pixel format (we override)
-    recvn(s, struct.unpack(">I", recvn(s, 4))[0])  # desktop name
-    # 32bpp truecolor, shifts 16/8/0 → little-endian BGRX in memory.
-    s.sendall(struct.pack(">BxxxBBBBHHHBBBxxx", 0, 32, 24, 0, 1, 255, 255, 255, 16, 8, 0))
-    s.sendall(struct.pack(">BxH i", 2, 1, 0))  # SetEncodings: Raw
-    s.sendall(struct.pack(">BBHHHH", 3, 0, 0, 0, width, height))
-    fb = bytearray(width * height * 4)
-    while True:
-        if recvn(s, 1)[0] != 0:  # FramebufferUpdate
-            continue
-        recvn(s, 1)
-        nrect = struct.unpack(">H", recvn(s, 2))[0]
-        for _ in range(nrect):
-            x, y, rw, rh, enc = struct.unpack(">HHHHi", recvn(s, 12))
-            if enc != 0:
-                raise ConnectionError(f"unexpected encoding {enc}")
-            data = recvn(s, rw * rh * 4)
-            for row in range(rh):
-                off = ((y + row) * width + x) * 4
-                fb[off:off + rw * 4] = data[row * rw * 4:(row + 1) * rw * 4]
-        return width, height, bytes(fb)
+# No tools/__pycache__: the cargo workspace globs tools/* and a stray
+# directory without a Cargo.toml breaks every cargo command (known trap).
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import rfb_grab  # noqa: E402
 
 
 def main() -> int:
@@ -88,32 +43,45 @@ def main() -> int:
         default=8.0,
         help="mean-luma floor; below = black-scanout verdict",
     )
+    ap.add_argument(
+        "--min-nonblack-pct",
+        type=float,
+        default=0.0,
+        help="minimum share of non-black pixels (0 = only the luma floor applies)",
+    )
+    ap.add_argument(
+        "--diff-against",
+        default="",
+        help="PNG of an earlier frame (e.g. the boot splash); the grabbed frame must differ",
+    )
     args = ap.parse_args()
 
     try:
-        width, height, fb = grab_frame(args.host, args.port)
+        width, height, fb = rfb_grab.grab_frame(args.host, args.port)
     except (OSError, ConnectionError) as err:
         print(f"visual-postflight: CAPTURE FAILED ({err}) — is the VNC display up "
               f"on {args.host}:{args.port}? (just start-vnc)", file=sys.stderr)
         return 2
 
-    # Mean luma over BGRX without external deps.
-    total = 0
-    npx = width * height
-    for i in range(0, npx * 4, 4):
-        b, g, r = fb[i], fb[i + 1], fb[i + 2]
-        total += (r * 299 + g * 587 + b * 114) // 1000
-    mean = total / npx
-
-    try:
-        from PIL import Image
-        b, g, r, _ = Image.frombytes("RGBA", (width, height), fb).split()
-        Image.merge("RGB", (r, g, b)).save(args.out)
-        saved = args.out
-    except ImportError:
-        with open(args.out + ".bgra", "wb") as f:
-            f.write(fb)
-        saved = args.out + ".bgra (install Pillow for PNG)"
+    mean, nonblack = rfb_grab.luma_stats(width, height, fb)
+    saved = rfb_grab.save_frame(args.out, width, height, fb)
+    if args.diff_against:
+        try:
+            _, _, ref = rfb_grab.load_frame(args.diff_against)
+        except (OSError, ValueError, ImportError) as err:
+            print(f"visual-postflight: CAPTURE FAILED (reference {args.diff_against}: {err})",
+                  file=sys.stderr)
+            return 2
+        diff = rfb_grab.mean_abs_diff(ref, fb)
+        if diff < 2.0:
+            print(f"visual-postflight: FAIL — frame is still the reference image (mean abs "
+                  f"diff {diff:.2f} vs {args.diff_against}); the desktop never replaced it. "
+                  f"Frame: {saved}")
+            return 1
+    if nonblack < args.min_nonblack_pct:
+        print(f"visual-postflight: FAIL — only {nonblack:.1f}% non-black pixels "
+              f"(< {args.min_nonblack_pct}%). Frame: {saved}")
+        return 1
 
     if mean < args.min_brightness:
         print(
@@ -122,8 +90,8 @@ def main() -> int:
             f"`windowd: full-window color visible` is the compositor's claim, not the "
             f"display's. This is the silent GL-scanout/present class (gpud "
             f"gl_scanout / present lane) — check `gpud: chain G3/G4`, retry the boot "
-            f"(known intermittent), and see the scanout-readback task in "
-            f"tasks/TRACK-OPEN-POINTS-2026-07.md. Frame: {saved}"
+            f"— and check `gpud: features=` (a gpud built without virgl on a GL "
+            f"device is exactly this class, TASK-0324). Frame: {saved}"
         )
         return 1
     print(f"visual-postflight: OK — mean luma {mean:.1f}, frame {width}x{height}: {saved}")

@@ -171,7 +171,7 @@ start *args:
     # (Proof boots `just test-os` never fold, so verify-uart sees every raw marker.)
     GPU_MODE=${GPU_MODE:-virgl} make MODE=${NEXUS_START_BUILD_MODE:-host} build
     NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=${GPU_MODE:-virgl} QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk} QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
-    @echo "[hint] just start defaults to GPU_MODE=virgl (real GL-scanout compositor) in a visible gtk,gl=on window. Use GPU_MODE=mmio just start for the CPU-fallback 2D path. If the GL window backgrounds go black it is the gpud GL-scanout path (gl_scanout.rs full-frame gl_present_damage / task #69), NOT a host/display bug — do not switch backends to 'fix' it."
+    @echo "[hint] just start = GPU_MODE=virgl in a visible gtk,gl=on window (a VNC readback cannot share a GL window context — use `just start-vnc` + tools/visual-postflight.py to judge the DISPLAY from the host). GPU_MODE=mmio just start = plain virtio-gpu-device 2D path. A black window with green markers is a display-truth bug: check `gpud: features=` first (TASK-0324)."
 
 # Interactive REAL GPU compositor (virgl) over an egl-headless + VNC pipe. This is
 # the off-screen counterpart to `just start` (which now defaults to a visible
@@ -183,7 +183,7 @@ start *args:
 start-vnc *args:
     GPU_MODE=virgl make MODE=${NEXUS_START_BUILD_MODE:-host} build
     @echo "[VNC] real GPU compositor up — connect now:  vncviewer localhost:5979   (or  krdc vnc://localhost:5979)"
-    NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=virgl QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=egl-headless QEMU_EXTRA_ARGS="-vnc 127.0.0.1:79" QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
+    NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=virgl QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=egl-headless QEMU_VNC_DISPLAY=79 QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
 
 # TASK-0055D: launch the interactive OS under a dev display/profile PRESET.
 # `source/services/systemui/manifests/presets/<name>/preset.toml` is the SSOT
@@ -284,6 +284,11 @@ ci-os-display-gpu-pci:
 # conflicts are now a hard error (scripts/qemu-test.sh:pm_apply_profile_env).
 ci-os-smp1:
     RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-200s} just test-os smp1
+# TASK-0324 P0: display truth — the real GL compositor (virgl, egl-headless +
+# VNC) with a HOST-side pixel proof: the desktop snapshot must be non-black and
+# must differ from the boot splash. Markers alone shipped a black screen.
+ci-os-visible:
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-240s} just test-os visible
 
 # TASK-0050: real system-reset lane — the guest SBI-reboots mid-run and the
 # harness proves BOTH boots in one uart stream (profile owns the topology;
@@ -536,7 +541,11 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate ci-parity
+check: fmt-check lint deny-check arch-check structure-gate build-truth ci-parity
+
+# TASK-0324 P0: service features/ELF paths have one home (crate manifest + discover-services.sh).
+build-truth:
+    @./scripts/check-build-truth.sh
 
 # CI/test-all COVERAGE parity: every `just` recipe the workflow invokes must
 # also be reachable from `test-all`. Mechanical guard against the drift that let
@@ -643,6 +652,7 @@ test-all:
     just build-kernel
     just lint-kernel
     just ci-os-smp1
+    just ci-os-visible
     just ci-os-reset
     just ci-os-ota
     just ci-os-ota-bundle
@@ -676,6 +686,8 @@ diag-os: inputs
     @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
     @echo "==> OS services (os-lite feature set; list = config/os-services.txt)"
     @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
+    @echo "==> os slice: resolved feature sets beyond os-lite (build-truth SSOT: discover-services.sh)"
+    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p gpud --target riscv64imac-unknown-none-elf --no-default-features --features "$(GPU_MODE=virgl scripts/discover-services.sh --cargo-features gpud)" --message-format=short
 
 # Kernel-only: quickest way to see unused/dead_code in neuron.
 diag-kernel:
@@ -698,6 +710,7 @@ diag-os-strict: inputs
     @echo "==> diag (os slice, deny warnings)"
     @env RUSTFLAGS='{{os_rustflags}} -D warnings {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
     @env RUSTFLAGS='{{os_rustflags}} -D warnings {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
+    @env RUSTFLAGS='{{os_rustflags}} -D warnings {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check -p gpud --target riscv64imac-unknown-none-elf --no-default-features --features "$(GPU_MODE=virgl scripts/discover-services.sh --cargo-features gpud)" --message-format=short
 
 diag-kernel-strict:
     @echo "==> diag (kernel, deny warnings)"
@@ -745,7 +758,8 @@ dep-gate: arch-gate
     for svc in $services; do
         echo "--- Checking $svc ---"
         # Get dependency tree for this service with os-lite features
-        tree_output=$(cargo +{{toolchain}} tree -p "$svc" --target riscv64imac-unknown-none-elf --no-default-features --features os-lite 2>&1 || true)
+        feats=$(GPU_MODE=virgl QEMU_SESSION_MODE=proof scripts/discover-services.sh --cargo-features "$svc" 2>/dev/null || echo os-lite)
+        tree_output=$(cargo +{{toolchain}} tree -p "$svc" --target riscv64imac-unknown-none-elf --no-default-features --features "$feats" 2>&1 || true)
         for forbidden in {{forbidden_crates}}; do
             if echo "$tree_output" | grep -qE "^[│├└ ]*$forbidden "; then
                 echo "[FAIL] Found forbidden crate '$forbidden' in $svc dependency graph!"
@@ -757,7 +771,7 @@ dep-gate: arch-gate
     echo ""
     if [[ "$found_forbidden" -eq 1 ]]; then
         echo "[FAIL] RFC-0009 dependency hygiene violated!"
-        echo "       Fix: Use --no-default-features --features os-lite for all OS crates."
+        echo "       Fix: keep OS crates on their manifest feature set (discover-services.sh --cargo-features <svc>)."
         echo "       See: docs/rfcs/RFC-0009-no-std-dependency-hygiene-v1.md"
         exit 1
     else

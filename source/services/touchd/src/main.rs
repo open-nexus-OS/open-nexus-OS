@@ -18,8 +18,12 @@ nexus_service_entry::declare_entry!(os_entry);
 fn os_entry() -> Result<(), nexus_abi::AbiError> {
     // Boot determinism (soft-real-time start): touchd is BACKGROUND — self-lower to Idle QoS so it
     // never starves the display/input critical path (Normal) during boot.
+    // Normal QoS, like hidrawd/inputd: this service's `payload ready` line is a
+    // boot-ladder marker in every display profile, and an Idle-class task only
+    // runs when a hart has nothing else — in proof boots it never printed
+    // (TASK-0324 P0). A ladder marker must not depend on idle time.
     #[cfg(nexus_env = "os")]
-    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
+    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Normal);
     // RFC-0068: fold routine debug_println markers into one `touchd N/N` verdict (interactive boots;
     // proof stays raw).
     nexus_abi::service_verdict_arm();

@@ -60,6 +60,74 @@ fn local_flush_all() {
     }
 }
 
+/// Per-hart activity tag (evidence, not control): what a hart was doing
+/// when it last passed a tag point. Named on the `KPANIC: tlb shootdown ack
+/// timeout` line so a hart that never acked is not a blank — the 2026-09-08
+/// timeouts could only be *inferred* to be a phase-B memset.
+static HART_ACTIVITY: [core::sync::atomic::AtomicUsize; MAX_CPUS] =
+    [const { core::sync::atomic::AtomicUsize::new(0) }; MAX_CPUS];
+
+/// Activity tags (`HART_ACTIVITY`): low byte = class, upper bits = detail
+/// (syscall number / scause).
+pub const ACT_TRAP: usize = 1;
+pub const ACT_PHASE_B_ZERO: usize = 2;
+pub const ACT_PHASE_B_COPY: usize = 3;
+pub const ACT_IDLE_LOOP: usize = 4;
+/// User-fault kill path stages: 0 dumped, 1 BKL acquired, 2 task released.
+pub const ACT_FAULT_KILL: usize = 5;
+
+#[inline]
+pub fn note_activity(cpu: CpuId, class: usize, detail: usize) {
+    let idx = cpu.as_index();
+    if idx < MAX_CPUS {
+        HART_ACTIVITY[idx].store((detail << 8) | (class & 0xff), Ordering::Relaxed);
+    }
+}
+
+/// Chunk size for unlocked phase-B byte moves: 64 KiB is ~100 µs of memset
+/// under TCG, so a shootdown request waits at most that long per chunk.
+const UNLOCKED_CHUNK: usize = 64 * 1024;
+
+/// Phase-B `write_bytes` (BKL dropped, SIE=0 in trap context): a shootdown
+/// IPI cannot interrupt the memset, so a large VMO (a 4 MiB framebuffer)
+/// parked the requester for its whole duration and, with TCG scheduling
+/// jitter, past the ack budget — `tlb shootdown ack timeout` with the
+/// silent hart mid-zero (2026-09-08). This hart holds no kernel state in
+/// phase B, so it services its mailbox between chunks.
+///
+/// # Safety
+/// Same contract as `core::ptr::write_bytes(dst, 0, len)`.
+pub unsafe fn zero_bytes_polled(dst: *mut u8, len: usize) {
+    let me = cpu_current_id();
+    note_activity(me, ACT_PHASE_B_ZERO, len);
+    let mut off = 0;
+    while off < len {
+        let n = core::cmp::min(UNLOCKED_CHUNK, len - off);
+        // SAFETY: sub-range of the caller's contract.
+        unsafe { core::ptr::write_bytes(dst.add(off), 0, n) };
+        off += n;
+        let _ = poll_mailbox(me);
+    }
+}
+
+/// Phase-B `copy_nonoverlapping` with the same chunked mailbox service as
+/// `zero_bytes_polled` (ELF images are up to a few MiB).
+///
+/// # Safety
+/// Same contract as `core::ptr::copy_nonoverlapping(src, dst, len)`.
+pub unsafe fn copy_bytes_polled(src: *const u8, dst: *mut u8, len: usize) {
+    let me = cpu_current_id();
+    note_activity(me, ACT_PHASE_B_COPY, len);
+    let mut off = 0;
+    while off < len {
+        let n = core::cmp::min(UNLOCKED_CHUNK, len - off);
+        // SAFETY: sub-range of the caller's contract.
+        unsafe { core::ptr::copy_nonoverlapping(src.add(off), dst.add(off), n) };
+        off += n;
+        let _ = poll_mailbox(me);
+    }
+}
+
 /// Outcome of a responder mailbox poll (evidence for the counterfactual).
 #[must_use = "shootdown poll outcomes feed the proof evidence"]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,11 +171,23 @@ pub fn shootdown_all() {
             continue;
         }
         targets |= 1 << idx;
-        // Monotonic max: coalesce with any (impossible today: BKL-serialized)
-        // concurrent request.
+        // Monotonic max: coalesce with a concurrent request. Concurrent
+        // initiators ARE possible: `vm_unmap` shoots down in phase B with the
+        // BKL dropped while a task exit (AS destroy / ASID recycle) shoots
+        // down under the BKL on another hart.
         mail.requested.fetch_max(epoch, Ordering::AcqRel);
     }
     if targets == 0 {
+        return;
+    }
+    // Idle harts (parked in WFI, no user translation live) flush at their
+    // next dispatch instead of acking now: read AFTER the mailboxes were
+    // raised, so a hart leaving idle from here on sees the request at its
+    // dispatch poll. The doorbell still goes to every target.
+    let wait_targets = targets & !super::cpu_idle_mask();
+    if wait_targets == 0 {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        let _ = sbi::send_ipi(targets, 0);
         return;
     }
 
@@ -124,19 +204,21 @@ pub fn shootdown_all() {
             // still-missing harts get the re-send.
             let mut missing = 0usize;
             for (idx, mail) in TLB_MAIL.iter().enumerate() {
-                if targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch {
+                if wait_targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch {
                     missing |= 1 << idx;
                 }
             }
             if missing == 0 {
                 return;
             }
-            let _ = sbi::send_ipi(missing, 0);
+            // Doorbell to every target (idle ones ack early when it lands).
+            let _ = sbi::send_ipi(targets, 0);
             let deadline = (riscv::register::time::read() as u64).saturating_add(ACK_BUDGET_TICKS);
             while (riscv::register::time::read() as u64) < deadline {
                 let mut all_acked = true;
                 for (idx, mail) in TLB_MAIL.iter().enumerate() {
-                    if targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch {
+                    if wait_targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch
+                    {
                         all_acked = false;
                         break;
                     }
@@ -144,13 +226,36 @@ pub fn shootdown_all() {
                 if all_acked {
                     return;
                 }
+                // A waiting initiator is also a responder: with two
+                // concurrent initiators (see above) each waits for the
+                // other's ack, and neither takes a trap while spinning
+                // (BKL-held caller, or SIE=0 in a phase-B trap context) —
+                // the `hart=2 … activity=class1:0xd10` timeout: hart 2 in
+                // the fault-probe kill path (AS destroy shootdown) vs cpu0
+                // in a phase-B `vm_unmap` shootdown (2026-09-08).
+                let _ = poll_mailbox(cpu_current_id());
                 core::hint::spin_loop();
             }
         }
         // Fail closed: silent TLB staleness is never acceptable. Name the
         // evidence — WHICH hart, and how far its mailbox got.
         for (idx, mail) in TLB_MAIL.iter().enumerate() {
-            if targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch {
+            if wait_targets & (1 << idx) != 0 && mail.acked.load(Ordering::Acquire) < epoch {
+                // The panic path cannot format arguments; name the evidence
+                // on the log first (which hart, how far its mailbox got).
+                let act = HART_ACTIVITY[idx].load(Ordering::Relaxed);
+                log_error!(
+                    target: "smp",
+                    "KPANIC: tlb shootdown ack timeout hart={} epoch={} requested={} acked={} online=0x{:x} me={} activity=class{}:0x{:x}",
+                    idx,
+                    epoch,
+                    mail.requested.load(Ordering::Acquire),
+                    mail.acked.load(Ordering::Acquire),
+                    online,
+                    me,
+                    act & 0xff,
+                    act >> 8
+                );
                 panic!(
                     "tlb shootdown ack timeout hart={} epoch={} requested={} acked={}",
                     idx,

@@ -86,10 +86,22 @@ impl VirtioGpuBackend {
         // that blacks out the gl device (see the comment below). So skip it when
         // virgl drives the scanout — leaving 0xF8 (3D) as the sole resource on
         // that memory. The non-virgl/mmio build keeps the clean 2D path.
+        // TASK-0324 P0: the path is a POLICY decision (`scanout_policy`), the
+        // same one `probe` already enforced — a GL device is never scanned out
+        // through the 2D plane-row window.
         #[cfg(feature = "virgl")]
-        let use_virgl_scanout = self.virgl_capable && self.virgl_draw_ok;
+        let draw_ok = self.virgl_draw_ok;
         #[cfg(not(feature = "virgl"))]
-        let use_virgl_scanout = false;
+        let draw_ok = false;
+        let use_virgl_scanout = match super::scanout_policy::scanout_path(
+            self.gl_device,
+            draw_ok,
+            cfg!(feature = "virgl"),
+        ) {
+            Ok(super::scanout_policy::ScanoutPath::GlRenderTarget) => true,
+            Ok(super::scanout_policy::ScanoutPath::PlaneRow2d) => false,
+            Err(_) => return Err(GfxError::Unsupported),
+        };
         if !use_virgl_scanout {
             let create = protocol::VirtioGpuResourceCreate2d {
                 hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_CREATE_RESOURCE_2D),
@@ -131,7 +143,7 @@ impl VirtioGpuBackend {
                 backing_vmo: 0,
                 backing_map_len: backing_len_aligned,
             };
-            if self.virgl_capable && self.virgl_draw_ok {
+            if use_virgl_scanout {
                 self.resources.push(record);
                 self.scanout_resource = Some(id);
                 match self.gl_scanout_init() {
@@ -169,31 +181,14 @@ impl VirtioGpuBackend {
                             GfxError::Unsupported => "gpud: gl init err unsupported",
                             GfxError::InvalidArgument => "gpud: gl init err invalid-argument",
                         });
-                        // virgl scanout failed: create the 2D resource that was
-                        // skipped above (use_virgl_scanout) so the proven 2D
-                        // scanout path below can take over.
-                        let create = protocol::VirtioGpuResourceCreate2d {
-                            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_CREATE_RESOURCE_2D),
-                            resource_id: id.0,
-                            format: Self::to_gpu_format(PixelFormat::Bgra8888),
-                            width,
-                            height,
-                        };
-                        let _ = self.ctrl_submit_struct(&create);
-                        let attach = protocol::VirtioGpuResourceAttachBacking {
-                            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
-                            resource_id: id.0,
-                            nr_entries: 1,
-                        };
-                        let entry = protocol::VirtioGpuMemEntry {
-                            addr: info.base,
-                            length: (width * height * 4) as u32,
-                            _padding: 0,
-                        };
-                        let _ = self.ctrl_submit_pair(&attach, &entry);
-                        let _ = nexus_abi::debug_println(crate::markers::GPUD_GL_SCANOUT_FALLBACK);
+                        // A GL device has no other path (scanout_policy):
+                        // fail loudly, the service exits, supervision restarts
+                        // it. The 2D retry that used to live here showed BLACK
+                        // on every GL display backend (2026-09-09).
+                        let _ = nexus_abi::debug_println(crate::markers::GPUD_FAIL_GL_SCANOUT_INIT);
                         self.resources.pop();
                         self.scanout_resource = None;
+                        return Err(e);
                     }
                 }
             }

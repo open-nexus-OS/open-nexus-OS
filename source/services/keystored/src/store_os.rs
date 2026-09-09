@@ -263,30 +263,49 @@ impl StatefsStore {
         let mut retried = false;
         loop {
             let stored = match self.client.get(path) {
-                Ok(bytes) => statefs::writer::open_stored(&bytes)?.seq(),
+                Ok(bytes) => match statefs::writer::open_stored(&bytes) {
+                    Ok(stored) => stored.seq(),
+                    Err(err) => {
+                        emit_persist_step_fail("open", err);
+                        return Err(err);
+                    }
+                },
                 Err(StatefsError::NotFound) => None,
-                Err(err) => return Err(err),
+                Err(err) => {
+                    emit_persist_step_fail("get", err);
+                    return Err(err);
+                }
             };
             let seq = self.seq_cache.next_for(path, stored);
             let ts = nexus_abi::nsec().unwrap_or(0);
-            let sealed = statefs::writer::seal_integrity(
+            let sealed = match statefs::writer::seal_integrity(
                 path,
                 seq,
                 state_record::SUBJECT,
                 purpose,
                 ts,
                 value,
-            )?;
-            match self.client.put(path, &sealed) {
+            ) {
+                Ok(sealed) => sealed,
+                Err(err) => {
+                    emit_persist_step_fail("seal", err);
+                    return Err(err);
+                }
+            };
+            match self.client.put_status(path, &sealed) {
                 Ok(()) => {
                     self.seq_cache.note_written(path, seq);
                     return Ok(());
                 }
-                Err(StatefsError::RollbackDetected) if !retried => {
+                Err((StatefsError::RollbackDetected, _)) if !retried => {
                     // Raced statefsd's high-water mark: re-read once, re-seal.
                     retried = true;
                 }
-                Err(err) => return Err(err),
+                Err((err, status)) => {
+                    emit_persist_step_fail("put", err);
+                    emit_persist_put_status(status);
+                    return Err(err);
+                }
             }
         }
     }
@@ -321,5 +340,39 @@ fn push_hex_bytes(out: &mut String, bytes: &[u8]) {
         let low = byte & 0xF;
         out.push(if high < 10 { (b'0' + high) as char } else { (b'a' + (high - 10)) as char });
         out.push(if low < 10 { (b'0' + low) as char } else { (b'a' + (low - 10)) as char });
+    }
+}
+
+/// The raw wire status behind a refused put (`0xfe` = no reply, `0xfd` =
+/// undecodable reply, `0xff` = request encode).
+fn emit_persist_put_status(status: u8) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut buf = *b"keystored: persist put status=0x00";
+    let n = buf.len();
+    buf[n - 2] = HEX[(status >> 4) as usize];
+    buf[n - 1] = HEX[(status & 0xf) as usize];
+    if let Ok(text) = core::str::from_utf8(&buf) {
+        emit_line(text);
+    }
+}
+
+/// One bounded witness per failed integrity-put step (`get|open|seal|put`)
+/// with the stable error label — a `keygen status=<n>` alone hid WHICH leg
+/// of the persist failed for weeks.
+fn emit_persist_step_fail(step: &str, err: StatefsError) {
+    let mut buf = [0u8; 96];
+    let mut len = 0usize;
+    for part in [
+        b"keystored: persist FAIL step=".as_slice(),
+        step.as_bytes(),
+        b" err=",
+        err.label().as_bytes(),
+    ] {
+        let n = part.len().min(buf.len() - len);
+        buf[len..len + n].copy_from_slice(&part[..n]);
+        len += n;
+    }
+    if let Ok(text) = core::str::from_utf8(&buf[..len]) {
+        emit_line(text);
     }
 }

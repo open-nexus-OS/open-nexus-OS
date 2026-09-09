@@ -150,7 +150,8 @@ dep-gate:
 	services="$$(grep -v '^#' config/os-services.txt | tr '\n' ' ')"; \
 	found=0; \
 	for svc in $$services; do \
-	  tree_output=$$(cargo +$(NIGHTLY) tree -p "$$svc" --target riscv64imac-unknown-none-elf --no-default-features --features os-lite 2>&1 || true); \
+	  feats=$$(GPU_MODE=virgl QEMU_SESSION_MODE=proof scripts/discover-services.sh --cargo-features "$$svc" 2>/dev/null || echo os-lite); \
+	  tree_output=$$(cargo +$(NIGHTLY) tree -p "$$svc" --target riscv64imac-unknown-none-elf --no-default-features --features "$$feats" 2>&1 || true); \
 	  for f in $$forbidden; do \
 	    echo "$$tree_output" | grep -qE "^[│├└ ]*$$f " && echo "[FAIL] $$svc pulled forbidden crate $$f" && found=1; \
 	  done; \

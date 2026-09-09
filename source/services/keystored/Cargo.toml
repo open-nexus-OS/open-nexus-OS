@@ -27,6 +27,11 @@ os-lite = [
     "dep:ed25519-dalek",
     "dep:statefs",
     "statefs/ipc-client",
+    # The nonce-filtered reply path (without it the client took ANY frame on
+    # the reply slot as the answer: `keystored: persist FAIL step=put
+    # err=Corrupted`, `persist put status=0xfd`, the keygen status=2 flake).
+    # statefs now refuses to build for the OS without it.
+    "statefs/os-lite",
 ]
 
 [package.metadata.nexus-service]

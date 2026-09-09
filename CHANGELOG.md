@@ -7,8 +7,140 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-09-09 (TASK-0324 P0: build truth + display truth — `just start` was black with every marker green)
+
+- Root cause of the black `just start` window since gpud moved onto the
+  system volume (TASK-0321 P4b): `scripts/build.sh` wired the `virgl` cargo
+  feature only into the embedded init-lite loop, which no longer contained
+  gpud, and built every volume bundle with a literal `--features os-lite` —
+  a 2D-only gpud on a `virtio-gpu-gl` device. Its 2D plane-row scanout
+  (`SET_SCANOUT{y=1600}` into the tall VMO) is black on every GL display
+  backend (they blit the scanout texture from row 0), while
+  `gpud: display ready`, `display: first scanout ok` (windowd's send, not a
+  pixel) and `chain G4 scanout ok` all stayed true; `gpud: cpu fallback` was
+  folded into `WARN gpud 8/8`. The embedded and the bundle build also wrote
+  the same `target/…/release/gpud` with different features (last one wins).
+- Build truth: per-service cargo features live ONLY in
+  `[package.metadata.nexus-service]` (`features`, `feature_profiles` keyed on
+  env such as `GPU_MODE=virgl` → `virgl`, `QEMU_SESSION_MODE=proof` →
+  netstackd `qemu-smoke`); `scripts/discover-services.sh` resolves them
+  (`--cargo-features/--feature-key/--elf-path/--stack-pages`) for the
+  embedded table, the system-volume bundles and the execd payloads
+  (`kind = "payload"`) alike; ELFs are published under
+  `build/services/<svc>/<feature-key>/payload.elf`; `meta/launch.json`
+  carries `features`; `scripts/check-bundle-provenance.sh` (end of every
+  build) greps the gpud bundle for its provenance line; `just check` gains
+  `build-truth` (no `--features os-lite` literal, no `*_CARGO_FLAGS`, no
+  `target/…/release/<svc>` path in build scripts). Deleted: the virgl
+  special block, the `INIT_LITE_SERVICE_*_CARGO_FLAGS` override (also the
+  harness-side netstackd one the bundle build silently ignored), the
+  hidrawd/touchd/inputd stack-pages `case` (manifest data), the
+  `INIT_LITE_SERVICE_METRICSD_STACK_PAGES` proof override. `dep-gate` and
+  the os-slice diag scan the resolved feature sets (virgl code was never
+  linted before).
+- gpud: `gpud: features=…` is the first raw UART line (build provenance);
+  `backend/scanout_policy.rs` (pure, host-tested) decides GL render target vs
+  2D plane row from the device's VIRTIO_GPU_F_VIRGL offer (read in both
+  builds) — a GL device without the virgl feature or without a passing draw
+  self-test is FATAL (`gpud: FAIL virgl device needs virgl feature` /
+  `… gl draw unavailable on gl device`), and `gl_scanout_init` failure on a
+  GL device is `gpud: FAIL gl scanout init` + exit instead of the deleted 2D
+  retry (`gpud: gl scanout fallback 2d` is gone). `gpud: FAIL …` lines fail
+  every lane (FAIL-marker gate, not allow-listable).
+- Display truth: new proof profile `visible` (`just ci-os-visible`, in
+  `test-all`): virgl on egl-headless with a VNC listener
+  (`QEMU_VNC_DISPLAY`, launcher), `tools/pixel_proof_on_marker.py` snapshots
+  the host framebuffer at the splash (`gpud: completion wait …`, raw in every
+  boot mode) and first-frame markers,
+  `tools/pixel_proof_judge.py` requires the desktop to be non-black and to
+  differ from the splash; `tools/rfb_grab.py` is the one RFB grab shared with
+  `tools/visual-postflight.py` (`--diff-against`, `--min-nonblack-pct`).
+  `just start-vnc` exposes the same VNC listener (127.0.0.1:5979) for
+  judging an interactive boot (QEMU refuses VNC beside a windowed GL
+  context, so `just start` itself stays VNC-less and the launcher rejects
+  that combination loudly); under `GPU_MODE=virgl` the harness requires
+  `gpud: features=os-lite,virgl` and rejects `gpud: cpu fallback`.
+- Two facts the manifest SSOT surfaced (they were never in effect before):
+  `stack_pages` in the manifests (gpud 2, imed 4, hidrawd/touchd/inputd 1)
+  had never been in effect for volume services — every bundle silently got
+  8 — and honouring them overflowed gpud's stack in the virgl attach
+  (`[USER-PF] STORE` below the stack base) and killed touchd before its first
+  line; all five now declare the proven 8. touchd demoted itself to Idle QoS
+  (a boot-ladder service must not); it now runs at Normal QoS like
+  hidrawd/inputd — its `touchd: os service payload ready` still never prints
+  in proof boots (a resumed task that does not run for the whole boot; no lane
+  has required the `full` display ladder since 2026-07), recorded as a
+  TASK-0324 P5 determinism item. The `visible` lane uses the headless ladder
+  plus the display-truth gates.
+
 ### Fixed - 2026-09-08 (live debugging: `just start`, hidden FAIL markers, UART folding)
 
+- Kernel scheduler: a blocking syscall (`ipc_recv` v1/v2, `ipc_send`,
+  `waitset_wait`, `fence_wait`, `wait`) that found nothing else runnable on
+  its hart used to "self-wake": it re-enqueued the blocked task on its home
+  queue and at the same time resumed it on the current hart to retry the
+  ecall. Under SMP any idle hart could steal that queue entry and run the
+  same task on the same user stack — two harts executing init during the
+  volume spawn pass, visible as two identical `[USER-PF] INST @ sepc=<stack
+  VA>` dumps for one pid, then `virtioblkd: endpoint defect`, no splash and
+  no greeter (2–5 of 8 interactive 4-CPU boots; never at 1 CPU). The hart
+  now parks instead (`park_hart_or_self_wake`: `current = PID 0` → the trap
+  epilogue stages the hart's own idle re-entry frame, the waiter registration
+  stays, the eventual wake enqueues the task exactly once); the legacy
+  self-wake survives only before the SMP runtime is released (single-hart
+  bring-up) and for kernel-mode tasks (the S-mode tasks the kernel selftest
+  spawns in `interactive-full` boots: `cpu_main` dispatches U-mode frames
+  only, so a parked kernel-mode task would be dropped by the idle loop after
+  its wake — `watchdog: no progress`). Parking exposed what the spin had been masking: an external
+  (PLIC) interrupt that lands on a hart idle in S-mode used to be claimed and
+  COMPLETED without delivery (`drain_undelivered`), so a bound level source
+  re-asserted at once and the boot hart took S_EXT traps back-to-back without
+  ever reaching its idle loop — the block-plane IRQ was never delivered and
+  every volume spawn timed out (`init: volume spawn FAIL reason=query`). The
+  S-mode trap now claims into a per-hart stash (source stays masked, no
+  storm) and the idle loop's `dispatch_external` delivers it under the BKL.
+  The BKL's cpu0-right-of-way backoff spin now services TLB shootdown
+  mailboxes like the try_lock spin, and the unlocked phase-B byte moves
+  (`vmo_create` zeroing, `exec` image copies — SIE=0 in trap context, so a
+  shootdown IPI cannot interrupt them) run in 64 KiB chunks with a mailbox
+  poll between chunks: a 4 MiB framebuffer VMO memset plus TCG jitter had
+  parked the requester past the 400 ms ack budget (`tlb shootdown ack
+  timeout hart=2 … acked=3`, 2 of 8 interactive-full boots). The KPANIC line
+  now names the silent hart's last activity (`activity=class<n>:0x<detail>`:
+  1 trap scause/nr, 2 phase-B zero, 3 phase-B copy, 4 idle loop).
+- Kernel TLB shootdown: a waiting initiator now services its own mailbox
+  while it spins for acks. Two initiators are possible since `vm_unmap`
+  shoots down in phase B with the BKL dropped (a task exit's AS-destroy
+  shootdown runs under the BKL on another hart); each waited for the other
+  and neither could take a trap (BKL held, or SIE=0 in trap context) — the
+  residual `tlb shootdown ack timeout hart=2 … activity=class1:0xd10`
+  (fault-probe kill path vs. cpu0's unmap) in 1 of 5 interactive-full boots.
+- Kernel user-fault kill path: with nothing runnable left on the hart it
+  sret'd into PID 0's stale frame (the boot hart's S-mode context) — the
+  fallback A3 had already retired for syscalls, unreachable while blocking
+  syscalls self-woke and reached the moment they parked (hart 2 after
+  killing the fault-probe, silent for the rest of the boot, 1 of 8). It now
+  stages the hart's own idle re-entry frame like the ecall epilogue. The
+  gate for that re-entry is the per-hart `cpu_main::sched_loop_entered`
+  flag, not the global `smp::runtime_ready()`: the boot hart still runs the
+  kernel selftests in kmain while the secondaries already schedule, and its
+  PID 0 frame is then the LIVE bring-up context that must be resumed, not
+  abandoned. Kill path, blocking-syscall park and ecall epilogue share the
+  predicate.
+- Kernel kill paths (user fault, ecall-bounds, unresumable task) now wake a
+  parent parked in `wait` for that child, exactly as `sys_exit` does. Masked
+  until blocking syscalls stopped self-waking: init, blocked in `wait` for
+  the supervised fault-probe, stayed parked after the kernel killed the
+  probe — `SELFTEST: supervision restart ok` was the last line of the boot
+  (1 of 5 interactive-full boots).
+- Kernel TLB shootdown no longer waits on harts parked in the scheduler's
+  WFI idle (`CPU_IDLE_MASK`): an idle hart has no user translation live and
+  flushes at its next user dispatch (`poll_mailbox` before the context
+  switch); a lost/late IPI to a sleeping hart therefore cannot become a
+  `tlb shootdown ack timeout` panic (seen in 3 of 6 interactive 4-CPU boots
+  once the user-fault dump no longer masked the window). The BKL wait loop
+  services shootdowns too, and the panic path logs `KPANIC: … hart= epoch=
+  requested= acked=` evidence before dying.
 - nxboot normalizes the boot hart: OpenSBI on `virt` hands the image to a
   random hart under MTTCG; every interactive boot on hart ≠ 0 (≈ 3 of 4 since
   July) ran SMP DEGRADED (the boot hart was "started" as its own secondary),
@@ -38,6 +170,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DENY is a verdict); once exhausted it refuses with its own witness
   `statefsd: abi eval unreachable …` instead of a look-alike `abi deny`
   (the occasional `SELFTEST: statefs put FAIL` in second boots).
+- keystored's device-key persist names its failing leg (`keystored: persist
+  FAIL step=get|open|seal|put err=<label>`) and the raw wire status
+  (`persist put status=0x..`, via `StatefsClient::put_status`) — the rare
+  multi-boot `device key pubkey FAIL (keygen status=2)` (a refused put whose
+  record still lands) reproduced once in 16 lane runs and never named its
+  status before.
 - Kernel user-fault dumps fold in interactive boots to the one head line
   (`NEXUS_LOG_EXPAND=trap` or a proof boot prints registers + stack).
 - Egress probe uses port 8090 as the denied example (8080–8082 are the

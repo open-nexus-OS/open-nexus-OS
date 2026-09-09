@@ -124,9 +124,10 @@ pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                     ctx.tasks.set_current(next);
                     return Err(Error::Reschedule);
                 }
-                let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                observe_wake_outcome(ctx.tasks.wake(cur, ctx.scheduler));
-                return Err(Error::Reschedule);
+                // Nothing runnable on this hart: park it (legacy self-wake pre-runtime).
+                return Err(park_hart_or_self_wake(ctx, cur, |ctx| {
+                    let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
+                }));
             }
             Err(e) => return Err(e.into()),
         }

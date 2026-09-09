@@ -73,6 +73,24 @@ and a prior naive attempt regressed to 0 presents and was reverted. The RFC scop
 low-payoff power/determinism cleanup, not a responsiveness fix. It is deferred to an isolated,
 boot-tested change rather than bundled into this spine.
 
+**Update 2026-09-08 — the degenerate spin is retired, for correctness.** The self-wake
+was never merely wasteful under SMP: it put the blocked task into a run queue *while* the
+current hart resumed it, so an idle hart could steal the entry and run the same task on the
+same user stack (init double-run during the volume spawn pass — two identical
+`[USER-PF] INST @ sepc=<stack VA>` dumps for one pid). Since A3 a syscall that leaves no
+valid user task on its hart DOES reach that hart's own scheduler loop
+(`cpu_main::stage_idle_reentry_frame`), so every blocking syscall now parks the hart
+(`syscall::api::park_hart_or_self_wake`: `current = PID 0`, waiter registration kept) once
+`smp::runtime_ready()`; the legacy self-wake survives only during single-hart bring-up.
+Timed waits stay live through the existing deadline delivery (boot-hart idle loop +
+U-mode timer ticks), not through the spin. Two things the spin had been carrying came out
+with it and are handled explicitly: an S-mode external interrupt now claims into a per-hart
+stash delivered by the idle loop (`irq::stash_undelivered`; completing without delivery
+re-asserted the level source into a trap storm), and kernel-mode (S-mode) tasks — the
+kernel selftest's spawned tasks — keep the self-wake because `cpu_main` dispatches U-mode
+frames only. The WFI-to-earliest-deadline idle remains
+open, as does resuming kernel-mode tasks from the idle loop.
+
 ## Consequences
 
 - Pacing, cross-device submit, and present scheduling stand on first-class primitives instead

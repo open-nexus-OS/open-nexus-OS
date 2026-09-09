@@ -19,7 +19,9 @@ os-lite = [
 ]
 
 [package.metadata.nexus-service]
-stack_pages = 4
+# 8 pages: the manifest value (4) was never honoured before TASK-0324 P0 —
+# every service silently got 8; keep the proven size.
+stack_pages = 8
 
 [dependencies]
 ime-core = { path = "../../../userspace/ime-core" }

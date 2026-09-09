@@ -31,6 +31,11 @@ impl VirtioGpuBackend {
         // (the long-proven 2D path); the virgl build reads the device feature
         // bits and acks VIRGL + CONTEXT_INIT + VERSION_1 when the device (a
         // `virtio-gpu-gl` model) offers them, enabling the 3D command path.
+        // Record whether this is a GL device in BOTH builds, independent of
+        // what gets acked: `scanout_policy` refuses to drive one 2D.
+        write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DEVICE_FEATURES_SEL, 0);
+        let dev_lo = read_reg(self.mmio_base, protocol::VIRTIO_MMIO_DEVICE_FEATURES);
+        self.gl_device = (dev_lo & protocol::VIRTIO_GPU_F_VIRGL) != 0;
         #[cfg(feature = "virgl")]
         {
             self.negotiate_features_virgl();

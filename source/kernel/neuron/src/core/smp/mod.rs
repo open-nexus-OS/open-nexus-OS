@@ -24,8 +24,11 @@ pub const MAX_CPUS: usize = 4;
 
 mod bringup;
 mod lock_ping;
+mod masks;
 mod runtime;
 pub mod tlb;
+
+pub use masks::{cpu_idle_mask, cpu_is_online, mark_cpu_idle};
 
 pub use bringup::{
     emit_bringup_gate, retry_missing_harts, start_secondary_harts, wait_for_online_mask,
@@ -331,12 +334,6 @@ pub fn selftest_poisoned_tp_probe() -> (CpuId, usize) {
 #[inline]
 pub fn cpu_online_mask() -> usize {
     CPU_ONLINE_MASK.load(Ordering::Acquire)
-}
-
-#[inline]
-pub fn cpu_is_online(cpu: CpuId) -> bool {
-    let bit = 1usize << cpu.as_index();
-    cpu_online_mask() & bit != 0
 }
 
 /// Emits deterministic online markers exactly once per CPU.

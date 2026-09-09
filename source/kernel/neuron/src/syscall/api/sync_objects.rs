@@ -232,13 +232,13 @@ pub(super) fn sys_waitset_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<
         ctx.tasks.set_current(next);
         return Err(Error::Reschedule);
     }
-    // Degenerate fallback: nothing else runnable. Deregister, self-wake, reschedule — the
-    // idle loop re-drives us (mirrors the single-endpoint recv path; load-bearing self-wake).
-    for &ep in members {
-        let _ = ctx.router.remove_recv_waiter(ep, cur.as_raw());
-    }
-    observe_wake_outcome(ctx.tasks.wake(cur, ctx.scheduler));
-    Err(Error::Reschedule)
+    // Nothing else runnable on this hart: park it (legacy self-wake pre-runtime, where
+    // the idle loop re-drives us — mirrors the single-endpoint recv path).
+    Err(park_hart_or_self_wake(ctx, cur, |ctx| {
+        for &ep in members {
+            let _ = ctx.router.remove_recv_waiter(ep, cur.as_raw());
+        }
+    }))
 }
 
 #[inline]
@@ -347,8 +347,8 @@ pub(super) fn sys_fence_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<us
         ctx.tasks.set_current(next);
         return Err(Error::Reschedule);
     }
-    // Degenerate fallback: nothing else runnable — deregister, self-wake, reschedule.
-    ctx.fences.remove_waiter(fence_id, cur.as_raw());
-    observe_wake_outcome(ctx.tasks.wake(cur, ctx.scheduler));
-    Err(Error::Reschedule)
+    // Nothing else runnable on this hart: park it (legacy self-wake pre-runtime).
+    Err(park_hart_or_self_wake(ctx, cur, |ctx| {
+        ctx.fences.remove_waiter(fence_id, cur.as_raw());
+    }))
 }

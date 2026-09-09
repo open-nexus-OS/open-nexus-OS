@@ -357,3 +357,105 @@ pub(super) fn nearest_symbol(_addr: usize) -> Option<(&'static str, usize)> {
         None
     }
 }
+
+/// Fail-fast for a U-mode fault: kill the offending task (leaving it alive
+/// would be an infinite fault storm that blocks boot markers), then pick the
+/// next runnable task for the trap epilogue — or, with nothing runnable on
+/// this hart, stage the hart's own idle re-entry frame.
+pub(super) fn kill_faulting_user_task(frame: &mut TrapFrame) {
+    // Fail-fast: kill the offending user task (leaving it alive = an
+    // infinite fault storm that blocks boot markers) → back to sched.
+    crate::smp::tlb::note_activity(
+        crate::smp::cpu_current_id(),
+        crate::smp::tlb::ACT_FAULT_KILL,
+        0,
+    );
+    if let Ok(mut kernel) = KernelGuard::acquire() {
+        crate::smp::tlb::note_activity(
+            crate::smp::cpu_current_id(),
+            crate::smp::tlb::ACT_FAULT_KILL,
+            1,
+        );
+        // U-mode fault → this hart holds no BKL; safe to acquire.
+        {
+            let (scheduler, tasks, router, spaces, _timer, _ht, _ws, _fences) = kernel.parts();
+
+            // Kill the faulting task (never scheduled again). RFC-0005
+            // lifecycle: close its endpoints + wake any blocked peers.
+            let doomed = tasks.current_pid();
+            let waiters = router.close_endpoints_for_owner(doomed.as_raw());
+            for pid in waiters {
+                match tasks.wake(crate::types::Pid::from_raw(pid), scheduler) {
+                    crate::task::WakeOutcome::Woken
+                    | crate::task::WakeOutcome::WokenNoopSelftest
+                    | crate::task::WakeOutcome::TaskNotBlocked
+                    | crate::task::WakeOutcome::TaskNotFound
+                    | crate::task::WakeOutcome::EnqueueRejected => {}
+                }
+            }
+            router.remove_waiter_from_all(doomed.as_raw());
+            crate::syscall::api::exit_current_faulted(tasks, frame.scause as u8);
+            // The parent may be parked in `wait` for exactly this child: a
+            // kernel kill must wake it like `sys_exit` does. Masked until
+            // blocking syscalls stopped self-waking (init in `wait` for the
+            // supervised fault-probe stayed parked forever, 2026-09-08).
+            tasks.wake_parent_waiter(doomed, scheduler);
+            crate::smp::tlb::note_activity(
+                crate::smp::cpu_current_id(),
+                crate::smp::tlb::ACT_FAULT_KILL,
+                2,
+            );
+            scheduler.purge(doomed);
+            scheduler.finish_current();
+
+            // Select a runnable task and switch to it (bounded attempts to avoid loops).
+            for _ in 0..8 {
+                let Some(next) = scheduler.schedule_next() else {
+                    break;
+                };
+                let next_pid = next;
+                tasks.set_current(next_pid);
+
+                #[cfg(not(feature = "selftest_no_satp"))]
+                {
+                    let as_handle = tasks.task(next_pid).and_then(|t| t.address_space());
+                    if let Some(handle) = as_handle {
+                        if spaces.activate(handle).is_err() {
+                            // Fail-fast: this task cannot be resumed.
+                            let doomed = tasks.current_pid();
+                            crate::syscall::api::exit_current_killed(tasks);
+                            tasks.wake_parent_waiter(doomed, scheduler);
+                            scheduler.purge(doomed);
+                            scheduler.finish_current();
+                            continue;
+                        }
+                    }
+                }
+
+                if let Some(task) = tasks.task(next_pid) {
+                    *frame = *task.frame();
+                    return;
+                }
+            }
+
+            // Nothing runnable on this hart: re-enter THIS hart's
+            // scheduler loop (A3), never PID 0's stale frame — that
+            // is the boot hart's S-mode context and sret'ing a
+            // secondary into it left the hart silent: the
+            // `tlb shootdown ack timeout … activity=class1:0xd10`
+            // class (hart 2 after killing the fault-probe with an
+            // empty queue, 2026-09-08; unreachable before blocking
+            // syscalls parked instead of self-waking).
+            tasks.set_current(crate::types::Pid::KERNEL);
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            if crate::cpu_main::sched_loop_entered(crate::smp::cpu_current_id()) {
+                crate::cpu_main::stage_idle_reentry_frame(frame);
+                return;
+            }
+            if let Some(task) = tasks.task(crate::types::Pid::KERNEL) {
+                *frame = *task.frame();
+            }
+        }
+    }
+    // Otherwise: runtime handles unavailable — stop here.
+}

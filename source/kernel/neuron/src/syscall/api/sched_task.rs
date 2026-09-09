@@ -398,8 +398,8 @@ pub(super) fn sys_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     ctx.tasks.set_current(next);
                     return Err(Error::Reschedule);
                 }
-                observe_wake_outcome(ctx.tasks.wake(cur, ctx.scheduler));
-                return Err(Error::Reschedule);
+                // Nothing runnable on this hart: park it (legacy self-wake pre-runtime).
+                return Err(park_hart_or_self_wake(ctx, cur, |_| {}));
             }
             Err(err) => return Err(Error::from(err)),
         }

@@ -67,6 +67,15 @@ phase = "end"
 emit_when = { profile = "full" }
 proves = "observer-only selftest completed service-owned visible present path in GPU-only mode"
 
+# TASK-0324 P0 (display truth): gpud's one-shot host-GPU readback of the live
+# render target after the first traced present (virgl builds). The lane's
+# HOST-side pixel proof (tools/pixel_proof_judge.py) is the display verdict;
+# this is the guest-side half of the same claim.
+[marker."SELFTEST: display nonblack ok"]
+phase = "end"
+emit_when = { profile = "visible" }
+proves = "gpud read back a non-black centre strip of the live GL render target after the first presented frame"
+
 [marker."windowd: cursor svg loaded"]
 phase = "end"
 emit_when = { profile = "full" }

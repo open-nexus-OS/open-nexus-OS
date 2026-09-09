@@ -13,7 +13,10 @@ default = []
 os-lite = ["dep:nexus-abi", "dep:nexus-service-entry"]
 
 [package.metadata.nexus-service]
-stack_pages = 1
+# 8 pages: the manifest's old value (1) was never in effect for a volume
+# service — scripts/build.sh gave every bundle 8 before TASK-0324 P0 made the
+# manifest the only source. Keep the proven size.
+stack_pages = 8
 
 [dependencies]
 touch = { path = "../../../userspace/touch" }

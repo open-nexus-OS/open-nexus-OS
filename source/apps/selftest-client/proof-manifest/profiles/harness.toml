@@ -29,6 +29,16 @@ extends = "headless"
 # Guest runs full selftest so GPU markers (gpud → windowd → present) are emitted.
 env = { NEXUS_SELFTEST_PROFILE = "full" }
 
+# TASK-0324 P0: display truth. The real GL-scanout compositor (virgl) on an
+# egl-headless backend with a VNC listener; the launcher snapshots the host
+# framebuffer at the splash and first-frame markers and the harness judges
+# the desktop snapshot (non-black AND not the splash). This is what `just
+# start` shows, proven from the host side.
+[profile.visible]
+runner = "scripts/qemu-test.sh"
+extends = "full"
+env = { NEXUS_DISPLAY_BOOTSTRAP = "1", GPU_MODE = "virgl", QEMU_DISPLAY_BACKEND = "egl-headless", QEMU_VNC_DISPLAY = "79", NEXUS_PIXEL_PROOF = "1", REQUIRE_PIXEL_PROOF = "1", QEMU_PROOF_POINTER_SOURCE = "tablet" }
+
 [profile.smp]
 runner = "scripts/qemu-test.sh"
 extends = "headless"

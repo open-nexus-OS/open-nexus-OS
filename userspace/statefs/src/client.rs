@@ -22,6 +22,14 @@ use super::protocol;
 use super::StatefsError;
 use nexus_abi;
 use nexus_ipc::KernelClient;
+// The OS target has exactly ONE client path: the nonce-filtered one below.
+// A service that enabled `ipc-client` but not `os-lite` silently compiled the
+// host-style blocking path, which returns whatever frame arrives on the reply
+// slot — keystored did (TASK-0324 P0): a stale frame after a slow PUT decoded
+// as `Corrupted` and failed the device-key persist about once in ten boots.
+#[cfg(all(nexus_env = "os", not(feature = "os-lite")))]
+compile_error!("statefs: the OS build needs the `os-lite` feature (nonce-filtered reply path)");
+
 #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
 use nexus_ipc::Wait;
 
@@ -50,9 +58,15 @@ impl StatefsClient {
 
     /// Put a value into statefs.
     pub fn put(&self, key: &str, value: &[u8]) -> Result<(), StatefsError> {
-        let frame = protocol::encode_put_request(key, value)?;
-        self.send_and_recv(frame, protocol::OP_PUT)?;
-        Ok(())
+        self.put_status(key, value).map_err(|(err, _)| err)
+    }
+
+    /// Put, returning the raw wire status on refusal (`Err((err, status))`)
+    /// — a diagnostic-grade variant for callers that must name WHICH status
+    /// the store answered (the error enum folds several statuses together).
+    pub fn put_status(&self, key: &str, value: &[u8]) -> Result<(), (StatefsError, u8)> {
+        let frame = protocol::encode_put_request(key, value).map_err(|e| (e, 0xff))?;
+        self.send_and_recv_status(frame, protocol::OP_PUT)
     }
 
     /// Get a value from statefs.
@@ -123,14 +137,19 @@ impl StatefsClient {
     }
 
     fn send_and_recv(&self, frame: Vec<u8>, op: u8) -> Result<(), StatefsError> {
+        self.send_and_recv_status(frame, op).map_err(|(err, _)| err)
+    }
+
+    /// Like [`Self::send_and_recv`] but keeps the raw refusal status.
+    fn send_and_recv_status(&self, frame: Vec<u8>, op: u8) -> Result<(), (StatefsError, u8)> {
         // `STATUS_BUSY` = the store is quiesced (fsck window, TASK-0051):
         // retry the whole exchange with yields inside ONE bounded op budget
         // instead of surfacing a transient as an error to every writer.
         #[cfg(all(nexus_env = "os", feature = "os-lite"))]
         let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(BUSY_RETRY_BUDGET_NS);
         loop {
-            let rsp = self.send_and_recv_raw(frame.clone(), op)?;
-            let status = protocol::decode_status_response(op, &rsp)?;
+            let rsp = self.send_and_recv_raw(frame.clone(), op).map_err(|e| (e, 0xfe))?;
+            let status = protocol::decode_status_response(op, &rsp).map_err(|e| (e, 0xfd))?;
             if status == protocol::STATUS_OK {
                 return Ok(());
             }
@@ -139,7 +158,7 @@ impl StatefsClient {
                 let _ = nexus_abi::yield_();
                 continue;
             }
-            return Err(protocol::error_from_status(status));
+            return Err((protocol::error_from_status(status), status));
         }
     }
 

@@ -39,6 +39,7 @@ use crate::task::BlockReason;
 // below; submodule-private helpers are widened to pub(super) only.
 mod caps;
 mod exec;
+mod exec_copy;
 mod ipc_msg;
 mod ipc_recv_v2;
 mod sched_task;
@@ -54,7 +55,8 @@ mod tests;
 
 use caps::*;
 use exec::*;
-pub(crate) use exec::{exec_phase_a, exec_v2_phase_a, run_copy_plan, CopyPlan};
+pub(crate) use exec::{exec_phase_a, exec_v2_phase_a, CopyPlan};
+pub(crate) use exec_copy::run_copy_plan;
 use ipc_msg::*;
 use ipc_recv_v2::*;
 use sched_task::*;
@@ -160,6 +162,54 @@ fn observe_wake_outcome(outcome: task::WakeOutcome) {
             }
         }
     }
+}
+
+/// Post-`block_current` fallback when this hart's run queues are empty.
+///
+/// The blocked task must never be re-enqueued AND resumed at the same
+/// time. The old "self-wake" fallback enqueued `cur` on its home queue and
+/// then sret'd back into `cur` at the ecall so it would retry — leaving the
+/// task in a run queue WHILE it kept executing on this hart. Any idle hart
+/// could steal that queue entry (`Scheduler::steal_into_current`) and run
+/// the same task on the same user stack: the init double-run during the
+/// volume spawn pass (two identical `[USER-PF] INST @ sepc=<stack VA>`
+/// dumps for one pid, 2026-09-08). Once THIS hart runs its scheduler loop
+/// (`cpu_main::sched_loop_entered` — not the global `runtime_ready`: the boot
+/// hart may still be in kmain bring-up while secondaries schedule) the hart
+/// parks instead: `current` becomes PID 0, so the trap epilogue stages
+/// `cpu_main::stage_idle_reentry_frame` and this hart re-enters its own
+/// scheduler loop. The waiter registration stays in place; the eventual
+/// `wake` (sender, deadline sweep, IRQ) enqueues the task exactly once.
+///
+/// Before the runtime is released (single-hart bring-up, where PID 0's frame
+/// is the live selftest context and no other hart can steal) the legacy
+/// self-wake is kept; `undo` deregisters the caller's waiter for that path.
+///
+/// Kernel-mode tasks (`sstatus.SPP` set in the saved frame — the S-mode
+/// tasks the kernel selftest spawns in `interactive-full` boots) keep the
+/// self-wake as well: `cpu_main` dispatches U-mode frames only ("skip
+/// non-user task"), so a parked kernel-mode task would be popped by the
+/// idle loop after its wake and silently dropped — the boot hart then hit
+/// `watchdog: no progress` with those tasks "runnable" on every snapshot
+/// (2026-09-08). They are resumed through trap epilogues alone, exactly as
+/// before this change.
+fn park_hart_or_self_wake(
+    ctx: &mut Context<'_>,
+    cur: task::Pid,
+    undo: impl FnOnce(&mut Context<'_>),
+) -> Error {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SSTATUS_SPP: usize = 1 << 8;
+        let kernel_mode = ctx.tasks.task(cur).is_some_and(|t| t.frame().sstatus & SSTATUS_SPP != 0);
+        if crate::cpu_main::sched_loop_entered(crate::smp::cpu_current_id()) && !kernel_mode {
+            ctx.tasks.set_current(task::Pid::KERNEL);
+            return Error::Reschedule;
+        }
+    }
+    undo(ctx);
+    observe_wake_outcome(ctx.tasks.wake(cur, ctx.scheduler));
+    Error::Reschedule
 }
 
 /// Deadline sweep run at EVERY scheduling transition (`yield`, blocking

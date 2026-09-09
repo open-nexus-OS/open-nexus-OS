@@ -1,16 +1,23 @@
 # Copyright 2026 Open Nexus OS Contributors
 # SPDX-License-Identifier: Apache-2.0
 
-# NOTE: deliberately NO `[package.metadata.nexus-service]` block — app-host is
-# NOT a boot service. nexus-init must never spawn it; execd spawns one instance
-# per app on launch (TASK-0080D). build.sh builds it and hands the ELF to
-# execd's build via `EXECD_APPHOST_ELF`.
+# app-host is NOT a boot service (`kind = "payload"` below keeps it out of the
+# boot table): nexus-init never spawns it; execd spawns one instance per app on
+# launch (TASK-0080D). build.sh builds it through the same feature resolver as
+# every service and hands the ELF to execd's build via `EXECD_APPHOST_ELF`.
+
 
 [package]
 name = "app-host"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+
+# Build-truth SSOT (TASK-0324 P0): execd payload, built through the same
+# resolver as every service so its features have exactly one home.
+[package.metadata.nexus-service]
+kind = "payload"
+features = ["os-lite"]
 
 [features]
 default = ["std"]

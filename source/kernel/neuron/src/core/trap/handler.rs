@@ -270,6 +270,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
     // Shootdown responder on EVERY S-mode entry (2 loads when idle): a hart
     // with a lost S-soft enable still acks on its next syscall/timer trap.
     let _ = crate::smp::tlb::poll_mailbox(crate::smp::cpu_current_id());
+    crate::smp::tlb::note_activity(
+        crate::smp::cpu_current_id(),
+        crate::smp::tlb::ACT_TRAP,
+        (frame.scause << 8) | (frame.x[17] & 0xff),
+    );
     if is_interrupt(frame.scause) {
         const S_SOFT_INT: usize = 1;
         // Supervisor timer: rearm via SBI and return.
@@ -412,10 +417,16 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     return;
                 }
             }
-            // S-mode interrupt or runtime not yet installed: drain without delivery
-            // so a stray source cannot storm (bound sources stay enabled for the
-            // next U-mode trap).
-            crate::irq::drain_undelivered();
+            // S-mode interrupt (this hart's idle loop — it may hold the BKL
+            // itself, so no delivery here): claim into the per-hart stash, the
+            // source stays masked, and the idle loop's `dispatch_external`
+            // delivers under the BKL. Before the runtime is installed: drain
+            // without delivery so a stray source cannot storm.
+            if crate::smp::runtime_ready() {
+                crate::irq::stash_undelivered();
+            } else {
+                crate::irq::drain_undelivered();
+            }
         }
         return;
     }
@@ -594,7 +605,10 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                                 let _ = u.write_str("\n");
                             });
                             frame.x[10] = errno(EINVAL);
+                            let doomed = tasks.current_pid();
                             crate::syscall::api::exit_current_faulted(tasks, 0xF1);
+                            // Kernel kill wakes a parent parked in `wait` (see fault.rs).
+                            tasks.wake_parent_waiter(doomed, scheduler);
                             return;
                         }
                     }
@@ -686,7 +700,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     && tf.sepc < KERNEL_BASE
             }
         };
-        if !valid_user_target && crate::smp::runtime_ready() {
+        if !valid_user_target && crate::cpu_main::sched_loop_entered(crate::smp::cpu_current_id()) {
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
             {
                 crate::cpu_main::stage_idle_reentry_frame(frame);
@@ -1046,72 +1060,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     dump_task_frame_snapshot(frame.x[2]);
                 }
 
-                // Fail-fast: kill the offending user task (leaving it alive = an
-                // infinite fault storm that blocks boot markers) → back to sched.
-                if let Ok(mut kernel) = KernelGuard::acquire() {
-                    // U-mode fault → this hart holds no BKL; safe to acquire.
-                    {
-                        let (scheduler, tasks, router, spaces, _timer, _ht, _ws, _fences) =
-                            kernel.parts();
-
-                        // Kill the faulting task (never scheduled again). RFC-0005
-                        // lifecycle: close its endpoints + wake any blocked peers.
-                        let doomed = tasks.current_pid();
-                        let waiters = router.close_endpoints_for_owner(doomed.as_raw());
-                        for pid in waiters {
-                            match tasks.wake(crate::types::Pid::from_raw(pid), scheduler) {
-                                crate::task::WakeOutcome::Woken
-                                | crate::task::WakeOutcome::WokenNoopSelftest
-                                | crate::task::WakeOutcome::TaskNotBlocked
-                                | crate::task::WakeOutcome::TaskNotFound
-                                | crate::task::WakeOutcome::EnqueueRejected => {}
-                            }
-                        }
-                        router.remove_waiter_from_all(doomed.as_raw());
-                        crate::syscall::api::exit_current_faulted(tasks, frame.scause as u8);
-                        scheduler.purge(doomed);
-                        scheduler.finish_current();
-
-                        // Select a runnable task and switch to it (bounded attempts to avoid loops).
-                        for _ in 0..8 {
-                            let Some(next) = scheduler.schedule_next() else {
-                                break;
-                            };
-                            let next_pid = next;
-                            tasks.set_current(next_pid);
-
-                            #[cfg(not(feature = "selftest_no_satp"))]
-                            {
-                                let as_handle =
-                                    tasks.task(next_pid).and_then(|t| t.address_space());
-                                if let Some(handle) = as_handle {
-                                    if spaces.activate(handle).is_err() {
-                                        // Fail-fast: this task cannot be resumed.
-                                        let doomed = tasks.current_pid();
-                                        crate::syscall::api::exit_current_killed(tasks);
-                                        scheduler.purge(doomed);
-                                        scheduler.finish_current();
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            if let Some(task) = tasks.task(next_pid) {
-                                *frame = *task.frame();
-                                return;
-                            }
-                        }
-
-                        // Fallback: return to PID 0 if possible.
-                        tasks.set_current(crate::types::Pid::KERNEL);
-                        if let Some(task) = tasks.task(crate::types::Pid::KERNEL) {
-                            *frame = *task.frame();
-                            return;
-                        }
-                    }
-                }
-
-                return; // runtime handles unavailable — stop here.
+                super::fault::kill_faulting_user_task(frame);
+                return;
             }
 
             // Kernel page fault - emit minimal diagnostics via raw MMIO then panic

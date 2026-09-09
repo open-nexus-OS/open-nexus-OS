@@ -122,28 +122,6 @@ impl CopyPlan {
     }
 }
 
-/// Execute a staged plan (phase B — caller holds NO kernel locks).
-pub(crate) fn run_copy_plan(plan: &CopyPlan) {
-    for op in plan.ops.iter().take(plan.len) {
-        if op.len == 0 {
-            continue;
-        }
-        unsafe {
-            if op.src == usize::MAX {
-                ptr::write_bytes(op.dst as *mut u8, 0, op.len);
-            } else {
-                ptr::copy_nonoverlapping(op.src as *const u8, op.dst as *mut u8, op.len);
-            }
-        }
-    }
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    if plan.fence_i {
-        unsafe {
-            core::arch::asm!("fence.i", options(nostack));
-        }
-    }
-}
-
 /// Kernel-side exec loader: parses ELF64/RISC-V, maps PT_LOAD with W^X + USER, sets stack, spawns task.
 pub(super) fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // Unphased fallback (kept for table completeness; the trap handler routes

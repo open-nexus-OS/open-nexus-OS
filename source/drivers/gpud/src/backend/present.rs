@@ -28,8 +28,7 @@ use super::transport::{align_page, ctrl_hdr, DISPLAY_PLANE_HEIGHT, DISPLAY_PLANE
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 #[allow(unused_imports)]
 use crate::markers::{
-    GPUD_DROPSHADOW_OK, GPUD_GL_SCANOUT_FALLBACK, GPUD_LAYER_COMPOSITE_LIVE,
-    GPUD_RESOURCE_VMO_MAP_FAIL, GPUD_SDF_GRAD_OK,
+    GPUD_DROPSHADOW_OK, GPUD_LAYER_COMPOSITE_LIVE, GPUD_RESOURCE_VMO_MAP_FAIL, GPUD_SDF_GRAD_OK,
 };
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use crate::protocol;

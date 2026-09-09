@@ -34,7 +34,6 @@ fn input_services_are_in_default_qemu_payload_list() {
     // via [package.metadata.nexus-service] in their Cargo.toml.
     for service in INPUT_SERVICES {
         assert_service_list_contains(&qemu_test, service, "scripts/qemu-test.sh");
-        assert_service_list_contains(&build_sh, service, "scripts/build.sh");
         // Verify the service has nexus-service metadata (auto-discovered)
         let cargo_toml = read_repo_file(format!("source/services/{service}/Cargo.toml"));
         assert!(
@@ -51,28 +50,43 @@ fn input_services_are_in_default_qemu_payload_list() {
             && qemu_test.contains("\"inputd: os service payload ready\""),
         "`scripts/qemu-test.sh` must keep a focused input-startup proof ladder for real service payload readiness"
     );
+    // TASK-0324 P0 build truth: build.sh names NO service and carries NO
+    // per-service stack table — stack pages and features come from the crate
+    // manifest through scripts/discover-services.sh only.
     assert!(
-        build_sh.contains("hidrawd|touchd|inputd"),
-        "`scripts/build.sh` must keep bounded stack support for explicit input service lists"
+        !build_sh.contains("hidrawd|touchd|inputd"),
+        "`scripts/build.sh` must not carry a per-service stack_pages case (manifest SSOT)"
+    );
+    assert!(
+        build_sh.contains("service_stack_pages") && build_sh.contains("service_cargo_features"),
+        "`scripts/build.sh` must resolve stack pages + features through discover-services.sh"
     );
 }
 
 #[test]
 fn input_services_use_bounded_os_stack_pages() {
-    // Phase 4b: stack_pages is declared in Cargo.toml metadata,
-    // by scripts/discover-services.sh and resolved via INIT_LITE_SERVICE_*_STACK_PAGES.
+    // TASK-0324 P0: stack_pages is declared in Cargo.toml metadata and is the ONLY
+    // source (`scripts/discover-services.sh --stack-pages <svc>`, honoured by both
+    // the embedded table and the system-volume bundles). Bounded: 1..=8 pages.
     for service in INPUT_SERVICES {
         let cargo_toml = read_repo_file(format!("source/services/{service}/Cargo.toml"));
+        let pages: u32 = cargo_toml
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("stack_pages = "))
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or_else(|| {
+                panic!("`source/services/{service}/Cargo.toml` must declare stack_pages")
+            });
         assert!(
-            cargo_toml.contains("stack_pages = 1"),
-            "`source/services/{service}/Cargo.toml` must have stack_pages = 1"
+            (1..=8).contains(&pages),
+            "`source/services/{service}/Cargo.toml` stack_pages must be bounded (1..=8), got {pages}"
         );
     }
 
     let discover = read_repo_file("scripts/discover-services.sh");
     assert!(
-        discover.contains("stack_pages"),
-        "`scripts/discover-services.sh` must resolve stack_pages from cargo metadata"
+        discover.contains("--stack-pages") && discover.contains("--cargo-features"),
+        "`scripts/discover-services.sh` must resolve stack_pages + features from cargo metadata"
     );
 }
 

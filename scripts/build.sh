@@ -168,6 +168,41 @@ require_or_build() {
 }
 
 # ---------------------------------------------------------------------------
+# Build truth (TASK-0324 P0): ONE resolver for what a service is built with.
+# `scripts/discover-services.sh` reads `[package.metadata.nexus-service]`
+# (features + feature_profiles keyed on env such as GPU_MODE) — the embedded
+# init-lite table and the system-volume bundles both go through
+# build_service(), so a service can never ship with two feature sets. The
+# artifact lives under build/services/<svc>/<feature-key>/payload.elf: two
+# feature sets never share an ELF (the 2026-09-09 black screen was the
+# embedded virgl build and the os-lite bundle build overwriting one file).
+# ---------------------------------------------------------------------------
+service_cargo_features() { scripts/discover-services.sh --cargo-features "$1"; }
+service_feature_key()    { scripts/discover-services.sh --feature-key "$1"; }
+service_elf_path()       { scripts/discover-services.sh --elf-path "$1"; }
+service_stack_pages()    { scripts/discover-services.sh --stack-pages "$1"; }
+
+# build_service <svc>: cargo-build with the resolved features, then publish the
+# ELF at its keyed path (+ features.txt beside it). Prints nothing; the keyed
+# path is what callers use. NEXUS_SKIP_BUILD=1 requires the keyed artifact.
+build_service() {
+  local svc=$1
+  local features keyed
+  features=$(service_cargo_features "$svc")
+  keyed=$(service_elf_path "$svc")
+  local cargo_out="$TARGET_ROOT/$TARGET/release/$svc"
+  if [[ "$NEXUS_SKIP_BUILD" == "1" ]]; then
+    require_or_build "$keyed" "service:$svc" -- true
+    return 0
+  fi
+  require_or_build "$cargo_out" "service:$svc" -- env RUSTFLAGS="$RUSTFLAGS_OS" \
+    cargo build -p "$svc" --target "$TARGET" --release --no-default-features --features "$features"
+  mkdir -p "$(dirname "$keyed")"
+  cp -f "$cargo_out" "$keyed"
+  printf '%s\n' "$features" >"$(dirname "$keyed")/features.txt"
+}
+
+# ---------------------------------------------------------------------------
 # prepare_service_payloads — cross-compile each service ELF for init-lite embedding
 # ---------------------------------------------------------------------------
 declare -a SERVICES=()
@@ -177,16 +212,14 @@ prepare_service_payloads() {
   # nexus-service metadata; init never spawns it). Build it FIRST and hand the
   # ELF to execd's build via EXECD_APPHOST_ELF — execd embeds it as the
   # IMG_APPHOST payload for on-demand spawns.
-  local apphost_elf="$TARGET_ROOT/$TARGET/release/app-host"
-  require_or_build "$apphost_elf" "service:app-host" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p app-host --target "$TARGET" --release --no-default-features --features os-lite
-  set_env_var "EXECD_APPHOST_ELF" "$apphost_elf"
+  build_service app-host
+  set_env_var "EXECD_APPHOST_ELF" "$(service_elf_path app-host)"
 
   # P0.2 recv-wake regression gate: the probe child execd spawns once after
   # `ready` (blocking-recv sender-wake proof, #102 family). Same embedding
   # pattern as app-host: built first, handed to execd via EXECD_RECVWAKE_ELF.
-  local recvwake_elf="$TARGET_ROOT/$TARGET/release/recv-wake-probe"
-  require_or_build "$recvwake_elf" "service:recv-wake-probe" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p recv-wake-probe --target "$TARGET" --release --no-default-features --features os-lite
-  set_env_var "EXECD_RECVWAKE_ELF" "$recvwake_elf"
+  build_service recv-wake-probe
+  set_env_var "EXECD_RECVWAKE_ELF" "$(service_elf_path recv-wake-probe)"
 
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
     INIT_LITE_SERVICE_LIST="$(scripts/discover-services.sh --list | paste -sd, -)"
@@ -224,45 +257,18 @@ prepare_service_payloads() {
     return
   fi
 
-  # GPU_MODE=virgl needs gpud built WITH the `virgl` cargo feature, otherwise the
-  # entire virgl path (3D context, shaders, GPU blur, vector pipeline) is compiled
-  # out and gpud falls back to CPU 2D ("gpud: cpu fallback"). Wire it here so the
-  # virgl QEMU device (virtio-gpu-gl) actually has a virgl-capable guest driver.
-  # An explicit per-service override still wins.
-  if [[ "${GPU_MODE:-}" == "virgl" && -z "${INIT_LITE_SERVICE_GPUD_CARGO_FLAGS:-}" ]]; then
-    INIT_LITE_SERVICE_GPUD_CARGO_FLAGS="--no-default-features --features os-lite,virgl"
-    echo "[build] GPU_MODE=virgl -> gpud built with virgl feature" >&2
-  fi
-
   for raw in "${SERVICES[@]}"; do
     local svc=${raw//[[:space:]]/}
     [[ -z "$svc" ]] && continue
     local svc_upper
     svc_upper=$(echo "$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-
-    local cargo_flags_var="INIT_LITE_SERVICE_${svc_upper}_CARGO_FLAGS"
-    local -a cargo_args=(build -p "$svc" --target "$TARGET" --release)
-    if [[ -n "${!cargo_flags_var:-}" ]]; then
-      # shellcheck disable=SC2206
-      local extra_flags=(${!cargo_flags_var})
-      cargo_args+=("${extra_flags[@]}")
-    else
-      cargo_args+=(--no-default-features --features os-lite)
-    fi
-    local elf_path="$TARGET_ROOT/$TARGET/release/$svc"
-    require_or_build "$elf_path" "service:$svc" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}"
-    set_env_var "INIT_LITE_SERVICE_${svc_upper}_ELF" "$elf_path"
-    local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
-    if [[ -z "${!stack_var:-}" ]]; then
-      case "$svc" in
-        hidrawd|touchd|inputd)
-          set_env_var "$stack_var" "1"
-          ;;
-        *)
-          set_env_var "$stack_var" "8"
-          ;;
-      esac
-    fi
+    build_service "$svc"
+    set_env_var "INIT_LITE_SERVICE_${svc_upper}_ELF" "$(service_elf_path "$svc")"
+    # stack_pages is manifest data (discover-services.sh); 0 = the 8-page default.
+    local stack_pages
+    stack_pages=$(service_stack_pages "$svc")
+    [[ "$stack_pages" -gt 0 ]] || stack_pages=8
+    set_env_var "INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES" "$stack_pages"
   done
 }
 
@@ -292,18 +298,15 @@ prepare_system_bundles() {
   (cd "$ROOT" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS \
     cargo build --release -p nxb-pack >/dev/null)
   for svc in "${volume_services[@]}"; do
-    local svc_upper
-    svc_upper=$(echo "$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-    local elf_path="$TARGET_ROOT/$TARGET/release/$svc"
-    # Always let cargo decide (incremental — a no-op when nothing changed).
-    # TASK-0043 P2 finding: the former `[[ ! -f "$elf_path" ]]` guard reused the
-    # FIRST build of every volume service forever, so source changes to
-    # netstackd/gpud/windowd/… never reached the QEMU image after 2026-09-03.
-    # `NEXUS_SKIP_BUILD=1` (require_or_build) remains the explicit escape.
-    local -a cargo_args=(build -p "$svc" --target "$TARGET" --release --no-default-features --features os-lite)
-    require_or_build "$elf_path" "service:$svc" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo "${cargo_args[@]}"
-    local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
-    local stack_pages="${!stack_var:-8}"
+    # Same resolver + keyed artifact as the embedded table (build truth):
+    # always let cargo decide (incremental — a no-op when nothing changed;
+    # TASK-0043 P2: a `[[ ! -f ]]` guard once froze the first build forever).
+    build_service "$svc"
+    local elf_path features stack_pages
+    elf_path=$(service_elf_path "$svc")
+    features=$(service_cargo_features "$svc")
+    stack_pages=$(service_stack_pages "$svc")
+    [[ "$stack_pages" -gt 0 ]] || stack_pages=8
     local root ver
     for root in "$out_root" "$next_root"; do
       ver="1.0.0"
@@ -320,8 +323,8 @@ bundle_type = "service"
 EOF_TOML
       "$nxb_pack" --toml "$dir/manifest.toml" "$elf_path" "$dir" >/dev/null
       rm -f "$dir/manifest.toml"
-      printf '{ "stack_pages": %s }\n' "$stack_pages" >"$dir/meta/launch.json"
-      echo "[build] system bundle $svc@$ver -> $dir (stack_pages=$stack_pages)" >&2
+      printf '{ "stack_pages": %s, "features": "%s" }\n' "$stack_pages" "$features" >"$dir/meta/launch.json"
+      echo "[build] system bundle $svc@$ver -> $dir (stack_pages=$stack_pages features=$features)" >&2
     done
   done
   prepare_app_bundles "$out_root" "$next_root"
@@ -408,6 +411,9 @@ build_all() {
   prepare_service_payloads
   prepare_system_bundles
   build_kernel_and_init
+  # Build truth: every bundle carries the features the SSOT resolved, and the
+  # ELF really contains them (gpud prints its feature set as its first line).
+  scripts/check-bundle-provenance.sh
   # Post-build artifact verification
   if [[ ! -f "$KERNEL_ELF" ]]; then
     echo "[error] build.sh: kernel ELF not produced: $KERNEL_ELF" >&2

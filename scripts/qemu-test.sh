@@ -313,21 +313,16 @@ trim_log() {
 
 rm -f "$UART_LOG" "$QEMU_LOG"
 
-# QEMU smoke harness builds `netstackd` in "qemu-smoke" mode unless overridden.
-# This keeps single-VM bring-up deterministic (DSoftBus loopback) even if slirp DHCP is flaky.
-if [[ -z "${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}" ]]; then
-  export INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS="--no-default-features --features os-lite,qemu-smoke"
-fi
+# Build truth (TASK-0324 P0): the session mode is a build input — netstackd's
+# manifest adds `qemu-smoke` for proof boots (single-VM ladders deterministic
+# even with flaky slirp DHCP). Export it so scripts/build.sh resolves it.
+export QEMU_SESSION_MODE="${QEMU_SESSION_MODE:-proof}"
 
 # TASK-0014/TASK-0057: enforce the canonical os-lite service payload set for
 # deterministic QEMU proofs from cargo metadata. The order policy lives in
 # `scripts/discover-services.sh`; do not duplicate a static list here.
 INIT_LITE_SERVICE_LIST="$(scripts/discover-services.sh --list | paste -sd, -)"
 export INIT_LITE_SERVICE_LIST
-if [[ -z "${INIT_LITE_SERVICE_METRICSD_STACK_PAGES:-}" ]]; then
-  # Keep added observability service footprint bounded in bring-up proofs.
-  export INIT_LITE_SERVICE_METRICSD_STACK_PAGES=1
-fi
 for svc in HIDRAWD TOUCHD INPUTD FBDEVD; do
   stack_var="INIT_LITE_SERVICE_${svc}_STACK_PAGES"
   if [[ -z "${!stack_var:-}" ]]; then
@@ -337,7 +332,7 @@ for svc in HIDRAWD TOUCHD INPUTD FBDEVD; do
 done
 # #region agent log (H1: qemu-test effective config in make path)
 agent_debug_log "$RUN_ID" "H1" "scripts/qemu-test.sh:effective-config" "effective flags/env before qemu run" \
-  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"run_phase\":\"${RUN_PHASE:-}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"smp\":\"${SMP:-}\",\"makelevel\":\"${MAKELEVEL:-}\",\"mode\":\"${MODE:-}\",\"qemu_session_mode\":\"${QEMU_SESSION_MODE:-proof}\",\"qemu_marker_level\":\"${QEMU_MARKER_LEVEL:-proof}\",\"guest_selftest_mode\":\"${NEXUS_SELFTEST_MODE:-}\",\"guest_selftest_profile\":\"${NEXUS_SELFTEST_PROFILE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\",\"netstackd_flags\":\"${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}\",\"service_list\":\"${INIT_LITE_SERVICE_LIST:-}\",\"cargo_target_dir\":\"${CARGO_TARGET_DIR:-}\",\"hypothesis_log\":\"$HYPOTHESIS_LOG\",\"log_dir\":\"$LOG_DIR\"}"
+  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"run_phase\":\"${RUN_PHASE:-}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"smp\":\"${SMP:-}\",\"makelevel\":\"${MAKELEVEL:-}\",\"mode\":\"${MODE:-}\",\"qemu_session_mode\":\"${QEMU_SESSION_MODE:-proof}\",\"qemu_marker_level\":\"${QEMU_MARKER_LEVEL:-proof}\",\"guest_selftest_mode\":\"${NEXUS_SELFTEST_MODE:-}\",\"guest_selftest_profile\":\"${NEXUS_SELFTEST_PROFILE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\",\"service_list\":\"${INIT_LITE_SERVICE_LIST:-}\",\"cargo_target_dir\":\"${CARGO_TARGET_DIR:-}\",\"hypothesis_log\":\"$HYPOTHESIS_LOG\",\"log_dir\":\"$LOG_DIR\"}"
 # #endregion
 
 QEMU_EXTRA_ARGS=()
@@ -953,7 +948,11 @@ case "${PROFILE:-full}" in
     )
     OTA_PHASE_GUARDS=0
     ;;
-  headless|smp1|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade)
+  # `visible` (TASK-0324 P0) proves the display from the HOST side (pixel proof +
+  # gpud build provenance) on top of this ladder; the `full` display ladder
+  # (input-startup incl. touchd) has had no lane since 2026-07 and its touchd
+  # marker is a scheduler-determinism defect tracked in TASK-0324 P5.
+  headless|smp1|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible)
     # Use a reduced expected sequence for headless — omits display-gated
     # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
     # minidump chain is NOT display-gated: it is appended for headless/smp1
@@ -2317,6 +2316,36 @@ if grep -aFq "SELFTEST: ui visible present ok" "$UART_LOG"; then
   done
 fi
 
+# TASK-0324 P0 build-truth guard: on a GL device (GPU_MODE=virgl) the gpud that
+# booted must be the virgl build — its first line names its compiled feature
+# set. A 2D gpud on virtio-gpu-gl shows black with every other marker green.
+if [[ "${GPU_MODE:-}" == "virgl" ]]; then
+  if ! grep -aFq "gpud: features=os-lite,virgl" "$UART_LOG"; then
+    echo "[error] CONTRACT VIOLATION: GPU_MODE=virgl but gpud did not announce 'gpud: features=os-lite,virgl'" >&2
+    grep -aF "gpud: features=" "$UART_LOG" >&2 || echo "[error] (no gpud: features= line at all)" >&2
+    exit 1
+  fi
+  if grep -aFq "gpud: cpu fallback" "$UART_LOG"; then
+    echo "[error] CONTRACT VIOLATION: 'gpud: cpu fallback' on a GL device (virgl context/draw failed)" >&2
+    exit 1
+  fi
+fi
+
+# TASK-0324 P0 display truth: judge what the HOST display showed. The launcher's
+# pixel-proof watcher wrote display-proof.json (+ display-splash.png /
+# display-desktop.png) next to the uart log; the desktop must be non-black and
+# must differ from the splash. Required when the profile says so.
+if [[ "${REQUIRE_PIXEL_PROOF:-0}" == "1" ]]; then
+  proof_json="$(dirname "$UART_LOG")/display-proof.json"
+  if [[ ! -f "$proof_json" ]]; then
+    echo "[error] PIXEL PROOF MISSING: $proof_json (NEXUS_PIXEL_PROOF watcher did not run?)" >&2
+    exit 1
+  fi
+  if ! python3 "$ROOT/tools/pixel_proof_judge.py" "$proof_json"; then
+    exit 1
+  fi
+fi
+
 # TASK-0056B visible-input fake-green guard: the visible-input marker summarizes
 # routed pointer movement, focus transfer, launcher click, and visible frame state.
 if grep -aFq "SELFTEST: ui visible input ok" "$UART_LOG"; then
@@ -2459,7 +2488,9 @@ fi
 PM_VERIFY_UART=${PM_VERIFY_UART:-1}
 # Skip manifest verify-uart for the non-display lanes + display-gpu — manifest
 # markers are still being populated for them (same one list as the guards above).
-if ! profile_has_display || [[ "${PROFILE:-full}" == "display-gpu" ]]; then
+# `visible` runs the headless ladder + the display-truth gates (TASK-0324 P0),
+# not the `full` manifest ladder.
+if ! profile_has_display || [[ "${PROFILE:-full}" == "display-gpu" || "${PROFILE:-full}" == "visible" ]]; then
   PM_VERIFY_UART=0
 fi
 if [[ "$PM_VERIFY_UART" == "1" ]]; then
@@ -2678,7 +2709,8 @@ fi
 # FAIL_MARKER_GATE=0 disables (exotic manual profiles only).
 if [[ "${FAIL_MARKER_GATE:-1}" == "1" ]]; then
   allow_file="$ROOT/config/fail-marker-allow.txt"
-  fail_lines=$(grep -aE "^(K?SELFTEST): .* FAIL" "$UART_LOG" || true)
+  # `gpud: FAIL …` = scanout-policy fatals (TASK-0324 P0), never allow-listable.
+  fail_lines=$(grep -aE "^(K?SELFTEST): .* FAIL|^gpud: FAIL" "$UART_LOG" || true)
   if [[ -n "$fail_lines" && -f "$allow_file" ]]; then
     fail_lines=$(printf '%s\n' "$fail_lines" | grep -vFf <(grep -v '^#' "$allow_file" | sed '/^[[:space:]]*$/d') || true)
   fi

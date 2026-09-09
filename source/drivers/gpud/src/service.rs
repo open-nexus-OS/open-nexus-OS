@@ -99,10 +99,10 @@ const DISPLAY_HEIGHT: u32 = 800;
 // screen) fit as ONE atlas-band layer. MUST match windowd
 // `crate::atlas::RESOURCE_HEIGHT` (separate crate, no shared dep).
 const RESOURCE_HEIGHT: u32 = 9600;
-/// Display plane row within the resource (fixed 4-plane layout). Matches
-/// `backend::DISPLAY_PLANE_ROW` and windowd's `DISPLAY_ROW_OFFSET`.
 const DISPLAY_PLANE_ROW: u32 = 1600;
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
+    // Build provenance FIRST and RAW in every boot mode (entry already armed folding; debug_write never folds).
+    let _ = nexus_abi::debug_write(crate::markers::GPUD_FEATURES_LINE.as_bytes());
     // Verdict folding: fold gpud's scattered `debug_println` bring-up markers (virgl ready/shader/
     // draw/gradient/scanout/…) into one `gpud N/N` grid line in interactive boots. Flushed at
     // GPUD_READY below; FAIL lines still print live; proof boots emit everything raw.

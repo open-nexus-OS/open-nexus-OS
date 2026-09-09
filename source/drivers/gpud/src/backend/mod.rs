@@ -26,9 +26,8 @@ use nexus_gfx::core::types::PixelFormat;
 
 use crate::error::GpuDriverError;
 use crate::markers::{
-    GPUD_CPU_FALLBACK, GPUD_RESOURCE_ATTACH_CMD_FAIL, GPUD_RESOURCE_CAP_QUERY_FAIL,
-    GPUD_RESOURCE_CREATED, GPUD_RESOURCE_CREATE_CMD_FAIL, GPUD_RESOURCE_VMO_CREATE_FAIL,
-    GPUD_RESOURCE_VMO_MAP_FAIL, GPUD_VIRGL_READY,
+    GPUD_RESOURCE_ATTACH_CMD_FAIL, GPUD_RESOURCE_CAP_QUERY_FAIL, GPUD_RESOURCE_CREATED,
+    GPUD_RESOURCE_CREATE_CMD_FAIL, GPUD_RESOURCE_VMO_CREATE_FAIL, GPUD_RESOURCE_VMO_MAP_FAIL,
 };
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use crate::protocol;
@@ -42,8 +41,12 @@ mod display_mode;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod lifecycle;
 mod present;
+mod probe_policy;
 mod raster;
 mod resources;
+// Pure policy, host-tested; the OS probe/attach paths consume it.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod scanout_policy;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod transport;
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -113,6 +116,11 @@ pub struct VirtioGpuBackend {
     /// Requires `virgl` feature + QEMU `-device virtio-gpu-pci,virgl=on`.
     #[allow(dead_code)]
     pub(crate) virgl_capable: bool,
+    /// The device offered VIRTIO_GPU_F_VIRGL (it is a `virtio-gpu-gl`): read
+    /// in BOTH builds at probe, independent of what the driver acked. Feeds
+    /// `scanout_policy` — a GL device never gets the 2D plane-row scanout.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) gl_device: bool,
     /// Virgl rendering context ID (0 = not created).
     #[allow(dead_code)]
     pub(crate) virgl_ctx_id: u32,
@@ -475,6 +483,8 @@ impl VirtioGpuBackend {
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             display_h: 800,
             virgl_capable: false,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            gl_device: false,
             virgl_ctx_id: 0,
             resources: alloc::vec::Vec::new(),
             scanout_resource: None,
@@ -606,92 +616,12 @@ impl VirtioGpuBackend {
         self.probe_os()?;
         self.probed = true;
 
-        // Virgl capability detection.
-        // When the `virgl` feature is compiled in, probe for GPU acceleration.
-        // On QEMU with `-device virtio-gpu-pci,virgl=on`, the device reports
-        // virgl capability in its config space. Without the feature or when
-        // virgl is not detected, CPU fallback is used for blur operations.
-        // `self.virgl_capable` is set during `probe_os()` feature negotiation:
-        // true iff the device offered (and we acked) VIRTIO_GPU_F_VIRGL. Create
-        // the 3D context; emit `virgl ready` ONLY on success, `cpu fallback`
-        // otherwise — exactly one of the two markers, never both.
-        #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+        // Capability proof (virgl self-test cascade or CPU fallback), then the
+        // scanout policy: a GL device gets the GL render target or nothing.
+        #[cfg(all(feature = "os-lite", target_os = "none"))]
         {
-            if self.virgl_capable && self.create_virgl_context().is_ok() {
-                let _ = nexus_abi::debug_println(GPUD_VIRGL_READY);
-                // Validate the SUBMIT_3D wire format against virglrenderer.
-                if self.submit3d_selftest().is_ok() {
-                    let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SUBMIT3D_OK);
-                }
-                // Validate the draw-state path (resource → surface → fb → clear).
-                if self.virgl_rt_clear_test().is_ok() {
-                    let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_RT_CLEAR_OK);
-                }
-                // Validate TGSI shader creation (vertex + fragment).
-                if self.virgl_shader_test().is_ok() {
-                    let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SHADER_OK);
-                    // Full-pipeline draw proof with readback pixel verification.
-                    // Solid-red FS over a blue clear: center pixel (BGRA bytes)
-                    // tells us exactly how far the pipeline got.
-                    match self.virgl_draw_selftest() {
-                        Ok([0, 0, 255, 255]) => {
-                            let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_OK);
-                            self.virgl_draw_ok = true;
-                        }
-                        Ok([255, 0, 0, 255]) => {
-                            let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_NOOP);
-                        }
-                        Ok(_) => {
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_MISMATCH);
-                        }
-                        Err(_) => {
-                            let _ = nexus_abi::debug_println("gpud: virgl draw submit fail");
-                        }
-                    }
-                    // M1a: GPU vector pipeline — per-pixel gradient proof.
-                    match self.virgl_gradient_selftest() {
-                        Ok(true) => {
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_VIRGL_GRADIENT_OK);
-                        }
-                        Ok(false) => {
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_VIRGL_GRADIENT_FLAT);
-                        }
-                        Err(_) => {
-                            let _ = nexus_abi::debug_println("gpud: virgl gradient submit fail");
-                        }
-                    }
-                    // G2: GPU layer compositor primitive proof (textured layer +
-                    // rounded mask + opacity composited into an RT, readback).
-                    match self.virgl_composite_selftest() {
-                        Ok(true) => {
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_OK);
-                        }
-                        Ok(false) => {
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_OFF);
-                        }
-                        Err(_) => {
-                            let _ = nexus_abi::debug_println("gpud: virgl composite submit fail");
-                        }
-                    }
-                }
-            } else {
-                self.virgl_capable = false;
-                let _ = nexus_abi::debug_println(GPUD_CPU_FALLBACK);
-            }
-        }
-        #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
-        {
-            // Host fallback: no virgl possible, always CPU fallback.
-            // Marker emitted via println! (host) or debug_println (OS).
-            #[cfg(all(feature = "os-lite", target_os = "none"))]
-            let _ = nexus_abi::debug_println(GPUD_CPU_FALLBACK);
-            #[cfg(not(all(feature = "os-lite", target_os = "none")))]
-            let _ = GPUD_CPU_FALLBACK;
+            self.probe_gpu_capabilities();
+            self.enforce_scanout_policy()?;
         }
 
         // Resolve the VISIBLE mode the compositor OWNS and COMMANDS (RFC-0074 /

@@ -189,8 +189,10 @@ pub(super) fn phased_syscall(
             // (the UI hotpath) proceed while we memset.
             drop(kernel);
             if needs_zero {
+                // SAFETY: the reserved range is owned by this syscall until
+                // phase C installs the cap; nobody else can reach it.
                 unsafe {
-                    core::ptr::write_bytes(base as *mut u8, 0, len);
+                    crate::smp::tlb::zero_bytes_polled(base as *mut u8, len);
                 }
             }
             // Phase C: re-acquire, install the cap, write the result.

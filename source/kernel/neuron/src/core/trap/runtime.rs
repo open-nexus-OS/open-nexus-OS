@@ -89,26 +89,41 @@ impl KernelGuard {
         let bkl = {
             use core::sync::atomic::{AtomicBool, Ordering};
             static CPU0_WAITING: AtomicBool = AtomicBool::new(false);
-            let is_cpu0 = crate::smp::cpu_current_id().is_boot();
+            let me = crate::smp::cpu_current_id();
+            let is_cpu0 = me.is_boot();
             if is_cpu0 {
                 CPU0_WAITING.store(true, Ordering::Release);
-                let guard = KERNEL_LOCK.lock();
-                CPU0_WAITING.store(false, Ordering::Release);
-                guard
-            } else {
-                let mut backoff = 0u32;
-                loop {
-                    if CPU0_WAITING.load(Ordering::Acquire) && backoff < 200_000 {
-                        backoff += 1;
-                        core::hint::spin_loop();
-                        continue;
-                    }
-                    if let Some(guard) = KERNEL_LOCK.try_lock() {
-                        break guard;
-                    }
-                    core::hint::spin_loop();
-                }
             }
+            let mut backoff = 0u32;
+            let guard = loop {
+                if !is_cpu0 && CPU0_WAITING.load(Ordering::Acquire) && backoff < 200_000 {
+                    backoff += 1;
+                    // Same rule as the try_lock spin below: a backed-off hart
+                    // holds no kernel state, so it must keep acking
+                    // shootdowns (cpu0 itself may be the requester, waiting
+                    // on exactly this hart while it defers to cpu0).
+                    let _ = crate::smp::tlb::poll_mailbox(me);
+                    core::hint::spin_loop();
+                    continue;
+                }
+                if let Some(guard) = KERNEL_LOCK.try_lock() {
+                    break guard;
+                }
+                // A hart waiting for the BKL holds no kernel state: service a
+                // pending TLB shootdown right here. Acks are otherwise
+                // trap-driven and this spin masks interrupts, so a
+                // BKL-HELD shootdown (ASID-pool recycle on a spawn storm)
+                // waited 400 ms on a hart that was waiting on the BKL —
+                // `tlb shootdown ack timeout` panics in interactive boots
+                // (2026-09-08, surfaced once the user-fault dump no longer
+                // masked the window).
+                let _ = crate::smp::tlb::poll_mailbox(me);
+                core::hint::spin_loop();
+            };
+            if is_cpu0 {
+                CPU0_WAITING.store(false, Ordering::Release);
+            }
+            guard
         };
         #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
         let bkl = KERNEL_LOCK.lock();

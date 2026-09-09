@@ -78,13 +78,30 @@ pub(crate) fn stage_idle_reentry_frame(frame: &mut crate::trap::TrapFrame) {
 /// Boot hart: also drives the timer-cap/IRQ backstop and IPC deadline
 /// delivery while idle (v1: PLIC + timer-cap delivery stay boot-owned).
 /// Secondary harts: WFI idle; woken by resched IPIs and their own timer.
+/// Per-hart "this hart runs its scheduler loop" flag: set once at the first
+/// `cpu_main` entry, never cleared. THE predicate for "a trap that leaves no
+/// runnable task may sret into the idle re-entry frame": before a hart enters
+/// its loop, PID 0's frame is that hart's LIVE bring-up context (kmain still
+/// running the kernel selftests on the boot hart while the secondaries are
+/// already scheduling) and must be resumed, not abandoned — gating on the
+/// global `smp::runtime_ready()` did exactly that (boot hart parked out of
+/// kmain by the selftest fault-probe kill, init never spawned, 2026-09-08).
+static SCHED_LOOP_ENTERED: [core::sync::atomic::AtomicUsize; crate::smp::MAX_CPUS] =
+    [const { core::sync::atomic::AtomicUsize::new(0) }; crate::smp::MAX_CPUS];
+
+/// True once `cpu` has entered its scheduler loop (see `SCHED_LOOP_ENTERED`).
+#[inline]
+pub(crate) fn sched_loop_entered(cpu: CpuId) -> bool {
+    let idx = cpu.as_index();
+    idx < crate::smp::MAX_CPUS
+        && SCHED_LOOP_ENTERED[idx].load(core::sync::atomic::Ordering::Acquire) != 0
+}
+
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub(crate) fn cpu_main(cpu: CpuId) -> ! {
     // Once per hart (idle re-entries repeat silently at debug level): proves
     // the hart reached its scheduler loop with the identity it claims.
-    static SCHED_LOOP_ANNOUNCED: [core::sync::atomic::AtomicUsize; crate::smp::MAX_CPUS] =
-        [const { core::sync::atomic::AtomicUsize::new(0) }; crate::smp::MAX_CPUS];
-    if SCHED_LOOP_ANNOUNCED[cpu.as_index()].swap(1, core::sync::atomic::Ordering::AcqRel) == 0 {
+    if SCHED_LOOP_ENTERED[cpu.as_index()].swap(1, core::sync::atomic::Ordering::AcqRel) == 0 {
         log_info!(target: "smp", "KINIT: cpu{} sched loop", cpu.as_index());
     }
     log_debug!(target: "kmain", "KMAIN: cpu{} entering scheduler loop", cpu.as_index());
@@ -351,11 +368,16 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 // A4: guarantee a preemption tick while user code runs.
                 #[cfg(feature = "timer_irq")]
                 crate::trap::timer_arm(crate::trap::DEFAULT_TICK_CYCLES);
+                // A shootdown that skipped this hart while it was idle
+                // (`CPU_IDLE_MASK`) lands here: flush before any user
+                // translation is used again.
+                let _ = crate::smp::tlb::poll_mailbox(cpu);
                 // SAFETY: hart-local staged frame; AS activated; no locks held.
                 unsafe { context_switch_to_task(&*frame_ptr) }
             }
             Attempt::Retry => continue,
             Attempt::Idle => {
+                crate::smp::tlb::note_activity(cpu, crate::smp::tlb::ACT_IDLE_LOOP, 0);
                 // P2 zero-frontier: idle harts (INCLUDING the boot hart — at
                 // SMP=2 the single secondary is saturated by the background
                 // services, and exempting cpu0 measurably starved the
@@ -389,6 +411,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                     // instead of burning scheduler quanta on the BKL.
                     // SAFETY: SIE toggling around wfi; interrupts are handled
                     // right after set_sie re-enables them.
+                    crate::smp::mark_cpu_idle(cpu, true);
                     unsafe {
                         riscv::register::sie::set_ssoft();
                         riscv::register::sie::set_stimer();
@@ -398,6 +421,7 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                         }
                         riscv::register::sstatus::set_sie();
                     }
+                    crate::smp::mark_cpu_idle(cpu, false);
                 }
             }
         }

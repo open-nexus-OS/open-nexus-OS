@@ -68,8 +68,28 @@ pub const GPUD_VIRGL_GRADIENT_FLAT: &str = "gpud: virgl gradient flat";
 pub const GPUD_GL_SCANOUT_OK: &str = "gpud: gl scanout ok";
 /// G1: first VMO→GL present executed (upload + GPU blit + flush).
 pub const GPUD_GL_PRESENT_OK: &str = "gpud: gl present ok";
-/// GL scanout init failed; display fell back to the 2D transfer/flush path.
-pub const GPUD_GL_SCANOUT_FALLBACK: &str = "gpud: gl scanout fallback 2d";
+/// Build provenance (TASK-0324 P0): the feature set this binary was compiled
+/// with — the FIRST line gpud prints, raw, before verdict folding arms, so a
+/// bundle built without `virgl` can never hide behind a folded `gpud N/N`.
+/// `scripts/check-bundle-provenance.sh` greps the ELF for this exact string.
+#[cfg(feature = "virgl")]
+pub const GPUD_FEATURES: &str = "gpud: features=os-lite,virgl";
+#[cfg(not(feature = "virgl"))]
+pub const GPUD_FEATURES: &str = "gpud: features=os-lite";
+/// The provenance line with its newline for the raw `debug_write` path (folding never applies).
+#[cfg(feature = "virgl")]
+pub const GPUD_FEATURES_LINE: &str = "gpud: features=os-lite,virgl\n";
+#[cfg(not(feature = "virgl"))]
+pub const GPUD_FEATURES_LINE: &str = "gpud: features=os-lite\n";
+/// A GL device (VIRTIO_GPU_F_VIRGL offered) met a driver that cannot drive a
+/// GL scanout — fatal by policy (`backend::scanout_policy`): the 2D plane-row
+/// scanout is black on every GL display backend, so there is no fallback.
+pub const GPUD_FAIL_GL_DEVICE_NEEDS_VIRGL: &str = "gpud: FAIL virgl device needs virgl feature";
+/// The virgl draw self-test did not pass on a GL device (no GL render target
+/// to scan out) — fatal by the same policy.
+pub const GPUD_FAIL_GL_DRAW_UNAVAILABLE: &str = "gpud: FAIL gl draw unavailable on gl device";
+/// `gl_scanout_init` failed on a GL device — fatal, never a 2D retry.
+pub const GPUD_FAIL_GL_SCANOUT_INIT: &str = "gpud: FAIL gl scanout init";
 /// G3/M1b: first FillSdfGradient executed by the GPU SDF shader.
 pub const GPUD_SDF_GRAD_OK: &str = "gpud: sdf-grad ok";
 /// G3/M1c: first DropShadow executed by the GPU SDF-falloff shader.

@@ -214,6 +214,38 @@ Keep this file focused on the global testing workflow. For DHCP/DSoftBus proof g
   - Example: `just miri-fs` (uses `MIRIFLAGS='-Zmiri-disable-isolation --cfg nexus_env="host"'`).
 - Under `#[cfg(miri)]`, keep property tests lightweight (lower case count, disable persistence) to avoid long runtimes.
 
+## Display truth: build provenance + host pixel proof (TASK-0324 P0)
+
+UART markers are the compositor's and the driver's *claims*; the display is
+judged on the host. Three contracts hold this together:
+
+- `gpud: features=os-lite,virgl` / `gpud: features=os-lite` — gpud's FIRST
+  line, raw in every boot mode (`debug_write`, never folded): the cargo
+  feature set the binary was compiled with. `scripts/build.sh` resolves every service's features
+  from `[package.metadata.nexus-service]` (`scripts/discover-services.sh
+  --cargo-features <svc>`) for the embedded table AND the system-volume
+  bundles, publishes the ELF under `build/services/<svc>/<feature-key>/`, and
+  `scripts/check-bundle-provenance.sh` greps the bundle for this line. Under
+  `GPU_MODE=virgl` the harness requires the `virgl` variant and treats
+  `gpud: cpu fallback` as a contract violation.
+- `gpud: FAIL virgl device needs virgl feature` / `gpud: FAIL gl draw
+  unavailable on gl device` / `gpud: FAIL gl scanout init` — scanout policy
+  (`backend/scanout_policy.rs`): a GL device (`virtio-gpu-gl`) is driven
+  through the GL render target or not at all. The former 2D plane-row retry
+  (`SET_SCANOUT{y=1600}`) shows black on every GL display backend, which
+  blits the scanout texture from row 0. These lines fail every lane
+  (`FAIL_MARKER_GATE`, not allow-listable).
+- Pixel proof (`[profile.visible]`, `just ci-os-visible`, in `test-all`):
+  egl-headless + VNC (`QEMU_VNC_DISPLAY`), `tools/pixel_proof_on_marker.py`
+  snapshots the host framebuffer at `gpud: completion wait …` (splash — raw in
+  every boot mode, right after gpud's bootstrap scanout) and
+  `systemui: first frame visible` (desktop) into the run's log dir;
+  `tools/pixel_proof_judge.py` requires the desktop to be non-black AND to
+  differ from the splash. `just start-vnc` exposes the same VNC listener
+  (127.0.0.1:5979) so `tools/visual-postflight.py --out shot.png` judges an
+  interactive boot the same way (a windowed gtk,gl=on context cannot share a
+  VNC display — QEMU refuses the combination).
+
 ## OS-E2E marker sequence and VMO split
 
 The os-lite `nexus-init` backend is responsible for announcing service

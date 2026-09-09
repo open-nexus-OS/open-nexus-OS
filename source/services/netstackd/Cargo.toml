@@ -17,6 +17,15 @@ qemu-smoke = []
 
 [package.metadata.nexus-service]
 stack_pages = 0
+features = ["os-lite"]
+
+# Build-truth SSOT (TASK-0324 P0): proof boots (QEMU_SESSION_MODE=proof, the
+# harness default) add `qemu-smoke` — the slirp fallback IP that keeps the
+# single-VM ladders deterministic. Interactive boots (`just start`) do not.
+# This used to be a harness-side *_CARGO_FLAGS override that the system-volume
+# bundle build silently ignored.
+[package.metadata.nexus-service.feature_profiles]
+qemu_session_mode = { proof = ["qemu-smoke"] }
 
 [dependencies]
 
