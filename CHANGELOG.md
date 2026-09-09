@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-09 (TASK-0324 P1: RFC-0093 display handoff & boot-stage contract + ADR-0062)
+
+- `docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md` (Draft seed): routing v2
+  (nonce mandatory in `ROUTE_GET`/`ROUTE_RSP`, replies parked in init until the target's
+  `@ready`, `STATUS_STALE` only for dead supervised targets, fail-closed policy), readiness
+  verbs `@ready`/`@stage` on the control channel, ONE kernel timeline stage fence
+  (Platform=1 < DisplayReady=2 < SessionStart=3 < ShellVisible=4; WAIT-only capability at a
+  declared child slot), ONE slot topology crate (`nexus-service-topology`) for init, services
+  and app children, windowd↔gpud handoff v2 (attach ack with mode + content rect, `OP_REVEAL=13`
+  / `STATUS_REVEALED=3`, present `seq` echoed by acks, `OP_GET_DISPLAY_MODE` retired in favour
+  of `boot_display_mode()`), pixel proof as the display gate; byte-exact frame tables, deletion
+  list + structure gates per phase, marker three-way SSOT changes.
+- `docs/adr/0062-boot-stage-fence-and-readiness-barriers.md` (Accepted): init synchronizes
+  boot ONLY through `@ready` and the stage fence — `yield_()`, resume order, time caps and
+  marker presence are forbidden as barriers; fence capability WAIT-only (kernel rights mask in
+  scope of P5 if needed).
+- Indexes updated (RFC + ADR), TASK-0324 P1 delivered, IMPLEMENTATION-ORDER active row; the
+  TASK-0068 end-state moves its gpud readback op to 14 (13 = `OP_REVEAL`).
+
 ### Changed - 2026-09-09 (Sub-80 reconciliation: 8 ledgers closed with their actual solution, 9 rewritten to end state, IMPLEMENTATION-ORDER condensed)
 
 - Every non-Done task ledger < 0080 outside the network family was audited against the

@@ -55,7 +55,7 @@ honestly in the RFC); capture UI in windowd or screencapd.
 - **D1 RFC-0095 "Screen capture v1":** `nexus_wire::screencapd` (`'S','C'`): `OP_GRAB=1 {kind:
   DISPLAY|WINDOW|REGION, target_sid u64, x,y,w,h u16}` + CAP_MOVE VMO → payload header
   `{status, w, h, stride, format = BGRA8888, seq}`.
-- **D2 Readback primitive = gpud `OP_READBACK = 13`** (`nexus-display-proto`): `{rect, seq}` +
+- **D2 Readback primitive = gpud `OP_READBACK = 14 (13 = `OP_REVEAL`, RFC-0093 §5)`** (`nexus-display-proto`): `{rect, seq}` +
   CAP_MOVE VMO; on GL it reads the FRONT render target (generalizing P0's `scanout_sample()`),
   on 2D it copies from windowd's scanout FB VMO. P0's one-shot sampler is REPLACED by this op
   in the same package: `SELFTEST: display nonblack ok` is re-issued through `OP_READBACK`;

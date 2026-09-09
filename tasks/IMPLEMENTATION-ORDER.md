@@ -29,7 +29,7 @@ the board and `CHANGELOG.md`); what remains is what an agent needs to pick the n
 
 | # | Lane / Task | State | Next |
 |---|---|---|---|
-| 1 | **TASK-0324** Display handoff deterministic by construction (build truth, one wiring structure, stage fence, handoff v2) | In Progress — P0 delivered 2026-09-09 (feature SSOT in the crate manifest, keyed artefacts, provenance + build-truth gates, `visible` pixel-proof lane) | P1 RFC-0093 + ADR-0062 → P2 `@ready` → P3 routing v2 → P4 ONE slot SSOT (all bespoke arms deleted) → P5 stage fence → P6 handoff v2 → P7 polls deleted → P8/P9 closure |
+| 1 | **TASK-0324** Display handoff deterministic by construction (build truth, one wiring structure, stage fence, handoff v2) | In Progress — P0 delivered 2026-09-09 (feature SSOT in the crate manifest, keyed artefacts, provenance + build-truth gates, `visible` pixel-proof lane); P1 delivered 2026-09-09 (RFC-0093 + ADR-0062) | P2 `@ready` → P3 routing v2 → P4 ONE slot SSOT (all bespoke arms deleted) → P5 stage fence → P6 handoff v2 → P7 polls deleted → P8/P9 closure |
 | 2 | **Sub-80 Phase 2** (below) | Ledgers rewritten to end state 2026-09-09; not started | starts after TASK-0324; order `0054C → 0033 → 0077B → 0077C → 0074 → 0066 → 0067 → 0067B → 0068` |
 | 3 | **Network family** (`0024`, `0030`, `0038`, `0040`, NET-W1) | HOLD — joint discussion pending (user wants changes) | not before the discussion |
 
