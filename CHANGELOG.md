@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-09 (TASK-0324 P2: `@ready` announce — `init: up` is the service's own readiness, not a resume)
+
+- `nexus_service_entry::ready(marker)` is the ONE readiness point of a service: it prints
+  `<svc>: ready` through the folding-aware `debug_println` and announces `@ready` (a nonce-less
+  `ROUTE_GET` on the child's control slot, one-way — no reply frame may land in the child's
+  control RSP queue). 29 ready sites migrated (every OS service and driver, incl. gpud/windowd/
+  touchd); logd's duplicated ready print + yield removed; policyd's stub transport no longer
+  claims `ready`.
+- init: `src/ready_table.rs` (host-tested, bounded set keyed by pid; refuses unknown pids and
+  double announces), responder arm `@ready` emits `init: up <svc>` (same RFC-0068 fold predicate)
+  or `init: FAIL ready <reason> svc=…`; the supervision sweep clears the entry on exit so a
+  respawned instance announces afresh. The spawn-time `init: up` prints in `orchestrator.rs`
+  and `volume_spawn.rs` are DELETED (RFC-0013 A1 is now literally true).
+- Gate `scripts/check-init-sync.sh` (in `just check`): a `: ready` marker printed through any
+  funnel other than `nexus_service_entry::ready`, or an `init: up` written outside the responder
+  arm, fails the build. Harness: `init: up <svc>` is presence-checked, no longer in the strict
+  init-order loop (services reach readiness in scheduler order).
+- Docs: `09-nexus-init.md`, `06-boot-and-bringup.md`, RFC-0013 A1/A4 amended, `os-markers.md`,
+  RFC-0093 checklist.
+
 ### Added - 2026-09-09 (TASK-0324 P1: RFC-0093 display handoff & boot-stage contract + ADR-0062)
 
 - `docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md` (Draft seed): routing v2

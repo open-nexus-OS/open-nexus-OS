@@ -85,7 +85,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             chain.route_rebinds = chain.route_rebinds.saturating_add(1);
         }
         if !ready_emitted && !live_devices.is_empty() {
-            debug_println("hidrawd: ready")?;
+            nexus_service_entry::ready("hidrawd: ready")?;
             let _ = debug_println(&format!(
                 "hidrawd: timing entry_to_ready_ms={}",
                 load_span.elapsed_ms()

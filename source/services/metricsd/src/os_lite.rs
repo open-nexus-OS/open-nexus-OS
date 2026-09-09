@@ -220,7 +220,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> MetricsResult<()> {
         METRICSD_REPLY_RECV_SLOT,
     );
     notifier.notify();
-    emit_line("metricsd: ready");
+    let _ = nexus_service_entry::ready("metricsd: ready");
 
     let limits = load_runtime_limits();
     let mut registry = Registry::new_with_limits(limits);

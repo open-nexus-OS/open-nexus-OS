@@ -167,7 +167,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     // Emit readiness marker early to keep `scripts/qemu-test.sh` marker ordering stable.
     // The service may still need to wait for late-bound slots before handling some operations.
-    emit_line("keystored: ready");
+    let _ = nexus_service_entry::ready("keystored: ready");
     // Boot init is done — flush keystored's folded markers as one `keystored N/N OK <ms>` grid line
     // (interactive boots only; no-op in proof). After this, later runtime markers print raw.
     nexus_abi::service_verdict_flush("keystored");

@@ -51,7 +51,7 @@ At a high level the stack looks like:
 To avoid drift and fake success:
 
 - **Kernel** owns low-level bring-up markers (MMU/SATP safety, KSELFTEST markers, etc.).
-- **Init** owns the `init: start <svc>` / `init: up <svc>` sequencing (orchestration truth).
+- **Init** owns `init: start <svc>` (spawn requested) and `init: up <svc>` (the service’s `@ready` observed — RFC-0093 §2); `init: start`/`init: ready` are order-checked, `init: up` presence-checked.
 - **Services** own `*: ready` markers once they are genuinely ready to serve requests.
 - **Harness** (`scripts/qemu-test.sh`) owns the acceptance criteria: presence + ordering + required subsets.
 

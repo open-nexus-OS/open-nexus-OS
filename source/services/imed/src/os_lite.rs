@@ -52,7 +52,7 @@ pub fn service_main_loop() -> Result<(), ImedError> {
         return Err(ImedError::Ipc("waitset"));
     };
     if !READY_MARKER_EMITTED.swap(true, Ordering::Relaxed) {
-        emit_line(crate::READY_MARKER);
+        let _ = nexus_service_entry::ready(crate::READY_MARKER);
     }
 
     let inputd_sid = nexus_abi::service_id_from_name(b"inputd");

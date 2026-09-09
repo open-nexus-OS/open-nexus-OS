@@ -493,7 +493,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let (visible_w, visible_h) = query_gpud_display_mode();
     let mut runtime = match DisplayServerRuntime::new_with_mode(visible_w, visible_h) {
         Ok(rt) => {
-            let _ = debug_println(&ready_marker(visible_w, visible_h));
+            let _ = nexus_service_entry::ready(&ready_marker(visible_w, visible_h));
             rt
         }
         Err(_) => {

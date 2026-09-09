@@ -149,7 +149,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         bound
     };
     let server = bind_server()?;
-    debug_println(GPUD_READY)?;
+    nexus_service_entry::ready(GPUD_READY)?;
     // Bring-up done — flush gpud's folded markers as one `gpud N/N OK <ms>` grid line, then stop
     // folding (later per-frame present markers print raw).
     nexus_abi::service_verdict_flush("gpud");

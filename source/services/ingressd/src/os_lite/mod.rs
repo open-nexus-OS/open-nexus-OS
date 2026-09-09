@@ -131,7 +131,7 @@ pub fn service_main_loop() -> Result<(), GatewayError> {
     let mut reg: Registry<'static, MAX_OPEN_EXPOSURES> = Registry::new(table);
     let mut gw = Gateway::new();
     let mut host = OsIntentHost;
-    let _ = nexus_abi::debug_println("ingressd: ready");
+    let _ = nexus_service_entry::ready("ingressd: ready");
     nexus_abi::service_verdict_flush("ingressd");
 
     loop {

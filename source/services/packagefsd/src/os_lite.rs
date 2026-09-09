@@ -238,7 +238,7 @@ fn poll_payload_header(vmo: u32, expect: usize) -> Option<usize> {
 /// Runs the minimal packagefs daemon, emitting a readiness marker once.
 pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> LiteResult<()> {
     // Marker contract: emit only after the IPC endpoint exists.
-    debug_print("packagefsd: ready\n");
+    let _ = nexus_service_entry::ready("packagefsd: ready");
     notifier.notify();
     // RFC-0005: name-based routing; init-lite assigns per-service endpoint caps and answers route
     // queries over a private control channel, so services don't hardcode slot numbers.

@@ -370,7 +370,7 @@ pub(crate) fn run_single_vm_dual_node_bringup(
 
     let _ = nexus_abi::trace_line("dsoftbusd: identity bound peer=node-b");
     let _ = nexus_abi::trace_line("dsoftbusd: dual-node session ok");
-    let _ = nexus_abi::debug_println("dsoftbusd: ready");
+    let _ = nexus_service_entry::ready("dsoftbusd: ready");
     nexus_log::info("dsoftbusd", |line| {
         line.text("dsoftbusd: ready");
     });

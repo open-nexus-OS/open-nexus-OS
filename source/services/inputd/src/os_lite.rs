@@ -74,7 +74,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             server
         }
     };
-    debug_println("inputd: ready").map_err(|_| "inputd ready log failed")?;
+    nexus_service_entry::ready("inputd: ready").map_err(|_| "inputd ready log failed")?;
     debug_println("inputd: keymap=de").map_err(|_| "inputd keymap log failed")?;
     debug_println("inputd: os service payload ready").map_err(|_| "inputd payload log failed")?;
     // RFC-0068: ready reached — emit the folded `inputd N/N` verdict (interactive only).

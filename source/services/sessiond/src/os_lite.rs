@@ -89,7 +89,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> SessiondResult<()> {
     };
     let mut state = SessionState::Greeter;
     notifier.notify();
-    let _ = nexus_abi::debug_println("sessiond: ready");
+    let _ = nexus_service_entry::ready("sessiond: ready");
     // The session decision — REAL state, not decoration. Auto-login (manifest
     // knob, proof lanes / bring-up) runs the SAME login() transition the
     // greeter click does; without it the greeter owns the display.

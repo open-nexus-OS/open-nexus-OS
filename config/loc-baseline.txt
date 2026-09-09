@@ -29,7 +29,7 @@
 651	source/libs/nexus-evidence/src/lib.rs
 1414	source/libs/nexus-log/src/lib.rs
 897	source/libs/nexus-proof-manifest/src/lib.rs
-778	source/libs/nexus-service-entry/src/lib.rs
+521	source/libs/nexus-service-entry/src/lib.rs
 809	source/services/app-host/src/effect_host.rs
 885	source/services/app-host/src/probe/anim.rs
 953	source/services/app-host/src/probe/mod.rs

@@ -18,7 +18,7 @@
 
 - **Phase 0 (build truth + honest GL path + `visible` pixel lane)**: ✅ 2026-09-09 (TASK-0324 P0)
 - **Phase 1 (this contract + ADR-0062)**: ✅ 2026-09-09 (TASK-0324 P1 — paper)
-- **Phase 2 (`@ready` verb, honest `init: up`)**: ⬜ TASK-0324 P2
+- **Phase 2 (`@ready` verb, honest `init: up`)**: 🟨 code + host proofs 2026-09-09 (TASK-0324 P2); lanes pending
 - **Phase 3 (routing v2: nonce mandatory, parked replies, fail-closed)**: ⬜ TASK-0324 P3
 - **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: ⬜ TASK-0324 P4a–P4f
 - **Phase 5 (stage fence replaces every `yield_()` sync)**: ⬜ TASK-0324 P5
@@ -307,7 +307,7 @@ cd /home/jenning/open-nexus-OS && just ci-os-smp1 && just ci-os-visible && just 
 
 - [x] **Phase 0**: build truth + visible pixel lane — proof: `just ci-os-visible` (TASK-0324 P0, 2026-09-09)
 - [x] **Phase 1**: this contract + ADR-0062 — proof: `just check`
-- [ ] **Phase 2**: `@ready` + honest `init: up` — proof: lanes above + `check-init-sync.sh`
+- [ ] **Phase 2**: `@ready` + honest `init: up` — code landed 2026-09-09 (`nexus_service_entry::ready`, `ready_table.rs`, responder arm, `check-init-sync.sh` in `just check`); QEMU lanes pending
 - [ ] **Phase 3**: routing v2 — proof: `test_reject_*` + lanes
 - [ ] **Phase 4**: topology crate, bespoke arms deleted — proof: `check-slot-ssot.sh` + per-consumer lanes
 - [ ] **Phase 5**: stage fence — proof: init tests + `stage:` order in `ci-os-smp1`

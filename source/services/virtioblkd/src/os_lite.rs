@@ -389,7 +389,7 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
         }
     }
 
-    emit("virtioblkd: ready");
+    let _ = nexus_service_entry::ready("virtioblkd: ready");
     nexus_abi::service_verdict_flush("virtioblkd");
 
     let gates = Gates {

@@ -158,7 +158,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut probe_emitted = false;
     let mut state = UpdatedState::new();
     let mut logged_recv_err = false;
-    emit_line("updated: ready (bootctl client)");
+    let _ = nexus_service_entry::ready("updated: ready (bootctl client)");
     nexus_abi::service_verdict_flush("updated");
     let _ = recv_slot;
     let mut recv_buf = Vec::with_capacity(MAX_REQUEST_FRAME);

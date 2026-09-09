@@ -67,7 +67,7 @@ const ABILITYMGR_SEND_SLOT: u32 = 0x04;
 /// Main service loop for abilitymgr.
 pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     notifier.notify();
-    emit_line("abilitymgr: ready");
+    let _ = nexus_service_entry::ready("abilitymgr: ready");
 
     // RFC-0065: prove the live resolve hop — ask the registry (bundlemgrd) for the
     // installed app list. Best-effort: any failure just logs and is non-fatal.

@@ -226,7 +226,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // Verdict folding → `execd N/N` (interactive); flushed at ready, later exec markers print raw.
     nexus_abi::service_verdict_arm();
     notifier.notify();
-    emit_line("execd: ready");
+    let _ = nexus_service_entry::ready("execd: ready");
     nexus_abi::service_verdict_flush("execd");
     // P0.2 regression gate: one bounded probe run per boot (post-flush so its
     // markers print raw). Proves — or loudly reproduces — the sender-wake of

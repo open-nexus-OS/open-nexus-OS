@@ -68,7 +68,7 @@ kept read-only mapping (`RespawnContext::image_for`), never a second read.
 ## Responsibilities (what `nexus-init` owns)
 
 - **Bring-up sequencing**: starting the required daemons in a deterministic order.
-- **Readiness observation**: emitting `init: up <svc>` only after the service is actually up.
+- **Readiness observation**: emitting `init: up <svc>` only when the service announced `@ready` on its control channel (`nexus_service_entry::ready`, RFC-0093 §2 / ADR-0062) — never at spawn or resume.
 - **Policy gating**: consulting `policyd` before allowing a service to launch with requested capabilities (see `docs/security/signing-and-policy.md`).
 - **Service graph glue**: ensuring core authorities exist early (e.g. `policyd`, `samgrd`, `bundlemgrd`, `packagefsd`, `vfsd`, `execd`, …).
 - **Update health gate (v1.0)**: issue `updated.BootAttempt()` at boot, forward health commits, and emit `init: health ok (slot <a|b>)` (see `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`).
@@ -85,7 +85,7 @@ The system uses deterministic markers so QEMU runs are a real proof:
 
 - `init: start` is the *start of orchestration*.
 - `init: start <svc>` announces that init requested a service spawn.
-- `init: up <svc>` is init’s **observation** that `<svc>` reached readiness.
+- `init: up <svc>` is init’s **observation** of the service’s own `@ready` announce (the same call that prints `<svc>: ready`); it follows `<svc>: ready` in the log and is presence-checked, not order-checked, by the harness.
 - `init: ready` means the baseline bring-up sequence completed.
 
 Each service also emits `<svc>: ready` once it can accept requests.
@@ -114,4 +114,4 @@ Workflow:
 1. Run `RUN_UNTIL_MARKER=1 just test-os` (or `./scripts/qemu-test.sh`) and inspect `uart.log`.
 2. Find the last `init:` marker and the last `<svc>: ready`.
 3. If `init: start` is missing, userspace didn’t come up; focus on kernel/loader/early boot.
-4. If `init: start <svc>` appears but `init: up <svc>` does not, the service likely failed to reach readiness.
+4. If `init: start <svc>` appears but `init: up <svc>` does not, the service never called `nexus_service_entry::ready` (it crashed, blocked, or never ran — see `init: service exit` / `init: FAIL ready …`).

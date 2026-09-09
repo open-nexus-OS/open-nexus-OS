@@ -304,11 +304,7 @@ pub(crate) fn spawn_volume_services(
                 let (ctrl, _send, _recv) =
                     crate::bootstrap::spawn::attach_ctrl_channel(name, v.pid)?;
                 ctrls.push(ctrl);
-                if !init_fold {
-                    debug_write_str("init: up ");
-                    debug_write_str(name);
-                    debug_write_bytes(b"\n");
-                }
+                // `init: up <svc>` is emitted by the responder on `@ready` (RFC-0093 §2).
                 spawned.push(v);
             }
             Err(fail) => emit_fail(name, fail),

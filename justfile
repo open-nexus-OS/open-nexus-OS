@@ -541,11 +541,16 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate build-truth ci-parity
+check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync ci-parity
 
 # TASK-0324 P0: service features/ELF paths have one home (crate manifest + discover-services.sh).
 build-truth:
     @./scripts/check-build-truth.sh
+
+# TASK-0324 P2 (RFC-0093 §2): ready markers funnel through nexus_service_entry::ready();
+# `init: up` only from the responder's `@ready` arm.
+init-sync:
+    @./scripts/check-init-sync.sh
 
 # CI/test-all COVERAGE parity: every `just` recipe the workflow invokes must
 # also be reachable from `test-all`. Mechanical guard against the drift that let

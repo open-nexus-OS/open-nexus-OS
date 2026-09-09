@@ -102,12 +102,12 @@ This RFC provides the diagnostics and gates; TASK-0228 provides the mitigation.
 
 ##### Rules
 
-- **Rule A1**: `init: up <svc>` MUST NOT be treated as “service ready” by tests or docs. It is only the control-plane handshake.
+- **Rule A1** (amended 2026-09-09, RFC-0093 §2): `init: up <svc>` is init’s observation of the service’s `@ready` announce — the same `nexus_service_entry::ready` call that prints `<svc>: ready`. Tests still gate on `<svc>: ready` (the service’s own claim, A2); `init: up` is presence-checked and proves the control channel carried the announce.
 - **Rule A2**: A service MUST emit `<svc>: ready` only after it can correctly serve its v1 contract (wire contract or stub contract).
 - **Rule A3**: For every service listed in the canonical OS/QEMU bring-up set (see `scripts/run-qemu-rv64.sh DEFAULT_SERVICE_LIST`), tests MUST define whether:
   - it is required to emit `<svc>: ready`, and
   - which downstream selftest markers depend on it.
-- **Rule A4**: If a service emits `init: up <svc>` but never reaches `<svc>: ready` within the bounded QEMU run, the harness MUST fail with an explicit, stable reason (not just a generic timeout).
+- **Rule A4** (amended 2026-09-09): `init: up <svc>` can no longer precede `<svc>: ready`. If `init: start <svc>` appears but `init: up <svc>` never does, the harness MUST fail naming the missing marker (the service never announced); a refused announce is `init: FAIL ready <reason> svc=<svc>`.
 
 ##### Notes
 

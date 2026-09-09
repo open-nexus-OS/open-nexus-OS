@@ -107,6 +107,7 @@ impl SupervisionSweep {
         channels: &mut [CtrlChannel],
         route_table: &mut crate::route_table::RouteTable,
         respawner: &mut crate::bootstrap::respawn::Respawner,
+        ready: &mut crate::ready_table::ReadyTable,
     ) {
         // init's child count is the boot service fleet; 8 per round drains
         // any realistic burst without letting a pathological loop spin.
@@ -126,6 +127,7 @@ impl SupervisionSweep {
                         self.injector.on_exit(code, reason);
                         continue;
                     }
+                    ready.on_exit(pid);
                     announce_service_exit(pid, code, reason, channels, route_table, respawner);
                 }
                 Ok(None) | Err(_) => break,

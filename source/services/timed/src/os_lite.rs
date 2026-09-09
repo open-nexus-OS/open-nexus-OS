@@ -66,7 +66,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> TimedResult<()> {
     };
     notifier.notify();
     if !READY_MARKER_EMITTED.swap(true, Ordering::Relaxed) {
-        emit_line("timed: ready");
+        let _ = nexus_service_entry::ready("timed: ready");
     }
     let mut registry = TimerRegistry::new();
     // RFC-0076: anchor the wall clock from the goldfish RTC (policy-gated

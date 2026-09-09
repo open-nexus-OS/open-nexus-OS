@@ -32,7 +32,7 @@ fn os_entry() -> Result<(), nexus_abi::AbiError> {
             touchd::TouchdService::new(bounds, touchd::SyntheticTouchMode::ProofFixture);
         service.register_device(touchd::TouchDeviceId::new(1));
         if service.ready() {
-            nexus_abi::debug_println("touchd: os service payload ready")?;
+            nexus_service_entry::ready("touchd: os service payload ready")?;
         }
     }
     nexus_abi::service_verdict_flush("touchd");

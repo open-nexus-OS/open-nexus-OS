@@ -211,7 +211,7 @@ pub(crate) struct FileHandle {
 /// Runs the cooperative vfsd loop and emits a readiness marker once.
 pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Result<()> {
     // Marker contract: emit only after the IPC endpoint exists.
-    debug_print("vfsd: ready\n");
+    let _ = nexus_service_entry::ready("vfsd: ready");
     debug_print("vfsd: namespace ready\n");
     notifier.notify();
     // RFC-0005: For kernel IPC v1, init transfers vfs request/reply endpoints into deterministic

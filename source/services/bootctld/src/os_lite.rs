@@ -118,7 +118,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?,
     };
     notifier.notify();
-    emit("bootctld: ready");
+    let _ = nexus_service_entry::ready("bootctld: ready");
     nexus_abi::service_verdict_flush("bootctld");
 
     // Eager record load: bounded retries against the fixed wired slots —

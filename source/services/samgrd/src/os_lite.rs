@@ -120,7 +120,7 @@ fn cached_reply_client(force_refresh: bool) -> Option<KernelClient> {
 /// Minimal samgrd bring-up service loop.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
-    emit_line("samgrd: ready");
+    let _ = nexus_service_entry::ready("samgrd: ready");
     nexus_abi::service_verdict_flush("samgrd");
     // TASK-0288 sweep: transient errors continue; only a consecutive-error
     // run marks our own endpoint defect (fleet-collapse lesson).

@@ -142,7 +142,7 @@ static METRICS_NONCE: AtomicU32 = AtomicU32::new(1);
 /// Main service loop used by the lite shim.
 pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> LiteResult<()> {
     notifier.notify();
-    emit_line("bundlemgrd: ready");
+    let _ = nexus_service_entry::ready("bundlemgrd: ready");
     let server = match KernelServer::new_for("bundlemgrd") {
         Ok(server) => server,
         Err(err) => {

@@ -74,7 +74,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> RngdResult<()> {
     notifier.notify();
 
     // Emit readiness marker early to keep `scripts/qemu-test.sh` marker ordering stable.
-    emit_line("rngd: ready");
+    let _ = nexus_service_entry::ready("rngd: ready");
 
     // Route to get our IPC endpoint.
     let server = route_rngd_blocking().ok_or(RngdError::Ipc("route failed"))?;

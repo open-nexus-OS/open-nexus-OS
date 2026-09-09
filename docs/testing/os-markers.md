@@ -254,7 +254,7 @@ the runner validates in order.
 
 Readiness contract (RFC-0013):
 
-- `init: up <svc>` means the control-plane handshake completed (spawn + bootstrap channel is live).
+- `init: up <svc>` means init observed the service’s `@ready` announce on the control channel (RFC-0093 §2, TASK-0324 P2) — it follows `<svc>: ready` and is presence-checked, not order-checked.
 - `<svc>: ready` means the service is fully ready to serve its v1 contract.
 - Tests MUST NOT treat `init: up` as readiness; missing `<svc>: ready` is a hard failure with an explicit error message.
 - Low-effort readiness gates may query `logd` for `*: ready` markers when a service lacks a dedicated ready RPC (stopgap until readiness RPCs exist).

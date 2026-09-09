@@ -143,19 +143,8 @@ where
                     debug_write_byte(b'\n');
                 }
                 spawn_tally.record(nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
-                if !init_fold || expanded("init_spawn") || expanded(image.name) {
-                    debug_write_str("init: up ");
-                    if let Some(value) = name.value {
-                        debug_write_str(value);
-                    } else {
-                        debug_write_str("[svc@0x");
-                        debug_write_hex(name.ptr);
-                        debug_write_str("/");
-                        debug_write_hex(name.len);
-                        debug_write_byte(b']');
-                    }
-                    debug_write_byte(b'\n');
-                }
+                // `init: up <svc>` moved to the responder's `@ready` arm (RFC-0093 §2):
+                // spawn success is NOT readiness (RFC-0013 A1).
             }
             Err(err) => {
                 debug_write_str("init: fail ");

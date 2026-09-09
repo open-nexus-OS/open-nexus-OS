@@ -100,7 +100,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let server_recv_slot = 3;
     let server_send_slot = 4;
     notifier.notify();
-    emit_line("policyd: ready");
+    let _ = nexus_service_entry::ready("policyd: ready");
     emit_line("abi-profile: ready (server=policyd|abi-filterd)");
     nexus_abi::service_verdict_flush("policyd");
     // Private init-lite -> policyd control channels.
@@ -986,7 +986,7 @@ fn append_probe_to_logd_deterministic() -> bool {
 /// Stub transport runner retained for cross-module linkage.
 pub fn run_with_transport_ready<T>(_: &mut T, notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
-    emit_line("policyd: ready (stub transport)");
+    emit_line("policyd: stub transport (unsupported, not ready)");
     Err(ServerError::Unsupported)
 }
 

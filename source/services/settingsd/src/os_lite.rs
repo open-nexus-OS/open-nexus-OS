@@ -71,7 +71,7 @@ pub fn service_main_loop() -> SettingsdResult<()> {
     let _ = write!(line, "settingsd: load prefs (n={loaded})");
     let _ = nexus_abi::debug_println(&line);
 
-    let _ = nexus_abi::debug_println("settingsd: ready");
+    let _ = nexus_service_entry::ready("settingsd: ready");
     nexus_abi::service_verdict_flush("settingsd");
 
     let mut rsp = [0u8; 300];

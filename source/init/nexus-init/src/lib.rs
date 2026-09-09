@@ -38,6 +38,7 @@ extern crate alloc;
 pub mod slot_map;
 
 pub mod affinity;
+pub mod ready_table;
 /// Declarative service topology — host-compilable SSOT for service identity +
 /// capability routes, decoupled from the OS capability binding (RFC-0066). This is
 /// the `.cml`-equivalent: pure data, validated on the host.

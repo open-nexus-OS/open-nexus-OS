@@ -88,9 +88,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     };
     notifier.notify();
     // Emit only after the IPC endpoint exists.
-    emit_line("logd: ready");
-    let _ = yield_();
-    emit_line("logd: ready");
+    let _ = nexus_service_entry::ready("logd: ready");
     nexus_abi::service_verdict_flush("logd");
 
     let mut journal = Journal::new_with_alloc_cap(

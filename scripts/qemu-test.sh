@@ -2449,10 +2449,13 @@ for marker in "${expected_sequence[@]}"; do
     # final RUN_UNTIL_MARKER gating below decides success/failure.
     break
   fi
-  # Only enforce strict ordering for phase-critical init markers (init: start/up/ready).
+  # Only enforce strict ordering for phase-critical init markers (init: start/ready) and
+  # KSELFTEST. `init: up <svc>` is init's observation of the service's own `@ready`
+  # (RFC-0093 §2, TASK-0324 P2): services reach readiness in scheduler order, so `init: up`
+  # is presence-checked (the required-marker pass above), not order-checked.
   # All other markers (service-internal state, SELFTEST:, async chatter) can reorder.
   case "$marker" in
-    "init: start"|"init: start "*|"init: up "*|"init: ready"|"KSELFTEST:"*)
+    "init: start"|"init: start "*|"init: ready"|"KSELFTEST:"*)
       ;;
     *)
       continue

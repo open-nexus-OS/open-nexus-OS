@@ -47,8 +47,12 @@ pub(crate) fn run_responder_loop(
     // death with kernel truth; the one-shot probe proves the sweep each boot.
     let mut supervision = crate::bootstrap::supervision::SupervisionSweep::start();
     let mut respawner = crate::bootstrap::respawn::Respawner::new(respawn_ctx);
+    // RFC-0093 §2 / ADR-0062: `init: up <svc>` is emitted from the `@ready` arm below and
+    // nowhere else — a service is ready when it says so, not when init resumed it.
+    let mut ready = crate::ready_table::ReadyTable::new();
+    let init_fold = nexus_abi::boot_should_fold_verdicts();
     loop {
-        supervision.sweep(&mut ctrl_channels, &mut route_table, &mut respawner);
+        supervision.sweep(&mut ctrl_channels, &mut route_table, &mut respawner, &mut ready);
         for chan in &ctrl_channels {
             let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
             let mut buf = [0u8; 64];
@@ -177,6 +181,32 @@ pub(crate) fn run_responder_loop(
                 debug_write_bytes(b"init: route vfsd from ");
                 debug_write_str(chan.svc_name);
                 debug_write_byte(b'\n');
+            }
+            if name == b"@ready" {
+                // One-way readiness announce (nexus_service_entry::ready). No reply frame:
+                // a stale RSP in the child's control queue is the confused-waiter class
+                // routing v2 removes. Refusals are loud and name the service.
+                let known = ctrl_channels.iter().any(|c| c.pid == chan.pid);
+                match ready.announce(chan.pid, known) {
+                    Ok(()) => {
+                        if !init_fold
+                            || crate::bootstrap::diag::expanded("init_spawn")
+                            || crate::bootstrap::diag::expanded(chan.svc_name)
+                        {
+                            debug_write_str("init: up ");
+                            debug_write_str(chan.svc_name);
+                            debug_write_byte(b'\n');
+                        }
+                    }
+                    Err(err) => {
+                        debug_write_str("init: FAIL ready ");
+                        debug_write_str(err.label());
+                        debug_write_str(" svc=");
+                        debug_write_str(chan.svc_name);
+                        debug_write_byte(b'\n');
+                    }
+                }
+                continue;
             }
             if name == b"@mint-pair" {
                 // Dynamic per-launch endpoint mint (correlation fix,

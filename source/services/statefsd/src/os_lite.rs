@@ -232,7 +232,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     observe_enrolled(&engine, &mut hard.tracker);
 
     notifier.notify();
-    emit_line("statefsd: ready");
+    let _ = nexus_service_entry::ready("statefsd: ready");
     emit_line("statefsd: write hardening on (auth-envelope)");
     // TASK-0027: mount-time enablement (announces `encryption off` when no
     // meta record exists — the mem engine is always fresh, the virtio

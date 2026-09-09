@@ -138,7 +138,7 @@ extern "C" fn job_svg_rows(start: usize, end: usize, _ctx: *mut u8) {
 /// Main service loop for pinched.
 pub fn service_main_loop(notifier: ReadyNotifier) -> PinchedResult<()> {
     notifier.notify();
-    emit_line("pinched: ready");
+    let _ = nexus_service_entry::ready("pinched: ready");
 
     let server = route_pinched_blocking().ok_or(PinchedError::Ipc("route failed"))?;
 
