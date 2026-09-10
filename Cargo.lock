@@ -5005,6 +5005,7 @@ dependencies = [
  "nexus-scene-raster",
  "nexus-sdf",
  "nexus-service-entry",
+ "nexus-service-topology",
  "nexus-shell-desktop",
  "nexus-svg",
  "nexus-text-baked",

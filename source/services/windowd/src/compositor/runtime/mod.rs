@@ -51,8 +51,9 @@ const GPU_UPLOAD_ICON_OP: u8 = nexus_display_proto::OP_UPLOAD_ICON;
 const GPU_UPLOAD_CURSOR_SHAPE_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR_SHAPE;
 const GPU_SELECT_CURSOR_SHAPE_OP: u8 = nexus_display_proto::OP_SELECT_CURSOR_SHAPE;
 const GPUD_STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
-pub(crate) const GPUD_WIRED_SEND_SLOT: u32 = 5; // init-wired windowd<->gpud
-pub(crate) const GPUD_WIRED_RECV_SLOT: u32 = 6; // pair (see gpud.rs)
+// gpud route slots: declared in nexus-service-topology, pinned there by init (P4a).
+pub(crate) const GPUD_WIRED_SEND_SLOT: u32 = nexus_service_topology::slots::windowd::GPUD.send;
+pub(crate) const GPUD_WIRED_RECV_SLOT: u32 = nexus_service_topology::slots::windowd::GPUD.recv;
 /// Shell chrome contract (design-handoff shell — the DSL shell draws these,
 /// windowd reserves/overlays them): the top bar is ALWAYS above app windows
 /// (windows sit BEHIND it; its strip stays clickable), the desktop taskbar

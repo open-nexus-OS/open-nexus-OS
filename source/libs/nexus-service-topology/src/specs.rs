@@ -8,7 +8,40 @@
 //! API_STABILITY: Stable within the workspace
 //! TEST_COVERAGE: crate tests in lib.rs + `nexus-init` route/policy cross-checks
 
-use crate::{NamedSlotBinding, ServiceId, SlotPair};
+use crate::{NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
+
+/// Per-service slot constants — the SAME values the specs below carry, in a form a service
+/// can use in a `const` context. Defined here ONCE and referenced by `SERVICE_SPECS`, so
+/// init (which pins them) and the service (which reads them) can never drift apart.
+pub mod slots {
+    use super::SlotPair;
+
+    /// windowd (TASK-0324 P4a).
+    pub mod windowd {
+        use super::SlotPair;
+
+        /// windowd's own server endpoint (clients send here).
+        pub const SERVER: SlotPair = SlotPair::new(4, 3);
+        /// The shared CAP_MOVE reply inbox for its outbound calls.
+        pub const REPLY: SlotPair = SlotPair::new(8, 7);
+        /// Present/attach/cursor handoff to gpud (its own response endpoint).
+        pub const GPUD: SlotPair = SlotPair::new(5, 6);
+        /// Dynamic Apps menu (`OP_LIST_APPS`).
+        pub const BUNDLEMGRD: SlotPair = SlotPair::new(9, REPLY.recv);
+        /// Greeter/login relay.
+        pub const SESSIOND: SlotPair = SlotPair::new(10, REPLY.recv);
+        /// Theme GET/SET persistence.
+        pub const SETTINGSD: SlotPair = SlotPair::new(11, REPLY.recv);
+        /// `OP_LAUNCH` from the shell (abilitymgr answers on its own endpoint).
+        pub const ABILITYMGR: SlotPair = SlotPair::new(12, 13);
+        /// Focus relay `OP_SET_FOCUS`.
+        pub const IMED: SlotPair = SlotPair::new(14, REPLY.recv);
+        /// Settings push channel (RFC-0083): RECV half, drained per frame.
+        pub const WATCH_RECV: u32 = 0x40;
+        /// Settings push channel: SEND half, cloned per `OP_WATCH`.
+        pub const WATCH_SEND: u32 = 0x41;
+    }
+}
 
 /// Declarative capability-route SSOT: the `(from → to)` service links the system
 /// is expected to provision. Adding a service that needs a route without listing
@@ -31,6 +64,9 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Windowd, ServiceId::Bundlemgrd), // dynamic Apps menu (OP_LIST_APPS)
     (ServiceId::Windowd, ServiceId::Sessiond), // greeter/login relay (TASK-0065B)
     (ServiceId::Windowd, ServiceId::Settingsd), // theme GET/SET persistence (TASK-0072 P10)
+    (ServiceId::Windowd, ServiceId::Gpud),     // present/attach/cursor handoff (ADR-0032)
+    (ServiceId::Windowd, ServiceId::Abilitymgr), // OP_LAUNCH from the shell (TASK-0080D)
+    (ServiceId::Windowd, ServiceId::Imed),     // focus relay OP_SET_FOCUS (RFC-0075)
     // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
     (ServiceId::Rngd, ServiceId::Logd), // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
@@ -140,27 +176,53 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         id: ServiceId::Windowd,
         exposes_server: true,
         reply_inbox: true,
+        // TASK-0324 P4a: windowd is the FIRST consumer on the declared arm. The slots below
+        // are the ones init used to hand out by TRANSFER ORDER — a contract nobody could
+        // read, and one that broke the display handoff when a route was provisioned a step
+        // too early ("shifted gpud to 8/9 → present handoff kernel-permission-denied").
+        // They are declared here and pinned by init (`cap_transfer_to_slot`), so order is
+        // irrelevant and a collision is a test failure instead of a black screen.
         routes_to: &[
+            Route {
+                to: ServiceId::Gpud,
+                kind: RouteKind::SharedResponse,
+                slots: slots::windowd::GPUD,
+            },
             Route {
                 to: ServiceId::Bundlemgrd,
                 kind: RouteKind::ReplyInbox,
-                slots: SlotPair::UNDECLARED,
+                slots: slots::windowd::BUNDLEMGRD,
             },
             Route {
                 to: ServiceId::Sessiond,
                 kind: RouteKind::ReplyInbox,
-                slots: SlotPair::UNDECLARED,
+                slots: slots::windowd::SESSIOND,
             },
             Route {
                 to: ServiceId::Settingsd,
                 kind: RouteKind::ReplyInbox,
-                slots: SlotPair::UNDECLARED,
+                slots: slots::windowd::SETTINGSD,
             },
+            Route {
+                to: ServiceId::Abilitymgr,
+                kind: RouteKind::SharedResponse,
+                slots: slots::windowd::ABILITYMGR,
+            },
+            Route { to: ServiceId::Imed, kind: RouteKind::ReplyInbox, slots: slots::windowd::IMED },
         ],
         announce: true,
-        server_slots: SlotPair::UNDECLARED,
-        reply_slots: SlotPair::UNDECLARED,
-        extra_slots: &[],
+        server_slots: slots::windowd::SERVER,
+        reply_slots: slots::windowd::REPLY,
+        extra_slots: &[
+            NamedSlotBinding {
+                name: NamedSlot::SettingsWatchRecv,
+                slot: slots::windowd::WATCH_RECV,
+            },
+            NamedSlotBinding {
+                name: NamedSlot::SettingsWatchSend,
+                slot: slots::windowd::WATCH_SEND,
+            },
+        ],
     },
     // RFC-0069 batches 1+2: regular services wired ENTIRELY from the spec (the
     // bespoke arms are deleted). Their server pair is PRE-MINTED (see

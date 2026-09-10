@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-10 (TASK-0324 P4a: windowd is wired from the declaration, not from transfer order)
+
+- windowd's declaration was incomplete: init provisioned routes to gpud, abilitymgr and imed
+  that `REQUIRED_ROUTES`/`SERVICE_SPECS` never mentioned. They are declared now, together with
+  every slot windowd uses (`nexus_service_topology::slots::windowd`).
+- init pins those slots with `cap_transfer_to_slot` through the new generic arm
+  `bootstrap/declared_slots.rs` instead of relying on the order in which capabilities happen
+  to be transferred. That order WAS the contract — provisioning the registry route one step
+  early moved gpud from slots 5/6 to 8/9 and killed the present handoff with
+  `kernel-permission-denied`, which is why the old arm carried comments begging the next
+  reader not to reorder it. Those comments are deleted with the fragility they described.
+- windowd reads the same constants: `GPUD_WIRED_SEND_SLOT`/`RECV_SLOT`, the literal
+  `new_with_slots(3, 4)`, `WATCH_RECV_SLOT`/`WATCH_SEND_SLOT` and the two `CTRL_*` copies in
+  `session_client`/`settings_client` now resolve through the topology crate — one definition,
+  read by the side that provisions and the side that uses.
+- Slot-SSOT ratchet: 191 → 181 positional declarations, 65 → 60 files.
+- The policy exchange deadline becomes a LIVENESS bound (500 ms → 2 s): the wait is
+  event-driven since P3, so the deadline only decides how long a silent policyd is presumed
+  alive. 500 ms was a scheduling guess and it fired on a 1-hart icount boot while the UI
+  chain held the CPU — the new witness (`statefsd: FAIL policy unreachable`) proved policyd
+  was merely starved, printing its next line immediately after the timeout while every
+  following statefs operation succeeded.
+
 ### Added - 2026-09-10 (TASK-0324 P4-base: `nexus-service-topology` — one home for capability slots)
 
 - New crate `source/libs/nexus-service-topology`: the service ids, required route graph and

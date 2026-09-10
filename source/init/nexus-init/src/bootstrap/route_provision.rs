@@ -34,13 +34,20 @@ pub(crate) fn provision_windowd_registry_route(
     let Ok(reply_ep) = nexus_abi::ipc_endpoint_create_for(factory_slot, pid, 8) else {
         return;
     };
-    let rr = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV);
-    let rs = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND);
+    // TASK-0324 P4a: the inbox and the route land in the slots the topology DECLARES.
+    let pinned =
+        crate::bootstrap::declared_slots::pin_reply_inbox(pid, ServiceId::Windowd, reply_ep);
     let _ = nexus_abi::cap_close(reply_ep);
-    if let (Ok(reply_recv), Ok(reply_send)) = (rr, rs) {
+    if let Some(inbox) = pinned {
+        let (reply_recv, reply_send) = (inbox.recv, inbox.send);
         chan.reply_recv_slot = Some(reply_recv);
         chan.reply_send_slot = Some(reply_send);
-        if let Ok(s) = nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND) {
+        if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
+            pid,
+            ServiceId::Windowd,
+            ServiceId::Bundlemgrd,
+            bnd_req,
+        ) {
             chan.set_send(ServiceId::Bundlemgrd, s);
             chan.set_recv(ServiceId::Bundlemgrd, reply_recv);
             // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
@@ -62,7 +69,12 @@ pub(crate) fn provision_windowd_session_route(pid: u32, sess_req: u32, chan: &mu
     let Some(reply_recv) = chan.reply_recv_slot else {
         return;
     };
-    if let Ok(s) = nexus_abi::cap_transfer(pid, sess_req, Rights::SEND) {
+    if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
+        pid,
+        ServiceId::Windowd,
+        ServiceId::Sessiond,
+        sess_req,
+    ) {
         chan.set_send(ServiceId::Sessiond, s);
         chan.set_recv(ServiceId::Sessiond, reply_recv);
         // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
@@ -85,7 +97,12 @@ pub(crate) fn provision_windowd_settings_route(
     let Some(reply_recv) = chan.reply_recv_slot else {
         return;
     };
-    if let Ok(s) = nexus_abi::cap_transfer(pid, settings_req, Rights::SEND) {
+    if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
+        pid,
+        ServiceId::Windowd,
+        ServiceId::Settingsd,
+        settings_req,
+    ) {
         chan.set_send(ServiceId::Settingsd, s);
         chan.set_recv(ServiceId::Settingsd, reply_recv);
         if crate::bootstrap::diag::raw_or_expanded("windowd") {
@@ -105,15 +122,20 @@ pub(crate) fn provision_windowd_imed_route(pid: u32, imed_req: u32, chan: &mut C
     };
     // Direct transfer (non-consuming) — a cap_clone would allocate in INIT's
     // cap table, which runs at its 128-slot ceiling by this point in wiring.
-    match nexus_abi::cap_transfer(pid, imed_req, Rights::SEND) {
-        Ok(s) => {
+    match crate::bootstrap::declared_slots::pin_route_send(
+        pid,
+        ServiceId::Windowd,
+        ServiceId::Imed,
+        imed_req,
+    ) {
+        Some(s) => {
             chan.set_send(ServiceId::Imed, s);
             chan.set_recv(ServiceId::Imed, reply_recv);
             if crate::bootstrap::diag::raw_or_expanded("windowd") {
                 debug_write_bytes(b"init: windowd route->imed ok\\n");
             }
         }
-        Err(_) => debug_write_bytes(b"init: windowd route->imed FAIL (xfer)\n"),
+        None => debug_write_bytes(b"init: windowd route->imed FAIL (xfer)\n"),
     }
 }
 
@@ -162,10 +184,20 @@ pub(crate) fn provision_windowd_ability_route(
     // Direct transfers (no cap_clone — init's table runs at its ceiling by
     // this point; clones NoSpace-fail and silently killed the launch route).
     match (
-        nexus_abi::cap_transfer(pid, abil_req, Rights::SEND),
-        nexus_abi::cap_transfer(pid, abil_rsp, Rights::RECV),
+        crate::bootstrap::declared_slots::pin_route_send(
+            pid,
+            ServiceId::Windowd,
+            ServiceId::Abilitymgr,
+            abil_req,
+        ),
+        crate::bootstrap::declared_slots::pin_route_recv(
+            pid,
+            ServiceId::Windowd,
+            ServiceId::Abilitymgr,
+            abil_rsp,
+        ),
     ) {
-        (Ok(s), Ok(r)) => {
+        (Some(s), Some(r)) => {
             chan.set_send(ServiceId::Abilitymgr, s);
             chan.set_recv(ServiceId::Abilitymgr, r);
             if crate::bootstrap::diag::raw_or_expanded("windowd") {

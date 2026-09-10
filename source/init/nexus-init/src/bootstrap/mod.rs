@@ -8,6 +8,7 @@
 
 pub(crate) mod blk_plane;
 pub(crate) mod core_plane;
+pub(crate) mod declared_slots;
 pub(crate) mod diag;
 pub(crate) mod distribute;
 pub(crate) mod endpoints;

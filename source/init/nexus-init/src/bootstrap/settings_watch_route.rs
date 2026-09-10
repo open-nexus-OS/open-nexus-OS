@@ -48,8 +48,6 @@ pub(crate) fn provision_inputd_settings_watch(pid: u32, eps: &Endpoints, chan: &
 /// Fixed windowd slots for its settings-watch channel (RFC-0076/0077 —
 /// windowd relays region data to surfaces). Kept in sync with
 /// `windowd/src/compositor/runtime/region.rs`.
-const WINDOWD_WATCH_RECV_SLOT: u32 = 0x40;
-const WINDOWD_WATCH_SEND_SLOT: u32 = 0x41;
 
 /// Provisions windowd's settings-watch channel (pre-minted; both halves to
 /// fixed slots; windowd's settingsd SEND route already exists via
@@ -67,20 +65,25 @@ pub(crate) fn provision_windowd_settings_watch(pid: u32, eps: &Endpoints, chan: 
     // measured). Until the kernel semantics of foreign-held send caps on
     // service-pair endpoints are understood, windowd drains this side
     // channel per frame + a bounded idle tick.
-    let recv_ok = nexus_abi::cap_transfer_to_slot(
+    // TASK-0324 P4a: the watch halves are declared named slots of windowd — the numbers
+    // lived here AND in windowd's `region.rs` before, one copy per side.
+    use crate::service_topology::NamedSlot;
+    let recv_ok = crate::bootstrap::declared_slots::pin_named(
         pid,
+        ServiceId::Windowd,
+        NamedSlot::SettingsWatchRecv,
         eps.windowd_watch_ep,
         Rights::RECV,
-        WINDOWD_WATCH_RECV_SLOT,
     )
-    .is_ok();
-    let send_ok = nexus_abi::cap_transfer_to_slot(
+    .is_some();
+    let send_ok = crate::bootstrap::declared_slots::pin_named(
         pid,
+        ServiceId::Windowd,
+        NamedSlot::SettingsWatchSend,
         eps.windowd_watch_ep,
         Rights::SEND,
-        WINDOWD_WATCH_SEND_SLOT,
     )
-    .is_ok();
+    .is_some();
     if recv_ok && send_ok {
         if crate::bootstrap::diag::raw_or_expanded("windowd") {
             debug_write_bytes(b"init: windowd settings-watch ok\\n");

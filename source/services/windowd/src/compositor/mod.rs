@@ -477,7 +477,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         Ok(s) => s,
         Err(_) => {
             let _ = debug_println("windowd: route fallback");
-            KernelServer::new_with_slots(3, 4).map_err(|_| "windowd: init fail kernel-server")?
+            KernelServer::new_with_slots(
+                nexus_service_topology::slots::windowd::SERVER.recv,
+                nexus_service_topology::slots::windowd::SERVER.send,
+            )
+            .map_err(|_| "windowd: init fail kernel-server")?
         }
     };
     // Resolve the VISIBLE display mode from gpud BEFORE anything sizes to it

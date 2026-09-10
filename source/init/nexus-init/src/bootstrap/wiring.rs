@@ -904,11 +904,19 @@ pub(crate) fn wire_services(
                     if iw(init_wire, init_fold, "init:windowd") {
                         debug_write_bytes(b"init: windowd already priority-wired, skip\n");
                     }
-                    // Still need gpud caps.
-                    let gpud_send_slot =
-                        try_transfer(pid, gpud_req, Rights::SEND, "windowd->gpud", "SEND");
-                    let gpud_recv_slot =
-                        try_transfer(pid, gpud_rsp, Rights::RECV, "windowd->gpud", "RECV");
+                    // Still need gpud caps — PINNED to the declared slots (TASK-0324 P4a).
+                    let gpud_send_slot = crate::bootstrap::declared_slots::pin_route_send(
+                        pid,
+                        ServiceId::Windowd,
+                        ServiceId::Gpud,
+                        gpud_req,
+                    );
+                    let gpud_recv_slot = crate::bootstrap::declared_slots::pin_route_recv(
+                        pid,
+                        ServiceId::Windowd,
+                        ServiceId::Gpud,
+                        gpud_rsp,
+                    );
                     if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
                         chan.set_send(ServiceId::Gpud, gpud_send);
                         chan.set_recv(ServiceId::Gpud, gpud_recv);
@@ -940,17 +948,28 @@ pub(crate) fn wire_services(
                     }
                     continue;
                 }
-                let recv_slot = nexus_abi::cap_transfer(pid, window_req, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let send_slot = nexus_abi::cap_transfer(pid, window_rsp, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Windowd, send_slot);
-                chan.set_recv(ServiceId::Windowd, recv_slot);
-                // gpud may have crashed — graceful transfer
-                let gpud_send_slot =
-                    try_transfer(pid, gpud_req, Rights::SEND, "windowd->gpud", "SEND");
-                let gpud_recv_slot =
-                    try_transfer(pid, gpud_rsp, Rights::RECV, "windowd->gpud", "RECV");
+                let slots = crate::bootstrap::declared_slots::pin_server_pair(
+                    pid,
+                    ServiceId::Windowd,
+                    window_req,
+                    window_rsp,
+                )
+                .ok_or(InitError::Map("windowd server slots"))?;
+                chan.set_send(ServiceId::Windowd, slots.send);
+                chan.set_recv(ServiceId::Windowd, slots.recv);
+                // gpud may have crashed — a failed pin leaves the route unwired, loudly.
+                let gpud_send_slot = crate::bootstrap::declared_slots::pin_route_send(
+                    pid,
+                    ServiceId::Windowd,
+                    ServiceId::Gpud,
+                    gpud_req,
+                );
+                let gpud_recv_slot = crate::bootstrap::declared_slots::pin_route_recv(
+                    pid,
+                    ServiceId::Windowd,
+                    ServiceId::Gpud,
+                    gpud_rsp,
+                );
                 if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
                     chan.set_send(ServiceId::Gpud, gpud_send);
                     chan.set_recv(ServiceId::Gpud, gpud_recv);
@@ -978,9 +997,9 @@ pub(crate) fn wire_services(
                 provision_windowd_settings_watch(pid, eps, chan);
                 if iw(init_wire, init_fold, "init:windowd") {
                     debug_write_bytes(b"init: windowd slots recv=0x");
-                    debug_write_hex(recv_slot as usize);
+                    debug_write_hex(slots.recv as usize);
                     debug_write_bytes(b" send=0x");
-                    debug_write_hex(send_slot as usize);
+                    debug_write_hex(slots.send as usize);
                     debug_write_byte(b'\n');
                 }
                 if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {

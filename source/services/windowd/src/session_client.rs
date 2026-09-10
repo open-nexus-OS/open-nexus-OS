@@ -27,8 +27,8 @@ use nexus_abi::yield_;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
 /// init-lite control-channel slots (route requests go through the responder).
-const CTRL_SEND_SLOT: u32 = 1;
-const CTRL_RECV_SLOT: u32 = 2;
+const CTRL_SEND_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.send;
+const CTRL_RECV_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
 
 /// One registered user, as reported by sessiond's GET_STATE.
 #[derive(Clone, Debug, PartialEq, Eq)]

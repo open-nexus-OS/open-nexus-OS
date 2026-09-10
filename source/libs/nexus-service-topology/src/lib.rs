@@ -47,6 +47,10 @@ impl SlotPair {
     }
 }
 
+/// The control channel every child receives from init at fixed slots: `@reply`,
+/// `@mint-pair`, route asks and the `@ready` announce all travel here (RFC-0093 §1/§2).
+pub const CTRL_SLOTS: SlotPair = SlotPair::new(1, 2);
+
 /// A capability a service receives that is neither its server pair nor a route.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NamedSlot {
@@ -54,8 +58,10 @@ pub enum NamedSlot {
     Mmio,
     /// IRQ notification endpoint (driver services).
     IrqNotify,
-    /// Settings push channel (RFC-0083 watch).
-    SettingsWatch,
+    /// Settings push channel (RFC-0083 watch): the RECV half, drained per frame.
+    SettingsWatchRecv,
+    /// Settings push channel: the SEND half, cloned per `OP_WATCH` registration.
+    SettingsWatchSend,
     /// Settings request channel.
     Settings,
     /// Boot-stage fence, WAIT rights only (ADR-0062).
@@ -77,6 +83,7 @@ mod ids;
 mod specs;
 
 pub use ids::ServiceId;
+pub use specs::slots;
 pub use specs::{
     exposes_server, spec_for, Route, RouteKind, ServiceSpec, REQUIRED_ROUTES, SERVICE_SPECS,
 };
@@ -170,7 +177,20 @@ mod tests {
             claim(spec.reply_slots.recv, "reply recv");
             for route in spec.routes_to {
                 claim(route.slots.send, "route send");
-                claim(route.slots.recv, "route recv");
+                // A ReplyInbox route answers on the service's ONE shared inbox by
+                // definition — that slot is claimed once, above. Pointing such a route at
+                // a different slot is the real defect, so assert the identity instead.
+                if route.kind == RouteKind::ReplyInbox {
+                    if route.slots.is_declared() {
+                        assert_eq!(
+                            route.slots.recv, spec.reply_slots.recv,
+                            "{:?}: ReplyInbox route to {:?} must answer on the shared inbox",
+                            spec.id, route.to
+                        );
+                    }
+                } else {
+                    claim(route.slots.recv, "route recv");
+                }
             }
             for binding in spec.extra_slots {
                 claim(binding.slot, "named slot");

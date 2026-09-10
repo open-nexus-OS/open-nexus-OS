@@ -23,7 +23,6 @@
 3	source/init/nexus-init/src/bootstrap/policyd_slots.rs
 2	source/init/nexus-init/src/bootstrap/respawn.rs
 3	source/init/nexus-init/src/bootstrap/route_provision.rs
-2	source/init/nexus-init/src/bootstrap/settings_watch_route.rs
 2	source/init/nexus-init/src/bootstrap/spawn.rs
 1	source/init/nexus-init/src/os_payload.rs
 4	source/services/abilitymgr/src/os_lite.rs
@@ -63,7 +62,3 @@
 4	source/services/updated/src/policy_client.rs
 2	source/services/virtioblkd/src/os_lite.rs
 2	source/services/virtioblkd/src/route_os.rs
-2	source/services/windowd/src/compositor/runtime/mod.rs
-2	source/services/windowd/src/compositor/runtime/region.rs
-2	source/services/windowd/src/session_client.rs
-2	source/services/windowd/src/settings_client.rs

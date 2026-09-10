@@ -205,8 +205,17 @@ fn exchange_status_on(
         frame.len() as u32,
     );
 
+    // Liveness bound, NOT a scheduling guess (TASK-0324 P3/P4a). The wait below is
+    // event-driven — the arriving reply wakes us — so this deadline only decides how long a
+    // policyd that has NOT answered is still presumed alive. 500 ms was a scheduling guess
+    // and it fired on a 1-hart icount boot while the UI chain held the CPU: policyd printed
+    // its next line immediately after the timeout and every following request succeeded
+    // (`statefsd: FAIL policy unreachable` + `SELFTEST: statefs put FAIL`, ota-flip
+    // 2026-09-10T14-59). A supervised peer that is silent for 2 s is a real outage — the
+    // supervisor restarts it (ADR-0057) — and the caller's witness names it either way.
+    // Ordering the UI chain against control-plane services is the stage fence's job (P5).
     let start = nexus_abi::nsec().unwrap_or(0);
-    let deadline = start.saturating_add(500_000_000);
+    let deadline = start.saturating_add(2_000_000_000);
 
     let mut sent = false;
     let mut spins: u32 = 0;

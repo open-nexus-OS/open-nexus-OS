@@ -592,24 +592,21 @@ where
         let input_rsp_clone = nexus_abi::cap_clone(input_rsp).map_err(InitError::Abi)?;
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "windowd") {
             let pid = chan.pid;
-            chan.set_recv(
+            // TASK-0324 P4a: PINNED to the declared slots — provisioning order no longer
+            // decides where a capability lands, so the "do not provision the registry route
+            // here or gpud shifts to 8/9" note this block used to carry is obsolete.
+            let slots = crate::bootstrap::declared_slots::pin_server_pair(
+                pid,
                 ServiceId::Windowd,
-                nexus_abi::cap_transfer(pid, window_req_clone, Rights::RECV)
-                    .map_err(InitError::Abi)?,
-            );
-            chan.set_send(
-                ServiceId::Windowd,
-                nexus_abi::cap_transfer(pid, window_rsp_clone, Rights::SEND)
-                    .map_err(InitError::Abi)?,
-            );
+                window_req_clone,
+                window_rsp_clone,
+            )
+            .ok_or(InitError::Map("windowd server slots"))?;
+            chan.set_recv(ServiceId::Windowd, slots.recv);
+            chan.set_send(ServiceId::Windowd, slots.send);
             if iw(&mut init_wire, init_fold, "init:windowd") {
                 debug_write_bytes(b"init: windowd priority-wired\n");
             }
-            // NOTE: windowd's registry reply-inbox + bundlemgrd route caps are
-            // provisioned LATE (after the gpud caps land at the fallback slots
-            // 5/6 the display handoff hardcodes) — see the windowd block after the
-            // wiring loop. Provisioning them HERE shifted gpud to slots 8/9 and
-            // broke the present handoff with kernel-permission-denied.
         }
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "inputd") {
             let pid = chan.pid;

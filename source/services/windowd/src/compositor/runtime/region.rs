@@ -23,9 +23,9 @@ use nexus_display_proto::surface_text;
 /// Init-provisioned (route_provision.rs): the dedicated watch channel —
 /// RECV (event inbox, drained per frame) + SEND (cloned per OP_WATCH).
 #[cfg(nexus_env = "os")]
-const WATCH_RECV_SLOT: u32 = 0x40;
+const WATCH_RECV_SLOT: u32 = nexus_service_topology::slots::windowd::WATCH_RECV;
 #[cfg(nexus_env = "os")]
-const WATCH_SEND_SLOT: u32 = 0x41;
+const WATCH_SEND_SLOT: u32 = nexus_service_topology::slots::windowd::WATCH_SEND;
 
 /// Cached region data (defaults mirror the settingsd registry defaults —
 /// consistent before the first watch event arrives).
