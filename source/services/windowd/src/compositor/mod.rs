@@ -480,11 +480,6 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             KernelServer::new_with_slots(3, 4).map_err(|_| "windowd: init fail kernel-server")?
         }
     };
-    // Publish our own inbox FIRST — before anything can present and therefore
-    // drain gpud replies — so the drain can refuse to consume from it
-    // (runtime::gpud::SERVER_RECV_SLOT documents the boot that needed this).
-    #[cfg(nexus_env = "os")]
-    runtime::gpud::note_server_recv_slot(server.slots().0);
     // Resolve the VISIBLE display mode from gpud BEFORE anything sizes to it
     // (gpud resolved it at probe from GET_DISPLAY_INFO; the framebuffer-handoff
     // ack would be far too late — atlas/damage derive from the mode). One

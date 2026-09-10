@@ -19,7 +19,7 @@
 - **Phase 0 (build truth + honest GL path + `visible` pixel lane)**: ✅ 2026-09-09 (TASK-0324 P0)
 - **Phase 1 (this contract + ADR-0062)**: ✅ 2026-09-09 (TASK-0324 P1 — paper)
 - **Phase 2 (`@ready` verb, honest `init: up`)**: ✅ 2026-09-09 (TASK-0324 P2 — `test-all` green over 8 lanes, 0 announce failures, `init: up` follows `<svc>: ready` everywhere)
-- **Phase 3 (routing v2: nonce mandatory, parked replies, fail-closed)**: ⬜ TASK-0324 P3
+- **Phase 3 (routing v2: nonce mandatory, parked replies, fail-closed)**: ✅ 2026-09-10 (TASK-0324 P3 — `test-all` green over 8 lanes; park scope amended below with implementation evidence)
 - **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: ⬜ TASK-0324 P4a–P4f
 - **Phase 5 (stage fence replaces every `yield_()` sync)**: ⬜ TASK-0324 P5
 - **Phase 6 (handoff v2: reveal handshake, seq acks, kernel display mode, readback off-scanout)**: ⬜ TASK-0324 P6
@@ -107,25 +107,38 @@ reply. Layout (all integers little-endian):
 Status codes are unchanged (`OK=0, NOT_FOUND=1, MALFORMED=2, DENIED=3, STALE=4`) with tightened
 semantics:
 
-- `OK` is answered only when the target has announced `@ready` (§2). Until then the request is
-  **parked** in init (`route_park.rs`: bounded ring of `{chan, target, nonce}`, `PARK_MAX = 32`,
-  overflow = `init: FAIL route park overflow svc=…` and `STATUS_DENIED`) and answered exactly
-  once when the target's `@ready` arrives. No client-side polling, no re-ask, no deadline: the
-  library resolves with deadline 0 (infinite); a diagnostic deadline exists only via
-  `NEXUS_ROUTE_DEADLINE_NS` in proof profiles and is a failure when it fires, never a fallback.
-- `STALE` is terminal-per-ask and means only "registered but dead" (ADR-0057): the supervisor
-  restarts the target and the client re-asks after `STATUS_STALE`; it is never used for "not
-  yet ready".
+- An ask whose target is momentarily **unresolvable** — the supervisor marked it stale and is
+  restarting it (ADR-0057) — is **parked** in init (`route_park.rs`: bounded ring of
+  `{chan, target, nonce}`, `PARK_MAX = 32`) and answered **exactly once** when the route is
+  re-provisioned (`init: route resumed svc=… -> …`). A re-ask from the same requester replaces
+  the parked entry (its nonce superseded the old one); a requester that exits loses its parked
+  asks; overflow is loud (`init: FAIL route park overflow svc=… -> …`) and falls back to a
+  `STATUS_STALE` answer rather than dropping the ask. The client never re-asks in a loop —
+  that loop was the storm that filled init's control queue (TASK-0324 P2 finding).
+- **Amendment 2026-09-09 (P3, implementation evidence).** The Phase-1 seed said an ask is
+  parked until the target announces `@ready`. That is wrong by construction and is not
+  implemented: readiness is a *service-side* fact, and making a synchronous route ask wait for
+  it is cyclic — `bundlemgrd` asks for `metricsd`, and `metricsd` boots from the very system
+  volume `bundlemgrd` serves; the same shape exists for every service that resolves a route
+  lazily inside its serving loop. Routing therefore waits only on init's OWN bookkeeping
+  (route provisioning), and ordering by readiness is the stage fence's job (§3, P5). Endpoints
+  are queues: a client that resolves a route before the target serves does not lose messages,
+  it fills a bounded queue — which is what the stage fence exists to order.
+- `STALE` reaches a client only when init could not park (overflow). It means "registered but
+  dead" (ADR-0057) and is **terminal for that ask**: the client decides, it never re-asks in a
+  loop. The library's former STALE re-ask loop is deleted.
 - `DENIED` covers policy denial AND policy unavailability (`policyd_route_allowed` is
   fail-closed: unreachable ⇒ deny, witness `!route-deny (policy unavailable)`).
 - Replies are sent bounded-blocking on the control channel; a reply that cannot be delivered
   within the queue drain bound is `init: FAIL route reply drop svc=…` (loud), never a silent loss.
 
-Deleted with this phase (P3): `query_route` v1 (drain + 100 ms cap), `ROUTE_QUERY_TIMEOUT`, the
-STALE re-ask loop, windowd's `SERVER_RECV_SLOT`/`ALIAS_REPORTED` alias guards and wired-slot
-fallbacks. Gate: `test_reject_nonce_less_route_frame`, `test_reject_nonce_mismatch`,
-`test_reject_answer_before_ready`, `test_reject_park_overflow_is_loud`; structure gate: no
-`query_route`/`IPC_SYS_NONBLOCK` in responder reply paths.
+Deleted with this phase (P3): `query_route` v1 (nonce-less ask + its 32-frame stale-reply
+drain + `ROUTE_QUERY_TIMEOUT`), the client-side STALE re-ask loop, and windowd's
+`SERVER_RECV_SLOT`/`ALIAS_REPORTED`/`note_server_recv_slot` alias guards (both the bind guard
+and the drain guard). windowd's wired-slot fallback is positional-slot structure and belongs to
+P4. Gates: `route_park` unit tests (incl. `test_reject_park_overflow_is_loud`) and
+`scripts/check-init-sync.sh` — no `query_route` anywhere, no alias guards in windowd, and the
+responder never builds a route reply outside `route_reply::send_route_rsp`.
 
 ### 2. Readiness verbs on the init control channel (normative)
 
@@ -308,7 +321,7 @@ cd /home/jenning/open-nexus-OS && just ci-os-smp1 && just ci-os-visible && just 
 - [x] **Phase 0**: build truth + visible pixel lane — proof: `just ci-os-visible` (TASK-0324 P0, 2026-09-09)
 - [x] **Phase 1**: this contract + ADR-0062 — proof: `just check`
 - [x] **Phase 2**: `@ready` + honest `init: up` — `nexus_service_entry::ready`, `ready_table.rs`, responder arm, `check-init-sync.sh` in `just check`; proven 2026-09-09 by `just test-all` (8 lanes green)
-- [ ] **Phase 3**: routing v2 — proof: `test_reject_*` + lanes
+- [x] **Phase 3**: routing v2 — nonce mandatory, `route_park.rs`, one reply path, fail-closed policy, `query_route` + alias guards deleted; proven 2026-09-10 by `just test-all` (8 lanes, park observed 3× per lane)
 - [ ] **Phase 4**: topology crate, bespoke arms deleted — proof: `check-slot-ssot.sh` + per-consumer lanes
 - [ ] **Phase 5**: stage fence — proof: init tests + `stage:` order in `ci-os-smp1`
 - [ ] **Phase 6**: handoff v2 — proof: display lanes + chain simulations

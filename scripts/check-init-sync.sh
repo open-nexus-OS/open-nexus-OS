@@ -35,7 +35,34 @@ if grep -rn 'init: up ' source/init/nexus-init/src 2>/dev/null \
   fail=1
 fi
 
+# 3. Routing v1 is gone (RFC-0093 §1, TASK-0324 P3): the nonce-less ask and the
+#    32-frame "drain stale replies" prologue that compensated for it.
+if grep -rn 'query_route' source userspace 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//' >/dev/null; then
+  echo "[FAIL] routing-v2: 'query_route' (nonce-less routing v1) is back:" >&2
+  grep -rn 'query_route' source userspace 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//' >&2
+  fail=1
+fi
+
+# 4. The guards that existed ONLY because a route answer could not be correlated.
+#    windowd rejecting an answer equal to its own inbox is the confused-waiter workaround;
+#    with a mandatory nonce the library refuses such an answer instead.
+if grep -rn 'SERVER_RECV_SLOT\|ALIAS_REPORTED\|note_server_recv_slot' source/services/windowd/src 2>/dev/null \
+   | grep -v '^[^:]*:[0-9]*:\s*//\|///' >/dev/null; then
+  echo "[FAIL] routing-v2: windowd route-alias guards are back (nonce makes them impossible):" >&2
+  grep -rn 'SERVER_RECV_SLOT\|ALIAS_REPORTED\|note_server_recv_slot' source/services/windowd/src >&2
+  fail=1
+fi
+
+# 5. init answers a route ask ONLY through the nonce-echoing helper; a raw reply send in
+#    the responder is the path that used to drop replies silently into a full queue.
+if grep -n 'encode_route_rsp' source/init/nexus-init/src/bootstrap/responder.rs 2>/dev/null >/dev/null; then
+  echo "[FAIL] routing-v2: responder builds a route reply outside route_reply::send_route_rsp:" >&2
+  grep -n 'encode_route_rsp' source/init/nexus-init/src/bootstrap/responder.rs >&2
+  fail=1
+fi
+
 if [[ "$fail" == "0" ]]; then
   echo "[PASS] init-sync: ready markers funnel through nexus_service_entry::ready(); init: up only from @ready"
+  echo "[PASS] routing-v2: no nonce-less routing, no alias guards, one route-reply path"
 fi
 exit "$fail"

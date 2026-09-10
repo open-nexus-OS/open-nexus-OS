@@ -11,6 +11,8 @@
 //! TEST_COVERAGE: No tests
 //! ADR: docs/adr/0023-statefs-persistence-architecture.md
 
+pub(crate) use crate::policy_os::policyd_allows;
+
 extern crate alloc;
 
 use alloc::boxed::Box;
@@ -596,16 +598,6 @@ fn required_cap(op: u8, path: &str) -> &'static str {
     } else {
         CAP_READ
     }
-}
-
-pub(crate) fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
-    // RFC-0066: the shared CAP_MOVE policy check (nexus_ipc::policyd::check_cap_on)
-    // over statefsd's init-wired policyd slots (send=7, @reply recv=5/send=6) —
-    // behaviour-preserving; the ~90-line hand-rolled copy was removed.
-    matches!(
-        nexus_ipc::policyd::check_cap_on(0x07, 0x06, 0x05, subject_id, cap),
-        nexus_ipc::policyd::CapDecision::Allow
-    )
 }
 
 // Emit/audit helpers live in `crate::emit_os` (moved verbatim for the

@@ -49,13 +49,39 @@ boot, OTA lanes incl. `bundle reused`, reliability spine, ingress/egress, foldin
 | P0 | Build truth + honest GL path + `visible` pixel lane | `[package.metadata.nexus-service]` = SSOT for features (`feature_profiles` keyed on env); `discover-services.sh` resolves for embedded + bundles + execd payloads; keyed ELF `build/services/<svc>/<key>/`; `check-bundle-provenance.sh`, `check-build-truth.sh` (in `just check`); `gpud: features=…` first raw line; `backend/scanout_policy.rs` (GL device → GL RT or FATAL; 2D retry deleted); `[profile.visible]` + `just ci-os-visible` in `test-all` (VNC snapshots splash/desktop, `pixel_proof_judge.py`); `just start` exposes VNC 5979; harness requires `gpud: features=os-lite,virgl` under virgl, `gpud: FAIL` fails lanes. Deleted: virgl special block, `*_CARGO_FLAGS` (build.sh + harness netstackd), stack-pages `case`, metricsd stack override, `gpud: gl scanout fallback 2d`. | Delivered 2026-09-09 (`just check` + `test-all` stages green: check/diag/dep-gate/host/e2e/miri/kernel; lanes smp1 (rerun after a pre-existing `statefs persist` deny flake), visible ×4 pixel-proof ok, reset, ota-flip/bundle/resume/delta/backstops; 8/8 `just start`-env boots pixel ok over harts 0-3) |
 | P1 | RFC-0093 + ADR-0062 + ledger/board | routing v2 (nonce, parked replies until `@ready`, fail-closed), `@ready`/`@stage`, `ServiceSpec.stage` + fence, declared slot map for services AND app children, handoff v2 (attach ack {seq, mode, content_rect}, `OP_REVEAL`/`STATUS_REVEALED`, seq acks), display mode from `boot_display_mode()`, pixel proof as display gate | Delivered 2026-09-09 (paper: RFC-0093 + ADR-0062 written, indexed; ledger/board/order updated; `just check`) |
 | P2 | `@ready` + `nexus_service_entry::ready()` + honest `init: up` | fleet-wide; `ready_table.rs`; delete `init: up` in orchestrator/volume_spawn; docs/manifest | In Progress 2026-09-09 — code + host tests + gate landed (29 ready sites migrated, `init: up` only from the responder `@ready` arm, `check-init-sync.sh` in `just check`, ladder `init: up` presence-only); Done 2026-09-09 — `just test-all` green (exit=0): 8 lanes (smp1, visible, reset, ota, ota-bundle/-resume/-delta, ota-backstops), 0 announce failures fleet-wide, 29 honest `init: up` in the visible lane, pixel proof 40.1% non-black |
-| P3 | Routing v2 | delete v1 `query_route`; nonce mandatory; `route_park.rs`; bounded-blocking replies; fail-closed policy; delete windowd alias guards | Draft |
+| P3 | Routing v2 | delete v1 `query_route`; nonce mandatory; `route_park.rs`; bounded-blocking replies; fail-closed policy; delete windowd alias guards | Done 2026-09-10 — `just test-all` green (exit=0, 8 lanes); ⭐ park scope CORRECTED against the RFC seed: an ask parks on an unresolvable (stale/restarting) target, never on the target's readiness — the latter is cyclic (`bundlemgrd` → `metricsd`, which boots from the volume bundlemgrd serves), readiness ordering is P5's fence; RFC-0093 §1 amended with that evidence. evidence across smp1/visible/reset/ota-flip: 28/29/65/53 honest `init: up`, ZERO malformed asks, ZERO dropped replies, ZERO policy-unreachable events, and the park proven in every lane — `init: route resumed svc=selftest-client -> pinched` exactly 3×, one per restart cycle of the supervision probe |
 | P4 | `nexus-service-topology` = one slot SSOT | crate move + slots; declared arm; per-consumer atomic sub-packages P4a windowd, P4b inputd, P4c gpud, P4d hidrawd/touchd, P4e execd + app children (`nexus-sdk-routes` view), P4f policyd/netstackd/bootctld/keystored/updated/dsoftbusd/bundlemgrd/metricsd/imed/selftest-client; delete `is_bespoke_wired` + all arms + slot-order comments; `check-slot-ssot.sh` | Draft |
 | P5 | Stage fence | `stage_fence.rs`; `ServiceSpec.stage`; entry hook waits; delete `yield_()` sync + `resume_drivers` order; `check-init-sync.sh` | Draft |
 | P6 | Handoff contract v2 (windowd↔gpud) | explicit reveal (delete time caps/3-pixel probe), seq acks (delete lease/stall recovery), kernel display mode everywhere (delete windowd/inputd mode polls), readback off the scanout RT, `display: first scanout ok` on `STATUS_REVEALED` | Draft |
 | P7 | Consumer polls deleted | windowd session probe/greeter watch/cursor wait; app-host content-rect re-drive | Draft |
 | P8 | Closure docs/baselines/gates | LOC baseline, docs (RFC-0069 §4 implemented, RFC-0013, ADR-0041/0050), CI parity | Draft |
 | P9 | 8/8 visible boots + test-all + progress table | | Draft |
+
+**Findings for P3 (recorded 2026-09-10):** (1) Parking on readiness is cyclic (see the ledger
+row); the honest park criterion is "init cannot resolve it yet", which only its own
+bookkeeping decides. (2) Two nonce-correct but hand-copied route helpers remain
+(`source/apps/selftest-client/src/os_lite/ipc/routing.rs`,
+`source/services/bundlemgrd/src/os_lite.rs`): they ask once with a nonce, so they are
+duplication rather than a defect — they resolve slots and therefore belong to P4's topology
+crate, and the P3 gate forbids only what P3 deleted. (3) The park is not theory: in the supervision/crash-loop probe the selftest asks for the
+killed `pinched`, init holds the ask and answers it once the supervisor re-provisions the
+route (`init: route resumed`, 3× in one boot) — the client never re-asks. (4) The `@ready`
+verb is one-way and therefore EXEMPT from the nonce requirement (nothing to correlate); the
+first lane run failed because the requirement was applied before the verb arm and every
+service's announce was refused as malformed. (5) ⭐ The `statefs persist FAIL` flake the P0/P2 runs recorded is a control-plane defect, not
+load: `nexus_ipc::policyd::exchange_status_on` POLLED for the reply (NONBLOCK + `yield_()`
+against a 500 ms wall clock), so a policyd that was alive but not scheduled inside the budget
+was indistinguishable from one that never answered — and statefsd collapsed
+`CapDecision::Unreachable` into "not allowed", printing only `access denied`, which reads like
+a policy decision. Fixed in this package: the exchange now WAITS (deadline-bounded blocking
+recv — the arriving reply wakes it, the deadline only fires if the peer really did not
+answer), and statefsd names the outage (`statefsd: FAIL policy unreachable cap=…`) while still
+denying. Note the reply inbox is shared across a service's outbound calls (statefsd has three
+users: cap check, ABI seam, logd append), which is why the nonce filter must drop foreign
+frames and keep waiting. (6) `nexus-service-entry` had to be split
+(`os/ready.rs`, `os/alloc_log.rs`) and `responder.rs` shrank 548 → 533 LOC because the
+nonce-mandatory rule collapsed six duplicated reply blocks into one helper module
+(`bootstrap/route_reply.rs`).
 
 **Findings for P2 (recorded 2026-09-09, smp1 iterations):** (1) `@ready` could not be queued
 for virtioblkd/logd: their bespoke `route_*_blocking` probes re-sent the same route ask on

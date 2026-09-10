@@ -13,23 +13,7 @@
 //! `pub(super)` so the parent and sibling submodules can still call them.
 
 use super::*;
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-
-/// windowd's OWN server recv slot, published by `compositor::run` right after
-/// the server binds (`KernelServer::slots().0`). `u32::MAX` = not yet known.
-///
-/// The gpud reply drain needs it to answer one question: is the endpoint I am
-/// about to drain exclusively MINE? The ctrl-plane can answer a
-/// `new_for("gpud")` route query with a recv slot that aliases this very inbox,
-/// and a non-blocking drain on it consumes CLIENT requests — on 2026-07-25 a
-/// 4-hart virgl `just start` (`build/logs/manual--2026-07-25T15-57-20`) ate 29
-/// of them: the app-host's events-attach (len=12) — hence `desktop bind
-/// deferred` with no attach left to complete it — its geometry intent (hence
-/// the 8 s content-rect timeout and a 320x240 "desktop") and inputd's batches
-/// (hence the `push backpressure` flood and a session that never routed input).
-static SERVER_RECV_SLOT: AtomicU32 = AtomicU32::new(u32::MAX);
-/// One-shot latch for the alias FAIL line (the drain runs per present).
-static ALIAS_REPORTED: AtomicBool = AtomicBool::new(false);
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Wall-clock of the last credited present ack, and a one-shot latch for the
 /// lease-expiry line. See [`PRESENT_ACK_LEASE_NS`].
@@ -51,47 +35,27 @@ static LEASE_REPORTED: AtomicBool = AtomicBool::new(false);
 /// whole session. Every precondition must terminate in a decision.
 const PRESENT_ACK_LEASE_NS: u64 = 500_000_000;
 
-/// Publishes windowd's server recv slot for the alias check above.
-pub(crate) fn note_server_recv_slot(slot: u32) {
-    SERVER_RECV_SLOT.store(slot, Ordering::Relaxed);
-}
-
 impl DisplayServerRuntime {
-    /// Binds the gpud route, REJECTING a provably wrong answer.
+    /// Binds the gpud route.
     ///
-    /// Routing v1 carries no reply nonce (`nexus-ipc::query_route` even drains
-    /// stale `ROUTE_RSP`s to compensate), so a route query can hand back slots
-    /// that are not ours. One wrong answer is detectable and catastrophic: a
-    /// recv slot equal to windowd's OWN server inbox. Every gpud round-trip
-    /// then reads client requests instead of gpud replies — the reply drain
-    /// refuses to run, the cursor-upload ack never matches
-    /// (`windowd: cursor upload failed`) and the framebuffer handoff never
-    /// acks, so gpud waits for "plane0 + cursor ready" forever and the boot
-    /// stays on the splash (`build/logs/manual--2026-07-26T10-31-30`; the
-    /// alias appeared in ~1 of 2 interactive boots).
+    /// Routing v2 (RFC-0093 §1) makes the reply nonce mandatory, so an answer that is not
+    /// ours is detected in the library and never returned here. The guards this function
+    /// used to carry — rejecting an answer equal to windowd's OWN server inbox, and the
+    /// matching refusal in the reply drain — were the workaround for the nonce-less
+    /// protocol (an aliased answer made every gpud round-trip read client requests, so the
+    /// cursor ack never matched and the boot stayed on the splash, ~1 in 2 interactive
+    /// boots). They are gone with the protocol that needed them.
     ///
-    /// The query is still ISSUED — `query_route` drains stale `ROUTE_RSP`s as a
-    /// side effect, and dropping the call entirely is a change with no evidence
-    /// behind it — but an aliased answer is discarded in favour of the pair init
-    /// declared. (An earlier note here claimed an unconditional wired bind had
-    /// regressed the headless framebuffer handoff; that was a mis-attribution.
-    /// Every headless run binds the wired pair anyway — the G4 failures in that
-    /// lane are an intermittent `gpud: resource map fail` on the fb
-    /// attach, unrelated to route selection.)
+    /// The wired-pair fallback below is the positional-slot structure TASK-0324 P4 replaces
+    /// with the declared slot topology; it stays until that package lands.
     pub(super) fn ensure_gpud_client(&mut self) -> bool {
         if self.gpud_client.is_some() {
             return true;
         }
         if let Ok(client) = KernelClient::new_for("gpud") {
-            let own_inbox = SERVER_RECV_SLOT.load(Ordering::Relaxed);
-            if client.slots().1 != own_inbox {
-                let _ = debug_println("windowd: gpud route connected");
-                self.gpud_client = Some(client);
-                return true;
-            }
-            let _ = debug_println(&alloc::format!(
-                "windowd: FAIL gpud route answered our own inbox slot={own_inbox} — using the wired pair"
-            ));
+            let _ = debug_println("windowd: gpud route connected");
+            self.gpud_client = Some(client);
+            return true;
         }
         if let Ok(client) = KernelClient::new_with_slots(GPUD_WIRED_SEND_SLOT, GPUD_WIRED_RECV_SLOT)
         {
@@ -189,27 +153,16 @@ impl DisplayServerRuntime {
         self.frames_in_flight = 0;
     }
 
-    /// Drain non-blocking gpud status replies for OP_PRESENT_DAMAGE so gpud cannot
-    /// block on a full reply queue and freeze visible updates.
-    ///
-    /// Drains ONLY an endpoint that is exclusively ours: see [`SERVER_RECV_SLOT`]
-    /// for the boot where it was not, and what that cost. A skipped drain merely
-    /// stops crediting present completions (the in-flight bound throttles
-    /// presents); consuming a client's request instead loses it forever, because
-    /// the capability an events-attach carries cannot be re-delivered.
+    /// Drains gpud's replies (present acks, cursor/attach acks) into the in-flight
+    /// accounting. The endpoint is ours by construction since routing v2 (RFC-0093 §1):
+    /// the reply nonce makes an answer that is not ours impossible to accept, so the
+    /// "is this actually our inbox?" guard this drain used to carry is gone with the
+    /// nonce-less protocol that needed it.
     pub(crate) fn drain_gpud_replies(&mut self) {
         if self.framebuffer_pending_first_write {
             return;
         }
-        let Some(recv_slot) = self.gpud_client.as_ref().map(|c| c.slots().1) else {
-            return;
-        };
-        if recv_slot == SERVER_RECV_SLOT.load(Ordering::Relaxed) {
-            if !ALIAS_REPORTED.swap(true, Ordering::Relaxed) {
-                let _ = debug_println(&alloc::format!(
-                    "windowd: FAIL gpud reply endpoint aliases server inbox slot={recv_slot} — drain skipped"
-                ));
-            }
+        if self.gpud_client.is_none() {
             return;
         }
         // Stack-buffer drain: recv_into avoids the per-call Vec<u8> that

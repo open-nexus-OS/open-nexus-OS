@@ -231,31 +231,35 @@ fn exchange_status_on(
         return None;
     }
 
+    // RFC-0093 §1 (TASK-0324 P3): WAIT for the answer, do not poll for it. The old loop
+    // spun NONBLOCK + `yield_()` against a wall-clock deadline, so a policyd that was alive
+    // but not scheduled inside the budget looked exactly like a policyd that never answered
+    // — and the caller then denied SILENTLY (`SELFTEST: statefs persist FAIL`, ~1 in 14 smp1
+    // boots). A deadline-bounded BLOCKING recv is woken by the arriving reply, so the
+    // deadline only fires when the peer really did not answer.
+    //
+    // The reply inbox is shared across a service's outbound calls, so a frame belonging to
+    // another in-flight exchange can arrive here; it is dropped (its own exchange re-reads
+    // or times out) and we keep waiting for OUR nonce until the deadline.
     loop {
+        let now = nexus_abi::nsec().unwrap_or(0);
+        if now >= deadline {
+            return None;
+        }
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 32];
         match nexus_abi::ipc_recv_v1(
             reply_recv_slot,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
+            nexus_abi::IPC_SYS_TRUNCATE,
+            deadline,
         ) {
             Ok(n) => {
                 let n = core::cmp::min(n as usize, buf.len());
                 if let Some(status) = decode_status_v2(&buf[..n], op, nonce) {
                     return Some(status);
                 }
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return None;
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return None;
-                }
-                let _ = nexus_abi::yield_();
             }
             Err(_) => return None,
         }

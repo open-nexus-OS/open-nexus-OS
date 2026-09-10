@@ -12,6 +12,7 @@
 //! Runs the init-lite control-channel responder: processes route-get, health-ok,
 //! and exec-check requests from spawned services, consulting policyd for gating.
 
+use crate::bootstrap::route_reply;
 use crate::bootstrap::CtrlChannel;
 use crate::route_table::RouteTable;
 use alloc::vec::Vec;
@@ -50,10 +51,21 @@ pub(crate) fn run_responder_loop(
     // RFC-0093 §2 / ADR-0062: `init: up <svc>` is emitted from the `@ready` arm below and
     // nowhere else — a service is ready when it says so, not when init resumed it.
     let mut ready = crate::ready_table::ReadyTable::new();
+    // RFC-0093 §1 (TASK-0324 P3): an ask whose target is momentarily unresolvable (the
+    // supervisor marked it stale and is restarting it) is PARKED and answered exactly once
+    // when the route is re-provisioned — the client never re-asks in a loop.
+    let mut park = crate::route_park::RoutePark::new();
     let init_fold = nexus_abi::boot_should_fold_verdicts();
     loop {
-        supervision.sweep(&mut ctrl_channels, &mut route_table, &mut respawner, &mut ready);
-        for chan in &ctrl_channels {
+        supervision.sweep(
+            &mut ctrl_channels,
+            &mut route_table,
+            &mut respawner,
+            &mut ready,
+            &mut park,
+        );
+        route_reply::answer_parked_routes(&mut park, &ctrl_channels, &route_table);
+        for (chan_idx, chan) in ctrl_channels.iter().enumerate() {
             let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
             let mut buf = [0u8; 64];
             let n = match nexus_abi::ipc_recv_v1(
@@ -215,6 +227,24 @@ pub(crate) fn run_responder_loop(
                 }
                 continue;
             }
+            // RFC-0093 §1: every ask that gets an ANSWER must carry a nonce — without it
+            // the answer can be consumed by the wrong waiter (the class that made windowd
+            // bind its own inbox and packagefsd fall back to a RAM seed). `@ready` above is
+            // exempt by construction: it is one-way and has nothing to correlate.
+            let Some(route_nonce) = route_nonce else {
+                crate::bootstrap::diag::emit_marker_atomic(
+                    &[
+                        b"!route-malformed: ",
+                        chan.svc_name.as_bytes(),
+                        b" -> ",
+                        name,
+                        b" (route ask without nonce)",
+                    ],
+                    None,
+                );
+                route_reply::send_route_malformed(chan);
+                continue;
+            };
             if name == b"@mint-pair" {
                 // Dynamic per-launch endpoint mint (correlation fix,
                 // production-grade): execd asks; init — the EndpointFactory
@@ -256,30 +286,7 @@ pub(crate) fn run_responder_loop(
                     debug_write_bytes(b"init: mint-pair denied (not allowlisted)\n");
                     (nexus_abi::routing::STATUS_NOT_FOUND, 0, 0)
                 };
-                if let Some(nonce) = route_nonce {
-                    let base = nexus_abi::routing::encode_route_rsp(status, send_slot, recv_slot);
-                    let mut rsp = [0u8; 17];
-                    rsp[..13].copy_from_slice(&base);
-                    rsp[13..17].copy_from_slice(&nonce.to_le_bytes());
-                    let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
-                    let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot,
-                        &rh,
-                        &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK,
-                        0,
-                    );
-                } else {
-                    let rsp = nexus_abi::routing::encode_route_rsp(status, send_slot, recv_slot);
-                    let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
-                    let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot,
-                        &rh,
-                        &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK,
-                        0,
-                    );
-                }
+                route_reply::send_route_rsp(chan, status, send_slot, recv_slot, route_nonce);
                 continue;
             }
             if name == b"@reply" {
@@ -290,30 +297,7 @@ pub(crate) fn run_responder_loop(
                 };
                 let send_slot = chan.reply_send_slot.unwrap_or(0);
                 let recv_slot = chan.reply_recv_slot.unwrap_or(0);
-                if let Some(nonce) = route_nonce {
-                    let base = nexus_abi::routing::encode_route_rsp(status, send_slot, recv_slot);
-                    let mut rsp = [0u8; 17];
-                    rsp[..13].copy_from_slice(&base);
-                    rsp[13..17].copy_from_slice(&nonce.to_le_bytes());
-                    let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
-                    let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot,
-                        &rh,
-                        &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK,
-                        0,
-                    );
-                } else {
-                    let rsp = nexus_abi::routing::encode_route_rsp(status, send_slot, recv_slot);
-                    let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
-                    let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot,
-                        &rh,
-                        &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK,
-                        0,
-                    );
-                }
+                route_reply::send_route_rsp(chan, status, send_slot, recv_slot, route_nonce);
                 continue;
             }
             let allowed = if name == chan.svc_name.as_bytes() {
@@ -324,8 +308,26 @@ pub(crate) fn run_responder_loop(
                 policyd_route_allowed(pol_ctl_route_req, pol_ctl_route_rsp, chan.svc_name, name)
                     .unwrap_or(false)
             } else {
-                policyd_route_allowed(pol_ctl_route_req, pol_ctl_route_rsp, chan.svc_name, name)
-                    .unwrap_or(true)
+                // RFC-0093 §1: fail-closed. An unreachable policy authority used to mean
+                // "allow" — privilege by outage. Now it denies and NAMES the outage.
+                match policyd_route_allowed(
+                    pol_ctl_route_req,
+                    pol_ctl_route_rsp,
+                    chan.svc_name,
+                    name,
+                ) {
+                    Some(verdict) => verdict,
+                    None => {
+                        if route_deny_first_time(chan.svc_name, name) {
+                            debug_write_bytes(b"!route-deny: ");
+                            debug_write_str(chan.svc_name);
+                            debug_write_bytes(b" -> ");
+                            debug_write_bytes(name);
+                            debug_write_bytes(b" (policy unavailable)\n");
+                        }
+                        false
+                    }
+                }
             };
             if !allowed {
                 // Direct, greppable route-denial error (RFC-0066): a policy-denied
@@ -340,48 +342,47 @@ pub(crate) fn run_responder_loop(
                     debug_write_bytes(name);
                     debug_write_bytes(b" (policy: missing ipc.core grant in base.toml?)\n");
                 }
-                if let Some(nonce) = route_nonce {
-                    let base = nexus_abi::routing::encode_route_rsp(
-                        nexus_abi::routing::STATUS_DENIED,
-                        0,
-                        0,
-                    );
-                    let mut rsp = [0u8; 17];
-                    rsp[..13].copy_from_slice(&base);
-                    rsp[13..17].copy_from_slice(&nonce.to_le_bytes());
-                    let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
-                    let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot,
-                        &rh,
-                        &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK,
-                        0,
-                    );
-                } else {
-                    let rsp = nexus_abi::routing::encode_route_rsp(
-                        nexus_abi::routing::STATUS_DENIED,
-                        0,
-                        0,
-                    );
-                    let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
-                    let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot,
-                        &rh,
-                        &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK,
-                        0,
-                    );
-                }
+                route_reply::send_route_rsp(
+                    chan,
+                    nexus_abi::routing::STATUS_DENIED,
+                    0,
+                    0,
+                    route_nonce,
+                );
                 continue;
             }
 
             let (status, send_slot, recv_slot) =
                 match route_table.lookup_by_name(chan.svc_name.as_bytes(), name) {
                     Ok(route) => (nexus_abi::routing::STATUS_OK, route.send.slot, route.recv.slot),
-                    // ADR-0057: a dead target answers STALE — never the dangling
-                    // slots of a corpse, and never a misleading NOT_FOUND.
+                    // ADR-0057 + RFC-0093 §1: a dead-but-supervised target is not answered
+                    // at all — the ask is PARKED and answered once the supervisor
+                    // re-provisions the route. Answering STALE here is what made clients
+                    // re-ask in a loop and flood init's control queue (P2 finding).
                     Err(crate::route_table::RouteError::TargetStale) => {
-                        (nexus_abi::routing::STATUS_STALE, 0u32, 0u32)
+                        match crate::service_topology::ServiceId::from_name(name) {
+                            Some(target) => {
+                                let ask = crate::route_park::ParkedRoute {
+                                    chan: chan_idx as u16,
+                                    target,
+                                    nonce: route_nonce,
+                                };
+                                if park.park(ask).is_ok() {
+                                    continue;
+                                }
+                                crate::bootstrap::diag::emit_marker_atomic(
+                                    &[
+                                        b"init: FAIL route park overflow svc=",
+                                        chan.svc_name.as_bytes(),
+                                        b" -> ",
+                                        name,
+                                    ],
+                                    None,
+                                );
+                                (nexus_abi::routing::STATUS_STALE, 0u32, 0u32)
+                            }
+                            None => (nexus_abi::routing::STATUS_STALE, 0u32, 0u32),
+                        }
                     }
                     Err(_) => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 };
@@ -432,30 +433,7 @@ pub(crate) fn run_responder_loop(
                 debug_write_hex(recv_slot as usize);
                 debug_write_byte(b'\n');
             }
-            if let Some(nonce) = route_nonce {
-                let base = nexus_abi::routing::encode_route_rsp(status, send_slot, recv_slot);
-                let mut rsp = [0u8; 17];
-                rsp[..13].copy_from_slice(&base);
-                rsp[13..17].copy_from_slice(&nonce.to_le_bytes());
-                let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
-                let _ = nexus_abi::ipc_send_v1(
-                    chan.ctrl_rsp_parent_slot,
-                    &rh,
-                    &rsp,
-                    nexus_abi::IPC_SYS_NONBLOCK,
-                    0,
-                );
-            } else {
-                let rsp = nexus_abi::routing::encode_route_rsp(status, send_slot, recv_slot);
-                let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
-                let _ = nexus_abi::ipc_send_v1(
-                    chan.ctrl_rsp_parent_slot,
-                    &rh,
-                    &rsp,
-                    nexus_abi::IPC_SYS_NONBLOCK,
-                    0,
-                );
-            }
+            route_reply::send_route_rsp(chan, status, send_slot, recv_slot, route_nonce);
         }
         responder_idle(waitset);
         if let Some(limit) = watchdog {

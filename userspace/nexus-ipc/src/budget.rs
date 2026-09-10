@@ -261,7 +261,6 @@ pub fn route_with_nonce_budgeted(
 
     let mut mismatches: u32 = 0;
     let mut loops: usize = 0;
-    let mut stale_seen = false;
     loop {
         if (loops & 0x1f) == 0 {
             match clock.now_ns() {
@@ -275,13 +274,10 @@ pub fn route_with_nonce_budgeted(
         let mut buf = [0u8; 32];
         let n = match raw::recv_budgeted(&clock, ctrl_recv_slot, &mut rh, &mut buf, deadline_ns) {
             Ok(v) => core::cmp::min(v, buf.len()),
-            Err(IpcError::Timeout) => {
-                return if stale_seen {
-                    RouteRetryOutcome::TargetStale
-                } else {
-                    RouteRetryOutcome::Timeout
-                }
-            }
+            // No answer inside the budget. Since RFC-0093 §1 the ask may be PARKED in
+            // init (a restarting target); the caller retries on its own cadence with a
+            // fresh nonce, which replaces the parked ask.
+            Err(IpcError::Timeout) => return RouteRetryOutcome::Timeout,
             Err(e) => return RouteRetryOutcome::Ipc(e),
         };
 
@@ -315,34 +311,13 @@ pub fn route_with_nonce_budgeted(
             return RouteRetryOutcome::Success { send_slot, recv_slot };
         }
         if status == nexus_abi::routing::STATUS_STALE {
-            // ADR-0057 re-resolve: the target is dead but supervised — the
-            // supervisor restarts and re-provisions it, so KEEP RETRYING
-            // this same nonce-correlated ask until the deadline (RFC-0025
-            // bounded semantics). A dead-forever target ends as TargetStale,
-            // never as a hammering loop or a silent Rejected.
-            match clock.now_ns() {
-                Some(now) if now >= deadline_ns => return RouteRetryOutcome::TargetStale,
-                Some(_) => {
-                    stale_seen = true;
-                    let _ = nexus_abi::yield_();
-                    loops = loops.wrapping_add(1);
-                    if let Err(e) = raw::send_budgeted(
-                        &clock,
-                        ctrl_send_slot,
-                        &hdr,
-                        &req[..req_len],
-                        deadline_ns,
-                    ) {
-                        return match e {
-                            IpcError::Timeout if stale_seen => RouteRetryOutcome::TargetStale,
-                            IpcError::Timeout => RouteRetryOutcome::Timeout,
-                            other => RouteRetryOutcome::Ipc(other),
-                        };
-                    }
-                    continue;
-                }
-                None => return RouteRetryOutcome::Ipc(IpcError::Unsupported),
-            }
+            // RFC-0093 §1 (TASK-0324 P3): STALE is TERMINAL here. A dead-but-supervised
+            // target is not answered at all any more — init PARKS the ask and answers it
+            // once the supervisor re-provisions the route. The re-ask loop that used to
+            // live here is exactly the client-side polling routing v2 deletes; a STALE that
+            // still arrives means init could not park (overflow, loud on its side), and the
+            // caller decides — never a hammering loop.
+            return RouteRetryOutcome::TargetStale;
         }
         return RouteRetryOutcome::Rejected;
     }

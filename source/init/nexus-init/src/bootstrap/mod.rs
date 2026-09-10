@@ -25,6 +25,7 @@ pub(crate) mod responder;
 pub(crate) mod resume;
 pub(crate) mod route_builder;
 pub(crate) mod route_provision;
+pub(crate) mod route_reply;
 pub(crate) mod settings_watch_route;
 pub(crate) mod spawn;
 pub(crate) mod supervision;

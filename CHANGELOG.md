@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-10 (TASK-0324 P3: routing v2 — one correlated ask, parked replies, fail-closed policy)
+
+- Routing v1 is gone: `query_route` (a nonce-less ROUTE_GET preceded by a 32-frame "drain
+  stale replies" prologue) and `ROUTE_QUERY_TIMEOUT` are deleted; `KernelClient::new_for` and
+  `KernelServer::new_for` resolve through `budget::route_with_nonce_budgeted` — ONE ask,
+  nonce-correlated, bounded (`ROUTE_ASK_BUDGET`), never re-asked inside the library.
+- init's responder: the nonce is MANDATORY (a nonce-less ask answers `STATUS_MALFORMED` with a
+  `!route-malformed` witness); every reply goes through one helper module
+  (`bootstrap/route_reply.rs`) that echoes the nonce, retries a bounded number of times against
+  a transient full queue and is LOUD when a reply still cannot be delivered
+  (`init: FAIL route reply drop svc=…`) — six duplicated reply blocks collapsed into it.
+- Parked asks (`src/route_park.rs`, host-tested): an ask whose target is stale/restarting is
+  held and answered exactly once when the route is re-provisioned (`init: route resumed`),
+  instead of answering STALE and letting the client re-ask in a loop; a re-ask replaces the
+  parked entry, an exiting requester loses its asks, and overflow is loud. The client-side
+  STALE re-ask loop in `budget.rs` is deleted (STALE is terminal for an ask).
+- Policy is fail-closed: an unreachable policyd used to mean "allow" (privilege by outage); it
+  now denies and names the outage (`!route-deny: … (policy unavailable)`).
+- windowd's route-alias guards are deleted — the bind guard that rejected an answer equal to
+  its own inbox and the matching drain refusal existed only because a v1 answer could not be
+  correlated; the mandatory nonce makes that answer impossible to accept.
+- Gate `scripts/check-init-sync.sh` grew the routing-v2 rules: no `query_route` anywhere, no
+  alias guards in windowd, and no route reply built outside `route_reply::send_route_rsp`.
+- Policy decisions are never silent any more: `nexus_ipc::policyd::exchange_status_on` waits
+  for the reply (deadline-bounded blocking recv) instead of polling NONBLOCK against a
+  wall clock, and statefsd distinguishes "denied" from "authority unreachable"
+  (`statefsd: FAIL policy unreachable cap=…`, still fail-closed). This is the root cause of
+  the intermittent `SELFTEST: statefs persist FAIL` (~1 in 14 smp1 boots since 2026-09-07):
+  a policyd that was alive but not scheduled inside 500 ms looked exactly like one that never
+  answered, and the caller then denied without a witness.
+- Proven 2026-09-10: `just test-all` green (exit=0) over smp1, visible, reset and the five
+  OTA lanes — zero malformed asks, zero dropped replies, zero policy-unreachable events, and
+  the park observed working in every lane (`init: route resumed svc=selftest-client -> pinched`
+  exactly three times, one per restart cycle of the supervision probe).
+- RFC-0093 §1 amended with implementation evidence: an ask parks on an UNRESOLVABLE target,
+  never on the target's readiness — waiting for readiness inside a synchronous route ask is
+  cyclic (`bundlemgrd` asks for `metricsd`, which boots from the volume `bundlemgrd` serves).
+  Readiness ordering is the stage fence (P5).
+
 ### Changed - 2026-09-09 (TASK-0324 P2: `@ready` announce — `init: up` is the service's own readiness, not a resume)
 
 - `nexus_service_entry::ready(marker)` is the ONE readiness point of a service: it prints

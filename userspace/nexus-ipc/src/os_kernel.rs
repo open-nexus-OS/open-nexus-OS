@@ -14,7 +14,6 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
 use crate::{Client, IpcError, Result, Server, Wait};
@@ -36,156 +35,44 @@ pub fn supports_service_routing() -> bool {
 const CTRL_SEND_SLOT: u32 = 1; // init-lite transfers control REQ (child SEND) into slot 1.
 const CTRL_RECV_SLOT: u32 = 2; // init-lite transfers control RSP (child RECV) into slot 2.
 
-// Routing queries can be policy-gated inside init-lite (policyd roundtrip). Keep this comfortably
-// above the policyd control-plane deadline to avoid flaky bring-up under QEMU.
-const ROUTE_QUERY_TIMEOUT: Duration = Duration::from_secs(8);
-static PKG_ROUTE_OK_LOGGED: AtomicBool = AtomicBool::new(false);
-static PKG_ROUTE_NOT_FOUND_LOGGED: AtomicBool = AtomicBool::new(false);
-static PKG_ROUTE_DENIED_LOGGED: AtomicBool = AtomicBool::new(false);
-static PKG_ROUTE_MALFORMED_LOGGED: AtomicBool = AtomicBool::new(false);
-static PKG_ROUTE_OTHER_LOGGED: AtomicBool = AtomicBool::new(false);
-static PKG_ROUTE_TIMEOUT_LOGGED: AtomicBool = AtomicBool::new(false);
-static PKG_ROUTE_UNSUPPORTED_LOGGED: AtomicBool = AtomicBool::new(false);
-static PKG_ROUTE_KERNEL_LOGGED: AtomicBool = AtomicBool::new(false);
+/// Budget for ONE route ask (RFC-0093 §1, TASK-0324 P3).
+///
+/// The library asks exactly once and waits for the nonce-correlated answer; it never re-asks
+/// (the re-ask storm filled init's control queue — TASK-0324 P2). Callers that can live
+/// without the route retry on their own cadence with a fresh nonce; init replaces a parked
+/// ask from the same requester, so a retry never accumulates state.
+const ROUTE_ASK_BUDGET: Duration = Duration::from_millis(250);
 
-fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
+/// Nonce mismatches tolerated while draining answers meant for a superseded ask.
+const ROUTE_NONCE_MISMATCH_BUDGET: u32 = 32;
+
+/// Resolves `target` through init's responder — ONE nonce-correlated ask.
+///
+/// Routing v1 (nonce-less, plus a 32-frame "drain stale replies" prologue) is gone: without a
+/// nonce an answer could be consumed by the wrong waiter, which is why windowd once bound its
+/// own inbox as gpud and packagefsd silently fell back to a RAM seed. The nonce makes a
+/// mismatched answer detectable, so the drain — and every guard built on top of it — is
+/// unnecessary.
+fn resolve_route(target: &str) -> Result<(u32, u32)> {
+    use crate::budget::{route_with_nonce_budgeted, NonceMismatchBudget, RouteRetryOutcome};
     let name = target.as_bytes();
     if name.is_empty() || name.len() > nexus_abi::routing::MAX_SERVICE_NAME_LEN {
         return Err(IpcError::Unsupported);
     }
-    // Drain stale responses on the per-service control reply channel.
-    //
-    // Routing uses a simple request/response frame without a nonce. If a previous ROUTE_RSP is
-    // still queued (e.g. due to bring-up scheduling jitter), we'd otherwise consume the wrong
-    // response and mis-route future IPC (a boot-killer for CAP_MOVE flows).
-    for _ in 0..32 {
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
-        match nexus_abi::ipc_recv_v1(
-            CTRL_RECV_SLOT,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(_) => continue,
-            Err(nexus_abi::IpcError::QueueEmpty) => break,
-            Err(_) => break,
+    match route_with_nonce_budgeted(
+        name,
+        CTRL_SEND_SLOT,
+        CTRL_RECV_SLOT,
+        ROUTE_ASK_BUDGET,
+        NonceMismatchBudget::new(ROUTE_NONCE_MISMATCH_BUDGET),
+    ) {
+        RouteRetryOutcome::Success { send_slot, recv_slot } => Ok((send_slot, recv_slot)),
+        RouteRetryOutcome::Timeout | RouteRetryOutcome::TargetStale => Err(IpcError::Timeout),
+        RouteRetryOutcome::NonceMismatchBudgetExceeded | RouteRetryOutcome::Rejected => {
+            Err(IpcError::Unsupported)
         }
+        RouteRetryOutcome::Ipc(err) => Err(err),
     }
-    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN];
-    let req_len =
-        nexus_abi::routing::encode_route_get(name, &mut req).ok_or(IpcError::Unsupported)?;
-
-    // Routing v1 has no nonce; avoid long blocking waits. Use NONBLOCK syscalls and an explicit,
-    // short per-attempt budget (caller-level retries handle longer waits).
-    let start_ns = nexus_abi::nsec().map_err(|_| IpcError::Unsupported)?;
-    let per_attempt_ns: u64 = match wait {
-        Wait::NonBlocking => 0,
-        Wait::Blocking => duration_to_ns(Duration::from_millis(100)),
-        Wait::Timeout(d) => {
-            core::cmp::min(duration_to_ns(d), duration_to_ns(Duration::from_millis(100)))
-        }
-    };
-    let deadline_ns = start_ns.saturating_add(per_attempt_ns);
-
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
-    if matches!(wait, Wait::NonBlocking) {
-        nexus_abi::ipc_send_v1(
-            CTRL_SEND_SLOT,
-            &hdr,
-            &req[..req_len],
-            nexus_abi::IPC_SYS_NONBLOCK,
-            0,
-        )
-        .map(|_| ())
-        .map_err(|e| map_send_err(e, wait))?;
-    } else {
-        let clock = crate::budget::OsClock;
-        crate::budget::raw::send_budgeted(
-            &clock,
-            CTRL_SEND_SLOT,
-            &hdr,
-            &req[..req_len],
-            deadline_ns,
-        )
-        .map_err(|e| match e {
-            IpcError::Timeout => IpcError::Timeout,
-            other => other,
-        })?;
-    }
-
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut buf = [0u8; 32];
-    let n = if matches!(wait, Wait::NonBlocking) {
-        nexus_abi::ipc_recv_v1(
-            CTRL_RECV_SLOT,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        )
-        .map(|n| n as usize)
-        .map_err(|e| map_recv_err(e, wait))?
-    } else {
-        let clock = crate::budget::OsClock;
-        crate::budget::raw::recv_budgeted(&clock, CTRL_RECV_SLOT, &mut rh, &mut buf, deadline_ns)
-            .map_err(|e| match e {
-                IpcError::Timeout => IpcError::Timeout,
-                other => other,
-            })?
-    };
-    let (status, send_slot, recv_slot) =
-        nexus_abi::routing::decode_route_rsp(&buf[..n]).ok_or(IpcError::Unsupported)?;
-    if target == "packagefsd" {
-        match status {
-            nexus_abi::routing::STATUS_OK => {
-                if !PKG_ROUTE_OK_LOGGED.swap(true, Ordering::Relaxed) {
-                    // #region agent log
-                    let _ = nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=ok");
-                    // #endregion
-                }
-            }
-            nexus_abi::routing::STATUS_NOT_FOUND => {
-                if !PKG_ROUTE_NOT_FOUND_LOGGED.swap(true, Ordering::Relaxed) {
-                    // #region agent log
-                    let _ = nexus_abi::debug_println(
-                        "dbg:nexus-ipc: route packagefsd status=not-found",
-                    );
-                    // #endregion
-                }
-            }
-            nexus_abi::routing::STATUS_DENIED => {
-                if !PKG_ROUTE_DENIED_LOGGED.swap(true, Ordering::Relaxed) {
-                    // #region agent log
-                    let _ =
-                        nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=denied");
-                    // #endregion
-                }
-            }
-            nexus_abi::routing::STATUS_MALFORMED => {
-                if !PKG_ROUTE_MALFORMED_LOGGED.swap(true, Ordering::Relaxed) {
-                    // #region agent log
-                    let _ = nexus_abi::debug_println(
-                        "dbg:nexus-ipc: route packagefsd status=malformed",
-                    );
-                    // #endregion
-                }
-            }
-            _ => {
-                if !PKG_ROUTE_OTHER_LOGGED.swap(true, Ordering::Relaxed) {
-                    // #region agent log
-                    let _ =
-                        nexus_abi::debug_println("dbg:nexus-ipc: route packagefsd status=other");
-                    // #endregion
-                }
-            }
-        }
-    }
-    if status != nexus_abi::routing::STATUS_OK {
-        return Err(IpcError::Unsupported);
-    }
-    Ok((send_slot, recv_slot))
 }
 
 fn wait_to_sys(wait: Wait) -> core::result::Result<(u32, u64), IpcError> {
@@ -240,44 +127,8 @@ impl KernelClient {
 
     /// Creates a client for a specific target.
     pub fn new_for(target: &str) -> Result<Self> {
-        match query_route(target, Wait::Timeout(ROUTE_QUERY_TIMEOUT)) {
-            Ok((send_slot, recv_slot)) => Ok(Self { send_slot, recv_slot }),
-            Err(err) => {
-                if target == "packagefsd" {
-                    match err {
-                        IpcError::Timeout => {
-                            if !PKG_ROUTE_TIMEOUT_LOGGED.swap(true, Ordering::Relaxed) {
-                                // #region agent log
-                                let _ = nexus_abi::debug_println(
-                                    "dbg:nexus-ipc: route packagefsd new_for timeout",
-                                );
-                                // #endregion
-                            }
-                        }
-                        IpcError::Unsupported => {
-                            if !PKG_ROUTE_UNSUPPORTED_LOGGED.swap(true, Ordering::Relaxed) {
-                                // #region agent log
-                                let _ = nexus_abi::debug_println(
-                                    "dbg:nexus-ipc: route packagefsd new_for unsupported",
-                                );
-                                // #endregion
-                            }
-                        }
-                        IpcError::Kernel(_) => {
-                            if !PKG_ROUTE_KERNEL_LOGGED.swap(true, Ordering::Relaxed) {
-                                // #region agent log
-                                let _ = nexus_abi::debug_println(
-                                    "dbg:nexus-ipc: route packagefsd new_for kernel",
-                                );
-                                // #endregion
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                Err(err)
-            }
-        }
+        let (send_slot, recv_slot) = resolve_route(target)?;
+        Ok(Self { send_slot, recv_slot })
     }
 
     /// Creates a client using explicit capability slot numbers for send/recv.
@@ -430,10 +281,8 @@ impl KernelServer {
     /// Creates a server bound to a named service target.
     pub fn new_for(service: &str) -> Result<Self> {
         // Routing reply is (send_slot, recv_slot) from the caller's perspective.
-        match query_route(service, Wait::Timeout(ROUTE_QUERY_TIMEOUT)) {
-            Ok((send_slot, recv_slot)) => Self::new_with_slots(recv_slot, send_slot),
-            Err(err) => Err(err),
-        }
+        let (send_slot, recv_slot) = resolve_route(service)?;
+        Self::new_with_slots(recv_slot, send_slot)
     }
 
     /// Returns the raw capability slots backing this server (recv_slot, send_slot).

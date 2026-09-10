@@ -108,6 +108,7 @@ impl SupervisionSweep {
         route_table: &mut crate::route_table::RouteTable,
         respawner: &mut crate::bootstrap::respawn::Respawner,
         ready: &mut crate::ready_table::ReadyTable,
+        park: &mut crate::route_park::RoutePark,
     ) {
         // init's child count is the boot service fleet; 8 per round drains
         // any realistic burst without letting a pathological loop spin.
@@ -128,6 +129,10 @@ impl SupervisionSweep {
                         continue;
                     }
                     ready.on_exit(pid);
+                    // A parked ask from a dead requester would be answered into a corpse.
+                    if let Some(idx) = channels.iter().position(|c| c.pid == pid) {
+                        park.drop_chan(idx as u16);
+                    }
                     announce_service_exit(pid, code, reason, channels, route_table, respawner);
                 }
                 Ok(None) | Err(_) => break,
