@@ -51,14 +51,14 @@ use state::DslApp;
 /// RECV on windowd's shared response endpoint into 6 (the inputd slot
 /// convention). The child may run before the transfer lands, so every
 /// first use retries bounded (the #123 empty-slot lesson).
-const WINDOWD_SEND_SLOT: u32 = 5;
-const WINDOWD_RECV_SLOT: u32 = 6;
+const WINDOWD_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD.send;
+const WINDOWD_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD.recv;
 /// The app's DEDICATED event channel (ADR-0042): windowd delivers input
 /// events AND surface acks here — the shared response endpoint (slot 6)
 /// raced with inputd's ack drain, so a tap sent there could be consumed
 /// by any receiver. Slot 6 stays as the fallback for older wiring
 /// (marked).
-const EVENTS_RECV_SLOT: u32 = 8;
+const EVENTS_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_RECV;
 
 // The embedded fallback payload is DELETED (separation of concerns):
 // program bytes belong to bundlemgrd (the registry) ONLY. A missing/broken
@@ -69,12 +69,12 @@ const EVENTS_RECV_SLOT: u32 = 8;
 /// Fixed child slot holding the payload VMO (execd's
 /// `CHILD_PAYLOAD_SLOT`); bundlemgrd fills it and writes the 16-byte
 /// header LAST (`nexus_abi::bundlemgrd::encode_payload_header`).
-const PAYLOAD_VMO_SLOT: u32 = 7;
+const PAYLOAD_VMO_SLOT: u32 = nexus_service_topology::slots::app_child::PAYLOAD_VMO;
 /// SEND-side clone of OUR OWN event channel (execd grants it alongside the
 /// RECV side): the app-host attaches it to windowd ITSELF, tagged with a
 /// self-minted nonce that SURFACE_CREATE repeats — windowd binds
 /// channel↔surface by nonce (deterministic under concurrent connects).
-const EVENTS_SEND_CLONE_SLOT: u32 = 14;
+const EVENTS_SEND_CLONE_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_SEND;
 /// Header-poll budget: the fetch is kicked BEFORE our ELF even loads, so
 /// the header normally beats us; the budget only bounds failure. 3s→8s
 /// (RFC-0075 Phase 8d): the CJK-atlas-grown image lengthened early-boot
@@ -105,7 +105,7 @@ fn payload_addr() -> usize {
 }
 
 /// RFC-0080: slot execd grants the shared atlas VMO into (=execd `CHILD_ATLAS_VMO_SLOT`; clear of sdk-routes child_slots 11..=18).
-const ATLAS_VMO_SLOT: u32 = 19;
+const ATLAS_VMO_SLOT: u32 = nexus_service_topology::slots::app_child::ATLAS_VMO;
 
 /// Maps the shared atlas VMO READ-only and installs it as the text atlas
 /// base, so this app-host renders from ONE shared copy instead of its own

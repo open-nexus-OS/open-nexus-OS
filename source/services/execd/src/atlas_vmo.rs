@@ -19,7 +19,7 @@
 /// `settings` route (`nexus.permission.SETTINGS`), so the settings app's
 /// settingsd grant failed and no toggled setting applied. Kept at 19 (above the
 /// route range); the matching constant is `app-host`'s `ATLAS_VMO_SLOT`.
-const CHILD_ATLAS_VMO_SLOT: u32 = 19;
+const CHILD_ATLAS_VMO_SLOT: u32 = nexus_service_topology::slots::app_child::ATLAS_VMO;
 
 /// Creates the shared glyph-atlas VMO and fills it from the embedded blob (one
 /// copy for ALL app-hosts). Returns execd's cap slot, or `None` on any failure

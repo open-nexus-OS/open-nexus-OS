@@ -16,6 +16,36 @@ use crate::{NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
 pub mod slots {
     use super::SlotPair;
 
+    /// The capability table of a SPAWNED APP CHILD (TASK-0324 P4e).
+    ///
+    /// A per-app space, distinct from the service slots above: execd grants into it at
+    /// launch (`cap_transfer_to_slot`) and the app-host reads from it. Before P4e the same
+    /// numbers lived three times — execd's grant constants, the app-host's fixed constants
+    /// and `nexus-sdk-routes` — and the comments on each side said "the other side's fixed
+    /// constant", which is a contract only a reader can enforce.
+    pub mod app_child {
+        use super::SlotPair;
+
+        /// Windowd client route (present/attach; windowd answers on its own endpoint).
+        pub const WINDOWD: SlotPair = SlotPair::new(5, 6);
+        /// The app's `.nxir` payload VMO.
+        pub const PAYLOAD_VMO: u32 = 7;
+        /// ADR-0042 per-app event channel: the child's RECV half.
+        pub const EVENTS_RECV: u32 = 8;
+        /// Shared CAP_MOVE reply inbox for every `svc.*` call.
+        pub const REPLY: SlotPair = SlotPair::new(10, 9);
+        /// First per-service SEND slot; `nexus-sdk-routes` rows start here.
+        pub const SVC_BASE: u32 = 11;
+        /// SEND clone of the child's own event channel (it attaches this to windowd).
+        pub const EVENTS_SEND: u32 = 14;
+        /// Shared read-only glyph atlas VMO (RFC-0080).
+        pub const ATLAS_VMO: u32 = 19;
+        /// statefs route of the `demo.minidump` payload. Numerically the same slots as
+        /// `PAYLOAD_VMO`/`EVENTS_RECV`, which is safe because those are only granted to
+        /// app-host children and this pair only to the exit42 test image.
+        pub const MINIDUMP_STATEFS: SlotPair = SlotPair::new(7, 8);
+    }
+
     /// gpud (TASK-0324 P4c).
     pub mod gpud {
         use super::SlotPair;

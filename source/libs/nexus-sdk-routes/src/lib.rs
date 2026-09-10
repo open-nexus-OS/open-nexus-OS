@@ -44,12 +44,12 @@ pub struct ServiceRoute {
 
 /// The child's shared reply inbox (RECV) — every service reply lands here;
 /// requests carry a moved SEND clone of it so the service answers this slot.
-pub const CHILD_REPLY_RECV_SLOT: u32 = 9;
+pub const CHILD_REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::REPLY.recv;
 /// The SEND half of the reply inbox (the child clones + moves it per request).
-pub const CHILD_REPLY_SEND_SLOT: u32 = 10;
+pub const CHILD_REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::REPLY.send;
 /// First per-service SEND slot; `ServiceRoute::child_slot` values start here.
 /// (Child slots 5/6 = windowd, 7 = payload, 8 = events are already taken.)
-pub const CHILD_SVC_SLOT_BASE: u32 = 11;
+pub const CHILD_SVC_SLOT_BASE: u32 = nexus_service_topology::slots::app_child::SVC_BASE;
 
 /// The curated routing table (SSOT). Add a service by adding a row.
 pub const SERVICE_ROUTES: &[ServiceRoute] = &[

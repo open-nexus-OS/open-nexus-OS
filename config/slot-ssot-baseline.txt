@@ -22,15 +22,10 @@
 2	source/init/nexus-init/src/bootstrap/spawn.rs
 1	source/init/nexus-init/src/os_payload.rs
 4	source/services/abilitymgr/src/os_lite.rs
-1	source/services/app-host/src/effect_host.rs
-1	source/services/app-host/src/effect_ime.rs
-1	source/services/app-host/src/effect_windows.rs
-6	source/services/app-host/src/probe/mod.rs
 4	source/services/bootctld/src/os_lite.rs
 2	source/services/bundlemgrd/src/os_lite.rs
 2	source/services/dsoftbusd/src/os/entry.rs
-1	source/services/execd/src/atlas_vmo.rs
-9	source/services/execd/src/child_grants.rs
+2	source/services/execd/src/child_grants.rs
 8	source/services/execd/src/os_lite.rs
 1	source/services/execd/src/std_server.rs
 8	source/services/imed/src/os_lite.rs

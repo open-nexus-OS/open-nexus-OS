@@ -378,7 +378,8 @@ impl AppEffectHost {
             {
                 use nexus_display_proto::client_surface as wire;
                 let frame = wire::encode_surface_control(wire::CONTROL_LAUNCH_PENDING, 0);
-                const WINDOWD_SEND_SLOT: u32 = 5;
+                const WINDOWD_SEND_SLOT: u32 =
+                    nexus_service_topology::slots::app_child::WINDOWD.send;
                 let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
                 let _ = nexus_abi::ipc_send_v1(
                     WINDOWD_SEND_SLOT,

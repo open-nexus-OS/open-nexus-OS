@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-10 (TASK-0324 P4e: the app-child capability table has one home)
+
+- The capability table a spawned app child receives is declared once in
+  `nexus_service_topology::slots::app_child`: windowd route 5/6, payload VMO 7, event channel
+  RECV 8, shared reply inbox 9/10, service slots from 11, event SEND clone 14, glyph atlas
+  VMO 19, and the exit42 minidump statefs pair that deliberately reuses 7/8.
+- Those numbers lived in three places — execd's grant constants, the app-host's "fixed
+  constants" (including three bare `const WINDOWD_SEND_SLOT: u32 = 5;` inside effect modules)
+  and `nexus-sdk-routes` — and each side's comment described the other side's copy. All three
+  now read the declaration.
+- Slot-SSOT ratchet: 163 → 146 positional declarations, 54 → 49 files.
+
 ### Changed - 2026-09-10 (TASK-0324 P4d: hidrawd declared; the input-window block has one home)
 
 - hidrawd is declared as what it is — a pure producer that pushes normalized HID events to

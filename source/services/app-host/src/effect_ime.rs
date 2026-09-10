@@ -158,7 +158,7 @@ impl AppEffectHost {
         };
         let frame = wire::encode_surface_control(control, v);
         // The windowd surface request slot (main.rs WINDOWD_SEND_SLOT).
-        const WINDOWD_SEND_SLOT: u32 = 5;
+        const WINDOWD_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD.send;
         let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
         match nexus_abi::ipc_send_v1(
             WINDOWD_SEND_SLOT,

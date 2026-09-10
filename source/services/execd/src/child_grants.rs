@@ -23,10 +23,10 @@ use crate::os_lite::route_ctrl;
 const APP_WINDOWD_SEND_SLOT: u32 = 8;
 const APP_WINDOWD_RECV_SLOT: u32 = 9;
 /// The child slots the app-host expects them in (its fixed constants).
-const CHILD_WINDOWD_SEND_SLOT: u32 = 5;
-const CHILD_WINDOWD_RECV_SLOT: u32 = 6;
+const CHILD_WINDOWD_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD.send;
+const CHILD_WINDOWD_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD.recv;
 /// The child slot receiving the payload VMO (app-host's fixed constant).
-const CHILD_PAYLOAD_SLOT: u32 = 7;
+const CHILD_PAYLOAD_SLOT: u32 = nexus_service_topology::slots::app_child::PAYLOAD_VMO;
 /// ADR-0042 per-app event channel (init-minted pair; slot-order contract,
 /// proven by `init: execd app-event slots send=0xb recv=0xc`): windowd gets
 /// a SEND clone (`OP_SURFACE_EVENTS`, cap-move) and delivers input events +
@@ -39,18 +39,20 @@ const CHILD_PAYLOAD_SLOT: u32 = 7;
 // accumulation). No static pair, no pool sizing, no slot-order contract —
 // the whole "adjust the pool after every feature" class is retired.
 /// The child slot receiving the event-channel RECV (app-host's constant).
-const CHILD_EVENTS_SLOT: u32 = 8;
+const CHILD_EVENTS_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_RECV;
 /// TASK-0049 reanimation: statefs route slots for the `demo.minidump`
 /// payload (SSOT: `userspace/apps/demo-exit0/build.rs` STATEFS_SEND_SLOT /
 /// STATEFS_RECV_SLOT). Numerically these overlap CHILD_PAYLOAD_SLOT /
 /// CHILD_EVENTS_SLOT, which is safe: those are only ever granted to
 /// IMG_APPHOST children, this pair only to IMG_EXIT42 children.
-const CHILD_MINIDUMP_STATEFS_SEND_SLOT: u32 = 7;
+const CHILD_MINIDUMP_STATEFS_SEND_SLOT: u32 =
+    nexus_service_topology::slots::app_child::MINIDUMP_STATEFS.send;
 /// RECV half of the minidump payload's statefs route (see above).
-const CHILD_MINIDUMP_STATEFS_RECV_SLOT: u32 = 8;
+const CHILD_MINIDUMP_STATEFS_RECV_SLOT: u32 =
+    nexus_service_topology::slots::app_child::MINIDUMP_STATEFS.recv;
 /// SEND clone of the child's OWN event channel (it attaches this to windowd
 /// itself, nonce-tagged). After the service SEND slots 11..13 (nexus-sdk-routes).
-const CHILD_EVENTS_SEND_SLOT: u32 = 14;
+const CHILD_EVENTS_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_SEND;
 /// Hands the child its RECV half of the dedicated event channel
 /// (`CHILD_EVENTS_SLOT`).
 pub(crate) fn grant_event_channel(child_pid: u32) {

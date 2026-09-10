@@ -65,7 +65,7 @@ impl AppEffectHost {
             // The windowd surface request slot (main.rs WINDOWD_SEND_SLOT) —
             // the same channel `CONTROL_WIN_*` rides; windowd's sid gate is
             // the enforcement point.
-            const WINDOWD_SEND_SLOT: u32 = 5;
+            const WINDOWD_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD.send;
             let frame = feed::encode_surface_taskbar(feed::TASKBAR_ACTIVATE, sid);
             let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
             if nexus_abi::ipc_send_v1(
