@@ -15,7 +15,6 @@
 2	source/apps/selftest-client/src/os_lite/updated/health.rs
 3	source/init/nexus-init/src/bootstrap/blk_plane.rs
 4	source/init/nexus-init/src/bootstrap/core_plane.rs
-1	source/init/nexus-init/src/bootstrap/helpers.rs
 1	source/init/nexus-init/src/bootstrap/orchestrator.rs
 3	source/init/nexus-init/src/bootstrap/policyd_slots.rs
 2	source/init/nexus-init/src/bootstrap/respawn.rs
@@ -34,7 +33,6 @@
 9	source/services/execd/src/child_grants.rs
 8	source/services/execd/src/os_lite.rs
 1	source/services/execd/src/std_server.rs
-2	source/services/hidrawd/src/os_lite.rs
 8	source/services/imed/src/os_lite.rs
 3	source/services/imed/src/statefs.rs
 6	source/services/ingressd/src/os_lite/mod.rs

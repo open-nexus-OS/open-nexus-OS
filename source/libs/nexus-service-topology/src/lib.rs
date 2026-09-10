@@ -56,6 +56,11 @@ pub const CTRL_SLOTS: SlotPair = SlotPair::new(1, 2);
 /// driver plus once in init, seven copies that had to agree by hand.
 pub const DEVICE_MMIO_SLOT: u32 = 48;
 
+/// The virtio-input MMIO window slots (keyboard, pointer, tablet). Declared once for the
+/// grant side (init) and the mapping side (hidrawd) — the block used to be a base constant
+/// in init and a literal array in hidrawd that had to agree by hand.
+pub const INPUT_MMIO_SLOTS: [u32; 3] = [50, 51, 52];
+
 /// A capability a service receives that is neither its server pair nor a route.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NamedSlot {

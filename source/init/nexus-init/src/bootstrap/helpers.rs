@@ -103,7 +103,7 @@ static GUARD_STR_PROBE_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
 // Deterministic DeviceMmio slot (per-service cap table).
 pub(crate) const DEVICE_MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
-pub(crate) const INPUT_MMIO_CAP_SLOT_BASE: u32 = 50;
+pub(crate) const INPUT_MMIO_CAP_SLOT_BASE: u32 = nexus_service_topology::INPUT_MMIO_SLOTS[0];
 // QEMU `virt` virtio-mmio layout (per-device windows).
 pub(crate) const VIRTIO_MMIO_BASE: usize = 0x1000_1000;
 pub(crate) const VIRTIO_MMIO_STRIDE: usize = 0x1000;

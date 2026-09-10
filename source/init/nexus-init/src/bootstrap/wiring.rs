@@ -868,10 +868,17 @@ pub(crate) fn wire_services(
             // (RFC-0069 batch 1): spec = SERVICE_SPECS, server pair =
             // Endpoints::server_pair. Their bespoke arms are deleted.
             "hidrawd" => {
-                let send_slot = nexus_abi::cap_transfer(pid, input_req, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                let recv_slot = nexus_abi::cap_transfer(pid, input_rsp, Rights::RECV)
-                    .map_err(InitError::Abi)?;
+                // TASK-0324 P4d: pinned to the declared slots (hidrawd is a pure producer).
+                let (send_slot, recv_slot) = declared_slots::pin_route(
+                    pid,
+                    ServiceId::Hidrawd,
+                    ServiceId::Inputd,
+                    input_req,
+                    input_rsp,
+                );
+                let (Some(send_slot), Some(recv_slot)) = (send_slot, recv_slot) else {
+                    return Err(InitError::Map("hidrawd->inputd slots"));
+                };
                 chan.set_send(ServiceId::Inputd, send_slot);
                 chan.set_recv(ServiceId::Inputd, recv_slot);
                 if iw(init_wire, init_fold, "init:hidrawd") {

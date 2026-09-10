@@ -1332,6 +1332,7 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-service-topology",
  "virtio-input",
 ]
 

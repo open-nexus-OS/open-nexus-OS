@@ -34,7 +34,7 @@ use crate::{
     PointerSource, RawIngressEvent, RawIngressEventKind,
 };
 
-const INPUT_CAP_SLOTS: [u32; 3] = [50, 51, 52];
+const INPUT_CAP_SLOTS: [u32; 3] = nexus_service_topology::INPUT_MMIO_SLOTS;
 
 use crate::telemetry::HidrawChainTelemetry;
 
@@ -397,8 +397,8 @@ fn slot_present(slot: u32) -> bool {
 }
 
 fn route_inputd_blocking() -> Option<KernelClient> {
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
+    const CTRL_SEND_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.send;
+    const CTRL_RECV_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
     match route_with_nonce_budgeted(
         b"inputd",
         CTRL_SEND_SLOT,

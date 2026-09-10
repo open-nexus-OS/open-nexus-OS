@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-10 (TASK-0324 P4d: hidrawd declared; the input-window block has one home)
+
+- hidrawd is declared as what it is — a pure producer that pushes normalized HID events to
+  inputd and exposes no endpoint of its own — and init pins that route.
+- The three virtio-input MMIO windows are `INPUT_MMIO_SLOTS` in the topology. init held them
+  as a base constant and hidrawd as the literal array `[50, 51, 52]`; the two had to agree by
+  hand. hidrawd's `CTRL_SEND_SLOT`/`CTRL_RECV_SLOT` copies now read `CTRL_SLOTS`.
+- touchd needed no migration: it holds no capability beyond the control channel. Recorded in
+  the ledger rather than given an invented declaration.
+- Slot-SSOT ratchet: 166 → 163 positional declarations, 56 → 54 files.
+
 ### Changed - 2026-09-10 (TASK-0324 P4c: gpud declared, one MMIO slot for the fleet, order-based transfer deleted)
 
 - gpud is declared (a pure server: windowd calls it, it calls nobody) and init pins its

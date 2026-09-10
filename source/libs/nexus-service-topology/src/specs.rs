@@ -24,6 +24,14 @@ pub mod slots {
         pub const SERVER: SlotPair = SlotPair::new(4, 3);
     }
 
+    /// hidrawd (TASK-0324 P4d).
+    pub mod hidrawd {
+        use super::SlotPair;
+
+        /// Normalized HID events to inputd (inputd answers on its own endpoint).
+        pub const INPUTD: SlotPair = SlotPair::new(3, 4);
+    }
+
     /// inputd (TASK-0324 P4b).
     pub mod inputd {
         use super::SlotPair;
@@ -95,6 +103,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Windowd, ServiceId::Imed),     // focus relay OP_SET_FOCUS (RFC-0075)
     (ServiceId::Inputd, ServiceId::Windowd),   // visible-state push (pointer/keyboard)
     (ServiceId::Inputd, ServiceId::Imed),      // key-forward leg (RFC-0075)
+    (ServiceId::Hidrawd, ServiceId::Inputd),   // normalized HID events (RFC-0053)
     // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
     (ServiceId::Rngd, ServiceId::Logd), // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
@@ -196,6 +205,23 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
             },
         ],
         announce: true,
+        server_slots: SlotPair::UNDECLARED,
+        reply_slots: SlotPair::UNDECLARED,
+        extra_slots: &[],
+    },
+    ServiceSpec {
+        id: ServiceId::Hidrawd,
+        exposes_server: false,
+        reply_inbox: false,
+        // TASK-0324 P4d: a pure producer — it pushes normalized HID events to inputd and
+        // exposes no endpoint of its own. Its three virtio-input MMIO windows come from the
+        // fleet-wide `INPUT_MMIO_SLOT_BASE` block, so they are not per-service grants.
+        routes_to: &[Route {
+            to: ServiceId::Inputd,
+            kind: RouteKind::SharedResponse,
+            slots: slots::hidrawd::INPUTD,
+        }],
+        announce: false,
         server_slots: SlotPair::UNDECLARED,
         reply_slots: SlotPair::UNDECLARED,
         extra_slots: &[],
