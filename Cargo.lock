@@ -1582,6 +1582,7 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-service-topology",
  "nexus-wire",
  "pointer-accel",
  "pointer-state",

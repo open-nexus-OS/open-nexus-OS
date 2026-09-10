@@ -76,6 +76,17 @@ pub(crate) fn pin_route_recv(pid: u32, from: ServiceId, to: ServiceId, rsp: u32)
     pin(pid, rsp, Rights::RECV, slots.recv, b"route recv")
 }
 
+/// Pins BOTH halves of a `SharedResponse` route in one call (the common shape).
+pub(crate) fn pin_route(
+    pid: u32,
+    from: ServiceId,
+    to: ServiceId,
+    req: u32,
+    rsp: u32,
+) -> (Option<u32>, Option<u32>) {
+    (pin_route_send(pid, from, to, req), pin_route_recv(pid, from, to, rsp))
+}
+
 /// Pins a named capability (device MMIO, IRQ notify, a watch channel half, the stage fence).
 pub(crate) fn pin_named(
     pid: u32,

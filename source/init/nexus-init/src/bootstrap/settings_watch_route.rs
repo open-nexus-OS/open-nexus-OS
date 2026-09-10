@@ -9,9 +9,7 @@
 
 use crate::bootstrap::endpoints::Endpoints;
 use crate::bootstrap::helpers::debug_write_bytes;
-use crate::bootstrap::route_provision::{
-    INPUTD_SETTINGS_SEND_SLOT, INPUTD_WATCH_RECV_SLOT, INPUTD_WATCH_SEND_SLOT,
-};
+use crate::bootstrap::route_provision::INPUTD_SETTINGS_SEND_SLOT;
 use crate::bootstrap::CtrlChannel;
 use crate::service_topology::ServiceId;
 use nexus_abi::Rights;
@@ -25,16 +23,33 @@ pub(crate) fn provision_inputd_settings_watch(pid: u32, eps: &Endpoints, chan: &
     let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) else {
         return;
     };
-    let ok =
-        nexus_abi::cap_transfer_to_slot(pid, settings_req, Rights::SEND, INPUTD_SETTINGS_SEND_SLOT)
-            .is_ok();
+    let ok = crate::bootstrap::declared_slots::pin_named(
+        pid,
+        ServiceId::Inputd,
+        crate::service_topology::NamedSlot::Settings,
+        settings_req,
+        Rights::SEND,
+    )
+    .is_some();
     // Pre-minted in the orchestrator (init's cap table is at its ceiling by
     // wiring time — a late mint NoSpace-fails); init's cap closes after wiring.
     let ep = eps.inputd_watch_ep;
-    let recv_ok =
-        nexus_abi::cap_transfer_to_slot(pid, ep, Rights::RECV, INPUTD_WATCH_RECV_SLOT).is_ok();
-    let send_ok =
-        nexus_abi::cap_transfer_to_slot(pid, ep, Rights::SEND, INPUTD_WATCH_SEND_SLOT).is_ok();
+    let recv_ok = crate::bootstrap::declared_slots::pin_named(
+        pid,
+        ServiceId::Inputd,
+        crate::service_topology::NamedSlot::SettingsWatchRecv,
+        ep,
+        Rights::RECV,
+    )
+    .is_some();
+    let send_ok = crate::bootstrap::declared_slots::pin_named(
+        pid,
+        ServiceId::Inputd,
+        crate::service_topology::NamedSlot::SettingsWatchSend,
+        ep,
+        Rights::SEND,
+    )
+    .is_some();
     if ok && recv_ok && send_ok {
         chan.set_send(ServiceId::Settingsd, INPUTD_SETTINGS_SEND_SLOT);
         if crate::bootstrap::diag::raw_or_expanded("inputd") {

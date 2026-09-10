@@ -16,6 +16,24 @@ use crate::{NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
 pub mod slots {
     use super::SlotPair;
 
+    /// inputd (TASK-0324 P4b).
+    pub mod inputd {
+        use super::SlotPair;
+
+        /// inputd's own server endpoint.
+        pub const SERVER: SlotPair = SlotPair::new(4, 3);
+        /// Visible-state push to windowd (windowd answers on its own endpoint).
+        pub const WINDOWD: SlotPair = SlotPair::new(5, 6);
+        /// Key-forward leg to imed (RFC-0075).
+        pub const IMED: SlotPair = SlotPair::new(7, 8);
+        /// SEND to settingsd (`OP_WATCH` registration + reads).
+        pub const SETTINGS_SEND: u32 = 0x20;
+        /// Settings push channel: RECV half (event inbox).
+        pub const WATCH_RECV: u32 = 0x21;
+        /// Settings push channel: SEND half (moved with `OP_WATCH`).
+        pub const WATCH_SEND: u32 = 0x22;
+    }
+
     /// windowd (TASK-0324 P4a).
     pub mod windowd {
         use super::SlotPair;
@@ -67,6 +85,8 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Windowd, ServiceId::Gpud),     // present/attach/cursor handoff (ADR-0032)
     (ServiceId::Windowd, ServiceId::Abilitymgr), // OP_LAUNCH from the shell (TASK-0080D)
     (ServiceId::Windowd, ServiceId::Imed),     // focus relay OP_SET_FOCUS (RFC-0075)
+    (ServiceId::Inputd, ServiceId::Windowd),   // visible-state push (pointer/keyboard)
+    (ServiceId::Inputd, ServiceId::Imed),      // key-forward leg (RFC-0075)
     // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
     (ServiceId::Rngd, ServiceId::Logd), // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
@@ -171,6 +191,40 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         server_slots: SlotPair::UNDECLARED,
         reply_slots: SlotPair::UNDECLARED,
         extra_slots: &[],
+    },
+    ServiceSpec {
+        id: ServiceId::Inputd,
+        exposes_server: true,
+        reply_inbox: false,
+        // TASK-0324 P4b: inputd had NO declaration at all — init wired it entirely from a
+        // bespoke arm whose comments called the windowd leg's slot numbers "a boot
+        // contract". They are that contract now, in one readable place.
+        routes_to: &[
+            Route {
+                to: ServiceId::Windowd,
+                kind: RouteKind::SharedResponse,
+                slots: slots::inputd::WINDOWD,
+            },
+            Route {
+                to: ServiceId::Imed,
+                kind: RouteKind::SharedResponse,
+                slots: slots::inputd::IMED,
+            },
+        ],
+        announce: true,
+        server_slots: slots::inputd::SERVER,
+        reply_slots: SlotPair::UNDECLARED,
+        extra_slots: &[
+            NamedSlotBinding { name: NamedSlot::Settings, slot: slots::inputd::SETTINGS_SEND },
+            NamedSlotBinding {
+                name: NamedSlot::SettingsWatchRecv,
+                slot: slots::inputd::WATCH_RECV,
+            },
+            NamedSlotBinding {
+                name: NamedSlot::SettingsWatchSend,
+                slot: slots::inputd::WATCH_SEND,
+            },
+        ],
     },
     ServiceSpec {
         id: ServiceId::Windowd,

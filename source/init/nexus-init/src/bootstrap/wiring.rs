@@ -9,6 +9,7 @@
 //! API_STABILITY: Unstable
 //! ADR: docs/adr/0017-service-architecture.md
 
+use crate::bootstrap::declared_slots;
 use crate::bootstrap::diag::iw;
 use crate::bootstrap::endpoints::Endpoints;
 use crate::bootstrap::gateway_route::provision_selftest_ingress_route;
@@ -905,16 +906,11 @@ pub(crate) fn wire_services(
                         debug_write_bytes(b"init: windowd already priority-wired, skip\n");
                     }
                     // Still need gpud caps — PINNED to the declared slots (TASK-0324 P4a).
-                    let gpud_send_slot = crate::bootstrap::declared_slots::pin_route_send(
+                    let (gpud_send_slot, gpud_recv_slot) = declared_slots::pin_route(
                         pid,
                         ServiceId::Windowd,
                         ServiceId::Gpud,
                         gpud_req,
-                    );
-                    let gpud_recv_slot = crate::bootstrap::declared_slots::pin_route_recv(
-                        pid,
-                        ServiceId::Windowd,
-                        ServiceId::Gpud,
                         gpud_rsp,
                     );
                     if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
@@ -948,7 +944,7 @@ pub(crate) fn wire_services(
                     }
                     continue;
                 }
-                let slots = crate::bootstrap::declared_slots::pin_server_pair(
+                let slots = declared_slots::pin_server_pair(
                     pid,
                     ServiceId::Windowd,
                     window_req,
@@ -958,16 +954,11 @@ pub(crate) fn wire_services(
                 chan.set_send(ServiceId::Windowd, slots.send);
                 chan.set_recv(ServiceId::Windowd, slots.recv);
                 // gpud may have crashed — a failed pin leaves the route unwired, loudly.
-                let gpud_send_slot = crate::bootstrap::declared_slots::pin_route_send(
+                let (gpud_send_slot, gpud_recv_slot) = declared_slots::pin_route(
                     pid,
                     ServiceId::Windowd,
                     ServiceId::Gpud,
                     gpud_req,
-                );
-                let gpud_recv_slot = crate::bootstrap::declared_slots::pin_route_recv(
-                    pid,
-                    ServiceId::Windowd,
-                    ServiceId::Gpud,
                     gpud_rsp,
                 );
                 if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
@@ -1019,10 +1010,13 @@ pub(crate) fn wire_services(
                         debug_write_bytes(b"init: inputd already priority-wired, skip\n");
                     }
                     // Still need windowd route for visible-state push.
-                    let window_send_slot =
-                        try_transfer(pid, window_req, Rights::SEND, "inputd->windowd", "SEND");
-                    let window_recv_slot =
-                        try_transfer(pid, window_rsp, Rights::RECV, "inputd->windowd", "RECV");
+                    let (window_send_slot, window_recv_slot) = declared_slots::pin_route(
+                        pid,
+                        ServiceId::Inputd,
+                        ServiceId::Windowd,
+                        window_req,
+                        window_rsp,
+                    );
                     if let (Some(window_send), Some(window_recv)) =
                         (window_send_slot, window_recv_slot)
                     {
@@ -1042,16 +1036,26 @@ pub(crate) fn wire_services(
                     provision_inputd_settings_watch(pid, eps, chan);
                     continue;
                 }
-                let recv_slot = nexus_abi::cap_transfer(pid, input_req, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let send_slot = nexus_abi::cap_transfer(pid, input_rsp, Rights::SEND)
-                    .map_err(InitError::Abi)?;
+                let in_slots =
+                    declared_slots::pin_server_pair(pid, ServiceId::Inputd, input_req, input_rsp)
+                        .ok_or(InitError::Map("inputd server slots"))?;
+                let (recv_slot, send_slot) = (in_slots.recv, in_slots.send);
                 chan.set_send(ServiceId::Inputd, send_slot);
                 chan.set_recv(ServiceId::Inputd, recv_slot);
-                let window_send_slot = nexus_abi::cap_transfer(pid, window_req, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                let window_recv_slot = nexus_abi::cap_transfer(pid, window_rsp, Rights::RECV)
-                    .map_err(InitError::Abi)?;
+                let window_send_slot = declared_slots::pin_route_send(
+                    pid,
+                    ServiceId::Inputd,
+                    ServiceId::Windowd,
+                    window_req,
+                )
+                .ok_or(InitError::Map("inputd->windowd send"))?;
+                let window_recv_slot = declared_slots::pin_route_recv(
+                    pid,
+                    ServiceId::Inputd,
+                    ServiceId::Windowd,
+                    window_rsp,
+                )
+                .ok_or(InitError::Map("inputd->windowd recv"))?;
                 chan.set_send(ServiceId::Windowd, window_send_slot);
                 chan.set_recv(ServiceId::Windowd, window_recv_slot);
                 // RFC-0075: key-forward leg to imed (after the windowd legs —

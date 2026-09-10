@@ -147,10 +147,20 @@ pub(crate) fn provision_inputd_imed_route(pid: u32, eps: &Endpoints, chan: &mut 
         return;
     };
     match (
-        nexus_abi::cap_transfer(pid, imed_req, Rights::SEND),
-        nexus_abi::cap_transfer(pid, imed_rsp, Rights::RECV),
+        crate::bootstrap::declared_slots::pin_route_send(
+            pid,
+            ServiceId::Inputd,
+            ServiceId::Imed,
+            imed_req,
+        ),
+        crate::bootstrap::declared_slots::pin_route_recv(
+            pid,
+            ServiceId::Inputd,
+            ServiceId::Imed,
+            imed_rsp,
+        ),
     ) {
-        (Ok(s), Ok(r)) => {
+        (Some(s), Some(r)) => {
             chan.set_send(ServiceId::Imed, s);
             chan.set_recv(ServiceId::Imed, r);
             if crate::bootstrap::diag::raw_or_expanded("inputd") {
@@ -168,8 +178,6 @@ pub(crate) fn provision_inputd_imed_route(pid: u32, eps: &Endpoints, chan: &mut 
 /// 0x22 = SEND of the minted watch channel (cap-moved to settingsd inside
 /// the OP_WATCH request).
 pub(crate) const INPUTD_SETTINGS_SEND_SLOT: u32 = 0x20;
-pub(crate) const INPUTD_WATCH_RECV_SLOT: u32 = 0x21;
-pub(crate) const INPUTD_WATCH_SEND_SLOT: u32 = 0x22;
 
 /// Provisions windowd's launch route (TASK-0080D): SEND on abilitymgr's
 /// pre-minted request endpoint + RECV on its response endpoint, so the Apps

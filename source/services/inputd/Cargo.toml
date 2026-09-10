@@ -31,5 +31,6 @@ pointer-accel = { path = "../../../userspace/pointer-accel" }
 pointer-state = { path = "../../../userspace/pointer-state" }
 windowd = { path = "../windowd" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }

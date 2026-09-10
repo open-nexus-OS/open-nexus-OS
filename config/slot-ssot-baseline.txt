@@ -22,7 +22,7 @@
 1	source/init/nexus-init/src/bootstrap/orchestrator.rs
 3	source/init/nexus-init/src/bootstrap/policyd_slots.rs
 2	source/init/nexus-init/src/bootstrap/respawn.rs
-3	source/init/nexus-init/src/bootstrap/route_provision.rs
+1	source/init/nexus-init/src/bootstrap/route_provision.rs
 2	source/init/nexus-init/src/bootstrap/spawn.rs
 1	source/init/nexus-init/src/os_payload.rs
 4	source/services/abilitymgr/src/os_lite.rs
@@ -41,7 +41,6 @@
 8	source/services/imed/src/os_lite.rs
 3	source/services/imed/src/statefs.rs
 6	source/services/ingressd/src/os_lite/mod.rs
-3	source/services/inputd/src/os_lite.rs
 2	source/services/keystored/src/os_stub.rs
 3	source/services/keystored/src/store_os.rs
 2	source/services/logd/src/route_os.rs

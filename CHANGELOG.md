@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-10 (TASK-0324 P4b: inputd joins the declared arm)
+
+- inputd had no entry in `SERVICE_SPECS`/`REQUIRED_ROUTES` at all: init wired its server pair,
+  its windowd leg, its imed leg and three settings/watch slots from a bespoke arm whose own
+  comments called the numbers "a boot contract". It is declared now — routes to windowd and
+  imed, server 3/4, windowd 5/6, imed 7/8, settings `0x20`, watch `0x21`/`0x22`.
+- init pins every one of them through `declared_slots`; inputd reads the same constants, so its
+  three `KernelClient::new_with_slots(5, 6)` copies, the `new_with_slots(3, 4)` literal and the
+  three local `0x2x` constants are gone. init's `INPUTD_WATCH_RECV_SLOT`/`SEND_SLOT` became
+  dead and were deleted with them.
+- Slot-SSOT ratchet: 181 → 176 positional declarations, 60 → 59 files.
+
 ### Changed - 2026-09-10 (TASK-0324 P4a: windowd is wired from the declaration, not from transfer order)
 
 - windowd's declaration was incomplete: init provisioned routes to gpud, abilitymgr and imed

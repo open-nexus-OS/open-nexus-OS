@@ -610,16 +610,16 @@ where
         }
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "inputd") {
             let pid = chan.pid;
-            chan.set_recv(
+            // TASK-0324 P4b: pinned to the declared slots (see windowd above).
+            let slots = crate::bootstrap::declared_slots::pin_server_pair(
+                pid,
                 ServiceId::Inputd,
-                nexus_abi::cap_transfer(pid, input_req_clone, Rights::RECV)
-                    .map_err(InitError::Abi)?,
-            );
-            chan.set_send(
-                ServiceId::Inputd,
-                nexus_abi::cap_transfer(pid, input_rsp_clone, Rights::SEND)
-                    .map_err(InitError::Abi)?,
-            );
+                input_req_clone,
+                input_rsp_clone,
+            )
+            .ok_or(InitError::Map("inputd server slots"))?;
+            chan.set_recv(ServiceId::Inputd, slots.recv);
+            chan.set_send(ServiceId::Inputd, slots.send);
             if iw(&mut init_wire, init_fold, "init:inputd") {
                 debug_write_bytes(b"init: inputd priority-wired\n");
             }

@@ -13,6 +13,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::vec::Vec;
 use hid::HidEvent;
+use nexus_service_topology::slots::inputd as topo;
 
 use hidrawd::PointerSource;
 use input_live_protocol::{
@@ -69,7 +70,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             });
             let _ = nexus_abi::trace_line("inputd: route fallback");
             let _ = nexus_abi::trace_line("inputd: fallback slots 3/4");
-            let server = KernelServer::new_with_slots(3, 4)
+            let server = KernelServer::new_with_slots(topo::SERVER.recv, topo::SERVER.send)
                 .map_err(|_| fail("inputd: init fail kernel-server"))?;
             server
         }
@@ -286,7 +287,8 @@ impl LiveRouteRuntime {
             windowd_push_fail_emitted: false,
             wheel_indicator_direction: WheelIndicatorDirection::None,
             wheel_indicator_deadline_ns: 0,
-            windowd_client: KernelClient::new_with_slots(5, 6).ok(),
+            windowd_client: KernelClient::new_with_slots(topo::WINDOWD.send, topo::WINDOWD.recv)
+                .ok(),
             imed_client: None,
             imed_forward_ok_emitted: false,
             settings_watch_subscribed: false,
@@ -315,9 +317,9 @@ impl LiveRouteRuntime {
         self.display_mode_last_attempt_ns = now;
         self.display_mode_attempts += 1;
         if self.windowd_client.is_none() {
-            self.windowd_client = KernelClient::new_for("windowd")
-                .ok()
-                .or_else(|| KernelClient::new_with_slots(5, 6).ok());
+            self.windowd_client = KernelClient::new_for("windowd").ok().or_else(|| {
+                KernelClient::new_with_slots(topo::WINDOWD.send, topo::WINDOWD.recv).ok()
+            });
         }
         let Some(client) = &self.windowd_client else {
             return;
@@ -663,23 +665,20 @@ impl LiveRouteRuntime {
     /// settingsd, 0x21 = event inbox RECV, 0x22 = push SEND half (moved).
     fn pump_settings_watch(&mut self) {
         use nexus_wire::settingsd as swire;
-        const SETTINGS_SEND_SLOT: u32 = 0x20;
-        const WATCH_RECV_SLOT: u32 = 0x21;
-        const WATCH_SEND_SLOT: u32 = 0x22;
         if !self.settings_watch_subscribed {
             let mut req = [0u8; 72];
             let Some(n) = swire::encode_watch_req("input.", &mut req) else {
                 return;
             };
             let hdr = nexus_abi::MsgHeader::new(
-                WATCH_SEND_SLOT,
+                topo::WATCH_SEND,
                 0,
                 0,
                 nexus_abi::ipc_hdr::CAP_MOVE,
                 n as u32,
             );
             match nexus_abi::ipc_send_v1(
-                SETTINGS_SEND_SLOT,
+                topo::SETTINGS_SEND,
                 &hdr,
                 &req[..n],
                 nexus_abi::IPC_SYS_NONBLOCK,
@@ -698,7 +697,7 @@ impl LiveRouteRuntime {
             let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
             let mut sid: u64 = 0;
             let Ok(len) = nexus_abi::ipc_recv_v2(
-                WATCH_RECV_SLOT,
+                topo::WATCH_RECV,
                 &mut hdr,
                 &mut buf,
                 &mut sid,
@@ -913,7 +912,8 @@ impl LiveRouteRuntime {
                 let _ = nexus_abi::trace_line("inputd: windowd route unavailable");
                 self.windowd_route_fallback_emitted = true;
                 // Fall back to priority-wired slots from init (5=send, 6=recv).
-                self.windowd_client = KernelClient::new_with_slots(5, 6).ok();
+                self.windowd_client =
+                    KernelClient::new_with_slots(topo::WINDOWD.send, topo::WINDOWD.recv).ok();
                 if self.windowd_client.is_some() {
                     let _ = nexus_abi::trace_line("inputd: windowd route fallback slots 5/6");
                 }
