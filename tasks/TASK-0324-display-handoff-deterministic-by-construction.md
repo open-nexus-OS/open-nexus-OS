@@ -48,7 +48,7 @@ boot, OTA lanes incl. `bundle reused`, reliability spine, ingress/egress, foldin
 |---|---------|---------|--------|
 | P0 | Build truth + honest GL path + `visible` pixel lane | `[package.metadata.nexus-service]` = SSOT for features (`feature_profiles` keyed on env); `discover-services.sh` resolves for embedded + bundles + execd payloads; keyed ELF `build/services/<svc>/<key>/`; `check-bundle-provenance.sh`, `check-build-truth.sh` (in `just check`); `gpud: features=…` first raw line; `backend/scanout_policy.rs` (GL device → GL RT or FATAL; 2D retry deleted); `[profile.visible]` + `just ci-os-visible` in `test-all` (VNC snapshots splash/desktop, `pixel_proof_judge.py`); `just start` exposes VNC 5979; harness requires `gpud: features=os-lite,virgl` under virgl, `gpud: FAIL` fails lanes. Deleted: virgl special block, `*_CARGO_FLAGS` (build.sh + harness netstackd), stack-pages `case`, metricsd stack override, `gpud: gl scanout fallback 2d`. | Delivered 2026-09-09 (`just check` + `test-all` stages green: check/diag/dep-gate/host/e2e/miri/kernel; lanes smp1 (rerun after a pre-existing `statefs persist` deny flake), visible ×4 pixel-proof ok, reset, ota-flip/bundle/resume/delta/backstops; 8/8 `just start`-env boots pixel ok over harts 0-3) |
 | P1 | RFC-0093 + ADR-0062 + ledger/board | routing v2 (nonce, parked replies until `@ready`, fail-closed), `@ready`/`@stage`, `ServiceSpec.stage` + fence, declared slot map for services AND app children, handoff v2 (attach ack {seq, mode, content_rect}, `OP_REVEAL`/`STATUS_REVEALED`, seq acks), display mode from `boot_display_mode()`, pixel proof as display gate | Delivered 2026-09-09 (paper: RFC-0093 + ADR-0062 written, indexed; ledger/board/order updated; `just check`) |
-| P2 | `@ready` + `nexus_service_entry::ready()` + honest `init: up` | fleet-wide; `ready_table.rs`; delete `init: up` in orchestrator/volume_spawn; docs/manifest | In Progress 2026-09-09 — code + host tests + gate landed (29 ready sites migrated, `init: up` only from the responder `@ready` arm, `check-init-sync.sh` in `just check`, ladder `init: up` presence-only); QEMU lanes pending (disk lock held by the user boot) |
+| P2 | `@ready` + `nexus_service_entry::ready()` + honest `init: up` | fleet-wide; `ready_table.rs`; delete `init: up` in orchestrator/volume_spawn; docs/manifest | In Progress 2026-09-09 — code + host tests + gate landed (29 ready sites migrated, `init: up` only from the responder `@ready` arm, `check-init-sync.sh` in `just check`, ladder `init: up` presence-only); Done 2026-09-09 — `just test-all` green (exit=0): 8 lanes (smp1, visible, reset, ota, ota-bundle/-resume/-delta, ota-backstops), 0 announce failures fleet-wide, 29 honest `init: up` in the visible lane, pixel proof 40.1% non-black |
 | P3 | Routing v2 | delete v1 `query_route`; nonce mandatory; `route_park.rs`; bounded-blocking replies; fail-closed policy; delete windowd alias guards | Draft |
 | P4 | `nexus-service-topology` = one slot SSOT | crate move + slots; declared arm; per-consumer atomic sub-packages P4a windowd, P4b inputd, P4c gpud, P4d hidrawd/touchd, P4e execd + app children (`nexus-sdk-routes` view), P4f policyd/netstackd/bootctld/keystored/updated/dsoftbusd/bundlemgrd/metricsd/imed/selftest-client; delete `is_bespoke_wired` + all arms + slot-order comments; `check-slot-ssot.sh` | Draft |
 | P5 | Stage fence | `stage_fence.rs`; `ServiceSpec.stage`; entry hook waits; delete `yield_()` sync + `resume_drivers` order; `check-init-sync.sh` | Draft |
@@ -56,6 +56,27 @@ boot, OTA lanes incl. `bundle reused`, reliability spine, ingress/egress, foldin
 | P7 | Consumer polls deleted | windowd session probe/greeter watch/cursor wait; app-host content-rect re-drive | Draft |
 | P8 | Closure docs/baselines/gates | LOC baseline, docs (RFC-0069 §4 implemented, RFC-0013, ADR-0041/0050), CI parity | Draft |
 | P9 | 8/8 visible boots + test-all + progress table | | Draft |
+
+**Findings for P2 (recorded 2026-09-09, smp1 iterations):** (1) `@ready` could not be queued
+for virtioblkd/logd: their bespoke `route_*_blocking` probes re-sent the same route ask on
+every one of 64 iterations and filled init's control REQ queue (depth 8; even 32 was not
+enough) before the responder ever ran — replaced by ONE `route_with_nonce_budgeted` ask
+(50 ms budget, deterministic slot fallback unchanged); this is P3's "never re-ask" rule
+landing early and the first two bespoke route copies deleted. (2) A bounded-BLOCKING announce
+is wrong by construction: init's orchestration waits on the block driver (system volume),
+so a driver waiting in `ready()` for init to drain the queue is a circular wait (init fatal
+`volume-unavailable`); the announce is a few non-blocking attempts, loud on failure.
+(3) Kernel finding for P5 (approval zone, not fixed here): `sys_ipc_send` arms the timer
+wakeup for a blocking send BEFORE the first attempt and never disarms it when the attempt
+fails immediately (`ipc_msg.rs:230`), so a service that got `NoSuchEndpoint` on a deadline
+send is woken spuriously later inside its server recv. (4) Three ladder rungs were
+spawn-fakes that no readiness backs: `init: up dsoftbusd` (ready only on the single-VM
+session path → moved into the `REQUIRE_DSOFTBUS` block / manifest net phase),
+`init: up hidrawd` and `init: up touchd` (device-gated; hidrawd prints `input slot missing`
+without input devices, touchd never runs to ready in proof boots — the P5 item) → removed
+from every base list, declared for the `full` profile only. (5) The responder's `init: up`
+is written atomically (`emit_marker_atomic`); a three-fragment write tore against gpud
+(`init: up keystoredgpud: …`).
 
 **Findings for P5 (recorded 2026-09-09, P0):** `touchd: os service payload ready` — a
 `full`-ladder marker — is never printed in proof boots (verified: headless full ladder at

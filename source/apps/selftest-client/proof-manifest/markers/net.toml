@@ -119,6 +119,11 @@ phase = "net"
 [marker."dsoftbusd: ready"]
 phase = "net"
 
+# RFC-0093 §2 (TASK-0324 P2): init's observation of dsoftbusd's own `@ready` — it can only
+# appear where `dsoftbusd: ready` does (the single-VM session path), never at spawn.
+[marker."init: up dsoftbusd"]
+phase = "net"
+
 [marker."dsoftbusd: auth ok"]
 phase = "net"
 

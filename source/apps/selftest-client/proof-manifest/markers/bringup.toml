@@ -325,24 +325,27 @@ phase = "bringup"
 [marker."init: start dsoftbusd"]
 phase = "bringup"
 
-[marker."init: up dsoftbusd"]
-phase = "bringup"
-
 [marker."init: start hidrawd"]
 phase = "bringup"
 proves = "TASK-0253 hidrawd is embedded as an init-lite OS service image"
 
+# RFC-0093 §2 (TASK-0324 P2): init observed hidrawd's own `@ready`. hidrawd reaches it only
+# with a virtio-input device present (full/visible boots), never at spawn.
 [marker."init: up hidrawd"]
 phase = "bringup"
-proves = "TASK-0253 hidrawd service image was spawned by init-lite"
+emit_when = { profile = "full" }
+proves = "init observed hidrawd announce @ready (device-backed input path up)"
 
 [marker."init: start touchd"]
 phase = "bringup"
 proves = "TASK-0253 touchd is embedded as an init-lite OS service image"
 
+# RFC-0093 §2 (TASK-0324 P2): init observed touchd's own `@ready`. touchd reaches it only
+# with a virtio-input device present (full/visible boots), never at spawn.
 [marker."init: up touchd"]
 phase = "bringup"
-proves = "TASK-0253 touchd service image was spawned by init-lite"
+emit_when = { profile = "full" }
+proves = "init observed touchd announce @ready (device-backed input path up)"
 
 [marker."init: start gpud"]
 phase = "bringup"

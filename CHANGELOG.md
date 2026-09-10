@@ -26,6 +26,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   init-order loop (services reach readiness in scheduler order).
 - Docs: `09-nexus-init.md`, `06-boot-and-bringup.md`, RFC-0013 A1/A4 amended, `os-markers.md`,
   RFC-0093 checklist.
+- Lane findings folded into the package: logd's and virtioblkd's bespoke route probes (64
+  re-sends of one ask, filling init's control queue so `@ready` found no room) replaced by
+  ONE `route_with_nonce_budgeted` ask; the announce is a few non-blocking attempts (a waiting
+  block driver deadlocks init's volume pass); `init: up dsoftbusd|hidrawd|touchd` were
+  spawn-fakes with no readiness behind them in headless/smp1 — moved to where their `ready`
+  is required (`REQUIRE_DSOFTBUS` block / `full` profile). Kernel finding for P5: a blocking
+  IPC send arms its timer wakeup before the first attempt and does not disarm it on an
+  immediate error.
+- Proven 2026-09-09: `just test-all` green (exit=0) over smp1, visible, reset, ota, ota-bundle,
+  ota-bundle-resume, ota-bundle-delta and ota-backstops — zero `FAIL ready announce` lines
+  fleet-wide, `init: up <svc>` following `<svc>: ready` in every lane, and the TASK-0076B
+  closure proven in the same run (`APPHOST: mounted hash=` present, pixel proof 40.1 %
+  non-black, 26.0 diff vs splash).
 
 ### Added - 2026-09-09 (TASK-0324 P1: RFC-0093 display handoff & boot-stage contract + ADR-0062)
 

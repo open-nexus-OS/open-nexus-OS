@@ -92,16 +92,20 @@ fn input_services_use_bounded_os_stack_pages() {
 
 #[test]
 fn qemu_marker_ladder_requires_input_service_startup() {
+    // RFC-0093 §2 (TASK-0324 P2): `init: start <svc>` is the spawn and stays a ladder rung;
+    // `init: up <svc>` is init's observation of the service's own `@ready` and may only be
+    // REQUIRED where the service's own ready marker is required too (device-gated input
+    // services never reach it in headless/smp1 boots). The entry marker
+    // `<svc>: os service payload ready` stays a ladder rung. Every marker is declared in
+    // the proof manifest.
     let qemu_test = read_repo_file("scripts/qemu-test.sh");
     let bringup_manifest =
         read_repo_file("source/apps/selftest-client/proof-manifest/markers/bringup.toml");
 
     for service in INPUT_SERVICES {
-        for marker in [
-            format!("init: start {service}"),
-            format!("init: up {service}"),
-            format!("{service}: os service payload ready"),
-        ] {
+        for marker in
+            [format!("init: start {service}"), format!("{service}: os service payload ready")]
+        {
             assert!(
                 qemu_test.contains(&marker),
                 "`scripts/qemu-test.sh` expected sequence must require `{marker}`"
@@ -109,6 +113,18 @@ fn qemu_marker_ladder_requires_input_service_startup() {
             assert!(
                 bringup_manifest.contains(&format!("[marker.\"{marker}\"]")),
                 "proof-manifest bringup markers must declare `{marker}`"
+            );
+        }
+        let up = format!("init: up {service}");
+        assert!(
+            bringup_manifest.contains(&format!("[marker.\"{up}\"]")),
+            "proof-manifest bringup markers must declare `{up}` (init's @ready observation)"
+        );
+        if qemu_test.contains(&format!("\"{up}\"")) {
+            assert!(
+                qemu_test.contains(&format!("\"{service}: ready")),
+                "`{up}` is required by the ladder but `{service}: ready` is not — \
+                 spawn is not readiness (RFC-0093 §2)"
             );
         }
     }

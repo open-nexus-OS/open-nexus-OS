@@ -14,72 +14,29 @@
 //! TEST_COVERAGE: QEMU ladder (`virtioblkd: ready`).
 //! ADR: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
 
-use nexus_abi::yield_;
+use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::KernelServer;
 
-const CTRL_SEND_SLOT: u32 = 1;
-const CTRL_RECV_SLOT: u32 = 2;
-
+/// ONE route ask on the control channel (RFC-0093 §1: never re-ask — the old bespoke
+/// 64-iteration loop re-sent the same query per iteration and filled init's control
+/// queue, so the `@ready` announce found no room, 2026-09-09). init answers only once
+/// its responder runs (after orchestration), so a short budget keeps the deterministic
+/// slot fallback immediate for this wave-0 driver.
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    static ROUTE_NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
-    let nonce = ROUTE_NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-
-    let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN + 4];
-    let base_len = nexus_abi::routing::encode_route_get(name, &mut req[..5 + name.len()])?;
-    req[base_len..base_len + 4].copy_from_slice(&nonce.to_le_bytes());
-    let req_len = base_len + 4;
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
-    for _ in 0..64 {
-        if nexus_abi::ipc_send_v1(
-            CTRL_SEND_SLOT,
-            &hdr,
-            &req[..req_len],
-            nexus_abi::IPC_SYS_NONBLOCK,
-            0,
-        )
-        .is_err()
-        {
-            let _ = yield_();
-            continue;
-        }
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
-        match nexus_abi::ipc_recv_v1(
-            CTRL_RECV_SLOT,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = n as usize;
-                if n != 17 {
-                    let _ = yield_();
-                    continue;
-                }
-                let got_nonce = u32::from_le_bytes([buf[13], buf[14], buf[15], buf[16]]);
-                if got_nonce != nonce {
-                    let _ = yield_();
-                    continue;
-                }
-                let (status, send_slot, recv_slot) =
-                    nexus_abi::routing::decode_route_rsp(&buf[..13])?;
-                if status != nexus_abi::routing::STATUS_OK {
-                    let _ = yield_();
-                    continue;
-                }
-                return Some((send_slot, recv_slot));
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => {}
-        }
+    const CTRL_SEND_SLOT: u32 = 1;
+    const CTRL_RECV_SLOT: u32 = 2;
+    match budget::route_with_nonce_budgeted(
+        name,
+        CTRL_SEND_SLOT,
+        CTRL_RECV_SLOT,
+        core::time::Duration::from_millis(50),
+        NonceMismatchBudget::new(8),
+    ) {
+        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
+        _ => None,
     }
-    None
 }
 
-/// The service's own server endpoint (declaratively provisioned).
 pub(crate) fn route_virtioblkd_blocking() -> Option<KernelServer> {
     let (send_slot, recv_slot) = route_blocking(b"virtioblkd")?;
     KernelServer::new_with_slots(recv_slot, send_slot).ok()

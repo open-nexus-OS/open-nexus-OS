@@ -44,7 +44,11 @@ in the app-host process that TASK-0080D/0080C (both Done) made the ONE DSL execu
 `APPHOST: mounted hash=` appeared in no proof manifest and no ladder. It is now declared in
 `source/apps/selftest-client/proof-manifest/markers/ui.toml` (`emit_when = { profile =
 "visible" }`) and required by the `visible` lane's display-truth block in
-`scripts/qemu-test.sh` (the lane where app-host runs; headless never spawns the shell). Not
+`scripts/qemu-test.sh` (the lane where app-host runs; headless never spawns the shell). **Proven 2026-09-09** (`just ci-os-visible` inside a green `test-all`):
+`APPHOST: mounted hash=` present, pixel proof 40.1 % non-black and 26.0 diff vs splash. The
+marker is declared without an `emit_when` profile filter because every shell-spawning profile
+prints it (the `full` and OTA display lanes too); the REQUIREMENT lives in the visible lane's
+display-truth block. Not
 added to `tools/nx/chains/markers.txt`: the chain-contract simulation has no app-host contract
 (`tools/nx/src/chain/contract/` = gpud/hidrawd/inputd/windowd), and inventing one for a single
 marker would be a fake simulation.

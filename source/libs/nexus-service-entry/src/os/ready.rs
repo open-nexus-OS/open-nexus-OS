@@ -26,19 +26,49 @@ pub fn ready(marker: &str) -> nexus_abi::SysResult<()> {
 
 /// `@ready` on the control REQ slot (init-lite transfers it into slot 1 of every child,
 /// the same slot `@reply`/`@mint-pair` queries use). Routing-frame encoding, no nonce: init
-/// records it and sends nothing back.
+/// records it and sends nothing back. The announce must NEVER hold the service back from
+/// its serving loop: init's responder drains the control queue only after orchestration,
+/// and orchestration itself waits on services (the block driver serves the system volume),
+/// so waiting here for queue room is a circular wait (seen: virtioblkd looping in `ready()`,
+/// volume unavailable, init fatal). Hence: non-blocking attempts, a handful of yields at
+/// most, loud on failure. The kernel's blocking send is avoided on purpose as well (it arms a
+/// timer wakeup before the first attempt and does not disarm it on an immediate error).
 fn announce_ready() {
     const CTRL_SEND_SLOT: u32 = 1;
+    /// Non-blocking attempts before giving up (each separated by one `yield_()`).
+    const ANNOUNCE_ATTEMPTS: u32 = 4;
     let mut buf = [0u8; 16];
     let Some(n) = nexus_abi::routing::encode_route_get(b"@ready", &mut buf) else {
         return;
     };
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, n as u32);
-    if nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &buf[..n], nexus_abi::IPC_SYS_NONBLOCK, 0)
-        .is_err()
-    {
-        debug_write_bytes(b"FAIL ready announce svc=");
-        debug_write_str(service_name());
-        debug_write_byte(b'\n');
-    }
+    let mut attempt = 0;
+    let err = loop {
+        match nexus_abi::ipc_send_v1(
+            CTRL_SEND_SLOT,
+            &hdr,
+            &buf[..n],
+            nexus_abi::IPC_SYS_NONBLOCK,
+            0,
+        ) {
+            Ok(_) => return,
+            Err(nexus_abi::IpcError::QueueFull) if attempt + 1 < ANNOUNCE_ATTEMPTS => {
+                attempt += 1;
+                let _ = nexus_abi::yield_();
+            }
+            Err(other) => break other,
+        }
+    };
+    debug_write_bytes(b"FAIL ready announce svc=");
+    debug_write_str(service_name());
+    debug_write_bytes(b" err=");
+    debug_write_str(match err {
+        nexus_abi::IpcError::QueueFull => "queue-full",
+        nexus_abi::IpcError::TimedOut => "timed-out",
+        nexus_abi::IpcError::NoSuchEndpoint => "no-endpoint",
+        nexus_abi::IpcError::PermissionDenied => "denied",
+        nexus_abi::IpcError::PeerClosed => "peer-closed",
+        _ => "other",
+    });
+    debug_write_byte(b'\n');
 }

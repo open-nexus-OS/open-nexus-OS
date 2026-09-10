@@ -187,23 +187,30 @@ pub(crate) fn run_responder_loop(
                 // a stale RSP in the child's control queue is the confused-waiter class
                 // routing v2 removes. Refusals are loud and name the service.
                 let known = ctrl_channels.iter().any(|c| c.pid == chan.pid);
+                // One atomic write per line: a marker torn against another process's
+                // UART write is a red ladder gate (`init: up keystoredgpud: …` was seen).
                 match ready.announce(chan.pid, known) {
                     Ok(()) => {
                         if !init_fold
                             || crate::bootstrap::diag::expanded("init_spawn")
                             || crate::bootstrap::diag::expanded(chan.svc_name)
                         {
-                            debug_write_str("init: up ");
-                            debug_write_str(chan.svc_name);
-                            debug_write_byte(b'\n');
+                            crate::bootstrap::diag::emit_marker_atomic(
+                                &[b"init: up ", chan.svc_name.as_bytes()],
+                                None,
+                            );
                         }
                     }
                     Err(err) => {
-                        debug_write_str("init: FAIL ready ");
-                        debug_write_str(err.label());
-                        debug_write_str(" svc=");
-                        debug_write_str(chan.svc_name);
-                        debug_write_byte(b'\n');
+                        crate::bootstrap::diag::emit_marker_atomic(
+                            &[
+                                b"init: FAIL ready ",
+                                err.label().as_bytes(),
+                                b" svc=",
+                                chan.svc_name.as_bytes(),
+                            ],
+                            None,
+                        );
                     }
                 }
                 continue;

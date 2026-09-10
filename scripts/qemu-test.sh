@@ -480,16 +480,14 @@ expected_sequence=(
   "init: start netstackd"
   "init: up netstackd"
   "init: start dsoftbusd"
-  "init: up dsoftbusd"
   "init: start hidrawd"
-  "init: up hidrawd"
   "init: start touchd"
-  "init: up touchd"
   "init: start gpud"
   "init: up gpud"
   "init: start windowd"
   "init: up windowd"
   "init: start inputd"
+  "inputd: ready"
   "init: up inputd"
   "init: start imed"
   "init: up imed"
@@ -1003,16 +1001,14 @@ case "${PROFILE:-full}" in
       "init: start netstackd"
       "init: up netstackd"
       "init: start dsoftbusd"
-      "init: up dsoftbusd"
       "init: start hidrawd"
-      "init: up hidrawd"
       "init: start touchd"
-      "init: up touchd"
       "init: start gpud"
       "init: up gpud"
       "init: start windowd"
       "init: up windowd"
       "init: start inputd"
+      "inputd: ready"
       "init: up inputd"
       "init: start imed"
       "init: up imed"
@@ -1262,12 +1258,11 @@ if [[ -n "$RUN_PHASE" ]]; then
       "KSELFTEST: tlb shootdown skipped (smp=1)"
       "init: start"
       "init: start hidrawd"
-      "init: up hidrawd"
       "init: start touchd"
-      "init: up touchd"
       "init: start windowd"
       "init: up windowd"
       "init: start inputd"
+      "inputd: ready"
       "init: up inputd"
       "${INPUT_STARTUP_MARKERS[@]}"
     )
@@ -1816,6 +1811,7 @@ if [[ "$REQUIRE_DSOFTBUS" == "1" ]]; then
     "dsoftbusd: identity bound peer=node-b" \
     "dsoftbusd: dual-node session ok" \
     "dsoftbusd: ready" \
+    "init: up dsoftbusd" \
     "dsoftbusd: auth ok" \
     "dsoftbusd: os session ok" \
     "SELFTEST: quic session ok" \
