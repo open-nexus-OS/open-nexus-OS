@@ -20,7 +20,7 @@
 - **Phase 1 (this contract + ADR-0062)**: ✅ 2026-09-09 (TASK-0324 P1 — paper)
 - **Phase 2 (`@ready` verb, honest `init: up`)**: ✅ 2026-09-09 (TASK-0324 P2 — `test-all` green over 8 lanes, 0 announce failures, `init: up` follows `<svc>: ready` everywhere)
 - **Phase 3 (routing v2: nonce mandatory, parked replies, fail-closed)**: ✅ 2026-09-10 (TASK-0324 P3 — `test-all` green over 8 lanes; park scope amended below with implementation evidence)
-- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: ⬜ TASK-0324 P4a–P4f
+- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: 🟨 2026-09-10 — crate + ratchet gate landed (P4-base); consumer migrations P4a–P4f open
 - **Phase 5 (stage fence replaces every `yield_()` sync)**: ⬜ TASK-0324 P5
 - **Phase 6 (handoff v2: reveal handshake, seq acks, kernel display mode, readback off-scanout)**: ⬜ TASK-0324 P6
 - **Phase 7–9 (consumer polls deleted, closure docs/gates, 8/8 boots)**: ⬜ TASK-0324 P7–P9
@@ -194,9 +194,13 @@ Crate `source/libs/nexus-service-topology` (`no_std`, `forbid(unsafe_code)`): `S
 server_slots: SlotPair, reply_slots: Option<SlotPair>, extra_slots: &[NamedSlot] }`,
 `REQUIRED_ROUTES`, `SERVICE_SPECS` for every service, `route_slots(from, to) -> SlotPair`,
 `extra_slot(svc, NamedSlot) -> u32`. Named extra slots cover MMIO (48), IRQ notify, settings
-watch (0x40/0x41), settings (0x20–0x22), the stage fence. `nexus-sdk-routes` (app children)
-keeps its API but is generated from the same crate (`test_reject_sdk_routes_diverge_from_
-topology`). init provisions every declared slot through one generic arm
+watch (0x40/0x41), settings (0x20–0x22), the stage fence. `nexus-sdk-routes` (app children) keeps its API and its own child-slot space (a per-app
+capability table, not the service one) but is JOINED to this crate by
+`test_reject_sdk_routes_diverge_from_topology`: every `svc.*` row must name a declared
+service. Slots migrate ONE CONSUMER PER PACKAGE; until a consumer is migrated its slots read
+`SlotPair::UNDECLARED`, `test_reject_partial_slot_declaration` fails a half-declared service,
+and `scripts/check-slot-ssot.sh` ratchets the remaining positional declarations down
+(they may shrink, never grow). init provisions every declared slot through one generic arm
 (`declared_slots.rs`, `cap_transfer_to_slot`); services and drivers compile against generated
 constants. Deleted (P4a–P4f, atomic per consumer): every `new_with_slots(…)`, every
 `*_SLOT: u32 = <literal>` outside generated files, every `"<svc>" =>` arm in `wiring.rs`,

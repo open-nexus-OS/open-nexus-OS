@@ -1,0 +1,8 @@
+[package]
+name = "nexus-service-topology"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Declarative service topology: ids, routes, capability slots and boot stages — the ONE source init, services and app children read."
+
+[dependencies]

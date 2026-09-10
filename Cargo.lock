@@ -2147,6 +2147,7 @@ dependencies = [
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-log",
+ "nexus-service-topology",
  "nexus-sync",
  "nexus-vfs",
  "packagefsd",
@@ -2296,6 +2297,9 @@ dependencies = [
 [[package]]
 name = "nexus-sdk-routes"
 version = "0.1.0"
+dependencies = [
+ "nexus-service-topology",
+]
 
 [[package]]
 name = "nexus-sel"
@@ -2309,6 +2313,10 @@ dependencies = [
  "nexus-log",
  "nexus-sync",
 ]
+
+[[package]]
+name = "nexus-service-topology"
+version = "0.1.0"
 
 [[package]]
 name = "nexus-shape"

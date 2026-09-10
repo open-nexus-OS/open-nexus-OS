@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-10 (TASK-0324 P4-base: `nexus-service-topology` — one home for capability slots)
+
+- New crate `source/libs/nexus-service-topology`: the service ids, required route graph and
+  per-service expectations move out of `nexus-init` and gain the capability slots that carry
+  them (`SlotPair`, `NamedSlot`/`NamedSlotBinding`, `ServiceSpec::{server_slots, reply_slots,
+  extra_slots}`, `Route::slots`, plus `route_slots()` / `extra_slot()`). init's
+  `service_topology` module is now a re-export, so every existing path keeps resolving and the
+  move is behaviour-neutral.
+- Slots migrate ONE CONSUMER PER PACKAGE (P4a–P4f). Until a consumer is migrated its slots read
+  `SlotPair::UNDECLARED`; `test_reject_partial_slot_declaration` fails a service that is half
+  declared, so the atomicity rule is enforced mechanically instead of by review.
+  `test_reject_slot_collision_per_service` rejects a slot claimed twice within one service.
+- `nexus-sdk-routes` (the app-child view) is joined to the same truth:
+  `test_reject_sdk_routes_diverge_from_topology` fails a `svc.*` row whose backing route is not
+  a declared service, and `test_reject_child_slot_collision` guards the child slot space.
+- New ratchet gate `scripts/check-slot-ssot.sh` (in `just check`, baseline
+  `config/slot-ssot-baseline.txt`): 191 positional slot declarations in 65 files are
+  grandfathered and may only SHRINK — a new file, or a file that grows, fails the build.
+
 ### Changed - 2026-09-10 (TASK-0324 P3: routing v2 — one correlated ask, parked replies, fail-closed policy)
 
 - Routing v1 is gone: `query_route` (a nonce-less ROUTE_GET preceded by a 32-frame "drain

@@ -22,6 +22,9 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+#[cfg(test)]
+extern crate alloc;
+
 /// One `svc.<name>` → OS route + permission + child-slot binding.
 #[derive(Clone, Copy, Debug)]
 pub struct ServiceRoute {
@@ -165,5 +168,50 @@ mod tests {
         assert_eq!(r.permission, "nexus.permission.ENUMERATE");
         assert_eq!(route_for_permission("nexus.permission.SESSION").unwrap().svc, "session");
         assert!(route_for_svc("library").is_none(), "example svc has no OS route");
+    }
+}
+
+#[cfg(test)]
+mod topology_agreement {
+    use super::*;
+    use nexus_service_topology::ServiceId;
+
+    /// TASK-0324 P4 (RFC-0093 §4): the app-child view and the service topology are ONE truth.
+    /// A `svc.*` row whose backing route is not a declared service is a route that init can
+    /// never provision — today a silent "app has no such service", caught here at declaration
+    /// level instead.
+    #[test]
+    fn test_reject_sdk_routes_diverge_from_topology() {
+        for row in SERVICE_ROUTES {
+            assert!(
+                ServiceId::from_name(row.route.as_bytes()).is_some(),
+                "svc.{} routes to '{}', which is not a service in nexus-service-topology",
+                row.svc,
+                row.route
+            );
+        }
+    }
+
+    /// Child slots are a per-app space: fixed, unique, and never colliding with the
+    /// reserved windowd/payload/events slots or the shared reply inbox.
+    #[test]
+    fn test_reject_child_slot_collision() {
+        let reserved = [CHILD_REPLY_RECV_SLOT, CHILD_REPLY_SEND_SLOT];
+        let mut seen: alloc::vec::Vec<u32> = alloc::vec::Vec::new();
+        for row in SERVICE_ROUTES {
+            assert!(
+                row.child_slot >= CHILD_SVC_SLOT_BASE,
+                "svc.{} uses child slot {} below the service base",
+                row.svc,
+                row.child_slot
+            );
+            assert!(
+                !reserved.contains(&row.child_slot),
+                "svc.{} collides with the reply inbox",
+                row.svc
+            );
+            assert!(!seen.contains(&row.child_slot), "child slot {} claimed twice", row.child_slot);
+            seen.push(row.child_slot);
+        }
     }
 }

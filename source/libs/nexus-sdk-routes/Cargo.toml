@@ -9,3 +9,6 @@ license = "Apache-2.0"
 description = "SSOT mapping a DSL service namespace (svc.<name>) to its backing OS service route + the manifest permission that grants it + the fixed child cap slot the route lands in. Drives declarative, cap-gated per-app service routing: the launch authority provisions exactly the manifest's declared routes; the app-host runtime derives svc.<name> → slot from this same table. no_std const table (no runtime capnp)."
 
 [dependencies]
+
+[dev-dependencies]
+nexus-service-topology = { path = "../nexus-service-topology" }
