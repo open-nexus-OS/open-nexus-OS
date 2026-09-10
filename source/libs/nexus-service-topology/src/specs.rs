@@ -16,6 +16,14 @@ use crate::{NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
 pub mod slots {
     use super::SlotPair;
 
+    /// gpud (TASK-0324 P4c).
+    pub mod gpud {
+        use super::SlotPair;
+
+        /// gpud's own server endpoint (windowd presents here).
+        pub const SERVER: SlotPair = SlotPair::new(4, 3);
+    }
+
     /// inputd (TASK-0324 P4b).
     pub mod inputd {
         use super::SlotPair;
@@ -189,6 +197,20 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         ],
         announce: true,
         server_slots: SlotPair::UNDECLARED,
+        reply_slots: SlotPair::UNDECLARED,
+        extra_slots: &[],
+    },
+    ServiceSpec {
+        id: ServiceId::Gpud,
+        exposes_server: true,
+        reply_inbox: false,
+        // TASK-0324 P4c: a pure server — windowd calls it, it calls nobody. Its MMIO window
+        // uses the fleet-wide `DEVICE_MMIO_SLOT`; its IRQ notification deliberately reuses
+        // the control-reply endpoint (never the server endpoint, which would swallow
+        // windowd's present commands), so neither is a per-service grant to declare here.
+        routes_to: &[],
+        announce: true,
+        server_slots: slots::gpud::SERVER,
         reply_slots: SlotPair::UNDECLARED,
         extra_slots: &[],
     },

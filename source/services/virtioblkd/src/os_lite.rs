@@ -30,7 +30,7 @@ use storage::virtio_blk::VirtioBlkDevice;
 use storage::BlockDevice;
 
 /// Deterministic MMIO cap slot owned by init distribution.
-const MMIO_CAP_SLOT: u32 = 48;
+const MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
 
 fn emit(msg: &str) {
     let _ = nexus_abi::debug_println(msg);

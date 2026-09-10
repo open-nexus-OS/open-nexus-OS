@@ -62,7 +62,7 @@ pub(crate) fn vm_map_roundtrip_probe() -> core::result::Result<(), ()> {
 // which blocks like mmio_map. No longer called by phases/mmio.rs.
 #[allow(dead_code)]
 pub(crate) fn cap_query_mmio_probe() -> core::result::Result<(), ()> {
-    const MMIO_CAP_SLOT: u32 = 48;
+    const MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
     let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     nexus_abi::cap_query(MMIO_CAP_SLOT, &mut info).map_err(|_| ())?;
     // 2 = DeviceMmio

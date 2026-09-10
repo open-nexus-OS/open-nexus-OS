@@ -4,8 +4,6 @@
 #   scripts/check-slot-ssot.sh --update-baseline
 2	source/apps/selftest-client/src/os_lite/context.rs
 2	source/apps/selftest-client/src/os_lite/ipc/routing.rs
-1	source/apps/selftest-client/src/os_lite/mmio.rs
-1	source/apps/selftest-client/src/os_lite/net/smoltcp_probe.rs
 2	source/apps/selftest-client/src/os_lite/probes/blkgate.rs
 2	source/apps/selftest-client/src/os_lite/probes/ipc_kernel/security.rs
 2	source/apps/selftest-client/src/os_lite/probes/ipc_kernel/soak.rs
@@ -15,10 +13,9 @@
 6	source/apps/selftest-client/src/os_lite/services/logd.rs
 2	source/apps/selftest-client/src/os_lite/services/statefs_enc.rs
 2	source/apps/selftest-client/src/os_lite/updated/health.rs
-4	source/drivers/gpud/src/service.rs
 3	source/init/nexus-init/src/bootstrap/blk_plane.rs
 4	source/init/nexus-init/src/bootstrap/core_plane.rs
-2	source/init/nexus-init/src/bootstrap/helpers.rs
+1	source/init/nexus-init/src/bootstrap/helpers.rs
 1	source/init/nexus-init/src/bootstrap/orchestrator.rs
 3	source/init/nexus-init/src/bootstrap/policyd_slots.rs
 2	source/init/nexus-init/src/bootstrap/respawn.rs
@@ -50,14 +47,14 @@
 4	source/services/pinched/src/os_lite.rs
 3	source/services/policyd/src/os_lite.rs
 2	source/services/recv-wake-probe/src/main.rs
-5	source/services/rngd/src/os_lite.rs
+4	source/services/rngd/src/os_lite.rs
 2	source/services/settingsd/src/os_lite.rs
 3	source/services/statefsd/src/abi_seam_os.rs
 2	source/services/statefsd/src/os_lite.rs
-5	source/services/timed/src/os_lite.rs
+4	source/services/timed/src/os_lite.rs
 4	source/services/updated/src/apply_os.rs
 4	source/services/updated/src/bootctl_client.rs
 5	source/services/updated/src/os_lite.rs
 4	source/services/updated/src/policy_client.rs
-2	source/services/virtioblkd/src/os_lite.rs
+1	source/services/virtioblkd/src/os_lite.rs
 2	source/services/virtioblkd/src/route_os.rs

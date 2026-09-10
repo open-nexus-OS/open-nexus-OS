@@ -51,6 +51,11 @@ impl SlotPair {
 /// `@mint-pair`, route asks and the `@ready` announce all travel here (RFC-0093 §1/§2).
 pub const CTRL_SLOTS: SlotPair = SlotPair::new(1, 2);
 
+/// The slot every device MMIO window lands in. One convention for the whole fleet: init
+/// grants at this slot and each driver maps from it — the number used to live once per
+/// driver plus once in init, seven copies that had to agree by hand.
+pub const DEVICE_MMIO_SLOT: u32 = 48;
+
 /// A capability a service receives that is neither its server pair nor a route.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NamedSlot {

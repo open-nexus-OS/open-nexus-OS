@@ -49,6 +49,7 @@ nexus-display-proto = { path = "../../libs/nexus-display-proto" }
 # (nexus-sdf fixed-point AA), matching the GPU shaders + the compositor.
 nexus-sdf = { path = "../../../userspace/ui/sdf" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-driverkit = { path = "../../libs/nexus-driverkit", optional = true }

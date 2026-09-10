@@ -26,6 +26,7 @@ stack_pages = 0
 rtc-goldfish = { path = "../../drivers/rtc/goldfish-rtc" }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-metrics = { path = "../../../userspace/nexus-metrics", optional = true, default-features = false, features = ["os-lite"] }
 

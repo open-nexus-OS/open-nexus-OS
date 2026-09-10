@@ -24,6 +24,7 @@ stack_pages = 0
 thiserror = { version = "2", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 rng-virtio = { path = "../../drivers/rng/virtio-rng", optional = true, default-features = false }
 

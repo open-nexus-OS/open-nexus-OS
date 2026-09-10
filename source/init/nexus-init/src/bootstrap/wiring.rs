@@ -883,9 +883,12 @@ pub(crate) fn wire_services(
                 }
             }
             "gpud" => {
-                let recv_slot = try_transfer(pid, gpud_req, Rights::RECV, "gpud", "RECV");
-                let send_slot = try_transfer(pid, gpud_rsp, Rights::SEND, "gpud", "SEND");
-                if let (Some(recv), Some(send)) = (recv_slot, send_slot) {
+                // TASK-0324 P4c: pinned to the declared slots — gpud hardcodes the same
+                // pair on its side, and windowd's whole present path depends on it.
+                let pinned =
+                    declared_slots::pin_server_pair(pid, ServiceId::Gpud, gpud_req, gpud_rsp);
+                if let Some(slots) = pinned {
+                    let (recv, send) = (slots.recv, slots.send);
                     chan.set_send(ServiceId::Gpud, send);
                     chan.set_recv(ServiceId::Gpud, recv);
                     if iw(init_wire, init_fold, "init:gpud") {
@@ -1682,36 +1685,6 @@ pub(crate) fn wire_services(
         }
     }
     Ok(())
-}
-
-/// Transfer a capability to a child PID with graceful error handling.
-/// Returns Some(slot) on success, None on failure (logs the error).
-/// On success, emits a `cap:` hop marker for traceability.
-fn try_transfer(pid: u32, cap: u32, rights: Rights, svc: &str, label: &str) -> Option<u32> {
-    match nexus_abi::cap_transfer(pid, cap, rights) {
-        Ok(slot) => {
-            debug_write_bytes(b"cap: route init->");
-            debug_write_str(svc);
-            debug_write_bytes(b" ");
-            debug_write_str(label);
-            debug_write_bytes(b" src=0x");
-            debug_write_hex(cap as usize);
-            debug_write_bytes(b" dst=0x");
-            debug_write_hex(slot as usize);
-            debug_write_byte(b'\n');
-            Some(slot)
-        }
-        Err(e) => {
-            debug_write_bytes(b"init: skip ");
-            debug_write_str(svc);
-            debug_write_bytes(b" ");
-            debug_write_str(label);
-            debug_write_bytes(b": ");
-            debug_write_str(abi_error_label(e));
-            debug_write_byte(b'\n');
-            None
-        }
-    }
 }
 
 /// `true` if `name` has a bespoke wiring arm in the orchestrator (complex

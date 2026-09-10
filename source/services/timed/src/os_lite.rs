@@ -32,7 +32,7 @@ struct WallclockAnchor {
 
 /// Policy-gated `device.mmio.rtc` grant lands here (init, fixed slot — the
 /// same deterministic slot every MMIO owner uses).
-const RTC_MMIO_CAP_SLOT: u32 = 48;
+const RTC_MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
 /// Per-process VA for the RTC window (4 KiB, USER|RW, never exec).
 
 fn try_anchor(anchor: &mut Option<WallclockAnchor>) {

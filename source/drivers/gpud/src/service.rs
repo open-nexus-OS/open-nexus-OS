@@ -70,10 +70,10 @@ pub const STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
 pub const STATUS_MALFORMED: u8 = nexus_display_proto::STATUS_MALFORMED;
 pub const STATUS_DEVICE_ERROR: u8 = nexus_display_proto::STATUS_DEVICE_ERROR;
 
-const GPU_MMIO_CAP_SLOT: u32 = 48;
+const GPU_MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
 const GPU_MMIO_LEN: usize = 0x1000;
-const GPUD_RECV_SLOT: u32 = 3;
-const GPUD_SEND_SLOT: u32 = 4;
+const GPUD_RECV_SLOT: u32 = nexus_service_topology::slots::gpud::SERVER.recv;
+const GPUD_SEND_SLOT: u32 = nexus_service_topology::slots::gpud::SERVER.send;
 /// virtio-mmio GPU PLIC interrupt source. The GPU sits at MMIO 0x1000_8000 on the
 /// QEMU virt machine = virtio-mmio slot 7 (0x1000_1000 + 7·0x1000), and QEMU wires
 /// slot N to PLIC source N+1 → source 8. Same convention as virtio-input (slots
@@ -85,7 +85,7 @@ const GPU_IRQ_SOURCE: u32 = 8;
 /// NOT the windowd↔gpud server endpoint (slot 3): binding a notification source
 /// there would intercept windowd's present commands and break the channel.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-const GPU_IRQ_NOTIFY_SLOT: u32 = 2;
+const GPU_IRQ_NOTIFY_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
 /// Display framebuffer dimensions matching windowd's VISIBLE_BOOTSTRAP_WIDTH/HEIGHT.
 /// On QEMU virtio-gpu with `-display gtk`, the GTK window resizes to match this scanout.
 const DISPLAY_WIDTH: u32 = 1280;

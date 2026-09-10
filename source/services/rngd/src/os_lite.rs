@@ -230,7 +230,7 @@ fn handle_get_entropy(
 /// - Entropy bytes are NEVER logged
 fn read_entropy_from_device(n: usize) -> Result<Vec<u8>, rng_virtio::RngError> {
     // DeviceMmio cap is distributed by init (policy-gated) into a deterministic slot.
-    const MMIO_CAP_SLOT: u32 = 48;
+    const MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
     const MAX_SLOTS: usize = 1;
 
     // RFC-0085: the kernel picks the window va (`mmio_map_auto` inside).

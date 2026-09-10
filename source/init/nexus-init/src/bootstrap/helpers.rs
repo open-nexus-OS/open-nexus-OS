@@ -102,7 +102,7 @@ static GUARD_STR_PROBE_COUNT: AtomicUsize = AtomicUsize::new(0);
 // Nonce for policyd v2 (correlated) control-plane requests.
 pub(crate) static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
 // Deterministic DeviceMmio slot (per-service cap table).
-pub(crate) const DEVICE_MMIO_CAP_SLOT: u32 = 48;
+pub(crate) const DEVICE_MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
 pub(crate) const INPUT_MMIO_CAP_SLOT_BASE: u32 = 50;
 // QEMU `virt` virtio-mmio layout (per-device windows).
 pub(crate) const VIRTIO_MMIO_BASE: usize = 0x1000_1000;

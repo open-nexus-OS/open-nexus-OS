@@ -1242,6 +1242,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-sdf",
  "nexus-service-entry",
+ "nexus-service-topology",
  "nexus-svg",
 ]
 
@@ -3665,6 +3666,7 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-service-topology",
  "rng-virtio",
  "thiserror",
 ]
@@ -3934,6 +3936,7 @@ dependencies = [
  "nexus-noise-xk",
  "nexus-proof-manifest",
  "nexus-service-entry",
+ "nexus-service-topology",
  "nexus-svg",
  "nexus-vfs",
  "nexus-vfs-types",
@@ -4365,6 +4368,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-metrics",
  "nexus-service-entry",
+ "nexus-service-topology",
  "rtc-goldfish",
 ]
 
@@ -4869,6 +4873,7 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-service-topology",
  "storage",
 ]
 

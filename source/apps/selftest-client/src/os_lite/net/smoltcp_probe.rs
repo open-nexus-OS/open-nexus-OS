@@ -291,7 +291,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     // Minimal bring-up: create an interface and attempt an ICMP echo to the QEMU usernet gateway.
     //
     // NOTE: This is best-effort and bounded; the marker is emitted only on success.
-    const MMIO_CAP_SLOT: u32 = 48;
+    const MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
     // RFC-0085: kernel-chosen va — the shared fixed 0x2000_e000 window is gone.
     let mmio_va = nexus_abi::mmio_map_auto(MMIO_CAP_SLOT, 0, 0x1000).map_err(|_| ())?;
     let magic = unsafe { core::ptr::read_volatile((mmio_va + 0x000) as *const u32) };

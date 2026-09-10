@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-10 (TASK-0324 P4c: gpud declared, one MMIO slot for the fleet, order-based transfer deleted)
+
+- gpud is declared (a pure server: windowd calls it, it calls nobody) and init pins its
+  server pair. gpud's `GPUD_RECV_SLOT`/`GPUD_SEND_SLOT` read that declaration, and
+  `GPU_IRQ_NOTIFY_SLOT` now names `CTRL_SLOTS.recv` instead of repeating `2` — the deliberate
+  reuse of the control-reply endpoint is stated instead of implied.
+- `DEVICE_MMIO_SLOT` is one fleet-wide constant. The number 48 was written seven times (init,
+  virtioblkd, rngd, timed, gpud and two selftest probes); every copy now reads the topology.
+- **init's `try_transfer` is gone.** With gpud migrated it had no caller left: every
+  capability init hands to a service lands in a slot the topology declares, not in "whatever
+  slot the previous transfer left free". That order WAS the boot contract this lane set out
+  to delete.
+- Slot-SSOT ratchet: 176 → 166 positional declarations, 59 → 56 files.
+
 ### Changed - 2026-09-10 (TASK-0324 P4b: inputd joins the declared arm)
 
 - inputd had no entry in `SERVICE_SPECS`/`REQUIRED_ROUTES` at all: init wired its server pair,
