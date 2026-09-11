@@ -185,35 +185,34 @@ pub(crate) fn bring_up(
         }
     }
 
-    // Private init-lite <-> policyd channels: request endpoints are owned
-    // by policyd (it receives queries); pinned to the fixed child slots
-    // policyd reads route/exec control on (5/6 and 7/8).
+    // Private init-lite <-> policyd check channels: request endpoints are owned by policyd (it
+    // receives the queries). Pinned where `slots::policyd` declares them, here in the core plane
+    // — BEFORE policyd runs (`resume_plane` below), so none of its own allocations can take them.
     let pol_ctl_route_req = mint(policyd_pid, 8)?;
     let pol_ctl_exec_req = mint(policyd_pid, 8)?;
-    const POLICYD_CTL_ROUTE_RECV_SLOT: u32 = 5;
-    const POLICYD_CTL_ROUTE_SEND_SLOT: u32 = 6;
-    const POLICYD_CTL_EXEC_RECV_SLOT: u32 = 7;
-    const POLICYD_CTL_EXEC_SEND_SLOT: u32 = 8;
-    for (cap, rights, slot) in [
-        (pol_ctl_route_req, Rights::RECV, POLICYD_CTL_ROUTE_RECV_SLOT),
-        (pol_ctl_route_rsp, Rights::SEND, POLICYD_CTL_ROUTE_SEND_SLOT),
-        (pol_ctl_exec_req, Rights::RECV, POLICYD_CTL_EXEC_RECV_SLOT),
-        (pol_ctl_exec_rsp, Rights::SEND, POLICYD_CTL_EXEC_SEND_SLOT),
-    ] {
-        let _ = nexus_abi::cap_transfer_to_slot(policyd_pid, cap, rights, slot)
-            .map_err(InitError::Abi)?;
+    {
+        use crate::service_topology::NamedSlot;
+        for (cap, rights, name) in [
+            (pol_ctl_route_req, Rights::RECV, NamedSlot::PolicyRouteCheckRecv),
+            (pol_ctl_route_rsp, Rights::SEND, NamedSlot::PolicyRouteCheckSend),
+            (pol_ctl_exec_req, Rights::RECV, NamedSlot::PolicyExecCheckRecv),
+            (pol_ctl_exec_rsp, Rights::SEND, NamedSlot::PolicyExecCheckSend),
+        ] {
+            crate::bootstrap::declared_slots::pin_named(
+                policyd_pid,
+                ServiceId::Policyd,
+                name,
+                cap,
+                rights,
+            )
+            .ok_or(InitError::Map("policyd check channel"))?;
+        }
     }
 
-    // Priority-wire policyd BEFORE any policy-gated grant so policy checks
-    // complete in microseconds. Clones so the originals stay available for
-    // the other services that need SEND rights.
-    // policyd's server pair already sits at its deterministic slots 3/4
-    // (`transfer_server_pair` above). A second clone pair used to be
-    // transferred here — it landed on 9/10 and silently displaced the
-    // reply inbox (0x9/0xA) and the logd send cap (0xB) policyd's
-    // deterministic audit/probe path assumes: every audit record and the
-    // core-log probe went to a dead slot. The wiring arm now PINS those
-    // three slots and fails loudly if they are taken.
+    // policyd is priority-wired BEFORE any policy-gated grant so policy checks complete in
+    // microseconds: its server pair and both check channels are pinned above. The audit inbox
+    // (0x9/0xA) and its logd leg (0xB) are pinned by the generic arm from `slots::policyd` —
+    // a clone pair once transferred here landed on 9/10 and silently displaced them.
     if let Some(chan) = ctrls.iter_mut().find(|c| c.svc_name == "policyd") {
         debug_assert!(chan.send(ServiceId::Policyd).is_some());
         if iw(init_wire, init_fold, "init:policyd") {

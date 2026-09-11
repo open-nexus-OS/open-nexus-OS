@@ -28,6 +28,8 @@ pub mod state_record;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod os_stub;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
+mod policy_os;
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod store_os;
 
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]

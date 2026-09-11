@@ -59,6 +59,12 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     // declared route is a provisioned edge, not a promise to route through the responder.
     (ServiceId::Bootctld, ServiceId::Statefsd), // boot record persistence
     (ServiceId::Bootctld, ServiceId::Policyd),  // boot.target / boot.reset gates
+    // TASK-0324 P4f-2: the key store and the policy authority, off their bespoke arms.
+    (ServiceId::Keystored, ServiceId::Statefsd), // sealed key store
+    (ServiceId::Keystored, ServiceId::Logd),     // structured logs
+    (ServiceId::Keystored, ServiceId::Policyd),  // delegated capability checks
+    (ServiceId::Keystored, ServiceId::Rngd),     // key-generation entropy
+    (ServiceId::Policyd, ServiceId::Logd),       // audit records
     // imed (RFC-0075 / TASK-0204): pushes to windowd, persists the keymap and its ranking blob.
     (ServiceId::Imed, ServiceId::Windowd),
     (ServiceId::Imed, ServiceId::Settingsd),

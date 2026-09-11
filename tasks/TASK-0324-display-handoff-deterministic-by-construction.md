@@ -116,6 +116,36 @@ remaining lanes ran one by one with a retry ONLY on a witnessed external kill: r
 ota-bundle, -resume, -delta, ota-backstops (tamper, downgrade, fallback) all green on the first
 attempt, 0× `FAIL declared slot` in every lane, lane peaks 740-1,113 MiB.
 
+**P4f-2 delivered 2026-09-11:** policyd and keystored leave their bespoke arms
+for the generic arm (policyd's 62-line arm with a never-matching `else` branch that would have
+spread its inbox by transfer order, keystored's 192-line arm of transfer tracing, and
+`policyd_slots.rs` are deleted; the generic bridge gained the rngd target). policyd's server pair and
+init's route-check/exec-check channels are pinned in the CORE plane, before `resume_plane`
+(`NamedSlot::PolicyRouteCheck*/PolicyExecCheck*`), its audit inbox 0x9/0xA and logd leg 0xB by the
+generic arm; keystored's inbox 5/6 + statefsd 7, logd 8, policyd 9, rngd 0xA are declared. The policy
+coverage test exempts the policy authority by name (a policyd route ask would ask policyd — adding
+`ipc.core` would be a privilege that gates nothing). Structure: `SERVICE_SPECS` is a list of named
+per-service consts in `specs_{app,storage,security,ui}.rs`; keystored's policy check moved to
+`policy_os.rs`. Ratchet 72/27 → 57/22. **Findings:** (1) ⭐ `Endpoints::server_pair` had NO policyd
+entry, so every leg that looked policyd up there was silently skipped — execd's crash attach-level
+route (`crash.attach.*`, TASK-0051B) had NEVER been provisioned: every lane printed
+`init: execd route->…` for eight targets and none for policyd; execd's delegated check resolved to
+`Unreachable` → deny → `AttachLevel::None`, although `policies/base.toml` grants execd
+`crash.attach.stack`. Fixed; the smoke lane prints `init: execd route->policyd ok` for the first
+time. (2) `SELFTEST: crash redaction ok` stayed green through it: the probe compares
+`has_stack == source_had_stack` for the demo.minidump child, whose capture evidently carries no stack
+preview — so the probe passes vacuously and never proves the stack-only path (no marker prints the
+resolved level). Recorded for TASK-0051B follow-up. (3) keystored's policyd leg sat at 9 only
+because the OPTIONAL logd leg was transferred first; an image without logd would have sent its policy
+checks to rngd's slot. (4) More ratchet blind spots: slots as `let` literals
+(`let rng_send_slot = 0x0a;`, `let ctl_route_recv_slot = 5;`) — for P4f-6's gate. **Proof:** `just check` green; `just test-all` green through its gates + smp1 + visible, then the
+host memory watchdog killed the reset lane (witnessed) and afterwards the lane runner task itself; with
+the user's go-ahead the runner ran detached from the agent task (the lanes stay inside their 4G/8G
+envelope): reset, ota-flip, ota-bundle, -resume, -delta, ota-backstops (tamper, downgrade, fallback)
+all green on the first attempt. 0× `FAIL declared slot` in every lane; smoke evidence
+`init: execd route->policyd ok` (first time ever), 27× `policyd: audit emit ok`,
+`SELFTEST: keystored v1 ok`, `device key persist ok`, policy allow/deny/audit/spoof all ok.
+
 **P4f-1b delivered 2026-09-11:** new route kind `PrivateInbox { inbox_send }` (imed's settingsd
 8/9/10 and statefsd 0x0B/0x0C/0x0D legs are declared routes the generic arm provisions — the
 hand-built legs with pinned literals and a never-closed `cap_clone` each are deleted); imed's OSK RECV

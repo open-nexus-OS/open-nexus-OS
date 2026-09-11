@@ -263,8 +263,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
 fn route_keystored_blocking() -> Option<KernelServer> {
     // init-lite wires service slots after spawn; avoid crashing if we race that wiring.
     // Keep this silent (no slot-spam) but bounded.
-    const RECV_SLOT: u32 = 0x03;
-    const SEND_SLOT: u32 = 0x04;
+    const RECV_SLOT: u32 = nexus_service_topology::slots::keystored::SERVER.recv;
+    const SEND_SLOT: u32 = nexus_service_topology::slots::keystored::SERVER.send;
     let deadline = match nexus_abi::nsec() {
         Ok(now) => now.saturating_add(10_000_000_000), // 10s
         Err(_) => 0,
@@ -473,21 +473,12 @@ fn handle_sign(
         return rsp(OP_SIGN, STATUS_MALFORMED, &[]);
     }
 
-    if !policyd_allows(pending, sender_service_id, b"crypto.sign") {
+    if !crate::policy_os::policyd_allows(pending, sender_service_id, b"crypto.sign") {
         return rsp(OP_SIGN, STATUS_DENY, &[]);
     }
 
     // NOTE: Device-identity signing is handled via OP_DEVICE_SIGN.
     rsp(OP_SIGN, STATUS_UNSUPPORTED, &[])
-}
-
-fn policyd_allows(_pending: &mut ReplyBuffer<16, 512>, subject_id: u64, cap: &[u8]) -> bool {
-    // RFC-0066: the shared CAP_MOVE policy check over keystored's init-wired slots
-    // (policyd send=9, @reply recv=5/send=6). The ~100-line hand-rolled copy was removed.
-    matches!(
-        nexus_ipc::policyd::check_cap_on(0x09, 0x06, 0x05, subject_id, cap),
-        nexus_ipc::policyd::CapDecision::Allow
-    )
 }
 
 fn extract_shared_nonce_u32(frame: &[u8]) -> Option<u64> {
@@ -523,7 +514,7 @@ fn handle_device_keygen(
     sender_service_id: u64,
 ) -> Vec<u8> {
     // Policy check: caller must have device.keygen capability
-    if !policyd_allows(pending, sender_service_id, b"device.keygen") {
+    if !crate::policy_os::policyd_allows(pending, sender_service_id, b"device.keygen") {
         return rsp(OP_DEVICE_KEYGEN, STATUS_DENY, &[]);
     }
 
@@ -640,7 +631,7 @@ fn handle_get_device_pubkey(
         }
     }
     handle_get_device_pubkey_with(device_keypair, sender_service_id, |sid| {
-        policyd_allows(pending, sid, b"device.pubkey.read")
+        crate::policy_os::policyd_allows(pending, sid, b"device.pubkey.read")
     })
 }
 
@@ -691,7 +682,7 @@ fn handle_device_sign(
 
     let payload = &frame[HEADER_LEN..expected];
     let allowed = statefs::derive::device_sign_allowed(payload, |cap| {
-        policyd_allows(pending, sender_service_id, cap.as_bytes())
+        crate::policy_os::policyd_allows(pending, sender_service_id, cap.as_bytes())
     });
     if !allowed {
         return rsp(OP_DEVICE_SIGN, STATUS_DENY, &[]);
@@ -728,7 +719,7 @@ fn handle_device_reload(
     store: &mut KeyStore,
     sender_service_id: u64,
 ) -> Vec<u8> {
-    if !policyd_allows(pending, sender_service_id, b"device.key.reload") {
+    if !crate::policy_os::policyd_allows(pending, sender_service_id, b"device.key.reload") {
         emit_line("keystored: reload denied by policy");
         return rsp(OP_DEVICE_RELOAD, STATUS_DENY, &[]);
     }
@@ -765,12 +756,11 @@ fn request_entropy_from_rngd(pending: &mut ReplyBuffer<16, 512>, n: usize) -> Op
     req.extend_from_slice(&nonce.to_le_bytes());
     req.extend_from_slice(&(n as u16).to_le_bytes());
 
-    // init-lite deterministic slots for keystored:
-    // - rngd send: 0x0A
-    // - reply inbox: recv=0x05, send=0x06
-    let rng_send_slot = 0x0a;
-    let reply_send_slot = 0x06;
-    let reply_recv_slot = 0x05;
+    // keystored's declared rngd leg and reply inbox (TASK-0324 P4f-2).
+    use nexus_service_topology::slots::keystored as topo;
+    let rng_send_slot = topo::RNGD.send;
+    let reply_send_slot = topo::REPLY.send;
+    let reply_recv_slot = topo::REPLY.recv;
     let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).ok()?;
 
     // Send request with CAP_MOVE reply cap so rngd can reply to us deterministically.

@@ -188,11 +188,11 @@ pub(crate) struct StatefsStore {
 
 impl StatefsStore {
     fn new() -> Option<Self> {
-        // init-lite deterministic slots for keystored -> statefsd:
-        // - send=0x07, reply recv=0x05, reply send=0x06
-        const STATEFS_SEND_SLOT: u32 = 0x07;
-        const REPLY_RECV_SLOT: u32 = 0x05;
-        const REPLY_SEND_SLOT: u32 = 0x06;
+        // keystored -> statefsd over the declared slots init pins (TASK-0324 P4f-2).
+        use nexus_service_topology::slots::keystored as topo;
+        const STATEFS_SEND_SLOT: u32 = topo::STATEFSD.send;
+        const REPLY_RECV_SLOT: u32 = topo::REPLY.recv;
+        const REPLY_SEND_SLOT: u32 = topo::REPLY.send;
         let client = KernelClient::new_with_slots(STATEFS_SEND_SLOT, REPLY_RECV_SLOT).ok()?;
         let reply = KernelClient::new_with_slots(REPLY_SEND_SLOT, REPLY_RECV_SLOT).ok();
         let client = StatefsClient::from_clients(client, reply);

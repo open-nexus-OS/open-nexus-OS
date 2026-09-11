@@ -95,24 +95,21 @@ const MAX_FRAME_BYTES: usize = crate::lite_protocol::MAX_FRAME_BYTES;
 /// NOTE: This is a bring-up implementation: it only supports allow/deny checks over IPC and
 /// returns deterministic decisions based on the compiled policy table.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
-    // Deterministic IPC slots are pre-distributed by init-lite (RFC-0005). Avoid routing queries
-    // here to keep readiness marker ordering stable for `scripts/qemu-test.sh`.
-    let server_recv_slot = 3;
-    let server_send_slot = 4;
+    // policyd's slots are pinned by init where `nexus-service-topology` declares them
+    // (TASK-0324 P4f-2) — before policyd runs, in the core plane. It never routes, which keeps
+    // readiness marker ordering stable for `scripts/qemu-test.sh`.
+    use nexus_service_topology::slots::policyd as topo;
+    let server_recv_slot = topo::SERVER.recv;
+    let server_send_slot = topo::SERVER.send;
     notifier.notify();
     let _ = nexus_service_entry::ready("policyd: ready");
     emit_line("abi-profile: ready (server=policyd|abi-filterd)");
     nexus_abi::service_verdict_flush("policyd");
-    // Private init-lite -> policyd control channels.
-    // Slot layout for policyd child (deterministic under current init-lite bring-up):
-    // - slot 1/2: init-lite routing control REQ/RSP
-    // - slot 3/4: selftest-client <-> policyd service RECV/SEND
-    // - slot 5/6: init-lite <-> policyd route control RECV/SEND
-    // - slot 7/8: init-lite <-> policyd exec control RECV/SEND
-    let ctl_route_recv_slot = 5;
-    let ctl_route_send_slot = 6;
-    let ctl_exec_recv_slot = 7;
-    let ctl_exec_send_slot = 8;
+    // init's private route-check and exec-check channels (declared in the topology).
+    let ctl_route_recv_slot = topo::ROUTE_CHECK.recv;
+    let ctl_route_send_slot = topo::ROUTE_CHECK.send;
+    let ctl_exec_recv_slot = topo::EXEC_CHECK.recv;
+    let ctl_exec_send_slot = topo::EXEC_CHECK.send;
     let init_lite_id = nexus_abi::service_id_from_name(b"init-lite");
     let init_alt_id = nexus_abi::service_id_from_name(b"nexus-init");
     let mut ctl_route_buf = [0u8; 512];
@@ -1043,12 +1040,11 @@ pub(crate) fn write_hex_u64(buf: &mut [u8], len: &mut usize, value: u64) {
 }
 
 pub(crate) fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
-    // Deterministic slots distributed by init-lite for policyd:
-    // - reply inbox: recv=0x9 send=0xA
-    // - logd sink:  send=0xB (responses land on reply inbox when using CAP_MOVE)
-    const REPLY_RECV_SLOT: u32 = 0x9;
-    const REPLY_SEND_SLOT: u32 = 0xA;
-    const LOGD_SEND_SLOT: u32 = 0xB;
+    // policyd's audit inbox and logd leg as declared (TASK-0324 P4f-2); responses land on the
+    // reply inbox when using CAP_MOVE.
+    const REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::policyd::REPLY.recv;
+    const REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::policyd::REPLY.send;
+    const LOGD_SEND_SLOT: u32 = nexus_service_topology::slots::policyd::LOGD.send;
 
     const MAGIC0: u8 = b'L';
     const MAGIC1: u8 = b'O';

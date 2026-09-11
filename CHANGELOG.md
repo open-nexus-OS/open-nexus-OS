@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-11 (TASK-0324 P4f-2: policyd and keystored declared; execd's crash policy route exists for the first time)
+
+- policyd and keystored are provisioned by the generic wiring arm from their declarations; both
+  bespoke arms (254 lines) and `policyd_slots.rs` are deleted. policyd's server pair and init's
+  route-check and exec-check channels are pinned in the core plane, before policyd runs.
+- Fixed: init's minted-pair table had no entry for policyd, so execd's route to policyd for the
+  crash attach-level gate (`crash.attach.*`) was never provisioned and every crash resolved to
+  "no attachments" despite the policy granting `crash.attach.stack`.
+- keystored's policy checks no longer depend on logd being in the image (its policyd leg used to
+  shift onto rngd's slot without it).
+- `SERVICE_SPECS` is a list of named per-service declarations split by plane.
+- Slot-SSOT ratchet 72 -> 57 positional declarations, 27 -> 22 files.
+
 ### Changed - 2026-09-11 (TASK-0324 P4f-1b: route-private inboxes get a name; bootctld, imed and virtioblkd declared; the block plane has one home)
 
 - New route kind `PrivateInbox`: a route whose replies return on an inbox of its own, used where

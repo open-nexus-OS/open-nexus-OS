@@ -21,7 +21,6 @@ pub(crate) mod labels;
 pub(crate) mod orchestrator;
 pub(crate) mod persist;
 pub(crate) mod policyd;
-pub(crate) mod policyd_slots;
 pub(crate) mod respawn;
 pub(crate) mod responder;
 pub(crate) mod resume;

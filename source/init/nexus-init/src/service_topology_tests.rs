@@ -111,6 +111,13 @@ fn routing_services_are_granted_ipc_core_in_policy() {
         if spec.routes_to.is_empty() {
             continue;
         }
+        // The policy authority is the one service this rule cannot apply to: the responder asks
+        // POLICYD whether a requester may route, so a policyd route ask would be a question to
+        // itself. policyd never asks — its declared legs are fixed-slot provisioning — and
+        // granting it `ipc.core` would add a privilege that gates nothing (TASK-0324 P4f-2).
+        if spec.id == ServiceId::Policyd {
+            continue;
+        }
         let name = spec.id.name();
         // Find the `[allow]` line for this service (quoted or bare key) and
         // require it to grant "ipc.core".

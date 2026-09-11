@@ -172,6 +172,10 @@ impl Endpoints {
     pub(crate) fn server_pair(&self, id: crate::service_topology::ServiceId) -> Option<(u32, u32)> {
         use crate::service_topology::ServiceId;
         match id {
+            // TASK-0324 P4f-2: policyd's pair (core plane). It was missing, so every leg that
+            // looked a policyd target up here was silently skipped — execd's crash attach-level
+            // route (`crash.attach.*`) had never been provisioned.
+            ServiceId::Policyd => Some((self.pol_req, self.pol_rsp)),
             ServiceId::Rngd => Some((self.rng_req, self.rng_rsp)),
             ServiceId::Timed => Some((self.timed_req, self.timed_rsp)),
             ServiceId::Imed => Some((self.imed_req, self.imed_rsp)),

@@ -94,6 +94,15 @@ pub enum NamedSlot {
     /// A second server endpoint's RECV half (imed's on-screen-keyboard endpoint, which
     /// answers through the service's own server SEND half).
     OskServerRecv,
+    /// policyd: RECV half of init's private route-check channel (is requester X allowed to
+    /// route to Y).
+    PolicyRouteCheckRecv,
+    /// policyd: SEND half of the route-check channel (the verdict back to init).
+    PolicyRouteCheckSend,
+    /// policyd: RECV half of init's private exec-check channel.
+    PolicyExecCheckRecv,
+    /// policyd: SEND half of the exec-check channel.
+    PolicyExecCheckSend,
     /// recv-wake probe (execd): SEND half of the ping endpoint.
     ProbePingSend,
     /// recv-wake probe (execd): RECV half of the ping endpoint.
@@ -121,6 +130,14 @@ mod routes;
 pub mod slots;
 /// Per-service declarations.
 mod specs;
+/// Declarations: the app platform.
+mod specs_app;
+/// Declarations: the policy authority, entropy, the ingress edge.
+mod specs_security;
+/// Declarations: storage and boot.
+mod specs_storage;
+/// Declarations: the display and input chain.
+mod specs_ui;
 
 pub use ids::ServiceId;
 pub use routes::{Route, RouteKind, REQUIRED_ROUTES};

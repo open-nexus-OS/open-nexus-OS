@@ -198,6 +198,26 @@ pub mod inputd {
     pub const WATCH_SEND: u32 = 0x22;
 }
 
+/// keystored (TASK-0324 P4f-2). Its policyd leg used to land on 9 only because the optional
+/// logd leg was transferred first; without logd it would have been 8 while keystored's policy
+/// check asked slot 9 — the slot rngd's leg would then occupy. Declared, every leg is fixed.
+pub mod keystored {
+    use super::SlotPair;
+
+    /// keystored's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox.
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// The sealed key store.
+    pub const STATEFSD: SlotPair = SlotPair::new(7, REPLY.recv);
+    /// Structured logs (optional target).
+    pub const LOGD: SlotPair = SlotPair::new(8, REPLY.recv);
+    /// Delegated capability checks.
+    pub const POLICYD: SlotPair = SlotPair::new(9, REPLY.recv);
+    /// Entropy for key generation.
+    pub const RNGD: SlotPair = SlotPair::new(0x0A, REPLY.recv);
+}
+
 /// logd (TASK-0324 P4f-1a).
 pub mod logd {
     use super::SlotPair;
@@ -228,6 +248,25 @@ pub mod pinched {
 
     /// pinched's own server endpoint.
     pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+}
+
+/// policyd (TASK-0324 P4f-2). policyd is resumed with the core plane, BEFORE init's wiring
+/// phase, so everything init grants it later sits above what policyd allocates itself; its
+/// check channels are pinned in the core plane, before it runs.
+pub mod policyd {
+    use super::SlotPair;
+
+    /// policyd's own server endpoint (capability checks from the fleet).
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// init's private route-check channel (policyd receives on 5, answers on 6).
+    pub const ROUTE_CHECK: SlotPair = SlotPair::new(6, 5);
+    /// init's private exec-check channel (policyd receives on 7, answers on 8).
+    pub const EXEC_CHECK: SlotPair = SlotPair::new(8, 7);
+    /// The shared CAP_MOVE reply inbox of its audit path.
+    pub const REPLY: SlotPair = SlotPair::new(0x0A, 0x09);
+    /// Audit records. A clone pair transferred in the core plane once landed here and
+    /// silently displaced this leg — every audit record went to a dead slot (2026-09-08).
+    pub const LOGD: SlotPair = SlotPair::new(0x0B, REPLY.recv);
 }
 
 /// The capability table of execd's recv-wake probe child (TASK-0324 P4e-2).

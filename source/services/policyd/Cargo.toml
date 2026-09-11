@@ -42,6 +42,8 @@ configd = { path = "../configd", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+# TASK-0324 P4f-2: capability slots have one home.
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 serde_json = { version = "1.0.145", optional = true }
 thiserror = { version = "2", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }

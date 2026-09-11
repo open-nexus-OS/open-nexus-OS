@@ -273,68 +273,6 @@ pub(crate) fn wire_services(
             // (RFC-0069 batch 2): spec = SERVICE_SPECS (vfsd's packagefsd link is
             // a SharedResponse route; packagefsd's reply inbox is the pre-minted
             // `pkg_reply_ep`). Their bespoke arms are deleted.
-            "policyd" => {
-                // Already priority-wired before MMIO grants — skip re-wiring.
-                if chan.send(ServiceId::Policyd).is_some()
-                    && chan.recv(ServiceId::Policyd).is_some()
-                {
-                    if iw(init_wire, init_fold, "init:policyd") {
-                        debug_write_bytes(b"init: policyd already priority-wired, skip\n");
-                    }
-                    // Still need reply inbox and logd caps.
-                    let pid = chan.pid;
-                    crate::bootstrap::policyd_slots::pin_policyd_client_slots(pid, log_req, chan)?;
-                } else {
-                    let recv_slot = nexus_abi::cap_transfer(pid, pol_req, Rights::RECV)
-                        .map_err(InitError::Abi)?;
-                    let send_slot = nexus_abi::cap_transfer(pid, pol_rsp, Rights::SEND)
-                        .map_err(InitError::Abi)?;
-                    chan.set_send(ServiceId::Policyd, send_slot);
-                    chan.set_recv(ServiceId::Policyd, recv_slot);
-                    if iw(init_wire, init_fold, "init:policyd") {
-                        debug_write_bytes(b"init: policyd slots recv=0x");
-                        debug_write_hex(recv_slot as usize);
-                        debug_write_bytes(b" send=0x");
-                        debug_write_hex(send_slot as usize);
-                        debug_write_byte(b'\n');
-                    }
-
-                    // Reply inbox for CAP_MOVE reply routing (log sinks).
-                    let reply_ep =
-                        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                            .map_err(InitError::Abi)?;
-                    let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
-                        .map_err(InitError::Abi)?;
-                    let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
-                        .map_err(InitError::Abi)?;
-                    chan.reply_recv_slot = Some(reply_recv_slot);
-                    chan.reply_send_slot = Some(reply_send_slot);
-                    chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
-                    let _ = nexus_abi::cap_close(reply_ep);
-                    if iw(init_wire, init_fold, "init:policyd") {
-                        debug_write_bytes(b"init: policyd reply slots recv=0x");
-                        debug_write_hex(reply_recv_slot as usize);
-                        debug_write_bytes(b" send=0x");
-                        debug_write_hex(reply_send_slot as usize);
-                        debug_write_byte(b'\n');
-                    }
-
-                    // TASK-0006: allow policyd to send structured logs to logd via CAP_MOVE (reply inbox).
-                    if let Some(req) = log_req {
-                        let send_slot = nexus_abi::cap_transfer(pid, req, Rights::SEND)
-                            .map_err(InitError::Abi)?;
-                        chan.set_send(ServiceId::Logd, send_slot);
-                        chan.set_recv(ServiceId::Logd, reply_recv_slot);
-                        if iw(init_wire, init_fold, "init:policyd") {
-                            debug_write_bytes(b"init: policyd logd slots send=0x");
-                            debug_write_hex(send_slot as usize);
-                            debug_write_bytes(b" recv=0x");
-                            debug_write_hex(reply_recv_slot as usize);
-                            debug_write_byte(b'\n');
-                        }
-                    }
-                }
-            }
             "bundlemgrd" => {
                 // Server pair: usually distributed pre-grants (task #123).
                 let (recv_slot, send_slot) =
@@ -504,198 +442,6 @@ pub(crate) fn wire_services(
             // "samgrd" migrated to the declarative arm below (RFC-0069 batch 3):
             // announce=true keeps its iw-gated slots line + init_caps tally.
             "execd" => execd_wiring::wire_execd(pid, eps, chan, init_wire, init_fold)?,
-            "keystored" => {
-                // #region agent log (keystored arm entry)
-                if iw(init_wire, init_fold, "init:keystored") {
-                    debug_write_bytes(b"init: ks arm\n");
-                }
-                // #endregion agent log
-                // #region agent log (keystored wire-up tracing)
-                if iw(init_wire, init_fold, "init:keystored") {
-                    debug_write_bytes(b"init: wire keystored xfer key_req RECV cap=0x");
-                    debug_write_hex(key_req as usize);
-                    debug_write_byte(b'\n');
-                }
-                // #endregion agent log
-                // Server pair: usually distributed pre-grants (task #123) — the
-                // trace lines above/below stay verbatim (fold-tally parity).
-                let recv_slot = match chan.recv(ServiceId::Keystored) {
-                    Some(slot) => slot,
-                    None => match nexus_abi::cap_transfer(pid, key_req, Rights::RECV) {
-                        Ok(slot) => slot,
-                        Err(e) => {
-                            // #region agent log (keystored wire-up error)
-                            debug_write_bytes(b"init: wire keystored xfer key_req err=abi:");
-                            debug_write_str(abi_error_label(e.clone()));
-                            debug_write_byte(b'\n');
-                            // #endregion agent log
-                            return Err(InitError::Abi(e));
-                        }
-                    },
-                };
-
-                // #region agent log (keystored wire-up tracing)
-                if iw(init_wire, init_fold, "init:keystored") {
-                    debug_write_bytes(b"init: wire keystored xfer key_rsp SEND cap=0x");
-                    debug_write_hex(key_rsp as usize);
-                    debug_write_byte(b'\n');
-                }
-                // #endregion agent log
-                let send_slot = match chan.send(ServiceId::Keystored) {
-                    Some(slot) => slot,
-                    None => match nexus_abi::cap_transfer(pid, key_rsp, Rights::SEND) {
-                        Ok(slot) => slot,
-                        Err(e) => {
-                            // #region agent log (keystored wire-up error)
-                            debug_write_bytes(b"init: wire keystored xfer key_rsp err=abi:");
-                            debug_write_str(abi_error_label(e.clone()));
-                            debug_write_byte(b'\n');
-                            // #endregion agent log
-                            return Err(InitError::Abi(e));
-                        }
-                    },
-                };
-                chan.set_send(ServiceId::Keystored, send_slot);
-                chan.set_recv(ServiceId::Keystored, recv_slot);
-
-                // Provide a reply inbox for CAP_MOVE reply routing (used by statefsd + log sinks).
-                // #region agent log (keystored reply-inbox create)
-                if iw(init_wire, init_fold, "init:keystored") {
-                    debug_write_bytes(b"init: wire keystored create reply_ep\n");
-                }
-                // #endregion agent log
-                let reply_ep =
-                    match nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8) {
-                        Ok(slot) => slot,
-                        Err(e) => {
-                            // #region agent log (keystored wire-up error)
-                            debug_write_bytes(b"init: wire keystored create reply_ep err=abi:");
-                            debug_write_str(abi_error_label(e.clone()));
-                            debug_write_byte(b'\n');
-                            // #endregion agent log
-                            return Err(InitError::Abi(e));
-                        }
-                    };
-
-                // #region agent log (keystored reply-inbox transfer)
-                if iw(init_wire, init_fold, "init:keystored") {
-                    debug_write_bytes(b"init: wire keystored xfer reply_ep RECV cap=0x");
-                    debug_write_hex(reply_ep as usize);
-                    debug_write_byte(b'\n');
-                }
-                // #endregion agent log
-                let reply_recv_slot = match nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV) {
-                    Ok(slot) => slot,
-                    Err(e) => {
-                        // #region agent log (keystored wire-up error)
-                        debug_write_bytes(b"init: wire keystored xfer reply_ep RECV err=abi:");
-                        debug_write_str(abi_error_label(e.clone()));
-                        debug_write_byte(b'\n');
-                        // #endregion agent log
-                        return Err(InitError::Abi(e));
-                    }
-                };
-                // #region agent log (keystored reply-inbox transfer)
-                if iw(init_wire, init_fold, "init:keystored") {
-                    debug_write_bytes(b"init: wire keystored xfer reply_ep SEND cap=0x");
-                    debug_write_hex(reply_ep as usize);
-                    debug_write_byte(b'\n');
-                }
-                // #endregion agent log
-                let reply_send_slot = match nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND) {
-                    Ok(slot) => slot,
-                    Err(e) => {
-                        // #region agent log (keystored wire-up error)
-                        debug_write_bytes(b"init: wire keystored xfer reply_ep SEND err=abi:");
-                        debug_write_str(abi_error_label(e.clone()));
-                        debug_write_byte(b'\n');
-                        // #endregion agent log
-                        return Err(InitError::Abi(e));
-                    }
-                };
-                chan.reply_recv_slot = Some(reply_recv_slot);
-                chan.reply_send_slot = Some(reply_send_slot);
-                let _ = nexus_abi::cap_close(reply_ep);
-
-                // statefsd SEND cap + use reply inbox for responses
-                // #region agent log (keystored statefsd send cap)
-                if iw(init_wire, init_fold, "init:keystored") {
-                    debug_write_bytes(b"init: wire keystored xfer state_req SEND cap=0x");
-                    debug_write_hex(state_req as usize);
-                    debug_write_byte(b'\n');
-                }
-                // #endregion agent log
-                let send_slot = match nexus_abi::cap_transfer(pid, state_req, Rights::SEND) {
-                    Ok(slot) => slot,
-                    Err(e) => {
-                        // #region agent log (keystored wire-up error)
-                        debug_write_bytes(b"init: wire keystored xfer state_req err=abi:");
-                        debug_write_str(abi_error_label(e.clone()));
-                        debug_write_byte(b'\n');
-                        // #endregion agent log
-                        return Err(InitError::Abi(e));
-                    }
-                };
-                chan.set_send(ServiceId::Statefsd, send_slot);
-                chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
-
-                if let Some(req) = log_req {
-                    let send_slot =
-                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.set_send(ServiceId::Logd, send_slot);
-                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
-                }
-
-                // Allow keystored to call policyd (reply via CAP_MOVE/@reply).
-                // #region agent log (keystored policyd send cap)
-                if iw(init_wire, init_fold, "init:keystored") {
-                    debug_write_bytes(b"init: wire keystored xfer pol_req SEND cap=0x");
-                    debug_write_hex(pol_req as usize);
-                    debug_write_byte(b'\n');
-                }
-                // #endregion agent log
-                let send_slot = match nexus_abi::cap_transfer(pid, pol_req, Rights::SEND) {
-                    Ok(slot) => slot,
-                    Err(e) => {
-                        // #region agent log (keystored wire-up error)
-                        debug_write_bytes(b"init: wire keystored xfer pol_req err=abi:");
-                        debug_write_str(abi_error_label(e.clone()));
-                        debug_write_byte(b'\n');
-                        // #endregion agent log
-                        return Err(InitError::Abi(e));
-                    }
-                };
-                chan.set_send(ServiceId::Policyd, send_slot);
-                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
-
-                // Allow keystored to send entropy requests to rngd (replies via CAP_MOVE/@reply).
-                // #region agent log (keystored rngd send cap)
-                if iw(init_wire, init_fold, "init:keystored") {
-                    debug_write_bytes(b"init: wire keystored xfer rng_req SEND cap=0x");
-                    debug_write_hex(rng_req as usize);
-                    debug_write_byte(b'\n');
-                }
-                // #endregion agent log
-                let send_slot = match nexus_abi::cap_transfer(pid, rng_req, Rights::SEND) {
-                    Ok(slot) => slot,
-                    Err(e) => {
-                        // #region agent log (keystored wire-up error)
-                        debug_write_bytes(b"init: wire keystored xfer rng_req err=abi:");
-                        debug_write_str(abi_error_label(e.clone()));
-                        debug_write_byte(b'\n');
-                        // #endregion agent log
-                        return Err(InitError::Abi(e));
-                    }
-                };
-                chan.set_send(ServiceId::Rngd, send_slot);
-                // Use reply inbox recv slot for routing responses (CAP_MOVE replies land here).
-                chan.set_recv(ServiceId::Rngd, reply_recv_slot);
-            }
-            // "statefsd" migrated to the declarative arm below (RFC-0069 batch 3):
-            // announce=true keeps its iw-gated slots line + init_caps tally.
-            // "rngd" and "timed" migrated to the declarative arm below
-            // (RFC-0069 batch 1): spec = SERVICE_SPECS, server pair =
-            // Endpoints::server_pair. Their bespoke arms are deleted.
             "hidrawd" => {
                 // TASK-0324 P4d: pinned to the declared slots (hidrawd is a pure producer).
                 let (send_slot, recv_slot) = declared_slots::pin_route(
@@ -1443,6 +1189,14 @@ pub(crate) fn wire_services(
                                             }
                                         }
                                     }
+                                    ServiceId::Rngd => {
+                                        if let Some(s) = declared_slots::pin_route_send(
+                                            pid, spec.id, route.to, rng_req,
+                                        ) {
+                                            chan.set_send(ServiceId::Rngd, s);
+                                            chan.set_recv(ServiceId::Rngd, reply_recv);
+                                        }
+                                    }
                                     ServiceId::Policyd => {
                                         if let Some(s) = declared_slots::pin_route_send(
                                             pid, spec.id, route.to, pol_req,
@@ -1528,11 +1282,9 @@ pub(crate) fn is_bespoke_wired(name: &str) -> bool {
         name,
         "netstackd"
             | "dsoftbusd"
-            | "policyd"
             | "bundlemgrd"
             | "updated"
             | "execd"
-            | "keystored"
             | "hidrawd"
             | "gpud"
             | "windowd"
