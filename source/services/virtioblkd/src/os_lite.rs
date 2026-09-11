@@ -9,10 +9,11 @@
 //! requests over IPC. Access is deny-by-default on the KERNEL-ATTRIBUTED
 //! sender id: statefsd → `state` (rw), the nxfs owner (vfsd) → `data`
 //! (rw); everyone else is `STATUS_DENIED` — the cross-partition deny is a
-//! gated selftest. The service's own @reply inbox doubles as the driver's
-//! IRQ notify endpoint (this service makes no outbound calls, so the inbox
-//! is exclusively the interrupt channel) — completion waits BLOCK on the
-//! device interrupt (`blk: irq completion on`) instead of yield-polling.
+//! gated selftest. Completion waits BLOCK on the device interrupt through a
+//! dedicated notify endpoint init pins into the declared IRQ slot
+//! (`blk: irq completion on`) instead of yield-polling. The service makes no
+//! outbound calls, so it holds no reply inbox (TASK-0324 P4f-1b removed the
+//! unused one init used to provision).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -362,7 +363,8 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
         Some(server) => server,
         None => {
             emit("virtioblkd: route fallback");
-            match KernelServer::new_with_slots(3, 4) {
+            let slots = nexus_service_topology::slots::virtioblkd::SERVER;
+            match KernelServer::new_with_slots(slots.recv, slots.send) {
                 Ok(server) => server,
                 Err(_) => {
                     emit("virtioblkd: server endpoint FAIL");
@@ -379,10 +381,10 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
         emit("virtioblkd: serving without device (degraded)");
     }
 
-    // IRQ completion (TASK-0314 machinery + TASK-0315 provisioning): init
-    // wires a DEDICATED notify endpoint at the fixed slot 0xF1 during
-    // spawn-time distribution — no route round-trip, no shared traffic.
-    const IRQ_NOTIFY_SLOT: u32 = 0xF1;
+    // IRQ completion (TASK-0314 machinery + TASK-0315 provisioning): init pins a DEDICATED
+    // notify endpoint into the declared named slot during spawn-time distribution — no route
+    // round-trip, no shared traffic (TASK-0324 P4f-1b moved it off the clients' reply slot).
+    const IRQ_NOTIFY_SLOT: u32 = nexus_service_topology::slots::virtioblkd::IRQ_NOTIFY;
     if let Some(s) = served.as_mut() {
         if s.dev.bind_irq_endpoint(IRQ_NOTIFY_SLOT) {
             emit("virtioblkd: irq endpoint bound");

@@ -65,6 +65,23 @@ pub mod app_child {
     pub const MINIDUMP_STATEFS: SlotPair = SlotPair::new(7, 8);
 }
 
+/// bootctld (TASK-0324 P4f-1b). Fixed on purpose: init's boot-attempt handshake talks to
+/// bootctld before the responder serves, so bootctld uses these slots directly and never
+/// resolves them. Declaring them changes where the numbers come from, not that they are
+/// fixed — its bespoke wiring function pinned the same literals and declared none of it.
+pub mod bootctld {
+    use super::SlotPair;
+
+    /// bootctld's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox (statefsd and policyd answer on it).
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// The boot record's statefs wire.
+    pub const STATEFSD: SlotPair = SlotPair::new(7, REPLY.recv);
+    /// `boot.target` / `boot.reset` delegated checks.
+    pub const POLICYD: SlotPair = SlotPair::new(8, REPLY.recv);
+}
+
 /// execd (TASK-0324 P4e-2).
 ///
 /// execd's OWN table, distinct from the app-child table above: init grants into it at
@@ -127,6 +144,26 @@ pub mod hidrawd {
 
     /// Normalized HID events to inputd (inputd answers on its own endpoint).
     pub const INPUTD: SlotPair = SlotPair::new(3, 4);
+}
+
+/// imed (TASK-0324 P4f-1b).
+pub mod imed {
+    use super::SlotPair;
+
+    /// imed's own server endpoint (inputd forwards keys, windowd relays focus).
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// RECV half of the on-screen-keyboard endpoint; imed answers through `SERVER.send`.
+    pub const OSK_RECV: u32 = 5;
+    /// Commit/action pushes to windowd (windowd answers on its own endpoint).
+    pub const WINDOWD: SlotPair = SlotPair::new(6, 7);
+    /// Layout persistence (`input.keymap`): request SEND + the leg's private inbox RECV.
+    pub const SETTINGSD: SlotPair = SlotPair::new(8, 9);
+    /// SEND half of the settingsd leg's private inbox (moved with every request).
+    pub const SETTINGSD_INBOX_SEND: u32 = 10;
+    /// Ranking-blob persistence (TASK-0204): request SEND + the leg's private inbox RECV.
+    pub const STATEFSD: SlotPair = SlotPair::new(0x0B, 0x0C);
+    /// SEND half of the statefsd leg's private inbox.
+    pub const STATEFSD_INBOX_SEND: u32 = 0x0D;
 }
 
 /// ingressd (TASK-0324 P4f-1a).
@@ -282,6 +319,23 @@ pub mod vfsd {
     pub const SERVER: SlotPair = crate::SERVER_SLOTS;
     /// `pkg:/` resolution — replies on packagefsd's own response endpoint.
     pub const PACKAGEFSD: SlotPair = SlotPair::new(5, 6);
+}
+
+/// virtioblkd (TASK-0324 P4f-1b).
+pub mod virtioblkd {
+    use super::SlotPair;
+
+    /// virtioblkd's own server endpoint (block-plane clients send here). It holds NO reply
+    /// inbox: the driver makes no outbound call, and the inbox init used to provision was
+    /// never read — declaring it at 5/6 collided with the driver's own virtqueue VMOs, which it
+    /// allocates at the lowest free slots because it runs before init wires it.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// RECV half of the dedicated IRQ-completion notify endpoint. It used to sit at 0xF1 —
+    /// the same number as every block-plane client's reply RECV, so a reader could not tell
+    /// the driver's IRQ slot from a client's reply slot; 0xF3 extends the block-plane family
+    /// instead of aliasing into it (both sides read this constant, so the move is safe by
+    /// construction).
+    pub const IRQ_NOTIFY: u32 = 0xF3;
 }
 
 /// windowd (TASK-0324 P4a).

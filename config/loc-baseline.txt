@@ -11,8 +11,8 @@
 873	source/drivers/input/virtio-input/src/lib.rs
 656	source/drivers/rng/virtio-rng/src/lib.rs
 849	source/init/nexus-init/src/bootstrap/helpers.rs
-853	source/init/nexus-init/src/bootstrap/orchestrator.rs
-1586	source/init/nexus-init/src/bootstrap/wiring.rs
+843	source/init/nexus-init/src/bootstrap/orchestrator.rs
+1580	source/init/nexus-init/src/bootstrap/wiring.rs
 689	source/init/nexus-init/src/std_server.rs
 1226	source/kernel/neuron/src/core/trap/handler.rs
 718	source/kernel/neuron/src/ipc/mod.rs
@@ -51,7 +51,7 @@
 675	source/services/policyd/src/lite_protocol.rs
 1131	source/services/policyd/src/os_lite.rs
 1086	source/services/policyd/src/std_server.rs
-604	source/services/statefsd/src/os_lite.rs
+603	source/services/statefsd/src/os_lite.rs
 807	source/services/updated/src/os_lite.rs
 980	source/services/vfsd/src/std_server.rs
 852	source/services/windowd/src/compositor/mod.rs

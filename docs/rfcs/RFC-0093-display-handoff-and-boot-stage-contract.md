@@ -20,7 +20,7 @@
 - **Phase 1 (this contract + ADR-0062)**: ✅ 2026-09-09 (TASK-0324 P1 — paper)
 - **Phase 2 (`@ready` verb, honest `init: up`)**: ✅ 2026-09-09 (TASK-0324 P2 — `test-all` green over 8 lanes, 0 announce failures, `init: up` follows `<svc>: ready` everywhere)
 - **Phase 3 (routing v2: nonce mandatory, parked replies, fail-closed)**: ✅ 2026-09-10 (TASK-0324 P3 — `test-all` green over 8 lanes; park scope amended below with implementation evidence)
-- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: 🟨 2026-09-10 — crate + ratchet gate landed (P4-base); windowd (P4a), inputd (P4b), gpud + the fleet-wide MMIO slot (P4c), hidrawd (P4d), the app-child table (P4e) and execd's own table (P4e-2) migrated — 191 → 134 positional declarations; P4f (policyd, netstackd, bootctld, keystored, updated, dsoftbusd, bundlemgrd, metricsd, imed, selftest-client) open
+- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: 🟨 2026-09-10 — crate + ratchet gate landed (P4-base); windowd (P4a), inputd (P4b), gpud + the fleet-wide MMIO slot (P4c), hidrawd (P4d), the app-child table (P4e), execd's own table (P4e-2), the generic arm's fifteen services (P4f-1a/1b) and the block plane migrated — 191 → 72 positional declarations; P4f-2..6 (policyd, keystored, updated, bundlemgrd, netstackd, dsoftbusd, metricsd, selftest-client, closure gate) open
 - **Phase 5 (stage fence replaces every `yield_()` sync)**: ⬜ TASK-0324 P5
 - **Phase 6 (handoff v2: reveal handshake, seq acks, kernel display mode, readback off-scanout)**: ⬜ TASK-0324 P6
 - **Phase 7–9 (consumer polls deleted, closure docs/gates, 8/8 boots)**: ⬜ TASK-0324 P7–P9
@@ -221,6 +221,18 @@ constants. Deleted (P4a–P4f, atomic per consumer): every `new_with_slots(…)`
   that provisions itself. The mechanical guarantee is the ratchet, not the arm count:
   `check-slot-ssot.sh` (191 → 134 positional declarations so far) plus
   `test_reject_partial_slot_declaration`.
+- **Amendment 2026-09-11 (P4f-1b, implementation evidence).** The route model gains a third
+  delivery kind, `PrivateInbox { inbox_send }`: replies return on an inbox that belongs to ONE route
+  (request SEND at `slots.send`, the inbox's RECV at `slots.recv`, its SEND at `inbox_send`). It
+  existed before it had a name — imed's settingsd and statefsd legs were hand-built that way so a
+  slow statefs PUT can never swallow a settings reply — and modelling it as named slots instead
+  would have hidden two provisioned edges from `REQUIRED_ROUTES` and the policy coverage test.
+- **Amendment 2026-09-11 (P4f-1b).** A service that RUNS before init wires it allocates its own
+  capabilities (VMOs, endpoints) at the lowest free slots, so a late pin can find its declared slot
+  occupied. The kernel refuses that (`set_if_empty`) and the pin fails loudly — observed for
+  virtioblkd, whose virtqueue VMOs sat in the reply-inbox slots it never used. Invariant: every
+  capability init grants an early-running service is pinned before the service runs, or declared
+  above the range its own allocations reach; the stage fence (§3) must make "resumed" imply "wired".
 - **Amendment 2026-09-10 (P4e-2).** A service's server pair is not necessarily handed out by
   its wiring arm: the task-#123 pre-grant pass (`distribute_server_pair_for`) runs first for
   every service with a pre-minted pair, and the arm's own branch is a fallback that normally

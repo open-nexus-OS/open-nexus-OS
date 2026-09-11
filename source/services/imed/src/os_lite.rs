@@ -380,24 +380,20 @@ fn route_imed_blocking() -> Option<(KernelServer, u32)> {
     if let Some((send_slot, recv_slot)) = route_blocking(b"imed") {
         return KernelServer::new_with_slots(recv_slot, send_slot).ok().map(|s| (s, recv_slot));
     }
-    // Routing budget expired (slow boots) — fall back to the deterministic
-    // slots init wires via cap_transfer (recv=3, send=4; timed pattern).
+    // Routing budget expired (slow boots) — fall back to the server slots init pins for imed.
     emit_line("imed: route fallback slots");
     KernelServer::new_with_slots(IMED_RECV_SLOT, IMED_SEND_SLOT).ok().map(|s| (s, IMED_RECV_SLOT))
 }
 
-/// Deterministic slots wired by init's cap_transfer for imed (recv first →
-/// slot 3, send second → slot 4; same order as timed/metricsd).
-const IMED_RECV_SLOT: u32 = 0x03;
-const IMED_SEND_SLOT: u32 = 0x04;
-/// The dedicated OSK endpoint's RECV half (init cap_transfer, third leg;
-/// RFC-0075 Phase 2). Absent when init predates the OSK wiring.
-const OSK_RECV_SLOT: u32 = 0x05;
-/// settingsd request SEND (layout persistence, RFC-0075 Phase 8b).
-const SETTINGS_SEND_SLOT: u32 = 0x08;
-/// Private reply inbox for settingsd OP_SET answers (RECV / SEND halves).
-const SETTINGS_REPLY_RECV_SLOT: u32 = 0x09;
-const SETTINGS_REPLY_SEND_SLOT: u32 = 0x0A;
+/// imed's capability slots as `nexus-service-topology` declares them and init pins them
+/// (TASK-0324 P4f-1b) — the server pair, the OSK endpoint's RECV half (RFC-0075 Phase 2) and
+/// the settingsd leg with its route-private reply inbox (layout persistence, Phase 8b).
+const IMED_RECV_SLOT: u32 = nexus_service_topology::slots::imed::SERVER.recv;
+const IMED_SEND_SLOT: u32 = nexus_service_topology::slots::imed::SERVER.send;
+const OSK_RECV_SLOT: u32 = nexus_service_topology::slots::imed::OSK_RECV;
+const SETTINGS_SEND_SLOT: u32 = nexus_service_topology::slots::imed::SETTINGSD.send;
+const SETTINGS_REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::imed::SETTINGSD.recv;
+const SETTINGS_REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::imed::SETTINGSD_INBOX_SEND;
 
 /// Writes a settingsd key (settingsd is the SSOT; its watch spine then fans out
 /// to inputd/windowd/OSK). The reply-SEND is CLONED per request and CAP_MOVEd
@@ -510,12 +506,10 @@ fn read_personalization() -> Option<PersonalizationSetting> {
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
     match budget::route_with_nonce_budgeted(
         name,
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
+        nexus_service_topology::CTRL_SLOTS.send,
+        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

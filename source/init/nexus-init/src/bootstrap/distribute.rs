@@ -62,7 +62,7 @@ pub(crate) fn distribute_server_pair_for(chan: &mut CtrlChannel, eps: &Endpoints
                     nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, chan.pid, 8)
                 {
                     let pair =
-                        crate::bootstrap::declared_slots::grant_server_pair(chan.pid, id, ep, ep);
+                        crate::bootstrap::declared_slots::pin_server_pair(chan.pid, id, ep, ep);
                     let _ = nexus_abi::cap_close(ep);
                     if let Some(pair) = pair {
                         chan.set_send(id, pair.send);

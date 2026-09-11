@@ -388,12 +388,7 @@ pub(crate) fn wire_services(
                     chan.set_recv(ServiceId::Logd, reply_recv_slot);
                 }
             }
-            // TASK-0050 PR-2: bespoke fixed-slot wiring (see route_provision).
-            "bootctld" => {
-                crate::bootstrap::route_provision::provision_bootctld_fixed_slots(
-                    pid, chan, eps, state_req, pol_req,
-                )?;
-            }
+            // "bootctld" is provisioned by the generic arm from its declaration (TASK-0324 P4f-1b).
             "updated" => {
                 // Server pair: usually distributed pre-grants (task #123).
                 let (recv_slot, send_slot) =
@@ -1290,7 +1285,7 @@ pub(crate) fn wire_services(
                         let slots = match recorded {
                             Some(s) => Some(s),
                             None => own_id.and_then(|id| {
-                                let pair = declared_slots::grant_server_pair(pid, id, req, rsp)?;
+                                let pair = declared_slots::pin_server_pair(pid, id, req, rsp)?;
                                 chan.set_send(id, pair.send);
                                 chan.set_recv(id, pair.recv);
                                 Some((pair.recv, pair.send))
@@ -1299,15 +1294,7 @@ pub(crate) fn wire_services(
                         // Push leg (RFC-0075): imed → windowd commit/action
                         // pushes resolve "windowd" by name via this recording.
                         if name == "imed" {
-                            provision_imed_legs(
-                                pid,
-                                eps.imed_osk,
-                                window_req,
-                                window_rsp,
-                                eps.server_pair(ServiceId::Settingsd).map(|(req, _)| req),
-                                eps.server_pair(ServiceId::Statefsd).map(|(req, _)| req),
-                                chan,
-                            );
+                            provision_imed_legs(pid, eps.imed_osk, window_req, window_rsp, chan);
                         }
                         match slots {
                             Some((recv_slot, send_slot)) => {
@@ -1373,7 +1360,7 @@ pub(crate) fn wire_services(
                                 .ok()
                             });
                         if let Some(reply_ep) = inbox_ep {
-                            let inbox = declared_slots::grant_reply_inbox(pid, spec.id, reply_ep);
+                            let inbox = declared_slots::pin_reply_inbox(pid, spec.id, reply_ep);
                             let _ = nexus_abi::cap_close(reply_ep);
                             if let Some(inbox) = inbox {
                                 chan.reply_recv_slot = Some(inbox.recv);
@@ -1388,21 +1375,39 @@ pub(crate) fn wire_services(
                             // endpoint, shared directly (vfsd → packagefsd).
                             RouteKind::SharedResponse => {
                                 if let Some((t_req, t_rsp)) = eps.server_pair(route.to) {
-                                    let s = declared_slots::grant_route_send(
+                                    let s = declared_slots::pin_route_send(
                                         pid, spec.id, route.to, t_req,
                                     );
-                                    let r = declared_slots::grant_route_recv(
+                                    let r = declared_slots::pin_route_recv(
                                         pid, spec.id, route.to, t_rsp,
                                     );
                                     if let (Some(s), Some(r)) = (s, r) {
                                         chan.set_send(route.to, s);
                                         chan.set_recv(route.to, r);
                                         if spec.announce {
-                                            debug_write_bytes(b"init: ");
-                                            debug_write_bytes(name.as_bytes());
-                                            debug_write_bytes(b" route->");
-                                            debug_write_bytes(route.to.name().as_bytes());
-                                            debug_write_bytes(b" ok\n");
+                                            announce_route_ok(name, route.to);
+                                        }
+                                    }
+                                }
+                            }
+                            // Replies arrive on an inbox PRIVATE to this route (imed's settingsd and
+                            // statefsd legs): the request SEND and both halves of a fresh inbox land
+                            // in the declared slots (TASK-0324 P4f-1b).
+                            RouteKind::PrivateInbox { .. } => {
+                                if let Some((t_req, _)) = eps.server_pair(route.to) {
+                                    if let Some(pair) = declared_slots::pin_private_inbox_route(
+                                        pid,
+                                        spec.id,
+                                        route.to,
+                                        t_req,
+                                        ENDPOINT_FACTORY_CAP_SLOT,
+                                    ) {
+                                        chan.set_send(route.to, pair.send);
+                                        chan.set_recv(route.to, pair.recv);
+                                        if spec.announce
+                                            || crate::bootstrap::diag::raw_or_expanded(name)
+                                        {
+                                            announce_route_ok(name, route.to);
                                         }
                                     }
                                 }
@@ -1418,21 +1423,19 @@ pub(crate) fn wire_services(
                                 };
                                 match route.to {
                                     ServiceId::Bundlemgrd => {
-                                        if let Some(s) = declared_slots::grant_route_send(
+                                        if let Some(s) = declared_slots::pin_route_send(
                                             pid, spec.id, route.to, bnd_req,
                                         ) {
                                             chan.set_send(ServiceId::Bundlemgrd, s);
                                             chan.set_recv(ServiceId::Bundlemgrd, reply_recv);
                                             if spec.announce {
-                                                debug_write_bytes(b"init: ");
-                                                debug_write_bytes(name.as_bytes());
-                                                debug_write_bytes(b" route->bundlemgrd ok\n");
+                                                announce_route_ok(name, route.to);
                                             }
                                         }
                                     }
                                     ServiceId::Logd => {
                                         if let Some(req) = log_req {
-                                            if let Some(s) = declared_slots::grant_route_send(
+                                            if let Some(s) = declared_slots::pin_route_send(
                                                 pid, spec.id, route.to, req,
                                             ) {
                                                 chan.set_send(ServiceId::Logd, s);
@@ -1441,7 +1444,7 @@ pub(crate) fn wire_services(
                                         }
                                     }
                                     ServiceId::Policyd => {
-                                        if let Some(s) = declared_slots::grant_route_send(
+                                        if let Some(s) = declared_slots::pin_route_send(
                                             pid, spec.id, route.to, pol_req,
                                         ) {
                                             chan.set_send(ServiceId::Policyd, s);
@@ -1452,30 +1455,26 @@ pub(crate) fn wire_services(
                                     // netstackd answers every RPC on the
                                     // caller's CAP_MOVE inbox.
                                     ServiceId::Netstackd => {
-                                        if let Some(s) = declared_slots::grant_route_send(
+                                        if let Some(s) = declared_slots::pin_route_send(
                                             pid, spec.id, route.to, net_req,
                                         ) {
                                             chan.set_send(ServiceId::Netstackd, s);
                                             chan.set_recv(ServiceId::Netstackd, reply_recv);
                                             if spec.announce {
-                                                debug_write_bytes(b"init: ");
-                                                debug_write_bytes(name.as_bytes());
-                                                debug_write_bytes(b" route->netstackd ok\n");
+                                                announce_route_ok(name, route.to);
                                             }
                                         }
                                     }
                                     // Session authority (TASK-0065B launch gate).
                                     ServiceId::Sessiond => {
                                         if let Some(req) = sess_req {
-                                            if let Some(s) = declared_slots::grant_route_send(
+                                            if let Some(s) = declared_slots::pin_route_send(
                                                 pid, spec.id, route.to, req,
                                             ) {
                                                 chan.set_send(ServiceId::Sessiond, s);
                                                 chan.set_recv(ServiceId::Sessiond, reply_recv);
                                                 if spec.announce {
-                                                    debug_write_bytes(b"init: ");
-                                                    debug_write_bytes(name.as_bytes());
-                                                    debug_write_bytes(b" route->sessiond ok\n");
+                                                    announce_route_ok(name, route.to);
                                                 }
                                             }
                                         }
@@ -1486,15 +1485,13 @@ pub(crate) fn wire_services(
                                     // `settingsd: … persist=fail` was this
                                     // missing case, not statefsd.
                                     ServiceId::Statefsd => {
-                                        if let Some(s) = declared_slots::grant_route_send(
+                                        if let Some(s) = declared_slots::pin_route_send(
                                             pid, spec.id, route.to, state_req,
                                         ) {
                                             chan.set_send(ServiceId::Statefsd, s);
                                             chan.set_recv(ServiceId::Statefsd, reply_recv);
                                             if spec.announce {
-                                                debug_write_bytes(b"init: ");
-                                                debug_write_bytes(name.as_bytes());
-                                                debug_write_bytes(b" route->statefsd ok\n");
+                                                announce_route_ok(name, route.to);
                                             }
                                         }
                                     }
@@ -1509,6 +1506,16 @@ pub(crate) fn wire_services(
         }
     }
     Ok(())
+}
+
+/// `init: <svc> route-><target> ok` — the generic arm's one announce line for a provisioned
+/// route (it was spelled out per route kind and per bridge target).
+fn announce_route_ok(name: &str, to: ServiceId) {
+    debug_write_bytes(b"init: ");
+    debug_write_bytes(name.as_bytes());
+    debug_write_bytes(b" route->");
+    debug_write_bytes(to.name().as_bytes());
+    debug_write_bytes(b" ok\n");
 }
 
 /// `true` if `name` has a bespoke wiring arm in the orchestrator (complex
@@ -1545,7 +1552,7 @@ fn provision_server_endpoint(factory_slot: u32, pid: u32, name: &[u8]) {
     };
     match nexus_abi::ipc_endpoint_create_for(factory_slot, pid, 8) {
         Ok(ep) => {
-            let pair = declared_slots::grant_server_pair(pid, id, ep, ep);
+            let pair = declared_slots::pin_server_pair(pid, id, ep, ep);
             let _ = nexus_abi::cap_close(ep);
             match pair.map(|p| (p.recv, p.send)) {
                 Some((recv_slot, send_slot)) => {

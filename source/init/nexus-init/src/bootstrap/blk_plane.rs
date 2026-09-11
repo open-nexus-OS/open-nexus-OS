@@ -18,9 +18,9 @@ use crate::bootstrap::CtrlChannel;
 use crate::os_payload::ENDPOINT_FACTORY_CAP_SLOT;
 use nexus_abi::Rights;
 
-/// Per-service dispatch inside the spawn-time distribution pass: clients
-/// (statefsd/vfsd) get the fixed 0xF0..0xF2 wiring; the owner gets its
-/// dedicated IRQ notify endpoint at the fixed slot 0xF1.
+/// Per-service dispatch inside the spawn-time distribution pass: clients get the block
+/// plane's fleet slots (`BLK_PLANE_REQ_SLOT` + `BLK_PLANE_REPLY`); the owner gets its dedicated
+/// IRQ notify endpoint in its declared named slot (TASK-0324 P4f-1b).
 pub(crate) fn wire_blk_plane_for(chan: &CtrlChannel, eps: &Endpoints) {
     wire_blk_plane_for_with(chan, eps.vblk_req);
 }
@@ -49,9 +49,15 @@ pub(crate) fn wire_blk_plane_for_with(chan: &CtrlChannel, vblk_req: u32) {
             if let Ok(irq_ep) =
                 nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, chan.pid, 8)
             {
-                let r = nexus_abi::cap_transfer_to_slot(chan.pid, irq_ep, Rights::RECV, 0xF1);
+                let r = crate::bootstrap::declared_slots::pin_named(
+                    chan.pid,
+                    ServiceId::Virtioblkd,
+                    crate::service_topology::NamedSlot::IrqNotify,
+                    irq_ep,
+                    Rights::RECV,
+                );
                 let _ = nexus_abi::cap_close(irq_ep);
-                if r.is_ok() {
+                if r.is_some() {
                     debug_write_bytes(b"init: blk irq ep wired\n");
                 }
             }
@@ -60,22 +66,20 @@ pub(crate) fn wire_blk_plane_for_with(chan: &CtrlChannel, vblk_req: u32) {
     }
 }
 
-/// TASK-0315: block-plane client wiring at FIXED slots (0xF0..0xF2 —
-/// blockproto SSOT): virtioblkd request SEND + a dedicated reply pair for
-/// statefsd and vfsd. Runs inside the spawn-time distribution so the caps
+/// TASK-0315: block-plane client wiring at the fleet's block-plane slots (declared once in
+/// `nexus-service-topology`, read by `storage::blockproto` too): virtioblkd request SEND + a
+/// dedicated reply pair per client. Runs inside the spawn-time distribution so the caps
 /// exist BEFORE any request can reach the client services (the statefsd
 /// pristine window depends on that ordering).
 pub(crate) fn wire_blk_plane_client(pid: u32, name: &str, vblk_req: u32) {
-    const REQ_SLOT: u32 = 0xF0;
-    const REPLY_RECV_SLOT: u32 = 0xF1;
-    const REPLY_SEND_SLOT: u32 = 0xF2;
+    use crate::service_topology::{BLK_PLANE_REPLY, BLK_PLANE_REQ_SLOT};
     let Ok(reply_ep) = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8) else {
         debug_write_bytes(b"init: blk plane reply mint FAIL\n");
         return;
     };
-    let a = nexus_abi::cap_transfer_to_slot(pid, vblk_req, Rights::SEND, REQ_SLOT);
-    let b = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::RECV, REPLY_RECV_SLOT);
-    let c = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::SEND, REPLY_SEND_SLOT);
+    let a = nexus_abi::cap_transfer_to_slot(pid, vblk_req, Rights::SEND, BLK_PLANE_REQ_SLOT);
+    let b = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::RECV, BLK_PLANE_REPLY.recv);
+    let c = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::SEND, BLK_PLANE_REPLY.send);
     let _ = nexus_abi::cap_close(reply_ep);
     if a.is_ok() && b.is_ok() && c.is_ok() {
         debug_write_bytes(b"init: blk plane wired svc=");

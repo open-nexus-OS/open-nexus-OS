@@ -13,6 +13,8 @@ os-lite = ["storage-virtio-blk/os-lite"]
 
 [dependencies]
 nexus-abi = { path = "../../source/libs/nexus-abi" }
+# TASK-0324 P4f-1b: the block-plane client slots are declared in the topology.
+nexus-service-topology = { path = "../../source/libs/nexus-service-topology" }
 storage-virtio-blk = { path = "../../source/drivers/storage/virtio-blk" }
 nexus-hal = { path = "../../source/libs/nexus-hal" }
 sha2 = { version = "0.10", default-features = false }

@@ -99,47 +99,41 @@ pub(crate) fn pin_named(
     pin(pid, cap, rights, slot, b"named slot")
 }
 
+/// Pins a `PrivateInbox` route: the request SEND at the route's send slot, and BOTH halves of a
+/// freshly minted endpoint — RECV at the route's recv slot, SEND at `inbox_send`
+/// (TASK-0324 P4f-1b). Returns the route as the caller records it — (request SEND, inbox
+/// RECV). `None` if the route is not a declared `PrivateInbox`; a failed pin is reported by
+/// `pin`.
+pub(crate) fn pin_private_inbox_route(
+    pid: u32,
+    from: ServiceId,
+    to: ServiceId,
+    req: u32,
+    factory_slot: u32,
+) -> Option<SlotPair> {
+    let route = crate::service_topology::declared_route(from, to)?;
+    let crate::service_topology::RouteKind::PrivateInbox { inbox_send } = route.kind else {
+        return None;
+    };
+    let req_send = pin(pid, req, Rights::SEND, route.slots.send, b"route send")?;
+    let ep = nexus_abi::ipc_endpoint_create_for(factory_slot, pid, 4).ok()?;
+    let recv = pin(pid, ep, Rights::RECV, route.slots.recv, b"private inbox recv");
+    let send = pin(pid, ep, Rights::SEND, inbox_send, b"private inbox send");
+    let _ = nexus_abi::cap_close(ep);
+    send?;
+    Some(SlotPair::new(req_send, recv?))
+}
+
 // ---------------------------------------------------------------------------
-// TASK-0324 P4f-1a transition: the legs of the GENERIC arm.
+// TASK-0324 P4f transition: the CORE plane's server pairs.
 //
-// The generic arm provisions every spec'd, non-bespoke service. P4f-1a declares twelve of
-// them; imed, bootctld and virtioblkd follow in P4f-1b. Until then these helpers decide by
-// DECLARATION, never by pin success: a declared consumer is pinned (a failed pin is loud
-// and is NOT retried by transfer order — that retry would be exactly the silent drift P4
-// removes), an undeclared one keeps the order-based transfer. P4f-1b deletes the
-// order-based branches together with this comment.
+// The core plane hands server pairs to policyd, bundlemgrd and virtioblkd before `Endpoints`
+// exists. virtioblkd is declared (P4f-1b); policyd and bundlemgrd follow in P4f-2/P4f-3.
+// This helper decides by DECLARATION, never by pin success — a failed pin is loud and is not
+// retried by transfer order. The order-based branch dies with P4f-3.
 // ---------------------------------------------------------------------------
 
-/// A route's SEND leg for the generic arm.
-pub(crate) fn grant_route_send(pid: u32, from: ServiceId, to: ServiceId, cap: u32) -> Option<u32> {
-    if crate::service_topology::route_slots(from, to).is_some() {
-        pin_route_send(pid, from, to, cap)
-    } else {
-        nexus_abi::cap_transfer(pid, cap, Rights::SEND).ok()
-    }
-}
-
-/// A `SharedResponse` route's RECV leg for the generic arm.
-pub(crate) fn grant_route_recv(pid: u32, from: ServiceId, to: ServiceId, cap: u32) -> Option<u32> {
-    if crate::service_topology::route_slots(from, to).is_some() {
-        pin_route_recv(pid, from, to, cap)
-    } else {
-        nexus_abi::cap_transfer(pid, cap, Rights::RECV).ok()
-    }
-}
-
-/// The shared CAP_MOVE reply inbox (both halves of `ep`) for the generic arm.
-pub(crate) fn grant_reply_inbox(pid: u32, svc: ServiceId, ep: u32) -> Option<SlotPair> {
-    if reply_slots(svc).is_some() {
-        pin_reply_inbox(pid, svc, ep)
-    } else {
-        let recv = nexus_abi::cap_transfer(pid, ep, Rights::RECV).ok()?;
-        let send = nexus_abi::cap_transfer(pid, ep, Rights::SEND).ok()?;
-        Some(SlotPair::new(send, recv))
-    }
-}
-
-/// The service's own server pair (`req` RECV, `rsp` SEND) for the generic arm.
+/// The service's own server pair (`req` RECV, `rsp` SEND) for the core plane.
 pub(crate) fn grant_server_pair(pid: u32, svc: ServiceId, req: u32, rsp: u32) -> Option<SlotPair> {
     if server_slots(svc).is_some() {
         pin_server_pair(pid, svc, req, rsp)

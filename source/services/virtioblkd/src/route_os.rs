@@ -4,10 +4,9 @@
 #![cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 
 //! CONTEXT: virtioblkd slot resolution over the init responder (the logd
-//! `route_os` pattern): the service's OWN server slots by name, and its
-//! @reply inbox — which here doubles as the driver's IRQ notify endpoint
-//! (this service makes no outbound calls). Bounded nonce-correlated
-//! retries; the caller falls back to the deterministic slots 3/4.
+//! `route_os` pattern): the service's OWN server slots by name. Bounded
+//! nonce-correlated retries; the caller falls back to its declared server
+//! slots (TASK-0324 P4f-1b).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -23,12 +22,10 @@ use nexus_ipc::KernelServer;
 /// its responder runs (after orchestration), so a short budget keeps the deterministic
 /// slot fallback immediate for this wave-0 driver.
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
     match budget::route_with_nonce_budgeted(
         name,
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
+        nexus_service_topology::CTRL_SLOTS.send,
+        nexus_service_topology::CTRL_SLOTS.recv,
         core::time::Duration::from_millis(50),
         NonceMismatchBudget::new(8),
     ) {

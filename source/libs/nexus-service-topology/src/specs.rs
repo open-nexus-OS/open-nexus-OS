@@ -8,90 +8,8 @@
 //! API_STABILITY: Stable within the workspace
 //! TEST_COVERAGE: crate tests in lib.rs + `nexus-init` route/policy cross-checks
 
+use crate::routes::{Route, RouteKind};
 use crate::{slots, NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
-
-/// Declarative capability-route SSOT: the `(from → to)` service links the system
-/// is expected to provision. Adding a service that needs a route without listing
-/// it here (or vice versa) is caught by the host tests below.
-pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
-    // App lifecycle / registry chain (RFC-0065).
-    (ServiceId::Abilitymgr, ServiceId::Bundlemgrd), // resolve installed apps
-    (ServiceId::Abilitymgr, ServiceId::Execd),      // spawn app processes
-    (ServiceId::Abilitymgr, ServiceId::Sessiond),   // launch gate: session must be active
-    // App-child service routing (TASK-0080C): execd resolves these BY NAME on
-    // behalf of the app-hosts it spawns — one SEND clone per declared manifest
-    // cap into the child's fixed SDK slot (`nexus-sdk-routes`).
-    (ServiceId::Execd, ServiceId::Abilitymgr), // svc.ability.* (launcher e2e)
-    (ServiceId::Execd, ServiceId::Bundlemgrd), // svc.bundle.* (app enumeration)
-    (ServiceId::Execd, ServiceId::Sessiond),   // svc.session.* (DSL greeter login)
-    (ServiceId::Execd, ServiceId::Settingsd),  // svc.settings.* (DSL settings app)
-    (ServiceId::Execd, ServiceId::Vfsd),       // svc.files.* (filemanager, RFC-0073/TASK-0291)
-    (ServiceId::Execd, ServiceId::Statefsd),   // minidump child grant + own dump writes (TASK-0049)
-    (ServiceId::Execd, ServiceId::Policyd),    // crash attach-level gate (TASK-0051B, RFC-0087 §5)
-    (ServiceId::Execd, ServiceId::Timed),      // svc.time.* / clock tick (RFC-0076)
-    (ServiceId::Execd, ServiceId::ImedOsk),    // svc.ime.osk (RFC-0075 Phase 2)
-    (ServiceId::Execd, ServiceId::Logd),       // crash-report appends (TASK-0049)
-    // TASK-0324 P4e-2: execd is GRANTED a windowd client route it never calls itself — it
-    // clones both halves into every app child (ADR-0042). Provisioned like any other route,
-    // so it is declared like one; the delegation is noted on `slots::execd::WINDOWD`.
-    (ServiceId::Execd, ServiceId::Windowd),
-    (ServiceId::Windowd, ServiceId::Bundlemgrd), // dynamic Apps menu (OP_LIST_APPS)
-    (ServiceId::Windowd, ServiceId::Sessiond),   // greeter/login relay (TASK-0065B)
-    (ServiceId::Windowd, ServiceId::Settingsd),  // theme GET/SET persistence (TASK-0072 P10)
-    (ServiceId::Windowd, ServiceId::Gpud),       // present/attach/cursor handoff (ADR-0032)
-    (ServiceId::Windowd, ServiceId::Abilitymgr), // OP_LAUNCH from the shell (TASK-0080D)
-    (ServiceId::Windowd, ServiceId::Imed),       // focus relay OP_SET_FOCUS (RFC-0075)
-    (ServiceId::Inputd, ServiceId::Windowd),     // visible-state push (pointer/keyboard)
-    (ServiceId::Inputd, ServiceId::Imed),        // key-forward leg (RFC-0075)
-    (ServiceId::Hidrawd, ServiceId::Inputd),     // normalized HID events (RFC-0053)
-    // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
-    (ServiceId::Rngd, ServiceId::Logd), // log sink (optional target)
-    (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
-    (ServiceId::Vfsd, ServiceId::Packagefsd), // pkg:/ resolution (shared response ep)
-    (ServiceId::Packagefsd, ServiceId::Bundlemgrd), // slot/manifest queries via CAP_MOVE
-    (ServiceId::Samgrd, ServiceId::Logd), // structured logs via CAP_MOVE
-    (ServiceId::Statefsd, ServiceId::Policyd), // policy checks via CAP_MOVE
-    (ServiceId::Settingsd, ServiceId::Statefsd), // persist prefs (TASK-0072 Phase 8)
-    (ServiceId::Logd, ServiceId::Statefsd), // evidence spill (TASK-0049C, RFC-0087 §5)
-    // NOTE: bootctld -> statefsd is BESPOKE fixed-slot wiring (see the
-    // wiring arm), not a declared route: it must work before the responder
-    // serves, so it never goes through route resolution.
-    (ServiceId::Updated, ServiceId::Bootctld), // slot mutations delegate (PR-2)
-    (ServiceId::Updated, ServiceId::Vfsd),     // staging-source splice reads (TASK-0179)
-    (ServiceId::Updated, ServiceId::Policyd),  // updates.manage gate on mutating ops (TASK-0140)
-    (ServiceId::Execd, ServiceId::Updated), // svc.updates.* (DSL settings Updates page, TASK-0140)
-    (ServiceId::SelftestClient, ServiceId::Bootctld), // reset-lane proof (PR-3)
-    // RFC-0092 (TASK-0052 P3): the ingress gateway asks policyd for the
-    // declared subject's `net.expose` and drives netstackd (listen/accept/
-    // connect/relay); the selftest registers its exposure intents.
-    (ServiceId::Ingressd, ServiceId::Policyd),
-    (ServiceId::Ingressd, ServiceId::Netstackd),
-    (ServiceId::SelftestClient, ServiceId::Ingressd),
-];
-
-/// How a service receives the target's replies on a declared route (RFC-0069).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RouteKind {
-    /// Send on the target's request endpoint; replies arrive on the caller's
-    /// CAP_MOVE reply inbox (requires `reply_inbox`).
-    ReplyInbox,
-    /// Send on the target's request endpoint; replies arrive on the target's
-    /// pre-minted RESPONSE endpoint, shared directly (no reply inbox).
-    SharedResponse,
-}
-
-/// One declared outbound route (must appear in [`REQUIRED_ROUTES`]).
-#[derive(Clone, Copy, Debug)]
-pub struct Route {
-    /// The callee.
-    pub to: ServiceId,
-    /// How replies come back.
-    pub kind: RouteKind,
-    /// Capability slots the requester receives for this route. `UNDECLARED` until the
-    /// consumer is migrated onto the declared arm (TASK-0324 P4a-P4f, one consumer per
-    /// package); `test_reject_partial_slot_declaration` makes a half-migrated service fail.
-    pub slots: SlotPair,
-}
 
 /// Per-service expectations the orchestrator must satisfy (RFC-0066/0069). A
 /// service that `exposes_server` must be given a server endpoint by init;
@@ -387,11 +305,30 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         id: ServiceId::Imed,
         exposes_server: true,
         reply_inbox: false,
-        routes_to: &[],
+        routes_to: &[
+            Route {
+                to: ServiceId::Windowd,
+                kind: RouteKind::SharedResponse,
+                slots: slots::imed::WINDOWD,
+            },
+            Route {
+                to: ServiceId::Settingsd,
+                kind: RouteKind::PrivateInbox { inbox_send: slots::imed::SETTINGSD_INBOX_SEND },
+                slots: slots::imed::SETTINGSD,
+            },
+            Route {
+                to: ServiceId::Statefsd,
+                kind: RouteKind::PrivateInbox { inbox_send: slots::imed::STATEFSD_INBOX_SEND },
+                slots: slots::imed::STATEFSD,
+            },
+        ],
         announce: false,
-        server_slots: SlotPair::UNDECLARED,
+        server_slots: slots::imed::SERVER,
         reply_slots: SlotPair::UNDECLARED,
-        extra_slots: &[],
+        extra_slots: &[NamedSlotBinding {
+            name: NamedSlot::OskServerRecv,
+            slot: slots::imed::OSK_RECV,
+        }],
     },
     ServiceSpec {
         id: ServiceId::Vfsd,
@@ -482,12 +419,15 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
     ServiceSpec {
         id: ServiceId::Virtioblkd,
         exposes_server: true,
-        reply_inbox: true,
+        reply_inbox: false,
         routes_to: &[],
         announce: true,
-        server_slots: SlotPair::UNDECLARED,
+        server_slots: slots::virtioblkd::SERVER,
         reply_slots: SlotPair::UNDECLARED,
-        extra_slots: &[],
+        extra_slots: &[NamedSlotBinding {
+            name: NamedSlot::IrqNotify,
+            slot: slots::virtioblkd::IRQ_NOTIFY,
+        }],
     },
     // Batch 4 (amended by TASK-0049C): logd persists evidence-class records
     // to statefsd (spill txns via its CAP_MOVE reply inbox — never the
@@ -560,11 +500,22 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
     ServiceSpec {
         id: ServiceId::Bootctld,
         exposes_server: true,
-        reply_inbox: false,
-        routes_to: &[],
+        reply_inbox: true,
+        routes_to: &[
+            Route {
+                to: ServiceId::Statefsd,
+                kind: RouteKind::ReplyInbox,
+                slots: slots::bootctld::STATEFSD,
+            },
+            Route {
+                to: ServiceId::Policyd,
+                kind: RouteKind::ReplyInbox,
+                slots: slots::bootctld::POLICYD,
+            },
+        ],
         announce: true,
-        server_slots: SlotPair::UNDECLARED,
-        reply_slots: SlotPair::UNDECLARED,
+        server_slots: slots::bootctld::SERVER,
+        reply_slots: slots::bootctld::REPLY,
         extra_slots: &[],
     },
 ];

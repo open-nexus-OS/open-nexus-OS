@@ -62,6 +62,15 @@ pub const SERVER_SLOTS: SlotPair = SlotPair::new(4, 3);
 /// driver plus once in init, seven copies that had to agree by hand.
 pub const DEVICE_MMIO_SLOT: u32 = 48;
 
+/// The block plane's client slots (TASK-0315 wiring, TASK-0324 P4f-1b home): every
+/// block-plane client (statefsd, vfsd, bootctld, updated, bundlemgrd) receives virtioblkd's
+/// request SEND at [`BLK_PLANE_REQ_SLOT`] and a private reply pair at [`BLK_PLANE_REPLY`],
+/// in the same place in every table. The numbers lived in init's wiring and again in
+/// `storage::blockproto`, whose comment promised "same numbers in every client's table".
+pub const BLK_PLANE_REQ_SLOT: u32 = 0xF0;
+/// The block plane's client reply pair (RECV 0xF1, SEND 0xF2).
+pub const BLK_PLANE_REPLY: SlotPair = SlotPair::new(0xF2, 0xF1);
+
 /// The virtio-input MMIO window slots (keyboard, pointer, tablet). Declared once for the
 /// grant side (init) and the mapping side (hidrawd) — the block used to be a base constant
 /// in init and a literal array in hidrawd that had to agree by hand.
@@ -82,6 +91,9 @@ pub enum NamedSlot {
     Settings,
     /// Boot-stage fence, WAIT rights only (ADR-0062).
     StageFence,
+    /// A second server endpoint's RECV half (imed's on-screen-keyboard endpoint, which
+    /// answers through the service's own server SEND half).
+    OskServerRecv,
     /// recv-wake probe (execd): SEND half of the ping endpoint.
     ProbePingSend,
     /// recv-wake probe (execd): RECV half of the ping endpoint.
@@ -103,15 +115,16 @@ pub struct NamedSlotBinding {
 
 /// Service identity.
 mod ids;
+/// The route graph (required links, delivery kinds).
+mod routes;
 /// Per-service slot constants (split out of `specs` under the module-size ratchet).
 pub mod slots;
-/// Route graph + per-service declarations.
+/// Per-service declarations.
 mod specs;
 
 pub use ids::ServiceId;
-pub use specs::{
-    exposes_server, spec_for, Route, RouteKind, ServiceSpec, REQUIRED_ROUTES, SERVICE_SPECS,
-};
+pub use routes::{Route, RouteKind, REQUIRED_ROUTES};
+pub use specs::{exposes_server, spec_for, ServiceSpec, SERVICE_SPECS};
 
 /// The declared slots for the route `from` → `to`, if the pair is declared.
 #[must_use]
@@ -119,6 +132,15 @@ pub fn route_slots(from: ServiceId, to: ServiceId) -> Option<SlotPair> {
     let spec = SERVICE_SPECS.iter().find(|s| s.id == from)?;
     let route = spec.routes_to.iter().find(|r| r.to == to)?;
     route.slots.is_declared().then_some(route.slots)
+}
+
+/// The declared route `from` → `to`, if its slots are declared (the kind carries what a
+/// `PrivateInbox` route needs beyond the pair).
+#[must_use]
+pub fn declared_route(from: ServiceId, to: ServiceId) -> Option<Route> {
+    let spec = SERVICE_SPECS.iter().find(|s| s.id == from)?;
+    let route = spec.routes_to.iter().find(|r| r.to == to)?;
+    route.slots.is_declared().then_some(*route)
 }
 
 /// The declared slot for a named capability of `svc`.
@@ -205,7 +227,10 @@ mod tests {
                 // A ReplyInbox route answers on the service's ONE shared inbox by
                 // definition — that slot is claimed once, above. Pointing such a route at
                 // a different slot is the real defect, so assert the identity instead.
-                if route.kind == RouteKind::ReplyInbox {
+                if let RouteKind::PrivateInbox { inbox_send } = route.kind {
+                    claim(route.slots.recv, "private inbox recv");
+                    claim(inbox_send, "private inbox send");
+                } else if route.kind == RouteKind::ReplyInbox {
                     if route.slots.is_declared() {
                         assert_eq!(
                             route.slots.recv, spec.reply_slots.recv,
@@ -232,6 +257,7 @@ mod tests {
         let mut reserved: Vec<u32> = Vec::new();
         reserved.extend([CTRL_SLOTS.send, CTRL_SLOTS.recv, DEVICE_MMIO_SLOT]);
         reserved.extend(INPUT_MMIO_SLOTS);
+        reserved.extend([BLK_PLANE_REQ_SLOT, BLK_PLANE_REPLY.recv, BLK_PLANE_REPLY.send]);
         for spec in SERVICE_SPECS {
             let mut declared: Vec<(u32, &str)> = Vec::new();
             declared.push((spec.server_slots.send, "server send"));
@@ -241,6 +267,9 @@ mod tests {
             for route in spec.routes_to {
                 declared.push((route.slots.send, "route send"));
                 declared.push((route.slots.recv, "route recv"));
+                if let RouteKind::PrivateInbox { inbox_send } = route.kind {
+                    declared.push((inbox_send, "private inbox send"));
+                }
             }
             for binding in spec.extra_slots {
                 declared.push((binding.slot, "named slot"));

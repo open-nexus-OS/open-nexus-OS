@@ -304,6 +304,7 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-service-topology",
  "nxra",
  "statefs",
  "storage",
@@ -1503,6 +1504,7 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-service-topology",
  "nexus-wire",
 ]
 
@@ -4237,6 +4239,7 @@ version = "0.1.0"
 dependencies = [
  "nexus-abi",
  "nexus-hal",
+ "nexus-service-topology",
  "sha2",
  "storage-virtio-blk",
 ]

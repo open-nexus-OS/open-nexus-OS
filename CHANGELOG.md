@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-11 (TASK-0324 P4f-1b: route-private inboxes get a name; bootctld, imed and virtioblkd declared; the block plane has one home)
+
+- New route kind `PrivateInbox`: a route whose replies return on an inbox of its own, used where
+  two legs of one service must never share a reply queue. imed's settingsd and statefsd legs were
+  hand-built with pinned literals and a `cap_clone` per leg that was never closed; they are now
+  declared routes the generic arm provisions.
+- bootctld's bespoke fixed-slot function is gone: its inbox and its statefsd/policyd legs are
+  declared and pinned by the generic arm, in the same phase (before the boot-attempt handshake).
+- The block plane's client slots (`BLK_PLANE_REQ_SLOT`, `BLK_PLANE_REPLY`) are declared once;
+  `storage::blockproto` re-exports them instead of repeating 0xF0-0xF2. virtioblkd's IRQ notify
+  endpoint moved from 0xF1 — the same number as every client's reply RECV — to its own 0xF3.
+- virtioblkd no longer receives a reply inbox. It makes no outbound call and never read the inbox;
+  declaring it exposed that the driver's own virtqueue VMOs already sit in those slots, because it
+  runs before init wires it (recorded as an invariant for the early-running core services).
+- The generic arm pins directly for every service it provisions; the transitional
+  declaration-or-order helper survives only for the core plane's policyd and bundlemgrd.
+- `nexus-service-topology` gains `routes.rs` (the route graph) under the module-size ratchet; the
+  reserved-range test covers the block plane and private inbox halves.
+- Slot-SSOT ratchet 93 -> 72 positional declarations, 33 -> 27 files.
+
 ### Changed - 2026-09-11 (TASK-0324 P4f-1a: the generic wiring arm pins; twelve services declared)
 
 - Twelve services on init's generic arm are declared completely in `nexus-service-topology` —

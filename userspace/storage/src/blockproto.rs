@@ -55,14 +55,16 @@ pub const PART_SYSTEM_B: u8 = 6;
 /// Number of addressable partitions.
 pub const PART_COUNT: u8 = 7;
 
-/// FIXED client wiring slots (init transfers these at spawn-time
-/// distribution — BEFORE any request can flow, so the statefsd pristine
-/// upgrade window can never be beaten by an early mutating op the way a
-/// route-get could). High in the 256-slot table, far above the kernel's
-/// sequential picks. Same numbers in every client's table.
-pub const CLIENT_REQ_SLOT: u32 = 0xF0;
-pub const CLIENT_REPLY_RECV_SLOT: u32 = 0xF1;
-pub const CLIENT_REPLY_SEND_SLOT: u32 = 0xF2;
+/// FIXED client wiring slots (init pins these at spawn-time distribution — BEFORE any
+/// request can flow, so the statefsd pristine upgrade window can never be beaten by an early
+/// mutating op the way a route-get could). They are the block plane's fleet slots declared in
+/// `nexus-service-topology` (TASK-0324 P4f-1b); this crate re-exports them so the protocol and
+/// the wiring cannot disagree.
+pub const CLIENT_REQ_SLOT: u32 = nexus_service_topology::BLK_PLANE_REQ_SLOT;
+/// RECV half of a client's private block-plane reply pair.
+pub const CLIENT_REPLY_RECV_SLOT: u32 = nexus_service_topology::BLK_PLANE_REPLY.recv;
+/// SEND half of a client's private block-plane reply pair.
+pub const CLIENT_REPLY_SEND_SLOT: u32 = nexus_service_topology::BLK_PLANE_REPLY.send;
 
 /// GPT partition NAME for a selector (layout authority: `crate::layout`).
 pub fn part_layout_name(part: u8) -> Option<&'static str> {

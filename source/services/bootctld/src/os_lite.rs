@@ -80,14 +80,13 @@ impl fmt::Display for ServerError {
 /// Schema warmer placeholder for API parity.
 pub fn touch_schemas() {}
 
-/// init-lite deterministic slots (bespoke wiring — see the wiring arm):
-/// reply inbox recv/send + the statefsd request SEND clone. Fixed on
-/// purpose: the record load must not depend on the responder (init calls
-/// the boot-attempt handshake before the responder serves).
-pub(crate) const REPLY_RECV_SLOT: u32 = 0x05;
-pub(crate) const REPLY_SEND_SLOT: u32 = 0x06;
-pub(crate) const STATEFS_SEND_SLOT: u32 = 0x07;
-pub(crate) const POLICYD_SEND_SLOT: u32 = 0x08;
+/// bootctld's slots as `nexus-service-topology` declares them and init pins them
+/// (TASK-0324 P4f-1b). Fixed on purpose: the record load must not depend on the responder
+/// (init calls the boot-attempt handshake before the responder serves).
+pub(crate) const REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::bootctld::REPLY.recv;
+pub(crate) const REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::bootctld::REPLY.send;
+pub(crate) const STATEFS_SEND_SLOT: u32 = nexus_service_topology::slots::bootctld::STATEFSD.send;
+pub(crate) const POLICYD_SEND_SLOT: u32 = nexus_service_topology::slots::bootctld::POLICYD.send;
 
 /// The loaded record + its statefs wire (present once the lazy attach ran).
 pub(crate) struct Authority {
@@ -115,7 +114,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     nexus_abi::service_verdict_arm();
     let server = match KernelServer::new_for("bootctld") {
         Ok(server) => server,
-        Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?,
+        Err(_) => {
+            let slots = nexus_service_topology::slots::bootctld::SERVER;
+            KernelServer::new_with_slots(slots.recv, slots.send)
+                .map_err(|_| ServerError::Unsupported)?
+        }
     };
     notifier.notify();
     let _ = nexus_service_entry::ready("bootctld: ready");

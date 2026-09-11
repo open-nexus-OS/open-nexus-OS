@@ -116,6 +116,42 @@ remaining lanes ran one by one with a retry ONLY on a witnessed external kill: r
 ota-bundle, -resume, -delta, ota-backstops (tamper, downgrade, fallback) all green on the first
 attempt, 0× `FAIL declared slot` in every lane, lane peaks 740-1,113 MiB.
 
+**P4f-1b delivered 2026-09-11:** new route kind `PrivateInbox { inbox_send }` (imed's settingsd
+8/9/10 and statefsd 0x0B/0x0C/0x0D legs are declared routes the generic arm provisions — the
+hand-built legs with pinned literals and a never-closed `cap_clone` each are deleted); imed's OSK RECV
+is `NamedSlot::OskServerRecv` (5) and its windowd route (6/7) is pinned; bootctld's
+`provision_bootctld_fixed_slots` and its bespoke arm are deleted — inbox 5/6, statefsd 7 and policyd 8
+are declared and pinned by the generic arm, still before the boot-attempt handshake; the block plane
+is `BLK_PLANE_REQ_SLOT`/`BLK_PLANE_REPLY` in the topology and `storage::blockproto` re-exports it;
+virtioblkd's IRQ notify moved 0xF1 → 0xF3 (off the clients' reply RECV number) and it no longer
+receives the unused reply inbox; the generic arm pins directly (the declaration-or-order helper
+survives only for the core plane's policyd/bundlemgrd); `routes.rs` split out of `specs.rs`; the
+generic arm's six announce copies are one helper. Ratchet 93/33 → 72/27. **Proof:** `just test-all`
+green in ONE run (exit 0, no watchdog kill): gates + smp1, visible (pixel 40.09 %), reset, ota-flip,
+ota-bundle, -resume, -delta, ota-backstops — 0× `FAIL declared slot` in every lane, with
+`SELFTEST: ime ranking persist ok` (the private statefsd inbox carries real traffic),
+`SELFTEST: bootctl persist ok`, `init: health ok (slot a|b)`, `virtioblkd: irq endpoint bound`.
+
+**Findings for P4f-1b (recorded 2026-09-11, before its proof):** (1) ⭐ **A service that runs
+before init wires it competes with init's late pins for the low slots.** The first P4f-1b smoke lane
+failed loudly with `init: FAIL declared slot reply recv slot=0x5` for virtioblkd: the wave-0 block
+driver is resumed early to serve the system volume and allocates its virtqueue VMOs itself
+(`vmo_create`), and the kernel hands those out at the lowest free slots — 5, 6 — before the generic
+arm pins the reply inbox there. The pin refused the occupied slot (never overwrote), so the design
+held; the declaration was wrong because it was DERIVED from transfer order, not measured. Before P4f
+the inbox landed wherever order put it, unnoticed — and unused: virtioblkd makes no outbound call and
+never read it (two doc comments still claimed it "doubles as the IRQ notify endpoint", stale since
+TASK-0315 gave the IRQ its own endpoint). Fix = least privilege: virtioblkd holds no reply inbox.
+**Invariant for P4f-2/P4f-3/P5:** every capability init grants an early-running service (core
+plane: virtioblkd, policyd, bundlemgrd) must be pinned BEFORE that service runs, or declared above
+the range its own runtime allocations reach — and the stage fence must make "resumed" imply
+"wired". (2) The kernel's transfer DUPLICATES (`caps.derive`), so the `cap_clone`-then-transfer
+pattern in init leaks one slot of init's own table per leg — the clone is never closed. Counted
+2026-09-11: execd_wiring (9 legs), updated→policyd, blk_plane's updated vfs leg, the bootctld boot
+request, orchestrator's windowd/inputd clones and endpoints' imed-osk clones; imed's two legs are
+gone with P4f-1b (they became declared `PrivateInbox` routes without a clone). A one-time ~14 slots
+at boot, not per launch — recorded for P4f-6, where init's cap hygiene gets a gate.
+
 **Carried into P4f and P7 (recorded 2026-09-11, cold `make clean` + `test-all`):** the
 cold run failed `ota-flip` with `SELFTEST: statefs enc roundtrip FAIL` — NOT a P4e-2 regression
 and not a resource kill (lane peak 830 MB, zero envelope events): `rng_salt()` in the selftest

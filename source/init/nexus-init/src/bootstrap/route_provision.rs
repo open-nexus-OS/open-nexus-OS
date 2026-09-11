@@ -251,28 +251,38 @@ pub(crate) fn grant_rtc_mmio_to_timed(
     }
 }
 
-/// imed's wiring legs: the OSK-endpoint RECV PINNED to its fixed slot 5
-/// (`OSK_RECV_SLOT`, RFC-0075 Phase 2 — before the windowd legs so the
-/// number is stable) + the windowd push route (direct transfers, no clone
-/// — the cap-table note in `wiring.rs`).
+/// imed's two legs the generic route loop cannot find a target endpoint for: the OSK endpoint's
+/// RECV half (a dedicated endpoint, not a server pair) and the windowd push route (windowd is
+/// priority-wired, so it has no entry in the minted-pair table). Both are pinned where
+/// `slots::imed` declares them (TASK-0324 P4f-1b); the settingsd and statefsd legs this function
+/// used to hand-build — pinned literals, a `cap_clone` per leg that was never closed — are
+/// declared `PrivateInbox` routes provisioned by the generic arm.
 pub(crate) fn provision_imed_legs(
     pid: u32,
     imed_osk: u32,
     window_req: u32,
     window_rsp: u32,
-    settings_req: Option<u32>,
-    statefs_req: Option<u32>,
     chan: &mut CtrlChannel,
 ) {
-    match nexus_abi::cap_transfer_to_slot(pid, imed_osk, Rights::RECV, 5) {
-        Ok(_) => debug_write_bytes(b"init: imed osk recv ok\n"),
-        Err(_) => debug_write_bytes(b"init: imed osk recv FAIL (xfer)\n"),
-    }
-    match (
-        nexus_abi::cap_transfer(pid, window_req, Rights::SEND),
-        nexus_abi::cap_transfer(pid, window_rsp, Rights::RECV),
+    use crate::service_topology::NamedSlot;
+    match crate::bootstrap::declared_slots::pin_named(
+        pid,
+        ServiceId::Imed,
+        NamedSlot::OskServerRecv,
+        imed_osk,
+        Rights::RECV,
     ) {
-        (Ok(send), Ok(recv)) => {
+        Some(_) => debug_write_bytes(b"init: imed osk recv ok\n"),
+        None => debug_write_bytes(b"init: imed osk recv FAIL (xfer)\n"),
+    }
+    match crate::bootstrap::declared_slots::pin_route(
+        pid,
+        ServiceId::Imed,
+        ServiceId::Windowd,
+        window_req,
+        window_rsp,
+    ) {
+        (Some(send), Some(recv)) => {
             chan.set_send(ServiceId::Windowd, send);
             chan.set_recv(ServiceId::Windowd, recv);
             if crate::bootstrap::diag::raw_or_expanded("imed") {
@@ -280,66 +290,6 @@ pub(crate) fn provision_imed_legs(
             }
         }
         _ => debug_write_bytes(b"init: imed route->windowd FAIL (xfer)\n"),
-    }
-
-    // Layout persistence (RFC-0075 Phase 8b, user decision: the OSK globe
-    // switch is SYSTEM-WIDE): imed writes `input.keymap` to settingsd — a
-    // SEND clone of the settings request endpoint PINNED to slot 8, plus a
-    // private reply inbox (RECV slot 9 / SEND slot 10; imed clones + moves
-    // the SEND per OP_SET — mint→grant, zero accumulation).
-    if let Some(settings_req) = settings_req {
-        let granted = nexus_abi::cap_clone(settings_req)
-            .ok()
-            .and_then(|clone| nexus_abi::cap_transfer_to_slot(pid, clone, Rights::SEND, 8).ok());
-        let reply = nexus_abi::ipc_endpoint_create_for(
-            crate::os_payload::ENDPOINT_FACTORY_CAP_SLOT,
-            pid,
-            4,
-        )
-        .ok()
-        .and_then(|ep| {
-            let recv = nexus_abi::cap_transfer_to_slot(pid, ep, Rights::RECV, 9).ok();
-            let send = nexus_abi::cap_transfer_to_slot(pid, ep, Rights::SEND, 10).ok();
-            let _ = nexus_abi::cap_close(ep);
-            recv.and(send)
-        });
-        if granted.is_some() && reply.is_some() {
-            if crate::bootstrap::diag::raw_or_expanded("imed") {
-                debug_write_bytes(b"init: imed route->settingsd ok\n");
-            }
-        } else {
-            debug_write_bytes(b"init: imed route->settingsd FAIL\n");
-        }
-    }
-
-    // IME personalization persistence (TASK-0204): imed loads/stores its
-    // per-locale ranking blob in statefsd — the SAME recipe as the settingsd
-    // leg above: a SEND clone of statefsd's request endpoint PINNED to slot
-    // 0x0B, plus a private reply inbox (RECV slot 0x0C / SEND slot 0x0D; imed
-    // clones + moves the SEND per request — mint→grant, zero accumulation).
-    if let Some(statefs_req) = statefs_req {
-        let granted = nexus_abi::cap_clone(statefs_req)
-            .ok()
-            .and_then(|clone| nexus_abi::cap_transfer_to_slot(pid, clone, Rights::SEND, 0x0B).ok());
-        let reply = nexus_abi::ipc_endpoint_create_for(
-            crate::os_payload::ENDPOINT_FACTORY_CAP_SLOT,
-            pid,
-            4,
-        )
-        .ok()
-        .and_then(|ep| {
-            let recv = nexus_abi::cap_transfer_to_slot(pid, ep, Rights::RECV, 0x0C).ok();
-            let send = nexus_abi::cap_transfer_to_slot(pid, ep, Rights::SEND, 0x0D).ok();
-            let _ = nexus_abi::cap_close(ep);
-            recv.and(send)
-        });
-        if granted.is_some() && reply.is_some() {
-            if crate::bootstrap::diag::raw_or_expanded("imed") {
-                debug_write_bytes(b"init: imed route->statefsd ok\n");
-            }
-        } else {
-            debug_write_bytes(b"init: imed route->statefsd FAIL\n");
-        }
     }
 }
 
@@ -362,60 +312,6 @@ pub(crate) fn provision_selftest_imed_osk(
         }
         Err(_) => debug_write_bytes(b"init: selftest route->imed-osk FAIL (xfer)\n"),
     }
-}
-
-/// TASK-0050 PR-2 (ADR-0055): bootctld's bespoke FIXED slots — it must
-/// attach to statefsd WITHOUT the responder (init itself calls the
-/// boot-attempt handshake before the responder serves; a route-resolving
-/// attach would deadlock on init). Convention: server 3/4, reply inbox
-/// 5/6, statefsd send 7 (metricsd shape).
-pub(crate) fn provision_bootctld_fixed_slots(
-    pid: u32,
-    chan: &mut CtrlChannel,
-    eps: &Endpoints,
-    state_req: u32,
-    pol_req: u32,
-) -> core::result::Result<(), crate::os_payload::InitError> {
-    use crate::os_payload::{InitError, ENDPOINT_FACTORY_CAP_SLOT};
-    // Server pair: usually already distributed as pre-grants (slots 3/4) by
-    // `distribute_server_pairs` — transferring again here shifted the pair
-    // to 5/6 and made the fixed-slot inbox transfer below collide.
-    if chan.recv(ServiceId::Bootctld).is_none() {
-        if let Some((req, rsp)) = eps.server_pair(ServiceId::Bootctld) {
-            let r = nexus_abi::cap_transfer(pid, req, Rights::RECV).map_err(InitError::Abi)?;
-            let sslot = nexus_abi::cap_transfer(pid, rsp, Rights::SEND).map_err(InitError::Abi)?;
-            chan.set_recv(ServiceId::Bootctld, r);
-            chan.set_send(ServiceId::Bootctld, sslot);
-        }
-    }
-    let reply_ep = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-        .map_err(InitError::Abi)?;
-    let reply_recv_slot = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::RECV, 0x05)
-        .map_err(InitError::Abi)?;
-    let reply_send_slot = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::SEND, 0x06)
-        .map_err(InitError::Abi)?;
-    chan.reply_recv_slot = Some(reply_recv_slot);
-    chan.reply_send_slot = Some(reply_send_slot);
-    let _ = nexus_abi::cap_close(reply_ep);
-    let state_send = nexus_abi::cap_transfer_to_slot(pid, state_req, Rights::SEND, 0x07)
-        .map_err(InitError::Abi)?;
-    chan.set_send(ServiceId::Statefsd, state_send);
-    chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
-    // PR-4: policyd send @0x08 — target/reset mutations are gated on the
-    // delegated `boot.target`/`boot.reset` capabilities (statefsd shape).
-    let pol_send = nexus_abi::cap_transfer_to_slot(pid, pol_req, Rights::SEND, 0x08)
-        .map_err(InitError::Abi)?;
-    chan.set_send(ServiceId::Policyd, pol_send);
-    chan.set_recv(ServiceId::Policyd, reply_recv_slot);
-    debug_write_bytes(b"init: bootctld slots inbox=0x");
-    crate::bootstrap::helpers::debug_write_hex(reply_recv_slot as usize);
-    debug_write_bytes(b" statefs=0x");
-    crate::bootstrap::helpers::debug_write_hex(state_send as usize);
-    debug_write_bytes(b"\n");
-    if crate::bootstrap::diag::raw_or_expanded("bootctld") {
-        debug_write_bytes(b"init: bootctld route->statefsd ok\n");
-    }
-    Ok(())
 }
 
 /// TASK-0140: updated → policyd (the `updates.manage` gate). CLONE of the

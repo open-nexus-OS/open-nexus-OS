@@ -20,12 +20,11 @@ use alloc::vec::Vec;
 
 use ime_ranker::BlobIo;
 
-/// imed's statefsd route slots (init `provision_imed_legs`, TASK-0204): a SEND
-/// clone of statefsd's request endpoint (0x0B) + a private CAP_MOVE reply inbox
-/// (RECV 0x0C / SEND 0x0D — the SEND is cloned + moved per request).
-const STATEFS_SEND_SLOT: u32 = 0x0B;
-const STATEFS_REPLY_RECV_SLOT: u32 = 0x0C;
-const STATEFS_REPLY_SEND_SLOT: u32 = 0x0D;
+/// imed's statefsd leg (TASK-0204) as declared — a `PrivateInbox` route (TASK-0324 P4f-1b): the
+/// request SEND plus a reply inbox of its own (the SEND half is cloned + moved per request).
+const STATEFS_SEND_SLOT: u32 = nexus_service_topology::slots::imed::STATEFSD.send;
+const STATEFS_REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::imed::STATEFSD.recv;
+const STATEFS_REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::imed::STATEFSD_INBOX_SEND;
 
 // statefsd v1 wire (userspace/statefs `protocol`).
 const SF_MAGIC0: u8 = b'S';

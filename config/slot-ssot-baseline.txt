@@ -12,18 +12,14 @@
 6	source/apps/selftest-client/src/os_lite/services/logd.rs
 2	source/apps/selftest-client/src/os_lite/services/rngd.rs
 2	source/apps/selftest-client/src/os_lite/updated/health.rs
-3	source/init/nexus-init/src/bootstrap/blk_plane.rs
 4	source/init/nexus-init/src/bootstrap/core_plane.rs
 1	source/init/nexus-init/src/bootstrap/orchestrator.rs
 3	source/init/nexus-init/src/bootstrap/policyd_slots.rs
 1	source/init/nexus-init/src/bootstrap/route_provision.rs
 1	source/init/nexus-init/src/os_payload.rs
-4	source/services/bootctld/src/os_lite.rs
 2	source/services/bundlemgrd/src/os_lite.rs
 2	source/services/dsoftbusd/src/os/entry.rs
 1	source/services/execd/src/std_server.rs
-8	source/services/imed/src/os_lite.rs
-3	source/services/imed/src/statefs.rs
 2	source/services/keystored/src/os_stub.rs
 3	source/services/keystored/src/store_os.rs
 8	source/services/metricsd/src/os_lite.rs
@@ -33,5 +29,3 @@
 4	source/services/updated/src/bootctl_client.rs
 5	source/services/updated/src/os_lite.rs
 4	source/services/updated/src/policy_client.rs
-1	source/services/virtioblkd/src/os_lite.rs
-2	source/services/virtioblkd/src/route_os.rs
