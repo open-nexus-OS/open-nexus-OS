@@ -32,12 +32,6 @@ const VERSION: u8 = 1;
 const OP_GET_ENTROPY: u8 = 1;
 const RSP_HEADER_LEN: usize = 9;
 
-/// The selftest → rngd route slots init provisions. One copy for the whole client (there
-/// were three); the route migrates onto `nexus-service-topology` with the selftest client
-/// itself (TASK-0324 P4f).
-const RNGD_SEND_SLOT: u32 = 0x1e;
-const RNGD_RECV_SLOT: u32 = 0x1f;
-
 /// Liveness bound, NOT a scheduling guess: the wait is event-driven, so this only decides
 /// how long an rngd that has not answered is still presumed alive. rngd asks policyd before
 /// it replies; a supervised peer silent for 2 s is a real outage (ADR-0057). Same bound as
@@ -67,7 +61,9 @@ pub(crate) struct EntropyReply {
 /// The client for the rngd route. Split from [`get_entropy`] so a caller can emit its
 /// "sending" breadcrumb between the two, exactly where the marker ladder expects it.
 pub(crate) fn client() -> Result<KernelClient, RngdError> {
-    KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT).map_err(|_| RngdError::NoSlots)
+    // The selftest → rngd route, declared by the topology (TASK-0324 P4f-5).
+    let route = nexus_service_topology::slots::selftest_client::RNGD;
+    KernelClient::new_with_slots(route.send, route.recv).map_err(|_| RngdError::NoSlots)
 }
 
 /// One `GET_ENTROPY` exchange for `n` bytes, correlated by `nonce`.

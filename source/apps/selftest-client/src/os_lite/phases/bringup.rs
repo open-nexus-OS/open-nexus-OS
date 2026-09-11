@@ -410,9 +410,10 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             (send, recv)
         }
         _ => {
-            // Fallback to deterministic slots distributed by init-lite to selftest-client.
+            // Fallback to the declared route (TASK-0324 P4f-5).
             emit_line(crate::markers::M_SELFTEST_ROUTING_VFSD_FALLBACK_SLOTS);
-            (0x03, 0x04)
+            let vfsd = nexus_service_topology::slots::selftest_client::VFSD;
+            (vfsd.send, vfsd.recv)
         }
     };
     match services::samgrd::samgrd_v1_register(&samgrd, "vfsd", route_send, route_recv) {

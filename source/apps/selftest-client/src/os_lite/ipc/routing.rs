@@ -14,13 +14,14 @@
 
 use nexus_abi::{yield_, MsgHeader};
 use nexus_ipc::KernelClient;
+use nexus_service_topology::{route_matches, route_slots, ServiceId, CTRL_SLOTS};
+
+use crate::markers::{emit_byte, emit_bytes};
 
 pub(crate) fn routing_v1_get(target: &str) -> core::result::Result<(u8, u32, u32), ()> {
-    // Routing v1 (init-lite responder) using control slots 1/2:
+    // Routing v1 (init-lite responder) over the fleet control channel:
     // GET: [R, T, ver, OP_ROUTE_GET, name_len:u8, name...]
     // RSP: [R, T, ver, OP_ROUTE_RSP, status, send_slot:u32le, recv_slot:u32le]
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
     let name = target.as_bytes();
     static ROUTE_NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
     let nonce = ROUTE_NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -41,7 +42,7 @@ pub(crate) fn routing_v1_get(target: &str) -> core::result::Result<(u8, u32, u32
     let mut i: usize = 0;
     loop {
         match nexus_abi::ipc_send_v1(
-            CTRL_SEND_SLOT,
+            CTRL_SLOTS.send,
             &hdr,
             &req[..req_len],
             nexus_abi::IPC_SYS_NONBLOCK,
@@ -73,7 +74,7 @@ pub(crate) fn routing_v1_get(target: &str) -> core::result::Result<(u8, u32, u32
             }
         }
         match nexus_abi::ipc_recv_v1(
-            CTRL_RECV_SLOT,
+            CTRL_SLOTS.recv,
             &mut rh,
             &mut buf,
             nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
@@ -104,60 +105,30 @@ pub(crate) fn routing_v1_get(target: &str) -> core::result::Result<(u8, u32, u32
     }
 }
 
+/// A client for a route the topology declares for this harness, obtained from init's route
+/// responder and CHECKED against the declaration (TASK-0324 P4f-5). The
+/// `SELFTEST: ipc routing <svc> ok` markers that follow a successful call therefore prove that the
+/// responder serves exactly the declared slots; they used to follow a hardcoded slot table and
+/// proved only that a client object could be built. An undeclared name is refused without asking.
+/// The ask stays bounded: the responder answers once wiring is done (the stage fence, P5, makes
+/// that a single ask).
 pub(crate) fn route_with_retry(name: &str) -> core::result::Result<KernelClient, ()> {
-    // Deterministic slots pre-distributed by init-lite to selftest-client (bring-up topology).
-    // Using these avoids reliance on routing control-plane behavior during early boot.
-    // NOTE: Slot order is (send, recv) for KernelClient::new_with_slots.
-    if name == "bundlemgrd" {
-        return KernelClient::new_with_slots(0x9, 0xA).map_err(|_| ());
-    }
-    if name == "updated" {
-        return KernelClient::new_with_slots(0xB, 0xC).map_err(|_| ());
-    }
-    if name == "samgrd" {
-        return KernelClient::new_with_slots(0xD, 0xE).map_err(|_| ());
-    }
-    if name == "execd" {
-        // Allocated before keystored/logd slots in init-lite distribution.
-        return KernelClient::new_with_slots(0xF, 0x10).map_err(|_| ());
-    }
-    if name == "logd" {
-        return KernelClient::new_with_slots(0x15, 0x16).map_err(|_| ());
-    }
-    // policyd: Deterministic slots 0x7/0x8 assigned by init-lite (see selftest policyd slots log).
-    if name == "policyd" {
-        return KernelClient::new_with_slots(0x7, 0x8).map_err(|_| ());
-    }
-    if name == "keystored" {
-        // Deterministic slots from init-lite: after execd (0xF, 0x10)
-        return KernelClient::new_with_slots(0x11, 0x12).map_err(|_| ());
-    }
-    if name == "statefsd" {
-        // Deterministic slots from init-lite.
-        return KernelClient::new_with_slots(0x13, 0x14).map_err(|_| ());
-    }
-    let attempts = if name == "statefsd" { 256 } else { 64 };
-    for _ in 0..attempts {
-        // Prefer init-lite routing v1 for core services to avoid relying on kernel deadline
-        // semantics in `KernelClient::new_for` during bring-up.
-        if name == "samgrd"
-            || name == "updated"
-            || name == "statefsd"
-            || name == "@reply"
-            || name == "bundlemgrd"
-            || name == "policyd"
-            || name == "keystored"
-            || name == "logd"
-            || name == "timed"
-            || name == "metricsd"
-        {
-            if let Ok((status, send, recv)) = routing_v1_get(name) {
-                if status == nexus_abi::routing::STATUS_OK && send != 0 && recv != 0 {
-                    return KernelClient::new_with_slots(send, recv).map_err(|_| ());
+    let target = ServiceId::from_name(name.as_bytes()).ok_or(())?;
+    route_slots(ServiceId::SelftestClient, target).ok_or(())?;
+    for _ in 0..64 {
+        if let Ok((status, send, recv)) = routing_v1_get(name) {
+            if status == nexus_abi::routing::STATUS_OK {
+                if !route_matches(ServiceId::SelftestClient, target, send, recv) {
+                    emit_bytes(
+                        crate::markers::M_SELFTEST_ROUTE_DIVERGES_FROM_DECLARATION_FAIL_SVC
+                            .as_bytes(),
+                    );
+                    emit_bytes(name.as_bytes());
+                    emit_byte(b'\n');
+                    return Err(());
                 }
+                return KernelClient::new_with_slots(send, recv).map_err(|_| ());
             }
-        } else if let Ok(client) = KernelClient::new_for(name) {
-            return Ok(client);
         }
         let _ = yield_();
     }

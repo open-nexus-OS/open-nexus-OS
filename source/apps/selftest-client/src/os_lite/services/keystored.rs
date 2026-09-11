@@ -217,11 +217,11 @@ pub(crate) fn resolve_keystored_client() -> core::result::Result<KernelClient, (
                 return Ok(client);
             }
         }
-        for (send, recv) in [(0x11, 0x12), (0x12, 0x11)] {
-            if let Ok(client) = KernelClient::new_with_slots(send, recv) {
-                if keystored_ping(&client).is_ok() {
-                    return Ok(client);
-                }
+        // The declared route (TASK-0324 P4f-5) — it replaces a literal pair tried in BOTH orders.
+        let route = nexus_service_topology::slots::selftest_client::KEYSTORED;
+        if let Ok(client) = KernelClient::new_with_slots(route.send, route.recv) {
+            if keystored_ping(&client).is_ok() {
+                return Ok(client);
             }
         }
         let _ = yield_();

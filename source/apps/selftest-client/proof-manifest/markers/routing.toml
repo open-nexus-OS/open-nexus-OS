@@ -124,6 +124,12 @@ phase = "routing"
 [marker."SELFTEST: ipc routing policyd ok"]
 phase = "routing"
 
+# TASK-0324 P4f-5: init's routing answer diverged from the route nexus-service-topology declares
+# for the harness (the `ipc routing <svc> ok` markers are only emitted after the answer matched).
+[marker."SELFTEST: route diverges from declaration FAIL svc="]
+phase = "routing"
+proves = "negative: the route responder handed the harness slots other than the declared ones"
+
 [marker."SELFTEST: ipc routing bundlemgrd ok"]
 phase = "routing"
 

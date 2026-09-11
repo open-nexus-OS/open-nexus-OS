@@ -37,11 +37,9 @@ use super::security::cap_move_reply_probe;
 pub(crate) fn ipc_soak_probe() -> core::result::Result<(), ()> {
     // Set up a few clients once (avoid repeated route lookups / allocations).
     let sam = cached_samgrd_client().map_err(|_| ())?;
-    // Deterministic reply inbox slots distributed by init-lite to selftest-client.
-    const REPLY_RECV_SLOT: u32 = 0x17;
-    const REPLY_SEND_SLOT: u32 = 0x18;
-    let reply_send_slot = REPLY_SEND_SLOT;
-    let reply_recv_slot = REPLY_RECV_SLOT;
+    // The harness's declared reply inbox (pinned by init before the harness runs).
+    let reply = nexus_service_topology::slots::selftest_client::REPLY;
+    let (reply_send_slot, reply_recv_slot) = (reply.send, reply.recv);
 
     // Keep it bounded so QEMU marker runs stay fast/deterministic and do not accumulate kernel heap.
     for _ in 0..96u32 {

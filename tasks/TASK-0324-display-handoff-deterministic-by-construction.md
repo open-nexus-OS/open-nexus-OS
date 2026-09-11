@@ -116,6 +116,51 @@ remaining lanes ran one by one with a retry ONLY on a witnessed external kill: r
 ota-bundle, -resume, -delta, ota-backstops (tamper, downgrade, fallback) all green on the first
 attempt, 0× `FAIL declared slot` in every lane, lane peaks 740-1,113 MiB.
 
+**P4f-5 delivered 2026-09-11 (architecture review first):** the proof harness (`selftest-client`)
+has a `ServiceSpec` — 23 routes, its reply inbox and `NamedSlot::FwCfg` declared at the numbers of
+the old order-based layout (behaviour-neutral by construction; every number the harness hardcoded
+was measured from a boot log first). It runs from wave 1 on, i.e. BEFORE `wire_services`, so init
+now pins its legs right after the server-pair distribution (`declared_routes::wire_proof_harness`)
+— resumed implies wired for the harness (the P4f-1b invariant); the smoke log shows its 23
+`init: selftest-client route->… ok` lines before the fw_cfg grant and before any other service is
+wired. The generic arm's inbox + route block became ONE function (`declared_routes.rs`) serving both;
+reply-inbox targets resolve through `Endpoints::request_ep` (the minted pair, plus two stated
+exceptions: the per-consumer OSK clone and the priority-wired inputd). Deleted: the 279-line
+selftest arm, `gateway_route.rs`, `provision_selftest_imed_osk`, `wire_blk_deny_probe` (a separate
+post-wiring pass that existed ONLY so one more leg would not shift the numbers the harness
+hardcoded), the literal fw_cfg slot, `net_selftest_rsp`; `wiring.rs` 835 → 426 LOC. **Least
+privilege:** netstackd, ingressd and virtioblkd answer on the harness's CAP_MOVE cap, so their RECV
+halves (never read) are no longer granted; the blk deny probes still hold no block-plane grant.
+**Harness:** reads the declaration everywhere (the eight-service table in `route_with_retry`, the
+reply inbox in eight files, rngd, the logd sink `0x15`, fw_cfg, a keystored fallback that tried one
+literal pair in BOTH orders, the vfsd fallback, CTRL `1, 2` in five route asks). ⭐ **Hollow routing
+markers made real:** `SELFTEST: ipc routing <svc> ok` followed a hardcoded slot table and proved only
+that a client object could be built; `route_with_retry` now asks init and checks the answer against
+the declaration (`nexus_service_topology::route_matches`, host test
+`test_reject_route_answer_diverging_from_declaration`), a divergence prints the new
+`SELFTEST: route diverges from declaration FAIL svc=` and the FAIL gate stops the lane. Dynamic
+grants stay in-band: `@mint-pair` and pinched's respawn re-grant (re-resolved by name, ADR-0057).
+Ratchet 27/14 → 4/4. **For P4f-6:** the four remaining declarations are init's
+`ENDPOINT_FACTORY_CAP_SLOT = 1`, `INPUTD_SETTINGS_SEND_SLOT = 0x20` (duplicates `slots::inputd`),
+execd's host `BOOTSTRAP_SLOT = 0` and the seeded, unscheduled VMO-share probe's child slot 23
+(`#[allow(dead_code)]` — declare or delete); the selftest's `new_with_slots(0, 0)` loopback probe
+uses the kernel bootstrap slot; the "no minted pair → fresh endpoint" fallbacks. **For P7:** the
+harness's route asks still retry a 500 ms `QueueEmpty` poll until init's responder runs (the stage
+fence makes it one ask); `resolve_keystored_client` pings in a 128-round loop. **For P8:** init's
+responder still prints selftest-specific route debug lines (`init: route samgrd rsp …`).
+**Proof:** `just check` green; smp1 smoke green; `just test-all` green in ONE run (exit 0, started
+detached): gates + smp1, visible (pixel 40.09 % / diff 26.03), reset, ota-flip, ota-bundle, -resume,
+-delta, ota-backstops (tamper, downgrade, fallback) — 0× `FAIL declared slot` and 0×
+`route diverges from declaration` in every lane, 23 harness route witnesses per boot, the six
+`SELFTEST: ipc routing <svc> ok` markers (now checked against the declaration) in every full-ladder
+lane, `SELFTEST: blk cross-partition deny ok` + `blk system volume deny ok`, pinched's three
+restarts re-resolved (`init: route resumed svc=selftest-client -> pinched` ×3,
+`SELFTEST: service restart ok`), lane peaks 743-1,118 MiB. HONEST NOTE:
+`windowd: FAIL present-ack lease expired — presenting without credits` printed in ota-flip and
+ota-fallback of this run. Measured against the stored September runs it is a pre-existing sporadic
+event of the present-ack lease heuristic (ota-flip 9/60, ota-fallback 12/57, reset 13/61, smp1 11/101
+runs) — the heuristic P6 deletes; the FAIL gate does not cover `windowd:` lines (recorded for P6/P8).
+
 **P4f-4 delivered 2026-09-11:** netstackd, dsoftbusd and metricsd leave their bespoke arms for the
 generic arm (243 lines of literal pins deleted; `wiring.rs` 1180 → 835 LOC). Declarations: netstackd
 server 4/3 + inbox 6/5 + policyd 7; dsoftbusd server 4/3 + inbox 6/5 + netstackd 7, samgrd 9,

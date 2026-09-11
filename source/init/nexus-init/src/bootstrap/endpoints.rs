@@ -99,8 +99,6 @@ pub(crate) struct Endpoints {
     pub net_req: u32,
     /// netstackd server response endpoint.
     pub net_rsp: u32,
-    /// netstackd response endpoint owned by selftest-client.
-    pub net_selftest_rsp: u32,
     /// dsoftbusd server request endpoint.
     pub dsoft_req: u32,
     /// dsoftbusd server response endpoint.
@@ -215,7 +213,26 @@ impl Endpoints {
         use crate::service_topology::ServiceId;
         match id {
             ServiceId::Packagefsd => Some(self.pkg_reply_ep),
+            // Pinned before wave 1 (TASK-0324 P4f-5): no fresh endpoint in init's fullest table.
+            ServiceId::SelftestClient => Some(self.reply_ep),
             _ => None,
+        }
+    }
+
+    /// The request endpoint `from` sends on over a `ReplyInbox` route to `to`: the target's
+    /// minted server pair, with two exceptions (TASK-0324 P4f-5). The on-screen-keyboard endpoint
+    /// is cloned per consumer — each leg moves its own clone — and the priority-wired inputd is
+    /// not in the distribution table.
+    pub(crate) fn request_ep(
+        &self,
+        from: crate::service_topology::ServiceId,
+        to: crate::service_topology::ServiceId,
+    ) -> Option<u32> {
+        use crate::service_topology::ServiceId;
+        match (from, to) {
+            (ServiceId::SelftestClient, ServiceId::ImedOsk) => Some(self.imed_osk_selftest),
+            (_, ServiceId::Inputd) => Some(self.input_req),
+            _ => self.server_pair(to).map(|(req, _)| req),
         }
     }
 }

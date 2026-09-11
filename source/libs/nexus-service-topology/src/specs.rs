@@ -68,6 +68,7 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
     crate::specs_app::SETTINGSD,
     crate::specs_app::PINCHED,
     crate::specs_storage::BOOTCTLD,
+    crate::specs_harness::SELFTEST_CLIENT,
 ];
 
 /// Looks up the declared [`ServiceSpec`] for a service by name, if any. This is

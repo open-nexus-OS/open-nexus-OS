@@ -79,6 +79,28 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Updated, ServiceId::Policyd),    // updates.manage gate on mutating ops (TASK-0140)
     (ServiceId::Execd, ServiceId::Updated), // svc.updates.* (DSL settings Updates page, TASK-0140)
     (ServiceId::SelftestClient, ServiceId::Bootctld), // reset-lane proof (PR-3)
+    // TASK-0324 P4f-5: the proof harness's legs, provisioned for years, declared at last.
+    (ServiceId::SelftestClient, ServiceId::Vfsd),
+    (ServiceId::SelftestClient, ServiceId::Packagefsd),
+    (ServiceId::SelftestClient, ServiceId::Policyd),
+    (ServiceId::SelftestClient, ServiceId::Bundlemgrd),
+    (ServiceId::SelftestClient, ServiceId::Updated),
+    (ServiceId::SelftestClient, ServiceId::Samgrd),
+    (ServiceId::SelftestClient, ServiceId::Execd),
+    (ServiceId::SelftestClient, ServiceId::Keystored),
+    (ServiceId::SelftestClient, ServiceId::Statefsd),
+    (ServiceId::SelftestClient, ServiceId::Logd),
+    (ServiceId::SelftestClient, ServiceId::Inputd),
+    (ServiceId::SelftestClient, ServiceId::Netstackd),
+    (ServiceId::SelftestClient, ServiceId::Dsoftbusd),
+    (ServiceId::SelftestClient, ServiceId::Rngd),
+    (ServiceId::SelftestClient, ServiceId::Timed),
+    (ServiceId::SelftestClient, ServiceId::Metricsd),
+    (ServiceId::SelftestClient, ServiceId::Pinched),
+    (ServiceId::SelftestClient, ServiceId::Settingsd),
+    (ServiceId::SelftestClient, ServiceId::Imed),
+    (ServiceId::SelftestClient, ServiceId::ImedOsk),
+    (ServiceId::SelftestClient, ServiceId::Virtioblkd),
     // RFC-0092 (TASK-0052 P3): the ingress gateway asks policyd for the
     // declared subject's `net.expose` and drives netstackd (listen/accept/
     // connect/relay); the selftest registers its exposure intents.
@@ -124,8 +146,7 @@ pub struct Route {
     pub to: ServiceId,
     /// How replies come back.
     pub kind: RouteKind,
-    /// Capability slots the requester receives for this route. `UNDECLARED` until the
-    /// consumer is migrated onto the declared arm (TASK-0324 P4a-P4f, one consumer per
-    /// package); `test_reject_partial_slot_declaration` makes a half-migrated service fail.
+    /// Capability slots the requester receives for this route; every route of a spec declares
+    /// them (`test_reject_partial_slot_declaration`, TASK-0324 P4).
     pub slots: SlotPair,
 }

@@ -11,11 +11,10 @@
 use core::cmp::min;
 use core::sync::atomic::{AtomicU8, Ordering};
 
-use nexus_abi::{yield_, Handle};
+use nexus_abi::yield_;
 
 use crate::runtime_mode::{parse_runtime_mode, parse_runtime_profile, RuntimeMode, RuntimeProfile};
 
-pub(crate) const FW_CFG_SLOT: Handle = 0x31;
 /// Kernel-chosen fw_cfg window base (RFC-0085), set once by `ensure_mapped`.
 static FW_CFG_BASE: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
@@ -84,7 +83,12 @@ pub(crate) fn ensure_mapped() -> Result<(), ()> {
         MAP_STATE_MAPPED => return Ok(()),
         _ => {}
     }
-    match nexus_abi::mmio_map_auto(FW_CFG_SLOT, 0, 0x1000) {
+    // The window lands in the harness's declared fw_cfg slot (TASK-0324 P4f-5).
+    match nexus_abi::mmio_map_auto(
+        nexus_service_topology::slots::selftest_client::FW_CFG,
+        0,
+        0x1000,
+    ) {
         Ok(va) => {
             FW_CFG_BASE.store(va, Ordering::Release);
             FW_CFG_MAP_STATE.store(MAP_STATE_MAPPED, Ordering::Release);

@@ -91,22 +91,3 @@ pub(crate) fn wire_blk_plane_client(pid: u32, name: &str, vblk_req: u32) {
         debug_write_bytes(b"\n");
     }
 }
-
-/// TASK-0315: selftest → virtioblkd deny-probe route. A SEPARATE pass that
-/// runs AFTER `wire_services`: appending inside the selftest arm would
-/// shift its historically fixed slot numbers (0x11/0x12 keystored,
-/// 0x17/0x18 reply) and break every hardcoded probe.
-pub(crate) fn wire_blk_deny_probe(ctrls: &mut [CtrlChannel], eps: &Endpoints) {
-    for chan in ctrls.iter_mut() {
-        if chan.svc_name != "selftest-client" {
-            continue;
-        }
-        if let (Ok(bs), Ok(br)) = (
-            nexus_abi::cap_transfer(chan.pid, eps.vblk_req, Rights::SEND),
-            nexus_abi::cap_transfer(chan.pid, eps.vblk_rsp, Rights::RECV),
-        ) {
-            chan.set_send(crate::service_topology::ServiceId::Virtioblkd, bs);
-            chan.set_recv(crate::service_topology::ServiceId::Virtioblkd, br);
-        }
-    }
-}

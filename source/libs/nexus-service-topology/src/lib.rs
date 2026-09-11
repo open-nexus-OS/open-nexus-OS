@@ -121,6 +121,8 @@ pub enum NamedSlot {
     ProbeReplySend,
     /// recv-wake probe (execd): RECV half of the reply endpoint.
     ProbeReplyRecv,
+    /// The QEMU firmware-config MMIO window (the proof harness's boot profile channel).
+    FwCfg,
 }
 
 /// One named slot binding of a service.
@@ -142,6 +144,8 @@ pub mod slots;
 mod specs;
 /// Declarations: the app platform.
 mod specs_app;
+/// Declarations: the proof harness.
+mod specs_harness;
 /// Declarations: the policy authority, entropy, the network edge.
 mod specs_security;
 /// Declarations: storage and boot.
@@ -168,6 +172,15 @@ pub fn declared_route(from: ServiceId, to: ServiceId) -> Option<Route> {
     let spec = SERVICE_SPECS.iter().find(|s| s.id == from)?;
     let route = spec.routes_to.iter().find(|r| r.to == to)?;
     route.slots.is_declared().then_some(*route)
+}
+
+/// `true` if `(send, recv)` is exactly the declared route `from` → `to`. The proof harness checks
+/// init's routing answers with it (TASK-0324 P4f-5): a responder that hands out anything but the
+/// declaration fails the routing proof instead of passing it because a client object could be
+/// constructed.
+#[must_use]
+pub fn route_matches(from: ServiceId, to: ServiceId, send: u32, recv: u32) -> bool {
+    route_slots(from, to).is_some_and(|slots| slots.send == send && slots.recv == recv)
 }
 
 /// The declared slot for a named capability of `svc`.
@@ -304,6 +317,25 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_reject_route_answer_diverging_from_declaration() {
+        for spec in SERVICE_SPECS {
+            for route in spec.routes_to {
+                let slots = route.slots;
+                assert!(route_matches(spec.id, route.to, slots.send, slots.recv));
+                // A swapped pair, a shifted slot and a foreign slot are all divergence.
+                if slots.send != slots.recv {
+                    assert!(!route_matches(spec.id, route.to, slots.recv, slots.send));
+                }
+                assert!(!route_matches(spec.id, route.to, slots.send + 1, slots.recv));
+                assert!(!route_matches(spec.id, route.to, slots.send, 0));
+            }
+        }
+        // An undeclared route matches nothing, not even an all-zero answer.
+        assert!(!route_matches(ServiceId::SelftestClient, ServiceId::Windowd, 0, 0));
+        assert!(!route_matches(ServiceId::Touchd, ServiceId::Logd, 3, 4));
     }
 
     #[test]

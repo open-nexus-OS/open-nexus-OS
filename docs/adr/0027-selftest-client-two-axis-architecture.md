@@ -109,8 +109,9 @@ A minimal `PhaseCtx` (`os_lite/context.rs`) holds **only** state that:
 
 Today the locked field set is:
 
-- `reply_send_slot: u32`, `reply_recv_slot: u32` (deterministic shared
-  reply-inbox slot pair, RFC-0019),
+- `reply_send_slot: u32`, `reply_recv_slot: u32` (the shared reply-inbox slot
+  pair, RFC-0019 — declared in `nexus-service-topology` and pinned by init
+  before the harness runs, TASK-0324 P4f-5),
 - `updated_pending: VecDeque<Vec<u8>>` (out-of-order replies pumped across
   routing → ota),
 - `local_ip: Option<[u8; 4]>` (resolved in `net`, consumed by `remote`),
@@ -118,7 +119,8 @@ Today the locked field set is:
 
 Service handles are **deliberately** NOT cached on `PhaseCtx`. Each phase
 re-resolves the handles it needs via the existing silent
-`route_with_retry`. This keeps the phase isolation invariant (see below) real
+`route_with_retry` (which checks init's routing answer against the topology
+declaration since TASK-0324 P4f-5 and is silent unless they diverge). This keeps the phase isolation invariant (see below) real
 rather than aspirational, and matches the pre-refactor cost model (`run()`
 already re-resolved handles per slice).
 

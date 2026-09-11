@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-11 (TASK-0324 P4f-5: the proof harness declared; its capabilities are pinned before it runs, its routing proofs check the declaration)
+
+- selftest-client has a `ServiceSpec`: 23 routes, its reply inbox and the fw_cfg window are
+  declared in `nexus-service-topology` (the numbers of the old order-based layout, so the move is
+  behaviour-neutral). Init pins them right after the server-pair distribution, before wave 1
+  resumes the harness — it used to be wired by transfer order while it was already running.
+- init's selftest arm (279 lines), the post-wiring virtioblkd pass that existed only so one more
+  leg would not shift hardcoded numbers, the ingress and on-screen-keyboard helpers for the
+  harness, and the literal fw_cfg slot are deleted; `wiring.rs` shrinks from 835 to 426 lines.
+  One provisioning function (`declared_routes.rs`) serves the generic arm and the harness.
+- Least privilege: the harness no longer receives receive capabilities it never read (netstackd,
+  ingressd, virtioblkd answer on its reply capability); the netstackd response endpoint minted for
+  it is gone.
+- The harness reads the declaration instead of hardcoded slots (the eight-service table in
+  `route_with_retry`, the reply inbox in eight files, rngd, the logd sink, fw_cfg, a keystored
+  fallback that tried one pair in both orders). `route_with_retry` checks init's routing answer
+  against the declaration, so `SELFTEST: ipc routing <svc> ok` now proves that the responder serves
+  the declared slots; a divergence prints `SELFTEST: route diverges from declaration FAIL svc=…`.
+- New host test `test_reject_route_answer_diverging_from_declaration`.
+- Slot-SSOT ratchet 27 -> 4 positional declarations, 14 -> 4 files.
+
 ### Changed - 2026-09-11 (TASK-0324 P4f-4: netstackd, dsoftbusd and metricsd declared; init has no order-based capability transfer left)
 
 - netstackd, dsoftbusd and metricsd are provisioned by the generic wiring arm from their

@@ -3,7 +3,7 @@
 
 //! CONTEXT: Init-health helper for the `updated` submodule — `init_health_ok`
 //!   sends the bring-up health probe on the init control channel
-//!   (CTRL_SEND_SLOT=1 / CTRL_RECV_SLOT=2).
+//!   (`nexus_service_topology::CTRL_SLOTS`).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -14,8 +14,7 @@
 use nexus_abi::{yield_, MsgHeader};
 
 pub(crate) fn init_health_ok() -> core::result::Result<(), ()> {
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
+    use nexus_service_topology::CTRL_SLOTS;
     static NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
     let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     let mut req = [0u8; 8];
@@ -28,7 +27,7 @@ pub(crate) fn init_health_ok() -> core::result::Result<(), ()> {
     let deadline = start.saturating_add(30_000_000_000); // 30s (init may contend with stage work)
     let mut i: usize = 0;
     loop {
-        match nexus_abi::ipc_send_v1(CTRL_SEND_SLOT, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+        match nexus_abi::ipc_send_v1(CTRL_SLOTS.send, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
             Ok(_) => break,
             Err(nexus_abi::IpcError::QueueFull) => {
                 if (i & 0x7f) == 0 {
@@ -55,7 +54,7 @@ pub(crate) fn init_health_ok() -> core::result::Result<(), ()> {
             }
         }
         match nexus_abi::ipc_recv_v1(
-            CTRL_RECV_SLOT,
+            CTRL_SLOTS.recv,
             &mut rh,
             &mut buf,
             nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,

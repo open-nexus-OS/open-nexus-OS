@@ -357,9 +357,10 @@ fn emit_rungs(selftest_ok: bool, updated_ok: bool, committed: bool) {
     }
 }
 
-/// The selftest client's own CAP_MOVE reply inbox (slot_map SSOT).
+/// The selftest client's own CAP_MOVE reply inbox (declared by the topology).
 fn reply_slots() -> (u32, u32) {
-    (0x18, 0x17)
+    let reply = nexus_service_topology::slots::selftest_client::REPLY;
+    (reply.send, reply.recv)
 }
 
 fn sentinel_phase(statefsd: &KernelClient, lane: Lane) -> Option<u8> {

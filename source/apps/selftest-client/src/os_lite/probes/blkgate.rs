@@ -18,8 +18,7 @@ use core::time::Duration;
 use crate::markers::emit_line;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
-const REPLY_RECV_SLOT: u32 = 0x17;
-const REPLY_SEND_SLOT: u32 = 0x18;
+use nexus_service_topology::slots::selftest_client::REPLY;
 
 // blockproto framing (SSOT: userspace/storage/src/blockproto.rs — the
 // selftest speaks the raw wire on purpose: it must NOT link the client
@@ -37,8 +36,8 @@ const STATUS_DENIED: u8 = 5;
 fn route_virtioblkd() -> Option<u32> {
     match budget::route_with_nonce_budgeted(
         b"virtioblkd",
-        1,
-        2,
+        nexus_service_topology::CTRL_SLOTS.send,
+        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {
@@ -117,7 +116,7 @@ fn deny_probe_quiet(op: u8, frame: &mut [u8], nonce: u32) -> bool {
     frame[3] = op;
     frame[4..8].copy_from_slice(&nonce.to_le_bytes());
 
-    let Ok(reply_clone) = nexus_abi::cap_clone(REPLY_SEND_SLOT) else {
+    let Ok(reply_clone) = nexus_abi::cap_clone(REPLY.send) else {
         return false;
     };
     let hdr = nexus_abi::MsgHeader::new(
@@ -151,7 +150,7 @@ fn deny_probe_quiet(op: u8, frame: &mut [u8], nonce: u32) -> bool {
             return false;
         }
         match nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
+            REPLY.recv,
             &mut rh,
             &mut buf,
             nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,

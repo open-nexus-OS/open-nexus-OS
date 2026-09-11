@@ -280,9 +280,8 @@ mod wire_op {
     pub const RESET: u8 = 9;
 }
 
-/// Selftest CAP_MOVE reply inbox (deterministic wiring slots).
-const REPLY_RECV_SLOT: u32 = 0x17;
-const REPLY_SEND_SLOT: u32 = 0x18;
+// Selftest CAP_MOVE reply inbox (declared by the topology, TASK-0324 P4f-5).
+use nexus_service_topology::slots::selftest_client::REPLY;
 
 /// One bounded request/reply exchange with bootctld; returns
 /// `(status, first-two payload bytes)` (missing bytes read as 0xff).
@@ -304,7 +303,7 @@ fn bootctl_call(op: u8, arg: Option<u8>) -> Option<(u8, [u8; 2])> {
 /// payload out (GET_STATUS grew an additive tail: synced flag + bsb seq).
 pub(crate) fn bootctl_call_payload(frame: &[u8], op: u8, out: &mut [u8]) -> Option<(u8, usize)> {
     let send_slot = route_bootctld()?;
-    let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).ok()?;
+    let reply_send_clone = nexus_abi::cap_clone(REPLY.send).ok()?;
     let hdr = nexus_abi::MsgHeader::new(
         reply_send_clone,
         0,
@@ -339,7 +338,7 @@ pub(crate) fn bootctl_call_payload(frame: &[u8], op: u8, out: &mut [u8]) -> Opti
         // starve a payload reader's prefix check silently.
         let mut buf = [0u8; 96];
         match nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
+            REPLY.recv,
             &mut rh,
             &mut buf,
             nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
@@ -365,7 +364,7 @@ pub(crate) fn bootctl_call_payload(frame: &[u8], op: u8, out: &mut [u8]) -> Opti
 
 pub(crate) fn bootctl_call_raw(frame: &[u8], op: u8) -> Option<(u8, [u8; 2])> {
     let send_slot = route_bootctld()?;
-    let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).ok()?;
+    let reply_send_clone = nexus_abi::cap_clone(REPLY.send).ok()?;
     let hdr = nexus_abi::MsgHeader::new(
         reply_send_clone,
         0,
@@ -400,7 +399,7 @@ pub(crate) fn bootctl_call_raw(frame: &[u8], op: u8) -> Option<(u8, [u8; 2])> {
         // starve a payload reader's prefix check silently.
         let mut buf = [0u8; 96];
         match nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
+            REPLY.recv,
             &mut rh,
             &mut buf,
             nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
@@ -426,8 +425,8 @@ pub(crate) fn bootctl_call_raw(frame: &[u8], op: u8) -> Option<(u8, [u8; 2])> {
 fn route_bootctld() -> Option<u32> {
     match budget::route_with_nonce_budgeted(
         b"bootctld",
-        1,
-        2,
+        nexus_service_topology::CTRL_SLOTS.send,
+        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

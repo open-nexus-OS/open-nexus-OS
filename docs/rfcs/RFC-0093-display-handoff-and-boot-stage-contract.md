@@ -20,7 +20,7 @@
 - **Phase 1 (this contract + ADR-0062)**: ✅ 2026-09-09 (TASK-0324 P1 — paper)
 - **Phase 2 (`@ready` verb, honest `init: up`)**: ✅ 2026-09-09 (TASK-0324 P2 — `test-all` green over 8 lanes, 0 announce failures, `init: up` follows `<svc>: ready` everywhere)
 - **Phase 3 (routing v2: nonce mandatory, parked replies, fail-closed)**: ✅ 2026-09-10 (TASK-0324 P3 — `test-all` green over 8 lanes; park scope amended below with implementation evidence)
-- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: 🟨 2026-09-10 — crate + ratchet gate landed (P4-base); windowd (P4a), inputd (P4b), gpud + the fleet-wide MMIO slot (P4c), hidrawd (P4d), the app-child table (P4e), execd's own table (P4e-2), the generic arm's fifteen services (P4f-1a/1b), the block plane, policyd + keystored (P4f-2), updated + bundlemgrd (P4f-3) and netstackd + dsoftbusd + metricsd (P4f-4) migrated — 191 → 27 positional declarations, no order-based capability transfer left in init; P4f-5..6 (selftest-client, closure gate) open
+- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: 🟨 2026-09-10 — crate + ratchet gate landed (P4-base); windowd (P4a), inputd (P4b), gpud + the fleet-wide MMIO slot (P4c), hidrawd (P4d), the app-child table (P4e), execd's own table (P4e-2), the generic arm's fifteen services (P4f-1a/1b), the block plane, policyd + keystored (P4f-2), updated + bundlemgrd (P4f-3) netstackd + dsoftbusd + metricsd (P4f-4) and the proof harness (P4f-5) migrated — 191 → 4 positional declarations, no order-based capability transfer left in init; P4f-6 (closure gate) open
 - **Phase 5 (stage fence replaces every `yield_()` sync)**: ⬜ TASK-0324 P5
 - **Phase 6 (handoff v2: reveal handshake, seq acks, kernel display mode, readback off-scanout)**: ⬜ TASK-0324 P6
 - **Phase 7–9 (consumer polls deleted, closure docs/gates, 8/8 boots)**: ⬜ TASK-0324 P7–P9
@@ -233,6 +233,15 @@ constants. Deleted (P4a–P4f, atomic per consumer): every `new_with_slots(…)`
   virtioblkd, whose virtqueue VMOs sat in the reply-inbox slots it never used. Invariant: every
   capability init grants an early-running service is pinned before the service runs, or declared
   above the range its own allocations reach; the stage fence (§3) must make "resumed" imply "wired".
+- **Amendment 2026-09-11 (P4f-5, implementation evidence).** A consumer that runs before wiring
+  receives its STATIC capabilities before it first runs: the proof harness (wave 1) is provisioned
+  right after the server-pair distribution, by the same function that serves the generic arm
+  (`declared_routes.rs`). Dynamic grants stay dynamic and in-band — `@mint-pair`, and a restarted
+  service re-resolved by name (ADR-0057): the slot number travels in the route answer, so it is not
+  topology. Routing proofs check the SSOT: the harness compares init's routing answer with the
+  declaration (`route_matches`, `test_reject_route_answer_diverging_from_declaration`); its
+  `SELFTEST: ipc routing <svc> ok` markers used to follow a hardcoded slot table and proved only
+  that a client object could be constructed.
 - **Amendment 2026-09-11 (P4f-4, implementation evidence).** A route's delivery kind follows the
   TARGET's reply discipline, not the endpoints init happens to mint. netstackd answers every RPC on
   the caller's CAP_MOVE reply cap and nowhere else, so dsoftbusd's netstackd leg is `ReplyInbox`; the

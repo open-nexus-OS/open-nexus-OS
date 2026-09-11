@@ -27,11 +27,9 @@ use super::super::super::ipc::reply_inbox::ReplyInboxV1;
 use super::super::super::services::samgrd::fetch_sender_service_id_from_samgrd;
 
 pub(crate) fn cap_move_reply_probe() -> core::result::Result<(), ()> {
-    // 1) Deterministic reply-inbox slots distributed by init-lite to selftest-client.
-    const REPLY_RECV_SLOT: u32 = 0x17;
-    const REPLY_SEND_SLOT: u32 = 0x18;
-    let reply_send_slot = REPLY_SEND_SLOT;
-    let reply_recv_slot = REPLY_RECV_SLOT;
+    // 1) The harness's declared reply inbox (pinned by init before the harness runs).
+    let reply = nexus_service_topology::slots::selftest_client::REPLY;
+    let (reply_send_slot, reply_recv_slot) = (reply.send, reply.recv);
     let clock = OsClock;
     let deadline_ns = deadline_after(&clock, Duration::from_millis(500)).map_err(|_| ())?;
     let mut pending: ReplyBuffer<8, 64> = ReplyBuffer::new();

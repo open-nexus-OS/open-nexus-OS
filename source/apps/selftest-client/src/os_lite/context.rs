@@ -63,15 +63,13 @@ impl PhaseCtx {
     /// markers and performs no service routing. Returns `Err(())` only if a
     /// future infallible step becomes fallible.
     pub(crate) fn bootstrap() -> Result<Self, ()> {
-        // @reply slots are deterministically distributed by init-lite to
-        // selftest-client. The routing control-plane now supports a nonce-
-        // correlated extension, but we still avoid routing to "@reply" here to
-        // keep the proof independent from ctrl-plane behavior.
-        const REPLY_RECV_SLOT: u32 = 0x17;
-        const REPLY_SEND_SLOT: u32 = 0x18;
+        // The harness's reply inbox is declared by the topology and pinned by init before the
+        // harness runs (TASK-0324 P4f-5) — no routing round-trip, so the proof stays independent
+        // from control-plane behaviour.
+        let reply = nexus_service_topology::slots::selftest_client::REPLY;
         Ok(Self {
-            reply_send_slot: REPLY_SEND_SLOT,
-            reply_recv_slot: REPLY_RECV_SLOT,
+            reply_send_slot: reply.send,
+            reply_recv_slot: reply.recv,
             updated_pending: VecDeque::new(),
             local_ip: None,
             os2vm: false,

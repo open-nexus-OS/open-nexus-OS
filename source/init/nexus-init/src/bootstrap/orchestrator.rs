@@ -399,10 +399,6 @@ where
         .map_err(InitError::Abi)?;
     let net_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, netstackd_pid, 8)
         .map_err(InitError::Abi)?;
-    // Client-side netstackd receive endpoints (currently unused by the CAP_MOVE protocol but required for routing).
-    let net_selftest_rsp =
-        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-            .map_err(InitError::Abi)?;
 
     // packagefsd reply-inbox endpoint (for CAP_MOVE request/reply to other services, e.g. bundlemgrd):
     let pkg_reply_ep =
@@ -521,7 +517,6 @@ where
         gpud_rsp,
         net_req,
         net_rsp,
-        net_selftest_rsp,
         dsoft_req,
         dsoft_rsp,
         execd_reply_ep,
@@ -544,6 +539,9 @@ where
         ingress_rsp,
     };
     crate::bootstrap::distribute::distribute_server_pairs(&mut ctrl_channels, &eps);
+    // TASK-0324 P4f-5: the proof harness runs from wave 1 on, so its declared legs are pinned
+    // BEFORE it first runs (RFC-0093 §4) — not by transfer order while it already runs.
+    crate::bootstrap::declared_routes::wire_proof_harness(&mut ctrl_channels, &eps);
     // Wave 1 (TASK-0050 PR-5): the rest of the always-on CORE graph — the
     // boot target is unknown until the bootctld handshake below; the core is
     // exactly what that handshake (and any recovery boot) needs. Every
@@ -643,29 +641,25 @@ where
     // runtime boot-config (selftest mode/profile, set by the launcher via `-fw_cfg`) WITHOUT a
     // rebuild — the same binary boots in `proof` mode under the harness and `interactive-full`
     // under `just start`. This is a host-config channel, not a policy-gated device, so it is
-    // minted + transferred directly (no policyd round-trip) to the fixed slot the client maps
-    // (`boot_cfg::FW_CFG_SLOT`). Non-fatal: if the mint/transfer fails the client's `mmio_map`
+    // minted + pinned directly (no policyd round-trip) into the slot the topology declares for it
+    // (`slots::selftest_client::FW_CFG`, read by `boot_cfg`). Non-fatal: if the mint/transfer fails the client's `mmio_map`
     // degrades gracefully (runtime_mode → None → the legacy `full` profile + verdict mode off).
     {
         const FW_CFG_BASE: usize = 0x1010_0000; // QEMU virt VIRT_FW_CFG window base.
         const FW_CFG_LEN: usize = 0x1000; // One page (regs live at offset 0/8).
-        const FW_CFG_DST_SLOT: u32 = 0x31; // Must match selftest-client `boot_cfg::FW_CFG_SLOT`.
         match nexus_abi::device_mmio_cap_create(FW_CFG_BASE, FW_CFG_LEN, usize::MAX) {
+            // The slot is the harness's declared `NamedSlot::FwCfg` (TASK-0324 P4f-5); a failed pin
+            // is reported by the pin itself.
             Ok(cap) => {
-                match nexus_abi::cap_transfer_to_slot(
+                let pinned = crate::bootstrap::declared_slots::pin_named(
                     selftest_pid,
+                    ServiceId::SelftestClient,
+                    crate::service_topology::NamedSlot::FwCfg,
                     cap,
                     Rights::MAP,
-                    FW_CFG_DST_SLOT,
-                ) {
-                    Ok(_) => {
-                        if iw(&mut init_wire, init_fold, "init:selftest-client") {
-                            debug_write_bytes(b"init: fw_cfg grant ok svc=selftest-client\n");
-                        }
-                    }
-                    Err(_) => {
-                        debug_write_bytes(b"init: fw_cfg grant xfer FAIL svc=selftest-client\n")
-                    }
+                );
+                if pinned.is_some() && iw(&mut init_wire, init_fold, "init:selftest-client") {
+                    debug_write_bytes(b"init: fw_cfg grant ok svc=selftest-client\n");
                 }
             }
             Err(_) => debug_write_bytes(b"init: fw_cfg cap_create FAIL svc=selftest-client\n"),
@@ -701,7 +695,6 @@ where
     // server pairs went out pre-grants — this pass adds reply inboxes,
     // routes and the announce markers.
     crate::bootstrap::wiring::wire_services(&mut ctrl_channels, &eps, init_fold, &mut init_wire)?;
-    crate::bootstrap::blk_plane::wire_blk_deny_probe(&mut ctrl_channels, &eps);
 
     // Cap-table hygiene (RFC-0075/0078): a parked full table broke @mint-pair.
     endpoints::close_wired_eps(&eps);

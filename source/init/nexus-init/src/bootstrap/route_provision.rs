@@ -292,24 +292,3 @@ pub(crate) fn provision_imed_legs(
         _ => debug_write_bytes(b"init: imed route->windowd FAIL (xfer)\n"),
     }
 }
-
-/// The selftest harness's `imed-osk` probe route (positive + mis-tag
-/// negative); the reply rides the probe's own `@mint-pair` channel, so the
-/// recorded recv slot (imed's) is never read.
-pub(crate) fn provision_selftest_imed_osk(
-    pid: u32,
-    imed_osk_selftest: u32,
-    recv_slot: u32,
-    chan: &mut CtrlChannel,
-) {
-    match nexus_abi::cap_transfer(pid, imed_osk_selftest, Rights::SEND) {
-        Ok(osk_send) => {
-            chan.set_send(ServiceId::ImedOsk, osk_send);
-            chan.set_recv(ServiceId::ImedOsk, recv_slot);
-            if crate::bootstrap::diag::raw_or_expanded("selftest") {
-                debug_write_bytes(b"init: selftest route->imed-osk ok\n");
-            }
-        }
-        Err(_) => debug_write_bytes(b"init: selftest route->imed-osk FAIL (xfer)\n"),
-    }
-}

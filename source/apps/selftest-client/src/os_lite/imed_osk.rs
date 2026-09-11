@@ -24,8 +24,8 @@ use super::ipc::routing::route_with_retry;
 fn mint_pair() -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(
         b"@mint-pair",
-        1,
-        2,
+        nexus_service_topology::CTRL_SLOTS.send,
+        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

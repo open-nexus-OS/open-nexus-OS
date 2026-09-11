@@ -20,6 +20,7 @@ use nexus_ipc::KernelClient;
 
 use super::super::ipc::reply::recv_large_bounded;
 use crate::markers::emit_line;
+use nexus_service_topology::slots::selftest_client::REPLY;
 
 pub(crate) fn logd_append_status_v2(
     logd: &KernelClient,
@@ -51,11 +52,10 @@ pub(crate) fn logd_append_status_v2(
     frame.extend_from_slice(fields);
 
     let clock = nexus_ipc::budget::OsClock;
-    // Use CAP_MOVE replies so we don't depend on the dedicated response endpoint.
-    const REPLY_RECV_SLOT: u32 = 0x17;
-    const REPLY_SEND_SLOT: u32 = 0x18;
+    // Use CAP_MOVE replies (the declared reply inbox) so we don't depend on the dedicated response
+    // endpoint.
     let (send_slot, _recv_slot) = logd.slots();
-    let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| {
+    let reply_send_clone = nexus_abi::cap_clone(REPLY.send).map_err(|_| {
         emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_REPLY_CLONE_FAIL);
         ()
     })?;
@@ -79,7 +79,7 @@ pub(crate) fn logd_append_status_v2(
     let mut rsp_len: Option<usize> = None;
     for _ in 0..64 {
         let n = match recv_large_bounded(
-            REPLY_RECV_SLOT,
+            REPLY.recv,
             &mut rsp_buf,
             core::time::Duration::from_millis(50),
         ) {
@@ -178,8 +178,6 @@ pub(crate) fn logd_query_probe(logd: &KernelClient) -> core::result::Result<bool
 }
 
 pub(crate) fn logd_stats_total(logd: &KernelClient) -> core::result::Result<u64, ()> {
-    const REPLY_RECV_SLOT: u32 = 0x17;
-    const REPLY_SEND_SLOT: u32 = 0x18;
     static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1000);
     let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     let mut frame = [0u8; 12];
@@ -190,7 +188,7 @@ pub(crate) fn logd_stats_total(logd: &KernelClient) -> core::result::Result<u64,
     frame[4..12].copy_from_slice(&nonce.to_le_bytes());
     let clock = nexus_ipc::budget::OsClock;
     let (send_slot, _recv_slot) = logd.slots();
-    let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| ())?;
+    let reply_send_clone = nexus_abi::cap_clone(REPLY.send).map_err(|_| ())?;
     let hdr = nexus_abi::MsgHeader::new(
         reply_send_clone,
         0,
@@ -207,7 +205,7 @@ pub(crate) fn logd_stats_total(logd: &KernelClient) -> core::result::Result<u64,
     let mut rsp_buf = [0u8; 256];
     for _ in 0..128 {
         let n = match recv_large_bounded(
-            REPLY_RECV_SLOT,
+            REPLY.recv,
             &mut rsp_buf,
             core::time::Duration::from_millis(50),
         ) {
@@ -278,8 +276,6 @@ pub(crate) fn logd_query_contains_paged_from(
     persisted: bool,
 ) -> core::result::Result<bool, ()> {
     let clock = nexus_ipc::budget::OsClock;
-    const REPLY_RECV_SLOT: u32 = 0x17;
-    const REPLY_SEND_SLOT: u32 = 0x18;
     let (send_slot, _recv_slot) = logd.slots();
     let mut emitted = false;
     let mut empty_pages = 0usize;
@@ -300,7 +296,7 @@ pub(crate) fn logd_query_contains_paged_from(
         let frame = &frame[..if persisted { 23 } else { 22 }];
 
         // Send with CAP_MOVE so replies arrive on the reply inbox.
-        let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| {
+        let reply_send_clone = nexus_abi::cap_clone(REPLY.send).map_err(|_| {
             if !emitted {
                 emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_REPLY_CLONE_FAIL);
                 emitted = true;
@@ -332,7 +328,7 @@ pub(crate) fn logd_query_contains_paged_from(
         let mut rsp_len: Option<usize> = None;
         for _ in 0..128 {
             let n = match recv_large_bounded(
-                REPLY_RECV_SLOT,
+                REPLY.recv,
                 &mut rsp_buf,
                 core::time::Duration::from_millis(50),
             ) {

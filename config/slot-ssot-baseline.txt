@@ -2,17 +2,7 @@
 # Ratchet: a file may SHRINK, never grow; a new file is a hard failure.
 # Regenerate ONLY after a real P4 consumer migration:
 #   scripts/check-slot-ssot.sh --update-baseline
-2	source/apps/selftest-client/src/os_lite/context.rs
-2	source/apps/selftest-client/src/os_lite/ipc/routing.rs
-2	source/apps/selftest-client/src/os_lite/probes/blkgate.rs
-2	source/apps/selftest-client/src/os_lite/probes/ipc_kernel/security.rs
-2	source/apps/selftest-client/src/os_lite/probes/ipc_kernel/soak.rs
 1	source/apps/selftest-client/src/os_lite/probes/ipc_kernel/vmo.rs
-2	source/apps/selftest-client/src/os_lite/probes/reset.rs
-6	source/apps/selftest-client/src/os_lite/services/logd.rs
-2	source/apps/selftest-client/src/os_lite/services/rngd.rs
-2	source/apps/selftest-client/src/os_lite/updated/health.rs
-1	source/init/nexus-init/src/bootstrap/orchestrator.rs
 1	source/init/nexus-init/src/bootstrap/route_provision.rs
 1	source/init/nexus-init/src/os_payload.rs
 1	source/services/execd/src/std_server.rs

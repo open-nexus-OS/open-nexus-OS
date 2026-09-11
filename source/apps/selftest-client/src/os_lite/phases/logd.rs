@@ -116,7 +116,11 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
 
     // TASK-0006: nexus-log -> logd sink proof.
     // This checks that the facade can send to logd (bounded, best-effort) without relying on UART scraping.
-    let _ = nexus_log::configure_sink_logd_slots(0x15, ctx.reply_send_slot, ctx.reply_recv_slot);
+    let _ = nexus_log::configure_sink_logd_slots(
+        nexus_service_topology::slots::selftest_client::LOGD.send,
+        ctx.reply_send_slot,
+        ctx.reply_recv_slot,
+    );
     nexus_log::info("selftest-client", |line| {
         line.text("nexus-log sink-logd probe");
     });
