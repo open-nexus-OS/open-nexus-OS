@@ -97,6 +97,32 @@ pub mod bundlemgrd {
     pub const LOGD: SlotPair = SlotPair::new(crate::LATE_GRANT_BASE + 2, REPLY.recv);
 }
 
+/// dsoftbusd (TASK-0324 P4f-4). Its netstackd route used to occupy 3/4 — the fleet's server
+/// slots — while its own server landed wherever transfer order put it; both sides read this
+/// declaration now, so dsoftbusd follows the fleet convention like every other service.
+pub mod dsoftbusd {
+    use super::SlotPair;
+
+    /// dsoftbusd's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox.
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// The netstackd facade. It answers every RPC on the caller's CAP_MOVE inbox and nowhere
+    /// else, so the dedicated response endpoint init used to mint for this leg never carried
+    /// a byte.
+    pub const NETSTACKD: SlotPair = SlotPair::new(7, REPLY.recv);
+    /// Service registry lookups.
+    pub const SAMGRD: SlotPair = SlotPair::new(9, REPLY.recv);
+    /// Bundle queries.
+    pub const BUNDLEMGRD: SlotPair = SlotPair::new(0x0A, REPLY.recv);
+    /// Remote packagefs read-only path (TASK-0016) — packagefsd's own response endpoint.
+    pub const PACKAGEFSD: SlotPair = SlotPair::new(0x0B, 0x0C);
+    /// Remote statefs proxy (TASK-0017) — statefsd's own response endpoint.
+    pub const STATEFSD: SlotPair = SlotPair::new(0x0D, 0x0E);
+    /// Structured logs.
+    pub const LOGD: SlotPair = SlotPair::new(0x0F, REPLY.recv);
+}
+
 /// execd (TASK-0324 P4e-2).
 ///
 /// execd's OWN table, distinct from the app-child table above: init grants into it at
@@ -243,6 +269,34 @@ pub mod logd {
     pub const REPLY: SlotPair = SlotPair::new(6, 5);
     /// Evidence spill (TASK-0049C).
     pub const STATEFSD: SlotPair = SlotPair::new(7, REPLY.recv);
+}
+
+/// metricsd (TASK-0324 P4f-4).
+pub mod metricsd {
+    use super::SlotPair;
+
+    /// metricsd's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox.
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// Retention writer.
+    pub const STATEFSD: SlotPair = SlotPair::new(7, REPLY.recv);
+    /// Snapshot/span export.
+    pub const LOGD: SlotPair = SlotPair::new(8, REPLY.recv);
+}
+
+/// netstackd (TASK-0324 P4f-4). Its facade listened on 5/6 while the pair distributed at spawn
+/// landed on 3/4, so init handed netstackd the SAME server pair twice (order at 3/4, pinned at
+/// 5/6). Declared once, at the fleet convention, read by the facade and by init.
+pub mod netstackd {
+    use super::SlotPair;
+
+    /// netstackd's own server endpoint (the facade).
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The seam's `@reply` pair.
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// RFC-0091 seam: connect/listen/bind evaluated at policyd.
+    pub const POLICYD: SlotPair = SlotPair::new(7, REPLY.recv);
 }
 
 /// packagefsd (TASK-0324 P4f-1a).

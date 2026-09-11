@@ -36,5 +36,7 @@ qemu_session_mode = { proof = ["qemu-smoke"] }
 nexus-service-entry = { path = "../../libs/nexus-service-entry" }
 nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"] }
+# TASK-0324 P4f-4: capability slots have one home.
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-net = { path = "../../../userspace/nexus-net" }
 nexus-net-os = { path = "../../../userspace/nexus-net-os", default-features = false, features = ["os-lite"] }

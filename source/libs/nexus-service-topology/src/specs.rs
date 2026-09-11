@@ -43,6 +43,9 @@ pub struct ServiceSpec {
 pub const SERVICE_SPECS: &[ServiceSpec] = &[
     crate::specs_app::ABILITYMGR,
     crate::specs_app::BUNDLEMGRD,
+    crate::specs_app::METRICSD,
+    crate::specs_security::NETSTACKD,
+    crate::specs_security::DSOFTBUSD,
     crate::specs_storage::UPDATED,
     crate::specs_app::EXECD,
     crate::specs_storage::KEYSTORED,

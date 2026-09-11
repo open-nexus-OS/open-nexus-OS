@@ -194,9 +194,10 @@ the empty deny-all profile.
   see the `policyd: audit emit deferred` baseline). Not ladder-gated.
 - `SELFTEST: abi mode switch auth ok` — both authenticated switches applied
   (the unauthenticated denial is host-proven: one authority sender per boot).
-- `init: netstackd policy slots 7/8/9` / `net-egress: enforced (netstackd
-  policy seam on)` — init wired policyd's request endpoint + the `@reply`
-  pair into netstackd and the facade armed the connect/listen/bind seam
+- `init: netstackd route->policyd ok` / `net-egress: enforced (netstackd
+  policy seam on)` — init pinned policyd's request endpoint + netstackd's
+  `@reply` inbox into the slots `nexus-service-topology` declares for them
+  (TASK-0324 P4f-4) and the facade armed the connect/listen/bind seam
   (TASK-0043 P2); `!cap-deny: enforcer=netstackd class=net.connect dst=<ip>:<port>
   subject=0x<sid>` (or `class=net.bind port=… addr=…`) marks a refusal.
 - `SELFTEST: egress deny ok` / `egress allow ok` / `egress learn collected ok`

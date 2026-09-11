@@ -101,14 +101,10 @@ pub(crate) struct Endpoints {
     pub net_rsp: u32,
     /// netstackd response endpoint owned by selftest-client.
     pub net_selftest_rsp: u32,
-    /// netstackd response endpoint owned by dsoftbusd.
-    pub net_dsoft_rsp: u32,
     /// dsoftbusd server request endpoint.
     pub dsoft_req: u32,
     /// dsoftbusd server response endpoint.
     pub dsoft_rsp: u32,
-    /// dsoftbusd CAP_MOVE reply inbox.
-    pub dsoft_reply_ep: u32,
     /// execd CAP_MOVE reply inbox.
     pub execd_reply_ep: u32,
     /// selftest-client CAP_MOVE reply inbox.
@@ -182,16 +178,15 @@ impl Endpoints {
             // (When absent, the generic arm falls back to provisioning a fresh —
             // unused — pair; every current image profile includes logd.)
             ServiceId::Logd => self.log_req.zip(self.log_rsp),
-            // Still-bespoke arms (task #123 hardening): their pairs are ALSO
-            // distributed pre-grants; the bespoke arm skips the transfer when
-            // already set and keeps its markers verbatim. Drivers
-            // (gpud/windowd/inputd) are priority-wired even earlier; dsoftbusd
-            // has no own server pair (its low slots carry netstackd routes).
+            // Drivers (gpud/windowd/inputd) are priority-wired before this table is read.
             ServiceId::Bundlemgrd => Some((self.bnd_req, self.bnd_rsp)),
             ServiceId::Updated => Some((self.upd_req, self.upd_rsp)),
             ServiceId::Keystored => Some((self.key_req, self.key_rsp)),
             ServiceId::Execd => Some((self.exe_req, self.exe_rsp)),
             ServiceId::Netstackd => Some((self.net_req, self.net_rsp)),
+            // TASK-0324 P4f-4: dsoftbusd's pair was minted but served from whatever slots transfer
+            // order left after its netstackd leg took the fleet's server slots.
+            ServiceId::Dsoftbusd => Some((self.dsoft_req, self.dsoft_rsp)),
             ServiceId::Metricsd => self.metrics_req.zip(self.metrics_rsp),
             // Session authority (TASK-0065B): pre-minted so windowd/abilitymgr
             // client routes exist long before sessiond (spawned last) binds.

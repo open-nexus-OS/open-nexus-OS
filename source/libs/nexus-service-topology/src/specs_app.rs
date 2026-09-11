@@ -208,3 +208,23 @@ pub(crate) const BUNDLEMGRD: ServiceSpec = ServiceSpec {
     reply_slots: slots::bundlemgrd::REPLY,
     extra_slots: &[],
 };
+
+/// The declaration of `metricsd`.
+// TASK-0324 P4f-4: off its bespoke arm.
+pub(crate) const METRICSD: ServiceSpec = ServiceSpec {
+    id: ServiceId::Metricsd,
+    exposes_server: true,
+    reply_inbox: true,
+    routes_to: &[
+        Route {
+            to: ServiceId::Statefsd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::metricsd::STATEFSD,
+        },
+        Route { to: ServiceId::Logd, kind: RouteKind::ReplyInbox, slots: slots::metricsd::LOGD },
+    ],
+    announce: true,
+    server_slots: slots::metricsd::SERVER,
+    reply_slots: slots::metricsd::REPLY,
+    extra_slots: &[],
+};

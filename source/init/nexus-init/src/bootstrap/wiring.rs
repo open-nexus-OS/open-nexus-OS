@@ -56,12 +56,9 @@ pub(crate) fn wire_services(
         gpud_req,
         gpud_rsp,
         net_req,
-        net_rsp,
         net_selftest_rsp,
-        net_dsoft_rsp,
         dsoft_req,
         dsoft_rsp,
-        dsoft_reply_ep,
         reply_ep,
         log_req,
         log_rsp,
@@ -88,189 +85,12 @@ pub(crate) fn wire_services(
             debug_write_byte(b'\n');
         }
         match chan.svc_name {
-            "netstackd" => {
-                // netstackd's facade serves FIXED slots (recv 5 / send 6 — see
-                // `os/facade/runtime.rs`). The server pair distributed at spawn
-                // lands at the child's next free slots (3/4 since the volume
-                // spawn), which is where every facade client's request went to
-                // die (`netstackd: ipc recv err`, `SELFTEST: icmp ping FAIL`,
-                // `dsoftbus os connect FAIL`). Deliver the pair where the
-                // facade listens, deterministically, like dsoftbusd's 3/4.
-                if iw(init_wire, init_fold, "init:netstackd") {
-                    debug_write_bytes(b"init: wire netstackd xfer net_req RECV -> 5\n");
-                }
-                let recv_slot =
-                    match nexus_abi::cap_transfer_to_slot(pid, net_req, Rights::RECV, 0x05) {
-                        Ok(slot) => slot,
-                        Err(e) => {
-                            debug_write_bytes(b"init: wire netstackd xfer net_req err=abi:");
-                            debug_write_str(abi_error_label(e.clone()));
-                            debug_write_byte(b'\n');
-                            return Err(InitError::Abi(e));
-                        }
-                    };
-                if iw(init_wire, init_fold, "init:netstackd") {
-                    debug_write_bytes(b"init: wire netstackd xfer net_rsp SEND -> 6\n");
-                }
-                let send_slot =
-                    match nexus_abi::cap_transfer_to_slot(pid, net_rsp, Rights::SEND, 0x06) {
-                        Ok(slot) => slot,
-                        Err(e) => {
-                            debug_write_bytes(b"init: wire netstackd xfer net_rsp err=abi:");
-                            debug_write_str(abi_error_label(e.clone()));
-                            debug_write_byte(b'\n');
-                            return Err(InitError::Abi(e));
-                        }
-                    };
-                chan.set_send(ServiceId::Netstackd, send_slot);
-                chan.set_recv(ServiceId::Netstackd, recv_slot);
-                if iw(init_wire, init_fold, "init:netstackd") {
-                    debug_write_bytes(b"init: netstackd svc slots recv=0x");
-                    debug_write_hex(recv_slot as usize);
-                    debug_write_bytes(b" send=0x");
-                    debug_write_hex(send_slot as usize);
-                    debug_write_byte(b'\n');
-                }
-                // RFC-0091 seam (TASK-0043 P2): netstackd evaluates every
-                // connect/listen/bind at policyd. Like statefsd/keystored it
-                // gets policyd's request endpoint + its own @reply pair at
-                // FIXED slots (7 = pol_req SEND, 8 = reply RECV, 9 = reply
-                // SEND) — an enforcement seam never routes dynamically from
-                // its hot loop.
-                let reply_ep =
-                    match nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8) {
-                        Ok(ep) => ep,
-                        Err(e) => {
-                            debug_write_bytes(b"init: wire netstackd create reply_ep err=abi:");
-                            debug_write_str(abi_error_label(e.clone()));
-                            debug_write_byte(b'\n');
-                            return Err(InitError::Abi(e));
-                        }
-                    };
-                let wired = nexus_abi::cap_transfer_to_slot(pid, pol_req, Rights::SEND, 0x07)
-                    .and_then(|_| {
-                        nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::RECV, 0x08)
-                    })
-                    .and_then(|_| {
-                        nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::SEND, 0x09)
-                    });
-                let _ = nexus_abi::cap_close(reply_ep);
-                match wired {
-                    Ok(_) => {
-                        if iw(init_wire, init_fold, "init:netstackd") {
-                            debug_write_bytes(b"init: netstackd policy slots 7/8/9\n");
-                        }
-                    }
-                    Err(e) => {
-                        debug_write_bytes(b"init: wire netstackd policy slots err=abi:");
-                        debug_write_str(abi_error_label(e.clone()));
-                        debug_write_byte(b'\n');
-                        return Err(InitError::Abi(e));
-                    }
-                }
-            }
-            "dsoftbusd" => {
-                // Allow dsoftbusd to send requests to netstackd (and optionally receive on a dedicated inbox).
-                // Place into fixed slots to match userspace bring-up constants (avoid relying on allocation order).
-                let send_slot = nexus_abi::cap_transfer_to_slot(pid, net_req, Rights::SEND, 0x03)
-                    .map_err(InitError::Abi)?;
-                let recv_slot =
-                    nexus_abi::cap_transfer_to_slot(pid, net_dsoft_rsp, Rights::RECV, 0x04)
-                        .map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Netstackd, send_slot);
-                chan.set_recv(ServiceId::Netstackd, recv_slot);
-                if iw(init_wire, init_fold, "init:dsoftbusd") {
-                    debug_write_bytes(b"init: dsoftbusd netstackd slots send=0x");
-                    debug_write_hex(send_slot as usize);
-                    debug_write_bytes(b" recv=0x");
-                    debug_write_hex(recv_slot as usize);
-                    debug_write_byte(b'\n');
-                }
-
-                // Reply inbox: provide both RECV (stay with client) and SEND (to be moved to servers).
-                let reply_recv_slot =
-                    nexus_abi::cap_transfer_to_slot(pid, dsoft_reply_ep, Rights::RECV, 0x05)
-                        .map_err(InitError::Abi)?;
-                let reply_send_slot =
-                    nexus_abi::cap_transfer_to_slot(pid, dsoft_reply_ep, Rights::SEND, 0x06)
-                        .map_err(InitError::Abi)?;
-                chan.reply_recv_slot = Some(reply_recv_slot);
-                chan.reply_send_slot = Some(reply_send_slot);
-                let _ = nexus_abi::cap_close(dsoft_reply_ep);
-                if iw(init_wire, init_fold, "init:dsoftbusd") {
-                    debug_write_bytes(b"init: dsoftbusd reply slots recv=0x");
-                    debug_write_hex(reply_recv_slot as usize);
-                    debug_write_bytes(b" send=0x");
-                    debug_write_hex(reply_send_slot as usize);
-                    debug_write_byte(b'\n');
-                }
-
-                // Allow dsoftbusd to call into samgrd/bundlemgrd via CAP_MOVE reply inbox.
-                // - send to service request endpoint
-                // - receive replies on local reply inbox recv slot
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, sam_req, Rights::SEND).map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Samgrd, send_slot);
-                chan.set_recv(ServiceId::Samgrd, reply_recv_slot);
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND).map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Bundlemgrd, send_slot);
-                chan.set_recv(ServiceId::Bundlemgrd, reply_recv_slot);
-                // TASK-0016: remote packagefs RO path requires dsoftbusd -> packagefsd routing.
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, pkg_req, Rights::SEND).map_err(InitError::Abi)?;
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, pkg_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Packagefsd, send_slot);
-                chan.set_recv(ServiceId::Packagefsd, recv_slot);
-                // #region agent log
-                if iw(init_wire, init_fold, "init:dsoftbusd") {
-                    debug_write_bytes(b"init: dsoftbusd packagefsd slots send=0x");
-                    debug_write_hex(send_slot as usize);
-                    debug_write_bytes(b" recv=0x");
-                    debug_write_hex(recv_slot as usize);
-                    debug_write_byte(b'\n');
-                }
-                // #endregion
-
-                // TASK-0017 closeout: allow dsoftbusd to proxy remote statefs via statefsd.
-                let send_slot = nexus_abi::cap_transfer(pid, state_req, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                let recv_slot = nexus_abi::cap_transfer(pid, state_rsp, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Statefsd, send_slot);
-                chan.set_recv(ServiceId::Statefsd, recv_slot);
-                // #region agent log
-                if iw(init_wire, init_fold, "init:dsoftbusd") {
-                    debug_write_bytes(b"init: dsoftbusd statefsd slots send=0x");
-                    debug_write_hex(send_slot as usize);
-                    debug_write_bytes(b" recv=0x");
-                    debug_write_hex(recv_slot as usize);
-                    debug_write_byte(b'\n');
-                }
-                // #endregion
-
-                // Provide dsoftbusd its own request/response endpoints (server side).
-                let recv_slot = nexus_abi::cap_transfer(pid, dsoft_req, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let send_slot = nexus_abi::cap_transfer(pid, dsoft_rsp, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Dsoftbusd, send_slot);
-                chan.set_recv(ServiceId::Dsoftbusd, recv_slot);
-
-                // TASK-0006: allow dsoftbusd to send structured logs to logd via CAP_MOVE (reply inbox).
-                if let Some(req) = log_req {
-                    let send_slot =
-                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.set_send(ServiceId::Logd, send_slot);
-                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
-                }
-            }
             // "vfsd" and "packagefsd" migrated to the declarative arm below
             // (RFC-0069 batch 2): spec = SERVICE_SPECS (vfsd's packagefsd link is
             // a SharedResponse route; packagefsd's reply inbox is the pre-minted
             // `pkg_reply_ep`). Their bespoke arms are deleted.
             // "bootctld" is provisioned by the generic arm from its declaration (TASK-0324 P4f-1b).
+            // "netstackd", "dsoftbusd" and "metricsd" too (TASK-0324 P4f-4).
             "execd" => execd_wiring::wire_execd(pid, eps, chan, init_wire, init_fold)?,
             "hidrawd" => {
                 // TASK-0324 P4d: pinned to the declared slots (hidrawd is a pure producer).
@@ -489,66 +309,6 @@ pub(crate) fn wire_services(
                     debug_write_hex(window_recv_slot as usize);
                     debug_write_byte(b'\n');
                 }
-            }
-            "metricsd" => {
-                if let (Some(req), Some(rsp)) = (metrics_req, metrics_rsp) {
-                    // Server pair: usually distributed pre-grants (task #123).
-                    let (recv_slot, send_slot) =
-                        match (chan.recv(ServiceId::Metricsd), chan.send(ServiceId::Metricsd)) {
-                            (Some(r), Some(s)) => (r, s),
-                            _ => {
-                                let r = nexus_abi::cap_transfer(pid, req, Rights::RECV)
-                                    .map_err(InitError::Abi)?;
-                                let s = nexus_abi::cap_transfer(pid, rsp, Rights::SEND)
-                                    .map_err(InitError::Abi)?;
-                                chan.set_send(ServiceId::Metricsd, s);
-                                chan.set_recv(ServiceId::Metricsd, r);
-                                (r, s)
-                            }
-                        };
-                    if iw(init_wire, init_fold, "init:metricsd") {
-                        debug_write_bytes(b"init: metricsd slots recv=0x");
-                        debug_write_hex(recv_slot as usize);
-                        debug_write_bytes(b" send=0x");
-                        debug_write_hex(send_slot as usize);
-                        debug_write_byte(b'\n');
-                    }
-                }
-
-                // Provide a reply inbox for CAP_MOVE reply routing (used by log sink).
-                let reply_ep =
-                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                        .map_err(InitError::Abi)?;
-                let reply_recv_slot =
-                    nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::RECV, 0x05)
-                        .map_err(InitError::Abi)?;
-                let reply_send_slot =
-                    nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::SEND, 0x06)
-                        .map_err(InitError::Abi)?;
-                chan.reply_recv_slot = Some(reply_recv_slot);
-                chan.reply_send_slot = Some(reply_send_slot);
-                let _ = nexus_abi::cap_close(reply_ep);
-
-                // Allow metricsd to export snapshots/spans via nexus-log -> logd sink.
-                if let Some(req) = log_req {
-                    let send_slot = nexus_abi::cap_transfer_to_slot(pid, req, Rights::SEND, 0x08)
-                        .map_err(InitError::Abi)?;
-                    chan.set_send(ServiceId::Logd, send_slot);
-                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
-                    if iw(init_wire, init_fold, "init:metricsd") {
-                        debug_write_bytes(b"init: metricsd logd slots send=0x");
-                        debug_write_hex(send_slot as usize);
-                        debug_write_bytes(b" recv=0x");
-                        debug_write_hex(reply_recv_slot as usize);
-                        debug_write_byte(b'\n');
-                    }
-                }
-
-                // Allow metricsd retention writer to call statefsd via CAP_MOVE/@reply.
-                let send_slot = nexus_abi::cap_transfer_to_slot(pid, state_req, Rights::SEND, 0x07)
-                    .map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Statefsd, send_slot);
-                chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
             }
             // "logd" migrated to the declarative arm below (RFC-0069 batch 4):
             // announce=true keeps its iw-gated slots line + init_caps tally; the
@@ -988,118 +748,24 @@ pub(crate) fn wire_services(
                                     }
                                 }
                             }
-                            // Replies arrive on this service's CAP_MOVE inbox.
-                            // Bridge ServiceId → the target's request cap (uniform
-                            // target lookup is a later refactor; this reuses what
-                            // exists). Prints only where the pre-migration bespoke
-                            // arm printed (`announce`) — byte-identical boot logs.
+                            // Replies arrive on this service's CAP_MOVE inbox. The target's request
+                            // endpoint is its minted server pair — the same table the server side
+                            // was pinned from, instead of a hand-kept ServiceId → cap match that
+                            // silently skipped every target nobody had added (TASK-0324 P4f-4).
                             RouteKind::ReplyInbox => {
-                                let Some(reply_recv) = reply_recv_opt else {
+                                let (Some(reply_recv), Some((t_req, _))) =
+                                    (reply_recv_opt, eps.server_pair(route.to))
+                                else {
                                     continue;
                                 };
-                                match route.to {
-                                    ServiceId::Bundlemgrd => {
-                                        if let Some(s) = declared_slots::pin_route_send(
-                                            pid, spec.id, route.to, bnd_req,
-                                        ) {
-                                            chan.set_send(ServiceId::Bundlemgrd, s);
-                                            chan.set_recv(ServiceId::Bundlemgrd, reply_recv);
-                                            if spec.announce {
-                                                announce_route_ok(name, route.to);
-                                            }
-                                        }
+                                if let Some(s) =
+                                    declared_slots::pin_route_send(pid, spec.id, route.to, t_req)
+                                {
+                                    chan.set_send(route.to, s);
+                                    chan.set_recv(route.to, reply_recv);
+                                    if spec.announce {
+                                        announce_route_ok(name, route.to);
                                     }
-                                    ServiceId::Logd => {
-                                        if let Some(req) = log_req {
-                                            if let Some(s) = declared_slots::pin_route_send(
-                                                pid, spec.id, route.to, req,
-                                            ) {
-                                                chan.set_send(ServiceId::Logd, s);
-                                                chan.set_recv(ServiceId::Logd, reply_recv);
-                                            }
-                                        }
-                                    }
-                                    ServiceId::Vfsd => {
-                                        if let Some(s) = declared_slots::pin_route_send(
-                                            pid, spec.id, route.to, vfs_req,
-                                        ) {
-                                            chan.set_send(ServiceId::Vfsd, s);
-                                            chan.set_recv(ServiceId::Vfsd, reply_recv);
-                                        }
-                                    }
-                                    ServiceId::Bootctld => {
-                                        if let Some((boot_req, _)) =
-                                            eps.server_pair(ServiceId::Bootctld)
-                                        {
-                                            if let Some(s) = declared_slots::pin_route_send(
-                                                pid, spec.id, route.to, boot_req,
-                                            ) {
-                                                chan.set_send(ServiceId::Bootctld, s);
-                                                chan.set_recv(ServiceId::Bootctld, reply_recv);
-                                            }
-                                        }
-                                    }
-                                    ServiceId::Rngd => {
-                                        if let Some(s) = declared_slots::pin_route_send(
-                                            pid, spec.id, route.to, rng_req,
-                                        ) {
-                                            chan.set_send(ServiceId::Rngd, s);
-                                            chan.set_recv(ServiceId::Rngd, reply_recv);
-                                        }
-                                    }
-                                    ServiceId::Policyd => {
-                                        if let Some(s) = declared_slots::pin_route_send(
-                                            pid, spec.id, route.to, pol_req,
-                                        ) {
-                                            chan.set_send(ServiceId::Policyd, s);
-                                            chan.set_recv(ServiceId::Policyd, reply_recv);
-                                        }
-                                    }
-                                    // Facade client leg (RFC-0092 ingressd):
-                                    // netstackd answers every RPC on the
-                                    // caller's CAP_MOVE inbox.
-                                    ServiceId::Netstackd => {
-                                        if let Some(s) = declared_slots::pin_route_send(
-                                            pid, spec.id, route.to, net_req,
-                                        ) {
-                                            chan.set_send(ServiceId::Netstackd, s);
-                                            chan.set_recv(ServiceId::Netstackd, reply_recv);
-                                            if spec.announce {
-                                                announce_route_ok(name, route.to);
-                                            }
-                                        }
-                                    }
-                                    // Session authority (TASK-0065B launch gate).
-                                    ServiceId::Sessiond => {
-                                        if let Some(req) = sess_req {
-                                            if let Some(s) = declared_slots::pin_route_send(
-                                                pid, spec.id, route.to, req,
-                                            ) {
-                                                chan.set_send(ServiceId::Sessiond, s);
-                                                chan.set_recv(ServiceId::Sessiond, reply_recv);
-                                                if spec.announce {
-                                                    announce_route_ok(name, route.to);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    // Persistence (settingsd → statefsd): the
-                                    // declarative migration left this target
-                                    // out of the ReplyInbox arm — every
-                                    // `settingsd: … persist=fail` was this
-                                    // missing case, not statefsd.
-                                    ServiceId::Statefsd => {
-                                        if let Some(s) = declared_slots::pin_route_send(
-                                            pid, spec.id, route.to, state_req,
-                                        ) {
-                                            chan.set_send(ServiceId::Statefsd, s);
-                                            chan.set_recv(ServiceId::Statefsd, reply_recv);
-                                            if spec.announce {
-                                                announce_route_ok(name, route.to);
-                                            }
-                                        }
-                                    }
-                                    _ => {}
                                 }
                             }
                         }
@@ -1112,14 +778,14 @@ pub(crate) fn wire_services(
     Ok(())
 }
 
-/// `init: <svc> route-><target> ok` — the generic arm's one announce line for a provisioned
-/// route (it was spelled out per route kind and per bridge target).
+/// `init: <svc> route-><target> ok` — the generic arm's one announce line for a provisioned route.
+/// ONE atomic line: it is a ladder witness (`init: netstackd route->policyd ok`, TASK-0324 P4f-4),
+/// and byte-wise writes tear against the services already running during wiring.
 fn announce_route_ok(name: &str, to: ServiceId) {
-    debug_write_bytes(b"init: ");
-    debug_write_bytes(name.as_bytes());
-    debug_write_bytes(b" route->");
-    debug_write_bytes(to.name().as_bytes());
-    debug_write_bytes(b" ok\n");
+    crate::bootstrap::diag::emit_marker_atomic(
+        &[b"init: ", name.as_bytes(), b" route->", to.name().as_bytes(), b" ok"],
+        None,
+    );
 }
 
 /// `true` if `name` has a bespoke wiring arm in the orchestrator (complex
@@ -1128,18 +794,7 @@ fn announce_route_ok(name: &str, to: ServiceId) {
 /// declarative topology instead of a hand-written arm. As bespoke services are
 /// migrated to `ServiceSpec`, they are removed from this set.
 pub(crate) fn is_bespoke_wired(name: &str) -> bool {
-    matches!(
-        name,
-        "netstackd"
-            | "dsoftbusd"
-            | "execd"
-            | "hidrawd"
-            | "gpud"
-            | "windowd"
-            | "inputd"
-            | "metricsd"
-            | "selftest-client"
-    )
+    matches!(name, "execd" | "hidrawd" | "gpud" | "windowd" | "inputd" | "selftest-client")
 }
 
 /// Provisions a plain server endpoint for a service, driven by the declarative

@@ -18,15 +18,14 @@ use crate::bootstrap::endpoints::Endpoints;
 use crate::bootstrap::wiring::is_bespoke_wired;
 use crate::bootstrap::CtrlChannel;
 use crate::os_payload::ENDPOINT_FACTORY_CAP_SLOT;
-use nexus_abi::Rights;
 
 /// Distribute capabilities to every spawned service (the bespoke per-service
 /// `match` + the declarative generic arm). Mutates each `CtrlChannel`'s slot
 /// fields in place; the caller builds the route table from them afterward.
 /// RFC-0069 phase semantics (task #123 fix): distribute each declared service's
 /// PRE-MINTED server endpoint pair IMMEDIATELY after endpoint creation — before
-/// the policy-gated MMIO grant phase. The services' deterministic fallback
-/// slots (3/4) then exist no matter how long policyd takes to answer grants;
+/// the policy-gated MMIO grant phase. The services' declared server slots
+/// then hold the pair no matter how long policyd takes to answer grants;
 /// previously a slow policyd delayed `wire_services` past the services'
 /// route-probe fallback, their first recv hit an EMPTY slot, and the whole
 /// early fleet died (init then aborted wiring caps into dead PIDs). Silent and
@@ -44,8 +43,7 @@ pub(crate) fn distribute_server_pairs(ctrls: &mut [CtrlChannel], eps: &Endpoints
 pub(crate) fn distribute_server_pair_for(chan: &mut CtrlChannel, eps: &Endpoints) {
     {
         let name = chan.svc_name;
-        // Authority = the minted-pair table itself (covers declared AND
-        // still-bespoke services; returns None for drivers/dsoftbusd).
+        // Authority = the minted-pair table itself (None for the priority-wired drivers).
         let Some(id) = crate::service_topology::ServiceId::from_name(name.as_bytes()) else {
             return;
         };
@@ -72,24 +70,16 @@ pub(crate) fn distribute_server_pair_for(chan: &mut CtrlChannel, eps: &Endpoints
             }
             return;
         };
-        // TASK-0324 P4: a service whose server pair is DECLARED gets it pinned into those
-        // slots — never the order-based transfer, and never a silent fallback to it: a
-        // failed pin is announced by `pin` and leaves the service unwired, which is a dead
-        // route with a witness instead of a service listening on a slot nobody knows.
-        if crate::bootstrap::declared_slots::server_slots(id).is_some() {
-            if let Some(slots) =
-                crate::bootstrap::declared_slots::pin_server_pair(chan.pid, id, req, rsp)
-            {
-                chan.set_send(id, slots.send);
-                chan.set_recv(id, slots.recv);
-            }
-        } else {
-            let recv = nexus_abi::cap_transfer(chan.pid, req, Rights::RECV);
-            let send = nexus_abi::cap_transfer(chan.pid, rsp, Rights::SEND);
-            if let (Ok(recv_slot), Ok(send_slot)) = (recv, send) {
-                chan.set_send(id, send_slot);
-                chan.set_recv(id, recv_slot);
-            }
+        // TASK-0324 P4: the server pair is pinned into its DECLARED slots — never an
+        // order-based transfer (the last one, for netstackd and metricsd, died in P4f-4), and
+        // never a silent fallback: a failed pin is announced by `pin` and leaves the service
+        // unwired, a dead route with a witness instead of a service listening on a slot nobody
+        // knows.
+        if let Some(slots) =
+            crate::bootstrap::declared_slots::pin_server_pair(chan.pid, id, req, rsp)
+        {
+            chan.set_send(id, slots.send);
+            chan.set_recv(id, slots.recv);
         }
         crate::bootstrap::blk_plane::wire_blk_plane_for(chan, eps);
     }

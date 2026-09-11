@@ -25,15 +25,13 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
     use crate::os::facade::dispatch::{dispatch_op, DispatchControl, FacadeContext};
     use crate::os::facade::state::FacadeState;
 
-    // netstackd uses deterministic slots (recv=5, send=6) assigned by init-lite.
+    // The facade listens on netstackd's DECLARED server slot (TASK-0324 P4f-4). It answers every
+    // request on the caller's CAP_MOVE reply cap, so the pair's send half is never used here.
     // Ownership model: this loop is the sole owner of `net` + `state`, and each handler receives
     // temporary exclusive borrows through `FacadeContext` for one request turn.
-    const SVC_RECV_SLOT: u32 = 5;
     /// Park bound per loop turn (smoltcp timers/retransmits keep their cadence).
     const FACADE_PARK_NS: u64 = 5_000_000;
-    let svc_recv_slot = SVC_RECV_SLOT;
-    let _svc_send_slot: u32 = 6;
-    let _ = nexus_abi::trace_line("netstackd: svc slots 5/6");
+    let svc_recv_slot = nexus_service_topology::slots::netstackd::SERVER.recv;
     let mut state = FacadeState::new();
     crate::os::facade::authz::resolve(&mut state.policy);
 

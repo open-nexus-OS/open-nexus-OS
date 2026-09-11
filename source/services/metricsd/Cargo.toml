@@ -34,3 +34,5 @@ nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-fe
 nexus-log = { path = "../../libs/nexus-log", optional = true, default-features = false, features = ["sink-logd"] }
 nexus-metrics = { path = "../../../userspace/nexus-metrics", optional = true, default-features = false }
 statefs = { path = "../../../userspace/statefs", optional = true, default-features = false }
+# TASK-0324 P4f-4: capability slots have one home.
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }

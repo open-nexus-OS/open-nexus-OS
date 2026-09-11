@@ -65,11 +65,13 @@ impl AdmitCache {
     }
 }
 
-/// policyd's request endpoint + this service's `@reply` pair, wired by init
-/// at fixed slots (like statefsd's 7/6/5): 7 = request SEND, 8 = reply RECV,
-/// 9 = reply SEND. An enforcement seam never routes dynamically from its hot
-/// loop (a routed lookup from the facade start wedged under icount).
-const POLICY_SLOTS: PolicySlots = PolicySlots { send: 0x07, reply_send: 0x09, reply_recv: 0x08 };
+/// policyd's request endpoint + this service's `@reply` pair, pinned by init into the slots the
+/// topology declares (TASK-0324 P4f-4). An enforcement seam never routes dynamically from its
+/// hot loop (a routed lookup from the facade start wedged under icount).
+const POLICY_SLOTS: PolicySlots = {
+    use nexus_service_topology::slots::netstackd::{POLICYD, REPLY};
+    PolicySlots { send: POLICYD.send, reply_send: REPLY.send, reply_recv: REPLY.recv }
+};
 
 /// Arms the seam with the init-wired slots. The status line is written raw
 /// (never folded) — it is the boot-proof witness that `net.connect` /

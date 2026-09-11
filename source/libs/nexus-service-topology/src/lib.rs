@@ -9,10 +9,10 @@
 //! in the consumer, and a comment describing the order — a service wired in one place and
 //! not the other was a boot crash, not a compile error.
 //!
-//! Slots are migrated ONE CONSUMER PER PACKAGE (P4a-P4f). Until a consumer is migrated its
-//! slots read `SlotPair::UNDECLARED`, and `test_reject_partial_slot_declaration` fails a
-//! service that is half-declared — the atomicity rule enforced mechanically instead of by
-//! review.
+//! Slots were migrated ONE CONSUMER PER PACKAGE (P4a-P4f). Since P4f-4 every declared service
+//! is complete: `SlotPair::UNDECLARED` only marks what a service does not have (no server, no
+//! inbox), and `test_reject_partial_slot_declaration` fails any spec whose server, inbox or
+//! route is left undeclared — the atomicity rule enforced mechanically instead of by review.
 //!
 //! OWNERS: @runtime
 //! STATUS: Production (TASK-0324 P4)
@@ -142,7 +142,7 @@ pub mod slots;
 mod specs;
 /// Declarations: the app platform.
 mod specs_app;
-/// Declarations: the policy authority, entropy, the ingress edge.
+/// Declarations: the policy authority, entropy, the network edge.
 mod specs_security;
 /// Declarations: storage and boot.
 mod specs_storage;
@@ -195,16 +195,11 @@ mod tests {
     #[test]
     fn test_reject_partial_slot_declaration() {
         // A consumer is migrated ATOMICALLY (init arm + the consumer in one package). A spec
-        // with some slots declared and some not is exactly the half-migrated state that
-        // leaves a service talking to slots nobody provisioned.
+        // with some slots undeclared is exactly the half-migrated state that leaves a service
+        // talking to slots nobody provisioned. Since P4f-4 there is no unmigrated spec left, so
+        // the old "not migrated yet" exemption is gone: init's order-based transfer it
+        // protected was deleted with it.
         for spec in SERVICE_SPECS {
-            let declared = spec.server_slots.is_declared()
-                || spec.reply_slots.is_declared()
-                || !spec.extra_slots.is_empty()
-                || spec.routes_to.iter().any(|r| r.slots.is_declared());
-            if !declared {
-                continue;
-            }
             if spec.exposes_server {
                 assert!(
                     spec.server_slots.is_declared(),

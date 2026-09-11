@@ -123,11 +123,13 @@ During TASK-0008 implementation, the following IPC patterns were established:
 
 ### Deterministic Slot Assignment
 
-Core services use deterministic IPC slots assigned by `init-lite`:
-- `netstackd` server: slots 5/6 (recv/send)
-- `dsoftbusd` reply inbox: slots 5/6
+Capability slots are declared once in `nexus-service-topology` (TASK-0324 P4f-4) and init pins
+every capability into its declared slot; services read the same constants:
+- `netstackd` server: `slots::netstackd::SERVER`
+- `dsoftbusd` reply inbox: `slots::dsoftbusd::REPLY`; its netstackd leg: `slots::dsoftbusd::NETSTACKD`
+  (a CAP_MOVE route — netstackd answers every RPC on the caller's reply cap)
 
-Services should prefer `KernelClient::new_with_slots()` over routing queries during early bring-up.
+Services build clients with `KernelClient::new_with_slots()` over those constants, never over literal numbers.
 
 ### Capability Closure
 

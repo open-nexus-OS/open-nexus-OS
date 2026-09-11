@@ -60,10 +60,12 @@ During TASK-0008 implementation, the following IPC robustness improvements were 
 
 ### Deterministic Slot Assignment
 
-Core services use deterministic IPC slots assigned by `init-lite`:
-- `netstackd`: slots 5/6
-- `dsoftbusd` reply inbox: slots 5/6 (separate endpoint)
-- Services must use `KernelClient::new_with_slots()` with correct slots
+Capability slots are declared once in `nexus-service-topology` and pinned there by init
+(TASK-0324 P4f-4):
+- `netstackd`: `slots::netstackd::SERVER`
+- `dsoftbusd` reply inbox: `slots::dsoftbusd::REPLY` (separate endpoint); netstackd leg:
+  `slots::dsoftbusd::NETSTACKD`
+- Services use `KernelClient::new_with_slots()` over those constants, never literal numbers
 
 ### Capability Closure
 

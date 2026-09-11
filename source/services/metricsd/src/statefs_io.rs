@@ -19,7 +19,7 @@ use nexus_ipc::KernelClient;
 
 use statefs::protocol as statefs_proto;
 
-use crate::os_lite::{METRICSD_REPLY_RECV_SLOT, METRICSD_REPLY_SEND_SLOT};
+use nexus_service_topology::slots::metricsd::REPLY;
 
 // TASK-0049C hardening: the retention bulk path used to send PUT/DEL with
 // NO reply consumer — every reply rotted on statefsd's SHARED response
@@ -29,7 +29,7 @@ use crate::os_lite::{METRICSD_REPLY_RECV_SLOT, METRICSD_REPLY_SEND_SLOT};
 // metricsd its own inbox, never the shared queue.
 pub(crate) fn statefs_fire_and_forget(client: &KernelClient, frame: &[u8]) -> bool {
     drain_own_reply_inbox();
-    let Ok(reply_send_clone) = nexus_abi::cap_clone(METRICSD_REPLY_SEND_SLOT) else {
+    let Ok(reply_send_clone) = nexus_abi::cap_clone(REPLY.send) else {
         return false;
     };
     let hdr = nexus_abi::MsgHeader::new(
@@ -55,7 +55,7 @@ pub(crate) fn drain_own_reply_inbox() {
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 96];
         if nexus_abi::ipc_recv_v1(
-            METRICSD_REPLY_RECV_SLOT,
+            REPLY.recv,
             &mut rh,
             &mut buf,
             nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,

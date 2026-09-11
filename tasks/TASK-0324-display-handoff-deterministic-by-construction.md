@@ -116,6 +116,52 @@ remaining lanes ran one by one with a retry ONLY on a witnessed external kill: r
 ota-bundle, -resume, -delta, ota-backstops (tamper, downgrade, fallback) all green on the first
 attempt, 0× `FAIL declared slot` in every lane, lane peaks 740-1,113 MiB.
 
+**P4f-4 delivered 2026-09-11:** netstackd, dsoftbusd and metricsd leave their bespoke arms for the
+generic arm (243 lines of literal pins deleted; `wiring.rs` 1180 → 835 LOC). Declarations: netstackd
+server 4/3 + inbox 6/5 + policyd 7; dsoftbusd server 4/3 + inbox 6/5 + netstackd 7, samgrd 9,
+bundlemgrd 0xA, logd 0xF (CAP_MOVE) and packagefsd 0xB/0xC, statefsd 0xD/0xE (their shared response
+endpoints); metricsd server 4/3 + inbox 6/5 + statefsd 7, logd 8. Nine edges init provisioned but
+never declared are in `REQUIRED_ROUTES` now, so the host route/policy cross-checks see them. The
+selftest arm's metricsd pins 0x21/0x22 are the SELFTEST's slots and move with P4f-5. **Findings:**
+(1) ⭐ netstackd's facade server pair was granted TWICE — by transfer order at 3/4 in the pre-grant
+pass and pinned at 5/6 by its arm (the facade listened on 5); it lives once, at the fleet's server
+slots. (2) ⭐ **A route kind follows the target's reply discipline, not the endpoints init mints.**
+netstackd answers every RPC on the caller's CAP_MOVE cap and never on a response endpoint (the facade's
+`_svc_send_slot` was never used), so the "netstackd response endpoint owned by dsoftbusd" never carried
+a byte; its only reader was dsoftbusd's direct-recv fallback, which could not have received anything.
+dsoftbusd's leg is `ReplyInbox`; the endpoint and the fallback are deleted, and so is dsoftbusd's
+pre-minted inbox (the generic arm mints it like every other). The selftest's twin `net_selftest_rsp`
+goes with P4f-5. (3) dsoftbusd served its own pair after an UNBOUNDED `KernelServer::new_for("dsoftbusd")`
+retry loop — it reads the declaration now. (4) The generic arm's reply-inbox bridge was a hand-kept
+`ServiceId` → capability match that silently skipped any target nobody had added (it had no samgrd
+target); it resolves the target through the minted-pair table (`Endpoints::server_pair`) — one lookup,
+one uniform `init: <svc> route-><target> ok` witness per route, emitted as ONE atomic line because the
+netstackd one is a ladder marker and byte-wise writes tear against the services running during wiring.
+(5) With the last unmigrated spec declared, the order-based branch of `distribute_server_pair_for` is
+DELETED — init has no order-based capability transfer left outside the selftest arm — and
+`test_reject_partial_slot_declaration` lost its "not migrated yet" exemption. **Marker:**
+`init: netstackd policy slots 7/8/9` → `init: netstackd route->policyd ok` (`scripts/qemu-test.sh` +
+`docs/security/abi-filters.md`; slot numbers belong to the declaration, not to a ladder string).
+**For P4f-6:** remaining positional declarations outside the selftest are `ENDPOINT_FACTORY_CAP_SLOT = 1`
+(init's own table), `INPUTD_SETTINGS_SEND_SLOT = 0x20` (duplicates `slots::inputd`) and execd's host
+`BOOTSTRAP_SLOT = 0`; the "no minted pair → fresh endpoint" fallbacks (`distribute_server_pair_for`,
+`provision_server_endpoint`) have no reachable caller left — delete them and make a present server
+without a minted pair a loud failure. **For P7:** `dsoftbusd: waiting for slots` (a 10 000-yield
+`cap_clone` poll, a manifest marker) is vacuous once wiring precedes resume; dsoftbusd carries two copies
+of the netstackd RPC layer (`os/entry.rs`, `os/netstack/rpc.rs`); its remote statefs proxy discards
+non-matching frames it drains from statefsd's SHARED response queue (a reply-steal hazard shared with
+the selftest). Ratchet 38/17 → 27/14. **Proof:** `just check` green; `just test-all` green in ONE run
+(exit 0, started detached — the host memory watchdog killed only the waiter, twice): gates + smp1,
+visible (pixel 40.09 % / diff 22.18), reset, ota-flip, ota-bundle, -resume, -delta, ota-backstops
+(tamper, downgrade, fallback) — 0× `FAIL declared slot` in every lane, `init: netstackd route->policyd ok`
+and `net-egress: enforced` in every lane (reset: 3 witnesses / 2 egress lines over three boots, the same
+3/2 the pre-P4f-4 reset lane showed with the old witness), `SELFTEST: icmp ping ok`, egress deny/allow,
+ingress allow, metrics retention + tracing spans ok, lane peaks 757-1,174 MiB. HONEST NOTE: dsoftbusd's
+own runtime path is exercised by no green lane — none of its bring-up lines appears in any smp1 run
+before or after this package, and the DSoftBus FAIL markers are allowlisted (network family on HOLD).
+Its changes are proven by the OS-cfg build, host tests and init's wiring witnesses; its reply-inbox
+slots kept their numbers and the removed code was unreachable.
+
 **P4f-3 delivered 2026-09-11:** updated and bundlemgrd leave their bespoke arms for
 the generic arm (updated's 114-line arm, bundlemgrd's 53-line arm, `wire_updated_vfs_leg` and
 `updated_policyd_leg` deleted; the bridge gained the vfsd and bootctld targets). **Late-grant band

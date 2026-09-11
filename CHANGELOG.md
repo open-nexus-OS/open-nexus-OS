@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-11 (TASK-0324 P4f-4: netstackd, dsoftbusd and metricsd declared; init has no order-based capability transfer left)
+
+- netstackd, dsoftbusd and metricsd are provisioned by the generic wiring arm from their
+  declarations; their three bespoke arms (243 lines of literal slot pins and transfer-order
+  bookkeeping) are deleted. `wiring.rs` shrinks from 1180 to 835 lines.
+- netstackd's facade server pair was granted twice (by transfer order at 3/4 and pinned at 5/6);
+  it is granted once, at the fleet's server slots. dsoftbusd's netstackd leg no longer occupies
+  those slots, and dsoftbusd serves its own pair from them instead of asking init for it in an
+  unbounded retry loop.
+- Removed an endpoint that never carried a message: netstackd answers every request on the
+  caller's reply capability, so the response endpoint init minted for dsoftbusd's netstackd leg —
+  and dsoftbusd's direct-receive fallback that waited on it — are gone. dsoftbusd's pre-minted
+  reply inbox is gone too (the generic arm mints it).
+- The generic arm resolves reply-inbox routes through the one minted-pair table instead of a
+  hand-kept per-target match.
+- Boot witness renamed: `init: netstackd policy slots 7/8/9` is now
+  `init: netstackd route->policyd ok` (slot numbers live in the declaration, not in markers).
+- The last order-based server-pair transfer in init is deleted; the topology test that rejects
+  undeclared slots no longer exempts unmigrated services.
+- Slot-SSOT ratchet 38 -> 27 positional declarations, 17 -> 14 files.
+
 ### Changed - 2026-09-11 (TASK-0324 P4f-3: updated and bundlemgrd declared; a band for late grants; two unused grants removed)
 
 - updated and bundlemgrd are provisioned by the generic wiring arm; their bespoke arms and the two

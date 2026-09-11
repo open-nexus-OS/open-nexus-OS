@@ -10,8 +10,10 @@
 //! ADR: docs/adr/0005-dsoftbus-architecture.md
 
 pub(crate) const DEFAULT_LOCAL_IP: [u8; 4] = crate::os::entry_pure::QEMU_USERNET_FALLBACK_IP;
-pub(crate) const DSOFT_REPLY_RECV_SLOT: u32 = 0x5;
-pub(crate) const DSOFT_REPLY_SEND_SLOT: u32 = 0x6;
+/// dsoftbusd's CAP_MOVE reply inbox, as declared by the topology (TASK-0324 P4f-4).
+pub(crate) const DSOFT_REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::dsoftbusd::REPLY.recv;
+/// The inbox's SEND half, cloned into every request that expects a reply.
+pub(crate) const DSOFT_REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::dsoftbusd::REPLY.send;
 
 const MAGIC0: u8 = b'N';
 const MAGIC1: u8 = b'S';
@@ -66,43 +68,19 @@ pub(crate) fn rpc_nonce(
     expect_rsp_op: u8,
     nonce: u64,
 ) -> core::result::Result<[u8; 512], ()> {
-    use nexus_ipc::Client as _;
     use nexus_ipc::IpcError as IpcErrorLite;
     use nexus_ipc::Wait;
 
-    // Prefer CAP_MOVE replies (dedicated reply inbox) when available. In some bring-up harnesses
-    // the fixed reply slots may not be present; fall back to normal send/recv on the netstackd
-    // endpoint slots (still nonce-correlated, still deterministic).
-    let reply_send_slot = DSOFT_REPLY_SEND_SLOT;
-    let (net_send_slot, net_recv_slot) = net.slots();
-    let mut use_cap_move = true;
-    let mut reply_recv_slot = DSOFT_REPLY_RECV_SLOT;
-
-    static CAP_CLONE_FAIL_LOGGED_NONCE: core::sync::atomic::AtomicBool =
-        core::sync::atomic::AtomicBool::new(false);
-    let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
-        Ok(slot) => slot,
-        Err(_) => {
-            use_cap_move = false;
-            reply_recv_slot = net_recv_slot;
-            0
-        }
-    };
-    if !use_cap_move
-        && !CAP_CLONE_FAIL_LOGGED_NONCE.swap(true, core::sync::atomic::Ordering::Relaxed)
-    {
-        let _ = nexus_abi::debug_println("dsoftbusd: cap clone missing; fallback to direct recv");
-    }
+    // netstackd answers every RPC on the caller's CAP_MOVE reply cap and nowhere else, so the
+    // reply always comes back on the declared inbox. The old direct-recv fallback waited on a
+    // response endpoint netstackd never wrote to; TASK-0324 P4f-4 deleted both.
+    let reply_recv_slot = DSOFT_REPLY_RECV_SLOT;
+    let reply_send_clone = nexus_abi::cap_clone(DSOFT_REPLY_SEND_SLOT).map_err(|_| ())?;
 
     let wait = Wait::Timeout(core::time::Duration::from_millis(20));
     let mut sent = false;
     for _ in 0..64 {
-        let r = if use_cap_move {
-            net.send_with_cap_move_wait(req, reply_send_clone, wait)
-        } else {
-            net.send(req, wait)
-        };
-        match r {
+        match net.send_with_cap_move_wait(req, reply_send_clone, wait) {
             Ok(()) => {
                 sent = true;
                 break;
@@ -112,24 +90,12 @@ pub(crate) fn rpc_nonce(
             | Err(IpcErrorLite::NoSpace) => {
                 let _ = nexus_abi::yield_();
             }
-            Err(_) => {
-                if use_cap_move {
-                    let _ = nexus_abi::cap_close(reply_send_clone);
-                }
-                return Err(());
-            }
+            Err(_) => break,
         }
     }
+    let _ = nexus_abi::cap_close(reply_send_clone);
     if !sent {
-        if use_cap_move {
-            let _ = nexus_abi::cap_close(reply_send_clone);
-        }
         return Err(());
-    }
-    if use_cap_move {
-        let _ = nexus_abi::cap_close(reply_send_clone);
-    } else {
-        let _ = net_send_slot;
     }
 
     // If the reply already arrived out-of-order, return it from the pending buffer first.
@@ -237,7 +203,8 @@ pub(crate) fn wait_for_slots_ready() {
 
 pub(crate) fn init_netstack_client() -> core::result::Result<nexus_ipc::KernelClient, ()> {
     let _ = nexus_abi::trace_line("dsoftbusd: entry");
-    match nexus_ipc::KernelClient::new_with_slots(0x3, 0x4) {
+    let route = nexus_service_topology::slots::dsoftbusd::NETSTACKD;
+    match nexus_ipc::KernelClient::new_with_slots(route.send, route.recv) {
         Ok(c) => Ok(c),
         Err(_) => {
             let _ = nexus_abi::debug_println("dsoftbusd: netstackd slots fail");

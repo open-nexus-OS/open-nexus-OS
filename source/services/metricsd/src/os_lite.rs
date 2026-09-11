@@ -41,15 +41,9 @@ use statefs::client::StatefsClient;
 /// Result type for metricsd service loop.
 pub type MetricsResult<T> = Result<T, MetricsError>;
 
-// Deterministic slots distributed by init-lite for metricsd:
-// - statefsd send: 0x07
-// - logd send: 0x08
-const METRICSD_RECV_SLOT: u32 = 0x03;
-const METRICSD_SEND_SLOT: u32 = 0x04;
-const METRICSD_STATEFSD_SEND_SLOT: u32 = 0x07;
-const METRICSD_LOGD_SEND_SLOT: u32 = 0x08;
-pub(crate) const METRICSD_REPLY_SEND_SLOT: u32 = 0x06;
-pub(crate) const METRICSD_REPLY_RECV_SLOT: u32 = 0x05;
+// metricsd's capability slots are declared by the topology and pinned there by init
+// (TASK-0324 P4f-4).
+use nexus_service_topology::slots::metricsd as declared;
 
 /// Errors surfaced by the metricsd os-lite backend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,17 +66,15 @@ struct RetentionSink {
 impl RetentionSink {
     fn new(limits: RuntimeLimits) -> Self {
         let client = if limits.retention_enabled {
-            KernelClient::new_with_slots(METRICSD_STATEFSD_SEND_SLOT, 0).ok()
+            KernelClient::new_with_slots(declared::STATEFSD.send, 0).ok()
         } else {
             None
         };
         let proof_client = if limits.retention_enabled {
             let client =
-                KernelClient::new_with_slots(METRICSD_STATEFSD_SEND_SLOT, METRICSD_REPLY_RECV_SLOT)
-                    .ok();
+                KernelClient::new_with_slots(declared::STATEFSD.send, declared::REPLY.recv).ok();
             let reply =
-                KernelClient::new_with_slots(METRICSD_REPLY_SEND_SLOT, METRICSD_REPLY_RECV_SLOT)
-                    .ok();
+                KernelClient::new_with_slots(declared::REPLY.send, declared::REPLY.recv).ok();
             match (client, reply) {
                 (Some(c), Some(r)) => Some(StatefsClient::from_clients(c, Some(r))),
                 _ => None,
@@ -215,9 +207,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> MetricsResult<()> {
         None => return Err(MetricsError::Ipc),
     };
     let _ = nexus_log::configure_sink_logd_slots(
-        METRICSD_LOGD_SEND_SLOT,
-        METRICSD_REPLY_SEND_SLOT,
-        METRICSD_REPLY_RECV_SLOT,
+        declared::LOGD.send,
+        declared::REPLY.send,
+        declared::REPLY.recv,
     );
     notifier.notify();
     let _ = nexus_service_entry::ready("metricsd: ready");
@@ -416,19 +408,16 @@ fn route_metricsd_blocking() -> Option<KernelServer> {
         return KernelServer::new_with_slots(recv_slot, send_slot).ok();
     }
     // Routing budget expired (slow boots — e.g. the virgl GPU bringup delays
-    // init's wiring past the 2s budget). Fall back to the deterministic slots
-    // init-lite distributes (recv=3, send=4), like logd/samgrd/gpud do.
+    // init's wiring past the 2s budget). Fall back to the declared server slots.
     emit_line("metricsd: route fallback slots");
-    KernelServer::new_with_slots(METRICSD_RECV_SLOT, METRICSD_SEND_SLOT).ok()
+    KernelServer::new_with_slots(declared::SERVER.recv, declared::SERVER.send).ok()
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
     match budget::route_with_nonce_budgeted(
         name,
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
+        nexus_service_topology::CTRL_SLOTS.send,
+        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

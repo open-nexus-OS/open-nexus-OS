@@ -27,6 +27,8 @@ nexus-noise-xk = { path = "../../libs/nexus-noise-xk" }
 nexus-discovery-packet = { path = "../../libs/nexus-discovery-packet" }
 nexus-peer-lru = { path = "../../libs/nexus-peer-lru" }
 statefs = { path = "../../../userspace/statefs", default-features = false }
+# TASK-0324 P4f-4: capability slots have one home.
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 
 [dev-dependencies]
 nexus-abi = { path = "../../libs/nexus-abi" }

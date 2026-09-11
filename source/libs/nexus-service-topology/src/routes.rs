@@ -82,6 +82,16 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     // RFC-0092 (TASK-0052 P3): the ingress gateway asks policyd for the
     // declared subject's `net.expose` and drives netstackd (listen/accept/
     // connect/relay); the selftest registers its exposure intents.
+    // TASK-0324 P4f-4: the network edge and telemetry, off their bespoke arms.
+    (ServiceId::Netstackd, ServiceId::Policyd), // RFC-0091 seam
+    (ServiceId::Dsoftbusd, ServiceId::Netstackd), // facade client
+    (ServiceId::Dsoftbusd, ServiceId::Samgrd),  // registry lookups
+    (ServiceId::Dsoftbusd, ServiceId::Bundlemgrd), // bundle queries
+    (ServiceId::Dsoftbusd, ServiceId::Packagefsd), // remote packagefs RO path (TASK-0016)
+    (ServiceId::Dsoftbusd, ServiceId::Statefsd), // remote statefs proxy (TASK-0017)
+    (ServiceId::Dsoftbusd, ServiceId::Logd),    // structured logs
+    (ServiceId::Metricsd, ServiceId::Statefsd), // retention writer
+    (ServiceId::Metricsd, ServiceId::Logd),     // snapshot/span export
     (ServiceId::Ingressd, ServiceId::Policyd),
     (ServiceId::Ingressd, ServiceId::Netstackd),
     (ServiceId::SelftestClient, ServiceId::Ingressd),

@@ -907,6 +907,7 @@ dependencies = [
  "nexus-noise-xk",
  "nexus-peer-lru",
  "nexus-service-entry",
+ "nexus-service-topology",
  "statefs",
 ]
 
@@ -1867,6 +1868,7 @@ dependencies = [
  "nexus-log",
  "nexus-metrics",
  "nexus-service-entry",
+ "nexus-service-topology",
  "statefs",
 ]
 
@@ -1923,6 +1925,7 @@ dependencies = [
  "nexus-net",
  "nexus-net-os",
  "nexus-service-entry",
+ "nexus-service-topology",
 ]
 
 [[package]]

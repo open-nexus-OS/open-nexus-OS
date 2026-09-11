@@ -388,11 +388,6 @@ where
         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, execd_pid, 8)
             .map_err(InitError::Abi)?;
 
-    // DSoftBusd reply-inbox endpoint (for CAP_MOVE request/reply).
-    let dsoft_reply_ep =
-        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, dsoftbusd_pid, 8)
-            .map_err(InitError::Abi)?;
-
     // DSoftBusd service endpoints (request/response) so other tasks (e.g. selftest-client) can route to it.
     let dsoft_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, dsoftbusd_pid, 8)
         .map_err(InitError::Abi)?;
@@ -407,9 +402,6 @@ where
     // Client-side netstackd receive endpoints (currently unused by the CAP_MOVE protocol but required for routing).
     let net_selftest_rsp =
         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-            .map_err(InitError::Abi)?;
-    let net_dsoft_rsp =
-        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, dsoftbusd_pid, 8)
             .map_err(InitError::Abi)?;
 
     // packagefsd reply-inbox endpoint (for CAP_MOVE request/reply to other services, e.g. bundlemgrd):
@@ -530,10 +522,8 @@ where
         net_req,
         net_rsp,
         net_selftest_rsp,
-        net_dsoft_rsp,
         dsoft_req,
         dsoft_rsp,
-        dsoft_reply_ep,
         execd_reply_ep,
         reply_ep,
         log_req,

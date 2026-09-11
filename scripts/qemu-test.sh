@@ -797,8 +797,10 @@ expected_sequence=(
   "policyd: abi mode subject=52c6c4a34ffb3f69 mode=enforce epoch="
   "SELFTEST: abi mode switch auth ok"
   # TASK-0043 P2: netstackd's connect/listen/bind seam is armed over the
-  # init-wired policyd slots (RFC-0091 §7) — the boot witness for egress.
-  "init: netstackd policy slots 7/8/9"
+  # init-wired policyd route (RFC-0091 §7) — the boot witness for egress.
+  # TASK-0324 P4f-4: the route is pinned from the topology declaration; the
+  # witness names the route, not slot numbers (those live in the declaration).
+  "init: netstackd route->policyd ok"
   "net-egress: enforced (netstackd policy seam on)"
   # TASK-0043 P3: egress policy proven through the facade — a connect outside
   # the subject's net.connect CIDR / on a refused port is refused by policyd

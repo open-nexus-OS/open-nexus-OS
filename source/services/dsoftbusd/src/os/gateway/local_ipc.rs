@@ -99,14 +99,10 @@ pub(crate) fn run_local_ipc_loop(
     reply_recv_slot: u32,
     reply_send_slot: u32,
 ) -> core::result::Result<(), ()> {
-    let server = loop {
-        match KernelServer::new_for("dsoftbusd") {
-            Ok(s) => break s,
-            Err(_) => {
-                let _ = nexus_abi::yield_();
-            }
-        }
-    };
+    // The declared server pair is pinned before dsoftbusd ever runs (TASK-0324 P4f-4); asking
+    // init for our own slots in an unbounded retry loop is gone with the order it compensated for.
+    let declared = nexus_service_topology::slots::dsoftbusd::SERVER;
+    let server = KernelServer::new_with_slots(declared.recv, declared.send).map_err(|_| ())?;
     let mut ipc_logged = false;
     let mut remote_rpc_fail_logged = false;
     loop {

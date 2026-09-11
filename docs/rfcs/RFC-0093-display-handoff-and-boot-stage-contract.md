@@ -20,7 +20,7 @@
 - **Phase 1 (this contract + ADR-0062)**: ✅ 2026-09-09 (TASK-0324 P1 — paper)
 - **Phase 2 (`@ready` verb, honest `init: up`)**: ✅ 2026-09-09 (TASK-0324 P2 — `test-all` green over 8 lanes, 0 announce failures, `init: up` follows `<svc>: ready` everywhere)
 - **Phase 3 (routing v2: nonce mandatory, parked replies, fail-closed)**: ✅ 2026-09-10 (TASK-0324 P3 — `test-all` green over 8 lanes; park scope amended below with implementation evidence)
-- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: 🟨 2026-09-10 — crate + ratchet gate landed (P4-base); windowd (P4a), inputd (P4b), gpud + the fleet-wide MMIO slot (P4c), hidrawd (P4d), the app-child table (P4e), execd's own table (P4e-2), the generic arm's fifteen services (P4f-1a/1b) and the block plane migrated — 191 → 72 positional declarations; P4f-2..6 (policyd, keystored, updated, bundlemgrd, netstackd, dsoftbusd, metricsd, selftest-client, closure gate) open
+- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: 🟨 2026-09-10 — crate + ratchet gate landed (P4-base); windowd (P4a), inputd (P4b), gpud + the fleet-wide MMIO slot (P4c), hidrawd (P4d), the app-child table (P4e), execd's own table (P4e-2), the generic arm's fifteen services (P4f-1a/1b), the block plane, policyd + keystored (P4f-2), updated + bundlemgrd (P4f-3) and netstackd + dsoftbusd + metricsd (P4f-4) migrated — 191 → 27 positional declarations, no order-based capability transfer left in init; P4f-5..6 (selftest-client, closure gate) open
 - **Phase 5 (stage fence replaces every `yield_()` sync)**: ⬜ TASK-0324 P5
 - **Phase 6 (handoff v2: reveal handshake, seq acks, kernel display mode, readback off-scanout)**: ⬜ TASK-0324 P6
 - **Phase 7–9 (consumer polls deleted, closure docs/gates, 8/8 boots)**: ⬜ TASK-0324 P7–P9
@@ -233,6 +233,16 @@ constants. Deleted (P4a–P4f, atomic per consumer): every `new_with_slots(…)`
   virtioblkd, whose virtqueue VMOs sat in the reply-inbox slots it never used. Invariant: every
   capability init grants an early-running service is pinned before the service runs, or declared
   above the range its own allocations reach; the stage fence (§3) must make "resumed" imply "wired".
+- **Amendment 2026-09-11 (P4f-4, implementation evidence).** A route's delivery kind follows the
+  TARGET's reply discipline, not the endpoints init happens to mint. netstackd answers every RPC on
+  the caller's CAP_MOVE reply cap and nowhere else, so dsoftbusd's netstackd leg is `ReplyInbox`; the
+  per-client netstackd "response endpoint" init minted for it never carried a byte and is deleted
+  (the selftest's twin goes with P4f-5). The generic arm resolves a `ReplyInbox` target through the
+  minted-pair table (`Endpoints::server_pair`) instead of a hand-kept `ServiceId` → capability match
+  that silently skipped any target nobody had added. With the last unmigrated spec declared, the
+  order-based pre-grant branch is deleted and `test_reject_partial_slot_declaration` no longer
+  exempts unmigrated specs. Witness markers name routes, not slot numbers:
+  `init: netstackd policy slots 7/8/9` became `init: netstackd route->policyd ok`.
 - **Amendment 2026-09-10 (P4e-2).** A service's server pair is not necessarily handed out by
   its wiring arm: the task-#123 pre-grant pass (`distribute_server_pair_for`) runs first for
   every service with a pre-minted pair, and the arm's own branch is a fallback that normally

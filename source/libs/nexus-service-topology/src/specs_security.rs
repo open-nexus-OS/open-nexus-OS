@@ -1,8 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Service declarations for the policy authority, entropy and the ingress edge — one named `ServiceSpec` per service;
-//! `specs::SERVICE_SPECS` lists them. Split per plane under the module-size ratchet
+//! CONTEXT: Service declarations for the policy authority, entropy and the network edge —
+//! one named `ServiceSpec` per service; `specs::SERVICE_SPECS` lists them. Split per plane under the module-size ratchet
 //! (TASK-0324 P4f-2) so the table can keep growing without a monolith.
 //! OWNERS: @runtime
 //! STATUS: Production
@@ -95,5 +95,62 @@ pub(crate) const INGRESSD: ServiceSpec = ServiceSpec {
     announce: true,
     server_slots: slots::ingressd::SERVER,
     reply_slots: slots::ingressd::REPLY,
+    extra_slots: &[],
+};
+
+/// The declaration of `netstackd`.
+// TASK-0324 P4f-4: off its bespoke arm (literal pins 5/6 + 7/8/9, plus a duplicate server pair).
+pub(crate) const NETSTACKD: ServiceSpec = ServiceSpec {
+    id: ServiceId::Netstackd,
+    exposes_server: true,
+    reply_inbox: true,
+    routes_to: &[Route {
+        to: ServiceId::Policyd,
+        kind: RouteKind::ReplyInbox,
+        slots: slots::netstackd::POLICYD,
+    }],
+    announce: true,
+    server_slots: slots::netstackd::SERVER,
+    reply_slots: slots::netstackd::REPLY,
+    extra_slots: &[],
+};
+
+/// The declaration of `dsoftbusd`.
+// TASK-0324 P4f-4: off its bespoke arm.
+pub(crate) const DSOFTBUSD: ServiceSpec = ServiceSpec {
+    id: ServiceId::Dsoftbusd,
+    exposes_server: true,
+    reply_inbox: true,
+    routes_to: &[
+        Route {
+            to: ServiceId::Netstackd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::dsoftbusd::NETSTACKD,
+        },
+        Route {
+            to: ServiceId::Samgrd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::dsoftbusd::SAMGRD,
+        },
+        Route {
+            to: ServiceId::Bundlemgrd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::dsoftbusd::BUNDLEMGRD,
+        },
+        Route {
+            to: ServiceId::Packagefsd,
+            kind: RouteKind::SharedResponse,
+            slots: slots::dsoftbusd::PACKAGEFSD,
+        },
+        Route {
+            to: ServiceId::Statefsd,
+            kind: RouteKind::SharedResponse,
+            slots: slots::dsoftbusd::STATEFSD,
+        },
+        Route { to: ServiceId::Logd, kind: RouteKind::ReplyInbox, slots: slots::dsoftbusd::LOGD },
+    ],
+    announce: true,
+    server_slots: slots::dsoftbusd::SERVER,
+    reply_slots: slots::dsoftbusd::REPLY,
     extra_slots: &[],
 };

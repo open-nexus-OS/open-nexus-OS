@@ -8,8 +8,9 @@
 //! died with `kernel-permission-denied`, which is why the old arm carried comments begging
 //! the next reader not to reorder it.
 //!
-//! Consumers migrate ONE PER PACKAGE (P4a-P4f). `None` means "this consumer is not declared
-//! yet" and the caller keeps its legacy order-based transfer until its package lands.
+//! Consumers migrated ONE PER PACKAGE (P4a-P4f). `None` means the slot is not declared or a
+//! pin failed (reported here); callers leave the leg unwired — there is no order-based
+//! transfer to fall back to.
 //!
 //! OWNERS: @runtime
 //! STATUS: Production (TASK-0324 P4)
