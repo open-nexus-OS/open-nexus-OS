@@ -268,7 +268,8 @@ fn bind_server() -> SettingsdResult<KernelServer> {
     if let Ok(server) = KernelServer::new_for("settingsd") {
         return Ok(server);
     }
-    KernelServer::new_with_slots(3, 4).map_err(|_| SettingsdError::Ipc("bind"))
+    let slots = nexus_service_topology::slots::settingsd::SERVER;
+    KernelServer::new_with_slots(slots.recv, slots.send).map_err(|_| SettingsdError::Ipc("bind"))
 }
 
 // ── statefsd persistence (TASK-0025 step 3: wire SSOT = `statefs`) ───────────
@@ -281,8 +282,8 @@ fn bind_server() -> SettingsdResult<KernelServer> {
 // never a blocked client.
 
 /// init-lite control-channel slots (route requests go through the responder).
-const CTRL_SEND_SLOT: u32 = 1;
-const CTRL_RECV_SLOT: u32 = 2;
+const CTRL_SEND_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.send;
+const CTRL_RECV_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
 
 /// settingsd's key in statefsd's flat KV store. Stable across boots (a const),
 /// so the same overrides load back every time. statefsd's journal engine

@@ -245,5 +245,6 @@ fn bind_server() -> SessiondResult<KernelServer> {
     if let Ok(server) = KernelServer::new_for("sessiond") {
         return Ok(server);
     }
-    KernelServer::new_with_slots(3, 4).map_err(|_| SessiondError::Ipc("bind"))
+    let slots = nexus_service_topology::slots::sessiond::SERVER;
+    KernelServer::new_with_slots(slots.recv, slots.send).map_err(|_| SessiondError::Ipc("bind"))
 }

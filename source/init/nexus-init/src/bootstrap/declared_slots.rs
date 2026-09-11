@@ -98,3 +98,54 @@ pub(crate) fn pin_named(
     let slot = crate::service_topology::extra_slot(svc, name)?;
     pin(pid, cap, rights, slot, b"named slot")
 }
+
+// ---------------------------------------------------------------------------
+// TASK-0324 P4f-1a transition: the legs of the GENERIC arm.
+//
+// The generic arm provisions every spec'd, non-bespoke service. P4f-1a declares twelve of
+// them; imed, bootctld and virtioblkd follow in P4f-1b. Until then these helpers decide by
+// DECLARATION, never by pin success: a declared consumer is pinned (a failed pin is loud
+// and is NOT retried by transfer order — that retry would be exactly the silent drift P4
+// removes), an undeclared one keeps the order-based transfer. P4f-1b deletes the
+// order-based branches together with this comment.
+// ---------------------------------------------------------------------------
+
+/// A route's SEND leg for the generic arm.
+pub(crate) fn grant_route_send(pid: u32, from: ServiceId, to: ServiceId, cap: u32) -> Option<u32> {
+    if crate::service_topology::route_slots(from, to).is_some() {
+        pin_route_send(pid, from, to, cap)
+    } else {
+        nexus_abi::cap_transfer(pid, cap, Rights::SEND).ok()
+    }
+}
+
+/// A `SharedResponse` route's RECV leg for the generic arm.
+pub(crate) fn grant_route_recv(pid: u32, from: ServiceId, to: ServiceId, cap: u32) -> Option<u32> {
+    if crate::service_topology::route_slots(from, to).is_some() {
+        pin_route_recv(pid, from, to, cap)
+    } else {
+        nexus_abi::cap_transfer(pid, cap, Rights::RECV).ok()
+    }
+}
+
+/// The shared CAP_MOVE reply inbox (both halves of `ep`) for the generic arm.
+pub(crate) fn grant_reply_inbox(pid: u32, svc: ServiceId, ep: u32) -> Option<SlotPair> {
+    if reply_slots(svc).is_some() {
+        pin_reply_inbox(pid, svc, ep)
+    } else {
+        let recv = nexus_abi::cap_transfer(pid, ep, Rights::RECV).ok()?;
+        let send = nexus_abi::cap_transfer(pid, ep, Rights::SEND).ok()?;
+        Some(SlotPair::new(send, recv))
+    }
+}
+
+/// The service's own server pair (`req` RECV, `rsp` SEND) for the generic arm.
+pub(crate) fn grant_server_pair(pid: u32, svc: ServiceId, req: u32, rsp: u32) -> Option<SlotPair> {
+    if server_slots(svc).is_some() {
+        pin_server_pair(pid, svc, req, rsp)
+    } else {
+        let recv = nexus_abi::cap_transfer(pid, req, Rights::RECV).ok()?;
+        let send = nexus_abi::cap_transfer(pid, rsp, Rights::SEND).ok()?;
+        Some(SlotPair::new(send, recv))
+    }
+}

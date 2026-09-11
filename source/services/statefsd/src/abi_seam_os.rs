@@ -25,9 +25,9 @@ use storage::BlockDevice;
 use crate::emit_os::{emit_abi_denied, emit_abi_unreachable};
 use crate::quota_os::QuotaState;
 
-const POLICYD_SEND_SLOT: u32 = 0x07;
-const REPLY_SEND_SLOT: u32 = 0x06;
-const REPLY_RECV_SLOT: u32 = 0x05;
+const POLICYD_SEND_SLOT: u32 = nexus_service_topology::slots::statefsd::POLICYD.send;
+const REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::statefsd::REPLY.send;
+const REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::statefsd::REPLY.recv;
 
 /// Bounded re-asks when policyd did not answer within one eval budget
 /// (its 500 ms): a busy authority (audit flush, a slow boot phase) is a

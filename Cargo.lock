@@ -10,6 +10,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-sdk-routes",
  "nexus-service-entry",
+ "nexus-service-topology",
  "thiserror",
 ]
 
@@ -1535,6 +1536,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-metrics",
  "nexus-service-entry",
+ "nexus-service-topology",
  "serde",
  "toml",
 ]
@@ -1808,6 +1810,7 @@ dependencies = [
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-service-topology",
  "proptest",
  "statefs",
 ]
@@ -3094,6 +3097,7 @@ dependencies = [
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-service-topology",
  "nexus-vfs-types",
  "parking_lot",
  "storage",
@@ -3144,6 +3148,7 @@ dependencies = [
  "nexus-inet",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-service-topology",
  "nexus-svg",
  "nexus-sync",
  "nexus-workpool",
@@ -3825,6 +3830,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-log",
  "nexus-service-entry",
+ "nexus-service-topology",
  "samgr",
 ]
 
@@ -4030,6 +4036,7 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-service-topology",
 ]
 
 [[package]]
@@ -4045,6 +4052,7 @@ dependencies = [
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-service-topology",
  "nexus-theme-tokens",
  "nexus-wire",
  "settings",
@@ -4210,6 +4218,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-metrics",
  "nexus-service-entry",
+ "nexus-service-topology",
  "serde",
  "statefs",
  "storage",
@@ -4855,6 +4864,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-packagefs",
  "nexus-service-entry",
+ "nexus-service-topology",
  "nexus-vfs-types",
  "nxfsd",
  "parking_lot",

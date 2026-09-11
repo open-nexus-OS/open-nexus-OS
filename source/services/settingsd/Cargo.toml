@@ -38,6 +38,8 @@ nexus-wire = { path = "../../libs/nexus-wire" }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+# TASK-0324 P4f-1a: capability slots have one home.
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 statefs = { path = "../../../userspace/statefs", optional = true, default-features = false }
 
 [[bin]]

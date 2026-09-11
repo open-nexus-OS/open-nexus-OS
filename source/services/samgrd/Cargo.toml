@@ -31,6 +31,8 @@ nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = 
 samgr = { path = "../../../userspace/samgr", optional = true }
 capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+# TASK-0324 P4f-1a: capability slots have one home.
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }

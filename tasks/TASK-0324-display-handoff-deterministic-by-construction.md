@@ -57,6 +57,65 @@ boot, OTA lanes incl. `bundle reused`, reliability spine, ingress/egress, foldin
 | P8 | Closure docs/baselines/gates | LOC baseline, docs (RFC-0069 §4 implemented, RFC-0013, ADR-0041/0050), CI parity | Draft |
 | P9 | 8/8 visible boots + test-all + progress table | | Draft |
 
+**P4f recut (2026-09-11, measured against the tree before any code):** the seed listed ten
+services; the slot ratchet and a scan of every capability transfer in init show the real scope.
+**23 consumers**: 15 on the GENERIC arm (abilitymgr, bootctld, imed, ingressd, logd, packagefsd,
+pinched, rngd, samgrd, sessiond, settingsd, statefsd, timed, vfsd, virtioblkd) and 8 bespoke
+(policyd, keystored, updated, bundlemgrd, netstackd, dsoftbusd, metricsd, selftest-client). And a
+**blind spot of the ratchet**: ~40 init call sites already pin into LITERAL numbers
+(`cap_transfer_to_slot(pid, cap, R, 0x07)` — netstackd, policyd, dsoftbusd, bootctld, imed, blk
+plane, metricsd…). They are "pinned" but not declared: the same number in init and in the service,
+agreeing by hand — exactly the dual contract P4 exists to remove — and `check-slot-ssot.sh` counts
+only `const …SLOT` declarations, so it never saw them. Sub-packages (each atomic, each proven by
+`just test-all`; the generic arm's order-based branch dies with P4f-1, the literal pins with the
+consumer that owns them):
+
+| # | Consumers | Deletes |
+|---|-----------|---------|
+| P4f-1 | generic arm + its 15 services | order-based transfers in the generic arm, `provision_server_endpoint`'s order-based pair, the fresh-endpoint branch of `distribute_server_pair_for`, literal pins for bootctld/imed/blk plane/statefsd; the services' CTRL 1/2 + server 3/4 + route copies |
+| P4f-2 | policyd, keystored | `core_plane.rs`/`policyd_slots.rs` literal pins, both bespoke arms' transfer order |
+| P4f-3 | updated, bundlemgrd | the update plane's arms + `updated`'s four client files' slot copies |
+| P4f-4 | netstackd, dsoftbusd, metricsd | literal pins 0x03-0x09 / 0x21-0x22 in `wiring.rs`, the facade's copies |
+| P4f-5 | selftest-client | `route_with_retry`'s hardcoded eight-service slot table + its polling route ask, every probe's slot copy |
+| P4f-6 | closure | `check-slot-ssot.sh` also rejects literal slot numbers in `cap_transfer_to_slot`/`new_with_slots` outside the topology; baseline → 0 |
+
+**P4f-1a delivered 2026-09-11 (architecture review first — `.claude/skills/architecture-review`):**
+twelve generic-arm services declared completely (abilitymgr, ingressd, logd, packagefsd, pinched,
+rngd, samgrd, sessiond, settingsd, statefsd, timed, vfsd) with their EFFECTIVE numbers, so the move
+is behaviour-neutral by construction; `SERVER_SLOTS` (4/3) is one fleet convention instead of a
+`SlotPair::new(4, 3)` per module and a literal `new_with_slots(3, 4)` per service. The generic arm
+PINS every leg of a declared service (server fallback, reply inbox, SharedResponse + ReplyInbox
+routes; `provision_server_endpoint` and the distribute fresh-endpoint branch too) through
+`declared_slots::grant_*`, which decide by DECLARATION, never by pin success; the order-based
+branch survives only for imed/bootctld/virtioblkd and dies in P4f-1b. abilitymgr→execd was declared
+`ReplyInbox` but provisioned as SharedResponse by a special block — kind corrected, block deleted,
+the generic branch prints the same `init: abilitymgr route->execd ok`. pinched's respawn pins
+CTRL_SLOTS + the declared server pair instead of transferring by order and checking 3/4 afterwards;
+`spawn.rs`'s CTRL literals and the orchestrator's never-firing post-check are gone. Services:
+literal 3/4 fallbacks, CTRL copies, ingressd's slot module and statefsd's
+`check_cap_on(0x07, 0x06, 0x05)` read the declaration. New host test
+`test_reject_slot_in_reserved_range` (proven to fail on a declaration at MMIO slot 48). Ratchet
+130/45 → 93/33. **Review decisions:** (1) the self-route ask for a service's OWN server stays — it is
+an implicit readiness barrier (the responder answers only after wiring), removing it is P5's; only
+its literal fallback went. (2) The eight hand-copied `route_blocking` helpers were NOT merged
+(different budgets; P7). **Findings:** (a) the kernel's `CopyToSlot` is `set_if_empty` — a pin into
+an occupied slot errors, it never overwrites, so a wrong declaration fails loudly instead of
+displacing a device capability; the same code shows a transfer DUPLICATES (derived rights), several
+init comments claiming "a transfer MOVES the cap" are wrong. (b) logd, pinched, rngd, sessiond,
+settingsd and statefsd are missing from `config/os-services.txt`, so `just diag-os-strict` never
+compiles them under the OS cfg — the hard warning gate has a hole (a deliberate `compile_error!`
+proved rngd's OS module is compiled by an explicit check). (c) `init: route fallback` for
+virtioblkd/bundlemgrd/logd/samgrd is pre-existing in every smp1 run of the day (core-plane route
+budget vs responder start — P5). Smoke: smp1 green, 0× `FAIL declared slot`, pinched respawn 3× over
+the declared pair, `SELFTEST: service restart ok`, `statefs persist ok`, `enc roundtrip ok`.
+**Proof 2026-09-11:** `just test-all` green through its gates (check, diag, host, e2e, miri, kernel)
+and the smp1 + visible lanes (pixel 40.09 % / diff 26.03); the host memory watchdog then SIGTERMed the
+reset lane — and for the first time the kill was WITNESSED (`qemu-test: lane terminated externally
+(signal TERM) after 129s`, lane peak 737 MiB, zero envelope events: TASK-0325 paying off). The
+remaining lanes ran one by one with a retry ONLY on a witnessed external kill: reset, ota-flip,
+ota-bundle, -resume, -delta, ota-backstops (tamper, downgrade, fallback) all green on the first
+attempt, 0× `FAIL declared slot` in every lane, lane peaks 740-1,113 MiB.
+
 **Carried into P4f and P7 (recorded 2026-09-11, cold `make clean` + `test-all`):** the
 cold run failed `ota-flip` with `SELFTEST: statefs enc roundtrip FAIL` — NOT a P4e-2 regression
 and not a resource kill (lane peak 830 MB, zero envelope events): `rng_salt()` in the selftest

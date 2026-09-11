@@ -22,16 +22,18 @@ pub(crate) mod netclient;
 pub(crate) mod print;
 pub(crate) mod stream;
 
-/// init's deterministic wiring for a declared service (RFC-0069): server
-/// pair 3/4, CAP_MOVE reply inbox 5/6, then the declared routes in order —
-/// policyd 7, netstackd 8. A seam never routes from its hot loop.
+/// ingressd's capability slots as `nexus-service-topology` declares them and init pins them
+/// (TASK-0324 P4f-1a) — they used to be the numbers the transfer order happened to produce.
+/// A seam never routes from its hot loop.
 pub(crate) mod slots {
-    pub(crate) const SVC_RECV_SLOT: u32 = 0x03;
-    pub(crate) const SVC_SEND_SLOT: u32 = 0x04;
-    pub(crate) const REPLY_RECV_SLOT: u32 = 0x05;
-    pub(crate) const REPLY_SEND_SLOT: u32 = 0x06;
-    pub(crate) const POLICYD_SEND_SLOT: u32 = 0x07;
-    pub(crate) const NETSTACKD_SEND_SLOT: u32 = 0x08;
+    use nexus_service_topology::slots::ingressd as topo;
+
+    pub(crate) const SVC_RECV_SLOT: u32 = topo::SERVER.recv;
+    pub(crate) const SVC_SEND_SLOT: u32 = topo::SERVER.send;
+    pub(crate) const REPLY_RECV_SLOT: u32 = topo::REPLY.recv;
+    pub(crate) const REPLY_SEND_SLOT: u32 = topo::REPLY.send;
+    pub(crate) const POLICYD_SEND_SLOT: u32 = topo::POLICYD.send;
+    pub(crate) const NETSTACKD_SEND_SLOT: u32 = topo::NETSTACKD.send;
 }
 
 use nexus_abi::{yield_, IpcError, MsgHeader};

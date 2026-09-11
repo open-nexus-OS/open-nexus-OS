@@ -18,12 +18,10 @@ use nexus_ipc::KernelServer;
 /// queue, so the `@ready` announce found no room, 2026-09-09). Short budget: init's
 /// responder answers only after orchestration, the deterministic slot fallback stays.
 pub(crate) fn route_logd_blocking() -> Option<KernelServer> {
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
     match nexus_ipc::budget::route_with_nonce_budgeted(
         b"logd",
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
+        nexus_service_topology::CTRL_SLOTS.send,
+        nexus_service_topology::CTRL_SLOTS.recv,
         core::time::Duration::from_millis(50),
         nexus_ipc::budget::NonceMismatchBudget::new(8),
     ) {
@@ -32,4 +30,11 @@ pub(crate) fn route_logd_blocking() -> Option<KernelServer> {
         }
         _ => None,
     }
+}
+
+/// logd's server on the slots init pins for it (TASK-0324 P4f-1a) — the fallback when the
+/// route ask above runs out of budget. It used to be a literal `new_with_slots(3, 4)`.
+pub(crate) fn declared_server() -> Option<KernelServer> {
+    let slots = nexus_service_topology::slots::logd::SERVER;
+    KernelServer::new_with_slots(slots.recv, slots.send).ok()
 }

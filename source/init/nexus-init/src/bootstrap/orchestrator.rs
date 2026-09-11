@@ -126,16 +126,6 @@ where
                     debug_write_hex(child_recv_slot as usize);
                     debug_write_byte(b'\n');
                 }
-                if probes_enabled()
-                    && (child_send_slot != crate::bootstrap::spawn::CTRL_CHILD_SEND_SLOT
-                        || child_recv_slot != crate::bootstrap::spawn::CTRL_CHILD_RECV_SLOT)
-                {
-                    debug_write_bytes(b"!route-warn ctrl-child-slots send=0x");
-                    debug_write_hex(child_send_slot as usize);
-                    debug_write_bytes(b" recv=0x");
-                    debug_write_hex(child_recv_slot as usize);
-                    debug_write_byte(b'\n');
-                }
                 ctrl_channels.push(ctrl);
                 if probes_enabled() {
                     debug_write_bytes(b"!spawn ok pid=0x");

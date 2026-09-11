@@ -33,9 +33,6 @@ use crate::evidence::{classify, EvidenceClass};
 use crate::journal::{InlineBytes, Journal, LogLevel, LogRecord, RecordId, TimestampNsec};
 use crate::spill::{decode_slot_value, SpillEngine, SpilledRecord, HEAD_KEY, SLOT_KEY_PREFIX};
 
-/// init-lite control-channel slots (route requests via the responder).
-const CTRL_SEND_SLOT: u32 = 1;
-const CTRL_RECV_SLOT: u32 = 2;
 /// Bounded lazy-attach retries before the loud RAM-only degrade.
 const MAX_ATTACH_ATTEMPTS: u8 = 8;
 /// Mirror bounds (mirrors the on-disk ring: 32 records, ~16 KiB).
@@ -364,8 +361,8 @@ fn try_attach() -> Option<(SpillEngine, StatefsClient, u64)> {
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(
         name,
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
+        nexus_service_topology::CTRL_SLOTS.send,
+        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

@@ -51,6 +51,12 @@ impl SlotPair {
 /// `@mint-pair`, route asks and the `@ready` announce all travel here (RFC-0093 §1/§2).
 pub const CTRL_SLOTS: SlotPair = SlotPair::new(1, 2);
 
+/// Where a service's OWN server endpoint lands: RECV at 3, SEND at 4 — the first two slots
+/// after the control channel. A fleet convention, declared once (TASK-0324 P4f-1a): it used to
+/// be `SlotPair::new(4, 3)` in every service module and a literal `new_with_slots(3, 4)`
+/// fallback in every service that asked init for its own slots.
+pub const SERVER_SLOTS: SlotPair = SlotPair::new(4, 3);
+
 /// The slot every device MMIO window lands in. One convention for the whole fleet: init
 /// grants at this slot and each driver maps from it — the number used to live once per
 /// driver plus once in init, seven copies that had to agree by hand.
@@ -213,6 +219,38 @@ mod tests {
             }
             for binding in spec.extra_slots {
                 claim(binding.slot, "named slot");
+            }
+        }
+    }
+
+    #[test]
+    fn test_reject_slot_in_reserved_range() {
+        // Fleet-wide slots are granted to EVERY service (the control channel) or to a whole
+        // class of them (device MMIO, the input windows). A per-service declaration that lands
+        // on one of them would be pinned into an occupied slot — the kernel refuses that
+        // (`set_if_empty`), so the route would be dead at boot. Refuse it at compile-test time.
+        let mut reserved: Vec<u32> = Vec::new();
+        reserved.extend([CTRL_SLOTS.send, CTRL_SLOTS.recv, DEVICE_MMIO_SLOT]);
+        reserved.extend(INPUT_MMIO_SLOTS);
+        for spec in SERVICE_SPECS {
+            let mut declared: Vec<(u32, &str)> = Vec::new();
+            declared.push((spec.server_slots.send, "server send"));
+            declared.push((spec.server_slots.recv, "server recv"));
+            declared.push((spec.reply_slots.send, "reply send"));
+            declared.push((spec.reply_slots.recv, "reply recv"));
+            for route in spec.routes_to {
+                declared.push((route.slots.send, "route send"));
+                declared.push((route.slots.recv, "route recv"));
+            }
+            for binding in spec.extra_slots {
+                declared.push((binding.slot, "named slot"));
+            }
+            for (slot, what) in declared {
+                assert!(
+                    slot == 0 || !reserved.contains(&slot),
+                    "{:?}: {what} declared in the fleet-reserved slot {slot}",
+                    spec.id
+                );
             }
         }
     }

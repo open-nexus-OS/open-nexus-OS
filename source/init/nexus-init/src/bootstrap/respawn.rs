@@ -173,34 +173,31 @@ fn respawn_pinched(
 
     let pid = nexus_abi::exec_v2(elf, stack_pages, global_pointer, name).ok()?;
 
-    // Ctrl plane: same init-owned endpoints, re-transferred to the fixed
-    // child slots (1/2) the routing client expects.
-    const CTRL_CHILD_SEND_SLOT: u32 = 1;
-    const CTRL_CHILD_RECV_SLOT: u32 = 2;
+    // Ctrl plane: same init-owned endpoints, re-pinned to the fleet control slots.
     let ctrl_send = nexus_abi::cap_transfer_to_slot(
         pid,
         chan.ctrl_req_parent_slot,
         Rights::SEND,
-        CTRL_CHILD_SEND_SLOT,
+        crate::service_topology::CTRL_SLOTS.send,
     );
     let ctrl_recv = nexus_abi::cap_transfer_to_slot(
         pid,
         chan.ctrl_rsp_parent_slot,
         Rights::RECV,
-        CTRL_CHILD_RECV_SLOT,
+        crate::service_topology::CTRL_SLOTS.recv,
     );
     if ctrl_send.is_err() || ctrl_recv.is_err() {
         debug_write_bytes(b"init: FAIL respawn ctrl re-transfer\n");
         return None;
     }
 
-    // New request endpoint owned by the NEW instance; RECV lands at the
-    // deterministic server slot 3 (first free after ctrl 1/2), the surviving
-    // response endpoint's SEND at 4 — byte-identical to the boot layout.
+    // New request endpoint owned by the NEW instance, pinned with the surviving response
+    // endpoint into pinched's DECLARED server slots — the boot layout by declaration
+    // (TASK-0324 P4f-1a), where it used to be "first free after ctrl 1/2", checked afterwards.
     let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8).ok()?;
-    let recv_slot = nexus_abi::cap_transfer(pid, req, Rights::RECV).ok()?;
-    let send_slot = nexus_abi::cap_transfer(pid, rsp_parent, Rights::SEND).ok()?;
-    if recv_slot != 3 || send_slot != 4 {
+    if crate::bootstrap::declared_slots::pin_server_pair(pid, ServiceId::Pinched, req, rsp_parent)
+        .is_none()
+    {
         debug_write_bytes(b"init: FAIL respawn server slots\n");
         let _ = nexus_abi::cap_close(req);
         return None;

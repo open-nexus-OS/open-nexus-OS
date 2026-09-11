@@ -244,7 +244,11 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Lite
     // queries over a private control channel, so services don't hardcode slot numbers.
     let server = match KernelServer::new_for("packagefsd") {
         Ok(server) => server,
-        Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| LiteError::Transport)?,
+        Err(_) => {
+            let slots = nexus_service_topology::slots::packagefsd::SERVER;
+            KernelServer::new_with_slots(slots.recv, slots.send)
+                .map_err(|_| LiteError::Transport)?
+        }
     };
     let (registry, mount_mode, reader) = match load_registry_from_volume() {
         Some((registry, reader)) => (registry, MountMode::SystemVolume, Some(reader)),

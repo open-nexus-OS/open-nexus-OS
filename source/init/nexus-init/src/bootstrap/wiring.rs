@@ -1289,21 +1289,13 @@ pub(crate) fn wire_services(
                         let recorded = own_id.and_then(|id| Some((chan.recv(id)?, chan.send(id)?)));
                         let slots = match recorded {
                             Some(s) => Some(s),
-                            None => {
-                                let recv = nexus_abi::cap_transfer(pid, req, Rights::RECV);
-                                let send = nexus_abi::cap_transfer(pid, rsp, Rights::SEND);
-                                match (own_id, recv, send) {
-                                    (Some(id), Ok(recv_slot), Ok(send_slot)) => {
-                                        chan.set_send(id, send_slot);
-                                        chan.set_recv(id, recv_slot);
-                                        Some((recv_slot, send_slot))
-                                    }
-                                    _ => None,
-                                }
-                            }
+                            None => own_id.and_then(|id| {
+                                let pair = declared_slots::grant_server_pair(pid, id, req, rsp)?;
+                                chan.set_send(id, pair.send);
+                                chan.set_recv(id, pair.recv);
+                                Some((pair.recv, pair.send))
+                            }),
                         };
-                        // Launch spawn hop (TASK-0080D): the lifecycle broker
-                        // is the ONLY app spawner — grant it the execd route.
                         // Push leg (RFC-0075): imed → windowd commit/action
                         // pushes resolve "windowd" by name via this recording.
                         if name == "imed" {
@@ -1316,22 +1308,6 @@ pub(crate) fn wire_services(
                                 eps.server_pair(ServiceId::Statefsd).map(|(req, _)| req),
                                 chan,
                             );
-                        }
-                        if name == "abilitymgr" {
-                            // Direct transfers (no clone — cap-table ceiling).
-                            match (
-                                nexus_abi::cap_transfer(pid, exe_req, Rights::SEND),
-                                nexus_abi::cap_transfer(pid, exe_rsp, Rights::RECV),
-                            ) {
-                                (Ok(send), Ok(recv)) => {
-                                    chan.set_send(ServiceId::Execd, send);
-                                    chan.set_recv(ServiceId::Execd, recv);
-                                    debug_write_bytes(b"init: abilitymgr route->execd ok\n");
-                                }
-                                _ => debug_write_bytes(
-                                    b"init: abilitymgr route->execd FAIL (xfer)\n",
-                                ),
-                            }
                         }
                         match slots {
                             Some((recv_slot, send_slot)) => {
@@ -1397,13 +1373,12 @@ pub(crate) fn wire_services(
                                 .ok()
                             });
                         if let Some(reply_ep) = inbox_ep {
-                            let rr = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV);
-                            let rs = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND);
+                            let inbox = declared_slots::grant_reply_inbox(pid, spec.id, reply_ep);
                             let _ = nexus_abi::cap_close(reply_ep);
-                            if let (Ok(reply_recv), Ok(reply_send)) = (rr, rs) {
-                                chan.reply_recv_slot = Some(reply_recv);
-                                chan.reply_send_slot = Some(reply_send);
-                                reply_recv_opt = Some(reply_recv);
+                            if let Some(inbox) = inbox {
+                                chan.reply_recv_slot = Some(inbox.recv);
+                                chan.reply_send_slot = Some(inbox.send);
+                                reply_recv_opt = Some(inbox.recv);
                             }
                         }
                     }
@@ -1413,11 +1388,22 @@ pub(crate) fn wire_services(
                             // endpoint, shared directly (vfsd → packagefsd).
                             RouteKind::SharedResponse => {
                                 if let Some((t_req, t_rsp)) = eps.server_pair(route.to) {
-                                    let s = nexus_abi::cap_transfer(pid, t_req, Rights::SEND);
-                                    let r = nexus_abi::cap_transfer(pid, t_rsp, Rights::RECV);
-                                    if let (Ok(s), Ok(r)) = (s, r) {
+                                    let s = declared_slots::grant_route_send(
+                                        pid, spec.id, route.to, t_req,
+                                    );
+                                    let r = declared_slots::grant_route_recv(
+                                        pid, spec.id, route.to, t_rsp,
+                                    );
+                                    if let (Some(s), Some(r)) = (s, r) {
                                         chan.set_send(route.to, s);
                                         chan.set_recv(route.to, r);
+                                        if spec.announce {
+                                            debug_write_bytes(b"init: ");
+                                            debug_write_bytes(name.as_bytes());
+                                            debug_write_bytes(b" route->");
+                                            debug_write_bytes(route.to.name().as_bytes());
+                                            debug_write_bytes(b" ok\n");
+                                        }
                                     }
                                 }
                             }
@@ -1432,9 +1418,9 @@ pub(crate) fn wire_services(
                                 };
                                 match route.to {
                                     ServiceId::Bundlemgrd => {
-                                        if let Ok(s) =
-                                            nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND)
-                                        {
+                                        if let Some(s) = declared_slots::grant_route_send(
+                                            pid, spec.id, route.to, bnd_req,
+                                        ) {
                                             chan.set_send(ServiceId::Bundlemgrd, s);
                                             chan.set_recv(ServiceId::Bundlemgrd, reply_recv);
                                             if spec.announce {
@@ -1446,18 +1432,18 @@ pub(crate) fn wire_services(
                                     }
                                     ServiceId::Logd => {
                                         if let Some(req) = log_req {
-                                            if let Ok(s) =
-                                                nexus_abi::cap_transfer(pid, req, Rights::SEND)
-                                            {
+                                            if let Some(s) = declared_slots::grant_route_send(
+                                                pid, spec.id, route.to, req,
+                                            ) {
                                                 chan.set_send(ServiceId::Logd, s);
                                                 chan.set_recv(ServiceId::Logd, reply_recv);
                                             }
                                         }
                                     }
                                     ServiceId::Policyd => {
-                                        if let Ok(s) =
-                                            nexus_abi::cap_transfer(pid, pol_req, Rights::SEND)
-                                        {
+                                        if let Some(s) = declared_slots::grant_route_send(
+                                            pid, spec.id, route.to, pol_req,
+                                        ) {
                                             chan.set_send(ServiceId::Policyd, s);
                                             chan.set_recv(ServiceId::Policyd, reply_recv);
                                         }
@@ -1466,9 +1452,9 @@ pub(crate) fn wire_services(
                                     // netstackd answers every RPC on the
                                     // caller's CAP_MOVE inbox.
                                     ServiceId::Netstackd => {
-                                        if let Ok(s) =
-                                            nexus_abi::cap_transfer(pid, net_req, Rights::SEND)
-                                        {
+                                        if let Some(s) = declared_slots::grant_route_send(
+                                            pid, spec.id, route.to, net_req,
+                                        ) {
                                             chan.set_send(ServiceId::Netstackd, s);
                                             chan.set_recv(ServiceId::Netstackd, reply_recv);
                                             if spec.announce {
@@ -1481,9 +1467,9 @@ pub(crate) fn wire_services(
                                     // Session authority (TASK-0065B launch gate).
                                     ServiceId::Sessiond => {
                                         if let Some(req) = sess_req {
-                                            if let Ok(s) =
-                                                nexus_abi::cap_transfer(pid, req, Rights::SEND)
-                                            {
+                                            if let Some(s) = declared_slots::grant_route_send(
+                                                pid, spec.id, route.to, req,
+                                            ) {
                                                 chan.set_send(ServiceId::Sessiond, s);
                                                 chan.set_recv(ServiceId::Sessiond, reply_recv);
                                                 if spec.announce {
@@ -1500,9 +1486,9 @@ pub(crate) fn wire_services(
                                     // `settingsd: … persist=fail` was this
                                     // missing case, not statefsd.
                                     ServiceId::Statefsd => {
-                                        if let Ok(s) =
-                                            nexus_abi::cap_transfer(pid, state_req, Rights::SEND)
-                                        {
+                                        if let Some(s) = declared_slots::grant_route_send(
+                                            pid, spec.id, route.to, state_req,
+                                        ) {
                                             chan.set_send(ServiceId::Statefsd, s);
                                             chan.set_recv(ServiceId::Statefsd, reply_recv);
                                             if spec.announce {
@@ -1512,7 +1498,6 @@ pub(crate) fn wire_services(
                                             }
                                         }
                                     }
-                                    // execd route wires with the launch path (later).
                                     _ => {}
                                 }
                             }
@@ -1550,18 +1535,20 @@ pub(crate) fn is_bespoke_wired(name: &str) -> bool {
     )
 }
 
-/// Provisions a plain server endpoint for a service (recv/send land at the
-/// deterministic fallback slots 3/4 the service expects), driven by the
-/// declarative [`crate::service_topology::ServiceSpec`]. Best-effort: a failure
-/// leaves the service unwired rather than aborting init — it must never brick boot.
+/// Provisions a plain server endpoint for a service, driven by the declarative
+/// [`crate::service_topology::ServiceSpec`]: both halves of one fresh endpoint land in the
+/// service's declared server slots (TASK-0324 P4f-1a). Best-effort: a failure leaves the
+/// service unwired rather than aborting init — it must never brick boot.
 fn provision_server_endpoint(factory_slot: u32, pid: u32, name: &[u8]) {
+    let Some(id) = ServiceId::from_name(name) else {
+        return;
+    };
     match nexus_abi::ipc_endpoint_create_for(factory_slot, pid, 8) {
         Ok(ep) => {
-            let recv = nexus_abi::cap_transfer(pid, ep, Rights::RECV);
-            let send = nexus_abi::cap_transfer(pid, ep, Rights::SEND);
+            let pair = declared_slots::grant_server_pair(pid, id, ep, ep);
             let _ = nexus_abi::cap_close(ep);
-            match (recv, send) {
-                (Ok(recv_slot), Ok(send_slot)) => {
+            match pair.map(|p| (p.recv, p.send)) {
+                Some((recv_slot, send_slot)) => {
                     debug_write_bytes(b"init: ");
                     debug_write_bytes(name);
                     debug_write_bytes(b" slots recv=0x");

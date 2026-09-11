@@ -449,12 +449,10 @@ pub(crate) fn vmo_capacity(slot: u32) -> Option<usize> {
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
     match budget::route_with_nonce_budgeted(
         name,
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
+        nexus_service_topology::CTRL_SLOTS.send,
+        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {
@@ -473,12 +471,12 @@ fn route_pinched_blocking() -> Option<KernelServer> {
     // distribute_server_pairs (recv first -> 3, send second -> 4), the same
     // contract rngd uses.
     emit_line("pinched: route fallback slots");
-    KernelServer::new_with_slots(PINCHED_RECV_SLOT, PINCHED_SEND_SLOT).ok()
+    KernelServer::new_with_slots(
+        nexus_service_topology::slots::pinched::SERVER.recv,
+        nexus_service_topology::slots::pinched::SERVER.send,
+    )
+    .ok()
 }
-
-/// Deterministic slots wired by init's cap_transfer for pinched.
-const PINCHED_RECV_SLOT: u32 = 0x03;
-const PINCHED_SEND_SLOT: u32 = 0x04;
 
 pub(crate) fn emit_line(message: &str) {
     // One atomic `debug_write` (via `debug_println`, which also owns the verdict

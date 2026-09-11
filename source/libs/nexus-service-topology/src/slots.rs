@@ -17,6 +17,24 @@
 
 use crate::SlotPair;
 
+/// abilitymgr (TASK-0324 P4f-1a). The execd leg is a SharedResponse route (init hands over
+/// execd's request AND response endpoint); it was declared `ReplyInbox` while provisioned as
+/// SharedResponse by a special block in the generic arm.
+pub mod abilitymgr {
+    use super::SlotPair;
+
+    /// abilitymgr's own server endpoint (windowd's `OP_LAUNCH` arrives here).
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// Spawn route to execd — replies on execd's own response endpoint.
+    pub const EXECD: SlotPair = SlotPair::new(5, 6);
+    /// The shared CAP_MOVE reply inbox for its outbound calls.
+    pub const REPLY: SlotPair = SlotPair::new(8, 7);
+    /// Installed-app resolution.
+    pub const BUNDLEMGRD: SlotPair = SlotPair::new(9, REPLY.recv);
+    /// Launch gate: a session must be active.
+    pub const SESSIOND: SlotPair = SlotPair::new(10, REPLY.recv);
+}
+
 /// The capability table of a SPAWNED APP CHILD (TASK-0324 P4e).
 ///
 /// A per-app space, distinct from the service slots above: execd grants into it at
@@ -58,7 +76,7 @@ pub mod execd {
     use super::SlotPair;
 
     /// execd's own server endpoint (abilitymgr's spawn requests arrive here).
-    pub const SERVER: SlotPair = SlotPair::new(4, 3);
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
     /// The shared CAP_MOVE reply inbox for its outbound calls.
     pub const REPLY: SlotPair = SlotPair::new(6, 5);
     /// Crash-report appends (TASK-0049; fire-and-forget, the reply is not awaited).
@@ -100,7 +118,7 @@ pub mod gpud {
     use super::SlotPair;
 
     /// gpud's own server endpoint (windowd presents here).
-    pub const SERVER: SlotPair = SlotPair::new(4, 3);
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
 }
 
 /// hidrawd (TASK-0324 P4d).
@@ -111,12 +129,26 @@ pub mod hidrawd {
     pub const INPUTD: SlotPair = SlotPair::new(3, 4);
 }
 
+/// ingressd (TASK-0324 P4f-1a).
+pub mod ingressd {
+    use super::SlotPair;
+
+    /// ingressd's own server endpoint (the selftest registers exposure intents here).
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox (policyd and netstackd answer on it).
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// `net.expose` checks for the declared subject (RFC-0092).
+    pub const POLICYD: SlotPair = SlotPair::new(7, REPLY.recv);
+    /// The facade client leg: listen/accept/connect/relay.
+    pub const NETSTACKD: SlotPair = SlotPair::new(8, REPLY.recv);
+}
+
 /// inputd (TASK-0324 P4b).
 pub mod inputd {
     use super::SlotPair;
 
     /// inputd's own server endpoint.
-    pub const SERVER: SlotPair = SlotPair::new(4, 3);
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
     /// Visible-state push to windowd (windowd answers on its own endpoint).
     pub const WINDOWD: SlotPair = SlotPair::new(5, 6);
     /// Key-forward leg to imed (RFC-0075).
@@ -127,6 +159,38 @@ pub mod inputd {
     pub const WATCH_RECV: u32 = 0x21;
     /// Settings push channel: SEND half (moved with `OP_WATCH`).
     pub const WATCH_SEND: u32 = 0x22;
+}
+
+/// logd (TASK-0324 P4f-1a).
+pub mod logd {
+    use super::SlotPair;
+
+    /// logd's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox.
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// Evidence spill (TASK-0049C).
+    pub const STATEFSD: SlotPair = SlotPair::new(7, REPLY.recv);
+}
+
+/// packagefsd (TASK-0324 P4f-1a).
+pub mod packagefsd {
+    use super::SlotPair;
+
+    /// packagefsd's own server endpoint (vfsd resolves `pkg:/` here).
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The pre-minted CAP_MOVE reply inbox.
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// Slot and manifest queries.
+    pub const BUNDLEMGRD: SlotPair = SlotPair::new(7, REPLY.recv);
+}
+
+/// pinched (TASK-0324 P4f-1a). A pure server; its respawn re-provisions exactly this pair.
+pub mod pinched {
+    use super::SlotPair;
+
+    /// pinched's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
 }
 
 /// The capability table of execd's recv-wake probe child (TASK-0324 P4e-2).
@@ -142,12 +206,90 @@ pub mod recv_wake_probe {
     pub const REPLY_SEND: u32 = 6;
 }
 
+/// rngd (TASK-0324 P4f-1a). Its policyd leg used to land on 7 or 8 depending on whether logd
+/// was in the image (the logd transfer came first); declared, it is 8 either way.
+pub mod rngd {
+    use super::SlotPair;
+
+    /// rngd's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox.
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// Log sink (optional target).
+    pub const LOGD: SlotPair = SlotPair::new(7, REPLY.recv);
+    /// Delegated policy checks.
+    pub const POLICYD: SlotPair = SlotPair::new(8, REPLY.recv);
+}
+
+/// samgrd (TASK-0324 P4f-1a).
+pub mod samgrd {
+    use super::SlotPair;
+
+    /// samgrd's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox.
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// Structured logs.
+    pub const LOGD: SlotPair = SlotPair::new(7, REPLY.recv);
+}
+
+/// sessiond (TASK-0324 P4f-1a). A pure server.
+pub mod sessiond {
+    use super::SlotPair;
+
+    /// sessiond's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+}
+
+/// settingsd (TASK-0324 P4f-1a).
+pub mod settingsd {
+    use super::SlotPair;
+
+    /// settingsd's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox.
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// Preference persistence.
+    pub const STATEFSD: SlotPair = SlotPair::new(7, REPLY.recv);
+}
+
+/// statefsd (TASK-0324 P4f-1a). The policy leg is the one `nexus_ipc::policyd::check_cap_on`
+/// used to receive as the literal arguments `(0x07, 0x06, 0x05)`.
+pub mod statefsd {
+    use super::SlotPair;
+
+    /// statefsd's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox (cap check, ABI seam and logd append share it).
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// Capability checks and the RFC-0091 argument seam.
+    pub const POLICYD: SlotPair = SlotPair::new(7, REPLY.recv);
+}
+
+/// timed (TASK-0324 P4f-1a). A pure server.
+pub mod timed {
+    use super::SlotPair;
+
+    /// timed's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+}
+
+/// vfsd (TASK-0324 P4f-1a).
+pub mod vfsd {
+    use super::SlotPair;
+
+    /// vfsd's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// `pkg:/` resolution — replies on packagefsd's own response endpoint.
+    pub const PACKAGEFSD: SlotPair = SlotPair::new(5, 6);
+}
+
 /// windowd (TASK-0324 P4a).
 pub mod windowd {
     use super::SlotPair;
 
     /// windowd's own server endpoint (clients send here).
-    pub const SERVER: SlotPair = SlotPair::new(4, 3);
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
     /// The shared CAP_MOVE reply inbox for its outbound calls.
     pub const REPLY: SlotPair = SlotPair::new(8, 7);
     /// Present/attach/cursor handoff to gpud (its own response endpoint).

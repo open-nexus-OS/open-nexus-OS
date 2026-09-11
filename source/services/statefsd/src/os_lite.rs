@@ -177,12 +177,11 @@ use crate::hardening_os::observe_enrolled;
 /// Main statefsd bring-up service loop (os-lite).
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     emit_line("statefsd: entry");
-    // init-lite transfers the statefsd service endpoints into deterministic
-    // slots (recv: slot 3, send: slot 4); using these directly avoids
-    // routing-time races during early bring-up.
+    // init PINS statefsd's server endpoint into its declared slots (TASK-0324 P4f-1a);
+    // using them directly avoids routing-time races during early bring-up.
     let server = {
-        const RECV_SLOT: u32 = 0x03;
-        const SEND_SLOT: u32 = 0x04;
+        const RECV_SLOT: u32 = nexus_service_topology::slots::statefsd::SERVER.recv;
+        const SEND_SLOT: u32 = nexus_service_topology::slots::statefsd::SERVER.send;
         let deadline = match nexus_abi::nsec() {
             Ok(now) => now.saturating_add(10_000_000_000), // 10s
             Err(_) => 0,

@@ -15,10 +15,6 @@ use nexus_abi::Rights;
 
 /// Control-channel queue depth (the init↔service REQ/RSP pair).
 pub(crate) const CTRL_EP_DEPTH: usize = 8;
-/// The child's deterministic control slots (userspace `nexus-ipc` uses 1/2).
-pub(crate) const CTRL_CHILD_SEND_SLOT: u32 = 1;
-pub(crate) const CTRL_CHILD_RECV_SLOT: u32 = 2;
-
 /// Creates the private control endpoints (REQ/RSP) for a freshly spawned
 /// service and transfers them FIRST so the child sees them at slots 1/2
 /// (deterministic slot assignment — the kernel IPC backend relies on it).
@@ -40,14 +36,14 @@ pub(crate) fn attach_ctrl_channel(
         pid,
         ctrl_req_parent_slot,
         Rights::SEND,
-        CTRL_CHILD_SEND_SLOT,
+        crate::service_topology::CTRL_SLOTS.send,
     )
     .map_err(InitError::Abi)?;
     let child_recv_slot = nexus_abi::cap_transfer_to_slot(
         pid,
         ctrl_rsp_parent_slot,
         Rights::RECV,
-        CTRL_CHILD_RECV_SLOT,
+        crate::service_topology::CTRL_SLOTS.recv,
     )
     .map_err(InitError::Abi)?;
     Ok((

@@ -139,7 +139,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 _ => "samgrd: route probe other",
             });
             emit_line("samgrd: route fallback");
-            KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?
+            let slots = nexus_service_topology::slots::samgrd::SERVER;
+            KernelServer::new_with_slots(slots.recv, slots.send)
+                .map_err(|_| ServerError::Unsupported)?
         }
     };
     let (recv_slot, send_slot) = server.slots();

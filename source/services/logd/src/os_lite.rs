@@ -73,7 +73,7 @@ const JOURNAL_CAP_BYTES: u32 = 16 * 1024;
 const JOURNAL_ALLOC_CAP_BYTES: u32 = 256 * 1024;
 
 /// Main logd bring-up service loop (os-lite).
-use crate::route_os::route_logd_blocking;
+use crate::route_os::{declared_server, route_logd_blocking};
 use crate::spill_os::SpillState;
 
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
@@ -83,7 +83,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         Some(server) => server,
         None => {
             emit_line("logd: route fallback");
-            KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?
+            declared_server().ok_or(ServerError::Unsupported)?
         }
     };
     notifier.notify();

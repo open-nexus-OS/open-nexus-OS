@@ -218,7 +218,10 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Resu
     // slots. Use name-based construction so call sites don't hardcode slot numbers.
     let server = match KernelServer::new_for("vfsd") {
         Ok(server) => server,
-        Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| Error::Transport)?,
+        Err(_) => {
+            let slots = nexus_service_topology::slots::vfsd::SERVER;
+            KernelServer::new_with_slots(slots.recv, slots.send).map_err(|_| Error::Transport)?
+        }
     };
     // VFS bring-up: proxy pkg:/ reads to packagefsd (real data). Non-pkg schemes are unsupported.
     run_loop(server, Namespace::new())

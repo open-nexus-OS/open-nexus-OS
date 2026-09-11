@@ -28,6 +28,8 @@ stack_pages = 0
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+# TASK-0324 P4f-1a: capability slots have one home.
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-workpool = { path = "../../libs/nexus-workpool", optional = true }
 nexus-svg = { path = "../../../userspace/ui/svg", default-features = false }
 libm = "0.2"

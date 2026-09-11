@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-11 (TASK-0324 P4f-1a: the generic wiring arm pins; twelve services declared)
+
+- Twelve services on init's generic arm are declared completely in `nexus-service-topology` —
+  abilitymgr, ingressd, logd, packagefsd, pinched, rngd, samgrd, sessiond, settingsd, statefsd,
+  timed, vfsd — with the numbers they effectively had, so the move is behaviour-neutral by
+  construction. `SERVER_SLOTS` (RECV 3 / SEND 4) is one fleet convention instead of a
+  `SlotPair::new(4, 3)` per module and a literal `new_with_slots(3, 4)` per service.
+- The generic arm pins every leg of a declared service (server pair, reply inbox, both route
+  kinds, fresh endpoints) and never retries a failed pin by transfer order; the order-based branch
+  remains only for imed, bootctld and virtioblkd until P4f-1b.
+- abilitymgr's execd route was declared `ReplyInbox` but provisioned as a shared-response route by
+  a special block: the kind is corrected and the block deleted.
+- pinched's respawn pins the declared server pair instead of transferring by order and checking
+  for 3/4 afterwards; init's control-channel literals and a post-check that could never fire are gone.
+- statefsd's policy check no longer passes the literal slots `(0x07, 0x06, 0x05)`; ingressd's slot
+  module and every literal server fallback read the declaration.
+- New host test `test_reject_slot_in_reserved_range`: no declaration may land on the control
+  channel, the device MMIO slot or the input MMIO windows.
+- Slot-SSOT ratchet 130 -> 93 positional declarations, 45 -> 33 files.
+
 ### Added - 2026-09-11 (TASK-0325: a proof lane declares its resource envelope and never dies silently)
 
 - **A lane never dies silently.** `scripts/qemu-test.sh` traps `TERM`/`INT`/`HUP` and writes

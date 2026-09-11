@@ -59,11 +59,6 @@ impl ReadyNotifier {
     }
 }
 
-/// Deterministic slots wired by init's cap_transfer for abilitymgr
-/// (recv first → 3, send second → 4).
-const ABILITYMGR_RECV_SLOT: u32 = 0x03;
-const ABILITYMGR_SEND_SLOT: u32 = 0x04;
-
 /// Main service loop for abilitymgr.
 pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     notifier.notify();
@@ -468,12 +463,10 @@ fn spawn_app(app_id: &str) {
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    const CTRL_SEND_SLOT: u32 = 1;
-    const CTRL_RECV_SLOT: u32 = 2;
     match budget::route_with_nonce_budgeted(
         name,
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
+        nexus_service_topology::CTRL_SLOTS.send,
+        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {
@@ -486,10 +479,11 @@ fn route_abilitymgr_blocking() -> Option<KernelServer> {
     if let Some((send_slot, recv_slot)) = route_blocking(b"abilitymgr") {
         return KernelServer::new_with_slots(recv_slot, send_slot).ok();
     }
-    // Routing budget expired (slow boots): fall back to the deterministic slots
-    // init wires via cap_transfer (recv → 3, send → 4).
+    // Routing budget expired (slow boots): fall back to the server slots init pins for
+    // abilitymgr (TASK-0324 P4f-1a).
     emit_line("abilitymgr: route fallback slots");
-    KernelServer::new_with_slots(ABILITYMGR_RECV_SLOT, ABILITYMGR_SEND_SLOT).ok()
+    let server = nexus_service_topology::slots::abilitymgr::SERVER;
+    KernelServer::new_with_slots(server.recv, server.send).ok()
 }
 
 /// Emits the deterministic UART marker for a lifecycle event.

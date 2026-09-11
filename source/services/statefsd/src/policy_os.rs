@@ -17,7 +17,14 @@ pub(crate) fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
     // real defect for weeks — a transient miss printed only `access denied`, which reads like
     // a policy decision. The witness names the outage so a lane failure points at the
     // control plane instead of the policy file.
-    match nexus_ipc::policyd::check_cap_on(0x07, 0x06, 0x05, subject_id, cap) {
+    use nexus_service_topology::slots::statefsd as topo;
+    match nexus_ipc::policyd::check_cap_on(
+        topo::POLICYD.send,
+        topo::REPLY.send,
+        topo::REPLY.recv,
+        subject_id,
+        cap,
+    ) {
         nexus_ipc::policyd::CapDecision::Allow => true,
         nexus_ipc::policyd::CapDecision::Deny => false,
         nexus_ipc::policyd::CapDecision::Unreachable => {
