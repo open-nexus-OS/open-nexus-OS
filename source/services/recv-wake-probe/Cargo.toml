@@ -36,3 +36,5 @@ path = "src/main.rs"
 [dependencies]
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+# TASK-0324 P4e-2: the child's two slots are declared once, not copied from execd.
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }

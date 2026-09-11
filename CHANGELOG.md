@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-11 (TASK-0325: a proof lane declares its resource envelope and never dies silently)
+
+- **A lane never dies silently.** `scripts/qemu-test.sh` traps `TERM`/`INT`/`HUP` and writes
+  `qemu-test: <half> terminated externally (signal N)` plus a `hypothesis.json` record (signal,
+  elapsed, phase, profile). Until now an external kill — an OOM watchdog, a CI supervisor, a
+  Ctrl-C — left a run directory that simply stopped mid-stream, indistinguishable from a hang;
+  four TASK-0324 proof runs died exactly that way in one evening.
+- **A lane declares what it needs from the machine**, in its profile next to its topology and
+  markers: `NEXUS_LANE_MEM_HIGH=4G`/`NEXUS_LANE_MEM_MAX=8G` on `[profile.full]` (inherited
+  through `extends`; CPU/IO weights are supported but declared only with evidence). The harness re-executes the whole lane inside a
+  transient user cgroup scope with exactly those limits; crossing `MemoryMax` is reported
+  from the cgroup's own `memory.events` as `resource envelope EXCEEDED (… hit the wall Nx, M OOM
+  kill(s))`. Where no user cgroup scope is available the harness says so and runs unenforced.
+- Every enveloped run records its own `memory.peak`, so the declared numbers stay measured:
+  751-1,099 MiB per lane (build + QEMU) in a cold `make clean` + `test-all` that passed in one
+  run with zero envelope events — against a desktop session that peaked at 7 GB.
+- `build/` carries a `CACHEDIR.TAG` (cargo already marks `target/`), so cache- and backup-aware
+  tools skip derived output; the gate checks that `scripts/build.sh` keeps marking it, never
+  whether a given machine happens to have the file.
+- The selftest client's rngd exchange exists ONCE (`services/rngd.rs`) and WAITS for the
+  reply. Its three hand-copied predecessors polled against a 500 ms wall clock while rngd was
+  still asking policyd, which failed a cold `test-all` (`SELFTEST: statefs enc roundtrip FAIL`)
+  — the defect class TASK-0324 P3 removed from the policy exchange. The remaining poll sites and
+  the selftest client's routing table are recorded for TASK-0324 P7/P4f.
+- ADR-0063: rule 3 — the full ladder's verdict belongs to CI, not to a workstation.
+  `docs/testing/README.md` documents the policy and the developer-side indexer exclusion (a build
+  script never changes a developer's desktop configuration).
+
+### Changed - 2026-09-10 (TASK-0324 P4e-2: execd's own capability table has one home)
+
+- execd is declared in `nexus-service-topology` — it had no spec at all, so every slot it
+  owns came out of transfer ORDER in init's bespoke arm: server pair 3/4, reply inbox 5/6,
+  logd 7, the delegated windowd route 8/9, bundlemgrd 10, the recv-wake probe endpoints
+  11-14, and the twelve named routes it resolves for the app-hosts it spawns (15-24).
+- The arm's order was its contract, written in comments — "keep this block FIRST: the probe
+  slots are POSITIONAL", "ARM END on purpose: transfers here must never shift earlier
+  positional slots" — plus a `probe_dump_cap_slots()` diagnostic in execd whose only job was
+  to name a drift after it had already produced a dead handshake. init now PINS every one of
+  them (`cap_transfer_to_slot`) and execd reads the same constants.
+- The pre-grant distribution pass (`distribute_server_pair_for`) is declaration-driven for
+  every migrated service, and never silently falls back to an order-based transfer: a failed
+  pin leaves the service unwired WITH a witness rather than listening on an unknown slot.
+- The recv-wake probe child's two slots are declared once (`slots::recv_wake_probe`) instead
+  of once in execd and once in the probe binary, each commented as the other side's contract.
+- `Execd → Logd`, `Execd → Timed`, `Execd → imed-osk` and `Execd → Windowd` were provisioned
+  but never declared; they are in `REQUIRED_ROUTES` now, so the host cross-checks cover them.
+- Fixed while migrating: 21 `init: … route->… ok` wire diagnostics printed a literal `\n`
+  (`b"…ok\\n"`) instead of a newline, so verbose wiring logs ran together; and the doc
+  comment plus `#[allow(clippy::too_many_arguments)]` for `provision_execd_named_routes` sat
+  on `updated_policyd_leg` instead — both artifacts of earlier module splits.
+- Structure: `nexus-service-topology`'s slot constants moved to `slots.rs`, execd's arm and
+  named routes to `bootstrap/execd_wiring.rs`; `wiring.rs` 1784 → 1586 LOC.
+- Slot-SSOT ratchet: 146 → 134 positional declarations, 49 → 46 files.
+
 ### Changed - 2026-09-10 (TASK-0324 P4e: the app-child capability table has one home)
 
 - The capability table a spawned app child receives is declared once in

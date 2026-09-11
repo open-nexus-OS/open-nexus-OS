@@ -17,11 +17,11 @@
 
 use crate::os_lite::route_ctrl;
 
-/// execd's own capability slots holding the windowd client route for spawned
-/// app processes (granted by nexus-init in the execd wiring arm, slot-order
-/// convention like `LOGD_SEND_SLOT`; init logs `init: execd windowd slots`).
-const APP_WINDOWD_SEND_SLOT: u32 = 8;
-const APP_WINDOWD_RECV_SLOT: u32 = 9;
+/// execd's own capability slots holding the windowd client route it DELEGATES to
+/// spawned app processes — init pins them there (TASK-0324 P4e-2), execd reads the
+/// same declaration; init logs `init: execd windowd slots`.
+const APP_WINDOWD_SEND_SLOT: u32 = nexus_service_topology::slots::execd::WINDOWD.send;
+const APP_WINDOWD_RECV_SLOT: u32 = nexus_service_topology::slots::execd::WINDOWD.recv;
 /// The child slots the app-host expects them in (its fixed constants).
 const CHILD_WINDOWD_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD.send;
 const CHILD_WINDOWD_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD.recv;

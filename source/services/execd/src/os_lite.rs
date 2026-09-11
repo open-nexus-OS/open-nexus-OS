@@ -34,6 +34,7 @@ use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 use nexus_metrics::client::MetricsClient;
 use nexus_metrics::{DeterministicIdSource, SpanId};
+use nexus_service_topology::slots::execd as topo;
 
 use crash::{
     deterministic_build_id, normalize_dump_path, validate_dump_path, write_dump_to_statefs,
@@ -145,25 +146,24 @@ mod app_caps {
 }
 
 /// GET_PAYLOAD (TASK-0080D): execd's own slot holding the bundlemgrd request
-/// SEND cap (granted by nexus-init in the execd arm — slot-order contract,
-/// proven by `init: execd bundle slot send=0xa`).
-const BUNDLE_SEND_SLOT: u32 = 10;
+/// SEND cap. Init PINS it here (TASK-0324 P4e-2); the boot line
+/// `init: execd bundle slot send=0xa` reports what the declaration says.
+const BUNDLE_SEND_SLOT: u32 = topo::BUNDLEMGRD.send;
 /// Payload VMO budget: header + 512KB NXLC container (transport CONTRACT,
 /// = app-host `PAYLOAD_MAX_LEN`; settings hit 93% of 256KB, probe alarms 90%).
 const PAYLOAD_VMO_BYTES: usize = 16 + 512 * 1024;
-/// P0.2 recv-wake regression gate (init-minted pairs; slot-order contract,
-/// proven by `init: execd recv-wake slots …`): TWO one-way endpoints for the
-/// probe handshake — ping (execd SEND @13, child RECV granted into child
-/// slot 5) and reply (child SEND granted into child slot 6, execd RECV @16).
-/// Two endpoints because a single shared queue would let execd's reply-wait
-/// steal the ping it just sent to the parked child.
-const PROBE_PING_SEND_SLOT: u32 = 11;
-const PROBE_PING_RECV_SLOT: u32 = 12;
-const PROBE_REPLY_SEND_SLOT: u32 = 13;
-const PROBE_REPLY_RECV_SLOT: u32 = 14;
-/// The probe child's fixed slots (recv-wake-probe's constants).
-const PROBE_CHILD_PING_RECV_SLOT: u32 = 5;
-const PROBE_CHILD_REPLY_SEND_SLOT: u32 = 6;
+/// P0.2 recv-wake regression gate: TWO one-way endpoints for the probe handshake —
+/// ping (execd SENDs, the child RECVs) and reply (the child SENDs, execd RECVs).
+/// Two endpoints because a single shared queue would let execd's reply-wait steal
+/// the ping it just sent to the parked child. Init mints both and pins them where
+/// the topology declares (`init: execd recv-wake slots …` reports the same numbers).
+const PROBE_PING_SEND_SLOT: u32 = topo::PROBE_PING.send;
+const PROBE_PING_RECV_SLOT: u32 = topo::PROBE_PING.recv;
+const PROBE_REPLY_SEND_SLOT: u32 = topo::PROBE_REPLY.send;
+const PROBE_REPLY_RECV_SLOT: u32 = topo::PROBE_REPLY.recv;
+/// The probe CHILD's slots — declared once and read by the probe binary too.
+const PROBE_CHILD_PING_RECV_SLOT: u32 = nexus_service_topology::slots::recv_wake_probe::PING_RECV;
+const PROBE_CHILD_REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::recv_wake_probe::REPLY_SEND;
 /// Probe wire bytes (pinned in recv-wake-probe/src/main.rs).
 const PROBE_MSG_ARMED: u8 = 0xA1;
 const PROBE_MSG_WOKE: u8 = 0xA2;
@@ -234,7 +234,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     run_recv_wake_probe();
     let server = match KernelServer::new_for("execd") {
         Ok(server) => server,
-        Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?,
+        Err(_) => KernelServer::new_with_slots(topo::SERVER.recv, topo::SERVER.send)
+            .map_err(|_| ServerError::Unsupported)?,
     };
     let mut state = State::new();
     // RFC-0080: create the shared glyph-atlas VMO ONCE (RO-cloned per spawn).
@@ -426,8 +427,8 @@ fn append_crash_to_logd(
     const VERSION: u8 = 1;
     const OP_APPEND: u8 = 1;
     const LEVEL_WARN: u8 = 1;
-    // Deterministic logd send slot distributed by init-lite for execd.
-    const LOGD_SEND_SLOT: u32 = 7;
+    // The declared logd route slot init pins for execd (TASK-0324 P4e-2).
+    const LOGD_SEND_SLOT: u32 = topo::LOGD.send;
 
     let scope = b"execd";
 
@@ -1113,8 +1114,8 @@ fn run_recv_wake_probe() {
     // #123 empty-slot lesson: execd RESUMES before nexus-init's wiring arm
     // finishes its cap transfers (proven: the first probe run found slots
     // 4..24 ALL empty at 0.124s while `init: settingsd slots` printed later).
-    // Wait bounded for the LAST probe transfer (reply RECV @16 — transfer
-    // order ping S/R, reply S/R means 16 present ⇒ all four present).
+    // Wait bounded for the LAST probe slot init pins (the reply RECV): the four
+    // pins run in one block, so that one present ⇒ all four present.
     let wired_deadline = nsec().ok().unwrap_or(0).saturating_add(5_000_000_000);
     loop {
         if let Ok(clone) = nexus_abi::cap_clone(PROBE_REPLY_RECV_SLOT) {

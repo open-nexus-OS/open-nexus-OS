@@ -38,14 +38,16 @@ mod probe {
         ipc_recv_v1, ipc_send_v1, nsec, yield_, MsgHeader, IPC_SYS_NONBLOCK, IPC_SYS_TRUNCATE,
     };
 
-    /// Fixed child capability slots — execd `cap_transfer_to_slot`s these
-    /// BEFORE `task_resume` (grants-before-resume discipline), so they are
-    /// valid from the first instruction. Slot 5 = RECV half of the ping
-    /// endpoint (execd holds SEND); slot 6 = SEND half of the reply endpoint
-    /// (execd holds RECV). Two one-way endpoints — a single shared queue
-    /// would let execd's reply-wait steal the ping it just sent.
-    const PING_RECV_SLOT: u32 = 5;
-    const REPLY_SEND_SLOT: u32 = 6;
+    /// The child's capability slots, from the ONE declaration execd grants against
+    /// (TASK-0324 P4e-2 — they used to be copied here with a comment naming execd's
+    /// copy, and execd's comment naming this one). execd `cap_transfer_to_slot`s
+    /// them BEFORE `task_resume` (grants-before-resume discipline), so they are
+    /// valid from the first instruction: the RECV half of the ping endpoint (execd
+    /// holds SEND) and the SEND half of the reply endpoint (execd holds RECV). Two
+    /// one-way endpoints — a single shared queue would let execd's reply-wait steal
+    /// the ping it just sent.
+    const PING_RECV_SLOT: u32 = nexus_service_topology::slots::recv_wake_probe::PING_RECV;
+    const REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::recv_wake_probe::REPLY_SEND;
 
     /// Wire bytes (one-byte protocol, values arbitrary but pinned):
     /// armed → child is about to park; woke → the blocking recv returned.

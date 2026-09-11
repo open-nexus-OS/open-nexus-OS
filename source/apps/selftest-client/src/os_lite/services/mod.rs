@@ -19,6 +19,7 @@ pub(crate) mod keystored;
 pub(crate) mod logd;
 pub(crate) mod metricsd;
 pub(crate) mod policyd;
+pub(crate) mod rngd;
 pub(crate) mod samgrd;
 pub(crate) mod statefs;
 pub(crate) mod statefs_enc;

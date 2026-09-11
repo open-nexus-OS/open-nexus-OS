@@ -12,6 +12,7 @@ pub(crate) mod declared_slots;
 pub(crate) mod diag;
 pub(crate) mod distribute;
 pub(crate) mod endpoints;
+pub(crate) mod execd_wiring;
 pub(crate) mod fault_fixture;
 pub(crate) mod gateway_route;
 pub(crate) mod handshake;

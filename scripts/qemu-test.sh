@@ -5,6 +5,11 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# TASK-0325: the ORIGINAL argv, kept for the resource-envelope re-exec below —
+# the profile pre-scan strips `--profile=` out of "$@".
+LANE_ORIG_ARGV=("$@")
+LANE_START_TS=$(date +%s)
+LANE_ENVELOPE_ENFORCED=false
 # The virgl GPU bringup (3D context + shader/draw/gradient selftests + GL
 # scanout) adds boot time; the stock 90s default cuts the marker ladder a few
 # lines short (late services like metricsd miss their ready line). Widen only
@@ -280,6 +285,133 @@ agent_input_debug_log() {
 }
 # #endregion agent log
 
+# ---------------------------------------------------------------------------
+# TASK-0325 / ADR-0063: a lane accounts for its own resources and NEVER dies
+# silently.
+#
+# Until 2026-09-11 an external supervisor that killed this lane — an OOM
+# killer, a CI watchdog, a Ctrl-C — left nothing behind: the run directory
+# stopped mid-stream and a later reader could not tell a kill from a hang,
+# a QEMU crash or a wedged guest. Four runs died that way in one evening
+# (TASK-0324 P4e-2's proof set) and each one read as "unexplained". The
+# harness that refuses a green marker without behaviour was producing
+# verdicts nobody could decode.
+#
+# `lane_on_signal` writes that witness. `lane_resource_snapshot` records what
+# the lane actually consumed on EVERY run, so the envelope the profile
+# declares stays evidence-based instead of guessed.
+# ---------------------------------------------------------------------------
+lane_cgroup_path() {
+  local rel
+  rel=$(awk -F: '/^0::/{print $3}' /proc/self/cgroup 2>/dev/null) || return 1
+  [[ -n "$rel" && -d "/sys/fs/cgroup$rel" ]] || return 1
+  printf '/sys/fs/cgroup%s' "$rel"
+}
+
+# One ndjson record with the cgroup's memory accounting. Best-effort by
+# design: no cgroup (or an older kernel without `memory.peak`) means no
+# record, never a failure — the snapshot is evidence, not a gate.
+lane_resource_snapshot() {
+  local where=$1
+  local base peak current high max events
+  # ONLY from the lane's own scope. Without the re-exec this process sits in
+  # the enclosing session cgroup, whose numbers are the whole login session's
+  # (measured 2026-09-11: 7.07 GB peak — the desktop, not the lane). A record
+  # labelled "lane" that actually measures the machine is worse than no record.
+  [[ "${NEXUS_LANE_SCOPE:-0}" == "1" ]] || return 0
+  base=$(lane_cgroup_path) || return 0
+  [[ -r "$base/memory.peak" ]] || return 0
+  peak=$(cat "$base/memory.peak" 2>/dev/null || echo 0)
+  current=$(cat "$base/memory.current" 2>/dev/null || echo 0)
+  high=$(cat "$base/memory.high" 2>/dev/null || echo unset)
+  max=$(cat "$base/memory.max" 2>/dev/null || echo unset)
+  events=$(tr '\n' ' ' < "$base/memory.events" 2>/dev/null || true)
+  # The envelope verdict comes from the cgroup's OWN counters, never from an
+  # exit code: a scope that breaches its wall may end as SIGKILL(137) or, when
+  # the service manager tears the scope down first, as SIGTERM(143) — measured both ways on
+  # 2026-09-11. `max`/`oom_kill` say what actually happened.
+  local hit_max oom_kills
+  hit_max=$(awk '/^max /{print $2}' "$base/memory.events" 2>/dev/null || echo 0)
+  oom_kills=$(awk '/^oom_kill /{print $2}' "$base/memory.events" 2>/dev/null || echo 0)
+  if (( ${hit_max:-0} > 0 || ${oom_kills:-0} > 0 )); then
+    echo "[FAIL] qemu-test: resource envelope EXCEEDED (MemoryMax=$max) — hit the wall ${hit_max}x, ${oom_kills} OOM kill(s) inside the lane's own cgroup" >&2
+    agent_debug_log "$RUN_ID" "R" "scripts/qemu-test.sh:$where" "lane resource envelope exceeded" \
+      "{\"memory_max\":\"${max}\",\"memory_peak\":${peak:-0},\"hit_max\":${hit_max:-0},\"oom_kills\":${oom_kills:-0}}"
+  fi
+  agent_debug_log "$RUN_ID" "R" "scripts/qemu-test.sh:$where" "lane resource snapshot" \
+    "{\"memory_peak\":${peak:-0},\"memory_current\":${current:-0},\"memory_high\":\"${high}\",\"memory_max\":\"${max}\",\"events\":\"${events% }\",\"enforced\":${LANE_ENVELOPE_ENFORCED}}"
+}
+
+# The witness for an externally terminated lane. Deliberately NOT written into
+# the UART log: that file carries what the GUEST said, and a harness line in it
+# would corrupt marker analysis. Evidence goes where evidence goes —
+# hypothesis.json (docs/testing/run-logs.md) — plus stderr for the human.
+lane_on_signal() {
+  local sig=$1
+  local num=$2
+  local elapsed=$(( $(date +%s) - LANE_START_TS ))
+  local phase="${RUN_PHASE:-unknown}"
+  local half="supervisor"
+  [[ "${NEXUS_LANE_SCOPE:-0}" == "1" ]] && half="lane"
+  lane_resource_snapshot "signal"
+  agent_debug_log "$RUN_ID" "R" "scripts/qemu-test.sh:signal" "lane terminated externally" \
+    "{\"signal\":\"$sig\",\"elapsed_s\":$elapsed,\"phase\":\"$phase\",\"profile\":\"${PROFILE:-full}\",\"half\":\"$half\"}"
+  echo "[FAIL] qemu-test: $half terminated externally (signal $sig) after ${elapsed}s phase=$phase profile=${PROFILE:-full}" >&2
+  echo "[FAIL] qemu-test: this run has NO verdict — it was killed, not failed. See $HYPOTHESIS_LOG" >&2
+  exit $((128 + num))
+}
+trap 'lane_on_signal TERM 15' TERM
+trap 'lane_on_signal INT 2' INT
+trap 'lane_on_signal HUP 1' HUP
+
+# ---------------------------------------------------------------------------
+# TASK-0325 P1 / ADR-0063 rule 2: the lane declares what it needs from the
+# machine in its PROFILE, next to its topology and markers, and runs inside a
+# cgroup carrying exactly that. `MemoryHigh` is the declared working set
+# (crossing it reclaims); `MemoryMax` is the wall that says "this is a bug"
+# (crossing it kills INSIDE the lane's own cgroup, where the trap above turns
+# it into a readable verdict instead of an anonymous SIGKILL).
+#
+# Where no user cgroup scope is available (CI containers, a bare login shell) the
+# lane says so once and runs unenforced. It never claims an envelope it does
+# not have.
+# ---------------------------------------------------------------------------
+lane_envelope_reexec() {
+  if [[ "${NEXUS_LANE_SCOPE:-0}" == "1" ]]; then
+    LANE_ENVELOPE_ENFORCED=true
+    return 0
+  fi
+  local high=${NEXUS_LANE_MEM_HIGH:-} max=${NEXUS_LANE_MEM_MAX:-}
+  local cpu=${NEXUS_LANE_CPU_WEIGHT:-} io=${NEXUS_LANE_IO_WEIGHT:-}
+  [[ -z "$high$max$cpu$io" ]] && return 0
+  if ! command -v systemd-run >/dev/null 2>&1 || [[ -z "${XDG_RUNTIME_DIR:-}" ]] \
+     || [[ ! -d /sys/fs/cgroup/user.slice ]]; then
+    echo "[warn] qemu-test: lane envelope declared but NOT enforced (no user cgroup scope available)" >&2
+    agent_debug_log "$RUN_ID" "R" "scripts/qemu-test.sh:envelope" "lane envelope unenforced" \
+      "{\"reason\":\"no user cgroup scope\",\"memory_high\":\"$high\",\"memory_max\":\"$max\"}"
+    return 0
+  fi
+  local props=()
+  [[ -n "$high" ]] && props+=(-p "MemoryHigh=$high")
+  [[ -n "$max" ]] && props+=(-p "MemoryMax=$max")
+  [[ -n "$cpu" ]] && props+=(-p "CPUWeight=$cpu")
+  [[ -n "$io" ]] && props+=(-p "IOWeight=$io")
+  echo "[info] qemu-test: lane envelope ${props[*]}" >&2
+  agent_debug_log "$RUN_ID" "R" "scripts/qemu-test.sh:envelope" "lane envelope applied" \
+    "{\"memory_high\":\"$high\",\"memory_max\":\"$max\",\"cpu_weight\":\"$cpu\",\"io_weight\":\"$io\"}"
+  local rc=0
+  set +e
+  NEXUS_LANE_SCOPE=1 systemd-run --user --scope --quiet --collect "${props[@]}" -- \
+    "$0" ${LANE_ORIG_ARGV[@]+"${LANE_ORIG_ARGV[@]}"}
+  rc=$?
+  set -e
+  # No exit-code guessing here: the inner run holds the cgroup and reports the
+  # envelope verdict from `memory.events` into the SAME hypothesis.json.
+  # The inner run owns the verdict and already wrote its exit summary.
+  trap - EXIT TERM INT HUP
+  exit "$rc"
+}
+
 # #region agent log (always-on exit summary; Slice B)
 agent_on_exit() {
   local code=$?
@@ -293,8 +425,15 @@ agent_on_exit() {
   fi
   agent_debug_log "$RUN_ID" "A" "scripts/qemu-test.sh:exit" "qemu smoke exit summary" \
     "{\"exit_code\":$code,\"saw_init_start\":$saw_init,\"dhcp_bound\":$dhcp_bound,\"dhcp_fallback\":$dhcp_fallback}"
+  # TASK-0325: what this lane actually cost, every run — the evidence the
+  # declared envelope is derived from.
+  lane_resource_snapshot "exit"
 }
 trap agent_on_exit EXIT
+# The envelope re-exec must happen before any build or QEMU work, but after
+# the run directory and the ndjson writer exist, so both halves log into the
+# SAME run directory.
+lane_envelope_reexec
 # #endregion agent log
 
 # Continuous QEMU tracing can easily balloon into tens of gigabytes; trim the

@@ -53,7 +53,7 @@ pub(crate) fn provision_inputd_settings_watch(pid: u32, eps: &Endpoints, chan: &
     if ok && recv_ok && send_ok {
         chan.set_send(ServiceId::Settingsd, INPUTD_SETTINGS_SEND_SLOT);
         if crate::bootstrap::diag::raw_or_expanded("inputd") {
-            debug_write_bytes(b"init: inputd settings-watch ok\\n");
+            debug_write_bytes(b"init: inputd settings-watch ok\n");
         }
     } else {
         debug_write_bytes(b"init: inputd settings-watch FAIL (xfer)\n");
@@ -101,7 +101,7 @@ pub(crate) fn provision_windowd_settings_watch(pid: u32, eps: &Endpoints, chan: 
     .is_some();
     if recv_ok && send_ok {
         if crate::bootstrap::diag::raw_or_expanded("windowd") {
-            debug_write_bytes(b"init: windowd settings-watch ok\\n");
+            debug_write_bytes(b"init: windowd settings-watch ok\n");
         }
     } else {
         debug_write_bytes(b"init: windowd settings-watch FAIL (xfer)\n");

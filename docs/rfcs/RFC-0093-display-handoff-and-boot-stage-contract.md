@@ -20,7 +20,7 @@
 - **Phase 1 (this contract + ADR-0062)**: ✅ 2026-09-09 (TASK-0324 P1 — paper)
 - **Phase 2 (`@ready` verb, honest `init: up`)**: ✅ 2026-09-09 (TASK-0324 P2 — `test-all` green over 8 lanes, 0 announce failures, `init: up` follows `<svc>: ready` everywhere)
 - **Phase 3 (routing v2: nonce mandatory, parked replies, fail-closed)**: ✅ 2026-09-10 (TASK-0324 P3 — `test-all` green over 8 lanes; park scope amended below with implementation evidence)
-- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: 🟨 2026-09-10 — crate + ratchet gate landed (P4-base); consumer migrations P4a–P4f open
+- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: 🟨 2026-09-10 — crate + ratchet gate landed (P4-base); windowd (P4a), inputd (P4b), gpud + the fleet-wide MMIO slot (P4c), hidrawd (P4d), the app-child table (P4e) and execd's own table (P4e-2) migrated — 191 → 134 positional declarations; P4f (policyd, netstackd, bootctld, keystored, updated, dsoftbusd, bundlemgrd, metricsd, imed, selftest-client) open
 - **Phase 5 (stage fence replaces every `yield_()` sync)**: ⬜ TASK-0324 P5
 - **Phase 6 (handoff v2: reveal handshake, seq acks, kernel display mode, readback off-scanout)**: ⬜ TASK-0324 P6
 - **Phase 7–9 (consumer polls deleted, closure docs/gates, 8/8 boots)**: ⬜ TASK-0324 P7–P9
@@ -207,6 +207,27 @@ constants. Deleted (P4a–P4f, atomic per consumer): every `new_with_slots(…)`
 `is_bespoke_wired`, the slot-order comments. Gate: `check-slot-ssot.sh` in `just check`;
 `test_reject_slot_collision_per_service`, `test_reject_route_without_slots`,
 `test_reject_service_missing_from_specs`, `test_reject_clone_leak`.
+
+- **Amendment 2026-09-10 (P4a-P4e-2, implementation evidence).** "Every `"<svc>" =>` arm in
+  `wiring.rs` is deleted" is too broad and is not what the migrations do. What a bespoke arm
+  holds is two different things: WHICH slot a capability lands in (topology — deleted from the
+  arm, declared once, pinned by `declared_slots.rs`) and WHICH capability is handed over at all
+  — clone vs. move of a shared endpoint, an endpoint minted per service (execd's recv-wake
+  probe), a route recorded for later name resolution. The second kind is per-service
+  provisioning, not slot topology, and moving it into a generic table would only rebuild the
+  same decisions behind an indirection. So the arms shrink to their provisioning decisions and
+  move to their own modules (`bootstrap/execd_wiring.rs`), the slot decisions leave them
+  entirely, and `is_bespoke_wired` stays as the gate that keeps the GENERIC arm off a service
+  that provisions itself. The mechanical guarantee is the ratchet, not the arm count:
+  `check-slot-ssot.sh` (191 → 134 positional declarations so far) plus
+  `test_reject_partial_slot_declaration`.
+- **Amendment 2026-09-10 (P4e-2).** A service's server pair is not necessarily handed out by
+  its wiring arm: the task-#123 pre-grant pass (`distribute_server_pair_for`) runs first for
+  every service with a pre-minted pair, and the arm's own branch is a fallback that normally
+  never runs. The pin belongs where the capability is actually transferred, so that pass is
+  declaration-driven too — and it never falls back to an order-based transfer when a declared
+  pin fails: a failed pin leaves the service unwired with a witness (`init: FAIL declared
+  slot …`), which is a dead route you can see, not a service listening on a slot nobody knows.
 
 ### 5. Handoff contract v2 — windowd ↔ gpud (normative wire)
 

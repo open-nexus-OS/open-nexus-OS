@@ -76,6 +76,14 @@ pub enum NamedSlot {
     Settings,
     /// Boot-stage fence, WAIT rights only (ADR-0062).
     StageFence,
+    /// recv-wake probe (execd): SEND half of the ping endpoint.
+    ProbePingSend,
+    /// recv-wake probe (execd): RECV half of the ping endpoint.
+    ProbePingRecv,
+    /// recv-wake probe (execd): SEND half of the reply endpoint.
+    ProbeReplySend,
+    /// recv-wake probe (execd): RECV half of the reply endpoint.
+    ProbeReplyRecv,
 }
 
 /// One named slot binding of a service.
@@ -89,11 +97,12 @@ pub struct NamedSlotBinding {
 
 /// Service identity.
 mod ids;
+/// Per-service slot constants (split out of `specs` under the module-size ratchet).
+pub mod slots;
 /// Route graph + per-service declarations.
 mod specs;
 
 pub use ids::ServiceId;
-pub use specs::slots;
 pub use specs::{
     exposes_server, spec_for, Route, RouteKind, ServiceSpec, REQUIRED_ROUTES, SERVICE_SPECS,
 };

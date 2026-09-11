@@ -11,9 +11,32 @@
 # STATUS: Functional
 # API_STABILITY: Stable; new harness profiles are additive
 
+# TASK-0325 / ADR-0063: the lane's RESOURCE envelope is declared here, next to
+# its topology and markers, and carried to every profile through `extends`.
+# `qemu-test.sh` runs the whole lane (build + QEMU) in a cgroup with exactly
+# these limits.
+#
+# The numbers are MEASURED, not guessed: a full `ota-bundle-delta` lane peaked
+# at 845 MB (2026-09-11, cgroup `memory.peak`, build + QEMU in one scope), and
+# every run since records its own peak into `hypothesis.json` — tighten or widen
+# them from that evidence, never from a hunch.
+#
+# MemoryHigh is the declared working set: crossing it RECLAIMS (a cold full
+# build legitimately does, and pays for it in page cache, not in a kill).
+# MemoryMax is the wall that says "this is a bug": crossing it kills inside the
+# lane's own cgroup, where the harness turns it into a readable verdict instead
+# of an anonymous SIGKILL. A cold `make clean` + `test-all` (2026-09-11) peaked
+# at 1.7 GB non-reclaimable (anon) with zero envelope events.
+#
+# CPU/IO weights (NEXUS_LANE_CPU_WEIGHT / NEXUS_LANE_IO_WEIGHT) are supported by
+# the harness but deliberately NOT declared: they are policy, not a measurement,
+# and lanes without icount run their guest on host wall-clock time — lowering a
+# proof lane's share under contention makes timing-sensitive lanes less
+# reliable, which is the opposite of what an envelope is for. Declare them per
+# profile only with evidence.
 [profile.full]
 runner = "scripts/qemu-test.sh"
-env = {}
+env = { NEXUS_LANE_MEM_HIGH = "4G", NEXUS_LANE_MEM_MAX = "8G" }
 
 [profile.headless]
 runner = "scripts/qemu-test.sh"

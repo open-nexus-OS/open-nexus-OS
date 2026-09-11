@@ -17,12 +17,7 @@
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
-extern crate alloc;
-
-use alloc::vec::Vec;
-
-use nexus_abi::yield_;
-use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
+use nexus_ipc::KernelClient;
 use statefs::protocol as statefs_proto;
 use statefs::StatefsError;
 
@@ -33,45 +28,19 @@ use super::statefs_v2::{get_value, put_ok, sync_and_reopen};
 const ENC_KEY: &str = "/state/app/selftest/enc/token";
 const ENC_VAL: &[u8] = b"enc-roundtrip-plaintext-v1";
 
-/// Fetch `SALT_LEN` bytes of real entropy from rngd (same wire + slots as
-/// the rng probes). None = no entropy — the caller must NOT enable
-/// encryption (RED rule: never claim secure encryption without a salt
-/// provenance).
+/// Fetch `SALT_LEN` bytes of real entropy from rngd over the client's one rngd exchange
+/// (`services::rngd`, which WAITS for the reply). None = no entropy — the caller must NOT
+/// enable encryption (RED rule: never claim secure encryption without a salt provenance).
 fn rng_salt() -> Option<[u8; statefs::enc::SALT_LEN]> {
-    const RNGD_SEND_SLOT: u32 = 0x1e;
-    const RNGD_RECV_SLOT: u32 = 0x1f;
     let nonce = (nexus_abi::nsec().unwrap_or(0) as u32) ^ 0x5E17_ECAF;
-    let mut req = Vec::with_capacity(10);
-    req.extend_from_slice(&[b'R', b'G', 1, 1]);
-    req.extend_from_slice(&nonce.to_le_bytes());
-    req.extend_from_slice(&(statefs::enc::SALT_LEN as u16).to_le_bytes());
-    let client = KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT).ok()?;
-    client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(500))).ok()?;
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(500_000_000);
-    loop {
-        if nexus_abi::nsec().unwrap_or(0) >= deadline {
-            return None;
-        }
-        match client.recv(IpcWait::NonBlocking) {
-            Ok(rsp) => {
-                if rsp.len() < 9 || rsp[0] != b'R' || rsp[1] != b'G' || rsp[3] != (1 | 0x80) {
-                    continue;
-                }
-                if rsp[4] != 0
-                    || u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]) != nonce
-                    || rsp.len() != 9 + statefs::enc::SALT_LEN
-                {
-                    return None;
-                }
-                let mut salt = [0u8; statefs::enc::SALT_LEN];
-                salt.copy_from_slice(&rsp[9..]);
-                return Some(salt);
-            }
-            Err(_) => {
-                let _ = yield_();
-            }
-        }
+    let client = super::rngd::client().ok()?;
+    let reply = super::rngd::get_entropy(&client, statefs::enc::SALT_LEN as u16, nonce).ok()?;
+    if reply.status != 0 || reply.entropy.len() != statefs::enc::SALT_LEN {
+        return None;
     }
+    let mut salt = [0u8; statefs::enc::SALT_LEN];
+    salt.copy_from_slice(&reply.entropy);
+    Some(salt)
 }
 
 /// Enable record encryption (idempotent) and prove the roundtrip.

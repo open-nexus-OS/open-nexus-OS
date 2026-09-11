@@ -72,3 +72,4 @@ Note: **ADR-0019 was never filed; the number is retired to keep history stable.*
 - [ADR-0060: Verified system volume — `bundlemgrd` is the volume verifier and bundle authority, `init` stays the sole spawner](0060-verified-system-volume-bundlemgrd-verifier-init-spawner.md) — Accepted
 - [ADR-0061: Inbound exposure is an intent through ONE gateway — no service binds a non-loopback address itself](0061-exposure-intent-instead-of-free-binds.md) — Accepted
 - [ADR-0062: init synchronizes boot ONLY through `@ready` and one kernel stage fence — never through yields, resume order or time caps](0062-boot-stage-fence-and-readiness-barriers.md) — Accepted
+- [ADR-0063: A proof lane declares its resource envelope, never dies silently, and CI is the authority for the full ladder](0063-proof-lane-resource-envelope-and-authority.md) — Accepted

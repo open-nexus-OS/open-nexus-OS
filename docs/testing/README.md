@@ -116,6 +116,33 @@ The complete just-target catalog (incl. per-TASK proof floors) lives in [os-mark
   interactive boot is a bug in the emitter (`debug_write` instead of `debug_println`, or
   a service that never armed verdict folding), not a harness setting.
 
+## Lane resources and where a verdict comes from (ADR-0063)
+
+- **A lane declares what it needs from the machine**, in its profile
+  (`proof-manifest/profiles/harness.toml`: `NEXUS_LANE_MEM_HIGH/_MEM_MAX`; CPU/IO weights are
+  supported but declared only with evidence),
+  and `scripts/qemu-test.sh` re-executes the whole lane — build and QEMU — inside a
+  transient user cgroup scope with exactly those limits. `MemoryHigh` is the declared
+  working set (crossing it reclaims); `MemoryMax` is the wall that says "this is a bug"
+  (crossing it kills inside the lane's own cgroup, with a witness). Where no user cgroup scope
+  is available (CI containers), the harness says so in the log and runs unenforced — it never
+  claims an envelope it does not have.
+- **A lane never dies silently.** A `TERM`/`INT`/`HUP` from outside writes
+  `qemu-test: lane terminated externally (signal N)` plus a `hypothesis.json` record naming
+  the signal, the elapsed time and the phase. If a run directory just stops, that is a
+  harness defect — not something a reader has to guess about. Every run also records its own
+  `memory.peak`, which is where the declared numbers come from (measured 2026-09-11 in a cold
+  `make clean` + `test-all`: 751-1,099 MiB per lane, build + QEMU).
+- **The full ladder's verdict belongs to CI, not to a workstation.** A green `test-all` on a
+  desktop is evidence; the authority is the run on a machine with no other tenants. Locally,
+  run the subset that fits the machine you are on.
+- **Developer setup (not automated on purpose):** `build/` and `target/` carry a
+  `CACHEDIR.TAG`, so cache- and backup-aware tools skip them. Desktop file indexers use their
+  own exclusion setting (an "exclude folders" list) — add `<repo>/build` and `<repo>/target`
+  there. A build script must never reach into your desktop configuration, so this stays a
+  documented step: an indexer walking a few hundred MB of freshly written images on every
+  lane is a real cause of the memory pressure that kills lanes.
+
 ## Test logs
 
 All test/QEMU runs write to `build/logs/<profile>--<timestamp>/` (`latest` symlink can be stale — prefer the newest run directory). See [`docs/testing/run-logs.md`](run-logs.md) for the run-directory layout, the `hypothesis.json` decode grid (H1..H5, H4 = build errors, H4b = build warnings, …), and `just logs-gc [keep]` pruning.

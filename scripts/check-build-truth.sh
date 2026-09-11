@@ -32,5 +32,20 @@ if grep -nE 'release/\$svc"?$|release/\$svc[^_a-zA-Z]' scripts/build.sh | grep -
   grep -nE 'release/\$svc' scripts/build.sh >&2
   fail=1
 fi
+# TASK-0325 / ADR-0063: derived output marks itself as derived. cargo writes
+# CACHEDIR.TAG into target/; build/ is ours, and the marker is what lets cache-
+# and backup-aware tools skip it WITHOUT per-machine configuration.
+# The gate checks the CODE (build.sh marks the directory), never the machine: a
+# build/ left over from before this rule would otherwise turn `just check` red
+# on every existing checkout until a build happened to run — a gate measuring
+# the host instead of the tree (the 2026-08-05 class).
+if ! grep -q '^mark_derived_dir "\$ROOT/build"$' scripts/build.sh; then
+  echo "[FAIL] build-truth: scripts/build.sh no longer marks build/ as derived output (mark_derived_dir, ADR-0063)" >&2
+  fail=1
+fi
+if [[ -f build/CACHEDIR.TAG ]] && ! head -1 build/CACHEDIR.TAG | grep -qx 'Signature: 8a477f597d28d172789f06886806bc55'; then
+  echo "[FAIL] build-truth: build/CACHEDIR.TAG does not start with the standard signature line" >&2
+  fail=1
+fi
 if [[ "$fail" -ne 0 ]]; then exit 1; fi
-echo "[PASS] build-truth: service features + ELF paths resolve through the manifest SSOT only"
+echo "[PASS] build-truth: service features + ELF paths resolve through the manifest SSOT only; derived output is marked"

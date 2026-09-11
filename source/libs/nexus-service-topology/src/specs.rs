@@ -8,104 +8,7 @@
 //! API_STABILITY: Stable within the workspace
 //! TEST_COVERAGE: crate tests in lib.rs + `nexus-init` route/policy cross-checks
 
-use crate::{NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
-
-/// Per-service slot constants — the SAME values the specs below carry, in a form a service
-/// can use in a `const` context. Defined here ONCE and referenced by `SERVICE_SPECS`, so
-/// init (which pins them) and the service (which reads them) can never drift apart.
-pub mod slots {
-    use super::SlotPair;
-
-    /// The capability table of a SPAWNED APP CHILD (TASK-0324 P4e).
-    ///
-    /// A per-app space, distinct from the service slots above: execd grants into it at
-    /// launch (`cap_transfer_to_slot`) and the app-host reads from it. Before P4e the same
-    /// numbers lived three times — execd's grant constants, the app-host's fixed constants
-    /// and `nexus-sdk-routes` — and the comments on each side said "the other side's fixed
-    /// constant", which is a contract only a reader can enforce.
-    pub mod app_child {
-        use super::SlotPair;
-
-        /// Windowd client route (present/attach; windowd answers on its own endpoint).
-        pub const WINDOWD: SlotPair = SlotPair::new(5, 6);
-        /// The app's `.nxir` payload VMO.
-        pub const PAYLOAD_VMO: u32 = 7;
-        /// ADR-0042 per-app event channel: the child's RECV half.
-        pub const EVENTS_RECV: u32 = 8;
-        /// Shared CAP_MOVE reply inbox for every `svc.*` call.
-        pub const REPLY: SlotPair = SlotPair::new(10, 9);
-        /// First per-service SEND slot; `nexus-sdk-routes` rows start here.
-        pub const SVC_BASE: u32 = 11;
-        /// SEND clone of the child's own event channel (it attaches this to windowd).
-        pub const EVENTS_SEND: u32 = 14;
-        /// Shared read-only glyph atlas VMO (RFC-0080).
-        pub const ATLAS_VMO: u32 = 19;
-        /// statefs route of the `demo.minidump` payload. Numerically the same slots as
-        /// `PAYLOAD_VMO`/`EVENTS_RECV`, which is safe because those are only granted to
-        /// app-host children and this pair only to the exit42 test image.
-        pub const MINIDUMP_STATEFS: SlotPair = SlotPair::new(7, 8);
-    }
-
-    /// gpud (TASK-0324 P4c).
-    pub mod gpud {
-        use super::SlotPair;
-
-        /// gpud's own server endpoint (windowd presents here).
-        pub const SERVER: SlotPair = SlotPair::new(4, 3);
-    }
-
-    /// hidrawd (TASK-0324 P4d).
-    pub mod hidrawd {
-        use super::SlotPair;
-
-        /// Normalized HID events to inputd (inputd answers on its own endpoint).
-        pub const INPUTD: SlotPair = SlotPair::new(3, 4);
-    }
-
-    /// inputd (TASK-0324 P4b).
-    pub mod inputd {
-        use super::SlotPair;
-
-        /// inputd's own server endpoint.
-        pub const SERVER: SlotPair = SlotPair::new(4, 3);
-        /// Visible-state push to windowd (windowd answers on its own endpoint).
-        pub const WINDOWD: SlotPair = SlotPair::new(5, 6);
-        /// Key-forward leg to imed (RFC-0075).
-        pub const IMED: SlotPair = SlotPair::new(7, 8);
-        /// SEND to settingsd (`OP_WATCH` registration + reads).
-        pub const SETTINGS_SEND: u32 = 0x20;
-        /// Settings push channel: RECV half (event inbox).
-        pub const WATCH_RECV: u32 = 0x21;
-        /// Settings push channel: SEND half (moved with `OP_WATCH`).
-        pub const WATCH_SEND: u32 = 0x22;
-    }
-
-    /// windowd (TASK-0324 P4a).
-    pub mod windowd {
-        use super::SlotPair;
-
-        /// windowd's own server endpoint (clients send here).
-        pub const SERVER: SlotPair = SlotPair::new(4, 3);
-        /// The shared CAP_MOVE reply inbox for its outbound calls.
-        pub const REPLY: SlotPair = SlotPair::new(8, 7);
-        /// Present/attach/cursor handoff to gpud (its own response endpoint).
-        pub const GPUD: SlotPair = SlotPair::new(5, 6);
-        /// Dynamic Apps menu (`OP_LIST_APPS`).
-        pub const BUNDLEMGRD: SlotPair = SlotPair::new(9, REPLY.recv);
-        /// Greeter/login relay.
-        pub const SESSIOND: SlotPair = SlotPair::new(10, REPLY.recv);
-        /// Theme GET/SET persistence.
-        pub const SETTINGSD: SlotPair = SlotPair::new(11, REPLY.recv);
-        /// `OP_LAUNCH` from the shell (abilitymgr answers on its own endpoint).
-        pub const ABILITYMGR: SlotPair = SlotPair::new(12, 13);
-        /// Focus relay `OP_SET_FOCUS`.
-        pub const IMED: SlotPair = SlotPair::new(14, REPLY.recv);
-        /// Settings push channel (RFC-0083): RECV half, drained per frame.
-        pub const WATCH_RECV: u32 = 0x40;
-        /// Settings push channel: SEND half, cloned per `OP_WATCH`.
-        pub const WATCH_SEND: u32 = 0x41;
-    }
-}
+use crate::{slots, NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
 
 /// Declarative capability-route SSOT: the `(from → to)` service links the system
 /// is expected to provision. Adding a service that needs a route without listing
@@ -125,15 +28,22 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Execd, ServiceId::Vfsd),       // svc.files.* (filemanager, RFC-0073/TASK-0291)
     (ServiceId::Execd, ServiceId::Statefsd),   // minidump child grant + own dump writes (TASK-0049)
     (ServiceId::Execd, ServiceId::Policyd),    // crash attach-level gate (TASK-0051B, RFC-0087 §5)
+    (ServiceId::Execd, ServiceId::Timed),      // svc.time.* / clock tick (RFC-0076)
+    (ServiceId::Execd, ServiceId::ImedOsk),    // svc.ime.osk (RFC-0075 Phase 2)
+    (ServiceId::Execd, ServiceId::Logd),       // crash-report appends (TASK-0049)
+    // TASK-0324 P4e-2: execd is GRANTED a windowd client route it never calls itself — it
+    // clones both halves into every app child (ADR-0042). Provisioned like any other route,
+    // so it is declared like one; the delegation is noted on `slots::execd::WINDOWD`.
+    (ServiceId::Execd, ServiceId::Windowd),
     (ServiceId::Windowd, ServiceId::Bundlemgrd), // dynamic Apps menu (OP_LIST_APPS)
-    (ServiceId::Windowd, ServiceId::Sessiond), // greeter/login relay (TASK-0065B)
-    (ServiceId::Windowd, ServiceId::Settingsd), // theme GET/SET persistence (TASK-0072 P10)
-    (ServiceId::Windowd, ServiceId::Gpud),     // present/attach/cursor handoff (ADR-0032)
+    (ServiceId::Windowd, ServiceId::Sessiond),   // greeter/login relay (TASK-0065B)
+    (ServiceId::Windowd, ServiceId::Settingsd),  // theme GET/SET persistence (TASK-0072 P10)
+    (ServiceId::Windowd, ServiceId::Gpud),       // present/attach/cursor handoff (ADR-0032)
     (ServiceId::Windowd, ServiceId::Abilitymgr), // OP_LAUNCH from the shell (TASK-0080D)
-    (ServiceId::Windowd, ServiceId::Imed),     // focus relay OP_SET_FOCUS (RFC-0075)
-    (ServiceId::Inputd, ServiceId::Windowd),   // visible-state push (pointer/keyboard)
-    (ServiceId::Inputd, ServiceId::Imed),      // key-forward leg (RFC-0075)
-    (ServiceId::Hidrawd, ServiceId::Inputd),   // normalized HID events (RFC-0053)
+    (ServiceId::Windowd, ServiceId::Imed),       // focus relay OP_SET_FOCUS (RFC-0075)
+    (ServiceId::Inputd, ServiceId::Windowd),     // visible-state push (pointer/keyboard)
+    (ServiceId::Inputd, ServiceId::Imed),        // key-forward leg (RFC-0075)
+    (ServiceId::Hidrawd, ServiceId::Inputd),     // normalized HID events (RFC-0053)
     // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
     (ServiceId::Rngd, ServiceId::Logd), // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
@@ -238,6 +148,89 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         server_slots: SlotPair::UNDECLARED,
         reply_slots: SlotPair::UNDECLARED,
         extra_slots: &[],
+    },
+    ServiceSpec {
+        id: ServiceId::Execd,
+        exposes_server: true,
+        reply_inbox: true,
+        // TASK-0324 P4e-2: execd's OWN table (P4e declared the table of the children it
+        // spawns). It had no spec at all — every one of the numbers below was a transfer
+        // position in init's bespoke arm, mirrored by a `const … SLOT` in execd and held in
+        // place by comments ("keep this block FIRST", "ARM END on purpose"). The named
+        // routes at 15+ travel back in the route response, so execd resolves them BY NAME
+        // and never hardcodes them; they are declared because init must still put them
+        // somewhere, and "somewhere" was previously whatever slot the last transfer left.
+        routes_to: &[
+            Route { to: ServiceId::Logd, kind: RouteKind::ReplyInbox, slots: slots::execd::LOGD },
+            Route {
+                to: ServiceId::Windowd,
+                kind: RouteKind::SharedResponse,
+                slots: slots::execd::WINDOWD,
+            },
+            Route {
+                to: ServiceId::Bundlemgrd,
+                kind: RouteKind::ReplyInbox,
+                slots: slots::execd::BUNDLEMGRD,
+            },
+            Route {
+                to: ServiceId::Abilitymgr,
+                kind: RouteKind::ReplyInbox,
+                slots: slots::execd::ABILITYMGR,
+            },
+            Route {
+                to: ServiceId::Sessiond,
+                kind: RouteKind::ReplyInbox,
+                slots: slots::execd::SESSIOND,
+            },
+            Route {
+                to: ServiceId::Settingsd,
+                kind: RouteKind::ReplyInbox,
+                slots: slots::execd::SETTINGSD,
+            },
+            Route { to: ServiceId::Timed, kind: RouteKind::ReplyInbox, slots: slots::execd::TIMED },
+            Route {
+                to: ServiceId::ImedOsk,
+                kind: RouteKind::ReplyInbox,
+                slots: slots::execd::IMED_OSK,
+            },
+            Route { to: ServiceId::Vfsd, kind: RouteKind::ReplyInbox, slots: slots::execd::VFSD },
+            Route {
+                to: ServiceId::Updated,
+                kind: RouteKind::ReplyInbox,
+                slots: slots::execd::UPDATED,
+            },
+            Route {
+                to: ServiceId::Statefsd,
+                kind: RouteKind::SharedResponse,
+                slots: slots::execd::STATEFSD,
+            },
+            Route {
+                to: ServiceId::Policyd,
+                kind: RouteKind::ReplyInbox,
+                slots: slots::execd::POLICYD,
+            },
+        ],
+        announce: true,
+        server_slots: slots::execd::SERVER,
+        reply_slots: slots::execd::REPLY,
+        extra_slots: &[
+            NamedSlotBinding {
+                name: NamedSlot::ProbePingSend,
+                slot: slots::execd::PROBE_PING.send,
+            },
+            NamedSlotBinding {
+                name: NamedSlot::ProbePingRecv,
+                slot: slots::execd::PROBE_PING.recv,
+            },
+            NamedSlotBinding {
+                name: NamedSlot::ProbeReplySend,
+                slot: slots::execd::PROBE_REPLY.send,
+            },
+            NamedSlotBinding {
+                name: NamedSlot::ProbeReplyRecv,
+                slot: slots::execd::PROBE_REPLY.recv,
+            },
+        ],
     },
     ServiceSpec {
         id: ServiceId::Hidrawd,

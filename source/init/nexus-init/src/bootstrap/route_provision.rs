@@ -10,7 +10,6 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: nexus-init host tests + QEMU boot ladder.
 
-use crate::bootstrap::diag::iw;
 use crate::bootstrap::endpoints::Endpoints;
 use crate::bootstrap::helpers::debug_write_bytes;
 use crate::bootstrap::CtrlChannel;
@@ -21,8 +20,9 @@ use nexus_abi::Rights;
 /// inbox + a SEND cap to bundlemgrd's request endpoint, so windowd's
 /// `route_blocking("bundlemgrd")` / `route_blocking("@reply")` resolve (declared in
 /// `service_topology` as Windowd→Bundlemgrd; granted `bundle.query`+`ipc.core` in
-/// base.toml). MUST be called AFTER windowd's gpud caps are transferred so the
-/// present handoff's hardcoded fallback slots (5/6 = gpud) are not displaced.
+/// base.toml). Every leg is pinned to its declared slot (TASK-0324 P4a), so call
+/// order no longer decides where anything lands — this helper used to carry
+/// "MUST be called AFTER windowd's gpud caps or the present handoff dies".
 /// Best-effort: a failure leaves the route unwired (the menu falls back to its
 /// seed), never bricks boot.
 pub(crate) fn provision_windowd_registry_route(
@@ -52,7 +52,7 @@ pub(crate) fn provision_windowd_registry_route(
             chan.set_recv(ServiceId::Bundlemgrd, reply_recv);
             // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
             if crate::bootstrap::diag::raw_or_expanded("windowd") {
-                debug_write_bytes(b"init: windowd route->bundlemgrd ok\\n");
+                debug_write_bytes(b"init: windowd route->bundlemgrd ok\n");
             }
         }
     }
@@ -60,9 +60,8 @@ pub(crate) fn provision_windowd_registry_route(
 
 /// Provisions windowd's session route (TASK-0065B): a SEND cap to sessiond's
 /// PRE-MINTED request endpoint; replies arrive on the CAP_MOVE reply inbox
-/// `provision_windowd_registry_route` created — call order matters (that
-/// helper first, and both strictly AFTER windowd's gpud caps so the present
-/// handoff's hardcoded fallback slots 5/6 are not displaced). Best-effort: a
+/// `provision_windowd_registry_route` created, so that helper still runs first
+/// (a data dependency, not a slot-order one: both legs are pinned). Best-effort: a
 /// failure leaves the session probe unanswered and windowd falls back to the
 /// auto shell — never bricks boot.
 pub(crate) fn provision_windowd_session_route(pid: u32, sess_req: u32, chan: &mut CtrlChannel) {
@@ -79,7 +78,7 @@ pub(crate) fn provision_windowd_session_route(pid: u32, sess_req: u32, chan: &mu
         chan.set_recv(ServiceId::Sessiond, reply_recv);
         // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
         if crate::bootstrap::diag::raw_or_expanded("windowd") {
-            debug_write_bytes(b"init: windowd route->sessiond ok\\n");
+            debug_write_bytes(b"init: windowd route->sessiond ok\n");
         }
     }
 }
@@ -106,7 +105,7 @@ pub(crate) fn provision_windowd_settings_route(
         chan.set_send(ServiceId::Settingsd, s);
         chan.set_recv(ServiceId::Settingsd, reply_recv);
         if crate::bootstrap::diag::raw_or_expanded("windowd") {
-            debug_write_bytes(b"init: windowd route->settingsd ok\\n");
+            debug_write_bytes(b"init: windowd route->settingsd ok\n");
         }
     }
 }
@@ -132,7 +131,7 @@ pub(crate) fn provision_windowd_imed_route(pid: u32, imed_req: u32, chan: &mut C
             chan.set_send(ServiceId::Imed, s);
             chan.set_recv(ServiceId::Imed, reply_recv);
             if crate::bootstrap::diag::raw_or_expanded("windowd") {
-                debug_write_bytes(b"init: windowd route->imed ok\\n");
+                debug_write_bytes(b"init: windowd route->imed ok\n");
             }
         }
         None => debug_write_bytes(b"init: windowd route->imed FAIL (xfer)\n"),
@@ -164,7 +163,7 @@ pub(crate) fn provision_inputd_imed_route(pid: u32, eps: &Endpoints, chan: &mut 
             chan.set_send(ServiceId::Imed, s);
             chan.set_recv(ServiceId::Imed, r);
             if crate::bootstrap::diag::raw_or_expanded("inputd") {
-                debug_write_bytes(b"init: inputd route->imed ok\\n");
+                debug_write_bytes(b"init: inputd route->imed ok\n");
             }
         }
         _ => debug_write_bytes(b"init: inputd route->imed FAIL (xfer)\n"),
@@ -209,7 +208,7 @@ pub(crate) fn provision_windowd_ability_route(
             chan.set_send(ServiceId::Abilitymgr, s);
             chan.set_recv(ServiceId::Abilitymgr, r);
             if crate::bootstrap::diag::raw_or_expanded("windowd") {
-                debug_write_bytes(b"init: windowd route->abilitymgr ok\\n");
+                debug_write_bytes(b"init: windowd route->abilitymgr ok\n");
             }
         }
         _ => debug_write_bytes(b"init: windowd route->abilitymgr FAIL (xfer)\n"),
@@ -277,7 +276,7 @@ pub(crate) fn provision_imed_legs(
             chan.set_send(ServiceId::Windowd, send);
             chan.set_recv(ServiceId::Windowd, recv);
             if crate::bootstrap::diag::raw_or_expanded("imed") {
-                debug_write_bytes(b"init: imed route->windowd ok\\n");
+                debug_write_bytes(b"init: imed route->windowd ok\n");
             }
         }
         _ => debug_write_bytes(b"init: imed route->windowd FAIL (xfer)\n"),
@@ -306,7 +305,7 @@ pub(crate) fn provision_imed_legs(
         });
         if granted.is_some() && reply.is_some() {
             if crate::bootstrap::diag::raw_or_expanded("imed") {
-                debug_write_bytes(b"init: imed route->settingsd ok\\n");
+                debug_write_bytes(b"init: imed route->settingsd ok\n");
             }
         } else {
             debug_write_bytes(b"init: imed route->settingsd FAIL\n");
@@ -336,29 +335,10 @@ pub(crate) fn provision_imed_legs(
         });
         if granted.is_some() && reply.is_some() {
             if crate::bootstrap::diag::raw_or_expanded("imed") {
-                debug_write_bytes(b"init: imed route->statefsd ok\\n");
+                debug_write_bytes(b"init: imed route->statefsd ok\n");
             }
         } else {
             debug_write_bytes(b"init: imed route->statefsd FAIL\n");
-        }
-    }
-}
-
-/// execd's `imed-osk` named route (RFC-0075 Phase 2): the DEDICATED osk
-/// endpoint — possession IS the authorization; execd provisions it only to
-/// `nexus.permission.IME` bundles. Pre-cloned in the orchestrator (a
-/// transfer MOVES the cap).
-pub(crate) fn provision_execd_imed_osk(
-    pid: u32,
-    imed_osk_execd: u32,
-    reply_recv_slot: u32,
-    chan: &mut CtrlChannel,
-) {
-    if let Ok(s) = nexus_abi::cap_transfer(pid, imed_osk_execd, Rights::SEND) {
-        chan.set_send(ServiceId::ImedOsk, s);
-        chan.set_recv(ServiceId::ImedOsk, reply_recv_slot);
-        if crate::bootstrap::diag::raw_or_expanded("execd") {
-            debug_write_bytes(b"init: execd route->imed-osk ok\\n");
         }
     }
 }
@@ -377,159 +357,10 @@ pub(crate) fn provision_selftest_imed_osk(
             chan.set_send(ServiceId::ImedOsk, osk_send);
             chan.set_recv(ServiceId::ImedOsk, recv_slot);
             if crate::bootstrap::diag::raw_or_expanded("selftest") {
-                debug_write_bytes(b"init: selftest route->imed-osk ok\\n");
+                debug_write_bytes(b"init: selftest route->imed-osk ok\n");
             }
         }
         Err(_) => debug_write_bytes(b"init: selftest route->imed-osk FAIL (xfer)\n"),
-    }
-}
-
-/// The execd NAMED routes (TASK-0080C / RFC-0076 / RFC-0073 / TASK-0049):
-/// settingsd, timed, imed-osk, vfsd, statefsd. Split out of the wiring execd
-/// arm (module-size ratchet); bodies + iw-gated prints are verbatim. NAMED
-/// routes are non-positional — their slot numbers travel in the route
-/// response — so this must stay AFTER the positional probe/windowd/bundle
-/// blocks in the execd arm.
-#[allow(clippy::too_many_arguments)]
-/// TASK-0140: updated → policyd (the `updates.manage` gate). CLONE of the
-/// pre-minted policyd request endpoint (the original serves the fixed-slot
-/// arms); the named route resolves at updated's first mutating op; replies
-/// ride updated's CAP_MOVE inbox.
-pub(crate) fn updated_policyd_leg(
-    pid: u32,
-    pol_req: u32,
-    reply_recv_slot: Option<u32>,
-    chan: &mut CtrlChannel,
-) {
-    if let Ok(clone) = nexus_abi::cap_clone(pol_req) {
-        if let Ok(send_slot) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
-            chan.set_send(ServiceId::Policyd, send_slot);
-            if let Some(reply_recv_slot) = reply_recv_slot {
-                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
-            }
-        }
-    }
-}
-
-pub(crate) fn provision_execd_named_routes(
-    pid: u32,
-    eps: &Endpoints,
-    timed_req: u32,
-    reply_recv_slot: u32,
-    chan: &mut CtrlChannel,
-    init_wire: &mut nexus_event::SpanTally,
-    init_fold: bool,
-) {
-    // svc.settings.* (DSL settings app / Control Center): CLONE —
-    // the pre-minted settingsd request endpoint also serves the
-    // windowd arm. Named route (non-positional, behind the probe
-    // block like the others).
-    if let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) {
-        if let Ok(clone) = nexus_abi::cap_clone(settings_req) {
-            if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
-                chan.set_send(ServiceId::Settingsd, s);
-                chan.set_recv(ServiceId::Settingsd, reply_recv_slot);
-                if iw(init_wire, init_fold, "init:execd") {
-                    if crate::bootstrap::diag::raw_or_expanded("execd") {
-                        debug_write_bytes(b"init: execd route->settingsd ok\\n");
-                    }
-                }
-            }
-        }
-    }
-    // svc.time.* / clock tick (RFC-0076): direct transfer of the
-    // pre-minted timed request endpoint (non-consuming). Named
-    // route; replies ride the child's CAP_MOVE inbox (timed is
-    // ReplyCap-aware).
-    if let Ok(s) = nexus_abi::cap_transfer(pid, timed_req, Rights::SEND) {
-        chan.set_send(ServiceId::Timed, s);
-        chan.set_recv(ServiceId::Timed, reply_recv_slot);
-        if iw(init_wire, init_fold, "init:execd") {
-            if crate::bootstrap::diag::raw_or_expanded("execd") {
-                debug_write_bytes(b"init: execd route->timed ok\\n");
-            }
-        }
-    }
-    provision_execd_imed_osk(pid, eps.imed_osk_execd, reply_recv_slot, chan);
-    // svc.files.* (filemanager role, RFC-0073/TASK-0291): CLONE of
-    // the pre-minted vfsd request endpoint — the generic vfsd arm
-    // transfers the original to vfsd itself. Named route, replies
-    // ride the child's CAP_MOVE inbox (vfsd is ReplyCap-aware).
-    if let Some((vfs_req, _)) = eps.server_pair(ServiceId::Vfsd) {
-        if let Ok(clone) = nexus_abi::cap_clone(vfs_req) {
-            if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
-                chan.set_send(ServiceId::Vfsd, s);
-                chan.set_recv(ServiceId::Vfsd, reply_recv_slot);
-                if iw(init_wire, init_fold, "init:execd") {
-                    if crate::bootstrap::diag::raw_or_expanded("execd") {
-                        debug_write_bytes(b"init: execd route->vfsd ok\\n");
-                    }
-                }
-            }
-        }
-    }
-    // svc.updates.* (settings Updates page, TASK-0140): CLONE of the
-    // pre-minted updated request endpoint — the bespoke updated arm
-    // transfers the original to updated itself. Named route, replies
-    // ride the child's CAP_MOVE inbox (updated is ReplyCap-aware);
-    // mutating ops stay gated in updated on `updates.manage`.
-    if let Some((upd_req, _)) = eps.server_pair(ServiceId::Updated) {
-        if let Ok(clone) = nexus_abi::cap_clone(upd_req) {
-            if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
-                chan.set_send(ServiceId::Updated, s);
-                chan.set_recv(ServiceId::Updated, reply_recv_slot);
-                if iw(init_wire, init_fold, "init:execd") {
-                    if crate::bootstrap::diag::raw_or_expanded("execd") {
-                        debug_write_bytes(b"init: execd route->updated ok\\n");
-                    }
-                }
-            }
-        }
-    }
-    // TASK-0049 reanimation: execd's statefsd route — (a) execd
-    // clones this pair into demo.minidump children BEFORE resume
-    // (grant_minidump_statefs_route, child slots 7/8) and (b)
-    // execd's own crash-dump writer (`write_dump_to_statefs`)
-    // resolves "statefsd" through this table. SharedResponse pair
-    // like the dsoftbusd statefs proxy: execd's own wire use is
-    // nonce-matched v2; the payload's single v1 PUT rides the
-    // quiet exec-phase window. CLONE — the pre-minted pair also
-    // serves the generic statefsd arm. Named route (non-positional,
-    // behind the probe block like the others).
-    if let Some((state_req_ep, state_rsp_ep)) = eps.server_pair(ServiceId::Statefsd) {
-        let send = nexus_abi::cap_clone(state_req_ep)
-            .and_then(|clone| nexus_abi::cap_transfer(pid, clone, Rights::SEND));
-        let recv = nexus_abi::cap_clone(state_rsp_ep)
-            .and_then(|clone| nexus_abi::cap_transfer(pid, clone, Rights::RECV));
-        if let (Ok(s), Ok(r)) = (send, recv) {
-            chan.set_send(ServiceId::Statefsd, s);
-            chan.set_recv(ServiceId::Statefsd, r);
-            if iw(init_wire, init_fold, "init:execd") {
-                if crate::bootstrap::diag::raw_or_expanded("execd") {
-                    debug_write_bytes(b"init: execd route->statefsd ok\\n");
-                }
-            }
-        } else {
-            debug_write_bytes(b"init: execd route->statefsd FAIL\n");
-        }
-    }
-    // TASK-0051B: execd's policyd route — the crash writer's attach-level
-    // gate (`crash.attach.*`) resolves "policyd" + "@reply" dynamically
-    // (nexus_ipc::policyd::check_cap_delegated). CLONE — the pre-minted
-    // policyd request endpoint also serves the generic arm. ARM END on
-    // purpose: transfers here must never shift earlier positional slots.
-    if let Some((pol_req, _)) = eps.server_pair(ServiceId::Policyd) {
-        if let Ok(clone) = nexus_abi::cap_clone(pol_req) {
-            if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
-                chan.set_send(ServiceId::Policyd, s);
-                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
-                if iw(init_wire, init_fold, "init:execd") {
-                    if crate::bootstrap::diag::raw_or_expanded("execd") {
-                        debug_write_bytes(b"init: execd route->policyd ok\\n");
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -582,7 +413,27 @@ pub(crate) fn provision_bootctld_fixed_slots(
     crate::bootstrap::helpers::debug_write_hex(state_send as usize);
     debug_write_bytes(b"\n");
     if crate::bootstrap::diag::raw_or_expanded("bootctld") {
-        debug_write_bytes(b"init: bootctld route->statefsd ok\\n");
+        debug_write_bytes(b"init: bootctld route->statefsd ok\n");
     }
     Ok(())
+}
+
+/// TASK-0140: updated → policyd (the `updates.manage` gate). CLONE of the
+/// pre-minted policyd request endpoint (the original serves the fixed-slot
+/// arms); the named route resolves at updated's first mutating op; replies
+/// ride updated's CAP_MOVE inbox.
+pub(crate) fn updated_policyd_leg(
+    pid: u32,
+    pol_req: u32,
+    reply_recv_slot: Option<u32>,
+    chan: &mut CtrlChannel,
+) {
+    if let Ok(clone) = nexus_abi::cap_clone(pol_req) {
+        if let Ok(send_slot) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
+            chan.set_send(ServiceId::Policyd, send_slot);
+            if let Some(reply_recv_slot) = reply_recv_slot {
+                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
+            }
+        }
+    }
 }

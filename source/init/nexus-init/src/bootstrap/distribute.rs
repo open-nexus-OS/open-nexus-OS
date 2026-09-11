@@ -72,11 +72,24 @@ pub(crate) fn distribute_server_pair_for(chan: &mut CtrlChannel, eps: &Endpoints
             }
             return;
         };
-        let recv = nexus_abi::cap_transfer(chan.pid, req, Rights::RECV);
-        let send = nexus_abi::cap_transfer(chan.pid, rsp, Rights::SEND);
-        if let (Ok(recv_slot), Ok(send_slot)) = (recv, send) {
-            chan.set_send(id, send_slot);
-            chan.set_recv(id, recv_slot);
+        // TASK-0324 P4: a service whose server pair is DECLARED gets it pinned into those
+        // slots — never the order-based transfer, and never a silent fallback to it: a
+        // failed pin is announced by `pin` and leaves the service unwired, which is a dead
+        // route with a witness instead of a service listening on a slot nobody knows.
+        if crate::bootstrap::declared_slots::server_slots(id).is_some() {
+            if let Some(slots) =
+                crate::bootstrap::declared_slots::pin_server_pair(chan.pid, id, req, rsp)
+            {
+                chan.set_send(id, slots.send);
+                chan.set_recv(id, slots.recv);
+            }
+        } else {
+            let recv = nexus_abi::cap_transfer(chan.pid, req, Rights::RECV);
+            let send = nexus_abi::cap_transfer(chan.pid, rsp, Rights::SEND);
+            if let (Ok(recv_slot), Ok(send_slot)) = (recv, send) {
+                chan.set_send(id, send_slot);
+                chan.set_recv(id, recv_slot);
+            }
         }
         crate::bootstrap::blk_plane::wire_blk_plane_for(chan, eps);
     }

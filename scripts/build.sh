@@ -22,6 +22,32 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TARGET=${TARGET:-riscv64imac-unknown-none-elf}
+
+# ---------------------------------------------------------------------------
+# TASK-0325 / ADR-0063: derived output says so, in the standard way.
+#
+# `build/` holds nothing a human wrote: images, bundles, keyed ELFs, run logs,
+# screenshots — all regenerable. cargo already drops a CACHEDIR.TAG into
+# `target/`; this is the same marker for the half of the tree we generate
+# ourselves. Archive, backup and cache-aware tools honour it — the portable form
+# of the "never index this" marker reference systems put on derived build
+# output. Tool-specific exclusions beyond this standard are
+# DEVELOPER SETUP (docs/testing/README.md) — a build script must never reach
+# into a developer's desktop configuration.
+# ---------------------------------------------------------------------------
+mark_derived_dir() {
+  local dir=$1
+  mkdir -p "$dir"
+  [[ -f "$dir/CACHEDIR.TAG" ]] && return 0
+  cat >"$dir/CACHEDIR.TAG" <<'TAG'
+Signature: 8a477f597d28d172789f06886806bc55
+# This file is a cache directory tag created by Open Nexus OS (scripts/build.sh).
+# Everything under this directory is DERIVED from the source tree and can be
+# regenerated; do not index it, do not back it up.
+# For information about cache directory tags, see https://bford.info/cachedir/
+TAG
+}
+mark_derived_dir "$ROOT/build"
 NEXUS_FORCE_WORKSPACE_TARGET=${NEXUS_FORCE_WORKSPACE_TARGET:-1}
 if [[ "$NEXUS_FORCE_WORKSPACE_TARGET" == "1" ]]; then
   TARGET_ROOT="$ROOT/target"
