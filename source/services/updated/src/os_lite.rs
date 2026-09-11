@@ -109,12 +109,11 @@ pub fn touch_schemas() {}
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     emit_line("updated: entry");
     notifier.notify();
-    // init-lite transfers the updated service endpoints into deterministic
-    // slots (recv: slot 3, send: slot 4); using these directly avoids
-    // routing-time races during early bring-up.
+    // init pins updated's server endpoint into its declared slots (TASK-0324 P4f-3); using
+    // them directly avoids routing-time races during early bring-up.
     let server = {
-        const RECV_SLOT: u32 = 0x03;
-        const SEND_SLOT: u32 = 0x04;
+        const RECV_SLOT: u32 = nexus_service_topology::slots::updated::SERVER.recv;
+        const SEND_SLOT: u32 = nexus_service_topology::slots::updated::SERVER.send;
         let deadline = match nexus_abi::nsec() {
             Ok(now) => now.saturating_add(10_000_000_000), // 10s
             Err(_) => 0,
@@ -509,13 +508,12 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
     // Note: bundlemgrd's default response endpoint is currently wired for selftest-client.
     // For updated -> bundlemgrd, we must use CAP_MOVE so bundlemgrd can reply on the moved cap.
     //
-    // init-lite deterministic slots for updated (from slot_map.rs):
-    // - bundlemgrd send cap: 0x05
-    // - bundlemgrd recv cap: 0x06 (unused, we use reply inbox)
-    // - reply inbox: recv=0x0A, send=0x0B
-    const BND_SEND_SLOT: u32 = 0x05;
-    const REPLY_RECV_SLOT: u32 = 0x0A;
-    const REPLY_SEND_SLOT: u32 = 0x0B;
+    // updated's bundlemgrd leg is a reply-inbox route (TASK-0324 P4f-3 stopped granting the
+    // response endpoint this function never read).
+    use nexus_service_topology::slots::updated as topo;
+    const BND_SEND_SLOT: u32 = topo::BUNDLEMGRD.send;
+    const REPLY_RECV_SLOT: u32 = topo::REPLY.recv;
+    const REPLY_SEND_SLOT: u32 = topo::REPLY.send;
 
     let bnd_send_slot = BND_SEND_SLOT;
     let reply_send_slot = REPLY_SEND_SLOT;
@@ -656,9 +654,9 @@ fn keystored_verify(
     signature: &[u8; 64],
 ) -> crate::verify_policy::KeystoredOutcome {
     use crate::verify_policy::KeystoredOutcome as Out;
-    // init-lite deterministic slots for updated -> keystored:
-    // - send=0x07, recv=0x08
-    let Ok(client) = KernelClient::new_with_slots(0x07, 0x08) else {
+    // updated -> keystored over the declared shared-response leg.
+    let keystored = nexus_service_topology::slots::updated::KEYSTORED;
+    let Ok(client) = KernelClient::new_with_slots(keystored.send, keystored.recv) else {
         return Out::Unavailable("route");
     };
     let mut frame = Vec::with_capacity(4 + 4 + 32 + 64 + message.len());

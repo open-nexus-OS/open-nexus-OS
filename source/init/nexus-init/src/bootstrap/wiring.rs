@@ -35,9 +35,6 @@ pub(crate) fn wire_services(
         pol_rsp,
         bnd_req,
         bnd_rsp,
-        bnd_rsp_updated,
-        bnd_exe_req,
-        bnd_exe_rsp,
         upd_req,
         upd_rsp,
         sam_req,
@@ -273,174 +270,7 @@ pub(crate) fn wire_services(
             // (RFC-0069 batch 2): spec = SERVICE_SPECS (vfsd's packagefsd link is
             // a SharedResponse route; packagefsd's reply inbox is the pre-minted
             // `pkg_reply_ep`). Their bespoke arms are deleted.
-            "bundlemgrd" => {
-                // Server pair: usually distributed pre-grants (task #123).
-                let (recv_slot, send_slot) =
-                    match (chan.recv(ServiceId::Bundlemgrd), chan.send(ServiceId::Bundlemgrd)) {
-                        (Some(r), Some(s)) => (r, s),
-                        _ => {
-                            let r = nexus_abi::cap_transfer(pid, bnd_req, Rights::RECV)
-                                .map_err(InitError::Abi)?;
-                            let s = nexus_abi::cap_transfer(pid, bnd_rsp, Rights::SEND)
-                                .map_err(InitError::Abi)?;
-                            chan.set_send(ServiceId::Bundlemgrd, s);
-                            chan.set_recv(ServiceId::Bundlemgrd, r);
-                            (r, s)
-                        }
-                    };
-                if iw(init_wire, init_fold, "init:bundlemgrd") {
-                    debug_write_bytes(b"init: bundlemgrd slots recv=0x");
-                    debug_write_hex(recv_slot as usize);
-                    debug_write_bytes(b" send=0x");
-                    debug_write_hex(send_slot as usize);
-                    debug_write_byte(b'\n');
-                }
-
-                // Allow bundlemgrd to route to execd (policyd may still deny).
-                let send_slot = nexus_abi::cap_transfer(pid, bnd_exe_req, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                let recv_slot = nexus_abi::cap_transfer(pid, bnd_exe_rsp, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Execd, send_slot);
-                chan.set_recv(ServiceId::Execd, recv_slot);
-                let _ = nexus_abi::cap_close(bnd_exe_req);
-                let _ = nexus_abi::cap_close(bnd_exe_rsp);
-
-                // Reply inbox for CAP_MOVE reply routing (log sinks).
-                let reply_ep =
-                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                        .map_err(InitError::Abi)?;
-                let reply_recv_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
-                let reply_send_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
-                chan.reply_recv_slot = Some(reply_recv_slot);
-                chan.reply_send_slot = Some(reply_send_slot);
-                let _ = nexus_abi::cap_close(reply_ep);
-
-                // TASK-0006: allow bundlemgrd to send structured logs to logd via CAP_MOVE (reply inbox).
-                if let Some(req) = log_req {
-                    let send_slot =
-                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.set_send(ServiceId::Logd, send_slot);
-                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
-                }
-            }
             // "bootctld" is provisioned by the generic arm from its declaration (TASK-0324 P4f-1b).
-            "updated" => {
-                // Server pair: usually distributed pre-grants (task #123).
-                let (recv_slot, send_slot) =
-                    match (chan.recv(ServiceId::Updated), chan.send(ServiceId::Updated)) {
-                        (Some(r), Some(s)) => (r, s),
-                        _ => {
-                            let r = nexus_abi::cap_transfer(pid, upd_req, Rights::RECV)
-                                .map_err(InitError::Abi)?;
-                            let s = nexus_abi::cap_transfer(pid, upd_rsp, Rights::SEND)
-                                .map_err(InitError::Abi)?;
-                            chan.set_send(ServiceId::Updated, s);
-                            chan.set_recv(ServiceId::Updated, r);
-                            (r, s)
-                        }
-                    };
-                if iw(init_wire, init_fold, "init:updated") {
-                    debug_write_bytes(b"init: updated slots recv=0x");
-                    debug_write_hex(recv_slot as usize);
-                    debug_write_bytes(b" send=0x");
-                    debug_write_hex(send_slot as usize);
-                    debug_write_byte(b'\n');
-                }
-
-                let transfer = |cap: u32, rights: Rights, label: &'static str| -> Option<u32> {
-                    nexus_abi::cap_transfer(pid, cap, rights).ok().or_else(|| {
-                        debug_write_bytes(b"init: updated cap transfer fail ");
-                        debug_write_str(label);
-                        debug_write_byte(b'\n');
-                        None
-                    })
-                };
-
-                // Allow updated to call bundlemgrd (slot-aware publication).
-                let send_slot = transfer(bnd_req, Rights::SEND, "bundlemgrd send");
-                let recv_slot = transfer(bnd_rsp_updated, Rights::RECV, "bundlemgrd recv");
-                if let (Some(send_slot), Some(recv_slot)) = (send_slot, recv_slot) {
-                    chan.set_send(ServiceId::Bundlemgrd, send_slot);
-                    chan.set_recv(ServiceId::Bundlemgrd, recv_slot);
-                }
-                let _ = nexus_abi::cap_close(bnd_rsp_updated);
-
-                // Allow updated to call keystored for signature verification.
-                let send_slot = transfer(key_req, Rights::SEND, "keystored send");
-                let recv_slot = transfer(key_rsp, Rights::RECV, "keystored recv");
-                if let (Some(send_slot), Some(recv_slot)) = (send_slot, recv_slot) {
-                    chan.set_send(ServiceId::Keystored, send_slot);
-                    chan.set_recv(ServiceId::Keystored, recv_slot);
-                }
-
-                // Allow updated to call statefsd for persistence.
-                let send_slot = transfer(state_req, Rights::SEND, "statefsd send");
-                if let Some(send_slot) = send_slot {
-                    chan.set_send(ServiceId::Statefsd, send_slot);
-                    if iw(init_wire, init_fold, "init:updated") {
-                        debug_write_bytes(b"init: updated statefsd send slot=0x");
-                        debug_write_hex(send_slot as usize);
-                        debug_write_byte(b'\n');
-                    }
-                }
-
-                // Reply inbox for CAP_MOVE reply routing (log sinks).
-                let reply_ep =
-                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                        .map_err(InitError::Abi)?;
-                let reply_recv_slot = transfer(reply_ep, Rights::RECV, "reply recv");
-                let reply_send_slot = transfer(reply_ep, Rights::SEND, "reply send");
-                if let (Some(reply_recv_slot), Some(reply_send_slot)) =
-                    (reply_recv_slot, reply_send_slot)
-                {
-                    chan.reply_recv_slot = Some(reply_recv_slot);
-                    chan.reply_send_slot = Some(reply_send_slot);
-                    chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
-                    if iw(init_wire, init_fold, "init:updated") {
-                        debug_write_bytes(b"init: updated reply slots recv=0x");
-                        debug_write_hex(reply_recv_slot as usize);
-                        debug_write_bytes(b" send=0x");
-                        debug_write_hex(reply_send_slot as usize);
-                        debug_write_byte(b'\n');
-                    }
-                }
-                let _ = nexus_abi::cap_close(reply_ep);
-
-                crate::bootstrap::blk_plane::wire_updated_vfs_leg(pid, chan, eps, reply_recv_slot);
-
-                // TASK-0050 PR-2 (ADR-0055): slot mutations delegate to
-                // bootctld — clone the pre-minted request endpoint so the
-                // responder can answer the named route.
-                if let Some((boot_req, _)) = eps.server_pair(ServiceId::Bootctld) {
-                    if let Ok(clone) = nexus_abi::cap_clone(boot_req) {
-                        if let Ok(send_slot) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
-                            chan.set_send(ServiceId::Bootctld, send_slot);
-                            if let Some(reply_recv_slot) = reply_recv_slot {
-                                chan.set_recv(ServiceId::Bootctld, reply_recv_slot);
-                            }
-                        }
-                    }
-                }
-
-                // TASK-0140: updated → policyd leg (`updates.manage` gate).
-                let rp = reply_recv_slot;
-                crate::bootstrap::route_provision::updated_policyd_leg(pid, pol_req, rp, chan);
-
-                // TASK-0006: structured logs to logd via CAP_MOVE.
-                if let Some(req) = log_req {
-                    if let Some(send_slot) = transfer(req, Rights::SEND, "logd send") {
-                        chan.set_send(ServiceId::Logd, send_slot);
-                        if let Some(reply_recv_slot) = reply_recv_slot {
-                            chan.set_recv(ServiceId::Logd, reply_recv_slot);
-                        }
-                    }
-                }
-            }
-            // "samgrd" migrated to the declarative arm below (RFC-0069 batch 3):
-            // announce=true keeps its iw-gated slots line + init_caps tally.
             "execd" => execd_wiring::wire_execd(pid, eps, chan, init_wire, init_fold)?,
             "hidrawd" => {
                 // TASK-0324 P4d: pinned to the declared slots (hidrawd is a pure producer).
@@ -1189,6 +1019,26 @@ pub(crate) fn wire_services(
                                             }
                                         }
                                     }
+                                    ServiceId::Vfsd => {
+                                        if let Some(s) = declared_slots::pin_route_send(
+                                            pid, spec.id, route.to, vfs_req,
+                                        ) {
+                                            chan.set_send(ServiceId::Vfsd, s);
+                                            chan.set_recv(ServiceId::Vfsd, reply_recv);
+                                        }
+                                    }
+                                    ServiceId::Bootctld => {
+                                        if let Some((boot_req, _)) =
+                                            eps.server_pair(ServiceId::Bootctld)
+                                        {
+                                            if let Some(s) = declared_slots::pin_route_send(
+                                                pid, spec.id, route.to, boot_req,
+                                            ) {
+                                                chan.set_send(ServiceId::Bootctld, s);
+                                                chan.set_recv(ServiceId::Bootctld, reply_recv);
+                                            }
+                                        }
+                                    }
                                     ServiceId::Rngd => {
                                         if let Some(s) = declared_slots::pin_route_send(
                                             pid, spec.id, route.to, rng_req,
@@ -1282,8 +1132,6 @@ pub(crate) fn is_bespoke_wired(name: &str) -> bool {
         name,
         "netstackd"
             | "dsoftbusd"
-            | "bundlemgrd"
-            | "updated"
             | "execd"
             | "hidrawd"
             | "gpud"

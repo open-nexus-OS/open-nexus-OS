@@ -116,6 +116,32 @@ remaining lanes ran one by one with a retry ONLY on a witnessed external kill: r
 ota-bundle, -resume, -delta, ota-backstops (tamper, downgrade, fallback) all green on the first
 attempt, 0× `FAIL declared slot` in every lane, lane peaks 740-1,113 MiB.
 
+**P4f-3 delivered 2026-09-11:** updated and bundlemgrd leave their bespoke arms for
+the generic arm (updated's 114-line arm, bundlemgrd's 53-line arm, `wire_updated_vfs_leg` and
+`updated_policyd_leg` deleted; the bridge gained the vfsd and bootctld targets). **Late-grant band
+`LATE_GRANT_BASE = 0xE0`:** bundlemgrd runs from the core plane on and allocates volume-window VMOs
+itself, so its reply inbox and logd leg — granted in the wiring phase — are declared from 0xE0 up,
+above anything a service allocates itself (it resolves them by name; the old order-based transfer
+put them wherever its allocations had left room). policyd's 0x9-0xB predates the band for a stated
+reason (slots 1-8 all pinned before it resumes, no allocation before it is wired). With policyd,
+bundlemgrd and virtioblkd all declared, the core plane pins directly and the transitional
+`grant_server_pair` is deleted. **Two more unused grants removed (least privilege):** the
+"bundlemgrd↔execd dedicated pair" — its request endpoint was minted for execd but never handed to
+execd, bundlemgrd never sent on it; the selftest's "bundlemgrd may not route to execd" proof is
+decided by policyd before the route-table lookup (responder order verified) and stays green — and
+updated's dedicated bundlemgrd response endpoint at slot 6, which updated's own code called
+"unused, we use reply inbox". updated's three client files each carried the same CTRL + reply-inbox
+block citing a non-existent "slot_map SSOT"; all read the declaration. Ratchet 57/22 → 38/17.
+**P7 addition:** bundlemgrd's `route_status` polls `ipc_recv_v1` against a deadline too (not caught
+by the earlier `Client::recv(NonBlocking)` scan). Smoke: smp1 green, 0× `FAIL declared slot`,
+`bundlemgrd: volume status served`, `packagefsd: mounted`, `SELFTEST: bundlemgrd route execd denied ok`,
+`SELFTEST: bundlemgrd volume ok`, `init: up updated`, `SELFTEST: ota delta base deny ok`. **Proof:** `just test-all` green in ONE run
+(exit 0), started detached from the agent task so the host memory watchdog could only kill the
+waiter (it did, once): gates + smp1, visible (pixel 40.09 %), reset, ota-flip, ota-bundle, -resume,
+-delta, ota-backstops — 0× `FAIL declared slot` in every lane; updated's OTA path intact
+(`SELFTEST: ota flip ok`, `ota stage resume ok`, `ota bundle delta ok`, `bootctld: commit ok (slot=b)`,
+`updated: bundle reused (name=…)`).
+
 **P4f-2 delivered 2026-09-11:** policyd and keystored leave their bespoke arms
 for the generic arm (policyd's 62-line arm with a never-matching `else` branch that would have
 spread its inbox by transfer order, keystored's 192-line arm of transfer tracing, and

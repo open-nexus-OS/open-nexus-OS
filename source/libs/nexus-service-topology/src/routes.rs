@@ -69,9 +69,14 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Imed, ServiceId::Windowd),
     (ServiceId::Imed, ServiceId::Settingsd),
     (ServiceId::Imed, ServiceId::Statefsd),
-    (ServiceId::Updated, ServiceId::Bootctld), // slot mutations delegate (PR-2)
-    (ServiceId::Updated, ServiceId::Vfsd),     // staging-source splice reads (TASK-0179)
-    (ServiceId::Updated, ServiceId::Policyd),  // updates.manage gate on mutating ops (TASK-0140)
+    (ServiceId::Updated, ServiceId::Bundlemgrd), // active-slot publication (TASK-0324 P4f-3)
+    (ServiceId::Updated, ServiceId::Keystored),  // signature verification
+    (ServiceId::Updated, ServiceId::Statefsd),   // persistence
+    (ServiceId::Updated, ServiceId::Logd),       // structured logs
+    (ServiceId::Bundlemgrd, ServiceId::Logd),    // structured logs (a late grant)
+    (ServiceId::Updated, ServiceId::Bootctld),   // slot mutations delegate (PR-2)
+    (ServiceId::Updated, ServiceId::Vfsd),       // staging-source splice reads (TASK-0179)
+    (ServiceId::Updated, ServiceId::Policyd),    // updates.manage gate on mutating ops (TASK-0140)
     (ServiceId::Execd, ServiceId::Updated), // svc.updates.* (DSL settings Updates page, TASK-0140)
     (ServiceId::SelftestClient, ServiceId::Bootctld), // reset-lane proof (PR-3)
     // RFC-0092 (TASK-0052 P3): the ingress gateway asks policyd for the

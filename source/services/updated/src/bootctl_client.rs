@@ -29,11 +29,11 @@ use nexus_abi::MsgHeader;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
 /// init-lite control-channel slots (route requests via the responder).
-const CTRL_SEND_SLOT: u32 = 1;
-const CTRL_RECV_SLOT: u32 = 2;
-/// updated's deterministic CAP_MOVE reply inbox (slot_map SSOT).
-const REPLY_RECV_SLOT: u32 = 0x0a;
-const REPLY_SEND_SLOT: u32 = 0x0b;
+const CTRL_SEND_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.send;
+const CTRL_RECV_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
+/// updated's CAP_MOVE reply inbox as declared (TASK-0324 P4f-3).
+const REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::updated::REPLY.recv;
+const REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::updated::REPLY.send;
 /// Per-call wire budget.
 const CALL_BUDGET_NS: u64 = 2_000_000_000;
 

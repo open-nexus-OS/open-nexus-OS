@@ -82,6 +82,21 @@ pub mod bootctld {
     pub const POLICYD: SlotPair = SlotPair::new(8, REPLY.recv);
 }
 
+/// bundlemgrd (TASK-0324 P4f-3). It verifies and serves the system volume from the core plane
+/// on, i.e. it RUNS before init's wiring phase and allocates volume-window VMOs itself — so the
+/// grants init makes later sit in the late-grant band. bundlemgrd resolves them by name; the old
+/// order-based transfer put them wherever its own allocations had left room.
+pub mod bundlemgrd {
+    use super::SlotPair;
+
+    /// bundlemgrd's own server endpoint (pinned in the core plane, before it runs).
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox (a late grant).
+    pub const REPLY: SlotPair = SlotPair::new(crate::LATE_GRANT_BASE + 1, crate::LATE_GRANT_BASE);
+    /// Structured logs (a late grant).
+    pub const LOGD: SlotPair = SlotPair::new(crate::LATE_GRANT_BASE + 2, REPLY.recv);
+}
+
 /// execd (TASK-0324 P4e-2).
 ///
 /// execd's OWN table, distinct from the app-child table above: init grants into it at
@@ -348,6 +363,32 @@ pub mod timed {
 
     /// timed's own server endpoint.
     pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+}
+
+/// updated (TASK-0324 P4f-3). Its bundlemgrd leg is a reply-inbox route: the dedicated
+/// response endpoint init used to mint for it at slot 6 was never read ("unused, we use reply
+/// inbox"), so it is no longer granted.
+pub mod updated {
+    use super::SlotPair;
+
+    /// updated's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// Active-slot publication.
+    pub const BUNDLEMGRD: SlotPair = SlotPair::new(5, REPLY.recv);
+    /// Signature verification — replies on keystored's own response endpoint.
+    pub const KEYSTORED: SlotPair = SlotPair::new(7, 8);
+    /// Persistence.
+    pub const STATEFSD: SlotPair = SlotPair::new(9, REPLY.recv);
+    /// The shared CAP_MOVE reply inbox.
+    pub const REPLY: SlotPair = SlotPair::new(0x0B, 0x0A);
+    /// Staging-source splice reads (replies ride the VMO header).
+    pub const VFSD: SlotPair = SlotPair::new(0x0C, REPLY.recv);
+    /// Slot mutations delegate to bootctld.
+    pub const BOOTCTLD: SlotPair = SlotPair::new(0x0D, REPLY.recv);
+    /// The `updates.manage` gate.
+    pub const POLICYD: SlotPair = SlotPair::new(0x0E, REPLY.recv);
+    /// Structured logs.
+    pub const LOGD: SlotPair = SlotPair::new(0x0F, REPLY.recv);
 }
 
 /// vfsd (TASK-0324 P4f-1a).

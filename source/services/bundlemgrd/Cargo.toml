@@ -47,6 +47,8 @@ bundlemgr = { path = "../../../userspace/bundlemgr", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+# TASK-0324 P4f-3: capability slots have one home.
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 keystored = { path = "../keystored", features = ["idl-capnp"], optional = true }
 memchr = { version = "2", optional = true }
 sha2 = { version = "0.10", optional = true, default-features = false }

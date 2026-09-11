@@ -313,23 +313,3 @@ pub(crate) fn provision_selftest_imed_osk(
         Err(_) => debug_write_bytes(b"init: selftest route->imed-osk FAIL (xfer)\n"),
     }
 }
-
-/// TASK-0140: updated → policyd (the `updates.manage` gate). CLONE of the
-/// pre-minted policyd request endpoint (the original serves the fixed-slot
-/// arms); the named route resolves at updated's first mutating op; replies
-/// ride updated's CAP_MOVE inbox.
-pub(crate) fn updated_policyd_leg(
-    pid: u32,
-    pol_req: u32,
-    reply_recv_slot: Option<u32>,
-    chan: &mut CtrlChannel,
-) {
-    if let Ok(clone) = nexus_abi::cap_clone(pol_req) {
-        if let Ok(send_slot) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
-            chan.set_send(ServiceId::Policyd, send_slot);
-            if let Some(reply_recv_slot) = reply_recv_slot {
-                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
-            }
-        }
-    }
-}

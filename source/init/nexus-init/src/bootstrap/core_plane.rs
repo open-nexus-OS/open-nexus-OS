@@ -135,10 +135,8 @@ fn mmio_policy_deny_probe(pol_route: (u32, u32)) -> Result<()> {
 /// (the `distribute_server_pair_for` transfer, made here for the three
 /// services the plane needs; the bulk pass later skips a pair already set).
 fn transfer_server_pair(chan: &mut CtrlChannel, id: ServiceId, req: u32, rsp: u32, vblk_req: u32) {
-    // TASK-0324 P4f: pinned where declared (virtioblkd); policyd and bundlemgrd keep the
-    // order-based pair until their packages declare them.
-    if let Some(pair) = crate::bootstrap::declared_slots::grant_server_pair(chan.pid, id, req, rsp)
-    {
+    // TASK-0324 P4f: all three core-plane services are declared — pinned before they run.
+    if let Some(pair) = crate::bootstrap::declared_slots::pin_server_pair(chan.pid, id, req, rsp) {
         chan.set_send(id, pair.send);
         chan.set_recv(id, pair.recv);
     }

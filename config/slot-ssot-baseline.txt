@@ -15,12 +15,7 @@
 1	source/init/nexus-init/src/bootstrap/orchestrator.rs
 1	source/init/nexus-init/src/bootstrap/route_provision.rs
 1	source/init/nexus-init/src/os_payload.rs
-2	source/services/bundlemgrd/src/os_lite.rs
 2	source/services/dsoftbusd/src/os/entry.rs
 1	source/services/execd/src/std_server.rs
 8	source/services/metricsd/src/os_lite.rs
 1	source/services/netstackd/src/os/facade/runtime.rs
-4	source/services/updated/src/apply_os.rs
-4	source/services/updated/src/bootctl_client.rs
-5	source/services/updated/src/os_lite.rs
-4	source/services/updated/src/policy_client.rs

@@ -52,6 +52,8 @@ updates = { path = "../../../userspace/updates", optional = true, default-featur
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+# TASK-0324 P4f-3: capability slots have one home.
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 thiserror = { version = "2", optional = true }
 # heap-768k (TASK-0034): the v2 engine's per-stage allocations ride a
 # never-freeing bump — the headless ladder now runs EIGHT stages in one

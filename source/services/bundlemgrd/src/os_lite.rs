@@ -156,7 +156,9 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                 _ => "bundlemgrd: route probe other",
             });
             emit_line("bundlemgrd: route fallback");
-            KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?
+            let slots = nexus_service_topology::slots::bundlemgrd::SERVER;
+            KernelServer::new_with_slots(slots.recv, slots.send)
+                .map_err(|_| ServerError::Unsupported)?
         }
     };
     // TASK-0006: core service wiring proof (structured log via nexus-log -> logd).
@@ -283,9 +285,6 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     }
 }
 
-const CTRL_SEND_SLOT: u32 = 1;
-const CTRL_RECV_SLOT: u32 = 2;
-
 fn route_status(target: &str) -> Option<u8> {
     let name = target.as_bytes();
     static ROUTE_NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
@@ -305,7 +304,7 @@ fn route_status(target: &str) -> Option<u8> {
     let mut i: usize = 0;
     loop {
         match nexus_abi::ipc_send_v1(
-            CTRL_SEND_SLOT,
+            nexus_service_topology::CTRL_SLOTS.send,
             &hdr,
             &req[..req_len],
             nexus_abi::IPC_SYS_NONBLOCK,
@@ -336,7 +335,7 @@ fn route_status(target: &str) -> Option<u8> {
             }
         }
         match nexus_abi::ipc_recv_v1(
-            CTRL_RECV_SLOT,
+            nexus_service_topology::CTRL_SLOTS.recv,
             &mut rh,
             &mut buf,
             nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,

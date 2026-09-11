@@ -34,12 +34,6 @@ pub(crate) struct Endpoints {
     pub bnd_req: u32,
     /// bundlemgrd server response endpoint.
     pub bnd_rsp: u32,
-    /// bundlemgrd response endpoint owned by updated.
-    pub bnd_rsp_updated: u32,
-    /// bundlemgrd→execd dedicated request endpoint.
-    pub bnd_exe_req: u32,
-    /// bundlemgrd→execd dedicated response endpoint.
-    pub bnd_exe_rsp: u32,
     /// updated server request endpoint.
     pub upd_req: u32,
     /// updated server response endpoint.

@@ -188,3 +188,23 @@ pub(crate) const PINCHED: ServiceSpec = ServiceSpec {
     reply_slots: SlotPair::UNDECLARED,
     extra_slots: &[],
 };
+
+/// The declaration of `bundlemgrd`.
+// TASK-0324 P4f-3: off its bespoke arm. Its server pair is pinned in the core plane before it
+// runs; its inbox and logd leg are late grants (see `slots::bundlemgrd`). The bundlemgrd→execd
+// pair init used to hand it was never used — the selftest's "bundlemgrd may not route to execd"
+// proof is decided by policyd before any route-table lookup.
+pub(crate) const BUNDLEMGRD: ServiceSpec = ServiceSpec {
+    id: ServiceId::Bundlemgrd,
+    exposes_server: true,
+    reply_inbox: true,
+    routes_to: &[Route {
+        to: ServiceId::Logd,
+        kind: RouteKind::ReplyInbox,
+        slots: slots::bundlemgrd::LOGD,
+    }],
+    announce: true,
+    server_slots: slots::bundlemgrd::SERVER,
+    reply_slots: slots::bundlemgrd::REPLY,
+    extra_slots: &[],
+};

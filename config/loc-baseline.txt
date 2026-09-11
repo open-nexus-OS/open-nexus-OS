@@ -11,8 +11,8 @@
 873	source/drivers/input/virtio-input/src/lib.rs
 656	source/drivers/rng/virtio-rng/src/lib.rs
 849	source/init/nexus-init/src/bootstrap/helpers.rs
-843	source/init/nexus-init/src/bootstrap/orchestrator.rs
-1332	source/init/nexus-init/src/bootstrap/wiring.rs
+832	source/init/nexus-init/src/bootstrap/orchestrator.rs
+1180	source/init/nexus-init/src/bootstrap/wiring.rs
 689	source/init/nexus-init/src/std_server.rs
 1226	source/kernel/neuron/src/core/trap/handler.rs
 718	source/kernel/neuron/src/ipc/mod.rs
@@ -31,7 +31,7 @@
 766	source/services/app-host/src/effect_host.rs
 731	source/services/app-host/src/probe/anim.rs
 949	source/services/app-host/src/probe/mod.rs
-776	source/services/bundlemgrd/src/os_lite.rs
+775	source/services/bundlemgrd/src/os_lite.rs
 1878	source/services/bundlemgrd/src/std_server.rs
 607	source/services/dsoftbusd/src/os/entry.rs
 633	source/services/dsoftbusd/src/os/gateway/local_ipc.rs
@@ -52,7 +52,7 @@
 1127	source/services/policyd/src/os_lite.rs
 1086	source/services/policyd/src/std_server.rs
 603	source/services/statefsd/src/os_lite.rs
-807	source/services/updated/src/os_lite.rs
+805	source/services/updated/src/os_lite.rs
 980	source/services/vfsd/src/std_server.rs
 852	source/services/windowd/src/compositor/mod.rs
 919	source/services/windowd/src/compositor/runtime/app_window.rs

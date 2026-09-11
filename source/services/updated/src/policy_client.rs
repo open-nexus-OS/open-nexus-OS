@@ -24,11 +24,11 @@ use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use crate::manage_gate::{PolicyAnswer, MANAGE_CAP};
 
 /// init-lite control-channel slots (route requests via the responder).
-const CTRL_SEND_SLOT: u32 = 1;
-const CTRL_RECV_SLOT: u32 = 2;
-/// updated's deterministic CAP_MOVE reply inbox (slot_map SSOT).
-const REPLY_RECV_SLOT: u32 = 0x0a;
-const REPLY_SEND_SLOT: u32 = 0x0b;
+const CTRL_SEND_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.send;
+const CTRL_RECV_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
+/// updated's CAP_MOVE reply inbox as declared (TASK-0324 P4f-3).
+const REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::updated::REPLY.recv;
+const REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::updated::REPLY.send;
 
 /// Asks policyd whether `sender` holds `updates.manage`.
 pub(crate) fn manage_answer(sender: u64) -> PolicyAnswer {

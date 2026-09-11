@@ -153,3 +153,44 @@ pub(crate) const BOOTCTLD: ServiceSpec = ServiceSpec {
     reply_slots: slots::bootctld::REPLY,
     extra_slots: &[],
 };
+
+/// The declaration of `updated`.
+// TASK-0324 P4f-3: off its bespoke arm; every leg is declared and pinned by the generic arm.
+pub(crate) const UPDATED: ServiceSpec = ServiceSpec {
+    id: ServiceId::Updated,
+    exposes_server: true,
+    reply_inbox: true,
+    routes_to: &[
+        Route {
+            to: ServiceId::Bundlemgrd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::updated::BUNDLEMGRD,
+        },
+        Route {
+            to: ServiceId::Keystored,
+            kind: RouteKind::SharedResponse,
+            slots: slots::updated::KEYSTORED,
+        },
+        Route {
+            to: ServiceId::Statefsd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::updated::STATEFSD,
+        },
+        Route { to: ServiceId::Vfsd, kind: RouteKind::ReplyInbox, slots: slots::updated::VFSD },
+        Route {
+            to: ServiceId::Bootctld,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::updated::BOOTCTLD,
+        },
+        Route {
+            to: ServiceId::Policyd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::updated::POLICYD,
+        },
+        Route { to: ServiceId::Logd, kind: RouteKind::ReplyInbox, slots: slots::updated::LOGD },
+    ],
+    announce: true,
+    server_slots: slots::updated::SERVER,
+    reply_slots: slots::updated::REPLY,
+    extra_slots: &[],
+};

@@ -256,7 +256,6 @@ where
     let vfs_rsp = mint(selftest_pid, 8)?;
     let pkg_req = mint(packagefsd_pid, 8)?;
     let pkg_rsp = mint(selftest_pid, 8)?;
-    let bnd_rsp_updated = mint(updated_pid, 8)?;
     let upd_req = mint(updated_pid, 8)?;
     let upd_rsp = mint(selftest_pid, 8)?;
     let sam_req = mint(samgrd_pid, 8)?;
@@ -377,13 +376,6 @@ where
     } else {
         (None, None)
     };
-
-    // bundlemgrd <-> execd dedicated pair (avoid reusing selftest-client <-> execd channels)
-    let bnd_exe_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, execd_pid, 8)
-        .map_err(InitError::Abi)?;
-    let bnd_exe_rsp =
-        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, bundlemgrd_pid, 8)
-            .map_err(InitError::Abi)?;
 
     // Selftest reply-inbox endpoint:
     // - owned by selftest-client (receiver)
@@ -506,9 +498,6 @@ where
         pol_rsp,
         bnd_req,
         bnd_rsp,
-        bnd_rsp_updated,
-        bnd_exe_req,
-        bnd_exe_rsp,
         upd_req,
         upd_rsp,
         sam_req,

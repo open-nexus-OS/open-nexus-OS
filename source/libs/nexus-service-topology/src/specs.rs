@@ -42,6 +42,8 @@ pub struct ServiceSpec {
 /// incrementally; the host tests keep it consistent with `REQUIRED_ROUTES`.
 pub const SERVICE_SPECS: &[ServiceSpec] = &[
     crate::specs_app::ABILITYMGR,
+    crate::specs_app::BUNDLEMGRD,
+    crate::specs_storage::UPDATED,
     crate::specs_app::EXECD,
     crate::specs_storage::KEYSTORED,
     crate::specs_security::POLICYD,

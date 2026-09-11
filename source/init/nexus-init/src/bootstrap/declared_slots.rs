@@ -123,23 +123,3 @@ pub(crate) fn pin_private_inbox_route(
     send?;
     Some(SlotPair::new(req_send, recv?))
 }
-
-// ---------------------------------------------------------------------------
-// TASK-0324 P4f transition: the CORE plane's server pairs.
-//
-// The core plane hands server pairs to policyd, bundlemgrd and virtioblkd before `Endpoints`
-// exists. virtioblkd is declared (P4f-1b); policyd and bundlemgrd follow in P4f-2/P4f-3.
-// This helper decides by DECLARATION, never by pin success — a failed pin is loud and is not
-// retried by transfer order. The order-based branch dies with P4f-3.
-// ---------------------------------------------------------------------------
-
-/// The service's own server pair (`req` RECV, `rsp` SEND) for the core plane.
-pub(crate) fn grant_server_pair(pid: u32, svc: ServiceId, req: u32, rsp: u32) -> Option<SlotPair> {
-    if server_slots(svc).is_some() {
-        pin_server_pair(pid, svc, req, rsp)
-    } else {
-        let recv = nexus_abi::cap_transfer(pid, req, Rights::RECV).ok()?;
-        let send = nexus_abi::cap_transfer(pid, rsp, Rights::SEND).ok()?;
-        Some(SlotPair::new(send, recv))
-    }
-}

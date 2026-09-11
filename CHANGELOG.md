@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-11 (TASK-0324 P4f-3: updated and bundlemgrd declared; a band for late grants; two unused grants removed)
+
+- updated and bundlemgrd are provisioned by the generic wiring arm; their bespoke arms and the two
+  hand-built legs (`wire_updated_vfs_leg`, `updated_policyd_leg`) are deleted.
+- `LATE_GRANT_BASE` (0xE0): capabilities granted to a service after it has started running live
+  above anything it allocates itself. bundlemgrd — which serves the system volume before init's
+  wiring phase — receives its reply inbox and logd leg there.
+- Least privilege: the bundlemgrd↔execd endpoint pair (never served, never used) and updated's
+  dedicated bundlemgrd response endpoint (never read) are no longer minted or granted.
+- With every core-plane service declared, the core plane pins server pairs directly; its
+  transitional helper is gone. updated's three copies of its control and reply-inbox slots read the
+  declaration.
+- Slot-SSOT ratchet 57 -> 38 positional declarations, 22 -> 17 files.
+
 ### Changed - 2026-09-11 (TASK-0324 P4f-2: policyd and keystored declared; execd's crash policy route exists for the first time)
 
 - policyd and keystored are provisioned by the generic wiring arm from their declarations; both
