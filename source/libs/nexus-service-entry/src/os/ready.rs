@@ -55,6 +55,48 @@ pub fn stage(stage: nexus_service_topology::Stage) {
     announce_verb(&verb[..n], "stage");
 }
 
+/// Blocks until this service's declared boot stage may begin (ADR-0062, RFC-0093 §3).
+///
+/// The service's own `ServiceSpec.stage` names the tier it belongs to; it waits for that tier's
+/// PREREQUISITE on the boot-stage fence init pinned into its slot (WAIT rights only — it can
+/// block here, never release a stage for anyone else). A process the topology does not declare
+/// — a spawned app child — holds no fence and waits for nothing.
+///
+/// The fence decides the ORDER; the deadline only decides how long a broken boot may stay
+/// SILENT. On the liveness bound the service names itself once and keeps waiting, so a stage
+/// that never opens produces a witness instead of a fleet that quietly does nothing (the exact
+/// failure the kernel's quiet-stall witness catches from the other side).
+pub fn wait_for_stage() {
+    /// A stage that has not opened after this long is a defect, not slow bring-up. Matches the
+    /// liveness bounds init already uses for supervised peers.
+    const LIVENESS_NS: u64 = 2_000_000_000;
+
+    let Some(spec) = nexus_service_topology::spec_for(service_name().as_bytes()) else {
+        return;
+    };
+    let prerequisite = spec.stage.prerequisite();
+    if prerequisite == 0 {
+        return;
+    }
+    let slot = nexus_service_topology::STAGE_FENCE_SLOT;
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(LIVENESS_NS);
+    match nexus_abi::fence_wait(slot, prerequisite, deadline) {
+        Ok(()) => return,
+        // No fence in the slot (not an init child) or the kernel refused: nothing to wait on.
+        Err(nexus_abi::AbiError::CapabilityDenied) | Err(nexus_abi::AbiError::InvalidArgument) => {
+            return
+        }
+        Err(_) => {}
+    }
+    debug_write_bytes(b"FAIL stage wait svc=");
+    debug_write_str(service_name());
+    debug_write_bytes(b" stage=");
+    debug_write_str(spec.stage.label());
+    debug_write_byte(b'\n');
+    // The barrier is the contract: keep waiting now that the wedge has a name.
+    let _ = nexus_abi::fence_wait(slot, prerequisite, 0);
+}
+
 /// The ONE sender behind every one-way control verb: routing-frame encoding, no nonce, a
 /// handful of NONBLOCK attempts, loud on failure. It must NEVER block — init's responder drains
 /// the control queue only after orchestration, and orchestration itself waits on services, so a

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-12 (TASK-0324 P5-c: services wait on the boot-stage fence; init's yield barriers and the hand-ordered driver resume are deleted)
+
+- Every OS service now waits for its declared stage's prerequisite on the boot-stage fence before
+  `entry()`, in `nexus_service_entry::os::bootstrap` — the one funnel `declare_entry!` routes
+  every service through, so it is the only startup synchronization a service does. Processes the
+  topology does not declare (spawned app children) hold no fence and wait for nothing.
+- The fence decides the order; a 2 s liveness deadline decides only how long a broken boot may
+  stay silent. On it the service prints `FAIL stage wait svc=… stage=…` once and keeps waiting —
+  the barrier holds, but a stage that never opens can no longer hang the fleet without a name.
+- Deleted: the four `yield_()` calls init used as barriers (one of them could not order anything
+  at all — the services it meant to let run were suspended). The 18 remaining yields are backoff
+  inside deadline- or attempt-bounded IPC loops and are untouched.
+- Deleted: the hand-sorted display/input driver resume list. Dependencies are carried by parked
+  routes and the fence, so the drivers resume in channel order — hidrawd first, the case the old
+  comment warned would leave the screen black — and the display chain still comes up.
+- `check-init-sync.sh` gains three rules: no `yield_()` in init's orchestration files, no yield
+  following a resume, no hand-ordered driver list. Each was verified to FAIL against an injected
+  violation, so the gate cannot pass vacuously.
+
 ### Added - 2026-09-12 (TASK-0324 P5-b: boot stages are declared, signalled from evidence, and proven in the ladder)
 
 - Boot stages are a declaration: `Stage` (`Platform` 1 < `DisplayReady` 2 < `SessionStart` 3 <

@@ -40,9 +40,9 @@ pub(crate) fn wire_services(
         ..
     } = *eps;
 
-    // Services are suspended; they will be resumed atomically at the end
-    // after all MMIO and IPC wiring is complete.
-    let _ = nexus_abi::yield_();
+    // Services are suspended; they are resumed after all MMIO and IPC wiring is complete.
+    // (ADR-0062: the yield that used to stand here could not order anything — the services it
+    // was meant to let run were suspended.)
 
     for chan in ctrls.iter_mut() {
         let pid = chan.pid;

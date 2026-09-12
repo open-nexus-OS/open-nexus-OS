@@ -404,7 +404,7 @@ pub mod os {
     }
 
     mod ready;
-    pub use ready::{ready, stage};
+    pub use ready::{ready, stage, wait_for_stage};
 
     /// Bootstraps the service entrypoint and terminates the task upon completion.
     pub fn bootstrap<E, F>(entry: F) -> !
@@ -429,6 +429,10 @@ pub mod os {
         if service_expand_requested() {
             nexus_abi::set_verdict_expand(true);
         }
+        // ADR-0062: the boot stage this service belongs to must have opened before it runs.
+        // This is the ONLY synchronization a service does at startup — no resume order, no
+        // yields, no time caps decide when it starts.
+        wait_for_stage();
         match entry() {
             Ok(()) => exit(0),
             Err(err) => {

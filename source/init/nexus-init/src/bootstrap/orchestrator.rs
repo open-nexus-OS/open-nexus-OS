@@ -545,10 +545,10 @@ where
     // boot target is unknown until the bootctld handshake below; the core is
     // exactly what that handshake (and any recovery boot) needs. Every
     // service now holds its server pair, so nothing retries a route probe.
+    // ADR-0062: no yield here. A yield is not a barrier — it hands the CPU over once and
+    // guarantees nothing about what the resumed services got done. What init sends next either
+    // parks until its target can answer (routing v2) or waits on the stage fence.
     crate::bootstrap::resume::resume_core(&ctrl_channels);
-    // Yield once so resumed services can bind their servers before init
-    // starts sending IPC (grants need policyd, routes need samgrd, etc.).
-    let _ = nexus_abi::yield_();
 
     // Priority-wire windowd + inputd. The minted pairs are pinned directly: a transfer duplicates,
     // and the later legs (execd, hidrawd, inputd → windowd) pin the same endpoints again.
@@ -718,9 +718,6 @@ where
         init_fold,
         &mut init_misc,
     );
-
-    // Yield after cap distribution so services observe a consistent slot layout.
-    let _ = nexus_abi::yield_();
 
     let route_table = route_builder::build_route_table(&ctrl_channels);
     // init keeps the minted pair itself (transfers duplicate), so the registry population uses it.

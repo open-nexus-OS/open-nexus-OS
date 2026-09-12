@@ -61,8 +61,42 @@ if grep -n 'encode_route_rsp' source/init/nexus-init/src/bootstrap/responder.rs 
   fail=1
 fi
 
+# 6. ADR-0062 (TASK-0324 P5-c): init does not synchronize with `yield_()`. A yield hands the CPU
+#    over once and guarantees NOTHING about what the other side got done — it is a hope, not a
+#    barrier. Ordering is expressed by the boot-stage fence and by parked routes. The orchestration
+#    files carry no yield at all; bounded IPC retry loops elsewhere (deadline- or attempt-capped)
+#    are backoff, not synchronization, and stay.
+for f in bootstrap/orchestrator.rs bootstrap/wiring.rs bootstrap/resume.rs; do
+  if grep -n 'yield_()' "source/init/nexus-init/src/$f" 2>/dev/null | grep -v '^\s*[0-9]*:\s*//' >/dev/null; then
+    echo "[FAIL] stage-fence: $f synchronizes with yield_() (ADR-0062 forbids it as a barrier):" >&2
+    grep -n 'yield_()' "source/init/nexus-init/src/$f" >&2
+    fail=1
+  fi
+done
+
+# 7. The same shape one level out: a bare yield straight after a resume is the "let them run now"
+#    barrier under another name.
+if grep -n -A 1 'resume::resume_\|resume_plane(\|resume_core(\|resume_drivers(' \
+     source/init/nexus-init/src/bootstrap/*.rs 2>/dev/null | grep 'yield_()' >/dev/null; then
+  echo "[FAIL] stage-fence: a yield follows a resume — that is the barrier ADR-0062 deletes:" >&2
+  grep -n -A 1 'resume::resume_\|resume_plane(\|resume_core(\|resume_drivers(' \
+     source/init/nexus-init/src/bootstrap/*.rs | grep -B 1 'yield_()' >&2
+  fail=1
+fi
+
+# 8. The driver resume order is not a contract any more (ADR-0062): a hand-sorted driver list is
+#    exactly the "comment is the only thing between us and a black screen" pattern P5-c removes.
+if grep -nE '\["gpud"|for .* in \[ *"(gpud|windowd|inputd|hidrawd)"' \
+     source/init/nexus-init/src/bootstrap/resume.rs 2>/dev/null >/dev/null; then
+  echo "[FAIL] stage-fence: resume.rs hand-orders the display/input drivers again:" >&2
+  grep -nE '\["gpud"|for .* in \[ *"(gpud|windowd|inputd|hidrawd)"' \
+     source/init/nexus-init/src/bootstrap/resume.rs >&2
+  fail=1
+fi
+
 if [[ "$fail" == "0" ]]; then
   echo "[PASS] init-sync: ready markers funnel through nexus_service_entry::ready(); init: up only from @ready"
   echo "[PASS] routing-v2: no nonce-less routing, no alias guards, one route-reply path"
+  echo "[PASS] stage-fence: no yield_() barrier in init, no hand-ordered driver resume"
 fi
 exit "$fail"

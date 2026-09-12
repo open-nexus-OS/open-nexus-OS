@@ -67,6 +67,20 @@ and the control channel already carries verbs. The question is what init may syn
   `exposes_server: false` are the ones that never print `init: up`), and must belong to the tier.
   Getting this wrong is silent: the first implementation gated the platform on the proof harness
   and the boot simply never reached a stage.
+- **Delivered (TASK-0324 P5-c, 2026-09-12)**: the barrier actually binds, and the old
+  synchronization is gone in the same package. `nexus_service_entry::os::bootstrap` waits for its
+  service's declared stage prerequisite on the fence BEFORE `entry()` — the single funnel every
+  OS service enters through, so this is the only startup synchronization a service performs. A
+  process the topology does not declare (a spawned app child) holds no fence and waits for
+  nothing. The fence decides the ORDER; a 2 s liveness deadline decides only how long a broken
+  boot may stay SILENT — on it the service names itself once (`FAIL stage wait svc=… stage=…`)
+  and keeps waiting, so the barrier still holds but the wedge has a name. Deleted: the four
+  `yield_()` barriers in init (18 bounded IPC-retry yields are backoff, not synchronization, and
+  stay) and the hand-sorted driver resume list. ⭐ The proof that the order was never the real
+  contract: the drivers now resume in channel order — hidrawd FIRST, the exact case the old
+  comment warned would produce a black screen — and the display chain still comes up
+  (`windowd: ready` → `present ok` → `systemui: first frame visible`). `check-init-sync.sh`
+  gates all three shapes and is self-tested against injected violations.
 - **Follow-ups**: TASK-0324 P2 (`@ready`), P3 (parked routes), P5 (fence + liveness witness),
   P8 (docs: `09-nexus-init.md`, `06-boot-and-bringup.md`, RFC-0069 §4 implemented, RFC-0013).
 

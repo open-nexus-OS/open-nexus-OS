@@ -119,9 +119,15 @@ pub(crate) fn resume_wave2(ctrls: &[CtrlChannel], graph: crate::boot_graph::Boot
     });
 }
 
+/// The display + input device drivers: resumed after their MMIO grants and route wiring, never
+/// in a hand-picked order (ADR-0062).
+pub(crate) fn is_driver(name: &str) -> bool {
+    matches!(name, "gpud" | "windowd" | "inputd" | "hidrawd")
+}
+
 fn resume_non_drivers_where(ctrls: &[CtrlChannel], pred: impl Fn(&str) -> bool) {
     for chan in ctrls {
-        if matches!(chan.svc_name, "gpud" | "windowd" | "inputd" | "hidrawd") {
+        if is_driver(chan.svc_name) {
             continue;
         }
         if !pred(chan.svc_name) {
@@ -143,35 +149,36 @@ fn resume_non_drivers_where(ctrls: &[CtrlChannel], pred: impl Fn(&str) -> bool) 
     }
 }
 
-/// Resume the display + input device-driver services after MMIO grants and route
-/// wiring. gpud FIRST: the GL-scanout display handoff (OP_SET_FRAMEBUFFER_VMO →
-/// scanout) must be ready before windowd presents, or the window stays black.
-/// inputd is resumed right after windowd; hidrawd LAST (after inputd) so it finds
-/// its virtio-input MMIO already granted and inputd's route already wired — it opens
-/// its devices + binds its IRQ immediately, with no startup busy-yield.
+/// Resume the display + input device-driver services after their MMIO grants and route wiring.
+///
+/// ADR-0062: the ORDER is no longer a contract. This list used to be hand-sorted — gpud first so
+/// the scanout handoff was live before windowd presented, hidrawd last so its MMIO and inputd's
+/// route already existed — which made a comment the only thing standing between the boot and a
+/// black screen. Dependencies are now carried by the two mechanisms that can actually express
+/// them: a route ask parks until its target can answer (routing v2), and a service does not run
+/// before its stage opens (the boot-stage fence). So they are resumed in whatever order the
+/// channel list holds, which is exactly what proves the order does not matter.
 pub(crate) fn resume_drivers(
     ctrls: &[CtrlChannel],
     init_fold: bool,
     init_misc: &mut nexus_event::SpanTally,
 ) {
-    for service_name in ["gpud", "windowd", "inputd", "hidrawd"] {
-        if let Some(chan) = ctrls.iter().find(|c| c.svc_name == service_name) {
-            apply_affinity(chan.svc_name, chan.pid);
-            match nexus_abi::task_resume(chan.pid) {
-                Ok(()) => {
-                    if il(init_misc, init_fold, service_name) {
-                        debug_write_bytes(b"init: deferred resume ");
-                        debug_write_str(service_name);
-                        debug_write_byte(b'\n');
-                    }
-                }
-                Err(e) => {
-                    debug_write_bytes(b"init: deferred resume fail svc=");
-                    debug_write_str(service_name);
-                    debug_write_bytes(b" err=0x");
-                    debug_write_hex(e as usize);
+    for chan in ctrls.iter().filter(|c| is_driver(c.svc_name)) {
+        apply_affinity(chan.svc_name, chan.pid);
+        match nexus_abi::task_resume(chan.pid) {
+            Ok(()) => {
+                if il(init_misc, init_fold, chan.svc_name) {
+                    debug_write_bytes(b"init: deferred resume ");
+                    debug_write_str(chan.svc_name);
                     debug_write_byte(b'\n');
                 }
+            }
+            Err(e) => {
+                debug_write_bytes(b"init: deferred resume fail svc=");
+                debug_write_str(chan.svc_name);
+                debug_write_bytes(b" err=0x");
+                debug_write_hex(e as usize);
+                debug_write_byte(b'\n');
             }
         }
     }

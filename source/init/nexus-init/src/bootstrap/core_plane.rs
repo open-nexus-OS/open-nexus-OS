@@ -221,7 +221,6 @@ pub(crate) fn bring_up(
     // Wave 0: the three plane services run from here — pairs + control
     // channels are in place, so none of them retries a route probe.
     crate::bootstrap::resume::resume_plane(ctrls);
-    let _ = nexus_abi::yield_();
 
     let pol_route = (pol_ctl_route_req, pol_ctl_route_rsp);
     mmio_policy_deny_probe(pol_route)?;
