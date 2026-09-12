@@ -249,18 +249,23 @@ pub(super) fn map_fence_error(err: crate::fence::FenceError) -> Error {
     }
 }
 
-/// Resolves a fence cap slot to its kernel-local id. Authority IS cap
-/// possession (RFC-0033): the slot lookup in the caller's own cap table
-/// proves the fence was created by or transferred to this task — a
-/// creator-pid check on top would render transferred fence caps unusable
-/// (the workpool hands its job/done fences to same-AS worker threads).
+/// Resolves a fence cap slot to its kernel-local id and enforces the right the operation needs
+/// (ADR-0062). Authority IS cap possession plus its RIGHTS (RFC-0033): the slot lookup in the
+/// caller's own cap table proves the fence was created by or transferred to this task — a
+/// creator-pid check on top would render transferred fence caps unusable (the workpool hands its
+/// job/done fences to same-AS worker threads). `signal` demands `MANAGE`, `wait` accepts `WAIT`
+/// too, so a child holding a WAIT-only stage fence can block for a stage but never release one.
 /// The table's `owner_pid` stays lifecycle-only (free/teardown).
 #[inline]
 pub(super) fn fence_id_from_cap(
     ctx: &mut Context<'_>,
     slot: usize,
+    any_of: Rights,
 ) -> Result<crate::fence::FenceId, Error> {
     let cap = ctx.tasks.current_caps_mut().get(slot)?;
+    if !cap.rights.intersects(any_of) {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
     match cap.kind {
         CapabilityKind::Fence(id) => {
             let fence_id = crate::fence::FenceId(id);
@@ -278,7 +283,12 @@ pub(super) fn fence_id_from_cap(
 pub(super) fn sys_fence_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     let owner = ctx.tasks.current_pid().as_raw();
     let fence_id = ctx.fences.alloc(owner).map_err(map_fence_error)?;
-    let cap = Capability { kind: CapabilityKind::Fence(fence_id.0), rights: Rights::MANAGE };
+    // The creator may signal AND wait; a derived WAIT-only copy is what init hands its children
+    // (a subset of these rights — `CapTable::derive` refuses anything wider).
+    let cap = Capability {
+        kind: CapabilityKind::Fence(fence_id.0),
+        rights: Rights::MANAGE | Rights::WAIT,
+    };
     match ctx.tasks.current_caps_mut().allocate(cap) {
         Ok(slot) => Ok(slot),
         Err(err) => {
@@ -289,11 +299,13 @@ pub(super) fn sys_fence_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult
 }
 
 /// `SYSCALL_FENCE_SIGNAL` (42): advance the fence monotonically to at least `value` and wake
-/// every waiter the new value now satisfies. Args: (fence_slot, value).
+/// every waiter the new value now satisfies. Requires `MANAGE` (ADR-0062: a WAIT-only holder —
+/// every child of init holding the boot-stage fence — must not release a stage). Args:
+/// (fence_slot, value).
 pub(super) fn sys_fence_signal(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let slot = args.get(0);
     let value = args.get(1) as u64;
-    let fence_id = fence_id_from_cap(ctx, slot)?;
+    let fence_id = fence_id_from_cap(ctx, slot, Rights::MANAGE)?;
     ctx.fences.signal(fence_id, value).map_err(map_fence_error)?;
     // Wake satisfied waiters. Bounded stack buffer (no heap); any overflow is released by
     // the next signal. The woken tasks re-check `value >= target` on re-entry.
@@ -313,7 +325,7 @@ pub(super) fn sys_fence_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<us
     let slot = args.get(0);
     let target = args.get(1) as u64;
     let deadline_ns = args.get(2) as u64;
-    let fence_id = fence_id_from_cap(ctx, slot)?;
+    let fence_id = fence_id_from_cap(ctx, slot, Rights::WAIT | Rights::MANAGE)?;
 
     if deadline_ns != 0 {
         crate::trap::arm_wakeup(ctx.timer, deadline_ns);

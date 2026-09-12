@@ -37,7 +37,7 @@ pub use bringup::{
 pub use lock_ping::{lock_ping_participate, selftest_lock_ping};
 pub use runtime::{
     assign_spawn_cpu, mark_runtime_ready, record_timer_tick, record_user_dispatch, runtime_ready,
-    steal_rate_gate, take_wake_hint,
+    steal_rate_gate, take_wake_hint, user_dispatch_total,
 };
 
 /// Per-hart kernel-local block. `sscratch` and (in S-mode) `tp` point at the

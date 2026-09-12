@@ -47,6 +47,15 @@ and the control channel already carries verbs. The question is what init may syn
   change); init holds a ready table and a parked-route ring (bounded); marker order shifts
   (`init: up` after `<svc>: ready`) and proof manifests are updated in the same package; a
   possible kernel rights-mask change for the fence capability.
+- **Delivered (TASK-0324 P5-a, 2026-09-12)**: the kernel floor is no longer hypothetical.
+  `Rights::WAIT` exists beside `Rights::MANAGE`; `fence_create` mints `MANAGE | WAIT`,
+  `fence_signal` requires `MANAGE`, and `fence_wait` accepts `WAIT` or `MANAGE` — so the
+  WAIT-only copy a child receives can block for a stage but never release one for the fleet.
+  Before this the check was on the capability KIND alone: every fence holder could signal.
+  Proven in the boot ladder by `KSELFTEST: fence transfer ok` (create -> derive a WAIT-only
+  copy -> wait succeeds -> signal refused). The liveness witness ships with it:
+  `KSELFTEST: liveness snapshot FAIL quiet-stall ...`, latched once per boot when no task has
+  been dispatched for 2 s, every online hart is idle and at least one task is blocked.
 - **Follow-ups**: TASK-0324 P2 (`@ready`), P3 (parked routes), P5 (fence + liveness witness),
   P8 (docs: `09-nexus-init.md`, `06-boot-and-bringup.md`, RFC-0069 §4 implemented, RFC-0013).
 

@@ -352,6 +352,13 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                         _ => {}
                     }
                 }
+                // TASK-0324 P5-a liveness witness (ADR-0062): the watchdog above measures the
+                // PROGRESS EPOCH, which every trap bumps — a timer tick included — so it cannot
+                // tell a wedged fleet from one that waits quietly. This check names the wedge:
+                // no task dispatched since the last sample, every online hart idle, and at least
+                // one task blocked. Once per boot, FAIL-shaped so the harness gate fails the lane.
+                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+                crate::liveness::quiet_stall_witness(cpu, tasks, now);
                 Attempt::Idle
             } else {
                 Attempt::Idle

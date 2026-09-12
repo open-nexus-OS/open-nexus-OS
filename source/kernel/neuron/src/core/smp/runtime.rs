@@ -50,6 +50,18 @@ pub fn record_user_dispatch(cpu: CpuId) {
     }
 }
 
+/// Total user dispatches across every hart. The liveness watchdog's progress epoch is bumped by
+/// EVERY trap (a timer tick included), so it cannot tell "the fleet is wedged" from "the fleet is
+/// quietly waiting". This counter only moves when a task actually ran (TASK-0324 P5-a).
+#[inline]
+pub fn user_dispatch_total() -> usize {
+    let mut total: usize = 0;
+    for slot in USER_DISPATCHES.iter().take(MAX_CPUS) {
+        total = total.saturating_add(slot.load(Ordering::Acquire));
+    }
+    total
+}
+
 /// Per-hart supervisor timer tick counters (A7): written by the owning
 /// hart's S_TIMER trap; proves every online hart has a live preemption tick.
 static TIMER_TICKS: [AtomicUsize; MAX_CPUS] = [const { AtomicUsize::new(0) }; MAX_CPUS];

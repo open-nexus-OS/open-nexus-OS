@@ -35,6 +35,11 @@ proves = "kernel validated the loader's CRC'd handoff record (ADR-0059 ABI parit
 phase = "bringup"
 proves = "kernel banner reached"
 
+# TASK-0324 P5-a (ADR-0062): the boot-stage fence a child receives may WAIT but never SIGNAL.
+[marker."KSELFTEST: fence transfer ok"]
+phase = "bringup"
+proves = "fence_create mints MANAGE|WAIT, a WAIT-only copy waits, and its signal is refused"
+
 [marker."KSELFTEST: vmo zero ok"]
 phase = "bringup"
 proves = "kernel selftest: fresh VMO backing reads all-zero before any write (RFC-0004; promoted to a gate by RFC-0085 P3)"

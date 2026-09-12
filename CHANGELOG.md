@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-12 (TASK-0324 P5-a: the boot-stage fence gets its kernel floor and the silent stall gets a witness)
+
+- Security fix: signalling a timeline fence now requires `Rights::MANAGE`. The check was on the
+  capability KIND alone, so any holder of a fence could advance it — under the ADR-0062 stage
+  design that means a single child could have released a boot stage for the whole fleet.
+  `Rights::WAIT` (kernel + `nexus-abi` mirror) allows waiting WITHOUT advancing; `fence_create`
+  mints `MANAGE | WAIT`, `fence_wait` accepts either. `nexus-workpool` transfers its fences with
+  `MANAGE` and is unaffected.
+- New ladder proof `KSELFTEST: fence transfer ok`: create a fence, derive a WAIT-only copy (what a
+  child receives), wait successfully on it, and get the signal refused.
+- New kernel liveness witness for a wedged fleet. The progress epoch behind `is_stalled` is bumped
+  by every trap — a timer tick included — so it could not distinguish a wedge from a quiet system.
+  `liveness::quiet_stall_witness` fires when no task has been dispatched for 2 s, every online hart
+  is idle and at least one task is blocked: `KSELFTEST: liveness snapshot FAIL quiet-stall ...`
+  plus a task snapshot, latched once per boot and FAIL-shaped so the harness fails the lane. This
+  closes the open evidence item from P0 (one silent stall in 16 interactive boots, no witness).
+- Structure (ratchet, no baseline bump): fence selftests split into `selftest/fence.rs`, the
+  witness lives next to `dump_snapshot` in `diag/liveness.rs`.
+
 ### Changed - 2026-09-11 (TASK-0324 P4f-6: the slot SSOT is closed; init's clone leaks and statefsd's lost audit trail fixed)
 
 - The slot-SSOT ratchet became an absolute gate: outside `nexus-service-topology` (service slots)

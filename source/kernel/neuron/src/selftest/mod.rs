@@ -41,8 +41,7 @@ use crate::{
     sched::Scheduler,
     syscall::{
         api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP,
-        SYSCALL_CAP_CLOSE, SYSCALL_EXIT, SYSCALL_FENCE_CREATE, SYSCALL_FENCE_SIGNAL,
-        SYSCALL_FENCE_WAIT, SYSCALL_SPAWN, SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE,
+        SYSCALL_CAP_CLOSE, SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE,
         SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
         SYSCALL_WAITSET_ADD, SYSCALL_WAITSET_CREATE, SYSCALL_WAITSET_WAIT, SYSCALL_YIELD,
     },
@@ -57,6 +56,7 @@ use crate::{
 use riscv::register::sstatus;
 
 pub mod assert;
+mod fence;
 mod smp_sched;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod vm_alloc;
@@ -550,7 +550,8 @@ pub fn entry(ctx: &mut Context<'_>) {
     run_ipc_owner_exit_wakes_waiters_selftest(ctx);
     run_timer_cap_selftest(ctx);
     run_waitset_selftest(ctx);
-    run_fence_selftest(ctx);
+    fence::run_fence_selftest(ctx);
+    fence::run_fence_rights_selftest(ctx);
     run_spawn_reason_selftest();
     run_resource_sentinel_selftest(ctx);
     run_cpuid_selftest();
@@ -1234,87 +1235,6 @@ fn run_waitset_selftest(ctx: &mut Context<'_>) {
     for slot in [ws_slot, ws_tmo, timer_slot] {
         let _ = table.dispatch(SYSCALL_CAP_CLOSE, &mut sys_ctx, &Args::new([slot, 0, 0, 0, 0, 0]));
     }
-}
-
-/// RFC-0033 runtime proof: exercises the fence syscalls end-to-end in QEMU. Proves create,
-/// monotonic signal (a lower signal does not lower the value), the immediately-satisfied
-/// wait path, and the deadline/timeout path — all against the real table + block/wake
-/// machinery (`fence_signal` reuses the shared `tasks.wake` path).
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-fn run_fence_selftest(ctx: &mut Context<'_>) {
-    use crate::ipc::IpcError;
-
-    ctx.tasks.set_current(Pid::KERNEL);
-
-    let mut table = SyscallTable::new();
-    api::install_handlers(&mut table);
-    let timer = ctx.hal.timer();
-    let mut sys_ctx = api::Context::new(
-        ctx.scheduler,
-        ctx.tasks,
-        ctx.router,
-        ctx.address_spaces,
-        timer,
-        ctx.hart_timers,
-        ctx.waitsets,
-        ctx.fences,
-    );
-
-    let fence_slot = match table.dispatch(SYSCALL_FENCE_CREATE, &mut sys_ctx, &Args::new([0; 6])) {
-        Ok(slot) => slot,
-        Err(e) => {
-            log_error!(target: "selftest", "KSELFTEST: fence FAIL create={:?}", e);
-            return;
-        }
-    };
-
-    // Signal to 10, then a wait for target 5 is satisfied immediately (no block) → Ok.
-    if let Err(e) =
-        table.dispatch(SYSCALL_FENCE_SIGNAL, &mut sys_ctx, &Args::new([fence_slot, 10, 0, 0, 0, 0]))
-    {
-        log_error!(target: "selftest", "KSELFTEST: fence FAIL signal={:?}", e);
-        return;
-    }
-    let wait_ok = table
-        .dispatch(SYSCALL_FENCE_WAIT, &mut sys_ctx, &Args::new([fence_slot, 5, 0, 0, 0, 0]))
-        .is_ok();
-
-    // Monotonic: a lower signal (3) must NOT lower the value, so a wait for 10 still passes.
-    let _ =
-        table.dispatch(SYSCALL_FENCE_SIGNAL, &mut sys_ctx, &Args::new([fence_slot, 3, 0, 0, 0, 0]));
-    let mono_ok = table
-        .dispatch(SYSCALL_FENCE_WAIT, &mut sys_ctx, &Args::new([fence_slot, 10, 0, 0, 0, 0]))
-        .is_ok();
-
-    if wait_ok && mono_ok {
-        log_info!(target: "selftest", "KSELFTEST: fence wait ok");
-    } else {
-        log_error!(
-            target: "selftest",
-            "KSELFTEST: fence wait FAIL: wait_ok={} mono_ok={}",
-            wait_ok,
-            mono_ok
-        );
-    }
-
-    // Timeout: an unreachable target (999) with an already-elapsed deadline → TimedOut
-    // (checked before any block, so no hang).
-    let past_deadline = timer.now() as usize;
-    match table.dispatch(
-        SYSCALL_FENCE_WAIT,
-        &mut sys_ctx,
-        &Args::new([fence_slot, 999, past_deadline, 0, 0, 0]),
-    ) {
-        Err(SysError::Ipc(IpcError::TimedOut)) => {
-            log_info!(target: "selftest", "KSELFTEST: fence timeout ok")
-        }
-        other => {
-            log_error!(target: "selftest", "KSELFTEST: fence timeout FAIL: {:?}", other)
-        }
-    }
-
-    let _ =
-        table.dispatch(SYSCALL_CAP_CLOSE, &mut sys_ctx, &Args::new([fence_slot, 0, 0, 0, 0, 0]));
 }
 
 fn run_spawn_reason_selftest() {

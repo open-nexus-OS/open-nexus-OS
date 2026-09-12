@@ -28,6 +28,10 @@ bitflags! {
         const RECV = 1 << 1;
         const MAP = 1 << 2;
         const MANAGE = 1 << 3;
+        /// Wait on a timeline fence WITHOUT being able to advance it (ADR-0062): the boot-stage
+        /// fence is handed to every child with this right alone, so a child can block for a stage
+        /// but never release one for the whole fleet.
+        const WAIT = 1 << 4;
     }
 }
 

@@ -22,6 +22,9 @@ bitflags::bitflags! {
         const MAP = 1 << 2;
         /// Permit the holder to manage capabilities (reserved for kernel tests).
         const MANAGE = 1 << 3;
+        /// Permit the holder to WAIT on a timeline fence, but not to signal it (ADR-0062).
+        /// `fence_create` mints `MANAGE | WAIT`; a stage fence is handed to children as `WAIT`.
+        const WAIT = 1 << 4;
     }
 }
 
