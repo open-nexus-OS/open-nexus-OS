@@ -66,7 +66,7 @@ struct RetentionSink {
 impl RetentionSink {
     fn new(limits: RuntimeLimits) -> Self {
         let client = if limits.retention_enabled {
-            KernelClient::new_with_slots(declared::STATEFSD.send, 0).ok()
+            KernelClient::new_with_slots(declared::STATEFSD.send, declared::REPLY.recv).ok()
         } else {
             None
         };
@@ -416,8 +416,6 @@ fn route_metricsd_blocking() -> Option<KernelServer> {
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(
         name,
-        nexus_service_topology::CTRL_SLOTS.send,
-        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

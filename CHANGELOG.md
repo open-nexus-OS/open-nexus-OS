@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-11 (TASK-0324 P4f-6: the slot SSOT is closed; init's clone leaks and statefsd's lost audit trail fixed)
+
+- The slot-SSOT ratchet became an absolute gate: outside `nexus-service-topology` (service slots)
+  and `nexus-abi` (kernel-installed slots) no Rust source may carry a capability slot as a number —
+  `const`/`let` literals, literal `new_with_slots` arguments and literal `cap_transfer_to_slot`
+  pins are rejected, and the scanner proves itself on fixtures on every run. The baseline file is
+  gone (191 -> 0).
+- `nexus-abi` names the kernel-installed slots (`BOOTSTRAP_CAP_SLOT`, `INIT_ENDPOINT_FACTORY_SLOT`);
+  init, execd and the selftest use them.
+- Route asks no longer take the control-channel slots: `route_with_nonce_budgeted(name, budget,
+  mismatch)` reads them from the topology. 26 call sites and every local copy of slots 1/2
+  (including `nexus-ipc` and `nexus-service-entry`) are gone.
+- Fixed: statefsd sent every audit record to slot 8, which init never provisioned. Its logd route is
+  declared (late-grant band) and provisioned; the selftest reports delivery
+  (`SELFTEST: statefsd audit delivered ok`, not ladder-gated).
+- Fixed: init took 19 capability clones before transferring although a transfer duplicates — each
+  one a leaked slot in a table that runs near its ceiling by wiring time. The originals are pinned;
+  `test_reject_clone_leak` rejects a clone that is neither moved in a message nor closed.
+- Deleted: the "no minted pair -> fresh endpoint" fallbacks (a declared server without a minted pair
+  now fails loudly), init's unused `slot_map.rs`, execd's slot-drift diagnostic, and the unscheduled
+  VMO-share probe with its hand-built consumer ELF (they agreed on a fixed child slot by convention).
+- `touchd` is declared; `test_reject_service_missing_from_specs` requires a spec for every service.
+
 ### Changed - 2026-09-11 (TASK-0324 P4f-5: the proof harness declared; its capabilities are pinned before it runs, its routing proofs check the declaration)
 
 - selftest-client has a `ServiceSpec`: 23 routes, its reply inbox and the fw_cfg window are

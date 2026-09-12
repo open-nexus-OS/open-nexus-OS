@@ -240,8 +240,6 @@ fn route_timed_blocking() -> Option<KernelServer> {
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(
         name,
-        nexus_service_topology::CTRL_SLOTS.send,
-        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

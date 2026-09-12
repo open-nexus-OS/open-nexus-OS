@@ -20,7 +20,7 @@
 - **Phase 1 (this contract + ADR-0062)**: ✅ 2026-09-09 (TASK-0324 P1 — paper)
 - **Phase 2 (`@ready` verb, honest `init: up`)**: ✅ 2026-09-09 (TASK-0324 P2 — `test-all` green over 8 lanes, 0 announce failures, `init: up` follows `<svc>: ready` everywhere)
 - **Phase 3 (routing v2: nonce mandatory, parked replies, fail-closed)**: ✅ 2026-09-10 (TASK-0324 P3 — `test-all` green over 8 lanes; park scope amended below with implementation evidence)
-- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: 🟨 2026-09-10 — crate + ratchet gate landed (P4-base); windowd (P4a), inputd (P4b), gpud + the fleet-wide MMIO slot (P4c), hidrawd (P4d), the app-child table (P4e), execd's own table (P4e-2), the generic arm's fifteen services (P4f-1a/1b), the block plane, policyd + keystored (P4f-2), updated + bundlemgrd (P4f-3) netstackd + dsoftbusd + metricsd (P4f-4) and the proof harness (P4f-5) migrated — 191 → 4 positional declarations, no order-based capability transfer left in init; P4f-6 (closure gate) open
+- **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: ✅ 2026-09-12 — the crate, the declared arm and every consumer: windowd (P4a), inputd (P4b), gpud + the fleet-wide MMIO slot (P4c), hidrawd (P4d), the app-child table (P4e), execd (P4e-2), the generic arm's fifteen services + the block plane (P4f-1a/1b), policyd + keystored (P4f-2), updated + bundlemgrd (P4f-3), netstackd + dsoftbusd + metricsd (P4f-4), the proof harness (P4f-5) and the closure (P4f-6). 191 → 0 positional slot declarations; `check-slot-ssot.sh` is an absolute gate that proves its own scanner; init has neither an order-based capability transfer nor a clone taken for one left; `just test-all` green in one run per package
 - **Phase 5 (stage fence replaces every `yield_()` sync)**: ⬜ TASK-0324 P5
 - **Phase 6 (handoff v2: reveal handshake, seq acks, kernel display mode, readback off-scanout)**: ⬜ TASK-0324 P6
 - **Phase 7–9 (consumer polls deleted, closure docs/gates, 8/8 boots)**: ⬜ TASK-0324 P7–P9
@@ -233,6 +233,19 @@ constants. Deleted (P4a–P4f, atomic per consumer): every `new_with_slots(…)`
   virtioblkd, whose virtqueue VMOs sat in the reply-inbox slots it never used. Invariant: every
   capability init grants an early-running service is pinned before the service runs, or declared
   above the range its own allocations reach; the stage fence (§3) must make "resumed" imply "wired".
+- **Amendment 2026-09-11 (P4f-6, closure — implementation evidence).** "Every `new_with_slots(…)`
+  is deleted" overstates it: services still build clients from slot numbers — but only from
+  declared constants. The rule the gate enforces is sharper, and absolute since P4f-6 (the
+  ratchet baseline is gone, 191 → 0): outside `nexus-service-topology` (the slots init
+  provisions) and `nexus-abi` (the slots the kernel installs itself — a task's bootstrap
+  endpoint, init's endpoint factory — mirrored there like the syscall numbers) no source carries a
+  capability slot as a literal: no `const`/`let` slot literal, no literal `new_with_slots`
+  argument, no literal `cap_transfer_to_slot` pin; the scanner proves itself on fixtures on every
+  run. The control channel stopped being a parameter: `route_with_nonce_budgeted` reads
+  `CTRL_SLOTS`. `test_reject_service_missing_from_specs` and `test_reject_clone_leak` landed as
+  promised; the latter encodes that a transfer DUPLICATES a capability — init had taken 19 clones
+  it never needed. The closure scan also surfaced a route that existed only in its consumer:
+  statefsd sent its audit trail to a literal slot 8 that nobody provisioned; the leg is declared now.
 - **Amendment 2026-09-11 (P4f-5, implementation evidence).** A consumer that runs before wiring
   receives its STATIC capabilities before it first runs: the proof harness (wave 1) is provisioned
   right after the server-pair distribution, by the same function that serves the generic arm
@@ -378,7 +391,7 @@ cd /home/jenning/open-nexus-OS && just ci-os-smp1 && just ci-os-visible && just 
 - [x] **Phase 1**: this contract + ADR-0062 — proof: `just check`
 - [x] **Phase 2**: `@ready` + honest `init: up` — `nexus_service_entry::ready`, `ready_table.rs`, responder arm, `check-init-sync.sh` in `just check`; proven 2026-09-09 by `just test-all` (8 lanes green)
 - [x] **Phase 3**: routing v2 — nonce mandatory, `route_park.rs`, one reply path, fail-closed policy, `query_route` + alias guards deleted; proven 2026-09-10 by `just test-all` (8 lanes, park observed 3× per lane)
-- [ ] **Phase 4**: topology crate, bespoke arms deleted — proof: `check-slot-ssot.sh` + per-consumer lanes
+- [x] **Phase 4**: topology crate, bespoke arms deleted — proof: `check-slot-ssot.sh` (absolute since P4f-6) + per-consumer lanes
 - [ ] **Phase 5**: stage fence — proof: init tests + `stage:` order in `ci-os-smp1`
 - [ ] **Phase 6**: handoff v2 — proof: display lanes + chain simulations
 - [ ] **Phase 7–9**: polls deleted, closure, 8/8 boots

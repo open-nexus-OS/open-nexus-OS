@@ -281,10 +281,6 @@ fn bind_server() -> SettingsdResult<KernelServer> {
 // failure degrades to defaults / retry-with-backoff — never a boot failure,
 // never a blocked client.
 
-/// init-lite control-channel slots (route requests go through the responder).
-const CTRL_SEND_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.send;
-const CTRL_RECV_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
-
 /// settingsd's key in statefsd's flat KV store. Stable across boots (a const),
 /// so the same overrides load back every time. statefsd's journal engine
 /// accepts ONLY `/state/`-rooted keys (validate_key) — the original bare
@@ -402,8 +398,6 @@ fn cached_slots() -> Option<(u32, u32, u32)> {
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(
         name,
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

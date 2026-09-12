@@ -85,6 +85,15 @@ proves = "the learn record reached logd (append acked or query hit) — best-eff
 [marker."SELFTEST: abi learn delivered dropped"]
 phase = "policy"
 
+# TASK-0324 P4f-6: statefsd's audit trail reaches logd over its declared logd route. The leg was
+# never provisioned before (statefsd sent to an empty slot), so every statefsd audit was lost.
+[marker."SELFTEST: statefsd audit delivered ok"]
+phase = "policy"
+proves = "statefsd's audit record of the ABI refusal reached logd over its declared logd route — best-effort by contract, not ladder-gated"
+
+[marker."SELFTEST: statefsd audit delivered dropped"]
+phase = "policy"
+
 [marker."SELFTEST: abi mode switch auth ok"]
 phase = "policy"
 proves = "authenticated (policy.abi_mode) epoch-bound switches Learn and back to Enforce applied"

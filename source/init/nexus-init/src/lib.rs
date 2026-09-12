@@ -33,9 +33,8 @@
 
 extern crate alloc;
 
-/// Deterministic capability slot assignment map for early boot validation.
-#[cfg(all(feature = "os-payload", nexus_env = "os"))]
-pub mod slot_map;
+#[cfg(test)]
+mod cap_hygiene_tests;
 
 pub mod affinity;
 pub mod ready_table;

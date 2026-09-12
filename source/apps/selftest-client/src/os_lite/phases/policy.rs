@@ -314,6 +314,20 @@ fn abi_enforcement_proofs(
     } else {
         emit_line(crate::markers::M_SELFTEST_ABI_LEARN_DELIVERED_DROPPED);
     }
+    // statefsd audit witness (not ladder-gated, TASK-0324 P4f-6): the refusals above are audited to
+    // logd over statefsd's declared logd route — a leg init never provisioned before, so every
+    // statefsd audit record went to an empty slot. Best-effort delivery, like the learn record.
+    let audited = services::logd::logd_query_contains_since_paged(
+        logd,
+        0,
+        b"statefsd: abi deny path=/state/app/selftest/secrets/probe",
+    )
+    .unwrap_or(false);
+    if audited {
+        emit_line(crate::markers::M_SELFTEST_STATEFSD_AUDIT_DELIVERED_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_STATEFSD_AUDIT_DELIVERED_DROPPED);
+    }
     // Back to Enforce; both authenticated switches applied (policyd audits each).
     let to_enforce =
         services::policyd::policyd_set_abi_mode(policyd, selftest_sid, ABI_MODE_ENFORCE, epoch);

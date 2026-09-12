@@ -170,14 +170,6 @@ pub(crate) fn provision_inputd_imed_route(pid: u32, eps: &Endpoints, chan: &mut 
     }
 }
 
-/// Fixed child slots for inputd's settings-watch channel (RFC-0078). The
-/// inputd side hardcodes these (`os_lite.rs` — kept in sync by comment):
-/// 0x20 = SEND on settingsd's request endpoint (OP_WATCH + future GETs),
-/// 0x21 = RECV of the minted watch channel (event inbox),
-/// 0x22 = SEND of the minted watch channel (cap-moved to settingsd inside
-/// the OP_WATCH request).
-pub(crate) const INPUTD_SETTINGS_SEND_SLOT: u32 = 0x20;
-
 /// Provisions windowd's launch route (TASK-0080D): SEND on abilitymgr's
 /// pre-minted request endpoint + RECV on its response endpoint, so the Apps
 /// menu's `OP_LAUNCH` reaches the lifecycle broker and the status reply

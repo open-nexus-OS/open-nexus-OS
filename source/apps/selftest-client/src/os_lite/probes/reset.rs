@@ -425,8 +425,6 @@ pub(crate) fn bootctl_call_raw(frame: &[u8], op: u8) -> Option<(u8, [u8; 2])> {
 fn route_bootctld() -> Option<u32> {
     match budget::route_with_nonce_budgeted(
         b"bootctld",
-        nexus_service_topology::CTRL_SLOTS.send,
-        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

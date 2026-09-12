@@ -70,13 +70,9 @@ pub(crate) struct Endpoints {
     pub imed_req: u32,
     /// imed server response endpoint (owned by inputd, the direct-reply peer).
     pub imed_rsp: u32,
-    /// imed OSK-injection endpoint (RFC-0075 Phase 2): RECV → imed; SEND
-    /// clones below go to execd (app provisioning) + selftest (probe).
+    /// imed OSK-injection endpoint (RFC-0075 Phase 2): RECV → imed; SEND → execd (app
+    /// provisioning) and the selftest (probe), pinned from this one endpoint.
     pub imed_osk: u32,
-    /// SEND clone of `imed_osk` for execd's `imed-osk` named route.
-    pub imed_osk_execd: u32,
-    /// SEND clone of `imed_osk` for the selftest harness probe.
-    pub imed_osk_selftest: u32,
     /// inputd's settings-watch push channel (RFC-0078; both halves go to
     /// inputd at fixed slots, init's cap closes after wiring).
     pub inputd_watch_ep: u32,
@@ -221,8 +217,8 @@ impl Endpoints {
 
     /// The request endpoint `from` sends on over a `ReplyInbox` route to `to`: the target's
     /// minted server pair, with two exceptions (TASK-0324 P4f-5). The on-screen-keyboard endpoint
-    /// is cloned per consumer — each leg moves its own clone — and the priority-wired inputd is
-    /// not in the distribution table.
+    /// is imed's second server endpoint, and the priority-wired inputd is not in the distribution
+    /// table.
     pub(crate) fn request_ep(
         &self,
         from: crate::service_topology::ServiceId,
@@ -230,7 +226,7 @@ impl Endpoints {
     ) -> Option<u32> {
         use crate::service_topology::ServiceId;
         match (from, to) {
-            (ServiceId::SelftestClient, ServiceId::ImedOsk) => Some(self.imed_osk_selftest),
+            (_, ServiceId::ImedOsk) => Some(self.imed_osk),
             (_, ServiceId::Inputd) => Some(self.input_req),
             _ => self.server_pair(to).map(|(req, _)| req),
         }
@@ -240,19 +236,10 @@ impl Endpoints {
 /// Closes init's already-wired endpoint slots post-`wire_services` (every
 /// leg was granted; a parked full cap table broke runtime `@mint-pair`).
 pub(crate) fn close_wired_eps(eps: &Endpoints) {
-    for cap in [eps.imed_req, eps.imed_rsp, eps.inputd_watch_ep, eps.windowd_watch_ep] {
+    for cap in [eps.imed_req, eps.imed_rsp, eps.imed_osk, eps.inputd_watch_ep, eps.windowd_watch_ep]
+    {
         let _ = nexus_abi::cap_close(cap);
     }
-}
-
-/// Two SEND clones of the OSK endpoint (RFC-0075 Phase 2) — cloned EARLY
-/// (orchestrator, cap-table headroom) because each wiring leg MOVES its
-/// cap: the original's RECV goes to imed, these SENDs to execd + selftest.
-pub(crate) fn clone_osk_pair(imed_osk: u32) -> Result<(u32, u32), crate::os_payload::InitError> {
-    use crate::os_payload::InitError;
-    let execd = nexus_abi::cap_clone(imed_osk).map_err(InitError::Abi)?;
-    let selftest = nexus_abi::cap_clone(imed_osk).map_err(InitError::Abi)?;
-    Ok((execd, selftest))
 }
 
 /// Compute broker (SMP track Phase D): pre-mint pinched's server pair so the

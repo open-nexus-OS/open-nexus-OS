@@ -341,16 +341,14 @@ fn append_logd_audit(msg: &[u8]) {
         return;
     }
 
-    // init-lite deterministic slots for statefsd:
-    // - logd send cap: 0x08
-    // - reply inbox: recv=0x05, send=0x06
-    let send_slot = 0x08;
-    let reply_send_slot = 0x06;
-    let _reply_recv_slot = 0x05;
-    let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
+    // statefsd's declared logd leg and reply inbox (TASK-0324 P4f-6). The logd send slot used
+    // to be a literal 8 that init never provisioned, so every audit record was lost.
+    let send_slot = nexus_service_topology::slots::statefsd::LOGD.send;
+    let reply_send_clone =
+        match nexus_abi::cap_clone(nexus_service_topology::slots::statefsd::REPLY.send) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
 
     let mut frame = [0u8; 512];
     let mut len = 0usize;
@@ -372,5 +370,4 @@ fn append_logd_audit(msg: &[u8]) {
     let hdr =
         nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
     let _ = nexus_abi::ipc_send_v1(send_slot, &hdr, &frame[..len], nexus_abi::IPC_SYS_NONBLOCK, 0);
-    let _ = _reply_recv_slot;
 }

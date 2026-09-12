@@ -46,8 +46,8 @@ impl DisplayServerRuntime {
     /// cursor ack never matched and the boot stayed on the splash, ~1 in 2 interactive
     /// boots). They are gone with the protocol that needed them.
     ///
-    /// The wired-pair fallback below is the positional-slot structure TASK-0324 P4 replaces
-    /// with the declared slot topology; it stays until that package lands.
+    /// The fallback is the same declared pair init pins before windowd resumes; the route ask in
+    /// front of it only waits for gpud's readiness, which the stage fence (TASK-0324 P5) takes over.
     pub(super) fn ensure_gpud_client(&mut self) -> bool {
         if self.gpud_client.is_some() {
             return true;

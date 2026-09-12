@@ -26,10 +26,6 @@ use nexus_abi::sessiond as wire;
 use nexus_abi::yield_;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
-/// init-lite control-channel slots (route requests go through the responder).
-const CTRL_SEND_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.send;
-const CTRL_RECV_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
-
 /// One registered user, as reported by sessiond's GET_STATE.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SessionUser {
@@ -64,8 +60,6 @@ impl SessionSnapshot {
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(
         name,
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

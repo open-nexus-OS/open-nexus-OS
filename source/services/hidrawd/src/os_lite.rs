@@ -115,7 +115,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         // (A dedicated endpoint via init's EndpointFactory is a later refinement;
         // plain ipc_endpoint_create is a deprecated, permission-denied ABI.)
         if irq_endpoint.is_none() {
-            const IRQ_NOTIFY_SLOT: Cap = 2;
+            const IRQ_NOTIFY_SLOT: Cap = nexus_service_topology::CTRL_SLOTS.recv;
             let mut bound_any = false;
             for device in &live_devices {
                 if irq_bind(device.irq, IRQ_NOTIFY_SLOT).is_ok() {
@@ -307,7 +307,7 @@ const HIDRAWD_IDLE_PARK_NS: u64 = 50_000_000;
 /// deadline. A control message OR the deadline wakes it; either way it takes zero
 /// CPU while parked. Replaces `yield_()` in the hidrawd idle paths.
 fn idle_park(park_ns: u64) {
-    const CONTROL_REPLY_SLOT: Cap = 2;
+    const CONTROL_REPLY_SLOT: Cap = nexus_service_topology::CTRL_SLOTS.recv;
     let deadline = nsec().unwrap_or(0).saturating_add(park_ns);
     let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 32];
@@ -397,15 +397,8 @@ fn slot_present(slot: u32) -> bool {
 }
 
 fn route_inputd_blocking() -> Option<KernelClient> {
-    const CTRL_SEND_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.send;
-    const CTRL_RECV_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
-    match route_with_nonce_budgeted(
-        b"inputd",
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match route_with_nonce_budgeted(b"inputd", Duration::from_secs(2), NonceMismatchBudget::new(64))
+    {
         RouteRetryOutcome::Success { send_slot, recv_slot } => {
             KernelClient::new_with_slots(send_slot, recv_slot).ok()
         }

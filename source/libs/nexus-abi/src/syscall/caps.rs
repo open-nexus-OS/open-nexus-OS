@@ -7,6 +7,16 @@
 
 #[cfg(nexus_env = "os")]
 use super::*;
+
+/// Capability slot of a spawned task's bootstrap endpoint: the parent names it at spawn and the
+/// kernel installs the child's copy at the same index (neuron `TaskTable::spawn_inner`); `exec`
+/// requires a SEND right in it. Kernel ABI, mirrored here like the syscall numbers — service
+/// slots live in `nexus-service-topology` (TASK-0324 P4f-6).
+pub const BOOTSTRAP_CAP_SLOT: u32 = 0;
+
+/// Capability slot of init-lite's endpoint factory: the kernel injects a derived copy into the
+/// bootstrap task's direct child here (neuron `FACTORY_CHILD_SLOT`).
+pub const INIT_ENDPOINT_FACTORY_SLOT: u32 = 1;
 /// Binds an external interrupt source (PLIC) to an endpoint the caller owns, so
 /// the kernel routes that device IRQ to `endpoint_cap` and wakes a blocked
 /// receiver — the reactive alternative to polling the device. The driver then

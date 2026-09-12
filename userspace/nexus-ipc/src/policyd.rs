@@ -311,8 +311,6 @@ pub fn resolve_policy_slots() -> Option<PolicySlots> {
     use core::time::Duration;
     let route = |name: &[u8]| match route_with_nonce_budgeted(
         name,
-        1,
-        2,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {
@@ -334,8 +332,6 @@ pub fn check_cap_delegated(subject_id: u64, cap: &[u8]) -> CapDecision {
 
     let route = |name: &[u8]| match route_with_nonce_budgeted(
         name,
-        1,
-        2,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

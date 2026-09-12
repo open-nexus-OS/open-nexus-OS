@@ -24,8 +24,6 @@ use nexus_ipc::KernelServer;
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(
         name,
-        nexus_service_topology::CTRL_SLOTS.send,
-        nexus_service_topology::CTRL_SLOTS.recv,
         core::time::Duration::from_millis(50),
         NonceMismatchBudget::new(8),
     ) {

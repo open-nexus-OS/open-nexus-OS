@@ -89,18 +89,17 @@ pub(crate) fn wire_execd(
             }
         }
     }
-    // ADR-0042 / TASK-0080D R1: the windowd client route execd DELEGATES —
-    // clones of these two caps land in every app child's declared pair
-    // (`slots::app_child::WINDOWD`). execd never calls windowd itself.
+    // ADR-0042 / TASK-0080D R1: the windowd client route execd DELEGATES — execd clones these
+    // two caps into every app child's declared pair (`slots::app_child::WINDOWD`) and never
+    // calls windowd itself. init pins the originals: a transfer duplicates, so a clone here only
+    // leaked an init slot (TASK-0324 P4f-6).
     {
-        let window_req_clone = nexus_abi::cap_clone(window_req).map_err(InitError::Abi)?;
-        let window_rsp_clone = nexus_abi::cap_clone(window_rsp).map_err(InitError::Abi)?;
         let (app_send_slot, app_recv_slot) = declared_slots::pin_route(
             pid,
             ServiceId::Execd,
             ServiceId::Windowd,
-            window_req_clone,
-            window_rsp_clone,
+            window_req,
+            window_rsp,
         );
         let (Some(app_send_slot), Some(app_recv_slot)) = (app_send_slot, app_recv_slot) else {
             return Err(InitError::Map("execd->windowd slots"));
@@ -115,17 +114,12 @@ pub(crate) fn wire_execd(
     }
     // TASK-0080D GET_PAYLOAD: execd fetches ui-program payloads from bundlemgrd
     // for the app processes it spawns (fire-and-forget request + VMO cap move;
-    // the child polls the VMO header). CLONE (not move): `bnd_req` stays
-    // available for later arms. RECORD the route (TASK-0080C) — execd
+    // the child polls the VMO header). RECORD the route (TASK-0080C) — execd
     // re-resolves `bundlemgrd` by name per app launch.
     {
-        let bnd_req_clone = nexus_abi::cap_clone(bnd_req).map_err(InitError::Abi)?;
-        if let Some(bundle_send_slot) = declared_slots::pin_route_send(
-            pid,
-            ServiceId::Execd,
-            ServiceId::Bundlemgrd,
-            bnd_req_clone,
-        ) {
+        if let Some(bundle_send_slot) =
+            declared_slots::pin_route_send(pid, ServiceId::Execd, ServiceId::Bundlemgrd, bnd_req)
+        {
             chan.set_send(ServiceId::Bundlemgrd, bundle_send_slot);
             chan.set_recv(ServiceId::Bundlemgrd, reply_recv_slot);
             if iw(init_wire, init_fold, "init:execd") {
@@ -199,13 +193,9 @@ pub(crate) fn wire_execd(
     // the child's fixed SDK slot, `nexus-sdk-routes`). Recorded once here; the
     // responder answers every `route_ctrl(name)` from these persistent slots.
     if let Some(req) = abil_req {
-        let abil_req_clone = nexus_abi::cap_clone(req).map_err(InitError::Abi)?;
-        if let Some(s) = declared_slots::pin_route_send(
-            pid,
-            ServiceId::Execd,
-            ServiceId::Abilitymgr,
-            abil_req_clone,
-        ) {
+        if let Some(s) =
+            declared_slots::pin_route_send(pid, ServiceId::Execd, ServiceId::Abilitymgr, req)
+        {
             chan.set_send(ServiceId::Abilitymgr, s);
             chan.set_recv(ServiceId::Abilitymgr, reply_recv_slot);
             if iw(init_wire, init_fold, "init:execd") {
@@ -231,11 +221,10 @@ pub(crate) fn wire_execd(
 
 /// execd's `imed-osk` named route (RFC-0075 Phase 2): the DEDICATED osk
 /// endpoint — possession IS the authorization; execd provisions it only to
-/// `nexus.permission.IME` bundles. Pre-cloned in the orchestrator (a
-/// transfer MOVES the cap).
+/// `nexus.permission.IME` bundles.
 pub(crate) fn provision_execd_imed_osk(
     pid: u32,
-    imed_osk_execd: u32,
+    imed_osk: u32,
     reply_recv_slot: u32,
     chan: &mut CtrlChannel,
 ) {
@@ -243,7 +232,7 @@ pub(crate) fn provision_execd_imed_osk(
         pid,
         ServiceId::Execd,
         ServiceId::ImedOsk,
-        imed_osk_execd,
+        imed_osk,
     ) {
         chan.set_send(ServiceId::ImedOsk, s);
         chan.set_recv(ServiceId::ImedOsk, reply_recv_slot);
@@ -269,23 +258,21 @@ pub(crate) fn provision_execd_named_routes(
     init_wire: &mut nexus_event::SpanTally,
     init_fold: bool,
 ) {
-    // svc.settings.* (DSL settings app / Control Center): CLONE —
-    // the pre-minted settingsd request endpoint also serves the
-    // windowd arm.
+    // svc.settings.* (DSL settings app / Control Center). Every leg below pins the pre-minted
+    // endpoint itself — a transfer duplicates, so the clones these legs used to take only leaked
+    // init slots (TASK-0324 P4f-6).
     if let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) {
-        if let Ok(clone) = nexus_abi::cap_clone(settings_req) {
-            if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
-                pid,
-                ServiceId::Execd,
-                ServiceId::Settingsd,
-                clone,
-            ) {
-                chan.set_send(ServiceId::Settingsd, s);
-                chan.set_recv(ServiceId::Settingsd, reply_recv_slot);
-                if iw(init_wire, init_fold, "init:execd") {
-                    if crate::bootstrap::diag::raw_or_expanded("execd") {
-                        debug_write_bytes(b"init: execd route->settingsd ok\n");
-                    }
+        if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
+            pid,
+            ServiceId::Execd,
+            ServiceId::Settingsd,
+            settings_req,
+        ) {
+            chan.set_send(ServiceId::Settingsd, s);
+            chan.set_recv(ServiceId::Settingsd, reply_recv_slot);
+            if iw(init_wire, init_fold, "init:execd") {
+                if crate::bootstrap::diag::raw_or_expanded("execd") {
+                    debug_write_bytes(b"init: execd route->settingsd ok\n");
                 }
             }
         }
@@ -308,48 +295,40 @@ pub(crate) fn provision_execd_named_routes(
             }
         }
     }
-    provision_execd_imed_osk(pid, eps.imed_osk_execd, reply_recv_slot, chan);
-    // svc.files.* (filemanager role, RFC-0073/TASK-0291): CLONE of
-    // the pre-minted vfsd request endpoint — the generic vfsd arm
-    // transfers the original to vfsd itself. Named route, replies
-    // ride the child's CAP_MOVE inbox (vfsd is ReplyCap-aware).
+    provision_execd_imed_osk(pid, eps.imed_osk, reply_recv_slot, chan);
+    // svc.files.* (filemanager role, RFC-0073/TASK-0291): the pre-minted vfsd request endpoint.
+    // Named route, replies ride the child's CAP_MOVE inbox (vfsd is ReplyCap-aware).
     if let Some((vfs_req, _)) = eps.server_pair(ServiceId::Vfsd) {
-        if let Ok(clone) = nexus_abi::cap_clone(vfs_req) {
-            if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
-                pid,
-                ServiceId::Execd,
-                ServiceId::Vfsd,
-                clone,
-            ) {
-                chan.set_send(ServiceId::Vfsd, s);
-                chan.set_recv(ServiceId::Vfsd, reply_recv_slot);
-                if iw(init_wire, init_fold, "init:execd") {
-                    if crate::bootstrap::diag::raw_or_expanded("execd") {
-                        debug_write_bytes(b"init: execd route->vfsd ok\n");
-                    }
+        if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
+            pid,
+            ServiceId::Execd,
+            ServiceId::Vfsd,
+            vfs_req,
+        ) {
+            chan.set_send(ServiceId::Vfsd, s);
+            chan.set_recv(ServiceId::Vfsd, reply_recv_slot);
+            if iw(init_wire, init_fold, "init:execd") {
+                if crate::bootstrap::diag::raw_or_expanded("execd") {
+                    debug_write_bytes(b"init: execd route->vfsd ok\n");
                 }
             }
         }
     }
-    // svc.updates.* (settings Updates page, TASK-0140): CLONE of the
-    // pre-minted updated request endpoint — the bespoke updated arm
-    // transfers the original to updated itself. Named route, replies
-    // ride the child's CAP_MOVE inbox (updated is ReplyCap-aware);
+    // svc.updates.* (settings Updates page, TASK-0140): the pre-minted updated request endpoint.
+    // Named route, replies ride the child's CAP_MOVE inbox (updated is ReplyCap-aware);
     // mutating ops stay gated in updated on `updates.manage`.
     if let Some((upd_req, _)) = eps.server_pair(ServiceId::Updated) {
-        if let Ok(clone) = nexus_abi::cap_clone(upd_req) {
-            if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
-                pid,
-                ServiceId::Execd,
-                ServiceId::Updated,
-                clone,
-            ) {
-                chan.set_send(ServiceId::Updated, s);
-                chan.set_recv(ServiceId::Updated, reply_recv_slot);
-                if iw(init_wire, init_fold, "init:execd") {
-                    if crate::bootstrap::diag::raw_or_expanded("execd") {
-                        debug_write_bytes(b"init: execd route->updated ok\n");
-                    }
+        if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
+            pid,
+            ServiceId::Execd,
+            ServiceId::Updated,
+            upd_req,
+        ) {
+            chan.set_send(ServiceId::Updated, s);
+            chan.set_recv(ServiceId::Updated, reply_recv_slot);
+            if iw(init_wire, init_fold, "init:execd") {
+                if crate::bootstrap::diag::raw_or_expanded("execd") {
+                    debug_write_bytes(b"init: execd route->updated ok\n");
                 }
             }
         }
@@ -361,25 +340,20 @@ pub(crate) fn provision_execd_named_routes(
     // resolves "statefsd" through this table. SharedResponse pair
     // like the dsoftbusd statefs proxy: execd's own wire use is
     // nonce-matched v2; the payload's single v1 PUT rides the
-    // quiet exec-phase window. CLONE — the pre-minted pair also
-    // serves the generic statefsd arm.
+    // quiet exec-phase window.
     if let Some((state_req_ep, state_rsp_ep)) = eps.server_pair(ServiceId::Statefsd) {
-        let send = nexus_abi::cap_clone(state_req_ep).ok().and_then(|clone| {
-            crate::bootstrap::declared_slots::pin_route_send(
-                pid,
-                ServiceId::Execd,
-                ServiceId::Statefsd,
-                clone,
-            )
-        });
-        let recv = nexus_abi::cap_clone(state_rsp_ep).ok().and_then(|clone| {
-            crate::bootstrap::declared_slots::pin_route_recv(
-                pid,
-                ServiceId::Execd,
-                ServiceId::Statefsd,
-                clone,
-            )
-        });
+        let send = crate::bootstrap::declared_slots::pin_route_send(
+            pid,
+            ServiceId::Execd,
+            ServiceId::Statefsd,
+            state_req_ep,
+        );
+        let recv = crate::bootstrap::declared_slots::pin_route_recv(
+            pid,
+            ServiceId::Execd,
+            ServiceId::Statefsd,
+            state_rsp_ep,
+        );
         if let (Some(s), Some(r)) = (send, recv) {
             chan.set_send(ServiceId::Statefsd, s);
             chan.set_recv(ServiceId::Statefsd, r);
@@ -394,22 +368,19 @@ pub(crate) fn provision_execd_named_routes(
     }
     // TASK-0051B: execd's policyd route — the crash writer's attach-level
     // gate (`crash.attach.*`) resolves "policyd" + "@reply" dynamically
-    // (nexus_ipc::policyd::check_cap_delegated). CLONE — the pre-minted
-    // policyd request endpoint also serves the generic arm.
+    // (nexus_ipc::policyd::check_cap_delegated).
     if let Some((pol_req, _)) = eps.server_pair(ServiceId::Policyd) {
-        if let Ok(clone) = nexus_abi::cap_clone(pol_req) {
-            if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
-                pid,
-                ServiceId::Execd,
-                ServiceId::Policyd,
-                clone,
-            ) {
-                chan.set_send(ServiceId::Policyd, s);
-                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
-                if iw(init_wire, init_fold, "init:execd") {
-                    if crate::bootstrap::diag::raw_or_expanded("execd") {
-                        debug_write_bytes(b"init: execd route->policyd ok\n");
-                    }
+        if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
+            pid,
+            ServiceId::Execd,
+            ServiceId::Policyd,
+            pol_req,
+        ) {
+            chan.set_send(ServiceId::Policyd, s);
+            chan.set_recv(ServiceId::Policyd, reply_recv_slot);
+            if iw(init_wire, init_fold, "init:execd") {
+                if crate::bootstrap::diag::raw_or_expanded("execd") {
+                    debug_write_bytes(b"init: execd route->policyd ok\n");
                 }
             }
         }

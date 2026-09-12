@@ -28,9 +28,6 @@ use bootctld::wire;
 use nexus_abi::MsgHeader;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
-/// init-lite control-channel slots (route requests via the responder).
-const CTRL_SEND_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.send;
-const CTRL_RECV_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
 /// updated's CAP_MOVE reply inbox as declared (TASK-0324 P4f-3).
 const REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::updated::REPLY.recv;
 const REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::updated::REPLY.send;
@@ -138,8 +135,6 @@ fn cached_send_slot() -> Option<u32> {
     }
     match budget::route_with_nonce_budgeted(
         b"bootctld",
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

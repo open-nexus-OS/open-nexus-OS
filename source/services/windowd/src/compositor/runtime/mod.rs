@@ -137,8 +137,8 @@ fn log_gpud_cap_error(prefix: &str, err: nexus_ipc::IpcError, send_slot: u32) {
         let _ = debug_println(&alloc::format!(
             "{prefix} kernel-permission-denied (gpud send_slot={send_slot}: cap lacks SEND or slot \
              points at the wrong cap — windowd→gpud handoff contract is slots \
-             {GPUD_WIRED_SEND_SLOT}/{GPUD_WIRED_RECV_SLOT}; check init cap-transfer order \
-             didn't displace them)"
+             {GPUD_WIRED_SEND_SLOT}/{GPUD_WIRED_RECV_SLOT}, declared in nexus-service-topology — \
+             look for init: FAIL declared slot)"
         ));
     } else {
         log_gpud_ipc_error(prefix, err);

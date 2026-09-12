@@ -39,23 +39,11 @@ cargo test -p nexus-vmo -- --nocapture
 cargo test -p nexus-vmo -- reject --nocapture
 ```
 
-OS-gated:
-
-```bash
-RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
-```
-
-Required marker ladder:
-
-- `vmo: producer sent handle`
-- `vmo: consumer mapped ok`
-- `vmo: sha256 ok`
-- `SELFTEST: vmo share ok`
-
-Current limitation:
-
-- Two-process VMO proof is now real (producer task -> transferred slot in spawned consumer task -> consumer RO map + bounded payload verification).
-- Producer-side `sha256` marker currently pairs consumer success with deterministic fixture digest check; kernel-enforced seal/right hardening still remains in `TASK-0290`.
+OS-gated: **retired.** The two-process VMO-share proof (`vmo: producer sent handle` …
+`SELFTEST: vmo share ok`) was retired with the RFC-0068 exec migration — the producer blocked on a
+consumer child that no longer ran — and has not been in the ladder since. Its unscheduled probe and
+hand-built consumer ELF were deleted in TASK-0324 P4f-6. A restored proof belongs on the app-child
+spawn path with a declared child slot; kernel-enforced seal/right hardening remains in `TASK-0290`.
 
 ## Consumers
 

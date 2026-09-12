@@ -20,8 +20,6 @@ use nexus_ipc::KernelServer;
 pub(crate) fn route_logd_blocking() -> Option<KernelServer> {
     match nexus_ipc::budget::route_with_nonce_budgeted(
         b"logd",
-        nexus_service_topology::CTRL_SLOTS.send,
-        nexus_service_topology::CTRL_SLOTS.recv,
         core::time::Duration::from_millis(50),
         nexus_ipc::budget::NonceMismatchBudget::new(8),
     ) {

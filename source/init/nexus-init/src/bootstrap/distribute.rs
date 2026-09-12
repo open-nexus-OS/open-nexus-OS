@@ -3,7 +3,7 @@
 
 //! CONTEXT: Pre-grant server-pair distribution (task #123 hardening) —
 //! every service that exposes a server gets its minted request/response
-//! pair (or a fresh one for spec-declared plain servers) BEFORE the MMIO
+//! pair BEFORE the MMIO
 //! grants, so no request can race the caps. Split from `wiring.rs` under
 //! the structure ratchet; `distribute_server_pair_for` is the per-service
 //! shape the TASK-0321 volume spawn pass applies to a service spawned
@@ -15,9 +15,7 @@
 //! ADR: docs/adr/0060-verified-system-volume-bundlemgrd-verifier-init-spawner.md
 
 use crate::bootstrap::endpoints::Endpoints;
-use crate::bootstrap::wiring::is_bespoke_wired;
 use crate::bootstrap::CtrlChannel;
-use crate::os_payload::ENDPOINT_FACTORY_CAP_SLOT;
 
 /// Distribute capabilities to every spawned service (the bespoke per-service
 /// `match` + the declarative generic arm). Mutates each `CtrlChannel`'s slot
@@ -50,24 +48,10 @@ pub(crate) fn distribute_server_pair_for(chan: &mut CtrlChannel, eps: &Endpoints
         if chan.send(id).is_some() && chan.recv(id).is_some() {
             return;
         }
+        // No minted pair: nothing to distribute. For a declared server that is a bootstrap defect,
+        // which `wire_services` reports; the fresh-endpoint fallback that used to hide it would
+        // have orphaned every client of the minted pair (TASK-0324 P4f-6).
         let Some((req, rsp)) = eps.server_pair(id) else {
-            // No minted pair: spec-declared plain servers (abilitymgr,
-            // sessiond) are provisioned fresh HERE — same pre-grant
-            // hardening. Silent; `wire_services` prints the slots at the
-            // historical log position from the recorded values.
-            if crate::service_topology::exposes_server(name.as_bytes()) && !is_bespoke_wired(name) {
-                if let Ok(ep) =
-                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, chan.pid, 8)
-                {
-                    let pair =
-                        crate::bootstrap::declared_slots::pin_server_pair(chan.pid, id, ep, ep);
-                    let _ = nexus_abi::cap_close(ep);
-                    if let Some(pair) = pair {
-                        chan.set_send(id, pair.send);
-                        chan.set_recv(id, pair.recv);
-                    }
-                }
-            }
             return;
         };
         // TASK-0324 P4: the server pair is pinned into its DECLARED slots — never an

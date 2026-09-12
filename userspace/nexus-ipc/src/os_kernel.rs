@@ -32,9 +32,6 @@ pub fn supports_service_routing() -> bool {
     true
 }
 
-const CTRL_SEND_SLOT: u32 = 1; // init-lite transfers control REQ (child SEND) into slot 1.
-const CTRL_RECV_SLOT: u32 = 2; // init-lite transfers control RSP (child RECV) into slot 2.
-
 /// Budget for ONE route ask (RFC-0093 §1, TASK-0324 P3).
 ///
 /// The library asks exactly once and waits for the nonce-correlated answer; it never re-asks
@@ -61,8 +58,6 @@ fn resolve_route(target: &str) -> Result<(u32, u32)> {
     }
     match route_with_nonce_budgeted(
         name,
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
         ROUTE_ASK_BUDGET,
         NonceMismatchBudget::new(ROUTE_NONCE_MISMATCH_BUDGET),
     ) {

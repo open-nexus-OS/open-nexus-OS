@@ -36,8 +36,6 @@ const STATUS_DENIED: u8 = 5;
 fn route_virtioblkd() -> Option<u32> {
     match budget::route_with_nonce_budgeted(
         b"virtioblkd",
-        nexus_service_topology::CTRL_SLOTS.send,
-        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

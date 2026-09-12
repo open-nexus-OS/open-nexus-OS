@@ -293,10 +293,9 @@ pub(crate) fn wire_services(
             name if crate::service_topology::exposes_server(name.as_bytes())
                 && !is_bespoke_wired(name) =>
             {
-                // Server endpoint: transfer the PRE-MINTED pair when bootstrap
-                // created one (its client side is already distributed — a fresh
-                // endpoint would orphan those clients); otherwise provision a
-                // fresh pair. On success the pre-minted path prints/tallies ONLY
+                // Server endpoint: the PRE-MINTED pair (its client side is already
+                // distributed — a fresh endpoint would orphan those clients). On
+                // success the pre-minted path prints/tallies ONLY
                 // where the deleted bespoke arm did (`announce` + the iw() fold
                 // tally, RFC-0069 byte-identical migration — iw also increments
                 // the `init_caps N/N` count, so it must fire exactly as before).
@@ -343,29 +342,13 @@ pub(crate) fn wire_services(
                             }
                         }
                     }
-                    None => {
-                        // Usually provisioned pre-grants (silent, recorded) —
-                        // print the slots here so the marker keeps its
-                        // historical position (raw, like the provision print;
-                        // NOT iw-gated: this path never counted in the fold
-                        // tally). Wire-time provision only as fallback.
-                        match own_id.and_then(|id| Some((chan.recv(id)?, chan.send(id)?))) {
-                            Some((recv_slot, send_slot)) => {
-                                debug_write_bytes(b"init: ");
-                                debug_write_bytes(name.as_bytes());
-                                debug_write_bytes(b" slots recv=0x");
-                                debug_write_hex(recv_slot as usize);
-                                debug_write_bytes(b" send=0x");
-                                debug_write_hex(send_slot as usize);
-                                debug_write_byte(b'\n');
-                            }
-                            None => provision_server_endpoint(
-                                ENDPOINT_FACTORY_CAP_SLOT,
-                                pid,
-                                name.as_bytes(),
-                            ),
-                        }
-                    }
+                    // Every declared server's pair is minted in bootstrap (TASK-0324 P4f-6): a
+                    // server without one is a bootstrap defect, reported instead of papered over
+                    // with a fresh endpoint that would orphan every client of the minted pair.
+                    None => crate::bootstrap::diag::emit_marker_atomic(
+                        &[b"init: FAIL server pair not minted svc=", name.as_bytes()],
+                        None,
+                    ),
                 }
 
                 // RFC-0066/0069: its reply inbox and outbound routes, from its declaration.
@@ -386,41 +369,4 @@ pub(crate) fn wire_services(
 /// migrated to `ServiceSpec`, they are removed from this set.
 pub(crate) fn is_bespoke_wired(name: &str) -> bool {
     matches!(name, "execd" | "hidrawd" | "gpud" | "windowd" | "inputd")
-}
-
-/// Provisions a plain server endpoint for a service, driven by the declarative
-/// [`crate::service_topology::ServiceSpec`]: both halves of one fresh endpoint land in the
-/// service's declared server slots (TASK-0324 P4f-1a). Best-effort: a failure leaves the
-/// service unwired rather than aborting init — it must never brick boot.
-fn provision_server_endpoint(factory_slot: u32, pid: u32, name: &[u8]) {
-    let Some(id) = ServiceId::from_name(name) else {
-        return;
-    };
-    match nexus_abi::ipc_endpoint_create_for(factory_slot, pid, 8) {
-        Ok(ep) => {
-            let pair = declared_slots::pin_server_pair(pid, id, ep, ep);
-            let _ = nexus_abi::cap_close(ep);
-            match pair.map(|p| (p.recv, p.send)) {
-                Some((recv_slot, send_slot)) => {
-                    debug_write_bytes(b"init: ");
-                    debug_write_bytes(name);
-                    debug_write_bytes(b" slots recv=0x");
-                    debug_write_hex(recv_slot as usize);
-                    debug_write_bytes(b" send=0x");
-                    debug_write_hex(send_slot as usize);
-                    debug_write_byte(b'\n');
-                }
-                _ => {
-                    debug_write_bytes(b"init: ");
-                    debug_write_bytes(name);
-                    debug_write_bytes(b" slot xfer skip\n");
-                }
-            }
-        }
-        Err(_) => {
-            debug_write_bytes(b"init: ");
-            debug_write_bytes(name);
-            debug_write_bytes(b" endpoint skip\n");
-        }
-    }
 }

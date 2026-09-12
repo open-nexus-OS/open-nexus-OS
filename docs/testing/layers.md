@@ -133,7 +133,7 @@ Scope note:
 | --- | --- | --- |
 | Typed VMO API (+ `from_bytes`, `from_file_range`, `VmoSlice`) and deterministic accounting counters (copy fallback vs control/data plane bytes, map reuse hit/miss) | host contract assertions | `cargo test -p nexus-vmo -- --nocapture` |
 | Deny-by-default reject paths (`test_reject_unauthorized_transfer`, `test_reject_oversized_mapping`, `test_ro_mapping_enforced`, short file-range, host slot-transfer reject) | host reject assertions | `cargo test -p nexus-vmo -- reject --nocapture` |
-| Producer transfer -> spawned consumer task RO map/verify -> marker ladder (`vmo:*`, `SELFTEST: vmo share ok`) | single-VM OS-gated marker proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os` |
+| Producer transfer -> spawned consumer task RO map/verify | **retired** — the OS probe was retired with the RFC-0068 exec migration and deleted in TASK-0324 P4f-6; the host proofs above remain | — |
 
 ### TASK-0032 packagefs v2 `pkgimg` matrix
 

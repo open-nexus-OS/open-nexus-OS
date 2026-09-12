@@ -217,13 +217,13 @@ pub fn recv_until(clock: &impl Clock, client: &impl Client, deadline_ns: u64) ->
 
 /// Resolves a service route using routing v1+nonce with a deterministic deadline and mismatch cap.
 ///
+/// The ask travels on the fleet control channel init installs in every child
+/// (`nexus_service_topology::CTRL_SLOTS`) — callers no longer restate its slots (TASK-0324 P4f-6).
 /// This helper is intended for os-lite bring-up services that still perform direct control-channel
 /// routing calls and need bounded behavior under queue contention.
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub fn route_with_nonce_budgeted(
     name: &[u8],
-    ctrl_send_slot: u32,
-    ctrl_recv_slot: u32,
     budget: Duration,
     mismatch_budget: NonceMismatchBudget,
 ) -> RouteRetryOutcome {
@@ -251,7 +251,8 @@ pub fn route_with_nonce_budgeted(
         Err(e) => return RouteRetryOutcome::Ipc(e),
     };
 
-    if let Err(e) = raw::send_budgeted(&clock, ctrl_send_slot, &hdr, &req[..req_len], deadline_ns) {
+    let ctrl = nexus_service_topology::CTRL_SLOTS;
+    if let Err(e) = raw::send_budgeted(&clock, ctrl.send, &hdr, &req[..req_len], deadline_ns) {
         return if e == IpcError::Timeout {
             RouteRetryOutcome::Timeout
         } else {
@@ -272,7 +273,7 @@ pub fn route_with_nonce_budgeted(
 
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 32];
-        let n = match raw::recv_budgeted(&clock, ctrl_recv_slot, &mut rh, &mut buf, deadline_ns) {
+        let n = match raw::recv_budgeted(&clock, ctrl.recv, &mut rh, &mut buf, deadline_ns) {
             Ok(v) => core::cmp::min(v, buf.len()),
             // No answer inside the budget. Since RFC-0093 §1 the ask may be PARKED in
             // init (a restarting target); the caller retries on its own cadence with a

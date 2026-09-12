@@ -20,10 +20,6 @@ pub const DEMO_EXIT42_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dem
 /// Prebuilt ELF payload for minidump-path crash proof (code 42).
 pub const DEMO_MINIDUMP_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/demo-minidump.elf"));
 
-/// Prebuilt ELF payload for cross-process VMO consumer proof.
-pub const DEMO_VMO_CONSUMER_ELF: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/demo-vmo-consumer.elf"));
-
 /// Prebuilt ELF payload that dereferences VA 0 after printing its marker —
 /// the deterministic `ExitReason::Fault` proof child (TASK-0049 / ADR-0056).
 pub const DEMO_FAULT_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/demo-fault.elf"));

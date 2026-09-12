@@ -395,8 +395,6 @@ fn load_registry_from_volume_inner() -> Result<(BundleRegistry, VolumeReader), &
     let route = |name: &[u8]| -> Result<(u32, u32), &'static str> {
         match nexus_ipc::budget::route_with_nonce_budgeted(
             name,
-            1,
-            2,
             core::time::Duration::from_secs(8),
             nexus_ipc::budget::NonceMismatchBudget::new(64),
         ) {

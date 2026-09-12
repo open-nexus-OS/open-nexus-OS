@@ -2182,6 +2182,7 @@ name = "nexus-ipc"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+ "nexus-service-topology",
  "nexus-sync",
 ]
 
@@ -2248,6 +2249,7 @@ dependencies = [
  "nexus-abi",
  "nexus-hal",
  "nexus-net",
+ "nexus-service-topology",
  "smoltcp",
 ]
 
@@ -2326,6 +2328,7 @@ version = "0.1.0"
 dependencies = [
  "nexus-abi",
  "nexus-log",
+ "nexus-service-topology",
  "nexus-sync",
 ]
 
@@ -3930,7 +3933,6 @@ dependencies = [
  "bundlemgrd",
  "capnp",
  "crash",
- "demo-exit0",
  "ed25519-dalek",
  "exec-payloads",
  "execd",

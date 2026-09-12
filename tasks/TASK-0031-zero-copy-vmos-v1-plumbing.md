@@ -330,3 +330,13 @@ These handoff items do not block `TASK-0031` review closure once the host and OS
 ## Follow-ups (separate tasks)
 
 See `follow-up-tasks` in the header.
+
+**Correction (2026-09-11, TASK-0324 P4f-6):** the OS half of the proof recorded above no longer
+runs. The two-process VMO-share probe was retired with the RFC-0068 exec migration (the producer
+blocked on a consumer child that no longer ran) and was not re-scheduled when the exec-child path
+was repaired (#102, TASK-0049) — `SELFTEST: vmo share ok` has been in neither the ladder nor the
+proof manifest since. The unscheduled probe and its hand-built consumer ELF, which agreed on a
+fixed child slot (23) by convention, were deleted in TASK-0324 P4f-6. Still valid: the host proofs
+(`cargo test -p nexus-vmo`). A restored OS proof belongs on the app-child spawn path with a
+declared child slot. The ledger status is left for review.
+

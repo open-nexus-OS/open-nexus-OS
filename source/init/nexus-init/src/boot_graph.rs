@@ -6,7 +6,7 @@
 //! CONTEXT: Boot-target service graphs (TASK-0050 PR-5, RFC-0087 §4).
 //! A target selects WHICH of the fully provisioned services actually RUN:
 //! init always spawns and wires the complete topology (identical mints,
-//! identical slot layout — the positional contracts never shift), then
+//! identical declared slot layout), then
 //! materializes the target as a RESUME SET. `recovery` resumes only the
 //! core graph; `safe` is the session graph minus non-essential services;
 //! `normal` resumes everything. Suspended services cost their provisioned

@@ -24,8 +24,8 @@ pub fn ready(marker: &str) -> nexus_abi::SysResult<()> {
     printed
 }
 
-/// `@ready` on the control REQ slot (init-lite transfers it into slot 1 of every child,
-/// the same slot `@reply`/`@mint-pair` queries use). Routing-frame encoding, no nonce: init
+/// `@ready` on the control REQ slot (`nexus_service_topology::CTRL_SLOTS.send`, installed by init in
+/// every child — the same slot `@reply`/`@mint-pair` queries use). Routing-frame encoding, no nonce: init
 /// records it and sends nothing back. The announce must NEVER hold the service back from
 /// its serving loop: init's responder drains the control queue only after orchestration,
 /// and orchestration itself waits on services (the block driver serves the system volume),
@@ -34,7 +34,6 @@ pub fn ready(marker: &str) -> nexus_abi::SysResult<()> {
 /// most, loud on failure. The kernel's blocking send is avoided on purpose as well (it arms a
 /// timer wakeup before the first attempt and does not disarm it on an immediate error).
 fn announce_ready() {
-    const CTRL_SEND_SLOT: u32 = 1;
     /// Non-blocking attempts before giving up (each separated by one `yield_()`).
     const ANNOUNCE_ATTEMPTS: u32 = 4;
     let mut buf = [0u8; 16];
@@ -45,7 +44,7 @@ fn announce_ready() {
     let mut attempt = 0;
     let err = loop {
         match nexus_abi::ipc_send_v1(
-            CTRL_SEND_SLOT,
+            nexus_service_topology::CTRL_SLOTS.send,
             &hdr,
             &buf[..n],
             nexus_abi::IPC_SYS_NONBLOCK,

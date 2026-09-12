@@ -474,6 +474,10 @@ pub mod statefsd {
     pub const REPLY: SlotPair = SlotPair::new(6, 5);
     /// Capability checks and the RFC-0091 argument seam.
     pub const POLICYD: SlotPair = SlotPair::new(7, REPLY.recv);
+    /// The audit trail to logd (TASK-0324 P4f-6). Every audit record statefsd emitted was sent
+    /// to slot 8, which init never provisioned — the leg existed only in statefsd's code. statefsd
+    /// runs from wave 1 on, before wiring, so this late grant sits in the late-grant band.
+    pub const LOGD: SlotPair = SlotPair::new(crate::LATE_GRANT_BASE, REPLY.recv);
 }
 
 /// timed (TASK-0324 P4f-1a). A pure server.

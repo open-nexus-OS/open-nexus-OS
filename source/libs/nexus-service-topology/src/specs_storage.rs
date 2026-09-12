@@ -78,11 +78,14 @@ pub(crate) const STATEFSD: ServiceSpec = ServiceSpec {
     id: ServiceId::Statefsd,
     exposes_server: true,
     reply_inbox: true,
-    routes_to: &[Route {
-        to: ServiceId::Policyd,
-        kind: RouteKind::ReplyInbox,
-        slots: slots::statefsd::POLICYD,
-    }],
+    routes_to: &[
+        Route {
+            to: ServiceId::Policyd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::statefsd::POLICYD,
+        },
+        Route { to: ServiceId::Logd, kind: RouteKind::ReplyInbox, slots: slots::statefsd::LOGD },
+    ],
     announce: true,
     server_slots: slots::statefsd::SERVER,
     reply_slots: slots::statefsd::REPLY,

@@ -17,5 +17,7 @@ heap-16m = []
 
 [dependencies]
 nexus-abi = { path = "../nexus-abi" }
+# TASK-0324 P4f-6: the control channel `@ready` travels on has one home.
+nexus-service-topology = { path = "../nexus-service-topology" }
 nexus-log = { path = "../nexus-log", optional = true, features = ["sink-userspace"] }
 nexus-sync = { path = "../nexus-sync" }

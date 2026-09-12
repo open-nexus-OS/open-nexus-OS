@@ -320,6 +320,19 @@ mod tests {
     }
 
     #[test]
+    fn test_reject_service_missing_from_specs() {
+        // Every process of the topology is declared — also one that holds nothing beyond the
+        // control channel: an undeclared service is invisible to every slot test here.
+        // `imed-osk` is not a process; it names imed's second server endpoint as a route target.
+        for id in ServiceId::ALL {
+            if id == ServiceId::ImedOsk {
+                continue;
+            }
+            assert!(SERVICE_SPECS.iter().any(|spec| spec.id == id), "{id:?} has no ServiceSpec");
+        }
+    }
+
+    #[test]
     fn test_reject_route_answer_diverging_from_declaration() {
         for spec in SERVICE_SPECS {
             for route in spec.routes_to {

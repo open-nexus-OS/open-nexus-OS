@@ -170,9 +170,8 @@ pub(crate) fn bring_up(
     let vblk_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
 
-    // Server pairs (slots 3/4) + block-plane wiring for the three CORE
-    // services this stage talks to — the same per-service transfer order
-    // the bulk distribution makes.
+    // Server pairs (their declared slots) + block-plane wiring for the three CORE
+    // services this stage talks to — the same pins the bulk distribution makes.
     for (name, id, req, rsp) in [
         ("policyd", ServiceId::Policyd, pol_req, pol_rsp),
         ("bundlemgrd", ServiceId::Bundlemgrd, bnd_req, bnd_rsp),

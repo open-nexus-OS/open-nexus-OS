@@ -65,9 +65,9 @@ where
     let pol_ctl_route_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
     let init_pid = nexus_abi::pid().map_err(InitError::Abi)?;
-    let init_reply_send = nexus_abi::cap_clone(pol_ctl_route_rsp).map_err(InitError::Abi)?;
-    let init_reply_send =
-        nexus_abi::cap_transfer(init_pid, init_reply_send, Rights::SEND).map_err(InitError::Abi)?;
+    // A SEND-only copy for init itself: the transfer derives it (no clone to leak first).
+    let init_reply_send = nexus_abi::cap_transfer(init_pid, pol_ctl_route_rsp, Rights::SEND)
+        .map_err(InitError::Abi)?;
     let pol_ctl_exec_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
 
@@ -259,11 +259,8 @@ where
     let upd_req = mint(updated_pid, 8)?;
     let upd_rsp = mint(selftest_pid, 8)?;
     let sam_req = mint(samgrd_pid, 8)?;
-    // Clone so init-lite keeps a SEND cap to samgrd for registry population.
-    let init_sam_send = nexus_abi::cap_clone(sam_req).map_err(InitError::Abi)?;
     let sam_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
-    let init_sam_recv = nexus_abi::cap_clone(sam_rsp).map_err(InitError::Abi)?;
     let exe_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, execd_pid, 8)
         .map_err(InitError::Abi)?;
     let exe_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
@@ -334,8 +331,7 @@ where
     let timed_rsp = mint(selftest_pid, 8)?;
     let imed_req = mint(imed_pid, 8)?;
     let imed_rsp = mint(inputd_pid, 8)?;
-    let imed_osk = mint(imed_pid, 8)?; // OSK ep (RFC-0075 P2; wiring MOVES it + the clones)
-    let (imed_osk_execd, imed_osk_selftest) = endpoints::clone_osk_pair(imed_osk)?;
+    let imed_osk = mint(imed_pid, 8)?; // OSK ep (RFC-0075 P2): RECV to imed, SEND to execd + selftest
     let inputd_watch_ep = mint(inputd_pid, 8)?;
     let windowd_watch_ep = mint(windowd_pid, 8)?;
     let window_req = mint(windowd_pid, 32)?;
@@ -505,8 +501,6 @@ where
         imed_req,
         imed_rsp,
         imed_osk,
-        imed_osk_execd,
-        imed_osk_selftest,
         inputd_watch_ep,
         windowd_watch_ep,
         window_req,
@@ -551,12 +545,9 @@ where
     // starts sending IPC (grants need policyd, routes need samgrd, etc.).
     let _ = nexus_abi::yield_();
 
-    // Priority-wire windowd + inputd using clones.
+    // Priority-wire windowd + inputd. The minted pairs are pinned directly: a transfer duplicates,
+    // and the later legs (execd, hidrawd, inputd → windowd) pin the same endpoints again.
     {
-        let window_req_clone = nexus_abi::cap_clone(window_req).map_err(InitError::Abi)?;
-        let window_rsp_clone = nexus_abi::cap_clone(window_rsp).map_err(InitError::Abi)?;
-        let input_req_clone = nexus_abi::cap_clone(input_req).map_err(InitError::Abi)?;
-        let input_rsp_clone = nexus_abi::cap_clone(input_rsp).map_err(InitError::Abi)?;
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "windowd") {
             let pid = chan.pid;
             // TASK-0324 P4a: PINNED to the declared slots — provisioning order no longer
@@ -565,8 +556,8 @@ where
             let slots = crate::bootstrap::declared_slots::pin_server_pair(
                 pid,
                 ServiceId::Windowd,
-                window_req_clone,
-                window_rsp_clone,
+                window_req,
+                window_rsp,
             )
             .ok_or(InitError::Map("windowd server slots"))?;
             chan.set_recv(ServiceId::Windowd, slots.recv);
@@ -581,8 +572,8 @@ where
             let slots = crate::bootstrap::declared_slots::pin_server_pair(
                 pid,
                 ServiceId::Inputd,
-                input_req_clone,
-                input_rsp_clone,
+                input_req,
+                input_rsp,
             )
             .ok_or(InitError::Map("inputd server slots"))?;
             chan.set_recv(ServiceId::Inputd, slots.recv);
@@ -737,7 +728,8 @@ where
     }
 
     let route_table = route_builder::build_route_table(&ctrl_channels);
-    route_builder::populate_samgrd_registry(init_sam_send, init_sam_recv, &route_table);
+    // init keeps the minted pair itself (transfers duplicate), so the registry population uses it.
+    route_builder::populate_samgrd_registry(sam_req, sam_rsp, &route_table);
 
     // RFC-0069 §4 boot stage: boot state is committed (OTA handshake done) and
     // routing is live — the session may begin. Today this transition is

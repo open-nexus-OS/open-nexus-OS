@@ -451,8 +451,6 @@ pub(crate) fn vmo_capacity(slot: u32) -> Option<usize> {
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(
         name,
-        nexus_service_topology::CTRL_SLOTS.send,
-        nexus_service_topology::CTRL_SLOTS.recv,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {
@@ -467,8 +465,7 @@ fn route_pinched_blocking() -> Option<KernelServer> {
     }
     // Routing budget expired (slow interactive boots — virgl bring-up can
     // push init's control-plane past the 2s budget; killed pinched on
-    // `just start`). Fall back to the deterministic slots init wires via
-    // distribute_server_pairs (recv first -> 3, send second -> 4), the same
+    // `just start`). Fall back to the declared server slots init pins, the same
     // contract rngd uses.
     emit_line("pinched: route fallback slots");
     KernelServer::new_with_slots(

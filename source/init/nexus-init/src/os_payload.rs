@@ -338,8 +338,8 @@ pub(crate) type Result<T> = core::result::Result<T, InitError>;
 
 pub(crate) static PROBE_ENABLED: AtomicBool = AtomicBool::new(false);
 
-// Phase-2 hardening: init-lite holds an EndpointFactory capability (slot 1) for endpoint_create.
-pub(crate) const ENDPOINT_FACTORY_CAP_SLOT: u32 = 1;
+/// init-lite's EndpointFactory capability (Phase-2 hardening), installed by the kernel.
+pub(crate) const ENDPOINT_FACTORY_CAP_SLOT: u32 = nexus_abi::INIT_ENDPOINT_FACTORY_SLOT;
 
 // RFC-0005: per-service bootstrap routing protocol (init-lite responder over a private control EP).
 

@@ -16,10 +16,6 @@
 use core::time::Duration;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
-/// init-lite control-channel slots (route requests go through the responder).
-const CTRL_SEND_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.send;
-const CTRL_RECV_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
-
 /// The resolved settingsd `(send, recv)` slots — for callers that need the
 /// raw request endpoint (the region watch subscription cap-moves its push
 /// channel alongside an `OP_WATCH` frame).
@@ -31,8 +27,6 @@ pub(crate) fn settingsd_slots() -> Option<(u32, u32)> {
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(
         name,
-        CTRL_SEND_SLOT,
-        CTRL_RECV_SLOT,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

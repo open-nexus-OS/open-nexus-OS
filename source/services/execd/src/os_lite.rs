@@ -1063,40 +1063,6 @@ fn fetch_app_payload(app_id: &[u8]) -> Option<u32> {
 // windowd, nonce-tagged (deterministic channel↔surface binding — the execd
 // attach carried no identity and crossed under concurrent launches).
 
-/// Diagnostic (only on probe grant failure): probe execd's cap slots 4..24
-/// via cap_clone+cap_close (cap_query answers only Vmo/DeviceMmio) and print
-/// one compact line naming the occupied slots — a slot-order drift between
-/// nexus-init's transfer order and the PROBE_*_SLOT convention names itself.
-fn probe_dump_cap_slots() {
-    let mut line = [0u8; 96];
-    let prefix = b"execd: probe slots present:";
-    let mut p = 0usize;
-    for &b in prefix {
-        line[p] = b;
-        p += 1;
-    }
-    for slot in 4u32..24 {
-        if let Ok(clone) = nexus_abi::cap_clone(slot) {
-            let _ = nexus_abi::cap_close(clone);
-            if p + 4 < line.len() {
-                line[p] = b' ';
-                p += 1;
-                if slot >= 10 {
-                    line[p] = b'0' + (slot / 10) as u8;
-                    p += 1;
-                }
-                line[p] = b'0' + (slot % 10) as u8;
-                p += 1;
-            }
-        }
-    }
-    if p < line.len() {
-        line[p] = b'\n';
-        p += 1;
-    }
-    let _ = nexus_abi::debug_write(&line[..p]);
-}
-
 /// P0.2 recv-wake regression gate: spawn the probe child, let it PARK in a
 /// plain blocking ipc recv, then send it one message — the child must wake
 /// and reply. Runs ONCE after `ready`, bounded (~2s worst case, ~50ms
@@ -1124,7 +1090,6 @@ fn run_recv_wake_probe() {
         }
         if nsec().ok().unwrap_or(u64::MAX) >= wired_deadline {
             emit_line("execd: FAIL recv-wake probe (slots not wired)");
-            probe_dump_cap_slots();
             return;
         }
         let _ = yield_();
@@ -1136,16 +1101,14 @@ fn run_recv_wake_probe() {
             return;
         }
     };
-    // Grants BEFORE resume (#102 discipline): ping RECV → child slot 5,
-    // reply SEND → child slot 6. Each hop fails LOUD with its own marker;
-    // a clone failure additionally dumps which execd slots actually hold
-    // clonable caps (cap_clone+close probe — cap_query answers only
-    // Vmo/DeviceMmio), so a slot-order drift names itself in the log.
+    // Grants BEFORE resume (#102 discipline): ping RECV and reply SEND into the child's declared
+    // probe slots. Each hop fails LOUD with its own marker; a mis-pinned execd slot is init's
+    // `FAIL declared slot`, so the slot-occupancy dump that used to name an order drift is gone
+    // with the order (TASK-0324 P4f-6).
     let ping_clone = nexus_abi::cap_clone(PROBE_PING_RECV_SLOT);
     let reply_clone = nexus_abi::cap_clone(PROBE_REPLY_SEND_SLOT);
     if ping_clone.is_err() || reply_clone.is_err() {
         emit_line("execd: FAIL recv-wake probe (grant clone)");
-        probe_dump_cap_slots();
         return;
     }
     let ping_ok = ping_clone
@@ -1298,15 +1261,13 @@ fn caps_for(app_id: &str) -> &'static [&'static str] {
 }
 
 /// Resolves a service (or `@reply`) name to its `(send, recv)` slots via
-/// execd's init control channel (slots 1/2) — the same responder bahn
+/// execd's init control channel — the same responder bahn
 /// windowd/abilitymgr route through. `None` on any routing failure (policyd
 /// deny, timeout, exhausted nonce budget); the caller then skips that route.
 pub(crate) fn route_ctrl(name: &[u8]) -> Option<(u32, u32)> {
     use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
     match budget::route_with_nonce_budgeted(
         name,
-        1,
-        2,
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

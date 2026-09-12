@@ -192,8 +192,8 @@ fn poll_inner_once(inner: &mut Inner, now: NetInstant) {
 impl SmoltcpVirtioNetStack {
     /// Bring up virtio-net + smoltcp using the per-device MMIO window.
     pub fn new_default() -> Result<Self, NetError> {
-        // MMIO capability is distributed by init into a deterministic slot.
-        let mmio_cap_slot: u32 = 48;
+        // MMIO capability is granted by init into the fleet-wide declared device slot.
+        let mmio_cap_slot = nexus_service_topology::DEVICE_MMIO_SLOT;
         // RFC-0085: kernel-chosen va (the shared fixed 0x2000_e000 window —
         // one of six copies across the tree — is gone).
         let mmio_va = mmio_map_auto(mmio_cap_slot, 0, 0x1000)

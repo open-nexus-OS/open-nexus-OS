@@ -57,7 +57,7 @@ pub(crate) fn qos_probe() -> core::result::Result<(), ()> {
 
 pub(crate) fn ipc_payload_roundtrip() -> core::result::Result<(), ()> {
     // NOTE: Slot 0 is the bootstrap endpoint capability passed by init-lite (SEND|RECV).
-    const BOOTSTRAP_EP: u32 = 0;
+    const BOOTSTRAP_EP: u32 = nexus_abi::BOOTSTRAP_CAP_SLOT;
     const TY: u16 = 0x5a5a;
     const FLAGS: u16 = 0;
     let payload: &[u8] = b"nexus-ipc-v1 roundtrip";
@@ -97,7 +97,7 @@ pub(crate) fn ipc_payload_roundtrip() -> core::result::Result<(), ()> {
 
 pub(crate) fn ipc_deadline_timeout_probe() -> core::result::Result<(), ()> {
     // Blocking recv with a deadline in the past must return TimedOut deterministically.
-    const BOOTSTRAP_EP: u32 = 0;
+    const BOOTSTRAP_EP: u32 = nexus_abi::BOOTSTRAP_CAP_SLOT;
     let mut out_hdr = MsgHeader::new(0, 0, 0, 0, 0);
     let mut out_buf = [0u8; 8];
     let sys_flags = 0; // blocking
@@ -111,7 +111,8 @@ pub(crate) fn ipc_deadline_timeout_probe() -> core::result::Result<(), ()> {
 pub(crate) fn nexus_ipc_kernel_loopback_probe() -> core::result::Result<(), ()> {
     // NOTE: Service routing is not wired; this probes only the kernel-backed `KernelClient`
     // implementation by sending to the bootstrap endpoint queue and receiving the same frame.
-    let client = KernelClient::new_with_slots(0, 0).map_err(|_| ())?;
+    let bootstrap = nexus_abi::BOOTSTRAP_CAP_SLOT;
+    let client = KernelClient::new_with_slots(bootstrap, bootstrap).map_err(|_| ())?;
     let payload: &[u8] = b"nexus-ipc kernel loopback";
     client.send(payload, IpcWait::NonBlocking).map_err(|_| ())?;
     // Bounded wait (avoid hangs): tolerate that the scheduler may reorder briefly.

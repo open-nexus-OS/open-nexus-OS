@@ -72,10 +72,9 @@ pub(crate) fn append_probe_to_logd(scope: &[u8], msg: &[u8]) -> bool {
         // #endregion
         return false;
     };
-    // Use deterministic init-lite distributed reply inbox slots for dsoftbusd (recv=0x5 send=0x6).
-    // Avoid relying on routing v1 here (uncorrelated replies under bring-up).
-    let reply_send_slot: u32 = 0x6;
-    let reply_recv_slot: u32 = 0x5;
+    // dsoftbusd's declared reply inbox (TASK-0324 P4f-4) — no routing round-trip here.
+    let reply = nexus_service_topology::slots::dsoftbusd::REPLY;
+    let (reply_send_slot, reply_recv_slot) = (reply.send, reply.recv);
     let moved = match nexus_abi::cap_clone(reply_send_slot) {
         Ok(slot) => slot,
         Err(_) => {

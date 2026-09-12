@@ -52,6 +52,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Packagefsd, ServiceId::Bundlemgrd), // slot/manifest queries via CAP_MOVE
     (ServiceId::Samgrd, ServiceId::Logd), // structured logs via CAP_MOVE
     (ServiceId::Statefsd, ServiceId::Policyd), // policy checks via CAP_MOVE
+    (ServiceId::Statefsd, ServiceId::Logd), // audit trail (TASK-0324 P4f-6)
     (ServiceId::Settingsd, ServiceId::Statefsd), // persist prefs (TASK-0072 Phase 8)
     (ServiceId::Logd, ServiceId::Statefsd), // evidence spill (TASK-0049C, RFC-0087 §5)
     // TASK-0324 P4f-1b: bootctld's legs are DECLARED routes on fixed slots. bootctld never

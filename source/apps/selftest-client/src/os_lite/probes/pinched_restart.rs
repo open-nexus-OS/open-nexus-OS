@@ -132,8 +132,6 @@ fn resolve_pinched_budgeted() -> Option<(u32, u32)> {
     use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
     match budget::route_with_nonce_budgeted(
         b"pinched",
-        nexus_service_topology::CTRL_SLOTS.send,
-        nexus_service_topology::CTRL_SLOTS.recv,
         core::time::Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {

@@ -64,11 +64,10 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_IPC_SENDER_SERVICE_ID_FAIL);
     }
 
-    // RFC-0068 exec migration: the TASK-0031 VMO-share floor spawned a consumer child ELF
-    // (DEMO_VMO_CONSUMER_ELF) and BLOCKED waiting for it to map + sha256 — but execd-spawned children
-    // no longer execute (the exec-child mechanism is retired; services launch differently now). The
-    // producer hung here, stalling the whole selftest after ipc_kernel. Retired; restoring VMO-share
-    // coverage on the new spawn path is tracked in task #102.
+    // RFC-0068 exec migration retired the TASK-0031 VMO-share floor (the producer blocked on a
+    // consumer child that no longer ran). Its unscheduled probe and hand-built consumer ELF — which
+    // shared a fixed child slot by convention — were deleted in TASK-0324 P4f-6; a restored proof
+    // belongs on the app-child path with a declared child slot.
 
     // IPC production-grade smoke: deterministic soak of mixed operations.
     // Keep this strictly bounded and allocation-light (avoid kernel heap exhaustion).

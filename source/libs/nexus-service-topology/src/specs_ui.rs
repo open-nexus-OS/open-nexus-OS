@@ -151,3 +151,16 @@ pub(crate) const IMED: ServiceSpec = ServiceSpec {
         slot: slots::imed::OSK_RECV,
     }],
 };
+
+/// The declaration of `touchd` (TASK-0324 P4f-6): it holds nothing beyond the control channel.
+/// Declared anyway, so that no service is invisible to the slot tests.
+pub(crate) const TOUCHD: ServiceSpec = ServiceSpec {
+    id: ServiceId::Touchd,
+    exposes_server: false,
+    reply_inbox: false,
+    routes_to: &[],
+    announce: false,
+    server_slots: SlotPair::UNDECLARED,
+    reply_slots: SlotPair::UNDECLARED,
+    extra_slots: &[],
+};
