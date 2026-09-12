@@ -12,11 +12,13 @@
 use crate::routes::Route;
 use crate::routes::RouteKind;
 use crate::specs::ServiceSpec;
+use crate::Stage;
 use crate::{slots, NamedSlot, NamedSlotBinding, ServiceId};
 
 /// The declaration of `policyd`.
 pub(crate) const POLICYD: ServiceSpec = ServiceSpec {
     id: ServiceId::Policyd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     // TASK-0324 P4f-2: the policy authority. Its server pair and init's two check channels
@@ -59,6 +61,7 @@ pub(crate) const POLICYD: ServiceSpec = ServiceSpec {
 /// The declaration of `rngd`.
 pub(crate) const RNGD: ServiceSpec = ServiceSpec {
     id: ServiceId::Rngd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[
@@ -78,6 +81,7 @@ pub(crate) const RNGD: ServiceSpec = ServiceSpec {
 /// The declaration of `ingressd`.
 pub(crate) const INGRESSD: ServiceSpec = ServiceSpec {
     id: ServiceId::Ingressd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[
@@ -102,6 +106,7 @@ pub(crate) const INGRESSD: ServiceSpec = ServiceSpec {
 // TASK-0324 P4f-4: off its bespoke arm (literal pins 5/6 + 7/8/9, plus a duplicate server pair).
 pub(crate) const NETSTACKD: ServiceSpec = ServiceSpec {
     id: ServiceId::Netstackd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[Route {
@@ -119,6 +124,7 @@ pub(crate) const NETSTACKD: ServiceSpec = ServiceSpec {
 // TASK-0324 P4f-4: off its bespoke arm.
 pub(crate) const DSOFTBUSD: ServiceSpec = ServiceSpec {
     id: ServiceId::Dsoftbusd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[

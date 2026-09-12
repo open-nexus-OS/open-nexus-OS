@@ -25,6 +25,7 @@ pub(crate) const CTRL_EP_DEPTH: usize = 8;
 pub(crate) fn attach_ctrl_channel(
     name: &'static str,
     pid: u32,
+    stage_fence: u32,
 ) -> Result<(CtrlChannel, u32, u32), InitError> {
     let ctrl_req_parent_slot =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, CTRL_EP_DEPTH)
@@ -44,6 +45,17 @@ pub(crate) fn attach_ctrl_channel(
         ctrl_rsp_parent_slot,
         Rights::RECV,
         crate::service_topology::CTRL_SLOTS.recv,
+    )
+    .map_err(InitError::Abi)?;
+    // ADR-0062: the boot-stage fence, with `Rights::WAIT` ALONE — a child may block for a stage,
+    // never release one for the fleet (the kernel refuses its signal, TASK-0324 P5-a). Pinned
+    // here, at spawn time, so it is in place before the task is ever resumed: the early-running
+    // invariant holds by construction rather than by ordering luck.
+    nexus_abi::cap_transfer_to_slot(
+        pid,
+        stage_fence,
+        Rights::WAIT,
+        crate::service_topology::STAGE_FENCE_SLOT,
     )
     .map_err(InitError::Abi)?;
     Ok((

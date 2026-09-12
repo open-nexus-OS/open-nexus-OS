@@ -34,10 +34,37 @@ pub fn ready(marker: &str) -> nexus_abi::SysResult<()> {
 /// most, loud on failure. The kernel's blocking send is avoided on purpose as well (it arms a
 /// timer wakeup before the first attempt and does not disarm it on an immediate error).
 fn announce_ready() {
+    announce_verb(b"@ready", "ready");
+}
+
+/// Reports a boot stage to init (`@stage <label>`, RFC-0093 §2). Only windowd may report one —
+/// init checks the SENDER's control channel, so a wrong sender is refused there, not trusted
+/// here. Same one-way framing as `@ready`: init records it and sends nothing back.
+pub fn stage(stage: nexus_service_topology::Stage) {
+    /// `@stage ` + the longest label, well inside the routing frame's 48-byte name field
+    /// (`nexus_service_topology::stage` proves the fit).
+    const PREFIX: &[u8] = b"@stage ";
+    let label = stage.label().as_bytes();
+    let mut verb = [0u8; 32];
+    let n = PREFIX.len() + label.len();
+    if n > verb.len() {
+        return;
+    }
+    verb[..PREFIX.len()].copy_from_slice(PREFIX);
+    verb[PREFIX.len()..n].copy_from_slice(label);
+    announce_verb(&verb[..n], "stage");
+}
+
+/// The ONE sender behind every one-way control verb: routing-frame encoding, no nonce, a
+/// handful of NONBLOCK attempts, loud on failure. It must NEVER block — init's responder drains
+/// the control queue only after orchestration, and orchestration itself waits on services, so a
+/// blocking send here is a circular wait (seen: virtioblkd looping in `ready()`, volume
+/// unavailable, init fatal).
+fn announce_verb(verb: &[u8], what: &str) {
     /// Non-blocking attempts before giving up (each separated by one `yield_()`).
     const ANNOUNCE_ATTEMPTS: u32 = 4;
-    let mut buf = [0u8; 16];
-    let Some(n) = nexus_abi::routing::encode_route_get(b"@ready", &mut buf) else {
+    let mut buf = [0u8; 64];
+    let Some(n) = nexus_abi::routing::encode_route_get(verb, &mut buf) else {
         return;
     };
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, n as u32);
@@ -58,7 +85,9 @@ fn announce_ready() {
             Err(other) => break other,
         }
     };
-    debug_write_bytes(b"FAIL ready announce svc=");
+    debug_write_bytes(b"FAIL ");
+    debug_write_str(what);
+    debug_write_bytes(b" announce svc=");
     debug_write_str(service_name());
     debug_write_bytes(b" err=");
     debug_write_str(match err {

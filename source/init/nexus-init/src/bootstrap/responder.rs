@@ -31,6 +31,8 @@ pub(crate) fn run_responder_loop(
     upd_reply_send: u32,
     upd_reply_recv: u32,
     mut upd_pending: FrameStash<8, 16>,
+    stage_fence: u32,
+    boot_graph: crate::boot_graph::BootGraph,
 ) -> ! {
     use crate::bootstrap::policyd::{policyd_exec_allowed, policyd_route_allowed};
     use crate::os_payload::*;
@@ -55,6 +57,13 @@ pub(crate) fn run_responder_loop(
     // supervisor marked it stale and is restarting it) is PARKED and answered exactly once
     // when the route is re-provisioned — the client never re-asks in a loop.
     let mut park = crate::route_park::RoutePark::new();
+    // ADR-0062: the boot-stage ladder. By the time the responder runs, init has committed the
+    // boot state and populated the registry — the `SessionStart` milestone — so it is recorded
+    // once here rather than guessed at later. Every rung after that is opened by EVIDENCE:
+    // `@ready` from the barrier's members and windowd's own `@stage` report.
+    let mut ladder = crate::stage::StageLadder::new(boot_graph);
+    ladder.record_milestones();
+    crate::bootstrap::stage_signal::advance(&mut ladder, &ctrl_channels, &ready, stage_fence);
     let init_fold = nexus_abi::boot_should_fold_verdicts();
     loop {
         supervision.sweep(
@@ -225,6 +234,38 @@ pub(crate) fn run_responder_loop(
                         );
                     }
                 }
+                crate::bootstrap::stage_signal::advance(
+                    &mut ladder,
+                    &ctrl_channels,
+                    &ready,
+                    stage_fence,
+                );
+                continue;
+            }
+            if let Some(label) = name.strip_prefix(b"@stage ".as_slice()) {
+                // RFC-0093 §2: only windowd may report a display stage, and identity is the
+                // CONTROL CHANNEL this frame arrived on — never a name in the payload. A report
+                // from anyone else is refused loudly instead of advancing the whole fleet.
+                if chan.svc_name != "windowd" {
+                    crate::bootstrap::diag::emit_marker_atomic(
+                        &[b"!stage-deny: ", chan.svc_name.as_bytes(), b" -> ", label],
+                        None,
+                    );
+                    continue;
+                }
+                match crate::service_topology::Stage::from_label(label) {
+                    Some(stage) => ladder.record_stage_report(stage),
+                    None => crate::bootstrap::diag::emit_marker_atomic(
+                        &[b"!stage-unknown: ", label],
+                        None,
+                    ),
+                }
+                crate::bootstrap::stage_signal::advance(
+                    &mut ladder,
+                    &ctrl_channels,
+                    &ready,
+                    stage_fence,
+                );
                 continue;
             }
             // RFC-0093 §1: every ask that gets an ANSWER must carry a nonce — without it

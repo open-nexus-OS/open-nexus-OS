@@ -43,6 +43,10 @@ pub struct RespawnContext {
     pub pinch_rsp_parent_slot: Option<u32>,
     /// init's own statefsd pre-minted pair (restart-counter persistence).
     pub statefs_slots: Option<(u32, u32)>,
+    /// ADR-0062: init's cap for the boot-stage fence. A respawn re-pins it WAIT-only into the
+    /// new instance — dropping it would leave a restarted service without the barrier the rest
+    /// of the fleet stands on.
+    pub stage_fence: u32,
 }
 
 /// Which services the respawn arm can actually re-provision today.
@@ -68,8 +72,9 @@ impl RespawnContext {
         selftest_pid: u32,
         pinch_rsp_parent_slot: Option<u32>,
         statefs_slots: Option<(u32, u32)>,
+        stage_fence: u32,
     ) -> Self {
-        Self { images, volume, selftest_pid, pinch_rsp_parent_slot, statefs_slots }
+        Self { images, volume, selftest_pid, pinch_rsp_parent_slot, statefs_slots, stage_fence }
     }
 
     /// The bytes + launch params to re-exec `name` from: the embedded table
@@ -188,6 +193,21 @@ fn respawn_pinched(
     );
     if ctrl_send.is_err() || ctrl_recv.is_err() {
         debug_write_bytes(b"init: FAIL respawn ctrl re-transfer\n");
+        return None;
+    }
+
+    // ADR-0062: re-pin the boot-stage fence, WAIT-only. The restarted instance waits on the same
+    // barrier as every other child; a respawn path that quietly skipped it would make the stage
+    // contract hold only until the first restart.
+    if nexus_abi::cap_transfer_to_slot(
+        pid,
+        ctx.stage_fence,
+        Rights::WAIT,
+        crate::service_topology::STAGE_FENCE_SLOT,
+    )
+    .is_err()
+    {
+        debug_write_bytes(b"init: FAIL respawn stage fence\n");
         return None;
     }
 

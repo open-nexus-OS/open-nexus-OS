@@ -12,11 +12,13 @@
 use crate::routes::Route;
 use crate::routes::RouteKind;
 use crate::specs::ServiceSpec;
+use crate::Stage;
 use crate::{slots, NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
 
 /// The declaration of `abilitymgr`.
 pub(crate) const ABILITYMGR: ServiceSpec = ServiceSpec {
     id: ServiceId::Abilitymgr,
+    stage: Stage::SessionStart,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[
@@ -45,6 +47,7 @@ pub(crate) const ABILITYMGR: ServiceSpec = ServiceSpec {
 /// The declaration of `execd`.
 pub(crate) const EXECD: ServiceSpec = ServiceSpec {
     id: ServiceId::Execd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     // TASK-0324 P4e-2: execd's OWN table (P4e declared the table of the children it
@@ -110,6 +113,7 @@ pub(crate) const EXECD: ServiceSpec = ServiceSpec {
 /// The declaration of `timed`.
 pub(crate) const TIMED: ServiceSpec = ServiceSpec {
     id: ServiceId::Timed,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: false,
     routes_to: &[],
@@ -124,6 +128,7 @@ pub(crate) const TIMED: ServiceSpec = ServiceSpec {
 /// The declaration of `samgrd`.
 pub(crate) const SAMGRD: ServiceSpec = ServiceSpec {
     id: ServiceId::Samgrd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[Route {
@@ -144,6 +149,7 @@ pub(crate) const SAMGRD: ServiceSpec = ServiceSpec {
 /// The declaration of `sessiond`.
 pub(crate) const SESSIOND: ServiceSpec = ServiceSpec {
     id: ServiceId::Sessiond,
+    stage: Stage::SessionStart,
     exposes_server: true,
     reply_inbox: false,
     routes_to: &[],
@@ -160,6 +166,7 @@ pub(crate) const SESSIOND: ServiceSpec = ServiceSpec {
 /// The declaration of `settingsd`.
 pub(crate) const SETTINGSD: ServiceSpec = ServiceSpec {
     id: ServiceId::Settingsd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[Route {
@@ -180,6 +187,7 @@ pub(crate) const SETTINGSD: ServiceSpec = ServiceSpec {
 /// The declaration of `pinched`.
 pub(crate) const PINCHED: ServiceSpec = ServiceSpec {
     id: ServiceId::Pinched,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: false,
     routes_to: &[],
@@ -196,6 +204,7 @@ pub(crate) const PINCHED: ServiceSpec = ServiceSpec {
 // proof is decided by policyd before any route-table lookup.
 pub(crate) const BUNDLEMGRD: ServiceSpec = ServiceSpec {
     id: ServiceId::Bundlemgrd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[Route {
@@ -213,6 +222,7 @@ pub(crate) const BUNDLEMGRD: ServiceSpec = ServiceSpec {
 // TASK-0324 P4f-4: off its bespoke arm.
 pub(crate) const METRICSD: ServiceSpec = ServiceSpec {
     id: ServiceId::Metricsd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[

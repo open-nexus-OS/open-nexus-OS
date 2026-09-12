@@ -286,6 +286,7 @@ pub(crate) fn spawn_volume_services(
     reply_send: u32,
     reply_recv: u32,
     init_fold: bool,
+    stage_fence: u32,
 ) -> Result<Vec<VolumeSpawned>, InitError> {
     let mut spawned = Vec::new();
     for name in crate::service_source::volume_services() {
@@ -302,7 +303,7 @@ pub(crate) fn spawn_volume_services(
         match spawn_one(name, pending, bnd_req, reply_send, reply_recv) {
             Ok(v) => {
                 let (ctrl, _send, _recv) =
-                    crate::bootstrap::spawn::attach_ctrl_channel(name, v.pid)?;
+                    crate::bootstrap::spawn::attach_ctrl_channel(name, v.pid, stage_fence)?;
                 ctrls.push(ctrl);
                 // `init: up <svc>` is emitted by the responder on `@ready` (RFC-0093 §2).
                 spawned.push(v);

@@ -11,6 +11,7 @@
 
 use crate::routes::{Route, RouteKind};
 use crate::specs::ServiceSpec;
+use crate::Stage;
 use crate::{slots, NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
 
 /// A route that answers on the target's shared response endpoint.
@@ -28,6 +29,7 @@ const fn inbox(to: ServiceId, slots: SlotPair) -> Route {
 /// RECV halves the order-based arm granted there were never read and are not granted.
 pub(crate) const SELFTEST_CLIENT: ServiceSpec = ServiceSpec {
     id: ServiceId::SelftestClient,
+    stage: Stage::Platform,
     exposes_server: false,
     reply_inbox: true,
     routes_to: &[

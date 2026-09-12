@@ -35,6 +35,26 @@ proves = "kernel validated the loader's CRC'd handoff record (ADR-0059 ABI parit
 phase = "bringup"
 proves = "kernel banner reached"
 
+# TASK-0324 P5-b (ADR-0062, RFC-0093 §3): the boot-stage ladder. Each marker is printed AT THE
+# SIGNAL SITE — the moment init advances the kernel timeline fence — so it is evidence that a
+# barrier was satisfied, never that init reached a line of code. Barrier members derive from the
+# boot graph, so a target without a display still climbs every rung.
+[marker."stage: platform"]
+phase = "bringup"
+proves = "every CORE service announced @ready; the platform floor is up and the fence stands at 1"
+
+[marker."stage: display-ready"]
+phase = "bringup"
+proves = "the display chain is ready AND windowd reported @stage display-ready (fence 2)"
+
+[marker."stage: session-start"]
+phase = "bringup"
+proves = "boot state committed and the registry populated — a session may begin (fence 3)"
+
+[marker."stage: shell-visible"]
+phase = "bringup"
+proves = "windowd reported @stage shell-visible — the shell's first frame is on screen (fence 4)"
+
 # TASK-0324 P5-a (ADR-0062): the boot-stage fence a child receives may WAIT but never SIGNAL.
 [marker."KSELFTEST: fence transfer ok"]
 phase = "bringup"

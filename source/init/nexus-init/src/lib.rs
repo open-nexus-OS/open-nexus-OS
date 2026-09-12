@@ -44,6 +44,8 @@ pub mod route_park;
 /// the `.cml`-equivalent: pure data, validated on the host.
 pub mod service_supervision;
 pub mod service_topology;
+/// The boot-stage ladder: when a stage may be signalled on the kernel fence.
+pub mod stage;
 pub mod supervision_engine;
 
 /// Typed capability routing table — binds the declarative routes to capability

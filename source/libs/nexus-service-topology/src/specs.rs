@@ -19,6 +19,11 @@ use crate::{NamedSlotBinding, ServiceId, SlotPair};
 pub struct ServiceSpec {
     /// The service.
     pub id: ServiceId,
+    /// The boot stage it belongs to (ADR-0062). Its `entry()` waits for that stage's
+    /// PREREQUISITE, so bring-up order follows the declaration — never the resume order.
+    /// Mandatory on purpose: a service without a declared stage would be invisible to the
+    /// barrier tests.
+    pub stage: crate::Stage,
     /// Init must provision a server endpoint (recv/send slots) for it.
     pub exposes_server: bool,
     /// Init must provision a CAP_MOVE reply inbox for its outbound calls.

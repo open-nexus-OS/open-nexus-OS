@@ -12,11 +12,13 @@
 use crate::routes::Route;
 use crate::routes::RouteKind;
 use crate::specs::ServiceSpec;
+use crate::Stage;
 use crate::{slots, NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
 
 /// The declaration of `hidrawd`.
 pub(crate) const HIDRAWD: ServiceSpec = ServiceSpec {
     id: ServiceId::Hidrawd,
+    stage: Stage::DisplayReady,
     exposes_server: false,
     reply_inbox: false,
     // TASK-0324 P4d: a pure producer — it pushes normalized HID events to inputd and
@@ -36,6 +38,7 @@ pub(crate) const HIDRAWD: ServiceSpec = ServiceSpec {
 /// The declaration of `gpud`.
 pub(crate) const GPUD: ServiceSpec = ServiceSpec {
     id: ServiceId::Gpud,
+    stage: Stage::DisplayReady,
     exposes_server: true,
     reply_inbox: false,
     // TASK-0324 P4c: a pure server — windowd calls it, it calls nobody. Its MMIO window
@@ -52,6 +55,7 @@ pub(crate) const GPUD: ServiceSpec = ServiceSpec {
 /// The declaration of `inputd`.
 pub(crate) const INPUTD: ServiceSpec = ServiceSpec {
     id: ServiceId::Inputd,
+    stage: Stage::DisplayReady,
     exposes_server: true,
     reply_inbox: false,
     // TASK-0324 P4b: inputd had NO declaration at all — init wired it entirely from a
@@ -78,6 +82,7 @@ pub(crate) const INPUTD: ServiceSpec = ServiceSpec {
 /// The declaration of `windowd`.
 pub(crate) const WINDOWD: ServiceSpec = ServiceSpec {
     id: ServiceId::Windowd,
+    stage: Stage::DisplayReady,
     exposes_server: true,
     reply_inbox: true,
     // TASK-0324 P4a: windowd is the FIRST consumer on the declared arm. The slots below
@@ -124,6 +129,7 @@ pub(crate) const WINDOWD: ServiceSpec = ServiceSpec {
 /// The declaration of `imed`.
 pub(crate) const IMED: ServiceSpec = ServiceSpec {
     id: ServiceId::Imed,
+    stage: Stage::DisplayReady,
     exposes_server: true,
     reply_inbox: false,
     routes_to: &[
@@ -156,6 +162,7 @@ pub(crate) const IMED: ServiceSpec = ServiceSpec {
 /// Declared anyway, so that no service is invisible to the slot tests.
 pub(crate) const TOUCHD: ServiceSpec = ServiceSpec {
     id: ServiceId::Touchd,
+    stage: Stage::DisplayReady,
     exposes_server: false,
     reply_inbox: false,
     routes_to: &[],

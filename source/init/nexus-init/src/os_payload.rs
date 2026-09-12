@@ -414,5 +414,7 @@ where
         state.upd_reply_send,
         state.upd_reply_recv,
         state.upd_pending,
+        state.stage_fence,
+        state.boot_graph,
     );
 }

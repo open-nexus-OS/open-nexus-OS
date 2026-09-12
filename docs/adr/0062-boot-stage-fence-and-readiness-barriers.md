@@ -56,6 +56,17 @@ and the control channel already carries verbs. The question is what init may syn
   copy -> wait succeeds -> signal refused). The liveness witness ships with it:
   `KSELFTEST: liveness snapshot FAIL quiet-stall ...`, latched once per boot when no task has
   been dispatched for 2 s, every online hart is idle and at least one task is blocked.
+- **Delivered (TASK-0324 P5-b, 2026-09-12)**: the ladder itself. `Stage` (1-4) and
+  `ServiceSpec.stage` are declared in the topology; init creates ONE fence per boot and pins it
+  into every child — embedded, volume-spawned AND respawned — at spawn time with `Rights::WAIT`
+  alone, so the cap is in place before the task is ever resumed. The responder is the only place
+  a stage advances, and it prints `stage: <label>` AT THE SIGNAL SITE (the two markers that used
+  to be printed at fixed points in init's code path are gone). ⭐ A barrier gates on DECLARED
+  truth, not on a maintained list: a member must run under the target, must expose a server (a
+  pure client or producer announces nothing to wait for — measured: exactly the specs with
+  `exposes_server: false` are the ones that never print `init: up`), and must belong to the tier.
+  Getting this wrong is silent: the first implementation gated the platform on the proof harness
+  and the boot simply never reached a stage.
 - **Follow-ups**: TASK-0324 P2 (`@ready`), P3 (parked routes), P5 (fence + liveness witness),
   P8 (docs: `09-nexus-init.md`, `06-boot-and-bringup.md`, RFC-0069 §4 implemented, RFC-0013).
 

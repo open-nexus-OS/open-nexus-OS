@@ -203,6 +203,10 @@ impl DisplayServerRuntime {
         }
 
         self.state.display_scanout_ready = true;
+        // ADR-0062: the display stage is REPORTED by the compositor that owns the scanout, not
+        // assumed by init from resume order. windowd is the only sender init accepts.
+        #[cfg(nexus_env = "os")]
+        nexus_service_entry::stage(nexus_service_topology::Stage::DisplayReady);
         self.state.systemui_first_frame_visible = true;
         self.refresh_observer_state();
         let _ = debug_println(PRESENT_SCHEDULER_ON_MARKER);
@@ -214,6 +218,9 @@ impl DisplayServerRuntime {
         self.input_markers_emitted.v2_present = true;
         let _ = debug_println(DISPLAY_FIRST_SCANOUT_MARKER);
         let _ = debug_println(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
+        // ADR-0062: the shell is on screen — the last rung of the boot-stage fence.
+        #[cfg(nexus_env = "os")]
+        nexus_service_entry::stage(nexus_service_topology::Stage::ShellVisible);
         let _ = debug_println(PRESENT_VISIBLE_MARKER);
         let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
         // TASK-0076B: the desktop is composited and the on-demand window pool

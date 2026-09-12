@@ -71,6 +71,10 @@ where
     let pol_ctl_exec_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
 
+    // ADR-0062: ONE monotone boot-stage fence per boot. init keeps `MANAGE | WAIT` and is the
+    // only task that can advance it; every child gets a WAIT-only copy at spawn.
+    let stage_fence = nexus_abi::fence_create().map_err(InitError::Abi)?;
+
     let mut ctrl_channels: Vec<CtrlChannel> = Vec::new();
     let spawn_span = nexus_abi::Span::begin();
     // RFC-0068: in interactive boots fold the unconditional `init: start/up X` spawn ladder (~50
@@ -118,7 +122,7 @@ where
                 // Private control endpoints (REQ/RSP) at the child's slots 1/2 —
                 // shared with the volume spawn pass (TASK-0321).
                 let (ctrl, child_send_slot, child_recv_slot) =
-                    crate::bootstrap::spawn::attach_ctrl_channel(image.name, pid)?;
+                    crate::bootstrap::spawn::attach_ctrl_channel(image.name, pid, stage_fence)?;
                 if image.name == "updated" && iw(&mut init_wire, init_fold, "init:updated") {
                     debug_write_bytes(b"init: updated ctrl slots send=0x");
                     debug_write_hex(child_send_slot as usize);
@@ -224,6 +228,7 @@ where
         &grant_stats,
         init_fold,
         &mut init_wire,
+        stage_fence,
     )?;
     let pol_route = (pol_ctl_route_req, pol_ctl_route_rsp);
     let mut upd_pending = upd_pending;
@@ -717,28 +722,15 @@ where
     // Yield after cap distribution so services observe a consistent slot layout.
     let _ = nexus_abi::yield_();
 
-    // RFC-0069 §4 boot stage: init's part of the display contract is complete —
-    // the display+input chain is granted, wired and resumed (the visible reveal
-    // itself is gpud's own contract, ADR-0041). The session track docks onto
-    // these named stages: the greeter/login later slots between `display-ready`
-    // and `session-start`.
-    if il(&mut init_misc, init_fold, "init") {
-        debug_write_str("stage: display-ready");
-        debug_write_byte(b'\n');
-    }
-
     let route_table = route_builder::build_route_table(&ctrl_channels);
     // init keeps the minted pair itself (transfers duplicate), so the registry population uses it.
     route_builder::populate_samgrd_registry(sam_req, sam_rsp, &route_table);
 
-    // RFC-0069 §4 boot stage: boot state is committed (OTA handshake done) and
-    // routing is live — the session may begin. Today this transition is
-    // automatic (default session = the shell as before); `sessiond` takes
-    // ownership of it in Batch S, and login/auth docks in front of it later.
-    if il(&mut init_misc, init_fold, "init") {
-        debug_write_str("stage: session-start");
-        debug_write_byte(b'\n');
-    }
+    // ADR-0062: the stage markers are NOT printed here any more. A stage is reached when its
+    // barrier is satisfied — announced readiness plus windowd's own report — and the responder
+    // prints each one AT THE SIGNAL SITE, right where it advances the kernel fence. Printing a
+    // stage at a fixed point in init's code path is precisely the "order is the contract"
+    // pattern this task deletes.
     // Boot-timing table (Phase 3): one compact line locating where boot time went. `grant_wait`
     // is the time spent yielding for policyd MMIO grants — the prime "services waiting" suspect.
     let total_ms = boot_span.elapsed_ms();
@@ -792,6 +784,7 @@ where
             selftest_pid,
             pinch_rsp,
             eps.server_pair(crate::service_topology::ServiceId::Statefsd),
+            stage_fence,
         ),
         ctrl_channels,
         route_table,
@@ -802,6 +795,8 @@ where
         upd_req,
         upd_reply_send: init_reply_send,
         upd_reply_recv: pol_ctl_route_rsp,
+        stage_fence,
+        boot_graph,
         upd_pending,
     })
 }

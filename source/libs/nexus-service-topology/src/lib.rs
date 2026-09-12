@@ -72,6 +72,11 @@ pub const DEVICE_MMIO_SLOT: u32 = 48;
 /// before it is wired.)
 pub const LATE_GRANT_BASE: u32 = 0xE0;
 
+/// The boot-stage fence (ADR-0062, RFC-0093 §3), pinned into EVERY child at spawn time with
+/// `Rights::WAIT` alone: a child may block for a stage, never release one for the fleet. One
+/// fleet-wide slot, not a per-service declaration — every service holds the same fence.
+pub const STAGE_FENCE_SLOT: u32 = 0x38;
+
 /// The block plane's client slots (TASK-0315 wiring, TASK-0324 P4f-1b home): every
 /// block-plane client (statefsd, vfsd, bootctld, updated, bundlemgrd) receives virtioblkd's
 /// request SEND at [`BLK_PLANE_REQ_SLOT`] and a private reply pair at [`BLK_PLANE_REPLY`],
@@ -152,10 +157,13 @@ mod specs_security;
 mod specs_storage;
 /// Declarations: the display and input chain.
 mod specs_ui;
+/// Boot stages: the monotone fence ladder every service is declared against.
+pub mod stage;
 
 pub use ids::ServiceId;
 pub use routes::{Route, RouteKind, REQUIRED_ROUTES};
 pub use specs::{exposes_server, spec_for, ServiceSpec, SERVICE_SPECS};
+pub use stage::Stage;
 
 /// The declared slots for the route `from` → `to`, if the pair is declared.
 #[must_use]
@@ -290,7 +298,7 @@ mod tests {
         // on one of them would be pinned into an occupied slot — the kernel refuses that
         // (`set_if_empty`), so the route would be dead at boot. Refuse it at compile-test time.
         let mut reserved: Vec<u32> = Vec::new();
-        reserved.extend([CTRL_SLOTS.send, CTRL_SLOTS.recv, DEVICE_MMIO_SLOT]);
+        reserved.extend([CTRL_SLOTS.send, CTRL_SLOTS.recv, DEVICE_MMIO_SLOT, STAGE_FENCE_SLOT]);
         reserved.extend(INPUT_MMIO_SLOTS);
         reserved.extend([BLK_PLANE_REQ_SLOT, BLK_PLANE_REPLY.recv, BLK_PLANE_REPLY.send]);
         for spec in SERVICE_SPECS {

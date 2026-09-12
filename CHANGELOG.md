@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-12 (TASK-0324 P5-b: boot stages are declared, signalled from evidence, and proven in the ladder)
+
+- Boot stages are a declaration: `Stage` (`Platform` 1 < `DisplayReady` 2 < `SessionStart` 3 <
+  `ShellVisible` 4) and a mandatory `ServiceSpec.stage` on all 29 services, in
+  `nexus-service-topology`.
+- init creates ONE kernel timeline fence per boot and pins it into EVERY child at spawn time with
+  `Rights::WAIT` alone — embedded, volume-spawned and respawned services alike, so a restart
+  cannot silently drop the barrier the rest of the fleet stands on.
+- New control verb `@stage <label>` (same one-way routing frame as `@ready`). Only windowd may
+  report a stage; identity is the control channel the frame arrived on, never the payload. Any
+  other sender is refused with `!stage-deny`, an unknown label with `!stage-unknown`.
+- The stage markers move to the SIGNAL SITE: `stage: platform`, `stage: display-ready`,
+  `stage: session-start` and `stage: shell-visible` are printed where init advances the fence, so
+  a marker is evidence that a barrier was satisfied rather than that init reached a line of code.
+  The two fixed-position prints in the orchestrator are deleted, and all four are registered in
+  the proof manifest (none of them ever was).
+- Barrier membership derives from declared truth: the service must run under the boot target,
+  must expose a server, and must belong to the tier. Recovery therefore reaches every stage
+  without a display instead of hanging on a compositor it never resumes.
+- The proof-manifest drift guard is re-anchored: the `full` projection grew from ~780 to 784
+  markers (the fence-rights proof plus the four stage markers), so `cli_smoke`'s band moves to
+  700..=860 with the reason recorded in its history comment — the guard exists to catch
+  accidental mass changes, and it did exactly that.
+
 ### Added - 2026-09-12 (TASK-0324 P5-a: the boot-stage fence gets its kernel floor and the silent stall gets a witness)
 
 - Security fix: signalling a timeline fence now requires `Rights::MANAGE`. The check was on the

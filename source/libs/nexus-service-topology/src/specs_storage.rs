@@ -12,11 +12,13 @@
 use crate::routes::Route;
 use crate::routes::RouteKind;
 use crate::specs::ServiceSpec;
+use crate::Stage;
 use crate::{slots, NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
 
 /// The declaration of `keystored`.
 pub(crate) const KEYSTORED: ServiceSpec = ServiceSpec {
     id: ServiceId::Keystored,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     // TASK-0324 P4f-2: its bespoke arm (~190 lines, mostly transfer tracing) is deleted; the
@@ -44,6 +46,7 @@ pub(crate) const KEYSTORED: ServiceSpec = ServiceSpec {
 /// The declaration of `vfsd`.
 pub(crate) const VFSD: ServiceSpec = ServiceSpec {
     id: ServiceId::Vfsd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: false,
     routes_to: &[Route {
@@ -60,6 +63,7 @@ pub(crate) const VFSD: ServiceSpec = ServiceSpec {
 /// The declaration of `packagefsd`.
 pub(crate) const PACKAGEFSD: ServiceSpec = ServiceSpec {
     id: ServiceId::Packagefsd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[Route {
@@ -76,6 +80,7 @@ pub(crate) const PACKAGEFSD: ServiceSpec = ServiceSpec {
 /// The declaration of `statefsd`.
 pub(crate) const STATEFSD: ServiceSpec = ServiceSpec {
     id: ServiceId::Statefsd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[
@@ -98,6 +103,7 @@ pub(crate) const STATEFSD: ServiceSpec = ServiceSpec {
 /// The declaration of `virtioblkd`.
 pub(crate) const VIRTIOBLKD: ServiceSpec = ServiceSpec {
     id: ServiceId::Virtioblkd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: false,
     routes_to: &[],
@@ -116,6 +122,7 @@ pub(crate) const VIRTIOBLKD: ServiceSpec = ServiceSpec {
 /// The declaration of `logd`.
 pub(crate) const LOGD: ServiceSpec = ServiceSpec {
     id: ServiceId::Logd,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[Route {
@@ -137,6 +144,7 @@ pub(crate) const LOGD: ServiceSpec = ServiceSpec {
 /// The declaration of `bootctld`.
 pub(crate) const BOOTCTLD: ServiceSpec = ServiceSpec {
     id: ServiceId::Bootctld,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[
@@ -161,6 +169,7 @@ pub(crate) const BOOTCTLD: ServiceSpec = ServiceSpec {
 // TASK-0324 P4f-3: off its bespoke arm; every leg is declared and pinned by the generic arm.
 pub(crate) const UPDATED: ServiceSpec = ServiceSpec {
     id: ServiceId::Updated,
+    stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
     routes_to: &[

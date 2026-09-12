@@ -101,4 +101,10 @@ pub(crate) struct BootstrapState {
     pub upd_reply_send: u32,
     pub upd_reply_recv: u32,
     pub upd_pending: nexus_ipc::reqrep::FrameStash<8, 16>,
+    /// ADR-0062: init's own cap for the ONE boot-stage fence (`MANAGE | WAIT`). Children hold a
+    /// WAIT-only copy, so init is the only task that can advance a stage.
+    pub stage_fence: u32,
+    /// The boot target resolved by the boot-attempt handshake — the stage barriers derive their
+    /// members from it, so an excluded service never gates a stage.
+    pub boot_graph: crate::boot_graph::BootGraph,
 }

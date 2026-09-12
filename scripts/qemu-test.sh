@@ -612,6 +612,11 @@ expected_sequence=(
   "init: start bootctld"
   "init: up bootctld"
   "init: ready"
+  # TASK-0324 P5-b (ADR-0062): the boot-stage ladder, printed AT THE SIGNAL SITE.
+  "stage: platform"
+  "stage: display-ready"
+  "stage: session-start"
+  "stage: shell-visible"
   # TASK-0321 (ADR-0060): metricsd is the system-volume pilot — spawned in
   # the SECOND pass after the MMIO grants (block plane live), so its
   # start/up ladder rungs land after `init: ready`, not in the embedded loop.
@@ -1136,6 +1141,11 @@ case "${PROFILE:-full}" in
       "init: start execd"
       "init: up execd"
       "init: ready"
+      # TASK-0324 P5-b (ADR-0062): the boot-stage ladder, printed AT THE SIGNAL SITE.
+      "stage: platform"
+      "stage: display-ready"
+      "stage: session-start"
+      "stage: shell-visible"
       # TASK-0321 (ADR-0060): metricsd is the system-volume pilot — spawned in
       # the SECOND pass after the MMIO grants (block plane live), so its
       # start/up ladder rungs land after `init: ready`, not in the embedded loop.

@@ -79,7 +79,7 @@ pub unsafe fn write_boot_marker(byte: u8) {
 }
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-pub use os::ready;
+pub use os::{ready, stage};
 
 /// Host builds: no control channel exists, so the readiness announce is a no-op and the
 /// marker is not printed (host services log through their own std paths). The error type is
@@ -93,6 +93,11 @@ pub struct HostReadyError;
 pub fn ready(_marker: &str) -> core::result::Result<(), HostReadyError> {
     Ok(())
 }
+
+/// Host counterpart of [`os::stage`]: there is no control channel to report a boot stage on,
+/// so the report is dropped. Stages exist only in a real boot (ADR-0062).
+#[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
+pub fn stage(_stage: nexus_service_topology::Stage) {}
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 /// OS-specific entry glue providing allocator, panic, and bootstrap helpers.
@@ -399,7 +404,7 @@ pub mod os {
     }
 
     mod ready;
-    pub use ready::ready;
+    pub use ready::{ready, stage};
 
     /// Bootstraps the service entrypoint and terminates the task upon completion.
     pub fn bootstrap<E, F>(entry: F) -> !

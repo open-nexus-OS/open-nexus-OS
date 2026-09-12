@@ -155,6 +155,7 @@ pub(crate) fn bring_up(
     stats: &GrantStats,
     init_fold: bool,
     init_wire: &mut nexus_event::SpanTally,
+    stage_fence: u32,
 ) -> Result<CorePlane> {
     let mint = |pid: u32, depth: usize| {
         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, depth)
@@ -254,6 +255,7 @@ pub(crate) fn bring_up(
         init_reply_send,
         pol_ctl_route_rsp,
         init_fold,
+        stage_fence,
     )?;
     let volume_ms = volume_span.elapsed_ms();
 

@@ -29,6 +29,7 @@ pub(crate) mod route_provision;
 pub(crate) mod route_reply;
 pub(crate) mod settings_watch_route;
 pub(crate) mod spawn;
+pub(crate) mod stage_signal;
 pub(crate) mod supervision;
 pub(crate) mod types;
 pub(crate) mod volume_spawn;
