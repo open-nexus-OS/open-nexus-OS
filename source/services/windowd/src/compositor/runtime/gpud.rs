@@ -13,27 +13,7 @@
 //! `pub(super)` so the parent and sibling submodules can still call them.
 
 use super::*;
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-
-/// Wall-clock of the last credited present ack, and a one-shot latch for the
-/// lease-expiry line. See [`PRESENT_ACK_LEASE_NS`].
-static LAST_ACK_NS: AtomicU64 = AtomicU64::new(0);
-static LEASE_REPORTED: AtomicBool = AtomicBool::new(false);
-
-/// The in-flight present bound is a LEASE, not an unbounded promise.
-///
-/// `MAX_IN_FLIGHT` throttles presents until gpud credits them back. If credits
-/// stop arriving the display freezes permanently — and on 2026-07-26 that
-/// froze a BOOT: an aliased gpud reply endpoint meant no ack was ever credited,
-/// windowd stopped presenting after 2 frames, and gpud never re-evaluated its
-/// reveal gate (which is computed inside the present path, so even its 1.2 s
-/// hard cap never ran) — the splash held forever
-/// (`build/logs/manual--2026-07-26T10-31-30`).
-///
-/// So: after this long without a credited ack, presenting resumes anyway. A
-/// stale credit costs at most a redundant frame; withholding presents costs the
-/// whole session. Every precondition must terminate in a decision.
-const PRESENT_ACK_LEASE_NS: u64 = 500_000_000;
+use nexus_display_proto::PRESENT_HEADER_LEN;
 
 impl DisplayServerRuntime {
     /// Binds the gpud route.
@@ -69,7 +49,10 @@ impl DisplayServerRuntime {
     /// Fire-and-forget present to gpud. Pixel data is already in the VMO;
     /// gpud picks up the damage rect on its next recv iteration.
     /// Non-blocking: windowd continues processing input immediately.
-    pub(super) fn send_gpud_present(&mut self, frame: &[u8]) -> bool {
+    ///
+    /// `frame` holds the serialized payload at `PRESENT_HEADER_LEN..`; this writes the
+    /// header — opcode + the `seq` the ack will echo (RFC-0093 §5).
+    pub(super) fn send_gpud_present(&mut self, frame: &mut [u8]) -> bool {
         if !self.ensure_gpud_client() {
             return false;
         }
@@ -79,9 +62,10 @@ impl DisplayServerRuntime {
         // Phase 6d: in-flight bound — if 2+ frames outstanding, skip this present.
         // Damage accumulates; the next successful present covers the merged region.
         const MAX_IN_FLIGHT: u32 = 2;
-        if self.frames_in_flight >= MAX_IN_FLIGHT && !self.present_lease_expired() {
+        if self.presents.in_flight() >= MAX_IN_FLIGHT {
             return false;
         }
+        nexus_display_proto::write_present_header(frame, self.presents.next_seq());
         let send_result = {
             let Some(client) = self.gpud_client.as_ref() else {
                 return false;
@@ -90,8 +74,7 @@ impl DisplayServerRuntime {
         };
         match send_result {
             Ok(()) => {
-                self.present_seq = self.present_seq.wrapping_add(1);
-                self.frames_in_flight = self.frames_in_flight.saturating_add(1);
+                let _ = self.presents.issue();
                 true
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::NoSpace) => {
@@ -107,50 +90,77 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// True when no present ack has been credited for [`PRESENT_ACK_LEASE_NS`],
-    /// i.e. the in-flight credits can no longer be trusted. Clears the counter
-    /// so presenting resumes (loudly, once) instead of freezing the display.
-    #[cfg(nexus_env = "os")]
-    fn present_lease_expired(&mut self) -> bool {
-        let now = nexus_abi::nsec().unwrap_or(0);
-        let last = LAST_ACK_NS.load(Ordering::Relaxed);
-        if last == 0 {
-            // No ack yet in this session: start the lease at the first stall so
-            // a never-acking reply path is bounded from the first frame on.
-            LAST_ACK_NS.store(now, Ordering::Relaxed);
-            return false;
-        }
-        if now.saturating_sub(last) < PRESENT_ACK_LEASE_NS {
-            return false;
-        }
-        if !LEASE_REPORTED.swap(true, Ordering::Relaxed) {
-            let _ = debug_println(
-                "windowd: FAIL present-ack lease expired — presenting without credits",
-            );
-        }
-        self.frames_in_flight = 0;
-        LAST_ACK_NS.store(now, Ordering::Relaxed);
-        true
-    }
-
-    #[cfg(not(nexus_env = "os"))]
-    fn present_lease_expired(&mut self) -> bool {
-        false
-    }
-
-    /// Records a credited present ack — the lease renews on every one of them.
-    pub(super) fn note_present_ack_time(&self) {
-        #[cfg(nexus_env = "os")]
-        LAST_ACK_NS.store(nexus_abi::nsec().unwrap_or(0), Ordering::Relaxed);
-    }
-
-    /// Drop the gpud client and reset in-flight accounting together. A stale
-    /// `frames_in_flight` after a client reset would leave the counter pinned at
-    /// MAX_IN_FLIGHT, blocking every future present and spinning the flush retry
-    /// loop forever. Always reset both as a unit.
+    /// Drop the gpud client and the present window together: nothing outstanding can
+    /// be acked on a client that is gone, and a window left full would refuse every
+    /// future present.
     pub(super) fn reset_gpud_client(&mut self) {
         self.gpud_client = None;
-        self.frames_in_flight = 0;
+        self.presents.reset();
+    }
+
+    /// The ONE interpreter of a gpud reply (RFC-0093 §5) — used by the drain and by the
+    /// blocking cursor-upload path, so a present ack is credited the same way wherever it
+    /// lands: only against an OUTSTANDING seq. An unknown or duplicate seq is named and
+    /// never credited. Returns `false` when the client was reset (stop draining).
+    pub(super) fn handle_gpud_reply(&mut self, reply: &[u8]) -> bool {
+        use nexus_display_proto as proto;
+        if proto::client_surface::is_client_envelope(reply) {
+            // A CLIENT frame on the reply channel means this endpoint carries someone
+            // else's requests after all. Stop at once — one lost frame, loudly.
+            let op = reply.get(3).copied().unwrap_or(0);
+            let _ = debug_println(&alloc::format!(
+                "windowd: FAIL gpud reply ate client frame op={op} len={}",
+                reply.len()
+            ));
+            self.reset_gpud_client();
+            return false;
+        }
+        match reply.len() {
+            // Fire-and-forget control acks (cursor move/select, wallpaper-dirty, reveal).
+            1 => {
+                if reply[0] != GPUD_STATUS_OK && self.hw_cursor_active {
+                    self.hw_cursor_active = false;
+                    let _ = debug_println("windowd: hw cursor move rejected, sw fallback");
+                }
+                true
+            }
+            n if n >= proto::PRESENT_ACK_LEN => {
+                let Some((status, seq)) = proto::decode_present_ack(reply) else {
+                    return true;
+                };
+                if proto::is_cursor_reply_magic(seq) {
+                    // A cursor-upload reply that outlived its blocking consumer — not a present.
+                    return true;
+                }
+                match self.presents.ack(seq) {
+                    acks::Verdict::Credited => match status {
+                        GPUD_STATUS_OK => self.note_present_acked_clean(),
+                        proto::STATUS_REVEALED => {
+                            self.note_present_acked_clean();
+                            self.on_revealed(seq);
+                        }
+                        _ => {
+                            // gpud measured a failed/deadline-missed present: the ROUTE is
+                            // healthy, the FRAME failed — requeue (bounded), never reset.
+                            let _ = debug_println(&alloc::format!(
+                                "windowd: gpud present nack status=0x{status:02x}"
+                            ));
+                            self.note_present_nacked();
+                        }
+                    },
+                    verdict => {
+                        let _ = debug_println(&alloc::format!(
+                            "windowd: FAIL present ack seq={seq} unexpected ({verdict:?})"
+                        ));
+                    }
+                }
+                true
+            }
+            n => {
+                let _ = debug_println(&alloc::format!("windowd: gpud reply foreign frame len={n}"));
+                true
+            }
+        }
     }
 
     /// Drains gpud's replies (present acks, cursor/attach acks) into the in-flight
@@ -178,77 +188,7 @@ impl DisplayServerRuntime {
             };
             match recv_result {
                 Ok(n) => {
-                    let status = reply_buf.get(..n).and_then(|r| r.first()).copied();
-                    if status == Some(GPUD_STATUS_OK) {
-                        // Present/attach replies carry a 5-byte [status, handoff_id]
-                        // payload; fire-and-forget acks (cursor move) are a single
-                        // status byte and must NOT be counted as present completions
-                        // or they corrupt the frames-in-flight accounting.
-                        if n >= 5 {
-                            self.note_present_completed();
-                            self.note_present_acked_clean();
-                        }
-                    } else if n >= 5
-                        && matches!(
-                            status,
-                            Some(nexus_display_proto::STATUS_MALFORMED)
-                                | Some(nexus_display_proto::STATUS_DEVICE_ERROR)
-                        )
-                    {
-                        // Present NACK (P0.3): gpud measured a failed/deadline-missed
-                        // present (`gpud: FAIL present deadline`). The ROUTE is
-                        // healthy — the FRAME failed. Requeue the damage (bounded,
-                        // self-heal) instead of resetting the client: a reset never
-                        // re-presented anything, leaving the stale/black RT on
-                        // screen until unrelated damage arrived.
-                        if let Some(status) = status {
-                            let _ = debug_println(&alloc::format!(
-                                "windowd: gpud present nack status=0x{status:02x}"
-                            ));
-                        }
-                        self.note_present_nacked();
-                    } else if nexus_display_proto::client_surface::is_client_envelope(
-                        &reply_buf[..n],
-                    ) {
-                        // Belt to the bind-time check's braces: a CLIENT frame here
-                        // means this endpoint carries someone else's requests after
-                        // all (a slot the alias check could not see). Stop at once —
-                        // one lost frame, loudly, instead of a silent stream.
-                        let op = reply_buf.get(3).copied().unwrap_or(0);
-                        let _ = debug_println(&alloc::format!(
-                            "windowd: FAIL gpud reply ate client frame op={op} len={n}"
-                        ));
-                        self.reset_gpud_client();
-                        return;
-                    } else if n >= 5 {
-                        // Foreign, non-client frame on the reply channel — not a
-                        // gpud present verdict (real stati are 0/1/2; observed
-                        // 0x30/OP_TIMER_FIRED at boot). Treating these as NACKs
-                        // triggered full-recompose retry bursts during the very
-                        // bring-up window where the desktop-bind handshake runs.
-                        // Log (the storm is the diagnosis) + skip — no accounting
-                        // change, no requeue.
-                        if let Some(status) = status {
-                            let _ = debug_println(&alloc::format!(
-                                "windowd: gpud reply foreign frame op=0x{status:02x} len={n}"
-                            ));
-                        }
-                    } else if n == 1 {
-                        // Failed fire-and-forget op (cursor move). Soft-fail: drop to
-                        // the software cursor path but keep the present pipeline alive.
-                        if self.hw_cursor_active {
-                            self.hw_cursor_active = false;
-                            let _ = debug_println("windowd: hw cursor move rejected, sw fallback");
-                        }
-                    } else {
-                        if let Some(status) = status {
-                            let _ = debug_println(&alloc::format!(
-                                "windowd: gpud present bad-status=0x{status:02x}"
-                            ));
-                        } else {
-                            let _ = debug_println("windowd: gpud present bad-status=empty");
-                        }
-                        self.reset_gpud_client();
+                    if !self.handle_gpud_reply(&reply_buf[..n]) {
                         return;
                     }
                 }
@@ -264,10 +204,7 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Blocking status request (used only for handoff/bootstrap where
-    /// we must confirm gpud accepted the framebuffer VMO).
-    /// (Companion of the blocking handoff variant above — kept with it.)
-    #[allow(dead_code)]
+    /// Blocking control request whose reply is a bare status (layer scroll etc.).
     pub(super) fn send_gpud_status_request(&mut self, frame: &[u8]) -> Result<(), WindowdError> {
         // Drain any stale responses from previous non-blocking presents before
         // sending. Without this, client.recv(Blocking) below may pick up a
@@ -336,8 +273,8 @@ impl DisplayServerRuntime {
     /// plans/webrender-compositor-scroll.md.)
     #[allow(dead_code)]
     pub(super) fn present_damage_to_gpud(&mut self, rect: DamageRect) -> bool {
-        let frame = encode_gpud_damage_frame(rect);
-        if self.send_gpud_present(&frame) {
+        let mut frame = encode_gpud_damage_frame(rect);
+        if self.send_gpud_present(&mut frame) {
             self.present_fail_reported = false;
             return true;
         }
@@ -395,11 +332,10 @@ impl DisplayServerRuntime {
             Err(_) => return self.present_damage_to_gpud(bounding),
         };
         let mut frame_buf = [0u8; 256];
-        let written = match committed.serialize_into(&mut frame_buf[1..]) {
+        let written = match committed.serialize_into(&mut frame_buf[PRESENT_HEADER_LEN..]) {
             Ok(n) => n,
             Err(_) => return self.present_damage_to_gpud(bounding),
         };
-        frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
-        self.send_gpud_present(&frame_buf[..1 + written])
+        self.send_gpud_present(&mut frame_buf[..PRESENT_HEADER_LEN + written])
     }
 }

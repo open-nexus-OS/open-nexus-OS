@@ -12,7 +12,19 @@
 import json
 import sys
 
-MIN_NONBLACK_PCT = 30.0
+# "Not black" = enough pixels above rfb_grab's black floor (luma >= 16/255) AND a
+# mean luma clearly above zero. A black scanout — the class this proof exists for
+# (a 2D gpud on a GL device: every marker green, every pixel 0) — measures ~0 % / ~0.
+#
+# The floor used to be 30 %. That number was calibrated on a frame the old
+# heuristic reveal LEAKED: gpud revealed on a self-tick before windowd's first
+# present, so the capture showed the bare wallpaper (bright, no greeter) — the
+# "wallpaper-first" flash ADR-0041's atomic reveal forbids. With the reveal
+# handshake (TASK-0324 P6-c) the first revealed frame is the honest one — the
+# greeter dimming that wallpaper — and measures ~15 % / luma ~10. Thresholds sit
+# 3-5x above black and 3-5x below the honest frame, so neither class is ambiguous.
+MIN_NONBLACK_PCT = 5.0
+MIN_MEAN_LUMA = 2.0
 MIN_DIFF = 2.0
 
 
@@ -28,9 +40,12 @@ def main() -> int:
     if not ok:
         return 1
     d = snaps["desktop"]
-    if d["nonblack_pct"] < MIN_NONBLACK_PCT:
+    if d["nonblack_pct"] < MIN_NONBLACK_PCT or d["mean_luma"] < MIN_MEAN_LUMA:
+        # Every metric, every time: a verdict that hides the other numbers costs the next
+        # reader a trip into the JSON (diff was 31.67 on the run that motivated this).
         print(f"[error] PIXEL PROOF: desktop is black ({d['nonblack_pct']}% non-black, "
-              f"mean luma {d['mean_luma']}) — {d['file']}", file=sys.stderr)
+              f"mean luma {d['mean_luma']}, diff vs splash {d.get('diff_vs_splash')}) — "
+              f"{d['file']}", file=sys.stderr)
         ok = False
     if d.get("diff_vs_splash", 255.0) < MIN_DIFF:
         print(f"[error] PIXEL PROOF: desktop snapshot is still the splash "

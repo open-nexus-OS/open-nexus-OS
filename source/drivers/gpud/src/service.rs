@@ -10,6 +10,7 @@
 #[cfg(all(nexus_env = "os", feature = "virgl"))]
 use core::time::Duration;
 use nexus_abi::{debug_println, mmio_map_auto, nsec, yield_, AbiError};
+use nexus_display_proto::PRESENT_HEADER_LEN;
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use nexus_gfx::backend::error::GfxError;
@@ -205,6 +206,8 @@ fn service_requests(
     // 8192 bytes: large enough for full cursor upload (32×32×4 = 4096B BGRA + 9B header).
     let mut recv_frame = [0u8; 8192];
     let mut active_handoff_id: u32 = 0;
+    // RFC-0093 §5: `STATUS_REVEALED` is acked exactly once per boot (see `reply::present_status`).
+    let mut reveal_acked = false;
     // One-shot flag for the hold-tick liveness marker below (diagnosis: do the
     // recv-timeout self-ticks actually fire while the boot splash is held?).
     #[cfg(all(nexus_env = "os", feature = "virgl"))]
@@ -336,8 +339,7 @@ fn service_requests(
                         scroll_flush_pending = false;
                         // Phase 6c: carries a serialized CommittedBuffer with batched
                         // BlitSurface commands describing all damage regions.
-                        let handoff_id =
-                            decode_handoff_id_present(frame).unwrap_or(active_handoff_id);
+                        let seq = nexus_display_proto::decode_present_seq(frame).unwrap_or(0);
                         // P0.3 present truth: snapshot the ring's deadline-expiry
                         // counter around the whole present. The ring's degraded
                         // recovery (reset/abandon after GPU_WAIT_DEADLINE_NS)
@@ -353,9 +355,9 @@ fn service_requests(
                         if trace {
                             let _ = debug_println(crate::markers::GPUD_CHAIN_RECV);
                         }
-                        let status = if frame.len() > 1 {
+                        let status = if frame.len() > PRESENT_HEADER_LEN {
                             // Reuse scene_cb (reload_from) — no per-frame heap alloc.
-                            match scene_cb.reload_from(&frame[1..]) {
+                            match scene_cb.reload_from(&frame[PRESENT_HEADER_LEN..]) {
                                 Ok(_) => {
                                     if trace {
                                         let _ = debug_println(crate::markers::GPUD_CHAIN_PARSE_OK);
@@ -466,9 +468,8 @@ fn service_requests(
                                         let _ =
                                             debug_println(crate::markers::GPUD_CHAIN_PARSE_FAIL);
                                     }
-                                    // Only fall back to legacy damage-rect format when the
-                                    // frame is exactly 17 bytes (opcode + 16-byte rect).
-                                    if frame.len() == 17 {
+                                    // Fixed-rect fallback: exactly header + 16-byte rect.
+                                    if frame.len() == nexus_display_proto::DAMAGE_FRAME_LEN {
                                         handle_present_damage(&mut backend, frame)
                                     } else {
                                         STATUS_MALFORMED
@@ -503,10 +504,9 @@ fn service_requests(
                                 status
                             }
                         };
-                        if status == STATUS_OK {
-                            active_handoff_id = handoff_id;
-                        }
-                        (status, Some(handoff_id))
+                        let status =
+                            crate::reply::present_status(&backend, status, seq, &mut reveal_acked);
+                        (status, Some(seq))
                     }
                     OP_UPLOAD_CURSOR => {
                         let _ = debug_println("gpud: recv OP_UPLOAD_CURSOR");
@@ -553,6 +553,13 @@ fn service_requests(
                             (status, None)
                         }
                     }
+                    nexus_display_proto::OP_REVEAL => {
+                        // RFC-0093 §5: windowd reports the desktop complete (wallpaper in
+                        // Plane 0, cursor uploaded, first frame presented). Latch it — the
+                        // next present reveals and is acked STATUS_REVEALED. No probe, no cap.
+                        backend.reveal_requested = true;
+                        (STATUS_OK, None)
+                    }
                     nexus_display_proto::OP_WALLPAPER_DIRTY => {
                         // windowd rewrote the wallpaper SOURCE plane (theme
                         // swap): re-upload the wallpaper texture on the next
@@ -566,50 +573,14 @@ fn service_requests(
                     _ => (handle_frame(&mut backend, frame, &mut scroll_flush_pending), None),
                 };
                 drop(moved_cap);
-                if let Some(handoff_id) = response_handoff_id {
-                    let mut response = [0u8; 5];
-                    response[0] = status;
-                    response[1..5].copy_from_slice(&handoff_id.to_le_bytes());
-                    let _ = server.send(&response, Wait::Blocking);
-                } else {
-                    let response = [status];
-                    let _ = server.send(&response, Wait::Blocking);
-                }
-                // Reveal kick: a cursor upload while the boot splash is held is
-                // exactly the signal the reveal gate waits for — re-present now
-                // instead of waiting for the next self-tick (~250 ms observed),
-                // so the desktop appears the moment it is ready. Reply was sent
-                // first, so windowd is never blocked behind this present.
-                // One line per boot: names WHICH branch ran, so a boot log pins
-                // why a late reveal happened without another instrumentation loop.
-                // Gate on `is_holding_boot_splash()` (GL scanout up + splash still
-                // held) — NOT on `active_handoff_id`: the running handoff flow's
-                // attach frame is the 1-byte id-less form, so the id stays 0 and
-                // had silently disabled this kick (and the hold tick) in every boot.
-                #[cfg(all(nexus_env = "os", feature = "virgl"))]
-                if op == OP_UPLOAD_CURSOR {
-                    let armed = status == STATUS_OK && backend.is_holding_boot_splash();
-                    let _ = debug_println(match (armed, status == STATUS_OK) {
-                        (true, _) => "gpud: reveal kick",
-                        (false, false) => "gpud: reveal kick skipped (cursor status)",
-                        (false, _) => "gpud: reveal kick skipped (not holding)",
-                    });
-                    if armed {
-                        let _ = backend.present_scanout_damage(Rect {
-                            x: 0,
-                            y: 0,
-                            width: backend.display_w,
-                            height: backend.display_h,
-                        });
-                        if backend.is_holding_boot_splash() {
-                            let _ = debug_println(if backend.cursor_tex_ready() {
-                                "gpud: reveal kick held (plane0 empty)"
-                            } else {
-                                "gpud: reveal kick held (cursor tex not ready)"
-                            });
-                        }
-                    }
-                }
+                crate::reply::send(
+                    &server,
+                    &backend,
+                    op,
+                    status,
+                    response_handoff_id,
+                    active_handoff_id,
+                );
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 // Deferred scroll composite: the queued burst is drained (every
@@ -744,10 +715,6 @@ fn present_buildup_tick(
 
 fn decode_handoff_id_attach(frame: &[u8]) -> Option<u32> {
     nexus_display_proto::decode_handoff_id(frame)
-}
-
-fn decode_handoff_id_present(frame: &[u8]) -> Option<u32> {
-    nexus_display_proto::decode_present_handoff_id(frame)
 }
 
 /// Extract bounding damage rect from ALL command types.
@@ -900,13 +867,9 @@ fn present_scanout_damage(backend: &mut VirtioGpuBackend, rect: Rect) -> u8 {
 }
 
 fn handle_present_damage(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
-    if frame.len() < 17 {
+    let Some((x, y, width, height)) = nexus_display_proto::decode_damage_frame(frame) else {
         return STATUS_MALFORMED;
-    }
-    let x = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
-    let y = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-    let width = u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
-    let height = u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
+    };
     present_scanout_damage(backend, Rect { x, y, width, height })
 }
 

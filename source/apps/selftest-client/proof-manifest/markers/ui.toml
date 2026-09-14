@@ -49,6 +49,18 @@ proves = "windowd composed the visible frame into gpud scanout VMO"
 phase = "end"
 proves = "windowd v2a present scheduler path was activated"
 
+# TASK-0324 P6-c (RFC-0093 §5): reveal is a HANDSHAKE. windowd reports the desktop complete
+# (`OP_REVEAL`); gpud reveals on the next present and acks it `STATUS_REVEALED`. The marker
+# carries the seq of a frame that was actually presented — the three heuristic variants
+# ("plane0 + cursor ready", "cursor slow", "TIME CAP") and the 3-pixel probe are gone.
+[marker."gpud: desktop reveal (handshake seq="]
+phase = "end"
+proves = "gpud replaced the boot splash with the desktop on a presented frame at or after windowd's OP_REVEAL"
+
+[marker."windowd: desktop revealed (seq="]
+phase = "end"
+proves = "windowd received STATUS_REVEALED for the frame it asked to reveal; every 'visible' marker prints after this, never before"
+
 [marker."display: first scanout ok"]
 phase = "end"
 proves = "windowd observed successful first gpud scanout handoff for the composed visible frame"

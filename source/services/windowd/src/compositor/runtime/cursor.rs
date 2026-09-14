@@ -312,7 +312,11 @@ impl DisplayServerRuntime {
         // we must ship moves + a present, not a software BlendCursor.
         const CURSOR_REPLY_GL: u32 = nexus_display_proto::CURSOR_REPLY_GL;
         let mut cursor_flags: Option<u32> = None;
-        let mut present_acks_seen = 0u32;
+        // Present acks that arrive before the cursor reply are REPLAYED through the one ack
+        // interpreter once the client borrow ends (RFC-0093 §5 — acks are matched by seq,
+        // never counted).
+        let mut early: [([u8; 8], usize); 4] = [([0; 8], 0); 4];
+        let mut early_n = 0usize;
         let mut reply = [0u8; 8];
         for _ in 0..4 {
             match client.recv_into(Wait::Blocking, &mut reply) {
@@ -329,15 +333,14 @@ impl DisplayServerRuntime {
                         cursor_flags = Some(payload);
                         break;
                     }
-                    if n >= 5 {
-                        present_acks_seen += 1;
-                    }
+                    early[early_n] = (reply, n.min(reply.len()));
+                    early_n += 1;
                 }
                 _ => break,
             }
         }
-        for _ in 0..present_acks_seen {
-            self.note_present_completed();
+        for (buf, n) in early.iter().take(early_n) {
+            let _ = self.handle_gpud_reply(&buf[..*n]);
         }
         match cursor_flags {
             Some(flags) => {

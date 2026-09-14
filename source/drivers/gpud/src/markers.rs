@@ -135,3 +135,33 @@ pub const GPUD_CHAIN_BATCH_OK: &str = "gpud: chain G3c batch complete (drained)"
 /// G3c fail: the batch drain timed out (a command's used-ring never advanced
 /// within the deadline) — degraded, best-effort; the frame is abandoned.
 pub const GPUD_CHAIN_BATCH_FAIL: &str = "gpud: chain G3c batch FAIL (drain timeout)";
+
+/// `gpud: desktop reveal (handshake seq=<n>)` (RFC-0093 §5): printed on the ack of the frame
+/// that revealed the desktop. One marker, one condition — the three variants that used to
+/// record WHICH heuristic released the splash are gone with the heuristics. Alloc-free.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub fn emit_desktop_reveal(seq: u32) {
+    let mut buf = [0u8; 48];
+    let head = b"gpud: desktop reveal (handshake seq=";
+    buf[..head.len()].copy_from_slice(head);
+    let mut p = head.len();
+    let mut tmp = [0u8; 10];
+    let (mut v, mut n) = (seq, 0);
+    loop {
+        tmp[n] = b'0' + (v % 10) as u8;
+        v /= 10;
+        n += 1;
+        if v == 0 {
+            break;
+        }
+    }
+    while n > 0 {
+        n -= 1;
+        buf[p] = tmp[n];
+        p += 1;
+    }
+    buf[p] = b')';
+    p += 1;
+    let _ =
+        nexus_abi::debug_println(core::str::from_utf8(&buf[..p]).unwrap_or("gpud: desktop reveal"));
+}

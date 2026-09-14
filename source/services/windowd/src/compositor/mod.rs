@@ -494,7 +494,6 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         // UART log (build/logs/*/uart.log). Cheap — one nsec() + integer checks per
         // iteration; only formats on an actual stall (rate-limited).
         #[cfg(nexus_env = "os")]
-        runtime.watchdog_check(nexus_abi::nsec().unwrap_or(0));
         let _ = runtime.process_deferred_framebuffer_write();
         #[cfg(nexus_env = "os")]
         {

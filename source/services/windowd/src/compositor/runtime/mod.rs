@@ -43,7 +43,6 @@ use nexus_ipc::{Client as _, KernelClient, Wait};
 // (Both ops are consumed by the allow-annotated GPU animation/handoff paths.)
 const GPU_ANIMATION_SUBMIT_OP: u8 = nexus_display_proto::OP_SUBMIT_ANIMATION_FRAME;
 const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = nexus_display_proto::OP_SET_FRAMEBUFFER_VMO;
-const GPU_PRESENT_DAMAGE_OP: u8 = nexus_display_proto::OP_PRESENT_DAMAGE;
 const GPU_MOVE_CURSOR_OP: u8 = nexus_display_proto::OP_MOVE_CURSOR;
 const GPU_UPLOAD_CURSOR_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR;
 const GPU_SET_LAYER_SCROLL_OP: u8 = nexus_display_proto::OP_SET_LAYER_SCROLL;
@@ -62,7 +61,6 @@ pub(crate) const GPUD_WIRED_RECV_SLOT: u32 = nexus_service_topology::slots::wind
 pub(crate) use crate::surface_presentation::SHELL_TOPBAR_H;
 pub(crate) const SHELL_TASKBAR_H: u32 = 56;
 pub(crate) const OSK_BAND_H: u32 = 312;
-const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
 // Interactive geometry lives in `interaction` — the single source of truth shared
 // by the live renderer and the hit-tester (hit area == rendered rect).
@@ -81,6 +79,7 @@ pub(crate) mod app_window;
 mod chrome_widget;
 mod cursor;
 mod desktop_surface;
+use crate::present_acks as acks;
 mod framebuffer;
 pub(crate) mod gpud;
 mod input;
@@ -145,7 +144,7 @@ fn log_gpud_cap_error(prefix: &str, err: nexus_ipc::IpcError, send_slot: u32) {
     }
 }
 
-fn encode_gpud_damage_frame(rect: DamageRect) -> [u8; 17] {
+fn encode_gpud_damage_frame(rect: DamageRect) -> [u8; nexus_display_proto::DAMAGE_FRAME_LEN] {
     nexus_display_proto::encode_damage_frame(rect.x, rect.y, rect.width, rect.height)
 }
 
@@ -437,21 +436,10 @@ pub(crate) struct DisplayServerRuntime {
     /// Set when register_framebuffer_vmo creates the framebuffer VMO but
     /// after sending the response.
     framebuffer_pending_first_write: bool,
-    /// Phase 6d: monotonic present sequence number for completion correlation.
-    present_seq: u32,
-    /// Phase 6d: count of frames submitted to gpud but not yet acknowledged.
-    frames_in_flight: u32,
-    /// Phase 6d: last present sequence number acknowledged by gpud.
-    last_completed_seq: u32,
-    /// Stall watchdog (Android-ANR / Linux hung-task style): timestamp of the last
-    /// observed present *progress*, the seq it was at, and whether a stall was
-    /// already reported for the current episode. If damage stays pending and the
-    /// completed seq doesn't advance for `STALL_THRESHOLD_NS`, we log one
-    /// diagnostic line to the UART (→ `build/logs/*/uart.log`) so a "scrolled and
-    /// it stopped responding" freeze is self-reported with its state.
-    stall_last_progress_ns: u64,
-    stall_last_seq: u32,
-    stall_reported: bool,
+    /// RFC-0093 §5: sequence-tracked present accounting. A credit exists only for an
+    /// OUTSTANDING seq (`acks::PresentWindow`); the counter-plus-wall-clock-lease and the
+    /// stall recovery that used to guess at lost acks are gone.
+    presents: acks::PresentWindow,
     /// Latch so a backpressured present logs its failure ONCE per episode instead
     /// of every retry (which would flood the UART at ~120 Hz during the very stall
     /// we want to read). Cleared on the next successful send.
@@ -485,7 +473,6 @@ pub(crate) struct DisplayServerRuntime {
     current_display_slot: u8,
     /// handoff ID for the initial framebuffer VMO transfer to gpud.
     first_handoff_id: u32,
-    first_handoff_deadline_ns: u64,
     first_handoff_frame_written: bool,
     first_handoff_bootstrap_markers_emitted: bool,
     first_handoff_attach_acked: bool,
@@ -857,21 +844,15 @@ impl DisplayServerRuntime {
             scene_cb: CommandBuffer::new(),
             shell: SystemUiShell::new(DeviceProfile::qemu_default()),
             framebuffer_pending_first_write: false,
-            present_seq: 0,
-            stall_last_progress_ns: 0,
-            stall_last_seq: 0,
-            stall_reported: false,
+            presents: acks::PresentWindow::new(),
             present_fail_reported: false,
             present_retry_count: 0,
             present_retry_exhausted: false,
             app_present_reject_markers: 0,
             app_present_markers: 0,
             desktop_dirty_rows: (u32::MAX, 0),
-            frames_in_flight: 0,
-            last_completed_seq: 0,
             current_display_slot: 0,
             first_handoff_id: 0,
-            first_handoff_deadline_ns: 0,
             first_handoff_frame_written: false,
             first_handoff_bootstrap_markers_emitted: false,
             first_handoff_attach_acked: false,

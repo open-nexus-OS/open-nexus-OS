@@ -75,6 +75,10 @@ mod client_surface;
 mod compositor;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod presentation_state;
+// RFC-0093 §5 (TASK-0324 P6-b): sequence-tracked present-ack window — pure, host-TESTED
+// (its negative tests are the security invariant), consumed by the OS-only compositor runtime.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod present_acks;
 /// Runtime text from the baked A8 glyph atlases (TASK-0070 Phase 6) — the
 /// dynamic-text replacement for `bitmap_font` (which now only backs the legacy
 /// scene-graph tile-text primitive).

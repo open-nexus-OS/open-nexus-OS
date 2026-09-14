@@ -15,6 +15,10 @@
 #   3. No `1280, 800` literal in windowd/inputd/gpud production code: the layout maximum
 #      is declared once in `nexus-display-proto`. Test fixtures are exempt (they assert
 #      against concrete geometry, which is their job).
+#   4. The display-handoff heuristics stay deleted (RFC-0093 §5, P6-b/c): no present-ack
+#      lease, no stall recovery, no first-handoff deadline, no reveal time caps, no pixel
+#      probe. Acks are matched by seq; reveal is a handshake. Each of these existed only
+#      because the protocol could not express the fact it guessed at.
 #
 # `--self-test` proves the scanner can FAIL, against fixtures in a temp dir — a gate that
 # cannot fail is not a gate (see `just deadcode`, the recorded counter-example).
@@ -39,6 +43,10 @@ RETIRED = re.compile(
 # NB: no trailing \b — the real constant was `DISPLAY_MODE_RETRY_NS`, and `_` is a word
 # character, so an anchored tail would have missed the very thing this rule exists for.
 RETRY = re.compile(r"\bDISPLAY_MODE_RETRY")
+HEURISTICS = re.compile(
+    r"\b(PRESENT_ACK_LEASE_NS|LAST_ACK_NS|LEASE_REPORTED|present_lease_expired"
+    r"|FIRST_HANDOFF_DEADLINE_NS|STALL_THRESHOLD_NS|REVEAL_FALLBACK_NS|REVEAL_HARD_CAP_NS"
+    r"|plane0_has_content|reveal_content_since_ns)\b")
 LITERAL = re.compile(r"\b1280\s*,\s*800\b")
 
 def scan_file(path):
@@ -52,7 +60,7 @@ def scan_file(path):
         in_test = bool(depth_stack)
         if not (stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*")):
             if not in_test:
-                for rx in (RETIRED, RETRY, LITERAL):
+                for rx in (RETIRED, RETRY, LITERAL, HEURISTICS):
                     if rx.search(line):
                         out.append(f"{path}:{n}:{stripped}")
                         break
@@ -86,6 +94,7 @@ const A: u8 = nexus_display_proto::OP_GET_DISPLAY_MODE;
 const DISPLAY_MODE_RETRY_NS: u64 = 200_000_000;
 const MAX: (u32, u32) = (1280, 800);
 fn f() { let _ = decode_visible_mode_reply(&f); }
+const REVEAL_HARD_CAP_NS: u64 = 1_200_000_000;
 
 #[cfg(test)]
 mod tests {
@@ -94,12 +103,12 @@ mod tests {
 }
 FIX
     n=$(scan "$tmp/src" | grep -c . || true)
-    if [ "$n" -ne 4 ]; then
-        echo "[FAIL] display-ssot: scanner self-test expected 4 hits, got $n" >&2
+    if [ "$n" -ne 5 ]; then
+        echo "[FAIL] display-ssot: scanner self-test expected 5 hits, got $n" >&2
         scan "$tmp/src" >&2
         exit 1
     fi
-    echo "[ok]   display-ssot: scanner self-test passed (4 shapes caught, test block skipped)"
+    echo "[ok]   display-ssot: scanner self-test passed (5 shapes caught, test block skipped)"
     exit 0
 fi
 
@@ -111,4 +120,4 @@ if [ -n "$violations" ]; then
     echo "       nexus_display_proto::resolve_display_mode(.., LAYOUT_MAX)." >&2
     exit 1
 fi
-echo "[PASS] display-ssot: one mode source, one clamp policy, no retired query protocol"
+echo "[PASS] display-ssot: one mode source, one clamp policy, no retired query protocol, no resurrected handoff heuristic"

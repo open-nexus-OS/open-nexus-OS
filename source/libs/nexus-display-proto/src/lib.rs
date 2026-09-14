@@ -89,6 +89,24 @@ pub const SET_LAYER_TRANSFORM_LEN: usize = 12;
 /// the boot wallpaper forever. Request: `[op]`; reply: `[status]`.
 pub const OP_WALLPAPER_DIRTY: u8 = 12;
 
+/// windowd → gpud (RFC-0093 §5): "the desktop is complete — wallpaper written,
+/// cursor uploaded, first frame presented — reveal it". gpud latches the request
+/// and answers it on the ack of the FIRST present at or after it, which carries
+/// [`STATUS_REVEALED`] instead of [`STATUS_OK`]. Reveal is a handshake, not a
+/// heuristic: no pixel probe, no time cap. Request: `[op]`; reply: `[status]`.
+pub const OP_REVEAL: u8 = 13;
+
+/// Bytes in front of the serialized `CommittedBuffer` of a present:
+/// `[OP_PRESENT_DAMAGE, seq: u32 le]`. `seq` is strictly increasing per windowd
+/// instance and echoed by the present ack, so an ack can only ever credit the
+/// present it belongs to.
+pub const PRESENT_HEADER_LEN: usize = 5;
+/// Present ack: `[status, seq: u32 le]`.
+pub const PRESENT_ACK_LEN: usize = 5;
+/// Attach ack v2: `[status, handoff_id, seq, mode_w, mode_h, content_x, content_y,
+/// content_w, content_h]` (u32 le, then u16 le ×6).
+pub const ATTACH_ACK_LEN: usize = 21;
+
 /// Encode the layer-transform override (see [`OP_SET_LAYER_TRANSFORM`]).
 #[must_use]
 pub fn encode_set_layer_transform(
@@ -169,6 +187,10 @@ pub fn resolve_display_mode(
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_MALFORMED: u8 = 1;
 pub const STATUS_DEVICE_ERROR: u8 = 2;
+/// Present ack status of the frame that REVEALED the desktop (the first present
+/// at or after [`OP_REVEAL`]). A pixel-backed event: windowd emits
+/// `display: first scanout ok` on it, never on a timer.
+pub const STATUS_REVEALED: u8 = 3;
 
 // ── Cursor-upload reply magics (reply u32 at bytes [1..5]) ───────────────────
 //
@@ -184,18 +206,33 @@ pub const CURSOR_REPLY_GL: u32 = 0xC0DE_0002;
 
 // ── Control-frame encoders / decoders ────────────────────────────────────────
 
-/// Legacy fixed present frame: `[OP_PRESENT_DAMAGE, x, y, width, height]`, each
-/// coordinate a little-endian `u32` (17 bytes). The preferred present path
-/// instead appends a serialized `CommittedBuffer` after the opcode byte.
+/// Fixed-rect present frame (the fallback when a `CommittedBuffer` cannot be built):
+/// the present header, then `x, y, width, height` as little-endian `u32`
+/// (21 bytes). The `seq` slot is left for [`write_present_header`].
+pub const DAMAGE_FRAME_LEN: usize = PRESENT_HEADER_LEN + 16;
+
+/// Encode a fixed-rect present (see [`DAMAGE_FRAME_LEN`]).
 #[must_use]
-pub fn encode_damage_frame(x: u32, y: u32, width: u32, height: u32) -> [u8; 17] {
-    let mut f = [0u8; 17];
+pub fn encode_damage_frame(x: u32, y: u32, width: u32, height: u32) -> [u8; DAMAGE_FRAME_LEN] {
+    let mut f = [0u8; DAMAGE_FRAME_LEN];
     f[0] = OP_PRESENT_DAMAGE;
-    f[1..5].copy_from_slice(&x.to_le_bytes());
-    f[5..9].copy_from_slice(&y.to_le_bytes());
-    f[9..13].copy_from_slice(&width.to_le_bytes());
-    f[13..17].copy_from_slice(&height.to_le_bytes());
+    let o = PRESENT_HEADER_LEN;
+    f[o..o + 4].copy_from_slice(&x.to_le_bytes());
+    f[o + 4..o + 8].copy_from_slice(&y.to_le_bytes());
+    f[o + 8..o + 12].copy_from_slice(&width.to_le_bytes());
+    f[o + 12..o + 16].copy_from_slice(&height.to_le_bytes());
     f
+}
+
+/// Decode a fixed-rect present → `(x, y, width, height)`; `None` when short.
+#[must_use]
+pub fn decode_damage_frame(frame: &[u8]) -> Option<(u32, u32, u32, u32)> {
+    if frame.len() < DAMAGE_FRAME_LEN {
+        return None;
+    }
+    let o = PRESENT_HEADER_LEN;
+    let at = |i: usize| u32::from_le_bytes([frame[i], frame[i + 1], frame[i + 2], frame[i + 3]]);
+    Some((at(o), at(o + 4), at(o + 8), at(o + 12)))
 }
 
 /// Framebuffer-attach handoff frame: `[OP_SET_FRAMEBUFFER_VMO, handoff_id]`
@@ -205,16 +242,6 @@ pub fn encode_damage_frame(x: u32, y: u32, width: u32, height: u32) -> [u8; 17] 
 pub fn encode_attach_frame(handoff_id: u32) -> [u8; 5] {
     let mut f = [0u8; 5];
     f[0] = OP_SET_FRAMEBUFFER_VMO;
-    f[1..5].copy_from_slice(&handoff_id.to_le_bytes());
-    f
-}
-
-/// Status reply frame: `[status, handoff_id]` (`handoff_id` little-endian `u32`,
-/// 5 bytes). Fire-and-forget ops instead reply with a single status byte.
-#[must_use]
-pub fn encode_status_reply(status: u8, handoff_id: u32) -> [u8; 5] {
-    let mut f = [0u8; 5];
-    f[0] = status;
     f[1..5].copy_from_slice(&handoff_id.to_le_bytes());
     f
 }
@@ -229,14 +256,106 @@ pub fn decode_handoff_id(frame: &[u8]) -> Option<u32> {
     Some(u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]))
 }
 
-/// Decode the handoff id trailing a legacy 17-byte present frame
-/// (`frame[17..21]`, present only on the 21-byte legacy form).
+/// Write the present header (`[OP_PRESENT_DAMAGE, seq]`) in front of an already
+/// serialized `CommittedBuffer` at `frame[PRESENT_HEADER_LEN..]`.
+pub fn write_present_header(frame: &mut [u8], seq: u32) {
+    frame[0] = OP_PRESENT_DAMAGE;
+    frame[1..PRESENT_HEADER_LEN].copy_from_slice(&seq.to_le_bytes());
+}
+
+/// The present's `seq`; `None` for a frame too short to carry a header.
 #[must_use]
-pub fn decode_present_handoff_id(frame: &[u8]) -> Option<u32> {
-    if frame.len() < 21 {
+pub fn decode_present_seq(frame: &[u8]) -> Option<u32> {
+    if frame.len() < PRESENT_HEADER_LEN || frame[0] != OP_PRESENT_DAMAGE {
         return None;
     }
-    Some(u32::from_le_bytes([frame[17], frame[18], frame[19], frame[20]]))
+    Some(u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]))
+}
+
+/// Present ack `[status, seq]`.
+#[must_use]
+pub fn encode_present_ack(status: u8, seq: u32) -> [u8; PRESENT_ACK_LEN] {
+    let mut f = [0u8; PRESENT_ACK_LEN];
+    f[0] = status;
+    f[1..5].copy_from_slice(&seq.to_le_bytes());
+    f
+}
+
+/// Decode a present ack → `(status, seq)`; `None` when the frame cannot carry a
+/// seq — an ack WITHOUT a seq can never be credited (RFC-0093 §5).
+#[must_use]
+pub fn decode_present_ack(frame: &[u8]) -> Option<(u8, u32)> {
+    if frame.len() < PRESENT_ACK_LEN {
+        return None;
+    }
+    Some((frame[0], u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]])))
+}
+
+/// True for the magic-tagged u32 a cursor-upload reply carries in the seq slot.
+/// A present seq can never collide with one in practice (2^32 − 3 presents), and
+/// the ack window makes a collision harmless anyway: a cursor magic is never an
+/// OUTSTANDING seq.
+#[must_use]
+pub const fn is_cursor_reply_magic(payload: u32) -> bool {
+    matches!(payload, CURSOR_REPLY_SW | CURSOR_REPLY_HW | CURSOR_REPLY_GL)
+}
+
+/// Attach ack v2 (RFC-0093 §5): what gpud commands onto the scanout for this
+/// handoff. `mode` is the VISIBLE mode; windowd cross-checks it against the ONE
+/// mode source (`boot_display_mode`, P6-a) — the ack is evidence, not the source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AttachAck {
+    pub status: u8,
+    pub handoff_id: u32,
+    pub seq: u32,
+    pub mode_w: u16,
+    pub mode_h: u16,
+    pub content_x: u16,
+    pub content_y: u16,
+    pub content_w: u16,
+    pub content_h: u16,
+}
+
+/// Encode an [`AttachAck`].
+#[must_use]
+pub fn encode_attach_ack(ack: &AttachAck) -> [u8; ATTACH_ACK_LEN] {
+    let mut f = [0u8; ATTACH_ACK_LEN];
+    f[0] = ack.status;
+    f[1..5].copy_from_slice(&ack.handoff_id.to_le_bytes());
+    f[5..9].copy_from_slice(&ack.seq.to_le_bytes());
+    for (i, v) in
+        [ack.mode_w, ack.mode_h, ack.content_x, ack.content_y, ack.content_w, ack.content_h]
+            .into_iter()
+            .enumerate()
+    {
+        f[9 + 2 * i..11 + 2 * i].copy_from_slice(&v.to_le_bytes());
+    }
+    f
+}
+
+/// Decode an attach ack; `None` when short or when the mode is degenerate — an
+/// attach ack WITHOUT a mode is not an attach ack (RFC-0093 §5).
+#[must_use]
+pub fn decode_attach_ack(frame: &[u8]) -> Option<AttachAck> {
+    if frame.len() < ATTACH_ACK_LEN {
+        return None;
+    }
+    let u16_at = |i: usize| u16::from_le_bytes([frame[i], frame[i + 1]]);
+    let ack = AttachAck {
+        status: frame[0],
+        handoff_id: u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]),
+        seq: u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]),
+        mode_w: u16_at(9),
+        mode_h: u16_at(11),
+        content_x: u16_at(13),
+        content_y: u16_at(15),
+        content_w: u16_at(17),
+        content_h: u16_at(19),
+    };
+    if ack.mode_w == 0 || ack.mode_h == 0 {
+        return None;
+    }
+    Some(ack)
 }
 
 #[cfg(test)]
@@ -245,31 +364,93 @@ mod tests {
 
     #[test]
     fn damage_frame_exact_bytes() {
-        let f = encode_damage_frame(0x11, 0x2233, 0x44, 0x55);
+        let mut f = encode_damage_frame(0x11, 0x2233, 0x44, 0x55);
         assert_eq!(f[0], 4);
-        assert_eq!(&f[1..5], &0x11u32.to_le_bytes());
-        assert_eq!(&f[5..9], &0x2233u32.to_le_bytes());
-        assert_eq!(&f[9..13], &0x44u32.to_le_bytes());
-        assert_eq!(&f[13..17], &0x55u32.to_le_bytes());
+        assert_eq!(&f[5..9], &0x11u32.to_le_bytes());
+        assert_eq!(&f[9..13], &0x2233u32.to_le_bytes());
+        assert_eq!(&f[13..17], &0x44u32.to_le_bytes());
+        assert_eq!(&f[17..21], &0x55u32.to_le_bytes());
+        write_present_header(&mut f, 7);
+        assert_eq!(decode_present_seq(&f), Some(7));
+        assert_eq!(decode_damage_frame(&f), Some((0x11, 0x2233, 0x44, 0x55)));
+        assert_eq!(decode_damage_frame(&f[..20]), None);
     }
 
     #[test]
-    fn attach_and_reply_roundtrip() {
+    fn attach_request_roundtrip_and_length_guard() {
         let f = encode_attach_frame(0xABCD_1234);
         assert_eq!(f[0], OP_SET_FRAMEBUFFER_VMO);
         assert_eq!(decode_handoff_id(&f), Some(0xABCD_1234));
-        let r = encode_status_reply(STATUS_OK, 7);
-        assert_eq!(r[0], STATUS_OK);
-        assert_eq!(decode_handoff_id(&r), Some(7));
+        assert_eq!(decode_handoff_id(&[4, 1, 2, 3]), None);
     }
 
     #[test]
-    fn handoff_decoders_are_length_guarded() {
-        assert_eq!(decode_handoff_id(&[4, 1, 2, 3]), None); // < 5 bytes
-        assert_eq!(decode_present_handoff_id(&[0u8; 17]), None); // < 21 bytes
-        let mut legacy = [0u8; 21];
-        legacy[17..21].copy_from_slice(&0x99u32.to_le_bytes());
-        assert_eq!(decode_present_handoff_id(&legacy), Some(0x99));
+    fn present_header_and_ack_golden_bytes() {
+        let mut frame = [0xEEu8; 8];
+        write_present_header(&mut frame, 0x0102_0304);
+        assert_eq!(&frame[..5], &[OP_PRESENT_DAMAGE, 0x04, 0x03, 0x02, 0x01]);
+        assert_eq!(&frame[5..], &[0xEE; 3], "payload after the header is untouched");
+        assert_eq!(decode_present_seq(&frame), Some(0x0102_0304));
+        let ack = encode_present_ack(STATUS_REVEALED, 9);
+        assert_eq!(ack, [STATUS_REVEALED, 9, 0, 0, 0]);
+        assert_eq!(decode_present_ack(&ack), Some((STATUS_REVEALED, 9)));
+    }
+
+    /// An ack that cannot carry a seq can never credit a present (RFC-0093 §5).
+    #[test]
+    fn test_reject_present_ack_without_seq() {
+        assert_eq!(decode_present_ack(&[STATUS_OK]), None);
+        assert_eq!(decode_present_ack(&[STATUS_OK, 1, 2, 3]), None);
+        assert_eq!(decode_present_seq(&[OP_PRESENT_DAMAGE, 1, 2]), None);
+        assert_eq!(decode_present_seq(&[OP_SET_FRAMEBUFFER_VMO, 1, 2, 3, 4]), None);
+    }
+
+    #[test]
+    fn attach_ack_roundtrip_golden() {
+        let ack = AttachAck {
+            status: STATUS_OK,
+            handoff_id: 0x11,
+            seq: 0x22,
+            mode_w: 1280,
+            mode_h: 800,
+            content_x: 0,
+            content_y: 0,
+            content_w: 1280,
+            content_h: 800,
+        };
+        let f = encode_attach_ack(&ack);
+        assert_eq!(f.len(), ATTACH_ACK_LEN);
+        assert_eq!(&f[..9], &[STATUS_OK, 0x11, 0, 0, 0, 0x22, 0, 0, 0]);
+        assert_eq!(&f[9..13], &[0x00, 0x05, 0x20, 0x03]); // 1280, 800 le
+        assert_eq!(decode_attach_ack(&f), Some(ack));
+    }
+
+    /// An attach ack WITHOUT a mode is not an attach ack (RFC-0093 §5).
+    #[test]
+    fn test_reject_attach_ack_without_mode() {
+        let mut ack = encode_attach_ack(&AttachAck {
+            status: STATUS_OK,
+            handoff_id: 1,
+            seq: 1,
+            mode_w: 1280,
+            mode_h: 800,
+            content_x: 0,
+            content_y: 0,
+            content_w: 1280,
+            content_h: 800,
+        });
+        assert_eq!(decode_attach_ack(&ack[..ATTACH_ACK_LEN - 1]), None, "short");
+        ack[9..11].copy_from_slice(&0u16.to_le_bytes());
+        assert_eq!(decode_attach_ack(&ack), None, "zero width");
+    }
+
+    #[test]
+    fn cursor_magics_are_not_presents() {
+        for m in [CURSOR_REPLY_SW, CURSOR_REPLY_HW, CURSOR_REPLY_GL] {
+            assert!(is_cursor_reply_magic(m));
+        }
+        assert!(!is_cursor_reply_magic(1));
+        assert!(!is_cursor_reply_magic(u32::MAX));
     }
     #[test]
     fn configured_wins_over_device() {

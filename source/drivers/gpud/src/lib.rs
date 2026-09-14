@@ -55,6 +55,9 @@ pub mod virgl_blur_shaders;
 /// CPU fallback for the vector pipeline (non-virgl 2D path).
 pub mod cpu_vector;
 
+/// Reply encoding for the request loop (RFC-0093 §5).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) mod reply;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub mod service;
 

@@ -350,10 +350,14 @@ impl DisplayServerRuntime {
 
         // 4. One scene CB: blit retained→display + GPU glass overlays + cursor.
         let mut frame_buf = [0u8; 8192];
-        let written = self.build_scene_cb_into(&blits, blit_count, &mut frame_buf[1..])?;
+        let written = self.build_scene_cb_into(
+            &blits,
+            blit_count,
+            &mut frame_buf[nexus_display_proto::PRESENT_HEADER_LEN..],
+        )?;
         self.tile_map.clear();
-        frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
-        let gpud_ok = self.send_gpud_present(&frame_buf[..1 + written]);
+        let gpud_ok = self
+            .send_gpud_present(&mut frame_buf[..nexus_display_proto::PRESENT_HEADER_LEN + written]);
         if !gpud_ok {
             // gpud queue full / backpressured — requeue so the next tick retries.
             for rect in content.iter().copied().take(content_count) {
@@ -431,8 +435,7 @@ impl DisplayServerRuntime {
     /// to ONE loud FAIL marker instead of an infinite repaint loop.
     pub(super) fn note_present_nacked(&mut self) {
         const MAX_PRESENT_RETRIES: u32 = 8;
-        self.last_completed_seq = self.present_seq;
-        self.frames_in_flight = self.frames_in_flight.saturating_sub(1);
+        // The credit already came back when the ack's seq was matched (RFC-0093 §5).
         self.present_retry_count = self.present_retry_count.saturating_add(1);
         #[cfg(nexus_env = "os")]
         NACK_TOTAL.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -468,54 +471,6 @@ impl DisplayServerRuntime {
         self.present_retry_exhausted = false;
     }
 
-    /// Stall watchdog — call once per present-loop iteration with `now_ns`.
-    ///
-    /// Detects the "scrolled and it stopped responding" failure: the loop is still
-    /// running but presents make no progress (gpud backpressure / a wedged ring /
-    /// heap exhaustion) while damage keeps piling up. When the acknowledged present
-    /// seq hasn't advanced for `STALL_THRESHOLD_NS` with damage pending, it logs ONE
-    /// diagnostic line per stall episode (rate-limited → the `format!` is not on the
-    /// hot path) capturing the state needed to triage it, then re-arms on recovery.
-    /// This is the compositor analogue of Android's ANR / Linux's hung-task detector.
-    pub(crate) fn watchdog_check(&mut self, now_ns: u64) {
-        const STALL_THRESHOLD_NS: u64 = 500_000_000; // 0.5 s — a blatant stall @120Hz
-                                                     // Progress = the completed seq advanced, or there's simply nothing pending.
-        let progressed = self.last_completed_seq != self.stall_last_seq;
-        if progressed || !self.has_pending_damage() {
-            self.stall_last_seq = self.last_completed_seq;
-            self.stall_last_progress_ns = now_ns;
-            self.stall_reported = false;
-            return;
-        }
-        if self.stall_last_progress_ns == 0 {
-            self.stall_last_progress_ns = now_ns;
-            return;
-        }
-        let stuck = now_ns.saturating_sub(self.stall_last_progress_ns);
-        if stuck >= STALL_THRESHOLD_NS {
-            if !self.stall_reported {
-                let _ = debug_println(&alloc::format!(
-                    "windowd: STALL present stuck {}ms — pending_rects={} in_flight={} last_seq={} (recovering)",
-                    stuck / 1_000_000,
-                    self.pending_damage_rects.len(),
-                    self.frames_in_flight(),
-                    self.last_completed_seq,
-                ));
-                self.stall_reported = true;
-            }
-            // RECOVERY: a present that never gets acked (QEMU dropped/deferred the
-            // completion) would otherwise pin `frames_in_flight` at max forever →
-            // windowd could never present again = permanent freeze. Drop the wedged
-            // in-flight frames so the next iteration resubmits — a brief hiccup
-            // instead of a hang. A late ack is harmless: `note_present_completed`
-            // uses `saturating_sub` + an idempotent seq assignment.
-            self.frames_in_flight = 0;
-            self.last_completed_seq = self.present_seq;
-            self.stall_last_seq = self.present_seq;
-            self.stall_last_progress_ns = now_ns; // measure the next stall fresh
-        }
-    }
-
     /// Phase 7: maximum in-flight frames before backpressure.
     pub(crate) const fn max_in_flight() -> u32 {
         2
@@ -523,12 +478,12 @@ impl DisplayServerRuntime {
 
     /// Phase 7: current frames in flight to gpud (exposed for pacing).
     pub(crate) fn frames_in_flight(&self) -> u32 {
-        self.frames_in_flight
+        self.presents.in_flight()
     }
 
     /// Monotone count of presents actually sent to gpud (loop-cadence telemetry).
     pub(crate) fn present_seq_value(&self) -> u32 {
-        self.present_seq
+        self.presents.last_issued()
     }
 
     /// Cumulative present NACKs (loop-cadence telemetry reads window deltas).

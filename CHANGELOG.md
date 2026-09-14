@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-14 (TASK-0324 P6-b/c: present acks are sequence-tracked and reveal is a handshake; the lease, the stall recovery, the deadline, the pixel probe and both time caps are deleted)
+
+- Wire v2 (`nexus-display-proto`, RFC-0093 §5): every present carries `[OP_PRESENT_DAMAGE, seq]`
+  and is acked `[status, seq]`; the attach ack is 21 bytes and carries the mode gpud commands,
+  which windowd cross-checks against the ONE mode source (`FAIL attach ack mode … vs …`). New
+  `OP_REVEAL`/`STATUS_REVEALED`. The 5-byte `[status, handoff_id]` reply and the legacy trailing
+  present id are gone.
+- windowd credits a present ONLY against an outstanding seq (`present_acks::PresentWindow`,
+  64-deep, host-tested: `test_reject_unknown_ack_seq`, `test_reject_duplicate_ack`,
+  `test_reject_reveal_without_handshake`). An unknown or duplicate seq is
+  `windowd: FAIL present ack seq=<n> unexpected`, never credited. ONE reply interpreter serves
+  the drain and the blocking cursor-upload path.
+- Deleted in windowd: `PRESENT_ACK_LEASE_NS`/`LAST_ACK_NS`/`LEASE_REPORTED` and
+  `present_lease_expired` (a "credit without evidence" path that zeroed the in-flight count when
+  acks went quiet), the STALL watchdog and its recovery, `FIRST_HANDOFF_DEADLINE_NS`. Each
+  existed only because the protocol could not express the fact it guessed at.
+- Reveal is a handshake (ADR-0041 never-black holds by construction): after wallpaper, cursor
+  upload and first present windowd sends `OP_REVEAL` and presents once more; gpud reveals on
+  that present and acks it `STATUS_REVEALED`. `display: first scanout ok`,
+  `systemui: first frame visible`, the `ShellVisible` stage report and
+  `windowd: present visible ok` print on THAT ack — a pixel-backed event. They used to print
+  before the cursor was even uploaded.
+- Deleted in gpud: the 3-pixel `plane0_has_content` probe, `REVEAL_FALLBACK_NS` (0.5 s),
+  `REVEAL_HARD_CAP_NS` (1.2 s), `reveal_content_since_ns`, the three
+  `gpud: desktop reveal (…)` variants (one marker now: `gpud: desktop reveal (handshake seq=<n>)`),
+  and the "reveal kick" that re-presented on a cursor upload because the cursor was the old
+  gate's signal. gpud's reply encoding moved to `reply.rs` under the module-size ratchet.
+- `check-display-ssot.sh` gains a resurrection rule for every deleted heuristic (self-tested
+  against a fixture).
+- ⭐ Found by the pixel proof, not by a marker: two `visible` boots of the SAME code captured
+  two different first frames at the same marker — the greeter dimming the wallpaper (~15 %
+  non-black, luma ~10) and the bare wallpaper (~40 %, luma ~15). Measured cause: a race between
+  the greeter mount and the reveal present (`sessiond: greeter` precedes the reveal in both
+  logs; only the distance differs). Both are legitimate, non-black desktops; the judge's 30 %
+  floor had been calibrated on the bare-wallpaper case alone and called the greeter frame
+  "black". `pixel_proof_judge.py` now requires ≥ 5 % non-black AND mean luma ≥ 2 (a black
+  scanout is ~0/~0 — the class this proof exists for), verified against the real greeter JSON
+  (pass) and a synthetic black one (fail), and prints every metric on a verdict.
+- Recorded, not fixed: the old heuristic revealed on a gpud self-tick BEFORE windowd's first
+  present (uart 762 < 765) — a wallpaper-only reveal by construction. The handshake reveals on a
+  windowd present, but does not guarantee the greeter in that frame either: TASK-0065B expects
+  the greeter in the first revealed frame while RFC-0093 §3 orders `DisplayReady` BEFORE
+  `SessionStart`. That contract tension needs an explicit decision (P8/P9).
+
 ### Changed - 2026-09-13 (TASK-0324 P6-a: the display mode has one source, one policy, and no query protocol)
 
 - The VISIBLE display mode is read from `nexus_abi::boot_display_mode()` (the fw_cfg SSOT of

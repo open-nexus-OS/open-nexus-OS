@@ -70,8 +70,6 @@ impl DisplayServerRuntime {
         self.framebuffer_pending_first_write = true;
         let next = self.first_handoff_id.wrapping_add(1);
         self.first_handoff_id = if next == 0 { 1 } else { next };
-        self.first_handoff_deadline_ns =
-            nsec().ok().map(|now| now.saturating_add(FIRST_HANDOFF_DEADLINE_NS)).unwrap_or(0);
         self.first_handoff_frame_written = false;
         self.first_handoff_bootstrap_markers_emitted = false;
         self.first_handoff_attach_acked = false;
@@ -81,23 +79,6 @@ impl DisplayServerRuntime {
     /// Phase D.1: true while first-frame handoff is still in progress.
     pub(crate) fn is_handoff_pending(&self) -> bool {
         self.framebuffer_pending_first_write
-    }
-
-    /// Phase 6d: called when gpud acknowledges a present (blocking reply received).
-    pub(super) fn note_present_completed(&mut self) {
-        self.last_completed_seq = self.present_seq;
-        self.frames_in_flight = self.frames_in_flight.saturating_sub(1);
-        // Renew the in-flight lease: credits are only trustworthy while acks
-        // keep arriving (`gpud::PRESENT_ACK_LEASE_NS`).
-        self.note_present_ack_time();
-        // Display stays SINGLE-buffered (slot A, rows 1600..2399). The old
-        // per-ack slot toggle was a half-wired experiment: gpud NEVER switched
-        // its scanout/upload row off slot A, so every second frame was blitted
-        // into invisible memory — and "slot B" (offset 12_288_000 = row 2400)
-        // actually aliases Plane 3, the blur cache. One-shot presents (the
-        // login greeter reveal) landed there deterministically and never
-        // showed (TASK-0065B regression hunt, 2026-07-03). Real page flipping
-        // needs a gpud-side scanout switch + its own plane — not this.
     }
 
     /// Phase 4: byte offset into VMO for the current display slot.
@@ -118,14 +99,6 @@ impl DisplayServerRuntime {
     pub(crate) fn process_deferred_framebuffer_write(&mut self) -> u8 {
         if !self.framebuffer_pending_first_write {
             return STATUS_OK;
-        }
-        if self.first_handoff_deadline_ns != 0 {
-            let now = nsec().unwrap_or(0);
-            if now >= self.first_handoff_deadline_ns {
-                let _ = debug_println("windowd: ERROR first-frame handoff timeout");
-                self.framebuffer_pending_first_write = false;
-                return STATUS_MALFORMED;
-            }
         }
         let Some(handle) = self.framebuffer else {
             let _ = debug_println("windowd: ERROR framebuffer missing during handoff");
@@ -180,11 +153,14 @@ impl DisplayServerRuntime {
         if !self.first_handoff_present_sent {
             let full = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
             let mut frame_buf = [0u8; 8192];
-            let sent = match self.build_scene_cb_into(&[full], 1, &mut frame_buf[1..]) {
-                Ok(written) => {
-                    frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
-                    Some(self.send_gpud_present(&frame_buf[..1 + written]))
-                }
+            let sent = match self.build_scene_cb_into(
+                &[full],
+                1,
+                &mut frame_buf[nexus_display_proto::PRESENT_HEADER_LEN..],
+            ) {
+                Ok(written) => Some(self.send_gpud_present(
+                    &mut frame_buf[..nexus_display_proto::PRESENT_HEADER_LEN + written],
+                )),
                 Err(_) => None,
             };
             if sent == Some(true) {
@@ -207,7 +183,6 @@ impl DisplayServerRuntime {
         // assumed by init from resume order. windowd is the only sender init accepts.
         #[cfg(nexus_env = "os")]
         nexus_service_entry::stage(nexus_service_topology::Stage::DisplayReady);
-        self.state.systemui_first_frame_visible = true;
         self.refresh_observer_state();
         let _ = debug_println(PRESENT_SCHEDULER_ON_MARKER);
         // Bring-up done (present scheduler on) — flush windowd's folded markers as one
@@ -216,13 +191,6 @@ impl DisplayServerRuntime {
         self.input_markers_emitted.scheduler = true;
         let _ = debug_println(SELFTEST_UI_V2_PRESENT_OK_MARKER);
         self.input_markers_emitted.v2_present = true;
-        let _ = debug_println(DISPLAY_FIRST_SCANOUT_MARKER);
-        let _ = debug_println(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
-        // ADR-0062: the shell is on screen — the last rung of the boot-stage fence.
-        #[cfg(nexus_env = "os")]
-        nexus_service_entry::stage(nexus_service_topology::Stage::ShellVisible);
-        let _ = debug_println(PRESENT_VISIBLE_MARKER);
-        let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
         // TASK-0076B: the desktop is composited and the on-demand window pool
         // is live — mount the DSL demo window now (one-shot; reactive pacing
         // means "retry on a later frame" never fires without damage).
@@ -237,11 +205,70 @@ impl DisplayServerRuntime {
         if self.state.cursor_svg_visible {
             self.upload_cursor_bitmap_to_gpud();
         }
+        // RFC-0093 §5: the desktop is complete — wallpaper in Plane 0, cursor uploaded, first
+        // frame presented. Ask gpud to reveal it and present once more; the ack of THAT frame
+        // is `STATUS_REVEALED`, and only on it do the "visible" markers print (`on_revealed`).
+        self.request_reveal();
         // The standalone test icon sprite (TASK #61) is retired — the shell's
         // chrome (topbar + chat) is the real UI now. `upload_icon_to_gpud`
         // remains available for when the topbar hosts a real app icon (P3).
         self.framebuffer_pending_first_write = false;
         STATUS_OK
+    }
+
+    /// RFC-0093 §5: report the desktop complete (`OP_REVEAL`, fire-and-forget) and present
+    /// once more. gpud reveals on that present and acks it `STATUS_REVEALED`.
+    pub(super) fn request_reveal(&mut self) {
+        let sent = {
+            let Some(client) = self.gpud_client.as_ref() else {
+                let _ = debug_println("windowd: FAIL reveal no gpud client");
+                return;
+            };
+            client.send(&[nexus_display_proto::OP_REVEAL], Wait::NonBlocking).is_ok()
+        };
+        if !sent {
+            let _ = debug_println("windowd: FAIL reveal send");
+            return;
+        }
+        self.presents.request_reveal();
+        let full = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
+        let mut frame_buf = [0u8; 8192];
+        let ok = match self.build_scene_cb_into(
+            &[full],
+            1,
+            &mut frame_buf[nexus_display_proto::PRESENT_HEADER_LEN..],
+        ) {
+            Ok(written) => self.send_gpud_present(
+                &mut frame_buf[..nexus_display_proto::PRESENT_HEADER_LEN + written],
+            ),
+            Err(_) => false,
+        };
+        if !ok {
+            // Backpressured: the present loop's next full frame reveals instead.
+            self.queue_dirty_rect(full);
+        }
+        // The ack lands on a later drain; `on_revealed` prints the visible markers then.
+        self.drain_gpud_replies();
+    }
+
+    /// The ack of the frame that revealed the desktop arrived (`STATUS_REVEALED`). Everything
+    /// that claims "visible" prints HERE, on a pixel-backed event, and nowhere else —
+    /// `display: first scanout ok` used to print before the cursor was even uploaded.
+    pub(super) fn on_revealed(&mut self, seq: u32) {
+        if !self.presents.take_reveal() {
+            let _ = debug_println(&alloc::format!("windowd: FAIL reveal ack seq={seq} unexpected"));
+            return;
+        }
+        let _ = debug_println(&alloc::format!("windowd: desktop revealed (seq={seq})"));
+        self.state.systemui_first_frame_visible = true;
+        self.refresh_observer_state();
+        let _ = debug_println(DISPLAY_FIRST_SCANOUT_MARKER);
+        let _ = debug_println(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
+        // ADR-0062: the shell is on screen — the last rung of the boot-stage fence.
+        #[cfg(nexus_env = "os")]
+        nexus_service_entry::stage(nexus_service_topology::Stage::ShellVisible);
+        let _ = debug_println(PRESENT_VISIBLE_MARKER);
+        let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
     }
 
     /// Reactive handoff: send VMO to gpud and block until acknowledged.
@@ -287,7 +314,29 @@ impl DisplayServerRuntime {
                 return;
             };
             match client.recv(Wait::Blocking) {
-                Ok(reply) => reply.first().copied() == Some(GPUD_STATUS_OK),
+                Ok(reply) => match nexus_display_proto::decode_attach_ack(&reply) {
+                    Some(ack) if ack.status == GPUD_STATUS_OK => {
+                        // RFC-0093 §5: the ack's mode is EVIDENCE — the source is
+                        // `boot_display_mode()` (P6-a). A disagreement is named: windowd would
+                        // otherwise hit-test in a space gpud does not scan out.
+                        let acked = (u32::from(ack.mode_w), u32::from(ack.mode_h));
+                        if acked != (self.mode.width, self.mode.height) {
+                            let _ = debug_println(&alloc::format!(
+                                "windowd: FAIL attach ack mode {}x{} vs {}x{}",
+                                acked.0,
+                                acked.1,
+                                self.mode.width,
+                                self.mode.height
+                            ));
+                        }
+                        true
+                    }
+                    Some(_) => false,
+                    None => {
+                        let _ = debug_println("windowd: FAIL attach ack without mode");
+                        false
+                    }
+                },
                 Err(e) => {
                     log_gpud_ipc_error("windowd: handoff ack recv failed", e);
                     self.gpud_client = None;

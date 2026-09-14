@@ -317,12 +317,13 @@ pub struct VirtioGpuBackend {
     /// the VMO instead of keeping the one-shot reveal upload forever.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) wallpaper_reupload_pending: bool,
-    /// Atomic boot reveal: guest-time (ns) of the first buildup present — the origin for
-    /// the reveal fallback timers. The logo splash is held until the desktop is composable
-    /// (wallpaper + cursor), but a hard cap from this origin guarantees it is NEVER held
-    /// forever if a signal is slow/absent. 0 = not yet latched.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) reveal_content_since_ns: u64,
+    /// RFC-0093 §5: windowd sent `OP_REVEAL` — wallpaper written, cursor uploaded, first
+    /// frame presented. The splash is held until this is set; the first present after it
+    /// uploads the wallpaper from Plane 0 and is acked `STATUS_REVEALED`. A handshake, not a
+    /// probe: no pixel sampling, no fallback timer, no hard cap. Read by the request loop
+    /// and the GL scanout — both OS-only — so it carries their gate.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) reveal_requested: bool,
     /// RT-direct layer compositing (true GPU compositing, Increment 1): when set,
     /// `backdrop_blur == 0` CompositeLayer ops are deferred and composited
     /// straight onto the scanout RT after the base upload, instead of rendered
@@ -588,8 +589,8 @@ impl VirtioGpuBackend {
             wallpaper_from_vmo_uploaded: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             wallpaper_reupload_pending: false,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            reveal_content_since_ns: 0,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            reveal_requested: false,
             // RT-direct layer compositing on by default for the virgl path; the
             // field is the kill-switch if a regression shows up in the thumbnail.
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

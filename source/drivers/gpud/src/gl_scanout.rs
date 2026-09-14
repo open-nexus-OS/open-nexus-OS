@@ -544,39 +544,6 @@ impl VirtioGpuBackend {
         })
     }
 
-    /// True once windowd has written real content into shared-VMO Plane 0 (the boot
-    /// wallpaper it composes on its first frame). Probes a few spread pixels — a decoded
-    /// wallpaper is never all-zero everywhere. Drives the atomic boot reveal: the logo
-    /// splash is held until this is true (and the cursor is up), so the desktop appears
-    /// in one frame rather than wallpaper-first.
-    fn plane0_has_content(&self) -> bool {
-        let Some((fb, fb_len, fb_w, _display_row)) = self.scanout_fb() else {
-            return false;
-        };
-        if fb.is_null() {
-            return false;
-        }
-        let stride = fb_w * 4;
-        if self.display_h as usize * stride > fb_len {
-            return false;
-        }
-        let probes = [
-            0usize,
-            (self.display_h as usize / 2) * stride + (self.display_w as usize / 2) * 4,
-            (self.display_h as usize - 1) * stride + (self.display_w as usize - 1) * 4,
-        ];
-        for p in probes {
-            if p + 3 < fb_len {
-                unsafe {
-                    if *fb.add(p) != 0 || *fb.add(p + 1) != 0 || *fb.add(p + 2) != 0 {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-
     /// Copy the real wallpaper from windowd's shared-VMO **Plane 0** (rows
     /// 0..self.display_h — the decoded JPEG it writes once at boot) into the wallpaper
     /// texture's backing and transfer it to the host. One-shot: replaces the boot
@@ -596,10 +563,11 @@ impl VirtioGpuBackend {
         if self.display_h as usize * stride > fb_len {
             return;
         }
-        // Hold the boot splash while Plane 0 is still empty (see `plane0_has_content`):
-        // uploading an empty plane would black out the splash. `wallpaper_from_vmo_uploaded`
-        // is NOT set on skip, so the next present retries until real content lands.
-        if !self.plane0_has_content() {
+        // Hold the boot splash until windowd says the desktop is complete (`OP_REVEAL`):
+        // uploading a plane windowd has not written yet would black out the splash. The
+        // handshake IS the evidence that Plane 0 holds the wallpaper — the 3-pixel probe that
+        // used to guess at it is gone (RFC-0093 §5).
+        if !self.reveal_requested {
             return;
         }
         for row in 0..self.display_h as usize {
@@ -884,26 +852,14 @@ impl VirtioGpuBackend {
         // One-shot: dst-so-far blur scratch + glass blur-cache textures.
         let _ = self.backdrop_tex_init().and_then(|()| self.blur_cache_tex_init());
 
-        // Atomic boot reveal: keep presenting ONLY the logo splash (the clear + seeded
-        // wallpaper-texture blit below) until the whole desktop can appear at once —
-        // Plane 0 holds windowd's real wallpaper AND the cursor sprite is up (mouse path
-        // live). Two fallbacks, both timed from the first buildup present, guarantee the
-        // splash is NEVER held forever: a short one once the wallpaper is up but the cursor
-        // lags, and a hard cap that reveals regardless (even if a signal never arrives, the
-        // desktop + its markers still appear). Once revealed, `wallpaper_from_vmo_uploaded`
-        // latches it so every later frame composites.
-        const REVEAL_FALLBACK_NS: u64 = 500_000_000; // 0.5s: wallpaper up, cursor still lagging
-        const REVEAL_HARD_CAP_NS: u64 = 1_200_000_000; // 1.2s: reveal no matter what (bound the wait)
-        let plane0 = self.plane0_has_content();
-        let cursor = self.cursor_tex_ready();
-        let should_reveal = self.wallpaper_from_vmo_uploaded || {
-            let now = nexus_abi::nsec().unwrap_or(0);
-            if self.reveal_content_since_ns == 0 {
-                self.reveal_content_since_ns = now;
-            }
-            let elapsed = now.saturating_sub(self.reveal_content_since_ns);
-            (plane0 && (cursor || elapsed > REVEAL_FALLBACK_NS)) || elapsed > REVEAL_HARD_CAP_NS
-        };
+        // Atomic boot reveal (ADR-0041, RFC-0093 §5): keep presenting ONLY the logo splash
+        // until windowd reports the desktop complete with `OP_REVEAL` — wallpaper in Plane 0,
+        // cursor uploaded, first frame presented. A handshake, not a heuristic: the pixel
+        // probe and the two time caps that used to release the splash on a guess are gone.
+        // Never-black holds by construction — the splash stays until the report; a dead
+        // windowd is a supervision restart (ADR-0057), not a black screen. Once revealed,
+        // `wallpaper_from_vmo_uploaded` latches it so every later frame composites.
+        let should_reveal = self.wallpaper_from_vmo_uploaded || self.reveal_requested;
 
         // Elastic hold: while still holding the splash, don't pile a new frame onto
         // a control ring that is still busy with the previous one — QEMU may defer
@@ -931,17 +887,11 @@ impl VirtioGpuBackend {
         }
         // One-shot: replace the logo splash with the real wallpaper (windowd's decoded
         // JPEG in VMO Plane 0) — only on reveal. Done before the batch — it issues its own
-        // transfer_to_host (a ctrl command), like `virgl_vector_init` above. The reveal
-        // marker records WHICH condition released it, so a slow boot pins the culprit
-        // (wallpaper Plane 0 vs cursor vs the time cap) directly in the UART timeline.
+        // transfer_to_host (a ctrl command), like `virgl_vector_init` above. The ONE reveal
+        // marker is printed by the request loop on the `STATUS_REVEALED` ack, with the seq of
+        // the frame that revealed — a fact about a presented frame, not a guess about why.
         if COMPOSITOR_STAGE >= 1 && should_reveal && !self.wallpaper_from_vmo_uploaded {
-            if !wallpaper_reupload {
-                let _ = nexus_abi::debug_println(match (plane0, cursor) {
-                    (true, true) => "gpud: desktop reveal (plane0 + cursor ready)",
-                    (true, false) => "gpud: desktop reveal (plane0 ready, cursor slow)",
-                    (false, _) => "gpud: desktop reveal (TIME CAP — plane0 still empty)",
-                });
-            }
+            let _ = wallpaper_reupload;
             self.try_upload_wallpaper_from_vmo();
         }
         // Batch the whole present: every SUBMIT_3D draw below + the final flush is
