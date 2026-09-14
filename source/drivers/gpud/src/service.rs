@@ -86,13 +86,12 @@ const GPU_IRQ_SOURCE: u32 = 8;
 /// there would intercept windowd's present commands and break the channel.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const GPU_IRQ_NOTIFY_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
-/// Display framebuffer dimensions matching windowd's VISIBLE_BOOTSTRAP_WIDTH/HEIGHT.
-/// On QEMU virtio-gpu with `-display gtk`, the GTK window resizes to match this scanout.
-const DISPLAY_WIDTH: u32 = 1280;
-// Documented contract pair with DISPLAY_WIDTH (windowd bootstrap scanout dims);
-// the attach path passes RESOURCE_HEIGHT instead, so only WIDTH is read today.
-#[allow(dead_code)]
-const DISPLAY_HEIGHT: u32 = 800;
+/// The shared-VMO layout maximum (one home: `nexus_display_proto::LAYOUT_MAX`) — the
+/// resource budget the scanout is sized against, NOT a default mode. The visible mode
+/// itself comes from `boot_display_mode()` via `resolve_display_mode` (RFC-0093 §5).
+/// The former `DISPLAY_HEIGHT` pair was `#[allow(dead_code)]`-carried and is deleted:
+/// the attach path passes `RESOURCE_HEIGHT`.
+const DISPLAY_WIDTH: u32 = nexus_display_proto::LAYOUT_MAX.0;
 // 9600 rows: 4 display planes (wallpaper/retained/slot-A/slot-B, 3200) + surface
 // atlas (4000) for the retained-surface compositor's cached layers — grown by a
 // full display frame so full-screen system overlays (login greeter, later lock
@@ -563,13 +562,6 @@ fn service_requests(
                             backend.wallpaper_reupload_pending = true;
                         }
                         (STATUS_OK, None)
-                    }
-                    nexus_display_proto::OP_GET_DISPLAY_MODE => {
-                        // The VISIBLE mode resolved at probe (GET_DISPLAY_INFO,
-                        // clamped to the fixed resource budget). Reply payload
-                        // rides the 5-byte status+u32 frame: LE u32 = w | h<<16
-                        // — byte-identical to `encode_display_mode_reply`.
-                        (STATUS_OK, Some(backend.display_w | (backend.display_h << 16)))
                     }
                     _ => (handle_frame(&mut backend, frame, &mut scroll_flush_pending), None),
                 };

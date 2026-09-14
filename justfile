@@ -541,7 +541,7 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot ci-parity
+check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot display-ssot ci-parity
 
 # TASK-0324 P0: service features/ELF paths have one home (crate manifest + discover-services.sh).
 build-truth:
@@ -556,6 +556,12 @@ init-sync:
 # the remaining positional declarations are a shrinking ratchet.
 slot-ssot:
     @./scripts/check-slot-ssot.sh
+
+# TASK-0324 P6 (RFC-0093 §5): the VISIBLE display mode has one source
+# (`boot_display_mode`) and one clamp policy (`nexus_display_proto`); the retired
+# query protocols stay retired. See scripts/check-display-ssot.sh.
+display-ssot:
+    @./scripts/check-display-ssot.sh
 
 # CI/test-all COVERAGE parity: every `just` recipe the workflow invokes must
 # also be reachable from `test-all`. Mechanical guard against the drift that let

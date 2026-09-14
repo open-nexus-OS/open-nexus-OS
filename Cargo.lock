@@ -1590,6 +1590,7 @@ dependencies = [
  "key-repeat",
  "keymaps",
  "nexus-abi",
+ "nexus-display-proto",
  "nexus-ipc",
  "nexus-service-entry",
  "nexus-service-topology",
@@ -4300,6 +4301,7 @@ version = "0.1.0"
 dependencies = [
  "jpeg-decoder",
  "nexus-abi",
+ "nexus-display-proto",
  "nexus-service-entry",
 ]
 

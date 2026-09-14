@@ -37,7 +37,11 @@ use crate::profile::{
 /// The compositor's fixed layout maximum (width, height). windowd's shared
 /// atlas/VMO layout and gpud's scanout budget are sized to this; the fw_cfg
 /// display mode may be SMALLER (a visible sub-rect) but never larger.
-pub const PRESET_LAYOUT_MAX: (u32, u32) = (1280, 800);
+///
+/// TASK-0324 P6-a: this was the FOURTH copy of that number (windowd, gpud, inputd's
+/// fallback and here). It now derives from the one home — a preset that clamps against a
+/// different maximum than the compositor sizes to is a layout that cannot be presented.
+pub const PRESET_LAYOUT_MAX: (u32, u32) = nexus_display_proto::LAYOUT_MAX;
 
 /// Smallest edge a preset may declare. Below this the shell chrome (dock,
 /// status bar, launcher grid) has no honest layout.

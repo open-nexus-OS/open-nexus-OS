@@ -1,79 +1,28 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Display-mode resolution policy (RFC-0074 / ADR-0050). The compositor
-//! OWNS the visible mode; this pure function decides which candidate gpud commands
-//! onto the scanout. Split out of `backend/mod.rs` so the policy + its invariant
-//! test stand alone (structure-gate: keep the backend god-file from growing).
+//! CONTEXT: The `gpud: display info WxH` marker. The resolution POLICY itself moved to
+//! `nexus_display_proto::resolve_display_mode` (TASK-0324 P6-a): it lived here alone, which
+//! is why windowd and inputd each grew their own protocol to ask someone else for the mode.
 //! OWNERS: @ui @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
 
-/// Resolve the VISIBLE display mode the compositor commands (RFC-0074 / ADR-0050).
+/// The VISIBLE mode gpud commands onto the scanout (RFC-0074 / ADR-0050, RFC-0093 §5).
 ///
-/// Authority order: the fw_cfg-**configured** mode (kernel-derived, race-free) wins;
-/// else the device's advertised **capability**; else the fixed `layout_max`. Every
-/// candidate is validated (non-zero) and clamped to `layout_max` — so a racy or
-/// malicious device report can never shrink or enlarge the scanout to a degenerate
-/// size. Pure + bounded; the negative test below proves the invariant.
-///
-/// Compiled for the OS build (its only caller) and for host `test` (no dead-code on
-/// a plain host `cargo check`, where neither cfg is active).
-#[cfg(any(all(feature = "os-lite", target_os = "none"), test))]
-pub(crate) fn resolve_display_mode(
-    configured: Option<(u32, u32)>,
-    device: Option<(u32, u32)>,
-    layout_max: (u32, u32),
-) -> (u32, u32) {
-    let sane = |wh: Option<(u32, u32)>| -> Option<(u32, u32)> {
-        wh.and_then(|(w, h)| {
-            if w == 0 || h == 0 {
-                None
-            } else {
-                Some((w.min(layout_max.0), h.min(layout_max.1)))
-            }
-        })
-    };
-    sane(configured).or_else(|| sane(device)).unwrap_or(layout_max)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::resolve_display_mode;
-
-    const MAX: (u32, u32) = (1280, 800);
-
-    #[test]
-    fn configured_wins_over_device() {
-        // The GTK race makes the device report the tiny window default; the
-        // fw_cfg-configured mode is authoritative and must win.
-        assert_eq!(resolve_display_mode(Some((1280, 800)), Some((640, 507)), MAX), (1280, 800));
+/// The clamp POLICY lives once, in `nexus_display_proto`; this wrapper adds the one thing only
+/// gpud can know — whether the device's advertised capability DISAGREES with the configured
+/// mode. The configured mode still wins (kernel-derived and race-free, which is the point of
+/// RFC-0074), but the disagreement is named instead of silently overruled: the GTK-window race
+/// that made a device report its un-realized default used to be invisible.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(super) fn resolve(configured: Option<(u32, u32)>, device: Option<(u32, u32)>) -> (u32, u32) {
+    if let (Some((cw, ch)), Some((dw, dh))) = (configured, device) {
+        if (cw, ch) != (dw, dh) {
+            emit_mode_mismatch(cw, ch, dw, dh);
+        }
     }
-
-    #[test]
-    fn follows_configured_smaller_mode() {
-        assert_eq!(resolve_display_mode(Some((1024, 768)), Some((640, 507)), MAX), (1024, 768));
-    }
-
-    #[test]
-    fn device_capability_used_when_unconfigured() {
-        assert_eq!(resolve_display_mode(None, Some((1024, 768)), MAX), (1024, 768));
-    }
-
-    #[test]
-    fn falls_back_to_layout_max() {
-        assert_eq!(resolve_display_mode(None, None, MAX), MAX);
-    }
-
-    #[test]
-    fn test_reject_degenerate_display_mode() {
-        // Zero / degenerate reports are rejected, never sizing the scanout.
-        assert_eq!(resolve_display_mode(Some((0, 0)), None, MAX), MAX);
-        assert_eq!(resolve_display_mode(Some((1280, 0)), Some((0, 800)), MAX), MAX);
-        // Oversized is clamped to the layout maximum, never enlarged.
-        assert_eq!(resolve_display_mode(Some((5000, 5000)), None, MAX), MAX);
-        assert_eq!(resolve_display_mode(None, Some((99999, 1)), MAX), (1280, 1));
-    }
+    nexus_display_proto::resolve_display_mode(configured, device, nexus_display_proto::LAYOUT_MAX)
 }
 
 /// `gpud: display info WxH` — the resolved visible mode (alloc-free: gpud's
@@ -111,4 +60,50 @@ pub(super) fn emit_display_info_marker(w: u32, h: u32) {
     put(&mut buf, &mut p, b"x");
     put_dec(&mut buf, &mut p, h);
     let _ = nexus_abi::trace_line(core::str::from_utf8(&buf[..p]).unwrap_or("gpud: display info"));
+}
+
+/// `gpud: FAIL display mode <cfg> vs device <cap>` (RFC-0093 §5) — the device advertises a
+/// mode other than the configured one. The configured mode still wins (it is kernel-derived
+/// and race-free, which is the whole point of RFC-0074), but the disagreement is EVIDENCE:
+/// the GTK-window race that made a device report the un-realized default used to be invisible.
+/// Alloc-free, same stack-buffer pattern as the info marker.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn emit_mode_mismatch(cfg_w: u32, cfg_h: u32, dev_w: u32, dev_h: u32) {
+    fn put(buf: &mut [u8; 72], p: &mut usize, s: &[u8]) {
+        for &b in s {
+            if *p < buf.len() {
+                buf[*p] = b;
+                *p += 1;
+            }
+        }
+    }
+    fn put_dec(buf: &mut [u8; 72], p: &mut usize, mut v: u32) {
+        let mut tmp = [0u8; 10];
+        let mut n = 0;
+        loop {
+            tmp[n] = b'0' + (v % 10) as u8;
+            v /= 10;
+            n += 1;
+            if v == 0 {
+                break;
+            }
+        }
+        while n > 0 {
+            n -= 1;
+            put(buf, p, &tmp[n..=n]);
+        }
+    }
+    let mut buf = [0u8; 72];
+    let mut p = 0usize;
+    put(&mut buf, &mut p, b"gpud: FAIL display mode ");
+    put_dec(&mut buf, &mut p, cfg_w);
+    put(&mut buf, &mut p, b"x");
+    put_dec(&mut buf, &mut p, cfg_h);
+    put(&mut buf, &mut p, b" vs device ");
+    put_dec(&mut buf, &mut p, dev_w);
+    put(&mut buf, &mut p, b"x");
+    put_dec(&mut buf, &mut p, dev_h);
+    let _ = nexus_abi::trace_line(
+        core::str::from_utf8(&buf[..p]).unwrap_or("gpud: FAIL display mode mismatch"),
+    );
 }

@@ -634,8 +634,7 @@ impl VirtioGpuBackend {
             if let Some((w, h)) = device {
                 display_mode::emit_display_info_marker(w, h); // diagnostic: advertised capability
             }
-            let configured = nexus_abi::boot_display_mode();
-            let (rw, rh) = display_mode::resolve_display_mode(configured, device, (1280, 800));
+            let (rw, rh) = display_mode::resolve(nexus_abi::boot_display_mode(), device);
             self.display_w = rw;
             self.display_h = rh;
         }

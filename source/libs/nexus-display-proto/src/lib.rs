@@ -83,42 +83,11 @@ pub const OP_SET_LAYER_TRANSFORM: u8 = 10;
 /// Encoded [`OP_SET_LAYER_TRANSFORM`] frame length.
 pub const SET_LAYER_TRANSFORM_LEN: usize = 12;
 
-/// Query the VISIBLE display mode gpud resolved at probe
-/// (`GET_DISPLAY_INFO` → the device's `xres=`/`yres=`, clamped to the fixed
-/// resource budget). windowd asks this ONCE, blocking, BEFORE it builds its
-/// config/atlas/framebuffer — the mode must exist before anything sizes to
-/// it (the framebuffer-handoff ack would be too late). Request: `[op]`;
-/// reply: `[status, w: u16 le, h: u16 le]` = 5 bytes.
-pub const OP_GET_DISPLAY_MODE: u8 = 11;
-
 /// windowd → gpud: the wallpaper SOURCE plane (VMO plane 0) was rewritten
 /// (theme-matched wallpaper swap) — re-upload the wallpaper GL texture from
 /// it on the next present. Without this, gpud's one-shot reveal latch keeps
 /// the boot wallpaper forever. Request: `[op]`; reply: `[status]`.
 pub const OP_WALLPAPER_DIRTY: u8 = 12;
-
-/// Encoded [`OP_GET_DISPLAY_MODE`] reply length.
-pub const DISPLAY_MODE_REPLY_LEN: usize = 5;
-
-/// Encode the [`OP_GET_DISPLAY_MODE`] reply.
-#[must_use]
-pub fn encode_display_mode_reply(status: u8, w: u16, h: u16) -> [u8; DISPLAY_MODE_REPLY_LEN] {
-    let mut f = [0u8; DISPLAY_MODE_REPLY_LEN];
-    f[0] = status;
-    f[1..3].copy_from_slice(&w.to_le_bytes());
-    f[3..5].copy_from_slice(&h.to_le_bytes());
-    f
-}
-
-/// Decode an [`OP_GET_DISPLAY_MODE`] reply → `(w, h)`; `None` when malformed
-/// or the status is not OK.
-#[must_use]
-pub fn decode_display_mode_reply(frame: &[u8]) -> Option<(u16, u16)> {
-    if frame.len() < DISPLAY_MODE_REPLY_LEN || frame[0] != STATUS_OK {
-        return None;
-    }
-    Some((u16::from_le_bytes([frame[1], frame[2]]), u16::from_le_bytes([frame[3], frame[4]])))
-}
 
 /// Encode the layer-transform override (see [`OP_SET_LAYER_TRANSFORM`]).
 #[must_use]
@@ -158,6 +127,42 @@ pub fn decode_set_layer_transform(frame: &[u8]) -> Option<(u32, i16, i16, u8, u1
 /// (default + 4 resize) + 8 loading-ring frames (the animated wait cursor
 /// cycles pre-uploaded slots via the 2-byte SELECT — no per-frame upload).
 pub const CURSOR_SHAPE_SLOTS: usize = 16;
+
+// ── Display mode: ONE policy, ONE maximum (RFC-0074 / ADR-0050, RFC-0093 §5) ─
+
+/// The fixed shared-VMO layout maximum — the RESOURCE BUDGET every display
+/// consumer sizes against, not a "default mode". It lived three times (windowd's
+/// `DISPLAY_WIDTH/HEIGHT`, gpud's own pair, inputd's fallback); this is its one home.
+pub const LAYOUT_MAX: (u32, u32) = (1280, 800);
+
+/// Resolve the VISIBLE display mode (RFC-0074 / ADR-0050).
+///
+/// Authority order: the fw_cfg-**configured** mode (`nexus_abi::boot_display_mode()`,
+/// kernel-derived and race-free) wins; else the device's advertised **capability**
+/// (gpud only — windowd and inputd pass `None`); else `layout_max`. Every candidate
+/// is validated non-zero and clamped, so a racy or malicious device report can never
+/// size the scanout degenerately.
+///
+/// This function used to live in gpud alone, which is why windowd and inputd each
+/// grew their OWN query protocol to ask someone else for the answer. Both protocols
+/// are retired (RFC-0093 §5): the mode has one source and one policy.
+#[must_use]
+pub fn resolve_display_mode(
+    configured: Option<(u32, u32)>,
+    device: Option<(u32, u32)>,
+    layout_max: (u32, u32),
+) -> (u32, u32) {
+    let sane = |wh: Option<(u32, u32)>| -> Option<(u32, u32)> {
+        wh.and_then(|(w, h)| {
+            if w == 0 || h == 0 {
+                None
+            } else {
+                Some((w.min(layout_max.0), h.min(layout_max.1)))
+            }
+        })
+    };
+    sane(configured).or_else(|| sane(device)).unwrap_or(layout_max)
+}
 
 // ── Status codes (reply byte 0) ──────────────────────────────────────────────
 
@@ -265,5 +270,42 @@ mod tests {
         let mut legacy = [0u8; 21];
         legacy[17..21].copy_from_slice(&0x99u32.to_le_bytes());
         assert_eq!(decode_present_handoff_id(&legacy), Some(0x99));
+    }
+    #[test]
+    fn configured_wins_over_device() {
+        // The GTK race makes the device report the tiny window default; the
+        // fw_cfg-configured mode is authoritative and must win.
+        assert_eq!(
+            resolve_display_mode(Some((1280, 800)), Some((640, 507)), LAYOUT_MAX),
+            (1280, 800)
+        );
+    }
+
+    #[test]
+    fn follows_configured_smaller_mode() {
+        assert_eq!(
+            resolve_display_mode(Some((1024, 768)), Some((640, 507)), LAYOUT_MAX),
+            (1024, 768)
+        );
+    }
+
+    #[test]
+    fn device_capability_used_when_unconfigured() {
+        assert_eq!(resolve_display_mode(None, Some((1024, 768)), LAYOUT_MAX), (1024, 768));
+    }
+
+    #[test]
+    fn falls_back_to_layout_max() {
+        assert_eq!(resolve_display_mode(None, None, LAYOUT_MAX), LAYOUT_MAX);
+    }
+
+    #[test]
+    fn test_reject_degenerate_display_mode() {
+        // Zero / degenerate reports are rejected, never sizing the scanout.
+        assert_eq!(resolve_display_mode(Some((0, 0)), None, LAYOUT_MAX), LAYOUT_MAX);
+        assert_eq!(resolve_display_mode(Some((1280, 0)), Some((0, 800)), LAYOUT_MAX), LAYOUT_MAX);
+        // Oversized is clamped to the layout maximum, never enlarged.
+        assert_eq!(resolve_display_mode(Some((5000, 5000)), None, LAYOUT_MAX), LAYOUT_MAX);
+        assert_eq!(resolve_display_mode(None, Some((99999, 1)), LAYOUT_MAX), (1280, 1));
     }
 }

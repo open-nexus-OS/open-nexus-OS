@@ -712,14 +712,8 @@ fn alloc_band_or_log(
 }
 
 impl DisplayServerRuntime {
-    /// The fixed-maximum 1280×800 mode (tests + host harness).
-    #[allow(dead_code)] // harness/tests entry; the boot path always enters via new_with_mode
-    pub(crate) fn new() -> Result<Self, WindowdError> {
-        Self::new_with_mode(crate::compositor::DISPLAY_WIDTH, crate::compositor::DISPLAY_HEIGHT)
-    }
-
-    /// Boot entry: the VISIBLE mode gpud resolved from the device (≤ the
-    /// fixed shared-VMO layout; `mode.stride` stays the fixed layout pitch).
+    /// Boot entry: the VISIBLE mode from the ONE source (`boot_display_mode`, RFC-0093 §5),
+    /// clamped to the fixed shared-VMO layout; `mode.stride` stays the fixed layout pitch.
     pub(crate) fn new_with_mode(visible_w: u32, visible_h: u32) -> Result<Self, WindowdError> {
         let _ = debug_println(RUNTIME_INIT_START);
         // Runtime text (TASK-0070 Phase 6): dynamic text renders from the baked
@@ -1023,13 +1017,6 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::App(_) => "app3",
             crate::window_scene::WindowId::Desktop => "desktop",
         }
-    }
-
-    /// The resolved VISIBLE display mode `(w, h)` — the device mode windowd
-    /// obtained from gpud at boot (fallback 1280×800). Served to inputd via
-    /// `OP_GET_VISIBLE_MODE` so pointer normalization shares this space.
-    pub(crate) fn visible_mode_wh(&self) -> (u32, u32) {
-        (self.mode.width, self.mode.height)
     }
 
     /// The on-screen damage rect (incl. shadow halo) of a stack window.

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-13 (TASK-0324 P6-a: the display mode has one source, one policy, and no query protocol)
+
+- The VISIBLE display mode is read from `nexus_abi::boot_display_mode()` (the fw_cfg SSOT of
+  RFC-0074/ADR-0050) and clamped by ONE shared policy,
+  `nexus_display_proto::resolve_display_mode(.., LAYOUT_MAX)`. The policy used to live in gpud
+  alone, which is why windowd and inputd had each grown a PROTOCOL to ask someone else for the
+  answer.
+- Retired: `OP_GET_DISPLAY_MODE` (windowd→gpud) and `OP_GET_VISIBLE_MODE` (inputd→windowd), with
+  their encoders, decoders and handler arms. windowd's query fell back to 1280×800 on EVERY
+  failure path (no slots, send fail, timeout, no reply), so a wrong mode could latch for a whole
+  session; inputd polled windowd up to 100 times at 200 ms while a 1280×800 space stood, so early
+  clicks could land in a different coordinate space than the one windowd hit-tests in. inputd now
+  sets its pointer space once, at startup, from the same source.
+- The layout maximum (1280×800) is the RESOURCE BUDGET, not a default mode, and it now has one
+  home: `nexus_display_proto::LAYOUT_MAX`. It previously existed four times — windowd, gpud,
+  inputd's fallback and systemui's `PRESET_LAYOUT_MAX`, the last of which clamps every shell
+  preset against what the compositor can actually present.
+- gpud names a device that disagrees with the configured mode
+  (`gpud: FAIL display mode <cfg> vs device <cap>`) instead of silently overruling it; windowd
+  names an unconfigured boot instead of silently defaulting.
+- Deleted: `DisplayServerRuntime::new()` — a dead `#[allow(dead_code)]` entry point that kept one
+  of the 1280×800 defaults alive.
+- New gate `scripts/check-display-ssot.sh` (in `just check`): the retired protocols stay retired,
+  no mode-retry machinery, no layout-maximum literal in production code. Its scanner is
+  `#[cfg(test)]`-aware (the literal legitimately appears in test blocks inside production files)
+  and self-tests against fixtures — which is how a real defect in the gate was caught before it
+  shipped: the rule `\bDISPLAY_MODE_RETRY\b` could never have matched the actual constant
+  `DISPLAY_MODE_RETRY_NS`.
+
 ### Changed - 2026-09-12 (TASK-0324 P5-c: services wait on the boot-stage fence; init's yield barriers and the hand-ordered driver resume are deleted)
 
 - Every OS service now waits for its declared stage's prerequisite on the boot-stage fence before
