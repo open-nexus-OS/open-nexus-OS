@@ -59,6 +59,11 @@ pub mod app_child {
     pub const EVENTS_SEND: u32 = 14;
     /// Shared read-only glyph atlas VMO (RFC-0080).
     pub const ATLAS_VMO: u32 = 19;
+    /// Timer-notify endpoint (TASK-0324 P7-d, minted by execd): RECV half, a waitset member
+    /// next to the event channel — the app's clock (minute boundary) without a recv timeout.
+    pub const TIMER_RECV: u32 = 20;
+    /// Timer-notify endpoint: SEND half the app's kernel timer cap is bound to.
+    pub const TIMER_SEND: u32 = 21;
     /// statefs route of the `demo.minidump` payload. Numerically the same slots as
     /// `PAYLOAD_VMO`/`EVENTS_RECV`, which is safe because those are only granted to
     /// app-host children and this pair only to the exit42 test image.
@@ -95,6 +100,11 @@ pub mod bundlemgrd {
     pub const REPLY: SlotPair = SlotPair::new(crate::LATE_GRANT_BASE + 1, crate::LATE_GRANT_BASE);
     /// Structured logs (a late grant).
     pub const LOGD: SlotPair = SlotPair::new(crate::LATE_GRANT_BASE + 2, REPLY.recv);
+    /// Counters (fire-and-forget; a late grant). TASK-0324 P7-b: this used to be a RUNTIME
+    /// route ask (`new_for("metricsd")`) from inside a request handler — with init blocked in
+    /// its own synchronous query to bundlemgrd and no timeout on the ask, that is a deadlock.
+    /// A route is declared and pinned, never asked for while serving.
+    pub const METRICSD: SlotPair = SlotPair::new(crate::LATE_GRANT_BASE + 3, REPLY.recv);
 }
 
 /// dsoftbusd (TASK-0324 P4f-4). Its netstackd route used to occupy 3/4 — the fleet's server
@@ -177,6 +187,11 @@ pub mod gpud {
 
     /// gpud's own server endpoint (windowd presents here).
     pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// Timer-notify endpoint (TASK-0324 P7-d): RECV half, a waitset member — the frame clock
+    /// of the splash/build-up phases (a synthetic vblank on a device without one).
+    pub const TIMER_RECV: u32 = 0x20;
+    /// Timer-notify endpoint: SEND half the kernel timer cap is bound to.
+    pub const TIMER_SEND: u32 = 0x21;
 }
 
 /// hidrawd (TASK-0324 P4d).
@@ -237,6 +252,10 @@ pub mod inputd {
     pub const WATCH_RECV: u32 = 0x21;
     /// Settings push channel: SEND half (moved with `OP_WATCH`).
     pub const WATCH_SEND: u32 = 0x22;
+    /// Timer-notify endpoint (TASK-0324 P7-d): RECV half, a waitset member.
+    pub const TIMER_RECV: u32 = 0x23;
+    /// Timer-notify endpoint: SEND half the kernel timer cap is bound to.
+    pub const TIMER_SEND: u32 = 0x24;
 }
 
 /// keystored (TASK-0324 P4f-2). Its policyd leg used to land on 9 only because the optional
@@ -461,6 +480,11 @@ pub mod settingsd {
     pub const REPLY: SlotPair = SlotPair::new(6, 5);
     /// Preference persistence.
     pub const STATEFSD: SlotPair = SlotPair::new(7, REPLY.recv);
+    /// Timer-notify endpoint (TASK-0324 P7-d): RECV half, a waitset member (the persist
+    /// floor + backoff are paced by a kernel one-shot timer, not by a recv timeout).
+    pub const TIMER_RECV: u32 = 0x20;
+    /// Timer-notify endpoint: SEND half the kernel timer cap is bound to.
+    pub const TIMER_SEND: u32 = 0x21;
 }
 
 /// statefsd (TASK-0324 P4f-1a). The policy leg is the one `nexus_ipc::policyd::check_cap_on`
@@ -565,4 +589,9 @@ pub mod windowd {
     pub const WATCH_RECV: u32 = 0x40;
     /// Settings push channel: SEND half, cloned per `OP_WATCH`.
     pub const WATCH_SEND: u32 = 0x41;
+    /// Session push channel (TASK-0324 P7-c): RECV half — sessiond's state pushes land here,
+    /// a waitset member of the compositor loop (no probe cadence, no login poll).
+    pub const SESSION_WATCH_RECV: u32 = 0x42;
+    /// Session push channel: SEND half, cloned once and moved with sessiond's `OP_WATCH`.
+    pub const SESSION_WATCH_SEND: u32 = 0x43;
 }

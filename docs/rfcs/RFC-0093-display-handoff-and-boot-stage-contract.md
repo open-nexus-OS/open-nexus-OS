@@ -23,7 +23,8 @@
 - **Phase 4 (ONE slot topology crate; every bespoke init arm deleted)**: ✅ 2026-09-12 — the crate, the declared arm and every consumer: windowd (P4a), inputd (P4b), gpud + the fleet-wide MMIO slot (P4c), hidrawd (P4d), the app-child table (P4e), execd (P4e-2), the generic arm's fifteen services + the block plane (P4f-1a/1b), policyd + keystored (P4f-2), updated + bundlemgrd (P4f-3), netstackd + dsoftbusd + metricsd (P4f-4), the proof harness (P4f-5) and the closure (P4f-6). 191 → 0 positional slot declarations; `check-slot-ssot.sh` is an absolute gate that proves its own scanner; init has neither an order-based capability transfer nor a clone taken for one left; `just test-all` green in one run per package
 - **Phase 5 (stage fence replaces every `yield_()` sync)**: ⬜ TASK-0324 P5
 - **Phase 6 (handoff v2: reveal handshake, seq acks, kernel display mode, readback off-scanout)**: ⬜ TASK-0324 P6
-- **Phase 7–9 (consumer polls deleted, closure docs/gates, 8/8 boots)**: ⬜ TASK-0324 P7–P9
+- **Phase 7 (waits without clocks, §7)**: ✅ 2026-09-14 — TASK-0324 P7-a…P7-d: `check-wait-not-poll.sh` at zero (60 → 0 polls, 133 → 0 clock-bound forms), death wakes + EOF-on-waitset in the kernel, timer-notify pairs, `OP_ARM_VMO`, the login in the revealed frame; `just test-all` green over 10 lanes
+- **Phases 8–9 (closure docs/gates, 8/8 boots)**: ⬜ TASK-0324 P8–P9
 
 Definition:
 
@@ -283,7 +284,7 @@ constants. Deleted (P4a–P4f, atomic per consumer): every `new_with_slots(…)`
 | **attach ack v2** | `[status:u8, handoff_id:u32, seq:u32, mode_w:u16, mode_h:u16, content_x:u16, content_y:u16, content_w:u16, content_h:u16]` (21 bytes; `status` = `STATUS_OK/MALFORMED/DEVICE_ERROR`) |
 | present | `[OP_PRESENT_DAMAGE=4, seq:u32, CommittedBuffer…]` — `seq` strictly increasing per windowd instance, window ≤ 64 outstanding |
 | **present ack v2** | `[status:u8, seq:u32]` — echoes the presented `seq`; an unknown or already-acked `seq` at windowd is `windowd: FAIL present ack seq=<n> unexpected` (never forgotten, never "stalled") |
-| **reveal** | `[OP_REVEAL=13]` from windowd after wallpaper + cursor upload + first present; gpud latches `reveal_requested` and answers `[STATUS_REVEALED=3, seq:u32]` after the first presented frame at or after that seq |
+| **reveal** | `[OP_REVEAL=13]` from windowd when the desktop is complete (wallpaper + cursor upload + first present) AND the session's desktop surface — the greeter, or the shell of an active session — has presented its first frame (P7-d, TASK-0065B: the revealed frame contains the login; `present_acks::RevealGate`); gpud latches `reveal_requested` and answers `[STATUS_REVEALED=3, seq:u32]` after the first presented frame at or after that seq |
 
 Rules:
 
@@ -319,6 +320,53 @@ must announce `gpud: features=os-lite,virgl` and `gpud: cpu fallback` is a contr
 The app-host mount line `APPHOST: mounted hash=` is required in the same block (TASK-0076B
 closure). `just test-all` runs the lane.
 
+### 7. Waits without clocks (normative, TASK-0324 P7)
+
+- **A reply is waited for, never polled and never timed.** A request/reply exchange
+  (`nexus_ipc::exchange`) moves a SEND clone of the caller's reply channel with the request and
+  blocks on that channel's RECV with last-sender EOF opted in (RFC-0079). Exactly two things end
+  the wait: the reply frame, or the peer's death — the kernel reaps a dying task's capabilities
+  through the same last-peer scan a `cap_close` runs and wakes the receiver with `PeerClosed`.
+  The channel's owner is never its own peer; a SEND cap in flight inside a queued message is a
+  live peer. No client-side deadline exists in request/reply code; a live-but-silent peer is a
+  supervision fact (ADR-0057), not a client timer. `scripts/check-wait-not-poll.sh` holds the
+  clock-bound wait forms and the poll-against-clock functions at ZERO (P7-d; the ratchet files
+  are gone).
+- **Routes are declared, never asked for while serving.** A service's own server pair and every
+  leg it uses are pinned before it is resumed (§4); a route ask (`route_with_nonce`) is one
+  waited ask that init answers, parks or rejects — it is never made at start-up for the
+  service's own route, inside a request handler, or from a library on its first use, because
+  init may be blocked in a synchronous exchange with the asker at that moment.
+- **Compositor time is display completion.** windowd waits on ONE waitset (RFC-0033) over its
+  server endpoint, gpud's replies, the settings push channel, the session push channel and
+  abilitymgr's replies. Every gpud reply is a display-ring completion and clocks the next
+  frame; the in-flight depth is the throttle. No timer cap, no idle tick, no cadence.
+- **Session state is pushed.** `OP_WATCH` (nexus-wire `sessiond`) moves a SEND cap of the
+  subscriber's push channel; sessiond acknowledges on it, pushes a `GET_STATE`-shaped snapshot
+  at once and one per transition, and drops a watcher whose push fails. windowd's channel is
+  declared (`SESSION_WATCH_RECV/SEND`) and pre-minted by init.
+- **Pacing is a timer-notify pair, never a recv timeout (P7-d).** A service that has a
+  clock-bound fact of its own (an indicator's expiry, a persist floor, a splash frame, a
+  minute boundary) declares a timer-notify endpoint (`NamedSlot::TimerNotifyRecv/Send`;
+  app children get theirs from execd), binds a kernel ONE-SHOT timer to its SEND half and waits
+  on the RECV half as a waitset member, armed at the exact deadline and disarmed when nothing
+  is owed. Idle is zero wakes. gpud's `FrameClock` is the display's own refresh for the phases
+  it presents itself (a synthetic vblank on a device without one).
+- **Peer death reaches a waitset.** The kernel's last-peer scan latches `eof_pending` on the
+  endpoint it decided EOF for; `waitset_wait` counts a latched member as ready, the waiter's
+  EOF-opted receive reports `PeerClosed`. A send to the endpoint or a receive from it clears
+  the latch — the live scan remains the decision.
+- **Shared-memory handshakes answer.** bundlemgrd's VMO ops take the destination VMO from a
+  preceding `OP_ARM_VMO` (kept per KERNEL sender identity, bounded) and answer
+  `[status, len]` on the request's reply cap AFTER the header write; the consumer waits for
+  the answer (init, execd — before it resumes the child — and packagefsd); nobody polls a
+  header. The app-host reads its payload header once.
+- **The reveal frame contains the login** (TASK-0065B): `OP_REVEAL` is sent when the desktop
+  is complete AND the session's desktop surface presented its first frame (§5); the stage
+  order of §3 is unchanged.
+- **Every leg is pinned before the task runs**: init's cap-distribution pass precedes the core
+  resume, so a service's first exchange at start-up (bootctld's record attach) finds its slots.
+
 ### Phases / milestones (contract-level)
 
 - **Phase 2** `@ready` + honest `init: up` (§2) — proof: `ci-os-smp1`, `ci-os-reset`, all `ota-*`, `visible`, ingress lanes; `check-init-sync.sh`.
@@ -326,7 +374,8 @@ closure). `just test-all` runs the lane.
 - **Phase 4** topology crate (§4), six atomic sub-packages — proof per consumer: host tests + the consumer's lanes; `check-slot-ssot.sh`.
 - **Phase 5** stage fence (§3) — proof: init host tests, `ci-os-smp1` (`stage:` order), `ci-os-reset`, `ci-os-ota-fallback`, `visible`, `display-gpu`; kernel selftest lane if the rights mask lands.
 - **Phase 6** handoff v2 (§5) — proof: gpud/windowd/display-proto host tests, chain simulations byte-identical, `visible`, `display-gpu`, `ci-os-smp1`, input lanes.
-- **Phases 7–9** polls deleted, closure docs/baselines/gates, 8/8 `just start`-env boots with pixel proof + `just test-all`.
+- **Phase 7** waits without clocks (§7) — proof: nexus-ipc + kernel `ipc_eof` host tests, the router EOF-latch test, `present_acks` reveal-gate tests, nexus-wire `bundlemgrd` arm/done goldens, `armed_vmo` tests, `SELFTEST: exec child eof on exit ok`, `windowd: session watch subscribed`, `gpud: hold tick alive` (frame clock), `apphost: clock tick applied`, the pixel proof (greeter in the revealed frame), `check-wait-not-poll.sh` at zero, every lane.
+- **Phases 8–9** closure docs/baselines/gates, 8/8 `just start`-env boots with pixel proof + `just test-all`.
 
 ## Security considerations
 

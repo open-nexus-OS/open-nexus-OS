@@ -78,7 +78,7 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // so the dsoftbusd local IPC server is guaranteed to be running.
 
     // Exec-ELF E2E via execd service (spawns hello payload).
-    let execd_client = route_with_retry("execd")?;
+    let execd_client = crate::os_lite::ipc::routing::route_checked("execd")?;
     emit_line(crate::markers::M_SELFTEST_IPC_ROUTING_EXECD_OK);
     emit_line("HELLOHDR");
     probes::elf::log_hello_elf_header();
@@ -314,20 +314,8 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     }
 
     // Malformed execd request should return a structured error response.
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(
-        &clock,
-        &execd_client,
-        b"bad",
-        core::time::Duration::from_millis(200),
-    )
-    .map_err(|_| ())?;
-    let rsp = nexus_ipc::budget::recv_budgeted(
-        &clock,
-        &execd_client,
-        core::time::Duration::from_millis(200),
-    )
-    .map_err(|_| ())?;
+    nexus_ipc::Client::send(&execd_client, b"bad", nexus_ipc::Wait::Blocking).map_err(|_| ())?;
+    let rsp = nexus_ipc::Client::recv(&execd_client, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
     if rsp.len() == 9 && rsp[0] == b'E' && rsp[1] == b'X' && rsp[2] == 1 && rsp[4] != 0 {
         emit_line(crate::markers::M_SELFTEST_EXECD_MALFORMED_OK);
     } else {

@@ -21,18 +21,13 @@
 //!   `SELFTEST: bootctl persist ok`.
 //! ADR: docs/adr/0055-bootctld-single-boot-state-authority.md
 
-use core::sync::atomic::{AtomicU32, Ordering};
-use core::time::Duration;
-
 use bootctld::wire;
 use nexus_abi::MsgHeader;
-use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
 /// updated's CAP_MOVE reply inbox as declared (TASK-0324 P4f-3).
 const REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::updated::REPLY.recv;
 const REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::updated::REPLY.send;
 /// Per-call wire budget.
-const CALL_BUDGET_NS: u64 = 2_000_000_000;
 
 /// A decoded bootctld reply: wire status + up to 20 payload bytes
 /// (GET_STATUS grew additive tails: TASK-0036-B projection, TASK-0179
@@ -68,38 +63,20 @@ pub(crate) fn call_with_args(op: u8, args: &[u8]) -> Option<BootctlReply> {
     let len = 4 + args.len();
     let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).ok()?;
     let hdr = MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
-    let start = nexus_abi::nsec().ok()?;
-    let deadline = start.saturating_add(CALL_BUDGET_NS);
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &frame[..len], nexus_abi::IPC_SYS_NONBLOCK, 0)
-        {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                    let _ = nexus_abi::cap_close(reply_send_clone);
-                    return None;
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => {
-                let _ = nexus_abi::cap_close(reply_send_clone);
-                return None;
-            }
-        }
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, &frame[..len], 0, 0).is_err() {
+        let _ = nexus_abi::cap_close(reply_send_clone);
+        return None;
     }
     // Receive: skip foreign inbox traffic (statefs/logd acks) by magic +
     // the exact op echo; bounded by the call budget.
     loop {
-        if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-            return None;
-        }
         let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 32];
         match nexus_abi::ipc_recv_v1(
             REPLY_RECV_SLOT,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
             0,
         ) {
             Ok(n) => {
@@ -119,29 +96,13 @@ pub(crate) fn call_with_args(op: u8, args: &[u8]) -> Option<BootctlReply> {
                 }
                 // Foreign frame: consumed and discarded (our inbox, our mess).
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = nexus_abi::yield_();
-            }
             Err(_) => return None,
         }
     }
 }
 
+/// bootctld's request endpoint: the DECLARED slot, pinned by init before this task runs —
+/// no runtime route ask (TASK-0324 P7-d).
 fn cached_send_slot() -> Option<u32> {
-    static SEND: AtomicU32 = AtomicU32::new(0);
-    let cached = SEND.load(Ordering::Relaxed);
-    if cached != 0 {
-        return Some(cached);
-    }
-    match budget::route_with_nonce_budgeted(
-        b"bootctld",
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
-        RouteRetryOutcome::Success { send_slot, .. } => {
-            SEND.store(send_slot, Ordering::Relaxed);
-            Some(send_slot)
-        }
-        _ => None,
-    }
+    Some(nexus_service_topology::slots::updated::BOOTCTLD.send)
 }

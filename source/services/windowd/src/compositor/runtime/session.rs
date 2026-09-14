@@ -1,11 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: windowd compositor runtime — the session probe (TASK-0065B): after
-//! the framebuffer handoff, ask the session authority (`sessiond`) whether a
-//! session is active or the greeter owns the display, and apply the resolved
-//! SystemUI shell product. Bounded retries; sessiond unreachable = auto shell
-//! (today's behavior) — the probe can degrade the experience, never brick boot.
+//! CONTEXT: windowd compositor runtime — the session decision (TASK-0065B, TASK-0324 P7-c):
+//! sessiond PUSHES its state (greeter owns the display / a session is active) on windowd's
+//! declared push channel, a member of the compositor loop's waitset; windowd applies the
+//! resolved SystemUI shell product. No probe, no cadence, no clock: the decision arrives
+//! when the session authority has it.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -14,98 +14,57 @@
 
 use super::*;
 
-/// Probe cadence: sessiond spawns last, so the first attempts may race its
-/// bind. 250ms × 24 = ~6s bound before the auto-shell fallback.
-#[cfg(all(nexus_env = "os", target_os = "none"))]
-const SESSION_PROBE_INTERVAL_NS: u64 = 250_000_000;
-#[cfg(all(nexus_env = "os", target_os = "none"))]
-const SESSION_PROBE_MAX_ATTEMPTS: u32 = 24;
-
-/// Login-watch cadence (Umbau #17): while the DSL greeter owns the display,
-/// poll sessiond for the login on a slow, bounded-rate cadence. Login is a
-/// rare human-latency event — 500ms costs nothing and needs no push channel.
-#[cfg(all(nexus_env = "os", target_os = "none"))]
-const GREETER_WATCH_INTERVAL_NS: u64 = 500_000_000;
-
-/// Session-probe bookkeeping on the runtime.
-#[derive(Default)]
-pub(super) struct SessionProbe {
-    /// The probe reached a terminal outcome (session applied / greeter / fallback).
-    pub resolved: bool,
-    /// Failed attempts so far.
-    pub attempts: u32,
-    /// Monotonic deadline before the next attempt.
-    pub next_try_ns: u64,
-}
-
 #[cfg(all(nexus_env = "os", target_os = "none"))]
 impl DisplayServerRuntime {
-    /// The session decision has been made (session applied, greeter up, or
-    /// the auto-shell fallback). Until then NO shell surface may composite
-    /// and no shell affordance may react — the desktop must never flash
-    /// before login (TASK-0065B ordering: splash → login → shell).
+    /// The session decision has been made (session applied or greeter up). Until then NO
+    /// shell surface may composite and no shell affordance may react — the desktop must
+    /// never flash before login (TASK-0065B ordering: splash → login → shell).
     pub(super) fn session_resolved(&self) -> bool {
-        self.session_probe.resolved
+        self.session_resolved
     }
 
-    /// One SYNCHRONOUS probe attempt during the first-frame handoff, BEFORE
-    /// the first present is built: sessiond is ready long before windowd's
-    /// handoff, so in the normal boot the very first revealed frame already
-    /// carries the session decision (the greeter layer — login directly after
-    /// the boot logo, the desktop never flashes). Bounded (the client's 500ms
-    /// recv deadline); a miss falls back to the cadenced probe below.
-    pub(crate) fn session_probe_at_handoff(&mut self) {
-        if self.session_probe.resolved {
+    /// Drains the session push channel (a waitset member of the compositor loop, TASK-0324
+    /// P7-c): every frame sessiond pushed is applied in order. Nothing here asks or waits.
+    pub(crate) fn drain_session_pushes(&mut self) {
+        let mut buf = [0u8; 512];
+        loop {
+            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let Ok(n) = nexus_abi::ipc_recv_v1(
+                nexus_service_topology::slots::windowd::SESSION_WATCH_RECV,
+                &mut hdr,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            ) else {
+                return;
+            };
+            let n = core::cmp::min(n as usize, buf.len());
+            if let Some(snapshot) = crate::session_client::decode_session_push(&buf[..n]) {
+                self.on_session_push(snapshot);
+            }
+        }
+    }
+
+    /// One pushed snapshot: the first resolves the session decision; a later one that reports
+    /// an ACTIVE session while the login phase owns the display is the login itself
+    /// (the DSL greeter logged in out of process) — apply the session shell.
+    fn on_session_push(&mut self, snapshot: crate::session_client::SessionSnapshot) {
+        if !self.session_resolved {
+            self.session_resolved = true;
+            self.on_session_snapshot(snapshot);
             return;
         }
-        self.session_probe.attempts = self.session_probe.attempts.saturating_add(1);
-        match crate::session_client::fetch_session_state() {
-            Some(snapshot) => {
-                self.session_probe.resolved = true;
-                self.on_session_snapshot(snapshot);
-            }
-            None => {
-                let _ = debug_println("windowd: session probe retry (post-handoff)");
-            }
-        }
-    }
-
-    /// One probe step, called from the main loop. Returns `true` while the
-    /// probe still needs pacing wakes (the loop is otherwise fully blocking).
-    pub(crate) fn session_probe_tick(&mut self, now_ns: u64) -> bool {
-        if self.session_probe.resolved {
-            return false;
-        }
-        // The handoff path runs its own synchronous attempt; the cadenced
-        // retries below only cover the sessiond-slow/unreachable cases.
-        if self.is_handoff_pending() {
-            return true;
-        }
-        if now_ns < self.session_probe.next_try_ns {
-            return true;
-        }
-        self.session_probe.next_try_ns = now_ns.saturating_add(SESSION_PROBE_INTERVAL_NS);
-        self.session_probe.attempts = self.session_probe.attempts.saturating_add(1);
-        match crate::session_client::fetch_session_state() {
-            Some(snapshot) => {
-                self.session_probe.resolved = true;
-                self.on_session_snapshot(snapshot);
-                false
-            }
-            None if self.session_probe.attempts >= SESSION_PROBE_MAX_ATTEMPTS => {
-                self.session_probe.resolved = true;
-                let _ = debug_println("windowd: session unavailable (auto shell)");
-                // Chrome was session-gated until now — one full present
-                // brings the auto shell up.
-                self.queue_gpu_blit_rect(DamageRect {
-                    x: 0,
-                    y: 0,
-                    width: self.mode.width,
-                    height: self.mode.height,
-                });
-                false
-            }
-            None => true,
+        if self.greeter_login_watch && snapshot.state == nexus_abi::sessiond::STATE_ACTIVE {
+            self.greeter_login_watch = false;
+            let product = snapshot.active_product().unwrap_or(systemui::DEFAULT_PRODUCT_ID);
+            let _ = debug_println("windowd: dsl login detected (session active)");
+            self.apply_session_shell(product);
+            self.queue_gpu_blit_rect(DamageRect {
+                x: 0,
+                y: 0,
+                width: self.mode.width,
+                height: self.mode.height,
+            });
         }
     }
 
@@ -131,38 +90,6 @@ impl DisplayServerRuntime {
             && self.windows.fullscreen_active().is_none()
     }
 
-    /// One login-watch step (Umbau #17), called from the main loop next to
-    /// the session probe. Armed by the STATE_GREETER snapshot (the DSL
-    /// greeter owns the display); polls sessiond until the out-of-process
-    /// login lands, then applies the session shell. Returns `true` while it
-    /// needs pacing wakes. Rate-bounded; runs only during the login phase.
-    pub(crate) fn greeter_watch_tick(&mut self, now_ns: u64) -> bool {
-        if !self.greeter_login_watch {
-            return false;
-        }
-        if now_ns < self.greeter_watch_next_ns {
-            return true;
-        }
-        self.greeter_watch_next_ns = now_ns.saturating_add(GREETER_WATCH_INTERVAL_NS);
-        let Some(snapshot) = crate::session_client::fetch_session_state() else {
-            return true;
-        };
-        if snapshot.state != nexus_abi::sessiond::STATE_ACTIVE {
-            return true;
-        }
-        self.greeter_login_watch = false;
-        let product = snapshot.active_product().unwrap_or(systemui::DEFAULT_PRODUCT_ID);
-        let _ = debug_println("windowd: dsl login detected (session active)");
-        self.apply_session_shell(product);
-        self.queue_gpu_blit_rect(DamageRect {
-            x: 0,
-            y: 0,
-            width: self.mode.width,
-            height: self.mode.height,
-        });
-        false
-    }
-
     /// Terminal probe outcome: apply what the session authority reported.
     fn on_session_snapshot(&mut self, snapshot: crate::session_client::SessionSnapshot) {
         use nexus_abi::sessiond as wire;
@@ -179,10 +106,9 @@ impl DisplayServerRuntime {
                 // login 2026-07-10). bundle_type=greeter passes abilitymgr's
                 // pre-session gate; its surface declares `level: desktop`.
                 self.launch_app("greeter");
-                // Arm the login watch: chrome stays suppressed
-                // (`greeter_active`) and windowd polls sessiond until the
-                // out-of-process login (`svc.session.login`) lands, then
-                // applies the session shell.
+                // Arm the login watch: chrome stays suppressed (`greeter_active`) until
+                // sessiond PUSHES the ACTIVE state after the out-of-process login
+                // (`svc.session.login`); then the session shell is applied.
                 self.greeter_login_watch = true;
                 let _ = debug_println("windowd: greeter on (dsl)");
             }

@@ -47,10 +47,10 @@ fn timed_register(
     req[8] = qos_raw;
     req[9] = 0;
     req[10..18].copy_from_slice(&deadline_ns.to_le_bytes());
-    if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(200))).is_err() {
+    if client.send(&req, IpcWait::Blocking).is_err() {
         return Err(());
     }
-    let rsp = match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))) {
+    let rsp = match client.recv(IpcWait::Blocking) {
         Ok(v) => v,
         Err(_) => return Err(()),
     };
@@ -77,10 +77,10 @@ fn timed_cancel(client: &KernelClient, nonce: u32, timer_id: u32) -> core::resul
     req[3] = 2; // OP_CANCEL
     req[4..8].copy_from_slice(&nonce.to_le_bytes());
     req[8..12].copy_from_slice(&timer_id.to_le_bytes());
-    if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(200))).is_err() {
+    if client.send(&req, IpcWait::Blocking).is_err() {
         return Err(());
     }
-    let rsp = match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))) {
+    let rsp = match client.recv(IpcWait::Blocking) {
         Ok(v) => v,
         Err(_) => return Err(()),
     };
@@ -109,10 +109,10 @@ fn timed_sleep_until(
     req[8] = qos_raw;
     req[9] = 0;
     req[10..18].copy_from_slice(&deadline_ns.to_le_bytes());
-    if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(250))).is_err() {
+    if client.send(&req, IpcWait::Blocking).is_err() {
         return Err(());
     }
-    let rsp = match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(250))) {
+    let rsp = match client.recv(IpcWait::Blocking) {
         Ok(v) => v,
         Err(_) => return Err(()),
     };
@@ -261,10 +261,10 @@ pub(crate) fn walltime_probe() -> core::result::Result<(), ()> {
         req[2] = 1;
         req[3] = 4; // OP_GET_WALLTIME
         req[4..8].copy_from_slice(&nonce.to_le_bytes());
-        if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(300))).is_err() {
+        if client.send(&req, IpcWait::Blocking).is_err() {
             return Err(());
         }
-        let rsp = match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(300))) {
+        let rsp = match client.recv(IpcWait::Blocking) {
             Ok(v) => v,
             Err(_) => return Err(()),
         };

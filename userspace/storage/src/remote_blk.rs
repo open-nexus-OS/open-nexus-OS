@@ -25,8 +25,6 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use crate::blockproto::{self, MAX_BLOCKS_PER_REQ, SECTOR_SIZE};
 use crate::{BlockDevice, BlockError};
 
-/// Default per-op deadline (bounded; wait loops self-terminate).
-const OP_DEADLINE_NS: u64 = 2_000_000_000;
 /// Fixed request/response buffer sizes (12 sectors + framing).
 const REQ_BUF: usize = blockproto::HDR_LEN + 9 + MAX_BLOCKS_PER_REQ as usize * SECTOR_SIZE;
 const RSP_BUF: usize = blockproto::HDR_LEN + 1 + MAX_BLOCKS_PER_REQ as usize * SECTOR_SIZE;
@@ -46,35 +44,21 @@ pub struct RemoteBlockDevice {
 }
 
 impl RemoteBlockDevice {
-    /// Opens the partition: one INFO round-trip proves the server is up,
-    /// the partition exists and the caller is allowed to see it. `None`
-    /// keeps the caller in its bounded retry window (virtioblkd may come
-    /// up after the client).
+    /// Opens the partition: ONE INFO round trip proves the server is up, the partition
+    /// exists and the caller is allowed to see it — a clock-free wait (TASK-0324 P7-d):
+    /// virtioblkd's answer or its death. `None` = the partition is not there.
     pub fn open(
         send_slot: u32,
         reply_send_slot: u32,
         reply_recv_slot: u32,
         part: u8,
     ) -> Option<Self> {
-        Self::open_with_deadline(send_slot, reply_send_slot, reply_recv_slot, part, OP_DEADLINE_NS)
-    }
-
-    /// `open` with a caller-chosen INFO deadline: attach probes inside a
-    /// bounded retry window (statefsd pristine upgrade) must stay cheap
-    /// while virtioblkd is still bringing the device up.
-    pub fn open_with_deadline(
-        send_slot: u32,
-        reply_send_slot: u32,
-        reply_recv_slot: u32,
-        part: u8,
-        deadline_budget_ns: u64,
-    ) -> Option<Self> {
         let mut dev = Self { send_slot, reply_send_slot, reply_recv_slot, part, block_count: 0 };
         let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
         let mut req = [0u8; REQ_BUF];
         let n = blockproto::encode_info_into(&mut req, nonce, part);
         let mut rsp = [0u8; RSP_BUF];
-        let rn = dev.round_trip_deadline(&req[..n], &mut rsp, deadline_budget_ns).ok()?;
+        let rn = dev.round_trip(&req[..n], &mut rsp).ok()?;
         let (block_size, block_count) = blockproto::decode_info_reply(nonce, &rsp[..rn])?;
         if block_size as usize != SECTOR_SIZE || block_count == 0 {
             return None;
@@ -83,19 +67,12 @@ impl RemoteBlockDevice {
         Some(dev)
     }
 
-    /// One bounded request/reply round trip into the caller's buffer
-    /// (ZERO allocation — bump-allocator services never free; shared-inbox
-    /// correlation is the caller's via the nonce inside `frame`).
+    /// One request/reply round trip into the caller's buffer (ZERO allocation —
+    /// bump-allocator services never free). No clock (TASK-0324 P7-d): queue space, then the
+    /// answer on the reply inbox, or virtioblkd's death (EOF — it holds the moved cap).
+    /// Shared-inbox correlation is the caller's via the nonce inside `frame`; a foreign
+    /// frame (another op's late reply) is dropped and the wait resumes.
     fn round_trip(&self, frame: &[u8], rsp: &mut [u8]) -> Result<usize, BlockError> {
-        self.round_trip_deadline(frame, rsp, OP_DEADLINE_NS)
-    }
-
-    fn round_trip_deadline(
-        &self,
-        frame: &[u8],
-        rsp: &mut [u8],
-        budget_ns: u64,
-    ) -> Result<usize, BlockError> {
         let moved = nexus_abi::cap_clone(self.reply_send_slot).map_err(|_| BlockError::IoError)?;
         let hdr = nexus_abi::MsgHeader::new(
             moved,
@@ -104,64 +81,26 @@ impl RemoteBlockDevice {
             nexus_abi::ipc_hdr::CAP_MOVE,
             frame.len() as u32,
         );
-        let start = nexus_abi::nsec().map_err(|_| BlockError::IoError)?;
-        let deadline = start.saturating_add(budget_ns);
-
-        let mut i: usize = 0;
-        loop {
-            match nexus_abi::ipc_send_v1(
-                self.send_slot,
-                &hdr,
-                frame,
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
-                Ok(_) => break,
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    if (i & 0x7f) == 0 && nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                        let _ = nexus_abi::cap_close(moved);
-                        return Err(BlockError::IoError);
-                    }
-                    let _ = nexus_abi::yield_();
-                }
-                Err(_) => {
-                    let _ = nexus_abi::cap_close(moved);
-                    return Err(BlockError::IoError);
-                }
-            }
-            i = i.wrapping_add(1);
+        if nexus_abi::ipc_send_v1(self.send_slot, &hdr, frame, 0, 0).is_err() {
+            let _ = nexus_abi::cap_close(moved);
+            return Err(BlockError::IoError);
         }
-
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut j: usize = 0;
         loop {
-            if (j & 0x7f) == 0 && nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                return Err(BlockError::IoError);
-            }
-            j = j.wrapping_add(1);
-            match nexus_abi::ipc_recv_v1(
+            let n = nexus_abi::ipc_recv_v1(
                 self.reply_recv_slot,
                 &mut rh,
                 rsp,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
                 0,
-            ) {
-                Ok(n) => {
-                    let n = core::cmp::min(n as usize, rsp.len());
-                    // Ours iff blockproto magic — statefs/policyd replies on
-                    // the shared inbox are someone else's; the nonce check
-                    // happens in the caller's decode.
-                    if n >= blockproto::HDR_LEN + 1
-                        && rsp[0] == blockproto::MAGIC0
-                        && rsp[1] == blockproto::MAGIC1
-                    {
-                        return Ok(n);
-                    }
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = nexus_abi::yield_();
-                }
-                Err(_) => return Err(BlockError::IoError),
+            )
+            .map_err(|_| BlockError::IoError)?;
+            let n = core::cmp::min(n as usize, rsp.len());
+            if n >= blockproto::HDR_LEN
+                && rsp[0] == blockproto::MAGIC0
+                && rsp[1] == blockproto::MAGIC1
+            {
+                return Ok(n);
             }
         }
     }
@@ -175,36 +114,17 @@ impl RemoteBlockDevice {
         let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
         let n = blockproto::encode_arm_vmo_into(&mut req, nonce, self.part);
         let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
-        let deadline =
-            nexus_abi::nsec().map_err(|_| BlockError::IoError)?.saturating_add(OP_DEADLINE_NS);
-        loop {
-            match nexus_abi::ipc_send_v1(
-                self.send_slot,
-                &hdr,
-                &req[..n],
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
-                Ok(_) => return Ok(()),
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                        let _ = nexus_abi::cap_close(moved);
-                        return Err(BlockError::IoError);
-                    }
-                    let _ = nexus_abi::yield_();
-                }
-                Err(_) => {
-                    let _ = nexus_abi::cap_close(moved);
-                    return Err(BlockError::IoError);
-                }
-            }
+        // No clock (TASK-0324 P7-d): queue space or virtioblkd's death.
+        if nexus_abi::ipc_send_v1(self.send_slot, &hdr, &req[..n], 0, 0).is_err() {
+            let _ = nexus_abi::cap_close(moved);
+            return Err(BlockError::IoError);
         }
+        Ok(())
     }
 
     /// TASK-0321 P4b: copies `len` partition bytes from `byte_off` into the
     /// armed VMO at `vmo_off` — ONE round trip for a whole bundle window
-    /// (the driver streams device runs, no IPC per run). Deadline scales
-    /// with the transfer (1 s per MiB on top of the base budget).
+    /// (the driver streams device runs, no IPC per run).
     pub fn read_into_vmo(&self, byte_off: u64, len: u64, vmo_off: u64) -> Result<(), BlockError> {
         if len == 0 || len > blockproto::MAX_VMO_READ_BYTES {
             return Err(BlockError::OutOfRange);
@@ -218,9 +138,7 @@ impl RemoteBlockDevice {
         let n =
             blockproto::encode_read_vmo_into(&mut req, nonce, self.part, byte_off, len, vmo_off);
         let mut rsp = [0u8; blockproto::HDR_LEN + 1];
-        let budget =
-            OP_DEADLINE_NS.saturating_add(len.div_ceil(1 << 20).saturating_mul(1_000_000_000));
-        let rn = self.round_trip_deadline(&req[..n], &mut rsp, budget)?;
+        let rn = self.round_trip(&req[..n], &mut rsp)?;
         match blockproto::decode_status(blockproto::OP_READ_VMO, nonce, &rsp[..rn]) {
             Some(blockproto::STATUS_OK) => Ok(()),
             Some(blockproto::STATUS_OUT_OF_RANGE) => Err(BlockError::OutOfRange),

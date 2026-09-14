@@ -78,14 +78,13 @@ use input_live_protocol::{
 };
 #[cfg(nexus_env = "os")]
 use nexus_abi::vmo_create;
-use nexus_abi::{debug_println, debug_trace, nsec, yield_};
+use nexus_abi::{debug_println, debug_trace, nsec};
 use nexus_ipc::{IpcError, KernelServer, Wait};
 
 use crate::markers::{ready_marker, WALLPAPER_FAIL};
 
 use crate::telemetry::WindowdDisplayTelemetryReport;
 
-pub(crate) const ROUTE_NAME: &str = "windowd";
 // Phase 6c: control-plane / data-plane separation.
 // Data plane: all pixel data lives in shared VMOs, rendered by gpud.
 //   VMO layout (16MB, 1280x3200, 4-plane):
@@ -208,7 +207,7 @@ pub(crate) const SHADOW_BOX_CACHE_ENTRIES: usize = 8;
 pub(crate) const SHADOW_CACHE_MAX_DOWNSCALE: u8 = 16;
 pub(crate) const DARK_GLASS_SATURATION_PERCENT: u32 = 140;
 #[cfg(nexus_env = "os")]
-use loop_telemetry::{decode_timer_fired, LoopTelemetry};
+use loop_telemetry::LoopTelemetry;
 
 /// Dispatch ONE client request frame (input state, surface create/present/
 /// destroy/events, or an unknown op). The SINGLE source of truth for the
@@ -409,17 +408,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     // wallpaper/handoff/present…) into one `windowd N/N` grid line in interactive boots. Flushed
     // once the present scheduler is on; FAIL lines print live; proof boots emit everything raw.
     nexus_abi::service_verdict_arm();
-    let server = match KernelServer::new_for(ROUTE_NAME) {
-        Ok(s) => s,
-        Err(_) => {
-            let _ = debug_println("windowd: route fallback");
-            KernelServer::new_with_slots(
-                nexus_service_topology::slots::windowd::SERVER.recv,
-                nexus_service_topology::slots::windowd::SERVER.send,
-            )
-            .map_err(|_| "windowd: init fail kernel-server")?
-        }
-    };
+    // The declared server pair (TASK-0324 P4), pinned before this task runs. No route ask at
+    // start-up (P7-b): an ask has no clock and init may be blocked in a synchronous exchange
+    // with a service that, in turn, waits for THIS server — the ask made that a deadlock.
+    let server = KernelServer::new_with_slots(
+        nexus_service_topology::slots::windowd::SERVER.recv,
+        nexus_service_topology::slots::windowd::SERVER.send,
+    )
+    .map_err(|_| "windowd: init fail kernel-server")?;
     // RFC-0093 §5: the mode has ONE source — the fw_cfg mode the kernel derived. windowd has
     // no device to ask and no longer asks gpud: that round-trip fell back to 1280×800 on EVERY
     // failure path (no slots, send fail, timeout, no reply), which is how a wrong mode could
@@ -457,157 +453,46 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     }
 
     let mut recv_frame = [0u8; 512];
-    // Phase D.1: Keep the NonBlocking batch for responsive message handling,
-    // but replace the bottom yield_() with a kernel deadline-driven wait.
-    //   - Idle:     Wait::Blocking           → zero CPU, wakes on input only
-    //   - Active:   Wait::Timeout(interval)  → wakes on input or animation tick
-    #[cfg(nexus_env = "os")]
-    let (pacer_notify_slot, _) = server.slots();
-    #[cfg(nexus_env = "os")]
-    let mut pacer_timer_cap: Option<u32> = None;
-    #[cfg(nexus_env = "os")]
-    let mut pacer_timer_armed = false;
-    #[cfg(nexus_env = "os")]
-    let mut pacer_timer_log_emitted = false;
-    // Phase 7: unified pacing timer drives frame submission at display refresh rate.
-    const PACER_INTERVAL_NS: u64 = runtime::PACER_INTERVAL_NS; // 120 Hz (SSOT in runtime)
-                                                               // Animation pacing. The supervisor-timer IRQ is now ENABLED in the kernel
-                                                               // (`timer_irq` default + `enable_timer_interrupts` in kmain), so the 120Hz
-                                                               // one-shot timer cap armed below delivers OP_TIMER_FIRED reactively while an
-                                                               // animation runs. The monotonic-clock self-pacing (the WouldBlock arm below,
-                                                               // reached via the NonBlocking recv) is retained as a robust fallback so a
-                                                               // missed/idle-time tick can never freeze the spring; `tick` integrates real
-                                                               // elapsed time, so the exact wake rate only affects how many frames we emit,
-                                                               // not the animation's duration or final state. (A fully poll-free wait
-                                                               // depends on idle-time timer-cap delivery and is a separate step.)
-    let mut last_anim_tick_ns: u64 = 0;
     // Loop-cadence telemetry (hyper-smooth + SMP-flicker diagnosis): the ~1s
-    // `windowd: loop hz=` window with NACK counters and the pacer-slip
-    // histogram — see `loop_telemetry.rs`.
+    // `windowd: loop hz=` window with NACK counters — see `loop_telemetry.rs`.
     #[cfg(nexus_env = "os")]
     let mut loop_stats = LoopTelemetry::new();
+    // TASK-0324 P7-c: ONE waitset (RFC-0033) over every input this loop has — its server
+    // endpoint, gpud's replies (every present ack is a display-ring COMPLETION: the frame
+    // clock), the settings push channel, the session push channel and abilitymgr's replies.
+    // No timer cap, no idle tick, no self-paced fallback: an animation runs by presenting a
+    // frame, waking on its completion and presenting the next; idle is zero wakes.
+    #[cfg(nexus_env = "os")]
+    let waitset = build_waitset(&server);
+    #[cfg(nexus_env = "os")]
+    if waitset.is_none() {
+        let _ = debug_println("windowd: FAIL waitset (blocking on the server endpoint alone)");
+    }
+    #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+    {
+        // Session state is PUSHED from now on (sessiond drains this once it starts, after
+        // our `DisplayReady` report — the pushes land on a waitset member).
+        let _ = debug_println(if crate::session_client::subscribe_session_watch() {
+            "windowd: session watch subscribed"
+        } else {
+            "windowd: FAIL session watch subscribe"
+        });
+    }
     loop {
-        runtime.drain_gpud_replies();
+        // 1. Completions first: they clock every animation and free ring slots.
+        let completed = runtime.drain_gpud_replies();
         #[cfg(nexus_env = "os")]
         loop_stats.tick(nexus_abi::nsec().unwrap_or(0), &runtime);
-        // Stall watchdog: self-reports a "stopped responding" present stall to the
-        // UART log (build/logs/*/uart.log). Cheap — one nsec() + integer checks per
-        // iteration; only formats on an actual stall (rate-limited).
         #[cfg(nexus_env = "os")]
         let _ = runtime.process_deferred_framebuffer_write();
-        #[cfg(nexus_env = "os")]
-        {
-            // Reactive pacing: arm the 120Hz timer ONLY while an animation is
-            // running. Cursor moves, hover, clicks and other input arrive as IPC
-            // messages that wake the blocking recv below and are flushed directly —
-            // they don't need the pacer. When idle (no animation), the timer stays
-            // disarmed and windowd blocks on IPC: zero wakes, zero polling. This is
-            // what eliminates the per-frame busy loop.
-            //
-            // Also keep the pacer alive while damage is still pending: gpud's ack
-            // replies arrive on the gpud client, not the server, so a backpressured
-            // flush needs a timer wake to retry. Once damage clears and no animation
-            // runs, the pacer disarms and windowd goes fully idle.
-            let handoff_done = !runtime.is_handoff_pending();
-            // Session probe (TASK-0065B): after the handoff, ask sessiond for
-            // the session decision on its own cadence. While unresolved it
-            // needs the pacer's wakes (the loop otherwise blocks on IPC);
-            // bounded — resolution or the auto-shell fallback disarms it.
-            let session_pending = runtime.session_probe_tick(nexus_abi::nsec().unwrap_or(0));
-            // DSL-greeter login watch (Umbau #17): between the greeter swap
-            // and the login, poll sessiond on its own slow cadence — same
-            // pacing contract as the session probe.
-            let greeter_watch_pending = runtime.greeter_watch_tick(nexus_abi::nsec().unwrap_or(0));
-            // Animated wait cursor: while a launch is pending the ring frame
-            // advances on the pacer (2-byte SELECT per ~90ms step; bounded by
-            // the launch failsafe deadline).
-            let cursor_wait_pending = runtime.cursor_wait_tick(nexus_abi::nsec().unwrap_or(0));
-            // Un-acked presents keep the pacer alive too: gpud's ack/NACK replies
-            // arrive on the gpud client, not the server recv below — an idle-blocked
-            // windowd would otherwise only drain a present NACK (P0.3 requeue
-            // self-heal) on the next unrelated input. Bounded: acks normally land
-            // within a frame, so this costs at most a tick or two.
-            let needs_pacing = runtime.has_active_animations()
-                || runtime.has_pending_damage()
-                || runtime.frames_in_flight() > 0
-                || runtime.has_frame_pulse_clients()
-                || runtime.has_scroll_momentum()
-                || session_pending
-                || greeter_watch_pending
-                || cursor_wait_pending;
-            if handoff_done && !pacer_timer_armed && needs_pacing {
-                if pacer_timer_cap.is_none() {
-                    // One-shot timer (interval_ns = 0): windowd rearms it every tick
-                    // below. A periodic timer (non-zero interval) would auto-rearm in
-                    // the kernel and keep firing at 120Hz forever after the animation
-                    // ends — windowd would never go idle, and each manual timer_set
-                    // would hit AlreadyArmed. One-shot auto-disarms on fire, so when
-                    // pacing stops we simply stop rearming and the service goes fully
-                    // idle (zero wakes), which is the whole point of reactive pacing.
-                    match nexus_abi::timer_create(pacer_notify_slot, 0) {
-                        Ok(cap) => pacer_timer_cap = Some(cap),
-                        Err(_) => {
-                            if !pacer_timer_log_emitted {
-                                let _ = debug_println("windowd: pacer timer create failed");
-                                pacer_timer_log_emitted = true;
-                            }
-                        }
-                    }
-                }
-                if let Some(timer_cap) = pacer_timer_cap {
-                    if let Ok(now) = nsec() {
-                        let deadline = now.saturating_add(PACER_INTERVAL_NS);
-                        match nexus_abi::timer_set(timer_cap, deadline) {
-                            Ok(()) => pacer_timer_armed = true,
-                            Err(_) => {
-                                if !pacer_timer_log_emitted {
-                                    let _ = debug_println("windowd: pacer timer arm failed");
-                                    pacer_timer_log_emitted = true;
-                                }
-                            }
-                        }
-                    }
-                }
-            } else if pacer_timer_armed && !needs_pacing {
-                // Pacing no longer needed but a one-shot is still armed (animation
-                // ended mid-interval). Cancel it so the trailing tick never fires and
-                // windowd blocks on IPC until the next real input. Idempotent: the
-                // kernel disarms the timer and no OP_TIMER_FIRED is delivered.
-                if let Some(timer_cap) = pacer_timer_cap {
-                    let _ = nexus_abi::timer_cancel(timer_cap);
-                }
-                pacer_timer_armed = false;
-            }
+        if completed {
+            runtime.on_frame_completed(nsec().unwrap_or(0));
         }
+        // 2. Requests, in a bounded batch.
         for _ in 0..IPC_BATCH_LIMIT {
             match server.recv_request_with_meta_into(Wait::NonBlocking, &mut recv_frame) {
                 Ok((frame_len, sender_sid, mut moved_cap)) => {
                     let frame = &recv_frame[..frame_len];
-                    #[cfg(nexus_env = "os")]
-                    if let Some((now_ns, deadline_ns)) = decode_timer_fired(frame) {
-                        // Phase 7: Pacing tick — drive animation update AND frame flush.
-                        pacer_timer_armed = false;
-                        loop_stats.note_timer_fired(now_ns, deadline_ns);
-                        if runtime.has_active_animations() {
-                            runtime.tick(now_ns);
-                        }
-                        // WebRender compositor-scroll flings: advance each
-                        // scrollable window's physics and re-emit
-                        // OP_SET_LAYER_SCROLL while animating (gpud re-composites
-                        // the retained layers — the app stays out of the loop).
-                        runtime.advance_app_scrolls(now_ns);
-                        // Submit frame if pending damage and a ring slot is free.
-                        if runtime.has_pending_damage()
-                            && runtime.frames_in_flight()
-                                < runtime::DisplayServerRuntime::max_in_flight()
-                        {
-                            // force=true: this IS the vsync tick.
-                            let _ = runtime.flush_pending_damage_paced(now_ns, true);
-                        }
-                        // The pacer tick IS the animating clients' vsync.
-                        runtime.flush_frame_pulses();
-                        continue;
-                    }
                     dispatch_client_frame(
                         &mut runtime,
                         &server,
@@ -623,141 +508,88 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 Err(_) => {}
             }
         }
-        // Frame-aligned input: apply the staged sample (latest cursor/buttons +
-        // summed wheel) ONCE — one hit-test/hover/cursor-move per frame,
-        // independent of how many raw events arrived (the Android Choreographer
-        // model).
+        // 3. Frame-aligned input: apply the staged sample (latest cursor/buttons + summed
+        //    wheel) ONCE per frame, independent of how many raw events arrived.
         let applied = runtime.apply_staged_input();
-        // RFC-0076/0077/0083: stage the settings-watch subscriptions (events
-        // then arrive in-band on the server endpoint), and deliver any due
-        // presentation snapshots (NONBLOCK, retained latest-wins, per-frame
-        // retry — the compositor never blocks for a settings push).
+        // 4. Pushes: settings (RFC-0083), session state (P7-c) and launch replies — every one
+        //    a waitset member, drained here, never polled on a cadence.
         runtime.pump_region_watch();
         runtime.drain_settings_events();
+        #[cfg(all(nexus_env = "os", target_os = "none"))]
+        runtime.drain_session_pushes();
+        #[cfg(nexus_env = "os")]
+        runtime.drain_launch_replies();
         runtime.pump_presentation();
         #[cfg(nexus_env = "os")]
         loop_stats.note_apply(applied);
         #[cfg(not(nexus_env = "os"))]
         let _ = applied;
-        // Phase 4: skip present while handoff is pending — the VMO must arrive
-        // at gpud before any present-damage frames.
+        // 5. Present when the ring has a slot (skip while the handoff is pending — the VMO
+        //    must arrive at gpud before any present-damage frame).
         if !runtime.is_handoff_pending() {
-            // VSYNC-aligned: a lone event flushes immediately, but a sustained
-            // input burst (pointer pushes up to 250Hz) is paced to the 120Hz
-            // interval — the pacer tick (armed while damage is pending) submits
-            // the merged newest-wins frame. Prevents present-per-push overdraw.
-            let now_ns = nsec().unwrap_or(0);
-            if let Err(err) = runtime.flush_pending_damage_paced(now_ns, false) {
+            runtime.keep_frame_clock_alive();
+            if let Err(err) = runtime.flush_pending_damage_if_slot_free() {
                 let _ = debug_println(flush_error_label(err));
             }
         }
-        // Frame pulses AFTER the frame's compose/present work: animating
-        // clients tick their physics on the REAL frame cadence.
+        // Frame pulses AFTER the frame's compose/present work: animating clients tick their
+        // physics on the REAL frame cadence.
         runtime.flush_frame_pulses();
-        // Phase D.1 / RFC-0033: deadline-driven sleep instead of busy yield_().
-        // During animation/present the supervisor timer IRQ is now ENABLED, so the one-shot
-        // pacer timer-cap armed above delivers OP_TIMER_FIRED into our endpoint at the frame
-        // deadline and wakes a BLOCKING recv — deterministic ~120 Hz with zero polling, paced
-        // by the timer-cap's fixed deadline (process_expired_timers), not a recv-timeout clock
-        // (see memory: recv-timeout self-pace can't hit 120 Hz). We block only when that timer
-        // is actually armed to wake us; otherwise the monotonic self-pace fallback (the
-        // WouldBlock arm below) keeps the frame alive so a failed/absent timer can't freeze it.
-        // This replaces the old NonBlocking + yield_() spin (was written when timer IRQ was off)
-        // — the source of the high `spin_hz` / low `present_hz`.
+        // 6. WAIT — no clock. Any member with a queued message wakes us; nothing pending
+        //    anywhere means zero CPU until the next event.
         #[cfg(nexus_env = "os")]
-        let animation_wait = if pacer_timer_armed { Wait::Blocking } else { Wait::NonBlocking };
-        #[cfg(not(nexus_env = "os"))]
-        let animation_wait = Wait::NonBlocking;
-        let wait = if runtime.is_handoff_pending() {
-            Wait::NonBlocking
-        } else if runtime.has_active_animations()
-            || runtime.has_pending_damage()
-            || runtime.has_scroll_momentum()
         {
-            animation_wait
-        } else {
-            // Near-idle: a bounded 500ms tick (2 wakes/s) so a settings event
-            // on the side watch channel applies without another wake source
-            // (RFC-0083; in-band delivery = recorded kernel follow-up).
-            Wait::Timeout(core::time::Duration::from_millis(500))
-        };
-        match server.recv_request_with_meta_into(wait, &mut recv_frame) {
-            Ok((frame_len, sender_sid, mut moved_cap)) => {
-                let frame = &recv_frame[..frame_len];
-                #[cfg(nexus_env = "os")]
-                if let Some((now_ns, deadline_ns)) = decode_timer_fired(frame) {
-                    // One-shot timer auto-disarms on fire — mark as disarmed so
-                    // the pacing arm block re-arms it for the next tick.
-                    pacer_timer_armed = false;
-                    loop_stats.note_timer_fired(now_ns, deadline_ns);
-                    if runtime.has_active_animations() {
-                        runtime.tick(now_ns);
-                    }
-                    // WebRender scroll fling: coast every scrollable window on the
-                    // pacer tick too (the scroll-only case lands HERE, on the
-                    // blocking recv — not the drain batch — so without this the
-                    // coast froze after the first notch).
-                    runtime.advance_app_scrolls(now_ns);
-                    // The pacer tick IS the animating clients' vsync.
-                    runtime.flush_frame_pulses();
-                    // Submit frame if pending damage and a ring slot is free.
-                    if runtime.has_pending_damage()
-                        && runtime.frames_in_flight()
-                            < runtime::DisplayServerRuntime::max_in_flight()
-                    {
-                        // force=true: this IS the vsync tick.
-                        let _ = runtime.flush_pending_damage_paced(now_ns, true);
-                    }
-                    continue;
+            match waitset {
+                Some(ws) => {
+                    let _ = nexus_abi::waitset_wait(ws, 0);
                 }
-                // Same complete dispatch as the drain batch — surface
-                // create/present/destroy/events are handled here too. The idle
-                // recv used to answer them UNSUPPORTED (a client present while
-                // the desktop was idle was dropped → the "+ reacts once" bug).
+                None => {
+                    if let Ok((frame_len, sender_sid, mut moved_cap)) =
+                        server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame)
+                    {
+                        let frame = &recv_frame[..frame_len];
+                        dispatch_client_frame(
+                            &mut runtime,
+                            &server,
+                            frame,
+                            moved_cap.take(),
+                            sender_sid,
+                        );
+                    }
+                }
+            }
+        }
+        #[cfg(not(nexus_env = "os"))]
+        {
+            if let Ok((frame_len, sender_sid, mut moved_cap)) =
+                server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame)
+            {
+                let frame = &recv_frame[..frame_len];
                 dispatch_client_frame(&mut runtime, &server, frame, moved_cap.take(), sender_sid);
             }
-            Err(IpcError::Timeout) | Err(IpcError::WouldBlock) => {
-                // No message ready. If an animation is running, this is our
-                // self-paced frame tick: advance the springs on the monotonic
-                // clock (gated to ~120Hz) and present. `tick` integrates real
-                // elapsed time, so this converges correctly regardless of the
-                // exact poll cadence.
-                if runtime.has_active_animations()
-                    || runtime.has_pending_damage()
-                    || runtime.has_scroll_momentum()
-                {
-                    let now_ns = nsec().unwrap_or(0);
-                    if now_ns.saturating_sub(last_anim_tick_ns) >= PACER_INTERVAL_NS {
-                        last_anim_tick_ns = now_ns;
-                        if runtime.has_active_animations() {
-                            runtime.tick(now_ns);
-                        }
-                        // Scroll fling coast on the self-paced fallback tick too.
-                        runtime.advance_app_scrolls(now_ns);
-                        if runtime.has_pending_damage()
-                            && runtime.frames_in_flight()
-                                < runtime::DisplayServerRuntime::max_in_flight()
-                        {
-                            // force=true: this is the self-paced vsync fallback
-                            // tick (already gated to the pacer interval above).
-                            let _ = runtime.flush_pending_damage_paced(now_ns, true);
-                        }
-                    }
-                    // Cooperative yield: hand the CPU to gpud (to render the frame
-                    // we just submitted) and inputd (to deliver the next event)
-                    // between polls. Without this, the NonBlocking loop would
-                    // monopolize the single hart and gpud would never run.
-                    //
-                    // Count this empty wake-up: it's the busy-poll cost of having
-                    // no timer IRQ (RFC-0062). Surfaced as `spin_hz` — idle ~= 0,
-                    // high during animation = the work-vs-pacing diagnostic.
-                    runtime.record_poll_spin();
-                    let _ = yield_();
-                }
-            }
-            Err(_) => {}
         }
     }
+}
+
+/// The compositor loop's waitset (TASK-0324 P7-c): its server endpoint, gpud's replies,
+/// the settings and session push channels and abilitymgr's replies — the declared slots
+/// (`nexus-service-topology`), so the members exist before this task runs. `None` = the
+/// kernel refused (reported by the caller; the loop then blocks on the server alone).
+#[cfg(nexus_env = "os")]
+fn build_waitset(server: &KernelServer) -> Option<u32> {
+    use nexus_service_topology::slots::windowd as topo;
+    let ws = nexus_abi::waitset_create().ok()?;
+    let (server_recv, _) = server.slots();
+    for slot in [
+        server_recv,
+        topo::GPUD.recv,
+        topo::WATCH_RECV,
+        topo::SESSION_WATCH_RECV,
+        topo::ABILITYMGR.recv,
+    ] {
+        nexus_abi::waitset_add(ws, slot).ok()?;
+    }
+    Some(ws)
 }
 
 fn emit_windowd_telemetry(report: WindowdDisplayTelemetryReport) {

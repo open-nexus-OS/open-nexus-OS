@@ -101,23 +101,19 @@ fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
     let reply_send = nexus_abi::cap_clone(STATEFS_REPLY_SEND_SLOT).ok()?;
     let hdr =
         nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    if nexus_abi::ipc_send_v1(STATEFS_SEND_SLOT, &hdr, req, nexus_abi::IPC_SYS_NONBLOCK, 0).is_err()
-    {
+    if nexus_abi::ipc_send_v1(STATEFS_SEND_SLOT, &hdr, req, 0, 0).is_err() {
         let _ = nexus_abi::cap_close(reply_send);
         return None;
     }
     // The CAP_MOVE consumed the clone; do NOT close it on the success path.
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(500_000_000);
     loop {
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 1024];
-        let mut sid: u64 = 0;
-        match nexus_abi::ipc_recv_v2(
+        match nexus_abi::ipc_recv_v1(
             STATEFS_REPLY_RECV_SLOT,
             &mut rh,
             &mut buf,
-            &mut sid,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
             0,
         ) {
             Ok(n) => {
@@ -125,16 +121,6 @@ fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
                 if n >= 4 && buf[0] == SF_MAGIC0 && buf[1] == SF_MAGIC1 {
                     return Some(buf[..n].to_vec());
                 }
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return None;
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return None;
-                }
-                let _ = nexus_abi::yield_();
             }
             Err(_) => return None,
         }

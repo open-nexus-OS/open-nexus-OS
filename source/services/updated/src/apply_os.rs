@@ -26,17 +26,11 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use core::sync::atomic::{AtomicU32, Ordering};
-use core::time::Duration;
-
 use nexus_abi::MsgHeader;
-use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use storage::remote_blk::RemoteBlockDevice;
 use storage::{blockproto, BlockDevice};
 use updates::component_set::{ComponentMeta, ComponentSink, RejectReason};
 use updates::Slot;
-
-use crate::os_lite::emit_line;
 
 /// updated's CAP_MOVE reply inbox as declared (TASK-0324 P4f-3).
 const REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::updated::REPLY.recv;
@@ -119,7 +113,7 @@ pub(crate) fn read_source(path: &str) -> Result<MappedSource, RejectReason> {
         }
     };
     let hdr = MsgHeader::new(clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
-    if send_bounded(send_slot, &hdr, &frame, 2_000_000_000).is_err() {
+    if send_waited(send_slot, &hdr, &frame).is_err() {
         let _ = nexus_abi::cap_close(clone);
         let _ = nexus_abi::vmo_destroy(vmo);
         return Err(RejectReason::Io);
@@ -169,22 +163,18 @@ fn stat_size(send_slot: u32, path: &str) -> Result<usize, RejectReason> {
     frame.extend_from_slice(path.as_bytes());
     let reply_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| RejectReason::Io)?;
     let hdr = MsgHeader::new(reply_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
-    if send_bounded(send_slot, &hdr, &frame, 2_000_000_000).is_err() {
+    if send_waited(send_slot, &hdr, &frame).is_err() {
         let _ = nexus_abi::cap_close(reply_clone);
         return Err(RejectReason::Io);
     }
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(2_000_000_000);
     loop {
-        if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-            return Err(RejectReason::Io);
-        }
         let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 64];
         match nexus_abi::ipc_recv_v1(
             REPLY_RECV_SLOT,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
             0,
         ) {
             Ok(n) => {
@@ -198,9 +188,6 @@ fn stat_size(send_slot: u32, path: &str) -> Result<usize, RejectReason> {
                     return Err(RejectReason::Path);
                 }
                 // Foreign inbox frame: consumed, skipped.
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = nexus_abi::yield_();
             }
             Err(_) => return Err(RejectReason::Io),
         }
@@ -226,12 +213,11 @@ impl SlotSink {
             Slot::A => blockproto::PART_BOOT_A,
             Slot::B => blockproto::PART_BOOT_B,
         };
-        let dev = RemoteBlockDevice::open_with_deadline(
+        let dev = RemoteBlockDevice::open(
             blockproto::CLIENT_REQ_SLOT,
             blockproto::CLIENT_REPLY_SEND_SLOT,
             blockproto::CLIENT_REPLY_RECV_SLOT,
             part,
-            2_000_000_000,
         )
         .ok_or(RejectReason::Io)?;
         let budget_sectors = dev.block_count();
@@ -330,26 +316,21 @@ pub(crate) fn feed_list() -> Result<Vec<String>, RejectReason> {
 
     let reply_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| RejectReason::Io)?;
     let hdr = MsgHeader::new(reply_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
-    if send_bounded(send_slot, &hdr, &frame, 2_000_000_000).is_err() {
+    if send_waited(send_slot, &hdr, &frame).is_err() {
         let _ = nexus_abi::cap_close(reply_clone);
         return Err(RejectReason::Io);
     }
-    // TASK-0140: the FIRST feed call is what mounts the data partition
-    // (nxfsd attach + journal replay over the 512B/QD1 block plane) — a 2s
-    // reply budget failed honestly on exactly that cold path once the op
-    // gained its first live caller. Bounded, but sized for the cold mount.
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(15_000_000_000);
+    // TASK-0140: the FIRST feed call is what mounts the data partition (nxfsd attach + journal
+    // replay over the block plane) — the answer is waited for however long that takes; vfsd's
+    // death ends the wait (EOF). No clock (TASK-0324 P7-d).
     loop {
-        if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-            return Err(RejectReason::Io);
-        }
         let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 4096];
         match nexus_abi::ipc_recv_v1(
             REPLY_RECV_SLOT,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
             0,
         ) {
             Ok(n) => {
@@ -361,7 +342,7 @@ pub(crate) fn feed_list() -> Result<Vec<String>, RejectReason> {
                 // original echo-byte match skipped every real reply until
                 // the deadline. Accept both shapes; a frame that decodes
                 // as neither is foreign inbox traffic (statefs/logd acks)
-                // and is skipped, bounded by the deadline.
+                // and is skipped.
                 let body = if n >= 1 && buf[0] == nexus_vfs_types::fileops::OP_READDIR {
                     &buf[1..n]
                 } else {
@@ -378,48 +359,18 @@ pub(crate) fn feed_list() -> Result<Vec<String>, RejectReason> {
                     return Ok(names);
                 }
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = nexus_abi::yield_();
-            }
             Err(_) => return Err(RejectReason::Io),
         }
     }
 }
 
+/// vfsd's request endpoint: the DECLARED slot (`nexus-service-topology`), pinned by init
+/// before this task runs — no runtime route ask (TASK-0324 P7-d).
 fn vfsd_send_slot() -> Option<u32> {
-    static SEND: AtomicU32 = AtomicU32::new(0);
-    let cached = SEND.load(Ordering::Relaxed);
-    if cached != 0 {
-        return Some(cached);
-    }
-    match budget::route_with_nonce_budgeted(
-        b"vfsd",
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
-        RouteRetryOutcome::Success { send_slot, .. } => {
-            SEND.store(send_slot, Ordering::Relaxed);
-            Some(send_slot)
-        }
-        _ => {
-            emit_line("updated: vfsd route unavailable");
-            None
-        }
-    }
+    Some(nexus_service_topology::slots::updated::VFSD.send)
 }
 
-fn send_bounded(slot: u32, hdr: &MsgHeader, frame: &[u8], budget_ns: u64) -> Result<(), ()> {
-    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(budget_ns);
-    loop {
-        match nexus_abi::ipc_send_v1(slot, hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => return Ok(()),
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                    return Err(());
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => return Err(()),
-        }
-    }
+/// A waited send (TASK-0324 P7-d): queue space, or the peer's death — never a clock.
+fn send_waited(slot: u32, hdr: &MsgHeader, frame: &[u8]) -> Result<(), ()> {
+    nexus_abi::ipc_send_v1(slot, hdr, frame, 0, 0).map(|_| ()).map_err(|_| ())
 }

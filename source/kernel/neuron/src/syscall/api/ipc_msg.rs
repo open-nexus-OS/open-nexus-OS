@@ -64,17 +64,10 @@ pub(super) const IPC_SYS_TRUNCATE: usize = 1 << 1;
 /// instead of blocking when the endpoint has had a sender and now has none.
 pub(super) const IPC_SYS_EOF: usize = 1 << 2;
 
-/// RFC-0079: true if ANY task's cap table still holds a live SEND cap to
-/// `endpoint` (summed over all tables, like `vmo_destroy`'s overlap scan).
+/// RFC-0079: true while a PEER (any task but the endpoint's owner) still holds a live SEND
+/// cap to `endpoint` — the one scan every EOF path shares (`eof_scan`, TASK-0324 P7-b).
 fn any_sender_cap(ctx: &Context<'_>, endpoint: ipc::EndpointId) -> bool {
-    for raw in 0..ctx.tasks.len() as u32 {
-        if let Some(caps) = ctx.tasks.caps_of(task::Pid::from_raw(raw)) {
-            if caps.endpoint_send_cap_count(endpoint) > 0 {
-                return true;
-            }
-        }
-    }
-    false
+    super::eof_scan::foreign_sender_remains(ctx.tasks, ctx.router, endpoint)
 }
 
 #[derive(Copy, Clone)]
@@ -163,6 +156,9 @@ pub(super) fn sys_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     typed.check()?;
     let endpoint =
         ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::RECV)?.endpoint();
+    // The receiver looks: the waitset EOF latch is consumed here (the EOF decision below is
+    // the live scan, never the latch — TASK-0324 P7-d).
+    ctx.router.clear_eof_pending(endpoint);
     let message = ctx.router.recv(endpoint)?;
     let len = message.header.len as usize;
     ctx.last_message = Some(message);
@@ -386,6 +382,9 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
 
     let endpoint =
         ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::RECV)?.endpoint();
+    // The receiver looks: the waitset EOF latch is consumed here (the EOF decision below is
+    // the live scan, never the latch — TASK-0324 P7-d).
+    ctx.router.clear_eof_pending(endpoint);
 
     let truncate = (typed.sys_flags & IPC_SYS_TRUNCATE) != 0;
     let nonblock = (typed.sys_flags & IPC_SYS_NONBLOCK) != 0;

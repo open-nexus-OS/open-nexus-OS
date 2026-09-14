@@ -28,7 +28,6 @@ extern crate alloc;
 use alloc::boxed::Box;
 
 use core::fmt;
-use core::time::Duration;
 
 use nexus_abi::yield_;
 use nexus_ipc::{KernelServer, Server as _, Wait};
@@ -112,21 +111,15 @@ pub(crate) struct Authority {
 /// Main bootctld service loop (os-lite).
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     nexus_abi::service_verdict_arm();
-    let server = match KernelServer::new_for("bootctld") {
-        Ok(server) => server,
-        Err(_) => {
-            let slots = nexus_service_topology::slots::bootctld::SERVER;
-            KernelServer::new_with_slots(slots.recv, slots.send)
-                .map_err(|_| ServerError::Unsupported)?
-        }
-    };
+    // The declared server pair (TASK-0324 P4), pinned before this task runs. No route ask at
+    // start-up (P7-b): an ask has no clock and init may be blocked in a synchronous exchange
+    // with a service that, in turn, waits for THIS server — the ask made that a deadlock.
+    let slots = nexus_service_topology::slots::bootctld::SERVER;
+    let server = KernelServer::new_with_slots(slots.recv, slots.send)
+        .map_err(|_| ServerError::Unsupported)?;
     notifier.notify();
     let _ = nexus_service_entry::ready("bootctld: ready");
     nexus_abi::service_verdict_flush("bootctld");
-
-    // Eager record load: bounded retries against the fixed wired slots —
-    // statefsd is long up (bootctld spawns last), and init's boot-attempt
-    // handshake arrives right after bring-up.
 
     // Kernel-attributed caller identities for the mutation gates.
     let sid_updated = nexus_abi::service_id_from_name(b"updated");
@@ -138,40 +131,23 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         *slot = nexus_abi::service_id_from_name(name);
     }
 
-    let mut authority: Option<Authority> = None;
-    let mut load_attempts: u8 = 0;
+    // ONE attach (TASK-0324 P7-d): the statefsd exchange waits for its answer or statefsd's
+    // death — no clock, no retry cadence. Init's boot-attempt handshake queues meanwhile (the
+    // wait chain is acyclic: statefsd/policyd never wait on bootctld).
+    let mut authority: Option<Authority> = crate::attach_os::try_attach();
+    match authority.as_ref() {
+        Some(loaded) => crate::attach_os::announce_target(&loaded.boot),
+        None => emit("bootctld: record unavailable (defaults)"),
+    }
 
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     loop {
-        if authority.is_none() && load_attempts < 8 {
-            load_attempts += 1;
-            if let Some(loaded) = crate::attach_os::try_attach() {
-                crate::attach_os::announce_target(&loaded.boot);
-                authority = Some(loaded);
-            } else if load_attempts == 8 {
-                emit("bootctld: record unavailable (defaults)");
-            }
-        }
-
         // TASK-0053: mutating ops may carry an inline 136-byte .nxra token
         // after the arg byte ([B,T,1,op,arg,token…] = 141 bytes).
         let mut inbuf = [0u8; 192];
-        match server
-            .recv_request_with_meta_into(Wait::Timeout(Duration::from_millis(1000)), &mut inbuf)
-        {
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut inbuf) {
             Ok((n, sender, reply)) => {
                 breaker.on_success();
-                // A mutation may arrive before the idle loop attached (init's
-                // boot-attempt lands right after bring-up): attach inline,
-                // bounded — the caller is waiting synchronously and the wait
-                // chain is acyclic (statefsd/policyd never wait on bootctld).
-                if authority.is_none() && load_attempts < 8 {
-                    load_attempts += 1;
-                    if let Some(loaded) = crate::attach_os::try_attach() {
-                        crate::attach_os::announce_target(&loaded.boot);
-                        authority = Some(loaded);
-                    }
-                }
                 let frame = &inbuf[..n];
                 let mut rsp = [0u8; crate::reply::RSP_LEN];
                 let len = handle_frame(
@@ -189,9 +165,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     emit("bootctld: rsp send fail (dropping)");
                 }
             }
-            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                let _ = yield_();
-            }
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {}
             Err(_) => {
                 let (should_log, verdict) = breaker.on_error();
                 if should_log {

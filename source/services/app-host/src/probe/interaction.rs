@@ -575,7 +575,7 @@ impl super::DslApp {
             }
             if self.momentum_active() {
                 let req = wire::encode_surface_frame_req(surface_id);
-                let _ = client.send(&req, Wait::NonBlocking);
+                let _ = client.send(&req, Wait::Blocking);
             }
             return (dirty, rows);
         }
@@ -593,7 +593,7 @@ impl super::DslApp {
         // compositor for ONE frame pulse (physics ticks on the real cadence).
         if self.momentum_active() {
             let req = wire::encode_surface_frame_req(surface_id);
-            let _ = client.send(&req, Wait::NonBlocking);
+            let _ = client.send(&req, Wait::Blocking);
         }
         (dirty, rows)
     }

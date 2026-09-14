@@ -14,11 +14,9 @@
 //! [`wire::dispatch`], and emits deterministic `abilitymgr: …` markers. The live
 //! resolve-via-bundlemgrd + spawn-via-execd + windowd surface bind is wired in P3.
 
-use core::time::Duration;
-
 use nexus_abi::{debug_putc, yield_};
-use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
+use nexus_service_topology::slots::abilitymgr as topo;
 
 use crate::lifecycle::{AbilityState, Broker};
 use crate::wire::{dispatch, Event};
@@ -150,20 +148,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
 /// receive the response. Bounded + non-fatal — any failure emits a skip marker and
 /// the service continues.
 fn probe_registry() {
-    let (send_slot, _recv) = match route_blocking(b"bundlemgrd") {
-        Some(slots) => slots,
-        None => {
-            emit_line("abilitymgr: registry unreachable");
-            return;
-        }
-    };
-    let (reply_send_slot, reply_recv_slot) = match route_blocking(b"@reply") {
-        Some(slots) => slots,
-        None => {
-            emit_line("abilitymgr: registry no reply inbox");
-            return;
-        }
-    };
+    // The declared legs (TASK-0324 P7-d): bundlemgrd's request endpoint and our reply inbox.
+    let send_slot = topo::BUNDLEMGRD.send;
+    let (reply_send_slot, reply_recv_slot) = (topo::REPLY.send, topo::REPLY.recv);
 
     let mut req = [0u8; 4];
     nexus_abi::bundlemgrd::encode_list_apps(&mut req);
@@ -185,24 +172,14 @@ fn probe_registry() {
         req.len() as u32,
     );
 
-    let start = nexus_abi::nsec().unwrap_or(0);
-    let deadline = start.saturating_add(500_000_000); // 500ms bound
-
-    // Send (bounded, non-blocking).
+    // A waited send (queue space or bundlemgrd's death), then a waited receive on our inbox
+    // (its answer or its death, EOF) — no clock (TASK-0324 P7-d).
     let mut sent = false;
-    let mut spins: u32 = 0;
     loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+        match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, 0, 0) {
             Ok(_) => {
                 sent = true;
                 break;
-            }
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline || spins >= 200_000 {
-                    break;
-                }
-                spins = spins.saturating_add(1);
-                let _ = yield_();
             }
             Err(_) => break,
         }
@@ -221,7 +198,7 @@ fn probe_registry() {
             reply_recv_slot,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
             0,
         ) {
             Ok(n) => {
@@ -238,19 +215,7 @@ fn probe_registry() {
                         return;
                     }
                 }
-                // Unrelated frame on the shared inbox: keep waiting until deadline.
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    emit_line("abilitymgr: registry timeout");
-                    return;
-                }
-                let _ = yield_();
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    emit_line("abilitymgr: registry timeout");
-                    return;
-                }
-                let _ = yield_();
+                // Unrelated frame on the shared inbox: keep waiting.
             }
             Err(_) => {
                 emit_line("abilitymgr: registry recv err");
@@ -296,14 +261,9 @@ fn launch_denied_response() -> alloc::vec::Vec<u8> {
 /// launch request (launches are user-paced — no caching needed in v0).
 /// Fail-closed: any routing/transport/decode failure counts as "no session".
 fn session_gate_active() -> bool {
-    let Some((send_slot, _recv)) = route_blocking(b"sessiond") else {
-        emit_line("abilitymgr: session gate unreachable (deny)");
-        return false;
-    };
-    let Some((reply_send_slot, reply_recv_slot)) = route_blocking(b"@reply") else {
-        emit_line("abilitymgr: session gate no reply inbox (deny)");
-        return false;
-    };
+    // The declared legs (TASK-0324 P7-d): sessiond's request endpoint and our reply inbox.
+    let send_slot = topo::SESSIOND.send;
+    let (reply_send_slot, reply_recv_slot) = (topo::REPLY.send, topo::REPLY.recv);
 
     let mut req = [0u8; 4];
     nexus_abi::sessiond::encode_get_state(&mut req);
@@ -317,24 +277,14 @@ fn session_gate_active() -> bool {
         nexus_abi::ipc_hdr::CAP_MOVE,
         req.len() as u32,
     );
-
-    let start = nexus_abi::nsec().unwrap_or(0);
-    let deadline = start.saturating_add(500_000_000); // 500ms bound
+    // 500ms bound
 
     let mut sent = false;
-    let mut spins: u32 = 0;
     loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+        match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, 0, 0) {
             Ok(_) => {
                 sent = true;
                 break;
-            }
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline || spins >= 200_000 {
-                    break;
-                }
-                spins = spins.saturating_add(1);
-                let _ = yield_();
             }
             Err(_) => break,
         }
@@ -351,7 +301,7 @@ fn session_gate_active() -> bool {
             reply_recv_slot,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
             0,
         ) {
             Ok(n) => {
@@ -362,16 +312,6 @@ fn session_gate_active() -> bool {
                     return status == nexus_abi::sessiond::STATUS_OK
                         && state == nexus_abi::sessiond::STATE_ACTIVE;
                 }
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return false;
-                }
-                let _ = yield_();
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return false;
-                }
-                let _ = yield_();
             }
             Err(_) => return false,
         }
@@ -400,10 +340,8 @@ fn spawn_app(app_id: &str) {
         emit_line("abilitymgr: launch spawn skipped (no payload image)");
         return;
     };
-    let Some((send_slot, recv_slot)) = route_blocking(b"execd") else {
-        emit_line("abilitymgr: FAIL launch spawn (execd unreachable)");
-        return;
-    };
+    // The declared execd leg (TASK-0324 P7-d): pinned before this task runs.
+    let (send_slot, recv_slot) = (topo::EXECD.send, topo::EXECD.recv);
     // Request v1 (+append-only app-id extension, TASK-0080D GET_PAYLOAD):
     // [E, X, ver, op=1, image_id, stack_pages, requester_len, requester...,
     //  app_len:u8, app...] — execd resolves the payload for the app id.
@@ -441,10 +379,11 @@ fn spawn_app(app_id: &str) {
         emit_line("abilitymgr: FAIL launch spawn (send)");
         return;
     }
-    // Bounded reply wait: [E,X,ver,op|0x80,status,pid:u32le].
+    // WAIT for the reply `[E,X,ver,op|0x80,status,pid:u32le]` — no clock (TASK-0324 P7-b):
+    // execd answers on its response endpoint or dies (which closes it and ends the wait).
     let mut rsp = [0u8; 16];
-    for _ in 0..20_000 {
-        match client.recv_into(Wait::NonBlocking, &mut rsp) {
+    loop {
+        match client.recv_into(Wait::Blocking, &mut rsp) {
             Ok(n) if n >= 9 && rsp[3] == 0x81 => {
                 if rsp[4] == 0 {
                     emit_line("abilitymgr: spawn ok");
@@ -455,33 +394,17 @@ fn spawn_app(app_id: &str) {
             }
             Ok(_) => {} // unrelated frame on the shared channel — keep waiting
             Err(_) => {
-                let _ = nexus_abi::yield_();
+                emit_line("abilitymgr: FAIL launch spawn (execd channel closed)");
+                return;
             }
         }
     }
-    emit_line("abilitymgr: FAIL launch spawn (reply timeout)");
 }
 
-fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        name,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
-        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
-        _ => None,
-    }
-}
-
+/// abilitymgr's own server pair: the DECLARED slots init pins before this task runs
+/// (TASK-0324 P4f-1a / P7-d) — no route ask.
 fn route_abilitymgr_blocking() -> Option<KernelServer> {
-    if let Some((send_slot, recv_slot)) = route_blocking(b"abilitymgr") {
-        return KernelServer::new_with_slots(recv_slot, send_slot).ok();
-    }
-    // Routing budget expired (slow boots): fall back to the server slots init pins for
-    // abilitymgr (TASK-0324 P4f-1a).
-    emit_line("abilitymgr: route fallback slots");
-    let server = nexus_service_topology::slots::abilitymgr::SERVER;
-    KernelServer::new_with_slots(server.recv, server.send).ok()
+    KernelServer::new_with_slots(topo::SERVER.recv, topo::SERVER.send).ok()
 }
 
 /// Emits the deterministic UART marker for a lifecycle event.

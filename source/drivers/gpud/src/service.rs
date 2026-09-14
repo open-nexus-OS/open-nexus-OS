@@ -7,8 +7,6 @@
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-#[cfg(all(nexus_env = "os", feature = "virgl"))]
-use core::time::Duration;
 use nexus_abi::{debug_println, mmio_map_auto, nsec, yield_, AbiError};
 use nexus_display_proto::PRESENT_HEADER_LEN;
 use nexus_ipc::{KernelServer, Server as _, Wait};
@@ -29,7 +27,6 @@ use crate::markers::{
 use crate::service_stats::emit_present_deadline_fail;
 use crate::service_stats::{emit_handoff_timing, emit_present_stats};
 
-pub const ROUTE_NAME: &str = "gpud";
 // Wire opcodes/status/cursor magics are the shared SSOT in `nexus-display-proto`
 // (Gate 2) — re-exported here under the historical local names so call sites and
 // `crate::service::OP_*` references stay unchanged. Values live in one place now.
@@ -54,10 +51,6 @@ pub const OP_UPLOAD_ICON: u8 = nexus_display_proto::OP_UPLOAD_ICON;
 /// 2-byte fire-and-forget select (hyper-smooth pointer at window edges).
 pub const OP_UPLOAD_CURSOR_SHAPE: u8 = nexus_display_proto::OP_UPLOAD_CURSOR_SHAPE;
 pub const OP_SELECT_CURSOR_SHAPE: u8 = nexus_display_proto::OP_SELECT_CURSOR_SHAPE;
-/// Self-paced re-present interval for the build-up spin-blur demo (~120 Hz). Used
-/// as the gpud server-recv timeout: an idle recv wakes here to re-present.
-#[cfg(all(nexus_env = "os", feature = "virgl"))]
-const SPIN_DEMO_PERIOD_NS: u64 = 8_333_333;
 /// Reply payloads for OP_UPLOAD_CURSOR (magic-tagged — distinguishable from
 /// present acks, whose u32 slot carries a small handoff id).
 pub const CURSOR_REPLY_HW: u32 = nexus_display_proto::CURSOR_REPLY_HW;
@@ -149,6 +142,28 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         bound
     };
     let server = bind_server()?;
+    // TASK-0324 P7-d: the splash/build-up frame clock is gpud's OWN one-shot timer on a
+    // declared notify endpoint (a synthetic vblank — the device has none), a waitset member
+    // next to the server endpoint. Never a recv timeout, never a timer on the server endpoint
+    // (that intercepted windowd's commands once). Outside those phases: zero idle wakes.
+    #[cfg(nexus_env = "os")]
+    let clock = {
+        use nexus_service_topology::slots::gpud as topo;
+        let timer = nexus_abi::timer_create(topo::TIMER_SEND, 0).ok();
+        let (server_recv, _) = server.slots();
+        let waitset = nexus_abi::waitset_create().ok().and_then(|ws| {
+            nexus_abi::waitset_add(ws, server_recv).ok()?;
+            nexus_abi::waitset_add(ws, topo::TIMER_RECV).ok()?;
+            Some(ws)
+        });
+        if timer.is_none() || waitset.is_none() {
+            let _ =
+                debug_println("gpud: FAIL waitset/timer (blocking on the server endpoint alone)");
+        }
+        crate::frame_clock::FrameClock { timer, waitset, armed_ns: 0, due: false, last_frame_ns: 0 }
+    };
+    #[cfg(not(nexus_env = "os"))]
+    let clock = crate::frame_clock::FrameClock::default();
     nexus_service_entry::ready(GPUD_READY)?;
     // Bring-up done — flush gpud's folded markers as one `gpud N/N OK <ms>` grid line, then stop
     // folding (later per-frame present markers print raw).
@@ -162,7 +177,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     } else {
         "gpud: completion wait spin fallback (irq unbound)"
     });
-    service_requests(server, backend)
+    service_requests(server, backend, clock)
 }
 
 fn open_backend_once() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {
@@ -190,11 +205,9 @@ fn open_backend_once() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {
 }
 
 fn bind_server() -> Result<KernelServer, nexus_abi::AbiError> {
-    if let Ok(server) = KernelServer::new_for(ROUTE_NAME) {
-        let _ = debug_println("gpud: route connected");
-        return Ok(server);
-    }
-    let _ = debug_println("gpud: route fallback slots");
+    // The declared server pair (TASK-0324 P4), pinned before this task runs. No route ask at
+    // start-up (P7-b): an ask has no clock and init may be blocked in a synchronous exchange
+    // with a service that, in turn, waits for THIS server — the ask made that a deadlock.
     KernelServer::new_with_slots(GPUD_RECV_SLOT, GPUD_SEND_SLOT)
         .map_err(|_| nexus_abi::AbiError::InvalidArgument)
 }
@@ -202,6 +215,7 @@ fn bind_server() -> Result<KernelServer, nexus_abi::AbiError> {
 fn service_requests(
     server: KernelServer,
     mut backend: VirtioGpuBackend,
+    mut clock: crate::frame_clock::FrameClock,
 ) -> Result<(), nexus_abi::AbiError> {
     // 8192 bytes: large enough for full cursor upload (32×32×4 = 4096B BGRA + 9B header).
     let mut recv_frame = [0u8; 8192];
@@ -213,7 +227,7 @@ fn service_requests(
     #[cfg(all(nexus_env = "os", feature = "virgl"))]
     let mut hold_tick_logged = false;
     // Rate limiter for the 2D bootstrap-splash pulse (~30Hz redraw of the title
-    // band; the recv timeout ticks faster than the curve needs).
+    // band; the frame clock ticks faster than the curve needs).
     #[cfg(all(nexus_env = "os", feature = "virgl"))]
     let mut last_splash_pulse_ns: u64 = 0;
     // Persistent present buffer: reused (reload_from) for every frame so gpud
@@ -239,12 +253,9 @@ fn service_requests(
     // hops once a frame gets all the way through, but keep re-tracing every frame
     // while the chain is broken so a headless run shows exactly HOW FAR we get.
     let mut chain_trace_done = false;
-    // Build-up spin-blur demo: when active, the main recv below uses a frame-paced
-    // timeout (SPIN_DEMO_PERIOD_NS) so an idle gpud re-presents the orbiting build-up
-    // every ~8.33ms (120Hz), recomputing the GPU blur/shadow and driving the reactive
-    // ring-buffer IRQ. It is a *recv deadline* — woken by the kernel idle-loop's
-    // IpcRecv-deadline scan — NOT a timer cap on our server endpoint (an earlier
-    // timer-cap attempt intercepted windowd's commands and OOM'd the present channel).
+    // Build-up spin-blur demo: when active, the frame clock (`FrameClock`, TASK-0324 P7-d)
+    // paces an idle gpud to re-present the orbiting build-up every ~8.33ms (120Hz),
+    // recomputing the GPU blur/shadow and driving the reactive ring-buffer IRQ.
     #[cfg(all(nexus_env = "os", feature = "virgl"))]
     let spin_demo_active =
         crate::gl_scanout::COMPOSITOR_BUILDUP && crate::gl_scanout::BUILDUP_SPIN_DEMO;
@@ -263,20 +274,26 @@ fn service_requests(
         // frame, so gpud must drive the reveal itself rather than block until windowd
         // recovers (seconds later). Once revealed, this reverts to Blocking (fully reactive).
         #[cfg(all(nexus_env = "os", feature = "virgl"))]
-        let wait = if scroll_flush_pending {
-            // A recorded scroll row awaits its composite: drain any further queued
-            // requests first (latest wins), then flush in the WouldBlock arm.
-            Wait::NonBlocking
-        } else if spin_demo_active
+        let pacing = spin_demo_active
             || backend.is_holding_boot_splash()
-            || backend.bootstrap_splash_active()
-        {
-            Wait::Timeout(Duration::from_nanos(SPIN_DEMO_PERIOD_NS))
-        } else {
-            Wait::Blocking
-        };
+            || backend.bootstrap_splash_active();
         #[cfg(not(all(nexus_env = "os", feature = "virgl")))]
-        let wait = if scroll_flush_pending { Wait::NonBlocking } else { Wait::Blocking };
+        let pacing = false;
+        // A recorded scroll row awaits its composite, or a frame is due: drain any further
+        // queued requests first (latest wins), then act in the WouldBlock arm. Otherwise WAIT
+        // on the waitset (server + frame clock) — no recv timeout.
+        #[cfg(nexus_env = "os")]
+        let wait =
+            if scroll_flush_pending || clock.due { Wait::NonBlocking } else { clock.wait(pacing) };
+        #[cfg(not(nexus_env = "os"))]
+        let wait = {
+            let _ = (pacing, &clock);
+            if scroll_flush_pending {
+                Wait::NonBlocking
+            } else {
+                Wait::Blocking
+            }
+        };
         match server.recv_request_with_meta_into(wait, &mut recv_frame) {
             Ok((frame_len, _sid, mut moved_cap)) => {
                 let frame = &recv_frame[..frame_len];
@@ -593,14 +610,16 @@ fn service_requests(
                     }
                     continue;
                 }
-                // Frame-paced tick (recv timed out, windowd idle): re-present so the reveal
+                // Frame due (the frame clock fired, windowd idle): re-present so the reveal
                 // gate re-evaluates and the desktop appears the instant the wallpaper +
                 // cursor are ready — gpud drives this itself because windowd stalls its
                 // present loop after the first frame. Also serves the spin-blur demo. Once
-                // the desktop is revealed `is_holding_boot_splash()` goes false and gpud
-                // stops self-ticking (back to a blocking, reactive recv).
-                // One-shot liveness proof: boots showed reveals riding ONLY on windowd
-                // presents, so pin whether this timeout path fires at all while holding.
+                // the desktop is revealed `is_holding_boot_splash()` goes false and the
+                // clock stays disarmed (back to a purely reactive wait).
+                if !clock.due {
+                    continue;
+                }
+                // One-shot liveness proof: pin that the frame clock drives the hold.
                 #[cfg(all(nexus_env = "os", feature = "virgl"))]
                 if !hold_tick_logged && backend.is_holding_boot_splash() {
                     hold_tick_logged = true;
@@ -642,9 +661,8 @@ fn service_requests(
                 };
                 #[cfg(not(all(nexus_env = "os", feature = "virgl")))]
                 let presented = false;
-                if !presented {
-                    let _ = yield_();
-                }
+                let _ = presented;
+                clock.frame_presented(nsec().unwrap_or(0));
             }
             Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint))
             | Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::PermissionDenied)) => {

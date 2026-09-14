@@ -394,27 +394,15 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
-    /// VSYNC-aligned flush: submit pending damage at most once per pacer
-    /// interval. A lone event after idle flushes immediately (the stamp is
-    /// stale); a sustained input burst (pointer pushes at up to 250Hz) becomes
-    /// a steady ~120Hz present train — the staged-input newest-wins coalescing
-    /// keeps each presented frame fresh. `force` marks a real pacer tick (the
-    /// vsync itself) and always flushes.
-    pub(crate) fn flush_pending_damage_paced(
-        &mut self,
-        now_ns: u64,
-        force: bool,
-    ) -> Result<(), WindowdError> {
-        if !self.has_pending_damage() {
+    /// Completion-paced flush (TASK-0324 P7-c): submit pending damage when the display ring
+    /// has a free slot. The ring depth (`max_in_flight`) is the throttle — a sustained input
+    /// burst (pointer pushes at up to 250 Hz) becomes one present per completion, the
+    /// staged-input newest-wins coalescing keeps each presented frame fresh, and the next
+    /// completion (a gpud ack, a waitset wake) submits the merged rect. No clock.
+    pub(crate) fn flush_pending_damage_if_slot_free(&mut self) -> Result<(), WindowdError> {
+        if !self.has_pending_damage() || self.frames_in_flight() >= Self::max_in_flight() {
             return Ok(());
         }
-        if !force && now_ns.saturating_sub(self.last_paced_flush_ns) < super::PACER_INTERVAL_NS {
-            // Too soon after the last present: leave the damage pending. The
-            // pacer stays armed while damage is pending (needs_pacing), so the
-            // next tick — at most one interval away — submits the merged rect.
-            return Ok(());
-        }
-        self.last_paced_flush_ns = now_ns;
         self.flush_pending_damage()
     }
 

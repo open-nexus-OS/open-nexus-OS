@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use nexus_abi::yield_;
 use nexus_ipc::KernelClient;
 
-use super::super::ipc::reply::recv_large_bounded;
+use super::super::ipc::reply::recv_large;
 use crate::markers::emit_line;
 use nexus_service_topology::slots::selftest_client::REPLY;
 
@@ -51,7 +51,6 @@ pub(crate) fn logd_append_status_v2(
     frame.extend_from_slice(message);
     frame.extend_from_slice(fields);
 
-    let clock = nexus_ipc::budget::OsClock;
     // Use CAP_MOVE replies (the declared reply inbox) so we don't depend on the dedicated response
     // endpoint.
     let (send_slot, _recv_slot) = logd.slots();
@@ -66,9 +65,7 @@ pub(crate) fn logd_append_status_v2(
         nexus_abi::ipc_hdr::CAP_MOVE,
         frame.len() as u32,
     );
-    let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
-        .map_err(|_| ())?;
-    nexus_ipc::budget::raw::send_budgeted(send_slot, &hdr, &frame, deadline_ns).map_err(|_| {
+    nexus_ipc::budget::raw::send_blocking(send_slot, &hdr, &frame).map_err(|_| {
         emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_SEND_FAIL);
         ()
     })?;
@@ -76,11 +73,7 @@ pub(crate) fn logd_append_status_v2(
     // Shared reply inbox: ignore unrelated CAP_MOVE replies.
     let mut rsp_len: Option<usize> = None;
     for _ in 0..64 {
-        let n = match recv_large_bounded(
-            REPLY.recv,
-            &mut rsp_buf,
-            core::time::Duration::from_millis(50),
-        ) {
+        let n = match recv_large(REPLY.recv, &mut rsp_buf) {
             Ok(v) => v,
             Err(_) => continue,
         };
@@ -184,7 +177,6 @@ pub(crate) fn logd_stats_total(logd: &KernelClient) -> core::result::Result<u64,
     frame[2] = nexus_ipc::logd_wire::VERSION_V2;
     frame[3] = nexus_ipc::logd_wire::OP_STATS;
     frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-    let clock = nexus_ipc::budget::OsClock;
     let (send_slot, _recv_slot) = logd.slots();
     let reply_send_clone = nexus_abi::cap_clone(REPLY.send).map_err(|_| ())?;
     let hdr = nexus_abi::MsgHeader::new(
@@ -194,18 +186,12 @@ pub(crate) fn logd_stats_total(logd: &KernelClient) -> core::result::Result<u64,
         nexus_abi::ipc_hdr::CAP_MOVE,
         frame.len() as u32,
     );
-    let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
-        .map_err(|_| ())?;
-    nexus_ipc::budget::raw::send_budgeted(send_slot, &hdr, &frame, deadline_ns).map_err(|_| ())?;
+    nexus_ipc::budget::raw::send_blocking(send_slot, &hdr, &frame).map_err(|_| ())?;
     let _ = nexus_abi::cap_close(reply_send_clone);
 
     let mut rsp_buf = [0u8; 256];
     for _ in 0..128 {
-        let n = match recv_large_bounded(
-            REPLY.recv,
-            &mut rsp_buf,
-            core::time::Duration::from_millis(50),
-        ) {
+        let n = match recv_large(REPLY.recv, &mut rsp_buf) {
             Ok(v) => v,
             Err(_) => continue,
         };
@@ -240,11 +226,8 @@ pub(crate) fn logd_query_count(logd: &KernelClient) -> core::result::Result<u64,
     frame[2] = nexus_ipc::logd_wire::VERSION_V2;
     frame[3] = nexus_ipc::logd_wire::OP_STATS;
     frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(&clock, logd, &frame, core::time::Duration::from_secs(2))
-        .map_err(|_| ())?;
-    let rsp = nexus_ipc::budget::recv_budgeted(&clock, logd, core::time::Duration::from_secs(2))
-        .map_err(|_| ())?;
+    nexus_ipc::Client::send(logd, &frame, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
+    let rsp = nexus_ipc::Client::recv(logd, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
     let (got_nonce, p) =
         nexus_ipc::logd_wire::parse_stats_response_prefix_v2(&rsp).map_err(|_| ())?;
     if got_nonce != nonce {
@@ -272,7 +255,6 @@ pub(crate) fn logd_query_contains_paged_from(
     needle: &[u8],
     persisted: bool,
 ) -> core::result::Result<bool, ()> {
-    let clock = nexus_ipc::budget::OsClock;
     let (send_slot, _recv_slot) = logd.slots();
     let mut emitted = false;
     let mut empty_pages = 0usize;
@@ -307,29 +289,20 @@ pub(crate) fn logd_query_contains_paged_from(
             nexus_abi::ipc_hdr::CAP_MOVE,
             frame.len() as u32,
         );
-        let deadline_ns =
-            nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
-                .map_err(|_| ())?;
-        nexus_ipc::budget::raw::send_budgeted(send_slot, &hdr, frame, deadline_ns).map_err(
-            |_| {
-                if !emitted {
-                    emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_SEND_FAIL);
-                    emitted = true;
-                }
-                ()
-            },
-        )?;
+        nexus_ipc::budget::raw::send_blocking(send_slot, &hdr, frame).map_err(|_| {
+            if !emitted {
+                emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_SEND_FAIL);
+                emitted = true;
+            }
+            ()
+        })?;
 
         // Allocation-free receive into a stack buffer (bump allocator friendly).
         let mut rsp_buf = [0u8; 1024];
         // Shared reply inbox: ignore unrelated CAP_MOVE replies.
         let mut rsp_len: Option<usize> = None;
         for _ in 0..128 {
-            let n = match recv_large_bounded(
-                REPLY.recv,
-                &mut rsp_buf,
-                core::time::Duration::from_millis(50),
-            ) {
+            let n = match recv_large(REPLY.recv, &mut rsp_buf) {
                 Ok(v) => v,
                 Err(_) => continue,
             };

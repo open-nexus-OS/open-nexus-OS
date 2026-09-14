@@ -388,7 +388,6 @@ pub(crate) struct DisplayServerRuntime {
     pending_cursor_rect: Option<DamageRect>,
     /// Monotonic stamp of the last paced damage flush — vsync alignment for
     /// sustained input bursts (see `flush_pending_damage_paced`).
-    last_paced_flush_ns: u64,
     /// Animation-driven frame: only GPU CB params changed (translate_x, opacity).
     /// Plane 1 is already current — no CPU recomposite needed. Merged rect passed
     /// to the GPU CB blit list so the display plane is refreshed from Plane 1.
@@ -440,6 +439,9 @@ pub(crate) struct DisplayServerRuntime {
     /// OUTSTANDING seq (`acks::PresentWindow`); the counter-plus-wall-clock-lease and the
     /// stall recovery that used to guess at lost acks are gone.
     presents: acks::PresentWindow,
+    /// WHEN to reveal (RFC-0093 §5 + TASK-0065B): desktop complete AND the session's first
+    /// desktop-surface frame composed — the revealed frame contains the login.
+    reveal_gate: acks::RevealGate,
     /// Latch so a backpressured present logs its failure ONCE per episode instead
     /// of every retry (which would flood the UART at ~120 Hz during the very stall
     /// we want to read). Cleared on the next successful send.
@@ -619,21 +621,16 @@ pub(crate) struct DisplayServerRuntime {
     /// compositor chrome is now config-driven, so a later runtime shell switch
     /// (tablet/kiosk) just swaps this. Desktop default ⇒ chrome on.
     shell_config: systemui::ShellConfig,
-    /// Session-authority probe (TASK-0065B): after the handoff, ask sessiond
-    /// whether a session is active (apply its shell product) or the greeter
-    /// owns the display. Bounded; unreachable = auto shell, never a brick.
-    session_probe: session::SessionProbe,
+    /// The session decision arrived (TASK-0065B; pushed by sessiond, TASK-0324 P7-c).
+    session_resolved: bool,
     /// RFC-0083 snapshot delivery (core: `crate::presentation_state`).
     presentation: crate::presentation_state::PresentationState,
     /// DSL-greeter login watch (Umbau #17): armed when sessiond reports
     /// STATE_GREETER (the DSL greeter app-host owns the display; the built-in
     /// avatar greeter is DELETED). The login happens OUT of process (greeter
-    /// app-host → sessiond), so windowd polls sessiond on a slow cadence until
-    /// the session activates, then applies the session shell. Disarmed on
-    /// activation.
+    /// app-host → sessiond); sessiond pushes the ACTIVE state, windowd applies
+    /// the session shell. Disarmed on activation.
     greeter_login_watch: bool,
-    /// Monotonic deadline before the next login-watch poll.
-    greeter_watch_next_ns: u64,
     /// The z/focus stack (host-tested SSOT in `window_scene`): the ONE ordering
     /// authority for shell windows. Scene emission composites in `order()` and
     /// input hit-tests in `hit_order()` (its exact reverse), replacing the old
@@ -824,7 +821,6 @@ impl DisplayServerRuntime {
             tile_map: TileMap::new(),
             pending_damage_rect: None,
             pending_cursor_rect: None,
-            last_paced_flush_ns: 0,
             pending_gpu_blit_rect: None,
             paint_only_damage: false,
             telemetry: crate::telemetry::WindowdDisplayTelemetry::default(),
@@ -845,6 +841,7 @@ impl DisplayServerRuntime {
             shell: SystemUiShell::new(DeviceProfile::qemu_default()),
             framebuffer_pending_first_write: false,
             presents: acks::PresentWindow::new(),
+            reveal_gate: acks::RevealGate::new(),
             present_fail_reported: false,
             present_retry_count: 0,
             present_retry_exhausted: false,
@@ -862,10 +859,9 @@ impl DisplayServerRuntime {
             shape_cache_pushed: false,
             theme_mode: crate::theme::ThemeMode::Dark,
             theme_accent: 0,
-            session_probe: session::SessionProbe::default(),
+            session_resolved: false,
             presentation: crate::presentation_state::PresentationState::new(),
             greeter_login_watch: false,
-            greeter_watch_next_ns: 0,
             apps: core::array::from_fn(AppWindowSlot::new),
             client_surfaces: crate::client_surface::ClientSurfaces::new(),
             #[cfg(nexus_env = "os")]

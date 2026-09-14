@@ -21,6 +21,7 @@
 
 use alloc::boxed::Box;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::fmt;
 use core::fmt::Write as _;
 
@@ -105,15 +106,53 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> SessiondResult<()> {
     }
     nexus_abi::service_verdict_flush("sessiond");
     let mut rsp = [0u8; 512];
+    // TASK-0324 P7-c: session state is PUSHED. A subscriber (windowd) moves the SEND cap of
+    // its push channel with `OP_WATCH`; we keep it, acknowledge, push the current snapshot
+    // at once and again on every transition. A push that fails (peer gone) drops the watcher.
+    let mut watchers: Vec<u32> = Vec::new();
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, _sender_service_id, reply)) => {
+                if wire::decode_request_op(frame.as_slice()) == Some(wire::OP_WATCH) {
+                    let Some(reply) = reply else {
+                        // A watch without a moved push cap has nothing to be pushed to.
+                        let _ = nexus_abi::debug_println("sessiond: watch without push cap");
+                        continue;
+                    };
+                    let push_slot = reply.slot();
+                    core::mem::forget(reply);
+                    let ack = [
+                        wire::MAGIC0,
+                        wire::MAGIC1,
+                        wire::VERSION,
+                        wire::OP_WATCH | 0x80,
+                        wire::STATUS_OK,
+                    ];
+                    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, ack.len() as u32);
+                    let _ = nexus_abi::ipc_send_v1(
+                        push_slot,
+                        &hdr,
+                        &ack,
+                        nexus_abi::IPC_SYS_NONBLOCK,
+                        0,
+                    );
+                    let len = encode_state_rsp(&registry, &state, &mut rsp);
+                    if push_frame(push_slot, &rsp[..len]) {
+                        watchers.push(push_slot);
+                    }
+                    continue;
+                }
+                let was_active = state.active_user();
                 let len = handle_request(frame.as_slice(), &registry, &mut state, &mut rsp);
                 let out = &rsp[..len];
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(out);
                 } else {
                     let _ = server.send(out, Wait::Blocking);
+                }
+                if state.active_user() != was_active {
+                    let len = encode_state_rsp(&registry, &state, &mut rsp);
+                    watchers.retain(|slot| push_frame(*slot, &rsp[..len]));
                 }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
@@ -125,6 +164,17 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> SessiondResult<()> {
             Err(_) => return Err(SessiondError::Ipc("recv")),
         }
     }
+}
+
+/// One push to a watcher's channel. False (and the cap closed) when the peer is gone or its
+/// queue is full — a watcher that cannot take a push is dropped, never retried on a clock.
+fn push_frame(slot: u32, frame: &[u8]) -> bool {
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+    if nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0).is_ok() {
+        return true;
+    }
+    let _ = nexus_abi::cap_close(slot);
+    false
 }
 
 /// Serves one request frame into `rsp`; returns the response length.
@@ -239,12 +289,9 @@ fn emit_session_start(registry: &UserRegistry, idx: usize, auto: bool) {
     let _ = nexus_abi::debug_println(&line);
 }
 
-/// Bind the server endpoint: the route registry when available, else the
-/// deterministic fallback slots init's declarative arm provisioned (RFC-0069).
+/// Bind the server endpoint: the declared slots init's arm pinned before resume (no route
+/// ask — asks have no clock since TASK-0324 P7-b, and a start-up ask can deadlock init).
 fn bind_server() -> SessiondResult<KernelServer> {
-    if let Ok(server) = KernelServer::new_for("sessiond") {
-        return Ok(server);
-    }
     let slots = nexus_service_topology::slots::sessiond::SERVER;
     KernelServer::new_with_slots(slots.recv, slots.send).map_err(|_| SessiondError::Ipc("bind"))
 }

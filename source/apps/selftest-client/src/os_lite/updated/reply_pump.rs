@@ -17,7 +17,7 @@ extern crate alloc;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
-use nexus_abi::{yield_, MsgHeader};
+use nexus_abi::MsgHeader;
 use nexus_ipc::KernelClient;
 
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
@@ -156,81 +156,22 @@ pub(crate) fn updated_send_with_reply(
     // IMPORTANT: Avoid kernel deadline-based blocking IPC in bring-up; we've observed
     // deadline semantics that can stall indefinitely. Use NONBLOCK + bounded retry.
     let (updated_send_slot, _updated_recv_slot2) = client.slots();
-    {
-        let hdr = MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-        let start_ns = nexus_abi::nsec().map_err(|_| ())?;
-        let budget_ns: u64 = if op == nexus_abi::updated::OP_STAGE_SOURCE {
-            2_000_000_000 // 2s to enqueue a stage request under QEMU
-        } else {
-            500_000_000 // 0.5s for small ops
-        };
-        let deadline_ns = start_ns.saturating_add(budget_ns);
-        let mut i: usize = 0;
-        loop {
-            match nexus_abi::ipc_send_v1(
-                updated_send_slot,
-                &hdr,
-                frame,
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
-                Ok(_) => break,
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    if (i & 0x7f) == 0 {
-                        let now = nexus_abi::nsec().map_err(|_| ())?;
-                        if now >= deadline_ns {
-                            emit_line(crate::markers::M_SELFTEST_UPDATED_SEND_TIMEOUT);
-                            return Err(());
-                        }
-                    }
-                    let _ = yield_();
-                }
-                Err(_) => {
-                    emit_line(crate::markers::M_SELFTEST_UPDATED_SEND_FAIL);
-                    return Err(());
-                }
-            }
-            i = i.wrapping_add(1);
-        }
+    // A waited send (queue space or updated's death), then waited receives (the answer or
+    // updated's death, EOF) — no clock (TASK-0324 P7-d). Other ops' answers are stashed.
+    let hdr = MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+    if nexus_abi::ipc_send_v1(updated_send_slot, &hdr, frame, 0, 0).is_err() {
+        emit_line(crate::markers::M_SELFTEST_UPDATED_SEND_FAIL);
+        return Err(());
     }
-    // Give the receiver a chance to run immediately after enqueueing (cooperative scheduler).
-    let _ = yield_();
     let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 512];
     let mut logged_noise = false;
-    // Time-bounded nonblocking receive loop (explicitly yields).
-    //
-    // NOTE: Kernel deadline semantics for ipc_recv_v1 have been flaky in bring-up; using an
-    // explicit nsec()-bounded loop keeps the QEMU smoke run deterministic and bounded (RFC-0013).
-    let start_ns = nexus_abi::nsec().map_err(|_| ())?;
-    let budget_ns: u64 = if op == nexus_abi::updated::OP_STAGE_SOURCE {
-        // TASK-0179: path-based staging streams the container from vfsd,
-        // writes the inactive slot and READS IT BACK — the real os-B
-        // container is ~19 MB over the block plane, so the crown lane
-        // needs a far larger budget than the v1 in-RAM verify did.
-        180_000_000_000 // 180s
-    } else if op == nexus_abi::updated::OP_FEED_LIST || op == nexus_abi::updated::OP_CHECK {
-        // TASK-0140: the first feed call cold-mounts the data partition in
-        // nxfsd (journal replay over the block plane) — give it the same
-        // patience the stage path gets for its first disk touch.
-        30_000_000_000 // 30s
-    } else {
-        5_000_000_000 // 5s (switch/health can involve cross-service publication)
-    };
-    let deadline_ns = start_ns.saturating_add(budget_ns);
-    let mut i: usize = 0;
     loop {
-        if (i & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(|_| ())?;
-            if now >= deadline_ns {
-                break;
-            }
-        }
         match nexus_abi::ipc_recv_v1(
             updated_recv_slot,
             &mut hdr,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE,
             0,
         ) {
             Ok(n) => {
@@ -260,13 +201,10 @@ pub(crate) fn updated_send_with_reply(
                     pending.push_back(buf[..n].to_vec());
                 }
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
+            Err(_) => {
+                emit_line(crate::markers::M_SELFTEST_UPDATED_RECV_TIMEOUT);
+                return Err(());
             }
-            Err(_) => return Err(()),
         }
-        i = i.wrapping_add(1);
     }
-    emit_line(crate::markers::M_SELFTEST_UPDATED_RECV_TIMEOUT);
-    Err(())
 }

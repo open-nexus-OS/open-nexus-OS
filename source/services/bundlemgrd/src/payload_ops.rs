@@ -3,7 +3,8 @@
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 
 //! CONTEXT: bundlemgrd's VMO-serving ops — the header-last shared-memory
-//! contract shared by GET_PAYLOAD (TASK-0080D: an app's ui-program bytes
+//! contract (plus, TASK-0324 P7-d, a reply AFTER the header write on the
+//! sender's moved reply cap; the VMO is armed first with `OP_ARM_VMO`) shared by GET_PAYLOAD (TASK-0080D: an app's ui-program bytes
 //! from the build-time table) and the TASK-0321 system-volume ops
 //! (QUERY_BUNDLE / GET_BUNDLE_ELF / VOLUME_STATUS: a service's verified
 //! `payload.elf` out of `volume.rs`). Split from `os_lite.rs` under the
@@ -34,11 +35,11 @@ pub(crate) fn handle_get_payload(
     volume: &mut crate::volume::VolumeState,
     frame: &[u8],
     vmo_slot: Option<u32>,
-) {
+) -> (u8, u32) {
     use nexus_abi::bundlemgrd as wire;
     let Some(vmo) = vmo_slot else {
         emit_line("bundlemgrd: FAIL get_payload (no vmo cap)");
-        return;
+        return (nexus_abi::bundlemgrd::PAYLOAD_STATUS_NOT_ARMED, 0);
     };
     let outcome = (|| -> (u8, u32) {
         let Some(app_id) = wire::decode_get_payload(frame) else {
@@ -74,6 +75,7 @@ pub(crate) fn handle_get_payload(
         metrics_counter_inc_best_effort("bundlemgrd.get_payload.fail");
         emit_line("bundlemgrd: FAIL get_payload (status)");
     }
+    (status, len)
 }
 
 /// TASK-0321: init (the sole spawner; kernel-attributed `init-lite` /
@@ -86,6 +88,7 @@ fn is_init_sender(sender_service_id: u64) -> bool {
 
 pub(crate) fn handle_volume_op(
     volume: &mut crate::volume::VolumeState,
+    armed: &mut crate::armed_vmo::ArmedVmos,
     frame: &[u8],
     sender_service_id: u64,
     reply: Option<nexus_ipc::ReplyCap>,
@@ -93,29 +96,28 @@ pub(crate) fn handle_volume_op(
 ) {
     use nexus_abi::bundlemgrd as wire;
     let op = wire::decode_request_op(frame).unwrap_or(0);
-    let mut reply = reply;
     if matches!(op, wire::OP_GET_BUNDLE_ELF | wire::OP_GET_INDEX | wire::OP_GET_FILE_VMO) {
-        let vmo_slot = reply.take().map(|cap| {
-            let slot = cap.slot();
-            core::mem::forget(cap);
-            slot
-        });
+        // TASK-0324 P7-d: the destination is the VMO this SENDER armed (`OP_ARM_VMO`); the
+        // moved cap is the reply cap, answered AFTER the header write.
+        let vmo_slot = armed.take(sender_service_id);
         // ELFs go only to the spawner; the index + file reads (TASK-0321
         // P5) also to packagefsd and the boot-safe allowlist.
         let allowed = is_init_sender(sender_service_id)
             || (op != wire::OP_GET_BUNDLE_ELF && is_allowed_sender(sender_service_id));
-        if !allowed {
+        let (status, len) = if !allowed {
             emit_sender_denied(sender_service_id);
             if let Some(slot) = vmo_slot {
                 let _ = nexus_abi::cap_close(slot);
             }
-            return;
-        }
-        match op {
-            wire::OP_GET_BUNDLE_ELF => handle_get_bundle_elf(volume, frame, vmo_slot),
-            wire::OP_GET_INDEX => handle_get_index(volume, vmo_slot),
-            _ => handle_get_file_vmo(volume, frame, vmo_slot),
-        }
+            (STATUS_UNSUPPORTED, 0)
+        } else {
+            match op {
+                wire::OP_GET_BUNDLE_ELF => handle_get_bundle_elf(volume, frame, vmo_slot),
+                wire::OP_GET_INDEX => handle_get_index(volume, vmo_slot),
+                _ => handle_get_file_vmo(volume, frame, vmo_slot),
+            }
+        };
+        reply_done(reply, server, op, status, len);
         return;
     }
     let allowed = is_init_sender(sender_service_id) || is_allowed_sender(sender_service_id);
@@ -202,11 +204,11 @@ fn handle_get_bundle_elf(
     volume: &mut crate::volume::VolumeState,
     frame: &[u8],
     vmo_slot: Option<u32>,
-) {
+) -> (u8, u32) {
     use nexus_abi::bundlemgrd as wire;
     let Some(vmo) = vmo_slot else {
         emit_line("bundlemgrd: FAIL get_bundle_elf (no vmo cap)");
-        return;
+        return (nexus_abi::bundlemgrd::PAYLOAD_STATUS_NOT_ARMED, 0);
     };
     let (status, len, read_ms, hash_ms) = (|| -> (u8, u32, u32, u32) {
         let Some(name) = wire::decode_get_bundle_elf(frame) else {
@@ -234,16 +236,17 @@ fn handle_get_bundle_elf(
     } else {
         emit_line("bundlemgrd: FAIL get_bundle_elf (status)");
     }
+    (status, len)
 }
 
 /// GET_INDEX (TASK-0321 P5): the NXSV-verified index bytes into the moved
 /// VMO at `PAYLOAD_DATA_OFFSET`, header LAST. packagefsd derives `pkg:/`
 /// from exactly what bundlemgrd verified.
-fn handle_get_index(volume: &mut crate::volume::VolumeState, vmo_slot: Option<u32>) {
+fn handle_get_index(volume: &mut crate::volume::VolumeState, vmo_slot: Option<u32>) -> (u8, u32) {
     use nexus_abi::bundlemgrd as wire;
     let Some(vmo) = vmo_slot else {
         emit_line("bundlemgrd: FAIL get_index (no vmo cap)");
-        return;
+        return (nexus_abi::bundlemgrd::PAYLOAD_STATUS_NOT_ARMED, 0);
     };
     let (status, len) = match volume.ensure() {
         Ok(v) => {
@@ -261,6 +264,7 @@ fn handle_get_index(volume: &mut crate::volume::VolumeState, vmo_slot: Option<u3
     if status != wire::PAYLOAD_STATUS_OK {
         emit_line("bundlemgrd: FAIL get_index (status)");
     }
+    (status, len)
 }
 
 /// GET_FILE_VMO (TASK-0321 P5): one entry's bytes (any bundle, any path)
@@ -270,11 +274,11 @@ fn handle_get_file_vmo(
     volume: &mut crate::volume::VolumeState,
     frame: &[u8],
     vmo_slot: Option<u32>,
-) {
+) -> (u8, u32) {
     use nexus_abi::bundlemgrd as wire;
     let Some(vmo) = vmo_slot else {
         emit_line("bundlemgrd: FAIL get_file (no vmo cap)");
-        return;
+        return (nexus_abi::bundlemgrd::PAYLOAD_STATUS_NOT_ARMED, 0);
     };
     let (status, len) = (|| -> (u8, u32) {
         let Some((bundle, path)) = wire::decode_get_file_vmo(frame) else {
@@ -300,6 +304,7 @@ fn handle_get_file_vmo(
     if status != wire::PAYLOAD_STATUS_OK {
         emit_line("bundlemgrd: FAIL get_file (status)");
     }
+    (status, len)
 }
 
 /// `bundlemgrd: bundle served (name=<n> read_ms=<r> hash_ms=<h>)` — bounded
@@ -349,4 +354,50 @@ fn put_dec(line: &mut [u8], at: usize, value: u32) -> usize {
         }
     }
     n
+}
+
+/// Answers a VMO op (TASK-0324 P7-d): `[op|0x80, status, len]` on the moved reply cap — the
+/// consumer's wake-up — or on the shared response endpoint when none was moved.
+pub(crate) fn reply_done(
+    reply: Option<nexus_ipc::ReplyCap>,
+    server: &KernelServer,
+    op: u8,
+    status: u8,
+    len: u32,
+) {
+    let rsp = nexus_abi::bundlemgrd::encode_payload_done_rsp(op, status, len);
+    if let Some(reply) = reply {
+        let _ = reply.reply_and_close_wait(&rsp, Wait::Blocking);
+    } else {
+        let _ = server.send(&rsp, Wait::Blocking);
+    }
+}
+
+/// `OP_ARM_VMO` (TASK-0324 P7-d): the moved cap IS the destination VMO of the sender's next
+/// VMO op — kept under the KERNEL sender identity. Denied senders and a full table release
+/// the cap at once (fail-closed; the following op answers `PAYLOAD_STATUS_NOT_ARMED`).
+pub(crate) fn handle_arm_vmo(
+    armed: &mut crate::armed_vmo::ArmedVmos,
+    sender_service_id: u64,
+    vmo_slot: Option<u32>,
+) {
+    let Some(vmo) = vmo_slot else {
+        emit_line("bundlemgrd: FAIL arm_vmo (no vmo cap)");
+        return;
+    };
+    if !(is_init_sender(sender_service_id) || is_allowed_sender(sender_service_id)) {
+        emit_sender_denied(sender_service_id);
+        let _ = nexus_abi::cap_close(vmo);
+        return;
+    }
+    match armed.arm(sender_service_id, vmo) {
+        crate::armed_vmo::Armed::Stored => {}
+        crate::armed_vmo::Armed::Replaced(old) => {
+            let _ = nexus_abi::cap_close(old);
+        }
+        crate::armed_vmo::Armed::Full(vmo) => {
+            emit_line("bundlemgrd: FAIL arm_vmo (table full)");
+            let _ = nexus_abi::cap_close(vmo);
+        }
+    }
 }

@@ -104,4 +104,27 @@ pub(crate) fn provision_windowd_settings_watch(pid: u32, eps: &Endpoints, chan: 
     } else {
         debug_write_bytes(b"init: windowd settings-watch FAIL (xfer)\n");
     }
+    // TASK-0324 P7-c: the session push channel, same lifecycle (pre-minted, both halves to
+    // windowd at declared slots, init's cap closes after wiring). windowd moves a clone of
+    // the SEND half to sessiond with `OP_WATCH`; sessiond pushes state; the RECV half is a
+    // member of windowd's waitset.
+    let s_recv_ok = crate::bootstrap::declared_slots::pin_named(
+        pid,
+        ServiceId::Windowd,
+        NamedSlot::SessionWatchRecv,
+        eps.windowd_session_watch_ep,
+        Rights::RECV,
+    )
+    .is_some();
+    let s_send_ok = crate::bootstrap::declared_slots::pin_named(
+        pid,
+        ServiceId::Windowd,
+        NamedSlot::SessionWatchSend,
+        eps.windowd_session_watch_ep,
+        Rights::SEND,
+    )
+    .is_some();
+    if !(s_recv_ok && s_send_ok) {
+        debug_write_bytes(b"init: windowd session-watch FAIL (xfer)\n");
+    }
 }

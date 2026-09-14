@@ -32,14 +32,6 @@ pub fn supports_service_routing() -> bool {
     true
 }
 
-/// Budget for ONE route ask (RFC-0093 §1, TASK-0324 P3).
-///
-/// The library asks exactly once and waits for the nonce-correlated answer; it never re-asks
-/// (the re-ask storm filled init's control queue — TASK-0324 P2). Callers that can live
-/// without the route retry on their own cadence with a fresh nonce; init replaces a parked
-/// ask from the same requester, so a retry never accumulates state.
-const ROUTE_ASK_BUDGET: Duration = Duration::from_millis(250);
-
 /// Nonce mismatches tolerated while draining answers meant for a superseded ask.
 const ROUTE_NONCE_MISMATCH_BUDGET: u32 = 32;
 
@@ -51,18 +43,14 @@ const ROUTE_NONCE_MISMATCH_BUDGET: u32 = 32;
 /// mismatched answer detectable, so the drain — and every guard built on top of it — is
 /// unnecessary.
 fn resolve_route(target: &str) -> Result<(u32, u32)> {
-    use crate::budget::{route_with_nonce_budgeted, NonceMismatchBudget, RouteRetryOutcome};
+    use crate::budget::{route_with_nonce, NonceMismatchBudget, RouteRetryOutcome};
     let name = target.as_bytes();
     if name.is_empty() || name.len() > nexus_abi::routing::MAX_SERVICE_NAME_LEN {
         return Err(IpcError::Unsupported);
     }
-    match route_with_nonce_budgeted(
-        name,
-        ROUTE_ASK_BUDGET,
-        NonceMismatchBudget::new(ROUTE_NONCE_MISMATCH_BUDGET),
-    ) {
+    match route_with_nonce(name, NonceMismatchBudget::new(ROUTE_NONCE_MISMATCH_BUDGET)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Ok((send_slot, recv_slot)),
-        RouteRetryOutcome::Timeout | RouteRetryOutcome::TargetStale => Err(IpcError::Timeout),
+        RouteRetryOutcome::TargetStale => Err(IpcError::Timeout),
         RouteRetryOutcome::NonceMismatchBudgetExceeded | RouteRetryOutcome::Rejected { .. } => {
             Err(IpcError::Unsupported)
         }

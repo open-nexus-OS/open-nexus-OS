@@ -53,6 +53,8 @@ const CHILD_MINIDUMP_STATEFS_RECV_SLOT: u32 =
 /// SEND clone of the child's OWN event channel (it attaches this to windowd
 /// itself, nonce-tagged). After the service SEND slots 11..13 (nexus-sdk-routes).
 const CHILD_EVENTS_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_SEND;
+const CHILD_TIMER_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::TIMER_RECV;
+const CHILD_TIMER_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::TIMER_SEND;
 /// Hands the child its RECV half of the dedicated event channel
 /// (`CHILD_EVENTS_SLOT`).
 pub(crate) fn grant_event_channel(child_pid: u32) {
@@ -79,6 +81,24 @@ pub(crate) fn grant_event_channel(child_pid: u32) {
         let _ = nexus_abi::debug_println("execd: app event channel granted (minted)");
     } else {
         let _ = nexus_abi::debug_println("execd: FAIL app event channel grant (minted)");
+    }
+}
+
+/// TASK-0324 P7-d: the app's timer-notify endpoint — a fresh private pair, both halves to
+/// the child (RECV = a waitset member next to its event channel, SEND = what its kernel
+/// timer cap is bound to). The app's clock ticks by a one-shot timer, never a recv timeout.
+/// Same lifecycle as the event channel: mint→grant→close.
+pub(crate) fn grant_timer_channel(child_pid: u32) {
+    let Some((send_slot, recv_slot)) = route_ctrl(b"@mint-pair") else {
+        let _ = nexus_abi::debug_println("execd: FAIL app timer channel mint");
+        return;
+    };
+    let recv_ok = grant_clone(child_pid, recv_slot, nexus_abi::Rights::RECV, CHILD_TIMER_RECV_SLOT);
+    let send_ok = grant_clone(child_pid, send_slot, nexus_abi::Rights::SEND, CHILD_TIMER_SEND_SLOT);
+    let _ = nexus_abi::cap_close(send_slot);
+    let _ = nexus_abi::cap_close(recv_slot);
+    if !(recv_ok && send_ok) {
+        let _ = nexus_abi::debug_println("execd: FAIL app timer channel grant (minted)");
     }
 }
 /// Moves the payload VMO into the child's fixed payload slot

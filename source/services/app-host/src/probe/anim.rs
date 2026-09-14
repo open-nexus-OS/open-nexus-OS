@@ -656,29 +656,6 @@ impl super::DslApp {
         self.anim.driver.active_count() > 0 || !self.anim.loops.is_empty()
     }
 
-    /// Whether a BOUNDED (non-loop) animation is interpolating — the only
-    /// animation state that may arm the recv-timeout SELF-PACE fallback. A
-    /// continuous loop must ride the compositor frame pulse EXCLUSIVELY
-    /// (the compositor owns pacing + visibility; a self-paced loop kept
-    /// rendering at ~80Hz forever, hidden windows included).
-    pub(super) fn anim_transient_active(&self) -> bool {
-        let driver = &self.anim.driver;
-        let loop_springs = self
-            .anim
-            .loops
-            .iter()
-            .filter(|e| match e.sub {
-                LOOP_SWEEP => {
-                    driver.is_active(LayerId((e.node_id + 1) as u64), AnimProp::TranslateX)
-                }
-                // The carousel owns no spring — it steps on the pulse only.
-                LOOP_CAROUSEL => false,
-                _ => driver.is_active(LayerId(e.node_id as u64), AnimProp::Opacity),
-            })
-            .count();
-        self.anim.driver.active_count() > loop_springs
-    }
-
     /// Expand the per-node transforms into a SUBTREE CASCADE for the painter:
     /// each animated container also transforms every box laid out INSIDE it
     /// (pre-order descendants ≈ rect containment + higher `node_id`),

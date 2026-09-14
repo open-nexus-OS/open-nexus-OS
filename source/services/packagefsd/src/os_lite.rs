@@ -16,6 +16,7 @@
 extern crate alloc;
 
 use core::fmt;
+use nexus_ipc::Server;
 
 use alloc::collections::BTreeMap;
 use alloc::format;
@@ -23,7 +24,6 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use nexus_ipc::Server;
 use nexus_ipc::{Client, IpcError, KernelClient, KernelServer, Wait};
 use nexus_vfs_types::{DirEntry, VfsError};
 use storage::pkgimg::PkgImgCaps;
@@ -52,8 +52,6 @@ enum MountMode {
 
 /// Bounded index handoff (RFC-0089 §12.2: index ≤ 256 KiB).
 const INDEX_VMO_BYTES: usize = nexus_abi::bundlemgrd::PAYLOAD_DATA_OFFSET + 256 * 1024;
-/// Header-last poll budget for a bundlemgrd VMO reply.
-const HEADER_POLL_YIELDS: usize = 200_000;
 
 /// Result type used by the os-lite backend.
 pub type LiteResult<T> = core::result::Result<T, LiteError>;
@@ -184,6 +182,9 @@ impl Entry {
 /// per-request VMO would leak).
 struct VolumeReader {
     bundle: KernelClient,
+    /// The CAP_MOVE reply inbox: every VMO op answers here (TASK-0324 P7-d).
+    reply: KernelClient,
+    reply_send_slot: u32,
     vmo: u32,
     vmo_len: usize,
 }
@@ -202,37 +203,58 @@ impl VolumeReader {
         nexus_abi::vmo_write(self.vmo, 0, &zero).ok()?;
         let mut req = [0u8; 160];
         let n = wire::encode_get_file_vmo(bundle.as_bytes(), path.as_bytes(), &mut req)?;
-        let moved = nexus_abi::cap_clone(self.vmo).ok()?;
-        self.bundle
-            .send_with_cap_move_wait(
-                &req[..n],
-                moved,
-                Wait::Timeout(core::time::Duration::from_secs(2)),
-            )
-            .ok()?;
-        let len = poll_payload_header(self.vmo, size)?;
+        // ARM the VMO, then ask with a reply cap: bundlemgrd streams, writes the header LAST
+        // and answers — the answer is waited for (or its death), never polled (P7-d).
+        let (status, len) = vmo_op(
+            &self.bundle,
+            &self.reply,
+            self.reply_send_slot,
+            self.vmo,
+            &req[..n],
+            wire::OP_GET_FILE_VMO,
+        )?;
+        if status != wire::PAYLOAD_STATUS_OK || len as usize != size {
+            return None;
+        }
+        let len = len as usize;
         let mut bytes = vec![0u8; len];
         nexus_abi::vmo_read(self.vmo, wire::PAYLOAD_DATA_OFFSET, &mut bytes).ok()?;
         Some(bytes)
     }
 }
 
-/// Polls the header bundlemgrd writes LAST; `Some(len)` only for an OK
-/// header whose length matches the index (bounded, self-terminating).
-fn poll_payload_header(vmo: u32, expect: usize) -> Option<usize> {
+/// One VMO op against bundlemgrd (TASK-0324 P7-d): `OP_ARM_VMO` with a clone of `vmo` as
+/// the moved cap, then `req` with a reply-SEND clone; the answer `(status, len)` is WAITED
+/// for on the reply inbox — bundlemgrd's reply or its death (EOF). Foreign inbox frames
+/// (another op's late answer) are skipped.
+fn vmo_op(
+    bundle: &KernelClient,
+    reply: &KernelClient,
+    reply_send_slot: u32,
+    vmo: u32,
+    req: &[u8],
+    op: u8,
+) -> Option<(u8, u32)> {
     use nexus_abi::bundlemgrd as wire;
-    let mut hdr = [0u8; wire::PAYLOAD_DATA_OFFSET];
-    for _ in 0..HEADER_POLL_YIELDS {
-        nexus_abi::vmo_read(vmo, 0, &mut hdr).ok()?;
-        if let Some((status, len)) = wire::decode_payload_header(&hdr) {
-            return match status {
-                wire::PAYLOAD_STATUS_OK if len as usize == expect => Some(len as usize),
-                _ => None,
-            };
-        }
-        let _ = nexus_abi::yield_();
+    let moved = nexus_abi::cap_clone(vmo).ok()?;
+    let mut arm = [0u8; 4];
+    wire::encode_arm_vmo(&mut arm);
+    if bundle.send_with_cap_move_wait(&arm, moved, Wait::Blocking).is_err() {
+        let _ = nexus_abi::cap_close(moved);
+        return None;
     }
-    None
+    let reply_clone = nexus_abi::cap_clone(reply_send_slot).ok()?;
+    if bundle.send_with_cap_move_wait(req, reply_clone, Wait::Blocking).is_err() {
+        let _ = nexus_abi::cap_close(reply_clone);
+        return None;
+    }
+    let mut buf = [0u8; 64];
+    loop {
+        let n = reply.recv_into_eof(Wait::Blocking, &mut buf).ok()?;
+        if let Some(done) = wire::decode_payload_done_rsp(&buf[..n.min(buf.len())], op) {
+            return Some(done);
+        }
+    }
 }
 
 /// Runs the minimal packagefs daemon, emitting a readiness marker once.
@@ -240,16 +262,10 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Lite
     // Marker contract: emit only after the IPC endpoint exists.
     let _ = nexus_service_entry::ready("packagefsd: ready");
     notifier.notify();
-    // RFC-0005: name-based routing; init-lite assigns per-service endpoint caps and answers route
-    // queries over a private control channel, so services don't hardcode slot numbers.
-    let server = match KernelServer::new_for("packagefsd") {
-        Ok(server) => server,
-        Err(_) => {
-            let slots = nexus_service_topology::slots::packagefsd::SERVER;
-            KernelServer::new_with_slots(slots.recv, slots.send)
-                .map_err(|_| LiteError::Transport)?
-        }
-    };
+    // The declared server pair (TASK-0324 P4): pinned before this task runs — no route ask.
+    let slots = nexus_service_topology::slots::packagefsd::SERVER;
+    let server =
+        KernelServer::new_with_slots(slots.recv, slots.send).map_err(|_| LiteError::Transport)?;
     let (registry, mount_mode, reader) = match load_registry_from_volume() {
         Some((registry, reader)) => (registry, MountMode::SystemVolume, Some(reader)),
         None => {
@@ -392,24 +408,15 @@ fn load_registry_from_volume_inner() -> Result<(BundleRegistry, VolumeReader), &
     // a reply in the ctrl queue that a nonce-less `new_for` consumed as the
     // answer to "bundlemgrd" — handing us OUR OWN server pair (4,3). The
     // pre-P5 registry load silently fell back to the seed image that way.
-    let route = |name: &[u8]| -> Result<(u32, u32), &'static str> {
-        match nexus_ipc::budget::route_with_nonce_budgeted(
-            name,
-            core::time::Duration::from_secs(8),
-            nexus_ipc::budget::NonceMismatchBudget::new(64),
-        ) {
-            nexus_ipc::budget::RouteRetryOutcome::Success { send_slot, recv_slot } => {
-                Ok((send_slot, recv_slot))
-            }
-            _ => Err("route"),
-        }
-    };
-    let (bnd_send, bnd_recv) = route(b"bundlemgrd").map_err(|_| "route bundlemgrd")?;
-    let (reply_send_slot, reply_recv_slot) = route(b"@reply").map_err(|_| "route @reply")?;
-    let bundle = KernelClient::new_with_slots(bnd_send, bnd_recv).map_err(|_| "client")?;
+    // The declared legs (TASK-0324 P7-b/P7-d): bundlemgrd's request endpoint and our reply
+    // inbox, pinned by init before this task runs — no route ask.
+    let bnd = nexus_service_topology::slots::packagefsd::BUNDLEMGRD;
+    let inbox = nexus_service_topology::slots::packagefsd::REPLY;
+    let (reply_send_slot, reply_recv_slot) = (inbox.send, inbox.recv);
+    let bundle = KernelClient::new_with_slots(bnd.send, bnd.recv).map_err(|_| "client")?;
     let reply =
         KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).map_err(|_| "client")?;
-    let wait = Wait::Timeout(core::time::Duration::from_secs(2));
+    let wait = Wait::Blocking;
 
     // VOLUME_STATUS on the reply path: the moved cap is a SEND clone of our
     // reply inbox, so the answer arrives on the inbox's RECV side.
@@ -417,34 +424,26 @@ fn load_registry_from_volume_inner() -> Result<(BundleRegistry, VolumeReader), &
     let mut req = [0u8; 8];
     let n = wire::encode_volume_status(&mut req).ok_or("encode status")?;
     bundle.send_with_cap_move_wait(&req[..n], reply_clone, wait).map_err(|_| "send status")?;
-    let rsp =
-        reply.recv(Wait::Timeout(core::time::Duration::from_secs(5))).map_err(|_| "recv status")?;
+    let rsp = reply.recv(Wait::Blocking).map_err(|_| "recv status")?;
     let (status, slot, verified, bundles, _build8) =
         wire::decode_volume_status_rsp(&rsp).ok_or("decode status")?;
     if status != wire::STATUS_OK || verified != 1 {
         return Err("volume unverified");
     }
 
-    // GET_INDEX: the moved cap IS the VMO; the header written last is the reply.
+    // GET_INDEX into an ARMED VMO; bundlemgrd's answer (after the header write) is waited
+    // for — TASK-0324 P7-d, no header poll.
     let index_vmo = nexus_abi::vmo_create(INDEX_VMO_BYTES).map_err(|_| "index vmo")?;
-    let moved = nexus_abi::cap_clone(index_vmo).map_err(|_| "index vmo clone")?;
     let n = wire::encode_get_index(&mut req).ok_or("encode index")?;
-    bundle.send_with_cap_move_wait(&req[..n], moved, wait).map_err(|_| "send index")?;
-    let mut hdr = [0u8; wire::PAYLOAD_DATA_OFFSET];
-    let mut index_len = None;
-    for _ in 0..HEADER_POLL_YIELDS {
-        nexus_abi::vmo_read(index_vmo, 0, &mut hdr).map_err(|_| "index header read")?;
-        if let Some((status, len)) = wire::decode_payload_header(&hdr) {
-            if status == wire::PAYLOAD_STATUS_OK
-                && (len as usize) <= INDEX_VMO_BYTES - wire::PAYLOAD_DATA_OFFSET
-            {
-                index_len = Some(len as usize);
-            }
-            break;
-        }
-        let _ = nexus_abi::yield_();
+    let (status, len) =
+        vmo_op(&bundle, &reply, reply_send_slot, index_vmo, &req[..n], wire::OP_GET_INDEX)
+            .ok_or("index answer")?;
+    if status != wire::PAYLOAD_STATUS_OK
+        || (len as usize) > INDEX_VMO_BYTES - wire::PAYLOAD_DATA_OFFSET
+    {
+        return Err("index header");
     }
-    let index_len = index_len.ok_or("index header")?;
+    let index_len = len as usize;
     let mut head = vec![0u8; index_len];
     nexus_abi::vmo_read(index_vmo, wire::PAYLOAD_DATA_OFFSET, &mut head)
         .map_err(|_| "index read")?;
@@ -477,7 +476,7 @@ fn load_registry_from_volume_inner() -> Result<(BundleRegistry, VolumeReader), &
     let vmo_len = (wire::PAYLOAD_DATA_OFFSET + largest).div_ceil(4096) * 4096;
     let vmo = nexus_abi::vmo_create(vmo_len).map_err(|_| "file vmo")?;
     emit_mounted(slot, bundles as usize, files);
-    Ok((registry, VolumeReader { bundle, vmo, vmo_len }))
+    Ok((registry, VolumeReader { bundle, vmo, vmo_len, reply, reply_send_slot }))
 }
 
 /// `packagefsd: mounted (system volume slot=<s> bundles=N files=M)`.

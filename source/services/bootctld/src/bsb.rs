@@ -133,7 +133,6 @@ pub(crate) mod sync {
 
     /// Attach budget: virtioblkd is long up when bootctld (last in the
     /// stage graph) loads its record.
-    const ATTACH_BUDGET_NS: u64 = 2_000_000_000;
 
     pub(crate) enum Outcome {
         /// Projection already on disk — no write, seq unchanged.
@@ -144,12 +143,11 @@ pub(crate) mod sync {
     }
 
     pub(crate) fn attach() -> Option<RemoteBlockDevice> {
-        RemoteBlockDevice::open_with_deadline(
+        RemoteBlockDevice::open(
             blockproto::CLIENT_REQ_SLOT,
             blockproto::CLIENT_REPLY_SEND_SLOT,
             blockproto::CLIENT_REPLY_RECV_SLOT,
             blockproto::PART_BSB,
-            ATTACH_BUDGET_NS,
         )
     }
 

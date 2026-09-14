@@ -17,8 +17,8 @@ use alloc::vec::Vec;
 
 use core::fmt;
 
-use nexus_abi::{debug_putc, nsec, MsgHeader};
-use nexus_ipc::{KernelClient, KernelServer, Wait};
+use nexus_abi::{debug_putc, MsgHeader};
+use nexus_ipc::{Client as _, KernelClient, KernelServer, Wait};
 use statefs::client::StatefsClient;
 
 use crate::bootctl_client;
@@ -121,6 +121,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         }
         KernelServer::new_with_slots(RECV_SLOT, SEND_SLOT).map_err(|_| ServerError::Unsupported)?
     };
+    // The logd sink on the declared legs (ask-free, TASK-0324 P7-b).
+    {
+        let logd = nexus_service_topology::slots::updated::LOGD;
+        let reply = nexus_service_topology::slots::updated::REPLY;
+        nexus_log::configure_sink_logd_slots(logd.send, reply.send, reply.recv);
+    }
     let (recv_slot, send_slot) = server.slots();
     // RFC-0068: routine IPC-plumbing trace → fold in interactive (recall `NEXUS_LOG_EXPAND=updated`), raw in proof.
     if !nexus_abi::service_trace() {
@@ -214,7 +220,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         emit_line("updated: send cap fail");
                     }
                 } else {
-                    if send_bounded(send_slot, &rsp, 1_000_000_000).is_err() {
+                    if send_blocking(send_slot, &rsp).is_err() {
                         emit_line("updated: send fail");
                     }
                 }
@@ -242,27 +248,11 @@ fn emit_deny(op: u8, sender: u64) {
     audit("gate", "denied", None);
 }
 
-/// Bounded IPC send: WAITS in the kernel for queue space up to `budget_ns` (TASK-0324 P7 —
-/// a full queue is backpressure to wait out, not to spin on). Never blocks indefinitely.
-fn send_bounded(slot: u32, frame: &[u8], budget_ns: u64) -> Result<(), ()> {
+/// IPC send that WAITS in the kernel for queue space (TASK-0324 P7 — a full queue is
+/// backpressure to wait out, not to spin on); no clock (P7-d): space or the peer's death.
+fn send_blocking(slot: u32, frame: &[u8]) -> Result<(), ()> {
     let hdr = MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-    let deadline = nsec().map_err(|_| ())?.saturating_add(budget_ns);
-    nexus_ipc::budget::raw::send_budgeted(slot, &hdr, frame, deadline).map_err(|_| ())
-}
-
-fn wait_to_sys(wait: Wait) -> Option<(u32, u64)> {
-    match wait {
-        Wait::NonBlocking => Some((nexus_abi::IPC_SYS_NONBLOCK, 0)),
-        Wait::Blocking => Some((0, 0)),
-        Wait::Timeout(duration) => {
-            let now = nexus_abi::nsec().ok()?;
-            Some((0, now.saturating_add(duration_to_ns(duration))))
-        }
-    }
-}
-
-fn duration_to_ns(duration: core::time::Duration) -> u64 {
-    duration.as_secs().saturating_mul(1_000_000_000).saturating_add(duration.subsec_nanos() as u64)
+    nexus_ipc::budget::raw::send_blocking(slot, &hdr, frame).map_err(|_| ())
 }
 
 fn handle_frame(
@@ -487,44 +477,29 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
     };
     let mut frame = [0u8; 5];
     nexus_abi::bundlemgrd::encode_set_active_slot_req(slot_id, &mut frame);
-    let wait = Wait::Timeout(core::time::Duration::from_secs(1));
-    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| "reply-clone")?;
-    let (sys_flags, deadline_ns) = wait_to_sys(wait).ok_or("send-wait")?;
-    let hdr =
-        MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
-    if nexus_abi::ipc_send_v1(bnd_send_slot, &hdr, &frame, sys_flags, deadline_ns).is_err() {
-        let _ = nexus_abi::cap_close(reply_send_clone);
-        return Err("send");
-    }
-    // WAIT for the reply on the local reply inbox (1 s liveness bound); frames that are not
-    // the SET_ACTIVE_SLOT answer are dropped and the wait resumes.
-    let deadline = nexus_abi::nsec().map_err(|_| "reply-time")?.saturating_add(1_000_000_000);
-    let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
+    // ONE exchange, no clock (TASK-0324 P7-b): bundlemgrd's answer or its death.
     let mut buf = [0u8; 32];
-    loop {
-        let n = match nexus_ipc::budget::raw::recv_budgeted(
-            reply_recv_slot,
-            &mut hdr,
-            &mut buf,
-            deadline,
-        ) {
-            Ok(n) => core::cmp::min(n, buf.len()),
-            Err(nexus_ipc::IpcError::Timeout) => return Err("reply-timeout"),
-            Err(nexus_ipc::IpcError::Kernel(err)) => {
-                return Err(match err {
-                    nexus_abi::IpcError::NoSuchEndpoint => "reply-nosuch",
-                    nexus_abi::IpcError::PermissionDenied => "reply-denied",
-                    nexus_abi::IpcError::NoSpace => "reply-nospace",
-                    nexus_abi::IpcError::PeerClosed => "reply-peer-closed",
-                    _ => "reply-unsupported",
-                })
-            }
-            Err(_) => return Err("reply-unsupported"),
-        };
-        if let Some((status, _slot)) = nexus_abi::bundlemgrd::decode_set_active_slot_rsp(&buf[..n])
-        {
-            return if status == nexus_abi::bundlemgrd::STATUS_OK { Ok(()) } else { Err("status") };
+    let n = match nexus_ipc::exchange::call_into(
+        bnd_send_slot,
+        nexus_service_topology::SlotPair::new(reply_send_slot, reply_recv_slot),
+        &frame,
+        &mut buf,
+    ) {
+        Ok(n) => core::cmp::min(n, buf.len()),
+        Err(nexus_ipc::IpcError::Disconnected) => return Err("reply-peer-closed"),
+        Err(nexus_ipc::IpcError::Kernel(err)) => {
+            return Err(match err {
+                nexus_abi::IpcError::NoSuchEndpoint => "reply-nosuch",
+                nexus_abi::IpcError::PermissionDenied => "reply-denied",
+                _ => "reply-unsupported",
+            })
         }
+        Err(_) => return Err("reply-unsupported"),
+    };
+    match nexus_abi::bundlemgrd::decode_set_active_slot_rsp(&buf[..n]) {
+        Some((status, _slot)) if status == nexus_abi::bundlemgrd::STATUS_OK => Ok(()),
+        Some(_) => Err("status"),
+        None => Err("reply-malformed"),
     }
 }
 
@@ -607,27 +582,23 @@ fn keystored_verify(
     frame.extend_from_slice(public_key);
     frame.extend_from_slice(signature);
     frame.extend_from_slice(message);
-    let clock = nexus_ipc::budget::OsClock;
-    let Ok(deadline_ns) =
-        nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(1))
-    else {
-        return Out::Unavailable("nsec");
-    };
-    if nexus_ipc::budget::send_until(&clock, &client, &frame, deadline_ns).is_err() {
-        return Out::Unavailable("send-timeout");
+    // No clock (TASK-0324 P7-b): keystored answers on its response endpoint or dies.
+    if client.send(&frame, Wait::Blocking).is_err() {
+        return Out::Unavailable("send");
     }
-
-    let rsp = match nexus_ipc::budget::recv_matching_until(&clock, &client, deadline_ns, |v| {
-        let ours = v.len() >= 7
+    let rsp = loop {
+        let v = match client.recv(Wait::Blocking) {
+            Ok(v) => v,
+            Err(_) => return Out::Unavailable("recv"),
+        };
+        if v.len() >= 7
             && v[0] == KEYSTORE_MAGIC0
             && v[1] == KEYSTORE_MAGIC1
             && v[2] == KEYSTORE_VERSION
-            && v[3] == (KEYSTORE_OP_VERIFY | 0x80);
-        ours.then(|| v.to_vec())
-    }) {
-        Ok(v) => v,
-        Err(nexus_ipc::IpcError::Timeout) => return Out::Unavailable("timeout"),
-        Err(_) => return Out::Unavailable("recv"),
+            && v[3] == (KEYSTORE_OP_VERIFY | 0x80)
+        {
+            break v;
+        }
     };
 
     // From here keystored ANSWERED — protocol breakage fails closed, it is

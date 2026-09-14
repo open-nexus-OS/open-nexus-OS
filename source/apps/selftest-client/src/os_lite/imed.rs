@@ -28,11 +28,10 @@ pub(crate) fn imed_reject_foreign_probe() -> core::result::Result<(), ()> {
     req[6..10].copy_from_slice(&u32::from('a').to_le_bytes());
     req[10] = 0; // action
     req[11] = 0; // modifiers
-    if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(300))).is_err() {
+    if client.send(&req, IpcWait::Blocking).is_err() {
         return Err(());
     }
-    let rsp =
-        client.recv(IpcWait::Timeout(core::time::Duration::from_millis(300))).map_err(|_| ())?;
+    let rsp = client.recv(IpcWait::Blocking).map_err(|_| ())?;
     // Expected: [I, E, 1, OP_KEY|0x80, STATUS_DENIED].
     if rsp.len() == 5
         && rsp[0] == b'I'

@@ -177,7 +177,10 @@ pub(crate) const SETTINGSD: ServiceSpec = ServiceSpec {
     announce: false,
     server_slots: slots::settingsd::SERVER,
     reply_slots: slots::settingsd::REPLY,
-    extra_slots: &[],
+    extra_slots: &[
+        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::settingsd::TIMER_RECV },
+        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::settingsd::TIMER_SEND },
+    ],
 };
 
 // pinched: system-internal compute broker (SMP track Phase D). Exposes a
@@ -207,11 +210,14 @@ pub(crate) const BUNDLEMGRD: ServiceSpec = ServiceSpec {
     stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: true,
-    routes_to: &[Route {
-        to: ServiceId::Logd,
-        kind: RouteKind::ReplyInbox,
-        slots: slots::bundlemgrd::LOGD,
-    }],
+    routes_to: &[
+        Route { to: ServiceId::Logd, kind: RouteKind::ReplyInbox, slots: slots::bundlemgrd::LOGD },
+        Route {
+            to: ServiceId::Metricsd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::bundlemgrd::METRICSD,
+        },
+    ],
     announce: true,
     server_slots: slots::bundlemgrd::SERVER,
     reply_slots: slots::bundlemgrd::REPLY,

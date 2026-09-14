@@ -207,7 +207,9 @@ pub(super) fn sys_waitset_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     }
 
     // Level-ready scan: first member with a pending message wins.
-    if let Some(index) = crate::waitset::first_ready(members, |ep| ctx.router.pending(ep)) {
+    if let Some(index) = crate::waitset::first_ready(members, |ep| {
+        ctx.router.pending(ep) || ctx.router.eof_pending(ep)
+    }) {
         return Ok(index);
     }
     if deadline_ns != 0 && ctx.timer.now() >= deadline_ns {
@@ -219,7 +221,9 @@ pub(super) fn sys_waitset_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     for &ep in members {
         let _ = ctx.router.register_recv_waiter(ep, cur.as_raw());
     }
-    if let Some(index) = crate::waitset::first_ready(members, |ep| ctx.router.pending(ep)) {
+    if let Some(index) = crate::waitset::first_ready(members, |ep| {
+        ctx.router.pending(ep) || ctx.router.eof_pending(ep)
+    }) {
         for &ep in members {
             let _ = ctx.router.remove_recv_waiter(ep, cur.as_raw());
         }

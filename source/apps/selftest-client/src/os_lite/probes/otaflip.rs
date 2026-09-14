@@ -292,11 +292,9 @@ fn boot2_prove_flip(statefsd: &KernelClient, lane: Lane) {
 /// One bundlemgrd request over the pre-distributed client pair, bounded;
 /// the reply for `want_op` (foreign frames on the pair are skipped).
 fn bundlemgrd_call(client: &KernelClient, req: &[u8], want_op: u8) -> Option<Vec<u8>> {
-    use nexus_ipc::budget::{recv_budgeted, send_budgeted, OsClock};
-    let clock = OsClock;
-    send_budgeted(&clock, client, req, core::time::Duration::from_secs(2)).ok()?;
+    nexus_ipc::Client::send(client, req, nexus_ipc::Wait::Blocking).ok()?;
     for _ in 0..8 {
-        let rsp = recv_budgeted(&clock, client, core::time::Duration::from_secs(2)).ok()?;
+        let rsp = nexus_ipc::Client::recv(client, nexus_ipc::Wait::Blocking).ok()?;
         if rsp.len() >= 4
             && rsp[0] == nexus_abi::bundlemgrd::MAGIC0
             && rsp[1] == nexus_abi::bundlemgrd::MAGIC1

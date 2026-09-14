@@ -32,11 +32,8 @@ impl DisplayServerRuntime {
         if self.gpud_client.is_some() {
             return true;
         }
-        if let Ok(client) = KernelClient::new_for("gpud") {
-            let _ = debug_println("windowd: gpud route connected");
-            self.gpud_client = Some(client);
-            return true;
-        }
+        // The declared gpud pair only (TASK-0324 P7-b): no route ask, gpud's readiness is the
+        // stage fence's fact.
         if let Ok(client) = KernelClient::new_with_slots(GPUD_WIRED_SEND_SLOT, GPUD_WIRED_RECV_SLOT)
         {
             let _ = debug_println("windowd: gpud route wired slots");
@@ -168,13 +165,17 @@ impl DisplayServerRuntime {
     /// the reply nonce makes an answer that is not ours impossible to accept, so the
     /// "is this actually our inbox?" guard this drain used to carry is gone with the
     /// nonce-less protocol that needed it.
-    pub(crate) fn drain_gpud_replies(&mut self) {
+    /// Drains gpud's replies. Returns whether any arrived: every one is a display-ring
+    /// COMPLETION (a present ack, a layer-scroll status, a cursor status) — the frame clock
+    /// of the compositor loop (TASK-0324 P7-c), which then runs [`Self::on_frame_completed`].
+    pub(crate) fn drain_gpud_replies(&mut self) -> bool {
         if self.framebuffer_pending_first_write {
-            return;
+            return false;
         }
-        if self.gpud_client.is_none() {
-            return;
+        if self.gpud_client.is_none() && !self.ensure_gpud_client() {
+            return false;
         }
+        let mut any = false;
         // Stack-buffer drain: recv_into avoids the per-call Vec<u8> that
         // Client::recv allocates — windowd's bump allocator never frees, so a
         // per-frame reply Vec would slowly exhaust the heap.
@@ -182,26 +183,64 @@ impl DisplayServerRuntime {
         loop {
             let recv_result = {
                 let Some(client) = self.gpud_client.as_ref() else {
-                    return;
+                    return any;
                 };
                 client.recv_into(Wait::NonBlocking, &mut reply_buf)
             };
             match recv_result {
                 Ok(n) => {
+                    any = true;
                     if !self.handle_gpud_reply(&reply_buf[..n]) {
-                        return;
+                        return any;
                     }
                 }
                 Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                    return;
+                    return any;
                 }
                 Err(err) => {
                     log_gpud_ipc_error("windowd: gpud present recv failed", err);
                     self.reset_gpud_client();
-                    return;
+                    return any;
                 }
             }
         }
+    }
+
+    /// Keeps the frame clock running while something animates but nothing is queued
+    /// (TASK-0324 P7-c): a frame-pulse client waits for a pulse before it draws, a scroll
+    /// coast advances per frame, a spring may converge without damage — with no present in
+    /// flight there would be no completion and the animation would freeze. One pointer-rect
+    /// present (the smallest real frame) restores the clock; its completion is the next tick.
+    pub(crate) fn keep_frame_clock_alive(&mut self) {
+        if self.has_pending_damage() || self.frames_in_flight() > 0 {
+            return;
+        }
+        if self.has_active_animations()
+            || self.has_frame_pulse_clients()
+            || self.has_scroll_momentum()
+            || self.cursor_ring_active
+        {
+            self.queue_cursor_damage(
+                self.state.cursor_x,
+                self.state.cursor_y,
+                self.state.cursor_x,
+                self.state.cursor_y,
+            );
+        }
+    }
+
+    /// One display-ring completion (TASK-0324 P7-c): the frame clock. Animations integrate
+    /// real elapsed time to `now_ns`, scroll coasts advance, the wait ring steps, and the
+    /// animating clients get their frame pulse — each producing the damage that the loop
+    /// presents next, whose completion clocks the frame after. Idle produces nothing and the
+    /// loop sleeps on its waitset.
+    pub(crate) fn on_frame_completed(&mut self, now_ns: u64) {
+        if self.has_active_animations() {
+            self.tick(now_ns);
+        }
+        self.advance_app_scrolls(now_ns);
+        let _ = self.cursor_wait_tick(now_ns);
+        self.flush_frame_pulses();
     }
 
     /// Blocking control request whose reply is a bare status (layer scroll etc.).

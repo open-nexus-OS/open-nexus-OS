@@ -60,6 +60,9 @@ pub mod virgl_blur_shaders;
 /// CPU fallback for the vector pipeline (non-virgl 2D path).
 pub mod cpu_vector;
 
+/// gpud's frame clock (TASK-0324 P7-d): the one-shot timer pacing the self-presented phases.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) mod frame_clock;
 /// Reply encoding for the request loop (RFC-0093 §5).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod reply;

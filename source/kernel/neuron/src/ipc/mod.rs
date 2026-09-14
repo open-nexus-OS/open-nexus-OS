@@ -59,6 +59,8 @@ pub enum IpcError {
 
 /// Representation of an endpoint queue.
 mod endpoint;
+/// RFC-0079 last-sender EOF accessors (`had_sender` latch, owner, recv-waiter drain).
+mod eof;
 use endpoint::Endpoint;
 
 /// Message combining header and inline payload.
@@ -183,6 +185,10 @@ impl Router {
         #[cfg(feature = "failpoints")]
         if DENY_NEXT_SEND.swap(false, Ordering::SeqCst) {
             return Err((IpcError::PermissionDenied, msg));
+        }
+        // A live sender: whatever EOF the last scan latched is stale (TASK-0324 P7-d).
+        if let Some(ep) = self.endpoints.get_mut(id as usize) {
+            ep.eof_pending = false;
         }
         let msg_len = msg.payload.len();
         let owner = self.endpoints.get(id as usize).and_then(|ep| ep.owner);
@@ -386,32 +392,6 @@ impl Router {
         Ok(ep.remove_send_waiter(pid))
     }
 
-    /// RFC-0079: whether endpoint `id` has EVER had a sender (the monotonic
-    /// latch). `false` for a missing/dead endpoint. The EOF decision requires
-    /// this true, so an endpoint that never had a sender never wrongly EOFs.
-    #[must_use]
-    pub fn endpoint_had_sender(&self, id: EndpointId) -> bool {
-        self.endpoints.get(id as usize).is_some_and(|ep| ep.had_sender)
-    }
-
-    /// RFC-0079: latches endpoint `id` as having had a sender (called when the
-    /// recv-block scan observes a live SEND cap, complementing the send path).
-    pub fn mark_endpoint_had_sender(&mut self, id: EndpointId) {
-        if let Some(ep) = self.endpoints.get_mut(id as usize) {
-            ep.had_sender = true;
-        }
-    }
-
-    /// RFC-0079: drains endpoint `id`'s recv-waiters so they re-run recv (used
-    /// when the last SEND cap closed — a blocked EOF-opted receiver re-scans
-    /// and returns `PeerClosed`). Empty for a missing/dead endpoint.
-    pub fn drain_recv_waiters(&mut self, id: EndpointId) -> Vec<WaiterId> {
-        match self.endpoints.get_mut(id as usize) {
-            Some(ep) if ep.alive => ep.recv_waiters.drain(..).collect(),
-            _ => Vec::new(),
-        }
-    }
-
     /// Creates a new kernel endpoint and returns its identifier.
     pub fn create_endpoint(
         &mut self,
@@ -526,6 +506,26 @@ mod tests {
         let received = router.recv(0).unwrap();
         assert_eq!(received.header.ty, 42);
         assert_eq!(received.payload, payload);
+    }
+
+    /// TASK-0324 P7-d: the EOF latch a waitset reads — set by the last-peer scan, cleared by a
+    /// send (a live sender) and by the receiver's own observation; never on a dead endpoint.
+    #[test]
+    fn eof_latch_is_cleared_by_a_send_and_by_the_receiver() {
+        let mut router = Router::new(1);
+        let ep = router.create_endpoint(4, Some(7)).unwrap();
+        assert!(!router.eof_pending(ep));
+        router.set_eof_pending(ep);
+        assert!(router.eof_pending(ep));
+        let header = MessageHeader::new(1, 0, 1, 0, 0);
+        router.send(ep, Message::new(header, vec![], None)).unwrap();
+        assert!(!router.eof_pending(ep), "a sender wrote: the latch is stale");
+        router.set_eof_pending(ep);
+        router.clear_eof_pending(ep);
+        assert!(!router.eof_pending(ep));
+        router.set_eof_pending(ep);
+        let _ = router.close_endpoints_for_owner(7);
+        assert!(!router.eof_pending(ep), "a dead endpoint is never ready");
     }
 
     #[test]

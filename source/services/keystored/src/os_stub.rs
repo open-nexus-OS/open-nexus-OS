@@ -21,11 +21,9 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, Ordering};
-use core::time::Duration;
 
 use nexus_abi::yield_;
-use nexus_ipc::budget::{deadline_after, OsClock};
-use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
+use nexus_ipc::reqrep::{recv_match, ReplyBuffer};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 use statefs::StatefsError;
 
@@ -772,13 +770,9 @@ fn request_entropy_from_rngd(pending: &mut ReplyBuffer<16, 512>, n: usize) -> Op
         req.len() as u32,
     );
 
-    // Send request. 2s budget (matches the route budgets elsewhere): rngd
-    // does a policyd round-trip before replying, and slow boots (e.g. the
-    // virgl GPU bringup competing for the single hart) push that past the
-    // old 500ms window.
-    let clock = OsClock;
-    let deadline_ns = deadline_after(&clock, Duration::from_secs(2)).ok()?;
-    if nexus_ipc::budget::raw::send_budgeted(rng_send_slot, &hdr, &req, deadline_ns).is_err() {
+    // Send request — no clock (TASK-0324 P7-d): rngd does a policyd round-trip before
+    // replying; the wait ends with its answer or its death, never with a budget.
+    if nexus_ipc::budget::raw::send_blocking(rng_send_slot, &hdr, &req).is_err() {
         let _ = nexus_abi::cap_close(reply_send_clone);
         return None;
     }
@@ -786,17 +780,8 @@ fn request_entropy_from_rngd(pending: &mut ReplyBuffer<16, 512>, n: usize) -> Op
     // The reply inbox as the ONE kernel client (TASK-0324 P7): its `recv` honours the wait
     // `recv_match_until` hands it, so the reply WAKES us — the private NONBLOCK adapter that
     // used to sit here turned every wait into an instant `WouldBlock`.
-    let clock = OsClock;
     let inbox = nexus_ipc::KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).ok()?;
-    let rsp = recv_match_until(
-        &clock,
-        &inbox,
-        pending,
-        nonce as u64,
-        deadline_ns,
-        extract_shared_nonce_u32,
-    )
-    .ok()?;
+    let rsp = recv_match(&inbox, pending, nonce as u64, extract_shared_nonce_u32).ok()?;
 
     // Response: [R, G, 1, OP|0x80, STATUS, nonce:u32le, entropy...]
     if rsp.len() < 9 || rsp[0] != b'R' || rsp[1] != b'G' || rsp[2] != 1 {

@@ -50,50 +50,16 @@ pub(crate) fn execd_spawn_image(
     req.push(name.len() as u8);
     req.extend_from_slice(name);
     let (send_slot, recv_slot) = execd.slots();
-    let hdr = MsgHeader::new(0, 0, 0, 0, req.len() as u32);
-    let start = nexus_abi::nsec().map_err(|_| ())?;
-    let deadline = start.saturating_add(2_000_000_000); // 2s
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(|_| ())?;
-                    if now >= deadline {
-                        emit_line(crate::markers::M_SELFTEST_EXECD_SPAWN_SEND_TIMEOUT);
-                        return Err(());
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => {
-                emit_line(crate::markers::M_SELFTEST_EXECD_SPAWN_SEND_FAIL);
-                return Err(());
-            }
-        }
-        i = i.wrapping_add(1);
+    let hdr = MsgHeader::new(0, 0, 0, 0, req.len() as u32); // 2s
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req, 0, 0).is_err() {
+        emit_line(crate::markers::M_SELFTEST_EXECD_SPAWN_SEND_FAIL);
+        return Err(());
     }
     // Give execd a chance to run immediately after enqueueing (cooperative scheduler).
-    let _ = yield_();
     let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 16];
-    let mut j: usize = 0;
     loop {
-        if (j & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(|_| ())?;
-            if now >= deadline {
-                emit_line(crate::markers::M_SELFTEST_EXECD_SPAWN_TIMEOUT);
-                return Err(());
-            }
-        }
-        match nexus_abi::ipc_recv_v1(
-            recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
+        match nexus_abi::ipc_recv_v1(recv_slot, &mut rh, &mut buf, nexus_abi::IPC_SYS_TRUNCATE, 0) {
             Ok(n) => {
                 let n = core::cmp::min(n as usize, buf.len());
                 if n != 9 || buf[0] != MAGIC0 || buf[1] != MAGIC1 || buf[2] != VERSION {
@@ -119,12 +85,8 @@ pub(crate) fn execd_spawn_image(
                     Err(())
                 };
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
             Err(_) => return Err(()),
         }
-        j = j.wrapping_add(1);
     }
 }
 
@@ -153,8 +115,8 @@ pub(crate) fn execd_spawn_image_raw_requester(
     req.push(4);
     req.push(name.len() as u8);
     req.extend_from_slice(name);
-    execd.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
-    execd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())
+    execd.send(&req, IpcWait::Blocking).map_err(|_| ())?;
+    execd.recv(IpcWait::Blocking).map_err(|_| ())
 }
 
 // Wired again since the TASK-0049 reanimation (2026-08-19).
@@ -193,13 +155,8 @@ pub(crate) fn execd_report_exit_with_dump_status(
     req.extend_from_slice(build_id.as_bytes());
     req.extend_from_slice(dump_path.as_bytes());
     req.extend_from_slice(dump_bytes);
-
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(&clock, execd, &req, core::time::Duration::from_millis(500))
-        .map_err(|_| ())?;
-    let rsp =
-        nexus_ipc::budget::recv_budgeted(&clock, execd, core::time::Duration::from_millis(500))
-            .map_err(|_| ())?;
+    nexus_ipc::Client::send(execd, &req, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
+    let rsp = nexus_ipc::Client::recv(execd, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
     if rsp.len() != 9 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
         return Err(());
     }
@@ -235,13 +192,8 @@ pub(crate) fn execd_report_exit_with_dump_status_legacy(
     req.extend_from_slice(&(dump_path.len() as u16).to_le_bytes());
     req.extend_from_slice(build_id.as_bytes());
     req.extend_from_slice(dump_path.as_bytes());
-
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(&clock, execd, &req, core::time::Duration::from_millis(500))
-        .map_err(|_| ())?;
-    let rsp =
-        nexus_ipc::budget::recv_budgeted(&clock, execd, core::time::Duration::from_millis(500))
-            .map_err(|_| ())?;
+    nexus_ipc::Client::send(execd, &req, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
+    let rsp = nexus_ipc::Client::recv(execd, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
     if rsp.len() != 9 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
         return Err(());
     }
@@ -296,24 +248,12 @@ pub(crate) fn wait_for_pid_with_reason(execd: &KernelClient, pid: Pid) -> Option
     req[4..8].copy_from_slice(&(pid as u32).to_le_bytes());
 
     // Bounded retries to avoid hangs if execd is unavailable.
-    let clock = nexus_ipc::budget::OsClock;
     for _ in 0..128 {
-        if nexus_ipc::budget::send_budgeted(
-            &clock,
-            execd,
-            &req,
-            core::time::Duration::from_millis(200),
-        )
-        .is_err()
-        {
+        if nexus_ipc::Client::send(execd, &req, nexus_ipc::Wait::Blocking).is_err() {
             let _ = yield_();
             continue;
         }
-        let rsp = match nexus_ipc::budget::recv_budgeted(
-            &clock,
-            execd,
-            core::time::Duration::from_millis(500),
-        ) {
+        let rsp = match nexus_ipc::Client::recv(execd, nexus_ipc::Wait::Blocking) {
             Ok(rsp) => rsp,
             Err(_) => {
                 let _ = yield_();

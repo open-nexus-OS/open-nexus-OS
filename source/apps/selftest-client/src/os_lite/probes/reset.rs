@@ -22,8 +22,6 @@
 
 extern crate alloc;
 
-use core::time::Duration;
-
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::KernelClient;
 use statefs::protocol as proto;
@@ -311,27 +309,11 @@ pub(crate) fn bootctl_call_payload(frame: &[u8], op: u8, out: &mut [u8]) -> Opti
         nexus_abi::ipc_hdr::CAP_MOVE,
         frame.len() as u32,
     );
-    let deadline = nexus_abi::nsec().ok()?.saturating_add(2_000_000_000);
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                    let _ = nexus_abi::cap_close(reply_send_clone);
-                    return None;
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => {
-                let _ = nexus_abi::cap_close(reply_send_clone);
-                return None;
-            }
-        }
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, frame, 0, 0).is_err() {
+        let _ = nexus_abi::cap_close(reply_send_clone);
+        return None;
     }
     loop {
-        if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-            return None;
-        }
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         // Sized for the largest bootctld reply (OP_GET_MEASURED: 7 + 61)
         // with additive-tail headroom — TRUNCATE on a short buffer would
@@ -341,7 +323,7 @@ pub(crate) fn bootctl_call_payload(frame: &[u8], op: u8, out: &mut [u8]) -> Opti
             REPLY.recv,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
             0,
         ) {
             Ok(n) => {
@@ -353,9 +335,6 @@ pub(crate) fn bootctl_call_payload(frame: &[u8], op: u8, out: &mut [u8]) -> Opti
                     return Some((buf[4], avail));
                 }
                 // Foreign inbox frame (logd/statefs acks): consumed, skipped.
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = nexus_abi::yield_();
             }
             Err(_) => return None,
         }
@@ -423,11 +402,7 @@ pub(crate) fn bootctl_call_raw(frame: &[u8], op: u8) -> Option<(u8, [u8; 2])> {
 }
 
 fn route_bootctld() -> Option<u32> {
-    match budget::route_with_nonce_budgeted(
-        b"bootctld",
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(b"bootctld", NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, .. } => Some(send_slot),
         _ => None,
     }
@@ -439,17 +414,8 @@ fn request_reset() {
     let Some(send_slot) = route_bootctld() else { return };
     let frame = [b'B', b'T', 1u8, wire_op::RESET, 0u8]; // kind=reboot
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(2_000_000_000);
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => return,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                    return;
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => return,
-        }
+    match nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, 0, 0) {
+        Ok(_) => return,
+        Err(_) => return,
     }
 }

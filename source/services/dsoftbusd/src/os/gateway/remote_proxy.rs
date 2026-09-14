@@ -140,57 +140,33 @@ pub(crate) fn run_remote_proxy_loop(
                 } else {
                     // CAP_MOVE reply: move a cloned reply SEND cap so samgrd can respond on it.
                     let cap = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-                    samgrd
-                        .send_with_cap_move_wait(
-                            req,
-                            cap,
-                            Wait::Timeout(core::time::Duration::from_millis(300)),
-                        )
-                        .map_err(|_| {
-                            let _ = nexus_abi::cap_close(cap);
-                            ()
-                        })?;
+                    samgrd.send_with_cap_move_wait(req, cap, Wait::Blocking).map_err(|_| {
+                        let _ = nexus_abi::cap_close(cap);
+                        ()
+                    })?;
                     // Receive response on our deterministic reply inbox (bounded, non-blocking).
-                    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
                     let mut buf = [0u8; 512];
+                    // ONE waited receive on the reply inbox (TASK-0324 P7-d): the answer, or the
+                    // peer's death (EOF) — no clock, no re-poll.
                     let mut got = false;
-                    for _ in 0..30_000 {
-                        match nexus_abi::ipc_recv_v1(
-                            reply_recv_slot,
-                            &mut rh,
-                            &mut buf,
-                            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                            0,
-                        ) {
-                            Ok(n) => {
-                                let n = core::cmp::min(n as usize, buf.len());
-                                if !samgr_rsp_head_logged {
-                                    samgr_rsp_head_logged = true;
-                                    // #region agent log
-                                    let _ = if n >= 2 && buf[0] == b'S' && buf[1] == b'M' {
-                                        nexus_abi::debug_println(
-                                            "dbg:dsoftbusd: proxy samgr rsp head sm",
-                                        )
-                                    } else if n >= 2 && buf[0] == b'N' && buf[1] == b'S' {
-                                        nexus_abi::debug_println(
-                                            "dbg:dsoftbusd: proxy samgr rsp head ns",
-                                        )
-                                    } else {
-                                        nexus_abi::debug_println(
-                                            "dbg:dsoftbusd: proxy samgr rsp head other",
-                                        )
-                                    };
-                                    // #endregion
-                                }
-                                rsp_payload.extend_from_slice(&buf[..n]);
-                                got = true;
-                                break;
-                            }
-                            Err(nexus_abi::IpcError::QueueEmpty) => {
-                                let _ = nexus_abi::yield_();
-                            }
-                            Err(_) => break,
+                    if let Ok(n) = nexus_ipc::exchange::recv_reply(reply_recv_slot, &mut buf) {
+                        let n = core::cmp::min(n as usize, buf.len());
+                        if !samgr_rsp_head_logged {
+                            samgr_rsp_head_logged = true;
+                            // #region agent log
+                            let _ = if n >= 2 && buf[0] == b'S' && buf[1] == b'M' {
+                                nexus_abi::debug_println("dbg:dsoftbusd: proxy samgr rsp head sm")
+                            } else if n >= 2 && buf[0] == b'N' && buf[1] == b'S' {
+                                nexus_abi::debug_println("dbg:dsoftbusd: proxy samgr rsp head ns")
+                            } else {
+                                nexus_abi::debug_println(
+                                    "dbg:dsoftbusd: proxy samgr rsp head other",
+                                )
+                            };
+                            // #endregion
                         }
+                        rsp_payload.extend_from_slice(&buf[..n]);
+                        got = true;
                     }
                     if !got {
                         status = 1;
@@ -202,56 +178,30 @@ pub(crate) fn run_remote_proxy_loop(
             }
             SVC_BUNDLE_LIST => {
                 let cap = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-                bundlemgrd
-                    .send_with_cap_move_wait(
-                        req,
-                        cap,
-                        Wait::Timeout(core::time::Duration::from_millis(300)),
-                    )
-                    .map_err(|_| {
-                        let _ = nexus_abi::cap_close(cap);
-                        ()
-                    })?;
-                let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+                bundlemgrd.send_with_cap_move_wait(req, cap, Wait::Blocking).map_err(|_| {
+                    let _ = nexus_abi::cap_close(cap);
+                    ()
+                })?;
                 let mut buf = [0u8; 512];
+                // ONE waited receive on the reply inbox (TASK-0324 P7-d): the answer, or the
+                // peer's death (EOF) — no clock, no re-poll.
                 let mut got = false;
-                for _ in 0..30_000 {
-                    match nexus_abi::ipc_recv_v1(
-                        reply_recv_slot,
-                        &mut rh,
-                        &mut buf,
-                        nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                        0,
-                    ) {
-                        Ok(n) => {
-                            let n = core::cmp::min(n as usize, buf.len());
-                            if !bundle_rsp_head_logged {
-                                bundle_rsp_head_logged = true;
-                                // #region agent log
-                                let _ = if n >= 2 && buf[0] == b'B' && buf[1] == b'N' {
-                                    nexus_abi::debug_println(
-                                        "dbg:dsoftbusd: proxy bundle rsp head bn",
-                                    )
-                                } else if n >= 2 && buf[0] == b'N' && buf[1] == b'S' {
-                                    nexus_abi::debug_println(
-                                        "dbg:dsoftbusd: proxy bundle rsp head ns",
-                                    )
-                                } else {
-                                    nexus_abi::debug_println(
-                                        "dbg:dsoftbusd: proxy bundle rsp head other",
-                                    )
-                                };
-                                // #endregion
-                            }
-                            rsp_payload.extend_from_slice(&buf[..n]);
-                            got = true;
-                            break;
-                        }
-                        Err(nexus_abi::IpcError::QueueEmpty) => {
-                            let _ = nexus_abi::yield_();
-                        }
-                        Err(_) => break,
+                if let Ok(n) = nexus_ipc::exchange::recv_reply(reply_recv_slot, &mut buf) {
+                    let n = core::cmp::min(n as usize, buf.len());
+                    if !bundle_rsp_head_logged {
+                        bundle_rsp_head_logged = true;
+                        // #region agent log
+                        let _ = if n >= 2 && buf[0] == b'B' && buf[1] == b'N' {
+                            nexus_abi::debug_println("dbg:dsoftbusd: proxy bundle rsp head bn")
+                        } else if n >= 2 && buf[0] == b'N' && buf[1] == b'S' {
+                            nexus_abi::debug_println("dbg:dsoftbusd: proxy bundle rsp head ns")
+                        } else {
+                            nexus_abi::debug_println("dbg:dsoftbusd: proxy bundle rsp head other")
+                        };
+                        // #endregion
                     }
+                    rsp_payload.extend_from_slice(&buf[..n]);
+                    got = true;
                 }
                 if !got {
                     status = 1;
@@ -502,19 +452,18 @@ fn resolve_package_entry(
     rel_path: &str,
 ) -> core::result::Result<Option<pkg::PackagefsEntry>, ()> {
     let req = pkg::encode_packagefs_resolve_req(rel_path);
-    packagefsd.send(&req, Wait::Timeout(core::time::Duration::from_millis(300))).map_err(|_| {
+    packagefsd.send(&req, Wait::Blocking).map_err(|_| {
         // #region agent log
         let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve send fail");
         // #endregion
         ()
     })?;
-    let rsp =
-        packagefsd.recv(Wait::Timeout(core::time::Duration::from_millis(300))).map_err(|_| {
-            // #region agent log
-            let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve timeout");
-            // #endregion
-            ()
-        })?;
+    let rsp = packagefsd.recv(Wait::Blocking).map_err(|_| {
+        // #region agent log
+        let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve timeout");
+        // #endregion
+        ()
+    })?;
     pkg::decode_packagefs_resolve_rsp(&rsp).map_err(|_| {
         // #region agent log
         let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve rsp malformed");
@@ -558,10 +507,7 @@ fn handle_statefs_rw_request(
         }
     };
 
-    if statefsd
-        .send(internal_req.as_slice(), Wait::Timeout(core::time::Duration::from_millis(2_000)))
-        .is_err()
-    {
+    if statefsd.send(internal_req.as_slice(), Wait::Blocking).is_err() {
         let _ = nexus_abi::debug_println("dbg:dsoftbusd: remote statefs send fail");
         let io_status = sfp::STATUS_IO_ERROR;
         return (
@@ -571,18 +517,13 @@ fn handle_statefs_rw_request(
         );
     }
 
+    // The matching answer, waited for frame by frame (foreign replies on the shared endpoint
+    // are skipped); statefsd's death or a transport error ends the wait — no clock.
     let mut matched_rsp: Option<Vec<u8>> = None;
-    for _ in 0..256u16 {
-        match statefsd.recv(Wait::Timeout(core::time::Duration::from_millis(8))) {
-            Ok(frame) => {
-                if is_matching_statefs_v2_response(op, internal_nonce, frame.as_slice()) {
-                    matched_rsp = Some(frame);
-                    break;
-                }
-            }
-            Err(_) => {
-                let _ = nexus_abi::yield_();
-            }
+    while let Ok(frame) = statefsd.recv(Wait::Blocking) {
+        if is_matching_statefs_v2_response(op, internal_nonce, frame.as_slice()) {
+            matched_rsp = Some(frame);
+            break;
         }
     }
     let Some(rsp) = matched_rsp else {

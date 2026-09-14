@@ -14,5 +14,3 @@
 pub(crate) mod pkgfs;
 pub(crate) mod resolve;
 pub(crate) mod statefs;
-
-pub(super) const REMOTE_DSOFTBUS_WAIT_MS: u64 = 3000;

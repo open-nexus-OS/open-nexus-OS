@@ -19,9 +19,8 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::time::Duration;
 
-use nexus_abi::{nsec, yield_};
+use nexus_abi::nsec;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
 use nexus_metrics::{
@@ -262,12 +261,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> MetricsResult<()> {
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);
                 } else {
-                    let _ = server.send(&rsp, Wait::NonBlocking);
+                    let _ = server.send(&rsp, Wait::Blocking);
                 }
             }
-            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                let _ = yield_();
-            }
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {}
             Err(_) => return Err(MetricsError::Ipc),
         }
     }
@@ -414,11 +411,7 @@ fn route_metricsd_blocking() -> Option<KernelServer> {
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        name,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(name, NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }

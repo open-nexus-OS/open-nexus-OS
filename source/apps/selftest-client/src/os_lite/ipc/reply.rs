@@ -1,8 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Bounded reply-buffer helper used by selftest probes that need to
-//! receive a single large reply within a deadline. Extracted verbatim from
+//! CONTEXT: Reply-buffer helper used by selftest probes that need to receive a single
+//! large reply — a clock-free wait (TASK-0324 P7-d): the reply, or the peer's death. Extracted verbatim from
 //! the previous monolithic `os_lite` block in `main.rs` (TASK-0023B /
 //! RFC-0038 phase 1, cut 3). No behavior, marker, or reject-path change.
 //! OWNERS: @runtime
@@ -11,15 +11,8 @@
 //! TEST_COVERAGE: Indirect via QEMU `just test-os` (logd query/paged probes).
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md, docs/rfcs/RFC-0038-*.md
 
-pub(crate) fn recv_large_bounded(
-    recv_slot: u32,
-    out: &mut [u8],
-    budget: core::time::Duration,
-) -> core::result::Result<usize, ()> {
-    let clock = nexus_ipc::budget::OsClock;
+pub(crate) fn recv_large(recv_slot: u32, out: &mut [u8]) -> core::result::Result<usize, ()> {
     let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let deadline_ns = nexus_ipc::budget::deadline_after(&clock, budget).map_err(|_| ())?;
-    let n = nexus_ipc::budget::raw::recv_budgeted(recv_slot, &mut hdr, out, deadline_ns)
-        .map_err(|_| ())?;
+    let n = nexus_ipc::budget::raw::recv_blocking(recv_slot, &mut hdr, out).map_err(|_| ())?;
     Ok(core::cmp::min(n, out.len()))
 }

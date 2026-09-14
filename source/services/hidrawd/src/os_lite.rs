@@ -11,7 +11,6 @@
 extern crate alloc;
 
 use alloc::{format, vec::Vec};
-use core::time::Duration;
 
 use hid::{HidEvent, TimestampNs};
 use input_live_protocol::{
@@ -22,7 +21,6 @@ use nexus_abi::{
     cap_clone, cap_close, debug_println, debug_trace, ipc_recv_v1, irq_bind, irq_complete, nsec,
     yield_, Cap, MsgHeader, IPC_SYS_TRUNCATE,
 };
-use nexus_ipc::budget::{route_with_nonce_budgeted, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use virtio_input::{
     DeviceRole, DeviceSlot, InputEventKind, MappedVirtioInputDevice, RawInputEvent,
@@ -396,14 +394,11 @@ fn slot_present(slot: u32) -> bool {
     }
 }
 
+/// The declared inputd leg (TASK-0324 P4d) — no route ask (P7-b): the leg is pinned before
+/// this task runs, and an ask has no clock.
 fn route_inputd_blocking() -> Option<KernelClient> {
-    match route_with_nonce_budgeted(b"inputd", Duration::from_secs(2), NonceMismatchBudget::new(64))
-    {
-        RouteRetryOutcome::Success { send_slot, recv_slot } => {
-            KernelClient::new_with_slots(send_slot, recv_slot).ok()
-        }
-        _ => None,
-    }
+    let leg = nexus_service_topology::slots::hidrawd::INPUTD;
+    KernelClient::new_with_slots(leg.send, leg.recv).ok()
 }
 
 struct LiveDevice {

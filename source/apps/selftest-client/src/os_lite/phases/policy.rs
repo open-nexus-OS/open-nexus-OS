@@ -179,17 +179,8 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     }
 
     // Malformed policyd frame should not produce allow/deny.
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(
-        &clock,
-        &policyd,
-        b"bad",
-        core::time::Duration::from_millis(100),
-    )
-    .map_err(|_| ())?;
-    let rsp =
-        nexus_ipc::budget::recv_budgeted(&clock, &policyd, core::time::Duration::from_millis(100))
-            .map_err(|_| ())?;
+    nexus_ipc::Client::send(&policyd, b"bad", nexus_ipc::Wait::Blocking).map_err(|_| ())?;
+    let rsp = nexus_ipc::Client::recv(&policyd, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
     if rsp.len() == 6 && rsp[0] == b'P' && rsp[1] == b'O' && rsp[2] == 1 && rsp[4] == 2 {
         emit_line(crate::markers::M_SELFTEST_POLICY_MALFORMED_OK);
     } else {

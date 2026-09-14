@@ -134,12 +134,14 @@ impl DisplayServerRuntime {
             self.do_handoff_attach_blocking(handle);
         }
 
-        // Session decision BEFORE the first present (TASK-0065B): sessiond is
-        // ready long before this point, so the first revealed frame already
-        // shows the login greeter (or the session shell) — the boot-default
-        // desktop never flashes. Bounded; a miss defers to the cadenced probe.
+        // TASK-0324 P7-b: the SYNCHRONOUS session probe that stood here (TASK-0065B: "the
+        // first revealed frame shows the greeter") is deleted. Under RFC-0093 §3 sessiond is
+        // a `SessionStart` service and starts only after windowd reports `DisplayReady`,
+        // which happens below — so the probe could never succeed by construction (the P6-b/c
+        // pixel proof measured exactly that), and with clock-free asks it deadlocked the
+        // boot. The cadenced probe in the main loop owns the decision until P7-c makes
+        // sessiond push it.
         if self.first_handoff_attach_acked && !self.first_handoff_present_sent {
-            self.session_probe_at_handoff();
             // Theme/accent/shell-mode boot restore is EVENT-DRIVEN now
             // (RFC-0083): the watch registration burst delivers the persisted
             // values as ordinary settings events; code defaults hold until
@@ -206,14 +208,28 @@ impl DisplayServerRuntime {
             self.upload_cursor_bitmap_to_gpud();
         }
         // RFC-0093 §5: the desktop is complete — wallpaper in Plane 0, cursor uploaded, first
-        // frame presented. Ask gpud to reveal it and present once more; the ack of THAT frame
-        // is `STATUS_REVEALED`, and only on it do the "visible" markers print (`on_revealed`).
-        self.request_reveal();
+        // frame presented. The reveal itself waits for the session's first desktop-surface
+        // frame (`note_desktop_content`, TASK-0065B): the revealed frame contains the login,
+        // the desktop never flashes before it. The ack of the reveal frame is
+        // `STATUS_REVEALED`, and only on it do the "visible" markers print (`on_revealed`).
+        if self.reveal_gate.display_complete() {
+            self.request_reveal();
+        }
         // The standalone test icon sprite (TASK #61) is retired — the shell's
         // chrome (topbar + chat) is the real UI now. `upload_icon_to_gpud`
         // remains available for when the topbar hosts a real app icon (P3).
         self.framebuffer_pending_first_write = false;
         STATUS_OK
+    }
+
+    /// The desktop surface (the session's greeter or shell) presented a frame: the base layer
+    /// is dirty, and the FIRST such frame completes the reveal condition — the reveal frame
+    /// built right here composes it (`build_scene_cb_into` blits the dirty desktop band).
+    pub(super) fn note_desktop_content(&mut self) {
+        self.desktop_dirty = true;
+        if self.reveal_gate.session_content() {
+            self.request_reveal();
+        }
     }
 
     /// RFC-0093 §5: report the desktop complete (`OP_REVEAL`, fire-and-forget) and present

@@ -46,7 +46,7 @@ pub(crate) fn restart_proof() {
     // dead-endpoint caps is the drift the resource discipline forbids).
     let mut prev_send: Option<u32> = None;
     for _cycle in 0..CYCLES {
-        let Some((send_slot, recv_slot)) = resolve_pinched_budgeted() else {
+        let Some((send_slot, recv_slot)) = resolve_pinched() else {
             emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_FAIL);
             return;
         };
@@ -61,7 +61,7 @@ pub(crate) fn restart_proof() {
             return;
         };
         let crash = [b'P', b'N', 1, OP_SELFTEST_CRASH];
-        if client.send(&crash, IpcWait::Timeout(core::time::Duration::from_millis(500))).is_err() {
+        if client.send(&crash, IpcWait::Blocking).is_err() {
             emit_line(crate::markers::M_SELFTEST_SERVICE_RESTART_FAIL);
             return;
         }
@@ -71,7 +71,7 @@ pub(crate) fn restart_proof() {
         let start = nexus_abi::nsec().unwrap_or(0);
         let mut revived = false;
         while nexus_abi::nsec().unwrap_or(u64::MAX).saturating_sub(start) <= DEADLINE_NS {
-            let Some((send_slot, recv_slot)) = resolve_pinched_budgeted() else {
+            let Some((send_slot, recv_slot)) = resolve_pinched() else {
                 let _ = nexus_abi::yield_();
                 continue;
             };
@@ -86,13 +86,12 @@ pub(crate) fn restart_proof() {
                 continue;
             };
             let ping = [b'P', b'N', 1, OP_PING_UNKNOWN];
-            if client.send(&ping, IpcWait::Timeout(core::time::Duration::from_millis(500))).is_err()
-            {
+            if client.send(&ping, IpcWait::Blocking).is_err() {
                 let _ = nexus_abi::yield_();
                 continue;
             }
             for _ in 0..16 {
-                match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(500))) {
+                match client.recv(IpcWait::Blocking) {
                     Ok(rsp) => {
                         if rsp.len() == 5
                             && rsp[0] == b'P'
@@ -128,13 +127,9 @@ pub(crate) fn restart_proof() {
 }
 
 /// Bounded nonce-correlated pinched route resolve over the init responder.
-fn resolve_pinched_budgeted() -> Option<(u32, u32)> {
+fn resolve_pinched() -> Option<(u32, u32)> {
     use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
-    match budget::route_with_nonce_budgeted(
-        b"pinched",
-        core::time::Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(b"pinched", NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }

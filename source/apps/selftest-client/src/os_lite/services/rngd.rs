@@ -21,9 +21,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use core::time::Duration;
-
-use nexus_ipc::{Client, KernelClient, Wait};
+use nexus_ipc::KernelClient;
 
 /// rngd wire (pinned by the rngd service): request `[R, G, VERSION, OP, nonce:u32le, n:u16le]`,
 /// response `[R, G, VERSION, OP|0x80, status, nonce:u32le, entropy…]`.
@@ -31,12 +29,6 @@ const MAGIC: [u8; 2] = [b'R', b'G'];
 const VERSION: u8 = 1;
 const OP_GET_ENTROPY: u8 = 1;
 const RSP_HEADER_LEN: usize = 9;
-
-/// Liveness bound, NOT a scheduling guess: the wait is event-driven, so this only decides
-/// how long an rngd that has not answered is still presumed alive. rngd asks policyd before
-/// it replies; a supervised peer silent for 2 s is a real outage (ADR-0057). Same bound as
-/// the policy exchange in `nexus_ipc::policyd` (TASK-0324 P3/P4a).
-const LIVENESS_BOUND: Duration = Duration::from_secs(2);
 
 /// Why an exchange produced no usable reply. Each maps to its own marker at the caller.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,27 +72,24 @@ pub(crate) fn get_entropy(
     req.extend_from_slice(&[MAGIC[0], MAGIC[1], VERSION, OP_GET_ENTROPY]);
     req.extend_from_slice(&nonce.to_le_bytes());
     req.extend_from_slice(&n.to_le_bytes());
-    client.send(&req, Wait::Timeout(LIVENESS_BOUND)).map_err(|_| RngdError::Send)?;
-
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(LIVENESS_BOUND.as_nanos() as u64);
-    loop {
-        let now = nexus_abi::nsec().unwrap_or(u64::MAX);
-        if now >= deadline {
-            return Err(RngdError::NoReply);
-        }
-        // Blocks in the kernel until a frame arrives or the absolute deadline passes.
-        let rsp = client
-            .recv(Wait::Timeout(Duration::from_nanos(deadline - now)))
-            .map_err(|_| RngdError::NoReply)?;
-        if rsp.len() < RSP_HEADER_LEN || rsp[0..2] != MAGIC || rsp[2] != VERSION {
-            continue;
-        }
-        if u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]) != nonce {
-            continue;
-        }
-        if rsp[3] != (OP_GET_ENTROPY | 0x80) {
-            return Err(RngdError::WrongOp);
-        }
-        return Ok(EntropyReply { status: rsp[4], entropy: rsp[RSP_HEADER_LEN..].to_vec() });
+    // ONE exchange, no clock (TASK-0324 P7-b): the reply or rngd's death ends the wait.
+    let (send_slot, _) = client.slots();
+    let reply = nexus_service_topology::slots::selftest_client::REPLY;
+    // The inbox is shared with other exchanges: the answer is the frame carrying OUR nonce.
+    let mut buf = [0u8; nexus_ipc::exchange::MAX_REPLY];
+    let rsp = nexus_ipc::exchange::call_matching(send_slot, reply, &req, &mut buf, |rsp| {
+        let ours = rsp.len() >= RSP_HEADER_LEN
+            && rsp[0..2] == MAGIC
+            && rsp[2] == VERSION
+            && u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]) == nonce;
+        ours.then(|| rsp.to_vec())
+    })
+    .map_err(|e| match e {
+        nexus_ipc::IpcError::Disconnected => RngdError::NoReply,
+        _ => RngdError::Send,
+    })?;
+    if rsp[3] != (OP_GET_ENTROPY | 0x80) {
+        return Err(RngdError::WrongOp);
     }
+    Ok(EntropyReply { status: rsp[4], entropy: rsp[RSP_HEADER_LEN..].to_vec() })
 }

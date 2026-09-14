@@ -20,17 +20,17 @@ use nexus_ipc::{Client, Wait as IpcWait};
 
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
 use crate::os_lite::context::PhaseCtx;
-use crate::os_lite::ipc::routing::route_with_retry;
+use crate::os_lite::ipc::routing::route_checked;
 use crate::os_lite::{services, updated};
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // Policy E2E via policyd (minimal IPC protocol).
-    let policyd = match route_with_retry("policyd") {
+    let policyd = match route_checked("policyd") {
         Ok(client) => client,
         Err(_) => return Err(()),
     };
     emit_line(crate::markers::M_SELFTEST_IPC_ROUTING_POLICYD_OK);
-    let bundlemgrd = match route_with_retry("bundlemgrd") {
+    let bundlemgrd = match route_checked("bundlemgrd") {
         Ok(client) => client,
         Err(_) => return Err(()),
     };
@@ -41,7 +41,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     emit_hex_u64(bnd_recv as u64);
     emit_byte(b'\n');
     emit_line(crate::markers::M_SELFTEST_IPC_ROUTING_BUNDLEMGRD_OK);
-    let updated = match route_with_retry("updated") {
+    let updated = match route_checked("updated") {
         Ok(client) => client,
         Err(_) => return Err(()),
     };
@@ -77,12 +77,8 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_VOLUME_FAIL);
     }
-    bundlemgrd
-        .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(100)))
-        .map_err(|_| ())?;
-    let rsp = bundlemgrd
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-        .map_err(|_| ())?;
+    bundlemgrd.send(b"bad", IpcWait::Blocking).map_err(|_| ())?;
+    let rsp = bundlemgrd.recv(IpcWait::Blocking).map_err(|_| ())?;
     if rsp.len() == 8 && rsp[0] == b'B' && rsp[1] == b'N' && rsp[2] == 1 && rsp[4] != 0 {
         emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_MALFORMED_OK);
     } else {

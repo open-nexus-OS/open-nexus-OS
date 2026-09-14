@@ -73,19 +73,13 @@ const JOURNAL_CAP_BYTES: u32 = 16 * 1024;
 const JOURNAL_ALLOC_CAP_BYTES: u32 = 256 * 1024;
 
 /// Main logd bring-up service loop (os-lite).
-use crate::route_os::{declared_server, route_logd_blocking};
+use crate::route_os::declared_server;
 use crate::spill_os::SpillState;
 
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // RFC-0068: fold logd's own bring-up status into a `logd N/N` verdict (interactive).
     nexus_abi::service_verdict_arm();
-    let server = match route_logd_blocking() {
-        Some(server) => server,
-        None => {
-            emit_line("logd: route fallback");
-            declared_server().ok_or(ServerError::Unsupported)?
-        }
-    };
+    let server = declared_server().ok_or(ServerError::Unsupported)?;
     notifier.notify();
     // Emit only after the IPC endpoint exists.
     let _ = nexus_service_entry::ready("logd: ready");
@@ -114,9 +108,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // TASK-0049C: evidence spill (lazy statefsd attach + persisted mirror).
     let mut spill = SpillState::new();
     let selftest_sid = service_id_from_name(b"selftest-client");
-    // RFC-0068 P4: logd is the central SUBJECT collector. Recv with a timeout (instead of blocking)
-    // so a QUIET period — boot settled, no appends for a while — wakes us to render one verdict per
-    // subject (`scope`) over the journal. One place, no per-service flush-timing.
+    // RFC-0068 P4: logd is the central SUBJECT collector: once the shell is visible (init
+    // appends `stage: shell-visible` — an EVENT, TASK-0324 P7-d; the 1 s quiet-period clock is
+    // gone) it renders one verdict per subject (`scope`) over the journal. One place, no
+    // per-service flush-timing.
     let mut rendered_subjects = false;
     // SMP robustness: the central log sink must NEVER exit because of a
     // client-side IPC error (a peer dying mid-transaction is normal under
@@ -126,13 +121,14 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     loop {
         let mut inbuf = [0u8; 512];
-        match server.recv_request_with_meta_into(
-            Wait::Timeout(core::time::Duration::from_millis(1000)),
-            &mut inbuf,
-        ) {
+        // Spill work owed → look without blocking and do one spill step when nothing is
+        // queued; otherwise block — no clock either way.
+        let wait = if spill.has_work() { Wait::NonBlocking } else { Wait::Blocking };
+        match server.recv_request_with_meta_into(wait, &mut inbuf) {
             Ok((n, sender_service_id, reply)) => {
                 breaker.on_success();
                 let frame = &inbuf[..n];
+                let shell_visible = is_shell_visible_append(frame);
                 if !saw_any_rx {
                     emit_line("logd: rx first");
                     saw_any_rx = true;
@@ -203,12 +199,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 if let Some(reply) = reply {
                     let cap_slot = reply.slot();
                     // CAP_MOVE replies are critical control-plane signals (audit + crash reports):
-                    // WAIT for queue space in the kernel (generous liveness bound), never spin.
-                    let sent = KernelServer::send_on_cap_wait(
-                        cap_slot,
-                        rsp.as_slice(),
-                        Wait::Timeout(core::time::Duration::from_secs(15)),
-                    );
+                    // WAIT for queue space in the kernel — no clock; a dead caller ends the wait.
+                    let sent =
+                        KernelServer::send_on_cap_wait(cap_slot, rsp.as_slice(), Wait::Blocking);
                     if sent.is_err() {
                         emit_line("logd: capmove reply send fail");
                     }
@@ -221,10 +214,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                             emit_line("logd: allow selftest replies");
                             saw_allow_selftest = true;
                         }
-                        let sent = server.send(
-                            rsp.as_slice(),
-                            Wait::Timeout(core::time::Duration::from_secs(2)),
-                        );
+                        let sent = server.send(rsp.as_slice(), Wait::Blocking);
                         if sent.is_err() {
                             emit_line("logd: selftest reply send fail");
                         }
@@ -239,21 +229,23 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         saw_drop_nonself = true;
                     }
                 }
+                // RFC-0068 P4: the shell is on screen — boot settled; render the per-subject
+                // journal verdicts once. Interactive only — proof keeps the raw records.
+                if shell_visible
+                    && !rendered_subjects
+                    && saw_any_append
+                    && nexus_abi::boot_should_fold_verdicts()
+                {
+                    render_subject_verdicts(&journal);
+                    rendered_subjects = true;
+                }
                 // TASK-0049C: one spill tick per served request (response
                 // already sent — spill I/O never delays an emitter's ack).
                 spill.tick();
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                // TASK-0049C: drain the evidence backlog while quiet.
+                // TASK-0049C: one spill step between requests (work owed, nothing queued).
                 spill.tick();
-                // Quiet (no request for the timeout window): once boot has settled after appends,
-                // render the per-subject journal verdicts once. Interactive only — proof keeps the
-                // raw records for verify-uart.
-                if !rendered_subjects && saw_any_append && nexus_abi::boot_should_fold_verdicts() {
-                    render_subject_verdicts(&journal);
-                    rendered_subjects = true;
-                }
-                let _ = yield_();
             }
             Err(_) => {
                 let (should_log, verdict) = breaker.on_error();
@@ -272,6 +264,20 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             }
         }
     }
+}
+
+/// `true` for the append init sends when the boot-stage fence reaches `shell-visible`
+/// (scope `stage`, message `shell-visible`) — the event that ends logd's boot-settled wait.
+fn is_shell_visible_append(frame: &[u8]) -> bool {
+    if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[3] != OP_APPEND {
+        return false;
+    }
+    let decoded = match frame[2] {
+        VERSION => decode_append_v1(frame),
+        VERSION_V2 => decode_append_v2(frame),
+        _ => return false,
+    };
+    matches!(decoded, Ok((_, scope, message, _)) if scope == b"stage" && message.starts_with(b"shell-visible"))
 }
 
 /// RFC-0068 P4: render one grid verdict per SUBJECT (`scope`) over the journal — the central

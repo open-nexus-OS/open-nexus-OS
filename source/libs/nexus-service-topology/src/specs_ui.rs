@@ -49,7 +49,10 @@ pub(crate) const GPUD: ServiceSpec = ServiceSpec {
     announce: true,
     server_slots: slots::gpud::SERVER,
     reply_slots: SlotPair::UNDECLARED,
-    extra_slots: &[],
+    extra_slots: &[
+        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::gpud::TIMER_RECV },
+        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::gpud::TIMER_SEND },
+    ],
 };
 
 /// The declaration of `inputd`.
@@ -76,6 +79,8 @@ pub(crate) const INPUTD: ServiceSpec = ServiceSpec {
         NamedSlotBinding { name: NamedSlot::Settings, slot: slots::inputd::SETTINGS_SEND },
         NamedSlotBinding { name: NamedSlot::SettingsWatchRecv, slot: slots::inputd::WATCH_RECV },
         NamedSlotBinding { name: NamedSlot::SettingsWatchSend, slot: slots::inputd::WATCH_SEND },
+        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::inputd::TIMER_RECV },
+        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::inputd::TIMER_SEND },
     ],
 };
 
@@ -121,6 +126,14 @@ pub(crate) const WINDOWD: ServiceSpec = ServiceSpec {
     extra_slots: &[
         NamedSlotBinding { name: NamedSlot::SettingsWatchRecv, slot: slots::windowd::WATCH_RECV },
         NamedSlotBinding { name: NamedSlot::SettingsWatchSend, slot: slots::windowd::WATCH_SEND },
+        NamedSlotBinding {
+            name: NamedSlot::SessionWatchRecv,
+            slot: slots::windowd::SESSION_WATCH_RECV,
+        },
+        NamedSlotBinding {
+            name: NamedSlot::SessionWatchSend,
+            slot: slots::windowd::SESSION_WATCH_SEND,
+        },
     ],
 };
 

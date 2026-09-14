@@ -19,6 +19,11 @@ pub const OP_GET_STATE: u8 = 1;
 pub const OP_LOGIN: u8 = 2;
 /// Lock the active session. Reserved: answers `STATUS_UNSUPPORTED` today.
 pub const OP_LOCK: u8 = 3;
+/// Subscribe to session-state PUSHES (TASK-0324 P7-c): the request moves a SEND cap of the
+/// subscriber's push channel; sessiond answers `[S, N, ver, OP_WATCH|0x80, status]` on that
+/// same cap and then pushes one GET_STATE-shaped frame at once and one per state change.
+/// The subscriber never asks again — no probe cadence, no login poll.
+pub const OP_WATCH: u8 = 4;
 
 /// Operation succeeded.
 pub const STATUS_OK: u8 = 0;
@@ -47,6 +52,22 @@ pub const GET_STATE_BODY_OFFSET: usize = 8;
 /// Encodes a GET_STATE request: `[S, N, ver, OP_GET_STATE]`.
 pub fn encode_get_state(out: &mut [u8; 4]) {
     *out = [MAGIC0, MAGIC1, VERSION, OP_GET_STATE];
+}
+
+/// Encodes a WATCH request: `[S, N, ver, OP_WATCH]` (the push channel's SEND cap travels as
+/// the frame's moved capability).
+pub fn encode_watch_req(out: &mut [u8; 4]) {
+    *out = [MAGIC0, MAGIC1, VERSION, OP_WATCH];
+}
+
+/// True for the WATCH acknowledgement `[S, N, ver, OP_WATCH|0x80, status]` (any status);
+/// the frames that follow on the push channel are GET_STATE-shaped pushes.
+pub fn is_watch_ack(frame: &[u8]) -> bool {
+    frame.len() == 5
+        && frame[0] == MAGIC0
+        && frame[1] == MAGIC1
+        && frame[2] == VERSION
+        && frame[3] == (OP_WATCH | 0x80)
 }
 
 /// Decodes the request opcode from a sessiond v1 request frame.
@@ -90,6 +111,18 @@ crate::frames! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn watch_req_golden_and_ack_shape() {
+        let mut req = [0u8; 4];
+        encode_watch_req(&mut req);
+        assert_eq!(req, [b'S', b'N', 1, OP_WATCH]);
+        assert_eq!(decode_request_op(&req).unwrap(), OP_WATCH);
+        assert!(is_watch_ack(&[b'S', b'N', 1, OP_WATCH | 0x80, STATUS_OK]));
+        // A push (GET_STATE-shaped) is not the ack, and a truncated ack is not one either.
+        assert!(!is_watch_ack(&[b'S', b'N', 1, OP_GET_STATE | 0x80, STATUS_OK]));
+        assert!(!is_watch_ack(&[b'S', b'N', 1, OP_WATCH | 0x80]));
+    }
 
     #[test]
     fn get_state_req_golden() {

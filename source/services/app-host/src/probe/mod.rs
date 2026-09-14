@@ -29,6 +29,8 @@ use nexus_ipc::{Client as _, KernelClient, Wait};
 mod anim;
 mod boot;
 mod clock;
+mod timer;
+use timer::{arm_clock_timer, drain_timer_notify};
 mod env;
 mod interaction;
 mod layers;
@@ -59,6 +61,10 @@ const WINDOWD_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD
 /// by any receiver. Slot 6 stays as the fallback for older wiring
 /// (marked).
 const EVENTS_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_RECV;
+/// The app's timer-notify pair (TASK-0324 P7-d, minted by execd): the clock's one-shot
+/// timer fires a frame on RECV, a waitset member next to the event channel.
+const TIMER_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::TIMER_RECV;
+const TIMER_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::TIMER_SEND;
 
 // The embedded fallback payload is DELETED (separation of concerns):
 // program bytes belong to bundlemgrd (the registry) ONLY. A missing/broken
@@ -90,20 +96,6 @@ const PAYLOAD_MAX_LEN: usize = 512 * 1024;
 /// Probe surface: well under the transport bounds.
 const SURFACE_W: u16 = 320;
 const SURFACE_H: u16 = 240;
-
-/// Liveness bound for one request send: the kernel waits for queue space up to this
-/// long (windowd's bring-up backpressure), then the send is a loud failure.
-const SEND_BOUND: core::time::Duration = core::time::Duration::from_secs(8);
-/// Ack liveness bound (windowd finishes its bring-up around 1.5s boot time;
-/// the probe may start at 0.33s). TIME, not iterations — the kernel wakes the
-/// wait per frame.
-const ACK_BUDGET_NS: u64 = 30_000_000_000;
-/// Content-rect liveness bound: early-boot windowd can lag several seconds
-/// before it drains its request queue (grown image); a LATE answer is correct.
-const CONTENT_RECT_BOUND_NS: u64 = 8_000_000_000;
-/// How long the optional boot push (theme/profile/region snapshot) is waited for
-/// before the compositor defaults are used.
-const BOOT_PUSH_BOUND_NS: u64 = 500_000_000;
 
 /// A per-process address salt for the nonce (ASLR-independent uniqueness
 /// helper; the time component does the heavy lifting).
@@ -153,19 +145,36 @@ pub(super) fn run() -> Result<(), &'static str> {
     //    arrive on the event channel, before any surface exists.
     let client = KernelClient::new_with_slots(WINDOWD_SEND_SLOT, WINDOWD_RECV_SLOT)
         .map_err(|_| "apphost: client slots")?;
-    let events = match cap_clone(EVENTS_RECV_SLOT) {
+    let (events, events_recv_slot) = match cap_clone(EVENTS_RECV_SLOT) {
         Ok(probe) => {
             let _ = nexus_abi::cap_close(probe);
             raw_marker("APPHOST: events source=dedicated");
-            KernelClient::new_with_slots(WINDOWD_SEND_SLOT, EVENTS_RECV_SLOT)
-                .map_err(|_| "apphost: event slots")?
+            let c = KernelClient::new_with_slots(WINDOWD_SEND_SLOT, EVENTS_RECV_SLOT)
+                .map_err(|_| "apphost: event slots")?;
+            (c, EVENTS_RECV_SLOT)
         }
         Err(_) => {
             raw_marker("APPHOST: events source=shared (fallback)");
-            KernelClient::new_with_slots(WINDOWD_SEND_SLOT, WINDOWD_RECV_SLOT)
-                .map_err(|_| "apphost: event slots")?
+            let c = KernelClient::new_with_slots(WINDOWD_SEND_SLOT, WINDOWD_RECV_SLOT)
+                .map_err(|_| "apphost: event slots")?;
+            (c, WINDOWD_RECV_SLOT)
         }
     };
+    // TASK-0324 P7-d: ONE waitset over the event channel and the timer-notify endpoint. The
+    // clock (minute boundary) is a kernel one-shot timer armed at the exact deadline;
+    // animations ride the compositor's frame pulse EXCLUSIVELY (a pulse request is a waited
+    // send, never dropped) — no 12 ms self-pace, no recv timeout. A closed window (RFC-0079
+    // EOF) reaches the waitset like any receiver: the member reads ready, the recv says so.
+    let timer = nexus_abi::timer_create(TIMER_SEND_SLOT, 0).ok();
+    let waitset = nexus_abi::waitset_create().ok().and_then(|ws| {
+        nexus_abi::waitset_add(ws, events_recv_slot).ok()?;
+        nexus_abi::waitset_add(ws, TIMER_RECV_SLOT).ok()?;
+        Some(ws)
+    });
+    if timer.is_none() || waitset.is_none() {
+        raw_marker("apphost: FAIL waitset/timer (blocking on the event channel alone)");
+    }
+    let mut timer_armed_ns = 0u64;
 
     // 1a. Attach OUR event channel to windowd, tagged with a self-minted
     //     nonce (repeated on SURFACE_CREATE): windowd binds channel↔surface
@@ -182,19 +191,15 @@ pub(super) fn run() -> Result<(), &'static str> {
                 nexus_abi::ipc_hdr::CAP_MOVE,
                 frame.len() as u32,
             );
-            // WAIT for queue space (2 s liveness bound) — never spin on QueueFull.
-            let deadline = nsec().unwrap_or(0).saturating_add(2_000_000_000);
-            match nexus_ipc::budget::raw::send_budgeted(WINDOWD_SEND_SLOT, &hdr, &frame, deadline) {
-                Ok(()) => {
+            // WAIT for queue space — no clock; a dead windowd ends the wait.
+            match nexus_abi::ipc_send_v1(WINDOWD_SEND_SLOT, &hdr, &frame, 0, 0) {
+                Ok(_) => {
                     raw_marker("APPHOST: events attached (nonce)");
                     // RFC-0079: relinquish our OWN send cap to our event
                     // inbox — windowd is the sole sender now. Otherwise
                     // this leftover SEND cap keeps the last-sender scan
                     // non-zero and the window-close EOF never fires.
                     let _ = nexus_abi::cap_close(EVENTS_SEND_CLONE_SLOT);
-                }
-                Err(nexus_ipc::IpcError::Timeout) => {
-                    raw_marker("APPHOST: FAIL events attach (queue)")
                 }
                 Err(_) => raw_marker("APPHOST: FAIL events attach (send)"),
             }
@@ -377,7 +382,7 @@ pub(super) fn run() -> Result<(), &'static str> {
         // frame (value/effect tokens are inert until a state change).
         if dsl.anim_active() {
             let req = wire::encode_surface_frame_req(surface_id);
-            let _ = client.send(&req, Wait::NonBlocking);
+            let _ = client.send(&req, Wait::Blocking);
         }
     }
 
@@ -429,58 +434,34 @@ pub(super) fn run() -> Result<(), &'static str> {
             event_frame[..f.len()].copy_from_slice(&f);
             f.len()
         } else {
-            // Scroll physics pacing: while the ease/fling is animating,
-            // recv with a short timeout so ticks advance even when no
-            // event arrives — the timeout path repaints the viewport span
-            // (apple-smooth decay instead of notch jumps).
-            // Self-pace fallback ONLY for BOUNDED motion (scroll momentum,
-            // a tap-triggered fade): they converge, so a dropped pulse
-            // costs at most a few self-paced frames. Continuous loops
-            // (widget breathe) ride the compositor frame pulse EXCLUSIVELY
-            // — windowd owns pacing + visibility (a self-paced loop kept
-            // rendering hidden windows at ~80Hz forever).
-            let animating = app
-                .as_ref()
-                .map(|d| d.momentum_active() || d.anim_transient_active())
-                .unwrap_or(false);
-            let wait = app.as_ref().map(|d| d.event_wait(animating)).unwrap_or(Wait::Blocking);
-            // RFC-0079: opt into last-sender EOF — when windowd closes our
-            // event channel (window closed), recv returns `Disconnected`
-            // and the app self-exits (handled below) so its image returns
-            // to the arena instead of parking forever (#29 app-side).
+            // The wait — no clock: the timer for the clock (if the app declares one), then
+            // the waitset; the recv that follows is non-blocking and EOF-opted.
+            if let (Some(t), Some(dsl)) = (timer, app.as_ref()) {
+                arm_clock_timer(t, dsl.clock_deadline_ns(), &mut timer_armed_ns);
+            }
+            let wait = match waitset {
+                Some(ws) => {
+                    let _ = nexus_abi::waitset_wait(ws, 0);
+                    Wait::NonBlocking
+                }
+                None => Wait::Blocking,
+            };
             match events.recv_into_eof(wait, &mut event_frame) {
                 Ok(len) => {
                     recv_err_marked = false;
                     len
                 }
                 Err(nexus_ipc::IpcError::Timeout) | Err(nexus_ipc::IpcError::WouldBlock) => {
+                    // Not an event: the clock's one-shot fired (its notify frame is drained
+                    // here; the kernel disarmed it) — or a spurious wake, which is nothing.
+                    if !drain_timer_notify() {
+                        continue;
+                    }
+                    timer_armed_ns = 0;
                     if let Some(dsl) = app.as_mut() {
                         if dsl.clock_supported() && dsl.clock_tick() {
                             dirty = true;
                             dirty_rows = None;
-                        }
-                        let (span, end) = dsl.momentum_tick();
-                        if let Some(span) = span {
-                            dirty_rows = match (dirty, dirty_rows) {
-                                (true, None) => None,
-                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
-                                (false, None) => Some(span),
-                            };
-                            dirty = true;
-                        }
-                        if end && dsl.fire_end_reached() {
-                            dirty = true;
-                            dirty_rows = None;
-                        }
-                        // DSL animation physics also advance on the self-paced
-                        // tick — same union-span damage as the frame-pulse arm.
-                        if let Some(span) = dsl.anim_tick() {
-                            dirty_rows = match (dirty, dirty_rows) {
-                                (true, None) => None,
-                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
-                                (false, None) => Some(span),
-                            };
-                            dirty = true;
                         }
                         if dirty && !present_in_flight {
                             // Fall through to the present block via a zero-len
@@ -605,7 +586,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                 }
                 if dsl.momentum_active() || dsl.anim_active() {
                     let req = wire::encode_surface_frame_req(surface_id);
-                    let _ = client.send(&req, Wait::NonBlocking);
+                    let _ = client.send(&req, Wait::Blocking);
                 }
             }
         } else if let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len]) {
@@ -630,7 +611,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                         // arm the frame pulse so they tick.
                         if dsl.anim_active() {
                             let req = wire::encode_surface_frame_req(surface_id);
-                            let _ = client.send(&req, Wait::NonBlocking);
+                            let _ = client.send(&req, Wait::Blocking);
                         }
                     }
                 }
@@ -649,7 +630,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                         // The un-hover spring needs pulses too.
                         if dsl.anim_active() {
                             let req = wire::encode_surface_frame_req(surface_id);
-                            let _ = client.send(&req, Wait::NonBlocking);
+                            let _ = client.send(&req, Wait::Blocking);
                         }
                     }
                 }
@@ -693,7 +674,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                         // Tap may have started an animation or pager glide.
                         if dsl.anim_active() || dsl.momentum_active() {
                             let req = wire::encode_surface_frame_req(surface_id);
-                            let _ = client.send(&req, Wait::NonBlocking);
+                            let _ = client.send(&req, Wait::Blocking);
                         }
                     } else if outcome == TapOutcome::NoHandler && tap_miss_markers < 8 {
                         tap_miss_markers += 1;
@@ -856,7 +837,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                             // Fresh surface id: re-arm parked pulses.
                             if app.as_ref().map(|d| d.anim_active()).unwrap_or(false) {
                                 let req = wire::encode_surface_frame_req(surface_id);
-                                let _ = client.send(&req, Wait::NonBlocking);
+                                let _ = client.send(&req, Wait::Blocking);
                             }
                         }
                     }

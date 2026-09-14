@@ -38,6 +38,7 @@ use crate::task::BlockReason;
 // Every item stays reachable as `crate::syscall::api::*` via the re-imports
 // below; submodule-private helpers are widened to pub(super) only.
 mod caps;
+mod eof_scan;
 mod exec;
 mod exec_copy;
 mod ipc_msg;

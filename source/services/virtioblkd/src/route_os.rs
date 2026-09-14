@@ -13,26 +13,13 @@
 //! TEST_COVERAGE: QEMU ladder (`virtioblkd: ready`).
 //! ADR: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
 
-use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::KernelServer;
 
-/// ONE route ask on the control channel (RFC-0093 §1: never re-ask — the old bespoke
-/// 64-iteration loop re-sent the same query per iteration and filled init's control
-/// queue, so the `@ready` announce found no room, 2026-09-09). init answers only once
-/// its responder runs (after orchestration), so a short budget keeps the deterministic
-/// slot fallback immediate for this wave-0 driver.
-fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        name,
-        core::time::Duration::from_millis(50),
-        NonceMismatchBudget::new(8),
-    ) {
-        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
-        _ => None,
-    }
-}
-
-pub(crate) fn route_virtioblkd_blocking() -> Option<KernelServer> {
-    let (send_slot, recv_slot) = route_blocking(b"virtioblkd")?;
-    KernelServer::new_with_slots(recv_slot, send_slot).ok()
+/// virtioblkd's server on the slots init pins for it (TASK-0324 P4f-1b) — the ONLY source.
+/// The start-up route ask that stood here (250 ms budget, then this fallback) is gone with
+/// P7-b: asks have no clock, and init was blocked querying bundlemgrd — which waited for
+/// this block plane — while this driver waited for init's answer.
+pub(crate) fn declared_server() -> Option<KernelServer> {
+    let slots = nexus_service_topology::slots::virtioblkd::SERVER;
+    KernelServer::new_with_slots(slots.recv, slots.send).ok()
 }

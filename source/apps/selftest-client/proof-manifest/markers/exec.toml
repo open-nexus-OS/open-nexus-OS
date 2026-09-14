@@ -23,6 +23,17 @@ phase = "exec"
 [marker."SELFTEST: exec child blocking recv wake ok"]
 phase = "exec"
 
+# TASK-0324 P7-b — death wakes (RFC-0079 on task exit): the probe child exits holding the
+# moved reply SEND cap; execd's blocking EOF-opted recv on its own reply endpoint returns
+# PeerClosed at once — the kernel reaps the child's caps through the same last-peer scan a
+# cap_close runs, and the endpoint owner's own SEND base never counts as a peer.
+[marker."SELFTEST: exec child eof on exit ok"]
+phase = "exec"
+proves = "a client blocked with EOF on its own reply endpoint is woken by the peer's DEATH (task exit drops the moved SEND cap), not by a timeout"
+
+[marker."execd: recv-wake probe eof on exit ok"]
+phase = "exec"
+
 # TASK-0049 reanimation (2026-08-19): the exec/exit0/crash/minidump chain
 # retired in af0c7a8d ("children LOAD but no longer execute") is restored —
 # root cause was execd never resuming suspended-spawned children, fixed in

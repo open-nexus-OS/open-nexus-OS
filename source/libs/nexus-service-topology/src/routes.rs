@@ -75,6 +75,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Updated, ServiceId::Statefsd),   // persistence
     (ServiceId::Updated, ServiceId::Logd),       // structured logs
     (ServiceId::Bundlemgrd, ServiceId::Logd),    // structured logs (a late grant)
+    (ServiceId::Bundlemgrd, ServiceId::Metricsd), // counters (declared, TASK-0324 P7-b)
     (ServiceId::Updated, ServiceId::Bootctld),   // slot mutations delegate (PR-2)
     (ServiceId::Updated, ServiceId::Vfsd),       // staging-source splice reads (TASK-0179)
     (ServiceId::Updated, ServiceId::Policyd),    // updates.manage gate on mutating ops (TASK-0140)

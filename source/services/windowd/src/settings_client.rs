@@ -12,25 +12,10 @@
 //! RFC: docs/rfcs/RFC-0083-settings-distribution-v2-single-authority-versioned-snapshots.md
 
 #![cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-
-use core::time::Duration;
-use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
-
-/// The resolved settingsd `(send, recv)` slots — for callers that need the
-/// raw request endpoint (the region watch subscription cap-moves its push
-/// channel alongside an `OP_WATCH` frame).
+/// The declared settingsd `(send, recv)` slots (TASK-0324 P4a) — for callers that need
+/// the raw request endpoint (the region watch subscription cap-moves its push channel
+/// alongside an `OP_WATCH` frame). No route ask (P7-b).
 pub(crate) fn settingsd_slots() -> Option<(u32, u32)> {
-    route_blocking(b"settingsd")
-}
-
-/// Resolves a service (or `@reply`) to its `(send, recv)` slots via the responder.
-fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        name,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
-        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
-        _ => None,
-    }
+    let leg = nexus_service_topology::slots::windowd::SETTINGSD;
+    Some((leg.send, leg.recv))
 }

@@ -47,12 +47,11 @@ fn boot_part(slot: Slot) -> u8 {
 }
 
 fn open(part: u8) -> Result<RemoteBlockDevice, RejectReason> {
-    RemoteBlockDevice::open_with_deadline(
+    RemoteBlockDevice::open(
         blockproto::CLIENT_REQ_SLOT,
         blockproto::CLIENT_REPLY_SEND_SLOT,
         blockproto::CLIENT_REPLY_RECV_SLOT,
         part,
-        2_000_000_000,
     )
     .ok_or(RejectReason::Io)
 }

@@ -179,14 +179,7 @@ fn submit_svg_and_poll(client: &KernelClient) -> Option<(u32, u32, u32, Vec<u8>)
     frame[9..11].copy_from_slice(&(SVG_W as u16).to_le_bytes());
     frame[11..13].copy_from_slice(&(SVG_H as u16).to_le_bytes());
     frame[13..17].copy_from_slice(&(SVG_SRC.len() as u32).to_le_bytes());
-    if client
-        .send_with_cap_move_wait(
-            &frame,
-            clone,
-            IpcWait::Timeout(core::time::Duration::from_millis(1000)),
-        )
-        .is_err()
-    {
+    if client.send_with_cap_move_wait(&frame, clone, IpcWait::Blocking).is_err() {
         emit_line("pinched-probe: FAIL (svg send)");
         return None;
     }
@@ -272,14 +265,7 @@ fn submit_inet_and_poll(client: &KernelClient, depth: u32) -> Option<(u32, u32, 
     frame[3] = pn::OP_COMPUTE;
     frame[4] = pn::JOB_INET_TREE_SUM;
     frame[5..9].copy_from_slice(&depth.to_le_bytes());
-    if client
-        .send_with_cap_move_wait(
-            &frame,
-            clone,
-            IpcWait::Timeout(core::time::Duration::from_millis(1000)),
-        )
-        .is_err()
-    {
+    if client.send_with_cap_move_wait(&frame, clone, IpcWait::Blocking).is_err() {
         emit_line("pinched-probe: FAIL (inet send)");
         return None;
     }
@@ -353,14 +339,7 @@ fn submit_and_poll(
         total_field.to_le_bytes()[2],
         total_field.to_le_bytes()[3],
     ];
-    if client
-        .send_with_cap_move_wait(
-            &frame,
-            clone,
-            IpcWait::Timeout(core::time::Duration::from_millis(1000)),
-        )
-        .is_err()
-    {
+    if client.send_with_cap_move_wait(&frame, clone, IpcWait::Blocking).is_err() {
         emit_line("pinched-probe: FAIL (send)");
         return None;
     }

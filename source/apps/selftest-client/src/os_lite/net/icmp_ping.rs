@@ -11,7 +11,6 @@
 //! TEST_COVERAGE: QEMU marker `SELFTEST: icmp ping ok` via `just test-os`.
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md, docs/rfcs/RFC-0038-*.md
 
-use nexus_abi::yield_;
 use nexus_ipc::KernelClient;
 
 use super::super::ipc::clients::{cached_netstackd_client, cached_reply_client};
@@ -29,24 +28,9 @@ pub(crate) fn icmp_ping_probe() -> core::result::Result<(), ()> {
         let (reply_send_slot, reply_recv_slot) = reply.slots();
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
         client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        // One waited receive (TASK-0324 P7-d): the answer, or netstackd's death.
         let mut buf = [0u8; 512];
-        for _ in 0..10_000 {
-            match nexus_abi::ipc_recv_v1(
-                reply_recv_slot,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(_n) => return Ok(buf),
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
-            }
-        }
-        Err(())
+        nexus_ipc::exchange::recv_reply(reply_recv_slot, &mut buf).map(|_| buf).map_err(|_| ())
     }
 
     // Connect to netstackd

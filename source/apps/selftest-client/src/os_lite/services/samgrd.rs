@@ -16,11 +16,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use core::sync::atomic::{AtomicU64, Ordering};
-use core::time::Duration;
 
-use nexus_abi::yield_;
-use nexus_ipc::budget::{deadline_after, OsClock};
-use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
 use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 
 use super::super::ipc::clients::{cached_reply_client, cached_samgrd_client};
@@ -54,8 +50,7 @@ pub(crate) fn samgrd_v1_register(
             emit_line(crate::markers::M_SELFTEST_SAMGRD_REGISTER_SEND);
             logged_start = true;
         }
-        if let Err(err) = client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(50)))
-        {
+        if let Err(err) = client.send(&req, IpcWait::Blocking) {
             if !logged_send_fail {
                 match err {
                     nexus_ipc::IpcError::NoSpace => {
@@ -82,7 +77,6 @@ pub(crate) fn samgrd_v1_register(
                 }
                 logged_send_fail = true;
             }
-            let _ = yield_();
             continue;
         }
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
@@ -92,7 +86,7 @@ pub(crate) fn samgrd_v1_register(
                 client_recv,
                 &mut hdr,
                 &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                nexus_abi::IPC_SYS_TRUNCATE,
                 0,
             ) {
                 Ok(n) => {
@@ -124,9 +118,6 @@ pub(crate) fn samgrd_v1_register(
                     }
                     return Ok(rsp[4]);
                 }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
                 Err(_) => break,
             }
         }
@@ -152,8 +143,7 @@ pub(crate) fn samgrd_v1_lookup(
     let (_client_send, client_recv) = client.slots();
     let mut logged_rsp = false;
     for _ in 0..64 {
-        if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(50))).is_err() {
-            let _ = yield_();
+        if client.send(&req, IpcWait::Blocking).is_err() {
             continue;
         }
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
@@ -163,7 +153,7 @@ pub(crate) fn samgrd_v1_lookup(
                 client_recv,
                 &mut hdr,
                 &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                nexus_abi::IPC_SYS_TRUNCATE,
                 0,
             ) {
                 Ok(n) => {
@@ -198,9 +188,6 @@ pub(crate) fn samgrd_v1_lookup(
                     let recv_slot = u32::from_le_bytes([rsp[9], rsp[10], rsp[11], rsp[12]]);
                     return Ok((status, send_slot, recv_slot));
                 }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
                 Err(_) => break,
             }
         }
@@ -211,43 +198,33 @@ pub(crate) fn samgrd_v1_lookup(
 pub(crate) fn fetch_sender_service_id_from_samgrd() -> core::result::Result<u64, ()> {
     let reply = cached_reply_client().map_err(|_| ())?;
     let (reply_send_slot, reply_recv_slot) = reply.slots();
-    let clock = OsClock;
-    let deadline_ns = deadline_after(&clock, Duration::from_millis(500)).map_err(|_| ())?;
-    let mut pending: ReplyBuffer<8, 64> = ReplyBuffer::new();
     static NONCE: AtomicU64 = AtomicU64::new(3);
     let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
-    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
 
     let sam = cached_samgrd_client().map_err(|_| ())?;
+    let (sam_send, _) = sam.slots();
     let mut frame = [0u8; 12];
     frame[0] = b'S';
     frame[1] = b'M';
     frame[2] = 1;
     frame[3] = 5; // OP_SENDER_SERVICE_ID
     frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-    sam.send_with_cap_move(&frame, reply_send_clone).map_err(|_| ())?;
-
-    // The reply inbox as the ONE kernel client (TASK-0324 P7): its `recv` honours the wait,
-    // so samgrd's answer wakes us (the private NONBLOCK v2 adapter is gone; the sender id it
-    // captured was never read).
-    let inbox = KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).map_err(|_| ())?;
-    let rsp = recv_match_until(&clock, &inbox, &mut pending, nonce, deadline_ns, |frame| {
-        if frame.len() == 21
-            && frame[0] == b'S'
-            && frame[1] == b'M'
-            && frame[2] == 1
-            && frame[3] == (5 | 0x80)
-            && frame[4] == 0
-        {
-            Some(u64::from_le_bytes([
-                frame[13], frame[14], frame[15], frame[16], frame[17], frame[18], frame[19],
-                frame[20],
-            ]))
-        } else {
-            None
-        }
-    })
+    // ONE exchange, no clock (TASK-0324 P7-b): samgrd's answer or its death.
+    let rsp = nexus_ipc::exchange::call(
+        sam_send,
+        nexus_service_topology::SlotPair::new(reply_send_slot, reply_recv_slot),
+        &frame,
+    )
     .map_err(|_| ())?;
+    if rsp.len() != 21 || rsp[3] != (5 | 0x80) || rsp[4] != 0 {
+        return Err(());
+    }
+    let got_nonce = u64::from_le_bytes([
+        rsp[13], rsp[14], rsp[15], rsp[16], rsp[17], rsp[18], rsp[19], rsp[20],
+    ]);
+    if got_nonce != nonce {
+        return Err(());
+    }
 
     if rsp.len() != 21 || rsp[0] != b'S' || rsp[1] != b'M' || rsp[2] != 1 {
         return Err(());

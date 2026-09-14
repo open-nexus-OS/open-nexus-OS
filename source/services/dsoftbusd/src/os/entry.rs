@@ -68,7 +68,6 @@ pub(crate) fn rpc_nonce(
     expect_rsp_op: u8,
     nonce: u64,
 ) -> core::result::Result<[u8; 512], ()> {
-    use nexus_ipc::IpcError as IpcErrorLite;
     use nexus_ipc::Wait;
 
     // netstackd answers every RPC on the caller's CAP_MOVE reply cap and nowhere else, so the
@@ -77,22 +76,8 @@ pub(crate) fn rpc_nonce(
     let reply_recv_slot = DSOFT_REPLY_RECV_SLOT;
     let reply_send_clone = nexus_abi::cap_clone(DSOFT_REPLY_SEND_SLOT).map_err(|_| ())?;
 
-    let wait = Wait::Timeout(core::time::Duration::from_millis(20));
-    let mut sent = false;
-    for _ in 0..64 {
-        match net.send_with_cap_move_wait(req, reply_send_clone, wait) {
-            Ok(()) => {
-                sent = true;
-                break;
-            }
-            Err(IpcErrorLite::WouldBlock)
-            | Err(IpcErrorLite::Timeout)
-            | Err(IpcErrorLite::NoSpace) => {
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => break,
-        }
-    }
+    // No clock (TASK-0324 P7-d): queue space or netstackd's death.
+    let sent = net.send_with_cap_move_wait(req, reply_send_clone, Wait::Blocking).is_ok();
     let _ = nexus_abi::cap_close(reply_send_clone);
     if !sent {
         return Err(());

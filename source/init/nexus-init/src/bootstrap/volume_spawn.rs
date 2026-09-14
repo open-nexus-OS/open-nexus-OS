@@ -35,12 +35,6 @@ use crate::os_payload::InitError;
 use nexus_abi::bundlemgrd as wire;
 use nexus_abi::page_flags;
 
-/// One request/reply budget against bundlemgrd (it may still be attaching
-/// the block plane on the first call — its own attach window is 2 s).
-const REQ_DEADLINE_NS: u64 = 4_000_000_000;
-/// Header-poll budget after GET_BUNDLE_ELF (streams ≤ a few MiB over the
-/// 6 KiB block plane; metricsd is ~80 KiB).
-const HEADER_POLL_YIELDS: usize = 200_000;
 const PAGE: usize = 4096;
 
 /// A service spawned from the volume. Its read-only ELF mapping stays
@@ -87,30 +81,24 @@ impl Fail {
     }
 }
 
-/// Init-side request/reply against bundlemgrd on the pre-minted pair
-/// (`bnd_req` SEND; replies via a CAP_MOVEd clone of `reply_send`,
-/// received on `reply_recv` — the `bundlemgrd_set_active_slot` shape).
+/// One request/reply against bundlemgrd on init's reply inbox: a reply-SEND clone rides the
+/// request (CAP_MOVE), the answer is WAITED for — bundlemgrd's reply or its death (RFC-0079
+/// EOF), never a clock (TASK-0324 P7-d). Foreign frames on the inbox are stashed for their
+/// own exchange. `Some(len)` = the wanted reply is in `out`.
 fn request(
     pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
     bnd_req: u32,
     reply_send: u32,
     reply_recv: u32,
     req: &[u8],
-    moved_cap: Option<u32>,
     want_op: u8,
     out: &mut [u8],
 ) -> Option<usize> {
-    // The single moved cap: either the destination VMO (GET_BUNDLE_ELF —
-    // no reply frame, the header IS the reply) or a reply-send clone.
-    let cap = match moved_cap {
-        Some(vmo) => vmo,
-        None => nexus_abi::cap_clone(reply_send).ok()?,
-    };
+    let cap = nexus_abi::cap_clone(reply_send).ok()?;
     let hdr = nexus_abi::MsgHeader::new(cap, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    let deadline = nexus_abi::nsec().ok()?.saturating_add(REQ_DEADLINE_NS);
-    nexus_abi::ipc_send_v1(bnd_req, &hdr, req, 0, deadline).ok()?;
-    if moved_cap.is_some() {
-        return Some(0);
+    if nexus_abi::ipc_send_v1(bnd_req, &hdr, req, 0, 0).is_err() {
+        let _ = nexus_abi::cap_close(cap);
+        return None;
     }
     let is_want = |f: &[u8]| {
         f.len() >= 4 && f[0] == wire::MAGIC0 && f[1] == wire::MAGIC1 && f[3] == (want_op | 0x80)
@@ -120,30 +108,35 @@ fn request(
     }
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     loop {
-        match nexus_abi::ipc_recv_v1(
+        let n = nexus_abi::ipc_recv_v1(
             reply_recv,
             &mut rh,
             out,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            deadline,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, out.len());
-                if is_want(&out[..n]) {
-                    return Some(n);
-                }
-                let _ = pending.push(&out[..n]);
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                    return None;
-                }
-                let _ = nexus_abi::yield_();
-            }
-            // Deadline hit or a hard error: give up this spawn (honest absence).
-            Err(_) => return None,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
+            0,
+        )
+        .ok()?;
+        let n = core::cmp::min(n as usize, out.len());
+        if is_want(&out[..n]) {
+            return Some(n);
         }
+        let _ = pending.push(&out[..n]);
     }
+}
+
+/// Arms `vmo` as the destination of init's next VMO op (`OP_ARM_VMO`, TASK-0324 P7-d): a
+/// clone travels as the moved cap; the send waits for queue space (no clock).
+fn arm_vmo(bnd_req: u32, vmo: u32) -> Option<()> {
+    let moved = nexus_abi::cap_clone(vmo).ok()?;
+    let mut req = [0u8; 4];
+    wire::encode_arm_vmo(&mut req);
+    let hdr =
+        nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
+    if nexus_abi::ipc_send_v1(bnd_req, &hdr, &req, 0, 0).is_err() {
+        let _ = nexus_abi::cap_close(moved);
+        return None;
+    }
+    Some(())
 }
 
 /// Lowercase hex, two digits per byte (`debug_write_hex` prints a usize).
@@ -190,7 +183,6 @@ fn spawn_one(
         reply_send,
         reply_recv,
         &req[..n],
-        None,
         wire::OP_QUERY_BUNDLE,
         &mut rsp,
     )
@@ -212,43 +204,31 @@ fn spawn_one(
     let ver_len = version.len().min(32);
     version_buf[..ver_len].copy_from_slice(&version[..ver_len]);
 
-    // 2. A fresh VMO sized for header + ELF, moved to bundlemgrd.
+    // 2. A fresh VMO sized for header + ELF, ARMED at bundlemgrd, then GET_BUNDLE_ELF with a
+    //    reply cap: bundlemgrd streams, hashes, writes the header LAST and answers — the
+    //    answer IS the completion (TASK-0324 P7-d; no header poll).
     let total = (wire::PAYLOAD_DATA_OFFSET + size as usize).div_ceil(PAGE) * PAGE;
     let vmo = nexus_abi::vmo_create(total).map_err(|_| Fail::Vmo)?;
-    let moved = nexus_abi::cap_clone(vmo).map_err(|_| Fail::Vmo)?;
+    arm_vmo(bnd_req, vmo).ok_or(Fail::Send)?;
     let n = wire::encode_get_bundle_elf(name.as_bytes(), &mut req).ok_or(Fail::Send)?;
-    request(
+    let rn = request(
         pending,
         bnd_req,
         reply_send,
         reply_recv,
         &req[..n],
-        Some(moved),
         wire::OP_GET_BUNDLE_ELF,
         &mut rsp,
     )
     .ok_or(Fail::Send)?;
 
-    // 3. Header-last poll: a visible header means the bytes are complete
-    //    AND hashed to the index digest (bundlemgrd's contract).
-    let mut hdr = [0u8; wire::PAYLOAD_DATA_OFFSET];
-    let mut polls = 0usize;
-    let len = loop {
-        if nexus_abi::vmo_read(vmo, 0, &mut hdr).is_err() {
-            return Err(Fail::Header);
-        }
-        if let Some((status, len)) = wire::decode_payload_header(&hdr) {
-            match status {
-                wire::PAYLOAD_STATUS_OK if len == size => break len as usize,
-                wire::PAYLOAD_STATUS_DIGEST => return Err(Fail::Digest),
-                _ => return Err(Fail::Header),
-            }
-        }
-        polls += 1;
-        if polls > HEADER_POLL_YIELDS {
-            return Err(Fail::Header);
-        }
-        let _ = nexus_abi::yield_();
+    // 3. The answer: complete AND hashed to the index digest (bundlemgrd's contract).
+    let (status, len) =
+        wire::decode_payload_done_rsp(&rsp[..rn], wire::OP_GET_BUNDLE_ELF).ok_or(Fail::Header)?;
+    let len = match status {
+        wire::PAYLOAD_STATUS_OK if len == size => len as usize,
+        wire::PAYLOAD_STATUS_DIGEST => return Err(Fail::Digest),
+        _ => return Err(Fail::Header),
     };
 
     // 4. Map read-only (kernel-chosen VA) and exec the mapped slice.

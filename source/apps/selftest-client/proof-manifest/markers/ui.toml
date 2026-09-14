@@ -86,6 +86,18 @@ proves = "observer-only selftest completed service-owned visible present path in
 # TASK-0324 P6-d (RFC-0093 §5): display truth is read through the probe RT (`gl_probe`),
 # never from the scanout. `SELFTEST: display nonblack ok` below is the gated proof; this
 # names the authority that produced it.
+# TASK-0324 P7-c: windowd subscribes ONCE to sessiond's state pushes (OP_WATCH, a moved SEND
+# cap of its declared push channel); the session probe cadence and the login poll are gone.
+[marker."windowd: session watch subscribed"]
+phase = "end"
+proves = "windowd registered its session push channel at sessiond — the session decision and the login arrive as pushes on a waitset member, never by polling"
+
+[marker."windowd: FAIL session watch subscribe"]
+phase = "end"
+
+[marker."windowd: FAIL waitset (blocking on the server endpoint alone)"]
+phase = "end"
+
 [marker."gpud: probe sample ok"]
 phase = "end"
 proves = "the centre strip of the frame the display shows, read back through the probe RT (host copy off the front RT, never a scanout transfer), is non-black"

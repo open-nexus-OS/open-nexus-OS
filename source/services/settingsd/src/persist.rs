@@ -37,11 +37,6 @@ pub struct Persister {
 }
 
 impl Persister {
-    /// How long a sent PUT may wait for its reply before it counts as failed.
-    /// statefsd serializes (policyd round-trip + journal write per request),
-    /// so this is generous — but it is a RETRY trigger, not a client stall:
-    /// nothing waits on it except this state machine.
-    pub const REPLY_TIMEOUT_NS: u64 = 500_000_000;
     /// First-failure backoff; doubles per consecutive failure.
     const BACKOFF_BASE_NS: u64 = 250_000_000;
     /// Backoff ceiling — a broken statefsd is retried forever at this cadence
@@ -73,20 +68,28 @@ impl Persister {
         !self.dirty && self.in_flight_since_ns.is_none()
     }
 
-    /// Advance time and report what to do. Expires a timed-out in-flight PUT
-    /// (which re-arms `dirty` and starts backoff) before deciding.
+    /// Report what to do now. A PUT in flight is waited for — it ends with statefsd's answer
+    /// or statefsd's death (`on_reply`), never with a clock (TASK-0324 P7-d).
     pub fn poll(&mut self, now_ns: u64) -> Action {
-        if let Some(sent) = self.in_flight_since_ns {
-            if now_ns.saturating_sub(sent) >= Self::REPLY_TIMEOUT_NS {
-                self.fail(now_ns);
-            } else {
-                return Action::None; // one PUT in flight, wait for it
-            }
+        if self.in_flight_since_ns.is_some() {
+            return Action::None; // one PUT in flight, wait for it
         }
         if self.dirty && now_ns >= self.not_before_ns {
             return Action::SendPut;
         }
         Action::None
+    }
+
+    /// A PUT is in flight (its reply is owed).
+    pub fn in_flight(&self) -> bool {
+        self.in_flight_since_ns.is_some()
+    }
+
+    /// The moment the loop must wake WITHOUT traffic to advance this machine: the PUT floor
+    /// or the backoff of a dirty, not-in-flight blob. `None` = nothing clock-bound is owed
+    /// (idle, or waiting for a reply) — the loop's timer stays disarmed.
+    pub fn next_deadline_ns(&self) -> Option<u64> {
+        (self.dirty && self.in_flight_since_ns.is_none()).then_some(self.not_before_ns)
     }
 
     /// The PUT left the building; the blob it carried is the current state.
@@ -178,21 +181,41 @@ mod tests {
         assert!(p.is_idle());
     }
 
-    /// A SET during persist must never be blocked — the machine's whole
-    /// reason to exist. `is_idle` false = the loop uses a bounded timeout
-    /// wait, but the machine itself never asks anyone to wait on statefsd.
+    /// A SET during persist must never be blocked — the machine's whole reason to exist. A
+    /// PUT in flight is waited for without a clock: no deadline expires it, and the loop has
+    /// no timer to arm while the reply is owed.
     #[test]
-    fn a_reply_timeout_rearms_dirty_and_backs_off() {
+    fn test_reject_clock_expiry_of_an_in_flight_put() {
         let mut p = Persister::new();
         p.mark_dirty();
         assert_eq!(p.poll(0), Action::SendPut);
         p.on_put_sent(0);
-        // Reply never comes; past the timeout the PUT counts as failed.
-        assert_eq!(p.poll(Persister::REPLY_TIMEOUT_NS + MS), Action::None, "backoff gates");
+        assert!(p.in_flight());
+        assert_eq!(p.next_deadline_ns(), None, "nothing clock-bound while a reply is owed");
+        assert_eq!(p.poll(60_000 * MS), Action::None, "a minute later: still waiting");
+        assert_eq!(p.failures(), 0);
+        // statefsd died (EOF on the inbox): the PUT failed, the blob is dirty again, backoff.
+        p.on_reply(false, 60_000 * MS);
+        assert!(!p.in_flight());
         assert_eq!(p.failures(), 1);
-        // After the backoff the same (latest) blob goes again.
-        let later = Persister::REPLY_TIMEOUT_NS + 251 * MS;
-        assert_eq!(p.poll(later), Action::SendPut);
+        assert_eq!(p.poll(60_001 * MS), Action::None, "backoff gates");
+        assert_eq!(p.next_deadline_ns(), Some(60_000 * MS + 250 * MS), "the timer's deadline");
+        assert_eq!(p.poll(60_251 * MS), Action::SendPut);
+    }
+
+    /// The loop's timer deadline is the PUT floor after a success and the backoff after a
+    /// failure; idle = nothing to arm.
+    #[test]
+    fn next_deadline_is_the_floor_or_the_backoff() {
+        let mut p = Persister::new();
+        assert_eq!(p.next_deadline_ns(), None, "idle");
+        p.mark_dirty();
+        assert_eq!(p.next_deadline_ns(), Some(0), "dirty, no floor yet: due now");
+        assert_eq!(p.poll(0), Action::SendPut);
+        p.on_put_sent(0);
+        p.mark_dirty();
+        p.on_reply(true, 5 * MS);
+        assert_eq!(p.next_deadline_ns(), Some(5 * MS + Persister::MIN_PUT_INTERVAL_NS), "floor");
     }
 
     #[test]

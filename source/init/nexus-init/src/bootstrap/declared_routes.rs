@@ -17,6 +17,7 @@ use crate::bootstrap::endpoints::Endpoints;
 use crate::bootstrap::CtrlChannel;
 use crate::os_payload::ENDPOINT_FACTORY_CAP_SLOT;
 use crate::service_topology::{RouteKind, ServiceId, ServiceSpec};
+use nexus_abi::Rights;
 
 /// Pins `spec`'s reply inbox and outbound routes into `pid` and records them on `chan`.
 /// Best-effort: a leg whose pin fails is reported by the pin and left unwired, never bricks boot.
@@ -98,6 +99,24 @@ pub(crate) fn wire_declared_legs(
                 }
             }
         }
+    }
+}
+
+/// TASK-0324 P7-d: a declared timer-notify endpoint — pacing without a recv timeout. Both
+/// halves land in the service's declared slots; it binds its kernel timer cap to the SEND half
+/// and waits on the RECV half as a waitset member. Runs for bespoke and generic arms alike.
+pub(crate) fn pin_timer_notify(pid: u32, svc: ServiceId, eps: &Endpoints) {
+    use crate::service_topology::NamedSlot;
+    let Some(ep) = eps.timer_notify_ep(svc) else {
+        return;
+    };
+    let recv = declared_slots::pin_named(pid, svc, NamedSlot::TimerNotifyRecv, ep, Rights::RECV);
+    let send = declared_slots::pin_named(pid, svc, NamedSlot::TimerNotifySend, ep, Rights::SEND);
+    if recv.is_none() || send.is_none() {
+        crate::bootstrap::diag::emit_marker_atomic(
+            &[b"init: timer-notify FAIL svc=", svc.name().as_bytes()],
+            None,
+        );
     }
 }
 

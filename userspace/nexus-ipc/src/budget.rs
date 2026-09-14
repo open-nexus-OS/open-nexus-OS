@@ -58,13 +58,9 @@ pub enum RouteRetryOutcome {
         /// Receive slot returned by samgrd routing.
         recv_slot: u32,
     },
-    /// Route operation timed out under budget.
-    Timeout,
     /// ADR-0057: the target service is registered but currently DEAD (the
-    /// supervisor marked it stale). The whole budget was spent retrying —
-    /// the restarted instance did not come back inside the deadline. Callers
-    /// treat this like Timeout for flow control but keep the identity for
-    /// diagnosis (ADR-0054: never collapse it into Rejected).
+    /// supervisor marked it stale) and init could not park the ask. Callers
+    /// keep the identity for diagnosis (ADR-0054: never collapse it into Rejected).
     TargetStale,
     /// Too many nonce mismatches were observed.
     NonceMismatchBudgetExceeded,
@@ -223,18 +219,14 @@ pub fn recv_budgeted(
     recv_until(clock, client, deadline_ns)
 }
 
-/// Resolves a service route using routing v1+nonce with a deterministic deadline and mismatch cap.
-///
-/// The ask travels on the fleet control channel init installs in every child
-/// (`nexus_service_topology::CTRL_SLOTS`) — callers no longer restate its slots (TASK-0324 P4f-6).
-/// This helper is intended for os-lite bring-up services that still perform direct control-channel
-/// routing calls and need bounded behavior under queue contention.
+/// Resolves a service route (routing v1+nonce, RFC-0093 §1) over the fleet control channel
+/// init installs in every child (`nexus_service_topology::CTRL_SLOTS`). ONE ask, WAITED for
+/// without a deadline (TASK-0324 P7-b): init answers at once for a known target, PARKS the
+/// ask while the target is not ready and answers when it is, and rejects an unknown name —
+/// there is no fourth outcome a client clock could add. The nonce stays as correlation
+/// sanity on the shared control stream (mandatory per RFC-0093 §1).
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
-pub fn route_with_nonce_budgeted(
-    name: &[u8],
-    budget: Duration,
-    mismatch_budget: NonceMismatchBudget,
-) -> RouteRetryOutcome {
+pub fn route_with_nonce(name: &[u8], mismatch_budget: NonceMismatchBudget) -> RouteRetryOutcome {
     use core::sync::atomic::{AtomicU32, Ordering};
 
     if name.is_empty() || name.len() > nexus_abi::routing::MAX_SERVICE_NAME_LEN {
@@ -255,34 +247,26 @@ pub fn route_with_nonce_budgeted(
     let req_len = base_len + 4;
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
 
-    let clock = OsClock;
-    let deadline_ns = match deadline_after(&clock, budget) {
-        Ok(v) => v,
-        Err(e) => return RouteRetryOutcome::Ipc(e),
-    };
-
     let ctrl = nexus_service_topology::CTRL_SLOTS;
-    if let Err(e) = raw::send_budgeted(ctrl.send, &hdr, &req[..req_len], deadline_ns) {
-        return if e == IpcError::Timeout {
-            RouteRetryOutcome::Timeout
-        } else {
-            RouteRetryOutcome::Ipc(e)
-        };
+    if let Err(e) = nexus_abi::ipc_send_v1(ctrl.send, &hdr, &req[..req_len], 0, 0) {
+        return RouteRetryOutcome::Ipc(IpcError::Kernel(e));
     }
 
     let mut mismatches: u32 = 0;
     loop {
-        // Every iteration WAITS in the kernel for the next control frame (or the deadline);
-        // a frame that is not our answer is dropped and the wait resumes.
+        // Every iteration WAITS in the kernel for the next control frame; a frame that is
+        // not our answer is dropped and the wait resumes.
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 32];
-        let n = match raw::recv_budgeted(ctrl.recv, &mut rh, &mut buf, deadline_ns) {
-            Ok(v) => core::cmp::min(v, buf.len()),
-            // No answer inside the budget. Since RFC-0093 §1 the ask may be PARKED in
-            // init (a restarting target); the caller retries on its own cadence with a
-            // fresh nonce, which replaces the parked ask.
-            Err(IpcError::Timeout) => return RouteRetryOutcome::Timeout,
-            Err(e) => return RouteRetryOutcome::Ipc(e),
+        let n = match nexus_abi::ipc_recv_v1(
+            ctrl.recv,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(v) => core::cmp::min(v as usize, buf.len()),
+            Err(e) => return RouteRetryOutcome::Ipc(IpcError::Kernel(e)),
         };
 
         if n != 17 {
@@ -332,6 +316,24 @@ pub mod raw {
             }
             e => IpcError::Kernel(e),
         }
+    }
+
+    /// Blocks until `bytes` is queued on `send_slot` — no clock (TASK-0324 P7-d): queue space
+    /// or the peer's death ends the wait.
+    pub fn send_blocking(send_slot: u32, hdr: &nexus_abi::MsgHeader, bytes: &[u8]) -> Result<()> {
+        nexus_abi::ipc_send_v1(send_slot, hdr, bytes, 0, 0).map(|_| ()).map_err(map)
+    }
+
+    /// Blocks until a frame arrives on `recv_slot` — no clock (TASK-0324 P7-d). Returns the
+    /// number of bytes written to `out` (longer frames are truncated).
+    pub fn recv_blocking(
+        recv_slot: u32,
+        hdr_out: &mut nexus_abi::MsgHeader,
+        out: &mut [u8],
+    ) -> Result<usize> {
+        nexus_abi::ipc_recv_v1(recv_slot, hdr_out, out, nexus_abi::IPC_SYS_TRUNCATE, 0)
+            .map(|n| n as usize)
+            .map_err(map)
     }
 
     /// Blocks until `bytes` is queued on `send_slot` or `deadline_ns` (absolute) passes.

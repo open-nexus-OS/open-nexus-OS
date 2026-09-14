@@ -37,6 +37,12 @@ fn os_entry() -> core::result::Result<(), ()> {
     // before the task is resumed (TASK-0324 P4) — the 10 000-yield "waiting for slots" probe
     // that used to sit here waited for nothing (P7).
     let net = os::entry::init_netstack_client()?;
+    // The logd sink on the declared legs (ask-free, TASK-0324 P7-b).
+    {
+        let logd = nexus_service_topology::slots::dsoftbusd::LOGD;
+        let reply = nexus_service_topology::slots::dsoftbusd::REPLY;
+        nexus_log::configure_sink_logd_slots(logd.send, reply.send, reply.recv);
+    }
 
     let mut nonce_ctr: u64 = 1;
     // Shared reply inbox correlation: keep a bounded buffer of unmatched netstackd replies keyed by nonce.

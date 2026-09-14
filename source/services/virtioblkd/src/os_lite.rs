@@ -24,7 +24,7 @@
 
 extern crate alloc;
 
-use nexus_ipc::{KernelServer, Server as _, Wait};
+use nexus_ipc::{Server as _, Wait};
 use storage::blockproto::{self, BlockRequest, MAX_BLOCKS_PER_REQ, SECTOR_SIZE};
 use storage::gpt::{self, Partition};
 use storage::virtio_blk::VirtioBlkDevice;
@@ -357,21 +357,10 @@ fn arm_vmo(
 pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
     nexus_abi::service_verdict_arm();
 
-    // Server endpoint: the declarative arm provisions slots 3/4; resolve
-    // via the responder with the deterministic fallback (logd pattern).
-    let server = match crate::route_os::route_virtioblkd_blocking() {
-        Some(server) => server,
-        None => {
-            emit("virtioblkd: route fallback");
-            let slots = nexus_service_topology::slots::virtioblkd::SERVER;
-            match KernelServer::new_with_slots(slots.recv, slots.send) {
-                Ok(server) => server,
-                Err(_) => {
-                    emit("virtioblkd: server endpoint FAIL");
-                    return Err(nexus_abi::AbiError::Unsupported);
-                }
-            }
-        }
+    // Server endpoint: the declared pair, pinned before this task runs (no route ask, P7-b).
+    let Some(server) = crate::route_os::declared_server() else {
+        emit("virtioblkd: server endpoint FAIL");
+        return Err(nexus_abi::AbiError::Unsupported);
     };
 
     let mut served = attach();

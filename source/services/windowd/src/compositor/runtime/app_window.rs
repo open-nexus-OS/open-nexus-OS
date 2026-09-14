@@ -333,7 +333,7 @@ impl DisplayServerRuntime {
                 // recorded optimization — ADR-0042). Routed BY ID: a desktop
                 // present repaints the base layer; a floating present the window.
                 if self.desktop_surface_id == Some(surface_id) {
-                    self.desktop_dirty = true;
+                    self.note_desktop_content();
                     // Damage discipline (the retained-plane perf contract):
                     // honor the client's damage rects — union rows for the
                     // band blit, per-rect screen damage for the composite.
@@ -770,12 +770,12 @@ impl DisplayServerRuntime {
     }
 
     /// Whether any VISIBLE client is waiting on a frame pulse — while true the
-    /// compositor keeps its 120Hz pacer armed: the pulses ARE the vsync the
-    /// animating client ticks on (without this, a scroll ease degraded to
+    /// compositor keeps its frame clock running (`keep_frame_clock_alive`, TASK-0324
+    /// P7-c): the pulses ARE the vsync the animating client ticks on (without this, a scroll ease degraded to
     /// the client's coarse recv-timeout fallback — "kann dem Scroll nicht
     /// mit den Augen folgen"). A HIDDEN window's pending request is parked
     /// (see [`Self::flush_frame_pulses`]) and must NOT arm the pacer — a
-    /// closed animated window would otherwise keep windowd spinning at 120Hz
+    /// closed animated window would otherwise keep windowd presenting
     /// forever with nothing to draw.
     pub(crate) fn has_frame_pulse_clients(&self) -> bool {
         self.desktop_frame_pulse

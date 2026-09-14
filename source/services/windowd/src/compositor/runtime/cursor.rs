@@ -167,7 +167,7 @@ impl DisplayServerRuntime {
                 let Some(client) = self.gpud_client.as_ref() else {
                     return;
                 };
-                client.send(&frame, Wait::Timeout(core::time::Duration::from_millis(10))).is_ok()
+                client.send(&frame, Wait::Blocking).is_ok()
             };
             // Give gpud a chance to drain + ack between sprites.
             self.drain_gpud_replies();
@@ -198,7 +198,7 @@ impl DisplayServerRuntime {
                 let Some(client) = self.gpud_client.as_ref() else {
                     return;
                 };
-                client.send(&frame, Wait::Timeout(core::time::Duration::from_millis(10))).is_ok()
+                client.send(&frame, Wait::Blocking).is_ok()
             };
             self.drain_gpud_replies();
             if !sent {
@@ -224,10 +224,11 @@ impl DisplayServerRuntime {
         self.cursor_wait_n = self.cursor_wait_n.saturating_sub(1);
     }
 
-    /// Pacer-driven wait-ring advance. Returns whether the ring is live
-    /// (keeps the 120Hz pacer armed). Cheap: one 2-byte fire-and-forget
-    /// SELECT per ring STEP (~90ms) + a pointer-rect damage blit to show it —
-    /// nothing at all between steps.
+    /// Completion-driven wait-ring advance (one 2-byte fire-and-forget SELECT per ring STEP,
+    /// ~90 ms, plus a pointer-rect damage blit per completion). Returns whether the ring is
+    /// live. The wait ends when the launched surface arrives or abilitymgr's reply says the
+    /// launch failed (`drain_launch_replies`); the failsafe deadline only bounds a launch
+    /// that produced neither.
     pub(crate) fn cursor_wait_tick(&mut self, now_ns: u64) -> bool {
         if self.cursor_wait_n > 0 && now_ns > self.cursor_wait_deadline_ns {
             self.cursor_wait_n = 0; // failsafe: the launch never surfaced
@@ -256,6 +257,16 @@ impl DisplayServerRuntime {
                 return false; // still no sprites at gpud — plain wait
             }
         }
+        // Completion-paced (TASK-0324 P7-c): the ring advances on display-ring completions,
+        // so every tick re-presents the pointer rect — that present's completion is the next
+        // tick. Between sprite steps the blit is a no-op-sized cursor rect; without it the
+        // loop would go idle and the ring would freeze on its current sprite.
+        self.queue_cursor_damage(
+            self.state.cursor_x,
+            self.state.cursor_y,
+            self.state.cursor_x,
+            self.state.cursor_y,
+        );
         let step =
             ((now_ns / CURSOR_RING_STEP_NS) % crate::assets::CURSOR_RING_FRAMES.len() as u64) as u8;
         if !self.cursor_ring_active || step != self.cursor_ring_frame {

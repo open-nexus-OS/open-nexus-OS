@@ -15,6 +15,7 @@
 use super::*;
 
 use super::errno::*;
+use crate::syscall::api;
 
 // ——— syscall path (unchanged API) ———
 
@@ -180,7 +181,7 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
             if let Some(handle) = task.address_space() {
                 if ctx.address_spaces.activate(handle).is_err() {
                     // Fail-fast: returning with a mismatched SATP is unsafe.
-                    crate::syscall::api::exit_current_killed(ctx.tasks);
+                    api::exit_current_killed(ctx.tasks, ctx.router, ctx.scheduler);
                 }
             }
         }
@@ -605,10 +606,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                                 let _ = u.write_str("\n");
                             });
                             frame.x[10] = errno(EINVAL);
-                            let doomed = tasks.current_pid();
-                            crate::syscall::api::exit_current_faulted(tasks, 0xF1);
-                            // Kernel kill wakes a parent parked in `wait` (see fault.rs).
-                            tasks.wake_parent_waiter(doomed, scheduler);
+                            api::exit_current_faulted(tasks, router, scheduler, 0xF1);
                             return;
                         }
                     }

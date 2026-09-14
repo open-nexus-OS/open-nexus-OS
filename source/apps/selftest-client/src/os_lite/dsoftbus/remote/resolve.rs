@@ -18,7 +18,6 @@ extern crate alloc;
 use nexus_ipc::{Client, Wait as IpcWait};
 
 use super::super::super::ipc::clients::cached_dsoftbusd_client;
-use super::REMOTE_DSOFTBUS_WAIT_MS;
 use crate::markers::emit_line;
 
 pub(crate) fn dsoftbusd_remote_resolve(name: &str) -> core::result::Result<(), ()> {
@@ -53,14 +52,10 @@ pub(crate) fn dsoftbusd_remote_resolve(name: &str) -> core::result::Result<(), (
     req.push(OP);
     req.push(n.len() as u8);
     req.extend_from_slice(n);
-    if d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
-        .is_err()
-    {
+    if d.send(&req, IpcWait::Blocking).is_err() {
         return Err(());
     }
-    let rsp = d
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
-        .map_err(|_| ())?;
+    let rsp = d.recv(IpcWait::Blocking).map_err(|_| ())?;
     if rsp.len() != 5 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
         return Err(());
     }
@@ -79,11 +74,8 @@ pub(crate) fn dsoftbusd_remote_bundle_list() -> core::result::Result<u16, ()> {
 
     let d = cached_dsoftbusd_client().map_err(|_| ())?;
     let req = [D0, D1, VER, OP];
-    d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
-        .map_err(|_| ())?;
-    let rsp = d
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
-        .map_err(|_| ())?;
+    d.send(&req, IpcWait::Blocking).map_err(|_| ())?;
+    let rsp = d.recv(IpcWait::Blocking).map_err(|_| ())?;
     if rsp.len() != 7 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
         return Err(());
     }

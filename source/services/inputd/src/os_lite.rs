@@ -22,18 +22,26 @@ use input_live_protocol::{
     OP_PUSH_HID_BATCH, STATUS_MALFORMED, STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
 };
 use keymaps::{KeyAction, KeyOutput};
-use nexus_abi::{debug_println, debug_trace, nsec, yield_};
+use nexus_abi::{debug_println, debug_trace, nsec};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 use crate::route::NormalizeRouter;
 use crate::{
-    decode_wire_batch_reusing, live_push::should_push_visible_state, visible_display_space,
-    visible_display_start_position, InputDispatch, InputdConfig, InputdService,
-    LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
+    decode_wire_batch_reusing,
+    live_push::{should_push_visible_state, POINTER_PUSH_INTERVAL_NS},
+    visible_display_space, visible_display_start_position, InputDispatch, InputdConfig,
+    InputdService, LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
     LIVE_POINTER_THRESHOLD,
 };
 
+// TASK-0324 P7-d: the waitset + pacing-timer side of the loop (child module: it reaches the
+// runtime's private state without widening any visibility).
+mod wait;
+use wait::{build_waitset, serve_request};
+
 const WHEEL_INDICATOR_PULSE_NS: u64 = 120_000_000;
+/// Requests served per pass before the loop drains its other waitset members.
+const IPC_BATCH_LIMIT: usize = 64;
 
 use crate::chain_stats::InputdChainTelemetry;
 
@@ -72,53 +80,43 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     debug_println("inputd: os service payload ready").map_err(|_| "inputd payload log failed")?;
     // RFC-0068: ready reached — emit the folded `inputd N/N` verdict (interactive only).
     nexus_abi::service_verdict_flush("inputd");
+    // TASK-0324 P7-d: ONE waitset over the server endpoint, the settings push channel and the
+    // timer-notify endpoint. The two clock-bound facts inputd has — the wheel indicator's
+    // expiry and the throttled pointer push — are paced by a kernel ONE-SHOT timer armed at
+    // the exact deadline: no recv timeout, no 16 ms idle tick; nothing pending = zero wakes.
+    let waitset = build_waitset(&server);
+    let timer = nexus_abi::timer_create(topo::TIMER_SEND, 0).ok();
+    if waitset.is_none() || timer.is_none() {
+        let _ = debug_println("inputd: FAIL waitset/timer (blocking on the server endpoint alone)");
+    }
+    runtime.subscribe_settings_watch();
     loop {
-        match server.recv_request_with_meta(Wait::Timeout(core::time::Duration::from_millis(16))) {
-            Ok((frame, _sender_service_id, reply)) => {
-                runtime.chain.total_frames = runtime.chain.total_frames.saturating_add(1);
-                if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
-                    runtime.chain.visible_state_polls =
-                        runtime.chain.visible_state_polls.saturating_add(1);
-                } else if frame_has_op(&frame, OP_PUSH_HID_BATCH) {
-                    runtime.chain.hid_push_frames = runtime.chain.hid_push_frames.saturating_add(1);
-                    runtime.note_hid_rx_for_rate_line();
-                } else {
-                    runtime.chain.unsupported_frames =
-                        runtime.chain.unsupported_frames.saturating_add(1);
+        // 1. Requests, in a bounded batch (a blocking one when the waitset is unavailable).
+        let wait = if waitset.is_some() { Wait::NonBlocking } else { Wait::Blocking };
+        for _ in 0..IPC_BATCH_LIMIT {
+            match server.recv_request_with_meta(wait) {
+                Ok((frame, _sender_service_id, reply)) => {
+                    serve_request(&mut runtime, &server, &frame, reply);
                 }
-                if let Some(reply) = reply {
-                    if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
-                        let response = encode_visible_state_frame(runtime.visible_state_snapshot());
-                        let _ = reply.reply_and_close(&response);
-                        runtime.chain.visible_state_replies =
-                            runtime.chain.visible_state_replies.saturating_add(1);
-                    } else {
-                        let response = runtime.handle_frame(&frame);
-                        let _ = reply.reply_and_close(&response);
-                    }
-                } else {
-                    if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
-                        let response = encode_visible_state_frame(runtime.visible_state_snapshot());
-                        let _ = server.send(&response, Wait::Blocking);
-                        runtime.chain.visible_state_replies =
-                            runtime.chain.visible_state_replies.saturating_add(1);
-                    } else {
-                        let response = runtime.handle_frame(&frame);
-                        let _ = server.send(&response, Wait::Blocking);
-                    }
-                }
-                runtime.report_chain_if_due();
+                Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => break,
+                Err(_) => return Err("inputd recv failed"),
             }
-            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                runtime.expire_transient_input_state();
-                runtime.pump_settings_watch();
-                runtime.chain.idle_yields = runtime.chain.idle_yields.saturating_add(1);
-                runtime.report_chain_if_due();
-                let _ = yield_();
+            if waitset.is_none() {
+                break;
             }
-            Err(_err) => {
-                return Err("inputd recv failed");
-            }
+        }
+        // 2. Pushes and timer notifications: waitset members, drained, never polled.
+        runtime.drain_settings_pushes();
+        runtime.drain_timer_notify();
+        // 3. The clock-bound state, then the timer for whatever is still pending.
+        runtime.expire_transient_input_state();
+        runtime.report_chain_if_due();
+        if let Some(timer) = timer {
+            runtime.arm_pacing_timer(timer);
+        }
+        // 4. WAIT — no clock.
+        if let Some(ws) = waitset {
+            let _ = nexus_abi::waitset_wait(ws, 0);
         }
     }
 }
@@ -185,6 +183,8 @@ struct LiveRouteRuntime {
     /// RFC-0078 settings-watch: OP_WATCH subscription sent (retried from the
     /// idle arm until the fire-and-forget send succeeds).
     settings_watch_subscribed: bool,
+    /// The one-shot pacing timer's armed deadline (0 = disarmed), TASK-0324 P7-d.
+    timer_armed_ns: u64,
     last_windowd_push_state: Option<VisibleState>,
     last_windowd_push_ns: u64,
     chain: InputdChainTelemetry,
@@ -274,6 +274,7 @@ impl LiveRouteRuntime {
             imed_client: None,
             imed_forward_ok_emitted: false,
             settings_watch_subscribed: false,
+            timer_armed_ns: 0,
             last_windowd_push_state: None,
             last_windowd_push_ns: 0,
             chain: InputdChainTelemetry::new(),
@@ -599,67 +600,6 @@ impl LiveRouteRuntime {
     /// (OP_WATCH with the cap-moved push channel), then drain pushed events.
     /// Slots are FIXED init grants (see `route_provision.rs`): 0x20 = SEND to
     /// settingsd, 0x21 = event inbox RECV, 0x22 = push SEND half (moved).
-    fn pump_settings_watch(&mut self) {
-        use nexus_wire::settingsd as swire;
-        if !self.settings_watch_subscribed {
-            let mut req = [0u8; 72];
-            let Some(n) = swire::encode_watch_req("input.", &mut req) else {
-                return;
-            };
-            let hdr = nexus_abi::MsgHeader::new(
-                topo::WATCH_SEND,
-                0,
-                0,
-                nexus_abi::ipc_hdr::CAP_MOVE,
-                n as u32,
-            );
-            match nexus_abi::ipc_send_v1(
-                topo::SETTINGS_SEND,
-                &hdr,
-                &req[..n],
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
-                Ok(_) => {
-                    self.settings_watch_subscribed = true;
-                    let _ = nexus_abi::trace_line("inputd: settings watch subscribed");
-                }
-                Err(_) => return, // retried next idle tick (queue full / early boot)
-            }
-        }
-        // Drain pushed events (bounded per tick).
-        let mut buf = [0u8; 600];
-        for _ in 0..4 {
-            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            let mut sid: u64 = 0;
-            let Ok(len) = nexus_abi::ipc_recv_v2(
-                topo::WATCH_RECV,
-                &mut hdr,
-                &mut buf,
-                &mut sid,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) else {
-                return;
-            };
-            let len = (len as usize).min(buf.len());
-            let Some((flags, key, value)) = swire::decode_event(&buf[..len]) else {
-                continue; // malformed push — drop, fail closed
-            };
-            if key == "input.keymap" {
-                if self.input.set_layout_name(value).is_ok() {
-                    let _ = debug_println(&format!("inputd: keymap set {value}"));
-                    self.forward_layout_to_imed(value);
-                } else {
-                    let _ = debug_println("inputd: FAIL keymap set (invalid layout)");
-                }
-            }
-            if flags & swire::EVENT_FLAG_RESYNC != 0 {
-                // Dropped deliveries: re-read our key once (bounded).
-                let _ = nexus_abi::trace_line("inputd: settings watch resync");
-            }
-        }
-    }
 
     fn report_chain_if_due(&mut self) {
         self.chain.report_if_due(self.visible_state);
@@ -859,7 +799,7 @@ impl LiveRouteRuntime {
             return;
         };
         let frame = encode_update_visible_state(self.visible_state);
-        match client.send(&frame, Wait::Timeout(core::time::Duration::from_millis(2))) {
+        match client.send(&frame, Wait::Blocking) {
             Ok(()) => {
                 // The accumulated wheel delta is DELIVERED: clear it so the
                 // next (possibly move-throttled) push cannot replay it.
@@ -899,6 +839,10 @@ impl LiveRouteRuntime {
                 // Backpressure only: keep route/client and retry next tick.
             }
             Err(_) => {
+                // Unreachable windowd: the sample is spent for pacing purposes (the next
+                // event carries fresh state) — the timer never chases a dead route.
+                self.last_windowd_push_state = Some(self.visible_state);
+                self.last_windowd_push_ns = now_ns;
                 if !self.windowd_push_fail_emitted {
                     let _ = debug_println("inputd: windowd visible-state push fail");
                     // Input-chain hop I5 fail: windowd unreachable (route dropped).

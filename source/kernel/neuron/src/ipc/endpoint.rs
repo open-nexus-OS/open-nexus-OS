@@ -29,6 +29,11 @@ pub(super) struct Endpoint {
     /// Never cleared. Last-sender EOF requires this true, so an endpoint that
     /// never had a sender can never wrongly EOF (a server blocking at boot).
     pub(super) had_sender: bool,
+    /// TASK-0324 P7-d: the last peer left while `had_sender` held (the exit / cap-close scan
+    /// decided EOF). A waitset counts it as READY so a waiter on many endpoints learns of a
+    /// peer's death like a single blocked receiver does; cleared by the next send to, or
+    /// recv from, this endpoint (the receiver observed it; the dynamic scan stays the truth).
+    pub(super) eof_pending: bool,
 }
 
 impl Endpoint {
@@ -50,6 +55,7 @@ impl Endpoint {
             recv_waiters: VecDeque::new(),
             send_waiters: VecDeque::new(),
             had_sender: false,
+            eof_pending: false,
         }
     }
 

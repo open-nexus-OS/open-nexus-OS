@@ -21,8 +21,6 @@ pub(crate) static PACKAGEFSD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
 pub(crate) static PACKAGEFSD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
 pub(crate) static STATEFSD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
 pub(crate) static STATEFSD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
-pub(crate) static LOGD_SEND_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
-pub(crate) static LOGD_RECV_SLOT_CACHE: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) fn invalidate_cached_slots(send_slot: &AtomicU32, recv_slot: &AtomicU32) {
     send_slot.store(0, Ordering::Relaxed);

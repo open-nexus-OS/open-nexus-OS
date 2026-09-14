@@ -196,68 +196,25 @@ fn exchange_status_on(
     op: u8,
     nonce: u32,
 ) -> Option<u8> {
-    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).ok()?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        frame.len() as u32,
-    );
-
-    // Liveness bound, NOT a scheduling guess (TASK-0324 P3/P4a). The wait below is
-    // event-driven — the arriving reply wakes us — so this deadline only decides how long a
-    // policyd that has NOT answered is still presumed alive. 500 ms was a scheduling guess
-    // and it fired on a 1-hart icount boot while the UI chain held the CPU: policyd printed
-    // its next line immediately after the timeout and every following request succeeded
-    // (`statefsd: FAIL policy unreachable` + `SELFTEST: statefs put FAIL`, ota-flip
-    // 2026-09-10T14-59). A supervised peer that is silent for 2 s is a real outage — the
-    // supervisor restarts it (ADR-0057) — and the caller's witness names it either way.
-    // Ordering the UI chain against control-plane services is the stage fence's job (P5).
-    let start = nexus_abi::nsec().unwrap_or(0);
-    let deadline = start.saturating_add(2_000_000_000);
-
-    // The send waits in the kernel for queue space up to the same deadline (TASK-0324 P7:
-    // a full queue is backpressure to wait out, not to spin on).
-    let sent = crate::budget::raw::send_budgeted(send_slot, &hdr, frame, deadline).is_ok();
-    let _ = nexus_abi::cap_close(reply_send_clone);
-    if !sent {
-        return None;
-    }
-
-    // RFC-0093 §1 (TASK-0324 P3): WAIT for the answer, do not poll for it. The old loop
-    // spun NONBLOCK + `yield_()` against a wall-clock deadline, so a policyd that was alive
-    // but not scheduled inside the budget looked exactly like a policyd that never answered
-    // — and the caller then denied SILENTLY (`SELFTEST: statefs persist FAIL`, ~1 in 14 smp1
-    // boots). A deadline-bounded BLOCKING recv is woken by the arriving reply, so the
-    // deadline only fires when the peer really did not answer.
+    // ONE exchange, no clock (TASK-0324 P7-b): the answer, or policyd's DEATH — it holds the
+    // moved reply cap, we own the inbox, and the kernel wakes an EOF-opted receiver when the
+    // last peer's cap is gone (a `cap_close` or a task exit). A policyd that is alive and
+    // silent is a supervision truth (ADR-0057), never a client timer: the 500 ms → 2 s
+    // "liveness bounds" this exchange carried since P3 existed only because a dead peer
+    // could not wake a waiter.
     //
-    // The reply inbox is shared across a service's outbound calls, so a frame belonging to
-    // another in-flight exchange can arrive here; it is dropped (its own exchange re-reads
-    // or times out) and we keep waiting for OUR nonce until the deadline.
-    loop {
-        let now = nexus_abi::nsec().unwrap_or(0);
-        if now >= deadline {
-            return None;
-        }
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            deadline,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if let Some(status) = decode_status_v2(&buf[..n], op, nonce) {
-                    return Some(status);
-                }
-            }
-            Err(_) => return None,
-        }
-    }
+    // The reply inbox is shared with the caller's fire-and-forget traffic (statefsd's audit
+    // appends leave logd acks queued there), so the answer is the frame that carries OUR
+    // op and nonce; everything else queued ahead of it is dropped.
+    let mut buf = [0u8; 32];
+    crate::exchange::call_matching(
+        send_slot,
+        nexus_service_topology::SlotPair::new(reply_send_slot, reply_recv_slot),
+        frame,
+        &mut buf,
+        |rsp| decode_status_v2(rsp, op, nonce),
+    )
+    .ok()
 }
 
 /// RFC-0091 §7 seam decision over a policyd `OP_ABI_EVAL` outcome: the
@@ -292,13 +249,8 @@ pub struct PolicySlots {
 /// [`check_cap_on`] / [`abi_eval_on`]; `None` = routing failed.
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub fn resolve_policy_slots() -> Option<PolicySlots> {
-    use crate::budget::{route_with_nonce_budgeted, NonceMismatchBudget, RouteRetryOutcome};
-    use core::time::Duration;
-    let route = |name: &[u8]| match route_with_nonce_budgeted(
-        name,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    use crate::budget::{route_with_nonce, NonceMismatchBudget, RouteRetryOutcome};
+    let route = |name: &[u8]| match route_with_nonce(name, NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     };
@@ -312,14 +264,9 @@ pub fn resolve_policy_slots() -> Option<PolicySlots> {
 /// [`CapDecision::Unreachable`] on any routing/IPC failure. OS-only.
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub fn check_cap_delegated(subject_id: u64, cap: &[u8]) -> CapDecision {
-    use crate::budget::{route_with_nonce_budgeted, NonceMismatchBudget, RouteRetryOutcome};
-    use core::time::Duration;
+    use crate::budget::{route_with_nonce, NonceMismatchBudget, RouteRetryOutcome};
 
-    let route = |name: &[u8]| match route_with_nonce_budgeted(
-        name,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    let route = |name: &[u8]| match route_with_nonce(name, NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     };

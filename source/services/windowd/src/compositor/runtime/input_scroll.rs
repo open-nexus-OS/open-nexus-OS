@@ -174,7 +174,7 @@ impl DisplayServerRuntime {
     }
 
     /// True while any scrollable app window's fling is still easing/coasting —
-    /// keeps the compositor pacer armed so `advance_app_scrolls` keeps ticking.
+    /// keeps the compositor's frame clock running so `advance_app_scrolls` keeps ticking.
     pub(crate) fn has_scroll_momentum(&self) -> bool {
         self.apps.iter().any(|a| a.scroll_id != 0 && a.scroll_momentum.is_animating())
     }

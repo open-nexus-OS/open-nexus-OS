@@ -44,7 +44,7 @@ const PAYLOAD: &[u8] = b"auth-envelope-v1";
 /// deny/transport failure — the caller emits the FAIL markers.
 pub(crate) fn derive_envelope_key() -> Option<EnvelopeKey> {
     let client = route_with_retry("keystored").ok()?;
-    let wait = IpcWait::Timeout(core::time::Duration::from_millis(2000));
+    let wait = IpcWait::Blocking;
 
     // 1. Idempotent device keygen (OP=10): OK (0) or KEY_EXISTS (10).
     let req = [b'K', b'S', 1, 10];

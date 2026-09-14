@@ -133,9 +133,7 @@ fn query_pkgimg_mount_mode() -> Option<u8> {
     // packagefsd os-lite control opcode for truthful mount-mode evidence.
     const OPCODE_MOUNT_STATUS: u8 = 3;
     let client = KernelClient::new_for("packagefsd").ok()?;
-    client
-        .send(&[OPCODE_MOUNT_STATUS], IpcWait::Timeout(core::time::Duration::from_millis(100)))
-        .ok()?;
-    let rsp = client.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).ok()?;
+    client.send(&[OPCODE_MOUNT_STATUS], IpcWait::Blocking).ok()?;
+    let rsp = client.recv(IpcWait::Blocking).ok()?;
     rsp.first().copied()
 }

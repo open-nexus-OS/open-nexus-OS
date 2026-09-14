@@ -120,7 +120,7 @@ impl DslApp {
             keymap: alloc::string::String::new(),
             clock_tz: alloc::string::String::from("Europe/Berlin"),
             clock_hour24: true,
-            clock_next_wait_ms: 1_000,
+            clock_deadline_ns: 0,
             end_fired: false,
             vis_pick: alloc::vec::Vec::new(),
             vis_anim: alloc::vec::Vec::new(),

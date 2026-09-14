@@ -10,14 +10,51 @@
 # under host load indistinguishable from a dead one. Two rules:
 #   1. The retired spin helpers stay retired (`retry_ipc_until`, `Clock::yield_now`,
 #      `recv_match_bounded`, `routing_v1_get`, `wait_for_slots_ready`).
-#   2. Per-file poll counts may only SHRINK against config/wait-not-poll-baseline.txt (the
-#      ratchet P7-a starts and P7-b/P7-c drive to 0); a file not in the baseline must be at 0.
+#   2. No function polls against a clock — ZERO, fleet-wide (the ratchet P7-a started reached
+#      0 with P7-d; the baseline file is gone).
+#   3. No clock-bound wait form decides a request/reply — ZERO: `Wait::Timeout(`,
+#      `deadline_after(`, `*_budgeted(`, `recv_until(`, `send_until(`, `recv_matching_until(`
+#      are absent from every consumer (a reply is waited for until it arrives or the peer dies —
+#      `nexus_ipc::exchange`; pacing is a kernel one-shot timer on a waitset, never a recv
+#      timeout). The transport files that IMPLEMENT the wait forms are excluded by path.
 # `#[cfg(test)]` modules are skipped. Every run first proves the scanner on fixtures
 # (`--self-test` runs only that).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BASELINE=config/wait-not-poll-baseline.txt
+# Prints "<count> <path>" per file with clock-bound wait forms (code only, tests skipped).
+scan_timeouts() {
+  python3 - "$@" <<'PY'
+import os, re, sys
+forms = re.compile(r"Wait::Timeout\(|deadline_after\(|[a-z_]+_budgeted\(|\brecv_until\(|\bsend_until\(|recv_matching_until\(")
+EXCLUDE = ("/target/", "/tests/", "/host.rs", "/src/os.rs", "nexus-ipc/src/budget.rs",
+           "nexus-ipc/src/os_kernel.rs", "nexus-ipc/src/os_lite.rs", "nexus-ipc/src/reqrep.rs")
+def strip_tests(src):
+    out = []; i = 0
+    while True:
+        m = re.search(r"#\[cfg\([^)]*test[^)]*\)\]\s*mod\s+\w+\s*\{", src[i:])
+        if not m:
+            out.append(src[i:]); break
+        out.append(src[i:i + m.start()]); j = i + m.end(); d = 1
+        while j < len(src) and d:
+            d += {"{": 1, "}": -1}.get(src[j], 0); j += 1
+        i = j
+    return "".join(out)
+for root in sys.argv[1:]:
+    for dp, _, fs in os.walk(root):
+        for f in sorted(fs):
+            if not f.endswith(".rs"):
+                continue
+            p = os.path.join(dp, f).replace(os.sep, "/")
+            if any(x in p for x in EXCLUDE):
+                continue
+            src = strip_tests(open(p, encoding="utf-8", errors="ignore").read())
+            code = "\n".join(l.split("//", 1)[0] for l in src.splitlines())
+            n = len(forms.findall(code))
+            if n:
+                print(f"{n} {p}")
+PY
+}
 ROOTS=(source/services source/drivers source/apps userspace)
 
 # Prints "<count> <path>: <fn>[,<fn>...]" per file with hits (sorted), exit 0 always.
@@ -121,7 +158,9 @@ RS
   [ -z "$(scan "$tmp/clean")" ] || { echo "[FAIL] wait-not-poll: scanner flags a clean wait" >&2; exit 1; }
   printf '// history: retry_ipc_until once lived here\nfn x() { retry_ipc_until(&c, d, || op()); }\n' > "$tmp/clean/src/retired.rs"
   [ "$(retired "$tmp/clean" | wc -l)" = "1" ] || { echo "[FAIL] wait-not-poll: retired-symbol rule must catch the call and skip the comment" >&2; exit 1; }
-  echo "[ok]   wait-not-poll: scanner self-test passed (2 poll shapes caught, drain + test module skipped, retired symbol caught)"
+  printf 'fn t(c: &KernelClient) { let _ = c.recv(Wait::Timeout(Duration::from_millis(5))); }\n' > "$tmp/clean/src/timeout.rs"
+  [ "$(scan_timeouts "$tmp/clean" | grep -c 'src/timeout.rs$')" = "1" ] || { echo "[FAIL] wait-not-poll: timeout scanner missed the fixture" >&2; exit 1; }
+  echo "[ok]   wait-not-poll: scanner self-test passed (2 poll shapes caught, drain + test module skipped, retired symbol caught, timeout form caught)"
   exit 0
 fi
 
@@ -134,32 +173,18 @@ if [ -n "$hits" ]; then
   exit 1
 fi
 
-[ -f "$BASELINE" ] || { echo "[FAIL] wait-not-poll: missing $BASELINE" >&2; exit 1; }
-status=0
-total=0
-while IFS= read -r line; do
-  [ -z "$line" ] && continue
-  count=${line%% *}; rest=${line#* }; path=${rest%%:*}; fns=${rest#*: }
-  total=$((total + count))
-  allowed=$(awk -v p="$path" '$2 == p { print $1 }' "$BASELINE")
-  allowed=${allowed:-0}
-  if [ "$count" -gt "$allowed" ]; then
-    echo "[FAIL] wait-not-poll: $path has $count poll-against-clock function(s) (baseline $allowed): $fns" >&2
-    echo "       WAIT for the reply (nexus_ipc::budget::recv_until / raw::recv_budgeted / Wait::Timeout); the deadline is a liveness bound, never a spin budget." >&2
-    status=1
-  fi
-done < <(scan "${ROOTS[@]}")
-# The ratchet only shrinks: a baseline entry above the real count is stale and must be lowered.
-while read -r allowed path; do
-  [ -z "$path" ] && continue
-  case "$allowed" in \#*) continue ;; esac
-  actual=$(scan "${ROOTS[@]}" | awk -v p="$path" '{ split($2, a, ":"); if (a[1] == p) print $1 }')
-  actual=${actual:-0}
-  if [ "$actual" -lt "$allowed" ]; then
-    echo "[FAIL] wait-not-poll: $path is at $actual but the baseline still allows $allowed — lower the baseline (ratchet)" >&2
-    status=1
-  fi
-done < "$BASELINE"
-baseline_total=$(awk '{ s += $1 } END { print s + 0 }' "$BASELINE")
-[ "$status" -eq 0 ] && echo "[PASS] wait-not-poll: no retired spin helper; poll-against-clock ratchet $total/$baseline_total (only shrinks)"
-exit $status
+hits=$(scan "${ROOTS[@]}")
+if [ -n "$hits" ]; then
+  echo "[FAIL] wait-not-poll: poll-against-clock function(s) — ZERO remain after TASK-0324 P7-d:" >&2
+  echo "$hits" >&2
+  echo "       WAIT for the reply (a blocking, EOF-opted receive: the answer or the peer's death); a clock never decides it." >&2
+  exit 1
+fi
+t_hits=$(scan_timeouts "${ROOTS[@]}")
+if [ -n "$t_hits" ]; then
+  echo "[FAIL] wait-not-poll: clock-bound wait form(s) — ZERO remain after TASK-0324 P7-d (nexus_ipc::exchange waits; pacing is a timer cap on a waitset):" >&2
+  echo "$t_hits" >&2
+  exit 1
+fi
+echo "[PASS] wait-not-poll: no retired spin helper, zero poll-against-clock functions, zero clock-bound wait forms"
+exit 0

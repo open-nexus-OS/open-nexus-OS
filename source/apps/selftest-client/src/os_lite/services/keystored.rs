@@ -15,7 +15,7 @@
 extern crate alloc;
 
 use nexus_abi::MsgHeader;
-use nexus_ipc::budget::raw;
+use nexus_ipc::exchange;
 use nexus_ipc::{KernelClient, Wait as IpcWait};
 
 use super::super::ipc::routing::route_with_retry;
@@ -53,13 +53,11 @@ pub(crate) fn keystored_ping(client: &KernelClient) -> core::result::Result<(), 
         req.extend_from_slice(val);
 
         let hdr = MsgHeader::new(0, 0, 0, 0, req.len() as u32);
-        // WAIT for the answer (TASK-0324 P7): the send and the receive block in the kernel
-        // up to one liveness bound; nothing here yields against a clock.
-        let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(2_000_000_000);
-        raw::send_budgeted(send_slot, &hdr, &req, deadline).map_err(|_| ())?;
-        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
+        // WAIT for the answer with no clock (TASK-0324 P7-b): the reply or keystored's death.
+        let _ = hdr;
+        exchange::send_request(send_slot, &req).map_err(|_| ())?;
         let mut buf = [0u8; 256];
-        let n = raw::recv_budgeted(recv_slot, &mut rh, &mut buf, deadline).map_err(|_| ())?;
+        let n = exchange::recv_response(recv_slot, &mut buf).map_err(|_| ())?;
         let n = core::cmp::min(n, buf.len());
         let mut out = alloc::vec::Vec::with_capacity(n);
         out.extend_from_slice(&buf[..n]);
@@ -111,12 +109,9 @@ pub(crate) fn keystored_ping(client: &KernelClient) -> core::result::Result<(), 
 
     // Malformed frame should return MALFORMED (wrong magic).
     let (send_slot, recv_slot) = client.slots();
-    let hdr = MsgHeader::new(0, 0, 0, 0, 3);
-    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(2_000_000_000);
-    raw::send_budgeted(send_slot, &hdr, b"bad", deadline).map_err(|_| ())?;
-    let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
+    exchange::send_request(send_slot, b"bad").map_err(|_| ())?;
     let mut buf = [0u8; 64];
-    let n = raw::recv_budgeted(recv_slot, &mut rh, &mut buf, deadline).map_err(|_| ())?;
+    let n = exchange::recv_response(recv_slot, &mut buf).map_err(|_| ())?;
     let rsp = &buf[..core::cmp::min(n, buf.len())];
     let (status, _payload) = parse_rsp(&rsp, OP_GET)?;
     if status != MALFORMED {
@@ -161,24 +156,15 @@ pub(crate) fn keystored_cap_move_probe(
     req.extend_from_slice(&0u16.to_le_bytes()); // val_len=0
     req.extend_from_slice(key);
 
-    if keystored
-        .send_with_cap_move_wait(
-            &req,
-            reply_send_clone,
-            IpcWait::Timeout(core::time::Duration::from_millis(200)),
-        )
-        .is_err()
-    {
+    if keystored.send_with_cap_move_wait(&req, reply_send_clone, IpcWait::Blocking).is_err() {
         emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_SEND_FAIL);
         return Err(());
     }
 
-    // WAIT on the reply inbox for our GET-miss answer (1 s liveness bound); frames of other
-    // exchanges on the shared inbox are dropped and the wait resumes.
-    let deadline_ns = nexus_abi::nsec().map_err(|_| ())?.saturating_add(1_000_000_000);
-    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    // WAIT on the reply inbox for our GET-miss answer — no clock: the answer, or keystored's
+    // death (EOF: it holds the moved reply cap, we are the inbox owner).
     let mut buf = [0u8; 128];
-    while let Ok(n) = raw::recv_budgeted(reply_recv_slot, &mut hdr, &mut buf, deadline_ns) {
+    while let Ok(n) = exchange::recv_reply(reply_recv_slot, &mut buf) {
         let rsp = &buf[..core::cmp::min(n, buf.len())];
         // Expect: [K,S,ver,OP_GET|0x80,status,val_len]
         if rsp.len() >= 7

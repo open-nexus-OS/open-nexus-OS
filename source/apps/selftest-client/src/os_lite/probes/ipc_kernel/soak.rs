@@ -15,12 +15,8 @@
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 use core::sync::atomic::{AtomicU64, Ordering};
-use core::time::Duration;
 
 use nexus_abi::ipc_recv_v1_nb;
-use nexus_ipc::budget::{deadline_after, OsClock};
-use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
-use nexus_ipc::{KernelClient, Wait as IpcWait};
 
 use super::super::super::ipc::clients::cached_samgrd_client;
 use super::plumbing::{ipc_deadline_timeout_probe, ipc_payload_roundtrip};
@@ -48,48 +44,19 @@ pub(crate) fn ipc_soak_probe() -> core::result::Result<(), ()> {
         // B) Bootstrap payload roundtrip.
         ipc_payload_roundtrip()?;
 
-        // C) CAP_MOVE ping to samgrd + reply receive (robust against shared inbox mixing).
-        let clock = OsClock;
-        let deadline_ns = deadline_after(&clock, Duration::from_millis(200)).map_err(|_| ())?;
-        let mut pending: ReplyBuffer<8, 64> = ReplyBuffer::new();
+        // C) CAP_MOVE ping to samgrd: ONE exchange, no clock (TASK-0324 P7-b).
         static NONCE: AtomicU64 = AtomicU64::new(0x1000);
         let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
-
-        let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
+        let (sam_send, _) = sam.slots();
         let mut frame = [0u8; 12];
         frame[0] = b'S';
         frame[1] = b'M';
         frame[2] = 1;
         frame[3] = 3; // OP_PING_CAP_MOVE
         frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-        // The send WAITS for queue space (one liveness bound), then the reply inbox — the
-        // ONE kernel client, whose `recv` honours the wait — is woken by samgrd's answer.
-        let sent = sam
-            .send_with_cap_move_wait(
-                &frame,
-                reply_send_clone,
-                IpcWait::Timeout(Duration::from_secs(2)),
-            )
-            .is_ok();
-        let _ = nexus_abi::cap_close(reply_send_clone);
-        if !sent {
-            return Err(());
-        }
-
-        let inbox =
-            KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).map_err(|_| ())?;
-        let rsp = recv_match_until(&clock, &inbox, &mut pending, nonce, deadline_ns, |frame| {
-            if frame.len() == 12 && frame[0..4] == *b"PONG" {
-                Some(u64::from_le_bytes([
-                    frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10],
-                    frame[11],
-                ]))
-            } else {
-                None
-            }
-        })
-        .map_err(|_| ())?;
-        if rsp.len() != 12 || rsp[0..4] != *b"PONG" {
+        let rsp = nexus_ipc::exchange::call(sam_send, reply, &frame).map_err(|_| ())?;
+        let pong_nonce = rsp.get(4..12).map(|b| u64::from_le_bytes(b.try_into().unwrap_or([0; 8])));
+        if rsp.len() != 12 || rsp[0..4] != *b"PONG" || pong_nonce != Some(nonce) {
             return Err(());
         }
 

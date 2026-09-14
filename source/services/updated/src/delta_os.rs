@@ -55,12 +55,11 @@ impl RemoteBase {
             Slot::A => blockproto::PART_BOOT_A,
             Slot::B => blockproto::PART_BOOT_B,
         };
-        let dev = RemoteBlockDevice::open_with_deadline(
+        let dev = RemoteBlockDevice::open(
             blockproto::CLIENT_REQ_SLOT,
             blockproto::CLIENT_REPLY_SEND_SLOT,
             blockproto::CLIENT_REPLY_RECV_SLOT,
             part,
-            2_000_000_000,
         )
         .ok_or(RejectReason::Io)?;
         let mut sector = [0u8; SECTOR];

@@ -265,6 +265,18 @@ impl CapTable {
             .count()
     }
 
+    /// The distinct endpoints this table holds a live SEND right to (TASK-0324 P7-b): what
+    /// a dying task must be scanned for so every receiver it was the last peer of is woken.
+    pub fn endpoint_send_ids(&self, out: &mut alloc::vec::Vec<EndpointId>) {
+        for cap in self.slots.iter().flatten() {
+            if let CapabilityKind::Endpoint(id) = cap.kind {
+                if cap.rights.contains(Rights::SEND) && !out.contains(&id) {
+                    out.push(id);
+                }
+            }
+        }
+    }
+
     /// Returns a capability without consuming it.
     pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
         self.slots.get(slot).and_then(|entry| *entry).ok_or(CapError::InvalidSlot)

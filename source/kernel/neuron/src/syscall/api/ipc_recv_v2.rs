@@ -77,6 +77,8 @@ pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     // Derive endpoint.
     let endpoint =
         ctx.tasks.current_caps_mut().derive_endpoint_ref(slot as usize, Rights::RECV)?.endpoint();
+    // The receiver looks: the waitset EOF latch is consumed here too (TASK-0324 P7-d).
+    ctx.router.clear_eof_pending(endpoint);
 
     let truncate = (sys_flags & IPC_SYS_TRUNCATE) != 0;
     let nonblock = (sys_flags & IPC_SYS_NONBLOCK) != 0;

@@ -267,7 +267,9 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             if self.imed_client.is_none() {
-                self.imed_client = nexus_ipc::KernelClient::new_for("imed").ok();
+                // The declared imed leg (TASK-0324 P4a) — no route ask (P7-b).
+                let leg = nexus_service_topology::slots::windowd::IMED;
+                self.imed_client = nexus_ipc::KernelClient::new_with_slots(leg.send, leg.recv).ok();
             }
             let Some(client) = self.imed_client.as_ref() else {
                 let _ = debug_println("WINDOWD: FAIL imed route");

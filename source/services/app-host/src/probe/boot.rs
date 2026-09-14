@@ -14,7 +14,6 @@ use super::*;
 /// fallback. Marked on both paths (`APPHOST: payload source=…`).
 pub(super) fn resolve_payload() -> Option<&'static [u8]> {
     use nexus_abi::{bundlemgrd as wire, cap_clone, cap_close, vmo_read};
-    let start = nsec().unwrap_or(0);
     // Slot presence: execd grants the payload VMO BEFORE it resumes this task (TASK-0324
     // P4e), so the slot is there or the launch is wrong — one probe (cap_clone+close: the
     // established presence pattern), no wait.
@@ -27,39 +26,33 @@ pub(super) fn resolve_payload() -> Option<&'static [u8]> {
             return None;
         }
     }
-    // Header poll: bundlemgrd writes the header AFTER the payload bytes
-    // (header-last release ordering), so a decodable header means the
-    // payload is complete. This is a SHARED-MEMORY handshake — no IPC event
-    // announces the write — so it stays a bounded poll (recorded, TASK-0324 P7).
+    // The header: bundlemgrd wrote it AFTER the payload bytes and ANSWERED execd, and execd
+    // resumed this task only after that answer (TASK-0324 P7-d) — one read, fail-closed:
+    // an unwritten or bad header is a launch defect, never something to wait for.
     let mut hdr = [0u8; wire::PAYLOAD_DATA_OFFSET];
-    loop {
-        if vmo_read(PAYLOAD_VMO_SLOT, 0, &mut hdr).is_ok() {
-            if let Some((status, len)) = wire::decode_payload_header(&hdr) {
-                if status != wire::PAYLOAD_STATUS_OK
-                    || len == 0
-                    || len as usize > PAYLOAD_MAX_LEN
-                    || len % 8 != 0
-                {
-                    raw_marker("APPHOST: FAIL payload (header status)");
-                    return None;
-                }
-                let mut buf = nexus_dsl_ir::read::AlignedBytes::zeroed(len as usize);
-                if vmo_read(PAYLOAD_VMO_SLOT, wire::PAYLOAD_DATA_OFFSET, buf.as_bytes_mut())
-                    .is_err()
-                {
-                    raw_marker("APPHOST: FAIL payload (vmo read)");
-                    return None;
-                }
-                raw_marker("APPHOST: payload source=bundle");
-                return Some(alloc::boxed::Box::leak(alloc::boxed::Box::new(buf)).as_bytes());
-            }
-        }
-        if nsec().unwrap_or(u64::MAX).saturating_sub(start) > PAYLOAD_BUDGET_NS {
-            raw_marker("APPHOST: FAIL payload (header timeout)");
-            return None;
-        }
-        let _ = yield_();
+    if vmo_read(PAYLOAD_VMO_SLOT, 0, &mut hdr).is_err() {
+        raw_marker("APPHOST: FAIL payload (header read)");
+        return None;
     }
+    let Some((status, len)) = wire::decode_payload_header(&hdr) else {
+        raw_marker("APPHOST: FAIL payload (header unwritten)");
+        return None;
+    };
+    if status != wire::PAYLOAD_STATUS_OK
+        || len == 0
+        || len as usize > PAYLOAD_MAX_LEN
+        || len % 8 != 0
+    {
+        raw_marker("APPHOST: FAIL payload (header status)");
+        return None;
+    }
+    let mut buf = nexus_dsl_ir::read::AlignedBytes::zeroed(len as usize);
+    if vmo_read(PAYLOAD_VMO_SLOT, wire::PAYLOAD_DATA_OFFSET, buf.as_bytes_mut()).is_err() {
+        raw_marker("APPHOST: FAIL payload (vmo read)");
+        return None;
+    }
+    raw_marker("APPHOST: payload source=bundle");
+    Some(alloc::boxed::Box::leak(alloc::boxed::Box::new(buf)).as_bytes())
 }
 
 /// `APPHOST: mounted hash=<first-16-hex>` — the R2 DoD marker.
@@ -196,10 +189,10 @@ pub(super) fn wait_for_boot_pushes(
     events: &KernelClient,
     region: &mut Option<RegionPush>,
 ) -> (u8, u8, Option<u32>) {
-    let deadline = nsec().unwrap_or(0).saturating_add(BOOT_PUSH_BOUND_NS);
     let mut frame = [0u8; 96];
-    // WAIT for the push (the kernel wakes us per frame) until the bound passes.
-    while let Ok(len) = recv_event_until(events, deadline, &mut frame) {
+    // WAIT for the push: windowd marks the snapshot due at event-channel attach and delivers
+    // it on its next pump — it always comes (or windowd is gone), so nothing here is timed.
+    while let Ok(len) = recv_event(events, &mut frame) {
         if let Some(snap) =
             nexus_display_proto::surface_settings::decode_surface_settings(&frame[..len])
         {
@@ -218,26 +211,11 @@ pub(super) fn wait_for_boot_pushes(
     (wire::THEME_DARK, wire::PROFILE_TABLET, None)
 }
 
-/// One event-channel receive that WAITS in the kernel until a frame arrives or the
-/// absolute `deadline_ns` passes (TASK-0324 P7 — the one wait every boot handshake uses).
-pub(super) fn recv_event_until(
-    events: &KernelClient,
-    deadline_ns: u64,
-    frame: &mut [u8],
-) -> Result<usize, ()> {
-    loop {
-        let now = nsec().unwrap_or(u64::MAX);
-        if now >= deadline_ns {
-            return Err(());
-        }
-        match events
-            .recv_into(Wait::Timeout(core::time::Duration::from_nanos(deadline_ns - now)), frame)
-        {
-            Ok(len) => return Ok(len),
-            Err(nexus_ipc::IpcError::Timeout) => continue,
-            Err(_) => return Err(()),
-        }
-    }
+/// One event-channel receive that WAITS in the kernel until a frame arrives — or windowd,
+/// the channel's only sender, is gone (last-sender EOF, RFC-0079). No clock (TASK-0324
+/// P7-b): the compositor's answer or its death, nothing else, ends a boot handshake.
+pub(super) fn recv_event(events: &KernelClient, frame: &mut [u8]) -> Result<usize, ()> {
+    events.recv_into_eof(Wait::Blocking, frame).map_err(|_| ())
 }
 
 /// Reads the app's window intent from the payload as the `WIN_*` wire tags
@@ -300,13 +278,10 @@ pub(super) fn request_content_rect(
     if send_wait(client, &intent).is_err() {
         return None;
     }
-    // Liveness bound, not a scheduling guess: early-boot windowd can lag several
-    // seconds before it drains the request queue (grown image); with the parked
-    // reply flush a LATE answer is correct — falling back early re-created the
-    // 320x240/splash-hang class this bound exists to avoid.
-    let deadline = nsec().unwrap_or(0).saturating_add(CONTENT_RECT_BOUND_NS);
+    // No clock: early-boot windowd may take seconds to drain its request queue, and its
+    // answer is correct however late it comes — the only other end is windowd's death.
     let mut frame = [0u8; 96];
-    while let Ok(len) = recv_event_until(events, deadline, &mut frame) {
+    while let Ok(len) = recv_event(events, &mut frame) {
         if let Some((_, inset, w, h)) = wire::decode_surface_rect(&frame[..len]) {
             raw_marker("APPHOST: content rect received");
             return Some((u32::from(inset), u32::from(w), u32::from(h)));
@@ -346,10 +321,10 @@ pub(super) fn compositor_owned_geometry(
     }
 }
 
-/// Sends one request, WAITING in the kernel for queue space up to the send bound
-/// (TASK-0324 P7): a full windowd queue is backpressure to wait out, not to spin on.
+/// Sends one request, WAITING in the kernel for queue space (TASK-0324 P7): a full windowd
+/// queue is backpressure to wait out; a dead windowd ends the wait. No clock.
 pub(super) fn send_wait(client: &KernelClient, frame: &[u8]) -> Result<(), &'static str> {
-    if client.send(frame, Wait::Timeout(SEND_BOUND)).is_ok() {
+    if client.send(frame, Wait::Blocking).is_ok() {
         return Ok(());
     }
     let _ = debug_println("apphost: FAIL send");
@@ -362,7 +337,7 @@ pub(super) fn send_wait_cap(
     frame: &[u8],
     cap: u32,
 ) -> Result<(), &'static str> {
-    if client.send_with_cap_move_wait(frame, cap, Wait::Timeout(SEND_BOUND)).is_ok() {
+    if client.send_with_cap_move_wait(frame, cap, Wait::Blocking).is_ok() {
         return Ok(());
     }
     let _ = debug_println("apphost: FAIL create send");
@@ -381,8 +356,7 @@ pub(super) fn recv_ack(
     // 96: an RFC-0083 snapshot (max 70 bytes) may race the ack on this
     // channel — a 64-byte buffer would truncate it into an undecodable frame.
     let mut frame = [0u8; 96];
-    let deadline = nsec().unwrap_or(0).saturating_add(ACK_BUDGET_NS);
-    while let Ok(len) = recv_event_until(client, deadline, &mut frame) {
+    while let Ok(len) = client.recv_into(Wait::Blocking, &mut frame) {
         if let Some((status, value)) = wire::decode_surface_ack(&frame[..len], op) {
             if status == wire::SURFACE_STATUS_OK {
                 return Ok(value);
@@ -405,6 +379,6 @@ pub(super) fn recv_ack(
         let _ = stash_region(&frame[..len], region);
         // Unrelated frame on the shared channel — keep waiting.
     }
-    let _ = debug_println("apphost: FAIL ack timeout");
-    Err("apphost: ack timeout")
+    let _ = debug_println("apphost: FAIL ack channel closed");
+    Err("apphost: ack channel closed")
 }

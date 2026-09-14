@@ -23,9 +23,7 @@ use nexus_ipc::{Client, Wait as IpcWait};
 
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
 use crate::os_lite::context::PhaseCtx;
-use crate::os_lite::ipc::routing::{
-    route_slots_from_responder, route_slots_from_responder_within, route_with_retry,
-};
+use crate::os_lite::ipc::routing::{route_slots_from_responder, route_with_retry};
 use crate::os_lite::{ime_ranking, imed, imed_osk, probes, services, settings_watch, timed};
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
@@ -316,12 +314,11 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             0,
         );
         // The echo is queued before the send returns (self-loopback): ONE waited receive
-        // proves the pair; the bound only names a broken endpoint.
+        // proves the pair (no clock, TASK-0324 P7-d).
         let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
         let mut rb = [0u8; 8];
-        let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(2_000_000_000);
         let ok = matches!(
-            nexus_ipc::budget::raw::recv_budgeted(ctx.reply_recv_slot, &mut rh, &mut rb, deadline),
+            nexus_ipc::budget::raw::recv_blocking(ctx.reply_recv_slot, &mut rh, &mut rb),
             Ok(n) if n == ping.len() && rb[..n] == ping
         );
         if ok {
@@ -345,12 +342,10 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_FAIL);
     }
 
-    // Readiness gate: dsoftbusd must be ready before the routing-dependent probes run (the
-    // canonical marker ladder order in `scripts/qemu-test.sh`). ONE parked route ask
-    // (RFC-0093 §1): init answers it when dsoftbusd has reported ready — the 5 s bound is
-    // dsoftbusd's network bring-up, not a poll cadence (TASK-0324 P7 deleted the logd-query
-    // loop that used to grep for its ready line every 32 yields).
-    let _ = route_slots_from_responder_within("dsoftbusd", core::time::Duration::from_secs(5));
+    // TASK-0324 P7-b: the dsoftbusd "readiness gate" that stood here (a 5 s logd-query poll,
+    // then a 5 s parked route ask) is DELETED — dsoftbusd never announces ready (network
+    // family HOLD), so a clock-free parked ask would wait forever and the poll never saw
+    // anything. Readiness is a stage-fence fact, not a harness wait.
 
     // samgrd v1 lookup (routing + ok/unknown/malformed)
     let samgrd = match route_with_retry("samgrd") {
@@ -414,11 +409,8 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         Err(_) => emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_UNKNOWN_FAIL),
     }
     // Malformed request (wrong magic) should not return OK.
-    samgrd
-        .send(b"bad", IpcWait::Timeout(core::time::Duration::from_millis(200)))
-        .map_err(|_| ())?;
-    let rsp =
-        samgrd.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))).map_err(|_| ())?;
+    samgrd.send(b"bad", IpcWait::Blocking).map_err(|_| ())?;
+    let rsp = samgrd.recv(IpcWait::Blocking).map_err(|_| ())?;
     if rsp.len() == 13 && rsp[0] == b'S' && rsp[1] == b'M' && rsp[2] == 1 && rsp[4] != 0 {
         emit_line(crate::markers::M_SELFTEST_SAMGRD_V1_MALFORMED_OK);
     } else {

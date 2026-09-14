@@ -226,18 +226,11 @@ impl super::DslApp {
         true
     }
 
-    /// The event-loop wait: animation ticks (12ms) win; a declared clock
-    /// event wakes at the next minute boundary; otherwise pure blocking.
-    pub(super) fn event_wait(&self, animating: bool) -> nexus_ipc::Wait {
-        if animating {
-            nexus_ipc::Wait::Timeout(core::time::Duration::from_millis(12))
-        } else if self.clock_supported() {
-            nexus_ipc::Wait::Timeout(core::time::Duration::from_millis(
-                self.clock_next_wait_ms.max(250),
-            ))
-        } else {
-            nexus_ipc::Wait::Blocking
-        }
+    /// When the app's clock timer must fire (absolute monotonic ns): the next minute
+    /// boundary, or "now" before the first tick. `None` = the app declares no clock event —
+    /// nothing to arm (TASK-0324 P7-d: the clock is a one-shot timer, not a recv timeout).
+    pub(super) fn clock_deadline_ns(&self) -> Option<u64> {
+        self.clock_supported().then_some(self.clock_deadline_ns.max(1))
     }
 
     /// Queries walltime, converts, dispatches `ClockEvent::Tick(time, date)`.
@@ -253,11 +246,11 @@ impl super::DslApp {
         #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
         let wall: Option<u64> = None;
         let Some(epoch_ns) = wall else {
-            self.clock_next_wait_ms = 60_000;
+            self.clock_deadline_ns = mono_now_ns().saturating_add(60_000_000_000);
             return false; // placeholder stays — never fake time
         };
         let Some(zone) = tz_lite::zone(&self.clock_tz) else {
-            self.clock_next_wait_ms = 60_000;
+            self.clock_deadline_ns = mono_now_ns().saturating_add(60_000_000_000);
             return false;
         };
         let civil = tz_lite::to_civil(epoch_ns, zone);
@@ -278,9 +271,10 @@ impl super::DslApp {
                 alloc::format!("{month}{}日 {weekday}", civil.day)
             }
         };
-        // Schedule the next wakeup just past the minute boundary.
+        // The next tick: just past the minute boundary (the timer's absolute deadline).
         let sec_in_min = (epoch_ns / 1_000_000_000) % 60;
-        self.clock_next_wait_ms = (60 - sec_in_min) * 1000 + 200;
+        self.clock_deadline_ns =
+            mono_now_ns().saturating_add(((60 - sec_in_min) * 1000 + 200) * 1_000_000);
         let tokens = tokens_for(self.theme_mode);
         let device =
             device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
@@ -312,5 +306,17 @@ impl super::DslApp {
             }
         }
         changed
+    }
+}
+
+/// The monotonic clock the timer deadlines are expressed in (0 off-target).
+fn mono_now_ns() -> u64 {
+    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+    {
+        nexus_abi::nsec().unwrap_or(0)
+    }
+    #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
+    {
+        0
     }
 }

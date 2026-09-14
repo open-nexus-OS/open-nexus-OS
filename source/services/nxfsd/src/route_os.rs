@@ -27,11 +27,10 @@ use storage::remote_blk::RemoteBlockDevice;
 /// while virtioblkd still initializes its device stay cheap for the
 /// upgrade window's retry budget.
 pub(crate) fn attach_data_partition() -> Option<RemoteBlockDevice> {
-    RemoteBlockDevice::open_with_deadline(
+    RemoteBlockDevice::open(
         CLIENT_REQ_SLOT,
         CLIENT_REPLY_SEND_SLOT,
         CLIENT_REPLY_RECV_SLOT,
         PART_DATA,
-        1_000_000_000,
     )
 }

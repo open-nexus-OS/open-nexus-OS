@@ -214,15 +214,12 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Resu
     let _ = nexus_service_entry::ready("vfsd: ready");
     debug_print("vfsd: namespace ready\n");
     notifier.notify();
-    // RFC-0005: For kernel IPC v1, init transfers vfs request/reply endpoints into deterministic
-    // slots. Use name-based construction so call sites don't hardcode slot numbers.
-    let server = match KernelServer::new_for("vfsd") {
-        Ok(server) => server,
-        Err(_) => {
-            let slots = nexus_service_topology::slots::vfsd::SERVER;
-            KernelServer::new_with_slots(slots.recv, slots.send).map_err(|_| Error::Transport)?
-        }
-    };
+    // The declared server pair (TASK-0324 P4), pinned before this task runs. No route ask at
+    // start-up (P7-b): an ask has no clock and init may be blocked in a synchronous exchange
+    // with a service that, in turn, waits for THIS server — the ask made that a deadlock.
+    let slots = nexus_service_topology::slots::vfsd::SERVER;
+    let server =
+        KernelServer::new_with_slots(slots.recv, slots.send).map_err(|_| Error::Transport)?;
     // VFS bring-up: proxy pkg:/ reads to packagefsd (real data). Non-pkg schemes are unsupported.
     run_loop(server, Namespace::new())
 }

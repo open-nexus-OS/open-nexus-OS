@@ -11,7 +11,7 @@
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
-use nexus_abi::{yield_, MsgHeader};
+use nexus_abi::MsgHeader;
 
 pub(crate) fn init_health_ok() -> core::result::Result<(), ()> {
     use nexus_service_topology::CTRL_SLOTS;
@@ -22,42 +22,20 @@ pub(crate) fn init_health_ok() -> core::result::Result<(), ()> {
     req[4..8].copy_from_slice(&nonce.to_le_bytes());
     let hdr = MsgHeader::new(0, 0, 0, 0, req.len() as u32);
 
-    // Use explicit time-bounded NONBLOCK loops (avoid flaky kernel deadline semantics).
-    let start = nexus_abi::nsec().map_err(|_| ())?;
-    let deadline = start.saturating_add(30_000_000_000); // 30s (init may contend with stage work)
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(CTRL_SLOTS.send, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(|_| ())?;
-                    if now >= deadline {
-                        return Err(());
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-        i = i.wrapping_add(1);
+    // A waited send on the control channel, then waited receives (init's answer, nonce-matched,
+    // or init's death) — no clock (TASK-0324 P7-d).
+    if nexus_abi::ipc_send_v1(CTRL_SLOTS.send, &hdr, &req, 0, 0).is_err() {
+        return Err(());
     }
 
     let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 16];
-    let mut j: usize = 0;
     loop {
-        if (j & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(|_| ())?;
-            if now >= deadline {
-                return Err(());
-            }
-        }
         match nexus_abi::ipc_recv_v1(
             CTRL_SLOTS.recv,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE,
             0,
         ) {
             Ok(n) => {
@@ -74,11 +52,7 @@ pub(crate) fn init_health_ok() -> core::result::Result<(), ()> {
                 }
                 // Ignore unrelated control responses.
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
             Err(_) => return Err(()),
         }
-        j = j.wrapping_add(1);
     }
 }

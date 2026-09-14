@@ -7,8 +7,9 @@
 //! A SET is: validate → commit in memory → REPLY → notify watchers → mark
 //! the blob dirty. Persistence is ASYNC (`persist::Persister` + NONBLOCK
 //! statefsd PUT/reply-drain, coalesced, bounded backoff) — a client never
-//! waits on statefsd, and the loop blocks indefinitely only when no persist
-//! work is owed (`Wait::Timeout` otherwise; no polling, no yield-spins).
+//! waits on statefsd, and the loop waits on ONE waitset (server + reply inbox + timer-notify):
+//! a PUT in flight ends with statefsd's answer or its death, the persist floor/backoff with a
+//! kernel one-shot timer (TASK-0324 P7-d; no recv timeout, no polling, no yield-spins).
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! INVARIANTS:
@@ -26,7 +27,6 @@ use core::fmt;
 use core::fmt::Write as _;
 
 use nexus_abi::settingsd as wire;
-use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
 use statefs::client::StatefsClient;
 use statefs::protocol as sf_proto;
@@ -34,7 +34,7 @@ use statefs::protocol as sf_proto;
 use crate::persist::{Action, Persister};
 use crate::registry::{SetError, SettingsRegistry};
 use crate::watch::WatchTable;
-use core::time::Duration;
+use nexus_service_topology::slots::settingsd as slots;
 
 /// Result alias for the lite settingsd backend.
 pub type SettingsdResult<T> = Result<T, SettingsdError>;
@@ -77,69 +77,139 @@ pub fn service_main_loop() -> SettingsdResult<()> {
     let mut rsp = [0u8; 300];
     let mut watchers = WatchTable::new();
     let mut persister = Persister::new();
+    // TASK-0324 P7-d: ONE waitset over the server endpoint, the statefsd reply inbox (PUT
+    // answers) and the timer-notify endpoint. A PUT in flight ends with statefsd's answer or
+    // its death (EOF); the persist floor and the failure backoff are paced by a kernel
+    // ONE-SHOT timer armed at the exact deadline — no recv timeout, no 50 ms tick.
+    let waitset = build_waitset(&server);
+    let timer = nexus_abi::timer_create(slots::TIMER_SEND, 0).ok();
+    if waitset.is_none() || timer.is_none() {
+        let _ = nexus_abi::debug_println(
+            "settingsd: FAIL waitset/timer (blocking on the server endpoint alone)",
+        );
+    }
+    let mut timer_armed_ns = 0u64;
     loop {
-        // Drive persistence FIRST (drain statefsd replies, send a due PUT) —
-        // it never blocks, so request latency is untouched.
+        // Persistence FIRST (drain PUT replies, send a due PUT) — it never blocks a client.
         pump_persist(&mut persister, &registry);
-        // Block indefinitely only when no persist work is owed; while a PUT
-        // is in flight / dirty / backing off, wake on a bounded timeout so
-        // the state machine advances even with no client traffic.
-        let wait = if persister.is_idle() {
-            Wait::Blocking
-        } else {
-            Wait::Timeout(Duration::from_millis(50))
-        };
-        match server.recv_request_with_meta(wait) {
-            Ok((frame, _sender_service_id, reply)) => {
-                // OP_WATCH (RFC-0078/0083): the moved cap IS the subscription's
-                // push channel — keep it, never reply_and_close it. A fresh
-                // watcher immediately receives its full matching state
-                // (registration burst = the subscriber's boot restore).
-                if let Some((wire::OP_WATCH, prefix, _)) = wire::decode_request(frame.as_slice()) {
-                    match reply {
-                        Some(chan) if watchers.register(chan.slot(), prefix) => {
-                            let current = current_values(&registry);
-                            let (matching, delivered) =
-                                watchers.sync(chan.slot(), &current, send_event);
-                            let mut line = String::new();
-                            let _ = write!(
-                                line,
-                                "settingsd: watch registered (sync {delivered}/{matching})"
-                            );
-                            let _ = nexus_abi::debug_println(&line);
-                        }
-                        _ => {
-                            // No moved cap / table full: honest reject on the
-                            // shared endpoint (the would-be subscriber's recv).
-                            let len =
-                                encode(wire::OP_WATCH, wire::STATUS_PERSIST_FAIL, "", &mut rsp);
-                            let _ = server.send(&rsp[..len], Wait::NonBlocking);
-                        }
-                    }
-                    continue;
-                }
-                let len = handle_request(
-                    frame.as_slice(),
-                    &mut registry,
-                    &mut rsp,
-                    &mut watchers,
-                    &mut persister,
-                );
-                let out = &rsp[..len];
-                if let Some(reply) = reply {
-                    let _ = reply.reply_and_close(out);
-                } else {
-                    let _ = server.send(out, Wait::Blocking);
-                }
-            }
-            // Timeout = the bounded persist wake; WouldBlock = spurious. Both
-            // just loop back into the persist pump — no yield polling.
-            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {}
-            Err(nexus_ipc::IpcError::Disconnected) => {
-                return Err(SettingsdError::Ipc("disconnected"))
-            }
-            Err(_) => return Err(SettingsdError::Ipc("recv")),
+        if let Some(timer) = timer {
+            arm_persist_timer(timer, &persister, &mut timer_armed_ns);
         }
+        let wait = if waitset.is_some() { Wait::NonBlocking } else { Wait::Blocking };
+        for _ in 0..IPC_BATCH_LIMIT {
+            match server.recv_request_with_meta(wait) {
+                Ok((frame, _sender_service_id, reply)) => {
+                    // OP_WATCH (RFC-0078/0083): the moved cap IS the subscription's
+                    // push channel — keep it, never reply_and_close it. A fresh
+                    // watcher immediately receives its full matching state
+                    // (registration burst = the subscriber's boot restore).
+                    if let Some((wire::OP_WATCH, prefix, _)) =
+                        wire::decode_request(frame.as_slice())
+                    {
+                        match reply {
+                            Some(chan) if watchers.register(chan.slot(), prefix) => {
+                                let current = current_values(&registry);
+                                let (matching, delivered) =
+                                    watchers.sync(chan.slot(), &current, send_event);
+                                let mut line = String::new();
+                                let _ = write!(
+                                    line,
+                                    "settingsd: watch registered (sync {delivered}/{matching})"
+                                );
+                                let _ = nexus_abi::debug_println(&line);
+                            }
+                            _ => {
+                                // No moved cap / table full: honest reject on the
+                                // shared endpoint (the would-be subscriber's recv).
+                                let len =
+                                    encode(wire::OP_WATCH, wire::STATUS_PERSIST_FAIL, "", &mut rsp);
+                                let _ = server.send(&rsp[..len], Wait::NonBlocking);
+                            }
+                        }
+                        continue;
+                    }
+                    let len = handle_request(
+                        frame.as_slice(),
+                        &mut registry,
+                        &mut rsp,
+                        &mut watchers,
+                        &mut persister,
+                    );
+                    let out = &rsp[..len];
+                    if let Some(reply) = reply {
+                        let _ = reply.reply_and_close(out);
+                    } else {
+                        let _ = server.send(out, Wait::Blocking);
+                    }
+                }
+                Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => break,
+                Err(nexus_ipc::IpcError::Disconnected) => {
+                    return Err(SettingsdError::Ipc("disconnected"))
+                }
+                Err(_) => return Err(SettingsdError::Ipc("recv")),
+            }
+            if waitset.is_none() {
+                break;
+            }
+        }
+        // WAIT — no clock. A timer frame means the one-shot fired (the kernel disarmed it).
+        if let Some(ws) = waitset {
+            let _ = nexus_abi::waitset_wait(ws, 0);
+            if drain_timer_notify() {
+                timer_armed_ns = 0;
+            }
+        }
+    }
+}
+
+/// Requests served per pass before the loop returns to its other waitset members.
+const IPC_BATCH_LIMIT: usize = 32;
+
+/// The loop's waitset (TASK-0324 P7-d): its server endpoint, the statefsd reply inbox and the
+/// timer-notify endpoint — declared slots, so the members exist before this task runs.
+fn build_waitset(server: &KernelServer) -> Option<u32> {
+    let ws = nexus_abi::waitset_create().ok()?;
+    let (server_recv, _) = server.slots();
+    for slot in [server_recv, slots::REPLY.recv, slots::TIMER_RECV] {
+        nexus_abi::waitset_add(ws, slot).ok()?;
+    }
+    Some(ws)
+}
+
+/// Drains the timer-notify endpoint; `true` if the one-shot fired.
+fn drain_timer_notify() -> bool {
+    let mut fired = false;
+    let mut buf = [0u8; 32];
+    loop {
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        if nexus_abi::ipc_recv_v1(
+            slots::TIMER_RECV,
+            &mut hdr,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        )
+        .is_err()
+        {
+            return fired;
+        }
+        fired = true;
+    }
+}
+
+/// Arms the one-shot timer at the persister's next deadline (the PUT floor or the backoff),
+/// or leaves it disarmed: one kernel call per CHANGE of the deadline.
+fn arm_persist_timer(timer: u32, persister: &Persister, armed_ns: &mut u64) {
+    let want = persister.next_deadline_ns().unwrap_or(0);
+    if want == *armed_ns {
+        return;
+    }
+    if *armed_ns != 0 {
+        let _ = nexus_abi::timer_cancel(timer);
+        *armed_ns = 0;
+    }
+    if want != 0 && nexus_abi::timer_set(timer, want).is_ok() {
+        *armed_ns = want;
     }
 }
 
@@ -149,7 +219,7 @@ pub fn service_main_loop() -> SettingsdResult<()> {
 /// the UART while the backoff retries forever.
 fn pump_persist(persister: &mut Persister, registry: &SettingsRegistry) {
     let now = nexus_abi::nsec().unwrap_or(0);
-    while let Some(ok) = poll_put_reply() {
+    while let Some(ok) = poll_put_reply(persister.in_flight()) {
         persister.on_reply(ok, now);
         if ok {
             let _ = nexus_abi::debug_println("settingsd: persist ok");
@@ -262,12 +332,9 @@ fn encode(op: u8, status: u8, value: &str, rsp: &mut [u8; 300]) -> usize {
     })
 }
 
-/// Bind the server endpoint: the route registry when available, else the
-/// deterministic fallback slots init's declarative arm provisioned (RFC-0069).
+/// Bind the server endpoint: the declared slots init's arm pinned before resume (no route
+/// ask — asks have no clock since TASK-0324 P7-b, and a start-up ask can deadlock init).
 fn bind_server() -> SettingsdResult<KernelServer> {
-    if let Ok(server) = KernelServer::new_for("settingsd") {
-        return Ok(server);
-    }
     let slots = nexus_service_topology::slots::settingsd::SERVER;
     KernelServer::new_with_slots(slots.recv, slots.send).map_err(|_| SettingsdError::Ipc("bind"))
 }
@@ -295,10 +362,7 @@ const PREFS_KEY: &str = "/state/settingsd/prefs";
 /// ONLY (before the serve loop starts); the client's request/reply exchange
 /// is bounded, never an indefinite block.
 fn load_prefs() -> Option<String> {
-    let Some((send_slot, reply_send_slot, reply_recv_slot)) = cached_slots() else {
-        let _ = nexus_abi::debug_write(b"settingsd: statefs route FAIL\n");
-        return None;
-    };
+    let (send_slot, reply_send_slot, reply_recv_slot) = statefs_slots();
     // Named-route slots are persistent and `KernelClient` never closes its
     // slots, so wrapping the cached slots here is drop-safe.
     let client = KernelClient::new_with_slots(send_slot, reply_recv_slot).ok()?;
@@ -314,9 +378,7 @@ fn load_prefs() -> Option<String> {
 /// the frame LEFT — the reply arrives later via [`poll_put_reply`]. A refused
 /// send (full queue / no route) is the caller's backoff signal, never a spin.
 fn try_send_put(blob: &str) -> bool {
-    let Some((send_slot, reply_send_slot, _)) = cached_slots() else {
-        return false;
-    };
+    let (send_slot, reply_send_slot, _) = statefs_slots();
     let Ok(req) = sf_proto::encode_put_request(PREFS_KEY, blob.as_bytes()) else {
         return false;
     };
@@ -330,7 +392,9 @@ fn try_send_put(blob: &str) -> bool {
         nexus_abi::ipc_hdr::CAP_MOVE,
         req.len() as u32,
     );
-    match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+    // Queue space is waited for in the kernel (TASK-0324 P7-d); a refused send is statefsd's
+    // absence, reported to the persister as a failure (backoff, no clock in the wait).
+    match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, 0, 0) {
         Ok(_) => true,
         Err(_) => {
             let _ = nexus_abi::cap_close(reply_send_clone);
@@ -343,8 +407,13 @@ fn try_send_put(blob: &str) -> bool {
 /// `Some(ok)` = a PUT reply arrived; `None` = nothing (or only foreign
 /// frames) waiting. Foreign frames are skipped, bounded per call. The status
 /// byte sits at offset 4 in both v1 and v2 statefs replies.
-fn poll_put_reply() -> Option<bool> {
-    let (_, _, reply_recv_slot) = cached_slots()?;
+/// Harvests ONE statefsd PUT reply from the inbox, `None` when there is none. With a PUT in
+/// flight the inbox is read EOF-opted (RFC-0079): statefsd holds the moved reply cap until it
+/// answers, so `PeerClosed` with nothing queued means statefsd died — the PUT failed
+/// (`Some(false)`), no clock decides it. Foreign inbox traffic is skipped (bounded).
+fn poll_put_reply(in_flight: bool) -> Option<bool> {
+    let (_, _, reply_recv_slot) = statefs_slots();
+    let eof = if in_flight { nexus_abi::IPC_SYS_EOF } else { 0 };
     for _ in 0..4 {
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 64]; // a PUT status reply is a handful of bytes
@@ -352,7 +421,7 @@ fn poll_put_reply() -> Option<bool> {
             reply_recv_slot,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE | eof,
             0,
         ) {
             Ok(n) => {
@@ -365,8 +434,8 @@ fn poll_put_reply() -> Option<bool> {
                 {
                     return Some(frame[4] == sf_proto::STATUS_OK);
                 }
-                // Foreign inbox traffic: skip and keep draining (bounded).
             }
+            Err(nexus_abi::IpcError::PeerClosed) if in_flight => return Some(false),
             Err(_) => return None,
         }
     }
@@ -375,33 +444,8 @@ fn poll_put_reply() -> Option<bool> {
 
 /// Route slots resolved ONCE (named routes are persistent slots — never
 /// closed, safe to cache): `(statefsd send, @reply send, @reply recv)`.
-fn cached_slots() -> Option<(u32, u32, u32)> {
-    use core::sync::atomic::{AtomicU32, Ordering};
-    static STATEFS_SEND: AtomicU32 = AtomicU32::new(0);
-    static REPLY_SEND: AtomicU32 = AtomicU32::new(0);
-    static REPLY_RECV: AtomicU32 = AtomicU32::new(0);
-    if STATEFS_SEND.load(Ordering::Relaxed) == 0 {
-        let (send, _) = route_blocking(b"statefsd")?;
-        let (rs, rr) = route_blocking(b"@reply")?;
-        STATEFS_SEND.store(send, Ordering::Relaxed);
-        REPLY_SEND.store(rs, Ordering::Relaxed);
-        REPLY_RECV.store(rr, Ordering::Relaxed);
-    }
-    Some((
-        STATEFS_SEND.load(Ordering::Relaxed),
-        REPLY_SEND.load(Ordering::Relaxed),
-        REPLY_RECV.load(Ordering::Relaxed),
-    ))
-}
-
-/// Resolve a service (or `@reply`) to its `(send, recv)` slots via the responder.
-fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        name,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
-        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
-        _ => None,
-    }
+/// The statefsd leg and the reply inbox: DECLARED slots (`nexus-service-topology`), pinned
+/// by init before this task runs — no runtime route ask (TASK-0324 P7-b/P7-d).
+fn statefs_slots() -> (u32, u32, u32) {
+    (slots::STATEFSD.send, slots::REPLY.send, slots::REPLY.recv)
 }

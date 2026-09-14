@@ -34,7 +34,7 @@ pub(crate) fn device_key_selftest() -> Option<[u8; 32]> {
         }
     };
 
-    let wait = IpcWait::Timeout(core::time::Duration::from_millis(500));
+    let wait = IpcWait::Blocking;
     /// Bounded re-recv attempts per reply (4 s): the first device keygen and
     /// its enveloped persistence run while the desktop shell paints; a reply
     /// that arrives after a single 500 ms budget must still be CONSUMED, or
@@ -156,7 +156,7 @@ pub(crate) fn device_key_private_export_rejected_selftest(client: &KernelClient)
     // Explicit private export op must deterministically reject.
     // Request: [K, S, ver, OP_GET_DEVICE_PRIVKEY=13]
     let req = [b'K', b'S', 1, 13];
-    let wait = IpcWait::Timeout(core::time::Duration::from_millis(500));
+    let wait = IpcWait::Blocking;
     if client.send(&req, wait).is_err() {
         emit_line(crate::markers::M_SELFTEST_DEVICE_KEY_PRIVATE_EXPORT_REJECTED_FAIL_SEND);
         return;
@@ -193,7 +193,7 @@ pub(crate) fn device_key_reload_and_check(expected: &[u8; 32]) -> core::result::
             return Err(());
         }
     };
-    let wait = IpcWait::Timeout(core::time::Duration::from_millis(1000));
+    let wait = IpcWait::Blocking;
     let req = [b'K', b'S', 1, 14]; // DEVICE_RELOAD
     if client.send(&req, wait).is_err() {
         emit_line(crate::markers::M_SELFTEST_RELOAD_SEND_FAIL);

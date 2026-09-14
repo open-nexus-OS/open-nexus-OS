@@ -132,9 +132,12 @@ pub trait Server {
     fn send(&self, frame: &[u8], wait: Wait) -> Result<()>;
 }
 
-/// Deterministic, budgeted retry loops for non-blocking IPC.
 pub mod audit;
+/// Deadline-bounded waits (transitional, TASK-0324 P7: shrinking to zero — request/reply
+/// goes through `exchange`, which has no clock) and the fleet route ask.
 pub mod budget;
+/// The ONE request/reply exchange: no timeout — the reply or the peer's death ends the wait.
+pub mod exchange;
 
 /// logd OS-lite v1 wire helpers (host-testable parsers).
 pub mod logd_wire;

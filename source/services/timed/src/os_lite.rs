@@ -13,7 +13,6 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
-use core::time::Duration;
 
 use nexus_abi::{debug_putc, nsec, yield_};
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
@@ -238,11 +237,7 @@ fn route_timed_blocking() -> Option<KernelServer> {
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        name,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(name, NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }

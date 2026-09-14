@@ -206,18 +206,12 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             use nexus_ipc::Client as _;
-            // Resolve the broker route lazily WITH retries and cache it:
-            // one `new_for` = one ~100ms routing window ("caller-level
-            // retries handle longer waits" — the query_route contract);
-            // a single attempt failed live (user report 2026-07-07).
+            // The declared abilitymgr pair (TASK-0324 P4a; it answers on its own endpoint) —
+            // no route ask, no retry loop (P7-b).
             if self.abilitymgr_client.is_none() {
-                for _ in 0..20 {
-                    if let Ok(resolved) = nexus_ipc::KernelClient::new_for("abilitymgr") {
-                        self.abilitymgr_client = Some(resolved);
-                        break;
-                    }
-                    let _ = nexus_abi::yield_();
-                }
+                let leg = nexus_service_topology::slots::windowd::ABILITYMGR;
+                self.abilitymgr_client =
+                    nexus_ipc::KernelClient::new_with_slots(leg.send, leg.recv).ok();
             }
             let Some(client) = self.abilitymgr_client.as_ref() else {
                 let _ = debug_println("windowd: FAIL launch route (abilitymgr)");
@@ -231,27 +225,33 @@ impl DisplayServerRuntime {
             req.extend_from_slice(app);
             req.push(ABIL.len() as u8);
             req.extend_from_slice(ABIL);
-            if client.send(&req, nexus_ipc::Wait::NonBlocking).is_err() {
+            if client.send(&req, nexus_ipc::Wait::Blocking).is_err() {
                 let _ = debug_println("windowd: FAIL launch send");
+                self.end_cursor_wait();
                 return;
             }
-            // Drain the reply bounded (status logging only — the launch
-            // outcome is abilitymgr's marker chain).
+            // The reply arrives on abilitymgr's response endpoint — a waitset member of the
+            // compositor loop (TASK-0324 P7-c): `drain_launch_replies` handles it. No poll.
+        }
+    }
+
+    /// Drains abilitymgr's launch replies `[A,M,ver,OP_LAUNCH|0x80,status]` (waitset wake):
+    /// a refused launch ends the pointer's wait ring at once — the surface it waits for will
+    /// never arrive — instead of the ring running out its failsafe.
+    #[cfg(nexus_env = "os")]
+    pub(crate) fn drain_launch_replies(&mut self) {
+        let mut denied = 0u32;
+        if let Some(client) = self.abilitymgr_client.as_ref() {
             let mut rsp = [0u8; 16];
-            for _ in 0..2_000 {
-                match client.recv_into(nexus_ipc::Wait::NonBlocking, &mut rsp) {
-                    Ok(n) if n >= 5 && rsp[3] == 0x81 => {
-                        if rsp[4] != 0 {
-                            let _ = debug_println("windowd: launch denied");
-                        }
-                        return;
-                    }
-                    Ok(_) => {}
-                    Err(_) => {
-                        let _ = nexus_abi::yield_();
-                    }
+            while let Ok(n) = client.recv_into(nexus_ipc::Wait::NonBlocking, &mut rsp) {
+                if n >= 5 && rsp[3] == 0x81 && rsp[4] != 0 {
+                    denied += 1;
                 }
             }
+        }
+        for _ in 0..denied {
+            let _ = debug_println("windowd: launch denied");
+            self.end_cursor_wait();
         }
     }
 

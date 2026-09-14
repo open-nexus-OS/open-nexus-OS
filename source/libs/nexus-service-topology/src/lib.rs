@@ -104,6 +104,15 @@ pub enum NamedSlot {
     SettingsWatchSend,
     /// Settings request channel.
     Settings,
+    /// Session push channel (windowd, TASK-0324 P7-c): the RECV half.
+    SessionWatchRecv,
+    /// Session push channel: the SEND half, moved once with sessiond's `OP_WATCH`.
+    SessionWatchSend,
+    /// Timer-notify endpoint (TASK-0324 P7-d): the RECV half, a waitset member. Pacing
+    /// without a recv timeout — the kernel one-shot timer fires a frame here.
+    TimerNotifyRecv,
+    /// Timer-notify endpoint: the SEND half the service's kernel timer cap is bound to.
+    TimerNotifySend,
     /// Boot-stage fence, WAIT rights only (ADR-0062).
     StageFence,
     /// A second server endpoint's RECV half (imed's on-screen-keyboard endpoint, which

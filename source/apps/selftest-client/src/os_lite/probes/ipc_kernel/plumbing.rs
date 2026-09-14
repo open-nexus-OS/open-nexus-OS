@@ -101,7 +101,7 @@ pub(crate) fn nexus_ipc_kernel_loopback_probe() -> core::result::Result<(), ()> 
     let client = KernelClient::new_with_slots(bootstrap, bootstrap).map_err(|_| ())?;
     let payload: &[u8] = b"nexus-ipc kernel loopback";
     client.send(payload, IpcWait::NonBlocking).map_err(|_| ())?;
-    match client.recv(IpcWait::Timeout(core::time::Duration::from_secs(2))) {
+    match client.recv(IpcWait::Blocking) {
         Ok(msg) if msg.as_slice() == payload => Ok(()),
         _ => Err(()),
     }

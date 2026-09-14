@@ -202,72 +202,37 @@ impl StatefsClient {
         frame = v2;
         let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, flags, frame.len() as u32);
 
-        let start = nexus_abi::nsec().map_err(|_| StatefsError::IoError)?;
-        let deadline = start.saturating_add(2_000_000_000); // 2s per op (bounded)
+        // No clock (TASK-0324 P7-d): queue space, then statefsd's answer (or its death).
+        nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, 0, 0).map_err(|_| StatefsError::IoError)?;
 
-        // Send bounded.
-        let mut i: usize = 0;
-        loop {
-            match nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-                Ok(_) => break,
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    if (i & 0x7f) == 0 {
-                        let now = nexus_abi::nsec().map_err(|_| StatefsError::IoError)?;
-                        if now >= deadline {
-                            return Err(StatefsError::IoError);
-                        }
-                    }
-                    let _ = nexus_abi::yield_();
-                }
-                Err(_) => return Err(StatefsError::IoError),
-            }
-            i = i.wrapping_add(1);
-        }
-
-        // Recv bounded.
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 4096];
-        let mut j: usize = 0;
         loop {
-            if (j & 0x7f) == 0 {
-                let now = nexus_abi::nsec().map_err(|_| StatefsError::IoError)?;
-                if now >= deadline {
-                    return Err(StatefsError::IoError);
-                }
-            }
-            match nexus_abi::ipc_recv_v1(
+            let n = nexus_abi::ipc_recv_v1(
                 recv_slot,
                 &mut rh,
                 &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                nexus_abi::IPC_SYS_TRUNCATE,
                 0,
-            ) {
-                Ok(n) => {
-                    let n = core::cmp::min(n as usize, buf.len());
-                    // Shared reply inbox: ignore unrelated replies deterministically.
-                    if n < 13
-                        || buf[0] != protocol::MAGIC0
-                        || buf[1] != protocol::MAGIC1
-                        || buf[2] != protocol::VERSION_V2
-                        || buf[3] != (expected_op | 0x80)
-                    {
-                        continue;
-                    }
-                    // Nonce must match.
-                    let nn = &buf[5..13];
-                    let mut want = [0u8; 8];
-                    want.copy_from_slice(&nonce.to_le_bytes());
-                    if nn != want {
-                        continue;
-                    }
-                    return Ok(buf[..n].to_vec());
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = nexus_abi::yield_();
-                }
-                Err(_) => return Err(StatefsError::IoError),
+            )
+            .map_err(|_| StatefsError::IoError)?;
+            let n = core::cmp::min(n as usize, buf.len());
+            // Shared reply inbox: unrelated replies are dropped deterministically.
+            if n < 13
+                || buf[0] != protocol::MAGIC0
+                || buf[1] != protocol::MAGIC1
+                || buf[2] != protocol::VERSION_V2
+                || buf[3] != (expected_op | 0x80)
+            {
+                continue;
             }
-            j = j.wrapping_add(1);
+            let nn = &buf[5..13];
+            let mut want = [0u8; 8];
+            want.copy_from_slice(&nonce.to_le_bytes());
+            if nn != want {
+                continue;
+            }
+            return Ok(buf[..n].to_vec());
         }
     }
 

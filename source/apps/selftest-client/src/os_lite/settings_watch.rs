@@ -11,8 +11,6 @@
 //! TEST_COVERAGE: QEMU marker ladder via `just test-os`.
 //! RFC: docs/rfcs/RFC-0078-settings-region-keys-watch.md
 
-use core::time::Duration;
-
 use nexus_abi::settingsd as wire;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{Client, Wait as IpcWait};
@@ -20,11 +18,7 @@ use nexus_ipc::{Client, Wait as IpcWait};
 use super::ipc::routing::route_with_retry;
 
 fn mint_pair() -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        b"@mint-pair",
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(b"@mint-pair", NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }
@@ -33,8 +27,8 @@ fn mint_pair() -> Option<(u32, u32)> {
 fn set_key(client: &nexus_ipc::KernelClient, key: &str, value: &str) -> Result<(), ()> {
     let mut req = [0u8; 300];
     let n = wire::encode_set_req(key, value, &mut req).ok_or(())?;
-    client.send(&req[..n], IpcWait::Timeout(Duration::from_millis(300))).map_err(|_| ())?;
-    let rsp = client.recv(IpcWait::Timeout(Duration::from_millis(300))).map_err(|_| ())?;
+    client.send(&req[..n], IpcWait::Blocking).map_err(|_| ())?;
+    let rsp = client.recv(IpcWait::Blocking).map_err(|_| ())?;
     let (status, _v) = wire::decode_response(wire::OP_SET, &rsp).ok_or(())?;
     if status == wire::STATUS_OK {
         Ok(())

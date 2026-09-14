@@ -18,7 +18,6 @@ use nexus_ipc::{Client, Wait as IpcWait};
 use statefs::protocol as statefs_proto;
 
 use super::super::super::ipc::clients::cached_dsoftbusd_client;
-use super::REMOTE_DSOFTBUS_WAIT_MS;
 
 pub(crate) fn dsoftbusd_remote_statefs_call(
     req: &[u8],
@@ -37,11 +36,8 @@ pub(crate) fn dsoftbusd_remote_statefs_call(
     frame.extend_from_slice(&[D0, D1, VER, OP]);
     frame.extend_from_slice(&(req.len() as u16).to_le_bytes());
     frame.extend_from_slice(req);
-    d.send(&frame, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
-        .map_err(|_| ())?;
-    let rsp = d
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
-        .map_err(|_| ())?;
+    d.send(&frame, IpcWait::Blocking).map_err(|_| ())?;
+    let rsp = d.recv(IpcWait::Blocking).map_err(|_| ())?;
     if rsp.len() < 7 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
         return Err(());
     }

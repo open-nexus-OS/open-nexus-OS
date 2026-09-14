@@ -15,44 +15,39 @@
 //! TEST_COVERAGE: QEMU marker ladder via `just test-os`.
 //! RFC: docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md
 
-use core::time::Duration;
-
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
 use super::ipc::routing::route_with_retry;
 
 fn mint_pair() -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        b"@mint-pair",
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(b"@mint-pair", NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }
 }
 
 /// One osk-endpoint request with a CAP_MOVE'd reply SEND; returns the reply
-/// status + the commit ECHO (deadline-blocked recv, never a spin).
+/// status + the commit ECHO (a waited receive, never a spin, never a clock).
 fn osk_call(osk_send: u32, req: &[u8]) -> Result<(u8, [u8; 64], usize), ()> {
     use nexus_abi::imed as wire;
     let (ev_send, ev_recv) = mint_pair().ok_or(())?;
     let hdr =
         nexus_abi::MsgHeader::new(ev_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    if nexus_abi::ipc_send_v1(osk_send, &hdr, req, nexus_abi::IPC_SYS_NONBLOCK, 0).is_err() {
+    // A waited send (queue space or imed's death), then a waited receive on OUR minted
+    // reply endpoint (imed holds the moved SEND: its answer or its death, EOF) — no clock
+    // (TASK-0324 P7-d; the 800 ms deadline + non-blocking send failed the probe whenever
+    // imed was busy answering settingsd on its focus path).
+    if nexus_abi::ipc_send_v1(osk_send, &hdr, req, 0, 0).is_err() {
         return Err(());
     }
-    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(800_000_000);
     let mut rhdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut sid: u64 = 0;
     let mut buf = [0u8; 96];
-    let len = nexus_abi::ipc_recv_v2(
+    let len = nexus_abi::ipc_recv_v1(
         ev_recv,
         &mut rhdr,
         &mut buf,
-        &mut sid,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        deadline,
+        nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
+        0,
     )
     .map_err(|_| ())? as usize;
     let op = *req.get(3).ok_or(())?;

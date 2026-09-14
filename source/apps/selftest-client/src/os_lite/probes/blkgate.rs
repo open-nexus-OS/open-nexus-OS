@@ -13,8 +13,6 @@
 //!   `SELFTEST: blk system volume deny ok` — TASK-0321 op-aware gate).
 //! ADR: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
 
-use core::time::Duration;
-
 use crate::markers::emit_line;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
@@ -34,11 +32,7 @@ const PART_SYSTEM_A: u8 = 5;
 const STATUS_DENIED: u8 = 5;
 
 fn route_virtioblkd() -> Option<u32> {
-    match budget::route_with_nonce_budgeted(
-        b"virtioblkd",
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(b"virtioblkd", NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, .. } => Some(send_slot),
         _ => None,
     }
@@ -124,34 +118,18 @@ fn deny_probe_quiet(op: u8, frame: &mut [u8], nonce: u32) -> bool {
         nexus_abi::ipc_hdr::CAP_MOVE,
         frame.len() as u32,
     );
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(2_000_000_000);
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                    let _ = nexus_abi::cap_close(reply_clone);
-                    return false;
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => {
-                let _ = nexus_abi::cap_close(reply_clone);
-                return false;
-            }
-        }
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, frame, 0, 0).is_err() {
+        let _ = nexus_abi::cap_close(reply_clone);
+        return false;
     }
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 64];
     loop {
-        if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-            return false;
-        }
         match nexus_abi::ipc_recv_v1(
             REPLY.recv,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
             0,
         ) {
             Ok(n) => {
@@ -166,9 +144,6 @@ fn deny_probe_quiet(op: u8, frame: &mut [u8], nonce: u32) -> bool {
                 {
                     return buf[8] == STATUS_DENIED;
                 }
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = nexus_abi::yield_();
             }
             Err(_) => return false,
         }

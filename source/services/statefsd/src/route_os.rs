@@ -29,11 +29,10 @@ use storage::remote_blk::RemoteBlockDevice;
 /// device up. A `None` after the bound is a REAL failure the window's
 /// bounded retry budget accounts.
 pub(crate) fn attach_state_partition() -> Option<RemoteBlockDevice> {
-    RemoteBlockDevice::open_with_deadline(
+    RemoteBlockDevice::open(
         CLIENT_REQ_SLOT,
         CLIENT_REPLY_SEND_SLOT,
         CLIENT_REPLY_RECV_SLOT,
         PART_STATE,
-        8_000_000_000,
     )
 }

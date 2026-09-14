@@ -18,10 +18,8 @@ extern crate alloc;
 use alloc::boxed::Box;
 
 use core::fmt;
-use core::time::Duration;
 
 use nexus_abi::debug_putc;
-use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_sel::Policy;
 
 use crate::audit_os::{emit_audit, AuditDecision, AuditReason};
@@ -1117,10 +1115,5 @@ pub(crate) fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
     // (`SELFTEST: statefs auth put FAIL`). The append is best-effort by
     // contract (deferred = counted, never hidden): bound the wait to 2 ms so
     // policyd's hot path never waits on logd.
-    let clock = OsClock;
-    let deadline = match deadline_after(&clock, Duration::from_millis(2)) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    nexus_ipc::budget::raw::send_budgeted(LOGD_SEND_SLOT, &hdr, &frame[..len], deadline).is_ok()
+    nexus_ipc::budget::raw::send_blocking(LOGD_SEND_SLOT, &hdr, &frame[..len]).is_ok()
 }

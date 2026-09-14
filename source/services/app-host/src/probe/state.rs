@@ -96,7 +96,8 @@ pub(super) struct DslApp {
     /// Clock state (RFC-0076, `probe/clock.rs`): tz, format, next wait.
     pub(super) clock_tz: alloc::string::String,
     pub(super) clock_hour24: bool,
-    pub(super) clock_next_wait_ms: u64,
+    /// Absolute monotonic deadline of the next clock tick (0 = tick as soon as possible).
+    pub(super) clock_deadline_ns: u64,
     /// EndReached latch: fired once per approach to the content end;
     /// re-armed whenever layout re-runs (content grew/shrank).
     pub(super) end_fired: bool,

@@ -17,6 +17,44 @@
 /// Presents that may be outstanding at once (RFC-0093 §5: "window ≤ 64 outstanding").
 pub(crate) const WINDOW: usize = 64;
 
+/// WHEN `OP_REVEAL` is sent (RFC-0093 §5, TASK-0065B): the desktop is complete (wallpaper,
+/// cursor, first present) AND the session's desktop surface — the greeter, or the shell of an
+/// already-active session — has presented its first frame. The frame that reveals the desktop
+/// therefore contains the login: the desktop never flashes before it. Two facts, in either
+/// order (the greeter may present before the first framebuffer write); ONE request.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RevealGate {
+    display_complete: bool,
+    session_content: bool,
+    requested: bool,
+}
+
+impl RevealGate {
+    pub(crate) const fn new() -> Self {
+        Self { display_complete: false, session_content: false, requested: false }
+    }
+
+    /// The desktop is composed and presented (first framebuffer write). `true` = request now.
+    pub(crate) fn display_complete(&mut self) -> bool {
+        self.display_complete = true;
+        self.take()
+    }
+
+    /// The session's desktop surface presented a frame. `true` = request now.
+    pub(crate) fn session_content(&mut self) -> bool {
+        self.session_content = true;
+        self.take()
+    }
+
+    fn take(&mut self) -> bool {
+        if self.requested || !self.display_complete || !self.session_content {
+            return false;
+        }
+        self.requested = true;
+        true
+    }
+}
+
 /// What an ack did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Verdict {
@@ -205,6 +243,36 @@ mod tests {
         assert_eq!(w.last_issued(), 2);
         w.ack(1);
         assert_eq!(w.last_issued(), 2, "acks never move the issue counter");
+    }
+
+    /// The bare desktop (wallpaper + cursor) is not revealed: without the session's first
+    /// frame the reveal would flash the desktop before the login (TASK-0065B).
+    #[test]
+    fn test_reject_reveal_before_session_content() {
+        let mut g = RevealGate::new();
+        assert!(!g.display_complete(), "desktop complete, no session frame yet");
+        assert!(!g.display_complete(), "repeating the fact changes nothing");
+    }
+
+    /// A session frame before the desktop is composed cannot reveal either: the frame that
+    /// reveals must be a presented desktop frame.
+    #[test]
+    fn test_reject_reveal_before_display_complete() {
+        let mut g = RevealGate::new();
+        assert!(!g.session_content(), "greeter frame, desktop not composed yet");
+    }
+
+    /// Both facts, either order: the request fires on the second fact, exactly once.
+    #[test]
+    fn reveal_requested_once_when_both_facts_hold() {
+        let mut g = RevealGate::new();
+        assert!(!g.display_complete());
+        assert!(g.session_content(), "second fact requests");
+        assert!(!g.session_content(), "once");
+        assert!(!g.display_complete(), "once");
+        let mut g = RevealGate::new();
+        assert!(!g.session_content());
+        assert!(g.display_complete(), "either order");
     }
 
     /// A `STATUS_REVEALED` that nobody asked for is a violation, and a second one is too.

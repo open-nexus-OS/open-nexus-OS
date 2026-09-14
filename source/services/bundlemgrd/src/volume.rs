@@ -44,7 +44,6 @@ const VOLUME_START_SECTOR: u64 = 8;
 const CHUNK: usize = blockproto::MAX_BLOCKS_PER_REQ as usize * blockproto::SECTOR_SIZE;
 /// Bounded attach window: virtioblkd may still be bringing the device up
 /// when init asks for the first bundle (its MMIO grant lands late).
-const ATTACH_DEADLINE_NS: u64 = 2_000_000_000;
 
 /// Why the volume is not trusted — the marker vocabulary (RFC-0089 §12.7).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,12 +186,11 @@ fn attach_and_verify() -> Result<Volume, VolumeFail> {
         bootfmt::bsb::Slot::A => (blockproto::PART_SYSTEM_A, b'a'),
         bootfmt::bsb::Slot::B => (blockproto::PART_SYSTEM_B, b'b'),
     };
-    let dev = RemoteBlockDevice::open_with_deadline(
+    let dev = RemoteBlockDevice::open(
         blockproto::CLIENT_REQ_SLOT,
         blockproto::CLIENT_REPLY_SEND_SLOT,
         blockproto::CLIENT_REPLY_RECV_SLOT,
         part,
-        ATTACH_DEADLINE_NS,
     )
     .ok_or(VolumeFail::Io)?;
 

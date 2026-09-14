@@ -34,9 +34,7 @@ fn main() {
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod probe {
-    use nexus_abi::{
-        ipc_recv_v1, ipc_send_v1, nsec, yield_, MsgHeader, IPC_SYS_NONBLOCK, IPC_SYS_TRUNCATE,
-    };
+    use nexus_abi::{ipc_recv_v1, ipc_send_v1, MsgHeader, IPC_SYS_TRUNCATE};
 
     /// The child's capability slots, from the ONE declaration execd grants against
     /// (TASK-0324 P4e-2 — they used to be copied here with a comment naming execd's
@@ -69,22 +67,11 @@ mod probe {
     /// Bounded non-blocking send (2s wall budget): the probe must never park
     /// in SEND — the class under test is the RECV park. QueueFull only ever
     /// means execd hasn't drained yet; anything else is a wiring failure.
+    /// One waited send (TASK-0324 P7-d): queue space, or the spawner's death.
     fn send_byte(slot: u32, byte: u8) -> Result<(), &'static str> {
         let payload = [byte];
         let hdr = MsgHeader::new(0, 0, 0, 0, payload.len() as u32);
-        let deadline = nsec().unwrap_or(0).saturating_add(2_000_000_000);
-        loop {
-            match ipc_send_v1(slot, &hdr, &payload, IPC_SYS_NONBLOCK, 0) {
-                Ok(_) => return Ok(()),
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    if nsec().unwrap_or(u64::MAX) >= deadline {
-                        return Err("send timeout");
-                    }
-                    let _ = yield_();
-                }
-                Err(_) => return Err("send failed"),
-            }
-        }
+        ipc_send_v1(slot, &hdr, &payload, 0, 0).map(|_| ()).map_err(|_| "send failed")
     }
 
     pub fn run() -> Result<(), &'static str> {

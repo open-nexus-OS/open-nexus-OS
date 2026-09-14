@@ -103,15 +103,56 @@ crate::frames! {
     }
 }
 
-/// Fetch an app's UI-program payload into a caller-provided VMO
-/// (TASK-0080D GET_PAYLOAD). Request:
-/// `[B, N, ver, OP_GET_PAYLOAD, id_len:u8, id...]` with the payload VMO
-/// capability MOVED alongside the message (CAP_MOVE — the gpud-attach /
-/// ADR-0042 SURFACE_CREATE pattern; the message's single cap slot carries
-/// the VMO, so there is no reply frame). bundlemgrd writes the payload
-/// bytes at [`PAYLOAD_DATA_OFFSET`], then the header LAST (header-last =
-/// release ordering for the single writer); the consumer polls the header.
+/// Fetch an app's UI-program payload into the caller's ARMED VMO (TASK-0080D
+/// GET_PAYLOAD; TASK-0324 P7-d). Request: `[B, N, ver, OP_GET_PAYLOAD, id_len:u8,
+/// id...]` with a REPLY capability MOVED alongside; the destination VMO was moved
+/// earlier with [`OP_ARM_VMO`]. bundlemgrd writes the payload bytes at
+/// [`PAYLOAD_DATA_OFFSET`], then the header LAST (header-last = release ordering for
+/// the single writer), then answers `[…|0x80, status, len:u32le]` on the reply cap —
+/// the consumer WAITS for the answer (or bundlemgrd's death), never polls the header.
 pub const OP_GET_PAYLOAD: u8 = 6;
+/// TASK-0324 P7-d: ARM_VMO request `[B, N, ver, OP_ARM_VMO]` with the destination VMO
+/// capability MOVED alongside. bundlemgrd keeps it FOR THIS SENDER (kernel identity) until
+/// the sender's next VMO op (GET_PAYLOAD / GET_BUNDLE_ELF / GET_INDEX / GET_FILE_VMO)
+/// consumes it. A second ARM replaces the first (the earlier VMO is released). No reply.
+pub const OP_ARM_VMO: u8 = 12;
+/// Reply status of a VMO op whose sender armed no VMO (fail-closed: nothing was written).
+pub const PAYLOAD_STATUS_NOT_ARMED: u8 = 5;
+/// Length of a VMO op's reply: `[B, N, ver, op|0x80, status, len:u32le]`.
+pub const PAYLOAD_DONE_RSP_LEN: usize = 9;
+
+/// Encodes the ARM_VMO request (the VMO travels as the message's moved cap).
+pub fn encode_arm_vmo(out: &mut [u8; 4]) {
+    *out = [MAGIC0, MAGIC1, VERSION, OP_ARM_VMO];
+}
+
+/// Encodes a VMO op's reply, sent AFTER the header write: `[B, N, ver, op|0x80, status,
+/// len:u32le]`. `status` is a `PAYLOAD_STATUS_*` (or a volume status), `len` the payload
+/// length the header carries.
+pub fn encode_payload_done_rsp(op: u8, status: u8, len: u32) -> [u8; PAYLOAD_DONE_RSP_LEN] {
+    let mut out = [0u8; PAYLOAD_DONE_RSP_LEN];
+    out[0] = MAGIC0;
+    out[1] = MAGIC1;
+    out[2] = VERSION;
+    out[3] = op | 0x80;
+    out[4] = status;
+    out[5..9].copy_from_slice(&len.to_le_bytes());
+    out
+}
+
+/// Decodes a VMO op's reply for `op` → `(status, len)`; `None` for any other frame (a
+/// foreign reply on a shared inbox is skipped by the caller, never mis-read).
+pub fn decode_payload_done_rsp(frame: &[u8], op: u8) -> Option<(u8, u32)> {
+    if frame.len() != PAYLOAD_DONE_RSP_LEN
+        || frame[0] != MAGIC0
+        || frame[1] != MAGIC1
+        || frame[2] != VERSION
+        || frame[3] != (op | 0x80)
+    {
+        return None;
+    }
+    Some((frame[4], u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]])))
+}
 
 /// Payload-VMO header magic (`"NXPL"`), written after the payload bytes.
 pub const PAYLOAD_MAGIC: [u8; 4] = *b"NXPL";
@@ -284,6 +325,22 @@ mod tests {
         // Truncated / empty ids rejected.
         assert!(decode_get_payload(&buf[..n - 1]).is_none());
         assert!(encode_get_payload(b"", &mut buf).is_none());
+    }
+
+    /// TASK-0324 P7-d: the VMO ops answer after the header write; a reply for another op or
+    /// a truncated one never decodes.
+    #[test]
+    fn payload_done_rsp_round_trip() {
+        let rsp = encode_payload_done_rsp(OP_GET_FILE_VMO, PAYLOAD_STATUS_OK, 81_760);
+        assert_eq!(
+            decode_payload_done_rsp(&rsp, OP_GET_FILE_VMO),
+            Some((PAYLOAD_STATUS_OK, 81_760))
+        );
+        assert_eq!(decode_payload_done_rsp(&rsp, OP_GET_PAYLOAD), None, "another op's reply");
+        assert_eq!(decode_payload_done_rsp(&rsp[..8], OP_GET_FILE_VMO), None, "truncated");
+        let mut req = [0u8; 4];
+        encode_arm_vmo(&mut req);
+        assert_eq!(decode_request_op(&req), Some(OP_ARM_VMO));
     }
 
     #[test]

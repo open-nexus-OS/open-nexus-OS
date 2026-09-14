@@ -14,7 +14,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use nexus_abi::{yield_, MsgHeader};
+use nexus_abi::MsgHeader;
 use statefs::protocol as statefs_proto;
 
 use super::super::ipc::routing::route_with_retry;
@@ -37,56 +37,19 @@ pub(crate) fn bootctl_persist_check() -> core::result::Result<(), ()> {
     get[2] = statefs_proto::VERSION_V2;
     get.extend_from_slice(&nonce.to_le_bytes());
     get.extend_from_slice(&get_v1[4..]);
-    // NOTE: Avoid `KernelClient::send/recv` timeout semantics here (kernel deadlines can be flaky
-    // under QEMU when queues are full). Use explicit nsec-bounded NONBLOCK loops instead.
-    // Send.
+    // A waited send, then a waited receive (statefsd's answer or its death) — no clock.
     let hdr = MsgHeader::new(0, 0, 0, 0, get.len() as u32);
-    let start = nexus_abi::nsec().map_err(|_| ())?;
-    let deadline = start.saturating_add(2_000_000_000);
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &get, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(|_| ())?;
-                    if now >= deadline {
-                        emit_line(crate::markers::M_SELFTEST_BOOTCTL_PERSIST_SEND_TIMEOUT);
-                        return Err(());
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-        i = i.wrapping_add(1);
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, &get, 0, 0).is_err() {
+        return Err(());
     }
     // Recv.
     let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 512];
-    let mut j: usize = 0;
     let n = loop {
-        if (j & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(|_| ())?;
-            if now >= deadline {
-                emit_line(crate::markers::M_SELFTEST_BOOTCTL_PERSIST_RECV_TIMEOUT);
-                return Err(());
-            }
-        }
-        match nexus_abi::ipc_recv_v1(
-            recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
+        match nexus_abi::ipc_recv_v1(recv_slot, &mut rh, &mut buf, nexus_abi::IPC_SYS_TRUNCATE, 0) {
             Ok(n) => break n as usize,
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
             Err(_) => return Err(()),
         }
-        j = j.wrapping_add(1);
     };
     let n = core::cmp::min(n, buf.len());
     if n < 13 || buf[0] != statefs_proto::MAGIC0 || buf[1] != statefs_proto::MAGIC1 {

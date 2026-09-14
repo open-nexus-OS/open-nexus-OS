@@ -26,9 +26,41 @@ pub fn should_disconnect(eof_opt: bool, had_sender: bool, any_sender: bool) -> b
     eof_opt && had_sender && !any_sender
 }
 
+/// TASK-0324 P7-b: whether a live SEND cap to an endpoint is held by anyone OTHER than the
+/// endpoint's owner. An owner is never its own peer: a service keeps the SEND half of its
+/// reply channel so it can clone one per exchange, and that base cap must not keep the
+/// channel "connected" once the server that received the clone is gone — otherwise a dead
+/// peer could never EOF a waiting client. `holders` yields `(pid, live_send_caps)` per task.
+#[must_use]
+pub fn foreign_sender_remains(
+    owner: Option<u32>,
+    holders: impl IntoIterator<Item = (u32, usize)>,
+) -> bool {
+    holders.into_iter().any(|(pid, count)| count > 0 && Some(pid) != owner)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::should_disconnect;
+    use super::{foreign_sender_remains, should_disconnect};
+
+    #[test]
+    fn owner_is_never_its_own_peer() {
+        // Only the owner holds a SEND cap (its clone base): no peer remains.
+        assert!(!foreign_sender_remains(Some(7), [(7, 1)]));
+        // The server still holds the moved clone: a peer remains.
+        assert!(foreign_sender_remains(Some(7), [(7, 1), (9, 1)]));
+        // The server dropped it (reply_and_close or exit): the owner's base does not count.
+        assert!(!foreign_sender_remains(Some(7), [(7, 1), (9, 0)]));
+    }
+
+    #[test]
+    fn test_reject_unowned_endpoint_counts_every_sender() {
+        // No owner recorded: every live SEND cap keeps the channel connected (fail-safe —
+        // never a spurious EOF on an endpoint the kernel cannot attribute).
+        assert!(foreign_sender_remains(None, [(7, 1)]));
+        assert!(!foreign_sender_remains(None, [(7, 0), (8, 0)]));
+        assert!(!foreign_sender_remains(Some(7), core::iter::empty()));
+    }
 
     #[test]
     fn reject_matrix_truth_table() {

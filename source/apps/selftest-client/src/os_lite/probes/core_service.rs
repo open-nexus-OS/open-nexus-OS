@@ -28,11 +28,8 @@ pub(crate) fn core_service_probe(
     op: u8,
 ) -> core::result::Result<(), ()> {
     let frame = [magic0, magic1, version, op];
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(&clock, svc, &frame, core::time::Duration::from_millis(200))
-        .map_err(|_| ())?;
-    let rsp = nexus_ipc::budget::recv_budgeted(&clock, svc, core::time::Duration::from_millis(200))
-        .map_err(|_| ())?;
+    nexus_ipc::Client::send(svc, &frame, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
+    let rsp = nexus_ipc::Client::recv(svc, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
     if rsp.len() < 5 || rsp[0] != magic0 || rsp[1] != magic1 || rsp[2] != version {
         return Err(());
     }
@@ -49,11 +46,8 @@ pub(crate) fn core_service_probe(
 pub(crate) fn core_service_probe_policyd(svc: &KernelClient) -> core::result::Result<(), ()> {
     // policyd expects frames to be at least 6 bytes (v1 response shape).
     let frame = [b'P', b'O', 1, 0x7f, 0, 0];
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(&clock, svc, &frame, core::time::Duration::from_millis(200))
-        .map_err(|_| ())?;
-    let rsp = nexus_ipc::budget::recv_budgeted(&clock, svc, core::time::Duration::from_millis(200))
-        .map_err(|_| ())?;
+    nexus_ipc::Client::send(svc, &frame, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
+    let rsp = nexus_ipc::Client::recv(svc, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
     if rsp.len() < 6 || rsp[0] != b'P' || rsp[1] != b'O' || rsp[2] != 1 {
         return Err(());
     }

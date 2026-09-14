@@ -13,25 +13,8 @@
 
 use nexus_ipc::KernelServer;
 
-/// ONE route ask on the control channel (RFC-0093 §1: never re-ask — the old bespoke
-/// 64-iteration loop re-sent the same query per iteration and filled init's control
-/// queue, so the `@ready` announce found no room, 2026-09-09). Short budget: init's
-/// responder answers only after orchestration, the deterministic slot fallback stays.
-pub(crate) fn route_logd_blocking() -> Option<KernelServer> {
-    match nexus_ipc::budget::route_with_nonce_budgeted(
-        b"logd",
-        core::time::Duration::from_millis(50),
-        nexus_ipc::budget::NonceMismatchBudget::new(8),
-    ) {
-        nexus_ipc::budget::RouteRetryOutcome::Success { send_slot, recv_slot } => {
-            KernelServer::new_with_slots(recv_slot, send_slot).ok()
-        }
-        _ => None,
-    }
-}
-
-/// logd's server on the slots init pins for it (TASK-0324 P4f-1a) — the fallback when the
-/// route ask above runs out of budget. It used to be a literal `new_with_slots(3, 4)`.
+/// logd's server on the slots init pins for it (TASK-0324 P4f-1a) — the ONLY source since
+/// P7-b (the start-up route ask that preceded it had a clock; asks no longer do).
 pub(crate) fn declared_server() -> Option<KernelServer> {
     let slots = nexus_service_topology::slots::logd::SERVER;
     KernelServer::new_with_slots(slots.recv, slots.send).ok()

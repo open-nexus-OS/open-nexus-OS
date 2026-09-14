@@ -20,7 +20,6 @@ use alloc::vec::Vec;
 
 use core::fmt;
 use core::sync::atomic::{AtomicU64, Ordering};
-use core::time::Duration;
 
 use crate::crash_fields::{
     append_field, append_field_i32, append_field_u32, append_field_u64, push_i32_dec, push_u32_dec,
@@ -29,8 +28,7 @@ use nexus_abi::{
     debug_putc, exec, nsec, service_id_from_name, wait_nohang_with_reason, wait_with_reason,
     yield_, ExitReason, Pid,
 };
-use nexus_ipc::budget::{deadline_after, OsClock};
-use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
+use nexus_ipc::reqrep::{recv_match, ReplyBuffer};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 use nexus_metrics::client::MetricsClient;
 use nexus_metrics::{DeterministicIdSource, SpanId};
@@ -232,11 +230,13 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // markers print raw). Proves — or loudly reproduces — the sender-wake of
     // an exec'd child parked in a blocking ipc recv (#102 family).
     run_recv_wake_probe();
-    let server = match KernelServer::new_for("execd") {
-        Ok(server) => server,
-        Err(_) => KernelServer::new_with_slots(topo::SERVER.recv, topo::SERVER.send)
-            .map_err(|_| ServerError::Unsupported)?,
-    };
+    // The declared server pair (TASK-0324 P4), pinned before this task runs. No route ask at
+    // start-up (P7-b): an ask has no clock and init may be blocked in a synchronous exchange
+    // with a service that, in turn, waits for THIS server — the ask made that a deadlock.
+    let server = KernelServer::new_with_slots(topo::SERVER.recv, topo::SERVER.send)
+        .map_err(|_| ServerError::Unsupported)?;
+    // The logd sink on the declared legs (ask-free, TASK-0324 P7-b).
+    nexus_log::configure_sink_logd_slots(topo::LOGD.send, topo::REPLY.send, topo::REPLY.recv);
     let mut state = State::new();
     // RFC-0080: create the shared glyph-atlas VMO ONCE (RO-cloned per spawn).
     state.atlas_vmo = crate::atlas_vmo::create();
@@ -475,39 +475,34 @@ fn append_crash_to_logd(
     // CAP_MOVE isn't relied on (the reply inbox can be flaky under QEMU); the
     // selftest proves persistence by QUERYING logd for the crash record.
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-    let clock = nexus_ipc::budget::OsClock;
-    let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
-        .map_err(|_| ())?;
 
-    nexus_ipc::budget::raw::send_budgeted(LOGD_SEND_SLOT, &hdr, &frame, deadline_ns).map_err(
-        |e| {
-            match e {
-                nexus_ipc::IpcError::Timeout => emit_line("execd: crash logd send timeout"),
-                nexus_ipc::IpcError::Kernel(inner) => {
-                    emit_line_no_nl("execd: crash logd send kernel=");
-                    emit_line(ipc_error_label(inner));
-                    if inner == nexus_abi::IpcError::NoSuchEndpoint {
-                        let mut info =
-                            nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
-                        match nexus_abi::cap_query(LOGD_SEND_SLOT, &mut info) {
-                            Ok(()) => {
-                                emit_line_no_nl("execd: crash logd slot kind=");
-                                emit_u64(info.kind_tag as u64);
-                                emit_line("");
-                            }
-                            Err(_) => emit_line("execd: crash logd slot query err"),
+    nexus_ipc::budget::raw::send_blocking(LOGD_SEND_SLOT, &hdr, &frame).map_err(|e| {
+        match e {
+            nexus_ipc::IpcError::Timeout => emit_line("execd: crash logd send timeout"),
+            nexus_ipc::IpcError::Kernel(inner) => {
+                emit_line_no_nl("execd: crash logd send kernel=");
+                emit_line(ipc_error_label(inner));
+                if inner == nexus_abi::IpcError::NoSuchEndpoint {
+                    let mut info =
+                        nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+                    match nexus_abi::cap_query(LOGD_SEND_SLOT, &mut info) {
+                        Ok(()) => {
+                            emit_line_no_nl("execd: crash logd slot kind=");
+                            emit_u64(info.kind_tag as u64);
+                            emit_line("");
                         }
+                        Err(_) => emit_line("execd: crash logd slot query err"),
                     }
                 }
-                nexus_ipc::IpcError::NoSpace => emit_line("execd: crash logd send nospace"),
-                other => {
-                    let _ = other;
-                    emit_line("execd: crash logd send err");
-                }
             }
-            ()
-        },
-    )?;
+            nexus_ipc::IpcError::NoSpace => emit_line("execd: crash logd send nospace"),
+            other => {
+                let _ = other;
+                emit_line("execd: crash logd send err");
+            }
+        }
+        ()
+    })?;
     Ok(())
 }
 
@@ -840,15 +835,10 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         None => return rsp(op, STATUS_MALFORMED, 0).to_vec(),
     };
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, qn as u32);
-    // Init-lite may be busy answering ROUTE_GET queries (policyd-gated) during early bring-up.
-    // Keep send path bounded and deterministic.
-    let clock = OsClock;
-    let deadline_ns = match deadline_after(&clock, Duration::from_secs(2)) {
-        Ok(v) => v,
-        Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
-    };
+    // Init-lite may be busy answering ROUTE_GET queries (policyd-gated) during early bring-up:
+    // the send waits for queue space, the receive for init's answer — no clock (P7-d).
     let ctrl = nexus_service_topology::CTRL_SLOTS;
-    if nexus_ipc::budget::raw::send_budgeted(ctrl.send, &hdr, &q[..qn], deadline_ns).is_err() {
+    if nexus_ipc::budget::raw::send_blocking(ctrl.send, &hdr, &q[..qn]).is_err() {
         return rsp(op, STATUS_FAILED, 0).to_vec();
     }
     // The control channel as the ONE kernel client (TASK-0324 P7): a `recv` that honours the
@@ -856,14 +846,9 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     let Ok(ctl) = nexus_ipc::KernelClient::new_with_slots(ctrl.send, ctrl.recv) else {
         return rsp(op, STATUS_FAILED, 0).to_vec();
     };
-    let rb = match recv_match_until(
-        &clock,
-        &ctl,
-        &mut state.pending_policy,
-        nonce as u64,
-        deadline_ns,
-        |frame| nexus_abi::policy::decode_exec_check_rsp(frame).map(|(n, _)| n as u64),
-    ) {
+    let rb = match recv_match(&ctl, &mut state.pending_policy, nonce as u64, |frame| {
+        nexus_abi::policy::decode_exec_check_rsp(frame).map(|(n, _)| n as u64)
+    }) {
         Ok(v) => v,
         Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
     };
@@ -895,9 +880,9 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         _ => return rsp(op, STATUS_UNSUPPORTED, 0).to_vec(),
     };
     // GET_PAYLOAD (TASK-0080D): kick the payload fetch BEFORE the ELF load so
-    // bundlemgrd fills the VMO while we spawn; the child polls the VMO header,
-    // so no wait is needed here. `None` = the child falls back to its embedded
-    // payload (fail-closed, visibly marked on both sides).
+    // bundlemgrd fills the VMO while we spawn; its answer is waited for right before
+    // the child is resumed (P7-d) — the child reads a complete header, never polls.
+    // `None` = the child fails closed (visibly marked on both sides).
     let payload_vmo = match (image_id, app_id) {
         (IMG_APPHOST, Some(app)) => fetch_app_payload(app),
         _ => None,
@@ -937,6 +922,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
                 // windowd holds the channel before the create), then hand
                 // the RECV half to the child — all before resume.
                 crate::child_grants::grant_event_channel(pid as u32);
+                crate::child_grants::grant_timer_channel(pid as u32);
                 // RFC-0080: RO clone of the shared atlas VMO (before resume).
                 crate::atlas_vmo::grant(pid as u32, state.atlas_vmo);
                 // TASK-0080C: provision the app's DECLARED service routes
@@ -961,6 +947,11 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             // services explicitly after cap wiring — execd never did, so its
             // children loaded but never executed. Resume AFTER the grants
             // above (same grants-before-resume discipline).
+            // The payload answer (TASK-0324 P7-d): bundlemgrd wrote the header LAST and
+            // replied — the child starts with a complete payload or a marked failure.
+            if payload_vmo.is_some() && !await_app_payload() {
+                emit_line("execd: FAIL app payload (unserved)");
+            }
             if nexus_abi::task_resume(pid as u32).is_err() {
                 emit_line("execd: FAIL child resume");
             }
@@ -981,12 +972,12 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     }
 }
 
-/// GET_PAYLOAD (TASK-0080D): creates the payload VMO and asks bundlemgrd to
-/// fill it (request + CAP_MOVE of a VMO clone — the message's single cap slot
-/// carries the VMO, so bundlemgrd's reply is the header IT writes into the
-/// VMO, header-last). Fire-and-forget: the child polls the header with its
-/// own budget. Returns the ORIGINAL VMO cap (destined for child slot 7), or
-/// `None` on any failure (marked; the child falls back to its embed).
+/// GET_PAYLOAD (TASK-0080D, TASK-0324 P7-d): creates the payload VMO, ARMS it at bundlemgrd
+/// (`OP_ARM_VMO`, a clone as the moved cap) and asks for the payload with a reply-cap clone
+/// riding the request. bundlemgrd fills the VMO while we spawn; `await_app_payload` waits for
+/// its answer before the child is resumed. Both sends wait for queue space — no clock.
+/// Returns the ORIGINAL VMO cap (destined for child slot 7), or `None` on any failure
+/// (marked; the child fails closed at its header read).
 fn fetch_app_payload(app_id: &[u8]) -> Option<u32> {
     let vmo = match nexus_abi::vmo_create(PAYLOAD_VMO_BYTES) {
         Ok(v) => v,
@@ -995,50 +986,66 @@ fn fetch_app_payload(app_id: &[u8]) -> Option<u32> {
             return None;
         }
     };
+    let close_all = |extra: Option<u32>| {
+        if let Some(c) = extra {
+            let _ = nexus_abi::cap_close(c);
+        }
+        let _ = nexus_abi::cap_close(vmo);
+    };
     let mut frame = [0u8; 64];
     let Some(len) = nexus_abi::bundlemgrd::encode_get_payload(app_id, &mut frame) else {
         emit_line("execd: FAIL app payload (encode)");
-        let _ = nexus_abi::cap_close(vmo);
+        close_all(None);
         return None;
     };
-    let clone = match nexus_abi::cap_clone(vmo) {
-        Ok(c) => c,
-        Err(_) => {
-            emit_line("execd: FAIL app payload (cap clone)");
-            let _ = nexus_abi::cap_close(vmo);
-            return None;
-        }
+    let Ok(clone) = nexus_abi::cap_clone(vmo) else {
+        emit_line("execd: FAIL app payload (cap clone)");
+        close_all(None);
+        return None;
     };
-    let hdr = nexus_abi::MsgHeader::new(clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
-    // Bounded non-blocking send (bundlemgrd may be busy; never stall execd).
-    let deadline = nsec().ok().unwrap_or(0).saturating_add(2_000_000_000);
+    let mut arm = [0u8; 4];
+    nexus_abi::bundlemgrd::encode_arm_vmo(&mut arm);
+    let hdr =
+        nexus_abi::MsgHeader::new(clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, arm.len() as u32);
+    if nexus_abi::ipc_send_v1(BUNDLE_SEND_SLOT, &hdr, &arm, 0, 0).is_err() {
+        emit_line("execd: FAIL app payload (arm send)");
+        close_all(Some(clone));
+        return None;
+    }
+    let Ok(reply) = nexus_abi::cap_clone(topo::REPLY.send) else {
+        emit_line("execd: FAIL app payload (reply clone)");
+        close_all(None);
+        return None;
+    };
+    let hdr = nexus_abi::MsgHeader::new(reply, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
+    if nexus_abi::ipc_send_v1(BUNDLE_SEND_SLOT, &hdr, &frame[..len], 0, 0).is_err() {
+        emit_line("execd: FAIL app payload (send)");
+        close_all(Some(reply));
+        return None;
+    }
+    emit_line("execd: app payload requested");
+    Some(vmo)
+}
+
+/// Waits for bundlemgrd's GET_PAYLOAD answer on the reply inbox (TASK-0324 P7-d): the header
+/// is complete when it arrives; bundlemgrd's death ends the wait (EOF). Foreign frames on the
+/// shared inbox (late acks) are skipped. `true` = the payload is served OK.
+fn await_app_payload() -> bool {
+    let mut buf = [0u8; 64];
     loop {
-        match nexus_abi::ipc_send_v1(
-            BUNDLE_SEND_SLOT,
-            &hdr,
-            &frame[..len],
-            nexus_abi::IPC_SYS_NONBLOCK,
-            0,
+        let Ok(n) = nexus_ipc::exchange::recv_reply(topo::REPLY.recv, &mut buf) else {
+            emit_line("execd: FAIL app payload (no answer)");
+            return false;
+        };
+        let n = n.min(buf.len());
+        if let Some((status, _)) = nexus_abi::bundlemgrd::decode_payload_done_rsp(
+            &buf[..n],
+            nexus_abi::bundlemgrd::OP_GET_PAYLOAD,
         ) {
-            Ok(_) => {
-                emit_line("execd: app payload requested");
-                return Some(vmo);
+            if status != nexus_abi::bundlemgrd::PAYLOAD_STATUS_OK {
+                emit_line("execd: FAIL app payload (status)");
             }
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nsec().ok().unwrap_or(u64::MAX) >= deadline {
-                    emit_line("execd: FAIL app payload (send timeout)");
-                    let _ = nexus_abi::cap_close(clone);
-                    let _ = nexus_abi::cap_close(vmo);
-                    return None;
-                }
-                let _ = yield_();
-            }
-            Err(_) => {
-                emit_line("execd: FAIL app payload (send)");
-                let _ = nexus_abi::cap_close(clone);
-                let _ = nexus_abi::cap_close(vmo);
-                return None;
-            }
+            return status == nexus_abi::bundlemgrd::PAYLOAD_STATUS_OK;
         }
     }
 }
@@ -1061,22 +1068,16 @@ fn run_recv_wake_probe() {
         emit_line("execd: recv-wake probe skipped (no elf)");
         return;
     }
-    // #123 empty-slot lesson: execd RESUMES before nexus-init's wiring arm
-    // finishes its cap transfers (proven: the first probe run found slots
-    // 4..24 ALL empty at 0.124s while `init: settingsd slots` printed later).
-    // Wait bounded for the LAST probe slot init pins (the reply RECV): the four
-    // pins run in one block, so that one present ⇒ all four present.
-    let wired_deadline = nsec().ok().unwrap_or(0).saturating_add(5_000_000_000);
-    loop {
-        if let Ok(clone) = nexus_abi::cap_clone(PROBE_REPLY_RECV_SLOT) {
+    // The probe slots are pinned BEFORE execd runs (TASK-0324 P7-d: init's cap-distribution
+    // pass precedes every resume) — one presence check, fail-closed.
+    match nexus_abi::cap_clone(PROBE_REPLY_RECV_SLOT) {
+        Ok(clone) => {
             let _ = nexus_abi::cap_close(clone);
-            break;
         }
-        if nsec().ok().unwrap_or(u64::MAX) >= wired_deadline {
+        Err(_) => {
             emit_line("execd: FAIL recv-wake probe (slots not wired)");
             return;
         }
-        let _ = yield_();
     }
     let pid = match exec(recvwake_payload::RECVWAKE_ELF, 16, 0) {
         Ok(pid) => pid as u32,
@@ -1172,28 +1173,11 @@ fn run_recv_wake_probe() {
         }
         let ping = [0xB1u8];
         let ping_hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, ping.len() as u32);
-        let send_deadline = nsec().ok().unwrap_or(0).saturating_add(1_000_000_000);
-        loop {
-            match nexus_abi::ipc_send_v1(
-                PROBE_PING_SEND_SLOT,
-                &ping_hdr,
-                &ping,
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
-                Ok(_) => break,
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    if nsec().ok().unwrap_or(u64::MAX) >= send_deadline {
-                        emit_line("execd: FAIL recv-wake probe (ping send timeout)");
-                        return;
-                    }
-                    let _ = yield_();
-                }
-                Err(_) => {
-                    emit_line("execd: FAIL recv-wake probe (ping send)");
-                    return;
-                }
-            }
+        // A waited send (queue space or the child's death); the deadline-bound receives
+        // around it are the probe's INSTRUMENT — they prove a wake did (not) happen.
+        if nexus_abi::ipc_send_v1(PROBE_PING_SEND_SLOT, &ping_hdr, &ping, 0, 0).is_err() {
+            emit_line("execd: FAIL recv-wake probe (ping send)");
+            return;
         }
         let woke_deadline = nsec().ok().unwrap_or(0).saturating_add(2_000_000_000);
         match nexus_abi::ipc_recv_v1(
@@ -1220,6 +1204,31 @@ fn run_recv_wake_probe() {
     }
     emit_line("execd: recv-wake probe ok");
     let _ = nexus_abi::debug_println("SELFTEST: exec child blocking recv wake ok");
+
+    // 3. DEATH WAKES (TASK-0324 P7-b): the child returns from `run` and exits, dropping the
+    //    reply SEND cap it was granted. execd owns the reply endpoint and holds its own SEND
+    //    base — an owner is never its own peer — so a blocking EOF-opted recv here must
+    //    return `PeerClosed` the moment the kernel reaps the child's cap table, with no
+    //    timeout deciding anything. (The deadline below only bounds a FAILED proof: a
+    //    kernel that does not wake would otherwise park execd forever.)
+    let eof_deadline = nsec().ok().unwrap_or(0).saturating_add(2_000_000_000);
+    match nexus_abi::ipc_recv_v1(
+        PROBE_REPLY_RECV_SLOT,
+        &mut hdr,
+        &mut buf,
+        nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
+        eof_deadline,
+    ) {
+        Err(nexus_abi::IpcError::PeerClosed) => {
+            emit_line("execd: recv-wake probe eof on exit ok");
+            let _ = nexus_abi::debug_println("SELFTEST: exec child eof on exit ok");
+        }
+        Err(nexus_abi::IpcError::TimedOut) => {
+            emit_line("execd: FAIL recv-wake probe (no eof on child exit)");
+        }
+        Ok(_) => emit_line("execd: FAIL recv-wake probe (frame after exit)"),
+        Err(_) => emit_line("execd: FAIL recv-wake probe (eof recv error)"),
+    }
 }
 
 fn rsp(op: u8, status: u8, pid: u32) -> [u8; 9] {
@@ -1250,11 +1259,7 @@ fn caps_for(app_id: &str) -> &'static [&'static str] {
 /// deny, timeout, exhausted nonce budget); the caller then skips that route.
 pub(crate) fn route_ctrl(name: &[u8]) -> Option<(u32, u32)> {
     use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
-    match budget::route_with_nonce_budgeted(
-        name,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(name, NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }

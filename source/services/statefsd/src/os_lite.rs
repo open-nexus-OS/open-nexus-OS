@@ -20,7 +20,6 @@ use alloc::vec::Vec;
 
 use core::fmt;
 
-use nexus_abi::yield_;
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use statefs::envelope::{EnvelopeKey, PolicyClass, SeqTracker, WriteBudget};
@@ -179,31 +178,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     emit_line("statefsd: entry");
     // init PINS statefsd's server endpoint into its declared slots (TASK-0324 P4f-1a);
     // using them directly avoids routing-time races during early bring-up.
+    // init PINS the pair before this task runs (TASK-0324 P4f-1a / P7-d): there is nothing
+    // to wait for — a missing pair is a wiring defect, reported by the bind.
     let server = {
         const RECV_SLOT: u32 = nexus_service_topology::slots::statefsd::SERVER.recv;
         const SEND_SLOT: u32 = nexus_service_topology::slots::statefsd::SERVER.send;
-        let deadline = match nexus_abi::nsec() {
-            Ok(now) => now.saturating_add(10_000_000_000), // 10s
-            Err(_) => 0,
-        };
-        loop {
-            let recv_ok =
-                nexus_abi::cap_clone(RECV_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
-            let send_ok =
-                nexus_abi::cap_clone(SEND_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
-            if recv_ok && send_ok {
-                break KernelServer::new_with_slots(RECV_SLOT, SEND_SLOT)
-                    .map_err(|_| ServerError::Unsupported)?;
-            }
-            if deadline != 0 {
-                if let Ok(now) = nexus_abi::nsec() {
-                    if now >= deadline {
-                        return Err(ServerError::Unsupported);
-                    }
-                }
-            }
-            let _ = yield_();
-        }
+        KernelServer::new_with_slots(RECV_SLOT, SEND_SLOT).map_err(|_| ServerError::Unsupported)?
     };
 
     // Start with an in-memory backend so we can become ready deterministically even if
@@ -284,7 +264,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     // starved init's persist path in the 0049C bring-up. The
                     // legitimate nonce-matched client retries; the op byte
                     // stays for forensics.
-                    if server.send(&rsp, Wait::NonBlocking).is_err() {
+                    if server.send(&rsp, Wait::Blocking).is_err() {
                         emit_line("statefsd: rsp queue stalled (dropping reply)");
                         if let Some(op) = frame.get(3).copied() {
                             emit_op_byte(op);
@@ -296,12 +276,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 // marker is emitted only after a reopen-verified cycle).
                 crate::txn_os::compaction_tick(&mut engine);
             }
-            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                let _ = yield_();
-            }
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {}
             Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::PermissionDenied)) => {
                 // Treat as transient; the control plane can still be settling during bring-up.
-                let _ = yield_();
             }
             Err(err) => {
                 // SMP robustness: client-side errors are transient; only a
@@ -313,9 +290,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     emit_ipc_error(err);
                 }
                 match verdict {
-                    nexus_ipc::resilience::BreakerVerdict::Continue => {
-                        let _ = yield_();
-                    }
+                    nexus_ipc::resilience::BreakerVerdict::Continue => {}
                     nexus_ipc::resilience::BreakerVerdict::EndpointDefect => {
                         emit_line("statefsd: endpoint defect (consecutive error limit)");
                         return Err(ServerError::Unsupported);

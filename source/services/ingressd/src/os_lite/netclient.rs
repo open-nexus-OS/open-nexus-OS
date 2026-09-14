@@ -11,7 +11,7 @@
 //! STATUS: Experimental
 //! TEST_COVERAGE: QEMU (`ingressd: port open`, `SELFTEST: ingress allow ok`)
 
-use nexus_abi::{yield_, IpcError, MsgHeader};
+use nexus_abi::{IpcError, MsgHeader};
 
 use super::slots::{NETSTACKD_SEND_SLOT, REPLY_RECV_SLOT, REPLY_SEND_SLOT};
 
@@ -35,11 +35,6 @@ const STATUS_DENY: u8 = 6;
 
 /// One facade RPC payload (`OP_READ`/`OP_WRITE` carry ≤ 480 bytes).
 pub(crate) const MAX_IO_BYTES: usize = 480;
-/// Control RPCs (listen/accept/connect/close/peer) — the facade's own
-/// bounded retry is well under this.
-const CTL_DEADLINE_NS: u64 = 500_000_000;
-/// Data RPCs (read/write) — the relay pumps many per turn.
-const IO_DEADLINE_NS: u64 = 100_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NetErr {
@@ -50,10 +45,6 @@ pub(crate) enum NetErr {
     Closed,
     Io,
     Timeout,
-}
-
-fn now_ns() -> u64 {
-    nexus_abi::nsec().unwrap_or(0)
 }
 
 fn header(op: u8, out: &mut [u8]) {
@@ -74,31 +65,14 @@ fn status_err(status: u8) -> NetErr {
 }
 
 /// Sends `req` with a CAP_MOVE reply cap and waits for the `op|0x80` reply.
-fn rpc(req: &[u8], op: u8, out: &mut [u8], deadline_ns: u64) -> Result<usize, NetErr> {
-    let deadline = now_ns().saturating_add(deadline_ns);
+fn rpc(req: &[u8], op: u8, out: &mut [u8]) -> Result<usize, NetErr> {
+    // One waited exchange (TASK-0324 P7-d): the send waits for queue space, the receive for
+    // netstackd's answer or its death (EOF) — no clock. Foreign inbox frames are skipped.
     let reply_cap = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| NetErr::Io)?;
     let hdr = MsgHeader::new(reply_cap, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    let mut sent = false;
-    loop {
-        match nexus_abi::ipc_send_v1(NETSTACKD_SEND_SLOT, &hdr, req, nexus_abi::IPC_SYS_NONBLOCK, 0)
-        {
-            Ok(_) => {
-                sent = true;
-                break;
-            }
-            Err(IpcError::QueueFull) => {
-                if now_ns() >= deadline {
-                    break;
-                }
-                let _ = yield_();
-            }
-            Err(_) => break,
-        }
-    }
-    // Moved on success (the facade closes it); a failed send leaves it ours.
-    let _ = nexus_abi::cap_close(reply_cap);
-    if !sent {
-        return Err(NetErr::Timeout);
+    if nexus_abi::ipc_send_v1(NETSTACKD_SEND_SLOT, &hdr, req, 0, 0).is_err() {
+        let _ = nexus_abi::cap_close(reply_cap);
+        return Err(NetErr::Io);
     }
     loop {
         let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
@@ -106,22 +80,16 @@ fn rpc(req: &[u8], op: u8, out: &mut [u8], deadline_ns: u64) -> Result<usize, Ne
             REPLY_RECV_SLOT,
             &mut rh,
             out,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            deadline,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
+            0,
         ) {
             Ok(n) => {
                 let n = (n as usize).min(out.len());
                 if n >= 5 && out[0] == MAGIC0 && out[1] == MAGIC1 && out[3] == (op | 0x80) {
                     return if out[4] == STATUS_OK { Ok(n) } else { Err(status_err(out[4])) };
                 }
-                // Foreign frame (a late reply of an earlier RPC): skip.
             }
-            Err(IpcError::QueueEmpty) | Err(IpcError::TimedOut) => {
-                if now_ns() >= deadline {
-                    return Err(NetErr::Timeout);
-                }
-                let _ = yield_();
-            }
+            Err(IpcError::PeerClosed) => return Err(NetErr::Timeout),
             Err(_) => return Err(NetErr::Io),
         }
     }
@@ -138,7 +106,7 @@ pub(crate) fn listen(ip: [u8; 4], port: u16) -> Result<u32, NetErr> {
     req[4..8].copy_from_slice(&ip);
     req[8..10].copy_from_slice(&port.to_le_bytes());
     let mut out = [0u8; 32];
-    let n = rpc(&req, OP_LISTEN, &mut out, CTL_DEADLINE_NS)?;
+    let n = rpc(&req, OP_LISTEN, &mut out)?;
     u32_at(&out[..n], 5).filter(|id| *id != 0).ok_or(NetErr::Io)
 }
 
@@ -148,7 +116,7 @@ pub(crate) fn accept(listener: u32) -> Result<u32, NetErr> {
     header(OP_ACCEPT, &mut req);
     req[4..8].copy_from_slice(&listener.to_le_bytes());
     let mut out = [0u8; 32];
-    let n = rpc(&req, OP_ACCEPT, &mut out, CTL_DEADLINE_NS)?;
+    let n = rpc(&req, OP_ACCEPT, &mut out)?;
     u32_at(&out[..n], 5).filter(|id| *id != 0).ok_or(NetErr::Io)
 }
 
@@ -159,7 +127,7 @@ pub(crate) fn connect(ip: [u8; 4], port: u16) -> Result<u32, NetErr> {
     req[4..8].copy_from_slice(&ip);
     req[8..10].copy_from_slice(&port.to_le_bytes());
     let mut out = [0u8; 32];
-    let n = rpc(&req, OP_CONNECT, &mut out, CTL_DEADLINE_NS)?;
+    let n = rpc(&req, OP_CONNECT, &mut out)?;
     u32_at(&out[..n], 5).filter(|id| *id != 0).ok_or(NetErr::Io)
 }
 
@@ -171,7 +139,7 @@ pub(crate) fn read(stream: u32, buf: &mut [u8]) -> Result<usize, NetErr> {
     req[4..8].copy_from_slice(&stream.to_le_bytes());
     req[8..10].copy_from_slice(&max.to_le_bytes());
     let mut out = [0u8; 512];
-    let n = rpc(&req, OP_READ, &mut out, IO_DEADLINE_NS)?;
+    let n = rpc(&req, OP_READ, &mut out)?;
     if n < 7 {
         return Err(NetErr::Io);
     }
@@ -192,7 +160,7 @@ pub(crate) fn write(stream: u32, data: &[u8]) -> Result<usize, NetErr> {
     req[8..10].copy_from_slice(&(len as u16).to_le_bytes());
     req[10..10 + len].copy_from_slice(&data[..len]);
     let mut out = [0u8; 32];
-    let n = rpc(&req[..10 + len], OP_WRITE, &mut out, IO_DEADLINE_NS)?;
+    let n = rpc(&req[..10 + len], OP_WRITE, &mut out)?;
     if n < 7 {
         return Err(NetErr::Io);
     }
@@ -209,7 +177,7 @@ pub(crate) fn close(stream: u32) {
     header(OP_CLOSE, &mut req);
     req[4..8].copy_from_slice(&stream.to_le_bytes());
     let mut out = [0u8; 32];
-    let _ = rpc(&req, OP_CLOSE, &mut out, CTL_DEADLINE_NS);
+    let _ = rpc(&req, OP_CLOSE, &mut out);
 }
 
 /// The remote `(ip, port)` of an accepted stream (RFC-0092 `OP_PEER_ADDR`).
@@ -218,7 +186,7 @@ pub(crate) fn peer_addr(stream: u32) -> Result<([u8; 4], u16), NetErr> {
     header(OP_PEER_ADDR, &mut req);
     req[4..8].copy_from_slice(&stream.to_le_bytes());
     let mut out = [0u8; 32];
-    let n = rpc(&req, OP_PEER_ADDR, &mut out, CTL_DEADLINE_NS)?;
+    let n = rpc(&req, OP_PEER_ADDR, &mut out)?;
     if n < 11 {
         return Err(NetErr::Io);
     }

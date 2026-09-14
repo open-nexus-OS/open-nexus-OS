@@ -17,7 +17,6 @@
 //! ADR: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md
 
 use core::sync::atomic::{AtomicU32, Ordering};
-use core::time::Duration;
 
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
@@ -51,11 +50,7 @@ fn cached_send_slot() -> Option<u32> {
     if cached != 0 {
         return Some(cached);
     }
-    match budget::route_with_nonce_budgeted(
-        b"policyd",
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(b"policyd", NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, .. } => {
             SEND.store(send_slot, Ordering::Relaxed);
             Some(send_slot)

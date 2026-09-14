@@ -339,6 +339,10 @@ where
     let imed_osk = mint(imed_pid, 8)?; // OSK ep (RFC-0075 P2): RECV to imed, SEND to execd + selftest
     let inputd_watch_ep = mint(inputd_pid, 8)?;
     let windowd_watch_ep = mint(windowd_pid, 8)?;
+    let windowd_session_watch_ep = mint(windowd_pid, 8)?;
+    // TASK-0324 P7-d: timer-notify endpoints (both halves to the service, declared slots).
+    let inputd_timer_ep = mint(inputd_pid, 8)?;
+    let gpud_timer_ep = mint(gpud_pid, 8)?;
     let window_req = mint(windowd_pid, 32)?;
     let window_rsp = mint(windowd_pid, 8)?;
     let input_req = mint(inputd_pid, 8)?;
@@ -439,6 +443,10 @@ where
     // None before this, so BOTH routes silently never wired ("theme default
     // (settingsd unavailable)" + "execd: FAIL app route resolve svc=settings").
     let settingsd_pid = find_pid(&ctrl_channels, "settingsd");
+    let settingsd_timer_ep = match settingsd_pid {
+        Some(pid) => mint(pid, 8)?,
+        None => 0,
+    };
     let (sett_req, sett_rsp) = if let Some(pid) = settingsd_pid {
         let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
             .map_err(InitError::Abi)?;
@@ -508,6 +516,10 @@ where
         imed_osk,
         inputd_watch_ep,
         windowd_watch_ep,
+        windowd_session_watch_ep,
+        inputd_timer_ep,
+        settingsd_timer_ep,
+        gpud_timer_ep,
         window_req,
         window_rsp,
         input_req,
@@ -548,8 +560,6 @@ where
     // ADR-0062: no yield here. A yield is not a barrier — it hands the CPU over once and
     // guarantees nothing about what the resumed services got done. What init sends next either
     // parks until its target can answer (routing v2) or waits on the stage fence.
-    crate::bootstrap::resume::resume_core(&ctrl_channels);
-
     // Priority-wire windowd + inputd. The minted pairs are pinned directly: a transfer duplicates,
     // and the later legs (execd, hidrawd, inputd → windowd) pin the same endpoints again.
     {
@@ -588,6 +598,16 @@ where
             }
         }
     }
+
+    // Per-service cap-distribution (bespoke `match` + declarative arm): reply inboxes, routes,
+    // timer-notify pairs and the announce markers — pure cap transfers into SUSPENDED tasks, so
+    // it runs BEFORE any resume (TASK-0324 P7-d). A service's first exchange (bootctld's
+    // record attach at start-up) finds its declared slots in place; the retry cadences that
+    // used to cover a leg pinned after the task ran are gone.
+    crate::bootstrap::wiring::wire_services(&mut ctrl_channels, &eps, init_fold, &mut init_wire)?;
+    // Cap-table hygiene (RFC-0075/0078): a parked full table broke @mint-pair.
+    endpoints::close_wired_eps(&eps);
+    crate::bootstrap::resume::resume_core(&ctrl_channels);
 
     // ADR-0044: blk_slots[0] = the ONE disk (granted to virtioblkd in the
     // CORE-plane stage); blk_slots[1] = the retired second device (TASK-0315:
@@ -687,13 +707,8 @@ where
     // + grants); the gap to `total_ms` is the co-run cap-wiring phase.
     let grants_done_ms = boot_span.elapsed_ms();
 
-    // Per-service cap-distribution (bespoke `match` + declarative arm);
-    // server pairs went out pre-grants — this pass adds reply inboxes,
-    // routes and the announce markers.
-    crate::bootstrap::wiring::wire_services(&mut ctrl_channels, &eps, init_fold, &mut init_wire)?;
-
-    // Cap-table hygiene (RFC-0075/0078): a parked full table broke @mint-pair.
-    endpoints::close_wired_eps(&eps);
+    // The cap-distribution pass ran BEFORE the core resume (TASK-0324 P7-d): every service
+    // holds its declared legs the moment it first runs.
 
     // Boot elapsed before the display-chain deferred resume; the gap to
     // `total_ms` is that resume + the OTA handshake tail.

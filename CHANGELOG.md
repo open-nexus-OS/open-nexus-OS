@@ -7,6 +7,155 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-14 (TASK-0324 P7-d: no clock decides any wait — timer-notify pairs pace, EOF reaches waitsets, the payload handshake answers, the login is in the first revealed frame; both ratchets at zero)
+
+- **The reveal frame contains the login** (TASK-0065B, RFC-0093 §5 amended): windowd sends
+  `OP_REVEAL` only when the desktop is complete AND the session's desktop surface (the
+  greeter, or the shell of an active session) has presented its first frame
+  (`present_acks::RevealGate`, host-tested: `test_reject_reveal_before_session_content`,
+  `test_reject_reveal_before_display_complete`). The race P6 recorded is closed by
+  construction: with P7-c's faster loop the bare wallpaper had won it every boot (pixel
+  proof `diff vs splash 0.02`); now the greeter is in the revealed frame every boot
+  (`diff 31.76`). The stage order of §3 is untouched — `DisplayReady` still precedes
+  `SessionStart`; the REVEAL is a later, content-backed event.
+- **Timer-notify pairs (kernel one-shot timers on a waitset) replace every recv timeout.**
+  `NamedSlot::TimerNotifyRecv/Send`, declared per service (`slots::{inputd,settingsd,gpud}::
+  TIMER_*`, app children `slots::app_child::TIMER_*` minted by execd), pre-minted and pinned by
+  init like the watch channels. inputd (16 ms tick → one-shot at the wheel-indicator expiry /
+  the throttled pointer push), settingsd (50 ms persist tick → one-shot at the PUT floor or
+  backoff; a PUT in flight ends with statefsd's answer or its death — `REPLY_TIMEOUT_NS`
+  deleted), gpud (the splash/build-up `SPIN_DEMO_PERIOD_NS` recv deadline → `FrameClock`, a
+  synthetic vblank on a device without one, disarmed once revealed), the app-host (the 12 ms
+  animation self-pace deleted — frame pulses are requested with WAITED sends and carry every
+  animation; the minute clock is a one-shot timer on the app's own pair; `event_wait` gone).
+- **KERNEL (approval used): peer death reaches waitset waiters.** The last-peer scan latches
+  `eof_pending` on the endpoint when it decides EOF; `waitset_wait` counts a latched member as
+  READY (the waiter's EOF-opted non-blocking receive then reports `PeerClosed`); a send to the
+  endpoint or any receive from it clears the latch (the live scan stays the truth). Router
+  host test `eof_latch_is_cleared_by_a_send_and_by_the_receiver`. Without it a closed window
+  could never reach an app parked on a waitset.
+- **The payload handshake is a reply, not a header poll.** `OP_ARM_VMO` (nexus-wire
+  `bundlemgrd`, host-tested) moves the destination VMO first; `GET_PAYLOAD` /
+  `GET_BUNDLE_ELF` / `GET_INDEX` / `GET_FILE_VMO` carry a reply cap and answer
+  `[status, len]` AFTER the header write (`decode_payload_done_rsp`; a VMO op without an
+  armed VMO answers `PAYLOAD_STATUS_NOT_ARMED`). bundlemgrd keeps one armed VMO per KERNEL
+  sender identity (`armed_vmo::ArmedVmos`, bounded 8, `test_reject_take_by_another_sender`,
+  `test_reject_arm_beyond_capacity`). init's spawner, execd (which now waits for the answer
+  BEFORE resuming the child) and packagefsd (declared legs, no route ask) wait for it; the
+  app-host reads the completed header ONCE — the 200 000-yield header polls and the 8 s
+  payload budget are gone.
+- **init pins before it resumes.** The cap-distribution pass (`wire_services`) runs BEFORE
+  `resume_core`: every service holds its declared legs and its timer-notify pair the moment it
+  first runs (`pin_timer_notify` runs for bespoke and generic arms alike). bootctld attaches
+  its record ONCE at start-up (the 8 × 1 s retry cadence hid a leg pinned after the task ran).
+- **logd renders its subject verdicts on an EVENT** — init appends `stage / shell-visible`
+  through the ONE log sink when the fence reaches `shell-visible` — instead of a 1 s
+  quiet-period timeout; evidence spill runs while work is owed (non-blocking look, blocking
+  otherwise), never on a clock. metricsd/statefsd replies wait for queue space; their error
+  arms no longer yield.
+- **The last poll-shaped waits are waited exchanges**: abilitymgr (registry + session gate on
+  declared legs; its own server pair no longer asked for), samgrd + dsoftbusd logd probes (ONE
+  `call_matching`), imed (settings + statefs), ingressd (`rpc` without deadlines), updated
+  (vfsd/bootctld legs declared, `send_waited`), execd's recv-wake probe (its deadline-bound
+  receives stay: they are the proof instrument; the wiring wait and the ping send loop are
+  gone), the recv-wake child, dsoftbusd's remote proxy (6 timeouts, 2 polls), and 14 harness
+  probes (bootctl, bundlemgrd, execd, policyd, samgrd, updated health/reply pump, icmp ping,
+  block-gate deny, reset). `resolve_pinched_budgeted` → `resolve_pinched` (a name, not a
+  budget). The transitional forms `nexus_ipc::budget::send_budgeted/recv_budgeted/raw::*_budgeted`
+  and `reqrep::recv_match_until` keep only their transport-internal callers; `raw::send_blocking/
+  recv_blocking` and `reqrep::recv_match` are the clock-free forms.
+- **The harness takes its declared routes.** `route_with_retry` returns the DECLARED slots
+  (pinned before the harness runs, P4f-5); only the routing phase still asks init's responder
+  and cross-checks the answer against the declaration (`route_checked`, the `SELFTEST: ipc
+  routing <svc> ok` proof). ⭐ FOUND: every runtime ask made init run a policy exchange whose
+  bounded wait reported `!route-deny … (policy unavailable)` under load (an `ota-bundle` lane
+  lost `SELFTEST: ime v2 candidates ok` to it) — init's own clock-bound waits are the P8 item.
+- **Gate at zero.** `check-wait-not-poll.sh` no longer ratchets: zero poll-against-clock
+  functions (35 → 0) and zero clock-bound wait forms (132 → 0) fleet-wide; both baseline files
+  are deleted. The nexus-ipc transport files that implement the wait forms are excluded by path.
+- Dependency: `rustls` 0.23.38 → 0.23.45 (`cargo update -p rustls`; RUSTSEC-2026-0285 blocked
+  `just check`).
+- Proof: `just check` green; smp1 214 `SELFTEST: … ok` / 41 KSELFTEST / `bkl budget ok`, boot
+  1256 ms (1262 before); visible pixel proof `diff vs splash 32.44`; `just test-all` EXIT=0
+  (10 lanes, eof-on-exit + reveal handshake in all 18 boots). P7 COMPLETE.
+
+### Changed - 2026-09-14 (TASK-0324 P7-c: windowd runs on one waitset; present completions are the frame clock; session state is pushed)
+
+- windowd's compositor loop waits on ONE kernel waitset (RFC-0033) over every input it has:
+  its server endpoint, gpud's replies, the settings push channel, the session push channel
+  and abilitymgr's replies. Deleted: the 120 Hz pacer timer cap, the 500 ms near-idle tick,
+  the monotonic self-paced fallback (`NonBlocking` + `yield_()`), the 250 ms session probe
+  cadence (24 attempts, then "auto shell"), the 500 ms greeter login watch, the
+  2000-round launch-reply poll and the pacer-slip histogram. Idle is zero wakes.
+- Every gpud reply is a display-ring COMPLETION and clocks the next frame
+  (`on_frame_completed`): springs integrate real elapsed time, scroll coasts advance, the
+  pointer's wait ring steps, animating clients get their frame pulse — each producing the
+  damage the loop presents next, whose completion clocks the frame after. The ring depth
+  (`max_in_flight`) is the throttle (`flush_pending_damage_if_slot_free`); the time-based
+  flush gate is gone. A source that animates without queued damage (a pulse client, a coast,
+  a converging spring, the wait ring) keeps the clock running with a pointer-rect present
+  (`keep_frame_clock_alive`) — pacing by completion, never by a clock.
+- sessiond PUSHES session state: `OP_WATCH` (nexus-wire, host-tested goldens) moves a SEND
+  cap of the subscriber's push channel; sessiond acknowledges, pushes a GET_STATE-shaped
+  snapshot at once and one per transition, and drops a watcher whose push fails. windowd
+  subscribes once at start-up on its declared push channel (`slots::windowd::SESSION_WATCH_*`,
+  `NamedSlot::SessionWatch*`, pre-minted and pinned by init like the settings watch) and
+  applies the pushes from its waitset: the session decision and the out-of-process login
+  (`windowd: dsl login detected`) arrive as events. `GET_STATE` stays for other clients.
+- abilitymgr's launch reply is an event too (`drain_launch_replies`): a refused launch ends
+  the pointer's wait ring at once instead of running out a 4 s failsafe.
+- Markers: `windowd: session watch subscribed` (+ two FAIL shapes), registered.
+
+### Changed - 2026-09-14 (TASK-0324 P7-b: no timeout decides a request/reply — the reply or the peer's death ends every wait; routes are declared, never asked for at runtime)
+
+- Kernel (RFC-0079 completed, TASK-0324 P7-b): **death wakes.** `exit_current_and_release` — the
+  one funnel every exit path uses (`sys_exit`, fault kills, SATP kills) — now runs the
+  last-peer scan for every endpoint the dying task held a SEND cap to, exactly as `cap_close`
+  does, and wakes an EOF-opted receiver to return `PeerClosed`. It also wakes the parent
+  parked in `wait` itself (each call site repeated that line). The scan lives once in
+  `syscall::api::eof_scan` and has two new truths: the endpoint OWNER is never its own peer
+  (it keeps the SEND base of its reply channel to clone one per exchange), and a SEND cap
+  moved inside a still-queued message is a live peer (a client whose request is in flight
+  must not EOF against itself — the first waited boot failed every statefsd policy check
+  that way). Both are host-tested predicates (`ipc_eof`: `owner_is_never_its_own_peer`,
+  `test_reject_unowned_endpoint_counts_every_sender`); the RFC-0079 router accessors moved
+  to `ipc/eof.rs` (structure gate).
+- Proof: `SELFTEST: exec child eof on exit ok` — execd's recv-wake probe child exits holding
+  the moved reply SEND cap; execd's blocking EOF-opted recv on its own reply endpoint returns
+  `PeerClosed` at once, no timeout involved.
+- `nexus_ipc::exchange` is the ONE request/reply: a moved SEND clone of the caller's reply
+  channel, then a blocking EOF-opted receive — the frame or `Disconnected`, no clock
+  (`call`, `call_into`, `call_matching` for inboxes shared with fire-and-forget traffic,
+  `send_request`/`recv_response` for `SharedResponse` routes, `mint_reply_channel` via
+  `@mint-pair`). The route ask (`route_with_nonce`) is one WAITED ask without a budget: init
+  answers, parks (target not ready) or rejects; `RouteRetryOutcome::Timeout` is gone.
+- ⭐ Three deadlocks the timeouts had been hiding, each a runtime route ask made while init
+  sat in a synchronous exchange with the asker: nine services asking for their OWN server
+  route at start-up (virtioblkd, bundlemgrd, packagefsd, logd, gpud, windowd, execd, samgrd,
+  vfsd, sessiond, settingsd, bootctld — the declared pair is pinned before resume since P4,
+  the ask is gone), bundlemgrd asking for logd/@reply/metricsd inside its first request
+  handler (declared legs now; metricsd is a declared route), and `nexus_log`'s sink asking
+  for logd on the first line (declarative `configure_sink_logd_slots`, ask-free; bound in
+  bundlemgrd, execd, updated, dsoftbusd). Before, a 250 ms budget silently broke each cycle
+  on every boot.
+- ⭐ windowd's SYNCHRONOUS session probe at handoff is deleted: under RFC-0093 §3 sessiond
+  starts only after windowd reports `DisplayReady`, so the probe could never succeed by
+  construction (the P6 pixel proof measured that) and with clock-free asks it deadlocked the
+  boot. windowd's sessiond/settingsd/gpud/imed/abilitymgr legs are the declared slots; the
+  20-round abilitymgr route loop is gone. The harness's dsoftbusd readiness gate (a target
+  that never announces ready) is deleted.
+- Converted to clock-free exchanges: the selftest's rngd/statefs/keystored/samgrd/security/
+  soak/dsoftbus probes, `nexus_ipc::policyd`, updated (SET_ACTIVE_SLOT, keystore verify),
+  bundlemgrd's logd ack, windowd's session client, the app-host's content rect / ack / boot
+  push / sends (EOF: windowd's death ends them), abilitymgr's spawn reply, logd's replies.
+- Gate rule 3 (`check-wait-not-poll.sh`): per-file counts of the clock-bound wait forms
+  (`Wait::Timeout(`, `deadline_after(`, `*_budgeted(`, `recv_until(`, `send_until(`,
+  `recv_matching_until(`) ratchet against `config/timeout-baseline.txt` — shrink only.
+- Proof: `just check` green (kernel cross-lint, structure ratchet); `just test-all` EXIT=0 —
+  10 lanes, `SELFTEST: exec child eof on exit ok` in every lane (17), 16 reveal handshakes,
+  16 content rects on the first ask, pixel proof 14.67 % / luma 9.8; smp1 214 `SELFTEST: … ok`
+  (+1), 41 KSELFTEST, `bkl budget ok`; nexus-ipc 42 + kernel `ipc_eof` 4 host tests.
+
 ### Changed - 2026-09-14 (TASK-0324 P7-a: a reply is WAITED for, never polled — one wait primitive, the request/response polls deleted, a shrink-only ratchet on the rest)
 
 - `nexus_ipc::budget` is the ONE wait primitive (RFC-0093 §1 "parked, never polled"): `send_until`

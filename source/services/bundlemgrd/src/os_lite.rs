@@ -142,24 +142,18 @@ static METRICS_NONCE: AtomicU32 = AtomicU32::new(1);
 pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> LiteResult<()> {
     notifier.notify();
     let _ = nexus_service_entry::ready("bundlemgrd: ready");
-    let server = match KernelServer::new_for("bundlemgrd") {
-        Ok(server) => server,
-        Err(err) => {
-            emit_line(match err {
-                nexus_ipc::IpcError::Timeout => "bundlemgrd: route probe miss",
-                nexus_ipc::IpcError::NoSpace => "bundlemgrd: route probe nospace",
-                nexus_ipc::IpcError::WouldBlock => "bundlemgrd: route probe wouldblock",
-                nexus_ipc::IpcError::Disconnected => "bundlemgrd: route probe disconnected",
-                nexus_ipc::IpcError::Unsupported => "bundlemgrd: route probe unsupported",
-                nexus_ipc::IpcError::Kernel(_) => "bundlemgrd: route probe kernel",
-                _ => "bundlemgrd: route probe other",
-            });
-            emit_line("bundlemgrd: route fallback");
-            let slots = nexus_service_topology::slots::bundlemgrd::SERVER;
-            KernelServer::new_with_slots(slots.recv, slots.send)
-                .map_err(|_| ServerError::Unsupported)?
-        }
-    };
+    // The declared server pair, pinned in the core plane before this task runs (TASK-0324
+    // P4f-3). No route ask: init queries THIS service synchronously while spawning the volume,
+    // and an ask made then waits on an init that waits on us (P7-b: asks have no timeout).
+    let slots = nexus_service_topology::slots::bundlemgrd::SERVER;
+    let server = KernelServer::new_with_slots(slots.recv, slots.send)
+        .map_err(|_| ServerError::Unsupported)?;
+    // The logd sink on the declared late-grant legs (ask-free; UART-only until pinned).
+    {
+        let logd = nexus_service_topology::slots::bundlemgrd::LOGD;
+        let reply = nexus_service_topology::slots::bundlemgrd::REPLY;
+        nexus_log::configure_sink_logd_slots(logd.send, reply.send, reply.recv);
+    }
     // TASK-0006: core service wiring proof (structured log via nexus-log -> logd).
     // Emit on first request (not at process start) so init-lite has time to provision logd/@reply routes.
     let mut probe_emitted = false;
@@ -167,6 +161,8 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     // TASK-0321: the system volume attaches + verifies lazily on the first
     // volume op (the block plane is only live after init's MMIO grant).
     let mut volume = crate::volume::VolumeState::new();
+    // TASK-0324 P7-d: the VMOs senders armed for their next VMO op.
+    let mut armed = crate::armed_vmo::ArmedVmos::new();
     nexus_abi::service_verdict_flush("bundlemgrd");
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
@@ -194,6 +190,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                 ) {
                     crate::payload_ops::handle_volume_op(
                         &mut volume,
+                        &mut armed,
                         frame.as_slice(),
                         sender_service_id,
                         reply,
@@ -201,29 +198,41 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                     );
                     continue;
                 }
-                // GET_PAYLOAD (TASK-0080D): the message's single moved cap IS
-                // the payload VMO (not a reply cap — ADR-0042 SURFACE_CREATE
-                // pattern), so the header written into the VMO is the reply.
-                if nexus_abi::bundlemgrd::decode_request_op(frame.as_slice())
-                    == Some(nexus_abi::bundlemgrd::OP_GET_PAYLOAD)
-                {
+                // ARM_VMO (TASK-0324 P7-d): the moved cap IS the destination VMO of this
+                // sender's next VMO op. No reply.
+                if vop == Some(nexus_abi::bundlemgrd::OP_ARM_VMO) {
                     let vmo_slot = reply.take().map(|cap| {
                         let slot = cap.slot();
                         core::mem::forget(cap);
                         slot
                     });
-                    if is_allowed_sender(sender_service_id) {
+                    crate::payload_ops::handle_arm_vmo(&mut armed, sender_service_id, vmo_slot);
+                    continue;
+                }
+                // GET_PAYLOAD (TASK-0080D): into the sender's ARMED VMO; the moved cap is the
+                // reply cap, answered after the header write (P7-d).
+                if vop == Some(nexus_abi::bundlemgrd::OP_GET_PAYLOAD) {
+                    let vmo_slot = armed.take(sender_service_id);
+                    let (status, len) = if is_allowed_sender(sender_service_id) {
                         crate::payload_ops::handle_get_payload(
                             &mut volume,
                             frame.as_slice(),
                             vmo_slot,
-                        );
+                        )
                     } else {
                         emit_sender_denied(sender_service_id);
                         if let Some(slot) = vmo_slot {
                             let _ = nexus_abi::cap_close(slot);
                         }
-                    }
+                        (STATUS_UNSUPPORTED, 0)
+                    };
+                    crate::payload_ops::reply_done(
+                        reply.take(),
+                        &server,
+                        nexus_abi::bundlemgrd::OP_GET_PAYLOAD,
+                        status,
+                        len,
+                    );
                     continue;
                 }
                 // App-host children may read the apps LISTING (public
@@ -286,18 +295,12 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
 /// the fleet helper (TASK-0324 P7); the private copy of the nonce exchange that spun
 /// NONBLOCK + `yield_()` against a 2 s clock is deleted.
 fn route_status(target: &str) -> Option<u8> {
-    use nexus_ipc::budget::{route_with_nonce_budgeted, NonceMismatchBudget, RouteRetryOutcome};
-    match route_with_nonce_budgeted(
-        target.as_bytes(),
-        core::time::Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    use nexus_ipc::budget::{route_with_nonce, NonceMismatchBudget, RouteRetryOutcome};
+    match route_with_nonce(target.as_bytes(), NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { .. } => Some(nexus_abi::routing::STATUS_OK),
         RouteRetryOutcome::TargetStale => Some(nexus_abi::routing::STATUS_STALE),
         RouteRetryOutcome::Rejected { status } => Some(status),
-        RouteRetryOutcome::Timeout
-        | RouteRetryOutcome::NonceMismatchBudgetExceeded
-        | RouteRetryOutcome::Ipc(_) => None,
+        RouteRetryOutcome::NonceMismatchBudgetExceeded | RouteRetryOutcome::Ipc(_) => None,
     }
 }
 
@@ -493,15 +496,14 @@ fn append_probe_to_logd() -> bool {
         return false;
     }
 
-    let logd = match nexus_ipc::KernelClient::new_for("logd") {
-        Ok(c) => c,
-        Err(_) => return false,
+    // Declared late grants (TASK-0324 P4f-3), never a runtime ask: this runs inside the FIRST
+    // request handler, while init may be blocked waiting for exactly that answer.
+    let topo_logd = nexus_service_topology::slots::bundlemgrd::LOGD;
+    let topo_reply = nexus_service_topology::slots::bundlemgrd::REPLY;
+    let Ok(logd) = nexus_ipc::KernelClient::new_with_slots(topo_logd.send, topo_logd.recv) else {
+        return false;
     };
-    let reply = match nexus_ipc::KernelClient::new_for("@reply") {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let (reply_send, reply_recv) = reply.slots();
+    let (reply_send, reply_recv) = (topo_reply.send, topo_reply.recv);
     let moved = match nexus_abi::cap_clone(reply_send) {
         Ok(slot) => slot,
         Err(_) => return false,
@@ -525,14 +527,10 @@ fn append_probe_to_logd() -> bool {
     }
     let _ = nexus_abi::cap_close(moved);
 
-    // WAIT for the APPEND ack (250 ms liveness bound — logd answers in-line); a foreign frame
-    // on the shared inbox is dropped and the wait resumes.
-    let deadline = nexus_abi::nsec().ok().unwrap_or(0).saturating_add(250_000_000);
-    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    // WAIT for the APPEND ack with no clock (TASK-0324 P7-b): logd's answer, or its death
+    // (EOF on our own inbox); a foreign frame is dropped and the wait resumes.
     let mut buf = [0u8; 64];
-    while let Ok(n) =
-        nexus_ipc::budget::raw::recv_budgeted(reply_recv, &mut hdr, &mut buf, deadline)
-    {
+    while let Ok(n) = nexus_ipc::exchange::recv_reply(reply_recv, &mut buf) {
         let n = core::cmp::min(n, buf.len());
         if n >= 13
             && buf[0] == MAGIC0
@@ -572,7 +570,9 @@ pub(crate) fn emit_sender_denied(sender_service_id: u64) {
 }
 
 pub(crate) fn metrics_counter_inc_best_effort(name: &str) {
-    let Ok(client) = KernelClient::new_for("metricsd") else {
+    // The declared metricsd leg (fire-and-forget; unwired = the send fails, nothing waits).
+    let route = nexus_service_topology::slots::bundlemgrd::METRICSD;
+    let Ok(client) = KernelClient::new_with_slots(route.send, route.recv) else {
         return;
     };
     let Ok(metric_name) = nexus_metrics::MetricName::new(name.as_bytes()) else {

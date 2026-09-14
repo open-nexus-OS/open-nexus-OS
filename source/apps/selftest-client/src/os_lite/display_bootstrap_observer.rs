@@ -12,7 +12,6 @@
 extern crate alloc;
 
 use alloc::format;
-use core::time::Duration;
 use input_live_protocol::{decode_visible_state, encode_get_visible_state, VisibleState};
 use nexus_abi::{cap_clone, debug_println, yield_};
 use nexus_ipc::{Client as _, Wait};
@@ -127,8 +126,7 @@ pub(crate) fn interactive_live_tick() -> Option<VisibleState> {
 }
 
 fn fetch_live_visible_state() -> Option<VisibleState> {
-    const VISIBLE_STATE_RPC_TIMEOUT_MS: u64 = 50;
-    let wait = Wait::Timeout(Duration::from_millis(VISIBLE_STATE_RPC_TIMEOUT_MS));
+    let wait = Wait::Blocking;
     let client = route_with_retry("windowd").ok()?;
     let reply = cached_reply_client().ok()?;
     let (reply_send_slot, _) = reply.slots();

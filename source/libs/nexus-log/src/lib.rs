@@ -147,19 +147,20 @@ pub fn debug_static(target: &str, message: &str) {
     debug(target, |line| line.text_ref(StrRef::from(message)));
 }
 
-/// Configure deterministic logd sink slots for the current process.
-///
-/// This is an opt-in override used by services that receive fixed slots from init-lite.
-/// If not configured (or invalid), sink-logd falls back to routed discovery.
-pub fn configure_sink_logd_slots(logd_send: u32, reply_send: u32, reply_recv: u32) -> bool {
+/// Binds the logd sink to the caller's DECLARED slots (its `slots::<svc>::LOGD` leg and
+/// `REPLY` inbox from `nexus-service-topology`). Declarative and ask-free (TASK-0324 P7-b):
+/// the sink never asks init for a route — an ask has no clock, and the first log line of a
+/// core service is written inside the request init is synchronously waiting on, which made
+/// that ask a deadlock. Unbound (or a leg init has not pinned yet), a line still reaches the
+/// UART; the logd copy is skipped until the slots are live — no probe, no retry cadence.
+pub fn configure_sink_logd_slots(logd_send: u32, reply_send: u32, reply_recv: u32) {
     #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
     {
-        return sink_logd::configure_slots(logd_send, reply_send, reply_recv);
+        sink_logd::configure_slots(logd_send, reply_send, reply_recv);
     }
     #[cfg(not(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none")))]
     {
         let _ = (logd_send, reply_send, reply_recv);
-        false
     }
 }
 
@@ -1069,9 +1070,7 @@ mod sink_userspace {
 mod sink_logd {
     use core::sync::atomic::{AtomicU32, Ordering};
 
-    use nexus_abi::{
-        cap_clone, cap_close, ipc_recv_v1, MsgHeader, IPC_SYS_NONBLOCK, IPC_SYS_TRUNCATE,
-    };
+    use nexus_abi::{cap_clone, ipc_recv_v1, MsgHeader, IPC_SYS_NONBLOCK, IPC_SYS_TRUNCATE};
     use nexus_ipc::KernelClient;
 
     use crate::Level;
@@ -1139,43 +1138,20 @@ mod sink_logd {
         drain_reply(reply_recv);
     }
 
-    pub fn configure_slots(logd_send: u32, reply_send: u32, reply_recv: u32) -> bool {
-        if !slots_present(logd_send, reply_send, reply_recv) {
-            return false;
-        }
+    /// Stores the declared slots. Nothing is probed: a leg init has not pinned yet simply
+    /// fails its `cap_clone` at emit time and the line stays UART-only until it is live.
+    pub fn configure_slots(logd_send: u32, reply_send: u32, reply_recv: u32) {
         LOGD_SEND_SLOT.store(logd_send, Ordering::Relaxed);
         REPLY_SEND_SLOT.store(reply_send, Ordering::Relaxed);
         REPLY_RECV_SLOT.store(reply_recv, Ordering::Relaxed);
-        true
     }
 
+    /// The bound slots, or `None` while unbound — never a route ask (TASK-0324 P7-b).
     fn ensure_slots(_target: &str) -> Option<(u32, u32, u32)> {
         let send = LOGD_SEND_SLOT.load(Ordering::Relaxed);
         let rs = REPLY_SEND_SLOT.load(Ordering::Relaxed);
         let rr = REPLY_RECV_SLOT.load(Ordering::Relaxed);
-        if send != 0 && rs != 0 && rr != 0 {
-            return Some((send, rs, rr));
-        }
-
-        // Resolve logd route (send slot) and @reply (send+recv).
-        let logd = KernelClient::new_for("logd").ok()?;
-        let (logd_send, _logd_recv) = logd.slots();
-
-        let reply = KernelClient::new_for("@reply").ok()?;
-        let (reply_send, reply_recv) = reply.slots();
-
-        LOGD_SEND_SLOT.store(logd_send, Ordering::Relaxed);
-        REPLY_SEND_SLOT.store(reply_send, Ordering::Relaxed);
-        REPLY_RECV_SLOT.store(reply_recv, Ordering::Relaxed);
-
-        Some((logd_send, reply_send, reply_recv))
-    }
-
-    fn slots_present(logd_send: u32, reply_send: u32, reply_recv: u32) -> bool {
-        let ok_send = cap_clone(logd_send).map(|tmp| cap_close(tmp)).is_ok();
-        let ok_reply_send = cap_clone(reply_send).map(|tmp| cap_close(tmp)).is_ok();
-        let ok_reply_recv = cap_clone(reply_recv).map(|tmp| cap_close(tmp)).is_ok();
-        ok_send && ok_reply_send && ok_reply_recv
+        (send != 0 && rs != 0 && rr != 0).then_some((send, rs, rr))
     }
 
     fn drain_reply(recv_slot: u32) {

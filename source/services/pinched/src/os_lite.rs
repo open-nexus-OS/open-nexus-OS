@@ -19,7 +19,6 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use core::time::Duration;
 
 use nexus_abi::yield_;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
@@ -449,11 +448,7 @@ pub(crate) fn vmo_capacity(slot: u32) -> Option<usize> {
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        name,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(name, NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }

@@ -273,10 +273,32 @@ impl<const PENDING: usize, const MAX_FRAME: usize> Default for ReplyBuffer<PENDI
     }
 }
 
-/// Receive from a shared reply inbox until `expected_nonce` is observed, buffering
-/// out-of-order replies for their own exchanges. Every receive WAITS in the transport
-/// (`budget::recv_until`, TASK-0324 P7): the deadline is the liveness bound, not a spin
-/// budget — nothing here yields or re-polls.
+/// Waits for the reply carrying `expected_nonce` on a SHARED inbox — no clock (TASK-0324
+/// P7-d): the reply, or the peer's death (`Disconnected`), ends the wait. A frame that belongs
+/// to another exchange is parked in `pending` for that exchange.
+pub fn recv_match<const PENDING: usize, const MAX_FRAME: usize>(
+    inbox: &impl Client,
+    pending: &mut ReplyBuffer<PENDING, MAX_FRAME>,
+    expected_nonce: u64,
+    extract_nonce: impl Fn(&[u8]) -> Option<u64>,
+) -> crate::Result<Vec<u8>> {
+    let mut tmp = [0u8; MAX_FRAME];
+    if let Some(n) = pending.take_into(expected_nonce, &mut tmp) {
+        return Ok(tmp[..n].to_vec());
+    }
+    loop {
+        let frame = inbox.recv(crate::Wait::Blocking)?;
+        if let Some(nonce) = extract_nonce(&frame) {
+            if nonce == expected_nonce {
+                return Ok(frame);
+            }
+            let _ = pending.push(nonce, &frame);
+        }
+    }
+}
+
+/// The clock-bound form of [`recv_match`] (transitional, TASK-0324 P7-d retires the last
+/// callers): the deadline is a liveness bound, never a spin budget.
 pub fn recv_match_until<const PENDING: usize, const MAX_FRAME: usize>(
     clock: &impl budget::Clock,
     inbox: &impl Client,

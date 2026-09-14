@@ -15,7 +15,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use nexus_abi::{yield_, MsgHeader};
+use nexus_abi::MsgHeader;
 use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 
 pub(crate) fn policy_check(client: &KernelClient, subject: &str) -> core::result::Result<bool, ()> {
@@ -37,45 +37,16 @@ pub(crate) fn policy_check(client: &KernelClient, subject: &str) -> core::result
     frame.push(OP_CHECK);
     frame.push(name.len() as u8);
     frame.extend_from_slice(name);
-    // Avoid deadline-based blocking IPC (bring-up flakiness); use bounded NONBLOCK loops.
+    // A waited send, then waited receives (the answer or policyd's death) — no clock.
     let (send_slot, recv_slot) = client.slots();
     let hdr = MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-    let start = nexus_abi::nsec().map_err(|_| ())?;
-    let deadline = start.saturating_add(2_000_000_000); // 2s
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(|_| ())?;
-                    if now >= deadline {
-                        return Err(());
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-        i = i.wrapping_add(1);
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, 0, 0).is_err() {
+        return Err(());
     }
     let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 16];
-    let mut j: usize = 0;
     loop {
-        if (j & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(|_| ())?;
-            if now >= deadline {
-                return Err(());
-            }
-        }
-        match nexus_abi::ipc_recv_v1(
-            recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
+        match nexus_abi::ipc_recv_v1(recv_slot, &mut rh, &mut buf, nexus_abi::IPC_SYS_TRUNCATE, 0) {
             Ok(n) => {
                 let n = core::cmp::min(n as usize, buf.len());
                 if n != 6 || buf[0] != MAGIC0 || buf[1] != MAGIC1 || buf[2] != VERSION {
@@ -91,12 +62,8 @@ pub(crate) fn policy_check(client: &KernelClient, subject: &str) -> core::result
                     _ => Err(()),
                 };
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
             Err(_) => return Err(()),
         }
-        j = j.wrapping_add(1);
     }
 }
 
@@ -122,9 +89,8 @@ pub(crate) fn policyd_check_cap(
     req.push(cap_b.len() as u8);
     req.extend_from_slice(cap_b);
 
-    policyd.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
-    let rsp =
-        policyd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
+    policyd.send(&req, IpcWait::Blocking).map_err(|_| ())?;
+    let rsp = policyd.recv(IpcWait::Blocking).map_err(|_| ())?;
     if rsp.len() != 5 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
         return Err(());
     }
@@ -146,18 +112,8 @@ pub(crate) fn keystored_sign_denied(keystored: &KernelClient) -> core::result::R
     frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_SIGN]);
     frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
     frame.extend_from_slice(&payload);
-
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(
-        &clock,
-        keystored,
-        &frame,
-        core::time::Duration::from_millis(200),
-    )
-    .map_err(|_| ())?;
-    let rsp =
-        nexus_ipc::budget::recv_budgeted(&clock, keystored, core::time::Duration::from_millis(200))
-            .map_err(|_| ())?;
+    nexus_ipc::Client::send(keystored, &frame, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
+    let rsp = nexus_ipc::Client::recv(keystored, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
     if rsp.len() == 7 && rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION {
         if rsp[3] == (OP_SIGN | 0x80) && rsp[4] == STATUS_DENY {
             return Ok(());
@@ -176,16 +132,8 @@ pub(crate) fn policyd_requester_spoof_denied(
     let target = nexus_abi::service_id_from_name(b"samgrd");
     let mut frame = [0u8; 64];
     let n = nexus_abi::policyd::encode_route_v3_id(nonce, spoof, target, &mut frame).ok_or(())?;
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(
-        &clock,
-        policyd,
-        &frame[..n],
-        core::time::Duration::from_secs(2),
-    )
-    .map_err(|_| ())?;
-    let rsp = nexus_ipc::budget::recv_budgeted(&clock, policyd, core::time::Duration::from_secs(2))
-        .map_err(|_| ())?;
+    nexus_ipc::Client::send(policyd, &frame[..n], nexus_ipc::Wait::Blocking).map_err(|_| ())?;
+    let rsp = nexus_ipc::Client::recv(policyd, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
     let (_ver, _op, rsp_nonce, status) = nexus_abi::policyd::decode_rsp_v2_or_v3(&rsp).ok_or(())?;
     if rsp_nonce != nonce {
         return Err(());
@@ -208,50 +156,21 @@ pub(crate) fn policyd_fetch_abi_profile(
         nexus_abi::policyd::encode_abi_profile_get_v2(nonce, expected_subject_id, &mut req)
             .ok_or(())?;
     let hdr = MsgHeader::new(0, 0, 0, 0, req_len as u32);
-    let start = nexus_abi::nsec().map_err(|_| ())?;
-    let deadline = start.saturating_add(2_000_000_000);
-    let mut send_tries = 0usize;
-    loop {
-        match nexus_abi::ipc_send_v1(
-            send_slot,
-            &hdr,
-            &req[..req_len],
-            nexus_abi::IPC_SYS_NONBLOCK,
-            0,
-        ) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (send_tries & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(|_| ())?;
-                    if now >= deadline {
-                        return Err(());
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-        send_tries = send_tries.wrapping_add(1);
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..req_len], 0, 0).is_err() {
+        return Err(());
     }
 
     let authority_id = nexus_abi::service_id_from_name(b"policyd");
-    let mut recv_tries = 0usize;
     let mut recv_hdr = MsgHeader::new(0, 0, 0, 0, 0);
     let mut sender_service_id = 0u64;
     let mut rsp_buf = [0u8; 12 + nexus_abi::abi_filter::MAX_PROFILE_BYTES];
     loop {
-        if (recv_tries & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(|_| ())?;
-            if now >= deadline {
-                return Err(());
-            }
-        }
         match nexus_abi::ipc_recv_v2(
             recv_slot,
             &mut recv_hdr,
             &mut rsp_buf,
             &mut sender_service_id,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE,
             0,
         ) {
             Ok(n) => {
@@ -276,12 +195,8 @@ pub(crate) fn policyd_fetch_abi_profile(
                 )
                 .map_err(|_| ());
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
             Err(_) => return Err(()),
         }
-        recv_tries = recv_tries.wrapping_add(1);
     }
 }
 
@@ -298,21 +213,13 @@ pub(crate) fn policyd_set_abi_mode(
     let mut req = [0u8; 32];
     let n = nexus_abi::policyd::encode_set_abi_mode_v2(nonce, subject_id, mode, epoch, &mut req)
         .ok_or(())?;
-    policyd
-        .send(&req[..n], IpcWait::Timeout(core::time::Duration::from_millis(500)))
-        .map_err(|_| ())?;
-    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(2_000_000_000);
+    policyd.send(&req[..n], IpcWait::Blocking).map_err(|_| ())?;
     loop {
-        let rsp = policyd
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(500)))
-            .map_err(|_| ())?;
+        let rsp = policyd.recv(IpcWait::Blocking).map_err(|_| ())?;
         if let Some((op, rsp_nonce, status)) = nexus_abi::policyd::decode_rsp_v2(&rsp) {
             if op == nexus_abi::policyd::OP_SET_ABI_MODE && rsp_nonce == nonce {
                 return Ok(status);
             }
-        }
-        if nexus_abi::nsec().map_err(|_| ())? >= deadline {
-            return Err(());
         }
     }
 }
@@ -327,14 +234,9 @@ pub(crate) fn policyd_abi_learn_stats(
     let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     let mut req = [0u8; 32];
     let n = nexus_abi::policyd::encode_abi_learn_stats_v2(nonce, subject_id, &mut req).ok_or(())?;
-    policyd
-        .send(&req[..n], IpcWait::Timeout(core::time::Duration::from_millis(500)))
-        .map_err(|_| ())?;
-    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(2_000_000_000);
+    policyd.send(&req[..n], IpcWait::Blocking).map_err(|_| ())?;
     loop {
-        let rsp = policyd
-            .recv(IpcWait::Timeout(core::time::Duration::from_millis(500)))
-            .map_err(|_| ())?;
+        let rsp = policyd.recv(IpcWait::Blocking).map_err(|_| ())?;
         if let Some((rsp_nonce, status, mode, admitted, emitted, dropped)) =
             nexus_abi::policyd::decode_abi_learn_stats_rsp_v2(&rsp)
         {
@@ -344,9 +246,6 @@ pub(crate) fn policyd_abi_learn_stats(
                 }
                 return Ok((mode, admitted, emitted, dropped));
             }
-        }
-        if nexus_abi::nsec().map_err(|_| ())? >= deadline {
-            return Err(());
         }
     }
 }

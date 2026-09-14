@@ -613,7 +613,7 @@ pub mod deny_tally;
 pub mod client {
     use super::*;
     use core::sync::atomic::{AtomicU32, Ordering};
-    use core::time::Duration;
+
     use nexus_ipc::{Client as _, KernelClient, Wait};
 
     /// OS metrics/tracing client over kernel IPC.
@@ -630,9 +630,6 @@ pub mod client {
         reply: Option<(u32, u32)>,
         next_nonce: AtomicU32,
     }
-
-    /// Per-RPC bound (send + reply).
-    const RPC_TIMEOUT: Duration = Duration::from_millis(500);
 
     impl MetricsClient {
         /// Creates a client routed to `metricsd`.
@@ -774,22 +771,13 @@ pub mod client {
             if let Some((reply_send, reply_recv)) = self.reply {
                 return self.send_and_parse_private(op, nonce, frame, reply_send, reply_recv);
             }
-            self.ipc.send(frame, Wait::Timeout(RPC_TIMEOUT)).map_err(|_| ClientError::Transport)?;
-            // Shared response endpoint: skip replies that belong to other
-            // clients (nonce/op mismatch) until ours arrives or time is up.
-            let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(500_000_000);
+            // No clock (TASK-0324 P7-d): metricsd's answer or its death ends the wait; a
+            // frame that is not our answer (shared response endpoint) is dropped.
+            self.ipc.send(frame, Wait::Blocking).map_err(|_| ClientError::Transport)?;
             loop {
-                let rsp = self
-                    .ipc
-                    .recv(Wait::Timeout(RPC_TIMEOUT))
-                    .map_err(|_| ClientError::Transport)?;
-                match decode_status_response(&rsp, op, nonce) {
-                    Ok(status) => return Ok(status),
-                    Err(err) => {
-                        if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                            return Err(ClientError::Decode(err));
-                        }
-                    }
+                let rsp = self.ipc.recv(Wait::Blocking).map_err(|_| ClientError::Transport)?;
+                if let Ok(status) = decode_status_response(&rsp, op, nonce) {
+                    return Ok(status);
                 }
             }
         }
@@ -806,39 +794,26 @@ pub mod client {
             reply_recv: u32,
         ) -> Result<u8, ClientError> {
             let moved = nexus_abi::cap_clone(reply_send).map_err(|_| ClientError::Transport)?;
-            if self.ipc.send_with_cap_move_wait(frame, moved, Wait::Timeout(RPC_TIMEOUT)).is_err() {
+            if self.ipc.send_with_cap_move_wait(frame, moved, Wait::Blocking).is_err() {
                 let _ = nexus_abi::cap_close(moved);
                 return Err(ClientError::Transport);
             }
-            let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(500_000_000);
-            let mut last = None;
+            // No clock (TASK-0324 P7-d): the answer on our inbox, or metricsd's death (EOF —
+            // it holds the moved cap). Foreign frames (late replies) are dropped.
             loop {
                 let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
                 let mut buf = [0u8; 256];
-                match nexus_abi::ipc_recv_v1(
+                let n = nexus_abi::ipc_recv_v1(
                     reply_recv,
                     &mut hdr,
                     &mut buf,
-                    nexus_abi::IPC_SYS_TRUNCATE,
-                    deadline,
-                ) {
-                    Ok(n) => {
-                        let n = (n as usize).min(buf.len());
-                        match decode_status_response(&buf[..n], op, nonce) {
-                            Ok(status) => return Ok(status),
-                            Err(err) => last = Some(err),
-                        }
-                    }
-                    Err(nexus_abi::IpcError::QueueEmpty) | Err(nexus_abi::IpcError::TimedOut) => {
-                        if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                            return Err(last.map_or(ClientError::Transport, ClientError::Decode));
-                        }
-                        let _ = nexus_abi::yield_();
-                    }
-                    Err(_) => return Err(ClientError::Transport),
-                }
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return Err(last.map_or(ClientError::Transport, ClientError::Decode));
+                    nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
+                    0,
+                )
+                .map_err(|_| ClientError::Transport)?;
+                let n = (n as usize).min(buf.len());
+                if let Ok(status) = decode_status_response(&buf[..n], op, nonce) {
+                    return Ok(status);
                 }
             }
         }

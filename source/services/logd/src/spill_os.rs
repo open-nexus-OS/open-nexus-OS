@@ -22,8 +22,6 @@
 //!   `SELFTEST: evidence budget ok`).
 //! ADR: docs/rfcs/RFC-0087-reliability-failure-model-v1.md (§5)
 
-use core::time::Duration;
-
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::KernelClient;
 use statefs::client::StatefsClient;
@@ -161,6 +159,15 @@ impl SpillState {
     /// Spills at most ONE pending record — called by the serve loop BETWEEN
     /// requests (the statefsd `compaction_tick` pattern), so spill I/O never
     /// adds latency to a request/response exchange.
+    /// Work is owed BETWEEN requests (TASK-0324 P7-d): a pending record to spill, or a
+    /// mirror load in progress. The serve loop reads its endpoint non-blocking while this holds
+    /// and blocks otherwise — the spill is driven by work, never by a clock.
+    pub(crate) fn has_work(&self) -> bool {
+        !self.degraded
+            && self.armed
+            && (self.pending_len > 0 || (self.load.is_some() && self.client.is_some()))
+    }
+
     pub(crate) fn tick(&mut self) {
         if self.degraded || !self.armed {
             return;
@@ -359,11 +366,7 @@ fn try_attach() -> Option<(SpillEngine, StatefsClient, u64)> {
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        name,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(name, NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }

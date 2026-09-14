@@ -17,7 +17,6 @@
 //! - fixed frame buffers; no per-key allocation in the loop
 
 use core::sync::atomic::{AtomicBool, Ordering};
-use core::time::Duration;
 
 use nexus_abi::yield_;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
@@ -455,26 +454,19 @@ fn read_personalization() -> Option<PersonalizationSetting> {
     let n = sw::encode_get_req("ime.personalization", &mut req)?;
     let reply_send = nexus_abi::cap_clone(SETTINGS_REPLY_SEND_SLOT).ok()?;
     let hdr = nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
-    if nexus_abi::ipc_send_v1(SETTINGS_SEND_SLOT, &hdr, &req[..n], nexus_abi::IPC_SYS_NONBLOCK, 0)
-        .is_err()
-    {
+    if nexus_abi::ipc_send_v1(SETTINGS_SEND_SLOT, &hdr, &req[..n], 0, 0).is_err() {
         let _ = nexus_abi::cap_close(reply_send);
         return None;
     }
-    // Short bound: settingsd answers a KV GET in ~1ms; this runs on the focus
-    // hot path, so a slow/busy settingsd must NOT block imed's serve loop —
-    // time out fast and keep the current toggle state.
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(30_000_000);
+    // One waited exchange (TASK-0324 P7-d): settingsd's answer or its death — no clock.
     loop {
         let mut rhdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 64];
-        let mut sid: u64 = 0;
-        match nexus_abi::ipc_recv_v2(
+        match nexus_abi::ipc_recv_v1(
             SETTINGS_REPLY_RECV_SLOT,
             &mut rhdr,
             &mut buf,
-            &mut sid,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
             0,
         ) {
             Ok(nn) => {
@@ -489,16 +481,6 @@ fn read_personalization() -> Option<PersonalizationSetting> {
                         _ => Some(PersonalizationSetting::Off),
                     };
                 }
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return None;
-                }
-                let _ = yield_();
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return None;
-                }
-                let _ = yield_();
             }
             Err(_) => return None,
         }
@@ -506,11 +488,7 @@ fn read_personalization() -> Option<PersonalizationSetting> {
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
-    match budget::route_with_nonce_budgeted(
-        name,
-        Duration::from_secs(2),
-        NonceMismatchBudget::new(64),
-    ) {
+    match budget::route_with_nonce(name, NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }

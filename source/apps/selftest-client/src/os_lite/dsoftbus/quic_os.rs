@@ -53,11 +53,9 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
         let (reply_send_slot, reply_recv_slot) = reply.slots();
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
         client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        // The facade's answer, or its death (EOF on our own inbox) — no clock (P7-b).
         let mut buf = [0u8; 512];
-        let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(LIVENESS_NS);
-        nexus_ipc::budget::raw::recv_budgeted(reply_recv_slot, &mut hdr, &mut buf, deadline)
-            .map_err(|_| ())?;
+        nexus_ipc::exchange::recv_reply(reply_recv_slot, &mut buf).map_err(|_| ())?;
         Ok(buf)
     }
 

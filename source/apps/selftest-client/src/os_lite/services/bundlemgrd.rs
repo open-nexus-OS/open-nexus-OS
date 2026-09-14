@@ -14,7 +14,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use nexus_abi::{yield_, MsgHeader};
+use nexus_abi::MsgHeader;
 use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 
 use crate::markers::{emit_byte, emit_bytes, emit_line};
@@ -23,16 +23,12 @@ pub(crate) fn bundlemgrd_v1_list(client: &KernelClient) -> core::result::Result<
     let mut req = [0u8; 4];
     nexus_abi::bundlemgrd::encode_list(&mut req);
     emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_SEND);
-    let mut sent = false;
-    let mut logged_send_err = false;
-    for _ in 0..256 {
-        match client.send(&req, IpcWait::NonBlocking) {
-            Ok(()) => {
-                sent = true;
-                break;
-            }
-            Err(err) => {
-                if !logged_send_err {
+    // ONE waited send (queue space or bundlemgrd's death); the error is named once.
+    let sent = match client.send(&req, IpcWait::Blocking) {
+        Ok(()) => true,
+        Err(err) => {
+            {
+                {
                     emit_bytes(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_SEND_ERR.as_bytes());
                     match err {
                         nexus_ipc::IpcError::NoSpace => emit_bytes(b"nospace"),
@@ -56,12 +52,11 @@ pub(crate) fn bundlemgrd_v1_list(client: &KernelClient) -> core::result::Result<
                         _ => emit_bytes(b"other"),
                     }
                     emit_byte(b'\n');
-                    logged_send_err = true;
                 }
             }
+            false
         }
-        let _ = yield_();
-    }
+    };
     if !sent {
         emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_SEND_FAIL);
         return Err(());
@@ -69,17 +64,14 @@ pub(crate) fn bundlemgrd_v1_list(client: &KernelClient) -> core::result::Result<
     emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_SENT);
     emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_RECV);
     for _ in 0..512 {
-        match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(10))) {
+        match client.recv(IpcWait::Blocking) {
             Ok(rsp) => {
                 if let Some(decoded) = nexus_abi::bundlemgrd::decode_list_rsp(&rsp) {
                     emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_RECV_OK);
                     return Ok(decoded);
                 }
-                let _ = yield_();
             }
-            Err(nexus_ipc::IpcError::Timeout) | Err(nexus_ipc::IpcError::WouldBlock) => {
-                let _ = yield_();
-            }
+            Err(nexus_ipc::IpcError::Timeout) | Err(nexus_ipc::IpcError::WouldBlock) => {}
             Err(err) => {
                 emit_bytes(crate::markers::M_SELFTEST_BUNDLEMGRD_LIST_RECV_ERR.as_bytes());
                 match err {
@@ -104,11 +96,8 @@ pub(crate) fn bundlemgrd_volume_status(client: &KernelClient) -> core::result::R
     use nexus_abi::bundlemgrd as wire;
     let mut req = [0u8; 8];
     let n = wire::encode_volume_status(&mut req).ok_or(())?;
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(&clock, client, &req[..n], core::time::Duration::from_secs(1))
-        .map_err(|_| ())?;
-    let rsp = nexus_ipc::budget::recv_budgeted(&clock, client, core::time::Duration::from_secs(5))
-        .map_err(|_| ())?;
+    nexus_ipc::Client::send(client, &req[..n], nexus_ipc::Wait::Blocking).map_err(|_| ())?;
+    let rsp = nexus_ipc::Client::recv(client, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
     let (status, _slot, verified, bundles, _build8) =
         wire::decode_volume_status_rsp(&rsp).ok_or(())?;
     if status != wire::STATUS_OK || verified != 1 || bundles == 0 {
@@ -123,12 +112,8 @@ pub(crate) fn bundlemgrd_v1_set_active_slot(
 ) -> core::result::Result<(), ()> {
     let mut req = [0u8; 5];
     nexus_abi::bundlemgrd::encode_set_active_slot_req(slot, &mut req);
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::send_budgeted(&clock, client, &req, core::time::Duration::from_millis(200))
-        .map_err(|_| ())?;
-    let rsp =
-        nexus_ipc::budget::recv_budgeted(&clock, client, core::time::Duration::from_millis(200))
-            .map_err(|_| ())?;
+    nexus_ipc::Client::send(client, &req, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
+    let rsp = nexus_ipc::Client::recv(client, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
     let (status, _slot) = nexus_abi::bundlemgrd::decode_set_active_slot_rsp(&rsp).ok_or(())?;
     if status == nexus_abi::bundlemgrd::STATUS_OK {
         Ok(())
@@ -161,43 +146,14 @@ pub(crate) fn bundlemgrd_v1_route_status(
     req.push(name.len() as u8);
     req.extend_from_slice(name);
     let (send_slot, recv_slot) = client.slots();
-    let hdr = MsgHeader::new(0, 0, 0, 0, req.len() as u32);
-    let start = nexus_abi::nsec().map_err(|_| ())?;
-    let deadline = start.saturating_add(2_000_000_000); // 2s
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(|_| ())?;
-                    if now >= deadline {
-                        return Err(());
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-        i = i.wrapping_add(1);
+    let hdr = MsgHeader::new(0, 0, 0, 0, req.len() as u32); // 2s
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req, 0, 0).is_err() {
+        return Err(());
     }
     let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 16];
-    let mut j: usize = 0;
     loop {
-        if (j & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(|_| ())?;
-            if now >= deadline {
-                return Err(());
-            }
-        }
-        match nexus_abi::ipc_recv_v1(
-            recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
+        match nexus_abi::ipc_recv_v1(recv_slot, &mut rh, &mut buf, nexus_abi::IPC_SYS_TRUNCATE, 0) {
             Ok(n) => {
                 let n = core::cmp::min(n as usize, buf.len());
                 if n != 8 || buf[0] != MAGIC0 || buf[1] != MAGIC1 || buf[2] != VERSION {
@@ -208,11 +164,7 @@ pub(crate) fn bundlemgrd_v1_route_status(
                 }
                 return Ok((buf[4], buf[5]));
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
             Err(_) => return Err(()),
         }
-        j = j.wrapping_add(1);
     }
 }

@@ -31,10 +31,17 @@ pub(crate) fn advance(
         |svc: ServiceId| ctrls.iter().any(|c| c.svc_name == svc.name() && ready.is_ready(c.pid));
     while let Some(stage) = ladder.try_advance(&is_ready) {
         match nexus_abi::fence_signal(stage_fence, stage.value()) {
-            Ok(()) => crate::bootstrap::diag::emit_marker_atomic(
-                &[b"stage: ", stage.label().as_bytes()],
-                None,
-            ),
+            Ok(()) => {
+                crate::bootstrap::diag::emit_marker_atomic(
+                    &[b"stage: ", stage.label().as_bytes()],
+                    None,
+                );
+                // The shell is on screen: tell the journal (logd renders its subject
+                // verdicts on this EVENT — TASK-0324 P7-d, no quiet-period clock).
+                if stage == crate::service_topology::Stage::ShellVisible {
+                    nexus_log::info("stage", |line| line.text("shell-visible"));
+                }
+            }
             Err(err) => {
                 crate::bootstrap::diag::emit_marker_atomic(
                     &[b"init: FAIL stage signal ", stage.label().as_bytes()],

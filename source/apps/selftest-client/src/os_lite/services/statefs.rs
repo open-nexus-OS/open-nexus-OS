@@ -18,7 +18,6 @@ use alloc::vec::Vec;
 
 use crash::{deterministic_build_id, MinidumpFrame};
 use nexus_abi::Pid;
-use nexus_ipc::budget::{self, OsClock};
 use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 use statefs::protocol as statefs_proto;
 use statefs::StatefsError;
@@ -51,7 +50,7 @@ pub(crate) fn statefs_send_recv_deadline(
     v2.extend_from_slice(&nonce.to_le_bytes());
     v2.extend_from_slice(&frame[4..]);
 
-    if let Err(err) = client.send(&v2, IpcWait::Timeout(core::time::Duration::from_millis(2000))) {
+    if let Err(err) = client.send(&v2, IpcWait::Blocking) {
         match err {
             nexus_ipc::IpcError::WouldBlock => {
                 emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_WOULD_BLOCK)
@@ -76,29 +75,33 @@ pub(crate) fn statefs_send_recv_deadline(
         emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_FAIL);
         return Err(());
     }
-    // WAIT for OUR reply (TASK-0324 P7): the kernel wakes us per arriving frame; foreign
-    // frames on the shared inbox are dropped; the budget is the liveness bound.
-    let clock = OsClock;
-    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(budget_ns);
-    let matched = budget::recv_matching_until(&clock, client, deadline, |rsp| {
+    // WAIT for OUR reply with no clock (TASK-0324 P7-b): statefsd answers on its response
+    // endpoint; a frame of another exchange is dropped and the wait resumes; statefsd's
+    // death closes the endpoint and ends the wait with an error.
+    let _ = budget_ns;
+    let (_, recv_slot) = client.slots();
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = match nexus_ipc::exchange::recv_response(recv_slot, &mut buf) {
+            Ok(n) => n,
+            Err(_) => {
+                emit_line(crate::markers::M_SELFTEST_STATEFS_RECV_TIMEOUT);
+                return Err(());
+            }
+        };
+        let rsp = &buf[..n];
         if rsp.len() < 13
             || rsp[0] != statefs_proto::MAGIC0
             || rsp[1] != statefs_proto::MAGIC1
             || rsp[2] != statefs_proto::VERSION_V2
         {
-            return None;
+            continue;
         }
         let got_nonce =
             u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
-        (got_nonce == nonce).then(|| rsp.to_vec())
-    });
-    match matched {
-        Ok(rsp) => Ok(rsp),
-        Err(nexus_ipc::IpcError::Timeout) => {
-            emit_line(crate::markers::M_SELFTEST_STATEFS_RECV_TIMEOUT);
-            Err(())
+        if got_nonce == nonce {
+            return Ok(rsp.to_vec());
         }
-        Err(_) => Err(()),
     }
 }
 
