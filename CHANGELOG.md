@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-14 (TASK-0324 P6-d: display truth is read through a probe render target, never from the scanout; the reveal decision is gated time-free)
+
+- gpud `gl_probe.rs` is the ONE readback authority (RFC-0093 §5): a host-side
+  `RESOURCE_COPY_REGION` lifts the region of interest off the FRONT render target into a
+  dedicated probe RT (resource `0xE9`, 256×64, guest-backed), and only the probe is ever
+  transferred back to the guest. The scanout is now exclusively a copy SOURCE — a readback can
+  neither disturb a flip nor observe a half-flipped frame. Screen capture (TASK-0068) is the
+  same two steps with a bigger probe.
+- The scanout RTs carry NO guest backing any more: they are never a transfer source or target,
+  so the two 4 MB backings (one per swapchain RT) had no reader left. Deleted with their VA
+  fields (`gl_scanout_backing_va`, `GlSwapState::b_backing_va`, `rt_front_backing_va`) —
+  measured in the `visible` lane: flip, probe readback, handshake and pixel proof unchanged.
+- `scanout_sample` (a `TRANSFER_FROM_HOST` of the live scanout RT) is deleted; the one-shot
+  display-truth markers are `gpud: probe sample ok` → `SELFTEST: display nonblack ok` /
+  `gpud: FAIL probe black` / `gpud: probe sample unavailable` (proof manifest, postflight tool,
+  RFC-0093 §5 marker list and ADR-0032 updated together).
+- `check-display-ssot.sh` gains two self-tested rules: the reveal decision
+  (`let should_reveal = …;` in `gl_scanout.rs`) must carry no time term (`nsec(`/`elapsed`/`_NS`),
+  and no `virgl_transfer_from_host(` call may exist outside `gl_probe.rs`.
+- Proof: `visible` lane — `gpud: gl flip on` → `gpud: probe sample ok` →
+  `SELFTEST: display nonblack ok` → `gpud: desktop reveal (handshake seq=2)` →
+  `windowd: desktop revealed (seq=2)`, pixel proof 40.09 % non-black / luma 14.69.
+
 ### Changed - 2026-09-14 (TASK-0324 P6-b/c: present acks are sequence-tracked and reveal is a handshake; the lease, the stall recovery, the deadline, the pixel probe and both time caps are deleted)
 
 - Wire v2 (`nexus-display-proto`, RFC-0093 §5): every present carries `[OP_PRESENT_DAMAGE, seq]`

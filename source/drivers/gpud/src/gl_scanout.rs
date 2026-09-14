@@ -74,8 +74,8 @@ const SCANOUT_FLIP: bool = true;
 /// `VirtioGpuBackend::gl_swap`).
 #[derive(Default)]
 pub(crate) struct GlSwapState {
-    /// Guest backing VA of RT B (display-truth readback when B is front).
-    pub(crate) b_backing_va: usize,
+    /// Guest backing VA of the probe RT (`gl_probe`) — the ONE readback surface.
+    pub(crate) probe_backing_va: usize,
     /// Which RT the display shows: 0 = A (`GL_SCANOUT_RES`), 1 = B. Every
     /// present renders into the BACK RT and flips, so the host GTK draw can
     /// never sample a mid-composite frame (the SMP=4/MTTCG flicker fix).
@@ -261,62 +261,12 @@ impl VirtioGpuBackend {
     }
 
     /// Swapchain: resource id of the FRONT RT — what the display shows.
-    fn rt_front_res(&self) -> u32 {
+    pub(crate) fn rt_front_res(&self) -> u32 {
         if self.gl_swap.front == 0 {
             GL_SCANOUT_RES
         } else {
             GL_SCANOUT_RES_B
         }
-    }
-
-    /// Guest backing VA of the FRONT RT (display-truth readback).
-    fn rt_front_backing_va(&self) -> usize {
-        if self.gl_swap.front == 0 {
-            self.gl_scanout_backing_va
-        } else {
-            self.gl_swap.b_backing_va
-        }
-    }
-
-    /// P0.3 display truth: reads a small strip of the LIVE scanout render
-    /// target back from the host GPU and returns the brightest pixel
-    /// (BGRA). `None` when the GL scanout is not active. One-shot caller
-    /// (first successful present) — this is the only place display-side
-    /// truth exists WITHOUT host tooling: markers above this line are
-    /// compositor claims, this is what the screen actually holds. Reads the
-    /// FRONT RT — post-flip that is the frame the display actually shows.
-    pub(crate) fn scanout_sample(&mut self) -> Option<[u8; 4]> {
-        let backing_va = self.rt_front_backing_va();
-        if backing_va == 0 {
-            return None;
-        }
-        const SAMPLE_W: u32 = 64;
-        const SAMPLE_H: u32 = 4;
-        let x = (self.display_w - SAMPLE_W) / 2;
-        let y = (self.display_h - SAMPLE_H) / 2;
-        self.virgl_transfer_from_host(
-            self.rt_front_res(),
-            x,
-            y,
-            SAMPLE_W,
-            SAMPLE_H,
-            self.display_w * 4,
-        )
-        .ok()?;
-        let mut best = [0u8; 4];
-        let mut best_sum: u32 = 0;
-        for row in 0..SAMPLE_H {
-            for col in 0..SAMPLE_W {
-                let off = ((y + row) * (self.display_w * 4) + (x + col) * 4) as usize;
-                let px = unsafe { core::ptr::read_volatile((backing_va + off) as *const [u8; 4]) };
-                let sum = px[0] as u32 + px[1] as u32 + px[2] as u32;
-                if sum > best_sum {
-                    best_sum = sum;
-                    best = px;
-                }
-            }
-        }
-        Some(best)
     }
 
     /// Scroll fast path, RECORD half (analogue of `OP_MOVE_CURSOR`): store the

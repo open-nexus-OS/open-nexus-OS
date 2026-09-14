@@ -15,6 +15,10 @@
 #   3. No `1280, 800` literal in windowd/inputd/gpud production code: the layout maximum
 #      is declared once in `nexus-display-proto`. Test fixtures are exempt (they assert
 #      against concrete geometry, which is their job).
+#   5. The reveal DECISION carries no time term (RFC-0093 §5 gate: no `nsec()` in gpud's
+#      reveal path) — `let should_reveal = …;` in gl_scanout.rs is evidence-only.
+#   6. Readback goes through the probe RT only: no `virgl_transfer_from_host(` call in
+#      gl_scanout.rs / service.rs (gl_probe.rs is the ONE readback authority).
 #   4. The display-handoff heuristics stay deleted (RFC-0093 §5, P6-b/c): no present-ack
 #      lease, no stall recovery, no first-handoff deadline, no reveal time caps, no pixel
 #      probe. Acks are matched by seq; reveal is a handshake. Each of these existed only
@@ -84,6 +88,29 @@ print("\n".join(hits))
 PYEOF
 }
 
+# Rule 5+6 run against a ROOT (real tree or the self-test fixtures).
+reveal_and_readback_rules() {
+    local root="$1" bad=0
+    local gls; gls=$(find "$root" -name gl_scanout.rs | head -1)
+    if [ -n "$gls" ]; then
+        # the reveal decision statement, multi-line, must be free of time terms
+        if awk '/let should_reveal =/{f=1} f{print} f&&/;/{exit}' "$gls" | grep -qE 'nsec\(|elapsed|_NS\b'; then
+            echo "[FAIL] display-ssot: the reveal decision in gl_scanout.rs has a time term (RFC-0093 §5):" >&2
+            awk '/let should_reveal =/{f=1} f{print} f&&/;/{exit}' "$gls" >&2
+            bad=1
+        fi
+    fi
+    local f
+    for f in $(find "$root" \( -name gl_scanout.rs -o -name service.rs \)); do
+        if grep -nE 'virgl_transfer_from_host\(' "$f" | grep -vE 'fn virgl_transfer_from_host' | grep -vE ':[0-9]+:[[:space:]]*//' >/dev/null; then
+            echo "[FAIL] display-ssot: $f reads back outside gl_probe.rs (the ONE readback authority):" >&2
+            grep -nE 'virgl_transfer_from_host\(' "$f" | grep -vE 'fn virgl_transfer_from_host' >&2
+            bad=1
+        fi
+    done
+    return $bad
+}
+
 if [ "${1:-}" = "--self-test" ]; then
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
@@ -108,7 +135,20 @@ FIX
         scan "$tmp/src" >&2
         exit 1
     fi
-    echo "[ok]   display-ssot: scanner self-test passed (5 shapes caught, test block skipped)"
+    mkdir -p "$tmp/bad" "$tmp/good"
+    printf 'let should_reveal = self.uploaded || elapsed > REVEAL_CAP_NS;\n' > "$tmp/bad/gl_scanout.rs"
+    printf 'fn x(&mut self) { self.virgl_transfer_from_host(self.rt_front_res(), 0, 0, 1, 1, 4); }\n' > "$tmp/bad/service.rs"
+    if reveal_and_readback_rules "$tmp/bad" 2>/dev/null; then
+        echo "[FAIL] display-ssot: reveal/readback rules did not catch the fixtures" >&2
+        exit 1
+    fi
+    printf 'let should_reveal = self.wallpaper_from_vmo_uploaded || self.reveal_requested;\n' > "$tmp/good/gl_scanout.rs"
+    printf 'pub(crate) fn virgl_transfer_from_host(&mut self) {}\n' > "$tmp/good/service.rs"
+    if ! reveal_and_readback_rules "$tmp/good"; then
+        echo "[FAIL] display-ssot: reveal/readback rules reject a clean tree" >&2
+        exit 1
+    fi
+    echo "[ok]   display-ssot: scanner self-test passed (5 shapes caught, test block skipped, reveal/readback rules fail on fixtures)"
     exit 0
 fi
 
@@ -120,4 +160,5 @@ if [ -n "$violations" ]; then
     echo "       nexus_display_proto::resolve_display_mode(.., LAYOUT_MAX)." >&2
     exit 1
 fi
-echo "[PASS] display-ssot: one mode source, one clamp policy, no retired query protocol, no resurrected handoff heuristic"
+reveal_and_readback_rules source/drivers/gpud/src || exit 1
+echo "[PASS] display-ssot: one mode source, one clamp policy, no retired query protocol, no resurrected handoff heuristic, evidence-only reveal, probe-only readback"

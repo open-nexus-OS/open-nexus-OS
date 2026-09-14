@@ -83,6 +83,13 @@ proves = "observer-only selftest completed service-owned visible present path in
 # render target after the first traced present (virgl builds). The lane's
 # HOST-side pixel proof (tools/pixel_proof_judge.py) is the display verdict;
 # this is the guest-side half of the same claim.
+# TASK-0324 P6-d (RFC-0093 §5): display truth is read through the probe RT (`gl_probe`),
+# never from the scanout. `SELFTEST: display nonblack ok` below is the gated proof; this
+# names the authority that produced it.
+[marker."gpud: probe sample ok"]
+phase = "end"
+proves = "the centre strip of the frame the display shows, read back through the probe RT (host copy off the front RT, never a scanout transfer), is non-black"
+
 [marker."SELFTEST: display nonblack ok"]
 phase = "end"
 emit_when = { profile = "visible" }

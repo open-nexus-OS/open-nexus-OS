@@ -274,9 +274,6 @@ pub struct VirtioGpuBackend {
     /// One-shot GL present parity readback done (gl_scanout module, G1).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) gl_present_parity_done: bool,
-    /// Guest backing VA of the GL scanout RT (parity readback only).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) gl_scanout_backing_va: usize,
     /// Double-buffered scanout swapchain state (see `gl_scanout::GlSwapState`).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) gl_swap: crate::gl_scanout::GlSwapState,
@@ -572,7 +569,6 @@ impl VirtioGpuBackend {
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_present_parity_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            gl_scanout_backing_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_swap: Default::default(),
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

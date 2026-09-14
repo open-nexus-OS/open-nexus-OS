@@ -397,25 +397,25 @@ fn service_requests(
                                             );
                                             // Whole chain reached the end: stop tracing.
                                             chain_trace_done = true;
-                                            // P0.3 display truth (one-shot): read the LIVE
-                                            // scanout RT back from the host GPU. A black
-                                            // sample with a green marker chain = the silent
-                                            // scanout class — now loud, from inside.
+                                            // P0.3 display truth (one-shot): the centre strip
+                                            // of the frame the display shows, read through
+                                            // the probe RT (RFC-0093 §5 — never a scanout
+                                            // transfer). A black sample with a green marker
+                                            // chain = the silent scanout class — loud, inside.
                                             #[cfg(feature = "virgl")]
                                             {
-                                                match backend.scanout_sample() {
+                                                match backend.probe_sample() {
                                                     Some(px)
                                                         if (px[0] as u32
                                                             + px[1] as u32
                                                             + px[2] as u32)
                                                             > 24 =>
                                                     {
-                                                        let _ = debug_println(
-                                                            "gpud: scanout sample ok",
-                                                        );
+                                                        let _ =
+                                                            debug_println("gpud: probe sample ok");
                                                         // P0.3c: MEASURED display
                                                         // truth (host-GPU readback
-                                                        // of the live scanout RT),
+                                                        // through the probe RT),
                                                         // not a compositor claim —
                                                         // #98 discipline.
                                                         let _ = debug_println(
@@ -423,13 +423,12 @@ fn service_requests(
                                                         );
                                                     }
                                                     Some(_) => {
-                                                        let _ = debug_println(
-                                                            "gpud: FAIL scanout black",
-                                                        );
+                                                        let _ =
+                                                            debug_println("gpud: FAIL probe black");
                                                     }
                                                     None => {
                                                         let _ = debug_println(
-                                                            "gpud: scanout sample unavailable",
+                                                            "gpud: probe sample unavailable",
                                                         );
                                                     }
                                                 }

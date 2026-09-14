@@ -367,7 +367,7 @@ cd /home/jenning/open-nexus-OS && just ci-os-smp1 && just ci-os-visible && just 
 
 ### Deterministic markers (three-way SSOT: `scripts/qemu-test.sh`, `tools/nx/chains/markers.txt`, proof manifest)
 
-- kept, re-sourced: `init: up <svc>` (after `<svc>: ready`), `stage: display-ready`, `stage: session-start`, `display: first scanout ok` (on `STATUS_REVEALED`), `gpud: scanout sample ok`, `SELFTEST: display nonblack ok`
+- kept, re-sourced: `init: up <svc>` (after `<svc>: ready`), `stage: display-ready`, `stage: session-start`, `display: first scanout ok` (on `STATUS_REVEALED`), `gpud: probe sample ok` (P6-d: read through the probe RT, never the scanout), `SELFTEST: display nonblack ok`
 - added: `stage: shell-visible`, `windowd: reveal requested`, `gpud: desktop reveal (handshake seq=<n>)`, `KSELFTEST: fence transfer ok` (if the kernel mask lands), `KSELFTEST: liveness snapshot …`
 - removed: `gpud: desktop reveal (TIME CAP …)`, `gpud: desktop reveal (plane0 ready, cursor slow)`, `windowd: FAIL present-ack lease expired`, `windowd: STALL present stuck`, windowd/inputd display-mode query lines
 

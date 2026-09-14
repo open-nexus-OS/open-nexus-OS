@@ -36,6 +36,11 @@ pub mod gl_scanout;
 #[cfg(feature = "virgl")]
 pub mod gl_scanout_init;
 
+/// The ONE readback authority (RFC-0093 §5): display truth is read through a dedicated
+/// probe RT, never from the scanout.
+#[cfg(feature = "virgl")]
+pub mod gl_probe;
+
 /// GPU vector pipeline (G3/M1b-c): SDF gradient fills + soft drop shadows as
 /// virgl fragment-shader passes. Empty unless the virgl OS build is active.
 #[cfg(feature = "virgl")]

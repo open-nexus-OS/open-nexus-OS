@@ -142,7 +142,7 @@ echo "== display truth (P0.3 scanout readback) =="
 #   unavailable → non-virgl/2D boot, no readback seam — SKIP, not a failure.
 if grep -qF -- "SELFTEST: display nonblack ok" "$log"; then
   echo "  OK    scanout readback nonblack"
-elif grep -qF -- "gpud: FAIL scanout black" "$log"; then
+elif grep -qF -- "gpud: FAIL probe black" "$log"; then
   echo "  FAIL  scanout readback BLACK (guest compose broken)"
   fails=$((fails + 1))
 else

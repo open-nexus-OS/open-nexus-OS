@@ -85,8 +85,9 @@ impl VirtioGpuBackend {
             _padding: 0,
         };
         self.ctrl_submit_struct(&ctx_attach)?;
-        self.gl_scanout_backing_va = self
-            .virgl_attach_backing(GL_SCANOUT_RES, (self.display_w * self.display_h * 4) as usize)?;
+        // RFC-0093 §5: the scanout RTs carry NO guest backing. They are never a transfer
+        // source or target — display truth is lifted off them by a host copy into the probe
+        // (`gl_probe`) — so a backing would be 4 MB of arena per RT with no reader.
 
         // Swapchain RT B — identical twin of A (same bind flags incl. SCANOUT so
         // SET_SCANOUT accepts it). Every present renders into the back RT and
@@ -113,10 +114,8 @@ impl VirtioGpuBackend {
             _padding: 0,
         };
         self.ctrl_submit_struct(&ctx_attach_b)?;
-        self.gl_swap.b_backing_va = self.virgl_attach_backing(
-            GL_SCANOUT_RES_B,
-            (self.display_w * self.display_h * 4) as usize,
-        )?;
+        // RFC-0093 §5: the probe RT — every readback goes through it, never the scanout.
+        self.gl_probe_init()?;
 
         // NON-ALIASED display texture (1280×800, own backing — NOT a VMO alias).
         // The present copies windowd's composed frame here and blits it to the RT;

@@ -122,7 +122,10 @@ damage arrives, and the (partially) lost frame stays on screen forever — the
   budget. The client reset (route teardown) is reserved for protocol garbage.
 - **Pacing**: `frames_in_flight() > 0` keeps windowd's 120 Hz pacer armed so a
   NACK arriving while idle is drained within a tick, not on the next input.
-- **Display truth**: the one-shot scanout readback after the first clean G4
-  emits `gpud: scanout sample ok` → `SELFTEST: display nonblack ok` (measured
-  host-GPU readback, #98 discipline) or `gpud: FAIL scanout black`; the
-  postflight ladder consumes it three-valued (ok/FAIL/SKIP for 2D boots).
+- **Display truth**: the one-shot readback after the first clean G4 emits
+  `gpud: probe sample ok` → `SELFTEST: display nonblack ok` (measured host-GPU
+  readback, #98 discipline) or `gpud: FAIL probe black`; the postflight ladder
+  consumes it three-valued (ok/FAIL/SKIP for 2D boots). Since TASK-0324 P6-d
+  (RFC-0093 §5) the readback goes through a dedicated probe RT (`gl_probe.rs`:
+  host copy off the front RT, then a transfer of the probe) — the scanout is
+  never a transfer source.
