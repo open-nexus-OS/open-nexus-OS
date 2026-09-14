@@ -479,8 +479,8 @@ fn append_crash_to_logd(
     let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
         .map_err(|_| ())?;
 
-    nexus_ipc::budget::raw::send_budgeted(&clock, LOGD_SEND_SLOT, &hdr, &frame, deadline_ns)
-        .map_err(|e| {
+    nexus_ipc::budget::raw::send_budgeted(LOGD_SEND_SLOT, &hdr, &frame, deadline_ns).map_err(
+        |e| {
             match e {
                 nexus_ipc::IpcError::Timeout => emit_line("execd: crash logd send timeout"),
                 nexus_ipc::IpcError::Kernel(inner) => {
@@ -506,7 +506,8 @@ fn append_crash_to_logd(
                 }
             }
             ()
-        })?;
+        },
+    )?;
     Ok(())
 }
 
@@ -846,35 +847,18 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         Ok(v) => v,
         Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
     };
-    if nexus_ipc::budget::raw::send_budgeted(&clock, 1, &hdr, &q[..qn], deadline_ns).is_err() {
+    let ctrl = nexus_service_topology::CTRL_SLOTS;
+    if nexus_ipc::budget::raw::send_budgeted(ctrl.send, &hdr, &q[..qn], deadline_ns).is_err() {
         return rsp(op, STATUS_FAILED, 0).to_vec();
     }
-    struct CtlInbox;
-    impl nexus_ipc::Client for CtlInbox {
-        fn send(&self, _frame: &[u8], _wait: Wait) -> nexus_ipc::Result<()> {
-            Err(nexus_ipc::IpcError::Unsupported)
-        }
-
-        fn recv(&self, _wait: Wait) -> nexus_ipc::Result<Vec<u8>> {
-            let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            let mut rb = [0u8; 16];
-            match nexus_abi::ipc_recv_v1(
-                2,
-                &mut rh,
-                &mut rb,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => Ok(rb[..core::cmp::min(n as usize, rb.len())].to_vec()),
-                Err(nexus_abi::IpcError::QueueEmpty) => Err(nexus_ipc::IpcError::WouldBlock),
-                Err(other) => Err(nexus_ipc::IpcError::Kernel(other)),
-            }
-        }
-    }
-
+    // The control channel as the ONE kernel client (TASK-0324 P7): a `recv` that honours the
+    // wait, so init's answer wakes us instead of an instant `WouldBlock`.
+    let Ok(ctl) = nexus_ipc::KernelClient::new_with_slots(ctrl.send, ctrl.recv) else {
+        return rsp(op, STATUS_FAILED, 0).to_vec();
+    };
     let rb = match recv_match_until(
         &clock,
-        &CtlInbox,
+        &ctl,
         &mut state.pending_policy,
         nonce as u64,
         deadline_ns,

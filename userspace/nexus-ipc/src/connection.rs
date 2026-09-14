@@ -25,7 +25,8 @@ use alloc::vec::Vec;
 #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
 use std::vec::Vec;
 
-use crate::reqrep::{recv_match_bounded, NonceGen, ReplyBuffer};
+use crate::budget::Clock;
+use crate::reqrep::{recv_match_until, NonceGen, ReplyBuffer};
 use crate::{Client, Result};
 
 /// The send/reply transport a [`Connection`] runs over.
@@ -58,26 +59,28 @@ impl<T: Transport, const PENDING: usize, const MAX_FRAME: usize> Connection<T, P
         Self { transport, pending: ReplyBuffer::new(), nonces: NonceGen::new(nonce_start) }
     }
 
-    /// Performs one request → reply round trip, bounded by `max_iters` receive
-    /// attempts (the caller's deadline/backoff policy lives in `max_iters`).
+    /// Performs one request → reply round trip. The reply is WAITED for until the
+    /// absolute `deadline_ns` (the liveness bound — TASK-0324 P7), never polled.
     ///
     /// `build(nonce)` produces the request frame stamped with the correlation
     /// `nonce`; `extract_nonce(reply)` pulls the nonce back out of a reply frame so
     /// out-of-order replies are buffered and the matching one is returned.
     pub fn call(
         &mut self,
-        max_iters: usize,
+        clock: &impl Clock,
+        deadline_ns: u64,
         build: impl FnOnce(u64) -> Vec<u8>,
         extract_nonce: impl Fn(&[u8]) -> Option<u64>,
     ) -> Result<Vec<u8>> {
         let nonce = self.nonces.next_nonce();
         let frame = build(nonce);
         self.transport.send_request(&frame)?;
-        recv_match_bounded(
+        recv_match_until(
+            clock,
             self.transport.reply_inbox(),
             &mut self.pending,
             nonce,
-            max_iters,
+            deadline_ns,
             extract_nonce,
         )
     }
@@ -92,9 +95,22 @@ impl<T: Transport, const PENDING: usize, const MAX_FRAME: usize> Connection<T, P
 mod tests {
     use super::*;
     use crate::{IpcError, Wait};
-    use core::cell::RefCell;
+    use core::cell::{Cell, RefCell};
 
-    /// In-memory inbox: replies are popped FIFO; empty yields `WouldBlock`.
+    /// A clock that advances on every reading, so an empty inbox runs out the deadline
+    /// deterministically.
+    struct TestClock(Cell<u64>);
+    impl Clock for TestClock {
+        fn now_ns(&self) -> Option<u64> {
+            let now = self.0.get();
+            self.0.set(now + 1_000);
+            Some(now)
+        }
+    }
+    const DEADLINE: u64 = 10_000;
+
+    /// In-memory BLOCKING inbox: replies are popped FIFO; an empty inbox is a wait that
+    /// ends on the deadline (`Timeout`), exactly like the kernel transport.
     struct MemInbox {
         frames: RefCell<Vec<Vec<u8>>>,
     }
@@ -105,7 +121,7 @@ mod tests {
         fn recv(&self, _wait: Wait) -> Result<Vec<u8>> {
             let mut f = self.frames.borrow_mut();
             if f.is_empty() {
-                Err(IpcError::WouldBlock)
+                Err(IpcError::Timeout)
             } else {
                 Ok(f.remove(0))
             }
@@ -150,11 +166,15 @@ mod tests {
             responder: echo_nonce,
         };
         let mut conn: Connection<_, 4, 32> = Connection::new(svc, 1);
-        let reply = conn.call(8, |nonce| nonce.to_le_bytes().to_vec(), nonce_le).expect("reply");
+        let clock = TestClock(Cell::new(0));
+        let reply = conn
+            .call(&clock, DEADLINE, |nonce| nonce.to_le_bytes().to_vec(), nonce_le)
+            .expect("reply");
         assert_eq!(nonce_le(&reply), Some(1));
         assert_eq!(reply[8], 0xAB);
         // Second call uses the next nonce.
-        let reply2 = conn.call(8, |nonce| nonce.to_le_bytes().to_vec(), nonce_le).unwrap();
+        let reply2 =
+            conn.call(&clock, DEADLINE, |nonce| nonce.to_le_bytes().to_vec(), nonce_le).unwrap();
         assert_eq!(nonce_le(&reply2), Some(2));
     }
 
@@ -173,7 +193,9 @@ mod tests {
             responder: stale_then_match,
         };
         let mut conn: Connection<_, 4, 32> = Connection::new(svc, 7);
-        let reply = conn.call(8, |n| n.to_le_bytes().to_vec(), nonce_le).expect("reply");
+        let clock = TestClock(Cell::new(0));
+        let reply =
+            conn.call(&clock, DEADLINE, |n| n.to_le_bytes().to_vec(), nonce_le).expect("reply");
         assert_eq!(nonce_le(&reply), Some(7));
     }
 
@@ -189,7 +211,8 @@ mod tests {
             responder: no_match,
         };
         let mut conn: Connection<_, 4, 32> = Connection::new(svc, 1);
-        let r = conn.call(4, |n| n.to_le_bytes().to_vec(), nonce_le);
+        let clock = TestClock(Cell::new(0));
+        let r = conn.call(&clock, DEADLINE, |n| n.to_le_bytes().to_vec(), nonce_le);
         assert!(matches!(r, Err(IpcError::Timeout)));
     }
 }

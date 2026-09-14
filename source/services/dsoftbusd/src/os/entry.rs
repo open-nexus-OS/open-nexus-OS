@@ -190,14 +190,26 @@ pub(crate) fn get_local_ip(
     Some([rsp[5], rsp[6], rsp[7], rsp[8]])
 }
 
-pub(crate) fn wait_for_slots_ready() {
-    let _ = nexus_abi::trace_line("dsoftbusd: waiting for slots");
-    for _ in 0..10_000 {
-        if let Ok(cloned) = nexus_abi::cap_clone(DSOFT_REPLY_SEND_SLOT) {
-            let _ = nexus_abi::cap_close(cloned);
-            break;
-        }
-        let _ = nexus_abi::yield_();
+/// The declared HOLD of the single-VM session path (network family HOLD until the joint
+/// replanning, tasks/IMPLEMENTATION-ORDER.md "Netz-Gruppe"): the daemon stays alive and
+/// blocks in the kernel on a fence nobody signals — zero CPU, no error exit for init's
+/// supervision to count, no `yield_()` spin. Until TASK-0324 P7 this daemon never got here at
+/// all: a 10 000-yield slot probe at Idle QoS wedged it for every proof boot, and the
+/// bring-up failures below each spun a core forever.
+pub(crate) fn hold_forever(marker: &str) -> ! {
+    let _ = nexus_abi::debug_println(marker);
+    if let Ok(fence) = nexus_abi::fence_create() {
+        while nexus_abi::fence_wait(fence, 1, 0).is_ok() {}
+    }
+    // No fence (ABI refused): block on our own server endpoint instead; a request that
+    // lands there is dropped (the single-VM server is not up — the caller's probe times out
+    // exactly as it did while the daemon was wedged).
+    let server = nexus_service_topology::slots::dsoftbusd::SERVER;
+    loop {
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 16];
+        let _ =
+            nexus_abi::ipc_recv_v1(server.recv, &mut hdr, &mut buf, nexus_abi::IPC_SYS_TRUNCATE, 0);
     }
 }
 
@@ -406,10 +418,7 @@ pub(crate) fn listen_with_retry(
     match out {
         Some(id) => Ok(id),
         None => {
-            let _ = nexus_abi::debug_println("dsoftbusd: listen FAIL");
-            loop {
-                let _ = nexus_abi::yield_();
-            }
+            hold_forever("dsoftbusd: listen FAIL");
         }
     }
 }

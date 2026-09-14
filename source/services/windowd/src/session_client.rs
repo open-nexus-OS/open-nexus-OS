@@ -23,7 +23,6 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
 use nexus_abi::sessiond as wire;
-use nexus_abi::yield_;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
 
 /// One registered user, as reported by sessiond's GET_STATE.
@@ -78,8 +77,8 @@ pub(crate) fn fetch_session_state() -> Option<SessionSnapshot> {
 }
 
 /// One bounded CAP_MOVE request/reply exchange with sessiond (the
-/// registry-client recipe: clone reply-send cap, NONBLOCK send with yield
-/// budget, bounded receive on the shared `@reply` inbox).
+/// registry-client recipe: clone reply-send cap, waited send, waited receive on
+/// the shared `@reply` inbox).
 fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
     let (send_slot, _recv) = route_blocking(b"sessiond")?;
     let (reply_send_slot, reply_recv_slot) = route_blocking(b"@reply")?;
@@ -93,65 +92,29 @@ fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
         req.len() as u32,
     );
 
-    let start = nexus_abi::nsec().unwrap_or(0);
-    let deadline = start.saturating_add(500_000_000); // 500ms bound
-
-    let mut sent = false;
-    let mut spins: u32 = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => {
-                sent = true;
-                break;
-            }
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline || spins >= 200_000 {
-                    break;
-                }
-                spins = spins.saturating_add(1);
-                let _ = yield_();
-            }
-            Err(_) => break,
-        }
-    }
+    // Liveness bound of the synchronous probe (the caller runs it inline in the compositor
+    // loop). Both legs WAIT in the kernel (TASK-0324 P7): a full queue is waited out, the
+    // reply wakes us; only a sessiond that really has not answered runs the bound out.
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(500_000_000);
+    let sent = budget::raw::send_budgeted(send_slot, &hdr, req, deadline).is_ok();
     let _ = nexus_abi::cap_close(reply_send_clone);
     if !sent {
         return None;
     }
 
-    loop {
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 512];
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                // Only accept frames of OUR protocol; unrelated frames on the
-                // shared inbox are skipped until the deadline.
-                if n >= 4 && buf[0] == wire::MAGIC0 && buf[1] == wire::MAGIC1 {
-                    let mut out = Vec::with_capacity(n);
-                    out.extend_from_slice(&buf[..n]);
-                    return Some(out);
-                }
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return None;
-                }
-                let _ = yield_();
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return None;
-                }
-                let _ = yield_();
-            }
-            Err(_) => return None,
+    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 512];
+    while let Ok(n) = budget::raw::recv_budgeted(reply_recv_slot, &mut rh, &mut buf, deadline) {
+        let n = core::cmp::min(n, buf.len());
+        // Only accept frames of OUR protocol; unrelated frames on the shared inbox are
+        // dropped and the wait resumes.
+        if n >= 4 && buf[0] == wire::MAGIC0 && buf[1] == wire::MAGIC1 {
+            let mut out = Vec::with_capacity(n);
+            out.extend_from_slice(&buf[..n]);
+            return Some(out);
         }
     }
+    None
 }
 
 /// Parses a GET_STATE response into a snapshot.

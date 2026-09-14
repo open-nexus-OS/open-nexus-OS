@@ -8,3 +8,7 @@
 # marker and the single-VM QUIC probe has been red since at least 2026-08-25).
 SELFTEST: dsoftbus os connect FAIL
 SELFTEST: dsoftbus ping FAIL
+# TASK-0324 P7 (2026-09-14): dsoftbusd is no longer wedged at boot (its 10 000-yield
+# slot probe is deleted), so its single-VM session path now runs inside the lane
+# and reports the same known red by value.
+dsoftbusd: dual-node connect FAIL

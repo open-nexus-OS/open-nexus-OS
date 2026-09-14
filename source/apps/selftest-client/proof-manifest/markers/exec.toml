@@ -205,15 +205,6 @@ phase = "exec"
 [marker."SELFTEST: minidump route FAIL"]
 phase = "exec"
 
-# RFC-0065 app-host spawn probe (exec phase): reachable since the selftest
-# ladder actually runs (the Idle-starvation fix) — real emits, so they must be
-# KNOWN or `nexus-evidence` rejects the trace.
-[marker."SELFTEST: apphost spawn requested"]
-phase = "exec"
-
-[marker."SELFTEST: apphost spawn refused"]
-phase = "exec"
-
 # Diagnostic / FAIL-variant markers back-filled 2026-07 (repo hygiene):
 # every marker literal in the source tree must be manifest-declared (Rule 3).
 

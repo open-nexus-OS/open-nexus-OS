@@ -90,14 +90,11 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     emit_line(crate::markers::M_EXECD_ELF_LOAD_OK);
     emit_line(crate::markers::M_SELFTEST_E2E_EXEC_ELF_OK);
 
-    // TASK-0080D R1: spawn the app-host transport probe (IMG_APPHOST=4).
-    // The probe walks the ADR-0042 chain itself and emits `APPHOST: probe
-    // surface presented` when its window is live; a spawn refusal (e.g. no
-    // embedded payload in this image) is reported by value, not silence.
-    match services::execd::execd_spawn_image(&execd_client, "selftest-client", 4) {
-        Ok(_pid) => emit_line(crate::markers::M_SELFTEST_APPHOST_SPAWN_REQUESTED),
-        Err(()) => emit_line(crate::markers::M_SELFTEST_APPHOST_SPAWN_REFUSED),
-    }
+    // TASK-0324 P7: the bare app-host spawn probe (IMG_APPHOST=4, TASK-0080D R1) is DELETED.
+    // Since the embedded fallback payload went (no payload = loud fail-closed mount), an
+    // app-host spawned without a bundle payload can never present; the probe only ever
+    // produced a child that polled 8 s for a VMO nobody granted. The real launches (greeter,
+    // desktop-shell via abilitymgr → execd, `APPHOST: payload source=bundle`) prove the path.
 
     // TASK-0049 reanimation (2026-08-19): the chain retired under "RFC-0068
     // exec migration" is restored verbatim from af0c7a8d^. Root cause of the

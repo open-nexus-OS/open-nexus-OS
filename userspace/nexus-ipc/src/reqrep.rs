@@ -22,7 +22,7 @@ use alloc::vec::Vec;
 use std::vec::Vec;
 
 use crate::budget;
-use crate::{Client, IpcError, Wait};
+use crate::Client;
 
 /// Monotonic nonce generator (no randomness; deterministic).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -273,51 +273,10 @@ impl<const PENDING: usize, const MAX_FRAME: usize> Default for ReplyBuffer<PENDI
     }
 }
 
-/// Receive from a shared reply inbox until `expected_nonce` is observed, using a bounded buffer
-/// to retain out-of-order/unrelated replies.
-///
-/// This is deterministic (no sleeps, no wall-clock): callers provide an explicit `max_iters` bound.
-///
-/// - `extract_nonce(frame)` MUST return the reply's correlation nonce if present.
-/// - Replies with `None` nonce are ignored (but still count against iteration budget).
-pub fn recv_match_bounded<const PENDING: usize, const MAX_FRAME: usize>(
-    inbox: &impl Client,
-    pending: &mut ReplyBuffer<PENDING, MAX_FRAME>,
-    expected_nonce: u64,
-    max_iters: usize,
-    extract_nonce: impl Fn(&[u8]) -> Option<u64>,
-) -> crate::Result<Vec<u8>> {
-    // First: see if we already buffered it.
-    let mut tmp = [0u8; MAX_FRAME];
-    if let Some(n) = pending.take_into(expected_nonce, &mut tmp) {
-        return Ok(tmp[..n].to_vec());
-    }
-
-    for _ in 0..max_iters {
-        match inbox.recv(Wait::NonBlocking) {
-            Ok(frame) => {
-                if let Some(nonce) = extract_nonce(&frame) {
-                    if nonce == expected_nonce {
-                        return Ok(frame);
-                    }
-                    // Buffer for later matching. Ignore buffer errors deterministically.
-                    let _ = pending.push(nonce, &frame);
-                }
-            }
-            Err(IpcError::WouldBlock) => {
-                // No progress this iteration.
-            }
-            Err(other) => return Err(other),
-        }
-    }
-    Err(IpcError::Timeout)
-}
-
-/// Receive from a shared reply inbox until `expected_nonce` is observed, using an explicit deadline
-/// and cooperative yielding (via `budget::Clock`).
-///
-/// This is the preferred helper for OS code (QEMU/ICOUNT): it avoids both wall-clock sleeps and
-/// "spin without yielding" loops.
+/// Receive from a shared reply inbox until `expected_nonce` is observed, buffering
+/// out-of-order replies for their own exchanges. Every receive WAITS in the transport
+/// (`budget::recv_until`, TASK-0324 P7): the deadline is the liveness bound, not a spin
+/// budget — nothing here yields or re-polls.
 pub fn recv_match_until<const PENDING: usize, const MAX_FRAME: usize>(
     clock: &impl budget::Clock,
     inbox: &impl Client,
@@ -332,27 +291,30 @@ pub fn recv_match_until<const PENDING: usize, const MAX_FRAME: usize>(
         return Ok(tmp[..n].to_vec());
     }
 
-    budget::retry_ipc_until(clock, deadline_ns, || match inbox.recv(Wait::NonBlocking) {
-        Ok(frame) => {
-            if let Some(nonce) = extract_nonce(&frame) {
-                if nonce == expected_nonce {
-                    return Ok(frame);
-                }
-                let _ = pending.push(nonce, &frame);
+    loop {
+        let frame = budget::recv_until(clock, inbox, deadline_ns)?;
+        if let Some(nonce) = extract_nonce(&frame) {
+            if nonce == expected_nonce {
+                return Ok(frame);
             }
-            // Not a match; keep receiving until deadline.
-            Err(IpcError::WouldBlock)
+            // Another exchange's reply: keep it for that exchange, keep waiting for ours.
+            let _ = pending.push(nonce, &frame);
         }
-        Err(IpcError::WouldBlock) => Err(IpcError::WouldBlock),
-        Err(other) => Err(other),
-    })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::budget::{deadline_after, HostClock};
     use crate::loopback_channel;
     use crate::Server as _;
+    use crate::{IpcError, Wait};
+    use core::time::Duration;
+
+    fn deadline(clock: &HostClock, ms: u64) -> u64 {
+        deadline_after(clock, Duration::from_millis(ms)).unwrap()
+    }
 
     #[test]
     fn test_nonce_gen_monotonic() {
@@ -421,11 +383,17 @@ mod tests {
         r1.extend_from_slice(&1u64.to_le_bytes());
         server.send(&r1, Wait::Blocking).unwrap();
 
-        let got1 = recv_match_bounded(&client, &mut pending, 1, 32, nonce_tail).unwrap();
+        let clock = HostClock::new();
+        let got1 =
+            recv_match_until(&clock, &client, &mut pending, 1, deadline(&clock, 500), nonce_tail)
+                .unwrap();
         assert_eq!(&got1[..4], b"rsp1");
 
-        // The earlier r2 should be buffered and returned next without receiving more.
-        let got2 = recv_match_bounded(&client, &mut pending, 2, 1, nonce_tail).unwrap();
+        // The earlier r2 is buffered and returned without another receive (the inbox is
+        // empty now — a receive would only time out).
+        let got2 =
+            recv_match_until(&clock, &client, &mut pending, 2, deadline(&clock, 20), nonce_tail)
+                .unwrap();
         assert_eq!(&got2[..4], b"rsp2");
     }
 
@@ -469,13 +437,28 @@ mod tests {
         }
 
         // First match rngd; this should buffer the policyd reply.
-        let got_rngd =
-            recv_match_bounded(&client, &mut pending, rngd_nonce as u64, 32, extract).unwrap();
+        let clock = HostClock::new();
+        let got_rngd = recv_match_until(
+            &clock,
+            &client,
+            &mut pending,
+            rngd_nonce as u64,
+            deadline(&clock, 500),
+            extract,
+        )
+        .unwrap();
         assert!(got_rngd.starts_with(&[b'R', b'G', 1]));
 
         // Then match policyd without receiving more; it must come from the buffer.
-        let got_pol =
-            recv_match_bounded(&client, &mut pending, policyd_nonce as u64, 1, extract).unwrap();
+        let got_pol = recv_match_until(
+            &clock,
+            &client,
+            &mut pending,
+            policyd_nonce as u64,
+            deadline(&clock, 20),
+            extract,
+        )
+        .unwrap();
         assert_eq!(got_pol.len(), 10);
         assert_eq!(&got_pol[..3], &[b'P', b'O', 2]);
     }
@@ -484,7 +467,10 @@ mod tests {
     fn test_recv_match_times_out_deterministically() {
         let (client, _server) = loopback_channel();
         let mut pending: ReplyBuffer<2, 16> = ReplyBuffer::new();
-        let err = recv_match_bounded(&client, &mut pending, 1, 8, nonce_tail).unwrap_err();
+        let clock = HostClock::new();
+        let err =
+            recv_match_until(&clock, &client, &mut pending, 1, deadline(&clock, 20), nonce_tail)
+                .unwrap_err();
         assert_eq!(err, IpcError::Timeout);
     }
 

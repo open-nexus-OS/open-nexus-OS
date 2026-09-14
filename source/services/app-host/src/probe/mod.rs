@@ -91,12 +91,19 @@ const PAYLOAD_MAX_LEN: usize = 512 * 1024;
 const SURFACE_W: u16 = 320;
 const SURFACE_H: u16 = 240;
 
-/// Bounded retry budget for the cap-transfer race + windowd bring-up.
-const SEND_RETRIES: usize = 4000;
-/// Ack wait budget in nanoseconds (windowd finishes its bring-up around
-/// 1.5s boot time; the probe may start at 0.33s — a yield-count budget
-/// expired 3ms early in boot 5, so the budget is TIME, not iterations).
+/// Liveness bound for one request send: the kernel waits for queue space up to this
+/// long (windowd's bring-up backpressure), then the send is a loud failure.
+const SEND_BOUND: core::time::Duration = core::time::Duration::from_secs(8);
+/// Ack liveness bound (windowd finishes its bring-up around 1.5s boot time;
+/// the probe may start at 0.33s). TIME, not iterations — the kernel wakes the
+/// wait per frame.
 const ACK_BUDGET_NS: u64 = 30_000_000_000;
+/// Content-rect liveness bound: early-boot windowd can lag several seconds
+/// before it drains its request queue (grown image); a LATE answer is correct.
+const CONTENT_RECT_BOUND_NS: u64 = 8_000_000_000;
+/// How long the optional boot push (theme/profile/region snapshot) is waited for
+/// before the compositor defaults are used.
+const BOOT_PUSH_BOUND_NS: u64 = 500_000_000;
 
 /// A per-process address salt for the nonce (ASLR-independent uniqueness
 /// helper; the time component does the heavy lifting).
@@ -175,36 +182,21 @@ pub(super) fn run() -> Result<(), &'static str> {
                 nexus_abi::ipc_hdr::CAP_MOVE,
                 frame.len() as u32,
             );
+            // WAIT for queue space (2 s liveness bound) — never spin on QueueFull.
             let deadline = nsec().unwrap_or(0).saturating_add(2_000_000_000);
-            loop {
-                match nexus_abi::ipc_send_v1(
-                    WINDOWD_SEND_SLOT,
-                    &hdr,
-                    &frame,
-                    nexus_abi::IPC_SYS_NONBLOCK,
-                    0,
-                ) {
-                    Ok(_) => {
-                        raw_marker("APPHOST: events attached (nonce)");
-                        // RFC-0079: relinquish our OWN send cap to our event
-                        // inbox — windowd is the sole sender now. Otherwise
-                        // this leftover SEND cap keeps the last-sender scan
-                        // non-zero and the window-close EOF never fires.
-                        let _ = nexus_abi::cap_close(EVENTS_SEND_CLONE_SLOT);
-                        break;
-                    }
-                    Err(nexus_abi::IpcError::QueueFull) => {
-                        if nsec().unwrap_or(u64::MAX) >= deadline {
-                            raw_marker("APPHOST: FAIL events attach (queue)");
-                            break;
-                        }
-                        let _ = yield_();
-                    }
-                    Err(_) => {
-                        raw_marker("APPHOST: FAIL events attach (send)");
-                        break;
-                    }
+            match nexus_ipc::budget::raw::send_budgeted(WINDOWD_SEND_SLOT, &hdr, &frame, deadline) {
+                Ok(()) => {
+                    raw_marker("APPHOST: events attached (nonce)");
+                    // RFC-0079: relinquish our OWN send cap to our event
+                    // inbox — windowd is the sole sender now. Otherwise
+                    // this leftover SEND cap keeps the last-sender scan
+                    // non-zero and the window-close EOF never fires.
+                    let _ = nexus_abi::cap_close(EVENTS_SEND_CLONE_SLOT);
                 }
+                Err(nexus_ipc::IpcError::Timeout) => {
+                    raw_marker("APPHOST: FAIL events attach (queue)")
+                }
+                Err(_) => raw_marker("APPHOST: FAIL events attach (send)"),
             }
         }
         Err(_) => raw_marker("APPHOST: FAIL events attach (no send clone)"),
@@ -362,7 +354,7 @@ pub(super) fn run() -> Result<(), &'static str> {
         create_header_h,
         create_footer_h,
     );
-    send_retry_cap(&client, &create, clone)?;
+    send_wait_cap(&client, &create, clone)?;
     let mut surface_id =
         recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect, &mut boot_region)?;
     if let Some(dsl) = app.as_mut() {
@@ -374,7 +366,7 @@ pub(super) fn run() -> Result<(), &'static str> {
     let mut damage = [wire::DamageRect { x: 0, y: 0, width: surf_w as u16, height: surf_h as u16 }];
     let mut buf = [0u8; wire::SURFACE_PRESENT_MAX_LEN];
     let len = wire::encode_surface_present(surface_id, 1, &damage, &mut buf);
-    send_retry(&client, &buf[..len])?;
+    send_wait(&client, &buf[..len])?;
     let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT, &mut pending_rect, &mut boot_region)?;
     raw_marker("APPHOST: probe surface presented");
     // R1 layer seam: declare the initial glass regions to windowd.
@@ -515,7 +507,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                                 };
                                 let plen =
                                     wire::encode_surface_present(surface_id, seq, &pd, &mut buf);
-                                if send_retry(&client, &buf[..plen]).is_ok() {
+                                if send_wait(&client, &buf[..plen]).is_ok() {
                                     present_in_flight = true;
                                 }
                                 dirty = false;
@@ -803,7 +795,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                     )
                 });
             if let Ok(nv) = vmo_create(surf_w as usize * nvmo_h as usize * 4) {
-                let _ = send_retry(&client, &wire::encode_surface_destroy(surface_id));
+                let _ = send_wait(&client, &wire::encode_surface_destroy(surface_id));
                 let _ = nexus_abi::cap_close(vmo);
                 vmo = nv;
                 if let Some(dsl) = app.as_mut() {
@@ -830,7 +822,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                         rc_header_h,
                         rc_footer_h,
                     );
-                    if send_retry_cap(&client, &create, clone).is_ok() {
+                    if send_wait_cap(&client, &create, clone).is_ok() {
                         let mut late_region: Option<boot::RegionPush> = None;
                         let ack = recv_ack(
                             &events,
@@ -912,7 +904,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                 None => damage,
             };
             let plen = wire::encode_surface_present(surface_id, seq, &present_damage, &mut buf);
-            if send_retry(&client, &buf[..plen]).is_err() {
+            if send_wait(&client, &buf[..plen]).is_err() {
                 raw_marker("apphost: FAIL interactive present");
                 continue;
             }

@@ -185,7 +185,7 @@ fn next_nonce() -> u32 {
 
 /// The bounded CAP_MOVE request/reply dance shared by every policyd v2 op over
 /// explicit slots: send `frame` with the caller's `@reply` send cap moved along,
-/// then poll the reply inbox for the `op|0x80` frame carrying `nonce` (≤ 500 ms).
+/// then WAIT on the reply inbox for the `op|0x80` frame carrying `nonce` (liveness bound 2 s).
 /// `None` = not sent / no matching reply in time.
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 fn exchange_status_on(
@@ -217,24 +217,9 @@ fn exchange_status_on(
     let start = nexus_abi::nsec().unwrap_or(0);
     let deadline = start.saturating_add(2_000_000_000);
 
-    let mut sent = false;
-    let mut spins: u32 = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => {
-                sent = true;
-                break;
-            }
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline || spins >= 200_000 {
-                    break;
-                }
-                spins = spins.saturating_add(1);
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => break,
-        }
-    }
+    // The send waits in the kernel for queue space up to the same deadline (TASK-0324 P7:
+    // a full queue is backpressure to wait out, not to spin on).
+    let sent = crate::budget::raw::send_budgeted(send_slot, &hdr, frame, deadline).is_ok();
     let _ = nexus_abi::cap_close(reply_send_clone);
     if !sent {
         return None;

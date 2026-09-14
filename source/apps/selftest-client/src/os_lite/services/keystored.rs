@@ -14,10 +14,11 @@
 
 extern crate alloc;
 
-use nexus_abi::{yield_, MsgHeader};
+use nexus_abi::MsgHeader;
+use nexus_ipc::budget::raw;
 use nexus_ipc::{KernelClient, Wait as IpcWait};
 
-use super::super::ipc::routing::{route_with_retry, routing_v1_get};
+use super::super::ipc::routing::route_with_retry;
 use crate::markers::emit_line;
 
 pub(crate) fn keystored_ping(client: &KernelClient) -> core::result::Result<(), ()> {
@@ -52,56 +53,17 @@ pub(crate) fn keystored_ping(client: &KernelClient) -> core::result::Result<(), 
         req.extend_from_slice(val);
 
         let hdr = MsgHeader::new(0, 0, 0, 0, req.len() as u32);
-        let start = nexus_abi::nsec().map_err(|_| ())?;
-        let deadline = start.saturating_add(2_000_000_000); // 2s
-        let mut i: usize = 0;
-        loop {
-            match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-                Ok(_) => break,
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    if (i & 0x7f) == 0 {
-                        let now = nexus_abi::nsec().map_err(|_| ())?;
-                        if now >= deadline {
-                            return Err(());
-                        }
-                    }
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
-            }
-            i = i.wrapping_add(1);
-        }
-
+        // WAIT for the answer (TASK-0324 P7): the send and the receive block in the kernel
+        // up to one liveness bound; nothing here yields against a clock.
+        let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(2_000_000_000);
+        raw::send_budgeted(send_slot, &hdr, &req, deadline).map_err(|_| ())?;
         let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 256];
-        let mut j: usize = 0;
-        loop {
-            if (j & 0x7f) == 0 {
-                let now = nexus_abi::nsec().map_err(|_| ())?;
-                if now >= deadline {
-                    return Err(());
-                }
-            }
-            match nexus_abi::ipc_recv_v1(
-                recv_slot,
-                &mut rh,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => {
-                    let n = core::cmp::min(n as usize, buf.len());
-                    let mut out = alloc::vec::Vec::with_capacity(n);
-                    out.extend_from_slice(&buf[..n]);
-                    return Ok(out);
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
-            }
-            j = j.wrapping_add(1);
-        }
+        let n = raw::recv_budgeted(recv_slot, &mut rh, &mut buf, deadline).map_err(|_| ())?;
+        let n = core::cmp::min(n, buf.len());
+        let mut out = alloc::vec::Vec::with_capacity(n);
+        out.extend_from_slice(&buf[..n]);
+        Ok(out)
     }
 
     fn parse_rsp(rsp: &[u8], expect_op: u8) -> core::result::Result<(u8, &[u8]), ()> {
@@ -150,50 +112,12 @@ pub(crate) fn keystored_ping(client: &KernelClient) -> core::result::Result<(), 
     // Malformed frame should return MALFORMED (wrong magic).
     let (send_slot, recv_slot) = client.slots();
     let hdr = MsgHeader::new(0, 0, 0, 0, 3);
-    let start = nexus_abi::nsec().map_err(|_| ())?;
-    let deadline = start.saturating_add(2_000_000_000);
-    let mut i: usize = 0;
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, b"bad", nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(|_| ())?;
-                    if now >= deadline {
-                        return Err(());
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-        i = i.wrapping_add(1);
-    }
+    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(2_000_000_000);
+    raw::send_budgeted(send_slot, &hdr, b"bad", deadline).map_err(|_| ())?;
     let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 64];
-    let mut j: usize = 0;
-    let rsp = loop {
-        if (j & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(|_| ())?;
-            if now >= deadline {
-                return Err(());
-            }
-        }
-        match nexus_abi::ipc_recv_v1(
-            recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => break &buf[..core::cmp::min(n as usize, buf.len())],
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-        j = j.wrapping_add(1);
-    };
+    let n = raw::recv_budgeted(recv_slot, &mut rh, &mut buf, deadline).map_err(|_| ())?;
+    let rsp = &buf[..core::cmp::min(n, buf.len())];
     let (status, _payload) = parse_rsp(&rsp, OP_GET)?;
     if status != MALFORMED {
         return Err(());
@@ -202,31 +126,13 @@ pub(crate) fn keystored_ping(client: &KernelClient) -> core::result::Result<(), 
     Ok(())
 }
 
+/// The keystored client: the declared route (TASK-0324 P4f-5), asked ONCE and verified with
+/// one ping. The 128-round loop that tried three slot sources in turn (responder, `new_for`,
+/// the literal pair) is gone with P7 — every source resolved to the same declaration.
 pub(crate) fn resolve_keystored_client() -> core::result::Result<KernelClient, ()> {
-    for _ in 0..128 {
-        if let Ok((status, send, recv)) = routing_v1_get("keystored") {
-            if status == nexus_abi::routing::STATUS_OK && send != 0 && recv != 0 {
-                let client = KernelClient::new_with_slots(send, recv).map_err(|_| ())?;
-                if keystored_ping(&client).is_ok() {
-                    return Ok(client);
-                }
-            }
-        }
-        if let Ok(client) = KernelClient::new_for("keystored") {
-            if keystored_ping(&client).is_ok() {
-                return Ok(client);
-            }
-        }
-        // The declared route (TASK-0324 P4f-5) — it replaces a literal pair tried in BOTH orders.
-        let route = nexus_service_topology::slots::selftest_client::KEYSTORED;
-        if let Ok(client) = KernelClient::new_with_slots(route.send, route.recv) {
-            if keystored_ping(&client).is_ok() {
-                return Ok(client);
-            }
-        }
-        let _ = yield_();
-    }
-    Err(())
+    let client = route_with_retry("keystored")?;
+    keystored_ping(&client)?;
+    Ok(client)
 }
 
 pub(crate) fn keystored_cap_move_probe(
@@ -267,46 +173,23 @@ pub(crate) fn keystored_cap_move_probe(
         return Err(());
     }
 
-    // Receive response on reply inbox (nonblocking, bounded by time).
-    let start_ns = nexus_abi::nsec().map_err(|_| ())?;
-    let deadline_ns = start_ns.saturating_add(1_000_000_000); // 1s
+    // WAIT on the reply inbox for our GET-miss answer (1 s liveness bound); frames of other
+    // exchanges on the shared inbox are dropped and the wait resumes.
+    let deadline_ns = nexus_abi::nsec().map_err(|_| ())?.saturating_add(1_000_000_000);
     let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 128];
-    let mut i: usize = 0;
-    loop {
-        if (i & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(|_| ())?;
-            if now >= deadline_ns {
-                break;
-            }
+    while let Ok(n) = raw::recv_budgeted(reply_recv_slot, &mut hdr, &mut buf, deadline_ns) {
+        let rsp = &buf[..core::cmp::min(n, buf.len())];
+        // Expect: [K,S,ver,OP_GET|0x80,status,val_len]
+        if rsp.len() >= 7
+            && rsp[0] == b'K'
+            && rsp[1] == b'S'
+            && rsp[2] == 1
+            && rsp[3] == (2 | 0x80)
+            && rsp[4] == 1
+        {
+            return Ok(());
         }
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = n as usize;
-                let rsp = &buf[..n];
-                // Expect: [K,S,ver,OP_GET|0x80,status,val_len]
-                if rsp.len() >= 7
-                    && rsp[0] == b'K'
-                    && rsp[1] == b'S'
-                    && rsp[2] == 1
-                    && rsp[3] == (2 | 0x80)
-                    && rsp[4] == 1
-                {
-                    return Ok(());
-                }
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => break,
-        }
-        i = i.wrapping_add(1);
     }
     emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_NO_REPLY);
     Err(())

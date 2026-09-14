@@ -68,12 +68,10 @@ pub(crate) fn logd_append_status_v2(
     );
     let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
         .map_err(|_| ())?;
-    nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, &frame, deadline_ns).map_err(
-        |_| {
-            emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_SEND_FAIL);
-            ()
-        },
-    )?;
+    nexus_ipc::budget::raw::send_budgeted(send_slot, &hdr, &frame, deadline_ns).map_err(|_| {
+        emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_SEND_FAIL);
+        ()
+    })?;
     let mut rsp_buf = [0u8; 64];
     // Shared reply inbox: ignore unrelated CAP_MOVE replies.
     let mut rsp_len: Option<usize> = None;
@@ -198,8 +196,7 @@ pub(crate) fn logd_stats_total(logd: &KernelClient) -> core::result::Result<u64,
     );
     let deadline_ns = nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
         .map_err(|_| ())?;
-    nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, &frame, deadline_ns)
-        .map_err(|_| ())?;
+    nexus_ipc::budget::raw::send_budgeted(send_slot, &hdr, &frame, deadline_ns).map_err(|_| ())?;
     let _ = nexus_abi::cap_close(reply_send_clone);
 
     let mut rsp_buf = [0u8; 256];
@@ -313,14 +310,15 @@ pub(crate) fn logd_query_contains_paged_from(
         let deadline_ns =
             nexus_ipc::budget::deadline_after(&clock, core::time::Duration::from_secs(2))
                 .map_err(|_| ())?;
-        nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, frame, deadline_ns)
-            .map_err(|_| {
+        nexus_ipc::budget::raw::send_budgeted(send_slot, &hdr, frame, deadline_ns).map_err(
+            |_| {
                 if !emitted {
                     emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_SEND_FAIL);
                     emitted = true;
                 }
                 ()
-            })?;
+            },
+        )?;
 
         // Allocation-free receive into a stack buffer (bump allocator friendly).
         let mut rsp_buf = [0u8; 1024];

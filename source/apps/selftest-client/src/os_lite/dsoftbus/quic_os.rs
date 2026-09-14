@@ -42,6 +42,12 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
     const QUIC_OP_PONG: u8 = 5;
     const SESSION_NONCE: u32 = 0x5155_4943;
 
+    /// Liveness bound of every facade exchange and of each handshake wait (TASK-0324 P7):
+    /// the reply is WAITED for in the kernel; a facade or peer silent this long is absent —
+    /// the probe then FAILS by value instead of spinning its old 100 000 rounds, which held
+    /// the ladder for 47 s once dsoftbusd's own session loop kept netstackd busy.
+    const LIVENESS_NS: u64 = 2_000_000_000;
+
     fn rpc(client: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
         let reply = cached_reply_client().map_err(|_| ())?;
         let (reply_send_slot, reply_recv_slot) = reply.slots();
@@ -49,22 +55,16 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
         client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 512];
-        for _ in 0..5_000 {
-            match nexus_abi::ipc_recv_v1(
-                reply_recv_slot,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(_n) => return Ok(buf),
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
-            }
-        }
-        Err(())
+        let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(LIVENESS_NS);
+        nexus_ipc::budget::raw::recv_budgeted(reply_recv_slot, &mut hdr, &mut buf, deadline)
+            .map_err(|_| ())?;
+        Ok(buf)
+    }
+
+    /// True while a handshake wait may go on: the facade's UDP receive is non-blocking by
+    /// contract (no blocking datagram op), so the wait is a bounded re-ask, never open-ended.
+    fn within(deadline: u64) -> bool {
+        nexus_abi::nsec().unwrap_or(u64::MAX) < deadline
     }
 
     fn encode_quic_frame(
@@ -243,7 +243,8 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
     let mut msg2 = [0u8; MSG2_LEN];
     let mut inbound = [0u8; 256];
     let mut got_msg2 = false;
-    for _ in 0..100_000 {
+    let msg2_deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(LIVENESS_NS);
+    while within(msg2_deadline) {
         match udp_recv_frame(&net, udp_id, &mut inbound)? {
             Some((from_ip, from_port, n)) => {
                 if from_ip != server_ip || from_port != port {
@@ -283,7 +284,8 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
     udp_send_frame(&net, udp_id, server_ip, port, &frame[..ping_len])?;
 
     // READ "PONG" datagram frame.
-    for _ in 0..100_000 {
+    let pong_deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(LIVENESS_NS);
+    while within(pong_deadline) {
         match udp_recv_frame(&net, udp_id, &mut inbound)? {
             Some((from_ip, from_port, n)) => {
                 if from_ip != server_ip || from_port != port {

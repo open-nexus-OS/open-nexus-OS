@@ -15,11 +15,13 @@
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 //!
-//! Behavior is byte-for-byte identical to the pre-split implementation.
+//! The loopback probes WAIT for their echo (a blocking recv with a deadline, TASK-0324
+//! P7) — on a self-loopback the frame is queued before the send returns, so the 32- and
+//! 128-round "scheduling variance" retries they used to carry never retried anything.
 
 use nexus_abi::{
-    ipc_recv_v1, ipc_recv_v1_nb, ipc_send_v1_nb, task_qos_get, task_qos_set_self, yield_,
-    MsgHeader, QosClass,
+    ipc_recv_v1, ipc_send_v1_nb, task_qos_get, task_qos_set_self, MsgHeader, QosClass,
+    IPC_SYS_TRUNCATE,
 };
 use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 
@@ -65,34 +67,18 @@ pub(crate) fn ipc_payload_roundtrip() -> core::result::Result<(), ()> {
     let header = MsgHeader::new(0, 0, TY, FLAGS, payload.len() as u32);
     ipc_send_v1_nb(BOOTSTRAP_EP, &header, payload).map_err(|_| ())?;
 
-    // Be robust against minor scheduling variance: retry a few times if queue is empty.
     let mut out_hdr = MsgHeader::new(0, 0, 0, 0, 0);
     let mut out_buf = [0u8; 64];
-    for _ in 0..32 {
-        match ipc_recv_v1_nb(BOOTSTRAP_EP, &mut out_hdr, &mut out_buf, true) {
-            Ok(n) => {
-                let n = n as usize;
-                if out_hdr.ty != TY {
-                    return Err(());
-                }
-                if out_hdr.len as usize != payload.len() {
-                    return Err(());
-                }
-                if n != payload.len() {
-                    return Err(());
-                }
-                if &out_buf[..n] != payload {
-                    return Err(());
-                }
-                return Ok(());
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
+    let deadline_ns = nexus_abi::nsec().map_err(|_| ())?.saturating_add(2_000_000_000);
+    let n = ipc_recv_v1(BOOTSTRAP_EP, &mut out_hdr, &mut out_buf, IPC_SYS_TRUNCATE, deadline_ns)
+        .map_err(|_| ())? as usize;
+    if out_hdr.ty != TY || out_hdr.len as usize != payload.len() || n != payload.len() {
+        return Err(());
     }
-    Err(())
+    if &out_buf[..n] != payload {
+        return Err(());
+    }
+    Ok(())
 }
 
 pub(crate) fn ipc_deadline_timeout_probe() -> core::result::Result<(), ()> {
@@ -115,16 +101,8 @@ pub(crate) fn nexus_ipc_kernel_loopback_probe() -> core::result::Result<(), ()> 
     let client = KernelClient::new_with_slots(bootstrap, bootstrap).map_err(|_| ())?;
     let payload: &[u8] = b"nexus-ipc kernel loopback";
     client.send(payload, IpcWait::NonBlocking).map_err(|_| ())?;
-    // Bounded wait (avoid hangs): tolerate that the scheduler may reorder briefly.
-    for _ in 0..128 {
-        match client.recv(IpcWait::NonBlocking) {
-            Ok(msg) if msg.as_slice() == payload => return Ok(()),
-            Ok(_) => return Err(()),
-            Err(nexus_ipc::IpcError::WouldBlock) => {
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
+    match client.recv(IpcWait::Timeout(core::time::Duration::from_secs(2))) {
+        Ok(msg) if msg.as_slice() == payload => Ok(()),
+        _ => Err(()),
     }
-    Err(())
 }

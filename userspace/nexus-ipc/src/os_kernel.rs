@@ -63,7 +63,7 @@ fn resolve_route(target: &str) -> Result<(u32, u32)> {
     ) {
         RouteRetryOutcome::Success { send_slot, recv_slot } => Ok((send_slot, recv_slot)),
         RouteRetryOutcome::Timeout | RouteRetryOutcome::TargetStale => Err(IpcError::Timeout),
-        RouteRetryOutcome::NonceMismatchBudgetExceeded | RouteRetryOutcome::Rejected => {
+        RouteRetryOutcome::NonceMismatchBudgetExceeded | RouteRetryOutcome::Rejected { .. } => {
             Err(IpcError::Unsupported)
         }
         RouteRetryOutcome::Ipc(err) => Err(err),

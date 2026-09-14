@@ -1122,6 +1122,5 @@ pub(crate) fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
         Ok(v) => v,
         Err(_) => return false,
     };
-    nexus_ipc::budget::raw::send_budgeted(&clock, LOGD_SEND_SLOT, &hdr, &frame[..len], deadline)
-        .is_ok()
+    nexus_ipc::budget::raw::send_budgeted(LOGD_SEND_SLOT, &hdr, &frame[..len], deadline).is_ok()
 }

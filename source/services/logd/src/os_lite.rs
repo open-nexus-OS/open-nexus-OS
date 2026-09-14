@@ -201,21 +201,14 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 }
                 // If a reply cap was moved, reply on it and close it.
                 if let Some(reply) = reply {
-                    let clock = nexus_ipc::budget::OsClock;
                     let cap_slot = reply.slot();
-                    // CAP_MOVE replies are critical control-plane signals (audit + crash reports).
-                    // Use deterministic non-blocking retries with a generous explicit time budget
-                    // rather than relying on kernel timeout semantics.
-                    let deadline_ns = match nexus_ipc::budget::deadline_after(
-                        &clock,
-                        core::time::Duration::from_secs(15),
-                    ) {
-                        Ok(v) => v,
-                        Err(_) => u64::MAX,
-                    };
-                    let sent = nexus_ipc::budget::retry_ipc_until(&clock, deadline_ns, || {
-                        KernelServer::send_on_cap_wait(cap_slot, rsp.as_slice(), Wait::NonBlocking)
-                    });
+                    // CAP_MOVE replies are critical control-plane signals (audit + crash reports):
+                    // WAIT for queue space in the kernel (generous liveness bound), never spin.
+                    let sent = KernelServer::send_on_cap_wait(
+                        cap_slot,
+                        rsp.as_slice(),
+                        Wait::Timeout(core::time::Duration::from_secs(15)),
+                    );
                     if sent.is_err() {
                         emit_line("logd: capmove reply send fail");
                     }
@@ -228,17 +221,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                             emit_line("logd: allow selftest replies");
                             saw_allow_selftest = true;
                         }
-                        let clock = nexus_ipc::budget::OsClock;
-                        let deadline_ns = match nexus_ipc::budget::deadline_after(
-                            &clock,
-                            core::time::Duration::from_secs(2),
-                        ) {
-                            Ok(v) => v,
-                            Err(_) => u64::MAX,
-                        };
-                        let sent = nexus_ipc::budget::retry_ipc_until(&clock, deadline_ns, || {
-                            server.send(rsp.as_slice(), Wait::NonBlocking)
-                        });
+                        let sent = server.send(
+                            rsp.as_slice(),
+                            Wait::Timeout(core::time::Duration::from_secs(2)),
+                        );
                         if sent.is_err() {
                             emit_line("logd: selftest reply send fail");
                         }

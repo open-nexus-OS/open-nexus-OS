@@ -17,8 +17,8 @@ use alloc::vec::Vec;
 
 use core::fmt;
 
-use nexus_abi::{debug_putc, ipc_send_v1, nsec, yield_, MsgHeader, IPC_SYS_NONBLOCK};
-use nexus_ipc::{Client as _, KernelClient, KernelServer, Wait};
+use nexus_abi::{debug_putc, nsec, MsgHeader};
+use nexus_ipc::{KernelClient, KernelServer, Wait};
 use statefs::client::StatefsClient;
 
 use crate::bootctl_client;
@@ -109,33 +109,17 @@ pub fn touch_schemas() {}
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     emit_line("updated: entry");
     notifier.notify();
-    // init pins updated's server endpoint into its declared slots (TASK-0324 P4f-3); using
-    // them directly avoids routing-time races during early bring-up.
+    // init pins updated's server endpoint into its declared slots BEFORE the task is resumed
+    // (TASK-0324 P4f-3); the slots are there or the boot is wrong — no 10 s probe loop (P7).
     let server = {
         const RECV_SLOT: u32 = nexus_service_topology::slots::updated::SERVER.recv;
         const SEND_SLOT: u32 = nexus_service_topology::slots::updated::SERVER.send;
-        let deadline = match nexus_abi::nsec() {
-            Ok(now) => now.saturating_add(10_000_000_000), // 10s
-            Err(_) => 0,
-        };
-        loop {
-            let recv_ok =
-                nexus_abi::cap_clone(RECV_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
-            let send_ok =
-                nexus_abi::cap_clone(SEND_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
-            if recv_ok && send_ok {
-                break KernelServer::new_with_slots(RECV_SLOT, SEND_SLOT)
-                    .map_err(|_| ServerError::Unsupported)?;
-            }
-            if deadline != 0 {
-                if let Ok(now) = nexus_abi::nsec() {
-                    if now >= deadline {
-                        return Err(ServerError::Unsupported);
-                    }
-                }
-            }
-            let _ = yield_();
+        let present = |slot: u32| nexus_abi::cap_clone(slot).map(|tmp| nexus_abi::cap_close(tmp));
+        if present(RECV_SLOT).is_err() || present(SEND_SLOT).is_err() {
+            emit_line("updated: FAIL declared server slots missing");
+            return Err(ServerError::Unsupported);
         }
+        KernelServer::new_with_slots(RECV_SLOT, SEND_SLOT).map_err(|_| ServerError::Unsupported)?
     };
     let (recv_slot, send_slot) = server.slots();
     // RFC-0068: routine IPC-plumbing trace → fold in interactive (recall `NEXUS_LOG_EXPAND=updated`), raw in proof.
@@ -230,20 +214,17 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         emit_line("updated: send cap fail");
                     }
                 } else {
-                    if send_bounded_nonblock(send_slot, &rsp, 1_000_000_000).is_err() {
+                    if send_bounded(send_slot, &rsp, 1_000_000_000).is_err() {
                         emit_line("updated: send fail");
                     }
                 }
             }
-            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                let _ = yield_();
-            }
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {}
             Err(_) => {
                 if !logged_recv_err {
                     emit_line("updated: recv err (continuing)");
                     logged_recv_err = true;
                 }
-                let _ = yield_();
             }
         }
     }
@@ -261,30 +242,12 @@ fn emit_deny(op: u8, sender: u64) {
     audit("gate", "denied", None);
 }
 
-/// Best-effort bounded IPC send that never blocks indefinitely.
-///
-/// Uses explicit `nsec()` timeouts and `yield_()` to avoid deadlocks under cooperative scheduling.
-fn send_bounded_nonblock(slot: u32, frame: &[u8], budget_ns: u64) -> Result<(), ()> {
+/// Bounded IPC send: WAITS in the kernel for queue space up to `budget_ns` (TASK-0324 P7 —
+/// a full queue is backpressure to wait out, not to spin on). Never blocks indefinitely.
+fn send_bounded(slot: u32, frame: &[u8], budget_ns: u64) -> Result<(), ()> {
     let hdr = MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-    let start = nsec().map_err(|_| ())?;
-    let deadline = start.saturating_add(budget_ns);
-    let mut i: usize = 0;
-    loop {
-        match ipc_send_v1(slot, &hdr, frame, IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => return Ok(()),
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = nsec().map_err(|_| ())?;
-                    if now >= deadline {
-                        return Err(());
-                    }
-                }
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-        i = i.wrapping_add(1);
-    }
+    let deadline = nsec().map_err(|_| ())?.saturating_add(budget_ns);
+    nexus_ipc::budget::raw::send_budgeted(slot, &hdr, frame, deadline).map_err(|_| ())
 }
 
 fn wait_to_sys(wait: Wait) -> Option<(u32, u64)> {
@@ -533,59 +496,35 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
         let _ = nexus_abi::cap_close(reply_send_clone);
         return Err("send");
     }
-    // Wait for reply on the local reply inbox.
-    let now = nexus_abi::nsec().map_err(|_| "reply-time")?;
-    let deadline = now.saturating_add(1_000_000_000);
+    // WAIT for the reply on the local reply inbox (1 s liveness bound); frames that are not
+    // the SET_ACTIVE_SLOT answer are dropped and the wait resumes.
+    let deadline = nexus_abi::nsec().map_err(|_| "reply-time")?.saturating_add(1_000_000_000);
     let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 32];
-    let mut spins: usize = 0;
     loop {
-        if (spins & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(|_| "reply-time")?;
-            if now >= deadline {
-                return Err("reply-timeout");
-            }
-        }
-        match nexus_abi::ipc_recv_v1(
+        let n = match nexus_ipc::budget::raw::recv_budgeted(
             reply_recv_slot,
             &mut hdr,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
+            deadline,
         ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if let Some((status, _slot)) =
-                    nexus_abi::bundlemgrd::decode_set_active_slot_rsp(&buf[..n])
-                {
-                    return if status == nexus_abi::bundlemgrd::STATUS_OK {
-                        Ok(())
-                    } else {
-                        Err("status")
-                    };
-                }
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let now = nexus_abi::nsec().map_err(|_| "reply-time")?;
-                if now >= deadline {
-                    return Err("reply-timeout");
-                }
-                let _ = yield_();
-            }
-            Err(err) => {
+            Ok(n) => core::cmp::min(n, buf.len()),
+            Err(nexus_ipc::IpcError::Timeout) => return Err("reply-timeout"),
+            Err(nexus_ipc::IpcError::Kernel(err)) => {
                 return Err(match err {
-                    nexus_abi::IpcError::TimedOut => "reply-timeout",
                     nexus_abi::IpcError::NoSuchEndpoint => "reply-nosuch",
                     nexus_abi::IpcError::PermissionDenied => "reply-denied",
-                    nexus_abi::IpcError::QueueFull => "reply-full",
                     nexus_abi::IpcError::NoSpace => "reply-nospace",
                     nexus_abi::IpcError::PeerClosed => "reply-peer-closed",
-                    nexus_abi::IpcError::Unsupported => "reply-unsupported",
-                    nexus_abi::IpcError::QueueEmpty => "reply-empty",
+                    _ => "reply-unsupported",
                 })
             }
+            Err(_) => return Err("reply-unsupported"),
+        };
+        if let Some((status, _slot)) = nexus_abi::bundlemgrd::decode_set_active_slot_rsp(&buf[..n])
+        {
+            return if status == nexus_abi::bundlemgrd::STATUS_OK { Ok(()) } else { Err("status") };
         }
-        spins = spins.wrapping_add(1);
     }
 }
 
@@ -678,21 +617,13 @@ fn keystored_verify(
         return Out::Unavailable("send-timeout");
     }
 
-    let rsp = match nexus_ipc::budget::retry_ipc_until(&clock, deadline_ns, || {
-        match client.recv(Wait::NonBlocking) {
-            Ok(v) => {
-                if v.len() < 7
-                    || v[0] != KEYSTORE_MAGIC0
-                    || v[1] != KEYSTORE_MAGIC1
-                    || v[2] != KEYSTORE_VERSION
-                    || v[3] != (KEYSTORE_OP_VERIFY | 0x80)
-                {
-                    return Err(nexus_ipc::IpcError::WouldBlock);
-                }
-                Ok(v)
-            }
-            Err(e) => Err(e),
-        }
+    let rsp = match nexus_ipc::budget::recv_matching_until(&clock, &client, deadline_ns, |v| {
+        let ours = v.len() >= 7
+            && v[0] == KEYSTORE_MAGIC0
+            && v[1] == KEYSTORE_MAGIC1
+            && v[2] == KEYSTORE_VERSION
+            && v[3] == (KEYSTORE_OP_VERIFY | 0x80);
+        ours.then(|| v.to_vec())
     }) {
         Ok(v) => v,
         Err(nexus_ipc::IpcError::Timeout) => return Out::Unavailable("timeout"),

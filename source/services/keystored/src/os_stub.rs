@@ -778,38 +778,16 @@ fn request_entropy_from_rngd(pending: &mut ReplyBuffer<16, 512>, n: usize) -> Op
     // old 500ms window.
     let clock = OsClock;
     let deadline_ns = deadline_after(&clock, Duration::from_secs(2)).ok()?;
-    if nexus_ipc::budget::raw::send_budgeted(&clock, rng_send_slot, &hdr, &req, deadline_ns)
-        .is_err()
-    {
+    if nexus_ipc::budget::raw::send_budgeted(rng_send_slot, &hdr, &req, deadline_ns).is_err() {
         let _ = nexus_abi::cap_close(reply_send_clone);
         return None;
     }
 
-    struct ReplyInboxV1 {
-        recv_slot: u32,
-    }
-    impl nexus_ipc::Client for ReplyInboxV1 {
-        fn send(&self, _frame: &[u8], _wait: Wait) -> nexus_ipc::Result<()> {
-            Err(nexus_ipc::IpcError::Unsupported)
-        }
-        fn recv(&self, _wait: Wait) -> nexus_ipc::Result<Vec<u8>> {
-            let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            let mut buf = [0u8; 512];
-            match nexus_abi::ipc_recv_v1(
-                self.recv_slot,
-                &mut rh,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => Ok(buf[..core::cmp::min(n as usize, buf.len())].to_vec()),
-                Err(nexus_abi::IpcError::QueueEmpty) => Err(nexus_ipc::IpcError::WouldBlock),
-                Err(other) => Err(nexus_ipc::IpcError::Kernel(other)),
-            }
-        }
-    }
+    // The reply inbox as the ONE kernel client (TASK-0324 P7): its `recv` honours the wait
+    // `recv_match_until` hands it, so the reply WAKES us — the private NONBLOCK adapter that
+    // used to sit here turned every wait into an instant `WouldBlock`.
     let clock = OsClock;
-    let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
+    let inbox = nexus_ipc::KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).ok()?;
     let rsp = recv_match_until(
         &clock,
         &inbox,

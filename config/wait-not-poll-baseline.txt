@@ -1,0 +1,32 @@
+# TASK-0324 P7 wait-not-poll ratchet (scripts/check-wait-not-poll.sh): per-file count of
+# functions that poll IPC against a clock (NonBlocking + yield_() + deadline/attempt bound).
+# May only SHRINK. P7-a took the request/response class to 0 in its named files; the rest are
+# event loops and remaining reply polls for P7-b/P7-c. Format: <count> <path>
+1 source/apps/selftest-client/src/os_lite/net/icmp_ping.rs
+1 source/apps/selftest-client/src/os_lite/probes/blkgate.rs
+2 source/apps/selftest-client/src/os_lite/probes/reset.rs
+1 source/apps/selftest-client/src/os_lite/services/bootctl.rs
+2 source/apps/selftest-client/src/os_lite/services/bundlemgrd.rs
+1 source/apps/selftest-client/src/os_lite/services/execd.rs
+2 source/apps/selftest-client/src/os_lite/services/policyd.rs
+2 source/apps/selftest-client/src/os_lite/services/samgrd.rs
+1 source/apps/selftest-client/src/os_lite/updated/health.rs
+1 source/apps/selftest-client/src/os_lite/updated/reply_pump.rs
+3 source/services/abilitymgr/src/os_lite.rs
+1 source/services/app-host/src/probe/mod.rs
+1 source/services/dsoftbusd/src/os/gateway/remote_proxy.rs
+1 source/services/dsoftbusd/src/os/observability.rs
+2 source/services/execd/src/os_lite.rs
+1 source/services/imed/src/os_lite.rs
+1 source/services/imed/src/statefs.rs
+1 source/services/ingressd/src/os_lite/netclient.rs
+1 source/services/metricsd/src/os_lite.rs
+1 source/services/recv-wake-probe/src/main.rs
+1 source/services/samgrd/src/os_lite.rs
+1 source/services/statefsd/src/os_lite.rs
+3 source/services/updated/src/apply_os.rs
+1 source/services/updated/src/bootctl_client.rs
+1 source/services/windowd/src/compositor/mod.rs
+1 source/services/windowd/src/compositor/runtime/shell.rs
+1 userspace/statefs/src/client.rs
+2 userspace/storage/src/remote_blk.rs

@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-14 (TASK-0324 P7-a: a reply is WAITED for, never polled — one wait primitive, the request/response polls deleted, a shrink-only ratchet on the rest)
+
+- `nexus_ipc::budget` is the ONE wait primitive (RFC-0093 §1 "parked, never polled"): `send_until`
+  / `recv_until` / `recv_matching_until` / `raw::{send,recv}_budgeted` block in the kernel with
+  the REMAINING budget of an absolute deadline — the arriving frame wakes the waiter, the deadline
+  is a liveness bound. `retry_ipc_until` (NonBlocking + `yield_()` against a wall clock),
+  `Clock::yield_now`, `recv_match_bounded` and `Connection::call(max_iters)` are deleted;
+  `reqrep::recv_match_until` and `Connection::call(clock, deadline)` sit on the blocking wait.
+  `RouteRetryOutcome::Rejected` now carries the responder's status. Host tests:
+  `test_reject_recv_past_deadline`, `test_reject_wouldblock_transport_is_not_waited_on`,
+  `test_reject_foreign_frame_is_not_a_reply` (42 green).
+- ⭐ Four private `nexus_ipc::Client` adapters (execd's control inbox, keystored's and the
+  selftest's reply inboxes, samgrd's v2 inbox) ignored the wait they were handed and always
+  received NONBLOCK — behind the old spin helper that was invisible; behind a real wait every
+  exchange through them failed instantly (`keystored: entropy request failed`, `abilitymgr:
+  FAIL launch spawn (execd status)` in the first P7 boot). All four are replaced by
+  `KernelClient::new_with_slots` over the declared slots — the ONE kernel client honours the wait.
+- Polls deleted (each replaced by ONE waited exchange): the selftest's `routing_v1_get` copy of
+  the route ask + the 64-round `route_with_retry` + the 128-round three-source
+  `resolve_keystored_client` + the logd-query loop that grepped for `dsoftbusd: ready` every 32
+  yields (now one PARKED route ask) + the statefs/keystored/plumbing/soak/bringup reply polls;
+  updated's 10 s server-slot probe, `send_bounded_nonblock`, the SET_ACTIVE_SLOT reply poll and
+  the keystore-verify filter; bundlemgrd's private route-status exchange (now the fleet helper)
+  and its logd APPEND-ack poll; logd's two CAP_MOVE reply spins; inputd's 256-round server bind
+  (declared slots, pinned before resume); windowd's `session_client` exchange mechanics; the
+  app-host's `SEND_RETRIES=4000` spins, the 30 s ack poll, the 500 ms boot-push poll, the
+  events-attach send spin and the payload-VMO slot poll (execd grants it before resume).
+- The app-host asks for its content rect ONCE (`OP_SURFACE_INTENT` → one waited `OP_SURFACE_RECT`,
+  8 s liveness bound). The "re-driven" second ask existed for a lost first one (the 2026-07-25
+  aliased-endpoint drain, fixed since); a kernel-woken wait cannot lose the answer to its own
+  iteration speed. `apphost: content rect re-driven` is gone.
+- ⭐ dsoftbusd was WEDGED for the whole smp1 lane: its 10 000-yield `cap_clone` slot probe at
+  Idle QoS never completed, so after init's wiring it printed nothing. With the probe deleted
+  (slots are pinned before resume since P4) it runs its single-VM session path and reports that
+  path's known red by value (`dsoftbusd: dual-node connect FAIL`, network family HOLD) —
+  registered in the manifest and the FAIL allow list with the tracking reference. The
+  `dsoftbusd: waiting for slots` marker is retired. ⭐ Unwedged, that bring-up is also
+  timing-flaky (one boot in three `?`-exited after `rpc listen ok`, and an unsupervised error
+  exit fails the ladder's death accounting): the daemon now HOLDS by declaration —
+  `os::entry::hold_forever` blocks in the kernel on a fence nobody signals (zero CPU, no
+  death) — at every one of the 18 failure sites that used to spin `yield_()` forever, and on a
+  rejected bring-up (`dsoftbusd: single-vm bring-up rejected (held)`).
+- ⭐ The selftest's bare app-host spawn probe (`IMG_APPHOST=4`) is deleted: since TASK-0080D an
+  app-host without a bundle payload fails closed by design, so the probe only ever produced a
+  child that polled 8 s for a VMO nobody granted. Waiting honestly made it fail fast — and its
+  EXIT then held the kernel lock 14 ms (`KSELFTEST: bkl budget FAIL max_hold=14ms nr=11`,
+  `sys_exit` → endpoint close + image release). RECORDED as a kernel finding (the same cost
+  applies to every app close; the "~12 ms residual spike" of the soft-RT lane), not patched here.
+- New gate `scripts/check-wait-not-poll.sh` (in `just check`): a function that combines a
+  NonBlocking IPC attempt with `yield_()` and a clock/attempt bound is a poll against a clock;
+  per-file counts ratchet against `config/wait-not-poll-baseline.txt` (60 → 39, only shrinks),
+  the retired helpers stay retired, fixture self-test on every run. The 39 that remain are event
+  loops and the reply polls of P7-b/P7-c.
+- dsoftbusd in PROOF boots: the single-VM dual-node session is a dev-only exploration path
+  (loopback against itself with bring-up test keys; its 62-line diagnostic vocabulary is not
+  proof-manifest contract and one of them, `udp bind rpc timeout`, failed a test-all's evidence
+  assembly). The daemon now HOLDS before that bring-up whenever the kernel's fw_cfg-derived
+  boot mode says proof (`dsoftbusd: single-vm session held (proof boot, network family HOLD)`)
+  — the declared form of the silence the old wedge produced by accident; interactive boots
+  still run it.
+- The selftest's dsoftbus transport probe waits its facade RPCs in the kernel and bounds each
+  handshake wait by TIME (2 s) instead of 100 000 re-ask rounds — a live dsoftbusd session loop
+  once held the ladder 47 s in it. It FAILS by value as before (allow-listed, network HOLD).
+- Proof: `just check` green; `just test-all` EXIT=0 (10 lanes, 15 reveal handshakes, 15 content
+  rects on the FIRST ask, pixel proof 14.77 % / luma 9.84, `KSELFTEST: bkl budget ok`); measured
+  lane wall time smp1 226 s → 202 s, reset 211 s → 189 s; nexus-ipc 42 host tests.
+
 ### Changed - 2026-09-14 (TASK-0324 P6-d: display truth is read through a probe render target, never from the scanout; the reveal decision is gated time-free)
 
 - gpud `gl_probe.rs` is the ONE readback authority (RFC-0093 §5): a host-side

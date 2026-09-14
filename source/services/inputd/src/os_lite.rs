@@ -34,7 +34,6 @@ use crate::{
 };
 
 const WHEEL_INDICATOR_PULSE_NS: u64 = 120_000_000;
-const ROUTE_BIND_RETRIES: usize = 256;
 
 use crate::chain_stats::InputdChainTelemetry;
 
@@ -124,16 +123,10 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     }
 }
 
+/// inputd's own server endpoint: the declared slots (TASK-0324 P4b), pinned by init before
+/// the task is resumed — there is nothing to retry (P7 deleted the 256-round bind loop).
 fn bind_server() -> core::result::Result<KernelServer, nexus_ipc::IpcError> {
-    let mut last_err = nexus_ipc::IpcError::Unsupported;
-    for _ in 0..ROUTE_BIND_RETRIES {
-        match KernelServer::new_for("inputd") {
-            Ok(server) => return Ok(server),
-            Err(err) => last_err = err,
-        }
-        let _ = yield_();
-    }
-    Err(last_err)
+    KernelServer::new_with_slots(topo::SERVER.recv, topo::SERVER.send)
 }
 
 struct LiveRouteRuntime {

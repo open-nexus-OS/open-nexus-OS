@@ -17,7 +17,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crash::{deterministic_build_id, MinidumpFrame};
-use nexus_abi::{yield_, Pid};
+use nexus_abi::Pid;
+use nexus_ipc::budget::{self, OsClock};
 use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 use statefs::protocol as statefs_proto;
 use statefs::StatefsError;
@@ -75,36 +76,29 @@ pub(crate) fn statefs_send_recv_deadline(
         emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_FAIL);
         return Err(());
     }
-    let start = nexus_abi::nsec().map_err(|_| ())?;
-    let deadline = start.saturating_add(budget_ns);
-    loop {
-        let now = nexus_abi::nsec().map_err(|_| ())?;
-        if now >= deadline {
+    // WAIT for OUR reply (TASK-0324 P7): the kernel wakes us per arriving frame; foreign
+    // frames on the shared inbox are dropped; the budget is the liveness bound.
+    let clock = OsClock;
+    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(budget_ns);
+    let matched = budget::recv_matching_until(&clock, client, deadline, |rsp| {
+        if rsp.len() < 13
+            || rsp[0] != statefs_proto::MAGIC0
+            || rsp[1] != statefs_proto::MAGIC1
+            || rsp[2] != statefs_proto::VERSION_V2
+        {
+            return None;
+        }
+        let got_nonce =
+            u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
+        (got_nonce == nonce).then(|| rsp.to_vec())
+    });
+    match matched {
+        Ok(rsp) => Ok(rsp),
+        Err(nexus_ipc::IpcError::Timeout) => {
             emit_line(crate::markers::M_SELFTEST_STATEFS_RECV_TIMEOUT);
-            return Err(());
+            Err(())
         }
-        match client.recv(IpcWait::NonBlocking) {
-            Ok(rsp) => {
-                if rsp.len() < 13
-                    || rsp[0] != statefs_proto::MAGIC0
-                    || rsp[1] != statefs_proto::MAGIC1
-                    || rsp[2] != statefs_proto::VERSION_V2
-                {
-                    continue;
-                }
-                let got_nonce = u64::from_le_bytes([
-                    rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12],
-                ]);
-                if got_nonce != nonce {
-                    continue;
-                }
-                return Ok(rsp);
-            }
-            Err(nexus_ipc::IpcError::WouldBlock) => {
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
+        Err(_) => Err(()),
     }
 }
 

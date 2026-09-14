@@ -33,9 +33,9 @@ fn os_entry() -> core::result::Result<(), ()> {
     #[cfg(nexus_env = "os")]
     let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
 
-    // dsoftbusd must NOT own MMIO; it uses netstackd's IPC facade.
-    // Wait for init-lite to finish transferring capability slots before proceeding.
-    os::entry::wait_for_slots_ready();
+    // dsoftbusd must NOT own MMIO; it uses netstackd's IPC facade. Its slots are provisioned
+    // before the task is resumed (TASK-0324 P4) — the 10 000-yield "waiting for slots" probe
+    // that used to sit here waited for nothing (P7).
     let net = os::entry::init_netstack_client()?;
 
     let mut nonce_ctr: u64 = 1;
@@ -54,6 +54,19 @@ fn os_entry() -> core::result::Result<(), ()> {
         return Ok(());
     }
 
+    // Network family HOLD (tasks/IMPLEMENTATION-ORDER.md "Netz-Gruppe"): the single-VM
+    // dual-node session is a dev-only exploration path (it talks to itself over loopback with
+    // bring-up test keys, and its 62-line diagnostic vocabulary is not proof-manifest
+    // contract). In a PROOF boot (the kernel's fw_cfg-derived boot mode, the same switch
+    // every service folds its verdicts on) the daemon HOLDS here — declared, zero CPU, no
+    // death — instead of racing the ladder's own netstackd probes. Until TASK-0324 P7 an
+    // accidental 10 000-yield slot probe produced the same silence, undeclared.
+    if !nexus_abi::boot_should_fold_verdicts() {
+        os::entry::hold_forever(
+            "dsoftbusd: single-vm session held (proof boot, network family HOLD)",
+        );
+    }
+
     // UDP discovery socket bind (Phase 1): bind to 0.0.0.0:<port>.
     let disc_port: u16 = 37_020;
     let udp_id = os::entry::bind_discovery_udp_with_wait(
@@ -64,14 +77,19 @@ fn os_entry() -> core::result::Result<(), ()> {
     );
 
     let port: u16 = 34_567;
-    let (lid, transport_selection) = os::session::single_vm::run_single_vm_dual_node_bringup(
+    // A bring-up failure is the network family's known red (HOLD): the daemon HOLDS instead
+    // of dying — an unsupervised error exit would fail every proof boot's death accounting
+    // for a lane that is on hold by decision (TASK-0324 P7).
+    let Ok((lid, transport_selection)) = os::session::single_vm::run_single_vm_dual_node_bringup(
         &mut pending_replies,
         &net,
         &mut nonce_ctr,
         udp_id,
         disc_port,
         port,
-    )?;
+    ) else {
+        os::entry::hold_forever("dsoftbusd: single-vm bring-up rejected (held)");
+    };
     os::session::selftest_server::run_selftest_server_loop(
         &mut pending_replies,
         &net,

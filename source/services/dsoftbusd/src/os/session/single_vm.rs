@@ -206,25 +206,16 @@ pub(crate) fn run_single_vm_dual_node_bringup(
         || rsp_b[3] != (OP_LISTEN | 0x80)
         || rsp_b[4] != STATUS_OK
     {
-        let _ = nexus_abi::debug_println("dsoftbusd: listen port_b FAIL");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: listen port_b FAIL");
     }
     let lid_b = u32::from_le_bytes([rsp_b[5], rsp_b[6], rsp_b[7], rsp_b[8]]);
 
     let node_b_device_id = "node-b";
     let Some(peer_b) = peers.peek(node_b_device_id) else {
-        let _ = nexus_abi::debug_println("dsoftbusd: discovery missing peer=node-b");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: discovery missing peer=node-b");
     };
     let Some(peer_ip) = get_peer_ip(&peer_ips, node_b_device_id) else {
-        let _ = nexus_abi::debug_println("dsoftbusd: discovery peer ip missing");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: discovery peer ip missing");
     };
     let peer_ip = if peer_b.port == 34_567 || peer_b.port == 34_568 {
         crate::os::entry::DEFAULT_LOCAL_IP
@@ -250,10 +241,7 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     let (sid_a, sid_b) = match (connect_result, accept_result) {
         (Ok(a), Ok(b)) => (a, b),
         _ => {
-            let _ = nexus_abi::debug_println("dsoftbusd: dual-node connect FAIL");
-            loop {
-                let _ = yield_();
-            }
+            crate::os::entry::hold_forever("dsoftbusd: dual-node connect FAIL");
         }
     };
 
@@ -265,16 +253,10 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     let node_b_eph_seed = crate::os::entry::derive_test_secret(0xE1, port_b);
 
     let Some(peer_b) = peers.peek(node_b_device_id) else {
-        let _ = nexus_abi::debug_println("dsoftbusd: discovery missing peer=node-b");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: discovery missing peer=node-b");
     };
     if peer_b.noise_static != node_b_static.public {
-        let _ = nexus_abi::debug_println("dsoftbusd: identity mismatch peer=node-b");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: identity mismatch peer=node-b");
     }
     let node_b_pub_expected = peer_b.noise_static;
     let node_a_pub_expected = node_a_static.public;
@@ -285,83 +267,53 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     let mut msg1 = [0u8; MSG1_LEN];
     initiator.write_msg1(&mut msg1);
     if crate::os::entry::dual_stream_write(pending_replies, net, nonce_ctr, sid_a, &msg1).is_err() {
-        let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg1 write FAIL");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: dual-node msg1 write FAIL");
     }
 
     let mut msg1_recv = [0u8; MSG1_LEN];
     if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_b, &mut msg1_recv)
         .is_err()
     {
-        let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg1 read FAIL");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: dual-node msg1 read FAIL");
     }
     let mut msg2 = [0u8; MSG2_LEN];
     if responder.read_msg1_write_msg2(&msg1_recv, &mut msg2).is_err() {
-        let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg2 gen FAIL");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: dual-node msg2 gen FAIL");
     }
     if crate::os::entry::dual_stream_write(pending_replies, net, nonce_ctr, sid_b, &msg2).is_err() {
-        let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg2 write FAIL");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: dual-node msg2 write FAIL");
     }
 
     let mut msg2_recv = [0u8; MSG2_LEN];
     if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_a, &mut msg2_recv)
         .is_err()
     {
-        let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg2 read FAIL");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: dual-node msg2 read FAIL");
     }
     let mut msg3 = [0u8; MSG3_LEN];
     let transport_a = match initiator.read_msg2_write_msg3(&msg2_recv, &mut msg3) {
         Ok(keys) => Transport::new(keys),
         Err(_) => {
-            let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg3 gen FAIL");
-            loop {
-                let _ = yield_();
-            }
+            crate::os::entry::hold_forever("dsoftbusd: dual-node msg3 gen FAIL");
         }
     };
     if crate::os::entry::dual_stream_write(pending_replies, net, nonce_ctr, sid_a, &msg3).is_err() {
-        let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg3 write FAIL");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: dual-node msg3 write FAIL");
     }
 
     let mut msg3_recv = [0u8; MSG3_LEN];
     if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_b, &mut msg3_recv)
         .is_err()
     {
-        let _ = nexus_abi::debug_println("dsoftbusd: dual-node msg3 read FAIL");
-        loop {
-            let _ = yield_();
-        }
+        crate::os::entry::hold_forever("dsoftbusd: dual-node msg3 read FAIL");
     }
     let transport_b = match responder.read_msg3_finish(&msg3_recv) {
         Ok(keys) => Transport::new(keys),
         Err(nexus_noise_xk::NoiseError::StaticKeyMismatch) => {
-            let _ = nexus_abi::debug_println("dsoftbusd: identity mismatch peer=nodeA");
-            loop {
-                let _ = yield_();
-            }
+            crate::os::entry::hold_forever("dsoftbusd: identity mismatch peer=nodeA");
         }
         Err(_) => {
-            let _ = nexus_abi::debug_println("dsoftbusd: dual-node handshake FAIL");
-            loop {
-                let _ = yield_();
-            }
+            crate::os::entry::hold_forever("dsoftbusd: dual-node handshake FAIL");
         }
     };
 

@@ -17,13 +17,12 @@
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;
 
-use nexus_abi::{ipc_recv_v1_nb, yield_};
+use nexus_abi::ipc_recv_v1_nb;
 use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
-use nexus_ipc::Wait as IpcWait;
+use nexus_ipc::{KernelClient, Wait as IpcWait};
 
 use super::super::super::ipc::clients::cached_samgrd_client;
-use super::super::super::ipc::reply_inbox::ReplyInboxV1;
 use super::plumbing::{ipc_deadline_timeout_probe, ipc_payload_roundtrip};
 use super::security::cap_move_reply_probe;
 
@@ -63,26 +62,22 @@ pub(crate) fn ipc_soak_probe() -> core::result::Result<(), ()> {
         frame[2] = 1;
         frame[3] = 3; // OP_PING_CAP_MOVE
         frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-        let wait = IpcWait::Timeout(core::time::Duration::from_millis(10));
-        let mut sent = false;
-        for _ in 0..64 {
-            match sam.send_with_cap_move_wait(&frame, reply_send_clone, wait) {
-                Ok(()) => {
-                    sent = true;
-                    break;
-                }
-                Err(_) => {
-                    let _ = yield_();
-                }
-            }
-        }
+        // The send WAITS for queue space (one liveness bound), then the reply inbox — the
+        // ONE kernel client, whose `recv` honours the wait — is woken by samgrd's answer.
+        let sent = sam
+            .send_with_cap_move_wait(
+                &frame,
+                reply_send_clone,
+                IpcWait::Timeout(Duration::from_secs(2)),
+            )
+            .is_ok();
+        let _ = nexus_abi::cap_close(reply_send_clone);
         if !sent {
-            let _ = nexus_abi::cap_close(reply_send_clone);
             return Err(());
         }
-        let _ = nexus_abi::cap_close(reply_send_clone);
 
-        let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
+        let inbox =
+            KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).map_err(|_| ())?;
         let rsp = recv_match_until(&clock, &inbox, &mut pending, nonce, deadline_ns, |frame| {
             if frame.len() == 12 && frame[0..4] == *b"PONG" {
                 Some(u64::from_le_bytes([

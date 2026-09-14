@@ -15,14 +15,13 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use core::cell::Cell;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;
 
-use nexus_abi::{yield_, MsgHeader};
+use nexus_abi::yield_;
 use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_ipc::reqrep::{recv_match_until, ReplyBuffer};
-use nexus_ipc::{Client, IpcError, KernelClient, Wait as IpcWait};
+use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
 
 use super::super::ipc::clients::{cached_reply_client, cached_samgrd_client};
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
@@ -228,36 +227,10 @@ pub(crate) fn fetch_sender_service_id_from_samgrd() -> core::result::Result<u64,
     frame[4..12].copy_from_slice(&nonce.to_le_bytes());
     sam.send_with_cap_move(&frame, reply_send_clone).map_err(|_| ())?;
 
-    struct ReplyInboxV2 {
-        recv_slot: u32,
-        last_sid: Cell<u64>,
-    }
-    impl Client for ReplyInboxV2 {
-        fn send(&self, _frame: &[u8], _wait: IpcWait) -> nexus_ipc::Result<()> {
-            Err(IpcError::Unsupported)
-        }
-        fn recv(&self, _wait: IpcWait) -> nexus_ipc::Result<Vec<u8>> {
-            let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
-            let mut sid: u64 = 0;
-            let mut buf = [0u8; 64];
-            match nexus_abi::ipc_recv_v2(
-                self.recv_slot,
-                &mut hdr,
-                &mut buf,
-                &mut sid,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => {
-                    self.last_sid.set(sid);
-                    Ok(buf[..core::cmp::min(n as usize, buf.len())].to_vec())
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => Err(IpcError::WouldBlock),
-                Err(other) => Err(IpcError::Kernel(other)),
-            }
-        }
-    }
-    let inbox = ReplyInboxV2 { recv_slot: reply_recv_slot, last_sid: Cell::new(0) };
+    // The reply inbox as the ONE kernel client (TASK-0324 P7): its `recv` honours the wait,
+    // so samgrd's answer wakes us (the private NONBLOCK v2 adapter is gone; the sender id it
+    // captured was never read).
+    let inbox = KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).map_err(|_| ())?;
     let rsp = recv_match_until(&clock, &inbox, &mut pending, nonce, deadline_ns, |frame| {
         if frame.len() == 21
             && frame[0] == b'S'
@@ -284,6 +257,5 @@ pub(crate) fn fetch_sender_service_id_from_samgrd() -> core::result::Result<u64,
     }
     let got =
         u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
-    let _sender_sid = inbox.last_sid.get();
     Ok(got)
 }

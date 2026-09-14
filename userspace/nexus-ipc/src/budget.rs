@@ -1,16 +1,22 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: Deterministic, budgeted retry loops for IPC operations.
-//!
-//! This module exists to avoid relying on kernel timeout semantics in OS-lite builds.
-//! Callers should use non-blocking IPC attempts (returning `IpcError::WouldBlock`) and
-//! apply an explicit time budget based on `nsec()` / a host clock.
+//! CONTEXT: The ONE wait primitive for request/response IPC (RFC-0093 §1, TASK-0324 P7).
+//! A reply is WAITED for — the kernel wakes the waiter when the frame arrives — never
+//! polled: every helper here blocks in the transport with the REMAINING budget of an
+//! absolute deadline. The deadline is a liveness bound (how long a silent peer is still
+//! presumed alive), never a scheduling guess. Before P7 this module was the opposite:
+//! `retry_ipc_until` spun `NonBlocking` attempts with `yield_()` against a wall clock, so a
+//! live peer that answered late looked exactly like a dead one under host load
+//! (`SELFTEST: statefs enc roundtrip FAIL`, 2026-09-11) and every caller burned a core for
+//! the wait. That helper and `Clock::yield_now` are deleted; `scripts/check-wait-not-poll.sh`
+//! keeps the pattern out of the tree.
 //!
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal (crate public, but intended for in-tree use)
-//! TEST_COVERAGE: Unit tests (host)
+//! TEST_COVERAGE: Unit tests (host) — incl. `test_reject_recv_past_deadline`,
+//!   `test_reject_wouldblock_transport_is_not_waited_on`, `test_reject_foreign_frame_is_not_a_reply`
 
 use core::time::Duration;
 
@@ -23,8 +29,6 @@ use alloc::vec::Vec;
 use std::vec::Vec;
 
 use crate::{Client, IpcError, Result, Wait};
-
-const SPIN_CHECK_MASK: usize = 0x7f; // check time every 128 spins
 
 /// Maximum number of nonce-mismatched replies tolerated while waiting for a correlated response.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,21 +68,27 @@ pub enum RouteRetryOutcome {
     TargetStale,
     /// Too many nonce mismatches were observed.
     NonceMismatchBudgetExceeded,
-    /// Route response decoded but returned a non-OK status or malformed frame.
-    Rejected,
+    /// The responder answered with a non-OK route status (`nexus_abi::routing::STATUS_*`),
+    /// or the ask/answer was malformed (`STATUS_MALFORMED`). Carried so a status relay
+    /// (bundlemgrd's `OP_ROUTE_STATUS`) needs no private copy of the exchange.
+    Rejected {
+        /// The route status the responder returned.
+        status: u8,
+    },
     /// Low-level IPC/runtime failure.
     Ipc(IpcError),
 }
 
-/// Clock source used for budgeted loops.
+/// Clock source deadlines are computed against. It only tells the time: a wait is
+/// event-driven (the transport blocks until the frame arrives or the deadline passes),
+/// so there is nothing to yield for.
 pub trait Clock {
     /// Returns the current time in nanoseconds, or `None` if not available.
     fn now_ns(&self) -> Option<u64>;
-    /// Cooperative yield to allow other work to make progress.
-    fn yield_now(&self);
 }
 
-/// OS clock backed by `nexus_abi::nsec()` + `nexus_abi::yield_()`.
+/// OS clock backed by `nexus_abi::nsec()` — the same clock the kernel checks IPC
+/// deadlines against.
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub struct OsClock;
 
@@ -86,10 +96,6 @@ pub struct OsClock;
 impl Clock for OsClock {
     fn now_ns(&self) -> Option<u64> {
         nexus_abi::nsec().ok()
-    }
-
-    fn yield_now(&self) {
-        let _ = nexus_abi::yield_();
     }
 }
 
@@ -125,10 +131,6 @@ impl Clock for HostClock {
                 .saturating_add(elapsed.subsec_nanos() as u64),
         )
     }
-
-    fn yield_now(&self) {
-        std::thread::yield_now();
-    }
 }
 
 fn duration_to_ns(d: Duration) -> u64 {
@@ -141,45 +143,66 @@ pub fn deadline_after(clock: &impl Clock, budget: Duration) -> Result<u64> {
     Ok(now.saturating_add(duration_to_ns(budget)))
 }
 
-/// Runs `op` until it succeeds, fails with a non-retryable error, or the deadline expires.
-///
-/// Retryable condition is `IpcError::WouldBlock` (mapped from queue empty/full in non-blocking
-/// syscalls / transports).
-pub fn retry_ipc_until<T>(
+/// The budget still left before `deadline_ns` — the amount a transport may block for.
+/// `Err(Timeout)` once the deadline has passed, so a wait never starts with a zero budget
+/// (which the kernel would read as "no deadline").
+pub fn remaining(clock: &impl Clock, deadline_ns: u64) -> Result<Duration> {
+    let now = clock.now_ns().ok_or(IpcError::Unsupported)?;
+    if now >= deadline_ns {
+        return Err(IpcError::Timeout);
+    }
+    Ok(Duration::from_nanos(deadline_ns - now))
+}
+
+/// Sends `frame` on `client`, blocking in the transport until it is queued or `deadline_ns`
+/// passes. A transport that reports `Timeout` before the clock says so is re-entered with
+/// the remaining budget; every other error is the caller's.
+pub fn send_until(
     clock: &impl Clock,
+    client: &impl Client,
+    frame: &[u8],
     deadline_ns: u64,
-    mut op: impl FnMut() -> Result<T>,
-) -> Result<T> {
-    let mut spins: usize = 0;
+) -> Result<()> {
     loop {
-        match op() {
-            Ok(v) => return Ok(v),
-            Err(IpcError::WouldBlock) => {
-                if (spins & SPIN_CHECK_MASK) == 0 {
-                    let now = clock.now_ns().ok_or(IpcError::Unsupported)?;
-                    if now >= deadline_ns {
-                        return Err(IpcError::Timeout);
-                    }
-                }
-                clock.yield_now();
-            }
-            Err(e) => return Err(e),
+        let left = remaining(clock, deadline_ns)?;
+        match client.send(frame, Wait::Timeout(left)) {
+            Err(IpcError::Timeout) => continue,
+            other => return other,
         }
-        spins = spins.wrapping_add(1);
     }
 }
 
-/// Runs `op` until it succeeds, fails with a non-retryable error, or the budget expires.
-pub fn retry_ipc_budgeted<T>(
-    clock: &impl Clock,
-    budget: Duration,
-    op: impl FnMut() -> Result<T>,
-) -> Result<T> {
-    let deadline_ns = deadline_after(clock, budget)?;
-    retry_ipc_until(clock, deadline_ns, op)
+/// Receives ONE frame from `client`, blocking in the transport until it arrives or
+/// `deadline_ns` passes. `WouldBlock` is surfaced as-is: it means the transport did not
+/// wait, and nothing here ever retries a non-waiting transport (that would be the poll).
+pub fn recv_until(clock: &impl Clock, client: &impl Client, deadline_ns: u64) -> Result<Vec<u8>> {
+    loop {
+        let left = remaining(clock, deadline_ns)?;
+        match client.recv(Wait::Timeout(left)) {
+            Err(IpcError::Timeout) => continue,
+            other => return other,
+        }
+    }
 }
 
-/// Sends `frame` on `client` using non-blocking attempts and an explicit time budget.
+/// Waits for the frame `accept` recognises (its nonce, its magic — the caller's
+/// correlation rule), dropping every other frame that arrives on the shared inbox
+/// meanwhile. Each wait blocks; the deadline is the liveness bound.
+pub fn recv_matching_until<T>(
+    clock: &impl Clock,
+    client: &impl Client,
+    deadline_ns: u64,
+    mut accept: impl FnMut(&[u8]) -> Option<T>,
+) -> Result<T> {
+    loop {
+        let frame = recv_until(clock, client, deadline_ns)?;
+        if let Some(v) = accept(&frame) {
+            return Ok(v);
+        }
+    }
+}
+
+/// [`send_until`] with a relative budget.
 pub fn send_budgeted(
     clock: &impl Clock,
     client: &impl Client,
@@ -190,7 +213,7 @@ pub fn send_budgeted(
     send_until(clock, client, frame, deadline_ns)
 }
 
-/// Receives a frame from `client` using non-blocking attempts and an explicit time budget.
+/// [`recv_until`] with a relative budget.
 pub fn recv_budgeted(
     clock: &impl Clock,
     client: &impl Client,
@@ -198,21 +221,6 @@ pub fn recv_budgeted(
 ) -> Result<Vec<u8>> {
     let deadline_ns = deadline_after(clock, budget)?;
     recv_until(clock, client, deadline_ns)
-}
-
-/// Sends `frame` on `client` using non-blocking attempts until `deadline_ns`.
-pub fn send_until(
-    clock: &impl Clock,
-    client: &impl Client,
-    frame: &[u8],
-    deadline_ns: u64,
-) -> Result<()> {
-    retry_ipc_until(clock, deadline_ns, || client.send(frame, Wait::NonBlocking))
-}
-
-/// Receives a frame from `client` using non-blocking attempts until `deadline_ns`.
-pub fn recv_until(clock: &impl Clock, client: &impl Client, deadline_ns: u64) -> Result<Vec<u8>> {
-    retry_ipc_until(clock, deadline_ns, || client.recv(Wait::NonBlocking))
 }
 
 /// Resolves a service route using routing v1+nonce with a deterministic deadline and mismatch cap.
@@ -230,7 +238,7 @@ pub fn route_with_nonce_budgeted(
     use core::sync::atomic::{AtomicU32, Ordering};
 
     if name.is_empty() || name.len() > nexus_abi::routing::MAX_SERVICE_NAME_LEN {
-        return RouteRetryOutcome::Rejected;
+        return RouteRetryOutcome::Rejected { status: nexus_abi::routing::STATUS_MALFORMED };
     }
 
     static ROUTE_NONCE: AtomicU32 = AtomicU32::new(1);
@@ -239,7 +247,9 @@ pub fn route_with_nonce_budgeted(
     let mut req = [0u8; 5 + nexus_abi::routing::MAX_SERVICE_NAME_LEN + 4];
     let base_len = match nexus_abi::routing::encode_route_get(name, &mut req[..5 + name.len()]) {
         Some(v) => v,
-        None => return RouteRetryOutcome::Rejected,
+        None => {
+            return RouteRetryOutcome::Rejected { status: nexus_abi::routing::STATUS_MALFORMED }
+        }
     };
     req[base_len..base_len + 4].copy_from_slice(&nonce.to_le_bytes());
     let req_len = base_len + 4;
@@ -252,7 +262,7 @@ pub fn route_with_nonce_budgeted(
     };
 
     let ctrl = nexus_service_topology::CTRL_SLOTS;
-    if let Err(e) = raw::send_budgeted(&clock, ctrl.send, &hdr, &req[..req_len], deadline_ns) {
+    if let Err(e) = raw::send_budgeted(ctrl.send, &hdr, &req[..req_len], deadline_ns) {
         return if e == IpcError::Timeout {
             RouteRetryOutcome::Timeout
         } else {
@@ -261,19 +271,12 @@ pub fn route_with_nonce_budgeted(
     }
 
     let mut mismatches: u32 = 0;
-    let mut loops: usize = 0;
     loop {
-        if (loops & 0x1f) == 0 {
-            match clock.now_ns() {
-                Some(now) if now >= deadline_ns => return RouteRetryOutcome::Timeout,
-                Some(_) => {}
-                None => return RouteRetryOutcome::Ipc(IpcError::Unsupported),
-            }
-        }
-
+        // Every iteration WAITS in the kernel for the next control frame (or the deadline);
+        // a frame that is not our answer is dropped and the wait resumes.
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 32];
-        let n = match raw::recv_budgeted(&clock, ctrl.recv, &mut rh, &mut buf, deadline_ns) {
+        let n = match raw::recv_budgeted(ctrl.recv, &mut rh, &mut buf, deadline_ns) {
             Ok(v) => core::cmp::min(v, buf.len()),
             // No answer inside the budget. Since RFC-0093 §1 the ask may be PARKED in
             // init (a restarting target); the caller retries on its own cadence with a
@@ -283,19 +286,11 @@ pub fn route_with_nonce_budgeted(
         };
 
         if n != 17 {
-            let _ = nexus_abi::yield_();
-            loops = loops.wrapping_add(1);
             continue;
         }
-
-        let (status, send_slot, recv_slot) = match nexus_abi::routing::decode_route_rsp(&buf[..13])
-        {
-            Some(v) => v,
-            None => {
-                let _ = nexus_abi::yield_();
-                loops = loops.wrapping_add(1);
-                continue;
-            }
+        let Some((status, send_slot, recv_slot)) = nexus_abi::routing::decode_route_rsp(&buf[..13])
+        else {
+            continue;
         };
         let got_nonce = u32::from_le_bytes([buf[13], buf[14], buf[15], buf[16]]);
         if got_nonce != nonce {
@@ -303,8 +298,6 @@ pub fn route_with_nonce_budgeted(
             if mismatches > mismatch_budget.raw() {
                 return RouteRetryOutcome::NonceMismatchBudgetExceeded;
             }
-            let _ = nexus_abi::yield_();
-            loops = loops.wrapping_add(1);
             continue;
         }
 
@@ -320,58 +313,54 @@ pub fn route_with_nonce_budgeted(
             // caller decides — never a hammering loop.
             return RouteRetryOutcome::TargetStale;
         }
-        return RouteRetryOutcome::Rejected;
+        return RouteRetryOutcome::Rejected { status };
     }
 }
 
-/// Low-level helpers for kernel IPC v1 syscalls (slot + `MsgHeader`).
-///
-/// These are OS-lite only and avoid allocations.
+/// Low-level helpers for kernel IPC v1 syscalls (slot + `MsgHeader`): blocking with an
+/// ABSOLUTE deadline the kernel checks against the same clock as [`OsClock`]. OS-lite only,
+/// no allocations. A zero deadline is refused — the kernel reads it as "wait forever".
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub mod raw {
-    use super::{retry_ipc_until, Clock};
     use crate::{IpcError, Result};
 
-    /// Sends `bytes` via kernel IPC v1 using non-blocking attempts until `deadline_ns`.
+    fn map(err: nexus_abi::IpcError) -> IpcError {
+        match err {
+            nexus_abi::IpcError::TimedOut => IpcError::Timeout,
+            nexus_abi::IpcError::QueueFull | nexus_abi::IpcError::QueueEmpty => {
+                IpcError::WouldBlock
+            }
+            e => IpcError::Kernel(e),
+        }
+    }
+
+    /// Blocks until `bytes` is queued on `send_slot` or `deadline_ns` (absolute) passes.
     pub fn send_budgeted(
-        clock: &impl Clock,
         send_slot: u32,
         hdr: &nexus_abi::MsgHeader,
         bytes: &[u8],
         deadline_ns: u64,
     ) -> Result<()> {
-        retry_ipc_until(clock, deadline_ns, || {
-            match nexus_abi::ipc_send_v1(send_slot, hdr, bytes, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-                Ok(_) => Ok(()),
-                Err(nexus_abi::IpcError::QueueFull) => Err(IpcError::WouldBlock),
-                Err(e) => Err(IpcError::Kernel(e)),
-            }
-        })
+        if deadline_ns == 0 {
+            return Err(IpcError::Unsupported);
+        }
+        nexus_abi::ipc_send_v1(send_slot, hdr, bytes, 0, deadline_ns).map(|_| ()).map_err(map)
     }
 
-    /// Receives bytes via kernel IPC v1 using non-blocking attempts until `deadline_ns`.
-    ///
-    /// Returns the number of bytes written to `out`.
+    /// Blocks until a frame arrives on `recv_slot` or `deadline_ns` (absolute) passes.
+    /// Returns the number of bytes written to `out` (truncating longer frames).
     pub fn recv_budgeted(
-        clock: &impl Clock,
         recv_slot: u32,
         hdr_out: &mut nexus_abi::MsgHeader,
         out: &mut [u8],
         deadline_ns: u64,
     ) -> Result<usize> {
-        retry_ipc_until(clock, deadline_ns, || {
-            match nexus_abi::ipc_recv_v1(
-                recv_slot,
-                hdr_out,
-                out,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => Ok(n as usize),
-                Err(nexus_abi::IpcError::QueueEmpty) => Err(IpcError::WouldBlock),
-                Err(e) => Err(IpcError::Kernel(e)),
-            }
-        })
+        if deadline_ns == 0 {
+            return Err(IpcError::Unsupported);
+        }
+        nexus_abi::ipc_recv_v1(recv_slot, hdr_out, out, nexus_abi::IPC_SYS_TRUNCATE, deadline_ns)
+            .map(|n| n as usize)
+            .map_err(map)
     }
 }
 
@@ -380,121 +369,144 @@ mod tests {
     use super::*;
     use core::cell::Cell;
 
+    /// A clock that advances by `step_ns` on every reading — time passes only when the
+    /// helper looks, so every test is deterministic.
     #[derive(Default)]
     struct TestClock {
         now: Cell<u64>,
-        now_calls: Cell<u64>,
-        yield_calls: Cell<u64>,
-        advance_per_yield_ns: u64,
+        step_ns: u64,
     }
 
     impl Clock for TestClock {
         fn now_ns(&self) -> Option<u64> {
-            self.now_calls.set(self.now_calls.get().saturating_add(1));
-            Some(self.now.get())
-        }
-
-        fn yield_now(&self) {
-            // Deterministic: advance the synthetic clock without sleeping.
-            self.yield_calls.set(self.yield_calls.get().saturating_add(1));
-            self.now.set(self.now.get().saturating_add(self.advance_per_yield_ns));
+            let now = self.now.get();
+            self.now.set(now.saturating_add(self.step_ns));
+            Some(now)
         }
     }
 
+    /// A blocking transport that answers with a scripted sequence of outcomes and records
+    /// the wait it was handed each time.
     #[derive(Default)]
     struct TestClient {
-        send_calls: Cell<u32>,
-        recv_calls: Cell<u32>,
-        wouldblock_before_ok: u32,
+        script: Cell<usize>,
+        outcomes: Vec<Result<Vec<u8>>>,
+        waits: std::cell::RefCell<Vec<Wait>>,
+    }
+
+    impl TestClient {
+        fn scripted(outcomes: Vec<Result<Vec<u8>>>) -> Self {
+            Self { outcomes, ..Default::default() }
+        }
+        fn next(&self, wait: Wait) -> Result<Vec<u8>> {
+            self.waits.borrow_mut().push(wait);
+            let i = self.script.get();
+            self.script.set(i + 1);
+            self.outcomes.get(i).cloned().unwrap_or(Err(IpcError::Timeout))
+        }
+        fn calls(&self) -> usize {
+            self.script.get()
+        }
     }
 
     impl Client for TestClient {
-        fn send(&self, _frame: &[u8], _wait: Wait) -> Result<()> {
-            let calls = self.send_calls.get().saturating_add(1);
-            self.send_calls.set(calls);
-            if calls <= self.wouldblock_before_ok {
-                Err(IpcError::WouldBlock)
-            } else {
-                Ok(())
-            }
+        fn send(&self, _frame: &[u8], wait: Wait) -> Result<()> {
+            self.next(wait).map(|_| ())
         }
 
-        fn recv(&self, _wait: Wait) -> Result<Vec<u8>> {
-            let calls = self.recv_calls.get().saturating_add(1);
-            self.recv_calls.set(calls);
-            if calls <= self.wouldblock_before_ok {
-                Err(IpcError::WouldBlock)
-            } else {
-                Ok(vec![1, 2, 3])
-            }
+        fn recv(&self, wait: Wait) -> Result<Vec<u8>> {
+            self.next(wait)
         }
     }
 
     #[test]
-    fn retry_succeeds_after_wouldblock() {
-        let clock = TestClock { advance_per_yield_ns: 1_000_000, ..Default::default() };
-        let mut attempts = 0u32;
-        let v = retry_ipc_budgeted(&clock, Duration::from_millis(10), || {
-            attempts += 1;
-            if attempts < 5 {
-                Err(IpcError::WouldBlock)
-            } else {
-                Ok(42u32)
-            }
-        })
-        .unwrap();
-        assert_eq!(v, 42);
-        assert!(clock.yield_calls.get() >= 4);
+    fn recv_until_hands_the_remaining_budget_to_the_transport() {
+        let clock = TestClock { now: Cell::new(2_000_000), step_ns: 0 };
+        let client = TestClient::scripted(vec![Ok(vec![7])]);
+        let got = recv_until(&clock, &client, 5_000_000).unwrap();
+        assert_eq!(got, vec![7]);
+        assert_eq!(client.waits.borrow()[0], Wait::Timeout(Duration::from_nanos(3_000_000)));
     }
 
     #[test]
-    fn retry_times_out_deterministically() {
-        let clock = TestClock { advance_per_yield_ns: 1_000_000, ..Default::default() };
-        let err = retry_ipc_budgeted(&clock, Duration::from_millis(3), || -> Result<()> {
-            Err(IpcError::WouldBlock)
-        })
-        .unwrap_err();
-        assert_eq!(err, IpcError::Timeout);
-        assert!(clock.yield_calls.get() > 0);
+    fn recv_until_re_enters_after_an_early_transport_timeout() {
+        // The transport may wake early; the CLOCK decides when the wait is over.
+        let clock = TestClock { now: Cell::new(0), step_ns: 1_000 };
+        let client = TestClient::scripted(vec![
+            Err(IpcError::Timeout),
+            Err(IpcError::Timeout),
+            Ok(vec![1, 2, 3]),
+        ]);
+        let got = recv_until(&clock, &client, 1_000_000).unwrap();
+        assert_eq!(got, vec![1, 2, 3]);
+        assert_eq!(client.calls(), 3);
     }
 
     #[test]
-    fn deadline_check_is_periodic_not_per_spin() {
-        // If the operation succeeds quickly, we should not consult the clock on every spin.
-        let clock = TestClock { advance_per_yield_ns: 0, ..Default::default() };
-        let deadline = 123;
-        let mut attempts = 0usize;
-        retry_ipc_until(&clock, deadline, || {
-            attempts += 1;
-            if attempts < 300 {
-                Err(IpcError::WouldBlock)
-            } else {
-                Ok(())
-            }
-        })
-        .unwrap();
-        // now_ns is called once per 128 spins (plus a small constant). 300 spins -> ~3 calls.
-        assert!(clock.now_calls.get() <= 6, "now_ns called too often: {}", clock.now_calls.get());
+    fn test_reject_recv_past_deadline() {
+        // Deadline already passed: Timeout WITHOUT touching the transport (a zero budget
+        // would read as "wait forever" in the kernel).
+        let clock = TestClock { now: Cell::new(5), step_ns: 0 };
+        let client = TestClient::scripted(vec![Ok(vec![9])]);
+        assert_eq!(recv_until(&clock, &client, 5).unwrap_err(), IpcError::Timeout);
+        assert_eq!(client.calls(), 0);
     }
 
     #[test]
-    fn send_and_recv_budgeted_spin_until_progress() {
-        let clock = TestClock { advance_per_yield_ns: 1, ..Default::default() };
-        let client = TestClient { wouldblock_before_ok: 4, ..Default::default() };
+    fn test_reject_wouldblock_transport_is_not_waited_on() {
+        // A transport that did not wait is an error, never a reason to spin.
+        let clock = TestClock { now: Cell::new(0), step_ns: 0 };
+        let client = TestClient::scripted(vec![Err(IpcError::WouldBlock), Ok(vec![1])]);
+        assert_eq!(recv_until(&clock, &client, 1_000).unwrap_err(), IpcError::WouldBlock);
+        assert_eq!(client.calls(), 1);
+        let sender = TestClient::scripted(vec![Err(IpcError::WouldBlock), Ok(vec![])]);
+        assert_eq!(send_until(&clock, &sender, b"x", 1_000).unwrap_err(), IpcError::WouldBlock);
+        assert_eq!(sender.calls(), 1);
+    }
 
+    #[test]
+    fn send_until_waits_and_times_out_on_the_clock() {
+        let clock = TestClock { now: Cell::new(0), step_ns: 500 };
+        let client = TestClient::scripted(vec![Err(IpcError::Timeout), Ok(vec![])]);
+        send_until(&clock, &client, b"hi", 1_000).unwrap();
+        assert_eq!(client.calls(), 2);
+        // Two clock readings so far (500 each): the next wait starts AT the deadline.
+        let late = TestClient::scripted(vec![Ok(vec![])]);
+        assert_eq!(send_until(&clock, &late, b"hi", 1_000).unwrap_err(), IpcError::Timeout);
+        assert_eq!(late.calls(), 0);
+    }
+
+    #[test]
+    fn recv_matching_until_skips_foreign_frames() {
+        let clock = TestClock { now: Cell::new(0), step_ns: 1 };
+        let client = TestClient::scripted(vec![Ok(vec![0xAA]), Ok(vec![0xBB]), Ok(vec![0x42])]);
+        let got = recv_matching_until(&clock, &client, 1_000, |f| (f[0] == 0x42).then_some(f[0]));
+        assert_eq!(got.unwrap(), 0x42);
+        assert_eq!(client.calls(), 3);
+    }
+
+    #[test]
+    fn test_reject_foreign_frame_is_not_a_reply() {
+        // Only foreign frames arrive: the wait ends on the deadline, never on a frame that
+        // fails the correlation rule.
+        let clock = TestClock { now: Cell::new(0), step_ns: 400 };
+        let foreign = Ok(vec![0xAA]);
+        let client = TestClient::scripted(vec![foreign; 8]);
+        let got = recv_matching_until(&clock, &client, 1_000, |f| (f[0] == 0x42).then_some(()));
+        assert_eq!(got.unwrap_err(), IpcError::Timeout);
+        // Readings at 0 / 400 / 800 admit three waits; the fourth is past the deadline.
+        assert_eq!(client.calls(), 3, "must stop on the deadline, not on script exhaustion");
+    }
+
+    #[test]
+    fn budgeted_forms_derive_the_deadline_from_the_clock() {
+        let clock = TestClock { now: Cell::new(10_000_000), step_ns: 0 };
+        let client = TestClient::scripted(vec![Ok(vec![]), Ok(vec![5])]);
         send_budgeted(&clock, &client, b"hi", Duration::from_millis(5)).unwrap();
         let rsp = recv_budgeted(&clock, &client, Duration::from_millis(5)).unwrap();
-        assert_eq!(rsp, vec![1, 2, 3]);
-        assert!(clock.yield_calls.get() >= 8);
-    }
-
-    #[test]
-    fn send_budgeted_times_out() {
-        let clock = TestClock { advance_per_yield_ns: 1_000_000, ..Default::default() };
-        let client = TestClient { wouldblock_before_ok: u32::MAX, ..Default::default() };
-
-        let err = send_budgeted(&clock, &client, b"hi", Duration::from_millis(2)).unwrap_err();
-        assert_eq!(err, IpcError::Timeout);
-        assert!(clock.yield_calls.get() > 0);
+        assert_eq!(rsp, vec![5]);
+        let waits = client.waits.borrow();
+        assert_eq!(waits[0], Wait::Timeout(Duration::from_millis(5)));
+        assert_eq!(waits[1], Wait::Timeout(Duration::from_millis(5)));
     }
 }

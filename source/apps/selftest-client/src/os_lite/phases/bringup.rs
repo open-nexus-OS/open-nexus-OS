@@ -18,12 +18,14 @@
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
-use nexus_abi::{yield_, MsgHeader};
-use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
+use nexus_abi::MsgHeader;
+use nexus_ipc::{Client, Wait as IpcWait};
 
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
 use crate::os_lite::context::PhaseCtx;
-use crate::os_lite::ipc::routing::{route_with_retry, routing_v1_get};
+use crate::os_lite::ipc::routing::{
+    route_slots_from_responder, route_slots_from_responder_within, route_with_retry,
+};
 use crate::os_lite::{ime_ranking, imed, imed_osk, probes, services, settings_watch, timed};
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
@@ -313,30 +315,15 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             nexus_abi::IPC_SYS_NONBLOCK,
             0,
         );
+        // The echo is queued before the send returns (self-loopback): ONE waited receive
+        // proves the pair; the bound only names a broken endpoint.
         let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
         let mut rb = [0u8; 8];
-        let mut ok = false;
-        for _ in 0..256 {
-            match nexus_abi::ipc_recv_v1(
-                ctx.reply_recv_slot,
-                &mut rh,
-                &mut rb,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => {
-                    let n = n as usize;
-                    if n == ping.len() && &rb[..n] == &ping {
-                        ok = true;
-                        break;
-                    }
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => break,
-            }
-        }
+        let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(2_000_000_000);
+        let ok = matches!(
+            nexus_ipc::budget::raw::recv_budgeted(ctx.reply_recv_slot, &mut rh, &mut rb, deadline),
+            Ok(n) if n == ping.len() && rb[..n] == ping
+        );
         if ok {
             emit_line(crate::markers::M_SELFTEST_REPLY_LOOPBACK_OK);
         } else {
@@ -358,31 +345,12 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_FAIL);
     }
 
-    // Readiness gate: ensure dsoftbusd is ready before running routing-dependent probes.
-    // This is required for the canonical marker ladder order in `scripts/qemu-test.sh`.
-    if let Ok(logd) = KernelClient::new_for("logd") {
-        let start = nexus_abi::nsec().unwrap_or(0);
-        let deadline = start.saturating_add(5_000_000_000); // 5s (bounded)
-        loop {
-            if services::logd::logd_query_contains_since_paged(
-                &logd,
-                0,
-                crate::markers::M_DSOFTBUSD_READY.as_bytes(),
-            )
-            .unwrap_or(false)
-            {
-                break;
-            }
-            let now = nexus_abi::nsec().unwrap_or(0);
-            if now >= deadline {
-                // Don't emit FAIL markers here; the harness will fail anyway if dsoftbusd never becomes ready.
-                break;
-            }
-            for _ in 0..32 {
-                let _ = yield_();
-            }
-        }
-    }
+    // Readiness gate: dsoftbusd must be ready before the routing-dependent probes run (the
+    // canonical marker ladder order in `scripts/qemu-test.sh`). ONE parked route ask
+    // (RFC-0093 §1): init answers it when dsoftbusd has reported ready — the 5 s bound is
+    // dsoftbusd's network bring-up, not a poll cadence (TASK-0324 P7 deleted the logd-query
+    // loop that used to grep for its ready line every 32 yields).
+    let _ = route_slots_from_responder_within("dsoftbusd", core::time::Duration::from_secs(5));
 
     // samgrd v1 lookup (routing + ok/unknown/malformed)
     let samgrd = match route_with_retry("samgrd") {
@@ -398,10 +366,10 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     let samgrd = samgrd;
     emit_line(crate::markers::M_SELFTEST_IPC_ROUTING_SAMGRD_OK);
     // Reply inbox for CAP_MOVE samgrd RPC.
-    let (route_send, route_recv) = match routing_v1_get("vfsd") {
-        Ok((st, send, recv)) if st == nexus_abi::routing::STATUS_OK && send != 0 && recv != 0 => {
+    let (route_send, route_recv) = match route_slots_from_responder("vfsd") {
+        Ok((send, recv)) if send != 0 && recv != 0 => {
             emit_bytes(crate::markers::M_SELFTEST_ROUTING_VFSD_ST_0X.as_bytes());
-            emit_hex_u64(st as u64);
+            emit_hex_u64(nexus_abi::routing::STATUS_OK as u64);
             emit_bytes(b" send=0x");
             emit_hex_u64(send as u64);
             emit_bytes(b" recv=0x");
