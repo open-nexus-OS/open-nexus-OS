@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-15 (TASK-0324 P9: eight consecutive proof boots — TASK-0324 COMPLETE)
+
+- Eight consecutive `just test-os visible` boots (the `just start` environment: virgl, a real
+  display) each passed the marker ladder AND the pixel proof: 8/8 boots EXIT=0, pixel diff vs splash 31.76–32.74, boot total_ms 1274–1276. No `FAIL` outside the
+  allow-listed dsoftbus pair (single-VM profile, no peer). `just test-all` EXIT=0 over 10 lanes
+  on the same tree (P8).
+- Closure: RFC-0093 → Implemented (Phases 0–9 ✅, the checklist closed); the task ledger's P5
+  and P6 rows carry their delivered sub-packages (they were complete on 2026-09-12/14) and
+  the task is Done. Final progress: P0 build truth + pixel lane · P1 contract · P2 `@ready` ·
+  P3 routing v2 · P4a–f ONE topology crate (191 → 0 positional slots) · P5a–c stage fence ·
+  P6a–d handoff v2 · P7a–d waits without clocks (gate at zero) · P8 init without clocks ·
+  P9 8/8 boots — every package proven by `just test-all` in its own run.
+
 ### Changed - 2026-09-15 (TASK-0324 P8: init without clocks; closure docs, LOC baseline, gate over init)
 
 - **init's exchanges are waited** (the answer or the peer's death, RFC-0079 EOF on init's own
