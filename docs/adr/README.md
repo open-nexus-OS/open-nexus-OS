@@ -73,3 +73,4 @@ Note: **ADR-0019 was never filed; the number is retired to keep history stable.*
 - [ADR-0061: Inbound exposure is an intent through ONE gateway — no service binds a non-loopback address itself](0061-exposure-intent-instead-of-free-binds.md) — Accepted
 - [ADR-0062: init synchronizes boot ONLY through `@ready` and one kernel stage fence — never through yields, resume order or time caps](0062-boot-stage-fence-and-readiness-barriers.md) — Accepted
 - [ADR-0063: A proof lane declares its resource envelope, never dies silently, and CI is the authority for the full ladder](0063-proof-lane-resource-envelope-and-authority.md) — Accepted
+- [ADR-0064: Request/reply is one trap per side with a direct handoff — the reply completes the caller's syscall, and no clock takes part](0064-request-reply-one-trap-per-side-direct-handoff.md) — Proposed (TASK-0054C P0 seed 2026-09-15)

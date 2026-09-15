@@ -1,6 +1,6 @@
 ---
-title: TASK-0054C Kernel IPC performance contract + `call` fastpath (short control messages, direct reply handoff, VMO-first bulk)
-status: Draft (end-state rewrite 2026-09-09; kernel approval zone — architecture-review + explicit user approval before code)
+title: TASK-0054C Kernel IPC performance contract + `call` / `reply_recv` fastpath (one trap per side, direct handoff, inline ≤ 64 B, VMO-first bulk)
+status: In Progress (P0 paper 2026-09-15; end-state rewrite 2026-09-15 supersedes 2026-09-09; kernel + libs approval zones — approval per package)
 owner: @kernel-team @runtime
 created: 2026-03-29
 depends-on: []
@@ -14,9 +14,304 @@ links:
   - UI perf floor baseline: tasks/TASK-0054B-ui-v1a-kernel-ui-perf-floor-zero-copy-qos-hardening.md
   - Present/input consumer baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
   - Testing contract: scripts/qemu-test.sh
+  - IPC performance contract v1 (extended by RFC-0096): docs/rfcs/RFC-0026-ipc-performance-optimization-contract-v1.md
+  - Last-sender EOF: docs/rfcs/RFC-0079-ipc-last-sender-eof.md
+  - Waits without clocks (§7), routing v2 (§1): docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md
+  - Lock classes / cpu0 right-of-way: docs/adr/0049-bkl-lockclass-and-softrt-cpu-placement.md
+  - Stage fence: docs/adr/0062-boot-stage-fence-and-readiness-barriers.md
+  - The ONE request/reply exchange today: userspace/nexus-ipc/src/exchange.rs
+  - Contract seeds (P0): docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md, docs/adr/0064-request-reply-one-trap-per-side-direct-handoff.md
 ---
 
-## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)
+## End-state rewrite 2026-09-15 (binding; supersedes the 2026-09-09 rewrite where they differ)
+
+**Review verdict 2026-09-15 (three-lens architecture review, user decisions recorded):**
+the idea behind this task — small control-plane messages are bounded, allocation-free and
+predictable; request/reply is the hot path and costs ONE trap per side with a direct
+handoff; bulk travels as VMO; every budget is a printed number — is the canonical
+microkernel form and stays. The 2026-09-09 text is superseded because its premise
+(pairing helpers everywhere), its numbers (ADR-0063, marker paths), its dependency line
+(parking on `@ready`) and its package order are stale, and because it did not know two
+kernel facts that decide the design: `Error::Reschedule` re-executes a syscall, and the
+kernel has no cross-address-space copy. User decisions: (1) the end state covers BOTH sides
+— `ipc_call` and `ipc_reply_recv`, handoff in both directions; (2) measurement (P1)
+calibrates the budget constants only; the fastpath is end-state structure and is built, and
+RFC-0096 amends RFC-0005's deferral paragraph explicitly.
+
+- **Scope** — in: kernel `ipc/{payload,stats}.rs`, `syscall/api/ipc_call.rs`,
+  `task/completion.rs` plus minimal match arms in `ipc_msg.rs`/`handler.rs`/`task/mod.rs`/
+  `budgets.rs`; `nexus-abi` wrappers + public payload constants; `nexus-ipc` `exchange`
+  (client) and `KernelServer` (server) + the deletion list in D5; every consumer only
+  through those two APIs. Out: a lock-free class for `call`, a cross-AS copy primitive,
+  raising `MAX_SYSCALL` (58/59 fit), the fire-and-forget / push-subscription / waitset
+  primitives, the VMO splice poll in `updated/apply_os.rs` (bulk path → TASK-0033), the
+  network family.
+- **Invariant** — a `call` ends only by the reply or the peer's death; a committed syscall
+  is never re-executed; a reply completes only the waiter registered on the endpoint of
+  the moved reply cap; identity is kernel-stamped on both legs; ≤ 64 B ⇒ 0 allocations,
+  > 8 KiB ⇒ `E2BIG`. Proven by `test_reject_call_without_reply_cap`,
+  `test_reject_call_reply_cap_foreign_endpoint`, `test_reject_oversized_inline`,
+  `test_reject_reply_recv_without_recv_right`, `test_call_completes_on_peer_death`,
+  `test_call_commit_is_never_reexecuted`.
+- **Contract** — RFC-0096 (extends RFC-0026, amends RFC-0005, cites RFC-0079 and RFC-0093
+  §7), ADR-0064. SSOT rows: syscall table 58/59 + its `nexus-abi` mirror, payload constants
+  in `nexus-abi`, budgets in `core/trap/budgets.rs`, markers in
+  `source/apps/selftest-client/proof-manifest/markers/ipc_kernel.toml`, `exchange` /
+  `KernelServer`.
+
+### Ground truth 2026-09-15
+
+Userspace
+- `userspace/nexus-ipc/src/exchange.rs` is the ONE request/reply exchange since TASK-0324
+  P7 (`call` / `call_into` / `call_matching`: clockless, EOF-opted wait on the caller's own
+  reply inbox, two traps). Adoption is ~20 %: 20 callers of
+  `KernelClient::send_with_cap_move_wait` (`os_kernel.rs:138`) and ~48 hand-rolled
+  send-then-recv functions remain (app-host, imed, updated, ingressd, abilitymgr, metricsd,
+  keystored, packagefsd, bundlemgrd, execd, `userspace/{statefs,storage,nexus-metrics,
+  nexus-vfs}`, `nexus-log`, ten init bootstrap helpers, ~20 selftest-client sites).
+- Dead or nearly dead: `connection.rs` (`Connection`/`Transport`, no consumer),
+  `reqrep::recv_match` (0 callers) / `recv_match_until` (1), the deadline forms and
+  `Clock`/`OsClock`/`deadline_after` in `budget.rs` (reachable only through
+  `recv_match_until`), the `os_lite.rs` mailbox (compiled only for `os-lite` without
+  `kernel-ipc`; init enables only `os-lite` — reachability to be verified in P2).
+- `source/services/app-host/src/svc_call.rs` (pre-P7, last touched 2026-07-31): an 8-frame
+  NONBLOCK stale-reply drain (`:44-66`) next to a `nsec()` deadline (`:70-88`, 250 ms via
+  `SVC_DEADLINE_NS`, `effect_host.rs:53`); the DSL knob `timeoutMs:` (`effect_host.rs:
+  613-623`) is the only consumer of `budget_ns`. The drain is obsolete: the child's reply
+  inbox is private and minted per launch (`execd/os_lite.rs:1287-1321`), app-host is
+  single-threaded, and only CAP_MOVE replies can land there — the deadline is the sole
+  producer of a stale frame.
+- Other clock-bound request/reply: `imed/os_lite.rs:401` (`nsec()+200 ms` on
+  `ipc_recv_v2`), `app-host/effect_host.rs:764` (`send_fire_and_forget` deadline), execd
+  `run_recv_wake_probe` (`os_lite.rs:1066`, a deliberate probe budget).
+- **Gate blind spot:** `scripts/check-wait-not-poll.sh` rule 3 matches helper names only,
+  never a raw non-zero `deadline_ns` argument to `ipc_send_v1`/`ipc_recv_v1`/`ipc_recv_v2`;
+  rule 2 needs NONBLOCK + `yield_()` + bound, and the drain has no `yield_()`.
+- `call_matching` carries 14 crates through `nexus_ipc::policyd` (`policyd.rs:210`)
+  because the reply inbox is shared with fire-and-forget traffic (statefsd audit appends
+  leave unread logd acks queued). Design smell: a reply inbox should see only awaited
+  replies.
+- The server side is centralized: 37 files go through `KernelServer` / `ReplyCap`
+  (`recv_request_with_meta_into`, `reply_and_close(_wait)`), 8 hand-rolled `ipc_recv_v2`
+  loops remain (selftest policyd + settings_watch, imed, ingressd, inputd/wait, netstackd
+  facade, policyd, windowd region). `nexus-service-entry` has no server loop.
+- `tests/sdk_surface` asserts `docs/dev/sdk/crates.toml` only — no symbol surface.
+
+Kernel (`source/kernel/neuron/src/`)
+- Syscalls: `MAX_SYSCALL = 64`, next free number **58** (4 and 27 are retired and never
+  reused); `register()` asserts on duplicates; numbers are mirrored as local constants in
+  `nexus-abi/src/syscall/ipc.rs`.
+- `ipc/mod.rs:66-97` `Message { header, payload: Vec<u8>, moved_cap, capmove_expected_ep,
+  sender_service_id }`; a non-empty send costs ≥ 2 heap allocations (`ipc_msg.rs:204,260`).
+  No inline path exists.
+- The 8 KiB cap exists three times (`ipc_msg.rs:60`, `ipc_recv_v2.rs:64`, `endpoint.rs:44`)
+  and fails with `EINVAL`, not `E2BIG`; RFC-0005 still documents "initially 512".
+- No handoff: a reply is `ipc_send_v1` → `pop_recv_waiter` → `tasks.wake` → per-CPU
+  runqueue enqueue + a cross-hart IPI when homes differ (`task/mod.rs:1029-1088`).
+  `BlockReason` (`task/mod.rs:50-77`) = IpcRecv / IpcSend / WaitChild / Waitset / Fence,
+  each with a `deadline_ns` and four mandatory match sites (`task/mod.rs:1008`,
+  `api/mod.rs:264,327`, `runtime.rs:507`).
+- **`Error::Reschedule` re-executes the syscall** (`syscall/mod.rs:214`, `handler.rs:83`);
+  send/recv are re-entrant by rolling the moved cap back (`ipc_msg.rs:311,338`). A `call`
+  that has sent its request is not. The only precedent for "write the result into a saved
+  frame" is `core/trap/phased.rs:83-90` (`sepc + 4`, `x[10]`), never from a wake path.
+- No cross-address-space copy primitive; every user copy runs under the current task's
+  SATP.
+- Lock classes: no `LockClass` type, three `matches!` arms (`handler.rs:549,647`,
+  `api/mod.rs:450` — lock-free = `nsec` only). IPC is BKL; `record_ecall_hold`
+  (`handler.rs:661`) measures every BKL syscall into `KSELFTEST: bkl budget ok`.
+- EOF (RFC-0079, P7): `eof_pending` (`endpoint.rs:36`), the one scan
+  `api/eof_scan.rs:18-57` (owner excluded, in-flight moved SEND caps count as a peer), wake
+  through `drain_recv_waiters`. A `call`-blocked task MUST be a recv waiter of its reply
+  endpoint. `ipc_recv_v2` rejects `IPC_SYS_EOF` (`ipc_recv_v2.rs:73`); `ipc_recv_v1` accepts.
+- Routing v2 parks in init (`route_park.rs`) on unresolvable targets only, never on
+  `@ready` (RFC-0093 §1 amendment 2026-09-09); the stage fence orders (ADR-0062).
+- LOC: `ipc/mod.rs` 718/718 (baselined, may not grow), `ipc_msg.rs` 579, `task/mod.rs`
+  1292, `handler.rs` 1224, `sched/mod.rs` 759 (all baselined) — new code lands in new files.
+- Tests: `ipc/mod.rs:495-717` (incl. a 2000-step router state-machine fuzz),
+  `api/tests.rs` (1653 LOC). **No** op-count / alloc-count test, **no** IPC latency number
+  anywhere in the repo.
+
+Contracts / proof
+- RFC-0005 §"Copy-in/out now, zero/low-copy later" defers handle-attached messages behind
+  four criteria. CAP_MOVE (one handle per message) IS landed with `cap_close`, rollback
+  tests and the router fuzz — criteria 1 + 2 hold; `ipc_call` composes existing semantics
+  and adds no handle semantics. RFC-0096 amends that paragraph and the 512 → 8192 number.
+- RFC-0026 "IPC performance optimization v1" (Complete) owns the control/data-plane split
+  as prose; nothing enforces it. RFC-0096 is its v2 and extends it by reference.
+- RFC-0093 §7 (waits without clocks): `ipc_call` / `ipc_reply_recv` carry NO deadline
+  argument — clocklessness by ABI.
+- Proof pattern to copy: `core/trap/budgets.rs` (constants, reset window after bring-up) +
+  `syscall/api/sched_telemetry.rs:119-135` (numbers inside the marker, prefix gate via
+  `count_lines` in `scripts/qemu-test.sh`). Marker manifest:
+  `source/apps/selftest-client/proof-manifest/markers/ipc_kernel.toml` (+
+  `profiles/harness.toml`). `tools/nx/chains/markers.txt` is the hop-ladder registry, not
+  a budget registry. The "TASK-0318 pattern" exists only as a Draft ledger.
+- Numbers: RFC-0096 is free (0094 content transfer, 0095 screencap, 0097 payload VMO are
+  reserved by sibling ledgers). **ADR-0063 is taken** (proof-lane envelope) → **ADR-0064**.
+  Syscalls 58 / 59.
+
+### Goal (end system)
+
+A written IPC performance contract (RFC-0096) and the kernel fastpath sized to it:
+`ipc_call` — request + wait for the reply in ONE trap, the reply handed off to the caller
+without a runqueue hop — and `ipc_reply_recv` — reply + wait for the next request in ONE
+trap, the request handed off to the server; payload ≤ 64 B inline without kernel heap; an
+8 KiB hard cap with `E2BIG`; budgets measured as numbers and gated. Userspace has ONE
+request/reply API (`exchange`) and ONE server loop (`KernelServer`), both on the new
+syscalls; every pairing / deadline / drain form is deleted and a gate makes it impossible
+to build again.
+
+### Non-goals
+
+A new IPC primitive or ABI redesign beyond the two syscalls; lock-free router experiments;
+MM changes; any change to `sender_service_id`, CAP_MOVE rights / rollback, or RFC-0079 EOF
+semantics; a cross-address-space copy primitive (copy-out happens on resume in the
+waiter's own address space).
+
+### Invariants
+
+- RFC-0005 semantics preserved; identity stamped by the kernel on every path, including
+  the request delivered through `ipc_reply_recv`.
+- `IPC_SHORT_MAX = 64` (inline, zero allocations) and `IPC_PAYLOAD_MAX = 8192` (`E2BIG`
+  above) are public constants in `nexus-abi`; the kernel-private `MAX_FRAME_BYTES` is
+  deleted.
+- `ipc_call` / `ipc_reply_recv` have NO deadline argument (RFC-0093 §7). Exactly two things
+  end a `call`: the reply, or the death of the last peer (EOF → `EPIPE`).
+- A committed syscall is never re-executed: the commit point is "request / reply enqueued";
+  from there the peer (or the EOF scan) completes the syscall through the task's call state.
+- Hot path bounded: no queue scan, no logging, no heap for ≤ 64 B.
+- Budgets measured under `smp1` + icount, printed with their numbers, asserted — never a
+  bare `ok`.
+- Gates at zero: wait-not-poll (new rule 4: a raw non-zero `deadline_ns` on an IPC
+  syscall), slot SSOT, init-sync, structure (baseline only shrinks), FAIL markers.
+
+### Decisions
+
+- **D1 Contract.** RFC-0096 "IPC performance contract v2: `call` / `reply_recv` fastpath"
+  extends RFC-0026, amends RFC-0005 (deferral paragraph satisfied and replaced, 512 → 8192)
+  and cites RFC-0079 / RFC-0093 §7. ADR-0064 "Request/reply is one trap per side with a
+  direct handoff; the reply completes the caller's syscall". Budget constants in
+  `core/trap/budgets.rs`: `IPC_CALL_RT_BUDGET_US`, `IPC_CALL_HANDOFF_MISS_BUDGET`,
+  `IPC_CALL_ALLOCS = 0` — values from P1.
+- **D2 Two syscalls, one mechanism.** `SYSCALL_IPC_CALL_V1 = 58` (send slot, header with the
+  CAP_MOVE reply cap, request, out buffer + length, `sys_flags ∈ {TRUNCATE}`) and
+  `SYSCALL_IPC_REPLY_RECV_V1 = 59` (reply slot, reply header + frame, an `IpcRecvV2Desc` for
+  the next request incl. `sender_service_id`). Both: phase 1 re-entrant (target queue full →
+  `BlockReason::IpcSend` as today, nothing committed); phase 2 commit (enqueued, `sepc + 4`,
+  task in `BlockReason::IpcCall { reply_ep }` resp. `IpcRecv`, registered as recv waiter,
+  call state `{ out_ptr, out_len, staged }` in the new `task/completion.rs`); phase 3
+  completion by the peer: an inline reply into the waiter's 64-byte stage buffer, a heap
+  reply as a parked `Message`, `x[10]` written; copy-out into the user buffer in the
+  waiter's trap return under its own SATP (one hook in the `handler.rs` epilogue). The EOF
+  scan completes with `EPIPE`. Lock class BKL; `record_ecall_hold` measures automatically.
+  The reply cap moved by `ipc_call` must be a SEND cap to the endpoint the caller waits on
+  and the caller must hold RECV on it (`test_reject_call_reply_cap_foreign_endpoint`).
+  `ipc_reply_recv` does NOT opt into EOF (a server owns its endpoint; "all clients gone" is
+  not a server error).
+- **D3 Handoff rule (fixed in the RFC).** When a send finds the receiver blocked in
+  `IpcCall` (or in `IpcRecv` entered through `ipc_reply_recv`) and the receiver's affinity
+  admits the current hart, the hart switches to the receiver directly — no enqueue, no
+  IPI; otherwise enqueue + `request_resched` as today. Counters `handoff_hit`,
+  `handoff_miss`, `reply_wake_ipi` in `ipc/stats.rs`.
+- **D4 Payload.** `ipc/payload.rs`: `Payload::{ Inline { len, [u8; 64] }, Heap(Vec<u8>) }`,
+  `Message.payload: Payload`, ABI unchanged. Over the cap → `E2BIG` (new errno in
+  `nexus-abi` → `IpcError::TooBig`).
+- **D5 Userspace: ONE API per side, the old forms deleted.** Client: `exchange::call_into`
+  (+ `call_matching` only if P2 proves a structurally shared inbox; the goal is "every
+  reply inbox sees only awaited replies" — statefsd audit appends without a reply cap, then
+  `call_matching` is deleted). Server: `KernelServer::reply_recv`. Deleted:
+  `send_with_cap_move(_wait)`, `Connection` / `Transport`, `reqrep::recv_match*`, the
+  deadline forms + `Clock` / `OsClock` / `deadline_after` in `budget.rs`, `exchange::call`
+  (the `Vec` form), the `os_lite.rs` mailbox (if unreachable), app-host's `svc_call.rs`
+  drain + `SVC_DEADLINE_NS` + the DSL `timeoutMs:` knob (an app-visible removal, named in
+  CHANGELOG + DSL docs), imed's deadline, execd's probe moved onto the timer-notify pair.
+  `raw::recv_blocking` without EOF goes.
+- **D6 Bench gate.** Host: a counting `#[global_allocator]` in the kernel host tests
+  (0 allocations for ≤ 64 B send / recv / call) and router op counters in the state machine,
+  both in the `just test-all` kernel stage. QEMU: `KSELFTEST: ipc call budget ok (rt=<n>us
+  handoff_miss=<m> alloc=0)` after the reset window (pattern `sched_telemetry.rs`),
+  registered in `markers/ipc_kernel.toml` + `scripts/qemu-test.sh` headless / smp1. Real
+  load: `KSELFTEST: ipc stats (...)` at the ShellVisible fence in the `visible` lane.
+
+### Packages (one commit each; approval zones named per package)
+
+- **P0 Paper** — this ledger section, the IMPLEMENTATION-ORDER row (ADR-0064,
+  `call` + `reply_recv`), RFC-0096 seed (index row; fix the RFC-0093 index text "replies
+  parked until the target's `@ready`"), ADR-0064 seed (index row), architecture-review
+  verdict above, approval question for kernel + libs + abi. Zones: `docs/rfcs`. Blast: paper.
+- **P1 Measure** — `ipc/stats.rs` (sends, heap allocs, wake IPIs, handoff = 0) +
+  `KSELFTEST: ipc stats (...)` (pattern `sched_telemetry.rs`); selftest-client `SELFTEST:
+  ipc bench (rt=<n>us hops=<h>)` ping-pong over today's two-trap `exchange` (no assert);
+  the stats line at the ShellVisible fence. Zones: kernel (small). Lanes: headless, smp1,
+  visible. Result → the D1 budget constants.
+- **P2 Userspace ONE API** — all 48 pairing functions + 20 helper callers onto `exchange`;
+  the D5 deletion list; app-host `svc_call.rs` = a wrapper around `call_into`; `timeoutMs:`
+  removed (effect_host + DSL grammar / lint in `tools/nx`); gate rule 4; LOC baseline
+  shrunk (`config/loc-baseline.txt`). Zones: libs (`nexus-log`, one site), config, scripts.
+  Blast: every service, init, selftest. Lanes: `just test-all` + visible.
+- **P3 Kernel payload** — `ipc/payload.rs`, `IPC_SHORT_MAX` / `IPC_PAYLOAD_MAX` in
+  `nexus-abi`, `E2BIG`, the counting-allocator test, `test_reject_oversized_inline`. Zones:
+  kernel, libs. Blast: all IPC. Lanes: `just test-all`.
+- **P4 Kernel call + reply_recv** — `syscall/api/ipc_call.rs`, `task/completion.rs`,
+  `BlockReason::IpcCall`, handoff (D3), EOF integration, `nexus-abi` wrappers (`ipc_call`,
+  `ipc_reply_recv`), budgets + `KSELFTEST: ipc call budget ok (...)`, kernel host tests
+  (`test_reject_call_without_reply_cap`, `test_reject_call_reply_cap_foreign_endpoint`,
+  `test_reject_reply_recv_without_recv_right`, `test_call_completes_on_peer_death`,
+  handoff same-hart, enqueue cross-hart, `test_call_commit_is_never_reexecuted`). Zones:
+  kernel, libs. Lanes: `just test-all` incl. smp / bkl.
+- **P5 Seam flip** — `exchange::call_into` → `ipc_call`; `KernelServer` → `reply_recv`
+  (loop form `next = reply_recv(reply)`); the 8 hand-rolled `recv_v2` loops onto
+  `KernelServer`; `ReplyCap::reply_and_close_wait` deleted; markers `SELFTEST: ipc fastpath
+  ping ok (rt=<n>us)`, `SELFTEST: ipc fastpath reply ok`, `SELFTEST: ipc bulk-vmo path ok`.
+  Zones: libs (`nexus-service-entry` if touched). Blast: everything. Lanes: `just test-all`
+  + visible + 8/8 visible boots.
+- **P6 Closure** — RFC-0096 Implemented, the RFC-0005 amendment, an RFC-0026 note,
+  `docs/testing/README.md` bench lane, CHANGELOG (proof line, the `timeoutMs:` removal),
+  IMPLEMENTATION-ORDER, ledger Done, memory handoff. Zones: `docs/rfcs`.
+
+### Definition of Done
+
+Host: alloc / op gates, RFC-0005 compatibility tests, the `test_reject_*` above, gate rule 4
+with its fixture. QEMU (registered in `source/apps/selftest-client/proof-manifest/markers/
+ipc_kernel.toml` + `scripts/qemu-test.sh` headless / smp1):
+`KSELFTEST: ipc call budget ok (rt=<n>us handoff_miss=<m> alloc=0)`,
+`SELFTEST: ipc fastpath ping ok (rt=<n>us)`, `SELFTEST: ipc fastpath reply ok`,
+`SELFTEST: ipc bulk-vmo path ok`. Grep-gone list empty: `send_with_cap_move`, `recv_match`,
+`Connection<`, `deadline_after`, `SVC_DEADLINE_NS`, `timeoutMs`, `MAX_FRAME_BYTES`,
+`reply_and_close_wait`. `just test-all` EXIT=0, 8/8 visible boots.
+
+### Touched paths
+
+`source/kernel/neuron/src/{ipc/{payload.rs,stats.rs,mod.rs},syscall/{mod.rs,api/{mod.rs,
+ipc_call.rs,ipc_msg.rs,ipc_recv_v2.rs,eof_scan.rs,sched_telemetry.rs}},task/{mod.rs,
+completion.rs},core/trap/{handler.rs,budgets.rs}}`, `source/libs/nexus-abi/src/{lib.rs,
+syscall/ipc.rs}`, `source/libs/nexus-log/src/lib.rs`, `userspace/nexus-ipc/src/{exchange.rs,
+os_kernel.rs,budget.rs,reqrep.rs,connection.rs,os_lite.rs,policyd.rs,lib.rs}`,
+`source/services/app-host/src/{svc_call.rs,effect_host.rs}`, every request/reply consumer
+(inventory in P2), `source/apps/selftest-client/src/os_lite/{phases,probes}/ipc_kernel*`,
+`source/apps/selftest-client/proof-manifest/markers/ipc_kernel.toml`, `scripts/qemu-test.sh`,
+`scripts/check-wait-not-poll.sh`, `config/loc-baseline.txt`, `docs/rfcs/RFC-0096-*.md`,
+`docs/rfcs/RFC-0005-*.md`, `docs/adr/0064-*.md`, `docs/testing/README.md`.
+
+### Dependencies
+
+None open: TASK-0324 P0–P9 are Done and RFC-0093 is Implemented. (The old line "P3 parked
+replies until `@ready`" is deleted — routing v2 never parks on readiness.)
+
+### Progress
+
+| Package | Status |
+|---|---|
+| P0 Paper | Done 2026-09-15 — ledger rewrite, IMPLEMENTATION-ORDER rows, RFC-0096 seed + index rows (RFC-0093 index text corrected), ADR-0064 seed + index row, three-lens verdict above; zones released: `docs/rfcs` (P0), kernel for P1 |
+| P1 Measure | Draft |
+| P2 Userspace ONE API | Draft |
+| P3 Kernel payload | Draft |
+| P4 Kernel call + reply_recv | Draft |
+| P5 Seam flip | Draft |
+| P6 Closure | Draft |
+
+## End-state rewrite 2026-09-09 — historical, superseded by the 2026-09-15 rewrite above
 
 **Ground truth 2026-09-09:** zero fastpath code (`source/kernel/neuron/src/ipc/` = `mod.rs`
 718, `trace.rs` 279, `endpoint.rs` 151, `header.rs` 92 LOC), no IPC microbench anywhere, no
