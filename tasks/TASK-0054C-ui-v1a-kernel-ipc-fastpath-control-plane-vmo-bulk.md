@@ -344,6 +344,22 @@ waiter's own address space).
     inbox sees only awaited replies; `call_matching` kept only for a structurally shared
     inbox P2-c names; rule 1 retires the deleted names; LOC baseline shrunk. Zones: libs
     (`nexus-log`), config, scripts. Blast: every service, init, selftest.
+  - **P2-b findings (2026-09-15):** (1) a waitset reports a timer member READY once without a
+    fire — the kernel's EOF latch is set on an endpoint whose only SEND cap is its owner's
+    (init closes its minting cap) — so every timer wake is confirmed by `NotifyTimer::drain()`;
+    (2) core-plane services (virtioblkd, policyd, bundlemgrd) run before the wiring phase —
+    declared timer endpoints are minted and pinned in the spawn-time pass, once per service;
+    (3) **kernel:** the EOF latch was cleared by every receive, so a peer that wrote and died
+    left a waitset blind to its death once its last frame was received (execd's probe); the
+    latch is now consumed only when a receiver observes an empty queue (`ipc_msg.rs`,
+    `ipc_recv_v2.rs`), and the probe's two markers are required by the harness; (4) gpud's
+    device bring-up commands wait before the IRQ is bound — the watchdog exists from queue
+    creation, the IRQ attaches later (one shared watchdog for both queues); (5) the fleet-
+    reserved slots (`DEVICE_MMIO_SLOT` 0x30, `INPUT_MMIO_SLOTS` 0x32–0x34, `STAGE_FENCE_SLOT`
+    0x38) are caught by `test_reject_slot_in_reserved_range`; (6) structure gate: the grown
+    files split into child modules (`virtqueue/ring_wait.rs`, `mmio/watchdog.rs`,
+    `os_lite/recv_wake_probe.rs`, `slots/selftest_client.rs`) that see their parent's
+    private fields.
   - Parked (not this task): the selftest ingress probe's socket-status retries
     (`WOULD_BLOCK` from the facade's non-blocking socket ops, bounded by
     `STEP_DEADLINE_NS`) are the network family's poll and go with blocking/notify socket
@@ -404,7 +420,7 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 | P0 Paper | Done 2026-09-15 — ledger rewrite, IMPLEMENTATION-ORDER rows, RFC-0096 seed + index rows (RFC-0093 index text corrected), ADR-0064 seed + index row, three-lens verdict above; zones released: `docs/rfcs` (P0), kernel for P1 |
 | P1 Measure | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: smp1 214 ok / 41 KSELFTEST / total_ms 1257, `rt=209us n=64`, `sends=5700 heap_allocs=11400 copies=17665 copy_bytes=1690977 wake_ipis=0 handoff_miss=5172`; visible pixel 31.76, same numbers → **2 allocations and ~3 copies per message, 0.9 runqueue hops per message (one hart)** — `ipc/stats.rs` (declared at the crate root as `ipc_stats` so its unit test runs on host, like `ipc_eof`), `KSELFTEST: ipc stats (…)` next to the BKL line, `SELFTEST: ipc bench (rt=…us n=64)` in the `ipc_kernel` phase; counts sends, payload allocs, payload copies + bytes (zero-copy line), wake IPIs, handoff misses |
 | P2-a Clocks out of request/reply | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (wait-not-poll absolute), smp1 213 ok / 41 KSELFTEST / total_ms 1257 (the retired deadline marker is the −1), visible pixel 31.76; no `apphost: svc reply desync` line in any lane |
-| P2-b Pacing/watchdog waits onto timer pairs; rule 4 absolute | Draft |
+| P2-b Pacing/watchdog waits onto timer pairs; rule 4 absolute | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: check 0 (rule 4 at zero), smp1 213 ok / 41 KSELFTEST / total_ms 1258 with `blk: watchdog on` + both probe markers, visible pixel 31.76; KERNEL: EOF latch consumed on observed emptiness only (approval used) |
 | P2-c ONE client API (pairing helpers deleted, shared-inbox model decided) | Draft |
 | P3 Kernel payload | Draft |
 | P4 Kernel call + reply_recv | Draft |

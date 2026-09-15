@@ -25,6 +25,13 @@
 - **Phase 6 (handoff v2: reveal handshake, seq acks, kernel display mode, readback off-scanout)**: ✅ 2026-09-14 — TASK-0324 P6-a (one display-mode source, no query protocol), P6-b/c (sequence-tracked present acks, reveal as a handshake; lease, stall recovery, deadline, pixel probe and both time caps deleted), P6-d (display truth through a probe render target, reveal gated time-free); `visible` handshake seq=2, pixel 40.09 %
 - **Phase 7 (waits without clocks, §7)**: ✅ 2026-09-14 — TASK-0324 P7-a…P7-d: `check-wait-not-poll.sh` at zero (60 → 0 polls, 133 → 0 clock-bound forms), death wakes + EOF-on-waitset in the kernel, timer-notify pairs, `OP_ARM_VMO`, the login in the revealed frame; `just test-all` green over 10 lanes
 - **Phase 8 (closure docs/gates, init without clocks)**: ✅ 2026-09-15 — TASK-0324 P8: init's exchanges waited, the responder on one waitset with a timer-notify pair, the kernel EOF latch set whenever no foreign sender remains, `check-wait-not-poll.sh` over `source/init`, LOC baseline ratcheted, RFC-0069/0013 + ADR-0041/0050 closed; `just test-all` green over 10 lanes
+- **Amendment 2026-09-15 (TASK-0054C P2-b, §7 EOF latch):** the waitset EOF latch is consumed
+  when a receiver OBSERVES an empty queue (or a new sender writes) — never by dequeuing a
+  frame. P8's "cleared by every receive" left a waitset blind to a peer that wrote and then
+  died: its last frame's receive took the latch with it, and only a blocking EOF-opted receive
+  (the live scan) still saw the death. Every bounded wait in the fleet is now a kernel timer on
+  a declared notify pair beside the endpoint (`nexus_ipc::timer`), and the latch outliving the
+  frames is what lets that waitset learn of the death.
 - **Phase 9 (8/8 boots)**: ✅ 2026-09-15 — TASK-0324 P9: 8/8 boots EXIT=0, pixel diff vs splash 31.76–32.74, boot total_ms 1274–1276 in the `just start` environment, each with the marker ladder and the pixel proof
 
 Definition:

@@ -29,6 +29,8 @@ pub(crate) mod slots {
     use nexus_service_topology::slots::ingressd as topo;
 
     pub(crate) const SVC_RECV_SLOT: u32 = topo::SERVER.recv;
+    /// The declared timer-notify pair (TASK-0054C P2-b).
+    pub(crate) const TIMER: nexus_service_topology::SlotPair = topo::TIMER;
     pub(crate) const SVC_SEND_SLOT: u32 = topo::SERVER.send;
     pub(crate) const REPLY_RECV_SLOT: u32 = topo::REPLY.recv;
     pub(crate) const REPLY_SEND_SLOT: u32 = topo::REPLY.send;
@@ -36,8 +38,9 @@ pub(crate) mod slots {
     pub(crate) const NETSTACKD_SEND_SLOT: u32 = topo::NETSTACKD.send;
 }
 
-use nexus_abi::{yield_, IpcError, MsgHeader};
+use nexus_abi::{IpcError, MsgHeader};
 use nexus_ipc::policyd::{check_cap_on, CapDecision};
+use nexus_ipc::timer::{NotifyTimer, Waitset};
 
 use crate::dispatch::{handle_frame, Event};
 use crate::intent::{HostError, IntentHost, Registry, MAX_OPEN_EXPOSURES};
@@ -48,17 +51,14 @@ use gateway::Gateway;
 use print::Line;
 use slots::*;
 
-/// Why the service could not come up.
+/// Why the service could not come up — nothing, since TASK-0054C P2-b: the declared slots are
+/// pinned before resume and the loop never returns; kept as the entry's error type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GatewayError {
-    /// The wired slots never answered (init wiring missing).
-    SlotsMissing,
-}
+pub enum GatewayError {}
 
-/// Timed park per turn (a true kernel park bounded by the data-plane cadence).
-const PARK_NS: u64 = 5_000_000;
-/// How long to wait for init's wiring before giving up.
-const SLOT_WAIT_NS: u64 = 10_000_000_000;
+/// The gateway's service cadence (accepts, relays, rate windows): a PERIODIC kernel timer on
+/// the declared notify pair (TASK-0054C P2-b) — never a receive deadline.
+const SERVICE_INTERVAL_NS: u64 = 5_000_000;
 
 /// policyd over the fixed slots: `OP_CHECK_CAP_DELEGATED(subject, "net.expose")`.
 struct OsIntentHost;
@@ -83,32 +83,6 @@ fn now_ns() -> u64 {
     nexus_abi::nsec().unwrap_or(0)
 }
 
-/// Waits until every wired slot holds a cap (init transfers them after spawn).
-fn wait_for_slots() -> Result<(), GatewayError> {
-    let deadline = now_ns().saturating_add(SLOT_WAIT_NS);
-    loop {
-        let mut ok = true;
-        for slot in [SVC_RECV_SLOT, REPLY_SEND_SLOT, POLICYD_SEND_SLOT, NETSTACKD_SEND_SLOT] {
-            match nexus_abi::cap_clone(slot) {
-                Ok(c) => {
-                    let _ = nexus_abi::cap_close(c);
-                }
-                Err(_) => {
-                    ok = false;
-                    break;
-                }
-            }
-        }
-        if ok {
-            return Ok(());
-        }
-        if now_ns() >= deadline {
-            return Err(GatewayError::SlotsMissing);
-        }
-        let _ = yield_();
-    }
-}
-
 fn reply(hdr: &MsgHeader, frame: &[u8]) {
     if frame.is_empty() {
         return;
@@ -128,7 +102,6 @@ fn reply(hdr: &MsgHeader, frame: &[u8]) {
 pub fn service_main_loop() -> Result<(), GatewayError> {
     // Verdict folding (RFC-0068): routine markers fold in interactive boots.
     nexus_abi::service_verdict_arm();
-    wait_for_slots()?;
     let table = EXPOSE_ENTRIES;
     let mut reg: Registry<'static, MAX_OPEN_EXPOSURES> = Registry::new(table);
     let mut gw = Gateway::new();
@@ -136,19 +109,28 @@ pub fn service_main_loop() -> Result<(), GatewayError> {
     let _ = nexus_service_entry::ready("ingressd: ready");
     nexus_abi::service_verdict_flush("ingressd");
 
+    // TASK-0054C P2-b: the service cadence is a periodic kernel timer on the declared notify
+    // pair, a waitset member beside the server endpoint. A request or the tick wakes the loop;
+    // nothing here holds a deadline (the 5 ms timed park that used to double as the clock is
+    // gone). Declared slots are pinned before resume, so there is nothing to wait for first.
+    let mut timer = NotifyTimer::bind_with_interval(TIMER, SERVICE_INTERVAL_NS).ok();
+    let waitset = timer.as_ref().and_then(|t| Waitset::over(&[SVC_RECV_SLOT, t.recv_slot()]).ok());
+    if let Some(t) = timer.as_mut() {
+        t.arm_in(SERVICE_INTERVAL_NS);
+    }
+    if waitset.is_none() {
+        Line::prefixed("FAIL waitset/timer (blocking on the server endpoint alone)").emit_raw();
+    }
+    let recv_flags = if waitset.is_some() {
+        nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_NONBLOCK
+    } else {
+        nexus_abi::IPC_SYS_TRUNCATE
+    };
     loop {
         let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
         let mut sid: u64 = 0;
         let mut buf = [0u8; 64];
-        let park_deadline = now_ns().saturating_add(PARK_NS);
-        match nexus_abi::ipc_recv_v2(
-            SVC_RECV_SLOT,
-            &mut hdr,
-            &mut buf,
-            &mut sid,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            park_deadline,
-        ) {
+        match nexus_abi::ipc_recv_v2(SVC_RECV_SLOT, &mut hdr, &mut buf, &mut sid, recv_flags, 0) {
             Ok(n) => {
                 let n = (n as usize).min(buf.len());
                 let mut out = [0u8; STATUS_REPLY_LEN];
@@ -205,7 +187,13 @@ pub fn service_main_loop() -> Result<(), GatewayError> {
                 }
             }
         }
+        if let Some(t) = timer.as_mut() {
+            t.drain();
+        }
         gw.service(&mut reg, now_ns());
-        let _ = yield_();
+        // WAIT — no clock: the next request or the next tick.
+        if let Some(ws) = waitset.as_ref() {
+            let _ = ws.wait();
+        }
     }
 }

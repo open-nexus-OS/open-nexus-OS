@@ -22,10 +22,8 @@ pub(crate) const FRAME_PERIOD_NS: u64 = 8_333_333;
 /// pacing (bootstrap splash, boot-splash hold, spin demo); disarmed otherwise.
 #[derive(Default)]
 pub(crate) struct FrameClock {
-    pub(crate) timer: Option<u32>,
+    pub(crate) timer: Option<nexus_ipc::timer::NotifyTimer>,
     pub(crate) waitset: Option<u32>,
-    /// The armed deadline (0 = disarmed).
-    pub(crate) armed_ns: u64,
     /// The one-shot fired: the next idle pass presents a frame.
     pub(crate) due: bool,
     pub(crate) last_frame_ns: u64,
@@ -40,35 +38,13 @@ impl FrameClock {
         let Some(ws) = self.waitset else {
             return Wait::Blocking;
         };
-        if let Some(timer) = self.timer {
+        if let Some(timer) = self.timer.as_mut() {
             let want =
                 if pacing { self.last_frame_ns.saturating_add(FRAME_PERIOD_NS).max(1) } else { 0 };
-            if want != self.armed_ns {
-                if self.armed_ns != 0 {
-                    let _ = nexus_abi::timer_cancel(timer);
-                    self.armed_ns = 0;
-                }
-                if want != 0 && nexus_abi::timer_set(timer, want).is_ok() {
-                    self.armed_ns = want;
-                }
-            }
+            timer.arm_at(want);
         }
         let _ = nexus_abi::waitset_wait(ws, 0);
-        let mut buf = [0u8; 32];
-        loop {
-            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            if nexus_abi::ipc_recv_v1(
-                nexus_service_topology::slots::gpud::TIMER_RECV,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            )
-            .is_err()
-            {
-                break;
-            }
-            self.armed_ns = 0;
+        if self.timer.as_mut().is_some_and(|t| t.drain()) {
             self.due = true;
         }
         Wait::NonBlocking

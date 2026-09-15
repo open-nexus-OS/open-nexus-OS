@@ -123,6 +123,8 @@ fn mmio_policy_deny_probe(pol_route: (u32, u32)) -> Result<()> {
 /// services the plane needs; the bulk pass later skips a pair already set).
 fn transfer_server_pair(chan: &mut CtrlChannel, id: ServiceId, req: u32, rsp: u32, vblk_req: u32) {
     // TASK-0324 P4f: all three core-plane services are declared — pinned before they run.
+    // TASK-0054C P2-b: their declared timer endpoints too (virtioblkd's device watchdog).
+    crate::bootstrap::declared_routes::pin_declared_timers(chan.pid, id);
     if let Some(pair) = crate::bootstrap::declared_slots::pin_server_pair(chan.pid, id, req, rsp) {
         chan.set_send(id, pair.send);
         chan.set_recv(id, pair.recv);

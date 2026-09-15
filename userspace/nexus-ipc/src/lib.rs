@@ -130,6 +130,10 @@ pub mod budget;
 /// The ONE request/reply exchange: no timeout — the reply or the peer's death ends the wait.
 pub mod exchange;
 
+/// Kernel timers on declared notify endpoints + waitsets (TASK-0054C P2-b): pacing and device
+/// watchdogs without a receive deadline.
+pub mod timer;
+
 /// logd OS-lite v1 wire helpers (host-testable parsers).
 pub mod logd_wire;
 

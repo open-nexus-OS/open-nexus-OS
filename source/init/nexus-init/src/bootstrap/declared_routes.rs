@@ -102,21 +102,40 @@ pub(crate) fn wire_declared_legs(
     }
 }
 
-/// TASK-0324 P7-d: a declared timer-notify endpoint — pacing without a recv timeout. Both
-/// halves land in the service's declared slots; it binds its kernel timer cap to the SEND half
-/// and waits on the RECV half as a waitset member. Runs for bespoke and generic arms alike.
-pub(crate) fn pin_timer_notify(pid: u32, svc: ServiceId, eps: &Endpoints) {
-    use crate::service_topology::NamedSlot;
-    let Some(ep) = eps.timer_notify_ep(svc) else {
-        return;
-    };
-    let recv = declared_slots::pin_named(pid, svc, NamedSlot::TimerNotifyRecv, ep, Rights::RECV);
-    let send = declared_slots::pin_named(pid, svc, NamedSlot::TimerNotifySend, ep, Rights::SEND);
-    if recv.is_none() || send.is_none() {
-        crate::bootstrap::diag::emit_marker_atomic(
-            &[b"init: timer-notify FAIL svc=", svc.name().as_bytes()],
-            None,
-        );
+/// The declared timer endpoints of a service (TASK-0324 P7-d, TASK-0054C P2-b): the pacing
+/// timer-notify pair and the device-watchdog pair. Minted HERE, from the declaration — a spec
+/// that binds the RECV name gets an endpoint owned by the service, both halves pinned into its
+/// declared slots (it binds its kernel timer cap to the SEND half and waits on the RECV half
+/// as a waitset member), and init's own cap closed at once. No per-service field, no bespoke
+/// mint: adding a timer to a service is one declaration. Runs ONCE per service in the
+/// spawn-time distribution (`distribute_server_pair_for`; the core plane's
+/// `transfer_server_pair` for the services resumed before it), i.e. before the service runs.
+pub(crate) fn pin_declared_timers(pid: u32, svc: ServiceId) {
+    use crate::service_topology::{extra_slot, NamedSlot};
+    const PAIRS: [(NamedSlot, NamedSlot, &[u8]); 2] = [
+        (NamedSlot::TimerNotifyRecv, NamedSlot::TimerNotifySend, b"timer-notify"),
+        (NamedSlot::DeviceWatchdogRecv, NamedSlot::DeviceWatchdogSend, b"device-watchdog"),
+    ];
+    for (recv_name, send_name, what) in PAIRS {
+        if extra_slot(svc, recv_name).is_none() {
+            continue;
+        }
+        let Ok(ep) = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8) else {
+            crate::bootstrap::diag::emit_marker_atomic(
+                &[b"init: ", what, b" mint FAIL svc=", svc.name().as_bytes()],
+                None,
+            );
+            continue;
+        };
+        let recv = declared_slots::pin_named(pid, svc, recv_name, ep, Rights::RECV);
+        let send = declared_slots::pin_named(pid, svc, send_name, ep, Rights::SEND);
+        let _ = nexus_abi::cap_close(ep);
+        if recv.is_none() || send.is_none() {
+            crate::bootstrap::diag::emit_marker_atomic(
+                &[b"init: ", what, b" FAIL svc=", svc.name().as_bytes()],
+                None,
+            );
+        }
     }
 }
 

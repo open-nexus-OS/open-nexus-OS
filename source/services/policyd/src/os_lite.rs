@@ -113,17 +113,19 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut ctl_route_buf = [0u8; 512];
     let mut ctl_exec_buf = [0u8; 512];
     let mut server_buf = [0u8; 512];
-    // Reactive idle (RFC-0069 Batch P): the server endpoint (the hot path) is a
-    // TIMED BLOCKING recv — a true kernel park, the proven inputd/windowd
-    // pattern — and the two init control channels are swept NONBLOCK on every
-    // wake, bounding their latency at the park deadline (5ms). This removes the
-    // last busy-poll on the critical grant path. Safe only since the pre-grant
-    // server-pair distribution (task #123): the bootstrap fleet no longer races
-    // its fallback slots against a policyd-latency-delayed wire_services.
-    const SERVER_PARK_NS: u64 = 5_000_000;
+    // TASK-0054C P2-b: ONE waitset over the server endpoint and init's two control channels
+    // — no park deadline (the 5 ms timed park that doubled as their polling clock is gone).
+    // A wake drains every member non-blocking, the server endpoint in a bounded batch.
+    let members = [server_recv_slot, ctl_route_recv_slot, ctl_exec_recv_slot];
+    let waitset = nexus_ipc::timer::Waitset::over(&members).ok();
+    if waitset.is_none() {
+        let _ = nexus_abi::debug_println("policyd: FAIL waitset (blocking on the server alone)");
+    }
+    const SERVER_BATCH: usize = 32;
+    const NB: u32 = nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE;
     let mut counters = crate::audit_os::DenyCounters::new();
     loop {
-        match recv_with_meta_nonblock(ctl_route_recv_slot, &mut ctl_route_buf) {
+        match recv_with_meta(ctl_route_recv_slot, &mut ctl_route_buf, NB) {
             Ok((hdr, sender_service_id, n)) => {
                 let rsp = handle_frame(&ctl_route_buf[..n], sender_service_id, true, &mut counters);
                 let _ = send_reply_nonblock(ctl_route_send_slot, &hdr, &rsp.buf[..rsp.len]);
@@ -132,7 +134,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Err(_) => {}
         }
 
-        match recv_with_meta_nonblock(ctl_exec_recv_slot, &mut ctl_exec_buf) {
+        match recv_with_meta(ctl_exec_recv_slot, &mut ctl_exec_buf, NB) {
             Ok((hdr, sender_service_id, n)) => {
                 let rsp = handle_frame(&ctl_exec_buf[..n], sender_service_id, true, &mut counters);
                 let _ = send_reply_nonblock(ctl_exec_send_slot, &hdr, &rsp.buf[..rsp.len]);
@@ -141,56 +143,43 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Err(_) => {}
         }
 
-        // Park on the server endpoint (or handle its message immediately).
-        match recv_with_meta_deadline(server_recv_slot, &mut server_buf, SERVER_PARK_NS) {
-            Ok((hdr, sender_service_id, n)) => {
-                let rsp = handle_frame(
-                    &server_buf[..n],
-                    sender_service_id,
-                    sender_service_id == init_lite_id || sender_service_id == init_alt_id,
-                    &mut counters,
-                );
-                let _ = send_reply_nonblock(server_send_slot, &hdr, &rsp.buf[..rsp.len]);
+        // The server endpoint (without a waitset: ONE blocking receive, no deadline).
+        for _ in 0..SERVER_BATCH {
+            let flags = if waitset.is_some() { NB } else { nexus_abi::IPC_SYS_TRUNCATE };
+            let got = recv_with_meta(server_recv_slot, &mut server_buf, flags);
+            match got {
+                Ok((hdr, sender_service_id, n)) => {
+                    let rsp = handle_frame(
+                        &server_buf[..n],
+                        sender_service_id,
+                        sender_service_id == init_lite_id || sender_service_id == init_alt_id,
+                        &mut counters,
+                    );
+                    let _ = send_reply_nonblock(server_send_slot, &hdr, &rsp.buf[..rsp.len]);
+                    if waitset.is_none() {
+                        break;
+                    }
+                }
+                Err(_) => break,
             }
-            Err(_) => {}
+        }
+        // WAIT — no clock: the next frame on any member wakes this loop.
+        if let Some(ws) = waitset.as_ref() {
+            let _ = ws.wait();
         }
     }
 }
 
-/// Timed blocking recv (kernel park until message or deadline) with sender metadata.
-fn recv_with_meta_deadline(
+/// One receive with sender metadata: `sys_flags` is `TRUNCATE` (a kernel park until a message
+/// arrives — no deadline) or `NONBLOCK | TRUNCATE` (a drain behind the waitset).
+fn recv_with_meta(
     recv_slot: u32,
     buf: &mut [u8],
-    park_ns: u64,
+    sys_flags: u32,
 ) -> Result<(nexus_abi::MsgHeader, u64, usize), nexus_abi::IpcError> {
     let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut sid: u64 = 0;
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(park_ns);
-    let n = nexus_abi::ipc_recv_v2(
-        recv_slot,
-        &mut hdr,
-        buf,
-        &mut sid,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        deadline,
-    )?;
-    Ok((hdr, sid, n as usize))
-}
-
-fn recv_with_meta_nonblock(
-    recv_slot: u32,
-    buf: &mut [u8],
-) -> Result<(nexus_abi::MsgHeader, u64, usize), nexus_abi::IpcError> {
-    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut sid: u64 = 0;
-    let n = nexus_abi::ipc_recv_v2(
-        recv_slot,
-        &mut hdr,
-        buf,
-        &mut sid,
-        nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-        0,
-    )?;
+    let n = nexus_abi::ipc_recv_v2(recv_slot, &mut hdr, buf, &mut sid, sys_flags, 0)?;
     Ok((hdr, sid, n as usize))
 }
 

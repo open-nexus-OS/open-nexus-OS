@@ -110,10 +110,17 @@ pub(crate) const VIRTIOBLKD: ServiceSpec = ServiceSpec {
     announce: true,
     server_slots: slots::virtioblkd::SERVER,
     reply_slots: SlotPair::UNDECLARED,
-    extra_slots: &[NamedSlotBinding {
-        name: NamedSlot::IrqNotify,
-        slot: slots::virtioblkd::IRQ_NOTIFY,
-    }],
+    extra_slots: &[
+        NamedSlotBinding { name: NamedSlot::IrqNotify, slot: slots::virtioblkd::IRQ_NOTIFY },
+        NamedSlotBinding {
+            name: NamedSlot::DeviceWatchdogRecv,
+            slot: slots::virtioblkd::WATCHDOG.recv,
+        },
+        NamedSlotBinding {
+            name: NamedSlot::DeviceWatchdogSend,
+            slot: slots::virtioblkd::WATCHDOG.send,
+        },
+    ],
 };
 
 // Batch 4 (amended by TASK-0049C): logd persists evidence-class records

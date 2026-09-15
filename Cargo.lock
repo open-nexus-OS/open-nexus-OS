@@ -4259,6 +4259,8 @@ version = "0.1.0"
 dependencies = [
  "nexus-abi",
  "nexus-hal",
+ "nexus-ipc",
+ "nexus-service-topology",
 ]
 
 [[package]]

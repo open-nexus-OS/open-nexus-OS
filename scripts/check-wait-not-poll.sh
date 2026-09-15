@@ -20,6 +20,10 @@
 #      are absent from every consumer (a reply is waited for until it arrives or the peer dies —
 #      `nexus_ipc::exchange`; pacing is a kernel one-shot timer on a waitset, never a recv
 #      timeout). Absolute since TASK-0054C P2-a: no transport implements a wait form any more.
+#   4. No raw deadline on an IPC syscall — ZERO (TASK-0054C P2-b): the `deadline_ns` argument
+#      of `ipc_send_v1(`, `ipc_recv_v1(`, `ipc_recv_v2(` and `waitset_wait(` is the literal `0`
+#      everywhere. A bound is a kernel timer on a declared notify pair, waited for as a waitset
+#      member (`nexus_ipc::timer`) — pacing, a device watchdog, a probe's FAIL witness alike.
 # `#[cfg(test)]` modules are skipped. Every run first proves the scanner on fixtures
 # (`--self-test` runs only that).
 set -euo pipefail
@@ -58,6 +62,62 @@ for root in sys.argv[1:]:
 PY
 }
 ROOTS=(source/services source/drivers source/apps source/init userspace)
+
+# Prints "<path>:<line> <call> deadline=<expr>" per IPC syscall whose deadline argument is not
+# the literal 0 (code only, tests skipped).
+scan_deadlines() {
+  python3 - "$@" <<'PY'
+import os, re, sys
+CALL = re.compile(r"\b(ipc_send_v1|ipc_recv_v1|ipc_recv_v2|waitset_wait)\s*\(")
+EXCLUDE = ("/target/", "/tests/", "/host.rs", "/src/os.rs")
+def strip_tests(src):
+    out = []; i = 0
+    while True:
+        m = re.search(r"#\[cfg\([^)]*test[^)]*\)\]\s*mod\s+\w+\s*\{", src[i:])
+        if not m:
+            out.append(src[i:]); break
+        out.append(src[i:i + m.start()]); j = i + m.end(); d = 1
+        while j < len(src) and d:
+            d += {"{": 1, "}": -1}.get(src[j], 0); j += 1
+        i = j
+    return "".join(out)
+def args_of(code, start):
+    j = start; d = 1; args = []; cur = ""
+    while j < len(code) and d:
+        c = code[j]
+        if c in "([{": d += 1
+        elif c in ")]}": d -= 1
+        if d == 0:
+            args.append(cur); break
+        if c == "," and d == 1:
+            args.append(cur); cur = ""
+        else:
+            cur += c
+        j += 1
+    args = [a.strip() for a in args]
+    while args and args[-1] == "":
+        args.pop()
+    return args
+for root in sys.argv[1:]:
+    for dp, _, fs in os.walk(root):
+        for f in sorted(fs):
+            if not f.endswith(".rs"):
+                continue
+            p = os.path.join(dp, f).replace(os.sep, "/")
+            if any(x in p for x in EXCLUDE):
+                continue
+            src = strip_tests(open(p, encoding="utf-8", errors="ignore").read())
+            code = "\n".join(l.split("//", 1)[0] for l in src.splitlines())
+            for m in CALL.finditer(code):
+                if code[max(0, m.start() - 3):m.start()].endswith("fn "):
+                    continue  # the wrapper's own definition, not a call
+                args = args_of(code, m.end())
+                last = args[-1] if args else "?"
+                if last != "0":
+                    line = code[:m.start()].count("\n") + 1
+                    print(f"{p}:{line} {m.group(1)} deadline={' '.join(last.split())[:40]}")
+PY
+}
 
 # Prints "<count> <path>: <fn>[,<fn>...]" per file with hits (sorted), exit 0 always.
 scan() {
@@ -161,7 +221,27 @@ RS
   [ "$(retired "$tmp/clean" | wc -l)" = "1" ] || { echo "[FAIL] wait-not-poll: retired-symbol rule must catch the call and skip the comment" >&2; exit 1; }
   printf 'fn t(c: &KernelClient) { let _ = c.recv(Wait::Timeout(Duration::from_millis(5))); }\n' > "$tmp/clean/src/timeout.rs"
   [ "$(scan_timeouts "$tmp/clean" | grep -c 'src/timeout.rs$')" = "1" ] || { echo "[FAIL] wait-not-poll: timeout scanner missed the fixture" >&2; exit 1; }
-  echo "[ok]   wait-not-poll: scanner self-test passed (2 poll shapes caught, drain + test module skipped, retired symbol caught, timeout form caught)"
+  cat > "$tmp/clean/src/deadline.rs" <<'RS'
+fn bounded(slot: u32) -> bool {
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(2_000_000_000);
+    nexus_abi::ipc_recv_v1(slot, &mut h, &mut b, nexus_abi::IPC_SYS_TRUNCATE, deadline).is_ok()
+}
+fn waited(slot: u32) -> bool {
+    nexus_abi::ipc_recv_v1(
+        slot,
+        &mut h,
+        &mut b,
+        nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
+        0,
+    )
+    .is_ok()
+}
+fn ws(cap: u32) { let _ = nexus_abi::waitset_wait(cap, 0); }
+RS
+  got=$(scan_deadlines "$tmp/clean")
+  [ "$(printf '%s\n' "$got" | grep -c 'deadline.rs:3 ipc_recv_v1 deadline=deadline$')" = "1" ] && [ "$(printf '%s\n' "$got" | grep -c .)" = "1" ] || {
+    echo "[FAIL] wait-not-poll: deadline scanner expected exactly the bounded recv, got: $got" >&2; exit 1; }
+  echo "[ok]   wait-not-poll: scanner self-test passed (2 poll shapes caught, drain + test module skipped, retired symbol caught, timeout form caught, raw deadline caught, waited forms clean)"
   exit 0
 fi
 
@@ -187,5 +267,11 @@ if [ -n "$t_hits" ]; then
   echo "$t_hits" >&2
   exit 1
 fi
-echo "[PASS] wait-not-poll: no retired spin helper, zero poll-against-clock functions, zero clock-bound wait forms"
+d_hits=$(scan_deadlines "${ROOTS[@]}")
+if [ -n "$d_hits" ]; then
+  echo "[FAIL] wait-not-poll: raw deadline(s) on an IPC syscall — ZERO remain after TASK-0054C P2-b (a bound is a kernel timer on a declared notify pair, waited for on a waitset — nexus_ipc::timer):" >&2
+  echo "$d_hits" >&2
+  exit 1
+fi
+echo "[PASS] wait-not-poll: no retired spin helper, zero poll-against-clock functions, zero clock-bound wait forms, zero raw IPC deadlines"
 exit 0

@@ -32,7 +32,10 @@ pub(crate) const HIDRAWD: ServiceSpec = ServiceSpec {
     announce: false,
     server_slots: SlotPair::UNDECLARED,
     reply_slots: SlotPair::UNDECLARED,
-    extra_slots: &[],
+    extra_slots: &[
+        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::hidrawd::TIMER.recv },
+        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::hidrawd::TIMER.send },
+    ],
 };
 
 /// The declaration of `gpud`.
@@ -52,6 +55,8 @@ pub(crate) const GPUD: ServiceSpec = ServiceSpec {
     extra_slots: &[
         NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::gpud::TIMER_RECV },
         NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::gpud::TIMER_SEND },
+        NamedSlotBinding { name: NamedSlot::DeviceWatchdogRecv, slot: slots::gpud::WATCHDOG.recv },
+        NamedSlotBinding { name: NamedSlot::DeviceWatchdogSend, slot: slots::gpud::WATCHDOG.send },
     ],
 };
 

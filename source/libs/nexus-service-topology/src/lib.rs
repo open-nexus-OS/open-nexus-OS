@@ -113,6 +113,12 @@ pub enum NamedSlot {
     TimerNotifyRecv,
     /// Timer-notify endpoint: the SEND half the service's kernel timer cap is bound to.
     TimerNotifySend,
+    /// Device-watchdog endpoint (TASK-0054C P2-b): the RECV half, a waitset member beside the
+    /// device's IRQ endpoint. A device that never answers ends the wait through this timer —
+    /// never through a receive deadline. Its own endpoint: one endpoint per timer.
+    DeviceWatchdogRecv,
+    /// Device-watchdog endpoint: the SEND half the watchdog timer cap is bound to.
+    DeviceWatchdogSend,
     /// Boot-stage fence, WAIT rights only (ADR-0062).
     StageFence,
     /// A second server endpoint's RECV half (imed's on-screen-keyboard endpoint, which

@@ -129,31 +129,10 @@ impl LiveRouteRuntime {
         }
     }
 
-    /// Drains the timer-notify endpoint (a waitset member): a frame means the one-shot fired
-    /// (the kernel disarmed it); the state it paced is handled by the caller.
-    pub(super) fn drain_timer_notify(&mut self) {
-        let mut buf = [0u8; 32];
-        loop {
-            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            if nexus_abi::ipc_recv_v1(
-                topo::TIMER_RECV,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            )
-            .is_err()
-            {
-                return;
-            }
-            self.timer_armed_ns = 0;
-        }
-    }
-
     /// The next clock-bound deadline, if any: the wheel indicator's expiry, or the throttled
     /// pointer push (a move that arrived inside the push interval is delivered when the
     /// interval ends — never dropped, never re-polled). `None` = nothing pending.
-    fn next_pacing_deadline_ns(&self) -> Option<u64> {
+    pub(super) fn next_pacing_deadline_ns(&self) -> Option<u64> {
         let mut next: Option<u64> = None;
         if self.wheel_indicator_direction != WheelIndicatorDirection::None {
             next = Some(self.wheel_indicator_deadline_ns.saturating_add(1));
@@ -163,21 +142,5 @@ impl LiveRouteRuntime {
             next = Some(next.map_or(due, |n| n.min(due)));
         }
         next
-    }
-
-    /// Arms the one-shot timer at the next pending deadline (or leaves it disarmed): one
-    /// kernel call per CHANGE of the deadline, none while it stands.
-    pub(super) fn arm_pacing_timer(&mut self, timer: u32) {
-        let want = self.next_pacing_deadline_ns().unwrap_or(0);
-        if want == self.timer_armed_ns {
-            return;
-        }
-        if self.timer_armed_ns != 0 {
-            let _ = nexus_abi::timer_cancel(timer);
-            self.timer_armed_ns = 0;
-        }
-        if want != 0 && nexus_abi::timer_set(timer, want).is_ok() {
-            self.timer_armed_ns = want;
-        }
     }
 }

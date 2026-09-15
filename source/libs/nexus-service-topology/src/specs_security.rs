@@ -99,7 +99,10 @@ pub(crate) const INGRESSD: ServiceSpec = ServiceSpec {
     announce: true,
     server_slots: slots::ingressd::SERVER,
     reply_slots: slots::ingressd::REPLY,
-    extra_slots: &[],
+    extra_slots: &[
+        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::ingressd::TIMER.recv },
+        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::ingressd::TIMER.send },
+    ],
 };
 
 /// The declaration of `netstackd`.
@@ -117,7 +120,10 @@ pub(crate) const NETSTACKD: ServiceSpec = ServiceSpec {
     announce: true,
     server_slots: slots::netstackd::SERVER,
     reply_slots: slots::netstackd::REPLY,
-    extra_slots: &[],
+    extra_slots: &[
+        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::netstackd::TIMER.recv },
+        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::netstackd::TIMER.send },
+    ],
 };
 
 /// The declaration of `dsoftbusd`.

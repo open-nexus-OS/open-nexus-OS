@@ -54,10 +54,6 @@ pub(crate) fn wire_services(
             debug_write_hex(pid as usize);
             debug_write_byte(b'\n');
         }
-        // TASK-0324 P7-d: the declared timer-notify pair, whichever arm wires the rest.
-        if let Some(svc) = ServiceId::from_name(chan.svc_name.as_bytes()) {
-            declared_routes::pin_timer_notify(pid, svc, eps);
-        }
         match chan.svc_name {
             // "vfsd" and "packagefsd" migrated to the declarative arm below
             // (RFC-0069 batch 2): spec = SERVICE_SPECS (vfsd's packagefsd link is

@@ -82,18 +82,17 @@ pub fn service_main_loop() -> SettingsdResult<()> {
     // its death (EOF); the persist floor and the failure backoff are paced by a kernel
     // ONE-SHOT timer armed at the exact deadline — no recv timeout, no 50 ms tick.
     let waitset = build_waitset(&server);
-    let timer = nexus_abi::timer_create(slots::TIMER_SEND, 0).ok();
+    let mut timer = nexus_ipc::timer::NotifyTimer::bind(slots::TIMER).ok();
     if waitset.is_none() || timer.is_none() {
         let _ = nexus_abi::debug_println(
             "settingsd: FAIL waitset/timer (blocking on the server endpoint alone)",
         );
     }
-    let mut timer_armed_ns = 0u64;
     loop {
         // Persistence FIRST (drain PUT replies, send a due PUT) — it never blocks a client.
         pump_persist(&mut persister, &registry);
-        if let Some(timer) = timer {
-            arm_persist_timer(timer, &persister, &mut timer_armed_ns);
+        if let Some(t) = timer.as_mut() {
+            t.arm_at(persister.next_deadline_ns().unwrap_or(0));
         }
         let wait = if waitset.is_some() { Wait::NonBlocking } else { Wait::Blocking };
         for _ in 0..IPC_BATCH_LIMIT {
@@ -155,8 +154,8 @@ pub fn service_main_loop() -> SettingsdResult<()> {
         // WAIT — no clock. A timer frame means the one-shot fired (the kernel disarmed it).
         if let Some(ws) = waitset {
             let _ = nexus_abi::waitset_wait(ws, 0);
-            if drain_timer_notify() {
-                timer_armed_ns = 0;
+            if let Some(t) = timer.as_mut() {
+                t.drain();
             }
         }
     }
@@ -174,43 +173,6 @@ fn build_waitset(server: &KernelServer) -> Option<u32> {
         nexus_abi::waitset_add(ws, slot).ok()?;
     }
     Some(ws)
-}
-
-/// Drains the timer-notify endpoint; `true` if the one-shot fired.
-fn drain_timer_notify() -> bool {
-    let mut fired = false;
-    let mut buf = [0u8; 32];
-    loop {
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        if nexus_abi::ipc_recv_v1(
-            slots::TIMER_RECV,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        )
-        .is_err()
-        {
-            return fired;
-        }
-        fired = true;
-    }
-}
-
-/// Arms the one-shot timer at the persister's next deadline (the PUT floor or the backoff),
-/// or leaves it disarmed: one kernel call per CHANGE of the deadline.
-fn arm_persist_timer(timer: u32, persister: &Persister, armed_ns: &mut u64) {
-    let want = persister.next_deadline_ns().unwrap_or(0);
-    if want == *armed_ns {
-        return;
-    }
-    if *armed_ns != 0 {
-        let _ = nexus_abi::timer_cancel(timer);
-        *armed_ns = 0;
-    }
-    if want != 0 && nexus_abi::timer_set(timer, want).is_ok() {
-        *armed_ns = want;
-    }
 }
 
 /// One NONBLOCK persistence step: harvest any statefsd PUT reply, then send

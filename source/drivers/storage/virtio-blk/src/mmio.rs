@@ -24,8 +24,11 @@ use crate::{
     QueueSetup, VirtioBlk, VirtioError, REG_QUEUE_NUM_MAX, REG_QUEUE_SEL, VIRTIO_DEVICE_ID_BLK,
     VIRTIO_MMIO_MAGIC, VIRTIO_MMIO_VERSION_LEGACY, VIRTIO_MMIO_VERSION_MODERN,
 };
-use nexus_abi::{cap_query, nsec, vmo_create, CapQuery};
+use nexus_abi::{cap_query, vmo_create, CapQuery};
 use nexus_hal::Bus;
+use nexus_ipc::timer::{NotifyTimer, Waitset};
+
+mod watchdog;
 
 const REG_INTERRUPT_STATUS: usize = 0x060;
 const REG_INTERRUPT_ACK: usize = 0x064;
@@ -190,6 +193,11 @@ pub struct VirtioBlkMmio {
     irq_num: u32,
     /// Dedicated notify endpoint (0 = none → poll fallback).
     irq_ep: u32,
+    /// The completion wait's bound (TASK-0054C P2-b): a kernel one-shot on the declared
+    /// device-watchdog pair, bound in `new` (the warm-up read is bounded too); `None` = no bound.
+    watchdog: RefCell<Option<NotifyTimer>>,
+    /// `[irq_ep, watchdog]` when an IRQ line is bound — the wait is one waitset wait.
+    wait_ws: RefCell<Option<Waitset>>,
     irq_logged: Cell<bool>,
     poll_logged: Cell<bool>,
     requests: Cell<u64>,
@@ -315,11 +323,22 @@ impl VirtioBlkMmio {
             sector_size: 512,
             irq_num,
             irq_ep,
+            // TASK-0054C P2-b: the completion wait's bound, from the warm-up read on. The pair
+            // is declared and pinned before virtioblkd runs (core plane).
+            watchdog: RefCell::new(
+                NotifyTimer::bind(nexus_service_topology::slots::virtioblkd::WATCHDOG).ok(),
+            ),
+            wait_ws: RefCell::new(None),
             irq_logged: Cell::new(false),
             poll_logged: Cell::new(false),
             requests: Cell::new(0),
         };
 
+        emit_line(if blk.watchdog.borrow().is_some() {
+            "blk: watchdog on"
+        } else {
+            "blk: no watchdog (completion waits unbounded)"
+        });
         // Warm-up read: catches a dead device before callers rely on it.
         let mut warmup = [0u8; 512];
         if let Err(e) = blk.read_run(0, &mut warmup) {
@@ -358,6 +377,10 @@ impl VirtioBlkMmio {
             return false;
         }
         self.irq_ep = ep_slot;
+        // From here a completion wait is one waitset wait over `[irq_ep, watchdog]`.
+        if let Some(t) = self.watchdog.borrow().as_ref() {
+            *self.wait_ws.borrow_mut() = Waitset::over(&[ep_slot, t.recv_slot()]).ok();
+        }
         true
     }
 
@@ -515,51 +538,6 @@ impl VirtioBlkMmio {
                     emit_line("virtio-blk: bad used id");
                     return Err(VirtioError::Unsupported);
                 }
-            }
-        }
-    }
-
-    /// Bounded completion wait: IRQ-blocked when a line is bound
-    /// (marker-honest), yield-poll otherwise. Self-terminating.
-    fn wait_done(&self, slot_idx: usize) -> Result<(), VirtioError> {
-        let start = nsec().unwrap_or(0);
-        let deadline = start.saturating_add(2_000_000_000);
-        loop {
-            self.drain()?;
-            if self.state.borrow().slots[slot_idx].done {
-                if self.irq_ep != 0 {
-                    self.ack_irq();
-                    if !self.irq_logged.get() {
-                        self.irq_logged.set(true);
-                        emit_line("blk: irq completion on");
-                    }
-                }
-                return Ok(());
-            }
-            let now = nsec().unwrap_or(0);
-            if now >= deadline {
-                emit_line("virtio-blk: timeout");
-                return Err(VirtioError::Unsupported);
-            }
-            if self.irq_ep != 0 {
-                // Block until the device interrupt (or deadline) instead
-                // of burning scheduler round-trips per sector.
-                let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-                let mut buf = [0u8; 16];
-                let _ = nexus_abi::ipc_recv_v1(
-                    self.irq_ep,
-                    &mut hdr,
-                    &mut buf,
-                    nexus_abi::IPC_SYS_TRUNCATE,
-                    deadline,
-                );
-                self.ack_irq();
-            } else {
-                if !self.poll_logged.get() {
-                    self.poll_logged.set(true);
-                    emit_line("blk: poll fallback (no irq)");
-                }
-                let _ = nexus_abi::yield_();
             }
         }
     }

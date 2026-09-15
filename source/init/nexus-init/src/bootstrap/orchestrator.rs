@@ -340,9 +340,6 @@ where
     let inputd_watch_ep = mint(inputd_pid, 8)?;
     let windowd_watch_ep = mint(windowd_pid, 8)?;
     let windowd_session_watch_ep = mint(windowd_pid, 8)?;
-    // TASK-0324 P7-d: timer-notify endpoints (both halves to the service, declared slots).
-    let inputd_timer_ep = mint(inputd_pid, 8)?;
-    let gpud_timer_ep = mint(gpud_pid, 8)?;
     let window_req = mint(windowd_pid, 32)?;
     let window_rsp = mint(windowd_pid, 8)?;
     let input_req = mint(inputd_pid, 8)?;
@@ -443,10 +440,6 @@ where
     // None before this, so BOTH routes silently never wired ("theme default
     // (settingsd unavailable)" + "execd: FAIL app route resolve svc=settings").
     let settingsd_pid = find_pid(&ctrl_channels, "settingsd");
-    let settingsd_timer_ep = match settingsd_pid {
-        Some(pid) => mint(pid, 8)?,
-        None => 0,
-    };
     let (sett_req, sett_rsp) = if let Some(pid) = settingsd_pid {
         let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
             .map_err(InitError::Abi)?;
@@ -517,9 +510,6 @@ where
         inputd_watch_ep,
         windowd_watch_ep,
         windowd_session_watch_ep,
-        inputd_timer_ep,
-        settingsd_timer_ep,
-        gpud_timer_ep,
         window_req,
         window_rsp,
         input_req,

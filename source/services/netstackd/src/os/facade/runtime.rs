@@ -13,7 +13,6 @@ extern crate alloc;
 use nexus_net_os::SmoltcpVirtioNetStack;
 
 pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
-    use nexus_abi::yield_;
     use nexus_net::NetStack as _;
 
     use crate::os::ipc::handles::ReplyCapSlot;
@@ -29,11 +28,35 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
     // request on the caller's CAP_MOVE reply cap, so the pair's send half is never used here.
     // Ownership model: this loop is the sole owner of `net` + `state`, and each handler receives
     // temporary exclusive borrows through `FacadeContext` for one request turn.
-    /// Park bound per loop turn (smoltcp timers/retransmits keep their cadence).
-    const FACADE_PARK_NS: u64 = 5_000_000;
+    /// The network stack's poll cadence (timers, retransmits, DHCP): a PERIODIC kernel timer on
+    /// the declared notify pair (TASK-0054C P2-b) — never a receive deadline.
+    const POLL_INTERVAL_NS: u64 = 5_000_000;
     let svc_recv_slot = nexus_service_topology::slots::netstackd::SERVER.recv;
     let mut state = FacadeState::new();
     crate::os::facade::authz::resolve(&mut state.policy);
+    // ONE waitset over the facade endpoint and the poll timer: a request or the tick wakes
+    // the loop (the 5 ms timed park that used to double as the clock is gone).
+    let mut poll_timer = nexus_ipc::timer::NotifyTimer::bind_with_interval(
+        nexus_service_topology::slots::netstackd::TIMER,
+        POLL_INTERVAL_NS,
+    )
+    .ok();
+    let waitset = poll_timer
+        .as_ref()
+        .and_then(|t| nexus_ipc::timer::Waitset::over(&[svc_recv_slot, t.recv_slot()]).ok());
+    if let Some(t) = poll_timer.as_mut() {
+        t.arm_in(POLL_INTERVAL_NS);
+    }
+    if waitset.is_none() {
+        let _ = nexus_abi::debug_println(
+            "netstackd: FAIL waitset/timer (blocking on the facade endpoint alone)",
+        );
+    }
+    let recv_flags = if waitset.is_some() {
+        nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_NONBLOCK
+    } else {
+        nexus_abi::IPC_SYS_TRUNCATE
+    };
 
     loop {
         let now_ms = (nexus_abi::nsec().unwrap_or(0) / 1_000_000) as u64;
@@ -50,20 +73,10 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut sid: u64 = 0;
         let mut buf = [0u8; 512];
-        // RFC-0069 reactive idle (TASK-0043 P3): a TIMED recv — a true kernel park
-        // bounded by the smoltcp poll cadence — instead of NONBLOCK + yield. The
-        // facade runs at the Normal class again (an Idle facade never ran on the
-        // strict-priority scheduler once any Normal task polled), and parking
-        // keeps it from competing with the display/input path while idle.
-        let park_deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(FACADE_PARK_NS);
-        let recv_result = nexus_abi::ipc_recv_v2(
-            svc_recv_slot,
-            &mut hdr,
-            &mut buf,
-            &mut sid,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            park_deadline,
-        );
+        // One request per wake (non-blocking behind the waitset: a queued request keeps the
+        // waitset ready, so the next turn takes the next frame); no deadline anywhere.
+        let recv_result =
+            nexus_abi::ipc_recv_v2(svc_recv_slot, &mut hdr, &mut buf, &mut sid, recv_flags, 0);
         match recv_result {
             Ok(n) => {
                 // Log first IPC receipt to confirm message flow.
@@ -91,7 +104,6 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
 
                 if !has_valid_wire_header(req) {
                     reply(&status_frame(0, STATUS_MALFORMED));
-                    let _ = yield_();
                     continue;
                 }
 
@@ -109,9 +121,8 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
                     DispatchControl::Handled => {}
                 }
             }
-            Err(nexus_abi::IpcError::QueueEmpty) | Err(nexus_abi::IpcError::TimedOut) => {
-                // Park expired without a request: drive the network stack (TCP
-                // handshakes, DHCP) on the next turn.
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                // The tick woke us without a request: the stack is driven on the next turn.
             }
             Err(_) => {
                 static IPC_RECV_ERR_LOGGED: core::sync::atomic::AtomicBool =
@@ -122,6 +133,12 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
             }
         }
 
-        let _ = yield_();
+        if let Some(t) = poll_timer.as_mut() {
+            t.drain();
+        }
+        // WAIT — no clock: the next request or the next poll tick.
+        if let Some(ws) = waitset.as_ref() {
+            let _ = ws.wait();
+        }
     }
 }

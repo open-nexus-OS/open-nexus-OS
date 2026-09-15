@@ -59,12 +59,20 @@ impl VirtioGpuBackend {
             return Err(GpuDriverError::CommandRejected);
         }
         // Control queue: multi-slot ring (batches a whole present, completes once).
-        let ctrlq = CtrlQueue::new(self.mmio_base, CTRL_QUEUE_INDEX, RING_SLOTS)?;
+        // TASK-0054C P2-b: ONE device watchdog for both queues, from the first command on
+        // (device bring-up waits are bounded too); `bind_gpu_irq` attaches the IRQ line later.
+        let watchdog = super::virtqueue::GpuWatchdog::bind().map(alloc::rc::Rc::new);
+        if watchdog.is_none() {
+            let _ = nexus_abi::debug_println("gpud: FAIL device watchdog (ring waits unbounded)");
+        }
+        let mut ctrlq = CtrlQueue::new(self.mmio_base, CTRL_QUEUE_INDEX, RING_SLOTS)?;
+        ctrlq.set_watchdog(watchdog.clone());
         self.ctrlq = Some(ctrlq);
         // Cursor virtqueue (index 1) — hardware-cursor overlay path. Best-effort:
         // if it can't be set up, cursor falls back and 2D still works. Single-slot
         // (cursor commands are submitted one at a time, no batching).
-        if let Ok(cursorq) = CtrlQueue::new(self.mmio_base, CURSOR_QUEUE_INDEX, 1) {
+        if let Ok(mut cursorq) = CtrlQueue::new(self.mmio_base, CURSOR_QUEUE_INDEX, 1) {
+            cursorq.set_watchdog(watchdog);
             self.cursorq = Some(cursorq);
         }
         let status = read_reg(self.mmio_base, protocol::VIRTIO_MMIO_STATUS);
@@ -82,6 +90,8 @@ impl VirtioGpuBackend {
         if nexus_abi::irq_bind(irq_num, irq_ep).is_err() {
             return false;
         }
+        // The shared watchdog (TASK-0054C P2-b) attaches the IRQ line once; both queues wait
+        // on `[irq_ep, watchdog]` from here on.
         if let Some(q) = self.ctrlq.as_mut() {
             q.set_gpu_irq(irq_num, irq_ep);
         }

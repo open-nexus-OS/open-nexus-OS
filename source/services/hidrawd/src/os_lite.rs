@@ -21,6 +21,7 @@ use nexus_abi::{
     cap_clone, cap_close, debug_println, debug_trace, ipc_recv_v1, irq_bind, irq_complete, nsec,
     yield_, Cap, MsgHeader, IPC_SYS_TRUNCATE,
 };
+use nexus_ipc::timer::NotifyTimer;
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use virtio_input::{
     DeviceRole, DeviceSlot, InputEventKind, MappedVirtioInputDevice, RawInputEvent,
@@ -61,6 +62,8 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // we block on it instead of busy-polling the virtio-input queues. Bound lazily
     // once devices are open.
     let mut irq_endpoint: Option<Cap> = None;
+    // TASK-0054C P2-b: the idle re-probe cadence is a kernel one-shot on the declared pair.
+    let mut idle_timer = NotifyTimer::bind(nexus_service_topology::slots::hidrawd::TIMER).ok();
 
     loop {
         if !payload_ready_emitted {
@@ -95,15 +98,11 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         if live_devices.is_empty() {
             chain.idle_yields = chain.idle_yields.saturating_add(1);
             chain.report_if_due();
-            // No input devices to service (e.g. a headless lane with no
-            // virtio-input): PARK off the run queue on a bounded deadline instead
-            // of yield-spinning at Normal QoS. A busy-yield here kept the Normal
-            // queue perpetually non-empty on the strict-priority scheduler and
-            // starved Idle background work (netstackd bootstrap, selftest OTA) —
-            // the ~12k idle_yields/window class. We park on our control endpoint
-            // (slot 2, owned + otherwise idle); a control message OR the deadline
-            // wakes us to re-probe for hot-plugged devices.
-            idle_park(HIDRAWD_IDLE_PARK_NS);
+            // No input devices to service (e.g. a headless lane with no virtio-input):
+            // PARK off the run queue on the re-probe timer instead of yield-spinning at
+            // Normal QoS (a busy-yield starved Idle background work — the ~12k
+            // idle_yields/window class). The timer's frame wakes us to re-probe.
+            idle_park(idle_timer.as_mut());
             continue;
         }
 
@@ -286,10 +285,9 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             let _ = ipc_recv_v1(ep, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, 0);
         } else if !sent_any {
             chain.idle_yields = chain.idle_yields.saturating_add(1);
-            // Devices present but no IRQ endpoint bound yet + nothing to send:
-            // park on a bounded deadline instead of yield-spinning (same Idle-
-            // starvation reason as the empty-devices path above).
-            idle_park(HIDRAWD_IDLE_PARK_NS);
+            // Devices present but no IRQ endpoint bound yet + nothing to send: one
+            // re-probe interval on the timer (same Idle-starvation reason as above).
+            idle_park(idle_timer.as_mut());
         }
     }
 }
@@ -300,16 +298,18 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
 /// would starve Idle background work on the strict-priority scheduler).
 const HIDRAWD_IDLE_PARK_NS: u64 = 50_000_000;
 
-/// PARK the current task for up to `park_ns` (bounded deadline) instead of
-/// busy-yielding: a blocking recv on the owned control endpoint (slot 2) with a
-/// deadline. A control message OR the deadline wakes it; either way it takes zero
-/// CPU while parked. Replaces `yield_()` in the hidrawd idle paths.
-fn idle_park(park_ns: u64) {
-    const CONTROL_REPLY_SLOT: Cap = nexus_service_topology::CTRL_SLOTS.recv;
-    let deadline = nsec().unwrap_or(0).saturating_add(park_ns);
-    let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
-    let mut buf = [0u8; 32];
-    let _ = ipc_recv_v1(CONTROL_REPLY_SLOT, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, deadline);
+/// PARK for one re-probe interval: a kernel one-shot on the declared timer-notify pair,
+/// waited for on its frame (TASK-0054C P2-b) — zero CPU, no receive deadline. Without the
+/// timer (its bind failed) the task parks on its owned control endpoint.
+fn idle_park(timer: Option<&mut NotifyTimer>) {
+    let Some(t) = timer else {
+        let (mut hdr, mut buf) = (MsgHeader::new(0, 0, 0, 0, 0), [0u8; 32]);
+        let ctrl = nexus_service_topology::CTRL_SLOTS.recv;
+        let _ = ipc_recv_v1(ctrl, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, 0);
+        return;
+    };
+    t.arm_in(HIDRAWD_IDLE_PARK_NS);
+    let _ = t.wait_fired();
 }
 
 fn map_live_route_send_error(err: nexus_ipc::IpcError) -> LiveRouteSendErrorClass {

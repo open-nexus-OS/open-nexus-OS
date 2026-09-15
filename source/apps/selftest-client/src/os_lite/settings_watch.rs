@@ -13,6 +13,7 @@
 
 use nexus_abi::settingsd as wire;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
+use nexus_ipc::timer::{NotifyTimer, Waitset};
 use nexus_ipc::{Client, Wait as IpcWait};
 
 use super::ipc::routing::route_with_retry;
@@ -37,38 +38,58 @@ fn set_key(client: &nexus_ipc::KernelClient, key: &str, value: &str) -> Result<(
     }
 }
 
+/// The harness's timer on its declared notify pair (TASK-0054C P2-b): the FAIL witness for
+/// an event that must arrive, and the settle before a verdict. Never a receive deadline.
+fn probe_timer() -> Result<NotifyTimer, ()> {
+    NotifyTimer::bind(nexus_service_topology::slots::selftest_client::TIMER).map_err(|_| ())
+}
+
 fn recv_event(recv_slot: u32, want_key: &str, want_value: &str) -> Result<(), ()> {
-    // Blocking recv with a hard deadline (never a yield spin — that disturbs
-    // the kernel tick-budget proof running in the same window).
-    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(800_000_000);
+    // The event, or the timer (800 ms): a waitset over both — never a yield spin (that
+    // disturbs the kernel tick-budget proof running in the same window).
+    let mut timer = probe_timer()?;
+    let ws = Waitset::over(&[recv_slot, timer.recv_slot()]).map_err(|_| ())?;
+    timer.arm_in(800_000_000);
     let mut buf = [0u8; 600];
-    loop {
-        if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-            return Err(());
-        }
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut sid: u64 = 0;
-        match nexus_abi::ipc_recv_v2(
-            recv_slot,
-            &mut hdr,
-            &mut buf,
-            &mut sid,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            deadline,
-        ) {
-            Ok(len) => {
-                let len = (len as usize).min(buf.len());
-                let Some((_flags, key, value)) = wire::decode_event(&buf[..len]) else {
-                    return Err(());
-                };
-                if key == want_key && value == want_value {
-                    return Ok(());
+    let result = loop {
+        match ws.wait() {
+            Ok(0) => {
+                let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+                let mut sid: u64 = 0;
+                match nexus_abi::ipc_recv_v2(
+                    recv_slot,
+                    &mut hdr,
+                    &mut buf,
+                    &mut sid,
+                    nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_NONBLOCK,
+                    0,
+                ) {
+                    Ok(len) => {
+                        let len = (len as usize).min(buf.len());
+                        let Some((_flags, key, value)) = wire::decode_event(&buf[..len]) else {
+                            break Err(());
+                        };
+                        if key == want_key && value == want_value {
+                            break Ok(());
+                        }
+                        // A different key under the prefix — keep draining.
+                    }
+                    Err(nexus_abi::IpcError::QueueEmpty) => {}
+                    Err(_) => break Err(()),
                 }
-                // A different key under the prefix — keep draining.
             }
-            Err(_) => return Err(()),
+            Ok(_) => {
+                // The timer member: a fire (the bound), or the kernel's EOF latch (spurious).
+                if timer.drain() {
+                    break Err(());
+                }
+            }
+            Err(_) => break Err(()),
         }
-    }
+    };
+    timer.close();
+    ws.close();
+    result
 }
 
 fn fail(prefix: &str, code: u32) -> Result<(), ()> {
@@ -95,19 +116,13 @@ const I18N_STEP: &str = crate::markers::M_SELFTEST_I18N_SWITCH_STEP_0X;
 /// (interleaved lines hard-fail evidence assembly). A deadline-blocked recv
 /// on the now-idle event channel sleeps without yield-spinning (which would
 /// disturb the kernel tick-budget proof).
-fn settle(ev_recv: u32) {
-    let settle_deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(150_000_000);
-    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut sid: u64 = 0;
-    let mut buf = [0u8; 64];
-    let _ = nexus_abi::ipc_recv_v2(
-        ev_recv,
-        &mut hdr,
-        &mut buf,
-        &mut sid,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        settle_deadline,
-    );
+fn settle(_ev_recv: u32) {
+    // 150 ms on the kernel timer: one frame, no deadline on any receive.
+    if let Ok(mut timer) = probe_timer() {
+        timer.arm_in(150_000_000);
+        let _ = timer.wait_fired();
+        timer.close();
+    }
 }
 
 pub(crate) fn settings_watch_probe() -> Result<(), ()> {

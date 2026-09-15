@@ -85,7 +85,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     // expiry and the throttled pointer push — are paced by a kernel ONE-SHOT timer armed at
     // the exact deadline: no recv timeout, no 16 ms idle tick; nothing pending = zero wakes.
     let waitset = build_waitset(&server);
-    let timer = nexus_abi::timer_create(topo::TIMER_SEND, 0).ok();
+    let mut timer = nexus_ipc::timer::NotifyTimer::bind(topo::TIMER).ok();
     if waitset.is_none() || timer.is_none() {
         let _ = debug_println("inputd: FAIL waitset/timer (blocking on the server endpoint alone)");
     }
@@ -107,12 +107,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         }
         // 2. Pushes and timer notifications: waitset members, drained, never polled.
         runtime.drain_settings_pushes();
-        runtime.drain_timer_notify();
+        if let Some(t) = timer.as_mut() {
+            t.drain();
+        }
         // 3. The clock-bound state, then the timer for whatever is still pending.
         runtime.expire_transient_input_state();
         runtime.report_chain_if_due();
-        if let Some(timer) = timer {
-            runtime.arm_pacing_timer(timer);
+        if let Some(t) = timer.as_mut() {
+            t.arm_at(runtime.next_pacing_deadline_ns().unwrap_or(0));
         }
         // 4. WAIT — no clock.
         if let Some(ws) = waitset {
@@ -183,8 +185,6 @@ struct LiveRouteRuntime {
     /// RFC-0078 settings-watch: OP_WATCH subscription sent (retried from the
     /// idle arm until the fire-and-forget send succeeds).
     settings_watch_subscribed: bool,
-    /// The one-shot pacing timer's armed deadline (0 = disarmed), TASK-0324 P7-d.
-    timer_armed_ns: u64,
     last_windowd_push_state: Option<VisibleState>,
     last_windowd_push_ns: u64,
     chain: InputdChainTelemetry,
@@ -274,7 +274,6 @@ impl LiveRouteRuntime {
             imed_client: None,
             imed_forward_ok_emitted: false,
             settings_watch_subscribed: false,
-            timer_armed_ns: 0,
             last_windowd_push_state: None,
             last_windowd_push_ns: 0,
             chain: InputdChainTelemetry::new(),

@@ -82,13 +82,6 @@ pub(crate) struct Endpoints {
     /// windowd's session push channel (TASK-0324 P7-c): sessiond pushes state here; both
     /// halves to windowd at declared slots, init's cap closes after wiring.
     pub windowd_session_watch_ep: u32,
-    /// inputd's timer-notify endpoint (TASK-0324 P7-d): both halves to inputd at declared
-    /// slots; the kernel timer cap inputd creates is bound to the SEND half.
-    pub inputd_timer_ep: u32,
-    /// settingsd's timer-notify endpoint (TASK-0324 P7-d), same lifecycle (0 = no settingsd).
-    pub settingsd_timer_ep: u32,
-    /// gpud's timer-notify endpoint (TASK-0324 P7-d): its frame clock for the splash phases.
-    pub gpud_timer_ep: u32,
     /// windowd server request endpoint.
     pub window_req: u32,
     /// windowd server response endpoint.
@@ -157,18 +150,6 @@ pub(crate) struct Endpoints {
 }
 
 impl Endpoints {
-    /// The pre-minted timer-notify endpoint of `id` (TASK-0324 P7-d), if it declares one.
-    pub(crate) fn timer_notify_ep(&self, id: crate::service_topology::ServiceId) -> Option<u32> {
-        use crate::service_topology::ServiceId;
-        let ep = match id {
-            ServiceId::Inputd => self.inputd_timer_ep,
-            ServiceId::Settingsd => self.settingsd_timer_ep,
-            ServiceId::Gpud => self.gpud_timer_ep,
-            _ => 0,
-        };
-        (ep != 0).then_some(ep)
-    }
-
     /// Pre-minted server endpoint pair (request, response) for a service, when
     /// bootstrap minted one. The declarative wire path (RFC-0069) transfers THIS
     /// pair — its client side is already distributed to the service's callers —
@@ -265,9 +246,6 @@ pub(crate) fn close_wired_eps(eps: &Endpoints) {
         eps.inputd_watch_ep,
         eps.windowd_watch_ep,
         eps.windowd_session_watch_ep,
-        eps.inputd_timer_ep,
-        eps.settingsd_timer_ep,
-        eps.gpud_timer_ep,
     ] {
         if cap != 0 {
             let _ = nexus_abi::cap_close(cap);

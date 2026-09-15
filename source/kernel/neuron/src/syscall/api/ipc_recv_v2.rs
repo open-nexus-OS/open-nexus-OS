@@ -77,8 +77,8 @@ pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     // Derive endpoint.
     let endpoint =
         ctx.tasks.current_caps_mut().derive_endpoint_ref(slot as usize, Rights::RECV)?.endpoint();
-    // The receiver looks: the waitset EOF latch is consumed here too (TASK-0324 P7-d).
-    ctx.router.clear_eof_pending(endpoint);
+    // The waitset EOF latch is consumed when the receiver OBSERVES an empty queue, never by
+    // dequeuing a frame (TASK-0054C P2-b; see `sys_ipc_recv_v1`).
 
     let truncate = (sys_flags & IPC_SYS_TRUNCATE) != 0;
     let nonblock = (sys_flags & IPC_SYS_NONBLOCK) != 0;
@@ -97,6 +97,7 @@ pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                 break msg;
             }
             Err(ipc::IpcError::QueueEmpty) if !nonblock => {
+                ctx.router.clear_eof_pending(endpoint);
                 if deadline_ns != 0 && ctx.timer.now() >= deadline_ns {
                     return Err(Error::Ipc(ipc::IpcError::TimedOut));
                 }
@@ -131,7 +132,12 @@ pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                     let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                 }));
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                if matches!(e, ipc::IpcError::QueueEmpty) {
+                    ctx.router.clear_eof_pending(endpoint);
+                }
+                return Err(e.into());
+            }
         }
     };
 

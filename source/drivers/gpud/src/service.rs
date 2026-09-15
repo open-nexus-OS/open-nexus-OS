@@ -149,7 +149,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     #[cfg(nexus_env = "os")]
     let clock = {
         use nexus_service_topology::slots::gpud as topo;
-        let timer = nexus_abi::timer_create(topo::TIMER_SEND, 0).ok();
+        let timer = nexus_ipc::timer::NotifyTimer::bind(topo::TIMER).ok();
         let (server_recv, _) = server.slots();
         let waitset = nexus_abi::waitset_create().ok().and_then(|ws| {
             nexus_abi::waitset_add(ws, server_recv).ok()?;
@@ -160,7 +160,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             let _ =
                 debug_println("gpud: FAIL waitset/timer (blocking on the server endpoint alone)");
         }
-        crate::frame_clock::FrameClock { timer, waitset, armed_ns: 0, due: false, last_frame_ns: 0 }
+        crate::frame_clock::FrameClock { timer, waitset, due: false, last_frame_ns: 0 }
     };
     #[cfg(not(nexus_env = "os"))]
     let clock = crate::frame_clock::FrameClock::default();

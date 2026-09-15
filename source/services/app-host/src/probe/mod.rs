@@ -29,8 +29,6 @@ use nexus_ipc::{Client as _, KernelClient, Wait};
 mod anim;
 mod boot;
 mod clock;
-mod timer;
-use timer::{arm_clock_timer, drain_timer_notify};
 mod env;
 mod interaction;
 mod layers;
@@ -63,8 +61,8 @@ const WINDOWD_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD
 const EVENTS_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_RECV;
 /// The app's timer-notify pair (TASK-0324 P7-d, minted by execd): the clock's one-shot
 /// timer fires a frame on RECV, a waitset member next to the event channel.
-const TIMER_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::TIMER_RECV;
-const TIMER_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::TIMER_SEND;
+/// The app's declared timer-notify pair (TASK-0324 P7-d): its clock's one-shot rides here.
+const TIMER: nexus_service_topology::SlotPair = nexus_service_topology::slots::app_child::TIMER;
 
 // The embedded fallback payload is DELETED (separation of concerns):
 // program bytes belong to bundlemgrd (the registry) ONLY. A missing/broken
@@ -165,16 +163,15 @@ pub(super) fn run() -> Result<(), &'static str> {
     // animations ride the compositor's frame pulse EXCLUSIVELY (a pulse request is a waited
     // send, never dropped) — no 12 ms self-pace, no recv timeout. A closed window (RFC-0079
     // EOF) reaches the waitset like any receiver: the member reads ready, the recv says so.
-    let timer = nexus_abi::timer_create(TIMER_SEND_SLOT, 0).ok();
+    let mut timer = nexus_ipc::timer::NotifyTimer::bind(TIMER).ok();
     let waitset = nexus_abi::waitset_create().ok().and_then(|ws| {
         nexus_abi::waitset_add(ws, events_recv_slot).ok()?;
-        nexus_abi::waitset_add(ws, TIMER_RECV_SLOT).ok()?;
+        nexus_abi::waitset_add(ws, TIMER.recv).ok()?;
         Some(ws)
     });
     if timer.is_none() || waitset.is_none() {
         raw_marker("apphost: FAIL waitset/timer (blocking on the event channel alone)");
     }
-    let mut timer_armed_ns = 0u64;
 
     // 1a. Attach OUR event channel to windowd, tagged with a self-minted
     //     nonce (repeated on SURFACE_CREATE): windowd binds channel↔surface
@@ -436,8 +433,8 @@ pub(super) fn run() -> Result<(), &'static str> {
         } else {
             // The wait — no clock: the timer for the clock (if the app declares one), then
             // the waitset; the recv that follows is non-blocking and EOF-opted.
-            if let (Some(t), Some(dsl)) = (timer, app.as_ref()) {
-                arm_clock_timer(t, dsl.clock_deadline_ns(), &mut timer_armed_ns);
+            if let (Some(t), Some(dsl)) = (timer.as_mut(), app.as_ref()) {
+                t.arm_at(dsl.clock_deadline_ns().unwrap_or(0));
             }
             let wait = match waitset {
                 Some(ws) => {
@@ -454,10 +451,9 @@ pub(super) fn run() -> Result<(), &'static str> {
                 Err(nexus_ipc::IpcError::Timeout) | Err(nexus_ipc::IpcError::WouldBlock) => {
                     // Not an event: the clock's one-shot fired (its notify frame is drained
                     // here; the kernel disarmed it) — or a spurious wake, which is nothing.
-                    if !drain_timer_notify() {
+                    if !timer.as_mut().is_some_and(|t| t.drain()) {
                         continue;
                     }
-                    timer_armed_ns = 0;
                     if let Some(dsl) = app.as_mut() {
                         if dsl.clock_supported() && dsl.clock_tick() {
                             dirty = true;

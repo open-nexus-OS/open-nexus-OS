@@ -15,7 +15,11 @@
 use super::transport::{align4, read_reg, write_reg, write_u64_pair};
 use crate::error::GpuDriverError;
 use crate::protocol;
+use alloc::rc::Rc;
 use nexus_gfx::backend::error::GfxError;
+
+mod ring_wait;
+pub(crate) use ring_wait::GpuWatchdog;
 
 pub(crate) const CTRL_QUEUE_INDEX: u32 = 0;
 #[allow(dead_code)]
@@ -40,10 +44,11 @@ pub(crate) const QUEUE_LEN: usize = RING_SLOTS * 2;
 pub(crate) const GPU_WAIT_DEADLINE_NS: u64 = 500_000_000;
 // Completion is PURE REACTIVE: `wait_slot`/`alloc_free_slot` `harvest` the used-ring
 // once at the top of the loop (an already-finished command returns immediately, no
-// syscall), and otherwise BLOCK on the GPU ring-buffer IRQ via `block_on_irq` — never
-// a busy yield-spin (a spin IS a poll, which we explicitly do not want). The pipelined
-// present blocks on nothing at all; the next frame harvests. `GPU_WAIT_DEADLINE_NS` is
-// only the safety net bounding a lost/late IRQ so a present can never hang.
+// syscall), and otherwise WAIT on the GPU ring-buffer IRQ beside the device watchdog
+// (`GpuWatchdog`, TASK-0054C P2-b) — never a busy yield-spin (a spin IS a poll, which we
+// explicitly do not want) and never a receive deadline. The pipelined present blocks on
+// nothing at all; the next frame harvests. `GPU_WAIT_DEADLINE_NS` is only the watchdog's
+// bound on a lost/late IRQ so a present can never hang.
 /// Latches once the GPU ring-buffer IRQ first wakes a completion wait, so the
 /// headless run can confirm the interrupt path is actually live (vs. silently
 /// degrading to the spin fallback). One marker, not per-frame — no UART storm.
@@ -139,6 +144,8 @@ pub(crate) struct CtrlQueue {
     /// Endpoint cap slot the kernel routes the GPU IRQ to (0 = not bound). When
     /// set, the wait path blocks here instead of busy-polling.
     irq_ep: u32,
+    /// The wait's bound (TASK-0054C P2-b): gpud's device watchdog, shared with the other queue.
+    watchdog: Option<Rc<GpuWatchdog>>,
 }
 
 /// Bytes reserved per response sub-slot in the response pool (a virtio-gpu
@@ -255,20 +262,12 @@ impl CtrlQueue {
             mmio_base,
             irq_num: 0,
             irq_ep: 0,
+            watchdog: None,
         })
     }
 
     pub(crate) fn submit(&mut self, mmio_base: usize, bytes: &[u8]) -> Result<(), GfxError> {
         self.submit_two(mmio_base, bytes, &[])
-    }
-
-    /// Bind this queue to a GPU ring-buffer IRQ so the completion wait can BLOCK
-    /// on the interrupt instead of busy-polling. `irq_ep` is the endpoint cap slot
-    /// the kernel routes the PLIC source to (set via `irq_bind`); `irq_num` is that
-    /// source. Both 0 keeps the legacy spin+yield path.
-    pub(crate) fn set_gpu_irq(&mut self, irq_num: u32, irq_ep: u32) {
-        self.irq_num = irq_num;
-        self.irq_ep = irq_ep;
     }
 
     // ── slot addressing (the command/response buffer pools are contiguous) ──
@@ -321,84 +320,10 @@ impl CtrlQueue {
         self.ring.try_alloc().map(|(slot, _ticket)| RingSlot(slot.0 as u16))
     }
 
-    /// Allocate a free slot, applying back-pressure if the ring is full: block on
-    /// the GPU IRQ + harvest until one frees (deadline-bounded). On a (degraded)
-    /// timeout, force-resync the in-flight set so the ring can never deadlock.
-    fn alloc_free_slot(&mut self) -> Result<RingSlot, GfxError> {
-        if let Some(slot) = self.find_free_slot() {
-            return Ok(slot);
-        }
-        let start = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
-        let deadline = start.saturating_add(GPU_WAIT_DEADLINE_NS);
-        loop {
-            // Park-safe re-arm: a completion IRQ that fired while nobody was
-            // waiting (the pipelined enqueue phase) left the source claim-MASKED
-            // at the PLIC — the kernel completes only on `irq_complete`. Parking
-            // with the source masked sleeps the FULL deadline even though the
-            // completion already landed silently in the used-ring (the observed
-            // serialized-500ms boot stalls). Re-arm first, then re-harvest to
-            // close the ack race (a completion that lands after the re-arm
-            // asserts the now-armed line and is delivered as a queued message).
-            if self.irq_ep != 0 {
-                self.ack_gpu_irq();
-                if let Some(slot) = self.find_free_slot() {
-                    return Ok(slot);
-                }
-            }
-            self.block_on_irq(deadline);
-            if let Some(slot) = self.find_free_slot() {
-                if self.irq_ep != 0 {
-                    self.ack_gpu_irq();
-                }
-                return Ok(slot);
-            }
-            if nexus_abi::nsec().map_err(|_| GfxError::MmioFault)? >= deadline {
-                IRQ_DEADLINE_EXPIRED_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-                // Degraded recovery: abandon the stuck in-flight set + resync the
-                // harvest cursor so we never wedge. Best-effort (a lost IRQ only).
-                self.ring.reset();
-                self.last_used = unsafe { core::ptr::read_volatile(&(*self.used).idx) };
-                if self.irq_ep != 0 {
-                    self.ack_gpu_irq();
-                }
-                // `reset` emptied the ring, so this reservation always succeeds.
-                return self
-                    .ring
-                    .try_alloc()
-                    .map(|(slot, _)| RingSlot(slot.0 as u16))
-                    .ok_or(GfxError::MmioFault);
-            }
-        }
-    }
-
-    /// Block once on the GPU ring-buffer IRQ (deadline-bounded) or yield if the
-    /// queue isn't IRQ-bound. The reactive wait primitive shared by `wait_slot`
-    /// and `alloc_free_slot`.
-    fn block_on_irq(&self, deadline: u64) {
-        if self.irq_ep != 0 {
-            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            let mut buf = [0u8; 16];
-            if nexus_abi::ipc_recv_v1(
-                self.irq_ep,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_TRUNCATE,
-                deadline,
-            )
-            .is_ok()
-            {
-                IRQ_WAKE_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-                if !GPU_IRQ_WAKE_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-                    // Proof (once): a real GPU ring-buffer IRQ woke a wait.
-                    // `debug_println` (not `trace_line`) so a quiet boot shows it.
-                    let _ = nexus_abi::debug_println("gpud: gpu irq wake");
-                }
-            }
-        } else {
-            let _ = nexus_abi::yield_();
-        }
-    }
-
+    /// Allocate a free slot, applying back-pressure if the ring is full: wait for the GPU
+    /// ring-buffer IRQ + harvest until one frees, bounded by the device watchdog
+    /// (`GPU_WAIT_DEADLINE_NS`). On the watchdog (a lost IRQ), force-resync the in-flight set
+    /// A real GPU ring-buffer IRQ woke a wait: count it, and prove it once on the UART
     /// Make a written descriptor chain available to the device + notify, and mark
     /// the slot in-flight (freed later by `harvest` when its completion returns).
     #[inline]
@@ -537,45 +462,7 @@ impl CtrlQueue {
     /// so a lost/late IRQ degrades to a timeout, never a hang.
     ///
     /// The pipelined present does NOT call this — it enqueues and lets the next
-    /// frame `harvest` the completion (so a deferred textured-draw completion never
-    /// blocks the present).
-    fn wait_slot(&mut self, slot: RingSlot) -> Result<(), GfxError> {
-        let dk_slot = nexus_driverkit::Slot(slot.0 as u8);
-        let start = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
-        let deadline = start.saturating_add(GPU_WAIT_DEADLINE_NS);
-        loop {
-            self.harvest();
-            if !self.ring.is_in_flight(dk_slot) {
-                if self.irq_ep != 0 {
-                    self.ack_gpu_irq();
-                }
-                return Ok(());
-            }
-            // Park-safe re-arm (see `alloc_free_slot`): complete any stale
-            // claim-masked IRQ so the wake for OUR completion can be delivered,
-            // then re-harvest to close the ack race before parking.
-            if self.irq_ep != 0 {
-                self.ack_gpu_irq();
-                self.harvest();
-                if !self.ring.is_in_flight(dk_slot) {
-                    return Ok(());
-                }
-            }
-            if nexus_abi::nsec().map_err(|_| GfxError::MmioFault)? >= deadline {
-                IRQ_DEADLINE_EXPIRED_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-                // Abandon the stuck slot (degraded, lost-IRQ only): free it WITHOUT counting
-                // a completion (the command never finished), so a fence can't jump past it.
-                self.ring.abandon(dk_slot);
-                if self.irq_ep != 0 {
-                    self.ack_gpu_irq();
-                }
-                return Err(GfxError::MmioFault);
-            }
-            self.block_on_irq(deadline);
-        }
-    }
-
-    /// De-assert + re-arm this queue's GPU IRQ. Order matters (same lesson as
+    /// frame `harvest` the completion (so a deferred textured-draw completion never    /// De-assert + re-arm this queue's GPU IRQ. Order matters (same lesson as
     /// virtio-input): drain the queued notification(s), clear the device's
     /// InterruptStatus, THEN `irq_complete` so the source can't immediately storm.
     /// Idempotent when nothing is pending — completing an unclaimed source is a

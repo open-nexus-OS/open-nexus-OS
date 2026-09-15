@@ -156,10 +156,16 @@ pub(super) fn sys_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     typed.check()?;
     let endpoint =
         ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::RECV)?.endpoint();
-    // The receiver looks: the waitset EOF latch is consumed here (the EOF decision below is
-    // the live scan, never the latch — TASK-0324 P7-d).
-    ctx.router.clear_eof_pending(endpoint);
-    let message = ctx.router.recv(endpoint)?;
+    // The EOF latch is consumed on observed emptiness only (TASK-0054C P2-b, see recv v1).
+    let message = match ctx.router.recv(endpoint) {
+        Ok(m) => m,
+        Err(e) => {
+            if matches!(e, ipc::IpcError::QueueEmpty) {
+                ctx.router.clear_eof_pending(endpoint);
+            }
+            return Err(e.into());
+        }
+    };
     let len = message.header.len as usize;
     ctx.last_message = Some(message);
     Ok(len)
@@ -389,10 +395,9 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
 
     let endpoint =
         ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::RECV)?.endpoint();
-    // The receiver looks: the waitset EOF latch is consumed here (the EOF decision below is
-    // the live scan, never the latch — TASK-0324 P7-d).
-    ctx.router.clear_eof_pending(endpoint);
-
+    // The waitset EOF latch (P7-d) is consumed below when the receiver OBSERVES an empty queue,
+    // never by dequeuing a frame (TASK-0054C P2-b): a peer that wrote and died leaves its frames
+    // AND the latch — clearing on the frame's receive left a waitset blind to the death.
     let truncate = (typed.sys_flags & IPC_SYS_TRUNCATE) != 0;
     let nonblock = (typed.sys_flags & IPC_SYS_NONBLOCK) != 0;
     let eof_opt = (typed.sys_flags & IPC_SYS_EOF) != 0;
@@ -411,6 +416,7 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                 break msg;
             }
             Err(ipc::IpcError::QueueEmpty) if !nonblock => {
+                ctx.router.clear_eof_pending(endpoint);
                 if typed.deadline_ns != 0 && ctx.timer.now() >= typed.deadline_ns {
                     return Err(Error::Ipc(ipc::IpcError::TimedOut));
                 }
@@ -467,7 +473,12 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                     let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
                 }));
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                if matches!(e, ipc::IpcError::QueueEmpty) {
+                    ctx.router.clear_eof_pending(endpoint);
+                }
+                return Err(e.into());
+            }
         }
     };
     #[cfg(feature = "ipc_trace_ring")]
