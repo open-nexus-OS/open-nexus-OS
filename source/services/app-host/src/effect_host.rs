@@ -27,7 +27,7 @@
 
 #![cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 
-pub(crate) use crate::svc_call::{call_reply, call_reply_within};
+pub(crate) use crate::svc_call::call_reply;
 use alloc::string::String;
 use alloc::vec::Vec;
 use nexus_dsl_runtime::{EffectHost, QueryCall, QueryPage, Value};
@@ -42,15 +42,6 @@ pub(crate) const ERR_SVC_SHAPE: u32 = 3;
 /// distinct from a failure so a page can render the honest denied state.
 pub(crate) const ERR_SVC_DENIED: u32 = 4;
 
-/// Per-call budget: the fixed slots are populated before resume, but the
-/// backing service may still be finishing bring-up. Time-bounded (not
-/// iteration-bounded) — the service decides when the reply lands.
-/// One service round-trip budget. 250 ms is a LIVENESS bound, not a latency
-/// expectation: settingsd replies in µs since RFC-0083 P1 (reply before
-/// persist), and both halves of the exchange are KERNEL-PARKED on this
-/// deadline — the old 2 s yield-spin burned scheduler quanta exactly when a
-/// slow service needed them most.
-pub(crate) const SVC_DEADLINE_NS: u64 = 250_000_000;
 /// Reply-inbox scratch bound (list responses carry every entry).
 pub(crate) const REPLY_BUF: usize = 512;
 /// Reply scratch for `svc.files` directory pages — sized to the shared codec's
@@ -112,11 +103,6 @@ pub(crate) struct AppEffectHost {
     /// none yet). Rides in `CONTROL_WIN_*` values so windowd resolves the
     /// caller's window — the recv path carries no sender identity (sid=0).
     pub(crate) surface_id: u32,
-    /// The budget the CURRENT `svc.*` call declared (`timeoutMs:`), in ns.
-    /// Set by `EffectHost::call` before it routes; every service round trip
-    /// this host makes reads it. Was `_timeout_ms` — accepted, type-checked,
-    /// documented and discarded, so a page could not actually bound a call.
-    pub(crate) budget_ns: u64,
     /// RFC-0086 window feed: the last `OP_SURFACE_WINDOWS` set windowd
     /// pushed, keyed by the owning app-host's kernel service id. Merged into
     /// `bundlemgr.enumerate` rows (running/minimized/focused) and used to
@@ -184,7 +170,6 @@ impl AppEffectHost {
             staged_sym: symbols.iter().position(|s| s == "staged").map(|i| i as u32),
             pending_scroll_page: None,
             surface_id: 0,
-            budget_ns: SVC_DEADLINE_NS,
         }
     }
 
@@ -206,7 +191,7 @@ impl AppEffectHost {
         let mut req = [0u8; 4];
         nexus_abi::bundlemgrd::encode_list_apps(&mut req);
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
             raw_marker("apphost: dsl svc bundlemgr.enumerate FAIL (registry unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -286,7 +271,7 @@ impl AppEffectHost {
         let mut req = [0u8; 4];
         nexus_abi::sessiond::encode_get_state(&mut req);
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
             raw_marker("apphost: dsl svc session.users FAIL (sessiond unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -314,7 +299,7 @@ impl AppEffectHost {
         let mut req = [0u8; 4];
         nexus_abi::sessiond::encode_get_state(&mut req);
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
             raw_marker("apphost: dsl svc session.active FAIL (sessiond unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -336,7 +321,7 @@ impl AppEffectHost {
             return Err(ERR_SVC_SHAPE);
         };
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply_within(send_slot, &req[..n], &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, &req[..n], &mut resp) else {
             raw_marker("apphost: dsl svc session.login FAIL (sessiond unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -403,7 +388,7 @@ impl AppEffectHost {
         let mut req = [0u8; 300];
         let n = sw::encode_get_req(key, &mut req).ok_or(ERR_SVC_SHAPE)?;
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply_within(send_slot, &req[..n], &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, &req[..n], &mut resp) else {
             raw_marker("apphost: dsl svc settings.get FAIL (settingsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -436,7 +421,7 @@ impl AppEffectHost {
         let mut req = [0u8; 300];
         let n = sw::encode_set_req(key, value, &mut req).ok_or(ERR_SVC_SHAPE)?;
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply_within(send_slot, &req[..n], &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, &req[..n], &mut resp) else {
             raw_marker("apphost: dsl svc settings.set FAIL (settingsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -614,13 +599,11 @@ impl EffectHost for AppEffectHost {
         args: &[Value],
         timeout_ms: u32,
     ) -> Result<Value, u32> {
-        // A page that asks for no budget keeps the platform default; one that
-        // asks is CLAMPED to it, never above — the deadline is a liveness
-        // bound the host owns, not something an app may extend.
-        self.budget_ns = match u64::from(timeout_ms).checked_mul(1_000_000) {
-            Some(ns) if ns > 0 => ns.min(SVC_DEADLINE_NS),
-            _ => SVC_DEADLINE_NS,
-        };
+        // No client timer bounds a service call (RFC-0093 §7, TASK-0054C P2-a): the
+        // exchange ends with the reply or the service's death. The DSL's `timeoutMs:`
+        // knob no longer means anything here; TASK-0077B retires it from the language
+        // (NX0409 becomes the error that the argument is not accepted).
+        let _ = timeout_ms;
         match (service, method) {
             ("bundlemgr", "enumerate") => self.enumerate(),
             ("settings", "get") => {
@@ -758,9 +741,8 @@ fn bool_of(v: &Value) -> Option<bool> {
 /// Bounded fire-and-forget send on a provisioned SEND slot (no reply awaited).
 fn send_fire_and_forget(send_slot: u32, req: &[u8]) -> bool {
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req.len() as u32);
-    // KERNEL-PARKED on a full queue (same contract as `call_reply`) — the
-    // old NONBLOCK + yield_() spin is the syscall-storm pattern RFC-0083
-    // removes everywhere.
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(SVC_DEADLINE_NS);
-    nexus_abi::ipc_send_v1(send_slot, &hdr, req, 0, deadline).is_ok()
+    // KERNEL-PARKED on a full queue, no deadline (RFC-0093 §7): queue space or the
+    // peer's death ends the wait — the old NONBLOCK + yield_() spin is the
+    // syscall-storm pattern RFC-0083 removes everywhere.
+    nexus_abi::ipc_send_v1(send_slot, &hdr, req, 0, 0).is_ok()
 }

@@ -15,9 +15,6 @@
 [marker."SELFTEST: ipc payload roundtrip ok"]
 phase = "ipc_kernel"
 
-[marker."SELFTEST: ipc deadline timeout ok"]
-phase = "ipc_kernel"
-
 [marker."SELFTEST: nexus-ipc kernel loopback ok"]
 phase = "ipc_kernel"
 
@@ -34,9 +31,6 @@ phase = "ipc_kernel"
 phase = "ipc_kernel"
 
 [marker."SELFTEST: ipc cap move reply ok"]
-phase = "ipc_kernel"
-
-[marker."SELFTEST: ipc deadline timeout FAIL"]
 phase = "ipc_kernel"
 
 [marker."SELFTEST: ipc payload roundtrip FAIL"]

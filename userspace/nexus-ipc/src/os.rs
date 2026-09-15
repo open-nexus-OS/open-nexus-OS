@@ -57,7 +57,7 @@
 //! ADR: docs/adr/0003-ipc-runtime-architecture.md
 
 use std::collections::HashMap;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::{Client, IpcError, Result, Server, Wait};
@@ -157,18 +157,6 @@ impl Client for KernelClient {
                 TryRecvError::Empty => IpcError::WouldBlock,
                 TryRecvError::Disconnected => IpcError::Disconnected,
             }),
-            Wait::Timeout(timeout) => {
-                if timeout.is_zero() {
-                    return receiver.try_recv().map_err(|err| match err {
-                        TryRecvError::Empty => IpcError::WouldBlock,
-                        TryRecvError::Disconnected => IpcError::Disconnected,
-                    });
-                }
-                receiver.recv_timeout(timeout).map_err(|err| match err {
-                    RecvTimeoutError::Timeout => IpcError::Timeout,
-                    RecvTimeoutError::Disconnected => IpcError::Disconnected,
-                })
-            }
         }
     }
 }
@@ -200,18 +188,6 @@ impl Server for KernelServer {
                 TryRecvError::Empty => IpcError::WouldBlock,
                 TryRecvError::Disconnected => IpcError::Disconnected,
             }),
-            Wait::Timeout(timeout) => {
-                if timeout.is_zero() {
-                    return receiver.try_recv().map_err(|err| match err {
-                        TryRecvError::Empty => IpcError::WouldBlock,
-                        TryRecvError::Disconnected => IpcError::Disconnected,
-                    });
-                }
-                receiver.recv_timeout(timeout).map_err(|err| match err {
-                    RecvTimeoutError::Timeout => IpcError::Timeout,
-                    RecvTimeoutError::Disconnected => IpcError::Disconnected,
-                })
-            }
         }
     }
 
@@ -239,7 +215,7 @@ mod tests {
             .spawn(move || {
                 let server = KernelServer::new().expect("alpha server");
                 ready_a_tx.send(()).unwrap();
-                let req = server.recv(Wait::Timeout(Duration::from_secs(1))).expect("alpha recv");
+                let req = server.recv(Wait::Blocking).expect("alpha recv");
                 assert_eq!(req, b"ping-a");
                 server.send(b"pong-a", Wait::Blocking).expect("alpha send");
                 done_a_tx.send(()).unwrap();
@@ -251,7 +227,7 @@ mod tests {
             .spawn(move || {
                 let server = KernelServer::new().expect("beta server");
                 ready_b_tx.send(()).unwrap();
-                let req = server.recv(Wait::Timeout(Duration::from_secs(1))).expect("beta recv");
+                let req = server.recv(Wait::Blocking).expect("beta recv");
                 assert_eq!(req, b"ping-b");
                 server.send(b"pong-b", Wait::Blocking).expect("beta send");
                 done_b_tx.send(()).unwrap();
@@ -267,8 +243,8 @@ mod tests {
         alpha.send(b"ping-a", Wait::Blocking).unwrap();
         beta.send(b"ping-b", Wait::Blocking).unwrap();
 
-        let a_rsp = alpha.recv(Wait::Timeout(Duration::from_secs(1))).unwrap();
-        let b_rsp = beta.recv(Wait::Timeout(Duration::from_secs(1))).unwrap();
+        let a_rsp = alpha.recv(Wait::Blocking).unwrap();
+        let b_rsp = beta.recv(Wait::Blocking).unwrap();
         assert_eq!(a_rsp, b"pong-a");
         assert_eq!(b_rsp, b"pong-b");
 
@@ -288,7 +264,7 @@ mod tests {
             .spawn(move || {
                 let server = KernelServer::new().expect("gamma server");
                 ready_tx.send(()).unwrap();
-                let req = server.recv(Wait::Timeout(Duration::from_secs(1))).expect("recv");
+                let req = server.recv(Wait::Blocking).expect("recv");
                 assert_eq!(req, b"hello");
                 server.send(b"world", Wait::Blocking).expect("send");
             })
@@ -299,7 +275,7 @@ mod tests {
         set_default_target("gamma");
         let client = KernelClient::new().expect("client via default target");
         client.send(b"hello", Wait::Blocking).unwrap();
-        let rsp = client.recv(Wait::Timeout(Duration::from_secs(1))).unwrap();
+        let rsp = client.recv(Wait::Blocking).unwrap();
         assert_eq!(rsp, b"world");
 
         th.join().unwrap();
@@ -317,7 +293,7 @@ mod tests {
                 ready_tx.send(()).unwrap();
                 // Wait for test to probe nonblocking/timeout first.
                 unblock_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-                let req = server.recv(Wait::Timeout(Duration::from_secs(1))).expect("recv");
+                let req = server.recv(Wait::Blocking).expect("recv");
                 assert_eq!(req, b"ping");
                 server.send(b"pong", Wait::Blocking).expect("send");
             })
@@ -327,11 +303,11 @@ mod tests {
         let client = KernelClient::new_for("delta").expect("delta client");
 
         assert_eq!(client.recv(Wait::NonBlocking), Err(IpcError::WouldBlock));
-        assert_eq!(client.recv(Wait::Timeout(Duration::from_millis(20))), Err(IpcError::Timeout));
+        assert_eq!(client.recv(Wait::NonBlocking), Err(IpcError::WouldBlock));
 
         unblock_tx.send(()).unwrap();
         client.send(b"ping", Wait::Blocking).unwrap();
-        let rsp = client.recv(Wait::Timeout(Duration::from_secs(1))).unwrap();
+        let rsp = client.recv(Wait::Blocking).unwrap();
         assert_eq!(rsp, b"pong");
 
         th.join().unwrap();

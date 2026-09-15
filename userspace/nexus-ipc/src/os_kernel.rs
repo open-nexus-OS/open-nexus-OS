@@ -4,17 +4,16 @@
 //! CONTEXT: Kernel-backed IPC implementation for OS/no_std builds (IPC v1 syscalls)
 //! OWNERS: @runtime
 //! PUBLIC API: KernelClient, KernelServer, set_default_target, supports_service_routing
-//! DEPENDS_ON: nexus-abi (ipc_send_v1/ipc_recv_v1 + nsec), alloc, core
+//! DEPENDS_ON: nexus-abi (ipc_send_v1/ipc_recv_v1/ipc_recv_v2), alloc, core
 //! INVARIANTS:
 //!   - No unsafe code (delegates to nexus-abi wrappers)
-//!   - Wait mapping uses kernel IPC v1 (NONBLOCK + deadline semantics)
+//!   - Wait maps to kernel IPC v1 NONBLOCK or a park without deadline (no clock, RFC-0093 §7)
 //!   - Service routing is limited to capabilities pre-distributed by init-lite (RFC-0005)
 //! ADR: docs/adr/0003-ipc-runtime-architecture.md
 
 extern crate alloc;
 
 use alloc::vec::Vec;
-use core::time::Duration;
 
 use crate::{Client, IpcError, Result, Server, Wait};
 
@@ -58,20 +57,13 @@ fn resolve_route(target: &str) -> Result<(u32, u32)> {
     }
 }
 
-fn wait_to_sys(wait: Wait) -> core::result::Result<(u32, u64), IpcError> {
-    let (flags, deadline_ns) = match wait {
-        Wait::NonBlocking => (nexus_abi::IPC_SYS_NONBLOCK, 0),
-        Wait::Blocking => (0, 0),
-        Wait::Timeout(d) => {
-            let now = nexus_abi::nsec().map_err(|_| IpcError::Unsupported)?;
-            (0, now.saturating_add(duration_to_ns(d)))
-        }
-    };
-    Ok((flags, deadline_ns))
-}
-
-fn duration_to_ns(d: Duration) -> u64 {
-    d.as_secs().saturating_mul(1_000_000_000).saturating_add(d.subsec_nanos() as u64)
+/// The kernel flags for a wait policy. The deadline argument of every syscall below is the
+/// literal `0` ("no deadline"): a blocking call parks until the frame arrives or the peer dies.
+fn wait_flags(wait: Wait) -> u32 {
+    match wait {
+        Wait::NonBlocking => nexus_abi::IPC_SYS_NONBLOCK,
+        Wait::Blocking => 0,
+    }
 }
 
 fn map_send_err(err: nexus_abi::IpcError, wait: Wait) -> IpcError {
@@ -141,7 +133,7 @@ impl KernelClient {
         cap_slot_to_move: u32,
         wait: Wait,
     ) -> Result<()> {
-        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let flags = wait_flags(wait);
         let hdr = nexus_abi::MsgHeader::new(
             cap_slot_to_move,
             0,
@@ -149,7 +141,7 @@ impl KernelClient {
             nexus_abi::ipc_hdr::CAP_MOVE,
             frame.len() as u32,
         );
-        nexus_abi::ipc_send_v1(self.send_slot, &hdr, frame, flags, deadline_ns)
+        nexus_abi::ipc_send_v1(self.send_slot, &hdr, frame, flags, 0)
             .map(|_| ())
             .map_err(|e| map_send_err(e, wait))
     }
@@ -174,13 +166,13 @@ impl KernelClient {
     }
 
     fn recv_into_flags(&self, wait: Wait, out: &mut [u8], eof: bool) -> Result<usize> {
-        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let flags = wait_flags(wait);
         let mut sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
         if eof {
             sys_flags |= nexus_abi::IPC_SYS_EOF;
         }
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let n = nexus_abi::ipc_recv_v1(self.recv_slot, &mut hdr, out, sys_flags, deadline_ns)
+        let n = nexus_abi::ipc_recv_v1(self.recv_slot, &mut hdr, out, sys_flags, 0)
             .map_err(|e| map_recv_err(e, wait))?;
         Ok(n as usize)
     }
@@ -188,20 +180,20 @@ impl KernelClient {
 
 impl Client for KernelClient {
     fn send(&self, frame: &[u8], wait: Wait) -> Result<()> {
-        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let flags = wait_flags(wait);
         // Send has no truncate flag.
         let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-        nexus_abi::ipc_send_v1(self.send_slot, &hdr, frame, flags, deadline_ns)
+        nexus_abi::ipc_send_v1(self.send_slot, &hdr, frame, flags, 0)
             .map(|_| ())
             .map_err(|e| map_send_err(e, wait))
     }
 
     fn recv(&self, wait: Wait) -> Result<Vec<u8>> {
-        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let flags = wait_flags(wait);
         let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 512];
-        let n = nexus_abi::ipc_recv_v1(self.recv_slot, &mut hdr, &mut buf, sys_flags, deadline_ns)
+        let n = nexus_abi::ipc_recv_v1(self.recv_slot, &mut hdr, &mut buf, sys_flags, 0)
             .map_err(|e| map_recv_err(e, wait))?;
         let n = n as usize;
         let mut out = Vec::with_capacity(n);
@@ -280,11 +272,11 @@ impl KernelServer {
     /// If the sender used CAP_MOVE, the returned header's `src` contains the allocated cap slot
     /// in the receiver.
     pub fn recv_with_header(&self, wait: Wait) -> Result<(nexus_abi::MsgHeader, Vec<u8>)> {
-        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let flags = wait_flags(wait);
         let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 512];
-        let n = nexus_abi::ipc_recv_v1(self.recv_slot, &mut hdr, &mut buf, sys_flags, deadline_ns)
+        let n = nexus_abi::ipc_recv_v1(self.recv_slot, &mut hdr, &mut buf, sys_flags, 0)
             .map_err(|e| map_recv_err(e, wait))?;
         let n = n as usize;
         let mut out = Vec::with_capacity(n);
@@ -300,7 +292,7 @@ impl KernelServer {
         &self,
         wait: Wait,
     ) -> Result<(nexus_abi::MsgHeader, u64, Vec<u8>)> {
-        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let flags = wait_flags(wait);
         let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut sid: u64 = 0;
@@ -312,15 +304,8 @@ impl KernelServer {
         // Any protocol whose requests can exceed 512 bytes MUST use
         // `recv_request_with_meta_into` with a buffer it sizes itself.
         let mut buf = [0u8; 512];
-        let n = nexus_abi::ipc_recv_v2(
-            self.recv_slot,
-            &mut hdr,
-            &mut buf,
-            &mut sid,
-            sys_flags,
-            deadline_ns,
-        )
-        .map_err(|e| map_recv_err(e, wait))?;
+        let n = nexus_abi::ipc_recv_v2(self.recv_slot, &mut hdr, &mut buf, &mut sid, sys_flags, 0)
+            .map_err(|e| map_recv_err(e, wait))?;
         let n = n as usize;
         let mut out = Vec::with_capacity(n);
         out.extend_from_slice(&buf[..n]);
@@ -360,13 +345,12 @@ impl KernelServer {
         wait: Wait,
         out: &mut [u8],
     ) -> Result<(usize, u64, Option<ReplyCap>)> {
-        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let flags = wait_flags(wait);
         let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut sid: u64 = 0;
-        let n =
-            nexus_abi::ipc_recv_v2(self.recv_slot, &mut hdr, out, &mut sid, sys_flags, deadline_ns)
-                .map_err(|e| map_recv_err(e, wait))? as usize;
+        let n = nexus_abi::ipc_recv_v2(self.recv_slot, &mut hdr, out, &mut sid, sys_flags, 0)
+            .map_err(|e| map_recv_err(e, wait))? as usize;
         let n = core::cmp::min(n, out.len());
         let reply = if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
             Some(ReplyCap { slot: hdr.src })
@@ -384,9 +368,9 @@ impl KernelServer {
     /// Sends a frame on an arbitrary endpoint capability slot (e.g. one received via CAP_MOVE),
     /// using the given wait policy.
     pub fn send_on_cap_wait(cap_slot: u32, frame: &[u8], wait: Wait) -> Result<()> {
-        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let flags = wait_flags(wait);
         let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-        nexus_abi::ipc_send_v1(cap_slot, &hdr, frame, flags, deadline_ns)
+        nexus_abi::ipc_send_v1(cap_slot, &hdr, frame, flags, 0)
             .map(|_| ())
             .map_err(|e| map_send_err(e, wait))
     }

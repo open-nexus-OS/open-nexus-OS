@@ -76,7 +76,9 @@ pub(crate) fn get_entropy(
     let (send_slot, _) = client.slots();
     let reply = nexus_service_topology::slots::selftest_client::REPLY;
     // The inbox is shared with other exchanges: the answer is the frame carrying OUR nonce.
-    let mut buf = [0u8; nexus_ipc::exchange::MAX_REPLY];
+    // Sized for the protocol: the reply header plus the largest entropy request this
+    // client makes (the transport cap is `IPC_PAYLOAD_MAX`, not a reply bound).
+    let mut buf = [0u8; RSP_HEADER_LEN + 512];
     let rsp = nexus_ipc::exchange::call_matching(send_slot, reply, &req, &mut buf, |rsp| {
         let ours = rsp.len() >= RSP_HEADER_LEN
             && rsp[0..2] == MAGIC

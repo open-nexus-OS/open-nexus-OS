@@ -9,14 +9,17 @@
 # `deadline`, `for _ in 0..N`): that is a poll against a clock, the shape that made a live peer
 # under host load indistinguishable from a dead one. Two rules:
 #   1. The retired spin helpers stay retired (`retry_ipc_until`, `Clock::yield_now`,
-#      `recv_match_bounded`, `routing_v1_get`, `wait_for_slots_ready`).
+#      `recv_match_bounded`, `routing_v1_get`, `wait_for_slots_ready`) — and since TASK-0054C
+#      P2-a the deleted clock forms of `nexus_ipc` too (`recv_match_until`, `deadline_after`,
+#      `send_until`, `recv_until`, `recv_matching_until`, `send_budgeted`, `recv_budgeted`,
+#      `OsClock`, `HostClock`, `Wait::Timeout`): they have no definition left to call.
 #   2. No function polls against a clock — ZERO, fleet-wide (the ratchet P7-a started reached
 #      0 with P7-d; the baseline file is gone).
 #   3. No clock-bound wait form decides a request/reply — ZERO: `Wait::Timeout(`,
 #      `deadline_after(`, `*_budgeted(`, `recv_until(`, `send_until(`, `recv_matching_until(`
 #      are absent from every consumer (a reply is waited for until it arrives or the peer dies —
 #      `nexus_ipc::exchange`; pacing is a kernel one-shot timer on a waitset, never a recv
-#      timeout). The transport files that IMPLEMENT the wait forms are excluded by path.
+#      timeout). Absolute since TASK-0054C P2-a: no transport implements a wait form any more.
 # `#[cfg(test)]` modules are skipped. Every run first proves the scanner on fixtures
 # (`--self-test` runs only that).
 set -euo pipefail
@@ -27,8 +30,7 @@ scan_timeouts() {
   python3 - "$@" <<'PY'
 import os, re, sys
 forms = re.compile(r"Wait::Timeout\(|deadline_after\(|[a-z_]+_budgeted\(|\brecv_until\(|\bsend_until\(|recv_matching_until\(")
-EXCLUDE = ("/target/", "/tests/", "/host.rs", "/src/os.rs", "nexus-ipc/src/budget.rs",
-           "nexus-ipc/src/os_kernel.rs", "nexus-ipc/src/os_lite.rs", "nexus-ipc/src/reqrep.rs")
+EXCLUDE = ("/target/", "/tests/")
 def strip_tests(src):
     out = []; i = 0
     while True:
@@ -113,7 +115,7 @@ PY
 retired() {
   # Rule 1: the spin helpers do not come back (declarations and calls; a comment naming
   # them as history is not a resurrection).
-  grep -rnE "\b(retry_ipc_until|retry_ipc_budgeted|recv_match_bounded|routing_v1_get|wait_for_slots_ready)\b|fn yield_now\(" \
+  grep -rnE "\b(retry_ipc_until|retry_ipc_budgeted|recv_match_bounded|routing_v1_get|wait_for_slots_ready|recv_match_until|deadline_after|send_until|recv_until|recv_matching_until|send_budgeted|recv_budgeted|OsClock|HostClock)\b|fn yield_now\(|Wait::Timeout" \
     --include='*.rs' "$@" 2>/dev/null | grep -v '/tests/' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true
 }
 
@@ -147,9 +149,8 @@ mod tests {
 }
 RS
   cat > "$tmp/clean/src/os_lite.rs" <<'RS'
-fn wait_reply(client: &KernelClient, deadline: u64) -> Option<Vec<u8>> {
-    let clock = nexus_ipc::budget::OsClock;
-    nexus_ipc::budget::recv_until(&clock, client, deadline).ok()
+fn wait_reply(send_slot: u32, reply: SlotPair, req: &[u8], out: &mut [u8]) -> Option<usize> {
+    nexus_ipc::exchange::call_into(send_slot, reply, req, out).ok()
 }
 RS
   got=$(scan "$tmp/svc")

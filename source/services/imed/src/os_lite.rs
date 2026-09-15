@@ -395,39 +395,22 @@ const SETTINGS_REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::imed::SETTI
 const SETTINGS_REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::imed::SETTINGSD_INBOX_SEND;
 
 /// Writes a settingsd key (settingsd is the SSOT; its watch spine then fans out
-/// to inputd/windowd/OSK). The reply-SEND is CLONED per request and CAP_MOVEd
-/// (mint→grant, zero accumulation); the answer is drained bounded so the inbox
-/// never fills. Human-rate — never on the per-key hot path.
+/// to inputd/windowd/OSK): ONE exchange over imed's private settingsd inbox
+/// (`nexus_ipc::exchange::call_into`, TASK-0054C P2-a) — the reply-SEND is cloned
+/// per request and CAP_MOVEd, the answer is waited for with no clock: the ack, or
+/// settingsd's death. Human-rate — never on the per-key hot path.
 fn set_setting(key: &str, value: &str) {
     use nexus_wire::settingsd as sw;
     let mut req = [0u8; 300];
     let Some(n) = sw::encode_set_req(key, value, &mut req) else {
         return;
     };
-    let Ok(reply_send) = nexus_abi::cap_clone(SETTINGS_REPLY_SEND_SLOT) else {
-        emit_line("imed: FAIL setting write (reply clone)");
-        return;
-    };
-    let hdr = nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
-    if nexus_abi::ipc_send_v1(SETTINGS_SEND_SLOT, &hdr, &req[..n], nexus_abi::IPC_SYS_NONBLOCK, 0)
-        .is_err()
-    {
-        emit_line("imed: FAIL setting write (send)");
-        let _ = nexus_abi::cap_close(reply_send);
-        return;
-    }
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(200_000_000);
-    let mut rhdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut sid: u64 = 0;
+    let reply =
+        nexus_service_topology::SlotPair::new(SETTINGS_REPLY_SEND_SLOT, SETTINGS_REPLY_RECV_SLOT);
     let mut buf = [0u8; 64];
-    let _ = nexus_abi::ipc_recv_v2(
-        SETTINGS_REPLY_RECV_SLOT,
-        &mut rhdr,
-        &mut buf,
-        &mut sid,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        deadline,
-    );
+    if nexus_ipc::exchange::call_into(SETTINGS_SEND_SLOT, reply, &req[..n], &mut buf).is_err() {
+        emit_line("imed: FAIL setting write (exchange)");
+    }
 }
 
 /// Persists an OSK-driven layout switch to `input.keymap`.

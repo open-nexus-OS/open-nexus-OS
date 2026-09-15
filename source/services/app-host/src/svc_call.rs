@@ -1,93 +1,29 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! The fixed-slot request/reply transport every `svc.*` call rides.
+//! The fixed-slot request/reply transport every `svc.*` call rides: ONE exchange
+//! (`nexus_ipc::exchange::call_into`, TASK-0054C P2-a) over the child's provisioned
+//! `@reply` inbox — a fresh SEND clone moved with the request, a wait on the RECV half with
+//! last-sender EOF opted in. Exactly two things end the wait: the reply, or the service's
+//! death. No deadline, no stale-reply drain: the inbox is private and minted per launch,
+//! this host is single-threaded, and only CAP_MOVE replies can land here, so the only way a
+//! stale frame ever appeared was a client timeout abandoning its reply — the cause is gone
+//! with the clock (RFC-0093 §7). A service that is alive and silent is a supervision truth
+//! (ADR-0057), never a client timer.
 //!
-//! Split out of `effect_host.rs` (structure-gate) — it is TRANSPORT, not the
-//! service surface, and it is what carries the DSL's `timeoutMs:` budget.
+//! Split out of `effect_host.rs` (structure-gate) — it is TRANSPORT, not the service surface.
 
 #![cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 
-use super::effect_host::SVC_DEADLINE_NS;
 use nexus_sdk_routes::{CHILD_REPLY_RECV_SLOT, CHILD_REPLY_SEND_SLOT};
+use nexus_service_topology::SlotPair;
 
-/// Fixed-slot request/reply over the child's provisioned `@reply` inbox: clone
-/// the reply SEND (child slot 10), MOVE it into the request so the service
-/// answers our inbox, send on `service_send_slot` (bounded), then receive on
-/// the reply RECV (child slot 9). Returns the reply frame length, or `None` on
-/// any send/recv failure or timeout (the caller renders the `Err` arm).
+/// Fixed-slot request/reply over the child's provisioned `@reply` inbox (child slots 10/9).
+/// Returns the reply frame length, or `None` on any send/recv failure (the caller renders
+/// the `Err` arm).
 pub(crate) fn call_reply(service_send_slot: u32, req: &[u8], resp: &mut [u8]) -> Option<usize> {
-    call_reply_within(service_send_slot, req, resp, SVC_DEADLINE_NS)
-}
-
-/// [`call_reply`] with an explicit budget — the DSL's `timeoutMs:`.
-///
-/// `EffectHost::call` used to take `_timeout_ms` and throw it away, so every
-/// `svc.*` call in every app ran on one hardcoded constant no matter what the
-/// page asked for. The knob type-checked, documented and did nothing.
-pub(crate) fn call_reply_within(
-    service_send_slot: u32,
-    req: &[u8],
-    resp: &mut [u8],
-    budget_ns: u64,
-) -> Option<usize> {
-    // DRAIN FIRST. A call that times out abandons its reply, but the service
-    // still sends one — it lands in this same inbox and the NEXT call reads it
-    // as its own. One slow service at boot therefore desyncs every later call
-    // by one, permanently: `settings.set` timed out, settingsd replied 40ms
-    // late, and the following `bundlemgr.enumerate` parsed THAT frame, found no
-    // app list and reported zero apps — the desktop lost every icon.
-    //
-    // At the start of a call the inbox must be empty, so anything here is
-    // stale by construction. Bounded, non-blocking, and loud: a silent
-    // resync would hide the very race it is compensating for.
-    let mut stale = [0u8; 64];
-    let mut discarded = 0u32;
-    while discarded < 8 {
-        let mut sh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        if nexus_abi::ipc_recv_v1(
-            CHILD_REPLY_RECV_SLOT,
-            &mut sh,
-            &mut stale,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        )
-        .is_err()
-        {
-            break;
-        }
-        discarded += 1;
-    }
-    if discarded > 0 {
-        crate::effect_host::raw_marker(&alloc::format!(
-            "apphost: svc reply desync — dropped {discarded} stale reply(ies)"
-        ));
-    }
-
-    let reply_send = nexus_abi::cap_clone(CHILD_REPLY_SEND_SLOT).ok()?;
-    let hdr =
-        nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(budget_ns);
-
-    // KERNEL-PARKED send: a full queue registers us as a send-waiter and the
-    // receive path wakes us the moment capacity appears (RFC-0083 — the old
-    // NONBLOCK + yield_() spin here burned up to 2 s of scheduler quanta).
-    if nexus_abi::ipc_send_v1(service_send_slot, &hdr, req, 0, deadline).is_err() {
-        // Reclaim the clone (a successful CAP_MOVE would have consumed it).
-        let _ = nexus_abi::cap_close(reply_send);
-        return None;
-    }
-
-    // KERNEL-PARKED receive on the same absolute deadline.
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    match nexus_abi::ipc_recv_v1(
-        CHILD_REPLY_RECV_SLOT,
-        &mut rh,
-        resp,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        deadline,
-    ) {
-        Ok(n) => Some((n as usize).min(resp.len())),
-        Err(_) => None,
-    }
+    let reply = SlotPair::new(CHILD_REPLY_SEND_SLOT, CHILD_REPLY_RECV_SLOT);
+    nexus_ipc::exchange::call_into(service_send_slot, reply, req, resp)
+        .ok()
+        .map(|n| n.min(resp.len()))
 }

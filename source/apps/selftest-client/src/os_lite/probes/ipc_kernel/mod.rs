@@ -3,7 +3,7 @@
 
 //! CONTEXT: Aggregator for kernel-IPC probes. Re-exports the same
 //!   `pub(crate)` surface (`qos_probe`, `ipc_payload_roundtrip`,
-//!   `ipc_deadline_timeout_probe`, `nexus_ipc_kernel_loopback_probe`,
+//!   `nexus_ipc_kernel_loopback_probe`,
 //!   `cap_move_reply_probe`, `sender_pid_probe`, `sender_service_id_probe`,
 //!   `ipc_soak_probe`, `ipc_bench_probe`) from focused submodules.
 //! OWNERS: @runtime
@@ -33,8 +33,6 @@ mod security;
 mod soak;
 
 pub(crate) use bench::{ipc_bench_probe, BenchResult};
-pub(crate) use plumbing::{
-    ipc_deadline_timeout_probe, ipc_payload_roundtrip, nexus_ipc_kernel_loopback_probe, qos_probe,
-};
+pub(crate) use plumbing::{ipc_payload_roundtrip, nexus_ipc_kernel_loopback_probe, qos_probe};
 pub(crate) use security::{cap_move_reply_probe, sender_pid_probe, sender_service_id_probe};
 pub(crate) use soak::ipc_soak_probe;

@@ -19,7 +19,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use nexus_abi::ipc_recv_v1_nb;
 
 use super::super::super::ipc::clients::cached_samgrd_client;
-use super::plumbing::{ipc_deadline_timeout_probe, ipc_payload_roundtrip};
+use super::plumbing::ipc_payload_roundtrip;
 use super::security::cap_move_reply_probe;
 
 /// Deterministic “soak” probe for IPC production-grade behaviour.
@@ -38,9 +38,6 @@ pub(crate) fn ipc_soak_probe() -> core::result::Result<(), ()> {
 
     // Keep it bounded so QEMU marker runs stay fast/deterministic and do not accumulate kernel heap.
     for _ in 0..96u32 {
-        // A) Deadline semantics probe (must timeout).
-        ipc_deadline_timeout_probe()?;
-
         // B) Bootstrap payload roundtrip.
         ipc_payload_roundtrip()?;
 
@@ -54,7 +51,10 @@ pub(crate) fn ipc_soak_probe() -> core::result::Result<(), ()> {
         frame[2] = 1;
         frame[3] = 3; // OP_PING_CAP_MOVE
         frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = nexus_ipc::exchange::call(sam_send, reply, &frame).map_err(|_| ())?;
+        let mut rsp_buf = [0u8; 16];
+        let n = nexus_ipc::exchange::call_into(sam_send, reply, &frame, &mut rsp_buf)
+            .map_err(|_| ())?;
+        let rsp = &rsp_buf[..n.min(rsp_buf.len())];
         let pong_nonce = rsp.get(4..12).map(|b| u64::from_le_bytes(b.try_into().unwrap_or([0; 8])));
         if rsp.len() != 12 || rsp[0..4] != *b"PONG" || pong_nonce != Some(nonce) {
             return Err(());

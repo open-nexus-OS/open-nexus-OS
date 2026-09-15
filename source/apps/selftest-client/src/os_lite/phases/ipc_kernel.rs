@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Phase 7 of 12 — ipc_kernel (orchestration of pure-kernel IPC probes
-//!   from RFC-0005: payload roundtrip, deadline timeout, kernel-loopback,
+//!   from RFC-0005: payload roundtrip, kernel-loopback,
 //!   cap_move reply, sender_pid, sender_service_id, IPC soak, IPC bench).
 //! OWNERS: @runtime
 //! STATUS: Functional
@@ -26,13 +26,6 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_IPC_PAYLOAD_ROUNDTRIP_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_IPC_PAYLOAD_ROUNDTRIP_FAIL);
-    }
-
-    // Kernel IPC v1 deadline semantics (RFC-0005): a past deadline should time out immediately.
-    if probes::ipc_kernel::ipc_deadline_timeout_probe().is_ok() {
-        emit_line(crate::markers::M_SELFTEST_IPC_DEADLINE_TIMEOUT_OK);
-    } else {
-        emit_line(crate::markers::M_SELFTEST_IPC_DEADLINE_TIMEOUT_FAIL);
     }
 
     // Exercise `nexus-ipc` kernel backend (NOT service routing) deterministically:

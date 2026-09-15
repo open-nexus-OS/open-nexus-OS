@@ -58,40 +58,16 @@ pub(crate) enum Delivery {
     Coalescing,
 }
 
-/// How long the compositor will wait for a blocked client to drain one ACK,
-/// in nanoseconds (16 ms — one frame at 60 Hz).
-///
-/// This is a DEADLINE handed to the kernel, not a retry budget: `ipc_send_v1`
-/// without `IPC_SYS_NONBLOCK` parks the sender on the endpoint
-/// (`register_send_waiter`) and the receive path wakes it the moment the queue
-/// drains (`pop_send_waiter`). One syscall, no polling.
-///
-/// One frame is enough HERE because expiry is not the end of the story: the
-/// caller falls back to the blocking reply path, which cannot be lost.
-pub(crate) const BLOCKING_SEND_DEADLINE_NS: u64 = 16_000_000;
-
-/// How long the compositor will wait to hand a client a TAP (250 ms).
-///
-/// Sized from measurement, not from the refresh rate. The frame budget was the
-/// wrong unit: under load the compositor loop was observed at **13 Hz** (77 ms
-/// per iteration), so a 16 ms deadline expired on a merely-slow client and the
-/// user's click vanished with a `FAIL desktop input send` — the exact symptom
-/// this constant exists to prevent. 250 ms covers three of those worst-observed
-/// iterations.
-///
-/// The cost of the larger bound is paid only when a client really is wedged,
-/// and it is the right trade: one visible 250 ms hitch is recoverable, a
-/// silently dropped click is not. The bound still exists — an unbounded send
-/// would let one dead client wedge the compositor forever.
-pub(crate) const CRITICAL_SEND_DEADLINE_NS: u64 = 250_000_000;
-
 impl Delivery {
-    /// Deadline in ns for a blocking send; `None` = do not block at all.
-    pub(crate) const fn deadline_ns(self) -> Option<u64> {
+    /// Whether a send of this class PARKS on the client's endpoint until the frame is
+    /// queued (the client drains, or it dies) — or is one non-blocking attempt because the
+    /// next frame supersedes this one. No deadline exists (RFC-0093 §7, TASK-0054C P2-a):
+    /// the 16 ms / 250 ms bounds this policy once carried only chose between the parked
+    /// send and the parked fallback the caller ran anyway.
+    pub(crate) const fn parks(self) -> bool {
         match self {
-            Delivery::Blocking => Some(BLOCKING_SEND_DEADLINE_NS),
-            Delivery::Critical => Some(CRITICAL_SEND_DEADLINE_NS),
-            Delivery::Coalescing => None,
+            Delivery::Blocking | Delivery::Critical => true,
+            Delivery::Coalescing => false,
         }
     }
 
@@ -368,7 +344,7 @@ mod tests {
 
 #[cfg(test)]
 mod delivery_tests {
-    use super::{Delivery, BLOCKING_SEND_DEADLINE_NS, CRITICAL_SEND_DEADLINE_NS};
+    use super::Delivery;
 
     /// TASK-0306: the bug was a POLICY bug, so the policy is what gets pinned.
     /// A frame the client is blocked on must be retried; a frame the next one
@@ -377,15 +353,10 @@ mod delivery_tests {
     /// a full queue, and the client waited 504 ms for a reply that never came.
     #[test]
     fn blocking_retries_and_coalescing_does_not() {
-        assert_eq!(Delivery::Coalescing.deadline_ns(), None, "stale data must not block");
-        assert_eq!(
-            Delivery::Blocking.deadline_ns(),
-            Some(BLOCKING_SEND_DEADLINE_NS),
-            "a client is waiting on this frame — park on the endpoint, do not poll"
-        );
+        assert!(!Delivery::Coalescing.parks(), "stale data must not block");
         assert!(
-            BLOCKING_SEND_DEADLINE_NS <= 16_000_000,
-            "an ACK has a fallback path, so one frame is the right bound"
+            Delivery::Blocking.parks(),
+            "a client is waiting on this frame — park on the endpoint, do not poll"
         );
     }
 
@@ -399,10 +370,10 @@ mod delivery_tests {
     fn a_settings_push_is_not_coalescable() {
         // The transitional legacy pushes still ride Critical: bounded block,
         // never silently dropped. The endgame lives in presentation_state.
-        assert_eq!(Delivery::Critical.deadline_ns(), Some(CRITICAL_SEND_DEADLINE_NS));
+        assert!(Delivery::Critical.parks());
         assert_ne!(
-            Delivery::Critical.deadline_ns(),
-            Delivery::Coalescing.deadline_ns(),
+            Delivery::Critical.parks(),
+            Delivery::Coalescing.parks(),
             "a settings frame is never fire-and-forget"
         );
     }
@@ -410,22 +381,13 @@ mod delivery_tests {
     /// The follow-up bug: sizing the TAP budget to a frame was wrong, because
     /// nothing catches an expired tap. The compositor loop was measured at
     /// 13 Hz under load (77 ms), so a 16 ms budget dropped real clicks with
-    /// `FAIL desktop input send`. User intent outlives one frame.
+    /// `FAIL desktop input send`. User intent outlives one frame — and since
+    /// TASK-0054C P2-a it outlives every frame: a tap PARKS until the client
+    /// drains or dies, no budget can expire on it.
     #[test]
     fn a_tap_outlives_a_slow_frame() {
-        const WORST_OBSERVED_LOOP_NS: u64 = 77_000_000; // 13 Hz, from the boot log
-        assert!(
-            CRITICAL_SEND_DEADLINE_NS > WORST_OBSERVED_LOOP_NS,
-            "a tap must survive the slowest loop iteration we have actually measured"
-        );
-        assert!(
-            CRITICAL_SEND_DEADLINE_NS > BLOCKING_SEND_DEADLINE_NS,
-            "user intent has no recovery path; an ack does"
-        );
-        assert!(
-            CRITICAL_SEND_DEADLINE_NS <= 500_000_000,
-            "still bounded — one dead client must not wedge the compositor forever"
-        );
+        assert!(Delivery::Critical.parks(), "user intent has no recovery path; it parks");
+        assert!(Delivery::for_input(true).parks(), "a tap is never one attempt");
     }
 
     #[test]

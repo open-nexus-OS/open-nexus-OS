@@ -140,7 +140,6 @@ impl Client for LiteClient {
             drop(requests);
             match wait {
                 Wait::NonBlocking => return Err(IpcError::WouldBlock),
-                Wait::Timeout(_) => return Err(IpcError::Timeout),
                 Wait::Blocking => loop {
                     let _ = nexus_abi::yield_();
                     let mut retry = queues.requests.lock();
@@ -164,7 +163,6 @@ impl Client for LiteClient {
             }
             match wait {
                 Wait::NonBlocking => return Err(IpcError::WouldBlock),
-                Wait::Timeout(_) => return Err(IpcError::Timeout),
                 Wait::Blocking => {
                     let _ = nexus_abi::yield_();
                 }
@@ -200,7 +198,6 @@ impl Server for LiteServer {
             }
             match wait {
                 Wait::NonBlocking => return Err(IpcError::WouldBlock),
-                Wait::Timeout(_) => return Err(IpcError::Timeout),
                 Wait::Blocking => {
                     let _ = nexus_abi::yield_();
                 }
@@ -217,7 +214,6 @@ impl Server for LiteServer {
             drop(response);
             match wait {
                 Wait::NonBlocking => return Err(IpcError::WouldBlock),
-                Wait::Timeout(_) => return Err(IpcError::Timeout),
                 Wait::Blocking => loop {
                     let _ = nexus_abi::yield_();
                     let mut retry = self.queues.response.lock();

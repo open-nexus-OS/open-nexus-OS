@@ -31,7 +31,6 @@
 extern crate alloc;
 
 use core::fmt;
-use core::time::Duration;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 use alloc::vec::Vec;
@@ -41,29 +40,21 @@ use std::vec::Vec;
 /// Result type returned by IPC operations.
 pub type Result<T> = core::result::Result<T, IpcError>;
 
-/// Behaviour of a blocking call.
+/// Behaviour of a blocking call. There is no clock-bound variant (RFC-0093 §7, TASK-0054C
+/// P2-a): a wait ends when the operation completes or the peer dies — never on a timer. Pacing
+/// is a kernel one-shot timer on a waitset, not a receive timeout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Wait {
     /// Block until the operation completes.
     Blocking,
     /// Return immediately if no progress can be made.
     NonBlocking,
-    /// Block until either the operation completes or the timeout expires.
-    Timeout(Duration),
 }
 
 impl Wait {
     /// Returns `true` when the caller requested a non-blocking attempt.
     pub const fn is_non_blocking(self) -> bool {
         matches!(self, Self::NonBlocking)
-    }
-
-    /// Converts a [`Wait::Timeout`] variant into its [`Duration`].
-    pub const fn timeout(self) -> Option<Duration> {
-        match self {
-            Self::Timeout(duration) => Some(duration),
-            Self::Blocking | Self::NonBlocking => None,
-        }
     }
 }
 
@@ -157,9 +148,6 @@ pub mod reqrep;
 /// Typed circuit breaker for server recv loops (SMP robustness): #[must_use]
 /// verdict so die-on-error loops cannot be written silently.
 pub mod resilience;
-
-/// One reusable typed request/reply client over a pluggable transport (RFC-0066).
-pub mod connection;
 
 #[cfg(all(nexus_env = "host", feature = "std"))]
 mod host;

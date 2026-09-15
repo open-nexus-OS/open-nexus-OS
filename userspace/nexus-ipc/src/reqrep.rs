@@ -21,7 +21,6 @@ use alloc::vec::Vec;
 #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
 use std::vec::Vec;
 
-use crate::budget;
 use crate::Client;
 
 /// Monotonic nonce generator (no randomness; deterministic).
@@ -297,46 +296,12 @@ pub fn recv_match<const PENDING: usize, const MAX_FRAME: usize>(
     }
 }
 
-/// The clock-bound form of [`recv_match`] (transitional, TASK-0324 P7-d retires the last
-/// callers): the deadline is a liveness bound, never a spin budget.
-pub fn recv_match_until<const PENDING: usize, const MAX_FRAME: usize>(
-    clock: &impl budget::Clock,
-    inbox: &impl Client,
-    pending: &mut ReplyBuffer<PENDING, MAX_FRAME>,
-    expected_nonce: u64,
-    deadline_ns: u64,
-    extract_nonce: impl Fn(&[u8]) -> Option<u64>,
-) -> crate::Result<Vec<u8>> {
-    // First: see if we already buffered it.
-    let mut tmp = [0u8; MAX_FRAME];
-    if let Some(n) = pending.take_into(expected_nonce, &mut tmp) {
-        return Ok(tmp[..n].to_vec());
-    }
-
-    loop {
-        let frame = budget::recv_until(clock, inbox, deadline_ns)?;
-        if let Some(nonce) = extract_nonce(&frame) {
-            if nonce == expected_nonce {
-                return Ok(frame);
-            }
-            // Another exchange's reply: keep it for that exchange, keep waiting for ours.
-            let _ = pending.push(nonce, &frame);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::budget::{deadline_after, HostClock};
     use crate::loopback_channel;
     use crate::Server as _;
     use crate::{IpcError, Wait};
-    use core::time::Duration;
-
-    fn deadline(clock: &HostClock, ms: u64) -> u64 {
-        deadline_after(clock, Duration::from_millis(ms)).unwrap()
-    }
 
     #[test]
     fn test_nonce_gen_monotonic() {
@@ -405,17 +370,12 @@ mod tests {
         r1.extend_from_slice(&1u64.to_le_bytes());
         server.send(&r1, Wait::Blocking).unwrap();
 
-        let clock = HostClock::new();
-        let got1 =
-            recv_match_until(&clock, &client, &mut pending, 1, deadline(&clock, 500), nonce_tail)
-                .unwrap();
+        let got1 = recv_match(&client, &mut pending, 1, nonce_tail).unwrap();
         assert_eq!(&got1[..4], b"rsp1");
 
         // The earlier r2 is buffered and returned without another receive (the inbox is
-        // empty now — a receive would only time out).
-        let got2 =
-            recv_match_until(&clock, &client, &mut pending, 2, deadline(&clock, 20), nonce_tail)
-                .unwrap();
+        // empty now — a receive would block forever).
+        let got2 = recv_match(&client, &mut pending, 2, nonce_tail).unwrap();
         assert_eq!(&got2[..4], b"rsp2");
     }
 
@@ -459,41 +419,24 @@ mod tests {
         }
 
         // First match rngd; this should buffer the policyd reply.
-        let clock = HostClock::new();
-        let got_rngd = recv_match_until(
-            &clock,
-            &client,
-            &mut pending,
-            rngd_nonce as u64,
-            deadline(&clock, 500),
-            extract,
-        )
-        .unwrap();
+        let got_rngd = recv_match(&client, &mut pending, rngd_nonce as u64, extract).unwrap();
         assert!(got_rngd.starts_with(&[b'R', b'G', 1]));
 
         // Then match policyd without receiving more; it must come from the buffer.
-        let got_pol = recv_match_until(
-            &clock,
-            &client,
-            &mut pending,
-            policyd_nonce as u64,
-            deadline(&clock, 20),
-            extract,
-        )
-        .unwrap();
+        let got_pol = recv_match(&client, &mut pending, policyd_nonce as u64, extract).unwrap();
         assert_eq!(got_pol.len(), 10);
         assert_eq!(&got_pol[..3], &[b'P', b'O', 2]);
     }
 
     #[test]
-    fn test_recv_match_times_out_deterministically() {
-        let (client, _server) = loopback_channel();
+    fn test_recv_match_ends_on_peer_death_not_on_a_clock() {
+        // The only other way out of a wait: the peer is gone (RFC-0079 EOF on the OS, a
+        // dropped channel end here). No frame, no clock, `Disconnected`.
+        let (client, server) = loopback_channel();
+        drop(server);
         let mut pending: ReplyBuffer<2, 16> = ReplyBuffer::new();
-        let clock = HostClock::new();
-        let err =
-            recv_match_until(&clock, &client, &mut pending, 1, deadline(&clock, 20), nonce_tail)
-                .unwrap_err();
-        assert_eq!(err, IpcError::Timeout);
+        let err = recv_match(&client, &mut pending, 1, nonce_tail).unwrap_err();
+        assert_eq!(err, IpcError::Disconnected);
     }
 
     #[test]

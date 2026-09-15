@@ -38,7 +38,10 @@ pub(crate) fn cap_move_reply_probe() -> core::result::Result<(), ()> {
     frame[2] = 1; // samgrd os-lite version
     frame[3] = 3; // OP_PING_CAP_MOVE
     frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-    let rsp = nexus_ipc::exchange::call(sam_send, reply, &frame).map_err(|_| ())?;
+    let mut rsp_buf = [0u8; 16];
+    let n =
+        nexus_ipc::exchange::call_into(sam_send, reply, &frame, &mut rsp_buf).map_err(|_| ())?;
+    let rsp = &rsp_buf[..n.min(rsp_buf.len())];
     let pong_nonce = rsp.get(4..12).map(|b| u64::from_le_bytes(b.try_into().unwrap_or([0; 8])));
     if rsp.len() == 12 && rsp[0..4] == *b"PONG" && pong_nonce == Some(nonce) {
         Ok(())
@@ -64,12 +67,15 @@ pub(crate) fn sender_pid_probe() -> core::result::Result<(), ()> {
     frame[4..8].copy_from_slice(&me.to_le_bytes());
     frame[8..16].copy_from_slice(&nonce.to_le_bytes());
     // ONE exchange, no clock (TASK-0324 P7-b): samgrd's answer or its death.
-    let rsp = nexus_ipc::exchange::call(
+    let mut rsp_buf = [0u8; 32];
+    let n = nexus_ipc::exchange::call_into(
         sam_send,
         nexus_service_topology::SlotPair::new(reply_send_slot, reply_recv_slot),
         &frame,
+        &mut rsp_buf,
     )
     .map_err(|_| ())?;
+    let rsp = &rsp_buf[..n.min(rsp_buf.len())];
     if rsp.len() != 17 || rsp[0] != b'S' || rsp[1] != b'M' || rsp[2] != 1 {
         return Err(());
     }

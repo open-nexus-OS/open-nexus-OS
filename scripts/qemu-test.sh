@@ -897,7 +897,6 @@ expected_sequence=(
   "SELFTEST: evidence query ok"
   "SELFTEST: evidence budget ok"
   "SELFTEST: ipc payload roundtrip ok"
-  "SELFTEST: ipc deadline timeout ok"
   "SELFTEST: nexus-ipc kernel loopback ok"
   "SELFTEST: ipc sender pid ok"
   "SELFTEST: ipc sender service_id ok"

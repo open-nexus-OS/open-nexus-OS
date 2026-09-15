@@ -301,11 +301,53 @@ waiter's own address space).
   ipc bench (rt=<n>us hops=<h>)` ping-pong over today's two-trap `exchange` (no assert);
   the stats line at the ShellVisible fence. Zones: kernel (small). Lanes: headless, smp1,
   visible. Result → the D1 budget constants.
-- **P2 Userspace ONE API** — all 48 pairing functions + 20 helper callers onto `exchange`;
-  the D5 deletion list; app-host `svc_call.rs` = a wrapper around `call_into`; `timeoutMs:`
-  removed (effect_host + DSL grammar / lint in `tools/nx`); gate rule 4; LOC baseline
-  shrunk (`config/loc-baseline.txt`). Zones: libs (`nexus-log`, one site), config, scripts.
-  Blast: every service, init, selftest. Lanes: `just test-all` + visible.
+- **P2 Userspace ONE API** — three sub-packages (inventory corrected 2026-09-15 at P2 start:
+  the raw-`deadline_ns` scan finds **31** sites, not 3; `reqrep::ReplyBuffer`/`FrameStash`/
+  `recv_match` are ALIVE in dsoftbusd, keystored, execd and init — a shared-inbox
+  correlation model, not dead code):
+  - **P2-a Clocks out of request/reply, dead forms deleted.** `Wait::Timeout` deleted from
+    the `Wait` enum (clocklessness by type), `budget.rs` reduced to the route ask + the raw
+    blocking send (`Clock`/`OsClock`/`HostClock`, `deadline_after`, `remaining`,
+    `send_until`, `recv_until`, `recv_matching_until`, `*_budgeted`, `raw::recv_blocking`
+    gone), `connection.rs` (`Connection`/`Transport`, no consumer) and `reqrep::
+    recv_match_until` deleted, `exchange::call` (the allocating form) and `MAX_REPLY` deleted;
+    app-host `svc_call.rs` = `exchange::call_into` (drain, `SVC_DEADLINE_NS`, `budget_ns`,
+    `send_fire_and_forget` deadline gone; the DSL `timeoutMs:` argument is ignored and handed
+    to TASK-0077B for removal from the language); imed `set_setting` = one exchange; windowd
+    `Delivery::deadline_ns()` → `parks()` (a client-bound send parks until the client drains
+    or dies — the 16 ms / 250 ms bounds only chose between two parks); selftest `net_rpc`/
+    `expose` = `call_matching`, the four `exchange::call` sites = `call_into`, the loopback
+    round trip waits, `ipc_deadline_timeout_probe` + `SELFTEST: ipc deadline timeout ok/FAIL`
+    retired (no userspace wait carries a deadline; the kernel's semantics stay host-tested);
+    wait-not-poll rule 1 retires every deleted name incl. `Wait::Timeout`, rule 3 is absolute
+    (no transport exclusion). Zones: scripts (`check-wait-not-poll.sh`, `qemu-test.sh` marker
+    list), docs/rfcs (RFC-0005 marker note). Blast: nexus-ipc consumers, app-host, imed,
+    windowd, selftest. Lanes: `just test-all` + visible.
+  - **P2-b Pacing and watchdog waits onto timer-notify pairs; rule 4 absolute.** The
+    remaining raw non-zero `deadline_ns` sites are not request/reply but pacing or device
+    watchdogs: ingressd `PARK_NS`, netstackd facade `FACADE_PARK_NS` (smoltcp poll cadence),
+    policyd `recv_with_meta_deadline`, hidrawd `idle_park` (re-probe cadence), gpud
+    `block_on_irq` (lost-IRQ recovery), virtio-blk completion wait (2 s device timeout),
+    execd `run_recv_wake_probe` (four deadlines = the probe's FAIL witness), selftest
+    `settings_watch::{recv_event,settle}`. Each becomes a kernel one-shot/periodic timer on
+    a declared timer-notify pair as a waitset member (the inputd/settingsd/gpud pattern;
+    pairs declared in `nexus-service-topology`, pinned by init `declared_routes::
+    pin_timer_notify`); a device watchdog is a timer, never a recv deadline. Then rule 4
+    (`ipc_send_v1`/`ipc_recv_v1`/`ipc_recv_v2` with a non-literal-`0` deadline argument) lands
+    at zero with a fixture. Zones: libs (topology), init, drivers, scripts.
+  - **P2-c ONE client API.** The 20 `send_with_cap_move(_wait)` callers and the hand-rolled
+    send-then-recv pairs onto `exchange::call_into`/`call_matching`; `KernelClient::
+    send_with_cap_move(_wait)` deleted; the shared-inbox correlation model (`ReplyBuffer`/
+    `FrameStash`/`recv_match`: dsoftbusd's netstack RPCs, keystored's rngd ask, execd's
+    policy ask, init's control stream) decided per consumer — a private channel per
+    in-flight exchange (`mint_reply_channel`) or one sequential inbox — so every reply
+    inbox sees only awaited replies; `call_matching` kept only for a structurally shared
+    inbox P2-c names; rule 1 retires the deleted names; LOC baseline shrunk. Zones: libs
+    (`nexus-log`), config, scripts. Blast: every service, init, selftest.
+  - Parked (not this task): the selftest ingress probe's socket-status retries
+    (`WOULD_BLOCK` from the facade's non-blocking socket ops, bounded by
+    `STEP_DEADLINE_NS`) are the network family's poll and go with blocking/notify socket
+    semantics there.
 - **P3 Kernel payload** — `ipc/payload.rs`, `IPC_SHORT_MAX` / `IPC_PAYLOAD_MAX` in
   `nexus-abi`, `E2BIG`, the counting-allocator test, `test_reject_oversized_inline`. Zones:
   kernel, libs. Blast: all IPC. Lanes: `just test-all`.
@@ -361,7 +403,9 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 |---|---|
 | P0 Paper | Done 2026-09-15 — ledger rewrite, IMPLEMENTATION-ORDER rows, RFC-0096 seed + index rows (RFC-0093 index text corrected), ADR-0064 seed + index row, three-lens verdict above; zones released: `docs/rfcs` (P0), kernel for P1 |
 | P1 Measure | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: smp1 214 ok / 41 KSELFTEST / total_ms 1257, `rt=209us n=64`, `sends=5700 heap_allocs=11400 copies=17665 copy_bytes=1690977 wake_ipis=0 handoff_miss=5172`; visible pixel 31.76, same numbers → **2 allocations and ~3 copies per message, 0.9 runqueue hops per message (one hart)** — `ipc/stats.rs` (declared at the crate root as `ipc_stats` so its unit test runs on host, like `ipc_eof`), `KSELFTEST: ipc stats (…)` next to the BKL line, `SELFTEST: ipc bench (rt=…us n=64)` in the `ipc_kernel` phase; counts sends, payload allocs, payload copies + bytes (zero-copy line), wake IPIs, handoff misses |
-| P2 Userspace ONE API | Draft |
+| P2-a Clocks out of request/reply | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (wait-not-poll absolute), smp1 213 ok / 41 KSELFTEST / total_ms 1257 (the retired deadline marker is the −1), visible pixel 31.76; no `apphost: svc reply desync` line in any lane |
+| P2-b Pacing/watchdog waits onto timer pairs; rule 4 absolute | Draft |
+| P2-c ONE client API (pairing helpers deleted, shared-inbox model decided) | Draft |
 | P3 Kernel payload | Draft |
 | P4 Kernel call + reply_recv | Draft |
 | P5 Seam flip | Draft |

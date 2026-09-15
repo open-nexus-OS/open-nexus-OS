@@ -59,6 +59,13 @@ Generics / type-system growth; IO in reducers or views; new triggers; focus trav
 - **D3 Bind table complete.** `lower/views.rs:258-268` += `("Slider","value")`,
   `("Select","value")`, `("Stepper","value")` → `Change`; `Stepper` added to
   `core/src/registry.rs` and `runtime/src/registry/widgets.rs` (wrapping the existing crate).
+- **D4a `timeoutMs:` is retired (handed over by TASK-0054C P2-a, 2026-09-15).** The app-host
+  no longer bounds a service call with a client clock (RFC-0093 §7, RFC-0096: the exchange ends
+  with the reply or the service's death; `EffectHost::call` ignores `timeout_ms`). This task
+  removes the argument from the language: the parser rejects `timeoutMs:` on `svc.*` calls,
+  NX0409 becomes the ERROR "no client timeout on a service call" instead of `MissingTimeout`,
+  `set_timeout_ms`/`get_timeout_ms` and the IR field go with IR v1.3, `EffectHost::call` loses
+  the parameter, docs (`docs/dev/dsl/db-queries.md` and every `timeoutMs` example) follow.
 - **D4 Lint promotion.** NX0407 (`UnhandledResult`) and NX0409 (`MissingTimeout`) → `Error`
   in `diag.rs` + `cli/src/explain.rs` + docs; corpus fixtures updated.
 - **D5 One proof home.** `tests/dsl_v0_2a_devx_host/` created (root `Cargo.toml` member —

@@ -15,8 +15,12 @@
 //!   (`ingress cidr deny ok`);
 //! - 8082: burst 2 at 1/s — the third connection is closed
 //!   (`ingress rate ok`).
-//! Every marker is emitted only after the observed behaviour; each step is
-//! deadline-bounded.
+//! Every marker is emitted only after the observed behaviour. The two IPC
+//! exchanges (`net_rpc`, `expose`) are waited for — the answer or the peer's
+//! death, never a clock (TASK-0054C P2-a); the socket-status retries below
+//! (`WOULD_BLOCK` from the facade's non-blocking socket ops) are the network
+//! family's poll and stay bounded by `STEP_DEADLINE_NS` until that family gets
+//! blocking/notify socket semantics.
 //! OWNERS: @runtime @security
 //! STATUS: Experimental
 //! TEST_COVERAGE: QEMU (`SELFTEST: ingress allow|intent deny|cidr deny|rate ok`);
@@ -25,6 +29,7 @@
 
 use nexus_abi::yield_;
 use nexus_ipc::KernelClient;
+use nexus_service_topology::SlotPair;
 
 use crate::markers::emit_line;
 use crate::os_lite::ipc::clients::{cached_netstackd_client, cached_reply_client};
@@ -70,38 +75,23 @@ fn now_ns() -> u64 {
     nexus_abi::nsec().unwrap_or(0)
 }
 
-/// One CAP_MOVE request/reply on the selftest's `@reply` inbox; foreign
-/// frames are skipped; `status` is the facade's byte 4.
-fn net_rpc(net: &KernelClient, req: &[u8], op: u8, out: &mut [u8]) -> Result<usize, ()> {
+/// The selftest's `@reply` inbox as an exchange channel.
+fn reply_pair() -> Result<SlotPair, ()> {
     let reply = cached_reply_client().map_err(|_| ())?;
-    let (reply_send_slot, reply_recv_slot) = reply.slots();
-    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-    net.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
-    let deadline = now_ns().saturating_add(STEP_DEADLINE_NS);
-    loop {
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut hdr,
-            out,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            deadline,
-        ) {
-            Ok(n) => {
-                let n = (n as usize).min(out.len());
-                if n >= 5 && out[0] == NS_MAGIC0 && out[1] == NS_MAGIC1 && out[3] == (op | 0x80) {
-                    return Ok(n);
-                }
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) | Err(nexus_abi::IpcError::TimedOut) => {
-                if now_ns() >= deadline {
-                    return Err(());
-                }
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-    }
+    let (send, recv) = reply.slots();
+    Ok(SlotPair::new(send, recv))
+}
+
+/// One CAP_MOVE request/reply on the selftest's `@reply` inbox (`exchange::call_matching`,
+/// TASK-0054C P2-a): the facade's answer for `op` — foreign frames queued ahead of it are
+/// skipped — or the facade's death; `status` is the facade's byte 4.
+fn net_rpc(net: &KernelClient, req: &[u8], op: u8, out: &mut [u8]) -> Result<usize, ()> {
+    let (net_send, _) = net.slots();
+    nexus_ipc::exchange::call_matching(net_send, reply_pair()?, req, out, |rsp| {
+        let n = rsp.len();
+        (n >= 5 && rsp[0] == NS_MAGIC0 && rsp[1] == NS_MAGIC1 && rsp[3] == (op | 0x80)).then_some(n)
+    })
+    .map_err(|_| ())
 }
 
 fn ns_header(op: u8, req: &mut [u8]) {
@@ -259,41 +249,17 @@ fn expose(ing: &KernelClient, nonce: u32, port: u16) -> Result<(u8, u8), ()> {
     req[4..8].copy_from_slice(&nonce.to_le_bytes());
     req[8..10].copy_from_slice(&port.to_le_bytes());
     req[10] = PROTO_TCP;
-    let reply = cached_reply_client().map_err(|_| ())?;
-    let (reply_send_slot, reply_recv_slot) = reply.slots();
-    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-    ing.send_with_cap_move(&req, reply_send_clone).map_err(|_| ())?;
-    let deadline = now_ns().saturating_add(STEP_DEADLINE_NS);
-    loop {
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut out = [0u8; 32];
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut hdr,
-            &mut out,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            deadline,
-        ) {
-            Ok(n) => {
-                let n = (n as usize).min(out.len());
-                if n >= 10
-                    && out[0] == IG_MAGIC0
-                    && out[1] == IG_MAGIC1
-                    && out[3] == OP_EXPOSE
-                    && u32::from_le_bytes([out[4], out[5], out[6], out[7]]) == nonce
-                {
-                    return Ok((out[8], out[9]));
-                }
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) | Err(nexus_abi::IpcError::TimedOut) => {
-                if now_ns() >= deadline {
-                    return Err(());
-                }
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-    }
+    let (ing_send, _) = ing.slots();
+    let mut out = [0u8; 32];
+    nexus_ipc::exchange::call_matching(ing_send, reply_pair()?, &req, &mut out, |rsp| {
+        (rsp.len() >= 10
+            && rsp[0] == IG_MAGIC0
+            && rsp[1] == IG_MAGIC1
+            && rsp[3] == OP_EXPOSE
+            && u32::from_le_bytes([rsp[4], rsp[5], rsp[6], rsp[7]]) == nonce)
+            .then_some((rsp[8], rsp[9]))
+    })
+    .map_err(|_| ())
 }
 
 /// Bytes cross the gateway both ways.

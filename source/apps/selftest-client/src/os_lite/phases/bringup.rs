@@ -315,10 +315,9 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         );
         // The echo is queued before the send returns (self-loopback): ONE waited receive
         // proves the pair (no clock, TASK-0324 P7-d).
-        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
         let mut rb = [0u8; 8];
         let ok = matches!(
-            nexus_ipc::budget::raw::recv_blocking(ctx.reply_recv_slot, &mut rh, &mut rb),
+            nexus_ipc::exchange::recv_reply(ctx.reply_recv_slot, &mut rb),
             Ok(n) if n == ping.len() && rb[..n] == ping
         );
         if ok {

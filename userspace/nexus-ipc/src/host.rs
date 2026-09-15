@@ -47,7 +47,7 @@
 //! ADR: docs/adr/0003-ipc-runtime-architecture.md
 
 use std::sync::{
-    mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError},
+    mpsc::{self, Receiver, Sender, TryRecvError},
     Mutex,
 };
 
@@ -121,24 +121,6 @@ impl Client for LoopbackClient {
                     TryRecvError::Disconnected => IpcError::Disconnected,
                 })
                 .map(ReplyFrame::into_bytes),
-            Wait::Timeout(timeout) => {
-                if timeout.is_zero() {
-                    return receiver
-                        .try_recv()
-                        .map_err(|err| match err {
-                            TryRecvError::Empty => IpcError::WouldBlock,
-                            TryRecvError::Disconnected => IpcError::Disconnected,
-                        })
-                        .map(ReplyFrame::into_bytes);
-                }
-                receiver
-                    .recv_timeout(timeout)
-                    .map_err(|err| match err {
-                        RecvTimeoutError::Timeout => IpcError::Timeout,
-                        RecvTimeoutError::Disconnected => IpcError::Disconnected,
-                    })
-                    .map(ReplyFrame::into_bytes)
-            }
         }
     }
 }
@@ -169,24 +151,6 @@ impl Server for LoopbackServer {
                     TryRecvError::Disconnected => IpcError::Disconnected,
                 })
                 .map(RequestFrame::into_bytes),
-            Wait::Timeout(timeout) => {
-                if timeout.is_zero() {
-                    return receiver
-                        .try_recv()
-                        .map_err(|err| match err {
-                            TryRecvError::Empty => IpcError::WouldBlock,
-                            TryRecvError::Disconnected => IpcError::Disconnected,
-                        })
-                        .map(RequestFrame::into_bytes);
-                }
-                receiver
-                    .recv_timeout(timeout)
-                    .map_err(|err| match err {
-                        RecvTimeoutError::Timeout => IpcError::Timeout,
-                        RecvTimeoutError::Disconnected => IpcError::Disconnected,
-                    })
-                    .map(RequestFrame::into_bytes)
-            }
         }
     }
 
@@ -198,7 +162,6 @@ impl Server for LoopbackServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     #[test]
     fn loopback_roundtrip() {
@@ -208,9 +171,10 @@ mod tests {
     }
 
     #[test]
-    fn recv_timeout() {
-        let (client, _server) = loopback_channel();
-        let err = client.recv(Wait::Timeout(Duration::from_millis(10))).unwrap_err();
-        assert_eq!(err, IpcError::Timeout);
+    fn recv_nonblocking_reports_would_block_and_a_dropped_peer_disconnects() {
+        let (client, server) = loopback_channel();
+        assert_eq!(client.recv(Wait::NonBlocking).unwrap_err(), IpcError::WouldBlock);
+        drop(server);
+        assert_eq!(client.recv(Wait::Blocking).unwrap_err(), IpcError::Disconnected);
     }
 }

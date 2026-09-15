@@ -20,8 +20,8 @@
 #![cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 
 use super::effect_host::{
-    call_reply_within, raw_marker, AppEffectHost, ERR_SVC_SHAPE, ERR_SVC_UNAVAILABLE,
-    ERR_SVC_UNKNOWN, FILES_REPLY_BUF, REPLY_BUF, VFS_OPCODE_READDIR, VFS_OPCODE_STAT,
+    call_reply, raw_marker, AppEffectHost, ERR_SVC_SHAPE, ERR_SVC_UNAVAILABLE, ERR_SVC_UNKNOWN,
+    FILES_REPLY_BUF, REPLY_BUF, VFS_OPCODE_READDIR, VFS_OPCODE_STAT,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -66,7 +66,7 @@ impl AppEffectHost {
         req.push(VFS_OPCODE_READDIR);
         req.extend_from_slice(&payload);
         let mut resp = alloc::vec![0u8; FILES_REPLY_BUF];
-        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
             raw_marker("apphost: dsl svc files readdir FAIL (vfsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -271,7 +271,7 @@ impl AppEffectHost {
         req.push(opcode);
         req.extend_from_slice(&payload);
         let mut resp = [0u8; 16];
-        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
             raw_marker("apphost: dsl svc files write FAIL (vfsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -304,7 +304,7 @@ impl AppEffectHost {
         req.push(nexus_vfs_types::fileops::OP_RENAME);
         req.extend_from_slice(&payload);
         let mut resp = [0u8; 16];
-        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
             raw_marker("apphost: dsl svc files.rename FAIL (vfsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -336,7 +336,7 @@ impl AppEffectHost {
         req.push(nexus_vfs_types::fileops::OP_COPY);
         req.extend_from_slice(&payload);
         let mut resp = [0u8; 16];
-        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
             raw_marker("apphost: dsl svc files.copy FAIL (vfsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };
@@ -369,7 +369,7 @@ impl AppEffectHost {
         req.push(VFS_OPCODE_STAT);
         req.extend_from_slice(path.as_bytes());
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply_within(send_slot, &req, &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
             raw_marker("apphost: dsl svc files.stat FAIL (vfsd unreachable)");
             return Err(ERR_SVC_UNAVAILABLE);
         };

@@ -19,8 +19,8 @@
 #![cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 
 use super::effect_host::{
-    call_reply_within, raw_marker, AppEffectHost, ERR_SVC_DENIED, ERR_SVC_SHAPE,
-    ERR_SVC_UNAVAILABLE, ERR_SVC_UNKNOWN, REPLY_BUF,
+    call_reply, raw_marker, AppEffectHost, ERR_SVC_DENIED, ERR_SVC_SHAPE, ERR_SVC_UNAVAILABLE,
+    ERR_SVC_UNKNOWN, REPLY_BUF,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -44,7 +44,7 @@ impl AppEffectHost {
     fn updates_call(&self, req: &[u8], op: u8, verb: &str) -> Result<(u8, Vec<u8>), u32> {
         let send_slot = Self::svc_send_slot("updates").ok_or(ERR_SVC_UNKNOWN)?;
         let mut resp = [0u8; REPLY_BUF];
-        let Some(len) = call_reply_within(send_slot, req, &mut resp, self.budget_ns) else {
+        let Some(len) = call_reply(send_slot, req, &mut resp) else {
             raw_marker("apphost: dsl svc updates FAIL (updated unreachable)");
             let _ = verb;
             return Err(ERR_SVC_UNAVAILABLE);

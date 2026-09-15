@@ -1282,6 +1282,7 @@ This is a dev-facing execution checklist embedded here intentionally so RFC‑00
 Notes:
 
 - QEMU marker suite includes `SELFTEST: ipc payload roundtrip ok` and
-  `SELFTEST: ipc deadline timeout ok` as minimal proof that IPC v1 payload copy
+  (`SELFTEST: ipc deadline timeout ok` was retired by TASK-0054C P2-a — userspace waits carry no
+  deadline, RFC-0096) as minimal proof that IPC v1 payload copy
   and deadline semantics are working end-to-end, plus routing + VFS checks over
   real cross-process kernel IPC.

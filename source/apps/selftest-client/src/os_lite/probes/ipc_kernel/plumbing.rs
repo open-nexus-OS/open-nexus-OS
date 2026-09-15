@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Kernel-IPC plumbing probes (no security claims) — `qos_probe`,
-//!   `ipc_payload_roundtrip`, `ipc_deadline_timeout_probe`,
+//!   `ipc_payload_roundtrip`,
 //!   `nexus_ipc_kernel_loopback_probe`. Exercise the bootstrap endpoint and
 //!   `KernelClient` plumbing without asserting any cross-service security
 //!   property.
@@ -69,8 +69,8 @@ pub(crate) fn ipc_payload_roundtrip() -> core::result::Result<(), ()> {
 
     let mut out_hdr = MsgHeader::new(0, 0, 0, 0, 0);
     let mut out_buf = [0u8; 64];
-    let deadline_ns = nexus_abi::nsec().map_err(|_| ())?.saturating_add(2_000_000_000);
-    let n = ipc_recv_v1(BOOTSTRAP_EP, &mut out_hdr, &mut out_buf, IPC_SYS_TRUNCATE, deadline_ns)
+    // The echo is queued before the send returned (self-loopback): ONE waited receive.
+    let n = ipc_recv_v1(BOOTSTRAP_EP, &mut out_hdr, &mut out_buf, IPC_SYS_TRUNCATE, 0)
         .map_err(|_| ())? as usize;
     if out_hdr.ty != TY || out_hdr.len as usize != payload.len() || n != payload.len() {
         return Err(());
@@ -79,19 +79,6 @@ pub(crate) fn ipc_payload_roundtrip() -> core::result::Result<(), ()> {
         return Err(());
     }
     Ok(())
-}
-
-pub(crate) fn ipc_deadline_timeout_probe() -> core::result::Result<(), ()> {
-    // Blocking recv with a deadline in the past must return TimedOut deterministically.
-    const BOOTSTRAP_EP: u32 = nexus_abi::BOOTSTRAP_CAP_SLOT;
-    let mut out_hdr = MsgHeader::new(0, 0, 0, 0, 0);
-    let mut out_buf = [0u8; 8];
-    let sys_flags = 0; // blocking
-    let deadline_ns = 1; // effectively always in the past
-    match ipc_recv_v1(BOOTSTRAP_EP, &mut out_hdr, &mut out_buf, sys_flags, deadline_ns) {
-        Err(nexus_abi::IpcError::TimedOut) => Ok(()),
-        _ => Err(()),
-    }
 }
 
 pub(crate) fn nexus_ipc_kernel_loopback_probe() -> core::result::Result<(), ()> {

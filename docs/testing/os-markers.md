@@ -339,7 +339,7 @@ Marker order:
 31. `SELFTEST: policy allow ok` – simulated allow path succeeded via policy check
 32. `SELFTEST: policy deny ok` – simulated denial path emitted for `demo.testsvc`
 33. `SELFTEST: ipc payload roundtrip ok` – kernel IPC v1 payload copy-in/out roundtrip succeeded
-34. `SELFTEST: ipc deadline timeout ok` – kernel IPC v1 deadline semantics: past deadline returns `TimedOut` deterministically
+34. ~~`SELFTEST: ipc deadline timeout ok`~~ – retired 2026-09-15 (TASK-0054C P2-a): no userspace wait carries a deadline any more (RFC-0093 §7); the kernel's deadline semantics stay covered by the kernel's own tests (`syscall/api/tests.rs`)
 35. `SELFTEST: nexus-ipc kernel loopback ok` – `nexus-ipc` OS backend exercised kernel IPC v1 syscalls (loopback on bootstrap endpoint)
 36. `SELFTEST: ipc routing ok` – `nexus-ipc` resolved a named service target via the init-lite routing responder
 37. `SELFTEST: vfs stat ok` – VFS over IPC: stat succeeded

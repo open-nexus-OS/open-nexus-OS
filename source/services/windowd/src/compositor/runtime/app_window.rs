@@ -888,18 +888,18 @@ impl DisplayServerRuntime {
 /// from ever running.
 pub(super) fn send_client_frame(slot: u32, frame: &[u8], delivery: Delivery) -> bool {
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-    let Some(budget_ns) = delivery.deadline_ns() else {
+    if !delivery.parks() {
         // Coalescing: one attempt. A full queue means the client is behind,
         // and the frame after this one carries the newer truth.
         return nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0).is_ok();
-    };
+    }
     // REACTIVE, not polled: dropping NONBLOCK makes the kernel park us as a
     // send-waiter on the endpoint and wake us the instant the client drains
-    // (`register_send_waiter` / `pop_send_waiter`). One syscall, one wakeup.
-    // The absolute deadline bounds our exposure to a wedged client; on expiry
-    // the caller falls back to the blocking reply path, which cannot be lost.
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(budget_ns);
-    nexus_abi::ipc_send_v1(slot, &hdr, frame, 0, deadline).is_ok()
+    // (`register_send_waiter` / `pop_send_waiter`). One syscall, one wakeup, no
+    // deadline (RFC-0093 §7, TASK-0054C P2-a): the deadline this send carried
+    // only chose between this park and the blocking fallback — the same park,
+    // one clock later. A dead client closes its endpoint and wakes us with an error.
+    nexus_abi::ipc_send_v1(slot, &hdr, frame, 0, 0).is_ok()
 }
 
 pub(super) fn send_input_frame(slot: u32, frame: &[u8], is_tap: bool) -> bool {

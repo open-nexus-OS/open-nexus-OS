@@ -24,25 +24,15 @@
 
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 
-use alloc::vec::Vec;
-
 use nexus_service_topology::SlotPair;
 
 use crate::{IpcError, Result};
 
 /// Sends `frame` to `send_slot` with a fresh SEND clone of `reply` moved along, then waits for
-/// the reply on `reply.recv`. Blocks without a deadline: the reply or the peer's death ends it.
-pub fn call(send_slot: u32, reply: SlotPair, frame: &[u8]) -> Result<Vec<u8>> {
-    let mut buf = [0u8; MAX_REPLY];
-    let n = call_into(send_slot, reply, frame, &mut buf)?;
-    Ok(buf[..n].to_vec())
-}
-
-/// Largest reply an exchange delivers (frames are bounded at the syscall).
-pub const MAX_REPLY: usize = 512;
-
-/// [`call`] into a caller-provided buffer (alloc-free; the length is the reply's). A reply
-/// longer than `out` is truncated (`IPC_SYS_TRUNCATE`) — size `out` for the protocol.
+/// the reply on `reply.recv` into the caller's buffer (alloc-free; the length is the reply's).
+/// Blocks without a deadline: the reply or the peer's death ends it. A reply longer than `out`
+/// is truncated (`IPC_SYS_TRUNCATE`) — size `out` for the protocol (`IPC_PAYLOAD_MAX` is the
+/// transport cap; a protocol's own bound is smaller and known to its caller).
 pub fn call_into(send_slot: u32, reply: SlotPair, frame: &[u8], out: &mut [u8]) -> Result<usize> {
     let clone = nexus_abi::cap_clone(reply.send).map_err(|_| IpcError::Unsupported)?;
     let hdr =

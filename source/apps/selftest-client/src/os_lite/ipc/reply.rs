@@ -12,7 +12,6 @@
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md, docs/rfcs/RFC-0038-*.md
 
 pub(crate) fn recv_large(recv_slot: u32, out: &mut [u8]) -> core::result::Result<usize, ()> {
-    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let n = nexus_ipc::budget::raw::recv_blocking(recv_slot, &mut hdr, out).map_err(|_| ())?;
+    let n = nexus_ipc::exchange::recv_reply(recv_slot, out).map_err(|_| ())?;
     Ok(core::cmp::min(n, out.len()))
 }
