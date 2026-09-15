@@ -145,6 +145,15 @@ impl SupervisedChild {
         EngineDecision::RestartAt { due_ns, attempt }
     }
 
+    /// The scheduled restart, if one is waiting — the moment the supervisor must wake without
+    /// traffic (TASK-0324 P8: a one-shot timer, never an idle cadence).
+    pub fn due_ns(&self) -> Option<u64> {
+        match self.state {
+            EngineState::WaitingRestart { due_ns } => Some(due_ns),
+            _ => None,
+        }
+    }
+
     /// `true` when a scheduled restart is due.
     pub fn restart_due(&self, now_ns: u64) -> bool {
         matches!(self.state, EngineState::WaitingRestart { due_ns } if now_ns >= due_ns)

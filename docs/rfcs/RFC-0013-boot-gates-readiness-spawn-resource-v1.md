@@ -3,10 +3,12 @@
 
 # RFC-0013: Boot gates v1 — readiness contract + spawn failure reasons + resource/leak sentinel
 
-- Status: Complete
+- Status: Complete — readiness is now the `@ready` verb on the control channel and `init: up <svc>`
+  is printed only after it (RFC-0093 §2, TASK-0324 P2); stage ordering is the boot-stage fence
+  (RFC-0093 §3). The spawn-failure reasons and the resource/leak sentinel of this RFC stand.
 - Owners: @runtime, @kernel-team, @tools-team
 - Created: 2026-01-16
-- Last Updated: 2026-01-16
+- Last Updated: 2026-09-15
 - Links:
   - Tasks: `tasks/TASK-0269-boot-gates-v1-readiness-spawn-resource.md` (execution + proof)
   - Related RFCs:

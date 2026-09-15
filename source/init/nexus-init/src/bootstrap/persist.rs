@@ -117,46 +117,20 @@ impl SupervisionPersist {
         // draining stalled replies, thousands of yields can burn off in
         // microseconds while the store needs real milliseconds — a counter
         // bound starved this exact path in the 0049C bring-up boots.
-        let start = nexus_abi::nsec().unwrap_or(0);
-        let send_deadline = start.saturating_add(2_000_000_000);
-        let mut sent = false;
         loop {
-            match nexus_abi::ipc_send_v1(
-                self.send_slot,
-                &hdr,
-                &req[..req_len],
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            ) {
-                Ok(_) => {
-                    sent = true;
-                    break;
-                }
-                Err(nexus_abi::IpcError::QueueFull) => {
-                    if nexus_abi::nsec().unwrap_or(u64::MAX) >= send_deadline {
-                        break;
-                    }
-                    let _ = nexus_abi::yield_();
-                }
+            match nexus_abi::ipc_send_v1(self.send_slot, &hdr, &req[..req_len], 0, 0) {
+                Ok(_) => break,
                 Err(_) => return None,
             }
         }
-        if !sent {
-            debug_write_bytes(b"init: supervision persist send stalled\n");
-            return None;
-        }
-        let recv_deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(2_000_000_000);
         loop {
-            if nexus_abi::nsec().unwrap_or(u64::MAX) >= recv_deadline {
-                return None;
-            }
             let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
             let mut buf = heapless_vec::RspBuf::zeroed();
             match nexus_abi::ipc_recv_v1(
                 self.recv_slot,
                 &mut rh,
                 buf.bytes_mut(),
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                nexus_abi::IPC_SYS_TRUNCATE,
                 0,
             ) {
                 Ok(n) => {
@@ -172,9 +146,6 @@ impl SupervisionPersist {
                         return Some(buf);
                     }
                     // Foreign nonce/version: not ours — skip (bounded).
-                }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = nexus_abi::yield_();
                 }
                 Err(_) => return None,
             }

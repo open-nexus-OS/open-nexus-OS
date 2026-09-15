@@ -479,11 +479,8 @@ pub(crate) fn bundlemgrd_set_active_slot(
         nexus_abi::ipc_hdr::CAP_MOVE,
         req.len() as u32,
     );
-    let deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(200_000_000),
-        Err(_) => 0,
-    };
-    if nexus_abi::ipc_send_v1(bnd_req, &hdr, &req, 0, deadline).is_err() {
+    // A waited exchange (TASK-0324 P8): queue space, then bundlemgrd's answer or its death.
+    if nexus_abi::ipc_send_v1(bnd_req, &hdr, &req, 0, 0).is_err() {
         return false;
     }
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
@@ -508,8 +505,8 @@ pub(crate) fn bundlemgrd_set_active_slot(
             reply_recv,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            deadline,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
+            0,
         ) {
             Ok(n) => {
                 let n = core::cmp::min(n as usize, buf.len());
@@ -590,39 +587,19 @@ pub(crate) fn updated_health_ok(
     let hdr =
         nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
     // Avoid deadline-based blocking IPC in bring-up; use explicit nsec()-bounded NONBLOCK loops.
-    let start = nexus_abi::nsec().map_err(InitError::Abi)?;
-    let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
-    let mut i: usize = 0;
     loop {
-        match nexus_abi::ipc_send_v1(upd_req, &hdr, &req[..len], nexus_abi::IPC_SYS_NONBLOCK, 0) {
+        match nexus_abi::ipc_send_v1(upd_req, &hdr, &req[..len], 0, 0) {
             Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(InitError::Abi)?;
-                    if now >= deadline {
-                        return Err(InitError::Map("updated health_ok send timeout"));
-                    }
-                }
-                let _ = nexus_abi::yield_();
-            }
             Err(e) => return Err(InitError::Ipc(e)),
         }
-        i = i.wrapping_add(1);
     }
 
     // Receive the HealthOk response before issuing GetStatus on the same reply inbox.
     // IMPORTANT: reply inbox is shared; stash unrelated replies deterministically.
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 16];
-    let mut j: usize = 0;
     let mut logged_other = false;
     loop {
-        if (j & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(InitError::Abi)?;
-            if now >= deadline {
-                return Err(InitError::Map("updated health_ok timeout"));
-            }
-        }
         if let Some(_n) = pending.take_into_where(&mut buf, |f| {
             f.len() >= 7
                 && f[0] == nexus_abi::updated::MAGIC0
@@ -639,7 +616,7 @@ pub(crate) fn updated_health_ok(
             reply_recv,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
             0,
         ) {
             Ok(n) => {
@@ -665,12 +642,8 @@ pub(crate) fn updated_health_ok(
                 let _ = pending.push(&buf[..n]);
                 continue;
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = nexus_abi::yield_();
-            }
             Err(e) => return Err(InitError::Ipc(e)),
         }
-        j = j.wrapping_add(1);
     }
 
     updated_get_status(pending, upd_req, reply_send, reply_recv)
@@ -688,36 +661,16 @@ fn updated_get_status(
     let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
     let hdr =
         nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
-    let start = nexus_abi::nsec().map_err(InitError::Abi)?;
-    let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
-    let mut i: usize = 0;
     loop {
-        match nexus_abi::ipc_send_v1(upd_req, &hdr, &req[..len], nexus_abi::IPC_SYS_NONBLOCK, 0) {
+        match nexus_abi::ipc_send_v1(upd_req, &hdr, &req[..len], 0, 0) {
             Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if (i & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(InitError::Abi)?;
-                    if now >= deadline {
-                        return Err(InitError::Map("updated status send timeout"));
-                    }
-                }
-                let _ = nexus_abi::yield_();
-            }
             Err(e) => return Err(InitError::Ipc(e)),
         }
-        i = i.wrapping_add(1);
     }
 
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 16];
-    let mut j: usize = 0;
     loop {
-        if (j & 0x7f) == 0 {
-            let now = nexus_abi::nsec().map_err(InitError::Abi)?;
-            if now >= deadline {
-                return Err(InitError::Map("updated status timeout"));
-            }
-        }
         if let Some(n) = pending.take_into_where(&mut buf, |f| {
             f.len() >= 7
                 && f[0] == nexus_abi::updated::MAGIC0
@@ -749,7 +702,7 @@ fn updated_get_status(
             reply_recv,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
             0,
         ) {
             Ok(n) => {
@@ -777,18 +730,8 @@ fn updated_get_status(
                 let _ = pending.push(&buf[..got_n]);
                 continue;
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                if (j & 0x7f) == 0 {
-                    let now = nexus_abi::nsec().map_err(InitError::Abi)?;
-                    if now >= deadline {
-                        return Err(InitError::Map("updated status timeout"));
-                    }
-                }
-                let _ = nexus_abi::yield_();
-            }
             Err(e) => return Err(InitError::Ipc(e)),
         }
-        j = j.wrapping_add(1);
     }
 }
 

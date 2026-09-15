@@ -45,11 +45,12 @@ pub(super) fn wake_receivers_if_last_peer_gone(
     if foreign_sender_remains(tasks, router, endpoint) {
         return;
     }
-    // The EOF condition holds: latch it for waitset waiters (they wake through the recv-waiter
-    // drain below like any receiver, and find the member READY instead of re-parking).
-    if router.endpoint_had_sender(endpoint) {
-        router.set_eof_pending(endpoint);
-    }
+    // No foreign sender remains: latch it for waitset waiters (they wake through the recv-waiter
+    // drain below like any receiver, and find the member READY instead of re-parking). Latched
+    // whether or not a sender was ever seen — the receive that follows decides EOF by the live
+    // rule (`had_sender` included); the latch only ENDS the wait, so a supervisor parked on a
+    // waitset learns of a child that died before it ever wrote (P8: init's responder).
+    router.set_eof_pending(endpoint);
     for pid in router.drain_recv_waiters(endpoint) {
         observe_wake_outcome(tasks.wake(task::Pid::from_raw(pid), scheduler));
     }

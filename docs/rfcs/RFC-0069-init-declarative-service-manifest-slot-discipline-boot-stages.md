@@ -1,6 +1,6 @@
 # RFC-0069: Declarative service manifest for init — tiers, generic wiring, cap-slot discipline, boot stages
 
-- Status: **In progress** (2026-07-02) — the vehicle for the init side of the boot track (user decision 2026-07-02: modernize nexus-init now instead of "own RFC later").
+- Status: **Implemented** (2026-09-15, TASK-0324 P4–P8) — the manifest lives in `source/libs/nexus-service-topology` (RFC-0093 §4: one declared slot topology, every bespoke init arm deleted, `check-slot-ssot.sh`); §4's boot stages are the boot-stage FENCE of RFC-0093 §3 (TASK-0324 P5: `display-ready` is windowd's report, `session-start` init's milestone, `shell-visible` the reveal ack — they no longer fire in immediate succession); init distributes every leg before it resumes a service and its responder waits on a waitset without a clock (TASK-0324 P7/P8). RFC-0093 is the contract that supersedes the migration plan below; this document stays as the design rationale. Originally: the vehicle for the init side of the boot track (user decision 2026-07-02: modernize nexus-init now instead of "own RFC later").
 - Owners: @runtime
 - Created: 2026-07-02
 - Links:
@@ -76,9 +76,14 @@ Host tests extend the existing service_topology consistency checks: every `route
 
 Init emits ordered stage markers derived from the manifest: `stage: display-ready` (display +
 input chain wired — the reveal is gpud's own contract per ADR-0041), `stage: session-start`
-(where `sessiond` — and later the greeter/login — takes over), `stage: shell-visible`. Today the
-stages fire in immediate succession (no behavior change); the session track replaces the
-auto-transition at `session-start` with a real session manager without touching init again.
+(where `sessiond` — and later the greeter/login — takes over), `stage: shell-visible`.
+
+**Implemented as the boot-stage fence (RFC-0093 §3, TASK-0324 P5):** one monotone kernel fence
+per boot, `Stage::{Platform, DisplayReady, SessionStart, ShellVisible}` declared on every
+`ServiceSpec`; `display-ready` and `shell-visible` are REPORTED by windowd (`@stage`, identity =
+the control channel), `session-start` is init's own milestone, and every service waits for its
+declared prerequisite in the ONE entry funnel. The stages no longer fire in immediate succession;
+`sessiond` is a manifest entry and pushes the session state (RFC-0093 §7).
 
 ## Migration — per-service, boot-gated, delete-on-proof
 

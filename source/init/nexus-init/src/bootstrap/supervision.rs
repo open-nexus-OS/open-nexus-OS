@@ -102,6 +102,14 @@ impl SupervisionSweep {
     /// One bounded drain of exited children (called once per responder
     /// round). Every reaped death is announced exactly once — the kernel
     /// reap itself is the once-latch.
+    /// The fault probe's next scheduled restart, if any (the responder's timer deadline).
+    pub(crate) fn next_due_ns(&self) -> Option<u64> {
+        if self.injector.pid.is_some() {
+            return None;
+        }
+        self.injector.child.due_ns()
+    }
+
     pub(crate) fn sweep(
         &mut self,
         channels: &mut [CtrlChannel],

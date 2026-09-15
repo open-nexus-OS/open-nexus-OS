@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-15 (TASK-0324 P8: init without clocks; closure docs, LOC baseline, gate over init)
+
+- **init's exchanges are waited** (the answer or the peer's death, RFC-0079 EOF on init's own
+  reply endpoint): the three policy checks (route / cap / exec), the MMIO grants (one policy
+  exchange each — the 1 s retry loops with `yield_()` are gone; an unanswered authority is
+  `mmio policy unavailable`, fail-closed), the RTC grant to timed, the bundlemgrd slot switch,
+  updated's health/status, the bootctld boot-attempt handshake (20 × 500 ms → one exchange) and
+  the supervision-persist statefs exchange.
+- **The responder waits on ONE waitset without a safety net**: every control channel plus
+  init's own timer-notify endpoint (`ResponderClock`: a self-minted endpoint, a kernel one-shot
+  armed at the earliest scheduled respawn — `SupervisedChild::due_ns`,
+  `Respawner::next_due_ns`, the fault probe's — and disarmed otherwise). A child's death
+  reaches the waitset through the kernel's EOF latch on that child's control endpoint.
+- **KERNEL (approval used):** the EOF latch is set whenever no foreign sender remains, whether
+  or not a sender was ever seen — the receive that follows still decides EOF by the live rule;
+  the latch only ends a waitset wait, so a supervisor learns of a child that died before it
+  ever wrote.
+- Gate: `check-wait-not-poll.sh` now scans `source/init` too (zero polls, zero clock-bound
+  forms fleet-wide, init included). `config/loc-baseline.txt` ratcheted down to the real sizes
+  (24 entries; `responder_clock.rs` split out under the 600-line limit).
+- Docs closure: RFC-0069 → Implemented (the manifest is `nexus-service-topology`, §4's stages
+  are the RFC-0093 §3 fence), RFC-0013 (readiness = `@ready`, RFC-0093 §2), ADR-0041 (decision
+  stands, mechanism = the reveal handshake + `FrameClock`), ADR-0050 → Accepted/implemented
+  (P6-a). CI parity RECORDED: CI runs `headless` + `ci-os-smp`; `just test-all` runs smp1,
+  reset, visible and the seven OTA lanes — the `visible` lane needs a GL host, so CI cannot
+  carry the pixel proof; the lane matrix difference stays documented, not hidden.
+- Proof: `just check` green (structure gate after the split); `just test-all` EXIT=0 (10 lanes: smp1 visible reset ota-flip ota-bundle ota-bundle-resume ota-bundle-delta ota-tamper ota-downgrade ota-fallback); smp1 214 ok / 41 KSELFTEST, `SELFTEST: supervision restart ok`, `crash-loop cap ok`, `init: service restarted name=pinched` ×2, `mmio policy deny ok`, boot `total_ms=1257`; visible pixel proof diff 32.72; `check-wait-not-poll.sh` zero fleet-wide incl. init.
+
 ### Changed - 2026-09-14 (TASK-0324 P7-d: no clock decides any wait — timer-notify pairs pace, EOF reaches waitsets, the payload handshake answers, the login is in the first revealed frame; both ratchets at zero)
 
 - **The reveal frame contains the login** (TASK-0065B, RFC-0093 §5 amended): windowd sends

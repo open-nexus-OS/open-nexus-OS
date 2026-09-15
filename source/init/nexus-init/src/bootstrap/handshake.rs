@@ -77,8 +77,6 @@ pub(crate) fn bootctld_boot_attempt(
     reply_recv: u32,
 ) -> Result<(Option<u8>, Option<u8>)> {
     let req = [b'B', b'T', 1u8, 5u8]; // wire v1, OP_BOOT_ATTEMPT
-                                      // Decode → (status, rolled_back_slot|0, next_boot|0xff): the one-shot
-                                      // target rides the SAME persisted commit as the attempt ack (§4).
     let decode = |frame: &[u8]| -> Option<(u8, u8, u8)> {
         if frame.len() >= 7
             && frame[0] == b'B'
@@ -92,77 +90,53 @@ pub(crate) fn bootctld_boot_attempt(
         }
         None
     };
-    let mut attempts = 0u8;
-    let max_attempts: u8 = 20;
-    loop {
-        attempts = attempts.saturating_add(1);
-        let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-        let hdr = nexus_abi::MsgHeader::new(
-            reply_send_clone,
-            0,
-            0,
-            nexus_abi::ipc_hdr::CAP_MOVE,
-            req.len() as u32,
-        );
-        let deadline = match nexus_abi::nsec() {
-            Ok(now) => now.saturating_add(500_000_000),
-            Err(_) => 0,
-        };
-        let send = nexus_abi::ipc_send_v1(boot_req, &hdr, &req, 0, deadline);
-        if send.is_err() {
-            if attempts < max_attempts {
-                let _ = nexus_abi::yield_();
-                continue;
-            }
-            return Ok((None, None));
-        }
-
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 16];
-        loop {
-            // Deterministic shared-inbox handling: first consume any previously stashed replies.
-            if let Some(n) = pending.take_into_where(&mut buf, |f| decode(f).is_some()) {
-                if let Some((status, slot, next)) = decode(&buf[..n]) {
-                    if status != 0 {
-                        return Err(InitError::Map("bootctld boot attempt failed"));
-                    }
-                    let rolled = if slot == 0 { None } else { Some(slot) };
-                    let next = if next == 0xff { None } else { Some(next) };
-                    return Ok((rolled, next));
-                }
-            }
-            // Soft-real-time boot: BLOCK on the shared reply inbox until a frame arrives or the
-            // deadline — no busy-poll (see the pre-relocation rationale in git history).
-            match nexus_abi::ipc_recv_v1(
-                reply_recv,
-                &mut rh,
-                &mut buf,
-                nexus_abi::IPC_SYS_TRUNCATE,
-                deadline,
-            ) {
-                Ok(n) => {
-                    let n = core::cmp::min(n as usize, buf.len());
-                    if let Some((status, slot, next)) = decode(&buf[..n]) {
-                        if status != 0 {
-                            return Err(InitError::Map("bootctld boot attempt failed"));
-                        }
-                        let rolled = if slot == 0 { None } else { Some(slot) };
-                        let next = if next == 0xff { None } else { Some(next) };
-                        return Ok((rolled, next));
-                    }
-                    // Stash unrelated replies deterministically for the next consumer of this inbox.
-                    let _ = pending.push(&buf[..n]);
-                    continue;
-                }
-                // Deadline hit (or transient error): fall out to the outer attempt loop.
-                Err(_) => break,
-            }
-        }
-        if attempts < max_attempts {
-            let _ = nexus_abi::yield_();
-            continue;
-        }
-        // bootctld not ready yet; skip the boot attempt for this cycle.
+    // ONE waited exchange (TASK-0324 P8): a reply-SEND clone rides the request, the send waits
+    // for queue space, the receive for bootctld's answer or its death (EOF on init's reply
+    // endpoint). The 20 × 500 ms attempt cadence is gone with the clock.
+    let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        req.len() as u32,
+    );
+    if nexus_abi::ipc_send_v1(boot_req, &hdr, &req, 0, 0).is_err() {
+        let _ = nexus_abi::cap_close(reply_send_clone);
         return Ok((None, None));
     }
+    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 16];
+    if let Some(n) = pending.take_into_where(&mut buf, |f| decode(f).is_some()) {
+        return finish_boot_attempt(decode(&buf[..n]));
+    }
+    loop {
+        let n = nexus_abi::ipc_recv_v1(
+            reply_recv,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
+            0,
+        )
+        .map_err(InitError::Ipc)? as usize;
+        let n = core::cmp::min(n, buf.len());
+        if decode(&buf[..n]).is_some() {
+            return finish_boot_attempt(decode(&buf[..n]));
+        }
+        let _ = pending.push(&buf[..n]);
+    }
+}
+
+/// The decoded boot-attempt answer → `(rolled_back slot, next boot)`; a non-zero status is
+/// the honest failure.
+fn finish_boot_attempt(decoded: Option<(u8, u8, u8)>) -> Result<(Option<u8>, Option<u8>)> {
+    let Some((status, slot, next)) = decoded else {
+        return Ok((None, None));
+    };
+    if status != 0 {
+        return Err(InitError::Map("bootctld boot attempt failed"));
+    }
+    let rolled = if slot == 0 { None } else { Some(slot) };
+    let next = if next == 0xff { None } else { Some(next) };
+    Ok((rolled, next))
 }

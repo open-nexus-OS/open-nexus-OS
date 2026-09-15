@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed (2026-07-20). Contract in `docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md`.
+Accepted and implemented (2026-09-13, TASK-0324 P6-a): the mode has ONE source
+(`nexus_abi::boot_display_mode()`, fw_cfg SSOT per RFC-0074) clamped by one policy in
+`nexus-display-proto`; gpud, windowd and inputd read it, the query protocols
+(`OP_GET_DISPLAY_MODE`, `OP_GET_VISIBLE_MODE`) are retired and `check-display-ssot.sh` guards it.
+Originally proposed 2026-07-20; contract in `docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md`.
 
 ## Context
 

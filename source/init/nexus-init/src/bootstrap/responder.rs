@@ -12,6 +12,7 @@
 //! Runs the init-lite control-channel responder: processes route-get, health-ok,
 //! and exec-check requests from spawned services, consulting policyd for gating.
 
+use crate::bootstrap::responder_clock;
 use crate::bootstrap::route_reply;
 use crate::bootstrap::CtrlChannel;
 use crate::route_table::RouteTable;
@@ -44,7 +45,12 @@ pub(crate) fn run_responder_loop(
     // (the pre-RFC-0033 pattern). The full NONBLOCK sweep below is unchanged and still drains
     // every channel on each wake, so the waitset is purely a "stop spinning while idle" layer —
     // a failed add or a missed wake only costs the 1s safety-net latency, never a dropped request.
-    let waitset = build_ctrl_waitset(&ctrl_channels);
+    // TASK-0324 P8: the responder waits on ONE waitset — every control channel plus init's own
+    // timer-notify endpoint. A child's death reaches it through the kernel's EOF latch on that
+    // child's control endpoint; a scheduled respawn through the one-shot timer armed at its due
+    // time. No idle cadence, no safety net: nothing pending means zero wakes.
+    let mut clock = responder_clock::ResponderClock::new();
+    let waitset = responder_clock::build_ctrl_waitset(&ctrl_channels, clock.notify_ep());
     // TASK-0049B: init is the ONLY possible reaper of its service children
     // (`wait` is parent-bound) — one bounded sweep per round announces every
     // death with kernel truth; the one-shot probe proves the sweep each boot.
@@ -476,7 +482,13 @@ pub(crate) fn run_responder_loop(
             }
             route_reply::send_route_rsp(chan, status, send_slot, recv_slot, route_nonce);
         }
-        responder_idle(waitset);
+        let next_due = match (respawner.next_due_ns(), supervision.next_due_ns()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        clock.arm(next_due);
+        responder_clock::responder_idle(waitset);
+        clock.drain();
         if let Some(limit) = watchdog {
             ticks = ticks.saturating_add(1);
             if ticks >= limit {
@@ -490,41 +502,6 @@ pub(crate) fn run_responder_loop(
 /// all of them at once. Returns `None` if waitsets are unavailable (host build, or the kernel
 /// rejects creation) — the caller then falls back to a cooperative yield. Adds are best-effort:
 /// a channel that fails to add is still serviced by the full NONBLOCK sweep on each wake.
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-fn build_ctrl_waitset(ctrl_channels: &[CtrlChannel]) -> Option<nexus_abi::Cap> {
-    let ws = nexus_abi::waitset_create().ok()?;
-    for chan in ctrl_channels {
-        let _ = nexus_abi::waitset_add(ws, chan.ctrl_req_parent_slot);
-    }
-    Some(ws)
-}
-
-#[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
-fn build_ctrl_waitset(_ctrl_channels: &[CtrlChannel]) -> Option<u32> {
-    None
-}
-
-/// Reactive idle for the responder loop: block until a control channel is ready (bounded by a
-/// 1s safety-net deadline, since the sweep already drains every channel), or fall back to a
-/// cooperative yield when no waitset is available.
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-fn responder_idle(waitset: Option<nexus_abi::Cap>) {
-    const IDLE_SAFETY_NET_NS: u64 = 1_000_000_000;
-    match waitset {
-        Some(ws) => {
-            let _ = nexus_abi::waitset_wait(ws, IDLE_SAFETY_NET_NS);
-        }
-        None => {
-            let _ = nexus_abi::yield_();
-        }
-    }
-}
-
-#[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
-fn responder_idle(_waitset: Option<u32>) {
-    let _ = nexus_abi::yield_();
-}
-
 /// Returns `true` only the first time a given `(svc -> target)` route denial is
 /// seen, so the `!route-deny` marker logs once per pair instead of once per retry
 /// (RFC-0066 "clean errors"). Bounded, lock-free, fail-open (logs if the table is

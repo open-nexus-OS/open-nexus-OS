@@ -55,7 +55,7 @@ for root in sys.argv[1:]:
                 print(f"{n} {p}")
 PY
 }
-ROOTS=(source/services source/drivers source/apps userspace)
+ROOTS=(source/services source/drivers source/apps source/init userspace)
 
 # Prints "<count> <path>: <fn>[,<fn>...]" per file with hits (sorted), exit 0 always.
 scan() {

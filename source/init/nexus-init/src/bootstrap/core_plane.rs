@@ -80,26 +80,21 @@ pub(crate) fn grant_mmio_with_wait(
 ) -> Result<()> {
     let (mmio_base, mmio_len) = virtio_mmio_window(slot);
     let grant_span = nexus_abi::Span::begin();
-    let deadline = nexus_abi::nsec().map(|now| now.saturating_add(1_000_000_000)).unwrap_or(0);
-    loop {
-        match grant_mmio_cap(
-            pid,
-            svc_name,
-            cap_name,
-            mmio_base,
-            mmio_len,
-            pol_route.0,
-            pol_route.1,
-            cap_slot,
-        )? {
-            Some(_) => break,
-            None => {
-                if nexus_abi::nsec().unwrap_or(0) >= deadline {
-                    return Err(InitError::Map("mmio policy timeout"));
-                }
-                let _ = nexus_abi::yield_();
-            }
-        }
+    // ONE waited policy exchange (TASK-0324 P8): policyd's verdict or its death — no retry
+    // cadence, no clock. `None` is a refused/absent authority: fail-closed, named.
+    if grant_mmio_cap(
+        pid,
+        svc_name,
+        cap_name,
+        mmio_base,
+        mmio_len,
+        pol_route.0,
+        pol_route.1,
+        cap_slot,
+    )?
+    .is_none()
+    {
+        return Err(InitError::Map("mmio policy unavailable"));
     }
     stats.wait_ns.set(stats.wait_ns.get().saturating_add(grant_span.elapsed_ns()));
     stats.count.set(stats.count.get().saturating_add(1));
@@ -111,23 +106,15 @@ pub(crate) fn grant_mmio_with_wait(
 /// not be granted to it). Proves init consults policyd — no local
 /// allowlist — and that the marker appears only on a real denial.
 fn mmio_policy_deny_probe(pol_route: (u32, u32)) -> Result<()> {
-    let deny_deadline = nexus_abi::nsec().map(|now| now.saturating_add(1_000_000_000)).unwrap_or(0);
-    loop {
-        let subject_id = nexus_abi::service_id_from_name(b"netstackd");
-        match policyd_cap_allowed(pol_route.0, pol_route.1, subject_id, b"device.mmio.blk") {
-            Some(false) => {
-                debug_write_str("init: mmio policy deny ok");
-                debug_write_byte(b'\n');
-                return Ok(());
-            }
-            Some(true) => return Err(InitError::Map("mmio policy deny unexpectedly allowed")),
-            None => {
-                if nexus_abi::nsec().unwrap_or(0) >= deny_deadline {
-                    return Err(InitError::Map("mmio policy deny timeout"));
-                }
-                let _ = nexus_abi::yield_();
-            }
+    let subject_id = nexus_abi::service_id_from_name(b"netstackd");
+    match policyd_cap_allowed(pol_route.0, pol_route.1, subject_id, b"device.mmio.blk") {
+        Some(false) => {
+            debug_write_str("init: mmio policy deny ok");
+            debug_write_byte(b'\n');
+            Ok(())
         }
+        Some(true) => Err(InitError::Map("mmio policy deny unexpectedly allowed")),
+        None => Err(InitError::Map("mmio policy deny unavailable")),
     }
 }
 

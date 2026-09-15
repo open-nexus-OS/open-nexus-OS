@@ -129,6 +129,11 @@ impl Respawner {
     }
 
     /// Respawn when the scheduled backoff is due (once per responder round).
+    /// The next scheduled respawn, if any (the responder arms its one-shot timer at it).
+    pub(crate) fn next_due_ns(&self) -> Option<u64> {
+        self.engine.as_ref().and_then(|(_, child)| child.due_ns())
+    }
+
     pub(crate) fn tick(&mut self, channels: &mut [CtrlChannel], route_table: &mut RouteTable) {
         let due = matches!(&self.engine, Some((_, child)) if child.restart_due(now_ns()));
         if !due {

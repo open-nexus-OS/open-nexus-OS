@@ -12,6 +12,9 @@
 use core::sync::atomic::Ordering;
 
 /// policyd OP_ROUTE request (v3, nonce-correlated, ID-based).
+/// A policy exchange is WAITED for (TASK-0324 P8): the send waits for queue space, the receive
+/// for policyd's answer or policyd's death (EOF on init's own reply endpoint) — no clock.
+/// `None` = policyd refused to answer this shape or is gone (fail-closed at every caller).
 pub(crate) fn policyd_route_allowed(
     pol_send_slot: u32,
     pol_recv_slot: u32,
@@ -29,12 +32,8 @@ pub(crate) fn policyd_route_allowed(
     let target_id = nexus_abi::service_id_from_name(target);
     let n = nexus_abi::policyd::encode_route_v3_id(nonce, requester_id, target_id, &mut frame)?;
 
-    let deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(200_000_000),
-        Err(_) => 0,
-    };
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, n as u32);
-    if nexus_abi::ipc_send_v1(pol_send_slot, &hdr, &frame[..n], 0, deadline).is_err() {
+    if nexus_abi::ipc_send_v1(pol_send_slot, &hdr, &frame[..n], 0, 0).is_err() {
         return None;
     }
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
@@ -44,8 +43,8 @@ pub(crate) fn policyd_route_allowed(
             pol_recv_slot,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            deadline,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
+            0,
         )
         .ok()? as usize;
         let got = core::cmp::min(got, buf.len());
@@ -86,12 +85,8 @@ pub(crate) fn policyd_cap_allowed(
     frame[13..13 + cap.len()].copy_from_slice(cap);
     let n = 13 + cap.len();
 
-    let deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(1_000_000_000),
-        Err(_) => 0,
-    };
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, n as u32);
-    if nexus_abi::ipc_send_v1(pol_send_slot, &hdr, &frame[..n], 0, deadline).is_err() {
+    if nexus_abi::ipc_send_v1(pol_send_slot, &hdr, &frame[..n], 0, 0).is_err() {
         return None;
     }
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
@@ -100,8 +95,8 @@ pub(crate) fn policyd_cap_allowed(
         pol_recv_slot,
         &mut rh,
         &mut buf,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        deadline,
+        nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
+        0,
     )
     .ok()? as usize;
     let got = core::cmp::min(got, buf.len());
@@ -135,12 +130,8 @@ pub(crate) fn policyd_exec_allowed(
     let requester_id = nexus_abi::service_id_from_name(requester);
     let n = nexus_abi::policyd::encode_exec_v3_id(nonce, requester_id, image_id, &mut frame)?;
 
-    let deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(1_000_000_000),
-        Err(_) => 0,
-    };
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, n as u32);
-    if nexus_abi::ipc_send_v1(pol_send_slot, &hdr, &frame[..n], 0, deadline).is_err() {
+    if nexus_abi::ipc_send_v1(pol_send_slot, &hdr, &frame[..n], 0, 0).is_err() {
         return None;
     }
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
@@ -150,8 +141,8 @@ pub(crate) fn policyd_exec_allowed(
             pol_recv_slot,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            deadline,
+            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
+            0,
         )
         .ok()? as usize;
         let (_ver, op, got_nonce, status) = nexus_abi::policyd::decode_rsp_v2_or_v3(&buf[..got])?;

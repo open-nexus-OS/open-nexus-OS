@@ -1,10 +1,13 @@
 # ADR-0041: Never-black boot — held GPU splash → atomic desktop reveal
 
-- Status: Accepted; the held-splash + atomic reveal + gpud self-tick shipped and boot-verified on
-  virgl. The reveal now tracks the real ready-moment (not a fixed cap) and is time-bounded so it
-  never hangs. Two follow-ups remain open (see Consequences): the wallpaper (VMO Plane 0) reads
-  ready late in some boots — instrumented, root-causing next — and the short pre-logo bootstrap→GL
-  black is a separate step.
+- Status: Accepted — the DECISION (never black, one atomic reveal) stands; the MECHANISM was
+  replaced by TASK-0324 P6/P7 (RFC-0093 §5): the reveal is an explicit handshake (`OP_REVEAL` →
+  `STATUS_REVEALED`), sent by windowd only once the desktop is complete AND the session's first
+  frame (greeter / shell) is composed — no time cap, no pixel probe, no gpud self-tick; the held
+  splash is paced by gpud's own one-shot frame clock (`FrameClock`) and the pixel proof of the
+  `visible` lane judges the revealed frame. The two follow-ups below are closed by construction:
+  the wallpaper upload is part of the reveal condition, and the bootstrap→GL switch keeps the
+  splash held until then.
 - Created: 2026-07-01
 - Plan: `~/.claude/plans/nested-stargazing-clock.md` (deterministic soft-real-time boot)
 - Builds on: ADR-0032 (gpud command ring + pipelined present), ADR-0034 (reactive cursor),

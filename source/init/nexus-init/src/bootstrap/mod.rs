@@ -23,6 +23,7 @@ pub(crate) mod persist;
 pub(crate) mod policyd;
 pub(crate) mod respawn;
 pub(crate) mod responder;
+pub(crate) mod responder_clock;
 pub(crate) mod resume;
 pub(crate) mod route_builder;
 pub(crate) mod route_provision;
