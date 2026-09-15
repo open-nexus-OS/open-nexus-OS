@@ -901,6 +901,8 @@ expected_sequence=(
   "SELFTEST: nexus-ipc kernel loopback ok"
   "SELFTEST: ipc sender pid ok"
   "SELFTEST: ipc sender service_id ok"
+  "SELFTEST: ipc bench (rt="
+  "KSELFTEST: ipc stats ("
   "SELFTEST: vm map roundtrip ok"
   "SELFTEST: cap query vmo ok"
   "SELFTEST: ipc routing ok"

@@ -264,6 +264,27 @@ Additional kernel selftest markers may appear before `init: start`:
 - `KSELFTEST: spawn reasons ok`
 - `KSELFTEST: resource sentinel ok`
 
+IPC numbers (TASK-0054C P1, RFC-0096 Phase 1 — printed, never asserted; the
+values calibrate the budgets in `core/trap/budgets.rs` before P4 asserts them,
+and the harness gates only the stable prefix):
+
+- `SELFTEST: ipc bench (rt=<n>us n=<N>)` — `ipc_kernel` phase: mean round trip
+  of `N` request/reply exchanges over the ONE exchange (`nexus_ipc::exchange::
+  call_into`: two traps, moved reply cap, EOF-opted wait) against samgrd's
+  `OP_PING_CAP_MOVE` (12-byte request, 12-byte reply — inside the ≤ 64-byte
+  inline tier). `SELFTEST: ipc bench FAIL` when any reply is not the expected
+  `PONG` + nonce.
+- `KSELFTEST: ipc stats (sends=<n> heap_allocs=<a> copies=<c> copy_bytes=<b>
+  wake_ipis=<i> handoff_hit=0 handoff_miss=<w>)` — `end` phase, emitted by the
+  kernel next to `KSELFTEST: bkl budget` over the steady-state window
+  (`ipc_stats::reset()` runs with `budgets::reset()` once bring-up completes):
+  messages accepted, kernel heap allocations for payloads, payload copies and
+  their bytes, receiver wakes that needed a cross-hart IPI, and every receiver
+  wake counted as a handoff miss (no direct handoff exists before TASK-0054C P4).
+  Zero-copy direction (RFC-0096): the target is 0 heap allocations and exactly
+  two register-sized copies per control message, and bulk never through the
+  kernel (VMO).
+
 SMP-gated markers (enabled only with `REQUIRE_SMP=1` and `SMP>=2`):
 
 - `KINIT: cpu1 online`

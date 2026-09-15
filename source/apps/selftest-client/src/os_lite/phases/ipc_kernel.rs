@@ -3,7 +3,7 @@
 
 //! CONTEXT: Phase 7 of 12 — ipc_kernel (orchestration of pure-kernel IPC probes
 //!   from RFC-0005: payload roundtrip, deadline timeout, kernel-loopback,
-//!   cap_move reply, sender_pid, sender_service_id, IPC soak).
+//!   cap_move reply, sender_pid, sender_service_id, IPC soak, IPC bench).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -15,7 +15,7 @@
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
-use crate::markers::emit_line;
+use crate::markers::{emit_bytes, emit_line, emit_u64};
 use crate::os_lite::context::PhaseCtx;
 use crate::os_lite::probes;
 
@@ -75,6 +75,19 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_IPC_SOAK_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_IPC_SOAK_FAIL);
+    }
+
+    // TASK-0054C P1 (RFC-0096 Phase 1): the request/reply round trip as a number.
+    // Printed, never asserted — the budgets are calibrated from this line.
+    match probes::ipc_kernel::ipc_bench_probe() {
+        Ok(probes::ipc_kernel::BenchResult { rt_us, rounds }) => {
+            emit_bytes(crate::markers::M_SELFTEST_IPC_BENCH_RT.as_bytes());
+            emit_u64(rt_us);
+            emit_bytes(b"us n=");
+            emit_u64(u64::from(rounds));
+            emit_line(")");
+        }
+        Err(()) => emit_line(crate::markers::M_SELFTEST_IPC_BENCH_FAIL),
     }
 
     Ok(())

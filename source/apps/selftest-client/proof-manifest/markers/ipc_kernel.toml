@@ -54,5 +54,15 @@ phase = "ipc_kernel"
 [marker."SELFTEST: ipc soak ok"]
 phase = "ipc_kernel"
 
+# TASK-0054C P1 (RFC-0096 Phase 1): request/reply round trip as a number —
+# prefix marker, `<n>us n=<N>)` follows; the harness gates the prefix, the
+# value calibrates the budgets in `core/trap/budgets.rs`.
+[marker."SELFTEST: ipc bench (rt="]
+phase = "ipc_kernel"
+proves = "64 request/reply exchanges over the ONE exchange (two traps, moved reply cap, EOF-opted wait) completed with correct PONG+nonce replies; the mean round trip is printed"
+
+[marker."SELFTEST: ipc bench FAIL"]
+phase = "ipc_kernel"
+
 [marker."SELFTEST: nexus-ipc kernel loopback FAIL"]
 phase = "ipc_kernel"

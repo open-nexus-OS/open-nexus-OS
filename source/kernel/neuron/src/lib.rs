@@ -379,6 +379,10 @@ mod image_allocs;
 // RFC-0079: the pure last-sender-EOF decision predicate — NOT target-gated so
 // its fail-safe reject-matrix truth table runs on host. Fed by the recv path.
 mod ipc_eof;
+// TASK-0054C P1 (RFC-0096): the pure IPC-path counters — NOT target-gated so
+// their record/reset contract runs on host. Fed by the send/recv paths.
+#[path = "ipc/stats.rs"]
+mod ipc_stats;
 // RFC-0080: the pure read-only-VMO map policy — NOT target-gated so its
 // anti-corruption invariant runs on host. Fed by `sys_map`'s VmoRo arm.
 #[cfg(target_os = "none")]

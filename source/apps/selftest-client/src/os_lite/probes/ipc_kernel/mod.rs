@@ -5,7 +5,7 @@
 //!   `pub(crate)` surface (`qos_probe`, `ipc_payload_roundtrip`,
 //!   `ipc_deadline_timeout_probe`, `nexus_ipc_kernel_loopback_probe`,
 //!   `cap_move_reply_probe`, `sender_pid_probe`, `sender_service_id_probe`,
-//!   `ipc_soak_probe`) from focused submodules.
+//!   `ipc_soak_probe`, `ipc_bench_probe`) from focused submodules.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -19,6 +19,7 @@
 //!   * [`plumbing`] -- bootstrap + `KernelClient` plumbing probes.
 //!   * [`security`] -- kernel-attested identity / cap-move probes.
 //!   * [`soak`]     -- bounded-iteration stress mix.
+//!   * [`bench`]    -- request/reply round-trip number (TASK-0054C P1).
 //!
 //! Behavior, marker timing, and IPC retry budgets are byte-for-byte identical
 //! to the pre-split module. The previously-triplicated `ReplyInboxV1` adapter
@@ -26,10 +27,12 @@
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
+mod bench;
 mod plumbing;
 mod security;
 mod soak;
 
+pub(crate) use bench::{ipc_bench_probe, BenchResult};
 pub(crate) use plumbing::{
     ipc_deadline_timeout_probe, ipc_payload_roundtrip, nexus_ipc_kernel_loopback_probe, qos_probe,
 };

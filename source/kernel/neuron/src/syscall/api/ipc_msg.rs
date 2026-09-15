@@ -209,6 +209,8 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                 typed.payload_len,
             );
         }
+        crate::ipc_stats::record_payload_alloc(typed.payload_len);
+        crate::ipc_stats::record_payload_copy(typed.payload_len);
     }
 
     let cap_move_slot = if cap_move { Some(user_hdr.src as usize) } else { None };
@@ -257,6 +259,8 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
         } else {
             None
         };
+        crate::ipc_stats::record_payload_alloc(payload.len()); // the clone below
+        crate::ipc_stats::record_payload_copy(payload.len());
         let mut msg = ipc::Message::new(header, payload.clone(), moved_cap);
         if cap_move {
             if let Some(cap) = msg.moved_cap {
@@ -292,11 +296,14 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
         }
         match ctx.router.send_returning_message(endpoint, msg) {
             Ok(()) => {
+                crate::ipc_stats::record_send();
                 // Wake one receiver blocked on this endpoint (if any).
                 if let Ok(Some(waiter)) = ctx.router.pop_recv_waiter(endpoint) {
-                    observe_wake_outcome(
-                        ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler),
-                    );
+                    let pid = task::Pid::from_raw(waiter);
+                    let here = crate::smp::cpu_current_id();
+                    let cross = ctx.tasks.task(pid).is_some_and(|t| t.home_cpu() != here);
+                    crate::ipc_stats::record_recv_wake(cross);
+                    observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
                 }
                 // Low-noise triage: dump trace ring once on the first "large CAP_MOVE" send.
                 // This helps diagnose OTA stage hangs without relying on NoSuchEndpoint spam.
@@ -573,6 +580,7 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     unsafe {
         core::ptr::copy_nonoverlapping(msg.payload.as_ptr(), typed.payload_out_ptr as *mut u8, n);
     }
+    crate::ipc_stats::record_payload_copy(n);
 
     ctx.last_message = Some(msg);
     Ok(n)

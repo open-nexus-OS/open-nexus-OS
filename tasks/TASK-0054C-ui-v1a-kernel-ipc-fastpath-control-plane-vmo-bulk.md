@@ -151,6 +151,53 @@ Contracts / proof
   reserved by sibling ledgers). **ADR-0063 is taken** (proof-lane envelope) → **ADR-0064**.
   Syscalls 58 / 59.
 
+Zero-copy ground truth 2026-09-15 (user direction: zero copy everywhere, above all in IPC;
+what Cap'n Proto has done for it so far)
+- **Cap'n Proto is NOT the OS IPC control plane and never was.** Every service gates capnp
+  behind `std` / `idl-capnp`; the OS image builds `--no-default-features --features os-lite`,
+  and `docs/standards/BUILD_STANDARDS.md` treats capnp leaking into `os-lite` as a build bug.
+  On the wire in the running OS: hand-rolled packed-LE frames only (`nexus-wire`, ADR-0051;
+  `nexus-display-proto`, ADR-0038; vfs `splice.rs`; `blockproto`). ADR-0038 and ADR-0051
+  measured and rejected capnp for tiny frames: segment table + pointers + 8-byte words make
+  the encoding larger than the fields (≥ 24 B floor before any payload — ~40 % of a 64-byte
+  tier). RFC-0005 §"Relationship to our existing IDL + filebuffer/VMO hybrid" ("Control
+  plane: Cap'n Proto frames … `vmoHandle :UInt32`") and ADR-0021's "applies to IPC contracts"
+  are the paper version; CAP_MOVE of the VMO cap is the shipped version. RFC-0096 states the
+  non-adoption for the inline tier explicitly (cites ADR-0038/0051) and extends its RFC-0005
+  amendment to that paragraph; ADR-0021 gets a supersession note.
+- **Cap'n Proto IS the zero-copy data-plane reader, no_std on riscv64, boot-proven.** The
+  canonical chain is the OTA path: vfsd `OP_READ_VMO` (payload first, `NXVR` header last =
+  release fence) → `updated` `vm_map(vmo, RO)` (`apply_os.rs:152`) → `mapmem::ro_slice` →
+  `capnp::serialize::read_message_from_flat_slice_no_alloc` over the mapped pages
+  (`userspace/updates/src/component_set.rs:328-335`; capnp `alloc` + `unaligned`). Second
+  instance: `nexus-dsl-ir` reads `.nxir` in place (`SingleSegment`, `AlignedBytes`, bounded
+  `ReaderOptions` — `userspace/dsl/ir/src/read.rs`). `NXPL`'s 16-byte header is 8-byte
+  aligned *for capnp* (`nexus-wire/src/bundlemgrd.rs:159-160`).
+- **The de-facto bulk contract (three independent instances agree):** (1) the consumer
+  allocates and sizes the VMO; (2) the VMO travels as the message's moved cap, never as a
+  handle integer; (3) the server is the only writer, payload first, header last; (4) the
+  consumer maps read-only; (5) oversize is `E2BIG`, never truncation. Shipped by vfsd
+  splice (RFC-0072/TASK-0295), bundlemgrd `OP_ARM_VMO` + reply-cap wait (no header poll),
+  windowd→gpud framebuffer attach (RFC-0059), execd's shared RO atlas (RFC-0080,
+  `vmo_share_readonly`). Only `vm_map` is a true zero-copy read; `vmo_read`/`vmo_write` copy.
+- **Copies that remain (bulk path, parked to TASK-0033 / RFC-0097, not this task):**
+  `vfsd/splice_os.rs:139-147` `pkg:/` = three copies; `nexus-vfs/src/lib.rs:584-638`
+  `read_vmo` polls the header and `vmo_read`s the whole payload into a `Vec` instead of
+  mapping; `app-host/probe/boot.rs:32-53` `vmo_read`s a capnp `.nxir` into `AlignedBytes`
+  although the reader is zero-parse; `updated/apply_os.rs:122-138` polls the splice header
+  (`SPLICE_POLL_MAX`) although the `OP_ARM_VMO` + reply-cap pattern already solved it;
+  ADR-0042 app surfaces blit one copy per damaged rect by decision. RFC-0047's honesty rule
+  applies: a non-zero-copy path is named and excluded from zero-copy claims.
+- **Bounds that must become ONE:** `nexus-ipc` carries a 512-byte inline ceiling three
+  times (`exchange.rs:42`, `os_kernel.rs:203/286/314`, `os_lite.rs:51`) against the
+  kernel's 8 KiB cap — `os_kernel.rs:307-313` records that this mismatch once turned a
+  real OTA failure into a "bad signature" report. P2 puts every receive buffer on
+  `IPC_PAYLOAD_MAX`. `INLINE_IO_MAX = 4096` (vfs surface policy, RFC-0071/0072) and
+  `IPC_PAYLOAD_MAX = 8192` (transport) are two numbers with two owners — RFC-0096 says so.
+- **Live pulls toward capnp on the OS wire, for the user to decide, not this task:**
+  TASK-0317 (vfs v2 write ops on `vfs.capnp`), RFC-0066 P4 (IDL-typed proxies), queryd
+  (host-loopback only until its capnp glue is no_std), TASK-0163 (IDL freeze, Draft).
+
 ### Goal (end system)
 
 A written IPC performance contract (RFC-0096) and the kernel fastpath sized to it:
@@ -227,6 +274,15 @@ waiter's own address space).
   drain + `SVC_DEADLINE_NS` + the DSL `timeoutMs:` knob (an app-visible removal, named in
   CHANGELOG + DSL docs), imed's deadline, execd's probe moved onto the timer-notify pair.
   `raw::recv_blocking` without EOF goes.
+- **D7 Zero-copy rule (RFC-0096 §"Copies").** A control message (≤ `IPC_SHORT_MAX`) costs
+  the kernel zero heap and exactly the two register-sized copies a cross-address-space
+  transfer needs (user → the waiter's stage, stage → user on its own return); the kernel
+  never stages a payload on the heap for that tier. Bulk never travels through the kernel:
+  it follows the shipped VMO contract above (consumer-allocated VMO as the moved cap, payload
+  first / header last, consumer `vm_map`s read-only, capnp readers run in place, oversize
+  `E2BIG`). No Cap'n Proto framing on the inline tier (ADR-0038/0051). The P1 counters
+  (`copies`, `copy_bytes`, `heap_allocs`) are the baseline: today a non-empty message costs
+  two allocations and three payload copies (user → heap, heap → heap clone, heap → user).
 - **D6 Bench gate.** Host: a counting `#[global_allocator]` in the kernel host tests
   (0 allocations for ≤ 64 B send / recv / call) and router op counters in the state machine,
   both in the `just test-all` kernel stage. QEMU: `KSELFTEST: ipc call budget ok (rt=<n>us
@@ -304,7 +360,7 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 | Package | Status |
 |---|---|
 | P0 Paper | Done 2026-09-15 — ledger rewrite, IMPLEMENTATION-ORDER rows, RFC-0096 seed + index rows (RFC-0093 index text corrected), ADR-0064 seed + index row, three-lens verdict above; zones released: `docs/rfcs` (P0), kernel for P1 |
-| P1 Measure | Draft |
+| P1 Measure | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: smp1 214 ok / 41 KSELFTEST / total_ms 1257, `rt=209us n=64`, `sends=5700 heap_allocs=11400 copies=17665 copy_bytes=1690977 wake_ipis=0 handoff_miss=5172`; visible pixel 31.76, same numbers → **2 allocations and ~3 copies per message, 0.9 runqueue hops per message (one hart)** — `ipc/stats.rs` (declared at the crate root as `ipc_stats` so its unit test runs on host, like `ipc_eof`), `KSELFTEST: ipc stats (…)` next to the BKL line, `SELFTEST: ipc bench (rt=…us n=64)` in the `ipc_kernel` phase; counts sends, payload allocs, payload copies + bytes (zero-copy line), wake IPIs, handoff misses |
 | P2 Userspace ONE API | Draft |
 | P3 Kernel payload | Draft |
 | P4 Kernel call + reply_recv | Draft |

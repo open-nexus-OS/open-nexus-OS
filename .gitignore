@@ -67,6 +67,9 @@ tmp*.txt
 # Claude Code local worktrees (never commit nested checkouts)
 .claude/worktrees/
 
+# CodeWhale local session state
+.codewhale/
+
 # Temporary debug/extract files
 tmp*.rs
 

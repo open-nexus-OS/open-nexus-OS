@@ -15,6 +15,13 @@
 [marker."dbg: phase end skipped"]
 phase = "end"
 
+# TASK-0054C P1 (RFC-0096 Phase 1): the kernel's IPC path over the steady-state
+# window as numbers (sends, heap allocations, payload copies + bytes, wake
+# IPIs, handoff hit/miss) — emitted by `sched_telemetry` OP 4 next to the BKL
+# budget line; prefix marker, no verdict, the values calibrate RFC-0096's budgets.
+[marker."KSELFTEST: ipc stats ("]
+phase = "end"
+
 [marker."SELFTEST: e2e bundlemgr ok"]
 phase = "end"
 

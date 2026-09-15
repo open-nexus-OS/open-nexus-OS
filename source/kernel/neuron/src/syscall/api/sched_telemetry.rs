@@ -73,12 +73,29 @@ pub(super) fn sched_telemetry_op(args: &Args) -> Option<SysResult<usize>> {
                 ipi_skipped
             );
             crate::trap::budgets::reset();
+            crate::ipc_stats::reset();
         }
         return Some(Ok(0));
     }
     if args.get(0) == 4 {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
+            // TASK-0054C P1 (RFC-0096 Phase 1): the IPC path as numbers over the
+            // steady-state window. No verdict — the budgets are calibrated from
+            // these lines before P4 asserts them. `handoff_hit` is 0 by
+            // construction until P4 lands (no direct handoff exists), so every
+            // receiver wake is a handoff miss.
+            let ipc = crate::ipc_stats::report();
+            log_info!(
+                target: "ipc",
+                "KSELFTEST: ipc stats (sends={} heap_allocs={} copies={} copy_bytes={} wake_ipis={} handoff_hit=0 handoff_miss={})",
+                ipc.sends,
+                ipc.payload_allocs,
+                ipc.payload_copies,
+                ipc.payload_copy_bytes,
+                ipc.wake_ipis,
+                ipc.recv_wakes
+            );
             let (ok, wait_us, hold_ms, nr, b) = crate::trap::budgets::budget_report();
             log_info!(
                 target: "smp",

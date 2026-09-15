@@ -184,6 +184,7 @@ pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     unsafe {
         core::ptr::copy_nonoverlapping(msg.payload.as_ptr(), payload_out_ptr as *mut u8, n);
     }
+    crate::ipc_stats::record_payload_copy(n);
     ctx.last_message = Some(msg);
     Ok(n)
 }
